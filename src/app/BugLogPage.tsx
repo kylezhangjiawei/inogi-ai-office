@@ -1,256 +1,477 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Bug, GitBranch, Send } from "lucide-react";
-import { Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
+import React, { useState } from "react";
+import {
+  AlertTriangle,
+  ArrowDown,
+  ArrowRight,
+  ArrowUp,
+  Bug,
+  CheckCircle2,
+  ChevronDown,
+  ChevronUp,
+  FileText,
+  GitBranch,
+  Link2,
+  Plus,
+  TrendingDown,
+  TrendingUp,
+  Upload,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
 
-const bugs = [
-  { id: "BUG-4401", title: "售后详情页备注在移动端换行异常", severity: "中", owner: "前端组", status: "处理中", note: "已定位到表格布局样式", module: "售后" },
-  { id: "BUG-4392", title: "报关单证字段抽取偶发为空", severity: "高", owner: "AI 服务", status: "待修复", note: "疑似 OCR 超时", module: "报关" },
-  { id: "BUG-4388", title: "会议纪要导出 PDF 图标错位", severity: "低", owner: "前端组", status: "已完成", note: "已回归通过", module: "会议" },
-  { id: "BUG-4381", title: "员工档案筛选后分页未重置", severity: "中", owner: "平台组", status: "待修复", note: "筛选联动缺少页码复位", module: "HR" },
+// ─── Mock Data ────────────────────────────────────────────────────────────────
+
+interface LogFile {
+  id: string;
+  deviceId: string;
+  uploadTime: string;
+  fileSize: string;
+  hasAnomaly: boolean;
+}
+
+interface ErrorCode {
+  code: string;
+  frequency: number;
+  firstSeen: string;
+  lastSeen: string;
+  trend: "up" | "down" | "stable";
+}
+
+interface LogAnalysis {
+  logId: string;
+  deviceId: string;
+  timeRange: string;
+  errors: ErrorCode[];
+  aiRootCause: string;
+  responsibility: Array<{ label: string; color: string }>;
+}
+
+interface VersionRecord {
+  id: string;
+  date: string;
+  version: string;
+  module: string;
+  summary: string;
+  anomalyCount: number;
+}
+
+const logFiles: LogFile[] = [
+  { id: "LOG-001", deviceId: "DEV-C3P0-A1", uploadTime: "2026-04-16 09:23", fileSize: "2.4 MB", hasAnomaly: true },
+  { id: "LOG-002", deviceId: "DEV-R2D2-B2", uploadTime: "2026-04-15 17:51", fileSize: "1.8 MB", hasAnomaly: true },
+  { id: "LOG-003", deviceId: "DEV-BB8-C3", uploadTime: "2026-04-14 11:05", fileSize: "3.1 MB", hasAnomaly: false },
 ];
 
-const sprintSummary = [
-  { label: "本周新增", value: "7", helper: "其中高优先 2 个" },
-  { label: "已关闭", value: "5", helper: "回归全部通过" },
-  { label: "平均修复时长", value: "1.8d", helper: "较上周下降" },
+const logAnalyses: Record<string, LogAnalysis> = {
+  "LOG-001": {
+    logId: "LOG-001",
+    deviceId: "DEV-C3P0-A1",
+    timeRange: "2026-04-15 08:00 ~ 2026-04-16 09:00",
+    errors: [
+      { code: "ERR_SENSOR_TIMEOUT", frequency: 47, firstSeen: "04-15 08:12", lastSeen: "04-16 08:55", trend: "up" },
+      { code: "ERR_BLE_DISCONNECT", frequency: 22, firstSeen: "04-15 09:30", lastSeen: "04-16 07:44", trend: "stable" },
+      { code: "ERR_DATA_OVERFLOW", frequency: 9, firstSeen: "04-15 14:00", lastSeen: "04-15 23:12", trend: "down" },
+      { code: "WARN_BATTERY_LOW", frequency: 5, firstSeen: "04-16 06:00", lastSeen: "04-16 08:58", trend: "up" },
+    ],
+    aiRootCause:
+      "传感器超时错误频率持续上升，结合 BLE 断连模式，初步判断为固件驱动层与传感器通信时序存在竞态条件，在高负载场景下触发缓冲区溢出。",
+    responsibility: [
+      { label: "软件", color: "bg-blue-50 text-blue-700" },
+      { label: "硬件", color: "bg-rose-50 text-rose-700" },
+    ],
+  },
+  "LOG-002": {
+    logId: "LOG-002",
+    deviceId: "DEV-R2D2-B2",
+    timeRange: "2026-04-14 18:00 ~ 2026-04-15 17:45",
+    errors: [
+      { code: "ERR_MOTOR_STALL", frequency: 31, firstSeen: "04-14 20:05", lastSeen: "04-15 16:50", trend: "up" },
+      { code: "ERR_CALIBRATION_FAIL", frequency: 18, firstSeen: "04-14 18:30", lastSeen: "04-15 12:00", trend: "down" },
+      { code: "ERR_OVERHEAT_WARN", frequency: 7, firstSeen: "04-15 10:00", lastSeen: "04-15 15:30", trend: "stable" },
+    ],
+    aiRootCause:
+      "电机堵转错误集中在夜间低温时段，结合校准失败日志，判断为低温环境下润滑脂黏度增大，导致启动扭矩不足触发堵转保护，建议检查配置参数温度补偿设置。",
+    responsibility: [
+      { label: "配置", color: "bg-amber-50 text-amber-700" },
+      { label: "硬件", color: "bg-rose-50 text-rose-700" },
+    ],
+  },
+  "LOG-003": {
+    logId: "LOG-003",
+    deviceId: "DEV-BB8-C3",
+    timeRange: "2026-04-13 22:00 ~ 2026-04-14 11:00",
+    errors: [],
+    aiRootCause: "日志文件未发现异常错误码，设备运行状态良好，各模块功能正常。",
+    responsibility: [],
+  },
+};
+
+const versionRecords: VersionRecord[] = [
+  { id: "v1", date: "2026-04-14", version: "v2.4.1", module: "传感器驱动", summary: "优化传感器采样频率，增加超时重试机制", anomalyCount: 8 },
+  { id: "v2", date: "2026-04-10", version: "v2.4.0", module: "BLE 协议栈", summary: "升级 BLE 5.0 支持，调整连接参数", anomalyCount: 3 },
+  { id: "v3", date: "2026-04-05", version: "v2.3.9", module: "电机控制", summary: "新增低温启动补偿逻辑，修复堵转检测阈值", anomalyCount: 6 },
+  { id: "v4", date: "2026-03-28", version: "v2.3.8", module: "系统核心", summary: "内存管理优化，修复缓冲区越界潜在问题", anomalyCount: 2 },
+  { id: "v5", date: "2026-03-20", version: "v2.3.7", module: "UI / 配置", summary: "用户配置界面重构，新增温度补偿参数入口", anomalyCount: 1 },
 ];
 
-const tone: Record<string, string> = {
-  高: "bg-rose-50 text-rose-700",
-  中: "bg-amber-50 text-amber-700",
-  低: "bg-emerald-50 text-emerald-700",
-};
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
-const statusTone: Record<string, string> = {
-  待修复: "bg-blue-50 text-blue-700",
-  处理中: "bg-amber-50 text-amber-700",
-  已完成: "bg-emerald-50 text-emerald-700",
-};
+function TrendIcon({ trend }: { trend: "up" | "down" | "stable" }) {
+  if (trend === "up") return <ArrowUp className="h-4 w-4 text-rose-500" />;
+  if (trend === "down") return <ArrowDown className="h-4 w-4 text-emerald-500" />;
+  return <ArrowRight className="h-4 w-4 text-slate-400" />;
+}
 
-const pageSize = 3;
-type DialogMode = "iterate" | "regression" | "notify" | null;
+// ─── Main Component ───────────────────────────────────────────────────────────
 
 export function BugLogPage() {
-  const [selectedId, setSelectedId] = useState(bugs[0].id);
-  const [severity, setSeverity] = useState("全部");
-  const [page, setPage] = useState(1);
-  const [dialogMode, setDialogMode] = useState<DialogMode>(null);
-  const filtered = useMemo(() => bugs.filter((item) => severity === "全部" || item.severity === severity), [severity]);
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const pagedBugs = filtered.slice((page - 1) * pageSize, page * pageSize);
-  const selected = filtered.find((item) => item.id === selectedId) ?? filtered[0] ?? null;
+  const [selectedLogId, setSelectedLogId] = useState<string>("LOG-001");
+  const [showAddVersion, setShowAddVersion] = useState(false);
+  const [versions, setVersions] = useState<VersionRecord[]>(versionRecords);
+  const [newVersion, setNewVersion] = useState({ date: "", version: "", module: "", summary: "" });
+  const [isUploading, setIsUploading] = useState(false);
 
-  useEffect(() => {
-    setPage(1);
-  }, [severity]);
+  const selectedLog = logFiles.find((l) => l.id === selectedLogId) ?? logFiles[0];
+  const analysis = logAnalyses[selectedLogId];
 
-  useEffect(() => {
-    if (!filtered.some((item) => item.id === selectedId) && filtered[0]) {
-      setSelectedId(filtered[0].id);
+  const kpis = [
+    { label: "已处理日志数", value: "128", helper: "本月累计", icon: FileText, color: "text-blue-600" },
+    {
+      label: "今日异常数",
+      value: "14",
+      trend: "up" as const,
+      helper: "较昨日 +3",
+      icon: AlertTriangle,
+      color: "text-rose-600",
+    },
+    { label: "本周最频发错误码", value: "ERR_SENSOR_TIMEOUT", helper: "出现 47 次", icon: Bug, color: "text-amber-600" },
+    { label: "未解决问题数", value: "7", helper: "需跟进处理", icon: GitBranch, color: "text-slate-600" },
+  ];
+
+  const handleUpload = () => {
+    setIsUploading(true);
+    setTimeout(() => {
+      setIsUploading(false);
+      toast.success("日志文件上传成功，AI 分析已启动");
+    }, 1500);
+  };
+
+  const handleLinkVersion = () => {
+    toast.info("已关联最近 3 个版本变更记录");
+  };
+
+  const handleAddVersion = () => {
+    if (!newVersion.date || !newVersion.version || !newVersion.module || !newVersion.summary) {
+      toast.error("请填写完整版本信息");
+      return;
     }
-  }, [filtered, selectedId]);
+    const record: VersionRecord = {
+      id: `v${Date.now()}`,
+      date: newVersion.date,
+      version: newVersion.version,
+      module: newVersion.module,
+      summary: newVersion.summary,
+      anomalyCount: 0,
+    };
+    setVersions((prev) => [record, ...prev]);
+    setNewVersion({ date: "", version: "", module: "", summary: "" });
+    setShowAddVersion(false);
+    toast.success("版本记录已新增");
+  };
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <section className="material-card p-6 md:p-8">
-        <span className="material-chip bg-blue-50 text-blue-700">Bug Center</span>
-        <h2 className="mt-3 text-[2rem] font-bold tracking-tight text-slate-900">BUG 日志</h2>
-        <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">把严重度筛选、分页和缺陷动作弹窗补齐，方便研发和业务一起走完缺陷推进、回归和同步通知流程。</p>
-      </section>
+    <div className="mx-auto max-w-[1600px] space-y-6 p-6">
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white">
+          <Bug className="h-5 w-5" />
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">软件 BUG 日志分析</h1>
+          <p className="text-sm text-slate-500">AI 异常根因分析 · 版本变更追踪</p>
+        </div>
+      </div>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        {[
-          ["待修复", "5", "高优先 2 个"],
-          ["处理中", "8", "本周集中收敛"],
-          ["已完成", "22", "回归通过"],
-          ["复开率", "4%", "持续下降"],
-        ].map(([label, value, helper]) => (
-          <div key={label} className="material-card-flat p-5">
-            <div className="text-sm text-slate-500">{label}</div>
-            <div className="mt-3 text-4xl font-bold tracking-tight text-slate-900">{value}</div>
-            <div className="mt-2 text-sm text-slate-500">{helper}</div>
+      {/* KPI Bar */}
+      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+        {kpis.map((kpi) => (
+          <div key={kpi.label} className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-slate-500">{kpi.label}</span>
+              <kpi.icon className={cn("h-5 w-5", kpi.color)} />
+            </div>
+            <div className="mt-3 flex items-end gap-2">
+              <span className="text-2xl font-bold leading-none text-slate-900">{kpi.value}</span>
+              {kpi.trend === "up" && <TrendingUp className="mb-0.5 h-4 w-4 text-rose-500" />}
+              {kpi.trend === "down" && <TrendingDown className="mb-0.5 h-4 w-4 text-emerald-500" />}
+            </div>
+            <div className="mt-2 text-xs text-slate-400">{kpi.helper}</div>
           </div>
         ))}
-      </section>
+      </div>
 
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="material-card p-6">
-          <div className="mb-5 flex flex-wrap gap-2">
-            {["全部", "高", "中", "低"].map((item) => (
+      {/* Three-column layout */}
+      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[25%_45%_30%]">
+        {/* Left: Log File List */}
+        <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="font-semibold text-slate-800">日志文件列表</h2>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{logFiles.length} 个文件</span>
+          </div>
+
+          <div className="space-y-3">
+            {logFiles.map((log) => (
               <button
-                key={item}
+                key={log.id}
                 type="button"
-                onClick={() => setSeverity(item)}
-                className={cn("rounded-full border px-4 py-2 text-sm font-semibold", severity === item ? "border-blue-200 bg-blue-50 text-primary" : "border-slate-200 bg-white text-slate-500")}
+                onClick={() => setSelectedLogId(log.id)}
+                className={cn(
+                  "w-full rounded-xl border p-4 text-left transition-colors",
+                  selectedLogId === log.id
+                    ? "border-blue-200 bg-blue-50"
+                    : "border-slate-100 bg-slate-50 hover:border-slate-200 hover:bg-slate-100",
+                )}
               >
-                {item === "全部" ? "全部严重度" : `${item}严重度`}
+                <div className="flex items-start justify-between gap-2">
+                  <span className="text-sm font-semibold text-slate-800">{log.deviceId}</span>
+                  <span
+                    className={cn(
+                      "shrink-0 rounded-full px-2 py-0.5 text-xs font-medium",
+                      log.hasAnomaly ? "bg-rose-50 text-rose-700" : "bg-emerald-50 text-emerald-700",
+                    )}
+                  >
+                    {log.hasAnomaly ? "发现异常" : "正常"}
+                  </span>
+                </div>
+                <div className="mt-2 space-y-0.5 text-xs text-slate-500">
+                  <div>{log.uploadTime}</div>
+                  <div className="flex items-center gap-1">
+                    <FileText className="h-3 w-3" />
+                    {log.fileSize}
+                  </div>
+                </div>
               </button>
             ))}
           </div>
-          <div className="space-y-4">
-            {pagedBugs.map((item) => (
+
+          <button
+            type="button"
+            onClick={handleUpload}
+            disabled={isUploading}
+            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50 px-4 py-3 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-100 disabled:opacity-60"
+          >
+            {isUploading ? (
+              <>
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
+                上传中…
+              </>
+            ) : (
+              <>
+                <Upload className="h-4 w-4" />
+                上传日志文件
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Center: AI Analysis */}
+        <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+          <div className="mb-4">
+            <div className="flex items-center gap-2">
+              <Bug className="h-4 w-4 text-blue-600" />
+              <h2 className="font-semibold text-slate-800">AI 异常分析</h2>
+            </div>
+            {analysis && (
+              <div className="mt-2 text-sm text-slate-500">
+                <span className="font-medium text-slate-700">{analysis.deviceId}</span>
+                <span className="mx-2 text-slate-300">|</span>
+                {analysis.timeRange}
+              </div>
+            )}
+          </div>
+
+          {analysis && analysis.errors.length > 0 ? (
+            <>
+              {/* Error Code Table */}
+              <div className="mb-5 overflow-hidden rounded-xl border border-slate-100">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 text-xs text-slate-500">
+                      <th className="px-4 py-3 text-left font-medium">错误码</th>
+                      <th className="px-3 py-3 text-center font-medium">频次</th>
+                      <th className="px-3 py-3 text-center font-medium">首次出现</th>
+                      <th className="px-3 py-3 text-center font-medium">末次出现</th>
+                      <th className="px-3 py-3 text-center font-medium">趋势</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {analysis.errors.map((err) => (
+                      <tr key={err.code} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 font-mono text-xs font-semibold text-slate-800">{err.code}</td>
+                        <td className="px-3 py-3 text-center">
+                          <span className="rounded-full bg-rose-50 px-2 py-0.5 text-xs font-bold text-rose-700">
+                            {err.frequency}
+                          </span>
+                        </td>
+                        <td className="px-3 py-3 text-center text-xs text-slate-500">{err.firstSeen}</td>
+                        <td className="px-3 py-3 text-center text-xs text-slate-500">{err.lastSeen}</td>
+                        <td className="px-3 py-3 text-center">
+                          <div className="flex justify-center">
+                            <TrendIcon trend={err.trend} />
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* AI Root Cause Card */}
+              <div className="rounded-xl border border-blue-100 bg-gradient-to-br from-blue-50 to-slate-50 p-5">
+                <div className="mb-3 flex items-center gap-2">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-white">
+                    <Bug className="h-3 w-3" />
+                  </div>
+                  <span className="text-sm font-semibold text-blue-800">AI 根因分析</span>
+                </div>
+                <p className="text-sm leading-7 text-slate-700">{analysis.aiRootCause}</p>
+                {analysis.responsibility.length > 0 && (
+                  <div className="mt-4 flex flex-wrap items-center gap-2">
+                    <span className="text-xs text-slate-500">可能责任范围：</span>
+                    {analysis.responsibility.map((r) => (
+                      <span key={r.label} className={cn("rounded-full px-3 py-1 text-xs font-medium", r.color)}>
+                        {r.label}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               <button
-                key={item.id}
                 type="button"
-                onClick={() => setSelectedId(item.id)}
-                className={cn("w-full rounded-[24px] border p-5 text-left", selectedId === item.id ? "border-blue-200 bg-blue-50/40" : "border-slate-100 bg-slate-50/60")}
+                onClick={handleLinkVersion}
+                className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-slate-800 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-slate-700"
               >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-slate-800">{item.title}</div>
-                    <div className="mt-2 text-sm text-slate-500">
-                      {item.id} · {item.owner}
+                <Link2 className="h-4 w-4" />
+                关联最近版本变更
+              </button>
+            </>
+          ) : (
+            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50 py-16">
+              <CheckCircle2 className="mb-3 h-10 w-10 text-emerald-400" />
+              <p className="text-sm font-medium text-slate-600">未发现异常错误码</p>
+              <p className="mt-1 text-xs text-slate-400">设备运行状态正常</p>
+            </div>
+          )}
+        </div>
+
+        {/* Right: Version Change Log */}
+        <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <GitBranch className="h-4 w-4 text-slate-600" />
+              <h2 className="font-semibold text-slate-800">版本变更日志</h2>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowAddVersion((v) => !v)}
+              className="flex items-center gap-1 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+            >
+              {showAddVersion ? <ChevronUp className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
+              新增版本记录
+            </button>
+          </div>
+
+          {/* Inline Add Form */}
+          {showAddVersion && (
+            <div className="mb-4 rounded-xl border border-blue-100 bg-blue-50 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <span className="text-xs font-semibold text-blue-700">新增版本记录</span>
+                <button type="button" onClick={() => setShowAddVersion(false)}>
+                  <X className="h-4 w-4 text-slate-400 hover:text-slate-600" />
+                </button>
+              </div>
+              <div className="space-y-2">
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="date"
+                    value={newVersion.date}
+                    onChange={(e) => setNewVersion((v) => ({ ...v, date: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:border-blue-400 focus:outline-none"
+                    placeholder="发版日期"
+                  />
+                  <input
+                    value={newVersion.version}
+                    onChange={(e) => setNewVersion((v) => ({ ...v, version: e.target.value }))}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:border-blue-400 focus:outline-none"
+                    placeholder="版本号 (如 v2.5.0)"
+                  />
+                </div>
+                <input
+                  value={newVersion.module}
+                  onChange={(e) => setNewVersion((v) => ({ ...v, module: e.target.value }))}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:border-blue-400 focus:outline-none"
+                  placeholder="变更模块"
+                />
+                <textarea
+                  value={newVersion.summary}
+                  onChange={(e) => setNewVersion((v) => ({ ...v, summary: e.target.value }))}
+                  rows={2}
+                  className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:border-blue-400 focus:outline-none"
+                  placeholder="变更内容摘要"
+                />
+                <button
+                  type="button"
+                  onClick={handleAddVersion}
+                  className="w-full rounded-lg bg-blue-600 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+                >
+                  确认新增
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Version Table */}
+          <div className="space-y-2 overflow-y-auto" style={{ maxHeight: "calc(100vh - 340px)" }}>
+            {versions.map((ver) => (
+              <div
+                key={ver.id}
+                className={cn(
+                  "rounded-xl border p-4",
+                  ver.anomalyCount > 5
+                    ? "border-orange-200 bg-orange-50"
+                    : "border-slate-100 bg-slate-50",
+                )}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="rounded-md bg-slate-800 px-2 py-0.5 font-mono text-xs font-bold text-white">
+                        {ver.version}
+                      </span>
+                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{ver.module}</span>
                     </div>
+                    <p className="mt-2 text-xs leading-5 text-slate-600">{ver.summary}</p>
+                    <div className="mt-2 text-xs text-slate-400">{ver.date}</div>
                   </div>
-                  <div className="flex gap-2">
-                    <span className={cn("material-chip", tone[item.severity])}>{item.severity}</span>
-                    <span className={cn("material-chip", statusTone[item.status])}>{item.status}</span>
-                  </div>
-                </div>
-                <div className="mt-3 text-sm text-slate-600">{item.note}</div>
-              </button>
-            ))}
-          </div>
-          <div className="mt-4 flex items-center justify-between">
-            <div className="text-sm text-slate-500">
-              共 {filtered.length} 条，当前第 {page}/{totalPages} 页
-            </div>
-            <div className="flex gap-2">
-              <button type="button" className="material-button-secondary !px-3 !py-2 disabled:cursor-not-allowed disabled:opacity-50" onClick={() => setPage((prev) => Math.max(1, prev - 1))} disabled={page === 1}>
-                上一页
-              </button>
-              <button type="button" className="material-button-secondary !px-3 !py-2 disabled:cursor-not-allowed disabled:opacity-50" onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))} disabled={page === totalPages}>
-                下一页
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <aside className="space-y-6">
-          <section className="material-card p-6">
-            <h3 className="text-slate-900">缺陷详情</h3>
-            {selected ? (
-              <div className="mt-4 space-y-4">
-                <div className="rounded-[24px] bg-[linear-gradient(135deg,#fff1f2_0%,#ffffff_58%,#fff7ed_100%)] p-5">
-                  <div className="text-lg font-semibold text-slate-900">{selected.title}</div>
-                  <div className="mt-3 space-y-2 text-sm text-slate-600">
-                    <div>编号：{selected.id}</div>
-                    <div>责任：{selected.owner}</div>
-                    <div>状态：{selected.status}</div>
-                    <div>说明：{selected.note}</div>
+                  <div className="shrink-0 text-right">
+                    <span
+                      className={cn(
+                        "rounded-full px-2 py-0.5 text-xs font-bold",
+                        ver.anomalyCount > 5
+                          ? "bg-orange-200 text-orange-800"
+                          : "bg-slate-100 text-slate-600",
+                      )}
+                    >
+                      {ver.anomalyCount} 异常
+                    </span>
                   </div>
                 </div>
-                {[
-                  ["定位建议", "优先检查接口超时与页面布局约束"],
-                  ["影响范围", `${selected.module} 模块及相关联动页`],
-                  ["下一步", "修复后安排回归并同步业务负责人"],
-                ].map(([label, value]) => (
-                  <div key={label} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                    <div className="text-xs uppercase tracking-[0.14em] text-slate-400">{label}</div>
-                    <div className="mt-2 text-sm text-slate-700">{value}</div>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </section>
-          <section className="material-card p-6">
-            <div className="space-y-3">
-              <button type="button" onClick={() => setDialogMode("iterate")} className="material-button-primary w-full justify-center">
-                <Bug className="h-4 w-4" />
-                加入修复迭代
-              </button>
-              <button type="button" onClick={() => setDialogMode("regression")} className="material-button-secondary w-full justify-center">
-                <GitBranch className="h-4 w-4" />
-                创建回归任务
-              </button>
-              <button type="button" onClick={() => setDialogMode("notify")} className="material-button-secondary w-full justify-center">
-                <Send className="h-4 w-4" />
-                通知责任人
-              </button>
-            </div>
-          </section>
-        </aside>
-      </section>
-
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-        <div className="material-card p-6">
-          <h3 className="text-slate-900">本轮缺陷摘要</h3>
-          <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
-            {sprintSummary.map((item) => (
-              <div key={item.label} className="rounded-[22px] border border-slate-100 bg-slate-50/80 p-4">
-                <div className="text-xs uppercase tracking-[0.14em] text-slate-400">{item.label}</div>
-                <div className="mt-3 text-2xl font-bold text-slate-900">{item.value}</div>
-                <div className="mt-2 text-sm text-slate-500">{item.helper}</div>
               </div>
             ))}
           </div>
         </div>
-
-        <div className="material-card p-6">
-          <h3 className="text-slate-900">研发建议</h3>
-          <div className="mt-4 space-y-3">
-            {[
-              "高优先 BUG 建议默认关联回归任务，避免修完漏测。",
-              "AI/OCR 类异常可增加超时兜底与重试日志。",
-              "前端布局问题建议补一轮移动端视觉回归截图。",
-            ].map((item) => (
-              <div key={item} className="rounded-2xl border border-slate-100 bg-slate-50 p-4 text-sm text-slate-700">
-                {item}
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <Dialog open={dialogMode === "iterate"} onClose={() => setDialogMode(null)} fullWidth maxWidth="sm">
-        <DialogTitle>加入修复迭代</DialogTitle>
-        <DialogContent dividers>
-          <div className="space-y-2 text-sm text-slate-600">
-            <div>缺陷：{selected?.title}</div>
-            <div>建议归属：本周迭代 Sprint-16</div>
-          </div>
-        </DialogContent>
-        <DialogActions>
-          <button type="button" className="material-button-secondary" onClick={() => setDialogMode(null)}>
-            取消
-          </button>
-          <button type="button" className="material-button-primary" onClick={() => { setDialogMode(null); toast.success("缺陷已加入迭代修复清单"); }}>
-            确认加入
-          </button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={dialogMode === "regression"} onClose={() => setDialogMode(null)} fullWidth maxWidth="sm">
-        <DialogTitle>创建回归任务</DialogTitle>
-        <DialogContent dividers>
-          <p className="text-sm leading-7 text-slate-600">将自动带出模块、缺陷编号和验证点，创建给 QA 的回归任务。</p>
-        </DialogContent>
-        <DialogActions>
-          <button type="button" className="material-button-secondary" onClick={() => setDialogMode(null)}>
-            关闭
-          </button>
-          <button type="button" className="material-button-primary" onClick={() => { setDialogMode(null); toast.success("回归任务已创建"); }}>
-            创建
-          </button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={dialogMode === "notify"} onClose={() => setDialogMode(null)} fullWidth maxWidth="sm">
-        <DialogTitle>通知责任人</DialogTitle>
-        <DialogContent dividers>
-          <p className="text-sm leading-7 text-slate-600">将同步消息到责任人和业务联系人，并附带当前缺陷摘要与截止时间。</p>
-        </DialogContent>
-        <DialogActions>
-          <button type="button" className="material-button-secondary" onClick={() => setDialogMode(null)}>
-            关闭
-          </button>
-          <button type="button" className="material-button-primary" onClick={() => { setDialogMode(null); toast.success("异常同步已发送"); }}>
-            发送
-          </button>
-        </DialogActions>
-      </Dialog>
+      </div>
     </div>
   );
 }

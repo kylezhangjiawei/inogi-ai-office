@@ -1,226 +1,512 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { FolderKanban, Languages, Search, Send, ShieldCheck } from "lucide-react";
-import { Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
+import React, { useState } from "react";
+import {
+  Bell,
+  Bot,
+  Check,
+  ChevronDown,
+  Copy,
+  FileText,
+  Globe,
+  Languages,
+  Package,
+  Plus,
+  Send,
+  Sparkles,
+  Toggle,
+  Upload,
+} from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
 
-const docs = [
-  { id: "DOC-201", name: "CE 认证资料包", stage: "L2", locale: "EN", version: "V2.1", status: "可外发", owner: "周宁" },
-  { id: "DOC-188", name: "产品彩页", stage: "L1", locale: "CN/EN", version: "V3.0", status: "可外发", owner: "市场部" },
-  { id: "DOC-173", name: "客户 FAQ", stage: "L2", locale: "EN", version: "V1.8", status: "待更新", owner: "售后部" },
-  { id: "DOC-159", name: "注册说明模板", stage: "L3", locale: "CN", version: "V1.3", status: "限制外发", owner: "RA 团队" },
-  { id: "DOC-144", name: "经销商培训手册", stage: "L2", locale: "EN/ES", version: "V2.4", status: "可外发", owner: "市场部" },
+// ─── Mock Data ────────────────────────────────────────────────────────────────
+
+interface DocFile {
+  id: string;
+  name: string;
+  version: string;
+  purpose: string;
+  stage: "L1" | "L2" | "L3";
+  allowSend: boolean;
+  updatedAt: string;
+  hasNewVersion?: boolean;
+}
+
+const mockDocs: DocFile[] = [
+  {
+    id: "D001",
+    name: "公司介绍册",
+    version: "V2.3",
+    purpose: "品牌宣传 / 初步了解",
+    stage: "L1",
+    allowSend: true,
+    updatedAt: "2026-04-10",
+  },
+  {
+    id: "D002",
+    name: "产品彩页（CPAP系列）",
+    version: "V3.1",
+    purpose: "产品功能介绍",
+    stage: "L1",
+    allowSend: true,
+    updatedAt: "2026-04-08",
+    hasNewVersion: true,
+  },
+  {
+    id: "D003",
+    name: "CE 认证证书",
+    version: "V1.5",
+    purpose: "合规资质证明",
+    stage: "L2",
+    allowSend: true,
+    updatedAt: "2026-03-22",
+  },
+  {
+    id: "D004",
+    name: "技术规格说明书",
+    version: "V4.0",
+    purpose: "深度技术沟通",
+    stage: "L2",
+    allowSend: false,
+    updatedAt: "2026-04-01",
+    hasNewVersion: true,
+  },
+  {
+    id: "D005",
+    name: "OEM 定制方案模板",
+    version: "V1.2",
+    purpose: "OEM/ODM 合作洽谈",
+    stage: "L2",
+    allowSend: true,
+    updatedAt: "2026-03-15",
+  },
+  {
+    id: "D006",
+    name: "注册申报资料包",
+    version: "V2.0",
+    purpose: "RA 注册支持材料",
+    stage: "L3",
+    allowSend: false,
+    updatedAt: "2026-02-28",
+  },
+  {
+    id: "D007",
+    name: "合同条款范本",
+    version: "V1.8",
+    purpose: "谈判签约参考",
+    stage: "L3",
+    allowSend: true,
+    updatedAt: "2026-04-05",
+  },
+  {
+    id: "D008",
+    name: "客户FAQ（常见问题）",
+    version: "V2.6",
+    purpose: "售前咨询支持",
+    stage: "L1",
+    allowSend: true,
+    updatedAt: "2026-04-12",
+  },
 ];
 
-const statusTone: Record<string, string> = {
-  可外发: "bg-emerald-50 text-emerald-700",
-  待更新: "bg-amber-50 text-amber-700",
-  限制外发: "bg-slate-100 text-slate-600",
+const stageColors: Record<string, string> = {
+  L1: "bg-blue-100 text-blue-700",
+  L2: "bg-purple-100 text-purple-700",
+  L3: "bg-orange-100 text-orange-700",
 };
 
-const pageSize = 3;
-type DialogMode = "package" | "script" | "permission" | null;
+const stageLabels: Record<string, string> = {
+  L1: "L1 初步接触",
+  L2: "L2 深度沟通",
+  L3: "L3 谈判签约",
+};
+
+type Lang = "中文" | "English" | "Español";
+
+const aiRecommendations: Record<string, string[]> = {
+  L1: ["D001", "D002", "D008"],
+  L2: ["D003", "D004", "D005"],
+  L3: ["D006", "D007", "D005"],
+};
+
+const aiReasons: Record<string, string> = {
+  D001: "初步接触阶段首选，帮助客户快速建立品牌认知",
+  D002: "直观展示核心产品线，引发客户进一步咨询兴趣",
+  D008: "解答常见疑虑，降低沟通成本，提升客户信任感",
+  D003: "深度沟通阶段需提供合规资质，增强产品可信度",
+  D004: "技术规格说明满足客户深度了解产品的需求",
+  D005: "OEM方案模板展示定制化合作能力，推进商务谈判",
+  D006: "注册申报材料支持客户在目标市场的合规准入",
+  D007: "合同范本加速双方条款确认，缩短签约周期",
+};
+
+const generateMessage = (docs: DocFile[], lang: Lang): string => {
+  const docList = docs.map((d) => `• ${d.name}（${d.version}）`).join("\n");
+  if (lang === "中文") {
+    return `您好！\n\n感谢您对我司产品的关注。根据我们的沟通情况，现为您整理了以下资料，供参考：\n\n${docList}\n\n如有任何疑问或需要进一步了解，请随时与我们联系。期待与您的深入合作！\n\n此致\nINOGI 销售团队`;
+  } else if (lang === "English") {
+    return `Dear Valued Customer,\n\nThank you for your interest in INOGI's products. Based on our discussion, please find the following documents prepared for your reference:\n\n${docList}\n\nShould you have any questions or require further information, please do not hesitate to contact us. We look forward to a fruitful collaboration!\n\nBest regards,\nINOGI Sales Team`;
+  } else {
+    return `Estimado/a Cliente,\n\nGracias por su interés en los productos de INOGI. Según nuestra conversación, le adjuntamos los siguientes documentos para su referencia:\n\n${docList}\n\nSi tiene alguna pregunta o necesita más información, no dude en contactarnos. ¡Esperamos una colaboración fructífera!\n\nAtentamente,\nEquipo de Ventas INOGI`;
+  }
+};
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export function ExternalDocsPage() {
-  const [keyword, setKeyword] = useState("");
-  const [stage, setStage] = useState("全部");
-  const [selectedId, setSelectedId] = useState(docs[0].id);
-  const [page, setPage] = useState(1);
-  const [dialogMode, setDialogMode] = useState<DialogMode>(null);
-
-  const filtered = useMemo(
-    () =>
-      docs.filter((item) => {
-        const matchKeyword = !keyword || [item.id, item.name, item.locale, item.owner].join(" ").toLowerCase().includes(keyword.toLowerCase());
-        const matchStage = stage === "全部" || item.stage === stage;
-        return matchKeyword && matchStage;
-      }),
-    [keyword, stage],
+  const [docs, setDocs] = useState<DocFile[]>(mockDocs);
+  const [selectedStage, setSelectedStage] = useState<"L1" | "L2" | "L3">("L2");
+  const [customQuery, setCustomQuery] = useState("");
+  const [aiRunning, setAiRunning] = useState(false);
+  const [recommendedIds, setRecommendedIds] = useState<string[]>(aiRecommendations["L2"]);
+  const [packageIds, setPackageIds] = useState<string[]>([]);
+  const [lang, setLang] = useState<Lang>("中文");
+  const [message, setMessage] = useState(() =>
+    generateMessage(
+      mockDocs.filter((d) => aiRecommendations["L2"].includes(d.id)),
+      "中文",
+    ),
   );
 
-  useEffect(() => {
-    setPage(1);
-  }, [keyword, stage]);
+  const hasNewVersion = docs.some((d) => d.hasNewVersion);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const pagedDocs = filtered.slice((page - 1) * pageSize, page * pageSize);
-  const selected = filtered.find((item) => item.id === selectedId) ?? filtered[0] ?? null;
+  const handleToggle = (id: string) => {
+    setDocs((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, allowSend: !d.allowSend } : d)),
+    );
+    toast.success("外发权限已更新");
+  };
 
-  useEffect(() => {
-    if (!filtered.some((item) => item.id === selectedId) && filtered[0]) {
-      setSelectedId(filtered[0].id);
+  const handleAiRecommend = () => {
+    setAiRunning(true);
+    setTimeout(() => {
+      const ids = aiRecommendations[selectedStage] ?? aiRecommendations["L2"];
+      setRecommendedIds(ids);
+      setAiRunning(false);
+      toast.success(`AI 已为 ${stageLabels[selectedStage]} 推荐 ${ids.length} 份文件`);
+    }, 1200);
+  };
+
+  const handleAddToPackage = (id: string) => {
+    if (packageIds.includes(id)) {
+      toast.info("已在发包列表中");
+      return;
     }
-  }, [filtered, selectedId]);
+    const newIds = [...packageIds, id];
+    setPackageIds(newIds);
+    const newDocs = docs.filter((d) => newIds.includes(d.id));
+    setMessage(generateMessage(newDocs, lang));
+    toast.success("已加入发包列表，消息已更新");
+  };
+
+  const handleLangChange = (l: Lang) => {
+    setLang(l);
+    const selectedDocs =
+      packageIds.length > 0
+        ? docs.filter((d) => packageIds.includes(d.id))
+        : docs.filter((d) => recommendedIds.includes(d.id));
+    setMessage(generateMessage(selectedDocs, l));
+  };
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(message).then(() => {
+      toast.success("消息已复制到剪贴板");
+    });
+  };
+
+  const handleSend = () => {
+    toast.success("发包消息已发送（模拟）");
+  };
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <section className="material-card p-6 md:p-8">
-        <span className="material-chip bg-blue-50 text-blue-700">Enablement</span>
-        <h2 className="mt-3 text-[2rem] font-bold tracking-tight text-slate-900">对外资料版本</h2>
-        <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">把对外资料页补上分页和外发动作弹窗，让市场、注册和售后能完整演示“选资料 - 生成话术 - 校验权限”的流转。</p>
-      </section>
+    <div className="flex h-full min-h-screen flex-col bg-gray-50">
+      <div className="border-b border-gray-200 bg-white px-6 py-4">
+        <div className="flex items-center gap-2">
+          <Package className="h-5 w-5 text-blue-600" />
+          <h1 className="text-lg font-semibold text-gray-900">对外资料版本管理 & AI推荐发包</h1>
+        </div>
+      </div>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        {[
-          ["资料总数", "28", "分 L1/L2/L3"],
-          ["推荐命中", "5", "按客户阶段推荐"],
-          ["待更新", "3", "旧版需替换"],
-          ["限制外发", "4", "需主管审批"],
-        ].map(([label, value, helper]) => (
-          <div key={label} className="material-card-flat p-5">
-            <div className="text-sm text-slate-500">{label}</div>
-            <div className="mt-3 text-4xl font-bold tracking-tight text-slate-900">{value}</div>
-            <div className="mt-2 text-sm text-slate-500">{helper}</div>
+      <div className="flex flex-1 gap-0 overflow-hidden">
+        {/* Left: File Index */}
+        <div className="flex w-[35%] flex-col border-r border-gray-200 bg-white">
+          <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+            <span className="text-sm font-medium text-gray-700">文件索引（{docs.length}）</span>
+            <button
+              onClick={() => toast.info("上传新版本功能（模拟）")}
+              className="flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              上传新版本
+            </button>
           </div>
-        ))}
-      </section>
+          <div className="flex-1 overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-gray-50 text-gray-500">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium">文件名</th>
+                  <th className="px-2 py-2 text-left font-medium">版本</th>
+                  <th className="px-2 py-2 text-left font-medium">阶段</th>
+                  <th className="px-2 py-2 text-left font-medium">外发</th>
+                  <th className="px-2 py-2 text-left font-medium">更新日</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {docs.map((doc) => (
+                  <tr key={doc.id} className="hover:bg-gray-50">
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-start gap-1.5">
+                        <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-gray-400" />
+                        <div>
+                          <p className="font-medium text-gray-800">{doc.name}</p>
+                          <p className="text-gray-400">{doc.purpose}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-2 py-2.5">
+                      <span className="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-gray-600">
+                        {doc.version}
+                      </span>
+                    </td>
+                    <td className="px-2 py-2.5">
+                      <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", stageColors[doc.stage])}>
+                        {doc.stage}
+                      </span>
+                    </td>
+                    <td className="px-2 py-2.5">
+                      <button
+                        onClick={() => handleToggle(doc.id)}
+                        className={cn(
+                          "relative inline-flex h-4 w-7 items-center rounded-full transition-colors",
+                          doc.allowSend ? "bg-green-500" : "bg-gray-300",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "inline-block h-3 w-3 rounded-full bg-white shadow transition-transform",
+                            doc.allowSend ? "translate-x-3.5" : "translate-x-0.5",
+                          )}
+                        />
+                      </button>
+                    </td>
+                    <td className="px-2 py-2.5 text-gray-400">{doc.updatedAt}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
 
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="material-card p-6">
-          <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="relative flex-1">
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input value={keyword} onChange={(e) => setKeyword(e.target.value)} className="material-input pl-11" placeholder="搜索资料名称、编号、语言" />
+        {/* Center: AI Recommendation Panel */}
+        <div className="flex w-[35%] flex-col border-r border-gray-200 bg-white">
+          <div className="border-b border-gray-100 px-4 py-3">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-purple-600" />
+              <span className="text-sm font-medium text-gray-700">AI 推荐发包</span>
             </div>
-            <div className="flex flex-wrap gap-2">
-              {["全部", "L1", "L2", "L3"].map((item) => (
-                <button key={item} type="button" onClick={() => setStage(item)} className={cn("rounded-full border px-4 py-2 text-sm font-semibold", stage === item ? "border-blue-200 bg-blue-50 text-primary" : "border-slate-200 bg-white text-slate-500")}>
-                  {item}
+          </div>
+
+          {/* Controls */}
+          <div className="border-b border-gray-100 px-4 py-3 space-y-2">
+            <div>
+              <label className="mb-1 block text-xs text-gray-500">客户阶段</label>
+              <div className="flex gap-1.5">
+                {(["L1", "L2", "L3"] as const).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setSelectedStage(s)}
+                    className={cn(
+                      "rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                      selectedStage === s
+                        ? stageColors[s] + " ring-1 ring-inset ring-current"
+                        : "bg-gray-100 text-gray-600 hover:bg-gray-200",
+                    )}
+                  >
+                    {stageLabels[s]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-gray-500">自由查询（可选）</label>
+              <div className="flex gap-2">
+                <input
+                  value={customQuery}
+                  onChange={(e) => setCustomQuery(e.target.value)}
+                  placeholder="如：欧洲客户需要哪些合规文件…"
+                  className="flex-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs placeholder-gray-400 focus:border-purple-400 focus:outline-none"
+                />
+                <button
+                  onClick={handleAiRecommend}
+                  disabled={aiRunning}
+                  className="flex items-center gap-1 rounded-lg bg-purple-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-purple-700 disabled:opacity-60"
+                >
+                  {aiRunning ? (
+                    <span className="animate-pulse">推荐中…</span>
+                  ) : (
+                    <>
+                      <Bot className="h-3.5 w-3.5" />
+                      AI推荐
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Recommendation Cards */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            <p className="text-xs text-gray-400">
+              共推荐 {recommendedIds.length} 份文件 · 阶段：{stageLabels[selectedStage]}
+            </p>
+            {recommendedIds.map((id) => {
+              const doc = docs.find((d) => d.id === id);
+              if (!doc) return null;
+              const inPackage = packageIds.includes(id);
+              return (
+                <div
+                  key={id}
+                  className="rounded-xl border border-gray-200 bg-gray-50 p-3 hover:border-purple-200 hover:bg-purple-50/30 transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-sm text-gray-800">{doc.name}</span>
+                        <span className="rounded bg-gray-200 px-1.5 py-0.5 font-mono text-xs text-gray-600">
+                          {doc.version}
+                        </span>
+                        <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", stageColors[doc.stage])}>
+                          {doc.stage}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-gray-500">{aiReasons[id]}</p>
+                    </div>
+                    <button
+                      onClick={() => handleAddToPackage(id)}
+                      className={cn(
+                        "shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors",
+                        inPackage
+                          ? "bg-green-100 text-green-700"
+                          : "bg-purple-600 text-white hover:bg-purple-700",
+                      )}
+                    >
+                      {inPackage ? (
+                        <span className="flex items-center gap-1">
+                          <Check className="h-3 w-3" /> 已加入
+                        </span>
+                      ) : (
+                        "加入发包"
+                      )}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Package summary */}
+          {packageIds.length > 0 && (
+            <div className="border-t border-gray-100 bg-green-50 px-4 py-2">
+              <p className="text-xs text-green-700">
+                发包列表：{packageIds.length} 份文件已选 ·{" "}
+                <button
+                  onClick={() => {
+                    setPackageIds([]);
+                    setMessage(generateMessage(docs.filter((d) => recommendedIds.includes(d.id)), lang));
+                    toast.info("发包列表已清空");
+                  }}
+                  className="underline"
+                >
+                  清空
+                </button>
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Right: Message Generator */}
+        <div className="flex w-[30%] flex-col bg-white">
+          {/* New version banner */}
+          {hasNewVersion && (
+            <div className="flex items-center gap-2 bg-orange-50 px-4 py-2 border-b border-orange-200">
+              <Bell className="h-4 w-4 text-orange-500" />
+              <span className="text-xs text-orange-700 font-medium">
+                有文件已更新新版本，请确认外发版本
+              </span>
+            </div>
+          )}
+
+          <div className="border-b border-gray-100 px-4 py-3">
+            <div className="flex items-center gap-2">
+              <Languages className="h-4 w-4 text-blue-600" />
+              <span className="text-sm font-medium text-gray-700">外发消息生成器</span>
+            </div>
+          </div>
+
+          {/* Language switch */}
+          <div className="border-b border-gray-100 px-4 py-3">
+            <label className="mb-1.5 block text-xs text-gray-500">发送语言</label>
+            <div className="flex gap-1.5">
+              {(["中文", "English", "Español"] as Lang[]).map((l) => (
+                <button
+                  key={l}
+                  onClick={() => handleLangChange(l)}
+                  className={cn(
+                    "flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
+                    lang === l
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200",
+                  )}
+                >
+                  <Globe className="h-3 w-3" />
+                  {l}
                 </button>
               ))}
             </div>
           </div>
 
-          <div className="space-y-4">
-            {pagedDocs.map((item) => (
-              <button key={item.id} type="button" onClick={() => setSelectedId(item.id)} className={cn("w-full rounded-[24px] border p-5 text-left", selectedId === item.id ? "border-blue-200 bg-blue-50/40" : "border-slate-100 bg-slate-50/60")}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-slate-800">{item.name}</div>
-                    <div className="mt-2 text-sm text-slate-500">
-                      {item.id} · {item.locale} · {item.owner}
-                    </div>
-                  </div>
-                  <span className={cn("material-chip", statusTone[item.status])}>{item.status}</span>
-                </div>
-                <div className="mt-4 flex items-center justify-between text-sm text-slate-500">
-                  <span>阶段 {item.stage}</span>
-                  <span>版本 {item.version}</span>
-                </div>
-              </button>
-            ))}
+          {/* Message textarea */}
+          <div className="flex-1 overflow-y-auto px-4 py-3">
+            <label className="mb-1.5 block text-xs text-gray-500">
+              外发消息（可编辑）
+            </label>
+            <textarea
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              className="h-64 w-full resize-none rounded-xl border border-gray-200 p-3 text-sm leading-relaxed text-gray-700 focus:border-blue-400 focus:outline-none"
+            />
+
+            <div className="mt-3 rounded-xl bg-blue-50 p-3">
+              <p className="text-xs font-medium text-blue-700 mb-1">包含文件：</p>
+              {(packageIds.length > 0 ? packageIds : recommendedIds).map((id) => {
+                const doc = docs.find((d) => d.id === id);
+                return doc ? (
+                  <p key={id} className="text-xs text-blue-600">
+                    · {doc.name} · {doc.version}
+                  </p>
+                ) : null;
+              })}
+            </div>
           </div>
-          <div className="mt-4 flex items-center justify-between">
-            <div className="text-sm text-slate-500">
-              共 {filtered.length} 条，当前第 {page}/{totalPages} 页
-            </div>
-            <div className="flex gap-2">
-              <button type="button" className="material-button-secondary !px-3 !py-2 disabled:cursor-not-allowed disabled:opacity-50" onClick={() => setPage((prev) => Math.max(1, prev - 1))} disabled={page === 1}>
-                上一页
-              </button>
-              <button type="button" className="material-button-secondary !px-3 !py-2 disabled:cursor-not-allowed disabled:opacity-50" onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))} disabled={page === totalPages}>
-                下一页
-              </button>
-            </div>
+
+          {/* Actions */}
+          <div className="border-t border-gray-100 px-4 py-3 flex gap-2">
+            <button
+              onClick={handleCopy}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-gray-200 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
+            >
+              <Copy className="h-4 w-4" />
+              复制
+            </button>
+            <button
+              onClick={handleSend}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-blue-600 py-2 text-sm font-medium text-white hover:bg-blue-700"
+            >
+              <Send className="h-4 w-4" />
+              发送
+            </button>
           </div>
         </div>
-
-        <aside className="space-y-6">
-          <section className="material-card p-6">
-            <h3 className="text-slate-900">资料详情</h3>
-            {selected ? (
-              <div className="mt-4 space-y-4">
-                <div className="rounded-[24px] bg-[linear-gradient(135deg,#edf5ff_0%,#ffffff_58%,#eef9f7_100%)] p-5">
-                  <div className="text-lg font-semibold text-slate-900">{selected.name}</div>
-                  <div className="mt-3 space-y-2 text-sm text-slate-600">
-                    <div>编号：{selected.id}</div>
-                    <div>语言：{selected.locale}</div>
-                    <div>阶段：{selected.stage}</div>
-                    <div>版本：{selected.version}</div>
-                  </div>
-                </div>
-                {[
-                  ["推荐客户场景", "注册推进、首轮介绍、售后答疑"],
-                  ["话术建议", "外发时附带本地化介绍和版本说明"],
-                  ["安全提醒", "L3 文件需主管审批后可对外发送"],
-                ].map(([label, value]) => (
-                  <div key={label} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                    <div className="text-xs uppercase tracking-[0.14em] text-slate-400">{label}</div>
-                    <div className="mt-2 text-sm text-slate-700">{value}</div>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </section>
-          <section className="material-card p-6">
-            <div className="space-y-3">
-              <button type="button" onClick={() => setDialogMode("package")} className="material-button-primary w-full justify-center">
-                <Send className="h-4 w-4" />
-                加入外发清单
-              </button>
-              <button type="button" onClick={() => setDialogMode("script")} className="material-button-secondary w-full justify-center">
-                <Languages className="h-4 w-4" />
-                生成外发话术
-              </button>
-              <button type="button" onClick={() => setDialogMode("permission")} className="material-button-secondary w-full justify-center">
-                <ShieldCheck className="h-4 w-4" />
-                校验外发权限
-              </button>
-            </div>
-          </section>
-        </aside>
-      </section>
-
-      <Dialog open={dialogMode === "package"} onClose={() => setDialogMode(null)} fullWidth maxWidth="sm">
-        <DialogTitle>加入外发清单</DialogTitle>
-        <DialogContent dividers>
-          <div className="space-y-2 text-sm text-slate-600">
-            <div>资料：{selected?.name}</div>
-            <div>将自动带出版本号、语言和使用建议。</div>
-          </div>
-        </DialogContent>
-        <DialogActions>
-          <button type="button" className="material-button-secondary" onClick={() => setDialogMode(null)}>
-            取消
-          </button>
-          <button type="button" className="material-button-primary" onClick={() => { setDialogMode(null); toast.success("资料包已加入外发清单"); }}>
-            确认加入
-          </button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={dialogMode === "script"} onClose={() => setDialogMode(null)} fullWidth maxWidth="sm">
-        <DialogTitle>生成外发话术</DialogTitle>
-        <DialogContent dividers>
-          <p className="text-sm leading-7 text-slate-600">会根据资料语言版本和客户阶段，生成邮件正文与发送备注。</p>
-        </DialogContent>
-        <DialogActions>
-          <button type="button" className="material-button-secondary" onClick={() => setDialogMode(null)}>
-            关闭
-          </button>
-          <button type="button" className="material-button-primary" onClick={() => { setDialogMode(null); toast.success("已生成多语言外发话术"); }}>
-            生成
-          </button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={dialogMode === "permission"} onClose={() => setDialogMode(null)} fullWidth maxWidth="sm">
-        <DialogTitle>校验外发权限</DialogTitle>
-        <DialogContent dividers>
-          <div className="space-y-2 text-sm text-slate-600">
-            <div>当前阶段：{selected?.stage}</div>
-            <div>校验项：资料级别、审批状态、接收对象范围</div>
-          </div>
-        </DialogContent>
-        <DialogActions>
-          <button type="button" className="material-button-secondary" onClick={() => setDialogMode(null)}>
-            关闭
-          </button>
-          <button type="button" className="material-button-primary" onClick={() => { setDialogMode(null); toast.success("外发权限校验通过"); }}>
-            开始校验
-          </button>
-        </DialogActions>
-      </Dialog>
+      </div>
     </div>
   );
 }

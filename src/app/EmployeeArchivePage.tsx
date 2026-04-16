@@ -1,232 +1,533 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { BadgeCheck, FolderSync, Search, UserPlus } from "lucide-react";
-import { Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
+import React, { useState } from "react";
+import {
+  AlertTriangle,
+  Bell,
+  BellOff,
+  Calendar,
+  CheckCircle2,
+  ChevronDown,
+  Clock,
+  Edit2,
+  FileText,
+  Pencil,
+  Search,
+  Upload,
+  User,
+  Users,
+  XCircle,
+} from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
 
-const employees = [
-  { id: "EMP-118", name: "王思远", dept: "研发部", status: "在职", stage: "档案齐全", note: "已完成入职培训与保密协议" },
-  { id: "EMP-114", name: "陈雅楠", dept: "质量部", status: "在职", stage: "待补材料", note: "缺少体检报告扫描件" },
-  { id: "EMP-109", name: "周子恬", dept: "市场部", status: "试用期", stage: "档案齐全", note: "待发起转正评估" },
-  { id: "EMP-097", name: "李诗涵", dept: "法务部", status: "离职", stage: "已归档", note: "离职交接已完成" },
-  { id: "EMP-091", name: "林知行", dept: "售后部", status: "在职", stage: "待补材料", note: "学历证明原件待补录" },
+// ─── Mock Data ────────────────────────────────────────────────────────────────
+
+interface Employee {
+  id: string;
+  name: string;
+  empNo: string;
+  dept: string;
+  title: string;
+  hireDate: string;
+  contractExpiry: string;
+}
+
+interface DocField {
+  label: string;
+  value: string;
+}
+
+interface NotificationItem {
+  docType: string;
+  expiry: string;
+  daysLeft: number;
+  recipients: string;
+  advanceDays: number;
+}
+
+interface NotificationLog {
+  date: string;
+  event: string;
+  recipient: string;
+}
+
+const mockEmployees: Employee[] = [
+  {
+    id: "EMP-001",
+    name: "王思远",
+    empNo: "E20230118",
+    dept: "研发部",
+    title: "高级研发工程师",
+    hireDate: "2023-01-18",
+    contractExpiry: "2026-01-17",
+  },
+  {
+    id: "EMP-002",
+    name: "陈雅楠",
+    empNo: "E20220601",
+    dept: "质量部",
+    title: "质量工程师",
+    hireDate: "2022-06-01",
+    contractExpiry: "2026-05-31",
+  },
+  {
+    id: "EMP-003",
+    name: "周子恬",
+    empNo: "E20260110",
+    dept: "市场部",
+    title: "市场专员",
+    hireDate: "2026-01-10",
+    contractExpiry: "2026-06-09",
+  },
 ];
 
-const stageTone: Record<string, string> = {
-  档案齐全: "bg-emerald-50 text-emerald-700",
-  待补材料: "bg-amber-50 text-amber-700",
-  已归档: "bg-slate-100 text-slate-600",
+const idCardFields: DocField[] = [
+  { label: "姓名", value: "王思远" },
+  { label: "身份证号", value: "110101199****1234" },
+  { label: "出生日期", value: "1992-05-14" },
+  { label: "地址", value: "北京市朝阳区建国路XX号" },
+];
+
+const educationFields: DocField[] = [
+  { label: "学历", value: "本科" },
+  { label: "毕业院校", value: "北京理工大学" },
+  { label: "专业", value: "机械设计与制造" },
+  { label: "毕业日期", value: "2015-07-01" },
+];
+
+const contractFields: DocField[] = [
+  { label: "合同类型", value: "固定期限劳动合同" },
+  { label: "签订日期", value: "2023-01-18" },
+  { label: "到期日", value: "2026-01-17" },
+  { label: "甲方单位", value: "INOGI 医疗科技（北京）有限公司" },
+];
+
+const docFieldsByEmployee: Record<string, Record<string, DocField[]>> = {
+  "EMP-001": { id: idCardFields, edu: educationFields, contract: contractFields },
+  "EMP-002": {
+    id: [
+      { label: "姓名", value: "陈雅楠" },
+      { label: "身份证号", value: "310101199****5678" },
+      { label: "出生日期", value: "1994-11-22" },
+      { label: "地址", value: "上海市浦东新区张江路XX号" },
+    ],
+    edu: [
+      { label: "学历", value: "硕士" },
+      { label: "毕业院校", value: "同济大学" },
+      { label: "专业", value: "生物医学工程" },
+      { label: "毕业日期", value: "2019-06-15" },
+    ],
+    contract: [
+      { label: "合同类型", value: "固定期限劳动合同" },
+      { label: "签订日期", value: "2022-06-01" },
+      { label: "到期日", value: "2026-05-31" },
+      { label: "甲方单位", value: "INOGI 医疗科技（北京）有限公司" },
+    ],
+  },
+  "EMP-003": {
+    id: [
+      { label: "姓名", value: "周子恬" },
+      { label: "身份证号", value: "440101200****9012" },
+      { label: "出生日期", value: "2001-03-08" },
+      { label: "地址", value: "广州市天河区天河北路XX号" },
+    ],
+    edu: [
+      { label: "学历", value: "本科" },
+      { label: "毕业院校", value: "中山大学" },
+      { label: "专业", value: "市场营销" },
+      { label: "毕业日期", value: "2025-06-20" },
+    ],
+    contract: [
+      { label: "合同类型", value: "固定期限劳动合同（试用期）" },
+      { label: "签订日期", value: "2026-01-10" },
+      { label: "到期日", value: "2026-06-09" },
+      { label: "甲方单位", value: "INOGI 医疗科技（北京）有限公司" },
+    ],
+  },
 };
 
-const pageSize = 3;
-type DialogMode = "create" | "remind" | "verify" | "filter" | null;
+const mockNotifications: Record<string, NotificationItem[]> = {
+  "EMP-001": [
+    { docType: "劳动合同", expiry: "2026-01-17", daysLeft: -89, recipients: "HR邮箱", advanceDays: 60 },
+  ],
+  "EMP-002": [
+    { docType: "劳动合同", expiry: "2026-05-31", daysLeft: 45, recipients: "HR邮箱", advanceDays: 60 },
+  ],
+  "EMP-003": [
+    { docType: "劳动合同（试用期）", expiry: "2026-06-09", daysLeft: 54, recipients: "HR邮箱, 部门主管", advanceDays: 30 },
+  ],
+};
+
+const mockLogs: NotificationLog[] = [
+  { date: "2026-04-01", event: "劳动合同即将到期提醒（EMP-002·45天）", recipient: "HR邮箱" },
+  { date: "2026-03-15", event: "劳动合同续签提醒（EMP-001·已到期）", recipient: "HR邮箱, 法务部" },
+  { date: "2026-02-28", event: "试用期转正提醒（EMP-003·60天）", recipient: "HR邮箱, 部门主管" },
+];
+
+type DocTab = "id" | "edu" | "contract";
+
+const tabLabels: Record<DocTab, string> = {
+  id: "身份证",
+  edu: "学历证",
+  contract: "劳动合同",
+};
+
+const tabFieldsKey: Record<DocTab, string> = {
+  id: "id",
+  edu: "edu",
+  contract: "contract",
+};
+
+const daysColor = (days: number) => {
+  if (days < 0) return "bg-red-100 text-red-600";
+  if (days <= 30) return "bg-red-100 text-red-600";
+  if (days <= 60) return "bg-orange-100 text-orange-600";
+  return "bg-green-100 text-green-700";
+};
+
+const daysLabel = (days: number) => {
+  if (days < 0) return `已过期 ${Math.abs(days)} 天`;
+  if (days === 0) return "今日到期";
+  return `还有 ${days} 天`;
+};
+
+const contractDaysLeft = (expiry: string) => {
+  const today = new Date("2026-04-16");
+  const exp = new Date(expiry);
+  return Math.ceil((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+};
+
+// ─── Component ────────────────────────────────────────────────────────────────
 
 export function EmployeeArchivePage() {
-  const [keyword, setKeyword] = useState("");
-  const [statusFilter, setStatusFilter] = useState("全部状态");
-  const [selectedId, setSelectedId] = useState(employees[0].id);
-  const [page, setPage] = useState(1);
-  const [dialogMode, setDialogMode] = useState<DialogMode>(null);
+  const [search, setSearch] = useState("");
+  const [deptFilter, setDeptFilter] = useState("全部");
+  const [selectedId, setSelectedId] = useState<string>("EMP-001");
+  const [docTab, setDocTab] = useState<DocTab>("id");
+  const [editingFields, setEditingFields] = useState<Record<string, string>>({});
+  const [editingKey, setEditingKey] = useState<string | null>(null);
 
-  const filtered = useMemo(
-    () => employees.filter((item) => (!keyword || [item.id, item.name, item.dept, item.status].join(" ").toLowerCase().includes(keyword.toLowerCase())) && (statusFilter === "全部状态" || item.status === statusFilter)),
-    [keyword, statusFilter],
-  );
+  const depts = ["全部", ...Array.from(new Set(mockEmployees.map((e) => e.dept)))];
 
-  useEffect(() => {
-    setPage(1);
-  }, [keyword, statusFilter]);
+  const filteredEmployees = mockEmployees.filter((e) => {
+    const matchSearch =
+      !search ||
+      [e.name, e.empNo, e.dept, e.title].join(" ").toLowerCase().includes(search.toLowerCase());
+    const matchDept = deptFilter === "全部" || e.dept === deptFilter;
+    return matchSearch && matchDept;
+  });
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-  const pagedEmployees = filtered.slice((page - 1) * pageSize, page * pageSize);
-  const selected = filtered.find((item) => item.id === selectedId) ?? filtered[0] ?? null;
+  const selected = mockEmployees.find((e) => e.id === selectedId);
+  const docFields =
+    selected
+      ? (docFieldsByEmployee[selected.id]?.[tabFieldsKey[docTab]] ?? [])
+      : [];
 
-  useEffect(() => {
-    if (!filtered.some((item) => item.id === selectedId) && filtered[0]) {
-      setSelectedId(filtered[0].id);
-    }
-  }, [filtered, selectedId]);
+  const notifications = selected ? (mockNotifications[selected.id] ?? []) : [];
 
-  const closeDialog = () => setDialogMode(null);
+  const getFieldValue = (label: string, defaultValue: string) =>
+    editingFields[`${selectedId}-${docTab}-${label}`] ?? defaultValue;
+
+  const handleFieldEdit = (label: string, value: string) => {
+    setEditingFields((prev) => ({
+      ...prev,
+      [`${selectedId}-${docTab}-${label}`]: value,
+    }));
+  };
+
+  const handleSaveField = (label: string) => {
+    setEditingKey(null);
+    toast.success(`字段"${label}"已保存`);
+  };
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <section className="material-card p-6 md:p-8">
-        <span className="material-chip bg-blue-50 text-blue-700">HR Archive</span>
-        <h2 className="mt-3 text-[2rem] font-bold tracking-tight text-slate-900">员工归档</h2>
-        <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">把档案检索、状态过滤、分页和补件提醒做成真交互，方便演示人事档案从入职到离职的维护流程。</p>
-      </section>
+    <div className="flex h-full min-h-screen flex-col bg-gray-50">
+      <div className="border-b border-gray-200 bg-white px-6 py-4">
+        <div className="flex items-center gap-2">
+          <Users className="h-5 w-5 text-blue-600" />
+          <h1 className="text-lg font-semibold text-gray-900">员工入职归档 & 花名册</h1>
+        </div>
+      </div>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-4">
-        {[
-          ["在职员工", "42", "含试用期 6 人"],
-          ["待补档案", "3", "需本周补齐"],
-          ["新入职", "5", "待发培训资料"],
-          ["已归档离职", "12", "可追溯"],
-        ].map(([label, value, helper]) => (
-          <div key={label} className="material-card-flat p-5">
-            <div className="text-sm text-slate-500">{label}</div>
-            <div className="mt-3 text-4xl font-bold tracking-tight text-slate-900">{value}</div>
-            <div className="mt-2 text-sm text-slate-500">{helper}</div>
+      <div className="flex flex-1 gap-0 overflow-hidden">
+        {/* Left: Employee Roster */}
+        <div className="flex w-[30%] flex-col border-r border-gray-200 bg-white">
+          <div className="border-b border-gray-100 px-4 py-3 space-y-2">
+            {/* Search */}
+            <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-1.5">
+              <Search className="h-3.5 w-3.5 text-gray-400" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="搜索姓名/工号…"
+                className="flex-1 bg-transparent text-xs outline-none placeholder-gray-400"
+              />
+            </div>
+            {/* Dept filter */}
+            <div className="flex gap-1.5 flex-wrap">
+              {depts.map((d) => (
+                <button
+                  key={d}
+                  onClick={() => setDeptFilter(d)}
+                  className={cn(
+                    "rounded-lg px-2.5 py-1 text-xs font-medium transition-colors",
+                    deptFilter === d
+                      ? "bg-blue-600 text-white"
+                      : "bg-gray-100 text-gray-600 hover:bg-gray-200",
+                  )}
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
           </div>
-        ))}
-      </section>
 
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="material-card p-6">
-          <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="relative max-w-md flex-1">
-              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input value={keyword} onChange={(e) => setKeyword(e.target.value)} className="material-input pl-11" placeholder="搜索工号、姓名、部门" />
-            </div>
-            <button type="button" className="material-button-secondary" onClick={() => setDialogMode("filter")}>
-              <FolderSync className="h-4 w-4" />
-              状态筛选
-            </button>
-          </div>
-          <div className="space-y-4">
-            {pagedEmployees.map((item) => (
-              <button key={item.id} type="button" onClick={() => setSelectedId(item.id)} className={cn("w-full rounded-[24px] border p-5 text-left", selectedId === item.id ? "border-blue-200 bg-blue-50/40" : "border-slate-100 bg-slate-50/60")}>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-semibold text-slate-800">{item.name}</div>
-                    <div className="mt-2 text-sm text-slate-500">
-                      {item.id} · {item.dept} · {item.status}
-                    </div>
-                  </div>
-                  <span className={cn("material-chip", stageTone[item.stage])}>{item.stage}</span>
-                </div>
-                <div className="mt-3 text-sm text-slate-600">{item.note}</div>
-              </button>
-            ))}
-          </div>
-          <div className="mt-4 flex items-center justify-between">
-            <div className="text-sm text-slate-500">
-              共 {filtered.length} 条，当前第 {page}/{totalPages} 页
-            </div>
-            <div className="flex gap-2">
-              <button type="button" className="material-button-secondary !px-3 !py-2 disabled:cursor-not-allowed disabled:opacity-50" onClick={() => setPage((prev) => Math.max(1, prev - 1))} disabled={page === 1}>
-                上一页
-              </button>
-              <button type="button" className="material-button-secondary !px-3 !py-2 disabled:cursor-not-allowed disabled:opacity-50" onClick={() => setPage((prev) => Math.min(totalPages, prev + 1))} disabled={page === totalPages}>
-                下一页
-              </button>
-            </div>
+          <div className="flex-1 overflow-y-auto">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-gray-50 text-gray-500">
+                <tr>
+                  <th className="px-3 py-2 text-left font-medium">姓名</th>
+                  <th className="px-2 py-2 text-left font-medium">部门/岗位</th>
+                  <th className="px-2 py-2 text-left font-medium">合同到期</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {filteredEmployees.map((emp) => {
+                  const days = contractDaysLeft(emp.contractExpiry);
+                  const isExpiringSoon = days <= 60;
+                  return (
+                    <tr
+                      key={emp.id}
+                      onClick={() => setSelectedId(emp.id)}
+                      className={cn(
+                        "cursor-pointer transition-colors",
+                        selectedId === emp.id ? "bg-blue-50" : "hover:bg-gray-50",
+                      )}
+                    >
+                      <td className="px-3 py-3">
+                        <div className="flex items-center gap-2">
+                          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gray-200 text-xs font-semibold text-gray-600">
+                            {emp.name[0]}
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-800">{emp.name}</p>
+                            <p className="text-gray-400">{emp.empNo}</p>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-2 py-3">
+                        <p className="text-gray-700">{emp.dept}</p>
+                        <p className="text-gray-400">{emp.title}</p>
+                      </td>
+                      <td className="px-2 py-3">
+                        <div>
+                          <p className="text-gray-500">{emp.contractExpiry}</p>
+                          {isExpiringSoon && (
+                            <span className={cn("mt-0.5 inline-block rounded-full px-1.5 py-0.5 text-xs font-medium", daysColor(days))}>
+                              {daysLabel(days)}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         </div>
 
-        <aside className="space-y-6">
-          <section className="material-card p-6">
-            <h3 className="text-slate-900">档案详情</h3>
-            {selected ? (
-              <div className="mt-4 space-y-4">
-                <div className="rounded-[24px] bg-[linear-gradient(135deg,#edf5ff_0%,#ffffff_58%,#eef9f7_100%)] p-5">
-                  <div className="text-lg font-semibold text-slate-900">{selected.name}</div>
-                  <div className="mt-3 space-y-2 text-sm text-slate-600">
-                    <div>工号：{selected.id}</div>
-                    <div>部门：{selected.dept}</div>
-                    <div>状态：{selected.status}</div>
-                    <div>档案状态：{selected.stage}</div>
+        {/* Center: Document Archive */}
+        <div className="flex w-[40%] flex-col border-r border-gray-200 bg-white">
+          {selected && (
+            <>
+              <div className="border-b border-gray-100 px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <User className="h-4 w-4 text-blue-600" />
+                  <span className="text-sm font-semibold text-gray-900">{selected.name}</span>
+                  <span className="text-xs text-gray-400">{selected.empNo} · {selected.dept}</span>
+                </div>
+                <p className="mt-0.5 text-xs text-gray-400">入职日期：{selected.hireDate}</p>
+              </div>
+
+              {/* Doc tabs */}
+              <div className="flex border-b border-gray-100">
+                {(["id", "edu", "contract"] as DocTab[]).map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setDocTab(tab)}
+                    className={cn(
+                      "flex-1 py-2 text-xs font-medium transition-colors",
+                      docTab === tab
+                        ? "border-b-2 border-blue-600 text-blue-600"
+                        : "text-gray-500 hover:text-gray-700",
+                    )}
+                  >
+                    {tabLabels[tab]}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex-1 overflow-y-auto p-4">
+                {/* File thumbnail placeholder */}
+                <div className="mb-4 flex items-center gap-3">
+                  <div className="flex h-24 w-20 shrink-0 items-center justify-center rounded-xl border-2 border-dashed border-gray-200 bg-gray-50">
+                    <div className="text-center">
+                      <FileText className="mx-auto h-6 w-6 text-gray-300" />
+                      <p className="mt-1 text-xs text-gray-300">扫描件</p>
+                    </div>
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-700">
+                      {selected.name}_{tabLabels[docTab]}
+                    </p>
+                    <p className="mt-0.5 text-xs text-gray-400">
+                      OCR 已识别 · {docFields.length} 个字段
+                    </p>
+                    <button
+                      onClick={() => toast.info("上传新版本（模拟）")}
+                      className="mt-2 flex items-center gap-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      上传新版本
+                    </button>
                   </div>
                 </div>
-                {[
-                  ["已收材料", "身份证、学历证明、劳动合同"],
-                  ["待办提醒", selected.stage === "待补材料" ? "补交缺失材料" : "暂无待补材料"],
-                  ["下一步", selected.status === "试用期" ? "准备转正评估" : "保持常规档案维护"],
-                ].map(([label, value]) => (
-                  <div key={label} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                    <div className="text-xs uppercase tracking-[0.14em] text-slate-400">{label}</div>
-                    <div className="mt-2 text-sm text-slate-700">{value}</div>
+
+                {/* OCR Fields */}
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-gray-500">OCR 提取字段</p>
+                  <div className="grid grid-cols-1 gap-2">
+                    {docFields.map((field) => {
+                      const fieldKey = `${selectedId}-${docTab}-${field.label}`;
+                      const isEditing = editingKey === fieldKey;
+                      const currentValue = getFieldValue(field.label, field.value);
+                      return (
+                        <div
+                          key={field.label}
+                          className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2"
+                        >
+                          <span className="w-24 shrink-0 text-xs text-gray-400">{field.label}</span>
+                          {isEditing ? (
+                            <input
+                              autoFocus
+                              value={currentValue}
+                              onChange={(e) => handleFieldEdit(field.label, e.target.value)}
+                              onBlur={() => handleSaveField(field.label)}
+                              onKeyDown={(e) => e.key === "Enter" && handleSaveField(field.label)}
+                              className="flex-1 rounded border border-blue-300 bg-white px-2 py-0.5 text-xs text-gray-700 outline-none"
+                            />
+                          ) : (
+                            <span
+                              className="flex-1 text-xs font-medium text-gray-700"
+                              onClick={() => setEditingKey(fieldKey)}
+                            >
+                              {currentValue}
+                            </span>
+                          )}
+                          <button
+                            onClick={() => setEditingKey(isEditing ? null : fieldKey)}
+                            className="text-gray-300 hover:text-gray-600"
+                          >
+                            <Pencil className="h-3 w-3" />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Right: Expiry Reminder Panel */}
+        <div className="flex w-[30%] flex-col bg-white">
+          <div className="border-b border-gray-100 px-4 py-3">
+            <div className="flex items-center gap-2">
+              <Bell className="h-4 w-4 text-orange-500" />
+              <span className="text-sm font-medium text-gray-700">到期提醒</span>
+            </div>
+            {selected && (
+              <p className="mt-0.5 text-xs text-gray-400">{selected.name} · {selected.dept}</p>
+            )}
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4 space-y-4">
+            {/* Expiry items */}
+            <div>
+              <p className="mb-2 text-xs font-medium text-gray-500">证件 & 合同到期</p>
+              <div className="space-y-2">
+                {notifications.map((n, i) => (
+                  <div
+                    key={i}
+                    className="rounded-xl border border-gray-100 bg-gray-50 p-3"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-medium text-gray-800">{n.docType}</p>
+                        <p className="mt-0.5 text-xs text-gray-400">到期：{n.expiry}</p>
+                      </div>
+                      <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-xs font-medium", daysColor(n.daysLeft))}>
+                        {daysLabel(n.daysLeft)}
+                      </span>
+                    </div>
+
+                    {/* Notification settings */}
+                    <div className="mt-2 space-y-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-gray-400">收件人：</span>
+                        <span className="text-xs text-gray-600">{n.recipients}</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-gray-400">提前通知：</span>
+                        <span className="text-xs text-gray-600">{n.advanceDays} 天</span>
+                        <button
+                          onClick={() => toast.info("修改通知设置（模拟）")}
+                          className="ml-auto text-blue-500 hover:text-blue-700 text-xs underline"
+                        >
+                          修改
+                        </button>
+                      </div>
+                    </div>
+
+                    {n.daysLeft <= 60 && (
+                      <button
+                        onClick={() => toast.success("续签提醒已发送（模拟）")}
+                        className="mt-2 w-full rounded-lg bg-orange-500 py-1.5 text-xs font-medium text-white hover:bg-orange-600"
+                      >
+                        立即发送续签提醒
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
-            ) : null}
-          </section>
-          <section className="material-card p-6">
-            <div className="space-y-3">
-              <button type="button" onClick={() => setDialogMode("create")} className="material-button-primary w-full justify-center">
-                <UserPlus className="h-4 w-4" />
-                新增员工档案
-              </button>
-              <button type="button" onClick={() => setDialogMode("remind")} className="material-button-secondary w-full justify-center">
-                <FolderSync className="h-4 w-4" />
-                发送补件提醒
-              </button>
-              <button type="button" onClick={() => setDialogMode("verify")} className="material-button-secondary w-full justify-center">
-                <BadgeCheck className="h-4 w-4" />
-                校验完整性
-              </button>
             </div>
-          </section>
-        </aside>
-      </section>
 
-      <Dialog open={dialogMode === "filter"} onClose={closeDialog} fullWidth maxWidth="sm">
-        <DialogTitle>状态筛选</DialogTitle>
-        <DialogContent dividers>
-          <select className="material-input" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)}>
-            {["全部状态", "在职", "试用期", "离职"].map((item) => (
-              <option key={item}>{item}</option>
-            ))}
-          </select>
-        </DialogContent>
-        <DialogActions>
-          <button type="button" className="material-button-secondary" onClick={() => setStatusFilter("全部状态")}>
-            重置
-          </button>
-          <button type="button" className="material-button-primary" onClick={closeDialog}>
-            完成
-          </button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={dialogMode === "create"} onClose={closeDialog} fullWidth maxWidth="sm">
-        <DialogTitle>新增员工档案</DialogTitle>
-        <DialogContent dividers>
-          <div className="space-y-2 text-sm text-slate-600">
-            <div>默认流程：HR 建档 → 部门确认 → 行政归档</div>
-            <div>默认初始状态：待补材料</div>
+            {/* Notification Log */}
+            <div>
+              <p className="mb-2 text-xs font-medium text-gray-500">通知日志</p>
+              <div className="space-y-2">
+                {mockLogs.map((log, i) => (
+                  <div
+                    key={i}
+                    className="rounded-xl border border-gray-50 bg-gray-50 p-2.5"
+                  >
+                    <div className="flex items-start gap-2">
+                      <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-green-500" />
+                      <div>
+                        <p className="text-xs text-gray-700">{log.event}</p>
+                        <p className="mt-0.5 text-xs text-gray-400">
+                          {log.date} · 发送至：{log.recipient}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
-        </DialogContent>
-        <DialogActions>
-          <button type="button" className="material-button-secondary" onClick={closeDialog}>
-            取消
-          </button>
-          <button type="button" className="material-button-primary" onClick={() => { closeDialog(); toast.success("已发起新员工档案流程"); }}>
-            创建
-          </button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={dialogMode === "remind"} onClose={closeDialog} fullWidth maxWidth="sm">
-        <DialogTitle>补件提醒</DialogTitle>
-        <DialogContent dividers>
-          <p className="text-sm leading-7 text-slate-600">将同步提醒给员工本人和直属主管，并在首页待办生成跟进任务。</p>
-        </DialogContent>
-        <DialogActions>
-          <button type="button" className="material-button-secondary" onClick={closeDialog}>
-            关闭
-          </button>
-          <button type="button" className="material-button-primary" onClick={() => { closeDialog(); toast.success("材料催交通知已发送"); }}>
-            发送
-          </button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={dialogMode === "verify"} onClose={closeDialog} fullWidth maxWidth="sm">
-        <DialogTitle>完整性校验</DialogTitle>
-        <DialogContent dividers>
-          <p className="text-sm leading-7 text-slate-600">会核对身份证、学历、合同、培训记录和离职交接单等必要字段。</p>
-        </DialogContent>
-        <DialogActions>
-          <button type="button" className="material-button-secondary" onClick={closeDialog}>
-            关闭
-          </button>
-          <button type="button" className="material-button-primary" onClick={() => { closeDialog(); toast.success("档案校验已通过"); }}>
-            开始校验
-          </button>
-        </DialogActions>
-      </Dialog>
+        </div>
+      </div>
     </div>
   );
 }
