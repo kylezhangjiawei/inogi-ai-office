@@ -285,6 +285,7 @@
   .material-scrollbar {
     scrollbar-width: thin;
     scrollbar-color: rgba(96, 165, 250, 0.42) transparent;
+    scrollbar-gutter: stable both-edges;
   }
 
   .material-scrollbar::-webkit-scrollbar {

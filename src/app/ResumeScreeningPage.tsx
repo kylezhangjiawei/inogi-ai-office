@@ -65,6 +65,20 @@ type OpenAiFormState = {
 
 type ScheduleFormState = MailSyncSchedule;
 
+type DeleteConfirmState =
+  | {
+      kind: "job-rule";
+      id: string;
+      title: string;
+      description: string;
+    }
+  | {
+      kind: "integration";
+      id: string;
+      title: string;
+      description: string;
+    };
+
 const emptyRuleForm: RuleFormState = {
   name: "",
   jd_text: "",
@@ -200,25 +214,26 @@ function ConfigCard({
     <button
       type="button"
       onClick={onClick}
-      className="rounded-[26px] border border-slate-200 bg-white px-5 py-5 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_16px_28px_rgba(15,23,42,0.06)]"
+      className="flex min-h-[204px] flex-col justify-between rounded-[26px] border border-slate-200 bg-white px-5 py-5 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_16px_28px_rgba(15,23,42,0.06)]"
     >
-      <div className="flex items-start gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-50 text-slate-500">
+      <div className="flex items-start gap-4">
+        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-3xl bg-slate-50 text-slate-500">
           <Icon className="h-5 w-5" />
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-xl font-semibold text-slate-900">{title}</div>
-          <div className="mt-4 rounded-[18px] bg-slate-50 px-4 py-3">
-            <div
-              className={cn(
-                "inline-flex items-center gap-2 text-sm font-semibold",
-                configured ? "text-emerald-600" : "text-amber-600",
-              )}
-            >
-              {configured ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <AlertCircle className="h-4 w-4 shrink-0" />}
-              <span className="shrink-0">{description}</span>
-            </div>
-          </div>
+        <div className="min-w-0 flex-1 pt-1">
+          <div className="break-keep text-[22px] font-semibold leading-[1.25] text-slate-900">{title}</div>
+        </div>
+      </div>
+
+      <div className="mt-6 rounded-[20px] bg-slate-50 px-4 py-4">
+        <div
+          className={cn(
+            "inline-flex items-center gap-2 text-base font-semibold",
+            configured ? "text-emerald-600" : "text-amber-600",
+          )}
+        >
+          {configured ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <AlertCircle className="h-4 w-4 shrink-0" />}
+          <span className="shrink-0">{description}</span>
         </div>
       </div>
     </button>
@@ -255,6 +270,7 @@ export function ResumeScreeningPage() {
   const [deletingIntegrationId, setDeletingIntegrationId] = useState<string | null>(null);
   const [mailForm, setMailForm] = useState<MailFormState>(emptyMailForm);
   const [openAiForm, setOpenAiForm] = useState<OpenAiFormState>(emptyOpenAiForm);
+  const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirmState | null>(null);
 
   const [scheduleForm, setScheduleForm] = useState<ScheduleFormState>(defaultScheduleForm);
   const [savingSchedule, setSavingSchedule] = useState(false);
@@ -324,8 +340,10 @@ export function ResumeScreeningPage() {
     }
   }
 
-  async function loadJobRules() {
-    setLoadingRules(true);
+  async function loadJobRules(showLoading = true) {
+    if (showLoading) {
+      setLoadingRules(true);
+    }
     try {
       const next = await recruitmentApi.listJobRules();
       setJobRules(next);
@@ -335,7 +353,9 @@ export function ResumeScreeningPage() {
     } catch (error) {
       toast.error(getErrorMessage(error, "读取岗位规则失败"));
     } finally {
-      setLoadingRules(false);
+      if (showLoading) {
+        setLoadingRules(false);
+      }
     }
   }
 
@@ -462,7 +482,7 @@ export function ResumeScreeningPage() {
         jd_text: ruleForm.jd_text.trim(),
         enabled: ruleForm.enabled,
       });
-      await loadJobRules();
+      await loadJobRules(false);
       setSelectedJobRuleId(saved.id);
       setRuleForm({
         id: saved.id,
@@ -478,18 +498,40 @@ export function ResumeScreeningPage() {
     }
   }
 
+  function mergeRule(saved: JobRule) {
+    setJobRules((current) => {
+      const exists = current.some((item) => item.id === saved.id);
+      if (!exists) return [saved, ...current];
+      return current.map((item) => (item.id === saved.id ? saved : item));
+    });
+  }
+
   async function handleToggleJobRule(jobRule: JobRule) {
+    const nextEnabled = !jobRule.enabled;
     setTogglingJobRuleId(jobRule.id);
+    setJobRules((current) =>
+      current.map((item) => (item.id === jobRule.id ? { ...item, enabled: nextEnabled } : item)),
+    );
+    if (selectedJobRuleId === jobRule.id) {
+      setRuleForm((current) => ({ ...current, enabled: nextEnabled }));
+    }
+
     try {
-      await recruitmentApi.saveJobRule({
+      const saved = await recruitmentApi.saveJobRule({
         id: jobRule.id,
         name: jobRule.name,
         jd_text: jobRule.jd_text,
-        enabled: !jobRule.enabled,
+        enabled: nextEnabled,
       });
-      await loadJobRules();
+      mergeRule(saved);
       toast.success(jobRule.enabled ? "岗位规则已停用" : "岗位规则已启用");
     } catch (error) {
+      setJobRules((current) =>
+        current.map((item) => (item.id === jobRule.id ? { ...item, enabled: jobRule.enabled } : item)),
+      );
+      if (selectedJobRuleId === jobRule.id) {
+        setRuleForm((current) => ({ ...current, enabled: jobRule.enabled }));
+      }
       toast.error(getErrorMessage(error, "更新岗位规则状态失败"));
     } finally {
       setTogglingJobRuleId(null);
@@ -500,10 +542,13 @@ export function ResumeScreeningPage() {
     setDeletingJobRuleId(jobRule.id);
     try {
       await recruitmentApi.deleteJobRule(jobRule.id);
-      await loadJobRules();
+      setJobRules((current) => current.filter((item) => item.id !== jobRule.id));
       await loadCandidates();
       if (selectedJobRuleId === jobRule.id) {
         resetRuleForm();
+      }
+      if (jobRuleFilter === jobRule.id) {
+        setJobRuleFilter("");
       }
       toast.success("岗位规则已删除");
     } catch (error) {
@@ -566,7 +611,9 @@ export function ResumeScreeningPage() {
     setDeletingIntegrationId(configId);
     try {
       await recruitmentApi.deleteIntegrationConfig(configId);
-      await Promise.all([loadMailConfigs(), loadOpenAiConfigs(), loadHealth()]);
+      setMailConfigs((current) => current.filter((item) => item.id !== configId));
+      setOpenAiConfigs((current) => current.filter((item) => item.id !== configId));
+      await loadHealth();
       if (mailForm.id === configId) setMailForm(emptyMailForm);
       if (openAiForm.id === configId) setOpenAiForm(emptyOpenAiForm);
       toast.success("配置已删除");
@@ -575,6 +622,23 @@ export function ResumeScreeningPage() {
     } finally {
       setDeletingIntegrationId(null);
     }
+  }
+
+  async function confirmDelete() {
+    if (!deleteConfirm) return;
+
+    if (deleteConfirm.kind === "job-rule") {
+      const target = jobRules.find((item) => item.id === deleteConfirm.id);
+      if (target) {
+        await handleDeleteJobRule(target);
+      }
+    }
+
+    if (deleteConfirm.kind === "integration") {
+      await handleDeleteIntegration(deleteConfirm.id);
+    }
+
+    setDeleteConfirm(null);
   }
 
   async function handleSaveSchedule() {
@@ -676,8 +740,8 @@ export function ResumeScreeningPage() {
                 <Database className="h-4 w-4" />
                 规则列表
               </div>
-              <div className="mt-4 max-h-[520px] space-y-3 overflow-y-auto pr-1">
-                {loadingRules ? (
+              <div className="material-scrollbar mt-4 max-h-[520px] space-y-3 overflow-y-auto pr-2">
+                {loadingRules && !jobRules.length ? (
                   <div className="rounded-[24px] border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
                     <Loader2 className="mx-auto mb-2 h-4 w-4 animate-spin" />
                     正在加载规则...
@@ -728,7 +792,12 @@ export function ResumeScreeningPage() {
                               disabled={deletingJobRuleId === jobRule.id}
                               onClick={(event) => {
                                 event.stopPropagation();
-                                void handleDeleteJobRule(jobRule);
+                                setDeleteConfirm({
+                                  kind: "job-rule",
+                                  id: jobRule.id,
+                                  title: "确认删除岗位规则？",
+                                  description: `删除后将移除此规则“${jobRule.name}”，该操作不可撤销。`,
+                                });
                               }}
                             >
                               {deletingJobRuleId === jobRule.id ? (
@@ -809,7 +878,7 @@ export function ResumeScreeningPage() {
             </button>
           </div>
 
-          <div className="mt-6 grid gap-4 xl:grid-cols-[1.08fr_0.92fr]">
+          <div className="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(340px,0.82fr)]">
             <div className="grid gap-4 md:grid-cols-2">
               <ConfigCard
                 title="企业邮箱"
@@ -974,7 +1043,7 @@ export function ResumeScreeningPage() {
             />
           </div>
 
-          <div className="mt-6 max-h-[920px] space-y-4 overflow-y-auto pr-1">
+          <div className="material-scrollbar mt-6 max-h-[920px] space-y-4 overflow-y-auto pr-2">
             {loadingCandidates ? (
               <div className="rounded-[24px] border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
                 <Loader2 className="mx-auto mb-2 h-4 w-4 animate-spin" />
@@ -1046,7 +1115,7 @@ export function ResumeScreeningPage() {
             </div>
           </div>
 
-          <div className="mt-6 max-h-[920px] space-y-4 overflow-y-auto pr-1">
+          <div className="material-scrollbar mt-6 max-h-[920px] space-y-4 overflow-y-auto pr-2">
             {loadingDetail ? (
               <div className="rounded-[24px] border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
                 <Loader2 className="mx-auto mb-2 h-4 w-4 animate-spin" />
@@ -1199,12 +1268,19 @@ export function ResumeScreeningPage() {
                         <TooltipIconButton label="编辑邮箱配置" onClick={() => hydrateMailConfig(config)}>
                           <Pencil className="h-3.5 w-3.5" />
                         </TooltipIconButton>
-                        <TooltipIconButton
-                          label="删除邮箱配置"
-                          tone="danger"
-                          disabled={deletingIntegrationId === config.id}
-                          onClick={() => void handleDeleteIntegration(config.id)}
-                        >
+                          <TooltipIconButton
+                            label="删除邮箱配置"
+                            tone="danger"
+                            disabled={deletingIntegrationId === config.id}
+                            onClick={() =>
+                              setDeleteConfirm({
+                                kind: "integration",
+                                id: config.id,
+                                title: "确认删除企业邮箱配置？",
+                                description: `删除后将移除邮箱账号“${config.email}”，该操作不可撤销。`,
+                              })
+                            }
+                          >
                           {deletingIntegrationId === config.id ? (
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           ) : (
@@ -1292,12 +1368,19 @@ export function ResumeScreeningPage() {
                         <TooltipIconButton label="编辑 OpenAI 配置" onClick={() => hydrateOpenAiConfig(config)}>
                           <Pencil className="h-3.5 w-3.5" />
                         </TooltipIconButton>
-                        <TooltipIconButton
-                          label="删除 OpenAI 配置"
-                          tone="danger"
-                          disabled={deletingIntegrationId === config.id}
-                          onClick={() => void handleDeleteIntegration(config.id)}
-                        >
+                          <TooltipIconButton
+                            label="删除 OpenAI 配置"
+                            tone="danger"
+                            disabled={deletingIntegrationId === config.id}
+                            onClick={() =>
+                              setDeleteConfirm({
+                                kind: "integration",
+                                id: config.id,
+                                title: "确认删除 OpenAI 配置？",
+                                description: `删除后将移除配置“${config.name}”，该操作不可撤销。`,
+                              })
+                            }
+                          >
                           {deletingIntegrationId === config.id ? (
                             <Loader2 className="h-3.5 w-3.5 animate-spin" />
                           ) : (
@@ -1359,6 +1442,33 @@ export function ResumeScreeningPage() {
             >
               {savingOpenAiConfig ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
               保存 OpenAI 配置
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(deleteConfirm)} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
+        <DialogContent className="max-w-[460px] rounded-[28px] border-slate-200 bg-white p-6">
+          <DialogHeader>
+            <DialogTitle>{deleteConfirm?.title || "确认删除？"}</DialogTitle>
+            <DialogDescription>{deleteConfirm?.description || "该操作不可撤销。"}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="mt-6 flex-row justify-end gap-3">
+            <button
+              type="button"
+              onClick={() => setDeleteConfirm(null)}
+              className="inline-flex h-11 items-center justify-center rounded-full border border-slate-200 px-4 text-sm font-medium text-slate-500 transition hover:border-slate-300 hover:bg-slate-50"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={() => void confirmDelete()}
+              disabled={Boolean(deletingJobRuleId || deletingIntegrationId)}
+              className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-rose-600 px-6 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:opacity-60"
+            >
+              {deletingJobRuleId || deletingIntegrationId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              确认删除
             </button>
           </DialogFooter>
         </DialogContent>
