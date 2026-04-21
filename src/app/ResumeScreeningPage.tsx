@@ -750,6 +750,7 @@ export function ResumeScreeningPage() {
                   label="AI模型"
                   value={selectedOpenAiConfigId}
                   onValueChange={setSelectedOpenAiConfigId}
+                  className="h-12"
                   options={openAiConfigs.map((item) => ({
                     label: `${item.name} / ${item.model}`,
                     value: item.id,
@@ -758,6 +759,7 @@ export function ResumeScreeningPage() {
                 />
                 <MaterialInput
                   label="回溯小时"
+                  className="h-9"
                   type="number"
                   min={1}
                   value={String(scheduleForm.since_hours)}
@@ -771,6 +773,7 @@ export function ResumeScreeningPage() {
                 />
                 <MaterialInput
                   label="抓取上限"
+                  className="h-9"
                   type="number"
                   min={1}
                   value={String(scheduleForm.limit)}
@@ -783,22 +786,8 @@ export function ResumeScreeningPage() {
                   }}
                 />
               </div>
-              <div className="mt-4 grid gap-3 lg:grid-cols-3">
-                <div className="rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-xs leading-6 text-slate-500">
-                  <span className={cn("font-semibold", selectedMailConfig ? "text-emerald-600" : "text-amber-600")}>
-                    {selectedMailConfig ? "企业邮箱已就绪" : "企业邮箱待配置"}
-                  </span>
-                  <span className="ml-2">{selectedMailConfig ? selectedMailConfig.email : "当前未检测到可用的企业邮箱配置。"}</span>
-                </div>
-                <div className="rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-xs leading-6 text-slate-500">
-                  <span className={cn("font-semibold", selectedOpenAiConfig ? "text-emerald-600" : "text-amber-600")}>
-                    {selectedOpenAiConfig ? "AI模型已就绪" : "AI模型待配置"}
-                  </span>
-                  <span className="ml-2">
-                    {selectedOpenAiConfig ? `${selectedOpenAiConfig.name} / ${selectedOpenAiConfig.model}` : "当前未检测到可用的 OpenAI 模型配置。"}
-                  </span>
-                </div>
-                <div className="rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-xs leading-6 text-slate-500">
+              <div className="mt-4  ">
+                <div className="text-xs leading-6 text-slate-500">
                   当前计划默认按 {scheduleForm.since_hours || 72} 小时窗口回溯，单次最多抓取 {scheduleForm.limit || 20} 份简历。
                 </div>
               </div>
@@ -807,12 +796,12 @@ export function ResumeScreeningPage() {
 
           <div className="mt-5 rounded-[28px] border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.95),rgba(241,245,249,0.75))] p-5">
             <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="max-w-[560px]">
+              <div className="max-w-full">
                 <div className="flex items-center gap-2 text-base font-semibold text-slate-800">
                   <Clock3 className="h-4 w-4 text-slate-500" />
                   启用定点轮询获取邮箱简历
                 </div>
-                <div className="mt-2 text-sm leading-7 text-slate-500">
+                <div className="mt-2 text-sm  text-slate-500">
                   到点后会自动拉取邮箱简历，并按当前启用规则执行筛选。若左侧已选中规则，则优先使用该规则。
                 </div>
               </div>
@@ -860,13 +849,13 @@ export function ResumeScreeningPage() {
               type="button"
               onClick={() => void handleRunSync()}
               disabled={runningSync}
-              className="inline-flex h-16 min-w-[280px] items-center justify-center gap-3 rounded-[24px] bg-[linear-gradient(90deg,#5477e8,#5ac3a6)] px-7 text-xl font-semibold text-white shadow-[0_16px_28px_rgba(84,119,232,0.22)] transition hover:translate-y-[-1px] disabled:opacity-60"
+              className="inline-flex cursor-pointer h-13 min-w-[280px] items-center justify-center gap-3 rounded-[24px] bg-[linear-gradient(90deg,#5477e8,#5ac3a6)] px-7 text-l font-semibold text-white shadow-[0_16px_28px_rgba(84,119,232,0.22)] transition hover:translate-y-[-1px] disabled:opacity-60"
             >
               {runningSync ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
               运行一次同步
             </button>
 
-            <div className="rounded-[18px] border border-blue-200 bg-blue-50/70 px-4 py-3 text-sm leading-6 text-slate-600">
+            <div className="    px-4 py-3 text-sm leading-6 text-slate-600">
               手动同步会立即执行；若已开启轮询，后续会继续按计划自动运行。
               {lastSyncResult ? (
                 <span className="ml-2 text-slate-500">
