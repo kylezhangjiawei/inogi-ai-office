@@ -214,21 +214,21 @@ function ConfigCard({
     <button
       type="button"
       onClick={onClick}
-      className="flex min-h-[204px] flex-col justify-between rounded-[26px] border border-slate-200 bg-white px-5 py-5 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_16px_28px_rgba(15,23,42,0.06)]"
+      className="flex min-h-[192px] flex-col justify-between rounded-[26px] border border-slate-200 bg-white px-5 py-5 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_16px_28px_rgba(15,23,42,0.06)]"
     >
       <div className="flex items-start gap-4">
-        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-3xl bg-slate-50 text-slate-500">
-          <Icon className="h-5 w-5" />
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[20px] bg-slate-50 text-slate-500">
+          <Icon className="h-[18px] w-[18px]" />
         </div>
         <div className="min-w-0 flex-1 pt-1">
-          <div className="break-keep text-[22px] font-semibold leading-[1.25] text-slate-900">{title}</div>
+          <div className="break-keep text-[18px] font-semibold leading-[1.3] text-slate-900">{title}</div>
         </div>
       </div>
 
-      <div className="mt-6 rounded-[20px] bg-slate-50 px-4 py-4">
+      <div className="mt-5 rounded-[20px] bg-slate-50 px-4 py-3.5">
         <div
           className={cn(
-            "inline-flex items-center gap-2 text-base font-semibold",
+            "inline-flex items-center gap-2 text-[15px] font-semibold",
             configured ? "text-emerald-600" : "text-amber-600",
           )}
         >
