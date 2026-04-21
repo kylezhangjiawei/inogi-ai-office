@@ -32,7 +32,7 @@ import { ReportCompressionPage } from "./ReportCompressionPage";
 import { ResumeScreeningPage } from "./ResumeScreeningPage";
 import { RoleManagement } from "./RoleManagement";
 import { Root } from "./Root";
-import { SystemSettings } from "./SystemSettings";
+import { DictionaryList } from "./DictionaryList";
 import { UserManagement } from "./UserManagement";
 
 function ProtectedLayout() {
@@ -87,7 +87,7 @@ const router = createBrowserRouter([
       { path: "report-compression", Component: ReportCompressionPage },
       { path: "users", Component: UserManagement },
       { path: "roles", Component: RoleManagement },
-      { path: "settings", Component: SystemSettings },
+      { path: "settings", Component: DictionaryList },
       { path: "*", Component: () => <Navigate to="/" replace /> },
     ],
   },

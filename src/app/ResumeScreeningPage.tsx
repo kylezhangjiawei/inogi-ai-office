@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   Bot,
-  BriefcaseBusiness,
   CheckCircle2,
   Clock3,
   Database,
@@ -50,7 +49,6 @@ type RuleFormState = {
 type ScheduleFormState = MailSyncSchedule;
 
 type DeleteConfirmState = {
-  kind: "job-rule";
   id: string;
   title: string;
   description: string;
@@ -150,7 +148,7 @@ function TooltipIconButton({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "inline-flex h-9 w-9 items-center justify-center rounded-full border transition disabled:cursor-not-allowed disabled:opacity-60",
+        "inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border transition disabled:cursor-not-allowed disabled:opacity-60",
         tone === "danger" && "border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100",
         tone === "success" && "border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100",
         tone === "default" && "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50",
@@ -478,11 +476,9 @@ export function ResumeScreeningPage() {
   async function confirmDelete() {
     if (!deleteConfirm) return;
 
-    if (deleteConfirm.kind === "job-rule") {
-      const target = jobRules.find((item) => item.id === deleteConfirm.id);
-      if (target) {
-        await handleDeleteJobRule(target);
-      }
+    const target = jobRules.find((item) => item.id === deleteConfirm.id);
+    if (target) {
+      await handleDeleteJobRule(target);
     }
 
     setDeleteConfirm(null);
@@ -613,7 +609,7 @@ export function ResumeScreeningPage() {
                           }
                         }}
                         className={cn(
-                          "w-full rounded-[22px] border px-4 py-4 text-left transition",
+                          "w-full cursor-pointer rounded-[22px] border px-4 py-4 text-left transition",
                           active
                             ? "border-cyan-300 bg-cyan-50"
                             : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
@@ -647,7 +643,6 @@ export function ResumeScreeningPage() {
                               onClick={(event) => {
                                 event.stopPropagation();
                                 setDeleteConfirm({
-                                  kind: "job-rule",
                                   id: jobRule.id,
                                   title: "确认删除岗位规则？",
                                   description: `删除后将移除此规则“${jobRule.name}”，该操作不可撤销。`,
@@ -688,7 +683,7 @@ export function ResumeScreeningPage() {
                   type="button"
                   onClick={() => void handleSaveRule()}
                   disabled={savingRule}
-                  className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-slate-900 px-6 text-base font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+                  className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-full bg-slate-900 px-6 text-base font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
                 >
                   {savingRule ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
                   {ruleForm.id ? "保存规则" : "新建规则"}
@@ -705,7 +700,7 @@ export function ResumeScreeningPage() {
                 <button
                   type="button"
                   onClick={resetRuleForm}
-                  className="inline-flex h-11 items-center justify-center rounded-full border border-slate-200 px-4 text-sm font-medium text-slate-500 transition hover:border-slate-300 hover:bg-slate-50"
+                  className="inline-flex h-11 cursor-pointer items-center justify-center rounded-full border border-slate-200 px-4 text-sm font-medium text-slate-500 transition hover:border-slate-300 hover:bg-slate-50"
                 >
                   清空表单
                 </button>
@@ -725,7 +720,7 @@ export function ResumeScreeningPage() {
             <button
               type="button"
               onClick={() => void Promise.all([loadHealth(), loadMailConfigs(), loadOpenAiConfigs(), loadSchedule(), loadCandidates()])}
-              className="inline-flex h-10 w-fit items-center gap-2 self-start rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 sm:absolute sm:right-8 sm:top-8"
+              className="inline-flex h-10 w-fit cursor-pointer items-center gap-2 self-start rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 sm:absolute sm:right-8 sm:top-8"
             >
               <RefreshCw className="h-4 w-4" />
               刷新
@@ -832,7 +827,7 @@ export function ResumeScreeningPage() {
                   type="button"
                   onClick={() => void handleSaveSchedule()}
                   disabled={savingSchedule}
-                  className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-60"
+                  className="inline-flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-60"
                 >
                   {savingSchedule ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clock3 className="h-4 w-4" />}
                   保存计划
@@ -922,7 +917,7 @@ export function ResumeScreeningPage() {
                   type="button"
                   onClick={() => setSelectedCandidateId(candidate.id)}
                   className={cn(
-                    "w-full rounded-[24px] border px-5 py-5 text-left transition",
+                    "w-full cursor-pointer rounded-[24px] border px-5 py-5 text-left transition",
                     selectedCandidateId === candidate.id
                       ? "border-cyan-300 bg-cyan-50 shadow-[0_12px_30px_rgba(34,211,238,0.12)]"
                       : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
@@ -1113,7 +1108,7 @@ export function ResumeScreeningPage() {
             <button
               type="button"
               onClick={() => setDeleteConfirm(null)}
-              className="inline-flex h-11 items-center justify-center rounded-full border border-slate-200 px-4 text-sm font-medium text-slate-500 transition hover:border-slate-300 hover:bg-slate-50"
+              className="inline-flex h-11 cursor-pointer items-center justify-center rounded-full border border-slate-200 px-4 text-sm font-medium text-slate-500 transition hover:border-slate-300 hover:bg-slate-50"
             >
               取消
             </button>
@@ -1121,7 +1116,7 @@ export function ResumeScreeningPage() {
               type="button"
               onClick={() => void confirmDelete()}
               disabled={Boolean(deletingJobRuleId)}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-rose-600 px-6 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:opacity-60"
+              className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-full bg-rose-600 px-6 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:opacity-60"
             >
               {deletingJobRuleId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
               确认删除

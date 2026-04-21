@@ -33,7 +33,7 @@ import { BugLogPage } from "./BugLogPage";
 import { ContractReviewPage } from "./ContractReviewPage";
 import { UserManagement } from "./UserManagement";
 import { RoleManagement } from "./RoleManagement";
-import { SystemSettings } from "./SystemSettings";
+import { DictionaryList } from "./DictionaryList";
 
 export const router = createBrowserRouter([
   {
@@ -73,7 +73,7 @@ export const router = createBrowserRouter([
       { path: "contract-review", Component: ContractReviewPage },
       { path: "users", Component: UserManagement },
       { path: "roles", Component: RoleManagement },
-      { path: "settings", Component: SystemSettings },
+      { path: "settings", Component: DictionaryList },
       // 兜底
       { path: "*", Component: () => <div className="p-8 text-center text-gray-400 font-bold uppercase tracking-widest">Coming Soon</div> },
     ],

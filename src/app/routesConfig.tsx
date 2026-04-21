@@ -97,7 +97,7 @@ export const navGroups: NavGroup[] = [
       { label: "合同 AI 审查", path: "/contract-review", icon: FileText },
       { label: "用户管理", path: "/users", icon: UserSquare2 },
       { label: "角色权限", path: "/roles", icon: UserCog },
-      { label: "系统设置", path: "/settings", icon: MonitorCog },
+      { label: "字典列表", path: "/settings", icon: MonitorCog },
     ],
   },
 ];
