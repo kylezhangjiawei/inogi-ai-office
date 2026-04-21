@@ -732,88 +732,30 @@ export function ResumeScreeningPage() {
             </button>
           </div>
 
-          <div className="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(340px,0.82fr)]">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div className="rounded-[26px] border border-slate-200 bg-white p-5">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-50 text-slate-500">
-                    <Mail className="h-[18px] w-[18px]" />
-                  </div>
-                  <div>
-                    <div className="text-[18px] font-semibold leading-[1.3] text-slate-900">企业邮箱</div>
-                    <div className="mt-1 text-xs text-slate-400">选择当前用于拉取简历的邮箱配置</div>
-                  </div>
-                </div>
-                <div className="mt-4">
-                  <MaterialSelect
-                    label="邮箱配置"
-                    value={selectedMailConfigId}
-                    onValueChange={setSelectedMailConfigId}
-                    options={mailConfigs.map((item) => ({
-                      label: `${item.email}${item.enabled ? "（已启用）" : ""}`,
-                      value: item.id,
-                    }))}
-                    placeholder={loadingMailConfigs ? "正在加载企业邮箱配置..." : "暂无企业邮箱配置"}
-                  />
-                </div>
-                <div className="mt-4 rounded-[18px] bg-slate-50 px-4 py-3">
-                  <div
-                    className={cn(
-                      "inline-flex items-center gap-2 text-[15px] font-semibold",
-                      selectedMailConfig ? "text-emerald-600" : "text-amber-600",
-                    )}
-                  >
-                    {selectedMailConfig ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <AlertCircle className="h-4 w-4 shrink-0" />}
-                    <span className="shrink-0">{selectedMailConfig ? "已选择配置" : "待配置"}</span>
-                  </div>
-                  <div className="mt-2 text-xs leading-6 text-slate-500">
-                    {selectedMailConfig ? selectedMailConfig.email : "当前未检测到可用的企业邮箱配置。"}
-                  </div>
-                </div>
-              </div>
-
-              <div className="rounded-[26px] border border-slate-200 bg-white p-5">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-50 text-slate-500">
-                    <Bot className="h-[18px] w-[18px]" />
-                  </div>
-                  <div>
-                    <div className="text-[18px] font-semibold leading-[1.3] text-slate-900">AI模型</div>
-                    <div className="mt-1 text-xs text-slate-400">选择当前用于简历解析和筛选的模型配置</div>
-                  </div>
-                </div>
-                <div className="mt-4">
-                  <MaterialSelect
-                    label="模型配置"
-                    value={selectedOpenAiConfigId}
-                    onValueChange={setSelectedOpenAiConfigId}
-                    options={openAiConfigs.map((item) => ({
-                      label: `${item.name} / ${item.model}`,
-                      value: item.id,
-                    }))}
-                    placeholder={loadingOpenAiConfigs ? "正在加载 OpenAI 配置..." : "暂无 OpenAI 配置"}
-                  />
-                </div>
-                <div className="mt-4 rounded-[18px] bg-slate-50 px-4 py-3">
-                  <div
-                    className={cn(
-                      "inline-flex items-center gap-2 text-[15px] font-semibold",
-                      selectedOpenAiConfig ? "text-emerald-600" : "text-amber-600",
-                    )}
-                  >
-                    {selectedOpenAiConfig ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <AlertCircle className="h-4 w-4 shrink-0" />}
-                    <span className="shrink-0">{selectedOpenAiConfig ? "已选择配置" : "待配置"}</span>
-                  </div>
-                  <div className="mt-2 text-xs leading-6 text-slate-500">
-                    {selectedOpenAiConfig ? `${selectedOpenAiConfig.name} / ${selectedOpenAiConfig.model}` : "当前未检测到可用的 OpenAI 模型配置。"}
-                  </div>
-                </div>
-              </div>
-            </div>
-
+          <div className="mt-6">
             <div className="rounded-[26px] border border-slate-200 bg-slate-50/85 p-5">
               <div className="text-sm font-semibold text-slate-400">同步参数</div>
-              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <div className="mt-4 grid gap-4 xl:grid-cols-4 sm:grid-cols-2">
+                <MaterialSelect
+                  label="企业邮箱"
+                  value={selectedMailConfigId}
+                  onValueChange={setSelectedMailConfigId}
+                  options={mailConfigs.map((item) => ({
+                    label: `${item.email}${item.enabled ? "（已启用）" : ""}`,
+                    value: item.id,
+                  }))}
+                  placeholder={loadingMailConfigs ? "正在加载企业邮箱配置..." : "暂无企业邮箱配置"}
+                />
+                <MaterialSelect
+                  label="AI模型"
+                  value={selectedOpenAiConfigId}
+                  onValueChange={setSelectedOpenAiConfigId}
+                  options={openAiConfigs.map((item) => ({
+                    label: `${item.name} / ${item.model}`,
+                    value: item.id,
+                  }))}
+                  placeholder={loadingOpenAiConfigs ? "正在加载 OpenAI 配置..." : "暂无 OpenAI 配置"}
+                />
                 <MaterialInput
                   label="回溯小时"
                   type="number"
@@ -841,8 +783,24 @@ export function ResumeScreeningPage() {
                   }}
                 />
               </div>
-              <div className="mt-4 rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-xs leading-6 text-slate-500">
-                当前计划默认按 {scheduleForm.since_hours || 72} 小时窗口回溯，单次最多抓取 {scheduleForm.limit || 20} 份简历。
+              <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                <div className="rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-xs leading-6 text-slate-500">
+                  <span className={cn("font-semibold", selectedMailConfig ? "text-emerald-600" : "text-amber-600")}>
+                    {selectedMailConfig ? "企业邮箱已就绪" : "企业邮箱待配置"}
+                  </span>
+                  <span className="ml-2">{selectedMailConfig ? selectedMailConfig.email : "当前未检测到可用的企业邮箱配置。"}</span>
+                </div>
+                <div className="rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-xs leading-6 text-slate-500">
+                  <span className={cn("font-semibold", selectedOpenAiConfig ? "text-emerald-600" : "text-amber-600")}>
+                    {selectedOpenAiConfig ? "AI模型已就绪" : "AI模型待配置"}
+                  </span>
+                  <span className="ml-2">
+                    {selectedOpenAiConfig ? `${selectedOpenAiConfig.name} / ${selectedOpenAiConfig.model}` : "当前未检测到可用的 OpenAI 模型配置。"}
+                  </span>
+                </div>
+                <div className="rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-xs leading-6 text-slate-500">
+                  当前计划默认按 {scheduleForm.since_hours || 72} 小时窗口回溯，单次最多抓取 {scheduleForm.limit || 20} 份简历。
+                </div>
               </div>
             </div>
           </div>
