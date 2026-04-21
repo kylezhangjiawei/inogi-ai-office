@@ -8,7 +8,6 @@ import {
   Database,
   Loader2,
   Mail,
-  Pencil,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -48,53 +47,18 @@ type RuleFormState = {
   enabled: boolean;
 };
 
-type MailFormState = {
-  id?: string;
-  email: string;
-  password: string;
-  enabled: boolean;
-};
-
-type OpenAiFormState = {
-  id?: string;
-  name: string;
-  model: string;
-  api_key: string;
-  enabled: boolean;
-};
-
 type ScheduleFormState = MailSyncSchedule;
 
-type DeleteConfirmState =
-  | {
-      kind: "job-rule";
-      id: string;
-      title: string;
-      description: string;
-    }
-  | {
-      kind: "integration";
-      id: string;
-      title: string;
-      description: string;
-    };
+type DeleteConfirmState = {
+  kind: "job-rule";
+  id: string;
+  title: string;
+  description: string;
+};
 
 const emptyRuleForm: RuleFormState = {
   name: "",
   jd_text: "",
-  enabled: true,
-};
-
-const emptyMailForm: MailFormState = {
-  email: "",
-  password: "",
-  enabled: true,
-};
-
-const emptyOpenAiForm: OpenAiFormState = {
-  name: "默认 OpenAI",
-  model: "gpt-4o-mini",
-  api_key: "",
   enabled: true,
 };
 
@@ -197,49 +161,6 @@ function TooltipIconButton({
   );
 }
 
-function ConfigCard({
-  icon: Icon,
-  title,
-  description,
-  configured,
-  onClick,
-}: {
-  icon: typeof Mail;
-  title: string;
-  description: string;
-  configured: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex min-h-[192px] flex-col justify-between rounded-[26px] border border-slate-200 bg-white px-5 py-5 text-left transition hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-[0_16px_28px_rgba(15,23,42,0.06)]"
-    >
-      <div className="flex items-start gap-4">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[20px] bg-slate-50 text-slate-500">
-          <Icon className="h-[18px] w-[18px]" />
-        </div>
-        <div className="min-w-0 flex-1 pt-1">
-          <div className="break-keep text-[18px] font-semibold leading-[1.3] text-slate-900">{title}</div>
-        </div>
-      </div>
-
-      <div className="mt-5 rounded-[20px] bg-slate-50 px-4 py-3.5">
-        <div
-          className={cn(
-            "inline-flex items-center gap-2 text-[15px] font-semibold",
-            configured ? "text-emerald-600" : "text-amber-600",
-          )}
-        >
-          {configured ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <AlertCircle className="h-4 w-4 shrink-0" />}
-          <span className="shrink-0">{description}</span>
-        </div>
-      </div>
-    </button>
-  );
-}
-
 function StatPill({ label, value }: { label: string; value: string | number }) {
   return (
     <div className="rounded-[22px] border border-slate-200 bg-white/85 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
@@ -259,17 +180,12 @@ export function ResumeScreeningPage() {
   const [selectedJobRuleId, setSelectedJobRuleId] = useState<string>("");
   const [ruleForm, setRuleForm] = useState<RuleFormState>(emptyRuleForm);
 
-  const [mailDialogOpen, setMailDialogOpen] = useState(false);
-  const [openAiDialogOpen, setOpenAiDialogOpen] = useState(false);
   const [mailConfigs, setMailConfigs] = useState<MailConfigItem[]>([]);
   const [openAiConfigs, setOpenAiConfigs] = useState<OpenAiConfigItem[]>([]);
   const [loadingMailConfigs, setLoadingMailConfigs] = useState(false);
   const [loadingOpenAiConfigs, setLoadingOpenAiConfigs] = useState(false);
-  const [savingMailConfig, setSavingMailConfig] = useState(false);
-  const [savingOpenAiConfig, setSavingOpenAiConfig] = useState(false);
-  const [deletingIntegrationId, setDeletingIntegrationId] = useState<string | null>(null);
-  const [mailForm, setMailForm] = useState<MailFormState>(emptyMailForm);
-  const [openAiForm, setOpenAiForm] = useState<OpenAiFormState>(emptyOpenAiForm);
+  const [selectedMailConfigId, setSelectedMailConfigId] = useState("");
+  const [selectedOpenAiConfigId, setSelectedOpenAiConfigId] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirmState | null>(null);
 
   const [scheduleForm, setScheduleForm] = useState<ScheduleFormState>(defaultScheduleForm);
@@ -303,6 +219,16 @@ export function ResumeScreeningPage() {
       average,
     };
   }, [candidates]);
+
+  const selectedMailConfig = useMemo(
+    () => mailConfigs.find((item) => item.id === selectedMailConfigId) ?? null,
+    [mailConfigs, selectedMailConfigId],
+  );
+
+  const selectedOpenAiConfig = useMemo(
+    () => openAiConfigs.find((item) => item.id === selectedOpenAiConfigId) ?? null,
+    [openAiConfigs, selectedOpenAiConfigId],
+  );
 
   useEffect(() => {
     void loadBootstrap();
@@ -362,7 +288,12 @@ export function ResumeScreeningPage() {
   async function loadMailConfigs() {
     setLoadingMailConfigs(true);
     try {
-      setMailConfigs(await recruitmentApi.listMailConfigs());
+      const next = await recruitmentApi.listMailConfigs();
+      setMailConfigs(next);
+      setSelectedMailConfigId((current) => {
+        if (current && next.some((item) => item.id === current)) return current;
+        return next.find((item) => item.enabled)?.id ?? next[0]?.id ?? "";
+      });
     } catch (error) {
       toast.error(getErrorMessage(error, "读取企业邮箱配置失败"));
     } finally {
@@ -373,7 +304,12 @@ export function ResumeScreeningPage() {
   async function loadOpenAiConfigs() {
     setLoadingOpenAiConfigs(true);
     try {
-      setOpenAiConfigs(await recruitmentApi.listOpenAiConfigs());
+      const next = await recruitmentApi.listOpenAiConfigs();
+      setOpenAiConfigs(next);
+      setSelectedOpenAiConfigId((current) => {
+        if (current && next.some((item) => item.id === current)) return current;
+        return next.find((item) => item.enabled)?.id ?? next[0]?.id ?? "";
+      });
     } catch (error) {
       toast.error(getErrorMessage(error, "读取 OpenAI 配置失败"));
     } finally {
@@ -446,25 +382,6 @@ export function ResumeScreeningPage() {
       name: jobRule.name,
       jd_text: jobRule.jd_text,
       enabled: jobRule.enabled,
-    });
-  }
-
-  function hydrateMailConfig(config: MailConfigItem) {
-    setMailForm({
-      id: config.id,
-      email: config.email,
-      password: "",
-      enabled: config.enabled,
-    });
-  }
-
-  function hydrateOpenAiConfig(config: OpenAiConfigItem) {
-    setOpenAiForm({
-      id: config.id,
-      name: config.name,
-      model: config.model,
-      api_key: "",
-      enabled: config.enabled,
     });
   }
 
@@ -558,72 +475,6 @@ export function ResumeScreeningPage() {
     }
   }
 
-  async function handleSaveMailConfig() {
-    if (!mailForm.email.trim()) {
-      toast.error("请填写企业邮箱地址");
-      return;
-    }
-
-    setSavingMailConfig(true);
-    try {
-      await recruitmentApi.saveMailConfig({
-        id: mailForm.id,
-        email: mailForm.email.trim(),
-        password: mailForm.password.trim() || undefined,
-        enabled: mailForm.enabled,
-      });
-      await Promise.all([loadMailConfigs(), loadHealth()]);
-      setMailForm(emptyMailForm);
-      toast.success(mailForm.id ? "企业邮箱配置已更新" : "企业邮箱配置已新增");
-    } catch (error) {
-      toast.error(getErrorMessage(error, "保存企业邮箱配置失败"));
-    } finally {
-      setSavingMailConfig(false);
-    }
-  }
-
-  async function handleSaveOpenAiConfig() {
-    if (!openAiForm.name.trim() || !openAiForm.model.trim()) {
-      toast.error("请填写配置名称和模型名称");
-      return;
-    }
-
-    setSavingOpenAiConfig(true);
-    try {
-      await recruitmentApi.saveOpenAiConfig({
-        id: openAiForm.id,
-        name: openAiForm.name.trim(),
-        model: openAiForm.model.trim(),
-        api_key: openAiForm.api_key.trim() || undefined,
-        enabled: openAiForm.enabled,
-      });
-      await Promise.all([loadOpenAiConfigs(), loadHealth()]);
-      setOpenAiForm(emptyOpenAiForm);
-      toast.success(openAiForm.id ? "OpenAI 配置已更新" : "OpenAI 配置已新增");
-    } catch (error) {
-      toast.error(getErrorMessage(error, "保存 OpenAI 配置失败"));
-    } finally {
-      setSavingOpenAiConfig(false);
-    }
-  }
-
-  async function handleDeleteIntegration(configId: string) {
-    setDeletingIntegrationId(configId);
-    try {
-      await recruitmentApi.deleteIntegrationConfig(configId);
-      setMailConfigs((current) => current.filter((item) => item.id !== configId));
-      setOpenAiConfigs((current) => current.filter((item) => item.id !== configId));
-      await loadHealth();
-      if (mailForm.id === configId) setMailForm(emptyMailForm);
-      if (openAiForm.id === configId) setOpenAiForm(emptyOpenAiForm);
-      toast.success("配置已删除");
-    } catch (error) {
-      toast.error(getErrorMessage(error, "删除配置失败"));
-    } finally {
-      setDeletingIntegrationId(null);
-    }
-  }
-
   async function confirmDelete() {
     if (!deleteConfirm) return;
 
@@ -632,10 +483,6 @@ export function ResumeScreeningPage() {
       if (target) {
         await handleDeleteJobRule(target);
       }
-    }
-
-    if (deleteConfirm.kind === "integration") {
-      await handleDeleteIntegration(deleteConfirm.id);
     }
 
     setDeleteConfirm(null);
@@ -887,20 +734,81 @@ export function ResumeScreeningPage() {
 
           <div className="mt-6 grid gap-4 xl:grid-cols-[minmax(0,1.3fr)_minmax(340px,0.82fr)]">
             <div className="grid gap-4 md:grid-cols-2">
-              <ConfigCard
-                title="企业邮箱"
-                description={health?.mail_configured ? "已配置" : "待配置"}
-                configured={Boolean(health?.mail_configured)}
-                onClick={() => setMailDialogOpen(true)}
-                icon={Mail}
-              />
-              <ConfigCard
-                title="OpenAI"
-                description={health?.openai_configured ? "已配置" : "待配置"}
-                configured={Boolean(health?.openai_configured)}
-                onClick={() => setOpenAiDialogOpen(true)}
-                icon={Bot}
-              />
+              <div className="rounded-[26px] border border-slate-200 bg-white p-5">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-50 text-slate-500">
+                    <Mail className="h-[18px] w-[18px]" />
+                  </div>
+                  <div>
+                    <div className="text-[18px] font-semibold leading-[1.3] text-slate-900">企业邮箱</div>
+                    <div className="mt-1 text-xs text-slate-400">选择当前用于拉取简历的邮箱配置</div>
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <MaterialSelect
+                    label="邮箱配置"
+                    value={selectedMailConfigId}
+                    onValueChange={setSelectedMailConfigId}
+                    options={mailConfigs.map((item) => ({
+                      label: `${item.email}${item.enabled ? "（已启用）" : ""}`,
+                      value: item.id,
+                    }))}
+                    placeholder={loadingMailConfigs ? "正在加载企业邮箱配置..." : "暂无企业邮箱配置"}
+                  />
+                </div>
+                <div className="mt-4 rounded-[18px] bg-slate-50 px-4 py-3">
+                  <div
+                    className={cn(
+                      "inline-flex items-center gap-2 text-[15px] font-semibold",
+                      selectedMailConfig ? "text-emerald-600" : "text-amber-600",
+                    )}
+                  >
+                    {selectedMailConfig ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <AlertCircle className="h-4 w-4 shrink-0" />}
+                    <span className="shrink-0">{selectedMailConfig ? "已选择配置" : "待配置"}</span>
+                  </div>
+                  <div className="mt-2 text-xs leading-6 text-slate-500">
+                    {selectedMailConfig ? selectedMailConfig.email : "当前未检测到可用的企业邮箱配置。"}
+                  </div>
+                </div>
+              </div>
+
+              <div className="rounded-[26px] border border-slate-200 bg-white p-5">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-50 text-slate-500">
+                    <Bot className="h-[18px] w-[18px]" />
+                  </div>
+                  <div>
+                    <div className="text-[18px] font-semibold leading-[1.3] text-slate-900">OpenAI</div>
+                    <div className="mt-1 text-xs text-slate-400">选择当前用于简历解析和筛选的模型配置</div>
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <MaterialSelect
+                    label="模型配置"
+                    value={selectedOpenAiConfigId}
+                    onValueChange={setSelectedOpenAiConfigId}
+                    options={openAiConfigs.map((item) => ({
+                      label: `${item.name} / ${item.model}`,
+                      value: item.id,
+                    }))}
+                    placeholder={loadingOpenAiConfigs ? "正在加载 OpenAI 配置..." : "暂无 OpenAI 配置"}
+                  />
+                </div>
+                <div className="mt-4 rounded-[18px] bg-slate-50 px-4 py-3">
+                  <div
+                    className={cn(
+                      "inline-flex items-center gap-2 text-[15px] font-semibold",
+                      selectedOpenAiConfig ? "text-emerald-600" : "text-amber-600",
+                    )}
+                  >
+                    {selectedOpenAiConfig ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <AlertCircle className="h-4 w-4 shrink-0" />}
+                    <span className="shrink-0">{selectedOpenAiConfig ? "已选择配置" : "待配置"}</span>
+                  </div>
+                  <div className="mt-2 text-xs leading-6 text-slate-500">
+                    {selectedOpenAiConfig ? `${selectedOpenAiConfig.name} / ${selectedOpenAiConfig.model}` : "当前未检测到可用的 OpenAI 模型配置。"}
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div className="rounded-[26px] border border-slate-200 bg-slate-50/85 p-5">
@@ -1248,212 +1156,6 @@ export function ResumeScreeningPage() {
         </section>
       </div>
 
-      <Dialog open={mailDialogOpen} onOpenChange={setMailDialogOpen}>
-        <DialogContent className="max-w-[940px] rounded-[28px] border-slate-200 bg-white p-6">
-          <DialogHeader>
-            <DialogTitle>企业邮箱配置</DialogTitle>
-            <DialogDescription>支持新增、编辑、删除多个邮箱账号，用于邮箱简历抓取。</DialogDescription>
-          </DialogHeader>
-
-          <div className="mt-5 grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-            <div className="space-y-3">
-              {loadingMailConfigs ? (
-                <div className="text-sm text-slate-400">正在加载企业邮箱配置...</div>
-              ) : mailConfigs.length === 0 ? (
-                <div className="rounded-[20px] border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-400">
-                  暂无企业邮箱配置
-                </div>
-              ) : (
-                mailConfigs.map((config) => (
-                  <div key={config.id} className="rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <OverflowTooltipText text={config.email} className="font-medium text-slate-800" />
-                        <div className="mt-2 text-sm text-slate-500">{config.enabled ? "已启用" : "已停用"}</div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <TooltipIconButton label="编辑邮箱配置" onClick={() => hydrateMailConfig(config)}>
-                          <Pencil className="h-3.5 w-3.5" />
-                        </TooltipIconButton>
-                          <TooltipIconButton
-                            label="删除邮箱配置"
-                            tone="danger"
-                            disabled={deletingIntegrationId === config.id}
-                            onClick={() =>
-                              setDeleteConfirm({
-                                kind: "integration",
-                                id: config.id,
-                                title: "确认删除企业邮箱配置？",
-                                description: `删除后将移除邮箱账号“${config.email}”，该操作不可撤销。`,
-                              })
-                            }
-                          >
-                          {deletingIntegrationId === config.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-3.5 w-3.5" />
-                          )}
-                        </TooltipIconButton>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="space-y-4">
-              <MaterialInput
-                label="邮箱账号"
-                value={mailForm.email}
-                onChange={(event) => setMailForm((current) => ({ ...current, email: event.target.value }))}
-                placeholder="name@company.com"
-              />
-              <MaterialInput
-                label={mailForm.id ? "邮箱密码（留空表示不修改）" : "邮箱密码"}
-                type="password"
-                value={mailForm.password}
-                onChange={(event) => setMailForm((current) => ({ ...current, password: event.target.value }))}
-                placeholder="请输入邮箱密码或授权码"
-              />
-              <label className="inline-flex h-11 min-w-[96px] items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4"
-                  checked={mailForm.enabled}
-                  onChange={(event) => setMailForm((current) => ({ ...current, enabled: event.target.checked }))}
-                />
-                启用
-              </label>
-            </div>
-          </div>
-
-          <DialogFooter className="mt-6 flex-row justify-between">
-            <button
-              type="button"
-              onClick={() => setMailForm(emptyMailForm)}
-              className="inline-flex h-11 items-center justify-center rounded-full border border-slate-200 px-4 text-sm font-medium text-slate-500 transition hover:border-slate-300 hover:bg-slate-50"
-            >
-              清空表单
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleSaveMailConfig()}
-              disabled={savingMailConfig}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-slate-900 px-6 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
-            >
-              {savingMailConfig ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
-              保存邮箱配置
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={openAiDialogOpen} onOpenChange={setOpenAiDialogOpen}>
-        <DialogContent className="max-w-[940px] rounded-[28px] border-slate-200 bg-white p-6">
-          <DialogHeader>
-            <DialogTitle>OpenAI 配置</DialogTitle>
-            <DialogDescription>支持新增、编辑、删除模型配置，用于简历解析与初筛。</DialogDescription>
-          </DialogHeader>
-
-          <div className="mt-5 grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-            <div className="space-y-3">
-              {loadingOpenAiConfigs ? (
-                <div className="text-sm text-slate-400">正在加载 OpenAI 配置...</div>
-              ) : openAiConfigs.length === 0 ? (
-                <div className="rounded-[20px] border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-400">
-                  暂无 OpenAI 配置
-                </div>
-              ) : (
-                openAiConfigs.map((config) => (
-                  <div key={config.id} className="rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <OverflowTooltipText text={config.name} className="font-medium text-slate-800" />
-                        <div className="mt-2 text-sm text-slate-500">模型：{config.model || "-"}</div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <TooltipIconButton label="编辑 OpenAI 配置" onClick={() => hydrateOpenAiConfig(config)}>
-                          <Pencil className="h-3.5 w-3.5" />
-                        </TooltipIconButton>
-                          <TooltipIconButton
-                            label="删除 OpenAI 配置"
-                            tone="danger"
-                            disabled={deletingIntegrationId === config.id}
-                            onClick={() =>
-                              setDeleteConfirm({
-                                kind: "integration",
-                                id: config.id,
-                                title: "确认删除 OpenAI 配置？",
-                                description: `删除后将移除配置“${config.name}”，该操作不可撤销。`,
-                              })
-                            }
-                          >
-                          {deletingIntegrationId === config.id ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-3.5 w-3.5" />
-                          )}
-                        </TooltipIconButton>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="space-y-4">
-              <MaterialInput
-                label="配置名称"
-                value={openAiForm.name}
-                onChange={(event) => setOpenAiForm((current) => ({ ...current, name: event.target.value }))}
-                placeholder="例如：默认模型 / 高精度筛选"
-              />
-              <MaterialInput
-                label="模型名称"
-                value={openAiForm.model}
-                onChange={(event) => setOpenAiForm((current) => ({ ...current, model: event.target.value }))}
-                placeholder="例如：gpt-4o-mini"
-              />
-              <MaterialInput
-                label={openAiForm.id ? "API Key（留空表示不修改）" : "API Key"}
-                type="password"
-                value={openAiForm.api_key}
-                onChange={(event) => setOpenAiForm((current) => ({ ...current, api_key: event.target.value }))}
-                placeholder="请输入 OpenAI API Key"
-              />
-              <label className="inline-flex h-11 min-w-[96px] items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600">
-                <input
-                  type="checkbox"
-                  className="h-4 w-4"
-                  checked={openAiForm.enabled}
-                  onChange={(event) => setOpenAiForm((current) => ({ ...current, enabled: event.target.checked }))}
-                />
-                启用
-              </label>
-            </div>
-          </div>
-
-          <DialogFooter className="mt-6 flex-row justify-between">
-            <button
-              type="button"
-              onClick={() => setOpenAiForm(emptyOpenAiForm)}
-              className="inline-flex h-11 items-center justify-center rounded-full border border-slate-200 px-4 text-sm font-medium text-slate-500 transition hover:border-slate-300 hover:bg-slate-50"
-            >
-              清空表单
-            </button>
-            <button
-              type="button"
-              onClick={() => void handleSaveOpenAiConfig()}
-              disabled={savingOpenAiConfig}
-              className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-slate-900 px-6 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
-            >
-              {savingOpenAiConfig ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bot className="h-4 w-4" />}
-              保存 OpenAI 配置
-            </button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <Dialog open={Boolean(deleteConfirm)} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
         <DialogContent className="max-w-[460px] rounded-[28px] border-slate-200 bg-white p-6">
           <DialogHeader>
@@ -1471,10 +1173,10 @@ export function ResumeScreeningPage() {
             <button
               type="button"
               onClick={() => void confirmDelete()}
-              disabled={Boolean(deletingJobRuleId || deletingIntegrationId)}
+              disabled={Boolean(deletingJobRuleId)}
               className="inline-flex h-11 items-center justify-center gap-2 rounded-full bg-rose-600 px-6 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:opacity-60"
             >
-              {deletingJobRuleId || deletingIntegrationId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              {deletingJobRuleId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
               确认删除
             </button>
           </DialogFooter>
