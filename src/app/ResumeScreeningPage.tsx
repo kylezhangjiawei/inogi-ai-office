@@ -754,10 +754,17 @@ export function ResumeScreeningPage() {
                   jobRules.map((jobRule) => {
                     const active = selectedJobRuleId === jobRule.id;
                     return (
-                      <button
+                      <div
                         key={jobRule.id}
-                        type="button"
+                        role="button"
+                        tabIndex={0}
                         onClick={() => hydrateRule(jobRule)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            hydrateRule(jobRule);
+                          }
+                        }}
                         className={cn(
                           "w-full rounded-[22px] border px-4 py-4 text-left transition",
                           active
@@ -808,7 +815,7 @@ export function ResumeScreeningPage() {
                             </TooltipIconButton>
                           </div>
                         </div>
-                      </button>
+                      </div>
                     );
                   })
                 )}
