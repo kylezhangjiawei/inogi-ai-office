@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { Bell, ChevronDown, LogOut, Search, Settings } from "lucide-react";
 import { useLocation, useNavigate } from "react-router";
-import { useAuth, getRoleLabel } from "../auth";
+import { getRoleLabel, useAuth } from "../auth";
 import { routeTitleMap } from "../routesConfig";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 
@@ -11,6 +11,17 @@ const notifications = [
   "员工罗成的劳动合同将在 13 天后到期。",
 ];
 
+function resolveRouteTitle(pathname: string) {
+  const directTitle = routeTitleMap[pathname];
+  if (directTitle) return directTitle;
+
+  const matchedPath = Object.keys(routeTitleMap)
+    .filter((path) => path !== "/" && pathname.startsWith(`${path}/`))
+    .sort((a, b) => b.length - a.length)[0];
+
+  return matchedPath ? routeTitleMap[matchedPath] : "系统首页";
+}
+
 export function Header() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -18,8 +29,11 @@ export function Header() {
   const [open, setOpen] = useState(false);
   const today = new Date().toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" });
 
-  const title = useMemo(() => routeTitleMap[location.pathname] ?? "系统首页", [location.pathname]);
-  const breadcrumb = useMemo(() => (location.pathname === "/" ? ["首页", "系统总览"] : ["首页", title]), [location.pathname, title]);
+  const title = useMemo(() => resolveRouteTitle(location.pathname), [location.pathname]);
+  const breadcrumb = useMemo(
+    () => (location.pathname === "/" ? ["首页", "系统总览"] : ["首页", title]),
+    [location.pathname, title],
+  );
 
   return (
     <header className="relative border-b border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.82),rgba(255,255,255,0.72))] px-4 py-4 backdrop-blur-xl md:px-6">

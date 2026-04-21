@@ -1,6 +1,7 @@
 import React from "react";
 import { Outlet } from "react-router";
 import { Header } from "./components/header_1";
+import { MateChatBubble } from "./components/MateChatBubble";
 import { Toaster } from "./components/ui/sonner";
 import { Sidebar } from "./components/sidebar_1";
 
@@ -15,6 +16,7 @@ export function Root() {
             <Outlet />
           </main>
         </div>
+        <MateChatBubble />
         <Toaster richColors position="top-right" />
       </div>
     </div>

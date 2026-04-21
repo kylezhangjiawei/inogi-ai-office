@@ -5,7 +5,10 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "dev": "vite"
+    "dev": "node ./scripts/dev-all.mjs",
+    "dev:web": "vite",
+    "dev:api": "npm --prefix hr-service run start:dev",
+    "build:api": "npm --prefix hr-service run build"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",

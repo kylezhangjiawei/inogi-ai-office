@@ -111,6 +111,10 @@ export function CustomsAI() {
             </div>
           </div>
           <div className="flex flex-wrap gap-3">
+            <Link to="/customs-docs" className="material-button-secondary">
+              去单证处理详情
+              <ArrowRight className="h-4 w-4" />
+            </Link>
             <Link to="/external-docs" className="material-button-secondary">
               去对外资料版本
               <ArrowRight className="h-4 w-4" />

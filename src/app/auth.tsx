@@ -17,6 +17,7 @@ type LoginPayload = {
 
 type AuthContextValue = {
   user: AuthUser | null;
+  hydrated: boolean;
   login: (payload: LoginPayload) => Promise<{ ok: boolean; message?: string }>;
   logout: () => void;
 };
@@ -33,15 +34,24 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (raw) setUser(JSON.parse(raw));
+    if (raw) {
+      try {
+        setUser(JSON.parse(raw));
+      } catch {
+        window.localStorage.removeItem(STORAGE_KEY);
+      }
+    }
+    setHydrated(true);
   }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
+      hydrated,
       async login(payload) {
         const matched = demoUsers.find(
           (item) => item.email === payload.email.trim() && item.password === payload.password.trim(),
@@ -64,7 +74,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setUser(null);
       },
     }),
-    [user],
+    [hydrated, user],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

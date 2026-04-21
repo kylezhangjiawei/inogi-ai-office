@@ -1,6 +1,6 @@
 import React from "react";
 import { CssBaseline, ThemeProvider } from "@mui/material";
-import { createBrowserRouter, Navigate, RouterProvider } from "react-router";
+import { createBrowserRouter, Navigate, RouterProvider, useLocation } from "react-router";
 import { materialTheme } from "../styles/materialTheme";
 import { AfterSalesDetails } from "./AfterSalesDetails";
 import { AfterSalesForm } from "./AfterSalesForm";
@@ -9,21 +9,26 @@ import { AuthProvider, useAuth } from "./auth";
 import { BOMArchive } from "./BOMArchive";
 import { BugLogPage } from "./BugLogPage";
 import { CustomsAI } from "./CustomsAI";
+import { CustomsDocs } from "./CustomsDocs";
 import { Dashboard } from "./Dashboard";
 import { DesignChangesPage } from "./DesignChangesPage";
 import { EBPRPage } from "./EBPRPage";
+import { EmailAIPage } from "./EmailAIPage";
 import { EmployeeArchivePage } from "./EmployeeArchivePage";
 import { ExpenseCenterPage } from "./ExpenseCenterPage";
 import { ExternalDocsPage } from "./ExternalDocsPage";
 import { InspectionReleasePage } from "./InspectionReleasePage";
+import { InquiryPage } from "./InquiryPage";
 import { LoginPage } from "./LoginPage";
 import { MeetingMinutes } from "./MeetingMinutes";
 import { ContractReviewPage } from "./ContractReviewPage";
 import { QualityDMSPage } from "./QualityDMSPage";
+import { QATraceability } from "./QATraceability";
 import { QuickCapturePage } from "./QuickCapturePage";
 import { RAKnowledgePage } from "./RAKnowledgePage";
 import { RDIssues } from "./RDIssues";
 import { RegistrationProjects } from "./RegistrationProjects";
+import { ReportCompressionPage } from "./ReportCompressionPage";
 import { ResumeScreeningPage } from "./ResumeScreeningPage";
 import { RoleManagement } from "./RoleManagement";
 import { Root } from "./Root";
@@ -31,8 +36,20 @@ import { SystemSettings } from "./SystemSettings";
 import { UserManagement } from "./UserManagement";
 
 function ProtectedLayout() {
-  const { user } = useAuth();
-  if (!user) return <Navigate to="/login" replace />;
+  const { user, hydrated } = useAuth();
+  const location = useLocation();
+
+  if (!hydrated) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-slate-50 text-slate-500">
+        正在恢复登录状态...
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <Navigate to="/login" replace state={{ from: location.pathname + location.search + location.hash }} />;
+  }
   return <Root />;
 }
 
@@ -51,9 +68,11 @@ const router = createBrowserRouter([
       { path: "bom-archive", Component: BOMArchive },
       { path: "design-changes", Component: DesignChangesPage },
       { path: "customs-ai", Component: CustomsAI },
+      { path: "customs-docs", Component: CustomsDocs },
       { path: "external-docs", Component: ExternalDocsPage },
       { path: "ra-knowledge", Component: RAKnowledgePage },
       { path: "quality-dms", Component: QualityDMSPage },
+      { path: "qa-traceability", Component: QATraceability },
       { path: "resume-screening", Component: ResumeScreeningPage },
       { path: "employee-archive", Component: EmployeeArchivePage },
       { path: "quick-capture", Component: QuickCapturePage },
@@ -62,7 +81,10 @@ const router = createBrowserRouter([
       { path: "inspection-release", Component: InspectionReleasePage },
       { path: "bug-log", Component: BugLogPage },
       { path: "contract-review", Component: ContractReviewPage },
+      { path: "inquiry", Component: InquiryPage },
       { path: "meeting", Component: MeetingMinutes },
+      { path: "email-ai", Component: EmailAIPage },
+      { path: "report-compression", Component: ReportCompressionPage },
       { path: "users", Component: UserManagement },
       { path: "roles", Component: RoleManagement },
       { path: "settings", Component: SystemSettings },

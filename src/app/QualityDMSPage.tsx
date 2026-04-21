@@ -15,6 +15,7 @@ import {
   ThumbsUp,
   XCircle,
 } from "lucide-react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
 
@@ -231,9 +232,14 @@ export function QualityDMSPage() {
   return (
     <div className="flex h-full min-h-screen flex-col bg-gray-50">
       <div className="border-b border-gray-200 bg-white px-6 py-4">
-        <div className="flex items-center gap-2">
-          <Shield className="h-5 w-5 text-blue-600" />
-          <h1 className="text-lg font-semibold text-gray-900">质量文件管理系统（DMS）</h1>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Shield className="h-5 w-5 text-blue-600" />
+            <h1 className="text-lg font-semibold text-gray-900">质量文件管理系统（DMS）</h1>
+          </div>
+          <Link to="/qa-traceability" className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 transition hover:bg-blue-100">
+            去全链路追溯
+          </Link>
         </div>
       </div>
 

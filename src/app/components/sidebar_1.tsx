@@ -1,5 +1,4 @@
 import React from "react";
-import { Download } from "lucide-react";
 import { NavLink } from "react-router";
 import { navGroups } from "../routesConfig";
 import { cn } from "./ui/utils";
@@ -24,9 +23,9 @@ export function Sidebar() {
             <div className="text-4xl font-bold tracking-tight text-slate-900">18</div>
             <span className="material-chip bg-white/85 text-primary shadow-sm">Pages</span>
           </div>
-          <p className="mt-2 text-sm text-slate-600">已接入登录、用户、角色和主要业务模块流程。</p>
+          <p className="mt-2 text-sm text-slate-600">已接入登录、用户、角色和主要业务模块流程，MateChat 作为全局悬浮助手入口。</p>
           <div className="mt-4 h-2.5 rounded-full bg-white/80 shadow-inner">
-            <div className="h-2.5 w-[84%] rounded-full bg-[linear-gradient(90deg,#42a5f5_0%,#1976d2_65%,#00897b_100%)]" />
+            <div className="h-2.5 w-[86%] rounded-full bg-[linear-gradient(90deg,#42a5f5_0%,#1976d2_65%,#00897b_100%)]" />
           </div>
         </div>
       </div>
@@ -51,19 +50,17 @@ export function Sidebar() {
                   }
                 >
                   {({ isActive }) => (
-                    <>
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={cn(
-                            "flex h-10 w-10 items-center justify-center rounded-2xl transition-colors",
-                            isActive ? "bg-white text-primary shadow-[0_8px_18px_rgba(25,118,210,0.12)]" : "bg-slate-100/80 text-slate-500",
-                          )}
-                        >
-                          <item.icon className="h-5 w-5" />
-                        </div>
-                        <span className="font-medium">{item.label}</span>
+                    <div className="flex items-center gap-3">
+                      <div
+                        className={cn(
+                          "flex h-10 w-10 items-center justify-center rounded-2xl transition-colors",
+                          isActive ? "bg-white text-primary shadow-[0_8px_18px_rgba(25,118,210,0.12)]" : "bg-slate-100/80 text-slate-500",
+                        )}
+                      >
+                        <item.icon className="h-5 w-5" />
                       </div>
-                    </>
+                      <span className="font-medium">{item.label}</span>
+                    </div>
                   )}
                 </NavLink>
               ))}

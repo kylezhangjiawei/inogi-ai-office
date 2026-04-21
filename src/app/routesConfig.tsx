@@ -14,11 +14,12 @@ import {
   LayoutDashboard,
   ListChecks,
   Mail,
-  NotebookPen,
   MessageSquareText,
   MonitorCog,
+  NotebookPen,
   Presentation,
   Receipt,
+  ScanSearch,
   ScrollText,
   ShieldCheck,
   UserCog,
@@ -39,7 +40,10 @@ export type NavGroup = {
 };
 
 export const navGroups: NavGroup[] = [
-  { label: "总览", items: [{ label: "系统首页", path: "/", icon: LayoutDashboard }] },
+  {
+    label: "总览",
+    items: [{ label: "系统首页", path: "/", icon: LayoutDashboard }],
+  },
   {
     label: "信息流转",
     items: [
@@ -54,9 +58,11 @@ export const navGroups: NavGroup[] = [
     label: "文件与知识",
     items: [
       { label: "报关单证 AI", path: "/customs-ai", icon: FileSearch },
+      { label: "报关单证处理", path: "/customs-docs", icon: ScanSearch },
       { label: "对外资料版本", path: "/external-docs", icon: FolderKanban },
       { label: "法规知识库", path: "/ra-knowledge", icon: BookOpen },
       { label: "质量文件 DMS", path: "/quality-dms", icon: ShieldCheck },
+      { label: "全链路追溯", path: "/qa-traceability", icon: BadgeCheck },
     ],
   },
   {
@@ -73,7 +79,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { label: "简历筛选", path: "/resume-screening", icon: GraduationCap },
       { label: "员工入职归档", path: "/employee-archive", icon: Users },
-      { label: "随手记任务分配", path: "/quick-capture", icon: MessageSquareText },
+      { label: "随手记任务分流", path: "/quick-capture", icon: MessageSquareText },
       { label: "费用报销统计", path: "/expense-center", icon: Receipt },
     ],
   },
@@ -96,7 +102,9 @@ export const navGroups: NavGroup[] = [
   },
 ];
 
-export const routeTitleMap = navGroups.flatMap((group) => group.items).reduce<Record<string, string>>((acc, item) => {
-  acc[item.path] = item.label;
-  return acc;
-}, {});
+export const routeTitleMap = navGroups
+  .flatMap((group) => group.items)
+  .reduce<Record<string, string>>((acc, item) => {
+    acc[item.path] = item.label;
+    return acc;
+  }, {});

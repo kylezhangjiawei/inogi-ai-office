@@ -1,16 +1,23 @@
-import React, { useState } from "react";
-import { Navigate, useNavigate } from "react-router";
+import React, { useMemo, useState } from "react";
+import { Navigate, useLocation, useNavigate } from "react-router";
 import { LockKeyhole, User } from "lucide-react";
 import { useAuth } from "./auth";
 
 export function LoginPage() {
-  const { user, login } = useAuth();
+  const { user, hydrated, login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [email, setEmail] = useState("admin@inogi.local");
   const [password, setPassword] = useState("123456");
   const [error, setError] = useState("");
+  const redirectTo = useMemo(() => {
+    const from = (location.state as { from?: string } | null)?.from;
+    return from && from !== "/login" ? from : "/";
+  }, [location.state]);
 
-  if (user) return <Navigate to="/" replace />;
+  if (!hydrated) return null;
+
+  if (user) return <Navigate to={redirectTo} replace />;
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -20,7 +27,7 @@ export function LoginPage() {
       setError(result.message ?? "登录失败");
       return;
     }
-    navigate("/", { replace: true });
+    navigate(redirectTo, { replace: true });
   }
 
   return (

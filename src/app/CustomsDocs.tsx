@@ -1,278 +1,160 @@
-import React, { useState } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import {
-  Upload, FileText, CheckCircle2, AlertTriangle, Edit3,
-  ChevronDown, ChevronUp, Download, FileSpreadsheet, FilePlus2,
-  Sparkles, Loader2
-} from 'lucide-react';
-import { cn } from './components/ui/utils';
-import { toast } from 'sonner';
+import React, { useMemo, useState } from "react";
+import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, FileText, Search, Sparkles, Upload } from "lucide-react";
+import { toast } from "sonner";
+import { cn } from "./components/ui/utils";
 
-const extractedFields = [
-  { key: '收货人', value: 'Medline International Inc.', status: 'ok' },
-  { key: '收货地址', value: '1 Medline Place, Mundelein, IL 60060, USA', status: 'ok' },
-  { key: '产品型号', value: 'OC-5 × 20台, OC-10 × 10台', status: 'ok' },
-  { key: '数量', value: '30台', status: 'ok' },
-  { key: '箱数', value: '15箱', status: 'ok' },
-  { key: '毛重', value: '450 kg', status: 'ok' },
-  { key: '净重', value: '380 kg', status: 'ok' },
-  { key: '贸易条款', value: 'FOB Shanghai', status: 'ok' },
-  { key: '发票金额', value: 'USD 45,000.00', status: 'ok' },
-  { key: 'HS编码', value: '', status: 'missing' },
+type FieldStatus = "ok" | "warning" | "missing";
+
+type DocField = {
+  label: string;
+  value: string;
+  status: FieldStatus;
+};
+
+const extractedFields: DocField[] = [
+  { label: "收货人", value: "Medline International Inc.", status: "ok" },
+  { label: "收货地址", value: "1 Medline Place, Mundelein, IL 60060, USA", status: "ok" },
+  { label: "产品型号", value: "OC-5 x 20 / OC-10 x 10", status: "ok" },
+  { label: "数量", value: "30 台", status: "ok" },
+  { label: "箱数", value: "15 箱", status: "ok" },
+  { label: "贸易条款", value: "FOB Shanghai", status: "ok" },
+  { label: "发票金额", value: "USD 45,000.00", status: "warning" },
+  { label: "HS Code", value: "", status: "missing" },
 ];
 
-const checkItems = [
-  { label: '收货人信息一致', status: 'ok', detail: 'PI 与 PL 收货人完全一致' },
-  { label: '产品型号一致', status: 'ok', detail: 'OC-5 × 20台 & OC-10 × 10台' },
-  { label: '数量一致: 30台', status: 'ok', detail: 'PI、PL、订单三方数量吻合' },
-  { label: '箱数一致: 15箱', status: 'ok', detail: '装箱明细与订单一致' },
-  { label: '金额存在差异', status: 'warning', detail: 'PI 显示 $45,000 / PL 显示 $44,850，差额 $150，可能为运费调整所致，建议与财务核实' },
-  { label: '重量一致', status: 'ok', detail: '毛重 450kg，净重 380kg，与包装记录一致' },
-  { label: '贸易条款一致', status: 'ok', detail: 'FOB Shanghai，双方确认' },
+const validationRows = [
+  { title: "收货人与地址一致", detail: "PI、CI、PL 与订单信息一致。", status: "ok" as const },
+  { title: "产品型号一致", detail: "各单证均识别为 OC-5 / OC-10 组合发货。", status: "ok" as const },
+  { title: "金额存在差异", detail: "PL 金额与 PI 存在 USD 150 差异，建议与财务复核。", status: "warning" as const },
+  { title: "HS Code 缺失", detail: "需要人工补录后再导出正式模板。", status: "warning" as const },
 ];
+
+function statusTone(status: FieldStatus) {
+  if (status === "ok") return "bg-emerald-50 text-emerald-700";
+  if (status === "warning") return "bg-amber-50 text-amber-700";
+  return "bg-red-50 text-red-600";
+}
 
 export function CustomsDocs() {
-  const [extracting, setExtracting] = useState(false);
-  const [extracted, setExtracted] = useState(false);
-  const [editField, setEditField] = useState<string | null>(null);
-  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
-  const [expandedWarning, setExpandedWarning] = useState(false);
-  const [hsCode, setHsCode] = useState('');
+  const [keyword, setKeyword] = useState("");
+  const [hsCode, setHsCode] = useState("9019.20.0000");
+  const [uploadedCount, setUploadedCount] = useState(3);
 
-  const handleExtract = () => {
-    setExtracting(true);
-    setTimeout(() => {
-      setExtracting(false);
-      setExtracted(true);
-      toast.success('AI 字段提取完成，共识别 12/13 个字段');
-    }, 2200);
-  };
+  const filteredFields = useMemo(() => {
+    const normalized = keyword.trim().toLowerCase();
+    if (!normalized) return extractedFields;
+    return extractedFields.filter((field) => field.label.toLowerCase().includes(normalized));
+  }, [keyword]);
+
+  const warningCount = validationRows.filter((row) => row.status === "warning").length;
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6">
-      <div>
-        <h1 className="text-xl font-bold text-gray-800">报关单证自动处理</h1>
-        <p className="text-sm text-gray-400 mt-0.5">AI 字段提取 · 一致性校验 · 自动生成报关文件</p>
-      </div>
-
-      <div className="grid grid-cols-12 gap-5 items-start">
-        {/* Panel 1 - File Upload */}
-        <motion.div
-          initial={{ opacity: 0, x: -10 }}
-          animate={{ opacity: 1, x: 0 }}
-          className="col-span-12 md:col-span-3 space-y-5"
-        >
-          <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-            <h3 className="text-sm font-bold text-gray-800 mb-4 flex items-center gap-2">
-              <Upload className="w-4 h-4 text-[#1976D2]" />
-              上传源文件
-            </h3>
-
-            <div className="border-2 border-dashed border-blue-100 rounded-xl p-6 text-center bg-blue-50/30 hover:bg-blue-50 transition-colors cursor-pointer group">
-              <div className="w-10 h-10 bg-white rounded-xl shadow-sm flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform">
-                <Upload className="w-5 h-5 text-[#1976D2]" />
-              </div>
-              <p className="text-xs font-bold text-gray-600">上传 PI / 订单文件</p>
-              <p className="text-[10px] text-gray-400 mt-1">支持 PDF、Excel、Word</p>
+    <div className="mx-auto max-w-7xl space-y-6">
+      <section className="material-card p-6 md:p-8">
+        <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+          <div className="space-y-3">
+            <span className="material-chip bg-blue-50 text-blue-700">Customs Workflow</span>
+            <div>
+              <h2 className="text-[2rem] font-bold tracking-tight text-slate-900">报关单证自动处理</h2>
+              <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
+                这页补齐了报关单证明细处理能力，包含字段抽取、异常校验、人工补录和模板导出。
+              </p>
             </div>
-
-            <div className="mt-4 space-y-2">
-              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">已上传文件</p>
-              {[
-                { name: 'PI_Medline_2024Q2.pdf', type: 'PDF' },
-                { name: 'PO_20240407.xlsx', type: 'XLS' },
-              ].map((f) => (
-                <div key={f.name} className="flex items-center gap-3 p-2.5 bg-green-50/50 border border-green-100 rounded-xl">
-                  <div className="w-7 h-7 bg-white rounded-lg shadow-sm flex items-center justify-center">
-                    {f.type === 'PDF' ? <FileText className="w-3.5 h-3.5 text-red-500" /> : <FileSpreadsheet className="w-3.5 h-3.5 text-green-600" />}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[11px] font-bold text-gray-700 truncate">{f.name}</p>
-                  </div>
-                  <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
-                </div>
-              ))}
-            </div>
-
-            <button
-              onClick={handleExtract}
-              disabled={extracting}
-              className="mt-4 w-full flex items-center justify-center gap-2 py-2.5 bg-[#1976D2] text-white rounded-xl text-xs font-bold shadow-lg shadow-blue-900/10 hover:shadow-xl transition-all disabled:opacity-60"
-            >
-              {extracting ? (
-                <><Loader2 className="w-4 h-4 animate-spin" />正在提取...</>
-              ) : (
-                <>开始提取字段 →</>
-              )}
+          </div>
+          <div className="flex gap-3">
+            <button type="button" onClick={() => setUploadedCount((count) => count + 1)} className="material-button-secondary">
+              <Upload className="h-4 w-4" />
+              上传单证
+            </button>
+            <button type="button" onClick={() => toast.success("已生成 CI / PL 模板草稿")} className="material-button-primary">
+              <Download className="h-4 w-4" />
+              导出模板
             </button>
           </div>
-        </motion.div>
+        </div>
+      </section>
 
-        {/* Panel 2 - Extracted Fields */}
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="col-span-12 md:col-span-5 space-y-5"
-        >
-          <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-bold text-gray-800 flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-[#1976D2]" />
-                AI 字段提取结果
-              </h3>
-              {extracted && (
-                <span className="px-2.5 py-1 bg-blue-50 text-[#1976D2] rounded-full text-[10px] font-bold border border-blue-100">
-                  已提取 12/13 个字段
-                </span>
-              )}
-            </div>
+      <section className="grid gap-4 md:grid-cols-3">
+        <div className="material-card-flat p-5">
+          <div className="text-sm font-medium text-slate-500">已上传单证</div>
+          <div className="mt-3 text-4xl font-bold tracking-tight text-slate-900">{uploadedCount}</div>
+        </div>
+        <div className="material-card-flat p-5">
+          <div className="text-sm font-medium text-slate-500">待人工复核</div>
+          <div className="mt-3 text-4xl font-bold tracking-tight text-slate-900">{warningCount}</div>
+        </div>
+        <div className="material-card-flat p-5">
+          <div className="text-sm font-medium text-slate-500">模板状态</div>
+          <div className="mt-3 text-4xl font-bold tracking-tight text-slate-900">就绪</div>
+        </div>
+      </section>
 
-            <AnimatePresence>
-              {!extracted && !extracting && (
-                <div className="py-10 text-center text-gray-300">
-                  <FilePlus2 className="w-10 h-10 mx-auto mb-2 opacity-40" />
-                  <p className="text-xs font-medium">上传文件后点击提取按钮</p>
-                </div>
-              )}
-              {extracting && (
-                <div className="py-10 text-center">
-                  <div className="w-12 h-12 mx-auto mb-3 relative">
-                    <div className="w-12 h-12 border-4 border-blue-100 rounded-full"></div>
-                    <div className="w-12 h-12 border-4 border-[#1976D2] border-t-transparent rounded-full animate-spin absolute top-0"></div>
-                  </div>
-                  <p className="text-xs font-bold text-gray-600">AI 正在识别字段...</p>
-                </div>
-              )}
-            </AnimatePresence>
-
-            {extracted && (
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-2">
-                {extractedFields.map((field) => (
-                  <div key={field.key} className={cn(
-                    'flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-all',
-                    field.status === 'missing' ? 'bg-orange-50/50 border-orange-100' : 'bg-gray-50/40 border-transparent hover:border-gray-100 hover:bg-white'
-                  )}>
-                    <span className="text-[11px] font-bold text-gray-400 w-20 shrink-0">{field.key}</span>
-                    {field.status === 'missing' ? (
-                      <input
-                        type="text"
-                        placeholder="请手动输入"
-                        value={hsCode}
-                        onChange={e => setHsCode(e.target.value)}
-                        className="flex-1 text-xs font-medium bg-white border border-orange-200 rounded-lg px-2.5 py-1.5 outline-none focus:border-orange-400 transition-colors"
-                      />
-                    ) : editField === field.key ? (
-                      <input
-                        type="text"
-                        defaultValue={fieldValues[field.key] ?? field.value}
-                        onBlur={e => { setFieldValues(p => ({ ...p, [field.key]: e.target.value })); setEditField(null); }}
-                        autoFocus
-                        className="flex-1 text-xs font-medium bg-white border border-blue-200 rounded-lg px-2.5 py-1.5 outline-none"
-                      />
-                    ) : (
-                      <span className="flex-1 text-xs font-medium text-gray-700 truncate">{fieldValues[field.key] ?? field.value}</span>
-                    )}
-                    {field.status === 'missing' ? (
-                      <AlertTriangle className="w-3.5 h-3.5 text-orange-500 shrink-0" />
-                    ) : (
-                      <button onClick={() => setEditField(field.key)} className="p-1 hover:bg-gray-100 rounded-lg transition-colors shrink-0">
-                        <Edit3 className="w-3 h-3 text-gray-400" />
-                      </button>
-                    )}
-                  </div>
-                ))}
-
-                <div className="pt-3">
-                  <button
-                    onClick={() => toast.success('正在生成 CI/PL 单证模板...')}
-                    className="w-full py-2.5 bg-[#1976D2] text-white rounded-xl text-xs font-bold shadow-lg shadow-blue-900/10 hover:shadow-xl transition-all"
-                  >
-                    确认字段，生成单证 →
-                  </button>
-                </div>
-              </motion.div>
-            )}
-          </div>
-        </motion.div>
-
-        {/* Panel 3 - Validation Report */}
-        <motion.div
-          initial={{ opacity: 0, x: 10 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ delay: 0.15 }}
-          className="col-span-12 md:col-span-4 space-y-5"
-        >
-          <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
-            <h3 className="text-sm font-bold text-gray-800 mb-4">一致性校验报告</h3>
-
-            <div className="flex flex-col items-center py-4 mb-4">
-              <div className="w-16 h-16 bg-green-50 rounded-full flex items-center justify-center mb-2">
-                <CheckCircle2 className="w-8 h-8 text-green-500" />
+      <section className="grid grid-cols-12 gap-6">
+        <div className="col-span-12 xl:col-span-7">
+          <div className="material-card p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-slate-900">字段抽取结果</h3>
+                <p className="mt-1 text-sm text-slate-500">支持搜索字段、人工补录和异常标记。</p>
               </div>
-              <p className="text-lg font-bold text-green-600">校验通过 9/10</p>
-              <p className="text-[11px] text-gray-400 font-medium">发现 1 处需关注的差异</p>
+              <Sparkles className="h-5 w-5 text-primary" />
             </div>
-
-            <div className="space-y-2">
-              {checkItems.map((item, idx) => (
-                <div key={idx}>
-                  <button
-                    className={cn(
-                      'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all',
-                      item.status === 'warning' ? 'bg-orange-50 border border-orange-100' : 'bg-gray-50/40 hover:bg-gray-50'
-                    )}
-                    onClick={() => item.status === 'warning' && setExpandedWarning(!expandedWarning)}
-                  >
-                    {item.status === 'ok' ? (
-                      <CheckCircle2 className="w-4 h-4 text-green-500 shrink-0" />
+            <div className="relative mb-4">
+              <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input value={keyword} onChange={(e) => setKeyword(e.target.value)} className="material-input pl-11" placeholder="搜索字段" />
+            </div>
+            <div className="space-y-3">
+              {filteredFields.map((field) => (
+                <div key={field.label} className="flex items-center gap-4 rounded-[22px] border border-slate-100 bg-slate-50/70 px-4 py-3">
+                  <div className="w-24 text-sm font-semibold text-slate-500">{field.label}</div>
+                  <div className="flex-1">
+                    {field.status === "missing" ? (
+                      <input value={hsCode} onChange={(e) => setHsCode(e.target.value)} className="material-input" placeholder="补录 HS Code" />
                     ) : (
-                      <AlertTriangle className="w-4 h-4 text-orange-500 shrink-0" />
+                      <div className="text-sm font-medium text-slate-800">{field.value}</div>
                     )}
-                    <span className={cn(
-                      'flex-1 text-[11px] font-bold',
-                      item.status === 'warning' ? 'text-orange-700' : 'text-gray-600'
-                    )}>{item.label}</span>
-                    {item.status === 'warning' && (
-                      expandedWarning ? <ChevronUp className="w-3.5 h-3.5 text-orange-400" /> : <ChevronDown className="w-3.5 h-3.5 text-orange-400" />
-                    )}
-                  </button>
-                  <AnimatePresence>
-                    {item.status === 'warning' && expandedWarning && (
-                      <motion.div
-                        initial={{ height: 0, opacity: 0 }}
-                        animate={{ height: 'auto', opacity: 1 }}
-                        exit={{ height: 0, opacity: 0 }}
-                        className="overflow-hidden"
-                      >
-                        <div className="mx-2 mb-1 px-3 py-2.5 bg-orange-50/60 border border-orange-100 rounded-b-xl border-t-0">
-                          <p className="text-[11px] text-orange-600 font-medium leading-relaxed">{item.detail}</p>
-                        </div>
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
+                  </div>
+                  <span className={cn("material-chip", statusTone(field.status))}>
+                    {field.status === "ok" ? "正常" : field.status === "warning" ? "需复核" : "缺失"}
+                  </span>
                 </div>
               ))}
             </div>
+          </div>
+        </div>
 
-            <div className="mt-4 space-y-2.5">
-              <button
-                onClick={() => toast.info('正在生成校验报告 PDF...')}
-                className="w-full py-2 border border-gray-200 text-gray-600 rounded-xl text-xs font-bold hover:bg-gray-50 transition-all flex items-center justify-center gap-2"
-              >
-                <Download className="w-3.5 h-3.5" />
-                导出校验报告 PDF
+        <div className="col-span-12 xl:col-span-5">
+          <div className="material-card p-6">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h3 className="text-slate-900">一致性校验</h3>
+                <p className="mt-1 text-sm text-slate-500">重点关注差异项和缺失项。</p>
+              </div>
+              <FileText className="h-5 w-5 text-primary" />
+            </div>
+            <div className="space-y-3">
+              {validationRows.map((row) => (
+                <div key={row.title} className={cn("rounded-[22px] border px-4 py-4", row.status === "ok" ? "border-emerald-100 bg-emerald-50/70" : "border-amber-100 bg-amber-50/70")}>
+                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+                    {row.status === "ok" ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <AlertTriangle className="h-4 w-4 text-amber-600" />}
+                    {row.title}
+                  </div>
+                  <div className="mt-2 text-sm leading-6 text-slate-600">{row.detail}</div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <button type="button" onClick={() => toast.success("已生成校验摘要")} className="material-button-secondary">
+                <FileSpreadsheet className="h-4 w-4" />
+                导出校验表
               </button>
-              <button
-                onClick={() => toast.success('CI/PL 模板生成中...')}
-                className="w-full py-2.5 bg-[#1976D2] text-white rounded-xl text-xs font-bold shadow-lg shadow-blue-900/10 hover:shadow-xl transition-all"
-              >
-                生成 CI/PL 模板
+              <button type="button" onClick={() => toast.success("已同步回报关 AI 主流程")} className="material-button-primary">
+                返回主流程
               </button>
             </div>
           </div>
-        </motion.div>
-      </div>
+        </div>
+      </section>
     </div>
   );
 }

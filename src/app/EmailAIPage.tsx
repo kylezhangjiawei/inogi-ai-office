@@ -1,280 +1,427 @@
-import React, { useState } from "react";
-import { Bot, ChevronDown, ChevronUp, Copy, Mail, RefreshCw, Sparkles } from "lucide-react";
+import React, { useMemo, useState } from "react";
+import {
+  Bot,
+  ChevronLeft,
+  ChevronRight,
+  Copy,
+  Mail,
+  RefreshCw,
+  Send,
+  Sparkles,
+} from "lucide-react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
 
 type TargetLang = "English" | "Español";
 type Tone = "正式" | "友好" | "强硬" | "委婉拒绝";
+type TemplateCategory = "全部" | "销售" | "售后" | "合作";
 
-interface Template {
+type Template = {
   id: string;
+  category: Exclude<TemplateCategory, "全部">;
   label: string;
   draft: string;
-}
+  summary: string;
+};
+
+type GeneratedHistory = {
+  id: string;
+  scenario: string;
+  language: TargetLang;
+  owner: string;
+  updatedAt: string;
+};
 
 const templates: Template[] = [
-  { id: "collect", label: "催款通知", draft: "您好，关于我司发出的发票（编号：INV-2026-XXX），金额为 XXX 元，付款期限已于 XX 日到期。请您尽快安排付款，如有任何问题欢迎与我们联系。" },
-  { id: "quote_reply", label: "询价回复", draft: "您好，感谢贵方对我司产品的关注。针对您询问的 CPAP 系列产品，现报价如下：型号 X300，单价 $XXX，MOQ 10 台，含 CE 认证。如需详细规格及报价单，请回复确认。" },
-  { id: "complaint", label: "投诉处理", draft: "您好，非常抱歉给您带来了不便。我们已收到您反映的问题，技术团队将在 24 小时内与您取得联系，并提供完整的解决方案。感谢您的耐心和理解。" },
-  { id: "partner", label: "合作洽谈", draft: "您好，感谢您对与我司合作的兴趣。我们期待探讨在贵地区开展分销合作的可能性。请问方便安排一次视频会议，进一步介绍双方业务情况吗？" },
-  { id: "delay", label: "延期说明", draft: "您好，由于近期原材料供应紧张，您的订单（PO-XXXX）交货期将延后约 X 周，预计新发货日期为 XXXX 年 XX 月 XX 日。对此造成的不便深表歉意，如有疑问请联系我司。" },
-  { id: "reject_quote", label: "拒绝报价", draft: "您好，感谢您发来的报价方案。经过内部评估，目前贵方价格与我方预算存在较大差距，暂时无法推进本次合作。期待日后有机会进一步合作，谢谢。" },
-  { id: "thanks", label: "感谢函", draft: "您好，非常感谢贵方在合作过程中的支持与配合。贵方的专业态度和高效执行让我们印象深刻，期待未来继续深化合作，共创佳绩。" },
+  {
+    id: "quote",
+    category: "销售",
+    label: "询价回复",
+    summary: "用于首轮报价、规格说明与交付确认",
+    draft: "客户询问 50 台 BiPAP 规格和价格，请生成一封正式英文邮件，补充交付周期与服务范围。",
+  },
+  {
+    id: "partner",
+    category: "合作",
+    label: "渠道合作邀约",
+    summary: "适用于分销合作、首轮拜访与资料包发送",
+    draft: "客户有墨西哥渠道合作意向，请生成一封友好的英文回复，询问首批数量、付款方式和会议时间。",
+  },
+  {
+    id: "complaint",
+    category: "售后",
+    label: "售后故障回复",
+    summary: "用于收集序列号、故障照片和保修信息",
+    draft: "客户反馈 3 台设备报 E3 故障，请生成一封英文售后回复，要求提供序列号、购买日期和故障照片。",
+  },
+  {
+    id: "followup",
+    category: "销售",
+    label: "跟进催回复",
+    summary: "用于报价后 3 天跟进客户决策进展",
+    draft: "给德国客户发送一封跟进邮件，提醒其查看报价单，并邀请安排 15 分钟线上沟通。",
+  },
+  {
+    id: "tender",
+    category: "合作",
+    label: "招标资料确认",
+    summary: "适用于版本核对、IFU 语言和投标时点确认",
+    draft: "客户需要西班牙语 IFU 和 CE MDR 材料，请生成一封正式邮件说明当前可提供版本和后续补件路径。",
+  },
 ];
 
-const generatedEmails: Record<string, Record<TargetLang, { subject: string; body: string }>> = {
-  collect: {
+const historyItems: GeneratedHistory[] = [
+  { id: "H-01", scenario: "墨西哥渠道合作首轮回复", language: "English", owner: "Iris", updatedAt: "11:20" },
+  { id: "H-02", scenario: "德国报价跟进邮件", language: "English", owner: "Ava", updatedAt: "昨天" },
+  { id: "H-03", scenario: "西语 IFU 资料确认", language: "Español", owner: "Noah", updatedAt: "昨天" },
+  { id: "H-04", scenario: "印度售后故障收集", language: "English", owner: "Leo", updatedAt: "2天前" },
+];
+
+const generatedContent: Record<string, Record<TargetLang, { subject: string; body: string }>> = {
+  quote: {
     English: {
-      subject: "Payment Reminder – Invoice INV-2026-XXX",
-      body: "Dear [Customer Name],\n\nI hope this message finds you well. We would like to kindly remind you that Invoice INV-2026-XXX, amounting to USD XXX, was due on [date].\n\nWould you please arrange the payment at your earliest convenience? Should you have any questions or concerns, please do not hesitate to reach out to us.\n\nThank you for your continued partnership.\n\nBest regards,\nINOGI Finance Team",
+      subject: "Quotation and Specification Pack for 50 BiPAP Units",
+      body:
+        "Dear Customer,\n\nThank you for your interest in INOGI's BiPAP range. Please find below the initial commercial outline for 50 units.\n\n- Product: BiPAP Series B20\n- Estimated lead time: 4-6 weeks after confirmation\n- Service coverage: remote troubleshooting and local distributor onboarding support\n- Next step: confirm payment terms and delivery destination so that we can issue a formal quotation\n\nIf needed, we can also share the detailed specification sheet today.\n\nBest regards,\nINOGI Sales Team",
     },
     Español: {
-      subject: "Recordatorio de Pago – Factura INV-2026-XXX",
-      body: "Estimado/a [Nombre del cliente],\n\nEsperamos que se encuentre bien. Le recordamos amablemente que la factura INV-2026-XXX, por un importe de USD XXX, venció el [fecha].\n\nLe agradecemos que gestione el pago a la brevedad posible. Si tiene alguna pregunta, no dude en contactarnos.\n\nGracias por su continua colaboración.\n\nAtentamente,\nEquipo Financiero INOGI",
+      subject: "Cotización y paquete técnico para 50 unidades BiPAP",
+      body:
+        "Estimado cliente,\n\nGracias por su interés en la línea BiPAP de INOGI. A continuación compartimos el esquema comercial inicial para 50 unidades.\n\n- Producto: Serie BiPAP B20\n- Plazo estimado: 4 a 6 semanas tras la confirmación\n- Cobertura de servicio: soporte remoto y apoyo para incorporación del distribuidor local\n- Siguiente paso: confirmar condiciones de pago y destino de entrega para emitir la cotización formal\n\nSi lo desea, podemos enviar hoy mismo la ficha técnica detallada.\n\nAtentamente,\nEquipo de Ventas INOGI",
     },
   },
-  quote_reply: {
+  partner: {
     English: {
-      subject: "Quotation for CPAP Series – INOGI",
-      body: "Dear [Customer Name],\n\nThank you for your interest in INOGI's CPAP product line.\n\nPlease find below our quotation for Model X300:\n• Unit Price: USD XXX\n• Minimum Order Quantity: 10 units\n• Certifications: CE, FDA\n• Lead Time: 4–6 weeks\n\nIf you require detailed specifications or a formal quotation document, please let us know and we will send it promptly.\n\nBest regards,\nINOGI Sales Team",
+      subject: "Next Steps for Distribution Cooperation in Mexico",
+      body:
+        "Dear Partner,\n\nThank you for your interest in representing INOGI in Mexico. We are glad to support the next discussion round.\n\nTo tailor the cooperation package, could you please confirm your expected first-order volume, preferred payment method, and available meeting slots next week? Once received, we will prepare the commercial pack and certification summary.\n\nLooking forward to your reply.\n\nBest regards,\nINOGI Overseas Sales Team",
     },
     Español: {
-      subject: "Cotización para Serie CPAP – INOGI",
-      body: "Estimado/a [Nombre del cliente],\n\nGracias por su interés en la línea de productos CPAP de INOGI.\n\nA continuación le presentamos nuestra cotización para el Modelo X300:\n• Precio unitario: USD XXX\n• Cantidad mínima de pedido: 10 unidades\n• Certificaciones: CE, FDA\n• Plazo de entrega: 4–6 semanas\n\nSi necesita especificaciones detalladas o un documento de cotización formal, háganoslo saber.\n\nAtentamente,\nEquipo de Ventas INOGI",
+      subject: "Próximos pasos para la cooperación de distribución en México",
+      body:
+        "Estimado socio,\n\nGracias por su interés en representar a INOGI en México. Nos alegra avanzar a la siguiente ronda de conversación.\n\nPara preparar un paquete comercial adecuado, ¿podría confirmar el volumen esperado del primer pedido, el método de pago preferido y su disponibilidad para una reunión la próxima semana? Con ello enviaremos el resumen comercial y de certificaciones.\n\nQuedamos atentos.\n\nAtentamente,\nEquipo Comercial Internacional de INOGI",
+    },
+  },
+  complaint: {
+    English: {
+      subject: "After-sales Support Request for E3 Fault Cases",
+      body:
+        "Dear Customer,\n\nWe are sorry to hear about the E3 fault on your devices. To open the service case and arrange the next step, please share the serial numbers, purchase date, and photos or videos of the fault display.\n\nOnce we receive the information, our service team will review the warranty scope and respond with the repair or replacement path within one business day.\n\nBest regards,\nINOGI After-sales Team",
+    },
+    Español: {
+      subject: "Solicitud de soporte posventa para fallas E3",
+      body:
+        "Estimado cliente,\n\nLamentamos conocer la falla E3 en sus equipos. Para abrir el caso de servicio y organizar el siguiente paso, por favor comparta los números de serie, la fecha de compra y fotos o videos del error.\n\nUna vez recibida la información, nuestro equipo de posventa revisará la cobertura de garantía y responderá con la ruta de reparación o reemplazo dentro de un día hábil.\n\nAtentamente,\nEquipo de Posventa INOGI",
     },
   },
 };
 
-const defaultGenerated: Record<TargetLang, { subject: string; body: string }> = {
-  English: {
-    subject: "[AI Generated Subject]",
-    body: "Dear [Recipient],\n\nThank you for your message. We have carefully reviewed your inquiry and would like to provide the following response.\n\n[AI Generated content based on your Chinese draft will appear here]\n\nPlease feel free to contact us if you need further assistance.\n\nBest regards,\nINOGI Team",
-  },
-  Español: {
-    subject: "[Asunto Generado por IA]",
-    body: "Estimado/a [Destinatario],\n\nGracias por su mensaje. Hemos revisado cuidadosamente su consulta y nos gustaría proporcionarle la siguiente respuesta.\n\n[El contenido generado por IA basado en su borrador en chino aparecerá aquí]\n\nNo dude en contactarnos si necesita más ayuda.\n\nAtentamente,\nEquipo INOGI",
-  },
-};
+const pageSize = 3;
 
 export function EmailAIPage() {
   const [draftText, setDraftText] = useState("");
   const [targetLang, setTargetLang] = useState<TargetLang>("English");
   const [tone, setTone] = useState<Tone>("正式");
+  const [category, setCategory] = useState<TemplateCategory>("全部");
+  const [templatePage, setTemplatePage] = useState(1);
   const [generated, setGenerated] = useState<{ subject: string; body: string } | null>(null);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [templateOpen, setTemplateOpen] = useState(false);
-  const [editSubject, setEditSubject] = useState("");
-  const [editBody, setEditBody] = useState("");
+
+  const filteredTemplates = useMemo(
+    () => templates.filter((item) => category === "全部" || item.category === category),
+    [category],
+  );
+
+  const totalPages = Math.max(1, Math.ceil(filteredTemplates.length / pageSize));
+  const pagedTemplates = filteredTemplates.slice((templatePage - 1) * pageSize, templatePage * pageSize);
 
   const handleGenerate = () => {
     if (!draftText.trim()) {
-      toast.error("请输入中文草稿或要点");
+      toast.error("请先输入中文草稿或选择模板。");
       return;
     }
     setIsGenerating(true);
-    setTimeout(() => {
-      // Try to match a template
-      const matched = templates.find((t) => draftText.includes(t.draft.slice(0, 10)));
-      const result = matched
-        ? generatedEmails[matched.id]?.[targetLang] ?? defaultGenerated[targetLang]
-        : defaultGenerated[targetLang];
-      setGenerated(result);
-      setEditSubject(result.subject);
-      setEditBody(result.body);
+    window.setTimeout(() => {
+      const matched = templates.find((item) => draftText.includes(item.label) || draftText.includes(item.draft.slice(0, 12)));
+      const content =
+        (matched && generatedContent[matched.id]?.[targetLang]) || {
+          subject: `AI Draft for ${targetLang}`,
+          body:
+            "Dear Customer,\n\nThank you for your message. We reviewed your request and prepared a first-round response. Please confirm the business timing, required documents, and expected delivery plan so that we can tailor the next version.\n\nBest regards,\nINOGI Team",
+        };
+      setGenerated({
+        subject: content.subject,
+        body: `${content.body}\n\n[当前语气：${tone}]`,
+      });
       setIsGenerating(false);
-      toast.success("邮件已生成");
-    }, 1200);
-  };
-
-  const handleRegenerate = () => {
-    setIsGenerating(true);
-    setTimeout(() => {
-      const result = generated ?? defaultGenerated[targetLang];
-      setEditBody(result.body + "\n\n[重新生成 · " + new Date().toLocaleTimeString() + "]");
-      setIsGenerating(false);
-      toast.success("已重新生成");
-    }, 800);
-  };
-
-  const handleTemplateClick = (tpl: Template) => {
-    setDraftText(tpl.draft);
-    setTemplateOpen(false);
-    toast.info(`已填入「${tpl.label}」模板`);
+      toast.success("邮件草稿已生成。");
+    }, 900);
   };
 
   return (
-    <div className="flex h-full gap-4 p-4 bg-gray-50 min-h-0">
-      {/* Left: Input */}
-      <div className="w-[420px] flex-shrink-0 flex flex-col gap-4">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 flex flex-col gap-4">
+    <div className="flex h-full min-h-0 gap-4 bg-slate-50 p-4">
+      <aside className="flex w-[360px] flex-shrink-0 flex-col gap-4">
+        <section className="material-card p-5">
           <div className="flex items-center gap-2">
-            <Bot className="w-4 h-4 text-blue-500" />
-            <h2 className="font-semibold text-gray-800 text-sm">邮件 AI 辅助写作</h2>
+            <Bot className="h-4 w-4 text-blue-500" />
+            <h2 className="text-sm font-semibold text-slate-800">邮件 AI 写作</h2>
           </div>
-          <div>
-            <label className="text-xs text-gray-500 mb-1.5 block">输入中文意思或草稿</label>
-            <textarea
-              className="w-full h-36 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 resize-none focus:outline-none focus:ring-1 focus:ring-blue-400 placeholder:text-gray-300"
-              placeholder="输入中文意思或草稿，AI 将翻译并润色为商务邮件..."
-              value={draftText}
-              onChange={(e) => setDraftText(e.target.value)}
-            />
+          <p className="mt-2 text-sm leading-6 text-slate-500">把中文意图整理为可发送的外文商务邮件，并保留模板、历史和发送前预览。</p>
+
+          <label className="mt-4 block text-xs text-slate-400">中文草稿 / 指令</label>
+          <textarea
+            value={draftText}
+            onChange={(event) => setDraftText(event.target.value)}
+            placeholder="输入中文草稿、客户场景或下一步行动要求"
+            className="mt-2 h-36 w-full rounded-[24px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-7 text-slate-700 outline-none transition focus:border-blue-300 focus:bg-white"
+          />
+
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            {(["English", "Español"] as const).map((item) => (
+              <button
+                key={item}
+                onClick={() => setTargetLang(item)}
+                className={cn(
+                  "rounded-2xl px-3 py-2 text-sm font-medium transition",
+                  targetLang === item ? "bg-blue-500 text-white" : "bg-slate-100 text-slate-500",
+                )}
+              >
+                {item}
+              </button>
+            ))}
           </div>
-          <div>
-            <label className="text-xs text-gray-500 mb-1.5 block">目标语言</label>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(["正式", "友好", "强硬", "委婉拒绝"] as const).map((item) => (
+              <button
+                key={item}
+                onClick={() => setTone(item)}
+                className={cn(
+                  "rounded-full border px-3 py-1 text-xs transition",
+                  tone === item ? "border-blue-300 bg-blue-50 text-blue-700" : "border-slate-200 text-slate-500",
+                )}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-5 flex flex-wrap gap-3">
+            <button onClick={handleGenerate} disabled={isGenerating} className="material-button-primary">
+              {isGenerating ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              生成邮件
+            </button>
+            <Link to="/inquiry" className="material-button-secondary">
+              返回询盘页
+            </Link>
+          </div>
+        </section>
+
+        <section className="material-card p-5">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-800">模板库</h3>
+            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-500">{filteredTemplates.length} 条</span>
+          </div>
+          <div className="mt-3 flex gap-2">
+            {(["全部", "销售", "售后", "合作"] as const).map((item) => (
+              <button
+                key={item}
+                onClick={() => {
+                  setCategory(item);
+                  setTemplatePage(1);
+                }}
+                className={cn(
+                  "rounded-full px-3 py-1.5 text-xs font-medium transition",
+                  category === item ? "bg-slate-900 text-white" : "bg-slate-100 text-slate-500",
+                )}
+              >
+                {item}
+              </button>
+            ))}
+          </div>
+          <div className="mt-4 space-y-3">
+            {pagedTemplates.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => {
+                  setDraftText(item.draft);
+                  toast.success(`已填入模板：${item.label}`);
+                }}
+                className="w-full rounded-[24px] border border-slate-100 bg-slate-50/80 p-4 text-left transition hover:-translate-y-0.5"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-semibold text-slate-800">{item.label}</div>
+                  <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-slate-500">{item.category}</span>
+                </div>
+                <p className="mt-2 text-sm leading-6 text-slate-500">{item.summary}</p>
+              </button>
+            ))}
+          </div>
+          <div className="mt-4 flex items-center justify-between text-xs text-slate-500">
+            <span>
+              第 {templatePage} / {totalPages} 页
+            </span>
             <div className="flex gap-2">
-              {(["English", "Español"] as const).map((l) => (
-                <button
-                  key={l}
-                  onClick={() => setTargetLang(l)}
-                  className={cn(
-                    "flex-1 text-sm py-1.5 rounded-lg font-medium border transition-colors",
-                    targetLang === l
-                      ? "bg-blue-500 text-white border-blue-500"
-                      : "bg-white text-gray-600 border-gray-200 hover:border-blue-300"
-                  )}
-                >
-                  {l}
-                </button>
-              ))}
+              <button
+                disabled={templatePage === 1}
+                onClick={() => setTemplatePage((value) => Math.max(1, value - 1))}
+                className="rounded-full border border-slate-200 p-1.5 disabled:opacity-40"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </button>
+              <button
+                disabled={templatePage === totalPages}
+                onClick={() => setTemplatePage((value) => Math.min(totalPages, value + 1))}
+                className="rounded-full border border-slate-200 p-1.5 disabled:opacity-40"
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </button>
             </div>
           </div>
-          <div>
-            <label className="text-xs text-gray-500 mb-1.5 block">语气风格</label>
-            <div className="flex gap-1.5 flex-wrap">
-              {(["正式", "友好", "强硬", "委婉拒绝"] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTone(t)}
-                  className={cn(
-                    "text-xs px-2.5 py-1 rounded-full border transition-colors",
-                    tone === t
-                      ? "bg-blue-50 border-blue-400 text-blue-700 font-medium"
-                      : "border-gray-200 text-gray-500 hover:border-gray-300"
-                  )}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
-          </div>
-          <button
-            onClick={handleGenerate}
-            disabled={isGenerating}
-            className="w-full flex items-center justify-center gap-2 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-300 text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
-          >
-            {isGenerating ? (
-              <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                生成中...
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4" />
-                AI 生成邮件
-              </>
-            )}
-          </button>
-        </div>
+        </section>
+      </aside>
 
-        {/* Template Library */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100">
-          <button
-            onClick={() => setTemplateOpen(!templateOpen)}
-            className="w-full flex items-center justify-between px-5 py-3.5 text-sm font-medium text-gray-700"
-          >
-            <span>场景模板库</span>
-            {templateOpen ? (
-              <ChevronUp className="w-4 h-4 text-gray-400" />
-            ) : (
-              <ChevronDown className="w-4 h-4 text-gray-400" />
-            )}
-          </button>
-          {templateOpen && (
-            <div className="px-4 pb-4 border-t border-gray-50 pt-3 grid grid-cols-2 gap-2">
-              {templates.map((tpl) => (
-                <button
-                  key={tpl.id}
-                  onClick={() => handleTemplateClick(tpl)}
-                  className="text-left text-xs bg-gray-50 hover:bg-blue-50 hover:text-blue-700 text-gray-600 px-3 py-2 rounded-lg border border-gray-100 hover:border-blue-200 transition-colors font-medium"
-                >
-                  {tpl.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Right: Generated Email Preview */}
-      <div className="flex-1 min-w-0 bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col">
-        {generated ? (
-          <>
-            <div className="px-6 pt-5 pb-4 border-b border-gray-100">
-              <div className="flex items-center gap-2 mb-4">
-                <Mail className="w-4 h-4 text-blue-500" />
-                <h3 className="font-semibold text-gray-800 text-sm">生成邮件预览</h3>
-                <span className="ml-auto text-xs text-gray-400">{targetLang} · {tone}</span>
+      <main className="grid min-w-0 flex-1 grid-cols-12 gap-4">
+        <section className="col-span-12 xl:col-span-8">
+          <div className="material-card flex h-full flex-col p-6">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800">生成预览</h3>
+                <p className="mt-1 text-sm text-slate-500">生成后可继续编辑标题、正文，并一键复制或发送演示邮件。</p>
               </div>
-              <div className="space-y-2.5">
-                {[
-                  { label: "发件人", value: "sales@inogi.com" },
-                  { label: "收件人", value: "" },
-                ].map((f) => (
-                  <div key={f.label} className="flex items-center gap-3">
-                    <span className="text-xs text-gray-400 w-12 flex-shrink-0">{f.label}</span>
-                    <input
-                      className="flex-1 text-sm text-gray-700 border-b border-gray-100 focus:border-blue-300 focus:outline-none py-0.5 bg-transparent"
-                      defaultValue={f.value}
-                      placeholder={f.label === "收件人" ? "输入收件人邮箱..." : undefined}
-                    />
+              <button
+                onClick={() => setPreviewOpen(true)}
+                disabled={!generated}
+                className="material-button-secondary disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                打开发送预览
+              </button>
+            </div>
+
+            {generated ? (
+              <div className="mt-5 flex min-h-0 flex-1 flex-col rounded-[28px] border border-slate-100 bg-slate-50/80 p-5">
+                <div className="grid gap-3 border-b border-slate-100 pb-4 sm:grid-cols-[72px_1fr]">
+                  <div className="text-xs text-slate-400">主题</div>
+                  <div className="text-sm font-semibold text-slate-900">{generated.subject}</div>
+                  <div className="text-xs text-slate-400">参数</div>
+                  <div className="text-sm text-slate-500">
+                    {targetLang} · {tone}
                   </div>
-                ))}
-                <div className="flex items-center gap-3">
-                  <span className="text-xs text-gray-400 w-12 flex-shrink-0">主题</span>
-                  <input
-                    className="flex-1 text-sm font-medium text-gray-800 border-b border-gray-100 focus:border-blue-300 focus:outline-none py-0.5 bg-transparent"
-                    value={editSubject}
-                    onChange={(e) => setEditSubject(e.target.value)}
-                  />
+                </div>
+                <textarea
+                  value={generated.body}
+                  onChange={(event) => setGenerated((value) => (value ? { ...value, body: event.target.value } : value))}
+                  className="mt-4 min-h-0 flex-1 rounded-[24px] border border-slate-200 bg-white px-4 py-4 text-sm leading-7 text-slate-700 outline-none"
+                />
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <button
+                    onClick={() => {
+                      if (!generated) return;
+                      navigator.clipboard.writeText(`Subject: ${generated.subject}\n\n${generated.body}`);
+                      toast.success("邮件内容已复制。");
+                    }}
+                    className="material-button-secondary"
+                  >
+                    <Copy className="h-4 w-4" />
+                    复制全文
+                  </button>
+                  <button onClick={handleGenerate} className="material-button-secondary">
+                    <RefreshCw className="h-4 w-4" />
+                    重新生成
+                  </button>
+                  <button onClick={() => toast.success("已发送到演示邮箱客户端。")} className="material-button-primary ml-auto">
+                    <Send className="h-4 w-4" />
+                    发送邮件
+                  </button>
                 </div>
               </div>
-            </div>
-            <div className="flex-1 px-6 py-4 flex flex-col gap-3 min-h-0">
-              <textarea
-                className="flex-1 min-h-0 w-full text-sm text-gray-700 border border-gray-100 rounded-lg p-4 resize-none focus:outline-none focus:ring-1 focus:ring-blue-300 font-mono leading-relaxed"
-                value={editBody}
-                onChange={(e) => setEditBody(e.target.value)}
-              />
-              <div className="flex items-center gap-2 pt-1">
-                <button
-                  onClick={handleRegenerate}
-                  className="flex items-center gap-1.5 text-xs text-gray-600 border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors"
-                >
-                  <RefreshCw className="w-3 h-3" /> 重新生成
-                </button>
-                <button
-                  onClick={() => { navigator.clipboard.writeText(`Subject: ${editSubject}\n\n${editBody}`); toast.success("已复制全文"); }}
-                  className="flex items-center gap-1.5 text-xs text-gray-600 border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors"
-                >
-                  <Copy className="w-3 h-3" /> 复制全文
-                </button>
-                <button
-                  onClick={() => toast.success("已在邮件客户端打开")}
-                  className="flex items-center gap-1.5 text-xs text-gray-600 border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors"
-                >
-                  <Mail className="w-3 h-3" /> 用邮件客户端发送
-                </button>
+            ) : (
+              <div className="mt-5 flex flex-1 items-center justify-center rounded-[28px] border border-dashed border-slate-200 bg-white text-center">
+                <div>
+                  <Mail className="mx-auto h-10 w-10 text-slate-300" />
+                  <p className="mt-3 text-sm text-slate-400">左侧输入草稿或选择模板后即可生成邮件。</p>
+                </div>
               </div>
-            </div>
-          </>
-        ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-gray-300 gap-3">
-            <Mail className="w-12 h-12 opacity-30" />
-            <p className="text-sm">在左侧输入内容后点击「AI 生成邮件」</p>
+            )}
           </div>
-        )}
-      </div>
+        </section>
+
+        <section className="col-span-12 xl:col-span-4">
+          <div className="material-card h-full p-6">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800">最近生成</h3>
+                <p className="mt-1 text-sm text-slate-500">保留团队最近处理过的邮件场景，方便快速复用。</p>
+              </div>
+              <Link to="/report-compression" className="material-button-secondary text-xs">
+                去汇报压缩
+              </Link>
+            </div>
+            <div className="mt-4 space-y-3">
+              {historyItems.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setDraftText(`${item.scenario}，请输出一封${item.language}邮件。`);
+                    setTargetLang(item.language);
+                    toast.info(`已加载历史场景：${item.scenario}`);
+                  }}
+                  className="w-full rounded-[24px] border border-slate-100 bg-slate-50/80 p-4 text-left transition hover:-translate-y-0.5"
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="text-sm font-semibold text-slate-800">{item.scenario}</div>
+                    <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-slate-500">{item.language}</span>
+                  </div>
+                  <div className="mt-2 text-xs text-slate-500">
+                    {item.owner} · {item.updatedAt}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
+      </main>
+
+      {previewOpen && generated && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/20 p-4" onClick={() => setPreviewOpen(false)}>
+          <div className="w-full max-w-3xl rounded-[28px] bg-white p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">发送前预览</h3>
+                <p className="mt-1 text-sm text-slate-500">确认收件人、主题和正文后即可执行演示发送。</p>
+              </div>
+              <button onClick={() => setPreviewOpen(false)} className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-500">
+                关闭
+              </button>
+            </div>
+            <div className="mt-5 space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <input defaultValue="sales@inogi.com" className="rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none" />
+                <input placeholder="输入收件人邮箱" className="rounded-2xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none" />
+              </div>
+              <input value={generated.subject} readOnly className="w-full rounded-2xl border border-slate-200 px-3 py-2 text-sm font-medium text-slate-800 outline-none" />
+              <div className="rounded-[24px] bg-slate-50 px-4 py-4 text-sm leading-7 text-slate-700 whitespace-pre-line">{generated.body}</div>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button onClick={() => setPreviewOpen(false)} className="material-button-secondary">
+                返回编辑
+              </button>
+              <button
+                onClick={() => {
+                  setPreviewOpen(false);
+                  toast.success("邮件已发送到演示通道。");
+                }}
+                className="material-button-primary"
+              >
+                <Send className="h-4 w-4" />
+                确认发送
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,250 +1,345 @@
-import React, { useState } from "react";
-import { Copy, Download, FileText, RefreshCw, Sparkles, Upload } from "lucide-react";
+import React, { useMemo, useState } from "react";
+import {
+  Copy,
+  Download,
+  FileText,
+  RefreshCw,
+  Sparkles,
+  Upload,
+} from "lucide-react";
+import { Link } from "react-router";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
 
 type InputMode = "paste" | "upload";
+type CompressionMode = "周报" | "经营汇报" | "会议纪要";
 
-interface VersionOutput {
+type VersionOutput = {
   label: string;
   sublabel: string;
   charTarget: number;
   content: string;
-}
+};
+
+type TaskHistory = {
+  id: string;
+  title: string;
+  mode: CompressionMode;
+  updatedAt: string;
+  owner: string;
+};
 
 const mockVersions: VersionOutput[] = [
   {
     label: "50字版",
-    sublabel: "微信一句话结论",
+    sublabel: "适合领导即看即懂",
     charTarget: 50,
-    content: "Q1 销售额达 2,180 万，同比增长 34%，海外市占率提升至 43%；建议 Q2 重点加码墨西哥与东南亚分销渠道建设。",
+    content: "Q1 销售额 2,180 万，同比增长 34%，海外占比升至 43%，建议 Q2 聚焦墨西哥与东南亚渠道加速。",
   },
   {
     label: "100字版",
-    sublabel: "会前预读版",
+    sublabel: "适合会前预读",
     charTarget: 100,
     content:
-      "Q1 总销售额 2,180 万元，同比增长 34%，超出目标 8%。海外市场贡献 43%，较去年提升 11 个百分点，墨西哥单市场同比增长 67%。国内市场受竞争加剧影响增速放缓至 12%。建议 Q2 聚焦海外分销渠道扩张，同时针对国内大客户推出专属服务方案以巩固市占率。",
+      "Q1 总销售额 2,180 万，同比增长 34%，超季度目标 8%。海外市场贡献 43%，其中墨西哥同比增长 67%，东南亚增长 28%。国内市场受低价竞争影响增速放缓至 12%。建议 Q2 加快海外渠道建设，并对国内重点客户推出定制化服务包。",
   },
   {
     label: "300字版",
-    sublabel: "完整汇报版",
+    sublabel: "适合正式汇报",
     charTarget: 300,
     content:
-      "【Q1 销售业绩汇报摘要】\n\n本季度总销售额达 2,180 万元，同比增长 34%，超出季度目标 8 个百分点，创历史单季新高。\n\n海外市场表现突出，贡献占比提升至 43%（去年同期 32%）。其中墨西哥市场受益于当地分销商渠道整合，实现同比增长 67%，成为最大海外单一市场。东南亚市场稳步增长 28%，欧洲市场受 CE MDR 换证周期影响增速放缓至 9%。\n\n国内市场受到低价竞品冲击，增速降至 12%，主要集中在二三线城市终端渗透不足。三家核心大客户续约谈判顺利推进，合同金额合计 320 万元。\n\n【主要风险】欧洲 MDR 换证预计 Q2 末完成，届前存在发货受阻风险；原材料成本较去年上涨约 7%，毛利率压力需持续关注。\n\n【建议与下一步行动】Q2 重点部署墨西哥第二批经销商签约（目标新增 3 家）；启动东南亚区域仓建设方案；国内推出大客户专属响应服务包，目标将核心客户续约率从 78% 提升至 90%。",
+      "Q1 总销售额达到 2,180 万元，同比增长 34%，超季度目标 8 个百分点。海外市场表现突出，收入占比升至 43%，其中墨西哥渠道同比增长 67%，东南亚增长 28%。国内市场增速放缓至 12%，主要受低价竞争影响。当前风险集中在欧洲 MDR 换证进度和原材料成本上涨两方面。建议 Q2 继续扩展墨西哥与东南亚渠道，提前锁定欧洲备货方案，并针对国内重点客户推出专属服务包，提升续约与复购表现。",
   },
 ];
 
+const historyItems: TaskHistory[] = [
+  { id: "RC-01", title: "Q1 海外经营汇报压缩", mode: "经营汇报", updatedAt: "今天 11:10", owner: "Luna" },
+  { id: "RC-02", title: "法国外贸周报摘要", mode: "周报", updatedAt: "昨天", owner: "Noah" },
+  { id: "RC-03", title: "研发例会纪要压缩版", mode: "会议纪要", updatedAt: "2天前", owner: "Mia" },
+];
+
 const structuredReport = {
-  conclusion: "Q1 销售额超目标 8%，海外市占率创新高，建议 Q2 加速海外渠道布局。",
+  conclusion: "Q1 经营表现超预期，核心增量来自海外渠道，Q2 应继续强化海外交付与国内重点客户深挖。",
   evidence: [
-    "总销售额 2,180 万元，同比 +34%，超目标 8%",
-    "海外占比提升至 43%（去年 32%），墨西哥 +67%",
-    "国内增速 12%，受低价竞品冲击有所放缓",
-    "欧洲 MDR 换证 Q2 末完成，存在短期发货风险",
-    "原材料成本上涨约 7%，毛利率承压",
+    "总销售额 2,180 万，同比增长 34%，超季度目标 8%",
+    "海外收入占比升至 43%，墨西哥同比增长 67%",
+    "国内市场增速降至 12%，主要受低价竞争影响",
+    "欧洲 MDR 换证仍在推进，存在短期交付风险",
   ],
   actions: [
-    "Q2 墨西哥新增 3 家经销商签约",
-    "启动东南亚区域仓建设方案评估",
-    "国内大客户专属服务包：目标续约率 78% → 90%",
-    "欧洲 MDR 换证进度周跟踪，备货方案提前锁定",
+    "Q2 新增墨西哥渠道伙伴 3 家",
+    "评估东南亚区域仓方案，缩短交付半径",
+    "为国内重点客户推出专属服务包",
+    "对欧洲换证进度设置每周跟踪和预警",
   ],
 };
 
-const mockPastedContent = `本季度我们总销售额达到了 2180 万人民币，与去年同期相比增长了 34%，超出了我们季度目标 8 个百分点。
-海外市场方面，墨西哥市场表现非常好，同比增长 67%，东南亚也增长了 28%。欧洲市场因为认证换证的原因增速放缓到 9%。
-国内市场受到低价竞争对手的冲击，增速只有 12%。
-主要风险是欧洲 MDR 换证还没完成，另外原材料涨价了大约 7%，毛利会有压力。
-下一步计划 Q2 要在墨西哥新开 3 家经销商，同时考虑在东南亚建立区域仓库。国内要推出大客户专属服务方案，把续约率从 78% 提升到 90%。`;
+const demoContent =
+  "Q1 总销售额达到 2,180 万元，同比增长 34%，超出季度目标 8 个百分点。海外市场表现亮眼，其中墨西哥渠道同比增长 67%，东南亚增长 28%，海外收入占比升至 43%。国内市场增速降至 12%，主要受低价竞争影响。欧洲 MDR 换证仍在推进，原材料成本上涨 7%，对毛利有压力。Q2 计划继续扩展墨西哥渠道，并评估东南亚区域仓方案，同时针对国内重点客户推出专属服务包。";
 
 export function ReportCompressionPage() {
   const [inputMode, setInputMode] = useState<InputMode>("paste");
+  const [compressionMode, setCompressionMode] = useState<CompressionMode>("经营汇报");
   const [pasteText, setPasteText] = useState("");
-  const [isGenerating, setIsGenerating] = useState(false);
   const [versions, setVersions] = useState<VersionOutput[] | null>(null);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+
+  const ratio = useMemo(() => {
+    if (!versions || !pasteText.trim()) return null;
+    const sourceLength = pasteText.length;
+    const shortest = Math.min(...versions.map((item) => item.content.length));
+    return `${Math.max(1, Math.round(sourceLength / Math.max(shortest, 1)))}:1`;
+  }, [versions, pasteText]);
 
   const handleGenerate = () => {
     if (inputMode === "paste" && !pasteText.trim()) {
-      toast.error("请先粘贴原始材料");
+      toast.error("请先输入原始材料。");
       return;
     }
     setIsGenerating(true);
-    setTimeout(() => {
+    window.setTimeout(() => {
       setVersions(mockVersions);
       setIsGenerating(false);
-      toast.success("已生成三版压缩摘要");
-    }, 1400);
-  };
-
-  const handleDemo = () => {
-    setPasteText(mockPastedContent);
-    toast.info("已填入示例内容");
+      toast.success("已生成三档压缩结果。");
+    }, 1000);
   };
 
   return (
-    <div className="flex flex-col gap-4 p-4 bg-gray-50 min-h-full">
-      {/* Input Row */}
-      <div className="flex gap-4">
-        {/* Input Area */}
-        <div className="flex-1 bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-          <div className="flex items-center gap-2 mb-4">
-            <Sparkles className="w-4 h-4 text-orange-500" />
-            <h2 className="font-semibold text-gray-800 text-sm">汇报材料压缩辅助</h2>
-            <div className="ml-auto flex gap-1">
-              {(["paste", "upload"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  onClick={() => setInputMode(mode)}
-                  className={cn(
-                    "text-xs px-3 py-1.5 rounded-lg font-medium transition-colors",
-                    inputMode === mode
-                      ? "bg-orange-50 text-orange-600 border border-orange-200"
-                      : "text-gray-500 hover:bg-gray-50"
-                  )}
-                >
-                  {mode === "paste" ? "粘贴文本" : "上传文件"}
-                </button>
-              ))}
-            </div>
+    <div className="flex h-full min-h-0 gap-4 bg-slate-50 p-4">
+      <aside className="flex w-[360px] flex-shrink-0 flex-col gap-4">
+        <section className="material-card p-5">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-orange-500" />
+            <h2 className="text-sm font-semibold text-slate-800">汇报材料压缩</h2>
+          </div>
+          <p className="mt-2 text-sm leading-6 text-slate-500">支持经营汇报、周报和会议纪要三类场景，把长内容快速收敛成可读版本。</p>
+
+          <div className="mt-4 flex gap-2">
+            {(["paste", "upload"] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setInputMode(mode)}
+                className={cn(
+                  "rounded-2xl px-3 py-2 text-sm font-medium transition",
+                  inputMode === mode ? "bg-orange-500 text-white" : "bg-slate-100 text-slate-500",
+                )}
+              >
+                {mode === "paste" ? "粘贴文本" : "上传文件"}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            {(["经营汇报", "周报", "会议纪要"] as const).map((item) => (
+              <button
+                key={item}
+                onClick={() => setCompressionMode(item)}
+                className={cn(
+                  "rounded-full border px-3 py-1 text-xs transition",
+                  compressionMode === item ? "border-orange-300 bg-orange-50 text-orange-700" : "border-slate-200 text-slate-500",
+                )}
+              >
+                {item}
+              </button>
+            ))}
           </div>
 
           {inputMode === "paste" ? (
             <textarea
-              className="w-full h-36 border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-700 resize-none focus:outline-none focus:ring-1 focus:ring-orange-400 placeholder:text-gray-300 leading-relaxed"
-              placeholder="将原始汇报材料、周报、数据摘要等粘贴到此处..."
               value={pasteText}
-              onChange={(e) => setPasteText(e.target.value)}
+              onChange={(event) => setPasteText(event.target.value)}
+              placeholder="粘贴原始汇报内容、长邮件、会议纪要或周报正文"
+              className="mt-4 h-40 w-full rounded-[24px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-7 text-slate-700 outline-none transition focus:border-orange-300 focus:bg-white"
             />
           ) : (
-            <div className="h-36 border-2 border-dashed border-gray-200 rounded-lg flex flex-col items-center justify-center gap-2 text-gray-400 hover:border-orange-300 hover:bg-orange-50 transition-colors cursor-pointer">
-              <Upload className="w-8 h-8 opacity-40" />
-              <p className="text-sm">拖拽文件至此，或点击上传</p>
-              <p className="text-xs opacity-60">支持 PDF、Word、TXT，可多文件</p>
+            <div className="mt-4 flex h-40 flex-col items-center justify-center rounded-[24px] border-2 border-dashed border-slate-200 bg-slate-50 text-slate-400">
+              <Upload className="h-8 w-8" />
+              <p className="mt-3 text-sm">拖拽或点击上传 PDF / Word / TXT</p>
+              <p className="mt-1 text-xs">当前为演示态，会生成示例压缩结果</p>
             </div>
           )}
 
-          <div className="flex items-center gap-2 mt-3">
-            <button
-              onClick={handleDemo}
-              className="text-xs text-gray-400 hover:text-gray-600 underline-offset-2 underline"
-            >
-              填入示例内容
+          <div className="mt-4 flex flex-wrap gap-3">
+            <button onClick={() => setPasteText(demoContent)} className="material-button-secondary">
+              填入示例
             </button>
-            <button
-              onClick={handleGenerate}
-              disabled={isGenerating}
-              className="ml-auto flex items-center gap-2 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors"
-            >
-              {isGenerating ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  提炼中...
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4" />
-                  AI 压缩提炼
-                </>
-              )}
+            <button onClick={handleGenerate} disabled={isGenerating} className="material-button-primary ml-auto">
+              {isGenerating ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              开始压缩
             </button>
           </div>
-        </div>
-      </div>
+        </section>
 
-      {/* Three-Version Output */}
-      {versions && (
-        <div className="grid grid-cols-3 gap-4">
-          {versions.map((v) => (
-            <div key={v.label} className="bg-white rounded-xl shadow-sm border border-gray-100 p-5 flex flex-col gap-3">
-              <div className="flex items-start justify-between">
+        <section className="material-card p-5">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-800">最近任务</h3>
+            <Link to="/meeting" className="material-button-secondary text-xs">
+              去会议纪要
+            </Link>
+          </div>
+          <div className="mt-4 space-y-3">
+            {historyItems.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => {
+                  setCompressionMode(item.mode);
+                  setPasteText(demoContent);
+                  toast.info(`已加载历史任务：${item.title}`);
+                }}
+                className="w-full rounded-[24px] border border-slate-100 bg-slate-50/80 p-4 text-left transition hover:-translate-y-0.5"
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div className="text-sm font-semibold text-slate-800">{item.title}</div>
+                  <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-slate-500">{item.mode}</span>
+                </div>
+                <div className="mt-2 text-xs text-slate-500">
+                  {item.owner} · {item.updatedAt}
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+      </aside>
+
+      <main className="grid min-w-0 flex-1 grid-cols-12 gap-4">
+        <section className="col-span-12 xl:col-span-8">
+          <div className="material-card p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-800">压缩结果</h3>
+                <p className="mt-1 text-sm text-slate-500">同时输出短版、中版和正式版，方便按汇报场景直接选用。</p>
+              </div>
+              <div className="flex items-center gap-2">
+                {ratio && <span className="rounded-full bg-orange-50 px-3 py-1 text-xs font-semibold text-orange-700">压缩比 {ratio}</span>}
+                <button
+                  onClick={() => setExportOpen(true)}
+                  disabled={!versions}
+                  className="material-button-secondary disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Download className="h-4 w-4" />
+                  导出预览
+                </button>
+              </div>
+            </div>
+
+            {versions ? (
+              <div className="mt-5 grid gap-4 lg:grid-cols-3">
+                {versions.map((item) => (
+                  <div key={item.label} className="rounded-[28px] border border-slate-100 bg-slate-50/80 p-5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-slate-800">{item.label}</div>
+                        <div className="mt-1 text-xs text-slate-400">{item.sublabel}</div>
+                      </div>
+                      <span
+                        className={cn(
+                          "rounded-full px-2.5 py-1 text-[11px] font-medium",
+                          item.content.length <= item.charTarget ? "bg-emerald-50 text-emerald-600" : "bg-amber-50 text-amber-600",
+                        )}
+                      >
+                        {item.content.length} / {item.charTarget}
+                      </span>
+                    </div>
+                    <p className="mt-4 text-sm leading-7 text-slate-700">{item.content}</p>
+                    <div className="mt-5 flex gap-2">
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(item.content);
+                          toast.success(`${item.label} 已复制。`);
+                        }}
+                        className="material-button-secondary text-xs"
+                      >
+                        <Copy className="h-4 w-4" />
+                        复制
+                      </button>
+                      <button onClick={handleGenerate} className="material-button-secondary text-xs">
+                        <RefreshCw className="h-4 w-4" />
+                        重算
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-5 flex h-80 items-center justify-center rounded-[28px] border border-dashed border-slate-200 bg-white text-center">
                 <div>
-                  <div className="font-semibold text-gray-800 text-sm">{v.label}</div>
-                  <div className="text-xs text-gray-400">{v.sublabel}</div>
-                </div>
-                <div className="flex items-center gap-1">
-                  <span className={cn(
-                    "text-xs px-2 py-0.5 rounded-full font-medium",
-                    v.content.length <= v.charTarget
-                      ? "bg-green-50 text-green-600"
-                      : "bg-orange-50 text-orange-600"
-                  )}>
-                    {v.content.replace(/\n/g, "").length} 字
-                  </span>
+                  <FileText className="mx-auto h-10 w-10 text-slate-300" />
+                  <p className="mt-3 text-sm text-slate-400">生成后会在这里展示三档压缩版本。</p>
                 </div>
               </div>
-              <p className="text-sm text-gray-700 leading-relaxed flex-1 whitespace-pre-line">{v.content}</p>
-              <div className="flex gap-2 pt-1 border-t border-gray-50">
-                <button
-                  onClick={() => { navigator.clipboard.writeText(v.content); toast.success(`${v.label}已复制`); }}
-                  className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-50 px-2.5 py-1.5 rounded-lg transition-colors"
-                >
-                  <Copy className="w-3 h-3" /> 复制
-                </button>
-                <button
-                  onClick={() => toast.info("重新生成中...")}
-                  className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-gray-700 hover:bg-gray-50 px-2.5 py-1.5 rounded-lg transition-colors"
-                >
-                  <RefreshCw className="w-3 h-3" /> 重新生成
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* Structured Report */}
-      {versions && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <div className="flex items-center justify-between mb-5">
-            <div className="flex items-center gap-2">
-              <FileText className="w-4 h-4 text-orange-500" />
-              <h3 className="font-semibold text-gray-800 text-sm">结构化汇报稿</h3>
-              <span className="text-xs text-gray-400 bg-gray-50 px-2 py-0.5 rounded-full">结论 → 数据/依据 → 建议与下一步</span>
-            </div>
-            <button
-              onClick={() => toast.success("已导出 Word 文档")}
-              className="flex items-center gap-1.5 text-xs text-gray-600 border border-gray-200 rounded-lg px-3 py-1.5 hover:bg-gray-50 transition-colors"
-            >
-              <Download className="w-3 h-3" /> 导出 Word
-            </button>
+            )}
           </div>
+        </section>
 
-          <div className="grid grid-cols-3 gap-6">
-            {/* Conclusion */}
-            <div className="border-l-4 border-orange-400 pl-4">
-              <div className="text-xs font-semibold text-orange-500 uppercase tracking-wide mb-2">结论</div>
-              <p className="text-sm font-semibold text-gray-800 leading-relaxed">{structuredReport.conclusion}</p>
+        <section className="col-span-12 xl:col-span-4">
+          <div className="material-card h-full p-6">
+            <div className="flex items-center gap-2">
+              <FileText className="h-4 w-4 text-orange-500" />
+              <h3 className="text-sm font-semibold text-slate-800">结构化摘要</h3>
             </div>
-
-            {/* Evidence */}
-            <div className="border-l-4 border-blue-300 pl-4">
-              <div className="text-xs font-semibold text-blue-500 uppercase tracking-wide mb-2">数据 / 依据</div>
-              <ul className="space-y-1.5">
-                {structuredReport.evidence.map((item, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
-                    <span className="w-4 h-4 rounded-full bg-blue-50 text-blue-500 text-xs flex items-center justify-center flex-shrink-0 mt-0.5 font-medium">
-                      {i + 1}
-                    </span>
-                    {item}
-                  </li>
-                ))}
-              </ul>
+            <div className="mt-4 rounded-[24px] bg-slate-50/80 p-4">
+              <div className="text-xs uppercase tracking-[0.24em] text-slate-400">Conclusion</div>
+              <p className="mt-2 text-sm font-semibold leading-7 text-slate-800">{structuredReport.conclusion}</p>
             </div>
-
-            {/* Actions */}
-            <div className="border-l-4 border-green-400 pl-4">
-              <div className="text-xs font-semibold text-green-600 uppercase tracking-wide mb-2">建议与下一步</div>
-              <ul className="space-y-1.5">
-                {structuredReport.actions.map((item, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm text-gray-700">
-                    <span className="w-4 h-4 rounded-full bg-green-50 text-green-600 text-xs flex items-center justify-center flex-shrink-0 mt-0.5">
-                      →
-                    </span>
-                    {item}
-                  </li>
+            <div className="mt-4 rounded-[24px] bg-slate-50/80 p-4">
+              <div className="text-xs uppercase tracking-[0.24em] text-slate-400">Evidence</div>
+              <div className="mt-3 space-y-2">
+                {structuredReport.evidence.map((item) => (
+                  <div key={item} className="text-sm leading-6 text-slate-600">
+                    • {item}
+                  </div>
                 ))}
-              </ul>
+              </div>
+            </div>
+            <div className="mt-4 rounded-[24px] bg-slate-50/80 p-4">
+              <div className="text-xs uppercase tracking-[0.24em] text-slate-400">Actions</div>
+              <div className="mt-3 space-y-2">
+                {structuredReport.actions.map((item) => (
+                  <div key={item} className="text-sm leading-6 text-slate-600">
+                    • {item}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      {exportOpen && versions && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/20 p-4" onClick={() => setExportOpen(false)}>
+          <div className="w-full max-w-3xl rounded-[28px] bg-white p-6 shadow-2xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-900">导出预览</h3>
+                <p className="mt-1 text-sm text-slate-500">确认导出格式后，可将三档摘要和结构化摘要一起输出。</p>
+              </div>
+              <button onClick={() => setExportOpen(false)} className="rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-500">
+                关闭
+              </button>
+            </div>
+            <div className="mt-5 rounded-[24px] bg-slate-50 p-4">
+              <div className="text-sm font-semibold text-slate-800">{compressionMode} · 导出包</div>
+              <div className="mt-3 space-y-2 text-sm text-slate-600">
+                <div>• 三档压缩结果（50 / 100 / 300 字）</div>
+                <div>• 结构化摘要（结论 / 依据 / 建议）</div>
+                <div>• 原文与压缩比统计</div>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-3">
+              <button onClick={() => setExportOpen(false)} className="material-button-secondary">
+                返回
+              </button>
+              <button
+                onClick={() => {
+                  setExportOpen(false);
+                  toast.success("Word 导出已触发。");
+                }}
+                className="material-button-primary"
+              >
+                <Download className="h-4 w-4" />
+                导出 Word
+              </button>
             </div>
           </div>
         </div>
