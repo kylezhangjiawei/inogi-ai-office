@@ -778,7 +778,7 @@ export function ResumeScreeningPage() {
                     <Bot className="h-[18px] w-[18px]" />
                   </div>
                   <div>
-                    <div className="text-[18px] font-semibold leading-[1.3] text-slate-900">OpenAI</div>
+                    <div className="text-[18px] font-semibold leading-[1.3] text-slate-900">AI模型</div>
                     <div className="mt-1 text-xs text-slate-400">选择当前用于简历解析和筛选的模型配置</div>
                   </div>
                 </div>
@@ -897,18 +897,18 @@ export function ResumeScreeningPage() {
             </div>
           </div>
 
-          <div className="mt-5 grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+          <div className="mt-5 grid items-center gap-3 xl:grid-cols-[auto_1fr]">
             <button
               type="button"
               onClick={() => void handleRunSync()}
               disabled={runningSync}
-              className="inline-flex h-[82px] items-center justify-center gap-3 rounded-[28px] bg-[linear-gradient(90deg,#5477e8,#5ac3a6)] px-8 text-2xl font-semibold text-white shadow-[0_20px_35px_rgba(84,119,232,0.25)] transition hover:translate-y-[-1px] disabled:opacity-60"
+              className="inline-flex h-16 min-w-[280px] items-center justify-center gap-3 rounded-[24px] bg-[linear-gradient(90deg,#5477e8,#5ac3a6)] px-7 text-xl font-semibold text-white shadow-[0_16px_28px_rgba(84,119,232,0.22)] transition hover:translate-y-[-1px] disabled:opacity-60"
             >
-              {runningSync ? <Loader2 className="h-6 w-6 animate-spin" /> : <Sparkles className="h-6 w-6" />}
+              {runningSync ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
               运行一次同步
             </button>
 
-            <div className="rounded-[28px] border border-blue-200 bg-blue-50/75 px-6 py-5 text-sm leading-7 text-slate-600">
+            <div className="rounded-[18px] border border-blue-200 bg-blue-50/70 px-4 py-3 text-sm leading-6 text-slate-600">
               手动同步会立即执行；若已开启轮询，后续会继续按计划自动运行。
               {lastSyncResult ? (
                 <span className="ml-2 text-slate-500">
