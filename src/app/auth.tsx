@@ -1,17 +1,22 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
-
-type UserRole = "admin" | "manager" | "specialist";
-
-type AuthUser = {
-  id: string;
-  name: string;
-  email: string;
-  role: UserRole;
-  department: string;
-};
+import {
+  addAuthClearedListener,
+  apiFetch,
+  authFetch,
+  clearAuthSession,
+  encryptLoginPassword,
+  getAccessToken as getStoredAccessToken,
+  getRefreshToken,
+  getStoredUser,
+  readErrorMessage,
+  refreshAuthSession,
+  resetLoginPublicKeyCache,
+  saveAuthSession,
+  type AuthUser,
+} from "./lib/authSession";
 
 type LoginPayload = {
-  email: string;
+  account: string;
   password: string;
 };
 
@@ -19,59 +24,173 @@ type AuthContextValue = {
   user: AuthUser | null;
   hydrated: boolean;
   login: (payload: LoginPayload) => Promise<{ ok: boolean; message?: string }>;
-  logout: () => void;
+  logout: () => Promise<void>;
 };
 
-const STORAGE_KEY = "inogi-auth-user";
-
-const demoUsers: Array<AuthUser & { password: string }> = [
-  { id: "U-001", name: "林云舟", email: "admin@inogi.local", password: "123456", role: "admin", department: "信息管理中心" },
-  { id: "U-002", name: "周知行", email: "manager@inogi.local", password: "123456", role: "manager", department: "运营管理部" },
-  { id: "U-003", name: "陈思远", email: "specialist@inogi.local", password: "123456", role: "specialist", department: "业务协同组" },
-];
-
 const AuthContext = createContext<AuthContextValue | null>(null);
+
+async function fetchCurrentUser() {
+  const response = await authFetch("/api/auth/me");
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, "获取当前登录用户失败"));
+  }
+
+  return (await response.json()) as { user: AuthUser };
+}
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (raw) {
+    let cancelled = false;
+
+    async function hydrateAuth() {
+      const cachedUser = getStoredUser();
+      const hasAccessToken = Boolean(getStoredAccessToken());
+      const hasRefreshToken = Boolean(getRefreshToken());
+
+      if (!hasAccessToken && !hasRefreshToken) {
+        clearAuthSession();
+        if (!cancelled) {
+          setUser(null);
+          setHydrated(true);
+        }
+        return;
+      }
+
       try {
-        setUser(JSON.parse(raw));
+        const payload = await fetchCurrentUser();
+        if (!cancelled) {
+          saveAuthSession({ accessToken: getStoredAccessToken() ?? "", refreshToken: getRefreshToken() ?? "", user: payload.user });
+          setUser(payload.user);
+        }
       } catch {
-        window.localStorage.removeItem(STORAGE_KEY);
+        if (!cancelled) {
+          setUser(cachedUser);
+        }
+      } finally {
+        if (!cancelled) {
+          setHydrated(true);
+        }
       }
     }
-    setHydrated(true);
+
+    void hydrateAuth();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    return addAuthClearedListener(() => {
+      setUser(null);
+    });
   }, []);
 
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
       hydrated,
-      async login(payload) {
-        const matched = demoUsers.find(
-          (item) => item.email === payload.email.trim() && item.password === payload.password.trim(),
-        );
-        if (!matched) return { ok: false, message: "账号或密码错误，请使用演示账号登录。" };
 
-        const nextUser: AuthUser = {
-          id: matched.id,
-          name: matched.name,
-          email: matched.email,
-          role: matched.role,
-          department: matched.department,
-        };
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextUser));
-        setUser(nextUser);
-        return { ok: true };
+      async login(payload) {
+        try {
+          const submitLogin = async (refreshKey = false) => {
+            if (refreshKey) {
+              resetLoginPublicKeyCache();
+            }
+
+            const encryptedPassword = await encryptLoginPassword(payload.password);
+            return apiFetch("/api/auth/login", {
+              method: "POST",
+              body: JSON.stringify({ account: payload.account, encryptedPassword }),
+            });
+          };
+
+          let response = await submitLogin();
+
+          if (!response.ok) {
+            const message = await readErrorMessage(response, "账号或密码错误");
+            if (response.status === 400 && message.includes("加密")) {
+              response = await submitLogin(true);
+            } else {
+              return { ok: false, message };
+            }
+          }
+
+          if (!response.ok) {
+            return { ok: false, message: await readErrorMessage(response, "账号或密码错误") };
+          }
+
+          const data = (await response.json()) as {
+            accessToken: string;
+            refreshToken: string;
+            user?: AuthUser;
+          };
+
+          saveAuthSession(data);
+
+          const currentUserPayload = data.user ? { user: data.user } : await fetchCurrentUser();
+          saveAuthSession({
+            accessToken: data.accessToken,
+            refreshToken: data.refreshToken,
+            user: currentUserPayload.user,
+          });
+          setUser(currentUserPayload.user);
+
+          return { ok: true };
+        } catch (error) {
+          clearAuthSession();
+          return {
+            ok: false,
+            message: error instanceof Error ? error.message : "网络异常，请检查后端服务是否已启动",
+          };
+        }
       },
-      logout() {
-        window.localStorage.removeItem(STORAGE_KEY);
-        setUser(null);
+
+      async logout() {
+        try {
+          let accessToken = getStoredAccessToken();
+          let refreshToken = getRefreshToken();
+
+          if (refreshToken && !accessToken) {
+            const refreshed = await refreshAuthSession();
+            accessToken = refreshed?.accessToken ?? null;
+            refreshToken = refreshed?.refreshToken ?? null;
+          }
+
+          if (refreshToken && accessToken) {
+            let response = await apiFetch("/api/auth/logout", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${accessToken}`,
+              },
+              body: JSON.stringify({ refreshToken }),
+            });
+
+            if (response.status === 401) {
+              const refreshed = await refreshAuthSession();
+              accessToken = refreshed?.accessToken ?? null;
+              refreshToken = refreshed?.refreshToken ?? null;
+
+              if (refreshToken && accessToken) {
+                response = await apiFetch("/api/auth/logout", {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Bearer ${accessToken}`,
+                  },
+                  body: JSON.stringify({ refreshToken }),
+                });
+              }
+            }
+          }
+        } catch {
+          // Ignore logout network failures and always clear local session.
+        } finally {
+          clearAuthSession();
+          setUser(null);
+        }
       },
     }),
     [hydrated, user],
@@ -86,8 +205,12 @@ export function useAuth() {
   return context;
 }
 
-export function getRoleLabel(role: UserRole) {
-  if (role === "admin") return "系统管理员";
-  if (role === "manager") return "部门主管";
-  return "业务专员";
+export function getAccessToken() {
+  return getStoredAccessToken();
+}
+
+export function getRoleLabel(roleName: string | null | undefined) {
+  if (!roleName) return "普通用户";
+  if (roleName === "超级管理员") return "超级管理员";
+  return roleName;
 }

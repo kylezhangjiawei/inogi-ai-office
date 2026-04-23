@@ -1,5 +1,6 @@
 import React from "react";
 import {
+  Bot,
   BadgeCheck,
   BookOpen,
   Bug,
@@ -95,6 +96,8 @@ export const navGroups: NavGroup[] = [
     label: "法务与系统",
     items: [
       { label: "合同 AI 审查", path: "/contract-review", icon: FileText },
+      { label: "邮箱管理", path: "/mailbox-management", icon: Mail },
+      { label: "AI模型管理", path: "/ai-model-management", icon: Bot },
       { label: "用户管理", path: "/users", icon: UserSquare2 },
       { label: "角色权限", path: "/roles", icon: UserCog },
       { label: "字典列表", path: "/settings", icon: MonitorCog },

@@ -1,0 +1,183 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  ACTIVE
+  INVITED
+  DISABLED
+}
+
+enum ScreeningDecision {
+  RECOMMEND
+  HOLD
+  REJECT
+}
+
+enum ScreeningStatus {
+  COMPLETED
+  SKIPPED
+  FAILED
+  PENDING_CONFIG
+}
+
+model Role {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  permissions Json
+  users       User[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model User {
+  id            String         @id @default(cuid())
+  name          String
+  username      String?        @unique
+  email         String         @unique
+  passwordHash  String?
+  department    String?
+  status        UserStatus     @default(ACTIVE)
+  roleId        String?
+  role          Role?          @relation(fields: [roleId], references: [id])
+  refreshTokens RefreshToken[]
+  auditLogs     AuditLog[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String
+  resource   String
+  resourceId String?
+  meta       Json     @default("{}")
+  ip         String?
+  createdAt  DateTime @default(now())
+}
+
+model SystemSetting {
+  id          String   @id @default(cuid())
+  category    String
+  key         String   @unique
+  value       Json
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model RuntimeState {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
+
+model JobRule {
+  id         String                @id @default(cuid())
+  name       String
+  jdText     String
+  enabled    Boolean               @default(true)
+  candidates Candidate[]
+  screenings CandidateScreening[]
+  createdAt  DateTime              @default(now())
+  updatedAt  DateTime              @updatedAt
+}
+
+model Candidate {
+  id                     String               @id @default(cuid())
+  uniqueKey              String               @unique
+  jobRuleId              String?
+  jobRule                JobRule?             @relation(fields: [jobRuleId], references: [id])
+  name                   String               @default("")
+  email                  String               @default("")
+  phone                  String               @default("")
+  city                   String               @default("")
+  education              String               @default("")
+  status                 String               @default("")
+  targetJob              String               @default("")
+  targetCity             String               @default("")
+  salaryExpectation      String               @default("")
+  recentCompany          String               @default("")
+  recentTitle            String               @default("")
+  yearsExperience        String               @default("")
+  rawEmailText           String
+  parsedCandidateProfile Json
+  receivedAt             DateTime
+  sourceSubject          String               @default("")
+  sourceSenderName       String               @default("")
+  sourceSenderEmail      String               @default("")
+  screenings             CandidateScreening[]
+  ingestionLogs          EmailIngestionLog[]
+  createdAt              DateTime             @default(now())
+  updatedAt              DateTime             @updatedAt
+}
+
+model CandidateScreening {
+  id              String             @id @default(cuid())
+  candidateId     String
+  candidate       Candidate          @relation(fields: [candidateId], references: [id])
+  jobRuleId       String?
+  jobRule         JobRule?           @relation(fields: [jobRuleId], references: [id])
+  promptVersion   String
+  modelName       String
+  requestPayload  Json
+  responsePayload Json
+  score           Int?
+  decision        ScreeningDecision?
+  matchedPoints   Json
+  risks           Json
+  summary         String?
+  nextStep        Boolean?
+  durationMs      Int?
+  status          ScreeningStatus
+  errorMessage    String?
+  createdAt       DateTime           @default(now())
+}
+
+model IntegrationConfig {
+  id                String   @id @default(cuid())
+  kind              String   // mail | openai | sync_schedule
+  name              String
+  accountIdentifier String?
+  provider          String?
+  model             String?
+  encryptedSecret   String
+  metadata          Json     @default("{}")
+  isActive          Boolean  @default(true)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model EmailIngestionLog {
+  id           String    @id @default(cuid())
+  mailbox      String
+  imapUid      Int?
+  messageId    String?
+  uniqueKey    String    @unique
+  subject      String
+  senderName   String
+  senderEmail  String
+  receivedAt   DateTime
+  status       String
+  candidateId  String?
+  candidate    Candidate? @relation(fields: [candidateId], references: [id])
+  errorMessage String?
+  createdAt    DateTime  @default(now())
+}

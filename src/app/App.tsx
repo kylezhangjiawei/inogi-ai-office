@@ -5,6 +5,7 @@ import { materialTheme } from "../styles/materialTheme";
 import { AfterSalesDetails } from "./AfterSalesDetails";
 import { AfterSalesForm } from "./AfterSalesForm";
 import { AfterSalesList } from "./AfterSalesList";
+import { AiModelManagementPage } from "./AiModelManagementPage";
 import { AuthProvider, useAuth } from "./auth";
 import { BOMArchive } from "./BOMArchive";
 import { BugLogPage } from "./BugLogPage";
@@ -20,6 +21,7 @@ import { ExternalDocsPage } from "./ExternalDocsPage";
 import { InspectionReleasePage } from "./InspectionReleasePage";
 import { InquiryPage } from "./InquiryPage";
 import { LoginPage } from "./LoginPage";
+import { MailboxManagementPage } from "./MailboxManagementPage";
 import { MeetingMinutes } from "./MeetingMinutes";
 import { ContractReviewPage } from "./ContractReviewPage";
 import { QualityDMSPage } from "./QualityDMSPage";
@@ -81,6 +83,8 @@ const router = createBrowserRouter([
       { path: "inspection-release", Component: InspectionReleasePage },
       { path: "bug-log", Component: BugLogPage },
       { path: "contract-review", Component: ContractReviewPage },
+      { path: "mailbox-management", Component: MailboxManagementPage },
+      { path: "ai-model-management", Component: AiModelManagementPage },
       { path: "inquiry", Component: InquiryPage },
       { path: "meeting", Component: MeetingMinutes },
       { path: "email-ai", Component: EmailAIPage },

@@ -85,15 +85,15 @@ export function Header() {
               </div>
               <div className="hidden text-left sm:block">
                 <div className="text-sm font-semibold text-slate-800">{user?.name ?? "访客"}</div>
-                <div className="text-xs text-slate-500">{user ? getRoleLabel(user.role) : "未登录"}</div>
+                <div className="text-xs text-slate-500">{user ? getRoleLabel(user.roleName) : "未登录"}</div>
               </div>
               <ChevronDown className="h-4 w-4 text-slate-400" />
             </button>
 
             <button
               className="material-button-secondary"
-              onClick={() => {
-                logout();
+              onClick={async () => {
+                await logout();
                 navigate("/login", { replace: true });
               }}
             >

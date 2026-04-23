@@ -7,22 +7,25 @@ export function LoginPage() {
   const { user, hydrated, login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [email, setEmail] = useState("admin@inogi.local");
-  const [password, setPassword] = useState("123456");
+  const [account, setAccount] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
   const redirectTo = useMemo(() => {
     const from = (location.state as { from?: string } | null)?.from;
     return from && from !== "/login" ? from : "/";
   }, [location.state]);
 
   if (!hydrated) return null;
-
   if (user) return <Navigate to={redirectTo} replace />;
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setError("");
-    const result = await login({ email, password });
+    setLoading(true);
+    const result = await login({ account: account.trim(), password });
+    setLoading(false);
     if (!result.ok) {
       setError(result.message ?? "登录失败");
       return;
@@ -40,11 +43,13 @@ export function LoginPage() {
           <div>
             <div className="inline-flex rounded-full bg-white/16 px-4 py-2 text-sm font-semibold">INOGI AI Office System</div>
             <h1 className="mt-8 text-4xl font-bold leading-tight">内部管理系统一体化工作台</h1>
-            <p className="mt-4 max-w-md text-sm leading-7 text-white/85">覆盖售后、研发、注册、质量、人事、法务与系统管理。</p>
+            <p className="mt-4 max-w-md text-sm leading-7 text-white/85">
+              覆盖售后、研发、注册、质量、人事、法务与系统管理。
+            </p>
           </div>
           <div className="space-y-2 text-sm text-white/90">
-            <div>默认演示账号已预填，可直接登录体验完整流程。</div>
-            <div>支持系统管理员、部门主管、业务专员三种角色。</div>
+            <div>账号由系统管理员统一分配，请联系管理员获取登录凭证。</div>
+            <div>支持超级管理员、部门主管、业务专员等多种角色。</div>
           </div>
         </div>
 
@@ -53,7 +58,7 @@ export function LoginPage() {
             <div>
               <div className="text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">Welcome Back</div>
               <h2 className="mt-2 text-3xl font-bold tracking-tight text-slate-900">登录 INOGI 系统</h2>
-              <p className="mt-2 text-sm text-slate-500">使用演示账号可直接进入系统首页。</p>
+              <p className="mt-2 text-sm text-slate-500">请使用管理员分配的账号登录。</p>
             </div>
 
             <form className="space-y-4" onSubmit={handleSubmit}>
@@ -61,7 +66,13 @@ export function LoginPage() {
                 <span className="text-sm font-medium text-slate-600">账号</span>
                 <div className="relative">
                   <User className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <input value={email} onChange={(event) => setEmail(event.target.value)} className="material-input pl-11" />
+                  <input
+                    value={account}
+                    onChange={(e) => setAccount(e.target.value)}
+                    placeholder="请输入账号"
+                    autoComplete="username"
+                    className="material-input pl-11"
+                  />
                 </div>
               </label>
 
@@ -69,22 +80,25 @@ export function LoginPage() {
                 <span className="text-sm font-medium text-slate-600">密码</span>
                 <div className="relative">
                   <LockKeyhole className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                  <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} className="material-input pl-11" />
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="请输入密码"
+                    autoComplete="current-password"
+                    className="material-input pl-11"
+                  />
                 </div>
               </label>
 
-              {error ? <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div> : null}
+              {error ? (
+                <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+              ) : null}
 
-              <button type="submit" className="material-button-primary w-full">
-                登录系统
+              <button type="submit" disabled={loading} className="material-button-primary w-full disabled:opacity-60">
+                {loading ? "登录中..." : "登录系统"}
               </button>
             </form>
-
-            <div className="rounded-[24px] border border-slate-200 bg-slate-50/70 p-4 text-sm text-slate-500">
-              <div>`admin@inogi.local / 123456` 系统管理员</div>
-              <div>`manager@inogi.local / 123456` 部门主管</div>
-              <div>`specialist@inogi.local / 123456` 业务专员</div>
-            </div>
           </div>
         </div>
       </div>
