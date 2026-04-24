@@ -5,3 +5,5 @@ dist/
 *.local
 __pycache__/
 *.pyc
+.idea/
+.claude/

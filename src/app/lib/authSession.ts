@@ -56,12 +56,33 @@ function pemToArrayBuffer(pem: string) {
   return bytes.buffer;
 }
 
+export function getBrowserEncryptionUnavailableMessage() {
+  if (typeof window === "undefined") {
+    return "当前环境不支持浏览器端加密，无法直接提交密码或 API Key。";
+  }
+
+  if (window.isSecureContext && window.crypto?.subtle) {
+    return null;
+  }
+
+  const currentUrl = `${window.location.protocol}//${window.location.host}`;
+  return `当前地址 ${currentUrl} 不是安全上下文，浏览器无法执行本地加密，所以不会发起保存请求。请改用 HTTPS，或仅在本机使用 http://localhost 打开系统。`;
+}
+
+export function ensureBrowserEncryptionAvailable() {
+  const message = getBrowserEncryptionUnavailableMessage();
+  if (message) {
+    throw new Error(message);
+  }
+}
+
 async function getLoginPublicKey() {
   if (!loginPublicKeyPromise) {
     loginPublicKeyPromise = (async () => {
+      ensureBrowserEncryptionAvailable();
       const response = await apiFetch("/api/auth/security/public-key");
       if (!response.ok) {
-        throw new Error(await readErrorMessage(response, "获取登录公钥失败"));
+        throw new Error(await readErrorMessage(response, "Failed to fetch the login public key."));
       }
 
       const payload = (await response.json()) as PublicKeyResponse;
@@ -85,6 +106,7 @@ async function getLoginPublicKey() {
 }
 
 export async function encryptLoginPassword(password: string) {
+  ensureBrowserEncryptionAvailable();
   const publicKey = await getLoginPublicKey();
   const encoded = new TextEncoder().encode(password);
   const encrypted = await window.crypto.subtle.encrypt({ name: "RSA-OAEP" }, publicKey, encoded);
@@ -161,7 +183,7 @@ export async function readErrorMessage(response: Response, fallback: string) {
 
     const value = payload.message ?? payload.detail ?? payload.error;
     if (Array.isArray(value)) {
-      const message = value.join("，").trim();
+      const message = value.join(", ").trim();
       if (message) return message;
     }
 

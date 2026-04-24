@@ -32,7 +32,7 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 async function fetchCurrentUser() {
   const response = await authFetch("/api/auth/me");
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "获取当前登录用户失败"));
+    throw new Error(await readErrorMessage(response, "Failed to fetch the current user."));
   }
 
   return (await response.json()) as { user: AuthUser };
@@ -62,7 +62,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const payload = await fetchCurrentUser();
         if (!cancelled) {
-          saveAuthSession({ accessToken: getStoredAccessToken() ?? "", refreshToken: getRefreshToken() ?? "", user: payload.user });
+          saveAuthSession({
+            accessToken: getStoredAccessToken() ?? "",
+            refreshToken: getRefreshToken() ?? "",
+            user: payload.user,
+          });
           setUser(payload.user);
         }
       } catch {
@@ -111,8 +115,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           let response = await submitLogin();
 
           if (!response.ok) {
-            const message = await readErrorMessage(response, "账号或密码错误");
-            if (response.status === 400 && message.includes("加密")) {
+            const message = await readErrorMessage(response, "Incorrect account or password.");
+            if (response.status === 400 && message.toLowerCase().includes("encrypt")) {
               response = await submitLogin(true);
             } else {
               return { ok: false, message };
@@ -120,7 +124,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
 
           if (!response.ok) {
-            return { ok: false, message: await readErrorMessage(response, "账号或密码错误") };
+            return {
+              ok: false,
+              message: await readErrorMessage(response, "Incorrect account or password."),
+            };
           }
 
           const data = (await response.json()) as {
@@ -144,7 +151,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           clearAuthSession();
           return {
             ok: false,
-            message: error instanceof Error ? error.message : "网络异常，请检查后端服务是否已启动",
+            message: error instanceof Error ? error.message : "Network error. Please verify that the backend service is reachable.",
           };
         }
       },
@@ -210,7 +217,7 @@ export function getAccessToken() {
 }
 
 export function getRoleLabel(roleName: string | null | undefined) {
-  if (!roleName) return "普通用户";
+  if (!roleName) return "Regular User";
   if (roleName === "超级管理员") return "超级管理员";
   return roleName;
 }

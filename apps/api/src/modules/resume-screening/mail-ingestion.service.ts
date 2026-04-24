@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ImapFlow } from 'imapflow';
 import { simpleParser } from 'mailparser';
@@ -28,7 +28,7 @@ export class MailIngestionService {
     const creds = params.credentials ?? this.resolveEnvCredentials();
 
     if (!creds.host || !creds.user || !creds.pass) {
-      throw new Error('未配置企业邮箱连接信息，请先完善邮箱配置。');
+      throw new BadRequestException('未配置企业邮箱连接信息，请先完善邮箱配置。');
     }
 
     const client = new ImapFlow({
@@ -41,11 +41,9 @@ export class MailIngestionService {
       greetingTimeout: 10000,
       socketTimeout: 30000,
     });
-
-    await client.connect();
-    let latestUid = params.lastUid;
-
     try {
+      await client.connect();
+      let latestUid = params.lastUid;
       await client.mailboxOpen(creds.mailbox);
       const searchQuery =
         params.lastUid && params.lastUid > 0
@@ -97,8 +95,10 @@ export class MailIngestionService {
       }
 
       return { mails, latestUid, scannedCount };
+    } catch (error) {
+      throw this.toMailConnectionException(error);
     } finally {
-      await client.logout();
+      await client.logout().catch(() => undefined);
     }
   }
 
@@ -121,5 +121,31 @@ export class MailIngestionService {
 
   private stripHtml(html: string) {
     return html.replace(/<[^>]+>/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  private toMailConnectionException(error: unknown) {
+    if (error instanceof BadRequestException) {
+      return error;
+    }
+
+    if (error instanceof Error) {
+      const details = error as Error & {
+        responseText?: string;
+        authenticationFailed?: boolean;
+        code?: string;
+      };
+
+      if (details.authenticationFailed || details.responseText) {
+        return new BadRequestException(
+          `企业邮箱登录失败：${details.responseText || '请检查 IMAP 是否开启、账号状态或邮箱密码是否正确。'}`,
+        );
+      }
+
+      if (details.code === 'ETIMEOUT') {
+        return new BadRequestException('连接企业邮箱超时，请检查 IMAP 服务、网络状态或邮箱服务商限制。');
+      }
+    }
+
+    return new BadRequestException('连接企业邮箱失败，请检查邮箱配置或稍后重试。');
   }
 }

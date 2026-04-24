@@ -240,7 +240,14 @@ export interface SaveMailSyncSchedulePayload {
   openai_config_id?: string | null;
 }
 
+type SecurityPublicKeyResponse = {
+  algorithm: "RSA-OAEP";
+  public_key: string;
+};
+
 const API_BASE = (import.meta.env.VITE_RECRUITMENT_API_BASE as string | undefined)?.replace(/\/$/, "") ?? "";
+const LEGACY_PLAIN_SECRET_ERROR = "plain_secret should not exist";
+let cachedPublicKey: Promise<CryptoKey> | null = null;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const isFormDataRequest = typeof FormData !== "undefined" && init?.body instanceof FormData;
@@ -272,6 +279,74 @@ function prepareSecretPayload(value?: string) {
   return { plain_secret: normalized };
 }
 
+function pemToArrayBuffer(pem: string) {
+  const base64 = pem.replace(/-----BEGIN PUBLIC KEY-----|-----END PUBLIC KEY-----|\s/g, "");
+  const binary = window.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes.buffer;
+}
+
+function canEncryptInBrowser() {
+  return typeof window !== "undefined" && window.isSecureContext && Boolean(window.crypto?.subtle);
+}
+
+async function getSecurityPublicKey() {
+  const response = await request<SecurityPublicKeyResponse>("/api/recruitment/security/public-key");
+  return window.crypto.subtle.importKey(
+    "spki",
+    pemToArrayBuffer(response.public_key),
+    {
+      name: "RSA-OAEP",
+      hash: "SHA-256",
+    },
+    true,
+    ["encrypt"],
+  );
+}
+
+async function encryptSensitiveValue(value: string) {
+  if (!canEncryptInBrowser()) {
+    return null;
+  }
+
+  if (!cachedPublicKey) {
+    cachedPublicKey = getSecurityPublicKey();
+  }
+
+  const publicKey = await cachedPublicKey;
+  const encodedValue = new TextEncoder().encode(value);
+  const encrypted = await window.crypto.subtle.encrypt({ name: "RSA-OAEP" }, publicKey, encodedValue);
+  return window.btoa(String.fromCharCode(...new Uint8Array(encrypted)));
+}
+
+async function prepareLegacySecretPayload(value?: string) {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return {};
+  }
+
+  const encryptedSecret = await encryptSensitiveValue(normalized);
+  if (!encryptedSecret) {
+    return null;
+  }
+
+  return { encrypted_secret: encryptedSecret };
+}
+
+function shouldRetryWithLegacySecret(error: unknown) {
+  const message = error instanceof Error ? error.message : "";
+  return message.toLowerCase().includes(LEGACY_PLAIN_SECRET_ERROR);
+}
+
+function buildLegacyVersionMismatchError() {
+  return new Error(
+    "线上后端仍在使用旧版接口，暂不接受 plain_secret；当前浏览器环境又无法回退到旧版浏览器加密。请先部署最新后端，或使用 HTTPS / localhost 后重试。",
+  );
+}
+
 export const recruitmentApi = {
   getHealth() {
     return request<HealthResponse>("/api/recruitment/health");
@@ -279,33 +354,67 @@ export const recruitmentApi = {
   listMailConfigs() {
     return request<MailConfigItem[]>("/api/recruitment/integrations/mail");
   },
-  saveMailConfig(payload: SaveMailConfigPayload) {
-    const secretPayload = prepareSecretPayload(payload.password);
-    return request<MailConfigItem>("/api/recruitment/integrations/mail", {
-      method: "POST",
-      body: JSON.stringify({
-        id: payload.id,
-        email: payload.email,
-        enabled: payload.enabled,
-        ...secretPayload,
-      }),
+  async saveMailConfig(payload: SaveMailConfigPayload) {
+    const buildBody = (secretPayload: Record<string, string>) => ({
+      id: payload.id,
+      email: payload.email,
+      enabled: payload.enabled,
+      ...secretPayload,
     });
+
+    try {
+      return await request<MailConfigItem>("/api/recruitment/integrations/mail", {
+        method: "POST",
+        body: JSON.stringify(buildBody(prepareSecretPayload(payload.password))),
+      });
+    } catch (error) {
+      if (!shouldRetryWithLegacySecret(error) || !payload.password?.trim()) {
+        throw error;
+      }
+
+      const legacySecretPayload = await prepareLegacySecretPayload(payload.password);
+      if (!legacySecretPayload) {
+        throw buildLegacyVersionMismatchError();
+      }
+
+      return request<MailConfigItem>("/api/recruitment/integrations/mail", {
+        method: "POST",
+        body: JSON.stringify(buildBody(legacySecretPayload)),
+      });
+    }
   },
   listOpenAiConfigs() {
     return request<OpenAiConfigItem[]>("/api/recruitment/integrations/openai");
   },
-  saveOpenAiConfig(payload: SaveOpenAiConfigPayload) {
-    const secretPayload = prepareSecretPayload(payload.api_key);
-    return request<OpenAiConfigItem>("/api/recruitment/integrations/openai", {
-      method: "POST",
-      body: JSON.stringify({
+  async saveOpenAiConfig(payload: SaveOpenAiConfigPayload) {
+    const buildBody = (secretPayload: Record<string, string>) => ({
         id: payload.id,
         name: payload.name,
         model: payload.model,
         enabled: payload.enabled,
         ...secretPayload,
-      }),
     });
+
+    try {
+      return await request<OpenAiConfigItem>("/api/recruitment/integrations/openai", {
+        method: "POST",
+        body: JSON.stringify(buildBody(prepareSecretPayload(payload.api_key))),
+      });
+    } catch (error) {
+      if (!shouldRetryWithLegacySecret(error) || !payload.api_key?.trim()) {
+        throw error;
+      }
+
+      const legacySecretPayload = await prepareLegacySecretPayload(payload.api_key);
+      if (!legacySecretPayload) {
+        throw buildLegacyVersionMismatchError();
+      }
+
+      return request<OpenAiConfigItem>("/api/recruitment/integrations/openai", {
+        method: "POST",
+        body: JSON.stringify(buildBody(legacySecretPayload)),
+      });
+    }
   },
   deleteIntegrationConfig(configId: string) {
     return request<{ id: string }>(`/api/recruitment/integrations/${configId}`, {
