@@ -31,7 +31,7 @@ jobs:
             scp -o StrictHostKeyChecking=no /tmp/deploy.tar.gz root@39.102.98.21:/tmp/deploy.tar.gz
           sshpass -p "${{ secrets.SERVER_PASSWORD }}" \
             ssh -o StrictHostKeyChecking=no root@39.102.98.21 \
-            "cd /opt/inogi-ai-office-system && tar xzf /tmp/deploy.tar.gz && cp /tmp/api_env_backup apps/api/.env 2>/dev/null || true && rm /tmp/deploy.tar.gz"
+            "cd /opt/inogi-ai-office-system && tar xzf /tmp/deploy.tar.gz && cp /tmp/api_env_backup apps/api/.env 2>/dev/null || true && rm /tmp/deploy.tar.gz && chown -R root:root /opt/inogi-ai-office-system"
 
       - name: Build and restart
         uses: appleboy/ssh-action@v1
