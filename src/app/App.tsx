@@ -1,6 +1,7 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { CssBaseline, ThemeProvider } from "@mui/material";
 import { createBrowserRouter, Navigate, RouterProvider, useLocation } from "react-router";
+import { toast } from "sonner";
 import { materialTheme } from "../styles/materialTheme";
 import { AfterSalesDetails } from "./AfterSalesDetails";
 import { AfterSalesForm } from "./AfterSalesForm";
@@ -36,6 +37,88 @@ import { RoleManagement } from "./RoleManagement";
 import { Root } from "./Root";
 import { DictionaryList } from "./DictionaryList";
 import { UserManagement } from "./UserManagement";
+
+type RuntimeHealthResponse = {
+  ok: boolean;
+  service?: string;
+  timestamp?: string;
+  release?: string;
+  git_sha?: string;
+  started_at?: string;
+};
+
+const FRONTEND_RELEASE = (import.meta.env.VITE_APP_VERSION as string | undefined) ?? "dev";
+const FRONTEND_GIT_SHA = (import.meta.env.VITE_GIT_SHA as string | undefined) ?? "unknown";
+const RUNTIME_VERSION_NOTICE_KEY = "inogi-runtime-version-warning";
+
+function RuntimeVersionGuard() {
+  useEffect(() => {
+    if (!import.meta.env.PROD || typeof window === "undefined") {
+      return;
+    }
+
+    let cancelled = false;
+
+    async function checkRuntimeVersion() {
+      try {
+        const response = await fetch("/api/health", {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        });
+
+        if (!response.ok || cancelled) {
+          return;
+        }
+
+        const payload = (await response.json()) as RuntimeHealthResponse;
+        if (cancelled) {
+          return;
+        }
+
+        const backendRelease = payload.release ?? "unknown";
+        const backendGitSha = payload.git_sha ?? "unknown";
+        const hasComparableVersion =
+          backendGitSha !== "unknown" &&
+          FRONTEND_GIT_SHA !== "unknown" &&
+          backendRelease !== "unknown" &&
+          FRONTEND_RELEASE !== "dev";
+
+        if (!hasComparableVersion) {
+          return;
+        }
+
+        const sameRelease = backendRelease === FRONTEND_RELEASE;
+        const sameCommit = backendGitSha === FRONTEND_GIT_SHA;
+        if (sameRelease && sameCommit) {
+          sessionStorage.removeItem(RUNTIME_VERSION_NOTICE_KEY);
+          return;
+        }
+
+        const noticeKey = `${FRONTEND_RELEASE}:${FRONTEND_GIT_SHA}:${backendRelease}:${backendGitSha}`;
+        if (sessionStorage.getItem(RUNTIME_VERSION_NOTICE_KEY) === noticeKey) {
+          return;
+        }
+
+        sessionStorage.setItem(RUNTIME_VERSION_NOTICE_KEY, noticeKey);
+        toast.error(
+          `前后端版本不一致：前端 ${FRONTEND_RELEASE} (${FRONTEND_GIT_SHA.slice(0, 7)})，后端 ${backendRelease} (${backendGitSha.slice(0, 7)})。请确认 API 已部署到同一版本。`,
+          { duration: 12000 },
+        );
+      } catch {
+        // Ignore version probe failures; this check should never block the app.
+      }
+    }
+
+    void checkRuntimeVersion();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return null;
+}
 
 function ProtectedLayout() {
   const { user, hydrated } = useAuth();
@@ -102,6 +185,7 @@ export default function App() {
     <ThemeProvider theme={materialTheme}>
       <CssBaseline />
       <AuthProvider>
+        <RuntimeVersionGuard />
         <RouterProvider router={router} />
       </AuthProvider>
     </ThemeProvider>
