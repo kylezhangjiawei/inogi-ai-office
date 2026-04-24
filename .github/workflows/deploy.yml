@@ -8,11 +8,33 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: SSH Deploy
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync source to server
+        uses: burnett01/rsync-deployments@7.0.1
+        with:
+          switches: -avz --delete --exclude='.git' --exclude='node_modules' --exclude='apps/api/node_modules' --exclude='apps/api/dist' --exclude='dist' --exclude='apps/api/.env'
+          path: ./
+          remote_path: /opt/inogi-ai-office-system/
+          remote_host: 39.102.98.21
+          remote_user: root
+          remote_password: ${{ secrets.SERVER_PASSWORD }}
+
+      - name: Build and restart
         uses: appleboy/ssh-action@v1
         with:
           host: 39.102.98.21
           username: root
           password: ${{ secrets.SERVER_PASSWORD }}
-          script: inogi-deploy
           command_timeout: 15m
+          script: |
+            cd /opt/inogi-ai-office-system
+            npm install --silent
+            cd apps/api && npm install --silent && cd ../..
+            npm run build:api
+            npm run build
+            cd apps/api && npx prisma migrate deploy && npx prisma generate && cd ../..
+            pm2 restart inogi-api
+            nginx -s reload
+            echo "===== Deploy complete ====="
