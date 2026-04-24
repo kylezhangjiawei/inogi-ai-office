@@ -11,8 +11,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install sshpass
-        run: sudo apt-get install -y sshpass
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_rsa
+          chmod 600 ~/.ssh/id_rsa
+          ssh-keyscan -H 39.102.98.21 >> ~/.ssh/known_hosts
 
       - name: Sync source to server
         run: |
@@ -24,21 +28,16 @@ jobs:
             --exclude='dist' \
             --exclude='apps/api/.env' \
             .
-          sshpass -p "${{ secrets.SERVER_PASSWORD }}" \
-            ssh -o StrictHostKeyChecking=no root@39.102.98.21 \
-            "mkdir -p /opt/inogi-ai-office-system && cd /opt/inogi-ai-office-system && cp apps/api/.env /tmp/api_env_backup 2>/dev/null || true"
-          sshpass -p "${{ secrets.SERVER_PASSWORD }}" \
-            scp -o StrictHostKeyChecking=no /tmp/deploy.tar.gz root@39.102.98.21:/tmp/deploy.tar.gz
-          sshpass -p "${{ secrets.SERVER_PASSWORD }}" \
-            ssh -o StrictHostKeyChecking=no root@39.102.98.21 \
-            "cd /opt/inogi-ai-office-system && tar xzf /tmp/deploy.tar.gz && cp /tmp/api_env_backup apps/api/.env 2>/dev/null || true && rm /tmp/deploy.tar.gz && chown -R root:root /opt/inogi-ai-office-system"
+          ssh root@39.102.98.21 "mkdir -p /opt/inogi-ai-office-system && cd /opt/inogi-ai-office-system && cp apps/api/.env /tmp/api_env_backup 2>/dev/null || true"
+          scp /tmp/deploy.tar.gz root@39.102.98.21:/tmp/deploy.tar.gz
+          ssh root@39.102.98.21 "cd /opt/inogi-ai-office-system && tar xzf /tmp/deploy.tar.gz && cp /tmp/api_env_backup apps/api/.env 2>/dev/null || true && rm /tmp/deploy.tar.gz && chown -R root:root /opt/inogi-ai-office-system"
 
       - name: Build and restart
         uses: appleboy/ssh-action@v1
         with:
           host: 39.102.98.21
           username: root
-          password: ${{ secrets.SERVER_PASSWORD }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
           command_timeout: 15m
           script: |
             cd /opt/inogi-ai-office-system
