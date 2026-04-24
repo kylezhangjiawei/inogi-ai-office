@@ -550,7 +550,7 @@ export function ResumeScreeningPage() {
     if (!isValid) {
       setSelectedOpenAiConfigId(openAiConfigs.find((c) => c.enabled)?.id ?? openAiConfigs[0].id);
     }
-  }, [openAiConfigs]);
+  }, [openAiConfigs, selectedOpenAiConfigId]);
 
   useEffect(() => {
     if (selectedJobRuleId || !resolvedSelectedJobRule) {
