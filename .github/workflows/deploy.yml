@@ -1,0 +1,18 @@
+name: Deploy to Server
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH Deploy
+        uses: appleboy/ssh-action@v1
+        with:
+          host: 39.102.98.21
+          username: root
+          password: ${{ secrets.SERVER_PASSWORD }}
+          script: inogi-deploy
+          command_timeout: 15m
