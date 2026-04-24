@@ -545,6 +545,14 @@ export function ResumeScreeningPage() {
   }, [decisionFilter, jobRuleFilter, minScoreFilter, deferredCandidateKeyword]);
 
   useEffect(() => {
+    if (!openAiConfigs.length) return;
+    const isValid = openAiConfigs.some((c) => c.id === selectedOpenAiConfigId);
+    if (!isValid) {
+      setSelectedOpenAiConfigId(openAiConfigs.find((c) => c.enabled)?.id ?? openAiConfigs[0].id);
+    }
+  }, [openAiConfigs]);
+
+  useEffect(() => {
     if (selectedJobRuleId || !resolvedSelectedJobRule) {
       return;
     }

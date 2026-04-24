@@ -519,7 +519,7 @@ export class ResumeScreeningService implements OnModuleInit {
         html: mail.contentHtml,
       });
       const screeningPrecheck = this.resumeParserService.shouldAttemptScreening(profile);
-      const jobRulesToMatch = preferredJobRule ? [preferredJobRule] : enabledJobRules;
+      const jobRulesToMatch = enabledJobRules;
       const matchedJobRule = this.findMatchingJobRuleForMail(profile, mail, jobRulesToMatch, preferredJobRule?.id);
       let candidateId: string | null = null;
 
@@ -1599,7 +1599,7 @@ export class ResumeScreeningService implements OnModuleInit {
 
     let score = isPreferred ? 0.5 : 0;
     if (searchableText.includes(normalizedJobRuleName)) {
-      score += 12;
+      score += 12 + normalizedJobRuleName.length;
     }
 
     const keywords = this.extractJobRuleKeywords(normalizedJobRuleName);
@@ -1665,7 +1665,7 @@ export class ResumeScreeningService implements OnModuleInit {
 
         let score = preferredJobRuleId === jobRule.id ? 2 : 0;
         if (normalizedFileName.includes(normalizedRuleName)) {
-          score += 100;
+          score += 100 + normalizedRuleName.length * 2;
         }
 
         const nameParts = jobRule.name
