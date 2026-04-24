@@ -3,7 +3,5 @@ dist/
 .env
 .env.local
 *.local
-backend/data/
-backend/.venv/
 __pycache__/
 *.pyc

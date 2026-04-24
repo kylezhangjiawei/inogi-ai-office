@@ -1,1 +1,0 @@
-"""Recruitment screening backend package."""
