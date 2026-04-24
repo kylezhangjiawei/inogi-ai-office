@@ -11,15 +11,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Install sshpass
+        run: sudo apt-get install -y sshpass
+
       - name: Sync source to server
-        uses: burnett01/rsync-deployments@7.0.1
-        with:
-          switches: -avz --delete --exclude='.git' --exclude='node_modules' --exclude='apps/api/node_modules' --exclude='apps/api/dist' --exclude='dist' --exclude='apps/api/.env'
-          path: ./
-          remote_path: /opt/inogi-ai-office-system/
-          remote_host: 39.102.98.21
-          remote_user: root
-          remote_password: ${{ secrets.SERVER_PASSWORD }}
+        run: |
+          sshpass -p "${{ secrets.SERVER_PASSWORD }}" rsync -avz --delete \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='apps/api/node_modules' \
+            --exclude='apps/api/dist' \
+            --exclude='dist' \
+            --exclude='apps/api/.env' \
+            -e "ssh -o StrictHostKeyChecking=no" \
+            ./ root@39.102.98.21:/opt/inogi-ai-office-system/
 
       - name: Build and restart
         uses: appleboy/ssh-action@v1
