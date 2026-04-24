@@ -85,13 +85,7 @@ export interface TestAiModelConnectionResult {
   total_tokens?: number | null;
 }
 
-type SecurityPublicKeyResponse = {
-  algorithm: "RSA-OAEP";
-  public_key: string;
-};
-
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ?? "";
-let cachedPublicKey: Promise<CryptoKey> | null = null;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await authFetch(`${API_BASE}${path}`, {
@@ -123,54 +117,28 @@ function buildQuery(params: { page: number; pageSize: number; keyword?: string }
   return search.toString();
 }
 
-function pemToArrayBuffer(pem: string) {
-  const base64 = pem.replace(/-----BEGIN PUBLIC KEY-----|-----END PUBLIC KEY-----|\s/g, "");
-  const binary = window.atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes.buffer;
-}
-
-async function getSecurityPublicKey() {
-  const response = await request<SecurityPublicKeyResponse>("/api/integration-management/security/public-key");
-  return window.crypto.subtle.importKey(
-    "spki",
-    pemToArrayBuffer(response.public_key),
-    {
-      name: "RSA-OAEP",
-      hash: "SHA-256",
-    },
-    true,
-    ["encrypt"],
-  );
-}
-
-async function encryptSensitiveValue(value: string) {
-  if (!cachedPublicKey) {
-    cachedPublicKey = getSecurityPublicKey();
+function prepareSecretPayload(value?: string) {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return {};
   }
 
-  const publicKey = await cachedPublicKey;
-  const encodedValue = new TextEncoder().encode(value);
-  const encrypted = await window.crypto.subtle.encrypt({ name: "RSA-OAEP" }, publicKey, encodedValue);
-  return window.btoa(String.fromCharCode(...new Uint8Array(encrypted)));
+  return { plain_secret: normalized };
 }
 
 export const integrationManagementApi = {
   listMailboxes(params: { page: number; pageSize: number; keyword?: string }) {
     return request<PaginatedResponse<MailboxItem>>(`/api/integration-management/mailboxes?${buildQuery(params)}`);
   },
-  async saveMailbox(payload: SaveMailboxPayload) {
-    const encryptedSecret = payload.password ? await encryptSensitiveValue(payload.password) : undefined;
+  saveMailbox(payload: SaveMailboxPayload) {
+    const secretPayload = prepareSecretPayload(payload.password);
     return request<MailboxItem>("/api/integration-management/mailboxes", {
       method: "POST",
       body: JSON.stringify({
         id: payload.id,
         email: payload.email,
         enabled: payload.enabled,
-        encrypted_secret: encryptedSecret,
+        ...secretPayload,
       }),
     });
   },
@@ -182,8 +150,8 @@ export const integrationManagementApi = {
   listAiModels(params: { page: number; pageSize: number; keyword?: string }) {
     return request<PaginatedResponse<AiModelItem>>(`/api/integration-management/ai-models?${buildQuery(params)}`);
   },
-  async saveAiModel(payload: SaveAiModelPayload) {
-    const encryptedSecret = payload.api_key ? await encryptSensitiveValue(payload.api_key) : undefined;
+  saveAiModel(payload: SaveAiModelPayload) {
+    const secretPayload = prepareSecretPayload(payload.api_key);
     return request<AiModelItem>("/api/integration-management/ai-models", {
       method: "POST",
       body: JSON.stringify({
@@ -202,12 +170,12 @@ export const integrationManagementApi = {
         today_estimated_cost: payload.today_estimated_cost,
         current_balance_or_quota: payload.current_balance_or_quota,
         is_default_enabled: payload.is_default_enabled,
-        encrypted_secret: encryptedSecret,
+        ...secretPayload,
       }),
     });
   },
-  async testAiModelConnection(payload: TestAiModelConnectionPayload) {
-    const encryptedSecret = payload.api_key ? await encryptSensitiveValue(payload.api_key) : undefined;
+  testAiModelConnection(payload: TestAiModelConnectionPayload) {
+    const secretPayload = prepareSecretPayload(payload.api_key);
     return request<TestAiModelConnectionResult>("/api/integration-management/ai-models/test", {
       method: "POST",
       body: JSON.stringify({
@@ -215,7 +183,7 @@ export const integrationManagementApi = {
         provider: payload.provider,
         model: payload.model,
         base_url: payload.base_url,
-        encrypted_secret: encryptedSecret,
+        ...secretPayload,
       }),
     });
   },

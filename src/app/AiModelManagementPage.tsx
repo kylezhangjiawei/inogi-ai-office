@@ -53,6 +53,7 @@ export function AiModelManagementPage() {
   const [apiKey, setApiKey] = useState("");
   const [enabled, setEnabled] = useState(true);
   const [isDefaultEnabled, setIsDefaultEnabled] = useState(true);
+  const [dialogError, setDialogError] = useState("");
 
   async function loadRows(targetPage = page) {
     setLoading(true);
@@ -91,6 +92,7 @@ export function AiModelManagementPage() {
     setApiKey("");
     setEnabled(true);
     setIsDefaultEnabled(true);
+    setDialogError("");
   }
 
   function closeDialog() {
@@ -128,6 +130,7 @@ export function AiModelManagementPage() {
       return;
     }
 
+    setDialogError("");
     setSaving(true);
     try {
       await integrationManagementApi.saveAiModel({
@@ -149,7 +152,9 @@ export function AiModelManagementPage() {
         await loadRows(1);
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "保存 AI 模型失败");
+      const message = error instanceof Error ? error.message : "保存 AI 模型失败";
+      setDialogError(message);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -161,6 +166,7 @@ export function AiModelManagementPage() {
       return;
     }
 
+    setDialogError("");
     setTestingConnection(true);
     try {
       const result = await integrationManagementApi.testAiModelConnection({
@@ -181,7 +187,9 @@ export function AiModelManagementPage() {
 
       await loadRows(page);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "AI 连通性测试失败");
+      const message = error instanceof Error ? error.message : "AI 连通性测试失败";
+      setDialogError(message);
+      toast.error(message);
     } finally {
       setTestingConnection(false);
     }
@@ -449,6 +457,11 @@ export function AiModelManagementPage() {
             <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-3 text-sm leading-6 text-slate-500 md:col-span-2">
               当前状态、最近成功时间、最近失败时间、最近延迟、今日请求数、今日 Token、今日预估费用、当前余额/额度都由系统自动获取或自动计算。
             </div>
+            {dialogError ? (
+              <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm leading-6 text-rose-700 md:col-span-2">
+                {dialogError}
+              </div>
+            ) : null}
           </div>
         </DialogContent>
         <DialogActions>

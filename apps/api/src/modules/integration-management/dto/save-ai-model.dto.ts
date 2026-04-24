@@ -33,6 +33,10 @@ export class SaveAiModelDto {
   @IsString()
   encrypted_secret?: string;
 
+  @IsOptional()
+  @IsString()
+  plain_secret?: string;
+
   @IsString()
   @MaxLength(40)
   current_status!: string;

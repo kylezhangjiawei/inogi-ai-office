@@ -22,4 +22,8 @@ export class TestAiModelConnectionDto {
   @IsOptional()
   @IsString()
   encrypted_secret?: string;
+
+  @IsOptional()
+  @IsString()
+  plain_secret?: string;
 }

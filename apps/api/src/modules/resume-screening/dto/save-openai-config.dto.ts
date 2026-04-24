@@ -3,5 +3,6 @@ export class SaveOpenAiConfigDto {
   name!: string;
   model!: string;
   encrypted_secret?: string;
+  plain_secret?: string;
   enabled!: boolean;
 }

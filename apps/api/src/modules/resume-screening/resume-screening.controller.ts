@@ -110,6 +110,11 @@ export class ResumeScreeningController {
     return this.resumeScreeningService.listCandidates(query);
   }
 
+  @Delete('candidates')
+  clearCandidates() {
+    return this.resumeScreeningService.clearCandidates();
+  }
+
   @Get('candidates/:candidateId')
   getCandidateDetail(@Param('candidateId') candidateId: string) {
     return this.resumeScreeningService.getCandidateDetail(candidateId);

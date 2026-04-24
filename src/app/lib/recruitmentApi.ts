@@ -169,6 +169,12 @@ export interface CandidateDetail {
   screenings: CandidateScreeningHistory[];
 }
 
+export interface ClearCandidatesResponse {
+  deleted_candidates: number;
+  deleted_screenings: number;
+  deleted_logs: number;
+}
+
 export interface HealthResponse {
   ok: boolean;
   mail_configured: boolean;
@@ -234,13 +240,7 @@ export interface SaveMailSyncSchedulePayload {
   openai_config_id?: string | null;
 }
 
-type SecurityPublicKeyResponse = {
-  algorithm: "RSA-OAEP";
-  public_key: string;
-};
-
 const API_BASE = (import.meta.env.VITE_RECRUITMENT_API_BASE as string | undefined)?.replace(/\/$/, "") ?? "";
-let cachedPublicKey: Promise<CryptoKey> | null = null;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const isFormDataRequest = typeof FormData !== "undefined" && init?.body instanceof FormData;
@@ -263,39 +263,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-function pemToArrayBuffer(pem: string) {
-  const base64 = pem.replace(/-----BEGIN PUBLIC KEY-----|-----END PUBLIC KEY-----|\s/g, "");
-  const binary = window.atob(base64);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes.buffer;
-}
-
-async function getSecurityPublicKey() {
-  const response = await request<SecurityPublicKeyResponse>("/api/recruitment/security/public-key");
-  return window.crypto.subtle.importKey(
-    "spki",
-    pemToArrayBuffer(response.public_key),
-    {
-      name: "RSA-OAEP",
-      hash: "SHA-256",
-    },
-    true,
-    ["encrypt"],
-  );
-}
-
-async function encryptSensitiveValue(value: string) {
-  if (!cachedPublicKey) {
-    cachedPublicKey = getSecurityPublicKey();
+function prepareSecretPayload(value?: string) {
+  const normalized = value?.trim();
+  if (!normalized) {
+    return {};
   }
 
-  const publicKey = await cachedPublicKey;
-  const encodedValue = new TextEncoder().encode(value);
-  const encrypted = await window.crypto.subtle.encrypt({ name: "RSA-OAEP" }, publicKey, encodedValue);
-  return window.btoa(String.fromCharCode(...new Uint8Array(encrypted)));
+  return { plain_secret: normalized };
 }
 
 export const recruitmentApi = {
@@ -305,23 +279,23 @@ export const recruitmentApi = {
   listMailConfigs() {
     return request<MailConfigItem[]>("/api/recruitment/integrations/mail");
   },
-  async saveMailConfig(payload: SaveMailConfigPayload) {
-    const encryptedSecret = payload.password ? await encryptSensitiveValue(payload.password) : undefined;
+  saveMailConfig(payload: SaveMailConfigPayload) {
+    const secretPayload = prepareSecretPayload(payload.password);
     return request<MailConfigItem>("/api/recruitment/integrations/mail", {
       method: "POST",
       body: JSON.stringify({
         id: payload.id,
         email: payload.email,
         enabled: payload.enabled,
-        encrypted_secret: encryptedSecret,
+        ...secretPayload,
       }),
     });
   },
   listOpenAiConfigs() {
     return request<OpenAiConfigItem[]>("/api/recruitment/integrations/openai");
   },
-  async saveOpenAiConfig(payload: SaveOpenAiConfigPayload) {
-    const encryptedSecret = payload.api_key ? await encryptSensitiveValue(payload.api_key) : undefined;
+  saveOpenAiConfig(payload: SaveOpenAiConfigPayload) {
+    const secretPayload = prepareSecretPayload(payload.api_key);
     return request<OpenAiConfigItem>("/api/recruitment/integrations/openai", {
       method: "POST",
       body: JSON.stringify({
@@ -329,7 +303,7 @@ export const recruitmentApi = {
         name: payload.name,
         model: payload.model,
         enabled: payload.enabled,
-        encrypted_secret: encryptedSecret,
+        ...secretPayload,
       }),
     });
   },
@@ -387,6 +361,11 @@ export const recruitmentApi = {
     if (typeof filters.jobRuleId === "string" && filters.jobRuleId) params.set("job_rule_id", String(filters.jobRuleId));
     const suffix = params.toString() ? `?${params.toString()}` : "";
     return request<CandidateListItem[]>(`/api/recruitment/candidates${suffix}`);
+  },
+  clearCandidates() {
+    return request<ClearCandidatesResponse>("/api/recruitment/candidates", {
+      method: "DELETE",
+    });
   },
   getCandidateDetail(candidateId: string) {
     return request<CandidateDetail>(`/api/recruitment/candidates/${candidateId}`);

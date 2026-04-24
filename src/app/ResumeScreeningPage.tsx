@@ -60,11 +60,20 @@ type RuleFormState = {
 
 type ScheduleFormState = MailSyncSchedule;
 
-type DeleteConfirmState = {
-  id: string;
-  title: string;
-  description: string;
-};
+type DeleteConfirmState =
+  | {
+      kind: "job-rule";
+      id: string;
+      title: string;
+      description: string;
+      confirmLabel?: string;
+    }
+  | {
+      kind: "candidate-data";
+      title: string;
+      description: string;
+      confirmLabel?: string;
+    };
 
 const emptyRuleForm: RuleFormState = {
   name: "",
@@ -404,6 +413,7 @@ export function ResumeScreeningPage() {
   const [loadingRules, setLoadingRules] = useState(false);
   const [savingRule, setSavingRule] = useState(false);
   const [deletingJobRuleId, setDeletingJobRuleId] = useState<string | null>(null);
+  const [clearingCandidates, setClearingCandidates] = useState(false);
   const [togglingJobRuleId, setTogglingJobRuleId] = useState<string | null>(null);
   const [selectedJobRuleId, setSelectedJobRuleId] = useState<string>("");
   const [ruleForm, setRuleForm] = useState<RuleFormState>(emptyRuleForm);
@@ -514,6 +524,8 @@ export function ResumeScreeningPage() {
     [lastUploadResult?.file_previews],
   );
   const hasPendingBackgroundAnalysis = hasPendingSyncMail || hasPendingUploadFile;
+  const clearCandidatesDisabled =
+    clearingCandidates || loadingCandidates || runningSync || uploadingFolder || hasPendingBackgroundAnalysis;
 
   useEffect(() => {
     void loadBootstrap();
@@ -1104,12 +1116,36 @@ export function ResumeScreeningPage() {
     }
   }
 
+  async function handleClearCandidateData() {
+    setClearingCandidates(true);
+    try {
+      const result = await recruitmentApi.clearCandidates();
+      setCandidates([]);
+      setSelectedCandidateId("");
+      setSelectedCandidate(null);
+      setInterviewQaExpanded(false);
+      setLastSyncResult(null);
+      setLastUploadResult(null);
+      toast.success(
+        `已清空候选人数据，共删除 ${result.deleted_candidates} 位候选人、${result.deleted_screenings} 条筛选记录、${result.deleted_logs} 条打点记录。`,
+      );
+    } catch (error) {
+      toast.error(getErrorMessage(error, "清空候选人数据失败"));
+    } finally {
+      setClearingCandidates(false);
+    }
+  }
+
   async function confirmDelete() {
     if (!deleteConfirm) return;
 
-    const target = jobRules.find((item) => item.id === deleteConfirm.id);
-    if (target) {
-      await handleDeleteJobRule(target);
+    if (deleteConfirm.kind === "job-rule") {
+      const target = jobRules.find((item) => item.id === deleteConfirm.id);
+      if (target) {
+        await handleDeleteJobRule(target);
+      }
+    } else {
+      await handleClearCandidateData();
     }
 
     setDeleteConfirm(null);
@@ -1317,6 +1353,7 @@ export function ResumeScreeningPage() {
                               onClick={(event) => {
                                 event.stopPropagation();
                                 setDeleteConfirm({
+                                  kind: "job-rule",
                                   id: jobRule.id,
                                   title: "确认删除岗位规则？",
                                   description: `删除后将移除这条规则“${jobRule.name}”，此操作不可撤销。`,
@@ -1480,55 +1517,55 @@ export function ResumeScreeningPage() {
             </div>
           </div>
 
-          <div className="mt-5 rounded-[28px] border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.95),rgba(241,245,249,0.75))] p-5">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="max-w-full">
-                <div className="flex items-center gap-2 text-base font-semibold text-slate-800">
-                  <Clock3 className="h-4 w-4 text-slate-500" />
-                  启用定点轮询获取邮箱简历
-                </div>
-                <div className="mt-2 text-sm  text-slate-500">
-                  到点后会自动拉取邮箱简历，并按当前启用规则执行筛选。若左侧已选中规则，则优先使用该规则。
-                </div>
-              </div>
-              <div className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-500">
-                {scheduleForm.enabled ? "轮询已启用" : "轮询未启用"}
-              </div>
-            </div>
+          {/*<div className="mt-5 rounded-[28px] border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.95),rgba(241,245,249,0.75))] p-5">*/}
+          {/*  <div className="flex flex-wrap items-start justify-between gap-4">*/}
+          {/*    <div className="max-w-full">*/}
+          {/*      <div className="flex items-center gap-2 text-base font-semibold text-slate-800">*/}
+          {/*        <Clock3 className="h-4 w-4 text-slate-500" />*/}
+          {/*        启用定点轮询获取邮箱简历*/}
+          {/*      </div>*/}
+          {/*      <div className="mt-2 text-sm  text-slate-500">*/}
+          {/*        到点后会自动拉取邮箱简历，并按当前启用规则执行筛选。若左侧已选中规则，则优先使用该规则。*/}
+          {/*      </div>*/}
+          {/*    </div>*/}
+          {/*    <div className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-500">*/}
+          {/*      {scheduleForm.enabled ? "轮询已启用" : "轮询未启用"}*/}
+          {/*    </div>*/}
+          {/*  </div>*/}
 
-            <div className="mt-5 rounded-[22px] border border-slate-200 bg-white p-4">
-              <div className="text-sm font-semibold text-slate-400">执行控制</div>
-              <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(220px,1.15fr)_minmax(180px,0.85fr)_minmax(180px,0.85fr)] lg:items-end">
-                <label className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-4 text-sm font-semibold text-slate-700">
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4 shrink-0"
-                    checked={scheduleForm.enabled}
-                    onChange={(event) => setScheduleForm((current) => ({ ...current, enabled: event.target.checked }))}
-                  />
-                  <span className="whitespace-nowrap">启用轮询</span>
-                </label>
-                <input
-                  type="time"
-                  value={scheduleForm.run_at}
-                  onChange={(event) => setScheduleForm((current) => ({ ...current, run_at: event.target.value }))}
-                  className="material-input h-11 w-full min-w-0"
-                />
-                <button
-                  type="button"
-                  onClick={() => void handleSaveSchedule()}
-                  disabled={savingSchedule}
-                  className="inline-flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-60"
-                >
-                  {savingSchedule ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clock3 className="h-4 w-4" />}
-                  保存计划
-                </button>
-              </div>
-              <div className="mt-4 text-xs leading-6 text-slate-500">
-                最近执行：{scheduleForm.last_run_at ? `${formatDate(scheduleForm.last_run_at)} / ${scheduleForm.last_run_result || "已完成"}` : "暂无记录"}
-              </div>
-            </div>
-          </div>
+          {/*  <div className="mt-5 rounded-[22px] border border-slate-200 bg-white p-4">*/}
+          {/*    <div className="text-sm font-semibold text-slate-400">执行控制</div>*/}
+          {/*    <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(220px,1.15fr)_minmax(180px,0.85fr)_minmax(180px,0.85fr)] lg:items-end">*/}
+          {/*      <label className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-4 text-sm font-semibold text-slate-700">*/}
+          {/*        <input*/}
+          {/*          type="checkbox"*/}
+          {/*          className="h-4 w-4 shrink-0"*/}
+          {/*          checked={scheduleForm.enabled}*/}
+          {/*          onChange={(event) => setScheduleForm((current) => ({ ...current, enabled: event.target.checked }))}*/}
+          {/*        />*/}
+          {/*        <span className="whitespace-nowrap">启用轮询</span>*/}
+          {/*      </label>*/}
+          {/*      <input*/}
+          {/*        type="time"*/}
+          {/*        value={scheduleForm.run_at}*/}
+          {/*        onChange={(event) => setScheduleForm((current) => ({ ...current, run_at: event.target.value }))}*/}
+          {/*        className="material-input h-11 w-full min-w-0"*/}
+          {/*      />*/}
+          {/*      <button*/}
+          {/*        type="button"*/}
+          {/*        onClick={() => void handleSaveSchedule()}*/}
+          {/*        disabled={savingSchedule}*/}
+          {/*        className="inline-flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-60"*/}
+          {/*      >*/}
+          {/*        {savingSchedule ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clock3 className="h-4 w-4" />}*/}
+          {/*        保存计划*/}
+          {/*      </button>*/}
+          {/*    </div>*/}
+          {/*    <div className="mt-4 text-xs leading-6 text-slate-500">*/}
+          {/*      最近执行：{scheduleForm.last_run_at ? `${formatDate(scheduleForm.last_run_at)} / ${scheduleForm.last_run_result || "已完成"}` : "暂无记录"}*/}
+          {/*    </div>*/}
+          {/*  </div>*/}
+          {/*</div>*/}
 
           <div className="mt-5 flex flex-col gap-3">
             <div className="flex flex-wrap gap-3 justify-between">
@@ -1731,9 +1768,27 @@ export function ResumeScreeningPage() {
               <h2 className="text-2xl font-semibold tracking-tight text-slate-900">候选人列表</h2>
               <p className="mt-2 text-base text-slate-400">按筛选结论、岗位和分数查看候选人摘要。</p>
             </div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500">
-              <Search className="h-4 w-4" />
-              共 {candidates.length} 人
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                onClick={() =>
+                  setDeleteConfirm({
+                    kind: "candidate-data",
+                    title: "确认清空候选人测试数据？",
+                    description: "会同时清空候选人列表、筛选历史和对应的导入打点记录。后台仍在筛选时不可执行。",
+                    confirmLabel: "确认清空",
+                  })
+                }
+                disabled={clearCandidatesDisabled}
+                className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 text-sm font-medium text-rose-600 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {clearingCandidates ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                清空候选人数据
+              </button>
+              <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500">
+                <Search className="h-4 w-4" />
+                共 {candidates.length} 人
+              </div>
             </div>
           </div>
 
@@ -2065,11 +2120,11 @@ export function ResumeScreeningPage() {
             <button
               type="button"
               onClick={() => void confirmDelete()}
-              disabled={Boolean(deletingJobRuleId)}
+              disabled={Boolean(deletingJobRuleId) || clearingCandidates}
               className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-full bg-rose-600 px-6 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:opacity-60"
             >
-              {deletingJobRuleId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-              确认删除
+              {deletingJobRuleId || clearingCandidates ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              {deleteConfirm?.confirmLabel || "确认删除"}
             </button>
           </DialogFooter>
         </DialogContent>

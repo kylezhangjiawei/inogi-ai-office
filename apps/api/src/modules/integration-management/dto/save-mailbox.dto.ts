@@ -13,6 +13,10 @@ export class SaveMailboxDto {
   @IsString()
   encrypted_secret?: string;
 
+  @IsOptional()
+  @IsString()
+  plain_secret?: string;
+
   @IsBoolean()
   enabled!: boolean;
 }

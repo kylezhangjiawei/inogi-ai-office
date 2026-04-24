@@ -1,5 +1,6 @@
 ﻿import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
   OnModuleInit,
@@ -176,11 +177,13 @@ export class ResumeScreeningService implements OnModuleInit {
       });
       if (!existing) throw new NotFoundException('Mail config not found.');
 
-      let encryptedSecret = existing.encryptedSecret;
-      if (payload.encrypted_secret?.trim()) {
-        const password = this.secureConfigService.decryptTransportValue(payload.encrypted_secret);
-        encryptedSecret = this.secureConfigService.encryptForStorage(password);
-      }
+      const encryptedSecret = this.resolveIncomingStoredSecret(
+        {
+          encryptedSecret: payload.encrypted_secret,
+          plainSecret: payload.plain_secret,
+        },
+        existing.encryptedSecret,
+      );
 
       const updated = await this.prisma.integrationConfig.update({
         where: { id: payload.id },
@@ -196,16 +199,19 @@ export class ResumeScreeningService implements OnModuleInit {
       return this.toMailConfigResponse(updated);
     }
 
-    if (!payload.encrypted_secret?.trim()) {
+    const encryptedSecret = this.resolveIncomingStoredSecret({
+      encryptedSecret: payload.encrypted_secret,
+      plainSecret: payload.plain_secret,
+    });
+    if (!encryptedSecret) {
       throw new BadRequestException('encrypted_secret is required when creating a mail config.');
     }
-    const password = this.secureConfigService.decryptTransportValue(payload.encrypted_secret);
     const created = await this.prisma.integrationConfig.create({
       data: {
         kind: 'mail',
         name: email,
         accountIdentifier: email,
-        encryptedSecret: this.secureConfigService.encryptForStorage(password),
+        encryptedSecret,
         isActive: Boolean(payload.enabled),
         metadata: {},
       },
@@ -245,11 +251,13 @@ export class ResumeScreeningService implements OnModuleInit {
       });
       if (!existing) throw new NotFoundException('OpenAI config not found.');
 
-      let encryptedSecret = existing.encryptedSecret;
-      if (payload.encrypted_secret?.trim()) {
-        const apiKey = this.secureConfigService.decryptTransportValue(payload.encrypted_secret);
-        encryptedSecret = this.secureConfigService.encryptForStorage(apiKey);
-      }
+      const encryptedSecret = this.resolveIncomingStoredSecret(
+        {
+          encryptedSecret: payload.encrypted_secret,
+          plainSecret: payload.plain_secret,
+        },
+        existing.encryptedSecret,
+      );
 
       const updated = await this.prisma.integrationConfig.update({
         where: { id: payload.id },
@@ -266,17 +274,20 @@ export class ResumeScreeningService implements OnModuleInit {
       return this.toOpenAiConfigResponse(updated);
     }
 
-    if (!payload.encrypted_secret?.trim()) {
+    const encryptedSecret = this.resolveIncomingStoredSecret({
+      encryptedSecret: payload.encrypted_secret,
+      plainSecret: payload.plain_secret,
+    });
+    if (!encryptedSecret) {
       throw new BadRequestException('encrypted_secret is required when creating an OpenAI config.');
     }
-    const apiKey = this.secureConfigService.decryptTransportValue(payload.encrypted_secret);
     const created = await this.prisma.integrationConfig.create({
       data: {
         kind: 'openai',
         provider: 'openai',
         name,
         model,
-        encryptedSecret: this.secureConfigService.encryptForStorage(apiKey),
+        encryptedSecret,
         isActive: Boolean(payload.enabled),
         metadata: {},
       },
@@ -440,8 +451,6 @@ export class ResumeScreeningService implements OnModuleInit {
       throw new BadRequestException('当前选择的岗位规则不存在或未启用。');
     }
 
-    const activeJobRule = preferredJobRule ?? enabledJobRules[0];
-
     // Resolve mail credentials: DB config takes priority over env vars
     const mailCredentials = await this.resolveMailCredentials(payload.mail_config_id);
 
@@ -510,13 +519,35 @@ export class ResumeScreeningService implements OnModuleInit {
         html: mail.contentHtml,
       });
       const screeningPrecheck = this.resumeParserService.shouldAttemptScreening(profile);
+      const jobRulesToMatch = preferredJobRule ? [preferredJobRule] : enabledJobRules;
+      const matchedJobRule = this.findMatchingJobRuleForMail(profile, mail, jobRulesToMatch, preferredJobRule?.id);
       let candidateId: string | null = null;
+
+      if (!matchedJobRule) {
+        const mismatchMessage = preferredJobRule
+          ? `当前邮件未匹配到所选岗位“${preferredJobRule.name}”，未提交 AI 分析。`
+          : '邮件主题与简历内容未匹配到任何已启用岗位规则，未提交 AI 分析。';
+        skipped += 1;
+        await this.createIngestionLog(mail, null, 'skipped', mismatchMessage);
+        mailPreviews.push({
+          unique_key: mail.uniqueKey,
+          subject: mail.subject,
+          sender_name: mail.senderName,
+          sender_email: mail.senderEmail,
+          received_at: mail.receivedAt.toISOString(),
+          preview,
+          candidate_name: profile.name,
+          status: '不符合岗位',
+          error_message: mismatchMessage,
+        });
+        continue;
+      }
 
       try {
         const candidate = await this.prisma.candidate.upsert({
           where: { uniqueKey: mail.uniqueKey },
-          create: this.buildCandidateCreateInput(mail.uniqueKey, activeJobRule.id, profile, mail),
-          update: this.buildCandidateUpdateInput(activeJobRule.id, profile, mail),
+          create: this.buildCandidateCreateInput(mail.uniqueKey, matchedJobRule.id, profile, mail),
+          update: this.buildCandidateUpdateInput(matchedJobRule.id, profile, mail),
         });
         candidateId = candidate.id;
         if (!existingLog) {
@@ -524,7 +555,7 @@ export class ResumeScreeningService implements OnModuleInit {
         }
 
         if (!screeningPrecheck.allowed) {
-          await this.createScreeningRecord(candidate.id, activeJobRule.id, profile, activeJobRule.jdText, {
+          await this.createScreeningRecord(candidate.id, matchedJobRule.id, profile, matchedJobRule.jdText, {
             status: 'SKIPPED',
             errorMessage: screeningPrecheck.reason,
           });
@@ -547,7 +578,7 @@ export class ResumeScreeningService implements OnModuleInit {
 
         if (!this.openAiScreeningService.isConfigured(openAiCreds?.apiKey, openAiCreds?.provider)) {
           const message = '未配置 AI 模型 Key，已保存候选人，但尚未执行 AI 初筛。';
-          await this.createScreeningRecord(candidate.id, activeJobRule.id, profile, activeJobRule.jdText, {
+          await this.createScreeningRecord(candidate.id, matchedJobRule.id, profile, matchedJobRule.jdText, {
             status: 'PENDING_CONFIG',
             errorMessage: message,
           });
@@ -570,7 +601,7 @@ export class ResumeScreeningService implements OnModuleInit {
         const cachedAiFailure = this.getCachedAiFailure(openAiCreds?.id);
         if (cachedAiFailure) {
           failed += 1;
-          await this.createScreeningRecord(candidate.id, activeJobRule.id, profile, activeJobRule.jdText, {
+          await this.createScreeningRecord(candidate.id, matchedJobRule.id, profile, matchedJobRule.jdText, {
             status: 'FAILED',
             errorMessage: cachedAiFailure,
           });
@@ -594,8 +625,8 @@ export class ResumeScreeningService implements OnModuleInit {
         this.enqueueScreeningTask({
           candidateId: candidate.id,
           uniqueKey: mail.uniqueKey,
-          jobRuleId: activeJobRule.id,
-          jdText: activeJobRule.jdText,
+          jobRuleId: matchedJobRule.id,
+          jdText: matchedJobRule.jdText,
           profile,
           mail,
           openAiConfig: {
@@ -616,13 +647,13 @@ export class ResumeScreeningService implements OnModuleInit {
           received_at: mail.receivedAt.toISOString(),
           preview,
           candidate_name: profile.name,
-          status: '已入队，后台 AI 筛选中',
+          status: `已入队，后台 AI 筛选中（${matchedJobRule.name}）`,
         });
       } catch (error) {
         failed += 1;
         const sourceErrorMessage = this.getSourceErrorMessage(error);
         if (candidateId) {
-          await this.createScreeningRecord(candidateId, activeJobRule.id, profile, activeJobRule.jdText, {
+          await this.createScreeningRecord(candidateId, matchedJobRule.id, profile, matchedJobRule.jdText, {
             status: 'FAILED',
             errorMessage: sourceErrorMessage,
           });
@@ -660,7 +691,7 @@ export class ResumeScreeningService implements OnModuleInit {
       failed,
       queued_for_ai: queuedForAi,
       latest_uid: latestUid,
-      job_rule_id: activeJobRule.id,
+      job_rule_id: preferredJobRule?.id ?? (enabledJobRules.length === 1 ? enabledJobRules[0].id : null),
       mail_config_id: payload.mail_config_id ?? null,
       openai_config_id: openAiCreds?.id ?? payload.openai_config_id ?? null,
       actual_screening_model: openAiCreds?.model ?? null,
@@ -1073,6 +1104,33 @@ export class ResumeScreeningService implements OnModuleInit {
     };
   }
 
+  async clearCandidates() {
+    const hasActiveBackgroundWork =
+      this.scheduleRunning ||
+      this.screeningActiveCount > 0 ||
+      this.fileScreeningActiveCount > 0 ||
+      this.screeningQueue.length > 0 ||
+      this.fileScreeningQueue.length > 0;
+
+    if (hasActiveBackgroundWork) {
+      throw new ConflictException('当前仍有后台筛选任务在执行，请等待完成后再清空候选人数据。');
+    }
+
+    const [deletedScreenings, deletedLogs, deletedCandidates] = await this.prisma.$transaction([
+      this.prisma.candidateScreening.deleteMany(),
+      this.prisma.emailIngestionLog.deleteMany(),
+      this.prisma.candidate.deleteMany(),
+    ]);
+
+    this.aiFailureCache.clear();
+
+    return {
+      deleted_candidates: deletedCandidates.count,
+      deleted_screenings: deletedScreenings.count,
+      deleted_logs: deletedLogs.count,
+    };
+  }
+
   private toCandidateScreeningResponse(s: {
     id: string;
     responsePayload: Prisma.JsonValue | null;
@@ -1350,7 +1408,10 @@ export class ResumeScreeningService implements OnModuleInit {
     }
     if (!config) return null;
 
-    const pass = this.secureConfigService.decryptFromStorage(config.encryptedSecret);
+    const pass = this.decryptStoredIntegrationSecret(
+      config.encryptedSecret,
+      '当前企业邮箱配置已失效，请重新保存邮箱密码后再试。',
+    );
     const meta = config.metadata as Record<string, unknown>;
 
     return {
@@ -1389,7 +1450,10 @@ export class ResumeScreeningService implements OnModuleInit {
       id: config.id,
       name: config.name,
       provider: config.provider ?? 'openai',
-      apiKey: this.secureConfigService.decryptFromStorage(config.encryptedSecret),
+      apiKey: this.decryptStoredIntegrationSecret(
+        config.encryptedSecret,
+        '当前 AI 模型配置已失效，请重新保存 API Key 后再试。',
+      ),
       model: config.model ?? process.env.OPENAI_MODEL ?? 'gpt-4.1-mini',
       baseUrl:
         typeof metadata.base_url === 'string' && metadata.base_url.trim()
@@ -1474,6 +1538,43 @@ export class ResumeScreeningService implements OnModuleInit {
       profile.work_summary,
       profile.raw_text.slice(0, 1600),
       fileName,
+    ]
+      .filter(Boolean)
+      .join('\n')
+      .replace(/\s+/g, '')
+      .toLowerCase();
+
+    const scored = jobRules
+      .map((jobRule) => ({
+        jobRule,
+        score: this.scoreUploadedResumeAgainstJobRule(jobRule.name, searchableText, preferredJobRuleId === jobRule.id),
+      }))
+      .sort((a, b) => b.score - a.score);
+
+    return (scored[0]?.score ?? 0) >= 4 ? scored[0].jobRule : null;
+  }
+
+  private findMatchingJobRuleForMail(
+    profile: CandidateProfile,
+    mail: { subject: string; senderName: string; senderEmail: string; contentText: string },
+    jobRules: Array<{ id: string; name: string; jdText: string; enabled: boolean }>,
+    preferredJobRuleId?: string | null,
+  ) {
+    if (!jobRules.length) {
+      return null;
+    }
+
+    const searchableText = [
+      profile.target_job,
+      profile.target_city,
+      profile.recent_title,
+      profile.recent_company,
+      profile.work_summary,
+      mail.subject,
+      mail.senderName,
+      mail.senderEmail,
+      profile.raw_text.slice(0, 1600),
+      mail.contentText.slice(0, 1600),
     ]
       .filter(Boolean)
       .join('\n')
@@ -1793,6 +1894,35 @@ export class ResumeScreeningService implements OnModuleInit {
       'enotfound',
       'socket hang up',
     ].some((keyword) => text.includes(keyword));
+  }
+
+  private decryptStoredIntegrationSecret(payload: string, failureMessage: string) {
+    try {
+      return this.secureConfigService.decryptFromStorage(payload);
+    } catch {
+      throw new BadRequestException(failureMessage);
+    }
+  }
+
+  private resolveIncomingTransportSecret(payload: { encryptedSecret?: string; plainSecret?: string }) {
+    const encryptedSecret = payload.encryptedSecret?.trim();
+    if (encryptedSecret) {
+      return this.secureConfigService.decryptTransportValue(encryptedSecret);
+    }
+
+    const plainSecret = payload.plainSecret?.trim();
+    return plainSecret || '';
+  }
+
+  private resolveIncomingStoredSecret(
+    payload: { encryptedSecret?: string; plainSecret?: string },
+    fallback?: string,
+  ) {
+    const secret = this.resolveIncomingTransportSecret(payload);
+    if (secret) {
+      return this.secureConfigService.encryptForStorage(secret);
+    }
+    return fallback;
   }
 
   private async updateOpenAiModelRuntime(

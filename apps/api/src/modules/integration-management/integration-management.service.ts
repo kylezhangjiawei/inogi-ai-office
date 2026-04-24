@@ -99,11 +99,13 @@ export class IntegrationManagementService {
         throw new NotFoundException('邮箱配置不存在');
       }
 
-      const nextSecret = payload.encrypted_secret?.trim()
-        ? this.secureConfigService.encryptForStorage(
-            this.secureConfigService.decryptTransportValue(payload.encrypted_secret.trim()),
-          )
-        : existing.encryptedSecret;
+      const nextSecret = this.resolveStoredSecret(
+        {
+          encryptedSecret: payload.encrypted_secret,
+          plainSecret: payload.plain_secret,
+        },
+        existing.encryptedSecret,
+      );
 
       const updated = await this.prisma.integrationConfig.update({
         where: { id: payload.id },
@@ -122,7 +124,11 @@ export class IntegrationManagementService {
       return this.toMailboxResponse(updated);
     }
 
-    if (!payload.encrypted_secret?.trim()) {
+    const nextSecret = this.resolveStoredSecret({
+      encryptedSecret: payload.encrypted_secret,
+      plainSecret: payload.plain_secret,
+    });
+    if (!nextSecret) {
       throw new BadRequestException('邮箱密码不能为空');
     }
 
@@ -131,9 +137,7 @@ export class IntegrationManagementService {
         kind: 'mail',
         name: email,
         accountIdentifier: email,
-        encryptedSecret: this.secureConfigService.encryptForStorage(
-          this.secureConfigService.decryptTransportValue(payload.encrypted_secret.trim()),
-        ),
+        encryptedSecret: nextSecret,
         isActive: Boolean(payload.enabled),
         metadata: {
           operator_name: operatorName,
@@ -214,11 +218,13 @@ export class IntegrationManagementService {
       }
 
       const existingMetadata = this.parseAiModelMetadata(existing.metadata);
-      const encryptedSecret = payload.encrypted_secret?.trim()
-        ? this.secureConfigService.encryptForStorage(
-            this.secureConfigService.decryptTransportValue(payload.encrypted_secret.trim()),
-          )
-        : existing.encryptedSecret;
+      const encryptedSecret = this.resolveStoredSecret(
+        {
+          encryptedSecret: payload.encrypted_secret,
+          plainSecret: payload.plain_secret,
+        },
+        existing.encryptedSecret,
+      );
 
       const updated = await this.prisma.integrationConfig.update({
         where: { id: payload.id },
@@ -241,11 +247,11 @@ export class IntegrationManagementService {
         name,
         provider,
         model,
-        encryptedSecret: payload.encrypted_secret?.trim()
-          ? this.secureConfigService.encryptForStorage(
-              this.secureConfigService.decryptTransportValue(payload.encrypted_secret.trim()),
-            )
-          : this.secureConfigService.encryptForStorage(''),
+        encryptedSecret:
+          this.resolveStoredSecret({
+            encryptedSecret: payload.encrypted_secret,
+            plainSecret: payload.plain_secret,
+          }) ?? this.secureConfigService.encryptForStorage(''),
         isActive: Boolean(payload.enabled),
         metadata: this.toAiModelMetadata(payload, operatorName) as Prisma.InputJsonValue,
       },
@@ -272,11 +278,10 @@ export class IntegrationManagementService {
 
     const existingMetadata = this.parseAiModelMetadata(existing?.metadata ?? null);
     const baseUrl = payload.base_url?.trim() ?? existingMetadata.base_url;
-    const apiKey = payload.encrypted_secret?.trim()
-      ? this.secureConfigService.decryptTransportValue(payload.encrypted_secret.trim())
-      : existing
-        ? this.decryptSecret(existing.encryptedSecret)
-        : '';
+    const apiKey = this.resolveTransportSecret({
+      encryptedSecret: payload.encrypted_secret,
+      plainSecret: payload.plain_secret,
+    }) || (existing ? this.decryptSecret(existing.encryptedSecret) : '');
 
     if (!apiKey) {
       throw new BadRequestException('请先填写 API Key，或在已保存模型上进行连通性测试');
@@ -536,6 +541,27 @@ export class IntegrationManagementService {
     } catch {
       return '';
     }
+  }
+
+  private resolveTransportSecret(payload: { encryptedSecret?: string; plainSecret?: string }) {
+    const encryptedSecret = payload.encryptedSecret?.trim();
+    if (encryptedSecret) {
+      return this.secureConfigService.decryptTransportValue(encryptedSecret);
+    }
+
+    const plainSecret = payload.plainSecret?.trim();
+    return plainSecret || '';
+  }
+
+  private resolveStoredSecret(
+    payload: { encryptedSecret?: string; plainSecret?: string },
+    fallback?: string,
+  ) {
+    const secret = this.resolveTransportSecret(payload);
+    if (secret) {
+      return this.secureConfigService.encryptForStorage(secret);
+    }
+    return fallback;
   }
 
   private getShanghaiDateKey() {
