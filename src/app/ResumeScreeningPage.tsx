@@ -228,6 +228,29 @@ function buildCandidateCardTitle(candidate: CandidateListItem) {
   return name;
 }
 
+function normalizeJobLabel(value?: string | null) {
+  return value?.replace(/\s+/g, " ").trim() || "";
+}
+
+function buildCandidateJobLabels(candidate: CandidateListItem) {
+  const labels = [
+    normalizeJobLabel(candidate.target_job) || normalizeJobLabel(extractAppliedJobTitle(candidate.source_subject)),
+    normalizeJobLabel(candidate.job_rule_name),
+  ].filter(Boolean);
+
+  const seen = new Set<string>();
+  const uniqueLabels = labels.filter((label) => {
+    const key = label.toLowerCase();
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+
+  return uniqueLabels.length ? uniqueLabels : ["-"];
+}
+
 function mapScreeningStatusToMailStatus(status?: string | null, errorMessage?: string | null) {
   const normalized = status?.trim().toLowerCase();
   if (!normalized) {
@@ -1885,9 +1908,10 @@ export function ResumeScreeningPage() {
                         ) : null}
                       </div>
                       <div className="mt-3 space-y-2 text-sm text-slate-500">
-                        <div className="grid gap-3 md:grid-cols-3">
-                          <div>{candidate.target_job || extractAppliedJobTitle(candidate.source_subject) || "-"}</div>
-                          <div>{candidate.job_rule_name || "-"}</div>
+                        <div className="grid gap-2 md:grid-cols-2">
+                          {buildCandidateJobLabels(candidate).map((label) => (
+                            <div key={label}>{label}</div>
+                          ))}
                         </div>
                       </div>
                     </div>

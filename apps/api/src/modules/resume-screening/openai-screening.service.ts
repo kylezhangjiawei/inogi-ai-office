@@ -399,6 +399,7 @@ export class OpenAiScreeningService {
     overrideApiKey?: string,
     overrideBaseUrl?: string,
     provider?: string,
+    overrideModel?: string,
   ) {
     const apiKey = this.resolveApiKey(provider, overrideApiKey);
     if (!apiKey) {
@@ -407,11 +408,12 @@ export class OpenAiScreeningService {
 
     const baseUrl = this.resolveBaseUrl(provider, overrideBaseUrl);
     const client = this.createClient(apiKey, overrideBaseUrl, provider);
+    const model = overrideModel?.trim() || FILE_SCREENING_DOC_MODEL;
     const startedAt = Date.now();
     let uploadedFileId: string | null = null;
 
     this.logger.log(
-      `[extractCandidateProfileFromFile] model=${FILE_SCREENING_DOC_MODEL} baseUrl=${baseUrl ?? 'default'} file="${file.originalname}" jobRule="${jobRuleName}"`,
+      `[extractCandidateProfileFromFile] model=${model} baseUrl=${baseUrl ?? 'default'} file="${file.originalname}" jobRule="${jobRuleName}"`,
     );
 
     try {
@@ -428,6 +430,7 @@ export class OpenAiScreeningService {
         fileName: file.originalname,
         jobRuleName,
         jdText,
+        model,
       });
 
       const rawOutput = response.choices[0].message.content ?? '{}';
@@ -492,7 +495,7 @@ export class OpenAiScreeningService {
           task: 'Use the uploaded resume file directly to determine relevance and extract a structured candidate profile only.',
         },
         responsePayload: { raw_output: rawOutput, structured_output: parsed, uploaded_file_id: uploadedFile.id },
-        modelName: FILE_SCREENING_DOC_MODEL,
+        modelName: model,
         durationMs: Date.now() - startedAt,
         usage: this.extractUsage(response),
       };
@@ -650,7 +653,7 @@ export class OpenAiScreeningService {
   private async runDocumentProfileExtractionCompletionWithRetry(
     client: OpenAI,
     uploadedFileId: string,
-    input: { fileName: string; jobRuleName: string; jdText: string },
+    input: { fileName: string; jobRuleName: string; jdText: string; model: string },
   ) {
     const maxAttempts = 6;
     let lastError: unknown = null;
@@ -658,7 +661,7 @@ export class OpenAiScreeningService {
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       try {
         return await client.chat.completions.create({
-          model: FILE_SCREENING_DOC_MODEL,
+          model: input.model,
           messages: [
             {
               role: 'system',

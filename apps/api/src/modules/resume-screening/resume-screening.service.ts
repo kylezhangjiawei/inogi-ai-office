@@ -27,6 +27,15 @@ import { CandidateProfile, InterviewQaItem, ScreeningResult } from './resume-scr
 
 type ScreeningStatusValue = 'COMPLETED' | 'SKIPPED' | 'FAILED' | 'PENDING_CONFIG';
 
+type OpenAiRuntimeConfig = {
+  id: string | null;
+  name?: string | null;
+  provider?: string | null;
+  apiKey?: string | null;
+  model?: string | null;
+  baseUrl?: string | null;
+};
+
 type FileScreeningTaskPayload = {
   uniqueKey: string;
   fileName: string;
@@ -47,13 +56,8 @@ type FileScreeningTaskPayload = {
     receivedAt: Date;
     contentText: string;
   };
-  openAiConfig: {
-    id: string | null;
-    provider?: string | null;
-    apiKey?: string | null;
-    model?: string | null;
-    baseUrl?: string | null;
-  };
+  openAiConfig: OpenAiRuntimeConfig;
+  fileExtractConfig?: OpenAiRuntimeConfig | null;
 };
 
 type ScreeningTaskPayload = {
@@ -73,13 +77,7 @@ type ScreeningTaskPayload = {
     receivedAt: Date;
     contentText: string;
   };
-  openAiConfig: {
-    id: string | null;
-    provider?: string | null;
-    apiKey?: string | null;
-    model?: string | null;
-    baseUrl?: string | null;
-  };
+  openAiConfig: OpenAiRuntimeConfig;
 };
 
 type ScheduleMetadata = {
@@ -739,11 +737,8 @@ export class ResumeScreeningService implements OnModuleInit {
     }
 
     const openAiCreds = await this.resolveOpenAiCredentials(payload.openai_config_id);
-    const supportsDirectAiFileScreening = this.supportsDirectAiFileScreening(
-      openAiCreds?.provider,
-      openAiCreds?.baseUrl,
-      openAiCreds?.model,
-    );
+    const fileExtractCreds = await this.resolveFileExtractCredentials(openAiCreds);
+    const supportsDirectAiFileScreening = Boolean(fileExtractCreds);
 
     let processed = 0;
     let skipped = 0;
@@ -899,6 +894,7 @@ export class ResumeScreeningService implements OnModuleInit {
             model: openAiCreds?.model ?? null,
             baseUrl: openAiCreds?.baseUrl ?? null,
           },
+          fileExtractConfig: fileExtractCreds,
         });
         queuedForAi += 1;
         filePreviews.push({
@@ -938,7 +934,7 @@ export class ResumeScreeningService implements OnModuleInit {
       queued_for_ai: queuedForAi,
       job_rule_id: preferredJobRule?.id ?? null,
       openai_config_id: openAiCreds?.id ?? payload.openai_config_id ?? null,
-      actual_extract_model: supportsDirectAiFileScreening ? 'qwen-doc-turbo' : null,
+      actual_extract_model: fileExtractCreds?.model ?? null,
       actual_screening_model: openAiCreds?.model ?? null,
       file_previews: filePreviews,
       message:
@@ -1454,6 +1450,63 @@ export class ResumeScreeningService implements OnModuleInit {
         config.encryptedSecret,
         '当前 AI 模型配置已失效，请重新保存 API Key 后再试。',
       ),
+      model: config.model ?? process.env.OPENAI_MODEL ?? 'gpt-4.1-mini',
+      baseUrl:
+        typeof metadata.base_url === 'string' && metadata.base_url.trim()
+          ? metadata.base_url.trim()
+          : process.env.OPENAI_BASE_URL ?? null,
+    };
+  }
+
+  private async resolveFileExtractCredentials(screeningConfig?: OpenAiRuntimeConfig | null) {
+    const docConfig = await this.prisma.integrationConfig.findFirst({
+      where: {
+        kind: 'openai',
+        isActive: true,
+        model: { equals: 'qwen-doc-turbo', mode: 'insensitive' },
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    if (docConfig) {
+      return this.toOpenAiRuntimeConfig(
+        docConfig,
+        '当前 qwen-doc-turbo 文件读取模型配置已失效，请在 AI 模型管理中重新保存 API Key 后再试。',
+      );
+    }
+
+    if (
+      screeningConfig &&
+      this.supportsDirectAiFileScreening(
+        screeningConfig.provider,
+        screeningConfig.baseUrl,
+        screeningConfig.model,
+      )
+    ) {
+      return screeningConfig;
+    }
+
+    return null;
+  }
+
+  private toOpenAiRuntimeConfig(config: {
+    id: string;
+    name: string;
+    provider: string | null;
+    encryptedSecret: string;
+    model: string | null;
+    metadata: Prisma.JsonValue;
+  }, failureMessage: string): OpenAiRuntimeConfig {
+    const metadata =
+      config.metadata && typeof config.metadata === 'object' && !Array.isArray(config.metadata)
+        ? (config.metadata as Record<string, unknown>)
+        : {};
+
+    return {
+      id: config.id,
+      name: config.name,
+      provider: config.provider ?? 'openai',
+      apiKey: this.decryptStoredIntegrationSecret(config.encryptedSecret, failureMessage),
       model: config.model ?? process.env.OPENAI_MODEL ?? 'gpt-4.1-mini',
       baseUrl:
         typeof metadata.base_url === 'string' && metadata.base_url.trim()
@@ -2100,13 +2153,15 @@ export class ResumeScreeningService implements OnModuleInit {
     }
 
     try {
-      const supportsDirectAiFileScreening = this.supportsDirectAiFileScreening(
-        task.openAiConfig.provider ?? null,
-        task.openAiConfig.baseUrl ?? null,
-        task.openAiConfig.model ?? null,
-      );
-      const extractionResult = supportsDirectAiFileScreening && task.fileBuffer
-        ? await this.openAiScreeningService.extractCandidateProfileFromFile(
+      const fileExtractConfig = task.fileExtractConfig ?? null;
+      let extractionResult:
+        | Awaited<ReturnType<OpenAiScreeningService['extractCandidateProfileFromFile']>>
+        | Awaited<ReturnType<OpenAiScreeningService['screenResumeFromText']>>;
+      let usedDirectFileScreening = Boolean(fileExtractConfig?.apiKey && task.fileBuffer);
+
+      if (usedDirectFileScreening && fileExtractConfig && task.fileBuffer) {
+        try {
+          extractionResult = await this.openAiScreeningService.extractCandidateProfileFromFile(
             {
               buffer: task.fileBuffer,
               originalname: task.fileName,
@@ -2114,12 +2169,26 @@ export class ResumeScreeningService implements OnModuleInit {
             },
             task.jdText,
             task.jobRuleName,
-            task.openAiConfig.apiKey ?? undefined,
-            task.openAiConfig.baseUrl ?? undefined,
-            task.openAiConfig.provider ?? undefined,
-          )
-        : await this.openAiScreeningService.screenResumeFromText(
-            task.rawText ?? '',
+            fileExtractConfig.apiKey ?? undefined,
+            fileExtractConfig.baseUrl ?? undefined,
+            fileExtractConfig.provider ?? undefined,
+            fileExtractConfig.model ?? undefined,
+          );
+        } catch (directFileError) {
+          const fallbackExtraction = await this.resumeDocumentService.extractText({
+            originalname: task.fileName,
+            buffer: task.fileBuffer,
+          });
+          const fallbackText = fallbackExtraction.text.trim();
+          if (!fallbackText) {
+            throw directFileError;
+          }
+
+          task.rawText = fallbackText;
+          task.uploadedSource.contentText = fallbackText;
+          usedDirectFileScreening = false;
+          extractionResult = await this.openAiScreeningService.screenResumeFromText(
+            fallbackText,
             task.fileName,
             task.jdText,
             task.jobRuleName,
@@ -2128,6 +2197,19 @@ export class ResumeScreeningService implements OnModuleInit {
             task.openAiConfig.baseUrl ?? undefined,
             task.openAiConfig.provider ?? undefined,
           );
+        }
+      } else {
+        extractionResult = await this.openAiScreeningService.screenResumeFromText(
+          task.rawText ?? '',
+          task.fileName,
+          task.jdText,
+          task.jobRuleName,
+          task.openAiConfig.apiKey ?? undefined,
+          task.openAiConfig.model ?? undefined,
+          task.openAiConfig.baseUrl ?? undefined,
+          task.openAiConfig.provider ?? undefined,
+        );
+      }
 
       await this.updateOpenAiModelRuntime(task.openAiConfig.id, {
         success: true,
@@ -2161,7 +2243,7 @@ export class ResumeScreeningService implements OnModuleInit {
             usage: { totalTokens: number | null };
           };
 
-      if (supportsDirectAiFileScreening) {
+      if (usedDirectFileScreening) {
         evaluation = await this.openAiScreeningService.evaluateCandidate(
           profile,
           task.jdText,
@@ -2183,7 +2265,7 @@ export class ResumeScreeningService implements OnModuleInit {
         throw new Error('文件解析已完成，但未产出筛选结果。');
       }
 
-      if (supportsDirectAiFileScreening) {
+      if (usedDirectFileScreening) {
         await this.updateOpenAiModelRuntime(task.openAiConfig.id, {
           success: true,
           baseUrl: task.openAiConfig.baseUrl,
@@ -2202,7 +2284,7 @@ export class ResumeScreeningService implements OnModuleInit {
         status: 'COMPLETED',
         screening: evaluation.result,
         modelName: evaluation.modelName,
-        requestPayload: supportsDirectAiFileScreening
+        requestPayload: usedDirectFileScreening
           ? {
               extraction_model: extractionResult.modelName,
               extraction_request: extractionResult.requestPayload,
@@ -2210,7 +2292,7 @@ export class ResumeScreeningService implements OnModuleInit {
               evaluation_request: evaluation.requestPayload,
             }
           : evaluation.requestPayload,
-        responsePayload: supportsDirectAiFileScreening
+        responsePayload: usedDirectFileScreening
           ? {
               extraction_model: extractionResult.modelName,
               extraction_response: extractionResult.responsePayload,
@@ -2218,7 +2300,7 @@ export class ResumeScreeningService implements OnModuleInit {
               evaluation_response: evaluation.responsePayload,
             }
           : evaluation.responsePayload,
-        durationMs: supportsDirectAiFileScreening
+        durationMs: usedDirectFileScreening
           ? extractionResult.durationMs + evaluation.durationMs
           : evaluation.durationMs,
       });
