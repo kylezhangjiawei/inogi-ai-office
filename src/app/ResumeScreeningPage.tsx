@@ -172,6 +172,23 @@ function scoreTone(score?: number | null) {
   return "bg-rose-500 text-white";
 }
 
+function parseAgeFromBirthOrAge(value?: string | null): number | null {
+  if (!value) return null;
+  const normalized = value.trim();
+  const ageMatch = normalized.match(/^(\d{1,3})\s*岁?$/);
+  if (ageMatch) {
+    const age = parseInt(ageMatch[1], 10);
+    if (age >= 1 && age <= 120) return age;
+  }
+  const yearMatch = normalized.match(/^(19|20)(\d{2})/);
+  if (yearMatch) {
+    const year = parseInt(normalized.slice(0, 4), 10);
+    const age = new Date().getFullYear() - year;
+    if (age >= 1 && age <= 120) return age;
+  }
+  return null;
+}
+
 function joinCandidateFacts(values: Array<string | null | undefined>) {
   const normalized = values
     .map((item) => item?.trim())
@@ -459,6 +476,8 @@ export function ResumeScreeningPage() {
   const [decisionFilter, setDecisionFilter] = useState<Decision | "">("");
   const [jobRuleFilter, setJobRuleFilter] = useState("");
   const [minScoreFilter, setMinScoreFilter] = useState("");
+  const [minAgeFilter, setMinAgeFilter] = useState("");
+  const [maxAgeFilter, setMaxAgeFilter] = useState("");
   const [candidateKeyword, setCandidateKeyword] = useState("");
   const [candidates, setCandidates] = useState<CandidateListItem[]>([]);
   const [loadingCandidates, setLoadingCandidates] = useState(false);
@@ -500,6 +519,19 @@ export function ResumeScreeningPage() {
       average,
     };
   }, [candidates]);
+
+  const filteredCandidates = useMemo(() => {
+    const minAge = minAgeFilter.trim() ? Number(minAgeFilter) : null;
+    const maxAge = maxAgeFilter.trim() ? Number(maxAgeFilter) : null;
+    if (minAge === null && maxAge === null) return candidates;
+    return candidates.filter((c) => {
+      const age = parseAgeFromBirthOrAge(c.birth_or_age);
+      if (age === null) return true;
+      if (minAge !== null && age < minAge) return false;
+      if (maxAge !== null && age > maxAge) return false;
+      return true;
+    });
+  }, [candidates, minAgeFilter, maxAgeFilter]);
 
   const selectedMailConfig = useMemo(
     () => mailConfigs.find((item) => item.id === selectedMailConfigId) ?? null,
@@ -1818,12 +1850,12 @@ export function ResumeScreeningPage() {
               </button>
               <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500">
                 <Search className="h-4 w-4" />
-                共 {candidates.length} 人
+                共 {filteredCandidates.length} 人
               </div>
             </div>
           </div>
 
-          <div className="mt-6 grid gap-4 xl:grid-cols-[1.3fr_1fr_1fr_0.8fr]">
+          <div className="mt-6 grid gap-3 xl:grid-cols-[1.3fr_1fr_1fr]">
             <MaterialInput
               label="关键词搜索"
               value={candidateKeyword}
@@ -1847,14 +1879,36 @@ export function ResumeScreeningPage() {
               placeholder="全部岗位"
               className="h-13"
             />
+          </div>
+          <div className="mt-6 grid gap-3 xl:grid-cols-[1.3fr_1fr_1fr]">
             <MaterialInput
-              label="最低分"
-              type="number"
-              min={0}
-              value={minScoreFilter}
-              onChange={(event) => setMinScoreFilter(event.target.value)}
-              placeholder="请输入"
-              className="h-9.5"
+                label="最低分"
+                type="number"
+                min={0}
+                value={minScoreFilter}
+                onChange={(event) => setMinScoreFilter(event.target.value)}
+                placeholder="请输入"
+                className="h-9.5"
+            />
+            <MaterialInput
+                label="最小年龄"
+                type="number"
+                min={1}
+                max={100}
+                value={minAgeFilter}
+                onChange={(event) => setMinAgeFilter(event.target.value)}
+                placeholder="不限"
+                className="h-9.5"
+            />
+            <MaterialInput
+                label="最大年龄"
+                type="number"
+                min={1}
+                max={100}
+                value={maxAgeFilter}
+                onChange={(event) => setMaxAgeFilter(event.target.value)}
+                placeholder="不限"
+                className="h-9.5"
             />
           </div>
 
@@ -1864,12 +1918,12 @@ export function ResumeScreeningPage() {
                 <Loader2 className="mx-auto mb-2 h-4 w-4 animate-spin" />
                 正在加载候选人...
               </div>
-            ) : candidates.length === 0 ? (
+            ) : filteredCandidates.length === 0 ? (
               <div className="rounded-[24px] border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
                 暂无候选人
               </div>
             ) : (
-              candidates.map((candidate) => (
+              filteredCandidates.map((candidate) => (
                 <button
                   key={candidate.id}
                   type="button"

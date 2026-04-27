@@ -1608,7 +1608,7 @@ export class ResumeScreeningService implements OnModuleInit {
   }
 
   private findMatchingJobRuleForMail(
-    profile: CandidateProfile,
+    _profile: CandidateProfile,
     mail: { subject: string; senderName: string; senderEmail: string; contentText: string },
     jobRules: Array<{ id: string; name: string; jdText: string; enabled: boolean }>,
     preferredJobRuleId?: string | null,
@@ -1617,31 +1617,20 @@ export class ResumeScreeningService implements OnModuleInit {
       return null;
     }
 
-    const searchableText = [
-      profile.target_job,
-      profile.target_city,
-      profile.recent_title,
-      profile.recent_company,
-      profile.work_summary,
-      mail.subject,
-      mail.senderName,
-      mail.senderEmail,
-      profile.raw_text.slice(0, 1600),
-      mail.contentText.slice(0, 1600),
-    ]
-      .filter(Boolean)
-      .join('\n')
-      .replace(/\s+/g, '')
-      .toLowerCase();
+    const normalizedSubject = mail.subject.replace(/\s+/g, '').toLowerCase();
 
-    const scored = jobRules
-      .map((jobRule) => ({
-        jobRule,
-        score: this.scoreUploadedResumeAgainstJobRule(jobRule.name, searchableText, preferredJobRuleId === jobRule.id),
-      }))
-      .sort((a, b) => b.score - a.score);
+    const exactMatches = jobRules
+      .map((jobRule) => {
+        const normalizedRuleName = this.normalizeJobRuleName(jobRule.name).replace(/\s+/g, '').toLowerCase();
+        if (!normalizedRuleName || !normalizedSubject.includes(normalizedRuleName)) {
+          return null;
+        }
+        return { jobRule, nameLength: normalizedRuleName.length };
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null)
+      .sort((a, b) => b.nameLength - a.nameLength || (b.jobRule.id === preferredJobRuleId ? 1 : 0) - (a.jobRule.id === preferredJobRuleId ? 1 : 0));
 
-    return (scored[0]?.score ?? 0) >= 4 ? scored[0].jobRule : null;
+    return exactMatches[0]?.jobRule ?? null;
   }
 
   private scoreUploadedResumeAgainstJobRule(jobRuleName: string, searchableText: string, isPreferred: boolean) {
@@ -1709,34 +1698,18 @@ export class ResumeScreeningService implements OnModuleInit {
       return null;
     }
 
-    const scored = jobRules
+    const exactMatches = jobRules
       .map((jobRule) => {
         const normalizedRuleName = this.normalizeUploadedFileMatchText(jobRule.name);
-        if (!normalizedRuleName) {
-          return { jobRule, score: 0 };
+        if (!normalizedRuleName || !normalizedFileName.includes(normalizedRuleName)) {
+          return null;
         }
-
-        let score = preferredJobRuleId === jobRule.id ? 2 : 0;
-        if (normalizedFileName.includes(normalizedRuleName)) {
-          score += 100 + normalizedRuleName.length * 2;
-        }
-
-        const nameParts = jobRule.name
-          .split(/[\\/_|()\[\]\-]+/)
-          .map((part) => this.normalizeUploadedFileMatchText(part))
-          .filter((part) => part.length >= 2);
-
-        for (const part of nameParts) {
-          if (normalizedFileName.includes(part)) {
-            score += part.length >= 4 ? 20 : 8;
-          }
-        }
-
-        return { jobRule, score };
+        return { jobRule, nameLength: normalizedRuleName.length };
       })
-      .sort((a, b) => b.score - a.score);
+      .filter((item): item is NonNullable<typeof item> => item !== null)
+      .sort((a, b) => b.nameLength - a.nameLength || (b.jobRule.id === preferredJobRuleId ? 1 : 0) - (a.jobRule.id === preferredJobRuleId ? 1 : 0));
 
-    return (scored[0]?.score ?? 0) >= 20 ? scored[0].jobRule : null;
+    return exactMatches[0]?.jobRule ?? null;
   }
 
   private normalizeUploadedFileMatchText(value: string) {
