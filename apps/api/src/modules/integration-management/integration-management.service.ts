@@ -22,11 +22,17 @@ type AiModelMetadata = {
   last_latency_ms: number | null;
   today_requests: number;
   today_tokens: number;
-  today_estimated_cost: number;
-  current_balance_or_quota: string;
+  total_tokens: number;
+  daily_token_usage: AiModelDailyTokenUsage[];
   is_default_enabled: boolean;
   today_usage_date: string;
   last_error_message: string | null;
+};
+
+type AiModelDailyTokenUsage = {
+  date: string;
+  requests: number;
+  tokens: number;
 };
 
 const DEFAULT_PAGE = 1;
@@ -391,8 +397,8 @@ export class IntegrationManagementService {
         last_latency_ms: null,
         today_requests: 0,
         today_tokens: 0,
-        today_estimated_cost: 0,
-        current_balance_or_quota: '',
+        total_tokens: 0,
+        daily_token_usage: [],
         is_default_enabled: false,
         today_usage_date: '',
         last_error_message: null,
@@ -400,6 +406,13 @@ export class IntegrationManagementService {
     }
 
     const parsed = value as Record<string, unknown>;
+    const dailyTokenUsage = this.parseDailyTokenUsage(parsed.daily_token_usage);
+    const todayTokens = typeof parsed.today_tokens === 'number' ? parsed.today_tokens : 0;
+    const totalTokens =
+      typeof parsed.total_tokens === 'number'
+        ? parsed.total_tokens
+        : Math.max(todayTokens, dailyTokenUsage.reduce((sum, item) => sum + item.tokens, 0));
+
     return {
       operator_name: typeof parsed.operator_name === 'string' ? parsed.operator_name : '系统',
       base_url: typeof parsed.base_url === 'string' ? parsed.base_url : '',
@@ -408,10 +421,9 @@ export class IntegrationManagementService {
       last_failure_at: typeof parsed.last_failure_at === 'string' ? parsed.last_failure_at : null,
       last_latency_ms: typeof parsed.last_latency_ms === 'number' ? parsed.last_latency_ms : null,
       today_requests: typeof parsed.today_requests === 'number' ? parsed.today_requests : 0,
-      today_tokens: typeof parsed.today_tokens === 'number' ? parsed.today_tokens : 0,
-      today_estimated_cost: typeof parsed.today_estimated_cost === 'number' ? parsed.today_estimated_cost : 0,
-      current_balance_or_quota:
-        typeof parsed.current_balance_or_quota === 'string' ? parsed.current_balance_or_quota : '',
+      today_tokens: todayTokens,
+      total_tokens: totalTokens,
+      daily_token_usage: dailyTokenUsage,
       is_default_enabled: typeof parsed.is_default_enabled === 'boolean' ? parsed.is_default_enabled : false,
       today_usage_date: typeof parsed.today_usage_date === 'string' ? parsed.today_usage_date : '',
       last_error_message: typeof parsed.last_error_message === 'string' ? parsed.last_error_message : null,
@@ -447,14 +459,8 @@ export class IntegrationManagementService {
         typeof payload.today_tokens === 'number'
           ? payload.today_tokens
           : base?.today_tokens ?? 0,
-      today_estimated_cost:
-        typeof payload.today_estimated_cost === 'number'
-          ? payload.today_estimated_cost
-          : base?.today_estimated_cost ?? 0,
-      current_balance_or_quota:
-        typeof payload.current_balance_or_quota === 'string'
-          ? payload.current_balance_or_quota.trim()
-          : base?.current_balance_or_quota ?? '',
+      total_tokens: base?.total_tokens ?? 0,
+      daily_token_usage: base?.daily_token_usage ?? [],
       is_default_enabled: Boolean(payload.is_default_enabled),
       today_usage_date: base?.today_usage_date ?? '',
       last_error_message: base?.last_error_message ?? null,
@@ -478,6 +484,9 @@ export class IntegrationManagementService {
     const resetUsage = base.today_usage_date !== today;
     const todayRequests = resetUsage ? 0 : base.today_requests;
     const todayTokens = resetUsage ? 0 : base.today_tokens;
+    const addedTokens = Math.max(0, patch.total_tokens ?? 0);
+    const nextTodayRequests = todayRequests + 1;
+    const nextTodayTokens = todayTokens + addedTokens;
 
     return {
       ...base,
@@ -489,8 +498,14 @@ export class IntegrationManagementService {
         typeof patch.last_latency_ms === 'number' || patch.last_latency_ms === null
           ? patch.last_latency_ms
           : base.last_latency_ms,
-      today_requests: todayRequests + 1,
-      today_tokens: todayTokens + Math.max(0, patch.total_tokens ?? 0),
+      today_requests: nextTodayRequests,
+      today_tokens: nextTodayTokens,
+      total_tokens: base.total_tokens + addedTokens,
+      daily_token_usage: this.upsertDailyTokenUsage(base.daily_token_usage, {
+        date: today,
+        requests: nextTodayRequests,
+        tokens: nextTodayTokens,
+      }),
       today_usage_date: today,
       last_error_message: patch.clear_error ? null : patch.last_error_message ?? base.last_error_message,
     };
@@ -523,8 +538,8 @@ export class IntegrationManagementService {
       last_latency_ms: metadata.last_latency_ms,
       today_requests: metadata.today_requests,
       today_tokens: metadata.today_tokens,
-      today_estimated_cost: metadata.today_estimated_cost,
-      current_balance_or_quota: metadata.current_balance_or_quota,
+      total_tokens: metadata.total_tokens,
+      daily_token_usage: metadata.daily_token_usage,
       enabled: config.isActive,
       is_default_enabled: metadata.is_default_enabled,
       created_at: config.createdAt.toISOString(),
@@ -572,6 +587,41 @@ export class IntegrationManagementService {
       day: '2-digit',
     });
     return formatter.format(new Date());
+  }
+
+  private parseDailyTokenUsage(value: unknown): AiModelDailyTokenUsage[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value
+      .map((item) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+          return null;
+        }
+
+        const record = item as Record<string, unknown>;
+        const date = typeof record.date === 'string' ? record.date.trim() : '';
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+          return null;
+        }
+
+        return {
+          date,
+          requests: typeof record.requests === 'number' ? Math.max(0, Math.floor(record.requests)) : 0,
+          tokens: typeof record.tokens === 'number' ? Math.max(0, Math.floor(record.tokens)) : 0,
+        };
+      })
+      .filter((item): item is AiModelDailyTokenUsage => Boolean(item))
+      .sort((left, right) => left.date.localeCompare(right.date));
+  }
+
+  private upsertDailyTokenUsage(
+    current: AiModelDailyTokenUsage[],
+    next: AiModelDailyTokenUsage,
+  ): AiModelDailyTokenUsage[] {
+    const withoutToday = current.filter((item) => item.date !== next.date);
+    return [...withoutToday, next].sort((left, right) => left.date.localeCompare(right.date)).slice(-366);
   }
 
   private getSourceErrorMessage(error: unknown) {

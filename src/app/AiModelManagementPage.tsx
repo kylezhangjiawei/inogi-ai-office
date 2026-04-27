@@ -289,8 +289,7 @@ export function AiModelManagementPage() {
                 "最近延迟",
                 "今日请求数",
                 "今日 Token",
-                "今日预估费用",
-                "当前余额/额度",
+                "Token 总使用量",
                 "默认启用",
                 "操作人",
                 "操作",
@@ -304,13 +303,13 @@ export function AiModelManagementPage() {
           <TableBody className="divide-y divide-slate-100">
             {loading ? (
               <TableRow>
-                <TableCell colSpan={14} className="px-4 py-8 text-center text-sm text-slate-400">
+                <TableCell colSpan={13} className="px-4 py-8 text-center text-sm text-slate-400">
                   正在加载 AI 模型...
                 </TableCell>
               </TableRow>
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={14} className="px-4 py-8 text-center text-sm text-slate-400">
+                <TableCell colSpan={13} className="px-4 py-8 text-center text-sm text-slate-400">
                   暂无数据
                 </TableCell>
               </TableRow>
@@ -353,8 +352,7 @@ export function AiModelManagementPage() {
                   </TableCell>
                   <TableCell className="px-4 py-3 text-sm text-slate-700">{row.today_requests}</TableCell>
                   <TableCell className="px-4 py-3 text-sm text-slate-700">{row.today_tokens}</TableCell>
-                  <TableCell className="px-4 py-3 text-sm text-slate-700">{row.today_estimated_cost.toFixed(4)}</TableCell>
-                  <TableCell className="px-4 py-3 text-sm text-slate-700">{row.current_balance_or_quota || "-"}</TableCell>
+                  <TableCell className="px-4 py-3 text-sm text-slate-700">{row.total_tokens ?? row.today_tokens ?? 0}</TableCell>
                   <TableCell className="px-4 py-3 text-sm text-slate-700">{row.is_default_enabled ? "是" : "否"}</TableCell>
                   <TableCell className="px-4 py-3 text-sm text-slate-700">{row.operator_name}</TableCell>
                   <TableCell className="px-4 py-3 text-sm">
@@ -455,7 +453,7 @@ export function AiModelManagementPage() {
               </label>
             </div>
             <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-3 text-sm leading-6 text-slate-500 md:col-span-2">
-              当前状态、最近成功时间、最近失败时间、最近延迟、今日请求数、今日 Token、今日预估费用、当前余额/额度都由系统自动获取或自动计算。
+              当前状态、最近成功时间、最近失败时间、最近延迟、今日请求数、今日 Token 和 Token 总使用量都由系统自动获取或自动计算。
             </div>
             {dialogError ? (
               <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm leading-6 text-rose-700 md:col-span-2">

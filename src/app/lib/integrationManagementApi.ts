@@ -38,8 +38,12 @@ export interface AiModelItem {
   last_latency_ms?: number | null;
   today_requests: number;
   today_tokens: number;
-  today_estimated_cost: number;
-  current_balance_or_quota: string;
+  total_tokens: number;
+  daily_token_usage: Array<{
+    date: string;
+    requests: number;
+    tokens: number;
+  }>;
   is_default_enabled: boolean;
   created_at: string;
   updated_at: string;
@@ -62,8 +66,6 @@ export interface SaveAiModelPayload {
   last_latency_ms?: number;
   today_requests?: number;
   today_tokens?: number;
-  today_estimated_cost?: number;
-  current_balance_or_quota?: string;
   is_default_enabled: boolean;
 }
 
@@ -256,8 +258,6 @@ export const integrationManagementApi = {
         last_latency_ms: payload.last_latency_ms,
         today_requests: payload.today_requests,
         today_tokens: payload.today_tokens,
-        today_estimated_cost: payload.today_estimated_cost,
-        current_balance_or_quota: payload.current_balance_or_quota,
         is_default_enabled: payload.is_default_enabled,
         ...secretPayload,
     });

@@ -1983,6 +1983,15 @@ export class ResumeScreeningService implements OnModuleInit {
       usageDate === today && typeof metadata.today_requests === 'number' ? metadata.today_requests : 0;
     const currentTokens =
       usageDate === today && typeof metadata.today_tokens === 'number' ? metadata.today_tokens : 0;
+    const addedTokens = Math.max(0, payload.totalTokens ?? 0);
+    const nextTodayRequests = currentRequests + 1;
+    const nextTodayTokens = currentTokens + addedTokens;
+    const currentTotalTokens = typeof metadata.total_tokens === 'number' ? metadata.total_tokens : 0;
+    const dailyTokenUsage = this.upsertOpenAiDailyTokenUsage(metadata.daily_token_usage, {
+      date: today,
+      requests: nextTodayRequests,
+      tokens: nextTodayTokens,
+    });
 
     await this.prisma.integrationConfig.update({
       where: { id: configId },
@@ -2009,8 +2018,10 @@ export class ResumeScreeningService implements OnModuleInit {
               : typeof metadata.last_latency_ms === 'number'
                 ? metadata.last_latency_ms
                 : null,
-          today_requests: currentRequests + 1,
-          today_tokens: currentTokens + Math.max(0, payload.totalTokens ?? 0),
+          today_requests: nextTodayRequests,
+          today_tokens: nextTodayTokens,
+          total_tokens: currentTotalTokens + addedTokens,
+          daily_token_usage: dailyTokenUsage,
           today_usage_date: today,
           last_error_message: payload.success ? null : payload.errorMessage ?? '未知错误',
         } as Prisma.InputJsonValue,
@@ -2553,6 +2564,36 @@ export class ResumeScreeningService implements OnModuleInit {
       date: `${map.get('year')}-${map.get('month')}-${map.get('day')}`,
       time: `${map.get('hour')}:${map.get('minute')}`,
     };
+  }
+
+  private upsertOpenAiDailyTokenUsage(
+    value: unknown,
+    next: { date: string; requests: number; tokens: number },
+  ) {
+    const current = Array.isArray(value)
+      ? value
+          .map((item) => {
+            if (!item || typeof item !== 'object' || Array.isArray(item)) {
+              return null;
+            }
+
+            const record = item as Record<string, unknown>;
+            const date = typeof record.date === 'string' ? record.date.trim() : '';
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+              return null;
+            }
+
+            return {
+              date,
+              requests: typeof record.requests === 'number' ? Math.max(0, Math.floor(record.requests)) : 0,
+              tokens: typeof record.tokens === 'number' ? Math.max(0, Math.floor(record.tokens)) : 0,
+            };
+          })
+          .filter((item): item is { date: string; requests: number; tokens: number } => Boolean(item))
+      : [];
+
+    const withoutToday = current.filter((item) => item.date !== next.date);
+    return [...withoutToday, next].sort((left, right) => left.date.localeCompare(right.date)).slice(-366);
   }
 
   private buildCandidateCreateInput(
