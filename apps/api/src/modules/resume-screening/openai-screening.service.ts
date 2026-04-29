@@ -92,33 +92,30 @@ export class OpenAiScreeningService {
     };
 
     const startedAt = Date.now();
-    const extractParams: OpenAI.ChatCompletionCreateParamsNonStreaming = {
-      model,
-      messages: [
-        {
-          role: 'system',
+    const { content: rawOutput, usage } = await this.callCompletionApi(
+      client,
+      {
+        model,
+        messages: [
+          {
+            role: 'system',
             content: `You extract structured recruitment information. Infer the job title conservatively, keep jd_text faithful to the source, and return strict JSON only matching this schema: ${JOB_RULE_SCHEMA_DESC}. If the source text is Chinese, keep the extracted name and jd_text in Simplified Chinese.`,
-        },
-        {
-          role: 'user',
-          content: JSON.stringify(payload),
-        },
-      ],
-      response_format: { type: 'json_object' },
-    };
-    // Disable thinking mode for Qwen3 models — structured JSON tasks don't benefit from reasoning overhead
-    (extractParams as unknown as Record<string, unknown>)['enable_thinking'] = false;
-    const response = await client.chat.completions.create(extractParams);
+          },
+          { role: 'user', content: JSON.stringify(payload) },
+        ],
+        jsonMode: true,
+      },
+      provider,
+    );
 
-    const rawOutput = response.choices[0].message.content ?? '{}';
-    const parsed = JSON.parse(rawOutput) as { name: string; jd_text: string };
+    const parsed = JSON.parse(rawOutput || '{}') as { name: string; jd_text: string };
     return {
       result: parsed,
       requestPayload: payload,
       responsePayload: { raw_output: rawOutput },
       modelName: model,
       durationMs: Date.now() - startedAt,
-      usage: this.extractUsage(response),
+      usage,
     };
   }
 
@@ -153,40 +150,38 @@ export class OpenAiScreeningService {
     this.logger.debug(`[evaluateCandidate] request_payload=${JSON.stringify(payload).slice(0, 500)}`);
 
     const startedAt = Date.now();
-    let response: Awaited<ReturnType<typeof client.chat.completions.create>>;
+    let rawOutput: string;
+    let usage: ReturnType<typeof this.extractUsage>;
     try {
-      const screenParams: OpenAI.ChatCompletionCreateParamsNonStreaming = {
-        model,
-        messages: [
-          {
-            role: 'system',
-            content: `You are a conservative enterprise recruiting screener. First extract any missing candidate details (name, gender, education, experience, skills, etc.) from raw_email_excerpt if candidate_profile fields are empty. Then score the candidate strictly against the provided job description. Infer ai_job conservatively from the JD and candidate profile. Also generate exactly 5 interview questions tailored to this JD and candidate, and provide a concise reference answer for each one. Return strict JSON only matching this schema: ${SCREENING_SCHEMA_DESC}. When the source material is Chinese, every text field in the JSON must be in Simplified Chinese.`,
-          },
-          {
-            role: 'user',
-            content: JSON.stringify(payload),
-          },
-        ],
-        response_format: { type: 'json_object' },
-      };
-      // Disable thinking mode for Qwen3 models — structured JSON tasks don't benefit from reasoning overhead
-      (screenParams as unknown as Record<string, unknown>)['enable_thinking'] = false;
-      response = await client.chat.completions.create(screenParams);
+      ({ content: rawOutput, usage } = await this.callCompletionApi(
+        client,
+        {
+          model,
+          messages: [
+            {
+              role: 'system',
+              content: `You are a conservative enterprise recruiting screener. First extract any missing candidate details (name, gender, education, experience, skills, etc.) from raw_email_excerpt if candidate_profile fields are empty. Then score the candidate strictly against the provided job description. Infer ai_job conservatively from the JD and candidate profile. Also generate exactly 5 interview questions tailored to this JD and candidate, and provide a concise reference answer for each one. Return strict JSON only matching this schema: ${SCREENING_SCHEMA_DESC}. When the source material is Chinese, every text field in the JSON must be in Simplified Chinese.`,
+            },
+            { role: 'user', content: JSON.stringify(payload) },
+          ],
+          jsonMode: true,
+        },
+        provider,
+      ));
     } catch (err) {
       this.logger.error(`[evaluateCandidate] API call failed: ${err instanceof Error ? err.message : String(err)}`);
       throw err;
     }
 
-    const rawOutput = response.choices[0].message.content ?? '{}';
     this.logger.log(`[evaluateCandidate] done in ${Date.now() - startedAt}ms, raw=${rawOutput.slice(0, 200)}`);
-    const parsed = JSON.parse(rawOutput) as ScreeningResult;
+    const parsed = JSON.parse(rawOutput || '{}') as ScreeningResult;
     return {
       result: parsed,
       requestPayload: payload,
       responsePayload: { raw_output: rawOutput, structured_output: parsed },
       modelName: model,
       durationMs: Date.now() - startedAt,
-      usage: this.extractUsage(response),
+      usage,
     };
   }
 
@@ -214,24 +209,22 @@ export class OpenAiScreeningService {
     };
 
     const startedAt = Date.now();
-    const qaParams: OpenAI.ChatCompletionCreateParamsNonStreaming = {
-      model,
-      messages: [
-        {
-          role: 'system',
-          content: `You are an enterprise recruiting interviewer assistant. Based on the JD and candidate resume, generate exactly 5 interview questions and concise reference answers. Questions should probe fit, experience, risks, and job-specific ability. Answers must be realistic, resume-grounded, and in Simplified Chinese when the source text is Chinese. Return strict JSON only matching this schema: ${INTERVIEW_QA_SCHEMA_DESC}.`,
-        },
-        {
-          role: 'user',
-          content: JSON.stringify(payload),
-        },
-      ],
-      response_format: { type: 'json_object' },
-    };
-    (qaParams as unknown as Record<string, unknown>)['enable_thinking'] = false;
-    const response = await client.chat.completions.create(qaParams);
-    const rawOutput = response.choices[0].message.content ?? '{}';
-    const parsed = JSON.parse(rawOutput) as { interview_qa?: InterviewQaItem[] };
+    const { content: rawOutput, usage } = await this.callCompletionApi(
+      client,
+      {
+        model,
+        messages: [
+          {
+            role: 'system',
+            content: `You are an enterprise recruiting interviewer assistant. Based on the JD and candidate resume, generate exactly 5 interview questions and concise reference answers. Questions should probe fit, experience, risks, and job-specific ability. Answers must be realistic, resume-grounded, and in Simplified Chinese when the source text is Chinese. Return strict JSON only matching this schema: ${INTERVIEW_QA_SCHEMA_DESC}.`,
+          },
+          { role: 'user', content: JSON.stringify(payload) },
+        ],
+        jsonMode: true,
+      },
+      provider,
+    );
+    const parsed = JSON.parse(rawOutput || '{}') as { interview_qa?: InterviewQaItem[] };
 
     return {
       result: {
@@ -241,7 +234,7 @@ export class OpenAiScreeningService {
       responsePayload: { raw_output: rawOutput, structured_output: parsed },
       modelName: model,
       durationMs: Date.now() - startedAt,
-      usage: this.extractUsage(response),
+      usage,
     };
   }
 
@@ -282,40 +275,38 @@ export class OpenAiScreeningService {
     );
 
     const startedAt = Date.now();
-    const screenParams: OpenAI.ChatCompletionCreateParamsNonStreaming = {
-      model,
-      messages: [
-        {
-          role: 'system',
-          content:
-            `You are a professional HR recruiter. Analyze the resume and determine: ` +
-            `1) Is the candidate relevant for the job position "${jobRuleName}"? ` +
-            `2) If relevant, extract candidate details and evaluate against the job description. ` +
-            `Set is_relevant to true only if the resume clearly relates to "${jobRuleName}". ` +
-            `Return strict JSON only matching this schema: ${DIRECT_FILE_SCREENING_SCHEMA_DESC}. ` +
-            `When the source material is Chinese, every text field must be in Simplified Chinese.`,
-        },
-        {
-          role: 'user',
-          content: JSON.stringify(payload),
-        },
-      ],
-      response_format: { type: 'json_object' },
-    };
-    (screenParams as unknown as Record<string, unknown>)['enable_thinking'] = false;
-
-    let response: Awaited<ReturnType<typeof client.chat.completions.create>>;
+    let rawOutput: string;
+    let usage: ReturnType<typeof this.extractUsage>;
     try {
-      response = await client.chat.completions.create(screenParams);
+      ({ content: rawOutput, usage } = await this.callCompletionApi(
+        client,
+        {
+          model,
+          messages: [
+            {
+              role: 'system',
+              content:
+                `You are a professional HR recruiter. Analyze the resume and determine: ` +
+                `1) Is the candidate relevant for the job position "${jobRuleName}"? ` +
+                `2) If relevant, extract candidate details and evaluate against the job description. ` +
+                `Set is_relevant to true only if the resume clearly relates to "${jobRuleName}". ` +
+                `Return strict JSON only matching this schema: ${DIRECT_FILE_SCREENING_SCHEMA_DESC}. ` +
+                `When the source material is Chinese, every text field must be in Simplified Chinese.`,
+            },
+            { role: 'user', content: JSON.stringify(payload) },
+          ],
+          jsonMode: true,
+        },
+        provider,
+      ));
     } catch (err) {
       this.logger.error(`[screenResumeFromText] API call failed: ${err instanceof Error ? err.message : String(err)}`);
       throw err;
     }
 
-    const rawOutput = response.choices[0].message.content ?? '{}';
-    this.logger.log(`[screenResumeFromText] done in ${Date.now() - startedAt}ms, is_relevant=${rawOutput.slice(0, 80)}`);
+    this.logger.log(`[screenResumeFromText] done in ${Date.now() - startedAt}ms, is_relevant=${rawOutput!.slice(0, 80)}`);
 
-    const parsed = JSON.parse(rawOutput) as {
+    const parsed = JSON.parse(rawOutput! || '{}') as {
       is_relevant?: boolean;
       relevance_reason?: string;
       candidate_name?: string;
@@ -385,10 +376,10 @@ export class OpenAiScreeningService {
       candidate_profile: candidateProfile,
       screening_result: screeningResult,
       requestPayload: payload,
-      responsePayload: { raw_output: rawOutput, structured_output: parsed },
+      responsePayload: { raw_output: rawOutput!, structured_output: parsed },
       modelName: model,
       durationMs: Date.now() - startedAt,
-      usage: this.extractUsage(response),
+      usage: usage!,
     };
   }
 
@@ -521,26 +512,77 @@ export class OpenAiScreeningService {
     const client = this.createClient(apiKey, overrideBaseUrl, provider);
     const startedAt = Date.now();
 
-    const testParams: OpenAI.ChatCompletionCreateParamsNonStreaming = {
-      model,
-      messages: [{ role: 'user', content: 'Reply with exactly OK.' }],
-      max_tokens: 16,
-    };
-    (testParams as unknown as Record<string, unknown>)['enable_thinking'] = false;
-    const response = await client.chat.completions.create(testParams);
+    const { content, usage } = await this.callCompletionApi(
+      client,
+      {
+        model,
+        messages: [{ role: 'user', content: 'Reply with exactly OK.' }],
+        maxTokens: 16,
+      },
+      provider,
+    );
 
     return {
       modelName: model,
       baseUrl: this.resolveBaseUrl(provider, overrideBaseUrl),
       durationMs: Date.now() - startedAt,
-      outputText: response.choices[0].message.content ?? '',
-      usage: this.extractUsage(response),
+      outputText: content,
+      usage,
+    };
+  }
+
+  /**
+   * Unified completion call.
+   * - Responses API: OpenAI models + Qwen text models (e.g. qwen3.6-plus)
+   * - Chat Completions API: Qwen doc models (e.g. qwen-doc-turbo) that don't support Responses API
+   */
+  private async callCompletionApi(
+    client: OpenAI,
+    params: {
+      model: string;
+      messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+      jsonMode?: boolean;
+      maxTokens?: number;
+    },
+    provider?: string,
+  ): Promise<{ content: string; usage: ReturnType<typeof this.extractUsage> }> {
+    // qwen-doc-turbo and similar doc models only support Chat Completions
+    if (this.isQwenProvider(provider) && this.isDocModel(params.model)) {
+      const chatParams: OpenAI.ChatCompletionCreateParamsNonStreaming = {
+        model: params.model,
+        messages: params.messages,
+        ...(params.jsonMode ? { response_format: { type: 'json_object' } } : {}),
+        ...(params.maxTokens ? { max_completion_tokens: params.maxTokens } : {}),
+      };
+      const response = await client.chat.completions.create(chatParams);
+      return {
+        content: response.choices[0].message.content ?? '',
+        usage: this.extractUsage(response),
+      };
+    }
+
+    // OpenAI + Qwen text models (qwen3.6-plus, etc.) → Responses API
+    const responseParams: Record<string, unknown> = {
+      model: params.model,
+      input: params.messages,
+      ...(params.jsonMode ? { text: { format: { type: 'json_object' } } } : {}),
+      ...(params.maxTokens ? { max_output_tokens: params.maxTokens } : {}),
+      // Disable thinking mode for Qwen3 models on structured JSON tasks
+      ...(this.isQwenProvider(provider) ? { enable_thinking: false } : {}),
+    };
+    const response = await (client.responses as unknown as {
+      create: (p: Record<string, unknown>) => Promise<{ output_text: string; usage: unknown }>;
+    }).create(responseParams);
+    return {
+      content: response.output_text ?? '',
+      usage: this.extractUsage(response as Parameters<typeof this.extractUsage>[0]),
     };
   }
 
   private createClient(apiKey: string, overrideBaseUrl?: string, provider?: string) {
     const baseURL = this.resolveBaseUrl(provider, overrideBaseUrl);
-    const fetch = this.buildProxyFetch();
+    // 代理仅对 OpenAI 生效，Qwen/阿里云等国内服务不走代理
+    const fetch = this.isQwenProvider(provider) ? undefined : this.buildProxyFetch();
 
     return new OpenAI({
       apiKey,
@@ -627,6 +669,10 @@ export class OpenAiScreeningService {
   private normalizeBaseUrl(value?: string | null) {
     const trimmed = value?.trim();
     return trimmed ? trimmed.replace(/\/$/, '') : null;
+  }
+
+  private isDocModel(model: string) {
+    return /doc/i.test(model);
   }
 
   private isQwenProvider(provider?: string | null) {

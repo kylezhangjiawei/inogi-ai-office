@@ -1255,7 +1255,18 @@ export function ResumeScreeningPage() {
         limit: Number(scheduleForm.limit || 20),
       });
       setLastSyncResult(result);
-      await Promise.all([loadCandidates(), loadSchedule()]);
+      await loadCandidates();
+      // 只刷新执行时间戳，不覆盖用户在表单里选择的邮箱、AI 模型、回溯小时、抓取上限
+      try {
+        const latestSchedule = await recruitmentApi.getMailSyncSchedule();
+        setScheduleForm((current) => ({
+          ...current,
+          last_run_at: latestSchedule.last_run_at ?? null,
+          last_run_result: latestSchedule.last_run_result ?? null,
+        }));
+      } catch {
+        // 非关键，忽略
+      }
       toast.success(result.message || "同步执行完成");
     } catch (error) {
       toast.error(getErrorMessage(error, "执行同步失败"));

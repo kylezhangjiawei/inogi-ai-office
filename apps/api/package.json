@@ -32,7 +32,8 @@
     "passport-jwt": "^4.0.1",
     "pdf-parse": "^2.4.5",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.1"
+    "rxjs": "^7.8.1",
+    "undici": "^8.1.0"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",
