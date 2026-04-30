@@ -1,5 +1,6 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 import OpenAI from 'openai';
 import { Response } from 'express';
 
@@ -336,105 +337,196 @@ export class ChatService {
     }
   }
 
-  // ── RAG：从系统数据库检索相关信息 ─────────────────────────────────────────
+  // ── RAG：从系统所有业务表检索相关信息 ──────────────────────────────────────
 
   private async searchDatabase(query: string): Promise<string> {
-    // 提取长度≥2的有效关键词，最多取前6个
+    const ilike = (s: string) => ({ contains: s, mode: 'insensitive' as const });
+
+    // 提取长度≥2的有效关键词（最多6个），同时保留原始问题用于意图判断
     const keywords = [...new Set(
-      query
-        .split(/[\s,，。、？！,.?!\r\n]+/)
-        .map((k) => k.trim())
-        .filter((k) => k.length >= 2),
+      query.split(/[\s,，。、？！,.?!\r\n]+/).map((k) => k.trim()).filter((k) => k.length >= 2),
     )].slice(0, 6);
 
     if (keywords.length === 0) return '';
 
-    const orCondition = <T extends Record<string, unknown>>(fields: (keyof T)[]) =>
-      keywords.flatMap((k) =>
-        fields.map((f) => ({ [f]: { contains: k, mode: 'insensitive' as const } })),
-      );
+    // 判断问题是否与某个业务域相关（宽松匹配，只要命中一个关键词就搜）
+    const hits = (words: string[]) => keywords.some((k) => words.some((w) => k.includes(w) || w.includes(k)));
 
     const sections: string[] = [];
 
-    // 1. 候选人
+    // ── 1. 部门（Department 表，权威来源）────────────────────────────────────
     try {
-      const candidates = await this.prisma.candidate.findMany({
-        where: { OR: orCondition(['name', 'recentTitle', 'recentCompany', 'targetJob']) },
-        select: {
-          name: true,
-          recentTitle: true,
-          recentCompany: true,
-          targetJob: true,
-          yearsExperience: true,
-          education: true,
-          city: true,
-          status: true,
-        },
-        take: 6,
+      const deptKeywords = ['部门', '组织', '架构', '科室', '团队', '分公司', '子公司', 'department'];
+      const isGeneral = hits(deptKeywords);
+
+      // 按名称/编码/负责人匹配，或用户问的是泛义"部门"时列出全部
+      const depts = await this.prisma.department.findMany({
+        where: isGeneral
+          ? { enabled: true }
+          : {
+              enabled: true,
+              OR: keywords.flatMap((k) => [
+                { name: ilike(k) }, { code: ilike(k) }, { manager: ilike(k) }, { category: ilike(k) },
+              ]),
+            },
+        orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }],
+        take: 50,
       });
-      if (candidates.length > 0) {
-        sections.push('【候选人信息】');
-        candidates.forEach((c) => {
+      if (depts.length > 0) {
+        sections.push(`【部门列表】共 ${depts.length} 个`);
+        depts.forEach((d) => {
           sections.push(
-            `- ${c.name}｜${c.recentTitle}@${c.recentCompany}｜${c.yearsExperience}年经验` +
-            `｜学历：${c.education}｜城市：${c.city}｜状态：${c.status}｜目标岗位：${c.targetJob}`,
+            `- ${d.name}（编码：${d.code}，类别：${d.category}，负责人：${d.manager || '未设置'}）`,
           );
         });
       }
     } catch { /* ignore */ }
 
-    // 2. 招聘岗位（JobRule）
+    // ── 2. 用户 / 员工 ────────────────────────────────────────────────────────
     try {
-      const jobs = await this.prisma.jobRule.findMany({
-        where: {
-          enabled: true,
-          OR: orCondition(['name', 'jdText']),
-        },
-        select: { name: true, jdText: true },
-        take: 3,
-      });
-      if (jobs.length > 0) {
-        sections.push('【招聘岗位信息】');
-        jobs.forEach((j) => {
-          sections.push(`- 岗位：${j.name}\n  描述：${j.jdText.slice(0, 300)}`);
-        });
-      }
-    } catch { /* ignore */ }
+      const userKeywords = ['用户', '员工', '人员', '成员', '账号', '账户', 'user', '姓名'];
+      const isGeneral = hits(userKeywords);
 
-    // 3. 字典数据（部门、分类等）
-    try {
-      const dictItems = await this.prisma.systemSetting.findMany({
-        where: {
-          category: 'dictionary_item',
-          OR: keywords.map((k) => ({ key: { contains: k, mode: 'insensitive' as const } })),
-        },
-        select: { key: true, value: true },
-        take: 10,
-      });
-      if (dictItems.length > 0) {
-        sections.push('【字典数据】');
-        dictItems.forEach((item) => {
-          const val = typeof item.value === 'object' ? JSON.stringify(item.value) : String(item.value);
-          sections.push(`- ${item.key}：${val.slice(0, 120)}`);
-        });
-      }
-    } catch { /* ignore */ }
-
-    // 4. 用户/部门基本信息
-    try {
       const users = await this.prisma.user.findMany({
         where: {
-          OR: orCondition(['name', 'department']),
           status: 'ACTIVE',
+          ...(isGeneral ? {} : {
+            OR: keywords.flatMap((k) => [
+              { name: ilike(k) }, { department: ilike(k) }, { email: ilike(k) },
+            ]),
+          }),
         },
-        select: { name: true, department: true, role: { select: { name: true } } },
-        take: 6,
+        select: { name: true, department: true, email: true, role: { select: { name: true } } },
+        orderBy: { name: 'asc' },
+        take: 20,
       });
       if (users.length > 0) {
-        sections.push('【用户信息】');
+        sections.push(`【用户信息】共 ${users.length} 名活跃用户`);
         users.forEach((u) => {
-          sections.push(`- ${u.name}｜部门：${u.department ?? '未分配'}｜角色：${u.role?.name ?? '无'}`);
+          sections.push(`- ${u.name}｜部门：${u.department ?? '未分配'}｜角色：${u.role?.name ?? '无'}｜邮箱：${u.email}`);
         });
+      }
+    } catch { /* ignore */ }
+
+    // ── 3. 角色与权限 ─────────────────────────────────────────────────────────
+    try {
+      const roleKeywords = ['角色', '权限', '管理员', 'role', '职责'];
+      if (hits(roleKeywords) || keywords.some((k) => ['角色', '权限', 'role'].includes(k))) {
+        const roles = await this.prisma.role.findMany({
+          select: { name: true, description: true },
+          orderBy: { name: 'asc' },
+        });
+        if (roles.length > 0) {
+          sections.push(`【系统角色】共 ${roles.length} 个`);
+          roles.forEach((r) => {
+            sections.push(`- ${r.name}${r.description ? `：${r.description}` : ''}`);
+          });
+        }
+      }
+    } catch { /* ignore */ }
+
+    // ── 4. 招聘岗位（JobRule）────────────────────────────────────────────────
+    try {
+      const jobKeywords = ['岗位', '招聘', 'JD', '职位', '职务', '招人', 'job'];
+      const isGeneral = hits(jobKeywords);
+
+      const jobs = await this.prisma.jobRule.findMany({
+        where: isGeneral
+          ? { enabled: true }
+          : { enabled: true, OR: keywords.flatMap((k) => [{ name: ilike(k) }, { jdText: ilike(k) }]) },
+        select: { name: true, jdText: true },
+        take: 5,
+      });
+      if (jobs.length > 0) {
+        sections.push(`【招聘岗位】共 ${jobs.length} 个`);
+        jobs.forEach((j) => {
+          sections.push(`- ${j.name}\n  要求摘要：${j.jdText.slice(0, 200)}`);
+        });
+      }
+    } catch { /* ignore */ }
+
+    // ── 5. 候选人 ─────────────────────────────────────────────────────────────
+    try {
+      const candidateKeywords = ['候选人', '简历', '应聘', '投递', '求职', 'candidate'];
+      const isGeneral = hits(candidateKeywords);
+
+      const candidates = await this.prisma.candidate.findMany({
+        where: isGeneral
+          ? {}
+          : {
+              OR: keywords.flatMap((k) => [
+                { name: ilike(k) }, { recentTitle: ilike(k) },
+                { recentCompany: ilike(k) }, { targetJob: ilike(k) }, { city: ilike(k) },
+              ]),
+            },
+        select: {
+          name: true, recentTitle: true, recentCompany: true,
+          yearsExperience: true, education: true, city: true, status: true, targetJob: true,
+        },
+        take: 8,
+      });
+      if (candidates.length > 0) {
+        sections.push(`【候选人信息】共 ${candidates.length} 条匹配`);
+        candidates.forEach((c) => {
+          sections.push(
+            `- ${c.name}｜${c.recentTitle}@${c.recentCompany}｜${c.yearsExperience}年经验` +
+            `｜学历：${c.education}｜城市：${c.city}｜状态：${c.status}｜目标：${c.targetJob}`,
+          );
+        });
+      }
+    } catch { /* ignore */ }
+
+    // ── 6. AI 模型集成配置 ────────────────────────────────────────────────────
+    try {
+      const modelKeywords = ['模型', 'AI', '千问', 'GPT', 'openai', '通义', '集成', '配置'];
+      if (hits(modelKeywords)) {
+        const configs = await this.prisma.integrationConfig.findMany({
+          where: { kind: 'openai', isActive: true },
+          select: { name: true, provider: true, model: true },
+          orderBy: { name: 'asc' },
+        });
+        if (configs.length > 0) {
+          sections.push(`【已配置 AI 模型】共 ${configs.length} 个`);
+          configs.forEach((c) => {
+            sections.push(`- ${c.name}（${c.provider ?? ''}，模型：${c.model ?? ''}）`);
+          });
+        }
+      }
+    } catch { /* ignore */ }
+
+    // ── 7. 字典数据 ───────────────────────────────────────────────────────────
+    // value JSON 结构：类型 = {label, key, kind, ...}，条目 = {type_id, label, code, ...}
+    try {
+      const allTypes = await this.prisma.systemSetting.findMany({
+        where: { category: 'dictionary_type' },
+        select: { id: true, value: true },
+      });
+
+      const matchedTypes = allTypes.filter((t) => {
+        const v = t.value as Record<string, unknown>;
+        const label = typeof v.label === 'string' ? v.label : '';
+        const key = typeof v.key === 'string' ? v.key : '';
+        return keywords.some(
+          (k) => label.toLowerCase().includes(k.toLowerCase()) || key.toLowerCase().includes(k.toLowerCase()),
+        );
+      });
+
+      for (const type of matchedTypes) {
+        const typeLabel = ((type.value as Record<string, unknown>).label as string) ?? type.id;
+        const itemRows = await this.prisma.$queryRaw<Array<{ value: string }>>(
+          Prisma.sql`
+            SELECT value::text AS value FROM "SystemSetting"
+            WHERE category = 'dictionary_item'
+            AND value::jsonb->>'type_id' = ${type.id}
+            ORDER BY key LIMIT 100
+          `,
+        );
+        const labels = itemRows
+          .map((r) => { try { return ((JSON.parse(r.value) as Record<string, unknown>).label as string) ?? ''; } catch { return ''; } })
+          .filter(Boolean);
+        if (labels.length > 0) {
+          sections.push(`【字典·${typeLabel}】共 ${labels.length} 条：${labels.join('、')}`);
+        }
       }
     } catch { /* ignore */ }
 

@@ -16,6 +16,7 @@ import { DictionariesModule } from './modules/dictionaries/dictionaries.module';
 import { DepartmentsModule } from './modules/departments/departments.module';
 import { IntegrationManagementModule } from './modules/integration-management/integration-management.module';
 import { ChatModule } from './modules/chat/chat.module';
+import { ImageGenerationModule } from './modules/image-generation/image-generation.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
 import { AuditInterceptor } from './modules/audit/audit.interceptor';
@@ -37,6 +38,7 @@ import { AuditInterceptor } from './modules/audit/audit.interceptor';
     DepartmentsModule,
     IntegrationManagementModule,
     ChatModule,
+    ImageGenerationModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },

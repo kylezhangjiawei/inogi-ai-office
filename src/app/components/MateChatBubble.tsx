@@ -44,7 +44,7 @@ type ApiMessage = {
   createdAt: string;
 };
 
-type ModelOption = { id: string; label: string; provider: string };
+type ModelOption = { id: string; label: string; provider: string; model: string };
 
 type SseEvent =
   | { type: "userMessage"; messageId: string }
@@ -800,12 +800,27 @@ export function MateChatBubble() {
                                 className={cn(
                                   "rounded-[24px] px-4 py-3 text-sm leading-7 shadow-sm",
                                   isUser ? "rounded-tr-md bg-[#f0f4ff] text-slate-800" : "rounded-tl-md bg-[#f5f5fb] text-slate-800",
+                                  isStreaming && !msg.content && "py-4",
                                 )}
                                 style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
                               >
-                                {msg.content}
-                                {isStreaming && (
-                                  <span className="ml-1 inline-block h-4 w-0.5 animate-pulse bg-slate-500 align-middle" />
+                                {isStreaming && !msg.content ? (
+                                  <span className="flex items-center gap-1.5">
+                                    {[0, 1, 2].map((i) => (
+                                      <span
+                                        key={i}
+                                        className="h-2 w-2 rounded-full bg-slate-400 animate-bounce"
+                                        style={{ animationDelay: `${i * 160}ms`, animationDuration: "0.72s" }}
+                                      />
+                                    ))}
+                                  </span>
+                                ) : (
+                                  <>
+                                    {msg.content}
+                                    {isStreaming && (
+                                      <span className="ml-1 inline-block h-4 w-0.5 animate-pulse bg-slate-500 align-middle" />
+                                    )}
+                                  </>
                                 )}
                               </div>
                               <div className="mt-1 flex flex-wrap items-center gap-2 px-1">
@@ -861,27 +876,6 @@ export function MateChatBubble() {
                         </div>
                       );
                     })}
-                    {/* 流式输入中的三点动画（仅在流还未返回任何内容时显示） */}
-                    {sending && messages[messages.length - 1]?.role !== "assistant" && (
-                      <div className="flex">
-                        <div className="flex max-w-[82%] gap-3">
-                          <div className="mt-1 flex h-10 w-10 items-center justify-center">
-                            <img src={AI_AVATAR} alt="MateChat" className="h-8 w-8 object-contain" />
-                          </div>
-                          <div className="rounded-[24px] rounded-tl-md bg-[#f5f5fb] px-4 py-4 shadow-sm">
-                            <div className="flex items-center gap-2">
-                              {[0, 1, 2].map((i) => (
-                                <span
-                                  key={i}
-                                  className="h-2.5 w-2.5 rounded-full bg-[#c5b4ff] animate-pulse"
-                                  style={{ animationDelay: `${i * 150}ms` }}
-                                />
-                              ))}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
                     <div ref={messagesEndRef} />
                   </div>
                 )}
@@ -928,7 +922,9 @@ export function MateChatBubble() {
                         className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
                       >
                         <Sparkles className="h-3.5 w-3.5 text-blue-500" />
-                        {currentModel?.label ?? (models.length === 0 ? "未配置模型" : "选择模型")}
+                        {currentModel
+                          ? `${currentModel.label}${currentModel.model ? ` · ${currentModel.model}` : ""}`
+                          : models.length === 0 ? "未配置模型" : "选择模型"}
                         <ChevronDown className="h-3 w-3 text-slate-400" />
                       </button>
                       {showModelMenu && models.length > 0 && (
@@ -942,12 +938,14 @@ export function MateChatBubble() {
                               type="button"
                               onClick={() => { setSelectedModel(m.id); setShowModelMenu(false); }}
                               className={cn(
-                                "flex w-full items-center justify-between px-4 py-2.5 text-xs transition hover:bg-slate-50",
+                                "flex w-full flex-col px-4 py-2.5 text-left text-xs transition hover:bg-slate-50",
                                 m.id === selectedModel ? "font-semibold text-blue-600" : "text-slate-700",
                               )}
                             >
                               <span>{m.label}</span>
-                              <span className="ml-3 text-[10px] text-slate-400">{m.provider}</span>
+                              <span className={cn("mt-0.5 text-[10px]", m.id === selectedModel ? "text-blue-400" : "text-slate-400")}>
+                                {m.model}{m.provider ? ` · ${m.provider}` : ""}
+                              </span>
                             </button>
                           ))}
                         </div>

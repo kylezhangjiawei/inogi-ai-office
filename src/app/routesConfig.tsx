@@ -28,6 +28,7 @@ import {
   UserCog,
   Users,
   UserSquare2,
+  Wand2,
   Waypoints,
 } from "lucide-react";
 
@@ -68,6 +69,12 @@ export const navGroups: NavGroup[] = [
       { label: "法规知识库", path: "/ra-knowledge", icon: BookOpen, requiredPermission: "page:ra-knowledge" },
       { label: "质量文件 DMS", path: "/quality-dms", icon: ShieldCheck, requiredPermission: "page:quality-dms" },
       { label: "全链路追溯", path: "/qa-traceability", icon: BadgeCheck, requiredPermission: "page:qa-traceability" },
+    ],
+  },
+  {
+    label: "AI 创作",
+    items: [
+      { label: "UI 设计生成", path: "/ui-design", icon: Wand2, requiredPermission: "page:ui-design" },
     ],
   },
   {

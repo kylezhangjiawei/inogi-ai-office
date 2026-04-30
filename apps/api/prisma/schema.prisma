@@ -46,11 +46,12 @@ model User {
   status        UserStatus         @default(ACTIVE)
   roleId        String?
   role          Role?              @relation(fields: [roleId], references: [id])
-  refreshTokens RefreshToken[]
-  auditLogs     AuditLog[]
-  conversations ChatConversation[]
-  createdAt     DateTime           @default(now())
-  updatedAt     DateTime           @updatedAt
+  refreshTokens   RefreshToken[]
+  auditLogs       AuditLog[]
+  conversations   ChatConversation[]
+  generatedImages GeneratedImage[]
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
 }
 
 model Department {
@@ -200,6 +201,21 @@ model IntegrationConfig {
   isActive          Boolean  @default(true)
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+}
+
+model GeneratedImage {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  prompt        String
+  revisedPrompt String   @default("")
+  style         String   @default("vivid")
+  size          String   @default("1024x1024")
+  quality       String   @default("standard")
+  imageData     String   // base64 data URL
+  model         String   @default("dall-e-3")
+  isFavorite    Boolean  @default(false)
+  createdAt     DateTime @default(now())
 }
 
 model EmailIngestionLog {

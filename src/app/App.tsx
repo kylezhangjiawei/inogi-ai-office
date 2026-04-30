@@ -36,6 +36,7 @@ import { RegistrationProjects } from "./RegistrationProjects";
 import { ReportCompressionPage } from "./ReportCompressionPage";
 import { ResumeScreeningPage } from "./ResumeScreeningPage";
 import { RoleManagement } from "./RoleManagement";
+import { UIDesignPage } from "./UIDesignPage";
 import { Root } from "./Root";
 import { DictionaryList } from "./DictionaryList";
 import { UserManagement } from "./UserManagement";
@@ -207,6 +208,7 @@ const router = createBrowserRouter([
       { path: "users", element: makeProtected(<UserManagement />, "page:users") },
       { path: "roles", element: makeProtected(<RoleManagement />, "page:roles") },
       { path: "settings", element: makeProtected(<DictionaryList />, "page:settings") },
+      { path: "ui-design", element: makeProtected(<UIDesignPage />, "page:ui-design") },
       { path: "*", Component: () => <Navigate to="/" replace /> },
     ],
   },
