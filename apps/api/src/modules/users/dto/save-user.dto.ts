@@ -12,8 +12,14 @@ export class SaveUserDto {
   @MaxLength(80)
   name!: string;
 
+  @IsOptional()
   @IsEmail()
-  email!: string;
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  username?: string;
 
   @IsOptional()
   @IsString()
@@ -27,4 +33,10 @@ export class SaveUserDto {
   @IsOptional()
   @IsIn(USER_STATUSES)
   status?: (typeof USER_STATUSES)[number];
+
+  /** 仅新建时使用，用于设置初始密码 */
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  password?: string;
 }

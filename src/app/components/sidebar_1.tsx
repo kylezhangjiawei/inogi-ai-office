@@ -1,9 +1,25 @@
 import React from "react";
 import { NavLink } from "react-router";
+import { useAuth } from "../auth";
+import { hasPermission } from "../lib/permissions";
 import { navGroups } from "../routesConfig";
 import { cn } from "./ui/utils";
 
 export function Sidebar() {
+  const { user } = useAuth();
+  const userPermissions = user?.permissions ?? [];
+
+  const visibleGroups = navGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter(
+        (item) =>
+          !item.requiredPermission ||
+          hasPermission(userPermissions, item.requiredPermission),
+      ),
+    }))
+    .filter((group) => group.items.length > 0);
+
   return (
     <aside className="flex h-full w-[324px] shrink-0 flex-col border-r border-white/70 bg-[linear-gradient(180deg,#fcfdff_0%,#f4f8fd_100%)] px-4 py-5">
       <div className="material-card material-glow mb-5 p-4">
@@ -18,20 +34,17 @@ export function Sidebar() {
         </div>
 
         <div className="rounded-[24px] bg-[linear-gradient(145deg,#e7f2ff_0%,#f9fbff_55%,#e8f8f5_100%)] px-4 py-4">
-          <div className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">Launch Scope</div>
+          <div className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">当前用户</div>
           <div className="flex items-end justify-between gap-3">
-            <div className="text-4xl font-bold tracking-tight text-slate-900">18</div>
-            <span className="material-chip bg-white/85 text-primary shadow-sm">Pages</span>
+            <div className="text-sm font-bold tracking-tight text-slate-900 truncate">{user?.name ?? "—"}</div>
+            <span className="material-chip shrink-0 bg-white/85 text-primary shadow-sm">{user?.roleName ?? "无角色"}</span>
           </div>
-          <p className="mt-2 text-sm text-slate-600">已接入登录、用户、角色和主要业务模块流程，MateChat 作为全局悬浮助手入口。</p>
-          <div className="mt-4 h-2.5 rounded-full bg-white/80 shadow-inner">
-            <div className="h-2.5 w-[86%] rounded-full bg-[linear-gradient(90deg,#42a5f5_0%,#1976d2_65%,#00897b_100%)]" />
-          </div>
+          <p className="mt-2 text-xs text-slate-500 truncate">{user?.email ?? ""}</p>
         </div>
       </div>
 
       <nav className="material-scrollbar flex-1 space-y-4 overflow-y-auto pr-1">
-        {navGroups.map((group) => (
+        {visibleGroups.map((group) => (
           <div key={group.label}>
             <div className="mb-2 px-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{group.label}</div>
             <div className="space-y-2">

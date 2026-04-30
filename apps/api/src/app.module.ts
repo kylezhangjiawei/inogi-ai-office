@@ -14,6 +14,7 @@ import { SecurityModule } from './modules/security/security.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { DictionariesModule } from './modules/dictionaries/dictionaries.module';
 import { IntegrationManagementModule } from './modules/integration-management/integration-management.module';
+import { ChatModule } from './modules/chat/chat.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
 import { AuditInterceptor } from './modules/audit/audit.interceptor';

@@ -37,19 +37,43 @@ model Role {
 }
 
 model User {
-  id            String         @id @default(cuid())
+  id            String             @id @default(cuid())
   name          String
-  username      String?        @unique
-  email         String         @unique
+  username      String?            @unique
+  email         String             @unique
   passwordHash  String?
   department    String?
-  status        UserStatus     @default(ACTIVE)
+  status        UserStatus         @default(ACTIVE)
   roleId        String?
-  role          Role?          @relation(fields: [roleId], references: [id])
+  role          Role?              @relation(fields: [roleId], references: [id])
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  conversations ChatConversation[]
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+}
+
+model ChatConversation {
+  id        String        @id @default(cuid())
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String        @default("新对话")
+  summary   String        @default("")
+  pinned    Boolean       @default(false)
+  messages  ChatMessage[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+}
+
+model ChatMessage {
+  id             String           @id @default(cuid())
+  conversationId String
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String
+  content        String
+  model          String?
+  reaction       String?
+  createdAt      DateTime         @default(now())
 }
 
 model RefreshToken {
