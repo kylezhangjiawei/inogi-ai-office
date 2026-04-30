@@ -24,6 +24,7 @@ export const PERMISSIONS = {
   PAGE_MAILBOX_MANAGEMENT: 'page:mailbox-management',
   PAGE_AI_MODEL_MANAGEMENT: 'page:ai-model-management',
   PAGE_DOWNLOADS: 'page:downloads',
+  PAGE_DEPARTMENTS: 'page:departments',
   PAGE_USERS: 'page:users',
   PAGE_ROLES: 'page:roles',
   PAGE_SETTINGS: 'page:settings',
@@ -38,6 +39,11 @@ export const PERMISSIONS = {
   USER_DISABLE: 'user:disable',
   USER_DELETE: 'user:delete',
   USER_RESET_PASSWORD: 'user:reset-password',
+
+  // ─── Department management ──────────────────────────────────────
+  DEPARTMENT_CREATE: 'department:create',
+  DEPARTMENT_EDIT: 'department:edit',
+  DEPARTMENT_DELETE: 'department:delete',
 
   // ─── Role management ────────────────────────────────────────────
   ROLE_CREATE: 'role:create',
@@ -68,10 +74,19 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     label: '页面访问 · 系统管理',
     permissions: [
       { code: 'page:users', label: '用户管理', description: '查看用户列表页面' },
+      { code: 'page:departments', label: '部门管理', description: '查看部门主数据页面' },
       { code: 'page:roles', label: '角色权限', description: '查看角色权限页面' },
       { code: 'page:settings', label: '字典配置', description: '查看系统字典页面' },
       { code: 'page:mailbox-management', label: '邮箱管理', description: '邮箱集成管理页面' },
       { code: 'page:ai-model-management', label: 'AI 模型管理', description: 'AI 模型配置页面' },
+    ],
+  },
+  {
+    label: '操作权限 · 部门管理',
+    permissions: [
+      { code: 'department:create', label: '新建部门', description: '创建公司部门主数据' },
+      { code: 'department:edit', label: '编辑部门', description: '修改部门信息与启停状态' },
+      { code: 'department:delete', label: '删除部门', description: '删除未被用户使用的部门' },
     ],
   },
   {

@@ -12,7 +12,6 @@ import {
 } from "@mui/material";
 import { toast } from "sonner";
 import { authFetch } from "./lib/authSession";
-import { dictionaryApi, type GenericDictionaryItem } from "./lib/dictionaryApi";
 import { useAuth } from "./auth";
 import { cn } from "./components/ui/utils";
 import { PermissionGuard } from "./components/PermissionGuard";
@@ -50,6 +49,13 @@ type UserFormData = {
   password: string;
 };
 
+type DepartmentOption = {
+  id: string;
+  name: string;
+  code: string;
+  category: string;
+};
+
 const EMPTY_FORM: UserFormData = {
   name: "",
   username: "",
@@ -79,6 +85,12 @@ async function apiListRoles(): Promise<Role[]> {
   const res = await authFetch("/api/roles/options");
   if (!res.ok) throw new Error("获取角色列表失败");
   return res.json() as Promise<Role[]>;
+}
+
+async function apiListDepartments(): Promise<DepartmentOption[]> {
+  const res = await authFetch("/api/departments/options");
+  if (!res.ok) throw new Error("获取部门列表失败");
+  return res.json() as Promise<DepartmentOption[]>;
 }
 
 async function apiSaveUser(payload: UserFormData): Promise<User> {
@@ -179,7 +191,7 @@ export function UserManagement() {
 
   const [users, setUsers] = useState<User[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
-  const [departments, setDepartments] = useState<GenericDictionaryItem[]>([]);
+  const [departments, setDepartments] = useState<DepartmentOption[]>([]);
   const [loading, setLoading] = useState(true);
   const [keyword, setKeyword] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | UserStatus>("ALL");
@@ -199,15 +211,11 @@ export function UserManagement() {
       const [usersData, rolesData, typesData] = await Promise.all([
         apiListUsers(),
         apiListRoles(),
-        dictionaryApi.listTypes(),
+        apiListDepartments(),
       ]);
       setUsers(usersData);
       setRoles(rolesData);
-      const deptType = typesData.find((t) => t.key === "department");
-      if (deptType) {
-        const res = await dictionaryApi.listItems(deptType.id, { page: 1, pageSize: 100 });
-        setDepartments(res.items.filter((i): i is GenericDictionaryItem => i.kind === "generic"));
-      }
+      setDepartments(typesData);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "数据加载失败");
     } finally {
@@ -644,8 +652,8 @@ export function UserManagement() {
                 >
                   <MenuItem value="">— 暂不分配 —</MenuItem>
                   {departments.map((d) => (
-                    <MenuItem key={d.id} value={d.label}>
-                      {d.label}
+                    <MenuItem key={d.id} value={d.name}>
+                      {d.name}
                     </MenuItem>
                   ))}
                 </Select>

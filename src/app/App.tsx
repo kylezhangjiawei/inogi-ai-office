@@ -13,6 +13,7 @@ import { BugLogPage } from "./BugLogPage";
 import { CustomsAI } from "./CustomsAI";
 import { CustomsDocs } from "./CustomsDocs";
 import { Dashboard } from "./Dashboard";
+import { DepartmentManagement } from "./DepartmentManagement";
 import { DesignChangesPage } from "./DesignChangesPage";
 import { DownloadTutorialPage, PlatformTutorialPage } from "./DownloadTutorialPage";
 import { EBPRPage } from "./EBPRPage";
@@ -202,6 +203,7 @@ const router = createBrowserRouter([
       { path: "report-compression", element: makeProtected(<ReportCompressionPage />, "page:report-compression") },
       { path: "downloads", element: makeProtected(<DownloadTutorialPage />, "page:downloads") },
       { path: "downloads/:platformId", element: makeProtected(<PlatformTutorialPage />, "page:downloads") },
+      { path: "departments", element: makeProtected(<DepartmentManagement />, "page:departments") },
       { path: "users", element: makeProtected(<UserManagement />, "page:users") },
       { path: "roles", element: makeProtected(<RoleManagement />, "page:roles") },
       { path: "settings", element: makeProtected(<DictionaryList />, "page:settings") },
