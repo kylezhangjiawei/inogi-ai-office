@@ -36,6 +36,7 @@ import { AuditInterceptor } from './modules/audit/audit.interceptor';
     DictionariesModule,
     DepartmentsModule,
     IntegrationManagementModule,
+    ChatModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
