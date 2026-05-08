@@ -232,6 +232,41 @@ export interface CandidateAiChatResponse {
   duration_ms: number;
 }
 
+export interface CandidateFilterSessionMessage {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface CandidateFilterSessionVersion {
+  version_id: string;
+  label: string;
+  instruction: string;
+  answer: string;
+  filter_summary: string;
+  criteria: string[];
+  created_at: string;
+  total_count: number;
+  recommend_count: number;
+  hold_count: number;
+  reject_count: number;
+}
+
+export interface CandidateFilterIterationResponse {
+  action: "filter" | "clarify";
+  version_id?: string;
+  prompt_version?: string;
+  answer: string;
+  clarification_question?: string;
+  filter_summary: string;
+  criteria: string[];
+  total_count: number;
+  recommend_count: number;
+  hold_count: number;
+  reject_count: number;
+  model_name: string;
+  duration_ms: number;
+}
+
 export interface CandidateDetail {
   id: string;
   unique_key?: string | null;
@@ -548,6 +583,7 @@ export const recruitmentApi = {
     minAge?: number;
     maxAge?: number;
     jobRuleId?: string | "";
+    screeningVersion?: string;
     page?: number;
     pageSize?: number;
   }) {
@@ -558,18 +594,41 @@ export const recruitmentApi = {
     if (typeof filters.minAge === "number") params.set("min_age", String(filters.minAge));
     if (typeof filters.maxAge === "number") params.set("max_age", String(filters.maxAge));
     if (typeof filters.jobRuleId === "string" && filters.jobRuleId) params.set("job_rule_id", String(filters.jobRuleId));
+    if (typeof filters.screeningVersion === "string" && filters.screeningVersion) params.set("screening_version", filters.screeningVersion);
     if (typeof filters.page === "number") params.set("page", String(filters.page));
     if (typeof filters.pageSize === "number") params.set("page_size", String(filters.pageSize));
     const suffix = params.toString() ? `?${params.toString()}` : "";
     return request<CandidateListResponse>(`/api/recruitment/candidates${suffix}`);
+  },
+  listCandidateFilterSessions(jobRuleId?: string) {
+    const params = new URLSearchParams();
+    if (jobRuleId?.trim()) params.set("job_rule_id", jobRuleId.trim());
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    return request<CandidateFilterSessionVersion[]>(`/api/recruitment/candidate-filter-sessions${suffix}`);
+  },
+  iterateCandidateFilter(payload: {
+    instruction: string;
+    job_rule_id?: string;
+    base_version?: string;
+    candidate_ids?: string[];
+    history?: CandidateFilterSessionMessage[];
+    limit?: number;
+  }) {
+    return request<CandidateFilterIterationResponse>("/api/recruitment/candidate-filter-sessions/iterate", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
   },
   clearCandidates() {
     return request<ClearCandidatesResponse>("/api/recruitment/candidates", {
       method: "DELETE",
     });
   },
-  getCandidateDetail(candidateId: string) {
-    return request<CandidateDetail>(`/api/recruitment/candidates/${candidateId}`);
+  getCandidateDetail(candidateId: string, filters?: { screeningVersion?: string }) {
+    const params = new URLSearchParams();
+    if (filters?.screeningVersion?.trim()) params.set("screening_version", filters.screeningVersion.trim());
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    return request<CandidateDetail>(`/api/recruitment/candidates/${candidateId}${suffix}`);
   },
   askCandidateAi(candidateId: string, payload: { question: string; history?: CandidateAiChatMessage[] }) {
     return request<CandidateAiChatResponse>(`/api/recruitment/candidates/${candidateId}/ai-chat`, {

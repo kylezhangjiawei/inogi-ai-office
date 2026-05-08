@@ -45,6 +45,34 @@ const INTERVIEW_QA_SCHEMA_DESC =
 const CANDIDATE_DISCUSSION_SCHEMA_DESC =
   '{"answer": string, "suggested_tags": [string, ...], "recommended_action": string, "confidence": "high"|"medium"|"low", "profile_patch"?: {"name"?: string, "birth_or_age"?: string, "city"?: string, "education"?: string, "status"?: string, "target_job"?: string, "target_city"?: string, "salary_expectation"?: string, "recent_company"?: string, "recent_title"?: string, "years_experience"?: string, "work_summary"?: string, "email"?: string, "phone"?: string}, "screening_patch"?: {"score"?: number, "decision"?: "recommend"|"hold"|"reject", "tags"?: [string, ...], "matched_points"?: [string, ...], "risks"?: [string, ...], "summary"?: string, "next_step"?: boolean, "dimensions"?: object}, "update_reason"?: string}';
 
+const CANDIDATE_FILTER_ITERATION_SCHEMA_DESC =
+  '{"action": "filter"|"clarify", "answer": string, "clarification_question"?: string, "filter_summary": string, "criteria": [string, ...], "candidate_updates": [{"candidate_id": string, "ai_job"?: string, "score": integer 0-100, "decision": "recommend"|"hold"|"reject", "tags": [string, ...], "dimensions"?: object, "matched_points": [string, ...], "risks": [string, ...], "summary": string, "next_step": boolean, "change_reason": string}]}';
+
+type CandidateFilterMessage = { role: 'user' | 'assistant'; content: string };
+
+type CandidateFilterSnapshot = {
+  candidate_id: string;
+  job_rule_id?: string | null;
+  job_rule_name?: string | null;
+  name: string;
+  city?: string | null;
+  education?: string | null;
+  age_or_birth?: string | null;
+  target_job?: string | null;
+  ai_job?: string | null;
+  salary_expectation?: string | null;
+  years_experience?: string | null;
+  recent_company?: string | null;
+  recent_title?: string | null;
+  current_score?: number | null;
+  current_decision?: string | null;
+  current_summary?: string | null;
+  current_tags?: string[];
+  current_matched_points?: string[];
+  current_risks?: string[];
+  resume_excerpt?: string;
+};
+
 @Injectable()
 export class OpenAiScreeningService {
   private readonly logger = new Logger(OpenAiScreeningService.name);
@@ -307,6 +335,94 @@ export class OpenAiScreeningService {
         profile_patch: parsed.profile_patch && typeof parsed.profile_patch === 'object' ? parsed.profile_patch : {},
         screening_patch: parsed.screening_patch && typeof parsed.screening_patch === 'object' ? parsed.screening_patch : {},
         update_reason: parsed.update_reason?.trim() || '',
+      },
+      requestPayload: payload,
+      responsePayload: { raw_output: rawOutput, structured_output: parsed },
+      modelName: model,
+      durationMs: Date.now() - startedAt,
+      usage,
+    };
+  }
+
+  async iterateCandidateFilter(
+    jobContext: unknown,
+    candidates: CandidateFilterSnapshot[],
+    instruction: string,
+    history: CandidateFilterMessage[] = [],
+    overrideApiKey?: string,
+    overrideModel?: string,
+    overrideBaseUrl?: string,
+    provider?: string,
+  ) {
+    const apiKey = this.resolveApiKey(provider, overrideApiKey);
+    if (!apiKey) {
+      throw new Error(this.isQwenProvider(provider) ? 'DASHSCOPE_API_KEY is not configured.' : 'OPENAI_API_KEY is not configured.');
+    }
+
+    const model = overrideModel ?? this.envModel;
+    const client = this.createClient(apiKey, overrideBaseUrl, provider);
+    const payload = {
+      job_context: jobContext,
+      candidates,
+      conversation_history: history.slice(-10),
+      recruiter_instruction: instruction,
+      task:
+        'Analyze the recruiter instruction first. If the instruction is not specific enough to change screening criteria, set action to clarify, provide one concise clarification question in answer/clarification_question, and leave candidate_updates empty. Only when the instruction contains enough concrete filtering or scoring criteria, set action to filter and re-evaluate the full candidate list. When filtering, return one candidate_updates item for every candidate_id provided. Do not drop candidates; mark filtered-out candidates as reject with clear reasons. Keep the output grounded in the resume/JD/current screening data. Return strict JSON only.',
+    };
+
+    const startedAt = Date.now();
+    const { content: rawOutput, usage } = await this.callCompletionApi(
+      client,
+      {
+        model,
+        messages: [
+          {
+            role: 'system',
+            content:
+              `You are an enterprise recruiting list-level filtering copilot. ` +
+              `You help the recruiter iteratively clean a candidate pool after an initial JD screening. ` +
+              `Do not treat every user message as a filtering command. First decide whether the recruiter has provided clear, actionable filtering criteria. ` +
+              `If criteria are ambiguous, incomplete, or merely express dissatisfaction, ask a clarification question and do not score candidates. ` +
+              `If criteria are clear, apply the latest instruction as a new filter/scoring lens across every provided candidate. ` +
+              `Return strict JSON matching this schema: ${CANDIDATE_FILTER_ITERATION_SCHEMA_DESC}. ` +
+              `Use Simplified Chinese for answer, summary, tags, risks, criteria, and change_reason.`,
+          },
+          { role: 'user', content: JSON.stringify(payload) },
+        ],
+        jsonMode: true,
+      },
+      provider,
+    );
+
+    const parsed = this.parseJsonObject<{
+      action?: string;
+      answer?: string;
+      clarification_question?: string;
+      filter_summary?: string;
+      criteria?: unknown[];
+      candidate_updates?: unknown[];
+    }>(rawOutput || '{}');
+
+    const candidateUpdates = Array.isArray(parsed.candidate_updates)
+      ? parsed.candidate_updates.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
+      : [];
+
+    return {
+      result: {
+        action:
+          parsed.action === 'filter' || (parsed.action !== 'clarify' && candidateUpdates.length)
+            ? 'filter'
+            : 'clarify',
+        answer:
+          parsed.answer?.trim() ||
+          parsed.clarification_question?.trim() ||
+          '请再补充本轮筛选希望关注的具体条件，例如技能、地域、薪资、经验年限或需要放宽/收紧的规则。',
+        clarification_question: parsed.clarification_question?.trim() || '',
+        filter_summary: parsed.filter_summary?.trim() || '',
+        criteria: Array.isArray(parsed.criteria)
+          ? parsed.criteria.map((item) => (typeof item === 'string' ? item.trim() : '')).filter(Boolean).slice(0, 12)
+          : [],
+        candidate_updates: candidateUpdates,
       },
       requestPayload: payload,
       responsePayload: { raw_output: rawOutput, structured_output: parsed },

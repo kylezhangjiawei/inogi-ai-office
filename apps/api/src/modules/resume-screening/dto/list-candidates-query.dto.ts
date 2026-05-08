@@ -33,6 +33,10 @@ export class ListCandidatesQueryDto {
   job_rule_id?: string;
 
   @IsOptional()
+  @IsString()
+  screening_version?: string;
+
+  @IsOptional()
   @Transform(({ value }) => Number(value))
   @IsInt()
   @Min(1)

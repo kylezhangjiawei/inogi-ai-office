@@ -51,6 +51,8 @@ import {
   type CandidateDetail,
   type CandidateAiChatMessage,
   type CandidateAiUpdateSuggestion,
+  type CandidateFilterSessionMessage,
+  type CandidateFilterSessionVersion,
   type CandidateListItem,
   type Decision,
   type HealthResponse,
@@ -201,10 +203,12 @@ type UploadFilePreview = NonNullable<ResumeUploadRunResult["file_previews"]>[num
 type CandidateLoadOptions = {
   silent?: boolean;
   jobRuleId?: string;
+  screeningVersion?: string;
 };
 
 type CandidateDetailLoadOptions = {
   silent?: boolean;
+  screeningVersion?: string;
 };
 
 function isSyncMailLoading(status?: string | null) {
@@ -627,6 +631,12 @@ export function ResumeScreeningPage() {
   const [candidateRowsPerPage, setCandidateRowsPerPage] = useState(10);
   const [candidatePagination, setCandidatePagination] = useState<PaginationMeta>(defaultCandidatePagination);
   const [loadingCandidates, setLoadingCandidates] = useState(false);
+  const [filterSessions, setFilterSessions] = useState<CandidateFilterSessionVersion[]>([]);
+  const [selectedFilterVersion, setSelectedFilterVersion] = useState("");
+  const [filterConversation, setFilterConversation] = useState<CandidateFilterSessionMessage[]>([]);
+  const [filterInstruction, setFilterInstruction] = useState("");
+  const [filterRunning, setFilterRunning] = useState(false);
+  const [showFilterDialog, setShowFilterDialog] = useState(false);
   const [selectedCandidateId, setSelectedCandidateId] = useState<string>("");
   const [selectedCandidate, setSelectedCandidate] = useState<CandidateDetail | null>(null);
   const [interviewQaExpanded, setInterviewQaExpanded] = useState(false);
@@ -673,6 +683,10 @@ export function ResumeScreeningPage() {
   }, [candidatePagination.total, candidates]);
 
   const filteredCandidates = candidates;
+  const selectedFilterSession = useMemo(
+    () => filterSessions.find((item) => item.version_id === selectedFilterVersion) ?? null,
+    [filterSessions, selectedFilterVersion],
+  );
 
   const selectedMailConfig = useMemo(
     () => mailConfigs.find((item) => item.id === selectedMailConfigId) ?? null,
@@ -731,8 +745,9 @@ export function ResumeScreeningPage() {
         minScore: minScoreFilter,
         minAge: minAgeFilter,
         maxAge: maxAgeFilter,
+        screeningVersion: selectedFilterVersion,
       }),
-    [decisionFilter, deferredCandidateKeyword, jobRuleFilter, maxAgeFilter, minAgeFilter, minScoreFilter],
+    [decisionFilter, deferredCandidateKeyword, jobRuleFilter, maxAgeFilter, minAgeFilter, minScoreFilter, selectedFilterVersion],
   );
 
   useEffect(() => {
@@ -759,6 +774,30 @@ export function ResumeScreeningPage() {
   }, [candidateFilterKey, candidatePage, candidateRowsPerPage]);
 
   useEffect(() => {
+    setSelectedFilterVersion("");
+    setFilterConversation([]);
+    void loadCandidateFilterSessions(jobRuleFilter);
+  }, [jobRuleFilter]);
+
+  useEffect(() => {
+    if (!selectedFilterVersion) {
+      return;
+    }
+    const targetSession = filterSessions.find((item) => item.version_id === selectedFilterVersion);
+    if (!targetSession) {
+      return;
+    }
+    const orderedSessions = [...filterSessions]
+      .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
+      .filter((session) => Date.parse(session.created_at) <= Date.parse(targetSession.created_at));
+    const reconstructed = orderedSessions.flatMap<CandidateFilterSessionMessage>((session) => [
+      { role: "user", content: session.instruction || session.filter_summary },
+      { role: "assistant", content: session.answer || session.filter_summary },
+    ]).filter((message) => message.content.trim());
+    setFilterConversation(reconstructed.slice(-12));
+  }, [filterSessions, selectedFilterVersion]);
+
+  useEffect(() => {
     if (!openAiConfigs.length) return;
     const isValid = openAiConfigs.some((c) => c.id === selectedOpenAiConfigId);
     if (!isValid) {
@@ -782,7 +821,7 @@ export function ResumeScreeningPage() {
       return;
     }
     void loadCandidateDetail(selectedCandidateId);
-  }, [selectedCandidateId]);
+  }, [selectedCandidateId, selectedFilterVersion]);
 
   useEffect(() => {
     if (!hasPendingBackgroundAnalysis) return;
@@ -1033,6 +1072,7 @@ export function ResumeScreeningPage() {
       loadOpenAiConfigs(),
       loadSchedule(),
       loadCandidates(),
+      loadCandidateFilterSessions(),
     ]);
   }
 
@@ -1119,6 +1159,21 @@ export function ResumeScreeningPage() {
     }
   }
 
+  async function loadCandidateFilterSessions(jobRuleId = jobRuleFilter) {
+    try {
+      const next = await recruitmentApi.listCandidateFilterSessions(jobRuleId || undefined);
+      setFilterSessions(next);
+      setSelectedFilterVersion((current) => {
+        if (!current || next.some((item) => item.version_id === current)) {
+          return current;
+        }
+        return "";
+      });
+    } catch (error) {
+      toast.error(getErrorMessage(error, "读取 AI 迭代筛选记录失败"));
+    }
+  }
+
   async function loadCandidates(options: CandidateLoadOptions = {}) {
     if (!options.silent) {
       setLoadingCandidates(true);
@@ -1134,6 +1189,8 @@ export function ResumeScreeningPage() {
         minScore: typeof minScore === "number" && Number.isFinite(minScore) ? minScore : undefined,
         minAge: typeof minAge === "number" && Number.isFinite(minAge) ? minAge : undefined,
         maxAge: typeof maxAge === "number" && Number.isFinite(maxAge) ? maxAge : undefined,
+        screeningVersion:
+          typeof options.screeningVersion === "string" ? options.screeningVersion || undefined : selectedFilterVersion || undefined,
         page: candidatePage + 1,
         pageSize: candidateRowsPerPage,
       });
@@ -1167,7 +1224,10 @@ export function ResumeScreeningPage() {
       setLoadingDetail(true);
     }
     try {
-      const next = await recruitmentApi.getCandidateDetail(candidateId);
+      const next = await recruitmentApi.getCandidateDetail(candidateId, {
+        screeningVersion:
+          typeof options.screeningVersion === "string" ? options.screeningVersion || undefined : selectedFilterVersion || undefined,
+      });
       const detailActiveScreening = next.active_screening ?? next.screenings?.[0] ?? null;
       const detailScreeningStatus = toCandidateScreeningStatus(detailActiveScreening?.status);
 
@@ -1485,6 +1545,54 @@ export function ResumeScreeningPage() {
     } finally {
       setUploadingFolder(false);
       event.target.value = "";
+    }
+  }
+
+  async function handleIterateCandidateFilter() {
+    const instruction = filterInstruction.trim();
+    const jobRuleId = jobRuleFilter;
+    if (!instruction) {
+      toast.error("请输入本轮筛选希望 AI 关注的条件");
+      return;
+    }
+    if (filterRunning) {
+      return;
+    }
+
+    const nextConversation: CandidateFilterSessionMessage[] = [
+      ...filterConversation,
+      { role: "user", content: instruction },
+    ].slice(-12);
+    setFilterConversation(nextConversation);
+    setFilterInstruction("");
+    setFilterRunning(true);
+    try {
+      const response = await recruitmentApi.iterateCandidateFilter({
+        job_rule_id: jobRuleId || undefined,
+        instruction,
+        base_version: selectedFilterVersion || undefined,
+        history: filterConversation,
+        limit: 80,
+      });
+      const assistantMessage = response.answer || response.filter_summary || "已完成本轮候选人二次筛选。";
+      setFilterConversation((current) => [...current, { role: "assistant", content: assistantMessage }].slice(-12));
+      if (response.action !== "filter" || !response.version_id) {
+        toast.message("AI 需要先确认筛选条件");
+        return;
+      }
+      setSelectedFilterVersion(response.version_id);
+      setCandidatePage(0);
+      await loadCandidateFilterSessions(jobRuleId);
+      await loadCandidates({ jobRuleId, screeningVersion: response.version_id });
+      if (selectedCandidateIdRef.current) {
+        await loadCandidateDetail(selectedCandidateIdRef.current, { silent: true, screeningVersion: response.version_id });
+      }
+      toast.success(`已生成新筛选版本：推荐 ${response.recommend_count} 人，待定 ${response.hold_count} 人，淘汰 ${response.reject_count} 人`);
+    } catch (error) {
+      setFilterConversation(filterConversation);
+      toast.error(getErrorMessage(error, "AI 二次筛选失败"));
+    } finally {
+      setFilterRunning(false);
     }
   }
 
@@ -2284,6 +2392,109 @@ export function ResumeScreeningPage() {
             />
           </div>
 
+          <div className="mx-5 mt-6 rounded-[var(--m3-shape-large)] border border-slate-200/80 bg-white/82 p-4 shadow-[var(--m3-elevation-1)]">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
+                  <Sparkles className="h-4 w-4 text-blue-600" />
+                  AI 迭代筛选
+                </div>
+                <div className="mt-1 text-xs leading-5 text-slate-500">
+                  AI 会先分析筛选意图；条件不明确时会追问，明确后才生成新的列表评分版本。
+                </div>
+              </div>
+              <div className="flex min-w-[260px] flex-wrap items-end gap-3">
+                <MaterialSelect
+                  value={selectedFilterVersion}
+                  onValueChange={setSelectedFilterVersion}
+                  options={[
+                    { label: "初筛结果 / 当前最新", value: "" },
+                    ...filterSessions.map((session) => ({
+                      label: `${session.label} · ${session.recommend_count}/${session.total_count} 推荐`,
+                      value: session.version_id,
+                    })),
+                  ]}
+                  placeholder="选择筛选版本"
+                  className="h-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowFilterDialog(true)}
+                  className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-[var(--m3-shape-small)] bg-blue-600 px-4 text-sm font-semibold text-white transition hover:bg-blue-700"
+                >
+                  <Sparkles className="h-4 w-4" />
+                  AI 二次筛选
+                </button>
+              </div>
+            </div>
+
+            {selectedFilterSession ? (
+              <div className="mt-3 rounded-[var(--m3-shape-medium)] bg-blue-50/70 px-3 py-2 text-xs leading-5 text-blue-900">
+                {selectedFilterSession.filter_summary || selectedFilterSession.instruction}
+              </div>
+            ) : null}
+
+            <div className="hidden">
+              <div className="rounded-[var(--m3-shape-medium)] border border-slate-200 bg-slate-50/70 p-3">
+                <textarea
+                  rows={3}
+                  value={filterInstruction}
+                  onChange={(event) => setFilterInstruction(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                      event.preventDefault();
+                      void handleIterateCandidateFilter();
+                    }
+                  }}
+                  disabled={filterRunning}
+                  className="material-scrollbar min-h-[76px] w-full resize-none bg-transparent text-sm leading-6 text-slate-700 outline-none placeholder:text-slate-400 disabled:opacity-60"
+                  placeholder="例如：优先保留机械制图经验明确、会 SolidWorks、南京周边、薪资不超过 10k 的候选人；对道路工程背景降权。"
+                />
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-xs text-slate-400">Ctrl/Command + Enter 发送，AI 会先分析，明确后生成版本。</div>
+                  <button
+                    type="button"
+                    onClick={() => void handleIterateCandidateFilter()}
+                    disabled={!filterInstruction.trim() || filterRunning}
+                    className="inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-[var(--m3-shape-small)] bg-blue-600 px-4 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {filterRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    {filterRunning ? "分析中" : "发送给 AI"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="material-scrollbar max-h-[156px] overflow-y-auto rounded-[var(--m3-shape-medium)] border border-slate-200 bg-white px-3 py-3">
+                {filterConversation.length ? (
+                  <div className="space-y-2">
+                    {filterConversation.slice(-6).map((message, index) => (
+                      <div
+                        key={`${message.role}-${index}`}
+                        className={cn(
+                          "rounded-[var(--m3-shape-small)] px-3 py-2 text-xs leading-5",
+                          message.role === "user" ? "bg-slate-100 text-slate-700" : "bg-blue-50 text-blue-900",
+                        )}
+                      >
+                        <span className="mr-1 font-semibold">{message.role === "user" ? "我" : "AI"}：</span>
+                        {message.content}
+                      </div>
+                    ))}
+                    {filterRunning ? (
+                      <div className="inline-flex items-center gap-2 rounded-[var(--m3-shape-small)] bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        AI 正在分析筛选意图
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <div className="flex h-full min-h-[116px] items-center justify-center text-center text-xs leading-5 text-slate-400">
+                    暂无二次筛选沟通记录
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
           <div className="material-data-table mt-6 overflow-hidden">
             <MuiTableContainer
               className="material-scrollbar"
@@ -2724,6 +2935,108 @@ export function ResumeScreeningPage() {
           </div>
         </section>
       </div>
+
+      <Dialog open={showFilterDialog} onOpenChange={setShowFilterDialog}>
+        <DialogContent className="flex h-[78vh] max-w-[900px] min-w-[680px] grid-rows-none flex-col overflow-hidden rounded-[var(--m3-shape-extra-large)] border-slate-200 bg-white p-0">
+          <div className="flex items-start justify-between gap-4 border-b border-slate-200/80 px-6 py-5">
+            <div className="min-w-0">
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Candidate Pool MateChat</div>
+              <DialogTitle className="mt-1 text-xl text-slate-900">AI 迭代筛选</DialogTitle>
+              <DialogDescription className="mt-1 text-sm text-slate-500">
+                AI 会先分析筛选意图；条件不明确时会追问，明确后才生成新的评分版本。
+              </DialogDescription>
+            </div>
+            <div className="mr-8 min-w-[260px]">
+              <MaterialSelect
+                value={selectedFilterVersion}
+                onValueChange={setSelectedFilterVersion}
+                options={[
+                  { label: "初筛结果 / 当前最新", value: "" },
+                  ...filterSessions.map((session) => ({
+                    label: `${session.label} · ${session.recommend_count}/${session.total_count} 推荐`,
+                    value: session.version_id,
+                  })),
+                ]}
+                placeholder="选择筛选版本"
+                className="h-10"
+              />
+            </div>
+          </div>
+
+          <div className="material-scrollbar flex-1 overflow-y-auto bg-[linear-gradient(180deg,#fbfdff_0%,#f4f8fd_100%)] px-6 py-6">
+            {selectedFilterSession ? (
+              <div className="mb-5 rounded-[var(--m3-shape-medium)] border border-blue-100 bg-blue-50/80 px-4 py-3 text-sm leading-6 text-blue-900">
+                {selectedFilterSession.filter_summary || selectedFilterSession.instruction}
+              </div>
+            ) : null}
+
+            {filterConversation.length || filterRunning ? (
+              <div className="space-y-4">
+                {filterConversation.map((message, index) => {
+                  const isUser = message.role === "user";
+                  return (
+                    <div key={`${message.role}-${index}`} className={cn("flex", isUser ? "justify-end" : "justify-start")}>
+                      <div
+                        className={cn(
+                          "max-w-[82%] rounded-xl px-4 py-3 text-sm leading-7 shadow-sm whitespace-pre-wrap",
+                          isUser
+                            ? "rounded-tr-md bg-[#f0f4ff] text-slate-800"
+                            : "rounded-tl-md bg-white text-slate-800",
+                        )}
+                      >
+                        {message.content}
+                      </div>
+                    </div>
+                  );
+                })}
+                {filterRunning ? (
+                  <div className="flex justify-start">
+                    <div className="inline-flex items-center gap-2 rounded-xl rounded-tl-md bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
+                      <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                      AI 正在分析本轮筛选意图
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="flex h-full items-center justify-center px-8 text-center text-sm leading-7 text-slate-400">
+                输入新的筛选偏好，AI 会先判断是否足够明确；不明确会继续追问，明确后才会生成新的候选人列表版本。
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-slate-200/80 bg-white px-6 py-4">
+            <div className="rounded-xl border border-slate-200 bg-slate-50/92 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
+              <textarea
+                rows={3}
+                value={filterInstruction}
+                onChange={(event) => setFilterInstruction(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                    event.preventDefault();
+                    void handleIterateCandidateFilter();
+                  }
+                }}
+                disabled={filterRunning}
+                className="material-scrollbar min-h-[72px] w-full resize-none bg-transparent text-sm leading-7 text-slate-700 outline-none placeholder:text-slate-400 disabled:opacity-50"
+                placeholder="例如：优先保留机械制图经验明确、会 SolidWorks、南京周边、薪资不超过 10k 的候选人；对道路工程背景降权。"
+              />
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <div className="text-xs text-slate-400">Ctrl/Command + Enter 发送，AI 会先分析，明确后生成版本。</div>
+                <button
+                  type="button"
+                  onClick={() => void handleIterateCandidateFilter()}
+                  disabled={!filterInstruction.trim() || filterRunning}
+                  className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-[var(--m3-shape-small)] bg-blue-600 px-5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {filterRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  {filterRunning ? "分析中" : "发送给 AI"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={Boolean(candidateAiDialogId)}

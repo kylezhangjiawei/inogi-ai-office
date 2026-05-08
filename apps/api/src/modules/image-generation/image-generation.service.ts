@@ -48,6 +48,7 @@ export class ImageGenerationService {
 
     const client = new OpenAI({ apiKey, ...(baseUrl ? { baseURL: baseUrl } : {}) });
     const effectiveModel = hasReferenceImage && !this.supportsImageEdit(model) ? DEFAULT_IMAGE_TO_IMAGE_MODEL : model;
+    this.assertPromptLength(prompt, effectiveModel);
     const { imageData, revisedPrompt } = await this.generateWithOpenAi(client, {
       prompt,
       style,
@@ -236,6 +237,20 @@ export class ImageGenerationService {
 
   private buildBase64DataUrl(base64: string) {
     return `data:image/png;base64,${base64}`;
+  }
+
+  private assertPromptLength(prompt: string, model: string) {
+    const maxLength = this.getPromptMaxLength(model);
+    if (prompt.length > maxLength) {
+      throw new BadRequestException(`当前模型 ${model} 的提示词不能超过 ${maxLength} 个字符，请精简后重试`);
+    }
+  }
+
+  private getPromptMaxLength(model: string) {
+    const normalized = model.toLowerCase();
+    if (normalized === 'dall-e-2') return 1000;
+    if (normalized === 'dall-e-3') return 4000;
+    return 32000;
   }
 
   private normalizeSizeForModel(size: string, model: string) {

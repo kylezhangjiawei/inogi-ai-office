@@ -84,6 +84,7 @@ const DEFAULT_MODEL_OPTION: ModelOption = {
 
 const defaultPrompt =
   "未来科技产品展示，蓝紫渐变背景，玻璃拟态，金属材质，高端商业海报";
+const MAX_PROMPT_LENGTH = 32_000;
 
 const templates = [
   { label: "产品海报", prompt: "商业产品海报，突出主体卖点、材质细节和高端质感" },
@@ -490,6 +491,10 @@ export function UIDesignPage() {
       toast.error("请先填写图像提示词");
       return;
     }
+    if (normalizedPrompt.length > MAX_PROMPT_LENGTH) {
+      toast.error(`提示词不能超过 ${MAX_PROMPT_LENGTH} 个字符`);
+      return;
+    }
 
     setGenerating(true);
     try {
@@ -680,8 +685,12 @@ export function UIDesignPage() {
                 className="h-[150px] w-full resize-none rounded-2xl border border-white/72 bg-white/62 px-4 py-3 text-sm leading-6 text-slate-700 outline-none shadow-[inset_0_1px_0_rgba(255,255,255,0.9)] placeholder:text-slate-400 focus:border-violet-300 focus:ring-4 focus:ring-violet-100/80"
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
+                maxLength={MAX_PROMPT_LENGTH}
                 placeholder="描述主体、风格、场景、色彩、光照..."
               />
+              <div className="mt-1.5 text-right text-[11px] font-medium text-slate-400">
+                {prompt.length.toLocaleString("zh-CN")} / {MAX_PROMPT_LENGTH.toLocaleString("zh-CN")}
+              </div>
             </section>
 
             <section>

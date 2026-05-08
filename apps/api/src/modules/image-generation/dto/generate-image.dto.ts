@@ -2,7 +2,7 @@ import { IsBoolean, IsIn, IsOptional, IsString, MaxLength } from 'class-validato
 
 export class GenerateImageDto {
   @IsString()
-  @MaxLength(1000)
+  @MaxLength(32_000, { message: '提示词不能超过 32000 个字符' })
   prompt: string;
 
   @IsOptional()

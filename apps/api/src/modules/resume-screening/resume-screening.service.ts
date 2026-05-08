@@ -16,6 +16,7 @@ import { CreateJobRuleDto } from './dto/create-job-rule.dto';
 import { ListCandidatesQueryDto } from './dto/list-candidates-query.dto';
 import { RunMailSyncDto } from './dto/run-mail-sync.dto';
 import { AskCandidateAiDto } from './dto/ask-candidate-ai.dto';
+import { IterateCandidateFilterDto } from './dto/iterate-candidate-filter.dto';
 import { SaveMailConfigDto } from './dto/save-mail-config.dto';
 import { SaveMailSyncScheduleDto } from './dto/save-mail-sync-schedule.dto';
 import { SaveOpenAiConfigDto } from './dto/save-openai-config.dto';
@@ -94,6 +95,7 @@ type ScheduleMetadata = {
 };
 
 const SCHEDULE_CONFIG_NAME = 'mail-sync-schedule';
+const ITERATIVE_FILTER_PROMPT_PREFIX = 'iterative-filter:';
 
 @Injectable()
 export class ResumeScreeningService implements OnModuleInit {
@@ -992,18 +994,30 @@ export class ResumeScreeningService implements OnModuleInit {
     const requestedPage = this.clampNumber(query.page, 1, 1, Number.MAX_SAFE_INTEGER);
     const minAge = typeof query.min_age === 'number' && Number.isFinite(query.min_age) ? query.min_age : null;
     const maxAge = typeof query.max_age === 'number' && Number.isFinite(query.max_age) ? query.max_age : null;
+    const screeningVersion = query.screening_version?.trim() ?? '';
     const candidates = await this.prisma.candidate.findMany({
       where: { jobRuleId: query.job_rule_id },
       include: {
         jobRule: true,
-        screenings: { orderBy: { createdAt: 'desc' }, take: 10 },
+        screenings: screeningVersion
+          ? {
+              where: { promptVersion: this.buildIterativeFilterPromptVersion(screeningVersion) },
+              orderBy: { createdAt: 'desc' },
+              take: 1,
+            }
+          : { orderBy: { createdAt: 'desc' }, take: 20 },
       },
       orderBy: { receivedAt: 'desc' },
     });
 
     const filteredCandidates = candidates
       .map((candidate) => {
-        const screening = this.pickPreferredScreening(candidate.screenings);
+        const screening = screeningVersion
+          ? this.pickScreeningForVersion(candidate.screenings, screeningVersion)
+          : this.pickPreferredScreening(candidate.screenings);
+        if (screeningVersion && !screening) {
+          return null;
+        }
         const latestScreening = candidate.screenings[0] ?? null;
         const parsedProfile = this.buildDisplayProfile(candidate);
         const structuredResponse =
@@ -1041,6 +1055,7 @@ export class ResumeScreeningService implements OnModuleInit {
           screening_error_message: latestScreening?.errorMessage ?? null,
         };
       })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item))
       .filter((item) => {
         if (keyword) {
           const searchableText = [
@@ -1095,6 +1110,333 @@ export class ResumeScreeningService implements OnModuleInit {
     };
   }
 
+  async listCandidateFilterSessions(jobRuleId?: string) {
+    const normalizedJobRuleId = jobRuleId?.trim();
+    const screenings = await this.prisma.candidateScreening.findMany({
+      where: {
+        promptVersion: { startsWith: ITERATIVE_FILTER_PROMPT_PREFIX },
+        ...(normalizedJobRuleId ? { jobRuleId: normalizedJobRuleId } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 1000,
+      select: {
+        promptVersion: true,
+        decision: true,
+        createdAt: true,
+        requestPayload: true,
+        responsePayload: true,
+      },
+    });
+
+    const grouped = new Map<
+      string,
+      {
+        version_id: string;
+        label: string;
+        instruction: string;
+        answer: string;
+        filter_summary: string;
+        criteria: string[];
+        created_at: string;
+        total_count: number;
+        recommend_count: number;
+        hold_count: number;
+        reject_count: number;
+      }
+    >();
+
+    for (const screening of screenings) {
+      const versionId = this.extractIterativeFilterVersionId(screening.promptVersion);
+      if (!versionId) continue;
+
+      const requestPayload = this.asRecord(screening.requestPayload);
+      const responsePayload = this.asRecord(screening.responsePayload);
+      const filterSession = this.asRecord(responsePayload.filter_session);
+      const instruction = this.toTrimmedString(filterSession.instruction) || this.toTrimmedString(requestPayload.instruction);
+      const answer = this.toTrimmedString(filterSession.answer);
+      const filterSummary =
+        this.toTrimmedString(filterSession.filter_summary) ||
+        this.toTrimmedString(requestPayload.filter_summary) ||
+        this.toTrimmedString(requestPayload.instruction);
+
+      let item = grouped.get(versionId);
+      if (!item) {
+        item = {
+          version_id: versionId,
+          label: instruction ? `筛选版本：${instruction.slice(0, 24)}` : `筛选版本 ${versionId.slice(-6)}`,
+          instruction,
+          answer,
+          filter_summary: filterSummary,
+          criteria: this.normalizeStringArray(filterSession.criteria),
+          created_at: screening.createdAt.toISOString(),
+          total_count: 0,
+          recommend_count: 0,
+          hold_count: 0,
+          reject_count: 0,
+        };
+        grouped.set(versionId, item);
+      }
+
+      item.total_count += 1;
+      const decision = screening.decision?.toLowerCase();
+      if (decision === 'recommend') item.recommend_count += 1;
+      if (decision === 'hold') item.hold_count += 1;
+      if (decision === 'reject') item.reject_count += 1;
+    }
+
+    return Array.from(grouped.values()).sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
+  }
+
+  async iterateCandidateFilter(payload: IterateCandidateFilterDto) {
+    const instruction = payload.instruction?.trim();
+    if (!instruction) {
+      throw new BadRequestException('请输入本轮希望 AI 重新筛选的条件。');
+    }
+
+    const jobRuleId = payload.job_rule_id?.trim() ?? '';
+    const jobRule = jobRuleId ? await this.prisma.jobRule.findUnique({ where: { id: jobRuleId } }) : null;
+    if (jobRuleId && !jobRule) {
+      throw new NotFoundException('岗位规则不存在。');
+    }
+    if (jobRuleId && !jobRule?.jdText?.trim()) {
+      throw new BadRequestException('当前岗位规则没有 JD 内容，无法进行二次筛选。');
+    }
+
+    const candidateIds = (payload.candidate_ids ?? [])
+      .map((item) => item?.trim())
+      .filter((item): item is string => Boolean(item));
+    const limit = this.clampNumber(payload.limit, 50, 1, 80);
+    const baseVersion = payload.base_version?.trim() ?? '';
+
+    const candidates = await this.prisma.candidate.findMany({
+      where: {
+        ...(jobRuleId ? { jobRuleId } : {}),
+        ...(candidateIds.length ? { id: { in: candidateIds } } : {}),
+      },
+      include: {
+        jobRule: true,
+        screenings: { orderBy: { createdAt: 'desc' }, take: 80 },
+      },
+      orderBy: { receivedAt: 'desc' },
+      take: limit,
+    });
+
+    if (!candidates.length) {
+      throw new BadRequestException('当前岗位下没有可筛选的候选人。');
+    }
+
+    const openAiCreds = await this.resolveOpenAiCredentials();
+    if (!this.openAiScreeningService.isConfigured(openAiCreds?.apiKey, openAiCreds?.provider)) {
+      throw new BadRequestException('未配置 AI 模型 Key，无法进行候选人列表二次筛选。');
+    }
+
+    const history = (payload.history ?? [])
+      .filter((item) => item && (item.role === 'user' || item.role === 'assistant') && item.content?.trim())
+      .map((item) => ({ role: item.role, content: item.content.trim().slice(0, 4000) }))
+      .slice(-10);
+
+    const candidateSnapshots = candidates.map((candidate) => {
+      const profile = this.buildDisplayProfile(candidate);
+      const activeScreening = baseVersion
+        ? this.pickScreeningForVersion(candidate.screenings, baseVersion) ?? this.pickPreferredScreening(candidate.screenings)
+        : this.pickPreferredScreening(candidate.screenings);
+      const activeScreeningResponse = activeScreening ? this.toCandidateScreeningResponse(activeScreening) : null;
+      return {
+        candidate_id: candidate.id,
+        job_rule_id: candidate.jobRuleId,
+        job_rule_name: candidate.jobRule?.name ?? '',
+        name: profile.name || candidate.name,
+        city: profile.city || candidate.city,
+        education: profile.education || candidate.education,
+        age_or_birth: profile.birth_or_age,
+        target_job: profile.target_job || candidate.targetJob,
+        ai_job: activeScreeningResponse?.ai_job ?? null,
+        salary_expectation: profile.salary_expectation || candidate.salaryExpectation,
+        years_experience: profile.years_experience || candidate.yearsExperience,
+        recent_company: profile.recent_company || candidate.recentCompany,
+        recent_title: profile.recent_title || candidate.recentTitle,
+        current_score: activeScreening?.score ?? null,
+        current_decision: activeScreening?.decision?.toLowerCase() ?? null,
+        current_summary: activeScreening?.summary ?? null,
+        current_tags: this.normalizeStringArray(activeScreeningResponse?.tags),
+        current_matched_points: this.normalizeStringArray(activeScreeningResponse?.matched_points),
+        current_risks: this.normalizeStringArray(activeScreeningResponse?.risks),
+        resume_excerpt: this.pickBetterString(profile.work_summary, profile.raw_text, candidate.rawEmailText).slice(0, 1400),
+      };
+    });
+    const jobContext = {
+      scope: jobRuleId ? 'single_job' : 'all_jobs',
+      job_rules: Array.from(
+        new Map(
+          candidates
+            .map((candidate) => candidate.jobRule)
+            .filter((rule): rule is NonNullable<typeof rule> => Boolean(rule?.id))
+            .map((rule) => [
+              rule.id,
+              {
+                id: rule.id,
+                name: rule.name,
+                jd_text: rule.jdText.slice(0, jobRuleId ? 12000 : 3000),
+              },
+            ]),
+        ).values(),
+      ),
+    };
+
+    let result: Awaited<ReturnType<OpenAiScreeningService['iterateCandidateFilter']>>;
+    try {
+      result = await this.openAiScreeningService.iterateCandidateFilter(
+        jobContext,
+        candidateSnapshots,
+        instruction,
+        history,
+        openAiCreds?.apiKey ?? undefined,
+        openAiCreds?.model ?? undefined,
+        openAiCreds?.baseUrl ?? undefined,
+        openAiCreds?.provider ?? undefined,
+      );
+
+      await this.updateOpenAiModelRuntime(openAiCreds?.id, {
+        success: true,
+        baseUrl: openAiCreds?.baseUrl,
+        durationMs: result.durationMs,
+        totalTokens: result.usage.totalTokens,
+      });
+    } catch (error) {
+      const message = this.getSourceErrorMessage(error);
+      await this.updateOpenAiModelRuntime(openAiCreds?.id, {
+        success: false,
+        baseUrl: openAiCreds?.baseUrl,
+        errorMessage: message,
+      });
+      throw new BadRequestException(`AI 迭代筛选失败：${message}`);
+    }
+
+    if (result.result.action !== 'filter') {
+      return {
+        action: 'clarify' as const,
+        answer: result.result.answer,
+        clarification_question: result.result.clarification_question,
+        filter_summary: result.result.filter_summary,
+        criteria: result.result.criteria,
+        total_count: candidates.length,
+        recommend_count: 0,
+        hold_count: 0,
+        reject_count: 0,
+        model_name: result.modelName,
+        duration_ms: result.durationMs,
+      };
+    }
+
+    const versionId = this.createIterativeFilterVersionId();
+    const promptVersion = this.buildIterativeFilterPromptVersion(versionId);
+    const updatesByCandidateId = new Map(
+      result.result.candidate_updates
+        .map((item) => [this.toTrimmedString(item.candidate_id), item] as const)
+        .filter(([candidateId]) => Boolean(candidateId)),
+    );
+    const rawOutputExcerpt =
+      typeof result.responsePayload.raw_output === 'string' ? result.responsePayload.raw_output.slice(0, 12000) : '';
+    const sessionMetadata = {
+      source: 'candidate_iterative_filter',
+      action: 'filter',
+      version_id: versionId,
+      base_version: baseVersion || null,
+      job_rule_id: jobRuleId || null,
+      instruction,
+      answer: result.result.answer,
+      filter_summary: result.result.filter_summary,
+      criteria: result.result.criteria,
+      model_name: result.modelName,
+      created_at: new Date().toISOString(),
+    };
+
+    const created = await this.prisma.$transaction(
+      candidates.map((candidate) => {
+        const activeScreening = baseVersion
+          ? this.pickScreeningForVersion(candidate.screenings, baseVersion) ?? this.pickPreferredScreening(candidate.screenings)
+          : this.pickPreferredScreening(candidate.screenings);
+        const activeScreeningResponse = activeScreening ? this.toCandidateScreeningResponse(activeScreening) : null;
+        const rawUpdate = updatesByCandidateId.get(candidate.id) ?? {};
+        const patch = this.buildIterativeFilterPatch(
+          rawUpdate,
+          activeScreeningResponse
+            ? {
+                ...activeScreeningResponse,
+                tags: this.normalizeStringArray(activeScreeningResponse.tags),
+                matched_points: this.normalizeStringArray(activeScreeningResponse.matched_points),
+                risks: this.normalizeStringArray(activeScreeningResponse.risks),
+              }
+            : null,
+        );
+        const responsePayload = {
+          raw_output: rawOutputExcerpt,
+          structured_output: {
+            ...this.asRecord(activeScreening?.responsePayload && this.asRecord(activeScreening.responsePayload).structured_output),
+            ...patch,
+          },
+          filter_session: sessionMetadata,
+          change_reason: this.toTrimmedString(rawUpdate.change_reason),
+        };
+
+        return this.prisma.candidateScreening.create({
+          data: {
+            candidateId: candidate.id,
+            jobRuleId: candidate.jobRuleId || jobRuleId || null,
+            promptVersion,
+            modelName: result.modelName,
+            requestPayload: {
+              source: 'candidate_iterative_filter',
+              action: 'filter',
+              version_id: versionId,
+              base_version: baseVersion || null,
+              job_rule_id: jobRuleId || null,
+              instruction,
+              history,
+              candidate_snapshot: candidateSnapshots.find((item) => item.candidate_id === candidate.id) ?? null,
+              previous_screening_id: activeScreening?.id ?? null,
+              filter_summary: result.result.filter_summary,
+            } as any,
+            responsePayload: responsePayload as any,
+            score: typeof patch.score === 'number' ? patch.score : null,
+            decision: patch.decision ? this.mapDecision(patch.decision) : null,
+            matchedPoints: (patch.matched_points ?? []) as any,
+            risks: (patch.risks ?? []) as any,
+            summary: patch.summary ?? null,
+            nextStep: typeof patch.next_step === 'boolean' ? patch.next_step : null,
+            durationMs: result.durationMs,
+            status: 'COMPLETED',
+            errorMessage: null,
+          },
+        });
+      }),
+    );
+
+    const counts = created.reduce(
+      (acc, item) => {
+        const decision = item.decision?.toLowerCase();
+        if (decision === 'recommend') acc.recommend_count += 1;
+        if (decision === 'hold') acc.hold_count += 1;
+        if (decision === 'reject') acc.reject_count += 1;
+        return acc;
+      },
+      { recommend_count: 0, hold_count: 0, reject_count: 0 },
+    );
+
+    return {
+      action: 'filter' as const,
+      version_id: versionId,
+      prompt_version: promptVersion,
+      answer: result.result.answer,
+      filter_summary: result.result.filter_summary,
+      criteria: result.result.criteria,
+      total_count: created.length,
+      ...counts,
+      model_name: result.modelName,
+      duration_ms: result.durationMs,
+    };
+  }
+
   private clampNumber(value: unknown, fallback: number, min: number, max: number) {
     const numericValue = typeof value === 'number' ? value : Number(value);
     if (!Number.isFinite(numericValue)) return fallback;
@@ -1120,7 +1462,7 @@ export class ResumeScreeningService implements OnModuleInit {
     return null;
   }
 
-  async getCandidateDetail(candidateId: string) {
+  async getCandidateDetail(candidateId: string, screeningVersion?: string) {
     const candidate = await this.prisma.candidate.findUnique({
       where: { id: candidateId },
       include: {
@@ -1132,7 +1474,9 @@ export class ResumeScreeningService implements OnModuleInit {
     if (!candidate) throw new NotFoundException('Candidate not found.');
 
     const parsedProfile = this.buildDisplayProfile(candidate);
-    const activeScreening = this.pickPreferredScreening(candidate.screenings);
+    const activeScreening = screeningVersion?.trim()
+      ? this.pickScreeningForVersion(candidate.screenings, screeningVersion)
+      : this.pickPreferredScreening(candidate.screenings);
     const interviewQa = await this.resolveCandidateInterviewQa(candidate, parsedProfile, activeScreening);
 
     return {
@@ -1412,6 +1756,29 @@ export class ResumeScreeningService implements OnModuleInit {
       .slice(0, 12);
   }
 
+  private asRecord(value: unknown) {
+    return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  }
+
+  private toTrimmedString(value: unknown) {
+    return typeof value === 'string' ? value.trim() : '';
+  }
+
+  private createIterativeFilterVersionId() {
+    return `filter-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  private buildIterativeFilterPromptVersion(versionId: string) {
+    return `${ITERATIVE_FILTER_PROMPT_PREFIX}${versionId.trim()}`;
+  }
+
+  private extractIterativeFilterVersionId(promptVersion?: string | null) {
+    const normalized = promptVersion?.trim() ?? '';
+    return normalized.startsWith(ITERATIVE_FILTER_PROMPT_PREFIX)
+      ? normalized.slice(ITERATIVE_FILTER_PROMPT_PREFIX.length)
+      : '';
+  }
+
   private normalizeCandidateProfilePatch(value: unknown) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
       return {} as Partial<CandidateProfile>;
@@ -1470,8 +1837,9 @@ export class ResumeScreeningService implements OnModuleInit {
     if (Number.isFinite(score)) {
       patch.score = Math.max(0, Math.min(100, Math.round(score)));
     }
-    if (source.decision === 'recommend' || source.decision === 'hold' || source.decision === 'reject') {
-      patch.decision = source.decision;
+    const normalizedDecision = typeof source.decision === 'string' ? source.decision.trim().toLowerCase() : '';
+    if (normalizedDecision === 'recommend' || normalizedDecision === 'hold' || normalizedDecision === 'reject') {
+      patch.decision = normalizedDecision;
     }
     if (typeof source.ai_job === 'string' && source.ai_job.trim()) {
       patch.ai_job = source.ai_job.trim().slice(0, 240);
@@ -1492,6 +1860,51 @@ export class ResumeScreeningService implements OnModuleInit {
     const dimensions = this.normalizeScreeningDimensions(source.dimensions);
     if (Object.keys(dimensions).length) patch.dimensions = dimensions;
 
+    return patch;
+  }
+
+  private buildIterativeFilterPatch(
+    value: Record<string, unknown>,
+    previous:
+      | {
+          ai_job?: string | null;
+          score?: number | null;
+          decision?: string | null;
+          tags?: string[];
+          dimensions?: Record<string, { score: number; label: string; reason: string }>;
+          matched_points?: string[];
+          risks?: string[];
+          summary?: string | null;
+          next_step?: boolean | null;
+        }
+      | null,
+  ) {
+    const patch = this.normalizeCandidateScreeningPatch(value);
+    if (!patch.ai_job && previous?.ai_job) patch.ai_job = previous.ai_job;
+    if (typeof patch.score !== 'number') patch.score = typeof previous?.score === 'number' ? previous.score : 0;
+    if (!patch.decision) {
+      patch.decision =
+        previous?.decision === 'recommend' || previous?.decision === 'hold' || previous?.decision === 'reject'
+          ? previous.decision
+          : 'hold';
+    }
+    if (!patch.tags?.length && previous?.tags?.length) patch.tags = previous.tags.slice(0, 12);
+    if (!patch.matched_points?.length && previous?.matched_points?.length) {
+      patch.matched_points = previous.matched_points.slice(0, 20);
+    }
+    if (!patch.risks?.length && previous?.risks?.length) patch.risks = previous.risks.slice(0, 20);
+    if (!patch.dimensions && previous?.dimensions && Object.keys(previous.dimensions).length) {
+      patch.dimensions = previous.dimensions;
+    }
+    if (!patch.summary) {
+      patch.summary =
+        previous?.summary?.trim() ||
+        this.toTrimmedString(value.change_reason) ||
+        '本轮 AI 未返回该候选人的详细说明，已沿用上一轮筛选结果。';
+    }
+    if (typeof patch.next_step !== 'boolean') {
+      patch.next_step = patch.decision === 'recommend';
+    }
     return patch;
   }
 
@@ -1737,6 +2150,33 @@ export class ResumeScreeningService implements OnModuleInit {
     );
   }
 
+  private pickScreeningForVersion<
+    T extends {
+      promptVersion: string;
+      status: string;
+      score: number | null;
+      decision: string | null;
+      summary: string | null;
+    },
+  >(screenings: T[], versionId?: string | null) {
+    const normalizedVersionId = versionId?.trim();
+    if (!normalizedVersionId) {
+      return this.pickPreferredScreening(screenings);
+    }
+
+    const promptVersion = this.buildIterativeFilterPromptVersion(normalizedVersionId);
+    return (
+      screenings.find(
+        (screening) =>
+          screening.promptVersion === promptVersion &&
+          screening.status === 'COMPLETED' &&
+          (screening.score !== null || Boolean(screening.decision) || Boolean(screening.summary?.trim())),
+      ) ??
+      screenings.find((screening) => screening.promptVersion === promptVersion) ??
+      null
+    );
+  }
+
   @Interval(30_000)
   private handleScheduledSyncTick() {
     void this.checkAndRunScheduledSync({ allowCatchUp: true });
@@ -1829,10 +2269,7 @@ export class ResumeScreeningService implements OnModuleInit {
       ? await this.prisma.integrationConfig.findFirst({
           where: { id: configId, kind: 'openai' },
         })
-      : await this.prisma.integrationConfig.findFirst({
-          where: { kind: 'openai', isActive: true },
-          orderBy: { updatedAt: 'desc' },
-        });
+      : await this.resolveDefaultTextOpenAiConfig();
     if (configId && !config) {
       throw new NotFoundException('所选 AI 模型配置不存在。');
     }
@@ -1843,6 +2280,8 @@ export class ResumeScreeningService implements OnModuleInit {
         ? (config.metadata as Record<string, unknown>)
         : {};
 
+    const configuredModel = config.model ?? process.env.OPENAI_MODEL ?? 'gpt-4.1-mini';
+
     return {
       id: config.id,
       name: config.name,
@@ -1851,12 +2290,41 @@ export class ResumeScreeningService implements OnModuleInit {
         config.encryptedSecret,
         '当前 AI 模型配置已失效，请重新保存 API Key 后再试。',
       ),
-      model: config.model ?? process.env.OPENAI_MODEL ?? 'gpt-4.1-mini',
+      model: this.resolveTextCompletionModelName(configuredModel),
       baseUrl:
         typeof metadata.base_url === 'string' && metadata.base_url.trim()
           ? metadata.base_url.trim()
           : process.env.OPENAI_BASE_URL ?? null,
     };
+  }
+
+  private async resolveDefaultTextOpenAiConfig() {
+    const configs = await this.prisma.integrationConfig.findMany({
+      where: { kind: 'openai', isActive: true },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    return configs.find((config) => !this.isImageGenerationModel(config.model)) ?? configs[0] ?? null;
+  }
+
+  private resolveTextCompletionModelName(model?: string | null) {
+    const normalizedModel = model?.trim();
+    if (!normalizedModel || this.isImageGenerationModel(normalizedModel)) {
+      const envModel = process.env.OPENAI_MODEL?.trim();
+      return envModel && !this.isImageGenerationModel(envModel) ? envModel : 'gpt-4.1-mini';
+    }
+    return normalizedModel;
+  }
+
+  private isImageGenerationModel(model?: string | null) {
+    const normalizedModel = model?.trim().toLowerCase() ?? '';
+    return (
+      normalizedModel.startsWith('gpt-image') ||
+      normalizedModel.startsWith('chatgpt-image') ||
+      normalizedModel.startsWith('dall-e') ||
+      normalizedModel.includes('image-to-image') ||
+      normalizedModel.includes('image2image')
+    );
   }
 
   private async resolveFileExtractCredentials(screeningConfig?: OpenAiRuntimeConfig | null) {
