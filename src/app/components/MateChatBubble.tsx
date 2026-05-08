@@ -60,7 +60,8 @@ type DeleteConfirm =
 
 // ─── 常量 ─────────────────────────────────────────────────────────────────────
 
-const FLOATING_POS_KEY = "inogi-matechat-floating-position";
+const FLOATING_MARGIN = 24;
+const FLOATING_FALLBACK_SIZE = { width: 224, height: 72 };
 const AI_AVATAR = "https://matechat.gitcode.com/logo.svg";
 
 const QUICK_PROMPTS = [
@@ -81,6 +82,17 @@ function fmtDateTime(iso: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function getDefaultFloatingPosition(element?: HTMLElement | null) {
+  if (typeof window === "undefined") return { x: 0, y: 0 };
+  const width = element?.offsetWidth || FLOATING_FALLBACK_SIZE.width;
+  const height = element?.offsetHeight || FLOATING_FALLBACK_SIZE.height;
+
+  return {
+    x: Math.max(FLOATING_MARGIN, window.innerWidth - width - FLOATING_MARGIN),
+    y: Math.max(FLOATING_MARGIN, window.innerHeight - height - FLOATING_MARGIN),
+  };
 }
 
 // ─── API 层 ───────────────────────────────────────────────────────────────────
@@ -178,43 +190,35 @@ export function MateChatBubble() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // ── 气泡位置初始化 + resize clamp ──────────────────────────────────────────
+  // ── 气泡位置初始化 + resize 归位 ───────────────────────────────────────────
 
   useEffect(() => {
-    const def = { x: Math.max(16, window.innerWidth - 224), y: Math.max(16, window.innerHeight - 112) };
-    let pos = def;
-    try {
-      const raw = window.localStorage.getItem(FLOATING_POS_KEY);
-      const parsed = raw ? (JSON.parse(raw) as { x?: number; y?: number }) : null;
-      if (parsed) pos = { x: parsed.x ?? def.x, y: parsed.y ?? def.y };
-    } catch { /* ignore */ }
-    setBubblePos(pos);
+    setBubblePos(getDefaultFloatingPosition(bubbleRef.current));
     setBubbleReady(true);
   }, []);
 
-  // 拖动结束后同步 state → 触发 localStorage 写入
   useEffect(() => {
     if (!bubbleReady) return;
-    window.localStorage.setItem(FLOATING_POS_KEY, JSON.stringify(bubblePos));
-    // 同时把 DOM 位置对齐（避免 resize 后出现偏差）
     const el = bubbleRef.current;
     if (el) { el.style.left = `${bubblePos.x}px`; el.style.top = `${bubblePos.y}px`; }
   }, [bubblePos, bubbleReady]);
 
   useEffect(() => {
     if (!bubbleReady) return;
-    const clamp = () => {
-      const el = bubbleRef.current;
-      if (!el) return;
-      const w = el.offsetWidth;
-      const h = el.offsetHeight;
-      setBubblePos((p) => ({
-        x: Math.min(Math.max(16, p.x), Math.max(16, window.innerWidth - w - 16)),
-        y: Math.min(Math.max(16, p.y), Math.max(16, window.innerHeight - h - 16)),
-      }));
+    let rafId = 0;
+    const resetToDefault = () => {
+      window.cancelAnimationFrame(rafId);
+      rafId = window.requestAnimationFrame(() => {
+        setBubblePos(getDefaultFloatingPosition(bubbleRef.current));
+      });
     };
-    window.addEventListener("resize", clamp);
-    return () => window.removeEventListener("resize", clamp);
+    window.addEventListener("resize", resetToDefault);
+    window.visualViewport?.addEventListener("resize", resetToDefault);
+    return () => {
+      window.cancelAnimationFrame(rafId);
+      window.removeEventListener("resize", resetToDefault);
+      window.visualViewport?.removeEventListener("resize", resetToDefault);
+    };
   }, [bubbleReady]);
 
   // ── 对话框动画 ──────────────────────────────────────────────────────────────
@@ -540,8 +544,8 @@ export function MateChatBubble() {
           if (Math.abs(dx) > 3 || Math.abs(dy) > 3) movedRef.current = true;
           const w = el.offsetWidth;
           const h = el.offsetHeight;
-          const x = Math.min(Math.max(16, dragStartRef.current.x + dx), window.innerWidth - w - 16);
-          const y = Math.min(Math.max(16, dragStartRef.current.y + dy), window.innerHeight - h - 16);
+          const x = Math.min(Math.max(FLOATING_MARGIN, dragStartRef.current.x + dx), window.innerWidth - w - FLOATING_MARGIN);
+          const y = Math.min(Math.max(FLOATING_MARGIN, dragStartRef.current.y + dy), window.innerHeight - h - FLOATING_MARGIN);
           // 直接操作 DOM，零 React 渲染
           el.style.left = `${x}px`;
           el.style.top = `${y}px`;
@@ -555,7 +559,7 @@ export function MateChatBubble() {
           el.style.cursor = "";
           el.style.transition = "";
           document.body.style.userSelect = "";
-          // 拖动结束：把 DOM 实际位置同步回 React state（用于 localStorage）
+          // 拖动结束：同步 DOM 实际位置，仅保留在当前页面会话内。
           const x = parseFloat(el.style.left) || bubblePos.x;
           const y = parseFloat(el.style.top) || bubblePos.y;
           setBubblePos({ x, y });

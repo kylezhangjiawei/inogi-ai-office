@@ -6,6 +6,7 @@ import { InterviewQaItem, ScreeningResult, CandidateProfile } from './resume-scr
 
 const SCREENING_SCHEMA_DESC =
   '{"ai_job": string, "score": integer 0-100, "decision": "recommend"|"hold"|"reject", ' +
+  '"tags": [string, ...], "dimensions": {"job_match": {"score": integer 0-100, "label": string, "reason": string}, "experience": {"score": integer 0-100, "label": string, "reason": string}, "skills": {"score": integer 0-100, "label": string, "reason": string}, "stability": {"score": integer 0-100, "label": string, "reason": string}, "location": {"score": integer 0-100, "label": string, "reason": string}, "education": {"score": integer 0-100, "label": string, "reason": string}, "salary": {"score": integer 0-100, "label": string, "reason": string}}, ' +
   '"matched_points": [string, ...], "risks": [string, ...], "summary": string, "next_step": boolean, ' +
   '"interview_qa": [{"question": string, "answer": string}, {"question": string, "answer": string}, {"question": string, "answer": string}, {"question": string, "answer": string}, {"question": string, "answer": string}]}';
 
@@ -28,6 +29,7 @@ const DIRECT_FILE_SCREENING_SCHEMA_DESC =
   '"candidate_recent_title": string, "candidate_years_experience": string, ' +
   '"candidate_work_summary": string, "candidate_resume_excerpt": string, "candidate_email": string, "candidate_phone": string, ' +
   '"ai_job": string, "score": integer 0-100, "decision": "recommend"|"hold"|"reject", ' +
+  '"tags": [string, ...], "dimensions": {"job_match": {"score": integer 0-100, "label": string, "reason": string}, "experience": {"score": integer 0-100, "label": string, "reason": string}, "skills": {"score": integer 0-100, "label": string, "reason": string}, "stability": {"score": integer 0-100, "label": string, "reason": string}, "location": {"score": integer 0-100, "label": string, "reason": string}, "education": {"score": integer 0-100, "label": string, "reason": string}, "salary": {"score": integer 0-100, "label": string, "reason": string}}, ' +
   '"matched_points": [string, ...], "risks": [string, ...], "summary": string, "next_step": boolean, ' +
   '"interview_qa": [{"question": string, "answer": string}, {"question": string, "answer": string}, ' +
   '{"question": string, "answer": string}, {"question": string, "answer": string}, {"question": string, "answer": string}]}';
@@ -39,6 +41,9 @@ const JOB_RULE_SCHEMA_DESC =
 
 const INTERVIEW_QA_SCHEMA_DESC =
   '{"interview_qa": [{"question": string, "answer": string}, {"question": string, "answer": string}, {"question": string, "answer": string}, {"question": string, "answer": string}, {"question": string, "answer": string}]}';
+
+const CANDIDATE_DISCUSSION_SCHEMA_DESC =
+  '{"answer": string, "suggested_tags": [string, ...], "recommended_action": string, "confidence": "high"|"medium"|"low", "profile_patch"?: {"name"?: string, "birth_or_age"?: string, "city"?: string, "education"?: string, "status"?: string, "target_job"?: string, "target_city"?: string, "salary_expectation"?: string, "recent_company"?: string, "recent_title"?: string, "years_experience"?: string, "work_summary"?: string, "email"?: string, "phone"?: string}, "screening_patch"?: {"score"?: number, "decision"?: "recommend"|"hold"|"reject", "tags"?: [string, ...], "matched_points"?: [string, ...], "risks"?: [string, ...], "summary"?: string, "next_step"?: boolean, "dimensions"?: object}, "update_reason"?: string}';
 
 @Injectable()
 export class OpenAiScreeningService {
@@ -140,7 +145,7 @@ export class OpenAiScreeningService {
       raw_email_excerpt: profile.raw_text.slice(0, 5000),
       job_description: jdText,
       task:
-        'Evaluate the candidate against the job description. If candidate_profile fields are empty or missing, extract them from raw_email_excerpt. Return strict JSON only. Also infer the most appropriate target job title for this candidate under this JD and place it in ai_job. Generate exactly 5 interview questions tailored to this JD and resume, and provide a concise reference answer for each one based on the candidate background and likely best response strategy. If the resume or JD is Chinese, all text fields in the JSON must be written in Simplified Chinese.',
+        'Evaluate the candidate against the job description. If candidate_profile fields are empty or missing, extract them from raw_email_excerpt. Return strict JSON only. Also infer the most appropriate target job title for this candidate under this JD and place it in ai_job. Provide 6-10 concise tags and dimension scores for job_match, experience, skills, stability, location, education, and salary. Generate exactly 5 interview questions tailored to this JD and resume, and provide a concise reference answer for each one based on the candidate background and likely best response strategy. If the resume or JD is Chinese, all text fields in the JSON must be written in Simplified Chinese.',
     };
 
     const baseUrl = this.resolveBaseUrl(provider, overrideBaseUrl);
@@ -160,7 +165,7 @@ export class OpenAiScreeningService {
           messages: [
             {
               role: 'system',
-              content: `You are a conservative enterprise recruiting screener. First extract any missing candidate details (name, gender, education, experience, skills, etc.) from raw_email_excerpt if candidate_profile fields are empty. Then score the candidate strictly against the provided job description. Infer ai_job conservatively from the JD and candidate profile. Also generate exactly 5 interview questions tailored to this JD and candidate, and provide a concise reference answer for each one. Return strict JSON only matching this schema: ${SCREENING_SCHEMA_DESC}. When the source material is Chinese, every text field in the JSON must be in Simplified Chinese.`,
+              content: `You are a conservative enterprise recruiting screener. First extract any missing candidate details (name, gender, education, experience, skills, etc.) from raw_email_excerpt if candidate_profile fields are empty. Then score the candidate strictly against the provided job description. Infer ai_job conservatively from the JD and candidate profile. Produce 6-10 short tags that HR can filter by, and score dimensions for job_match, experience, skills, stability, location, education, and salary with a short reason. Also generate exactly 5 interview questions tailored to this JD and candidate, and provide a concise reference answer for each one. Return strict JSON only matching this schema: ${SCREENING_SCHEMA_DESC}. When the source material is Chinese, every text field in the JSON must be in Simplified Chinese.`,
             },
             { role: 'user', content: JSON.stringify(payload) },
           ],
@@ -238,6 +243,79 @@ export class OpenAiScreeningService {
     };
   }
 
+  async discussCandidate(
+    profile: CandidateProfile,
+    jdText: string,
+    screeningContext: unknown,
+    question: string,
+    history: Array<{ role: 'user' | 'assistant'; content: string }> = [],
+    overrideApiKey?: string,
+    overrideModel?: string,
+    overrideBaseUrl?: string,
+    provider?: string,
+  ) {
+    const apiKey = this.resolveApiKey(provider, overrideApiKey);
+    if (!apiKey) {
+      throw new Error(this.isQwenProvider(provider) ? 'DASHSCOPE_API_KEY is not configured.' : 'OPENAI_API_KEY is not configured.');
+    }
+
+    const model = overrideModel ?? this.envModel;
+    const client = this.createClient(apiKey, overrideBaseUrl, provider);
+    const payload = {
+      candidate_profile: profile,
+      raw_resume_excerpt: profile.raw_text.slice(0, 6000),
+      job_description: jdText.slice(0, 12000),
+      screening_context: screeningContext,
+      conversation_history: history.slice(-8),
+      question,
+      task:
+        'Answer the recruiter question about this candidate. Stay grounded in the resume, JD, and screening context. If the answer creates a concrete correction or reconsideration that should update the candidate detail, include only those changed fields in profile_patch and/or screening_patch. Do not include patches for speculation or unchanged data. Return strict JSON only.',
+    };
+
+    const startedAt = Date.now();
+    const { content: rawOutput, usage } = await this.callCompletionApi(
+      client,
+      {
+        model,
+        messages: [
+          {
+            role: 'system',
+            content: `You are an enterprise recruiting copilot. Discuss one candidate with the recruiter using only the provided resume, JD, screening result, tags, dimensions, and conversation history. Be concise, practical, and explicit about uncertainty. Return strict JSON matching this schema: ${CANDIDATE_DISCUSSION_SCHEMA_DESC}. Use Simplified Chinese when the recruiter question or source material is Chinese.`,
+          },
+          { role: 'user', content: JSON.stringify(payload) },
+        ],
+        jsonMode: true,
+      },
+      provider,
+    );
+    const parsed = this.parseJsonObject<{
+      answer?: string;
+      suggested_tags?: string[];
+      recommended_action?: string;
+      confidence?: 'high' | 'medium' | 'low';
+      profile_patch?: Record<string, unknown>;
+      screening_patch?: Record<string, unknown>;
+      update_reason?: string;
+    }>(rawOutput || '{}');
+
+    return {
+      result: {
+        answer: parsed.answer?.trim() || '暂时无法基于当前材料给出进一步判断。',
+        suggested_tags: Array.isArray(parsed.suggested_tags) ? parsed.suggested_tags.filter((item) => typeof item === 'string') : [],
+        recommended_action: parsed.recommended_action?.trim() || '',
+        confidence: parsed.confidence ?? 'medium',
+        profile_patch: parsed.profile_patch && typeof parsed.profile_patch === 'object' ? parsed.profile_patch : {},
+        screening_patch: parsed.screening_patch && typeof parsed.screening_patch === 'object' ? parsed.screening_patch : {},
+        update_reason: parsed.update_reason?.trim() || '',
+      },
+      requestPayload: payload,
+      responsePayload: { raw_output: rawOutput, structured_output: parsed },
+      modelName: model,
+      durationMs: Date.now() - startedAt,
+      usage,
+    };
+  }
+
   async screenResumeFromText(
     rawText: string,
     fileName: string,
@@ -266,7 +344,7 @@ export class OpenAiScreeningService {
         'If relevant, extract the candidate profile fields and perform a full evaluation. ' +
         'If not relevant, set is_relevant to false and leave evaluation fields empty. ' +
         'Return strict JSON only. When source text is Chinese, use Simplified Chinese for all text fields. ' +
-        'Generate exactly 5 interview questions only when is_relevant is true.',
+        'Generate 6-10 tags, dimension scores, and exactly 5 interview questions only when is_relevant is true.',
     };
 
     const baseUrl = this.resolveBaseUrl(provider, overrideBaseUrl);
@@ -328,6 +406,8 @@ export class OpenAiScreeningService {
       ai_job?: string;
       score?: number;
       decision?: string;
+      tags?: string[];
+      dimensions?: ScreeningResult['dimensions'];
       matched_points?: string[];
       risks?: string[];
       summary?: string;
@@ -359,11 +439,16 @@ export class OpenAiScreeningService {
       language_skills: [],
     };
 
-    const screeningResult: ScreeningResult = {
-      ai_job: parsed.ai_job ?? '',
-      score: typeof parsed.score === 'number' ? parsed.score : 0,
-      decision: (parsed.decision as ScreeningResult['decision']) ?? 'hold',
-      matched_points: Array.isArray(parsed.matched_points) ? parsed.matched_points : [],
+      const screeningResult: ScreeningResult = {
+        ai_job: parsed.ai_job ?? '',
+        score: typeof parsed.score === 'number' ? parsed.score : 0,
+        decision: (parsed.decision as ScreeningResult['decision']) ?? 'hold',
+        tags: Array.isArray(parsed.tags) ? parsed.tags.filter((item): item is string => typeof item === 'string') : [],
+        dimensions:
+          parsed.dimensions && typeof parsed.dimensions === 'object' && !Array.isArray(parsed.dimensions)
+            ? (parsed.dimensions as ScreeningResult['dimensions'])
+            : {},
+        matched_points: Array.isArray(parsed.matched_points) ? parsed.matched_points : [],
       risks: Array.isArray(parsed.risks) ? parsed.risks : [],
       summary: parsed.summary ?? '',
       next_step: Boolean(parsed.next_step),
@@ -528,6 +613,38 @@ export class OpenAiScreeningService {
       durationMs: Date.now() - startedAt,
       outputText: content,
       usage,
+    };
+  }
+
+  async testImageConnection(
+    overrideApiKey?: string,
+    overrideModel?: string,
+    overrideBaseUrl?: string,
+    provider?: string,
+  ) {
+    const apiKey = this.resolveApiKey(provider, overrideApiKey);
+    if (!apiKey) {
+      throw new Error('OPENAI_API_KEY is not configured.');
+    }
+
+    const model = overrideModel ?? 'gpt-image-1';
+    const client = this.createClient(apiKey, overrideBaseUrl, provider);
+    const startedAt = Date.now();
+    const response = await client.images.generate({
+      model,
+      prompt: 'Connection test image: a simple blue dot on a white background.',
+    } as OpenAI.Images.ImageGenerateParamsNonStreaming);
+    const image = response.data?.[0];
+    if (!image?.b64_json && !image?.url) {
+      throw new Error('Images API did not return image data.');
+    }
+
+    return {
+      modelName: model,
+      baseUrl: this.resolveBaseUrl(provider, overrideBaseUrl),
+      durationMs: Date.now() - startedAt,
+      outputText: `Images API OK (${image.b64_json ? 'base64' : 'url'})`,
+      usage: this.extractUsage(response),
     };
   }
 

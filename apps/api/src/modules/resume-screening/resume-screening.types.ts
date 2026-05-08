@@ -25,10 +25,18 @@ export interface CandidateProfile {
   avatar_url?: string;
 }
 
+export interface ScreeningDimension {
+  score: number;
+  label: string;
+  reason: string;
+}
+
 export interface ScreeningResult {
   ai_job: string;
   score: number;
   decision: 'recommend' | 'hold' | 'reject';
+  tags?: string[];
+  dimensions?: Record<string, ScreeningDimension>;
   matched_points: string[]; 
   risks: string[];
   summary: string;

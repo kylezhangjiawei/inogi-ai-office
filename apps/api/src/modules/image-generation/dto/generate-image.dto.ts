@@ -1,4 +1,4 @@
-import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsBoolean, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class GenerateImageDto {
   @IsString()
@@ -16,4 +16,22 @@ export class GenerateImageDto {
   @IsOptional()
   @IsIn(['standard', 'hd'])
   quality?: 'standard' | 'hd';
+
+  @IsOptional()
+  @IsString()
+  model_id?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  model?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(25_000_000)
+  reference_image_data?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  skip_cache?: boolean;
 }

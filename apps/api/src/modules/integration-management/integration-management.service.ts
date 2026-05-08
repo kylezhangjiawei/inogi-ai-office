@@ -293,12 +293,20 @@ export class IntegrationManagementService {
       throw new BadRequestException('请先填写 API Key，或在已保存模型上进行连通性测试');
     }
 
+    const provider = payload.provider?.trim() || existing?.provider || 'openai';
+    const useImageModelTest = this.shouldUseImageModelConnectionTest(provider, model);
+
     try {
-      const result = await this.openAiScreeningService.testConnection(
+      const result = useImageModelTest ? await this.openAiScreeningService.testImageConnection(
         apiKey,
         model,
         baseUrl || undefined,
-        payload.provider?.trim() || existing?.provider || 'openai',
+        provider,
+      ) : await this.openAiScreeningService.testConnection(
+        apiKey,
+        model,
+        baseUrl || undefined,
+        provider,
       );
 
       if (existing) {
@@ -362,6 +370,13 @@ export class IntegrationManagementService {
 
     await this.prisma.integrationConfig.delete({ where: { id: modelId } });
     return { id: modelId };
+  }
+
+  private shouldUseImageModelConnectionTest(provider: string, model: string) {
+    const normalizedProvider = provider.trim().toLowerCase();
+    const normalizedModel = model.trim().toLowerCase();
+    const isOpenAiProvider = !normalizedProvider || normalizedProvider.includes('openai');
+    return isOpenAiProvider && (normalizedModel.startsWith('gpt-image-') || normalizedModel.startsWith('dall-e-'));
   }
 
   private async resolveOperatorName(userId?: string) {

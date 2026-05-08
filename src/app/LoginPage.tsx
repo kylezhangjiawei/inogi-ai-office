@@ -38,7 +38,7 @@ export function LoginPage() {
       className="flex min-h-screen items-center justify-center bg-center bg-cover bg-no-repeat px-4"
       style={{ backgroundImage: "url(https://matechat.gitcode.com/png/home/bgHome.png)" }}
     >
-      <div className="grid w-full max-w-5xl overflow-hidden rounded-[32px] border border-white/70 bg-white/80 shadow-[0_30px_60px_rgba(15,23,42,0.12)] lg:grid-cols-[1.1fr_0.9fr]">
+      <div className="grid w-full max-w-5xl overflow-hidden rounded-[4px] border border-white/70 bg-white/80 shadow-[0_30px_60px_rgba(15,23,42,0.12)] lg:grid-cols-[1.1fr_0.9fr]">
         <div className="hidden bg-[linear-gradient(145deg,#1565c0_0%,#42a5f5_55%,#80cbc4_100%)] p-10 text-white lg:flex lg:flex-col lg:justify-between">
           <div>
             <div className="inline-flex rounded-full bg-white/16 px-4 py-2 text-sm font-semibold">INOGI AI Office System</div>

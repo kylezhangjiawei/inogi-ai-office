@@ -99,18 +99,18 @@ export function MaterialSelect({
       >
         <SelectTrigger
           className={cn(
-            "material-input h-11 justify-between rounded-2xl border-0 bg-white/75 px-4 py-0 shadow-[inset_0_0_0_1px_rgba(216,226,238,0.85)] focus:ring-0 focus-visible:ring-0",
+            "material-input h-11 justify-between border-0 bg-white/75 px-4 py-0 shadow-[inset_0_0_0_1px_rgba(216,226,238,0.85)] focus:ring-0 focus-visible:ring-0",
             className,
           )}
         >
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
-        <SelectContent className="rounded-2xl border border-slate-200 bg-white p-1 shadow-[0_18px_35px_rgba(15,23,42,0.12)]">
+        <SelectContent className="rounded-[var(--m3-shape-large)] border border-slate-200 bg-white p-1 shadow-[var(--m3-elevation-3)]">
           {options.map((option) => (
             <SelectItem
               key={option.value || EMPTY_SELECT_VALUE}
               value={option.value === "" ? EMPTY_SELECT_VALUE : option.value}
-              className="rounded-xl py-2 pl-3 pr-9 text-sm text-slate-700"
+              className="rounded-[var(--m3-shape-small)] py-2 pl-3 pr-9 text-sm text-slate-700"
             >
               {option.label}
             </SelectItem>

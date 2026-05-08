@@ -107,6 +107,20 @@ export interface CandidateListItem {
   screening_error_message?: string | null;
 }
 
+export interface PaginationMeta {
+  page: number;
+  page_size: number;
+  total: number;
+  total_pages: number;
+  has_next: boolean;
+  has_previous: boolean;
+}
+
+export interface CandidateListResponse {
+  items: CandidateListItem[];
+  pagination: PaginationMeta;
+}
+
 export interface CandidateProfile {
   name: string;
   gender: string;
@@ -134,11 +148,19 @@ export interface InterviewQaItem {
   answer: string;
 }
 
+export interface CandidateScreeningDimension {
+  score: number;
+  label: string;
+  reason: string;
+}
+
 export interface CandidateScreeningHistory {
   id: string;
   ai_job?: string | null;
   score?: number | null;
   decision?: Decision | null;
+  tags?: string[];
+  dimensions?: Record<string, CandidateScreeningDimension>;
   matched_points: string[];
   risks: string[];
   summary?: string | null;
@@ -151,6 +173,63 @@ export interface CandidateScreeningHistory {
   duration_ms?: number | null;
   request_payload?: Record<string, unknown> | null;
   response_payload?: Record<string, unknown> | null;
+}
+
+export interface CandidateAiChatMessage {
+  role: "user" | "assistant";
+  content: string;
+  ai_update?: CandidateAiUpdateSuggestion;
+}
+
+export interface CandidateProfilePatch {
+  name?: string;
+  gender?: string;
+  birth_or_age?: string;
+  education?: string;
+  status?: string;
+  city?: string;
+  hukou?: string;
+  target_job?: string;
+  target_city?: string;
+  salary_expectation?: string;
+  recent_company?: string;
+  recent_title?: string;
+  years_experience?: string;
+  work_summary?: string;
+  email?: string;
+  phone?: string;
+  language_skills?: string[];
+}
+
+export interface CandidateScreeningPatch {
+  ai_job?: string;
+  score?: number;
+  decision?: Decision;
+  tags?: string[];
+  dimensions?: Record<string, CandidateScreeningDimension>;
+  matched_points?: string[];
+  risks?: string[];
+  summary?: string;
+  next_step?: boolean;
+}
+
+export interface CandidateAiUpdateSuggestion {
+  profile_patch?: CandidateProfilePatch;
+  screening_patch?: CandidateScreeningPatch;
+  update_reason?: string;
+  source_answer?: string;
+}
+
+export interface CandidateAiChatResponse {
+  answer: string;
+  suggested_tags: string[];
+  recommended_action: string;
+  confidence: "high" | "medium" | "low";
+  profile_patch?: CandidateProfilePatch;
+  screening_patch?: CandidateScreeningPatch;
+  update_reason?: string;
+  model_name: string;
+  duration_ms: number;
 }
 
 export interface CandidateDetail {
@@ -462,14 +541,27 @@ export const recruitmentApi = {
       body: JSON.stringify({ unique_keys: uniqueKeys }),
     });
   },
-  listCandidates(filters: { keyword?: string; decision?: Decision | ""; minScore?: number; jobRuleId?: string | "" }) {
+  listCandidates(filters: {
+    keyword?: string;
+    decision?: Decision | "";
+    minScore?: number;
+    minAge?: number;
+    maxAge?: number;
+    jobRuleId?: string | "";
+    page?: number;
+    pageSize?: number;
+  }) {
     const params = new URLSearchParams();
     if (typeof filters.keyword === "string" && filters.keyword.trim()) params.set("keyword", filters.keyword.trim());
     if (filters.decision) params.set("decision", filters.decision);
     if (typeof filters.minScore === "number") params.set("min_score", String(filters.minScore));
+    if (typeof filters.minAge === "number") params.set("min_age", String(filters.minAge));
+    if (typeof filters.maxAge === "number") params.set("max_age", String(filters.maxAge));
     if (typeof filters.jobRuleId === "string" && filters.jobRuleId) params.set("job_rule_id", String(filters.jobRuleId));
+    if (typeof filters.page === "number") params.set("page", String(filters.page));
+    if (typeof filters.pageSize === "number") params.set("page_size", String(filters.pageSize));
     const suffix = params.toString() ? `?${params.toString()}` : "";
-    return request<CandidateListItem[]>(`/api/recruitment/candidates${suffix}`);
+    return request<CandidateListResponse>(`/api/recruitment/candidates${suffix}`);
   },
   clearCandidates() {
     return request<ClearCandidatesResponse>("/api/recruitment/candidates", {
@@ -478,5 +570,20 @@ export const recruitmentApi = {
   },
   getCandidateDetail(candidateId: string) {
     return request<CandidateDetail>(`/api/recruitment/candidates/${candidateId}`);
+  },
+  askCandidateAi(candidateId: string, payload: { question: string; history?: CandidateAiChatMessage[] }) {
+    return request<CandidateAiChatResponse>(`/api/recruitment/candidates/${candidateId}/ai-chat`, {
+      method: "POST",
+      body: JSON.stringify({
+        ...payload,
+        history: payload.history?.map((item) => ({ role: item.role, content: item.content })),
+      }),
+    });
+  },
+  applyCandidateAiUpdate(candidateId: string, payload: CandidateAiUpdateSuggestion) {
+    return request<CandidateDetail>(`/api/recruitment/candidates/${candidateId}/apply-ai-update`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
   },
 };

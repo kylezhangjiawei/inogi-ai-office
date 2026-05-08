@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsEnum, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class ListCandidatesQueryDto {
   @IsOptional()
@@ -17,6 +17,31 @@ export class ListCandidatesQueryDto {
   min_score?: number;
 
   @IsOptional()
+  @Transform(({ value }) => Number(value))
+  @Min(0)
+  @Max(120)
+  min_age?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => Number(value))
+  @Min(0)
+  @Max(120)
+  max_age?: number;
+
+  @IsOptional()
   @IsString()
   job_rule_id?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => Number(value))
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => Number(value))
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  page_size?: number;
 }
