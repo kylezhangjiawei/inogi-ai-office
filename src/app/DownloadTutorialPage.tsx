@@ -3,6 +3,7 @@ import { Apple, ArrowLeft, BookOpen, Download, Laptop, MonitorDown, Smartphone }
 import { Link, Navigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
+import { CLASH_SUBSCRIPTION_URL } from "./lib/appConfig";
 
 type PlatformId = "windows" | "android" | "ios" | "mac";
 
@@ -90,7 +91,7 @@ const platformConfigs: Record<PlatformId, PlatformConfig> = {
           "点击复制Clash 订阅链接，通过菜单中的“订阅”，将机场的订阅地址复制到里面，导入即可。",
           "导入成功后，在“订阅”中选中刚刚添加的节点",
         ],
-        actions: [{ label: "复制订阅", tone: "primary", value: 'https://info.xn--blqv68cix3a.com/foo/bar/li/pRSTjzDiM1cklnoa?cl=1&extend=1' }],
+        actions: [{ label: "复制订阅", tone: "primary", value: CLASH_SUBSCRIPTION_URL }],
         imageAlt: "Clash Verge Rev 订阅导入截图",
         imageShape: "desktop",
         imageSrc: 'https://global.cdn.mikupics.cn/2024/07/12/669012ac4e624.png'
@@ -145,7 +146,7 @@ const platformConfigs: Record<PlatformId, PlatformConfig> = {
       {
         title: "配置订阅",
         body: "安装后点击下面按钮，将订阅配置导入到 Clash Meta for Android。",
-        actions: [{ label: "复制订阅", tone: "primary", value: 'https://info.xn--blqv68cix3a.com/foo/bar/li/pRSTjzDiM1cklnoa?cl=1&extend=1' }],
+        actions: [{ label: "复制订阅", tone: "primary", value: CLASH_SUBSCRIPTION_URL }],
         imageAlt: "Clash Meta for Android 配置页截图",
         imageShape: "phone",
         imageSrc: 'https://global.cdn.mikupics.cn/2026/04/08/69d6400e3f170.jpg'
@@ -189,7 +190,7 @@ const platformConfigs: Record<PlatformId, PlatformConfig> = {
           "随后点击软件底部“设置”，往下划至最底部，进入“订阅”子页面，打开“打开时更新”。",
           "如果订阅失败，点击下方按钮，手动添加一个节点，确定连接上之后，再点击上方按钮添加订阅。",
         ],
-        actions: [{ label: "复制订阅", tone: "primary", value: 'https://info.xn--blqv68cix3a.com/foo/bar/li/pRSTjzDiM1cklnoa?cl=1&extend=1' }],
+        actions: [{ label: "复制订阅", tone: "primary", value: CLASH_SUBSCRIPTION_URL }],
         imageAlt: "Shadowrocket 订阅设置截图",
         imageShape: "phone",
         imageSrc: 'https://global.cdn.mikupics.cn/2021/01/09/9ffc405b03231.png'
@@ -234,7 +235,7 @@ const platformConfigs: Record<PlatformId, PlatformConfig> = {
           "然后访问我们的 订阅转换服务，",
           "将你的复制到的订阅链接放进去转换，再手动订阅转换出来的新的订阅链接。",
         ],
-        actions: [{ label: "复制订阅", tone: "primary", value: 'https://info.xn--blqv68cix3a.com/foo/bar/li/pRSTjzDiM1cklnoa?cl=1&extend=1' }],
+        actions: [{ label: "复制订阅", tone: "primary", value: CLASH_SUBSCRIPTION_URL }],
         imageAlt: "Clash Verge Mac 配置页截图",
         imageShape: "desktop",
         imageSrc: 'https://33333.ifnf.xyz/seni/yes/theme/malio/img/tutorial/mac-clashverge-2.png'

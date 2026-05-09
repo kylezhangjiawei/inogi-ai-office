@@ -1,4 +1,4 @@
-import { IsBoolean, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class GenerateImageDto {
   @IsString()
@@ -14,8 +14,8 @@ export class GenerateImageDto {
   size?: '1024x1024' | '1792x1024' | '1024x1792';
 
   @IsOptional()
-  @IsIn(['standard', 'hd'])
-  quality?: 'standard' | 'hd';
+  @IsIn(['auto', 'low', 'medium', 'high', 'standard', 'hd'])
+  quality?: 'auto' | 'low' | 'medium' | 'high' | 'standard' | 'hd';
 
   @IsOptional()
   @IsString()
@@ -30,6 +30,13 @@ export class GenerateImageDto {
   @IsString()
   @MaxLength(25_000_000)
   reference_image_data?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(16)
+  @IsString({ each: true })
+  @MaxLength(25_000_000, { each: true })
+  reference_image_data_list?: string[];
 
   @IsOptional()
   @IsBoolean()

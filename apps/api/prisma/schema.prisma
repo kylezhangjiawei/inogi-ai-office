@@ -50,6 +50,9 @@ model User {
   auditLogs       AuditLog[]
   conversations   ChatConversation[]
   generatedImages GeneratedImage[]
+  imageEditMessages ImageEditMessage[]
+  imagePromptChatSessions ImagePromptChatSession[]
+  imagePromptChatMessages ImagePromptChatMessage[]
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
 }
@@ -215,7 +218,83 @@ model GeneratedImage {
   imageData     String   // base64 data URL
   model         String   @default("dall-e-3")
   isFavorite    Boolean  @default(false)
+  requestId          String?
+  parentImageId      String?
+  rootImageId        String?
+  editInstruction    String   @default("")
+  editDepth          Int      @default(0)
+  upstreamCallCount  Int      @default(0)
+  upstreamRetryCount Int      @default(0)
+  upstreamErrorCount Int      @default(0)
+  inputTokens        Int      @default(0)
+  inputTextTokens    Int      @default(0)
+  inputImageTokens   Int      @default(0)
+  outputTokens       Int      @default(0)
+  totalTokens        Int      @default(0)
+  estimatedCostUsd   Float    @default(0)
+  cumulativeEstimatedCostUsd Float @default(0)
+  usageDetails       Json     @default("{}")
   createdAt     DateTime @default(now())
+
+  @@index([userId, rootImageId, createdAt])
+  @@index([parentImageId])
+}
+
+model ImageEditMessage {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rootImageId   String
+  sourceImageId String?
+  resultImageId String?
+  role          String
+  content       String
+  model         String?
+  requestId     String?
+  inputTokens     Int   @default(0)
+  inputTextTokens Int   @default(0)
+  inputImageTokens Int  @default(0)
+  outputTokens    Int   @default(0)
+  totalTokens     Int   @default(0)
+  estimatedCostUsd Float @default(0)
+  cumulativeEstimatedCostUsd Float @default(0)
+  meta          Json     @default("{}")
+  createdAt     DateTime @default(now())
+
+  @@index([userId, rootImageId, createdAt])
+  @@index([sourceImageId])
+  @@index([resultImageId])
+}
+
+model ImagePromptChatSession {
+  id            String                   @id @default(cuid())
+  userId        String
+  user          User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title         String                   @default("新提示词对话")
+  sourcePrompt  String                   @default("")
+  currentPrompt String                   @default("")
+  model         String?
+  messages      ImagePromptChatMessage[]
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+
+  @@index([userId, updatedAt])
+}
+
+model ImagePromptChatMessage {
+  id              String                 @id @default(cuid())
+  userId          String
+  user            User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId       String
+  session         ImagePromptChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role            String
+  content         String
+  optimizedPrompt String                 @default("")
+  model           String?
+  requestId       String?
+  createdAt       DateTime               @default(now())
+
+  @@index([userId, sessionId, createdAt])
 }
 
 model EmailIngestionLog {

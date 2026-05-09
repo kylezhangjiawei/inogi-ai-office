@@ -18,7 +18,10 @@ type PublicKeyResponse = {
   public_key: string;
 };
 
-const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ?? "";
+const API_BASE =
+  ((import.meta.env.VITE_API_BASE as string | undefined) ??
+    (import.meta.env.VITE_RECRUITMENT_API_BASE as string | undefined))
+    ?.replace(/\/$/, "") ?? "";
 const USER_KEY = "inogi-auth-user";
 const ACCESS_TOKEN_KEY = "inogi-access-token";
 const REFRESH_TOKEN_KEY = "inogi-refresh-token";
@@ -80,10 +83,10 @@ async function getLoginPublicKey() {
   if (!loginPublicKeyPromise) {
     loginPublicKeyPromise = (async () => {
       ensureBrowserEncryptionAvailable();
-      const response = await apiFetch("/api/auth/security/public-key");
-      if (!response.ok) {
-        throw new Error(await readErrorMessage(response, "Failed to fetch the login public key."));
-      }
+      const response = await fetchFirstOk([
+        "/api/auth/security/public-key",
+        "/api/recruitment/security/public-key",
+      ]);
 
       const payload = (await response.json()) as PublicKeyResponse;
       return window.crypto.subtle.importKey(
@@ -103,6 +106,25 @@ async function getLoginPublicKey() {
   }
 
   return loginPublicKeyPromise;
+}
+
+async function fetchFirstOk(paths: string[]) {
+  const errors: string[] = [];
+
+  for (const path of paths) {
+    try {
+      const response = await apiFetch(path);
+      if (response.ok) {
+        return response;
+      }
+      const message = await readErrorMessage(response, `${response.status} ${response.statusText}`.trim());
+      errors.push(`${path}: ${message}`);
+    } catch (error) {
+      errors.push(`${path}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  throw new Error(`Failed to fetch the login public key. ${errors.join(" | ")}`);
 }
 
 export async function encryptLoginPassword(password: string) {
