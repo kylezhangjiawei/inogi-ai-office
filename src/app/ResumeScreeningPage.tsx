@@ -168,21 +168,22 @@ const muiTableHeaderCellSx = {
   height: 48,
   px: 2,
   py: 0,
-  backgroundColor: "var(--surface-container)",
-  borderBottom: "1px solid var(--outline-variant)",
-  color: "var(--on-surface-variant)",
+  background: "linear-gradient(180deg, rgba(239,246,255,0.98) 0%, rgba(219,234,254,0.96) 100%)",
+  borderBottom: "1px solid rgba(147, 197, 253, 0.64)",
+  color: "#1e3a8a",
   fontFamily: "inherit",
   fontSize: 12,
   fontWeight: 700,
   lineHeight: 1.4,
   whiteSpace: "nowrap",
+  boxShadow: "inset 0 -1px 0 rgba(255,255,255,0.72)",
 };
 
 const muiTableBodyCellSx = {
-  height: 58,
+  height: 62,
   px: 2,
   py: 1.25,
-  borderBottom: "1px solid rgba(215, 224, 235, 0.82)",
+  borderBottom: "1px solid rgba(203, 213, 225, 0.68)",
   color: "var(--on-surface)",
   fontFamily: "inherit",
   fontSize: 14,
@@ -508,8 +509,8 @@ function FieldRow({
   valueClassName?: string;
 }) {
   return (
-    <div className={cn("grid gap-2 rounded-lg border border-slate-200 bg-white/80 px-4 py-3 sm:grid-cols-[60px_1fr]", className)}>
-      <div className="text-sm font-medium text-slate-500">{label}</div>
+    <div className={cn("material-neu-inset grid gap-2 rounded-lg px-4 py-3 sm:grid-cols-[60px_1fr]", className)}>
+      <div className="text-sm font-medium text-slate-600">{label}</div>
       <div className={cn("min-w-0 text-sm text-slate-800", valueClassName)}>{value?.trim() ? value : "-"}</div>
     </div>
   );
@@ -575,7 +576,7 @@ function TooltipIconButton({
         "inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-[4px] border transition disabled:cursor-not-allowed disabled:opacity-60",
         tone === "danger" && "border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100",
         tone === "success" && "border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100",
-        tone === "default" && "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50",
+        tone === "default" && "material-neu-button",
       )}
     >
       {children}
@@ -585,9 +586,9 @@ function TooltipIconButton({
 
 function StatPill({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white/85 px-3 py-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
-      <div className="text-xs font-semibold text-slate-400">{label}</div>
-      <div className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">{value}</div>
+    <div className="material-neu-stat rounded-lg px-3 py-3">
+      <div className="text-xs font-semibold text-slate-500">{label}</div>
+      <div className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">{value}</div>
     </div>
   );
 }
@@ -1718,25 +1719,25 @@ export function ResumeScreeningPage() {
   const candidateAiLoading = Boolean(candidateAiTarget && candidateAiLoadingId === candidateAiTarget.id);
 
   return (
-    <div className="mx-auto flex max-w-[1720px] flex-col gap-6 px-4 py-6">
-      <section className="material-panel rounded-[var(--m3-shape-extra-large)] px-5 py-4">
+    <div className="resume-screening-surface mx-auto flex max-w-[1720px] flex-col gap-6 px-4 py-6">
+      <section className="material-panel material-neu-panel rounded-[var(--m3-shape-extra-large)] px-5 py-4">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-3">
-              <div className="inline-flex items-center gap-2 rounded-[4px] border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-600">
+              <div className="material-neu-chip inline-flex items-center gap-2 rounded-[4px] px-3 py-1 text-xs font-semibold text-blue-800">
                 <Mail className="h-3.5 w-3.5" />
                 企业邮箱简历初筛
               </div>
-              <h1 className="text-2xl font-semibold tracking-tight text-slate-900">简历筛选工作台</h1>
+              <h1 className="text-2xl font-semibold tracking-tight text-slate-950">简历筛选工作台</h1>
             </div>
-            <div className="mt-3 flex flex-wrap gap-2 text-sm text-slate-500">
-              <span className="rounded-[4px] border border-slate-200 bg-white px-3 py-1.5">
+            <div className="mt-3 flex flex-wrap gap-2 text-sm font-medium text-slate-600">
+              <span className="material-neu-chip rounded-[4px] px-3 py-1.5">
                 数据源：{health?.mail_configured ? "企业邮箱已连接" : "等待邮箱配置"}
               </span>
-              <span className="rounded-[4px] border border-slate-200 bg-white px-3 py-1.5">
+              <span className="material-neu-chip rounded-[4px] px-3 py-1.5">
                 AI：{health?.openai_configured ? `${connectedAiLabel} 已连接` : "等待 AI 配置"}
               </span>
-              <span className="rounded-[4px] border border-slate-200 bg-white px-3 py-1.5">
+              <span className="material-neu-chip rounded-[4px] px-3 py-1.5">
                 数据库：{health?.ok ? "正常" : "待检查"}
               </span>
             </div>
@@ -1759,7 +1760,7 @@ export function ResumeScreeningPage() {
         onChange={(event) => void handleUploadResumeFolder(event)}
       />
 
-      <section className="material-panel rounded-[var(--m3-shape-extra-large)] px-5 py-4">
+      <section className="material-panel material-neu-panel-soft rounded-[var(--m3-shape-extra-large)] px-5 py-4">
         <div className="grid gap-4 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.6fr)] xl:items-end">
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
             <MaterialSelect
@@ -1779,7 +1780,7 @@ export function ResumeScreeningPage() {
             <button
               type="button"
               onClick={() => setShowJobRuleManager(true)}
-              className="inline-flex h-12 cursor-pointer items-center justify-center gap-2 rounded-[4px] border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+              className="material-neu-button inline-flex h-12 cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-slate-800 transition"
             >
               <Database className="h-4 w-4" />
               管理规则
@@ -1837,7 +1838,7 @@ export function ResumeScreeningPage() {
               type="button"
               onClick={() => void handleRunSync()}
               disabled={runningSync}
-              className="inline-flex h-12 cursor-pointer items-center justify-center gap-2 rounded-[4px] bg-slate-900 px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+              className="material-neu-primary inline-flex h-12 cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-white transition disabled:opacity-60"
             >
               {runningSync ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
               同步
@@ -1846,7 +1847,7 @@ export function ResumeScreeningPage() {
               type="button"
               onClick={() => uploadFolderInputRef.current?.click()}
               disabled={uploadingFolder}
-              className="inline-flex h-12 cursor-pointer items-center justify-center gap-2 rounded-[4px] border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-60"
+              className="material-neu-button inline-flex h-12 cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-slate-800 transition disabled:opacity-60"
             >
               {uploadingFolder ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
               上传
@@ -1854,7 +1855,7 @@ export function ResumeScreeningPage() {
             <button
               type="button"
               onClick={() => setShowSyncSettings(true)}
-              className="inline-flex h-12 cursor-pointer items-center justify-center gap-2 rounded-[4px] border border-slate-200 bg-white px-5 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50"
+              className="material-neu-button inline-flex h-12 cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-slate-800 transition"
             >
               <Clock3 className="h-4 w-4" />
               设置
@@ -1873,19 +1874,19 @@ export function ResumeScreeningPage() {
       </section>
 
       <Dialog open={showJobRuleManager} onOpenChange={setShowJobRuleManager}>
-        <DialogContent className="max-h-[90vh] max-w-[1180px] min-w-[800px] overflow-y-auto rounded-[var(--m3-shape-extra-large)] border-slate-200 bg-white p-6">
+        <DialogContent className="resume-screening-surface material-neu-panel max-h-[90vh] w-[calc(100vw-32px)] max-w-[1180px] overflow-y-auto rounded-[var(--m3-shape-extra-large)] p-6">
           <div className="flex items-center justify-between gap-4">
             <div>
               <h2 className="text-2xl font-semibold tracking-tight text-slate-900">岗位规则</h2>
               <p className="mt-2 text-base text-slate-400">在左侧选择规则，也可编辑当前岗位 JD 和启用状态。</p>
             </div>
-            <div className="rounded-[4px] border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500">
+            <div className="material-neu-chip rounded-[4px] px-4 py-2 text-sm text-slate-500">
               共 {jobRules.length} 条规则
             </div>
           </div>
 
           <div className="mt-7 grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-            <div className="rounded-xl border border-slate-200 bg-[rgba(248,250,252,0.62)] p-4">
+            <div className="material-neu-inset rounded-xl p-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-slate-400">
                 <Database className="h-4 w-4" />
                 规则列表
@@ -1916,10 +1917,10 @@ export function ResumeScreeningPage() {
                           }
                         }}
                         className={cn(
-                          "w-full cursor-pointer rounded-lg border px-4 py-4 text-left transition",
+                          "w-full cursor-pointer rounded-lg px-4 py-4 text-left transition",
                           active
-                            ? "border-cyan-300 bg-cyan-50"
-                            : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
+                            ? "material-neu-inset text-blue-900"
+                            : "material-neu-button hover:text-blue-700",
                         )}
                       >
                         <OverflowTooltipText text={jobRule.name} className="text-base font-semibold leading-6 text-slate-900" />
@@ -1973,7 +1974,7 @@ export function ResumeScreeningPage() {
             </div>
 
             <div className="space-y-5">
-              <div className="rounded-xl border border-slate-200 bg-slate-50/80 px-5 py-4">
+              <div className="material-neu-inset rounded-xl px-5 py-4">
                 <div className="text-sm font-semibold text-slate-500">系统识别岗位名称</div>
                 <div className="mt-2 text-sm font-semibold text-slate-900">
                   {derivedRuleName || "等待输入岗位描述后识别"}
@@ -1994,12 +1995,12 @@ export function ResumeScreeningPage() {
                   type="button"
                   onClick={() => void handleSaveRule()}
                   disabled={savingRule}
-                  className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-[4px] bg-slate-900 px-6 text-base font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+                  className="material-neu-primary inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-[4px] px-6 text-base font-semibold text-white transition disabled:opacity-60"
                 >
                   {savingRule ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
                   {ruleForm.id ? "保存规则" : "新建规则"}
                 </button>
-                <label className="inline-flex h-11 min-w-[96px] items-center justify-center gap-2 rounded-[4px] border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600">
+                <label className="material-neu-button inline-flex h-11 min-w-[96px] items-center justify-center gap-2 rounded-[4px] px-4 text-sm font-semibold text-slate-600">
                   <input
                     type="checkbox"
                     className="h-4 w-4"
@@ -2011,7 +2012,7 @@ export function ResumeScreeningPage() {
                 <button
                   type="button"
                   onClick={resetRuleForm}
-                  className="inline-flex h-11 cursor-pointer items-center justify-center rounded-[4px] border border-slate-200 px-4 text-sm font-medium text-slate-500 transition hover:border-slate-300 hover:bg-slate-50"
+                  className="material-neu-button inline-flex h-11 cursor-pointer items-center justify-center rounded-[4px] px-4 text-sm font-medium text-slate-500 transition"
                 >
                   重置
                 </button>
@@ -2022,7 +2023,7 @@ export function ResumeScreeningPage() {
       </Dialog>
 
       <Dialog open={showSyncSettings} onOpenChange={setShowSyncSettings}>
-        <DialogContent className="max-h-[90vh] max-w-[1180px] min-w-[630px] overflow-y-auto rounded-[var(--m3-shape-extra-large)] border-slate-200 bg-white p-6">
+        <DialogContent className="resume-screening-surface material-neu-panel max-h-[90vh] w-[calc(100vw-32px)] max-w-[1180px] overflow-y-auto rounded-[var(--m3-shape-extra-large)] p-6">
           <div className="flex flex-col gap-4 pr-0 sm:pr-32">
             <div className="max-w-[560px]">
               <h2 className="text-2xl font-semibold tracking-tight text-slate-900">同步控制</h2>
@@ -2033,7 +2034,7 @@ export function ResumeScreeningPage() {
             <button
               type="button"
               onClick={() => void Promise.all([loadHealth(), loadMailConfigs(), loadOpenAiConfigs(), loadSchedule(), loadCandidates()])}
-              className="inline-flex h-10 w-fit cursor-pointer items-center gap-2 self-start rounded-[4px] border border-slate-200 bg-white px-4 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 sm:absolute sm:right-8 sm:top-8"
+              className="material-neu-button inline-flex h-10 w-fit cursor-pointer items-center gap-2 self-start rounded-[4px] px-4 text-sm font-medium text-slate-600 transition sm:absolute sm:right-8 sm:top-8"
             >
               <RefreshCw className="h-4 w-4" />
               刷新
@@ -2046,7 +2047,7 @@ export function ResumeScreeningPage() {
               <span className="font-semibold">上传提示</span>
               <span>支持 PDF / DOCX，扫描 PDF、图片版或旧 DOC 暂不保证解析效果。</span>
             </div>
-            <div className="rounded-lg border border-slate-200 bg-slate-50/85 p-5">
+            <div className="material-neu-inset rounded-lg p-5">
               <div className="text-sm font-semibold text-slate-400">同步参数</div>
               <div className="mt-4 grid gap-4 xl:grid-cols-4 sm:grid-cols-2">
                 <MaterialSelect
@@ -2114,7 +2115,7 @@ export function ResumeScreeningPage() {
               type="button"
               onClick={() => void handleRunSync()}
               disabled={runningSync}
-              className="inline-flex cursor-pointer h-13 min-w-[280px] items-center justify-center gap-3 rounded-xl bg-[linear-gradient(90deg,#5477e8,#5ac3a6)] px-7 text-l font-semibold text-white shadow-[0_16px_28px_rgba(84,119,232,0.22)] transition hover:translate-y-[-1px] disabled:opacity-60"
+              className="material-neu-primary inline-flex h-13 min-w-[280px] cursor-pointer items-center justify-center gap-3 rounded-xl px-7 text-l font-semibold text-white transition disabled:opacity-60"
             >
               {runningSync ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
               执行一次同步
@@ -2123,7 +2124,7 @@ export function ResumeScreeningPage() {
               type="button"
               onClick={() => uploadFolderInputRef.current?.click()}
               disabled={uploadingFolder}
-              className="inline-flex h-13 min-w-[280px] cursor-pointer items-center justify-center gap-3 rounded-xl border border-slate-200 bg-white px-7 text-l font-semibold text-slate-700 shadow-[0_10px_22px_rgba(15,23,42,0.08)] transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-60"
+              className="material-neu-button inline-flex h-13 min-w-[280px] cursor-pointer items-center justify-center gap-3 rounded-xl px-7 text-l font-semibold text-slate-700 transition disabled:opacity-60"
             >
               {uploadingFolder ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}
               上传简历文件夹
@@ -2141,7 +2142,7 @@ export function ResumeScreeningPage() {
           </div>
 
           {lastSyncResult ? (
-            <div className="mt-5 rounded-lg border border-slate-200 bg-white/80 px-5 py-5">
+            <div className="material-neu-card mt-5 rounded-lg px-5 py-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="text-base font-semibold text-slate-900">邮件同步结果</div>
@@ -2171,7 +2172,7 @@ export function ResumeScreeningPage() {
                   lastSyncResult.mail_previews.map((mail: SyncMailPreview, index) => {
                     const statusMeta = getSyncMailStatusMeta(mail.status);
                     return (
-                    <div key={mail.unique_key || `${mail.received_at}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50/80 px-4 py-4">
+                    <div key={mail.unique_key || `${mail.received_at}-${index}`} className="material-neu-inset rounded-lg px-4 py-4">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
                           <div className="text-sm font-semibold text-slate-900">{mail.subject || "无主题邮件"}</div>
@@ -2219,7 +2220,7 @@ export function ResumeScreeningPage() {
           ) : null}
 
           {lastUploadResult ? (
-            <div className="mt-5 rounded-lg border border-slate-200 bg-white/80 px-5 py-5">
+            <div className="material-neu-card mt-5 rounded-lg px-5 py-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
                   <div className="text-base font-semibold text-slate-900">简历文件夹上传结果</div>
@@ -2256,7 +2257,7 @@ export function ResumeScreeningPage() {
                   visibleUploadPreviews.map((file: UploadFilePreview, index) => {
                     const statusMeta = getSyncMailStatusMeta(file.status);
                     return (
-                      <div key={file.unique_key || `${file.file_name}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50/80 px-4 py-4">
+                      <div key={file.unique_key || `${file.file_name}-${index}`} className="material-neu-inset rounded-lg px-4 py-4">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
                             <div className="text-sm font-semibold text-slate-900">{file.file_name || "未命名文件"}</div>
@@ -2305,11 +2306,11 @@ export function ResumeScreeningPage() {
       </Dialog>
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(420px,0.75fr)]">
-        <section className="overflow-hidden !px-0 !py-6">
+        <section className="material-panel material-neu-panel overflow-hidden !px-0 !py-6">
           <div className="flex flex-wrap items-start justify-between gap-4 px-5">
             <div>
-              <h2 className="text-2xl font-semibold tracking-tight text-slate-900">候选人列表</h2>
-              <p className="mt-2 text-base text-slate-400">按筛选结论、岗位和分数查看候选人摘要。</p>
+              <h2 className="text-2xl font-semibold tracking-tight text-slate-950">候选人列表</h2>
+              <p className="mt-2 text-base text-slate-500">按筛选结论、岗位和分数查看候选人摘要。</p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
               {/*<button*/}
@@ -2328,7 +2329,7 @@ export function ResumeScreeningPage() {
               {/*  {clearingCandidates ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}*/}
               {/*  清空候选人数据*/}
               {/*</button>*/}
-              <div className="inline-flex items-center gap-2 rounded-[4px] border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500">
+              <div className="material-neu-chip inline-flex items-center gap-2 rounded-[4px] px-4 py-2 text-sm font-medium text-slate-700">
                 <Search className="h-4 w-4" />
                 共 {candidatePagination.total} 人
               </div>
@@ -2392,14 +2393,14 @@ export function ResumeScreeningPage() {
             />
           </div>
 
-          <div className="mx-5 mt-6 rounded-[var(--m3-shape-large)] border border-slate-200/80 bg-white/82 p-4 shadow-[var(--m3-elevation-1)]">
+          <div className="material-neu-card mx-5 mt-6 rounded-[var(--m3-shape-large)] border-l-4 border-l-blue-700 p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
-                  <Sparkles className="h-4 w-4 text-blue-600" />
+                  <Sparkles className="h-4 w-4 text-blue-700" />
                   AI 迭代筛选
                 </div>
-                <div className="mt-1 text-xs leading-5 text-slate-500">
+                <div className="mt-1 text-xs leading-5 text-slate-600">
                   AI 会先分析筛选意图；条件不明确时会追问，明确后才生成新的列表评分版本。
                 </div>
               </div>
@@ -2420,7 +2421,7 @@ export function ResumeScreeningPage() {
                 <button
                   type="button"
                   onClick={() => setShowFilterDialog(true)}
-                  className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-[var(--m3-shape-small)] bg-blue-600 px-4 text-sm font-semibold text-white transition hover:bg-blue-700"
+                  className="material-neu-primary inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-[var(--m3-shape-small)] px-4 text-sm font-semibold text-white transition"
                 >
                   <Sparkles className="h-4 w-4" />
                   AI 二次筛选
@@ -2429,7 +2430,7 @@ export function ResumeScreeningPage() {
             </div>
 
             {selectedFilterSession ? (
-              <div className="mt-3 rounded-[var(--m3-shape-medium)] bg-blue-50/70 px-3 py-2 text-xs leading-5 text-blue-900">
+              <div className="material-neu-inset mt-3 rounded-[var(--m3-shape-medium)] px-3 py-2 text-xs leading-5 text-blue-900">
                 {selectedFilterSession.filter_summary || selectedFilterSession.instruction}
               </div>
             ) : null}
@@ -2561,10 +2562,26 @@ export function ResumeScreeningPage() {
                         }}
                         className="cursor-pointer transition-colors"
                         sx={{
-                          backgroundColor: selected ? "var(--primary-container)" : "var(--surface-container-lowest)",
-                          transition: "background-color 160ms ease",
+                          background: selected
+                            ? "linear-gradient(145deg, rgba(216,234,253,0.92), rgba(246,250,255,0.96))"
+                            : "rgba(255,255,255,0.72)",
+                          outline: "none",
+                          transition: "background 180ms ease, box-shadow 180ms ease",
+                          boxShadow: selected
+                            ? "inset 3px 0 0 #1976d2, inset 4px 4px 10px rgba(25,118,210,0.1), inset -4px -4px 10px rgba(255,255,255,0.82)"
+                            : "none",
                           "&:hover": {
-                            backgroundColor: selected ? "var(--primary-container)" : "var(--surface-container-low)",
+                            background: selected
+                              ? "linear-gradient(145deg, rgba(216,234,253,0.96), rgba(255,255,255,0.98))"
+                              : "linear-gradient(145deg, rgba(255,255,255,0.9), rgba(244,248,253,0.86))",
+                            boxShadow: selected
+                              ? "inset 3px 0 0 #1976d2, inset 4px 4px 10px rgba(25,118,210,0.1), inset -4px -4px 10px rgba(255,255,255,0.82)"
+                              : "inset 0 0 0 1px rgba(255,255,255,0.78)",
+                          },
+                          "&:focus-visible": {
+                            boxShadow: selected
+                              ? "inset 3px 0 0 #1976d2, 0 0 0 3px rgba(25,118,210,0.2)"
+                              : "0 0 0 3px rgba(25,118,210,0.2)",
                           },
                           "&:last-of-type .MuiTableCell-root": {
                             borderBottom: 0,
@@ -2648,7 +2665,7 @@ export function ResumeScreeningPage() {
               )}
             </MuiTableContainer>
             {candidatePagination.total > 0 ? (
-              <div className="flex justify-end border-t border-slate-100 bg-white/70 px-3">
+              <div className="flex justify-end border-t border-white/70 bg-white/58 px-3">
                 <MuiTablePagination
                   component="div"
                   count={candidatePagination.total}
@@ -2688,13 +2705,13 @@ export function ResumeScreeningPage() {
           </div>
         </section>
 
-        <section className="material-panel rounded-[var(--m3-shape-extra-large)] px-5 py-6">
+        <section className="material-panel material-neu-panel rounded-[var(--m3-shape-extra-large)] px-5 py-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h2 className="text-2xl font-semibold tracking-tight text-slate-900">候选人详情</h2>
-              <p className="mt-2 text-base text-slate-400">查看解析画像、筛选结论、命中点和风险说明。</p>
+              <h2 className="text-2xl font-semibold tracking-tight text-slate-950">候选人详情</h2>
+              <p className="mt-2 text-base text-slate-500">查看解析画像、筛选结论、命中点和风险说明。</p>
             </div>
-            <div className="rounded-[4px] border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500">
+            <div className="material-neu-chip rounded-[4px] px-4 py-2 text-sm font-medium text-slate-700">
               <UserRoundSearch className="mr-2 inline h-4 w-4" />
               详情面板
             </div>
@@ -2712,10 +2729,10 @@ export function ResumeScreeningPage() {
               </div>
             ) : (
               <>
-                <div className="rounded-lg border border-slate-200 bg-white px-5 py-5">
+                <div className="material-neu-card rounded-lg px-5 py-5">
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div className="flex items-start gap-4">
-                      <div className="flex h-18 w-18 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[linear-gradient(135deg,#dbeafe_0%,#bfdbfe_45%,#e0f2fe_100%)] text-2xl font-semibold text-sky-700 shadow-inner">
+                      <div className="material-neu-icon-surface flex h-18 w-18 shrink-0 items-center justify-center overflow-hidden rounded-lg text-2xl font-semibold text-sky-700">
                         {selectedCandidate.parsed_candidate_profile.avatar_url ? (
                           <ImageWithFallback
                             src={selectedCandidate.parsed_candidate_profile.avatar_url}
@@ -2753,20 +2770,20 @@ export function ResumeScreeningPage() {
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-slate-200 bg-white px-5 py-5">
+                <div className="material-neu-card rounded-lg px-5 py-5">
                   <div className="text-sm font-semibold text-slate-500">候选人摘要</div>
                   <div className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-700">
                     {selectedCandidate.parsed_candidate_profile.work_summary?.trim() || activeScreening?.summary?.trim() || "暂无摘要"}
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-slate-200 bg-white px-5 py-5">
+                <div className="material-neu-card rounded-lg px-5 py-5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <div className="text-sm font-semibold text-slate-500">标签化画像</div>
                       <div className="mt-1 text-xs text-slate-400">从 AI 初筛中提取的筛选结论、能力短板和匹配标签。</div>
                     </div>
-                    <div className="rounded-[4px] border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-500">
+                    <div className="material-neu-chip rounded-[4px] px-3 py-1 text-xs font-medium text-slate-500">
                       {activeScreeningTags.length} 个标签
                     </div>
                   </div>
@@ -2786,13 +2803,13 @@ export function ResumeScreeningPage() {
                   <div className="mt-5 grid gap-3 md:grid-cols-2">
                     {activeDimensionEntries.length ? (
                       activeDimensionEntries.map((item) => (
-                        <div key={item.key} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                        <div key={item.key} className="material-neu-inset rounded-lg px-4 py-3">
                           <div className="flex items-center justify-between gap-3">
                             <div className="text-sm font-semibold text-slate-700">{item.label}</div>
                             <div className="text-sm font-semibold text-slate-900">{item.score}</div>
                           </div>
-                          <div className="mt-2 h-2 overflow-hidden rounded-[4px] bg-white">
-                            <div className="h-full rounded-[4px] bg-slate-900" style={{ width: `${Math.max(0, Math.min(100, item.score))}%` }} />
+                          <div className="mt-2 h-2 overflow-hidden rounded-[4px] bg-white shadow-[inset_2px_2px_5px_rgba(148,163,184,0.22)]">
+                            <div className="h-full rounded-[4px] bg-[linear-gradient(90deg,#1976d2,#26a69a)]" style={{ width: `${Math.max(0, Math.min(100, item.score))}%` }} />
                           </div>
                           <div className="mt-2 text-xs leading-5 text-slate-500">
                             {item.valueLabel ? `${item.valueLabel}：` : ""}{item.reason || "暂无说明"}
@@ -2807,7 +2824,7 @@ export function ResumeScreeningPage() {
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-slate-200 bg-white px-5 py-5">
+                <div className="material-neu-card rounded-lg px-5 py-5">
                   <button
                     type="button"
                     onClick={() => setInterviewQaExpanded((current) => !current)}
@@ -2826,11 +2843,11 @@ export function ResumeScreeningPage() {
                     {selectedCandidate.interview_qa?.length ? (
                       <div className="space-y-3">
                         {selectedCandidate.interview_qa.map((item, index) => (
-                          <div key={`${item.question}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-4">
+                          <div key={`${item.question}-${index}`} className="material-neu-inset rounded-lg px-4 py-4">
                             <div className="text-sm font-semibold text-slate-900">
                               Q{index + 1}. {item.question}
                             </div>
-                            <div className="mt-3 rounded-lg bg-white px-4 py-3 text-sm leading-7 text-slate-700">
+                            <div className="mt-3 rounded-lg bg-white/80 px-4 py-3 text-sm leading-7 text-slate-700 shadow-[inset_2px_2px_6px_rgba(148,163,184,0.12)]">
                               <span className="mr-2 font-semibold text-slate-500">参考答</span>
                               {item.answer}
                             </div>
@@ -2844,7 +2861,7 @@ export function ResumeScreeningPage() {
                 </div>
 
                 <div className="grid gap-4 lg:grid-cols-2">
-                  <div className="rounded-lg border border-slate-200 bg-white px-5 py-5">
+                  <div className="material-neu-card rounded-lg px-5 py-5">
                     <div className="text-sm font-semibold text-slate-500">命中点</div>
                     <div className="mt-4 flex flex-wrap gap-2">
                       {activeScreening?.matched_points?.length ? (
@@ -2859,7 +2876,7 @@ export function ResumeScreeningPage() {
                     </div>
                   </div>
 
-                  <div className="rounded-lg border border-slate-200 bg-white px-5 py-5">
+                  <div className="material-neu-card rounded-lg px-5 py-5">
                     <div className="text-sm font-semibold text-slate-500">风险提示</div>
                     <div className="mt-4 flex flex-wrap gap-2">
                       {activeScreening?.risks?.length ? (
@@ -2875,7 +2892,7 @@ export function ResumeScreeningPage() {
                   </div>
                 </div>
 
-                <div className="rounded-lg border border-slate-200 bg-white px-5 py-5">
+                <div className="material-neu-card rounded-lg px-5 py-5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="text-sm font-semibold text-slate-500">筛选历史</div>
                     <div className="text-xs text-slate-400">
@@ -2886,7 +2903,7 @@ export function ResumeScreeningPage() {
                   <div className="mt-4 space-y-3">
                     {selectedCandidate.screenings.length ? (
                       selectedCandidate.screenings.map((item) => (
-                        <div key={item.id} className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-4">
+                        <div key={item.id} className="material-neu-inset rounded-lg px-4 py-4">
                           <div className="flex flex-wrap items-center justify-between gap-3">
                             <div className="flex flex-wrap items-center gap-2">
                               {item.decision ? (
@@ -2937,7 +2954,7 @@ export function ResumeScreeningPage() {
       </div>
 
       <Dialog open={showFilterDialog} onOpenChange={setShowFilterDialog}>
-        <DialogContent className="flex h-[78vh] max-w-[900px] min-w-[680px] grid-rows-none flex-col overflow-hidden rounded-[var(--m3-shape-extra-large)] border-slate-200 bg-white p-0">
+        <DialogContent className="resume-screening-surface material-neu-panel flex h-[78vh] w-[calc(100vw-32px)] max-w-[900px] grid-rows-none flex-col overflow-hidden rounded-[var(--m3-shape-extra-large)] p-0">
           <div className="flex items-start justify-between gap-4 border-b border-slate-200/80 px-6 py-5">
             <div className="min-w-0">
               <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Candidate Pool MateChat</div>
@@ -2965,7 +2982,7 @@ export function ResumeScreeningPage() {
 
           <div className="material-scrollbar flex-1 overflow-y-auto bg-[linear-gradient(180deg,#fbfdff_0%,#f4f8fd_100%)] px-6 py-6">
             {selectedFilterSession ? (
-              <div className="mb-5 rounded-[var(--m3-shape-medium)] border border-blue-100 bg-blue-50/80 px-4 py-3 text-sm leading-6 text-blue-900">
+              <div className="material-neu-inset mb-5 rounded-[var(--m3-shape-medium)] px-4 py-3 text-sm leading-6 text-blue-900">
                 {selectedFilterSession.filter_summary || selectedFilterSession.instruction}
               </div>
             ) : null}
@@ -2978,10 +2995,10 @@ export function ResumeScreeningPage() {
                     <div key={`${message.role}-${index}`} className={cn("flex", isUser ? "justify-end" : "justify-start")}>
                       <div
                         className={cn(
-                          "max-w-[82%] rounded-xl px-4 py-3 text-sm leading-7 shadow-sm whitespace-pre-wrap",
+                          "max-w-[82%] rounded-xl px-4 py-3 text-sm leading-7 whitespace-pre-wrap",
                           isUser
-                            ? "rounded-tr-md bg-[#f0f4ff] text-slate-800"
-                            : "rounded-tl-md bg-white text-slate-800",
+                            ? "material-neu-inset rounded-tr-md text-slate-800"
+                            : "material-neu-card rounded-tl-md text-slate-800",
                         )}
                       >
                         {message.content}
@@ -2991,7 +3008,7 @@ export function ResumeScreeningPage() {
                 })}
                 {filterRunning ? (
                   <div className="flex justify-start">
-                    <div className="inline-flex items-center gap-2 rounded-xl rounded-tl-md bg-white px-4 py-3 text-sm text-slate-600 shadow-sm">
+                    <div className="material-neu-card inline-flex items-center gap-2 rounded-xl rounded-tl-md px-4 py-3 text-sm text-slate-600">
                       <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
                       AI 正在分析本轮筛选意图
                     </div>
@@ -3005,8 +3022,8 @@ export function ResumeScreeningPage() {
             )}
           </div>
 
-          <div className="border-t border-slate-200/80 bg-white px-6 py-4">
-            <div className="rounded-xl border border-slate-200 bg-slate-50/92 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
+          <div className="border-t border-slate-200/80 bg-white/72 px-6 py-4">
+            <div className="material-neu-inset rounded-xl p-3">
               <textarea
                 rows={3}
                 value={filterInstruction}
@@ -3027,7 +3044,7 @@ export function ResumeScreeningPage() {
                   type="button"
                   onClick={() => void handleIterateCandidateFilter()}
                   disabled={!filterInstruction.trim() || filterRunning}
-                  className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-[var(--m3-shape-small)] bg-blue-600 px-5 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="material-neu-primary inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-[var(--m3-shape-small)] px-5 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {filterRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   {filterRunning ? "分析中" : "发送给 AI"}
@@ -3047,7 +3064,7 @@ export function ResumeScreeningPage() {
           }
         }}
       >
-        <DialogContent className="flex h-[82vh] max-w-[980px] min-w-[700px] grid-rows-none flex-col overflow-hidden rounded-[var(--m3-shape-extra-large)] border-slate-200 bg-white p-0">
+        <DialogContent className="resume-screening-surface material-neu-panel flex h-[82vh] w-[calc(100vw-32px)] max-w-[980px] grid-rows-none flex-col overflow-hidden rounded-[var(--m3-shape-extra-large)] p-0">
           <div className="flex items-center justify-between border-b border-slate-200/80 px-6 py-5">
             <div className="min-w-0">
               <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Candidate MateChat</div>
@@ -3060,7 +3077,7 @@ export function ResumeScreeningPage() {
                   : "基于候选人简历、JD 和筛选结果回答"}
               </DialogDescription>
             </div>
-            <div className="mr-8 flex shrink-0 items-center gap-2 rounded-[4px] border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-medium text-slate-500">
+            <div className="material-neu-chip mr-8 flex shrink-0 items-center gap-2 rounded-[4px] px-3 py-1.5 text-xs font-medium text-slate-500">
               <Bot className="h-3.5 w-3.5" />
                独立候选人上下文
             </div>
@@ -3087,10 +3104,10 @@ export function ResumeScreeningPage() {
                         <div className={isUser ? "text-right" : ""}>
                           <div
                             className={cn(
-                              "rounded-xl px-4 py-3 text-sm leading-7 shadow-sm whitespace-pre-wrap",
+                              "rounded-xl px-4 py-3 text-sm leading-7 whitespace-pre-wrap",
                               isUser
-                                ? "rounded-tr-md bg-[#f0f4ff] text-slate-800"
-                                : "rounded-tl-md bg-[#f5f5fb] text-slate-800",
+                                ? "material-neu-inset rounded-tr-md text-slate-800"
+                                : "material-neu-card rounded-tl-md text-slate-800",
                             )}
                           >
                             {normalizeAiChatText(message.content)}
@@ -3187,8 +3204,8 @@ export function ResumeScreeningPage() {
             )}
           </div>
 
-          <div className="border-t border-slate-200/80 bg-white px-6 py-4">
-            <div className="rounded-xl border border-slate-200 bg-slate-50/92 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
+          <div className="border-t border-slate-200/80 bg-white/72 px-6 py-4">
+            <div className="material-neu-inset rounded-xl p-3">
               <textarea
                 rows={3}
                 value={candidateAiQuestion}
@@ -3209,7 +3226,7 @@ export function ResumeScreeningPage() {
                   type="button"
                   onClick={() => void handleAskCandidateAi()}
                   disabled={!candidateAiQuestion.trim() || candidateAiLoading || !candidateAiTarget}
-                  className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-[4px] bg-slate-900 px-5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="material-neu-primary inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {candidateAiLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                   {candidateAiLoading ? "分析中" : "发送"}
@@ -3221,7 +3238,7 @@ export function ResumeScreeningPage() {
       </Dialog>
 
       <Dialog open={Boolean(deleteConfirm)} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
-        <DialogContent className="max-w-[460px] rounded-[var(--m3-shape-extra-large)] border-slate-200 bg-white p-6">
+        <DialogContent className="resume-screening-surface material-neu-panel w-[calc(100vw-32px)] max-w-[460px] rounded-[var(--m3-shape-extra-large)] p-6">
           <DialogHeader>
               <DialogTitle>{deleteConfirm?.title || "确认删除？"}</DialogTitle>
               <DialogDescription>{deleteConfirm?.description || "该操作不可撤销。"}</DialogDescription>
@@ -3230,7 +3247,7 @@ export function ResumeScreeningPage() {
             <button
               type="button"
               onClick={() => setDeleteConfirm(null)}
-              className="inline-flex h-11 cursor-pointer items-center justify-center rounded-[4px] border border-slate-200 px-4 text-sm font-medium text-slate-500 transition hover:border-slate-300 hover:bg-slate-50"
+              className="material-neu-button inline-flex h-11 cursor-pointer items-center justify-center rounded-[4px] px-4 text-sm font-medium text-slate-500 transition"
             >
               取消
             </button>
