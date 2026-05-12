@@ -292,8 +292,8 @@ export function InquiryPage() {
   };
 
   return (
-    <div className="flex h-full min-h-0 gap-4 bg-slate-50 p-4">
-      <aside className="flex w-[320px] flex-shrink-0 flex-col rounded-3xl border border-slate-100 bg-white shadow-sm">
+    <div className="flex min-h-full min-w-0 flex-col gap-4 bg-slate-50 p-3 lg:h-full lg:min-h-0 lg:flex-row lg:p-4">
+      <aside className="flex min-w-0 flex-col rounded-3xl border border-slate-100 bg-white shadow-sm lg:w-[320px] lg:flex-shrink-0">
         <div className="border-b border-slate-100 px-5 py-4">
           <div className="flex items-center justify-between">
             <div>
@@ -327,7 +327,7 @@ export function InquiryPage() {
             placeholder="搜索客户、公司、国家或正文"
             className="mt-4 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700 outline-none transition focus:border-teal-300 focus:bg-white"
           />
-          <div className="mt-3 grid grid-cols-2 gap-2">
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
             <select
               value={channelFilter}
               onChange={(event) => {
@@ -467,8 +467,8 @@ export function InquiryPage() {
           </div>
         </section>
 
-        <section className="grid grid-cols-12 gap-4">
-          <div className="col-span-12 xl:col-span-7">
+        <section className="grid grid-cols-1 gap-4 xl:grid-cols-12">
+          <div className="min-w-0 xl:col-span-7">
             <div className="material-card p-6">
               <div className="flex items-center gap-2">
                 <Sparkles className="h-4 w-4 text-teal-500" />
@@ -478,7 +478,7 @@ export function InquiryPage() {
                 {selected.requiredInfo.map((item) => {
                   const checked = checkedInfo[item.label] ?? item.received;
                   return (
-                    <div key={item.label} className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3">
+                    <div key={item.label} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-100 bg-slate-50/80 px-4 py-3">
                       <div className="flex items-center gap-3">
                         <button onClick={() => setCheckedInfo((value) => ({ ...value, [item.label]: !checked }))}>
                           {checked ? <CheckSquare className="h-4 w-4 text-teal-500" /> : <Square className="h-4 w-4 text-slate-300" />}
@@ -503,7 +503,7 @@ export function InquiryPage() {
             </div>
           </div>
 
-          <div className="col-span-12 xl:col-span-5">
+          <div className="min-w-0 xl:col-span-5">
             <div className="material-card p-6">
               <div className="flex items-center gap-2">
                 <Bot className="h-4 w-4 text-blue-500" />

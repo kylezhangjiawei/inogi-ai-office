@@ -73,19 +73,19 @@ export function DesignChangesPage() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      <section className="material-card p-6 md:p-8">
+      <section className="material-card p-4 sm:p-6 md:p-8">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
-          <div>
+          <div className="min-w-0">
             <span className="material-chip bg-blue-50 text-blue-700">DHF Workspace</span>
-            <h2 className="mt-3 text-[2rem] font-bold tracking-tight text-slate-900">设计开发变更</h2>
+            <h2 className="mt-3 text-2xl font-bold tracking-tight text-slate-900 sm:text-[2rem]">设计开发变更</h2>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">把 ECO 申请、影响评估、DHF 版本和流转动作放在一页里，方便研发、质量和注册一起跟踪。</p>
           </div>
-          <div className="flex flex-wrap gap-3">
-            <button type="button" onClick={() => setDialogMode("create")} className="material-button-primary">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:gap-3">
+            <button type="button" onClick={() => setDialogMode("create")} className="material-button-primary w-full justify-center sm:w-auto">
               <Plus className="h-4 w-4" />
               新建变更
             </button>
-            <button type="button" onClick={() => setDialogMode("review")} className="material-button-secondary">
+            <button type="button" onClick={() => setDialogMode("review")} className="material-button-secondary w-full justify-center sm:w-auto">
               <Send className="h-4 w-4" />
               发起评审
             </button>
@@ -93,14 +93,14 @@ export function DesignChangesPage() {
         </div>
       </section>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-4">
+      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
           ["本月变更", "18", "高影响 3 项"],
           ["待评审", "6", "跨部门会签"],
           ["已归档", "12", "DHF 已同步"],
           ["待补材料", "2", "需注册确认"],
         ].map(([label, value, helper]) => (
-          <div key={label} className="material-card-flat p-5">
+          <div key={label} className="material-card-flat min-w-0 p-4 sm:p-5">
             <div className="text-sm text-slate-500">{label}</div>
             <div className="mt-3 text-4xl font-bold tracking-tight text-slate-900">{value}</div>
             <div className="mt-2 text-sm text-slate-500">{helper}</div>
@@ -109,9 +109,9 @@ export function DesignChangesPage() {
       </section>
 
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
-        <div className="material-card p-6">
+        <div className="material-card min-w-0 p-4 sm:p-6">
           <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-1 items-center gap-3">
+            <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
               <div className="relative flex-1">
                 <input
                   value={keyword}
@@ -148,8 +148,8 @@ export function DesignChangesPage() {
             </div>
           ) : null}
 
-          <div className="overflow-x-auto rounded-[24px] border border-slate-100">
-            <table className="min-w-full text-left">
+          <div className="material-scrollbar overflow-x-auto rounded-[24px] border border-slate-100">
+            <table className="min-w-[720px] text-left">
               <thead className="bg-slate-50">
                 <tr>
                   {["选择", "编号", "标题", "类型", "负责人", "影响", "状态", "版本"].map((title) => (
@@ -184,7 +184,7 @@ export function DesignChangesPage() {
             </table>
           </div>
 
-          <div className="mt-4 flex items-center justify-between">
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="text-sm text-slate-500">
               共 {filtered.length} 条，当前第 {page}/{totalPages} 页
             </div>
@@ -199,8 +199,8 @@ export function DesignChangesPage() {
           </div>
         </div>
 
-        <aside className="space-y-6">
-          <section className="material-card p-6">
+        <aside className="min-w-0 space-y-6">
+          <section className="material-card p-4 sm:p-6">
             <h3 className="text-slate-900">变更详情</h3>
             {selected ? (
               <div className="mt-4 space-y-4">
@@ -228,7 +228,7 @@ export function DesignChangesPage() {
               </div>
             ) : null}
           </section>
-          <section className="material-card p-6">
+          <section className="material-card p-4 sm:p-6">
             <div className="space-y-3">
               <button type="button" onClick={() => setDialogMode("impact")} className="material-button-primary w-full justify-center">
                 <GitBranch className="h-4 w-4" />

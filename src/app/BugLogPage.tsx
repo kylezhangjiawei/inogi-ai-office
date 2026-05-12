@@ -180,22 +180,22 @@ export function BugLogPage() {
   };
 
   return (
-    <div className="mx-auto max-w-[1600px] space-y-6 p-6">
+    <div className="mx-auto max-w-[1600px] space-y-5 px-3 py-4 sm:p-5 lg:space-y-6 lg:p-6">
       {/* Header */}
-      <div className="flex items-center gap-3">
+      <div className="flex min-w-0 items-start gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white">
           <Bug className="h-5 w-5" />
         </div>
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">软件 BUG 日志分析</h1>
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">软件 BUG 日志分析</h1>
           <p className="text-sm text-slate-500">AI 异常根因分析 · 版本变更追踪</p>
         </div>
       </div>
 
       {/* KPI Bar */}
-      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:gap-4 xl:grid-cols-4">
         {kpis.map((kpi) => (
-          <div key={kpi.label} className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+          <div key={kpi.label} className="min-w-0 rounded-xl border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
             <div className="flex items-center justify-between">
               <span className="text-sm text-slate-500">{kpi.label}</span>
               <kpi.icon className={cn("h-5 w-5", kpi.color)} />
@@ -211,10 +211,10 @@ export function BugLogPage() {
       </div>
 
       {/* Three-column layout */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[25%_45%_30%]">
+      <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[25%_45%_30%]">
         {/* Left: Log File List */}
-        <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
+        <div className="min-w-0 rounded-xl border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <h2 className="font-semibold text-slate-800">日志文件列表</h2>
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-500">{logFiles.length} 个文件</span>
           </div>
@@ -275,7 +275,7 @@ export function BugLogPage() {
         </div>
 
         {/* Center: AI Analysis */}
-        <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+        <div className="min-w-0 rounded-xl border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
           <div className="mb-4">
             <div className="flex items-center gap-2">
               <Bug className="h-4 w-4 text-blue-600" />
@@ -293,8 +293,8 @@ export function BugLogPage() {
           {analysis && analysis.errors.length > 0 ? (
             <>
               {/* Error Code Table */}
-              <div className="mb-5 overflow-hidden rounded-xl border border-slate-100">
-                <table className="w-full text-sm">
+              <div className="material-scrollbar mb-5 overflow-x-auto rounded-xl border border-slate-100">
+                <table className="min-w-[560px] text-sm sm:min-w-[620px]">
                   <thead>
                     <tr className="bg-slate-50 text-xs text-slate-500">
                       <th className="px-4 py-3 text-left font-medium">错误码</th>
@@ -366,8 +366,8 @@ export function BugLogPage() {
         </div>
 
         {/* Right: Version Change Log */}
-        <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
+        <div className="min-w-0 rounded-xl border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <GitBranch className="h-4 w-4 text-slate-600" />
               <h2 className="font-semibold text-slate-800">版本变更日志</h2>
@@ -392,7 +392,7 @@ export function BugLogPage() {
                 </button>
               </div>
               <div className="space-y-2">
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <input
                     type="date"
                     value={newVersion.date}

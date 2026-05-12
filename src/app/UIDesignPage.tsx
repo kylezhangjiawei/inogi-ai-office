@@ -27,7 +27,12 @@ import { toast } from "sonner";
 
 import { cn } from "./components/ui/utils";
 import { authFetch, readErrorMessage } from "./lib/authSession";
-import { AiModelItem, integrationManagementApi } from "./lib/integrationManagementApi";
+import {
+  DEFAULT_IMAGE_MODEL_OPTION,
+  DEFAULT_IMAGE_MODEL_VALUE,
+  formatAiModelOptionLabel,
+} from "./lib/aiModelOptions";
+import { useAiModelOptions } from "./lib/useAiModelOptions";
 
 type ArtworkVariant = "product" | "brand" | "ui" | "metallic";
 type Style = "vivid" | "natural";
@@ -169,26 +174,6 @@ type ImageUsageResponse = {
   entries: ImageUsageEntry[];
 };
 
-type ModelOption = {
-  value: string;
-  label: string;
-  description: string;
-  provider: string;
-  model: string;
-  modelId?: string;
-  managed: boolean;
-};
-
-const DEFAULT_MODEL_VALUE = "__openai_image_to_image__";
-const DEFAULT_MODEL_OPTION: ModelOption = {
-  value: DEFAULT_MODEL_VALUE,
-  label: "OpenAI Image 2 Image",
-  description: "默认使用 OpenAI gpt-image-1，支持参考图生图与高质量图片生成。",
-  provider: "OpenAI",
-  model: "gpt-image-1",
-  managed: false,
-};
-
 const defaultPrompt =
   "未来科技产品展示，蓝紫渐变背景，玻璃拟态，金属材质，高端商业海报";
 const MAX_PROMPT_LENGTH = 32_000;
@@ -218,7 +203,7 @@ const promptOptimizerSuggestions = [
 ];
 
 const glassCard =
-  "border border-slate-200/80 bg-white/92 shadow-[0_14px_34px_rgba(15,23,42,0.07)] backdrop-blur-xl";
+  "border border-border/85 bg-surface-container-lowest/94 shadow-[0_18px_44px_rgba(15,23,42,0.055)] ring-1 ring-white/75 backdrop-blur-xl";
 
 async function apiGenerate(body: {
   prompt: string;
@@ -339,7 +324,7 @@ async function apiPromptChat(body: {
 async function apiList(
   page: number,
   pageSize: number,
-  options: { favorite?: boolean; dateFrom?: string; dateTo?: string } = {},
+  options: { favorite?: boolean; dateFrom?: string; dateTo?: string; query?: string } = {},
 ): Promise<ListResponse> {
   const search = new URLSearchParams({
     page: String(page),
@@ -348,6 +333,8 @@ async function apiList(
   });
   if (options.dateFrom) search.set("dateFrom", options.dateFrom);
   if (options.dateTo) search.set("dateTo", options.dateTo);
+  const query = options.query?.trim();
+  if (query) search.set("query", query);
 
   const response = await authFetch(`/api/image-generation/images?${search.toString()}`);
   if (!response.ok) {
@@ -370,30 +357,6 @@ async function apiToggleFavorite(id: string): Promise<{ id: string; isFavorite: 
     throw new Error(await readErrorMessage(response, "收藏状态更新失败"));
   }
   return response.json() as Promise<{ id: string; isFavorite: boolean }>;
-}
-
-function isImageToImageModel(model: string) {
-  const normalized = model.toLowerCase();
-  return normalized.includes("gpt-image") || normalized.includes("image-to-image") || normalized === "dall-e-2";
-}
-
-function toModelOption(item: AiModelItem): ModelOption {
-  return {
-    value: item.id,
-    label: item.name || item.model,
-    description: `${item.provider || "OpenAI"} / ${item.model}${item.current_status ? ` · ${item.current_status}` : ""}`,
-    provider: item.provider || "OpenAI",
-    model: item.model,
-    modelId: item.id,
-    managed: true,
-  };
-}
-
-function formatModelOptionLabel(item: ModelOption) {
-  const label = item.label.trim() || item.provider || item.model;
-  const model = item.model.trim();
-  if (!model || label === model) return label;
-  return `${label}（${model}）`;
 }
 
 function getTodayBounds() {
@@ -646,12 +609,12 @@ function MiniPreview({ variant, imageData }: { variant?: ArtworkVariant; imageDa
 function ArtworkVisual({ variant, compact = false }: { variant: ArtworkVariant; compact?: boolean }) {
   const base =
     variant === "product"
-      ? "linear-gradient(135deg,#201a54 0%,#4662ff 48%,#49d5ff 100%)"
+      ? "linear-gradient(135deg,var(--primary) 0%,var(--chart-2) 52%,var(--primary-container) 100%)"
       : variant === "brand"
-        ? "linear-gradient(135deg,#f8fbff 0%,#dfe8ff 42%,#bba7ff 100%)"
+        ? "linear-gradient(135deg,var(--surface-container-lowest) 0%,var(--primary-container) 48%,var(--surface-container-highest) 100%)"
         : variant === "ui"
-          ? "linear-gradient(135deg,#101a40 0%,#2746b8 52%,#8d6bff 100%)"
-          : "linear-gradient(135deg,#f7f2ff 0%,#dee8ff 36%,#aeb9cc 100%)";
+          ? "linear-gradient(135deg,var(--on-surface) 0%,var(--primary) 52%,var(--chart-2) 100%)"
+          : "linear-gradient(135deg,var(--surface-container-lowest) 0%,var(--surface-container-high) 36%,var(--outline-variant) 100%)";
 
   return (
     <div className="absolute inset-0 overflow-hidden" style={{ background: base }}>
@@ -665,7 +628,7 @@ function ArtworkVisual({ variant, compact = false }: { variant: ArtworkVariant; 
               compact ? "left-5 top-3 h-9 w-6" : "left-[38%] top-[18%] h-[58%] w-[24%]",
             )}
           />
-          <div className={cn("absolute rounded-full bg-cyan-200/80 blur-md", compact ? "right-3 top-5 h-5 w-5" : "right-[22%] top-[25%] h-20 w-20")} />
+          <div className={cn("absolute rounded-full bg-primary-container/80 blur-md", compact ? "right-3 top-5 h-5 w-5" : "right-[22%] top-[25%] h-20 w-20")} />
           <div
             className={cn(
               "absolute border border-white/28 bg-white/14 backdrop-blur-md",
@@ -678,8 +641,8 @@ function ArtworkVisual({ variant, compact = false }: { variant: ArtworkVariant; 
 
       {variant === "brand" ? (
         <>
-          <div className={cn("absolute rotate-[-14deg] rounded-[32px] bg-gradient-to-br from-white/85 to-violet-200/80 shadow-xl", compact ? "left-3 top-3 h-7 w-7" : "left-[16%] top-[16%] h-[34%] w-[24%]")} />
-          <div className={cn("absolute rounded-full bg-gradient-to-br from-blue-400 to-violet-500 shadow-2xl", compact ? "right-3 top-4 h-6 w-6" : "right-[18%] top-[20%] h-[30%] w-[24%]")} />
+          <div className={cn("absolute rotate-[-14deg] rounded-[32px] bg-gradient-to-br from-white/85 to-primary-container/90 shadow-xl", compact ? "left-3 top-3 h-7 w-7" : "left-[16%] top-[16%] h-[34%] w-[24%]")} />
+          <div className={cn("absolute rounded-full bg-gradient-to-br from-chart-2 to-primary shadow-2xl", compact ? "right-3 top-4 h-6 w-6" : "right-[18%] top-[20%] h-[30%] w-[24%]")} />
           <div className={cn("absolute rotate-[18deg] rounded-[28px] bg-white/54 backdrop-blur-md", compact ? "bottom-2 left-5 h-4 w-8" : "bottom-[18%] left-[32%] h-[24%] w-[34%]")} />
         </>
       ) : null}
@@ -687,9 +650,9 @@ function ArtworkVisual({ variant, compact = false }: { variant: ArtworkVariant; 
       {variant === "ui" ? (
         <>
           <div className={cn("absolute rounded-2xl border border-white/24 bg-white/16 backdrop-blur-md", compact ? "left-2 top-2 h-5 w-9" : "left-[13%] top-[18%] h-[24%] w-[36%]")} />
-          <div className={cn("absolute rounded-2xl border border-cyan-200/26 bg-cyan-100/14 backdrop-blur-md", compact ? "right-2 top-5 h-6 w-8" : "right-[12%] top-[32%] h-[30%] w-[34%]")} />
-          <div className={cn("absolute rounded-full bg-cyan-200/90", compact ? "left-4 bottom-3 h-1 w-8" : "left-[18%] bottom-[22%] h-1.5 w-[46%]")} />
-          <div className={cn("absolute rounded-full bg-violet-200/90", compact ? "left-4 bottom-5 h-1 w-6" : "left-[22%] bottom-[32%] h-1.5 w-[34%]")} />
+          <div className={cn("absolute rounded-2xl border border-primary-container/30 bg-primary-container/20 backdrop-blur-md", compact ? "right-2 top-5 h-6 w-8" : "right-[12%] top-[32%] h-[30%] w-[34%]")} />
+          <div className={cn("absolute rounded-full bg-primary-container/90", compact ? "left-4 bottom-3 h-1 w-8" : "left-[18%] bottom-[22%] h-1.5 w-[46%]")} />
+          <div className={cn("absolute rounded-full bg-primary-container/90", compact ? "left-4 bottom-5 h-1 w-6" : "left-[22%] bottom-[32%] h-1.5 w-[34%]")} />
         </>
       ) : null}
 
@@ -729,42 +692,43 @@ function ArtworkCard({
   const cumulativeCost = item.cumulativeEstimatedCostUsd ?? item.estimatedCostUsd ?? 0;
 
   return (
-    <article className="group overflow-hidden rounded-[18px] border border-slate-200 bg-white shadow-[0_14px_34px_rgba(15,23,42,0.08)] transition duration-200 hover:border-blue-200 hover:shadow-[0_18px_42px_rgba(25,118,210,0.13)]">
+    <article className="group overflow-hidden rounded-[10px] border border-border/80 bg-surface-container-lowest shadow-[0_16px_34px_rgba(15,23,42,0.055)] ring-1 ring-white/70 transition duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_24px_48px_rgba(15,23,42,0.1)]">
       <div className="relative aspect-[16/10] overflow-hidden bg-slate-100">
         <img src={item.imageData} alt={item.prompt} className="h-full w-full object-cover" />
-        <div className="absolute left-4 top-4 rounded-full border border-white/70 bg-slate-950/58 px-3 py-1 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md">
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(15,23,42,0.04)_0%,transparent_42%,rgba(15,23,42,0.2)_100%)] opacity-80 transition group-hover:opacity-60" />
+        <div className="absolute left-4 top-4 rounded-[8px] border border-white/25 bg-slate-950/68 px-3 py-1 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md">
           {String(index + 1).padStart(2, "0")}
         </div>
         {item.fromCache ? (
-          <div className="absolute right-4 top-4 rounded-full border border-emerald-100 bg-emerald-50/88 px-3 py-1 text-[11px] font-semibold text-emerald-700 shadow-sm backdrop-blur-md">
+          <div className="absolute right-4 top-4 rounded-[8px] border border-emerald-100 bg-emerald-50/88 px-3 py-1 text-[11px] font-semibold text-emerald-700 shadow-sm backdrop-blur-md">
             缓存命中
           </div>
         ) : null}
-        <div className="absolute inset-x-4 bottom-4 flex items-center justify-between rounded-2xl border border-white/80 bg-white/88 px-3 py-2 text-[11px] font-semibold text-slate-700 shadow-[0_12px_28px_rgba(30,41,80,0.16)] backdrop-blur-xl">
-          <button className="flex cursor-pointer items-center gap-1.5 transition hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300" type="button" onClick={() => onPreview(item)}>
+        <div className="absolute inset-x-4 bottom-4 grid grid-cols-4 overflow-hidden rounded-[8px] border border-white/60 bg-white/88 text-[11px] font-semibold text-slate-700 opacity-95 shadow-[0_16px_32px_rgba(15,23,42,0.2)] backdrop-blur-xl transition md:translate-y-1 md:opacity-0 md:group-hover:translate-y-0 md:group-hover:opacity-100 md:group-focus-within:translate-y-0 md:group-focus-within:opacity-100">
+          <button className="flex cursor-pointer items-center justify-center gap-1.5 px-2 py-2 transition hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={() => onPreview(item)}>
             <Eye className="h-3.5 w-3.5" />
             预览
           </button>
-          <button className="flex cursor-pointer items-center gap-1.5 transition hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300" type="button" onClick={() => onDownload(item)}>
+          <button className="flex cursor-pointer items-center justify-center gap-1.5 px-2 py-2 transition hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={() => onDownload(item)}>
             <Download className="h-3.5 w-3.5" />
             下载
           </button>
-          <button className="flex cursor-pointer items-center gap-1.5 transition hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300" type="button" onClick={() => onEdit(item)}>
+          <button className="flex cursor-pointer items-center justify-center gap-1.5 px-2 py-2 transition hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={() => onEdit(item)}>
             <PencilLine className="h-3.5 w-3.5" />
             修改
           </button>
-          <button className="flex cursor-pointer items-center gap-1.5 transition hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200 disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => onFavorite(item)} disabled={busy}>
+          <button className="flex cursor-pointer items-center justify-center gap-1.5 px-2 py-2 transition hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-200 disabled:cursor-not-allowed disabled:opacity-60" type="button" onClick={() => onFavorite(item)} disabled={busy}>
             {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Heart className={cn("h-3.5 w-3.5", item.isFavorite ? "fill-rose-500 text-rose-500" : "")} />}
             收藏
           </button>
         </div>
       </div>
       <div className="px-5 py-4">
-        <h3 className="truncate text-sm font-semibold text-slate-950">{title}</h3>
-        <p className="mt-1 truncate text-xs leading-5 text-slate-500">{description}</p>
-        <div className="mt-3 flex items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-500">
-          <span className="font-semibold text-slate-800">{formatImageCost(item)}</span>
-          <span className="truncate">
+        <h3 className="line-clamp-2 min-h-[2.5rem] text-sm font-semibold leading-5 tracking-tight text-slate-950">{title}</h3>
+        <p className="mt-2 truncate text-xs leading-5 text-slate-500">{description}</p>
+        <div className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 rounded-[8px] border border-border bg-surface-container-low px-3 py-2 text-[11px] text-slate-500">
+          <span className="font-mono font-semibold tabular-nums text-slate-900">{formatImageCost(item)}</span>
+          <span className="truncate text-right font-mono tabular-nums">
             {editDepth > 0 ? `累计 ${formatUsd(cumulativeCost)}` : `output ${outputTokens > 0 ? outputTokens.toLocaleString("zh-CN") : "-"}`}
             {retryCount > 0 ? ` · 重试 ${retryCount}` : ""}
           </span>
@@ -776,17 +740,17 @@ function ArtworkCard({
 
 function GeneratingImageCard() {
   return (
-    <div className="relative min-h-[260px] overflow-hidden rounded-[18px] border border-blue-100 bg-white shadow-[0_14px_34px_rgba(15,23,42,0.08)]">
-      <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(30,136,229,0.14),rgba(16,185,129,0.12),rgba(255,255,255,0.72))]" />
-      <div className="absolute inset-0 animate-pulse bg-[radial-gradient(circle_at_30%_24%,rgba(255,255,255,0.78),transparent_28%),radial-gradient(circle_at_68%_38%,rgba(30,136,229,0.22),transparent_32%)] motion-reduce:animate-none" />
+    <div className="relative min-h-[260px] overflow-hidden rounded-[10px] border border-primary/15 bg-surface-container-lowest shadow-[0_14px_34px_rgba(15,23,42,0.06)]">
+      <div className="absolute inset-0 bg-[linear-gradient(180deg,var(--surface-container-lowest)_0%,var(--surface-container-low)_100%)]" />
+      <div className="absolute inset-x-0 top-0 h-1 animate-pulse bg-primary motion-reduce:animate-none" />
       <div className="absolute inset-x-5 top-5 flex items-center justify-between">
-        <span className="rounded-full border border-blue-100 bg-white/86 px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm">
+        <span className="rounded-[8px] border border-primary/15 bg-white/86 px-3 py-1 text-xs font-semibold text-slate-700 shadow-sm">
           生成中
         </span>
-        <Loader2 className="h-5 w-5 animate-spin text-blue-600 motion-reduce:animate-none" />
+        <Loader2 className="h-5 w-5 animate-spin text-primary motion-reduce:animate-none" />
       </div>
       <div className="relative flex h-full min-h-[260px] flex-col items-center justify-center px-8 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-[20px] bg-white/90 text-blue-600 shadow-[0_14px_32px_rgba(25,118,210,0.16)]">
+        <div className="flex h-16 w-16 items-center justify-center rounded-[10px] bg-white text-slate-950 shadow-[0_14px_30px_rgba(15,23,42,0.12)]">
           <Sparkles className="h-7 w-7" />
         </div>
         <div className="mt-5 text-base font-semibold text-slate-950">AI 正在生成图片</div>
@@ -794,7 +758,7 @@ function GeneratingImageCard() {
           已提交到图像模型，生成高清图片通常需要几十秒，请保持当前页面。
         </div>
         <div className="mt-6 h-1.5 w-48 overflow-hidden rounded-full bg-white/60">
-          <div className="h-full w-1/2 animate-[pulse_1.3s_ease-in-out_infinite] rounded-full bg-[linear-gradient(90deg,#1e88e5,#10b981)] motion-reduce:animate-none" />
+          <div className="h-full w-1/2 animate-[pulse_1.3s_ease-in-out_infinite] rounded-full bg-primary motion-reduce:animate-none" />
         </div>
       </div>
     </div>
@@ -805,10 +769,8 @@ export function UIDesignPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [prompt, setPrompt] = useState("");
   const [selectedRatio, setSelectedRatio] = useState<Size>("1792x1024");
-  const [selectedModel, setSelectedModel] = useState(DEFAULT_MODEL_VALUE);
+  const [selectedModel, setSelectedModel] = useState(DEFAULT_IMAGE_MODEL_VALUE);
   const [searchKeyword, setSearchKeyword] = useState("");
-  const [modelRows, setModelRows] = useState<AiModelItem[]>([]);
-  const [modelsLoading, setModelsLoading] = useState(false);
   const [referenceImages, setReferenceImages] = useState<ReferenceImageItem[]>([]);
   const [referenceImageBusy, setReferenceImageBusy] = useState(false);
   const [activeTab, setActiveTab] = useState<StudioTab>("当前");
@@ -835,33 +797,23 @@ export function UIDesignPage() {
   const [promptChatLoading, setPromptChatLoading] = useState(false);
   const [promptChatModel, setPromptChatModel] = useState("");
   const deferredSearchKeyword = useDeferredValue(searchKeyword);
-
-  const modelOptions = useMemo(() => {
-    const managedOptions = modelRows
-      .filter((item) => item.enabled && item.model && isImageToImageModel(item.model))
-      .map(toModelOption);
-    const hasManagedDefault = managedOptions.some(
-      (item) => item.provider === DEFAULT_MODEL_OPTION.provider && item.model === DEFAULT_MODEL_OPTION.model,
-    );
-    return hasManagedDefault ? managedOptions : [DEFAULT_MODEL_OPTION, ...managedOptions];
-  }, [modelRows]);
+  const normalizedSearchKeyword = deferredSearchKeyword.trim();
+  const {
+    modelsLoading,
+    loadModels,
+    imageModelOptions,
+    textModelOptions,
+    preferredManagedImageModelValue,
+  } = useAiModelOptions();
 
   const selectedModelOption = useMemo(
-    () => modelOptions.find((item) => item.value === selectedModel) ?? DEFAULT_MODEL_OPTION,
-    [modelOptions, selectedModel],
-  );
-
-  const promptModelOptions = useMemo(
-    () =>
-      modelRows
-        .filter((item) => item.enabled && item.model && !isImageToImageModel(item.model))
-        .map(toModelOption),
-    [modelRows],
+    () => imageModelOptions.find((item) => item.value === selectedModel) ?? DEFAULT_IMAGE_MODEL_OPTION,
+    [imageModelOptions, selectedModel],
   );
 
   const selectedPromptModelOption = useMemo(
-    () => promptModelOptions.find((item) => item.value === promptChatModel) ?? promptModelOptions[0],
-    [promptModelOptions, promptChatModel],
+    () => textModelOptions.find((item) => item.value === promptChatModel) ?? textModelOptions[0],
+    [textModelOptions, promptChatModel],
   );
 
   const selectedRatioOption = ratios.find((item) => item.value === selectedRatio) ?? ratios[1];
@@ -870,25 +822,13 @@ export function UIDesignPage() {
   const activePromptChatSession = promptChatSessions.find((item) => item.id === activePromptChatSessionId) ?? null;
 
   const generationSettings = [
-    ["模型", formatModelOptionLabel(selectedModelOption)],
+    ["模型", formatAiModelOptionLabel(selectedModelOption)],
     ["服务商", selectedModelOption.provider],
     ["模型标识", selectedModelOption.model],
     ["比例", selectedRatioOption.shortLabel],
   ];
 
-  const loadModels = useCallback(async () => {
-    setModelsLoading(true);
-    try {
-      const response = await integrationManagementApi.listAiModels({ page: 1, pageSize: 100 });
-      setModelRows(response.items);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "模型列表加载失败");
-    } finally {
-      setModelsLoading(false);
-    }
-  }, []);
-
-  const loadGallery = useCallback(async (target: "current" | "history" | "favorite") => {
+  const loadGallery = useCallback(async (target: "current" | "history" | "favorite", query = "") => {
     setGalleryLoading(true);
     try {
       const today = getTodayBounds();
@@ -896,6 +836,7 @@ export function UIDesignPage() {
         favorite: target === "favorite",
         dateFrom: target === "current" ? today.start : undefined,
         dateTo: target === "current" ? today.end : target === "history" ? today.start : undefined,
+        query,
       });
       if (target === "favorite") {
         setFavoriteImages(response.items);
@@ -1001,36 +942,31 @@ export function UIDesignPage() {
   }, [loadGallery, loadModels, loadUsage]);
 
   useEffect(() => {
-    const currentOption = modelOptions.find((item) => item.value === selectedModel);
+    const currentOption = imageModelOptions.find((item) => item.value === selectedModel);
     if (!currentOption) {
-      setSelectedModel(modelOptions[0]?.value ?? DEFAULT_MODEL_VALUE);
+      setSelectedModel(imageModelOptions[0]?.value ?? DEFAULT_IMAGE_MODEL_VALUE);
       return;
     }
-    if (selectedModel !== DEFAULT_MODEL_VALUE) return;
-    const managedImageModel = modelOptions.find((item) => item.managed && isImageToImageModel(item.model));
-    if (managedImageModel) {
-      setSelectedModel(managedImageModel.value);
+    if (selectedModel !== DEFAULT_IMAGE_MODEL_VALUE) return;
+    if (preferredManagedImageModelValue) {
+      setSelectedModel(preferredManagedImageModelValue);
     }
-  }, [modelOptions, selectedModel]);
+  }, [imageModelOptions, preferredManagedImageModelValue, selectedModel]);
 
   useEffect(() => {
-    if (promptChatModel && promptModelOptions.some((item) => item.value === promptChatModel)) {
+    if (promptChatModel && textModelOptions.some((item) => item.value === promptChatModel)) {
       return;
     }
-    setPromptChatModel(promptModelOptions[0]?.value ?? "");
-  }, [promptChatModel, promptModelOptions]);
+    setPromptChatModel(textModelOptions[0]?.value ?? "");
+  }, [promptChatModel, textModelOptions]);
 
   useEffect(() => {
-    if (activeTab === "当前") {
-      void loadGallery("current");
-    }
-    if (activeTab === "历史") {
-      void loadGallery("history");
-    }
-    if (activeTab === "收藏") {
-      void loadGallery("favorite");
-    }
-  }, [activeTab, loadGallery]);
+    const target = activeTab === "收藏" ? "favorite" : activeTab === "历史" ? "history" : "current";
+    const timeout = window.setTimeout(() => {
+      void loadGallery(target, normalizedSearchKeyword);
+    }, normalizedSearchKeyword ? 280 : 0);
+    return () => window.clearTimeout(timeout);
+  }, [activeTab, loadGallery, normalizedSearchKeyword]);
 
   useEffect(() => {
     if (!previewItem) {
@@ -1309,10 +1245,19 @@ export function UIDesignPage() {
         ? historyImages
         : favoriteImages;
 
-  const displayedItems = deferredSearchKeyword.trim()
+  const displayedItems = normalizedSearchKeyword
     ? tabItems.filter((item) => {
-        const keyword = deferredSearchKeyword.trim().toLowerCase();
-        const searchable = `${item.prompt} ${item.revisedPrompt} ${item.model}`;
+        const keyword = normalizedSearchKeyword.toLowerCase();
+        const searchable = [
+          item.prompt,
+          item.revisedPrompt,
+          item.model,
+          item.style,
+          item.size,
+          item.quality,
+          item.editInstruction,
+          item.requestId,
+        ].join(" ");
         return searchable.toLowerCase().includes(keyword);
       })
     : tabItems;
@@ -1325,83 +1270,120 @@ export function UIDesignPage() {
   });
 
   return (
-    <div className="relative flex h-full min-h-[760px] w-full flex-col overflow-hidden rounded-[28px] bg-[linear-gradient(180deg,#f8fbff_0%,#eef5fd_100%)] text-slate-950">
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(115deg,rgba(25,118,210,0.08),transparent_38%,rgba(16,185,129,0.07)_76%,transparent)]" />
+    <div className="relative flex min-h-screen w-full flex-col overflow-y-auto bg-background text-on-surface xl:h-full xl:min-h-[760px] xl:overflow-hidden">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_78%_0%,rgba(30,64,175,0.13),transparent_30rem),linear-gradient(180deg,var(--surface-container-lowest)_0%,var(--surface-container-low)_44%,var(--surface-container)_100%)]" />
+      <div className="pointer-events-none absolute inset-0 opacity-75 [background-image:linear-gradient(rgba(15,23,42,0.034)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,0.034)_1px,transparent_1px)] [background-size:40px_40px] [mask-image:linear-gradient(180deg,black,transparent_74%)]" />
 
-      <section className="relative z-10 shrink-0 border-b border-slate-200/80 bg-white/82 px-4 py-4 backdrop-blur-xl lg:px-5">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+      <section className="relative z-10 shrink-0 overflow-hidden border-b border-border bg-[linear-gradient(135deg,var(--surface-container-lowest)_0%,var(--surface-container-low)_58%,rgba(219,234,254,0.64)_100%)] px-3 py-3 text-on-surface shadow-[0_18px_50px_rgba(15,23,42,0.05)] sm:px-4 lg:px-5">
+        <div className="pointer-events-none absolute inset-y-3 left-0 w-1 rounded-r-full bg-primary" />
+        <div className="pointer-events-none absolute inset-0 opacity-60 [background-image:linear-gradient(rgba(30,64,175,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(30,64,175,0.04)_1px,transparent_1px)] [background-size:40px_40px] [mask-image:linear-gradient(90deg,black,transparent_72%)]" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-[linear-gradient(90deg,transparent,var(--primary),transparent)]" />
+        <div className="relative grid gap-3 min-[1440px]:grid-cols-[minmax(300px,0.72fr)_minmax(0,1.28fr)] min-[1440px]:items-center 2xl:grid-cols-[minmax(340px,0.8fr)_minmax(0,1.2fr)]">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[18px] bg-[linear-gradient(135deg,#42a5f5_0%,#1565c0_100%)] shadow-[0_14px_28px_rgba(21,101,192,0.22)]">
-              <Wand2 className="h-[18px] w-[18px] text-white" />
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border border-primary/15 bg-primary-container text-on-primary-container shadow-[0_10px_22px_rgba(30,64,175,0.14)]">
+              <Wand2 className="h-4 w-4" />
             </div>
-            <div className="min-w-0">
-              <div className="text-[11px] font-bold uppercase tracking-[0.22em] text-slate-500">AI STUDIO</div>
-              <h2 className="truncate text-xl font-bold tracking-tight text-slate-950">AI 图像生成器</h2>
-              <p className="mt-1 text-xs text-slate-500">创作、管理、复用和迭代生成图像</p>
+            <div className="min-w-0 xl:flex xl:items-center xl:gap-4">
+              <div className="min-w-0">
+                <div className="text-[11px] font-bold uppercase tracking-[0.26em] text-primary">AI Studio</div>
+                <h1 className="mt-1 truncate text-2xl font-semibold leading-tight tracking-tight text-on-surface md:text-3xl xl:text-[1.7rem]">AI 图像生成器</h1>
+              </div>
             </div>
           </div>
 
-          <div className="flex w-full flex-col gap-3 md:flex-row md:items-center xl:w-auto">
-            <div className="relative w-full md:min-w-[280px] xl:w-[420px]">
+          <div className="overflow-auto flex w-full max-w-full flex-col gap-2 rounded-[10px] border border-border bg-white/90 p-2 shadow-[0_14px_34px_rgba(15,23,42,0.065)] ring-1 ring-white/80 backdrop-blur-sm lg:flex-row lg:items-center lg:gap-2.5">
+            <div className="relative min-w-0 flex-1 lg:min-w-[220px] 2xl:min-w-[300px]">
               <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
+                type="search"
                 value={searchKeyword}
                 onChange={(event) => setSearchKeyword(event.target.value)}
-                className="material-input h-11 rounded-[18px] pl-11 pr-4"
+                className="material-input h-10 w-full min-w-0 rounded-[8px] border-border bg-white pl-11 pr-10 text-slate-900 shadow-none"
                 placeholder="搜索提示词、模型或作品"
               />
+              {searchKeyword ? (
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-[6px] text-slate-400 transition hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
+                  onClick={() => setSearchKeyword("")}
+                  aria-label="清空搜索"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
             </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="flex h-11 items-center gap-2 rounded-[18px] border border-slate-200 bg-white/90 px-3 text-xs font-semibold text-slate-600 shadow-sm">
-                <Zap className="h-3.5 w-3.5 text-emerald-500" />
-                2,840 点数
+            <div className="flex min-w-0 flex-wrap items-center gap-2 lg:shrink-0 min-[1440px]:justify-end">
+              <div className="inline-flex h-8 shrink-0 items-center gap-2 rounded-[8px] border border-border bg-white px-3 text-xs font-semibold text-slate-600">
+                <Layers3 className="h-3.5 w-3.5 text-primary" />
+                当前 {currentImages.length}
               </div>
-              <div className="flex h-11 items-center gap-2 rounded-[18px] border border-slate-200 bg-white/90 px-3 text-xs font-semibold text-slate-600 shadow-sm">
-                <CalendarDays className="h-3.5 w-3.5 text-blue-500" />
+              <div className="inline-flex h-8 shrink-0 items-center gap-2 rounded-[8px] border border-border bg-white px-3 text-xs font-semibold text-slate-600">
+                <Heart className="h-3.5 w-3.5 text-rose-500" />
+                收藏 {favoriteImages.length}
+              </div>
+              <div className="inline-flex h-8 shrink-0 items-center gap-2 rounded-[8px] border border-border bg-white px-3 text-xs font-semibold text-slate-600">
+                <Zap className="h-3.5 w-3.5 text-primary" />
+                {usage ? formatUsd(usage.summary.estimatedCostUsd) : "2,840 点数"}
+              </div>
+              <div className="inline-flex h-8 shrink-0 items-center gap-2 rounded-[8px] border border-border bg-white px-3 text-xs font-semibold text-slate-600">
+                <CalendarDays className="h-3.5 w-3.5 text-primary" />
                 {todayLabel}
               </div>
               <button
-                className="material-button-secondary h-11 cursor-pointer !rounded-[18px] !px-3 text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-8 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-[8px] border border-border bg-white px-3 text-xs font-semibold text-slate-600 transition hover:border-primary/25 hover:bg-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60"
                 type="button"
                 disabled={usageLoading || galleryLoading}
                 onClick={() => {
                   void loadUsage();
-                  void loadGallery(activeTab === "收藏" ? "favorite" : activeTab === "历史" ? "history" : "current");
+                  void loadGallery(
+                    activeTab === "收藏" ? "favorite" : activeTab === "历史" ? "history" : "current",
+                    searchKeyword.trim(),
+                  );
                 }}
               >
                 <RefreshCw className={cn("h-3.5 w-3.5", usageLoading || galleryLoading ? "animate-spin motion-reduce:animate-none" : "")} />
                 刷新
+              </button>
+              <button
+                className="inline-flex h-8 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-[8px] bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-[0_12px_24px_rgba(30,64,175,0.22)] transition hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
+                type="button"
+                disabled={generating || referenceImageBusy}
+                onClick={() => void handleGenerate()}
+              >
+                {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> : <Sparkles className="h-3.5 w-3.5" />}
+                <span className="hidden sm:inline">生成图像</span>
+                <span className="sm:hidden">生成</span>
               </button>
             </div>
           </div>
         </div>
       </section>
 
-      <main className="relative z-10 grid min-h-0 flex-1 items-stretch gap-5 overflow-hidden p-4 lg:p-5 xl:grid-cols-[320px_minmax(0,1fr)] 2xl:grid-cols-[320px_minmax(0,1fr)_300px]">
-        <aside className={cn("flex min-h-0 flex-col overflow-hidden rounded-[20px] p-5", glassCard)}>
-          <div className="mb-5 flex items-center justify-between">
+      <main className="relative z-10 grid flex-1 items-start gap-4 overflow-visible p-3 sm:p-4 lg:p-4 xl:min-h-0 xl:items-stretch xl:overflow-hidden min-[1280px]:grid-cols-[280px_minmax(0,1fr)] min-[1440px]:grid-cols-[280px_minmax(0,1fr)_260px] min-[1536px]:grid-cols-[300px_minmax(0,1fr)_280px] 2xl:p-5">
+        <aside className={cn("relative flex flex-col overflow-hidden rounded-[10px] p-4 xl:min-h-0 2xl:p-5", glassCard)}>
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,var(--primary),var(--chart-2),var(--primary))]" />
+          <div className="mb-5 flex items-start justify-between gap-4">
             <div>
-              <div className="text-lg font-semibold tracking-tight text-slate-950">创建图像</div>
+              <div className="text-base font-semibold tracking-tight text-slate-950">创建图像</div>
               <div className="mt-1 text-xs text-slate-500">提示词、模型、参考图和输出控制</div>
             </div>
-            <div className="flex h-9 w-9 items-center justify-center rounded-[16px] bg-blue-50 text-blue-600">
+            <div className="flex h-9 w-9 items-center justify-center rounded-[8px] bg-primary-container text-on-primary-container">
               <Sparkles className="h-4 w-4" />
             </div>
           </div>
 
-          <div className="material-scrollbar min-h-0 flex-1 space-y-5 overflow-y-auto pr-1">
+          <div className="material-scrollbar space-y-5 xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:pr-1">
             <section>
               <label className="mb-2 block text-xs font-semibold text-slate-700">AI 模型</label>
               <div className="relative">
                 <select
                   value={selectedModel}
                   onChange={(event) => setSelectedModel(event.target.value)}
-                  className="material-input h-11 w-full cursor-pointer appearance-none rounded-[18px] pr-10 font-semibold text-slate-800"
+                  className="material-input h-11 w-full cursor-pointer appearance-none rounded-[8px] border-slate-200 bg-surface-container-lowest pr-10 font-semibold text-slate-800 focus:border-primary/35 focus:ring-primary/10"
                 >
-                  {modelOptions.map((item) => (
+                  {imageModelOptions.map((item) => (
                     <option key={item.value} value={item.value}>
-                      {formatModelOptionLabel(item)}
+                      {formatAiModelOptionLabel(item)}
                     </option>
                   ))}
                 </select>
@@ -1415,13 +1397,13 @@ export function UIDesignPage() {
             <section>
               <div className="mb-2 flex items-center justify-between">
                 <label className="text-xs font-semibold text-slate-700">图像提示词</label>
-                <button className="inline-flex cursor-pointer items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300" type="button" onClick={openPromptOptimizer}>
+                <button className="inline-flex cursor-pointer items-center gap-1 rounded-[8px] border border-primary/15 bg-primary-container px-2.5 py-1 text-[11px] font-semibold text-on-primary-container transition hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={openPromptOptimizer}>
                   <Wand2 className="h-3 w-3" />
                   优化提示词
                 </button>
               </div>
               <textarea
-                className="material-input h-[150px] w-full resize-none rounded-[18px] leading-6"
+                className="material-input h-[156px] w-full resize-none rounded-[8px] border-slate-200 bg-surface-container-lowest leading-6 focus:border-primary/35 focus:ring-primary/10"
                 value={prompt}
                 onChange={(event) => setPrompt(event.target.value)}
                 maxLength={MAX_PROMPT_LENGTH}
@@ -1447,12 +1429,12 @@ export function UIDesignPage() {
                 }}
               />
               <button
-                className="flex w-full cursor-pointer items-center gap-3 rounded-[18px] border border-dashed border-blue-200 bg-slate-50/80 px-4 py-4 text-left transition hover:border-blue-300 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300 disabled:cursor-not-allowed disabled:opacity-70"
+                className="flex w-full cursor-pointer items-center gap-3 rounded-[8px] border border-dashed border-primary/25 bg-surface-container-low px-4 py-4 text-left transition hover:border-primary/40 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-70"
                 type="button"
                 disabled={referenceImageBusy}
                 onClick={() => fileInputRef.current?.click()}
               >
-                <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-[16px] bg-blue-50 text-blue-600">
+                <span className="flex h-11 w-11 items-center justify-center overflow-hidden rounded-[8px] bg-primary-container text-on-primary-container">
                   {referenceImageBusy ? (
                     <Loader2 className="h-5 w-5 animate-spin" />
                   ) : referenceImages.length > 0 ? (
@@ -1512,10 +1494,10 @@ export function UIDesignPage() {
                     type="button"
                     onClick={() => setSelectedRatio(item.value)}
                     className={cn(
-                      "cursor-pointer rounded-[16px] border px-2 py-3 text-center text-[11px] font-semibold leading-4 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300",
+                      "cursor-pointer rounded-[8px] border px-2 py-3 text-center text-[11px] font-semibold leading-4 transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
                       selectedRatio === item.value
-                        ? "border-blue-400 bg-blue-50 text-blue-800 shadow-[0_10px_24px_rgba(59,130,246,0.12)]"
-                        : "border-slate-200 bg-white/80 text-slate-600 hover:border-blue-200 hover:bg-white",
+                        ? "border-slate-950 bg-slate-950 text-white"
+                        : "border-slate-200 bg-surface-container-lowest text-slate-600 hover:border-primary/25 hover:bg-white",
                     )}
                   >
                     {item.label}
@@ -1527,7 +1509,7 @@ export function UIDesignPage() {
 
           <div className="shrink-0 border-t border-slate-100 pt-4">
             <button
-              className="flex h-[52px] w-full cursor-pointer items-center justify-center gap-2 rounded-[16px] bg-[linear-gradient(135deg,#1e88e5_0%,#1565c0_100%)] text-sm font-semibold text-white shadow-[0_16px_30px_rgba(21,101,192,0.26)] transition hover:shadow-[0_18px_36px_rgba(21,101,192,0.32)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-70"
+              className="flex h-[52px] w-full cursor-pointer items-center justify-center gap-2 rounded-[8px] bg-primary text-primary-foreground shadow-[0_16px_34px_rgba(30,64,175,0.24)] transition hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-70"
               type="button"
               disabled={generating || referenceImageBusy}
               onClick={() => void handleGenerate()}
@@ -1539,49 +1521,42 @@ export function UIDesignPage() {
           </div>
         </aside>
 
-        <section className="flex min-h-0 min-w-0 flex-col overflow-hidden">
+        <section className="flex min-w-0 flex-col rounded-[10px] border border-border/70 bg-white/48 p-3 shadow-[0_16px_38px_rgba(15,23,42,0.045)] ring-1 ring-white/60 backdrop-blur-sm xl:min-h-0 xl:overflow-hidden">
           <div className="mb-4 flex shrink-0 flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div className="flex w-fit rounded-[18px] border border-slate-200 bg-white/90 p-1 shadow-sm">
+            <div className="flex w-full rounded-[10px] border border-slate-200/80 bg-white/90 p-1 shadow-[0_12px_30px_rgba(15,23,42,0.05)] sm:w-fit">
               {(["当前", "历史", "收藏"] as StudioTab[]).map((tab) => (
                 <button
                   key={tab}
                   type="button"
                   onClick={() => setActiveTab(tab)}
                   className={cn(
-                    "cursor-pointer rounded-[14px] px-4 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300",
-                    activeTab === tab ? "bg-blue-600 text-white shadow-md" : "text-slate-500 hover:bg-slate-50 hover:text-slate-900",
+                    "flex-1 cursor-pointer rounded-[6px] px-4 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 sm:flex-none",
+                    activeTab === tab ? "bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(30,64,175,0.2)]" : "text-slate-500 hover:bg-surface-container-low hover:text-slate-900",
                   )}
                 >
                   {tab}
                 </button>
               ))}
             </div>
-            <div className="flex items-center gap-2 text-xs font-semibold text-slate-500">
-              <Layers3 className="h-4 w-4" />
-              {activeTab === "当前" ? `今日 ${displayedItems.length} 张` : `${displayedItems.length} 张结果`}
-            </div>
-          </div>
-
-          <div className={cn("mb-5 flex shrink-0 flex-col gap-4 rounded-[20px] px-5 py-4 md:flex-row md:items-center md:justify-between", glassCard)}>
-            <div className="min-w-0">
-              <div className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">提示词摘要</div>
-              <p className="truncate text-sm font-medium text-slate-700">{promptSummary}</p>
-            </div>
-            <div className="flex shrink-0 flex-wrap items-center gap-2">
-              <button className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-[14px] border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60" type="button" disabled={generating || referenceImageBusy} onClick={() => void handleGenerate(true)}>
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center md:justify-end">
+              <div className="inline-flex h-10 items-center gap-2 rounded-[8px] border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-500 shadow-[0_8px_20px_rgba(15,23,42,0.04)]">
+                <Layers3 className="h-4 w-4 text-primary" />
+                {activeTab === "当前" ? `今日 ${displayedItems.length} 张` : `${displayedItems.length} 张结果`}
+              </div>
+              <button className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-[8px] border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:border-primary/25 hover:bg-surface-container-low disabled:cursor-not-allowed disabled:opacity-60" type="button" disabled={generating || referenceImageBusy} onClick={() => void handleGenerate(true)}>
                 {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" /> : <RefreshCw className="h-3.5 w-3.5" />}
                 重新生成
               </button>
-              <button className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-[14px] border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300" type="button" onClick={() => void handleCopyPrompt()}>
+              <button className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-[8px] border border-slate-200 bg-white px-4 text-xs font-semibold text-slate-700 transition hover:border-primary/25 hover:bg-surface-container-low focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={() => void handleCopyPrompt()}>
                 <Copy className="h-3.5 w-3.5" />
                 复制提示词
               </button>
             </div>
           </div>
 
-          <div className="material-scrollbar min-h-0 flex-1 overflow-y-auto pr-1">
+          <div className="material-scrollbar xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:pr-1">
             {generating && activeTab === "当前" ? (
-              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+              <div className="grid grid-cols-1 gap-5 2xl:grid-cols-2">
                 <GeneratingImageCard />
                 {displayedItems.slice(0, 3).map((item, index) => (
                   <ArtworkCard
@@ -1597,12 +1572,12 @@ export function UIDesignPage() {
                 ))}
               </div>
             ) : galleryLoading ? (
-              <div className={cn("flex h-56 items-center justify-center rounded-[20px] text-sm font-semibold text-slate-500", glassCard)}>
+              <div className={cn("flex h-56 items-center justify-center rounded-[10px] text-sm font-semibold text-slate-500", glassCard)}>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" />
                 正在加载图片...
               </div>
             ) : displayedItems.length > 0 ? (
-              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+              <div className={cn("grid grid-cols-1 gap-5", displayedItems.length > 1 ? "2xl:grid-cols-2" : "")}>
                 {displayedItems.map((item, index) => (
                   <ArtworkCard
                     key={item.id}
@@ -1617,20 +1592,24 @@ export function UIDesignPage() {
                 ))}
               </div>
             ) : (
-              <div className={cn("flex h-56 flex-col items-center justify-center rounded-[20px] text-center", glassCard)}>
-                <Sparkles className="h-6 w-6 text-blue-500" />
+              <div className={cn("flex h-56 flex-col items-center justify-center rounded-[10px] text-center", glassCard)}>
+                <Sparkles className="h-6 w-6 text-primary" />
                 <div className="mt-3 text-sm font-semibold text-slate-800">
-                  {activeTab === "当前" ? "今日暂无图片" : "暂无图片"}
+                  {normalizedSearchKeyword ? "没有匹配的图片" : activeTab === "当前" ? "今日暂无图片" : "暂无图片"}
                 </div>
                 <div className="mt-1 text-xs text-slate-500">
-                  {activeTab === "当前" ? "今天生成的图片会显示在这里，历史图片请切换到历史。" : "生成图片后会自动出现在这里"}
+                  {normalizedSearchKeyword
+                    ? "换个关键词，或切换到其他 tab 继续搜索。"
+                    : activeTab === "当前"
+                      ? "今天生成的图片会显示在这里，历史图片请切换到历史。"
+                      : "生成图片后会自动出现在这里"}
                 </div>
               </div>
             )}
           </div>
         </section>
 
-        <aside className="material-scrollbar grid min-h-0 gap-5 overflow-y-auto pr-1 xl:col-span-2 xl:grid-cols-2 2xl:col-span-1 2xl:block 2xl:space-y-5">
+        <aside className="material-scrollbar grid gap-4 min-[1280px]:col-span-2 min-[1280px]:grid-cols-3 min-[1280px]:pr-1 min-[1440px]:col-span-1 min-[1440px]:block min-[1440px]:min-h-0 min-[1440px]:space-y-3 min-[1440px]:overflow-y-auto">
           {/*<section className={cn("rounded-[20px] p-5", glassCard)}>*/}
           {/*  <div className="mb-4 flex items-center justify-between">*/}
           {/*    <div>*/}
@@ -1651,22 +1630,25 @@ export function UIDesignPage() {
           {/*  </div>*/}
           {/*</section>*/}
 
-          <section className={cn("rounded-[20px] p-5", glassCard)}>
+          <section className="relative overflow-hidden rounded-[10px] border border-slate-900 bg-slate-950 p-5 text-white shadow-[0_18px_44px_rgba(15,23,42,0.18)] ring-1 ring-white/10">
+            <div className="pointer-events-none absolute inset-0 opacity-35 [background-image:linear-gradient(rgba(255,255,255,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.07)_1px,transparent_1px)] [background-size:28px_28px]" />
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,transparent,var(--primary-container),transparent)]" />
             <div className="mb-4 flex items-center gap-2">
-              <Settings2 className="h-4 w-4 text-blue-500" />
-              <h2 className="text-sm font-semibold text-slate-950">生成设置</h2>
+              <Settings2 className="h-4 w-4 text-primary-container" />
+              <h2 className="text-sm font-semibold text-white">生成设置</h2>
             </div>
-            <div className="space-y-3">
+            <div className="relative space-y-3">
               {generationSettings.map(([label, value]) => (
-                <div key={label} className="flex items-center justify-between gap-3 border-b border-slate-100 pb-2 last:border-b-0 last:pb-0">
-                  <span className="text-xs text-slate-500">{label}</span>
-                  <span className="truncate text-right text-xs font-semibold text-slate-800">{value}</span>
+                <div key={label} className="flex items-center justify-between gap-3 border-b border-white/10 pb-2 last:border-b-0 last:pb-0">
+                  <span className="text-xs text-white/55">{label}</span>
+                  <span className="truncate text-right text-xs font-semibold text-white">{value}</span>
                 </div>
               ))}
             </div>
           </section>
 
-          <section className={cn("rounded-[20px] p-5", glassCard)}>
+          <section className={cn("relative overflow-hidden rounded-[10px] p-5", glassCard)}>
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-primary" />
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <h2 className="text-sm font-semibold text-slate-950">用量监控</h2>
@@ -1674,7 +1656,7 @@ export function UIDesignPage() {
               </div>
               <button
                 type="button"
-                className="cursor-pointer rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-60"
+                className="cursor-pointer rounded-[8px] border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 transition hover:border-primary/25 hover:bg-surface-container-low disabled:cursor-not-allowed disabled:opacity-60"
                 onClick={() => void loadUsage()}
                 disabled={usageLoading}
               >
@@ -1684,34 +1666,34 @@ export function UIDesignPage() {
             {usage ? (
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="rounded-[16px] border border-slate-200 bg-slate-50/80 p-3">
+                  <div className="rounded-[8px] border border-border bg-surface-container-low p-3">
                     <div className="text-[11px] font-semibold text-slate-500">预估费用</div>
-                    <div className="mt-1 text-lg font-semibold text-slate-950">
+                    <div className="mt-1 font-mono text-lg font-semibold tabular-nums text-slate-950">
                       {formatUsd(usage.summary.estimatedCostUsd)}
                     </div>
                   </div>
-                  <div className="rounded-[16px] border border-slate-200 bg-slate-50/80 p-3">
+                  <div className="rounded-[8px] border border-border bg-surface-container-low p-3">
                     <div className="text-[11px] font-semibold text-slate-500">上游调用</div>
-                    <div className="mt-1 text-lg font-semibold text-slate-950">{usage.summary.upstreamCalls}</div>
+                    <div className="mt-1 font-mono text-lg font-semibold tabular-nums text-slate-950">{usage.summary.upstreamCalls}</div>
                   </div>
-                  <div className="rounded-[16px] border border-slate-200 bg-slate-50/80 p-3">
+                  <div className="rounded-[8px] border border-border bg-surface-container-low p-3">
                     <div className="text-[11px] font-semibold text-slate-500">输出 tokens</div>
-                    <div className="mt-1 text-sm font-semibold text-slate-950">
+                    <div className="mt-1 font-mono text-sm font-semibold tabular-nums text-slate-950">
                       {usage.summary.outputTokens.toLocaleString("zh-CN")}
                     </div>
                   </div>
-                  <div className="rounded-[16px] border border-slate-200 bg-slate-50/80 p-3">
+                  <div className="rounded-[8px] border border-border bg-surface-container-low p-3">
                     <div className="text-[11px] font-semibold text-slate-500">参考图 tokens</div>
-                    <div className="mt-1 text-sm font-semibold text-slate-950">
+                    <div className="mt-1 font-mono text-sm font-semibold tabular-nums text-slate-950">
                       {usage.summary.inputImageTokens.toLocaleString("zh-CN")}
                     </div>
                   </div>
                 </div>
-                <div className="rounded-[16px] border border-slate-200 bg-white p-3 text-[11px] leading-5 text-slate-500">
+                <div className="rounded-[8px] border border-slate-200 bg-white p-3 text-[11px] leading-5 text-slate-500">
                   成功 {usage.summary.successCalls} 次，失败 {usage.summary.errorCalls} 次，重试 {usage.summary.retryCalls} 次；图生图 {usage.summary.editCalls} 次。
                 </div>
                 {usage.entries.slice(0, 3).map((entry) => (
-                  <div key={entry.id} className="rounded-[16px] border border-slate-200 bg-slate-50/80 p-3">
+                  <div key={entry.id} className="rounded-[8px] border border-slate-200 bg-slate-50/80 p-3">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-xs font-semibold text-slate-800">
                         {entry.operation === "edit" ? "图生图" : "文生图"} · {entry.normalizedSize || "-"}
@@ -1725,15 +1707,15 @@ export function UIDesignPage() {
                 ))}
               </div>
             ) : (
-              <div className="rounded-[16px] border border-dashed border-slate-200 bg-slate-50/80 px-3 py-4 text-xs leading-5 text-slate-500">
+              <div className="rounded-[8px] border border-dashed border-slate-200 bg-slate-50/80 px-3 py-4 text-xs leading-5 text-slate-500">
                 暂无上游调用记录。新生成图片后会显示 token 和预估费用。
               </div>
             )}
           </section>
 
-          <section className={cn("rounded-[20px] p-5", glassCard)}>
+          <section className={cn("rounded-[10px] p-5", glassCard)}>
             <div className="mb-4 flex items-center gap-2">
-              <Clipboard className="h-4 w-4 text-blue-500" />
+              <Clipboard className="h-4 w-4 text-primary" />
               <h2 className="text-sm font-semibold text-slate-950">最近创作</h2>
             </div>
             <div className="space-y-3">
@@ -1742,7 +1724,7 @@ export function UIDesignPage() {
                   key={item.id}
                   type="button"
                   onClick={() => setPreviewItem(item)}
-                  className="flex w-full cursor-pointer items-center gap-3 rounded-[16px] border border-slate-200 bg-slate-50/80 p-2.5 text-left transition hover:border-blue-200 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+                  className="flex w-full cursor-pointer items-center gap-3 rounded-[8px] border border-slate-200 bg-surface-container-low p-2.5 text-left transition hover:border-primary/25 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                 >
                   <MiniPreview imageData={item.imageData} />
                   <div className="min-w-0">
@@ -1755,7 +1737,7 @@ export function UIDesignPage() {
                   </div>
                 </button>
               )) : (
-                <div className="rounded-[16px] border border-dashed border-slate-200 bg-slate-50/80 px-3 py-4 text-xs leading-5 text-slate-500">
+                <div className="rounded-[8px] border border-dashed border-slate-200 bg-slate-50/80 px-3 py-4 text-xs leading-5 text-slate-500">
                   暂无历史创作，今天之前生成的图片会显示在这里。
                 </div>
               )}
@@ -1781,7 +1763,7 @@ export function UIDesignPage() {
                     {latestOptimizedPrompt ? "已有优化结果" : "等待优化"}
                   </span>
                   <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-slate-600">
-                    {selectedPromptModelOption ? formatModelOptionLabel(selectedPromptModelOption) : "默认文本模型"}
+                    {selectedPromptModelOption ? formatAiModelOptionLabel(selectedPromptModelOption) : "默认文本模型"}
                   </span>
                 </div>
               </div>
@@ -1972,12 +1954,12 @@ export function UIDesignPage() {
                       value={promptChatModel}
                       onChange={(event) => setPromptChatModel(event.target.value)}
                       className="material-input h-11 w-full cursor-pointer appearance-none rounded-[16px] pr-9 text-xs font-semibold"
-                      disabled={promptChatLoading || promptModelOptions.length === 0}
+                      disabled={promptChatLoading || textModelOptions.length === 0}
                     >
-                      {promptModelOptions.length > 0 ? (
-                        promptModelOptions.map((item) => (
+                      {textModelOptions.length > 0 ? (
+                        textModelOptions.map((item) => (
                           <option key={item.value} value={item.value}>
-                            {formatModelOptionLabel(item)}
+                            {formatAiModelOptionLabel(item)}
                           </option>
                         ))
                       ) : (
@@ -2049,7 +2031,7 @@ export function UIDesignPage() {
                 </button>
               </div>
             </div>
-            <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[minmax(0,1fr)_360px]">
+            <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_360px]">
               <div className="relative min-h-[260px] bg-slate-100 md:min-h-0">
                 <img src={previewItem.imageData} alt={previewItem.prompt} className="h-full w-full object-contain" />
               </div>

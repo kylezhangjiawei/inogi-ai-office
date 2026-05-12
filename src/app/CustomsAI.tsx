@@ -99,27 +99,27 @@ export function CustomsAI() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      <section className="material-card p-6 md:p-8">
+      <section className="material-card p-4 sm:p-6 md:p-8">
         <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-          <div className="space-y-3">
+          <div className="min-w-0 space-y-3">
             <span className="material-chip bg-blue-50 text-blue-700">Customs AI</span>
             <div>
-              <h2 className="text-[2rem] font-bold tracking-tight text-slate-900">报关单证 AI</h2>
+              <h2 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[2rem]">报关单证 AI</h2>
               <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
                 这一页已经升级成独立流程页，覆盖单证上传、字段抽取、一致性比对和模板回填，让报关资料可以顺着流程继续流转到对外资料与注册项目模块。
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap gap-3">
-            <Link to="/customs-docs" className="material-button-secondary">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:gap-3">
+            <Link to="/customs-docs" className="material-button-secondary w-full justify-center sm:w-auto">
               去单证处理详情
               <ArrowRight className="h-4 w-4" />
             </Link>
-            <Link to="/external-docs" className="material-button-secondary">
+            <Link to="/external-docs" className="material-button-secondary w-full justify-center sm:w-auto">
               去对外资料版本
               <ArrowRight className="h-4 w-4" />
             </Link>
-            <Link to="/registration-projects" className="material-button-secondary">
+            <Link to="/registration-projects" className="material-button-secondary w-full justify-center sm:w-auto">
               去注册项目看板
               <ArrowRight className="h-4 w-4" />
             </Link>
@@ -127,18 +127,18 @@ export function CustomsAI() {
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-3">
-        <div className="material-card-flat p-5">
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="material-card-flat min-w-0 p-4 sm:p-5">
           <div className="text-sm font-medium text-slate-500">已上传单证</div>
           <div className="mt-3 text-4xl font-bold tracking-tight text-slate-900">{uploadedCount}</div>
           <div className="mt-2 text-sm text-slate-500">支持 PDF、Word、Excel 的假数据上传演示</div>
         </div>
-        <div className="material-card-flat p-5">
+        <div className="material-card-flat min-w-0 p-4 sm:p-5">
           <div className="text-sm font-medium text-slate-500">差异字段</div>
           <div className="mt-3 text-4xl font-bold tracking-tight text-slate-900">{mismatchCount}</div>
           <div className="mt-2 text-sm text-slate-500">需要人工复核后再回填到报关模板</div>
         </div>
-        <div className="material-card-flat p-5">
+        <div className="material-card-flat min-w-0 p-4 sm:p-5">
           <div className="text-sm font-medium text-slate-500">模板状态</div>
           <div className="mt-3 text-4xl font-bold tracking-tight text-slate-900">2</div>
           <div className="mt-2 text-sm text-slate-500">CI 已生成，PL 可继续一键生成草稿</div>
@@ -147,9 +147,9 @@ export function CustomsAI() {
 
       <section className="grid grid-cols-12 gap-6">
         <div className="col-span-12 xl:col-span-8">
-          <div className="material-card p-6">
-            <div className="flex items-center justify-between">
-              <div>
+          <div className="material-card min-w-0 p-4 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
                 <h3 className="text-slate-900">处理日志</h3>
                 <p className="mt-1 text-sm text-slate-500">把 AI 处理流程拆成时间线，页面会更像真实工作流。</p>
               </div>
@@ -170,7 +170,7 @@ export function CustomsAI() {
         </div>
 
         <div className="col-span-12 xl:col-span-4">
-          <div className="material-card p-6">
+          <div className="material-card min-w-0 p-4 sm:p-6">
             <h3 className="text-slate-900">动作清单</h3>
             <div className="mt-4 space-y-3">
               {[
@@ -189,9 +189,9 @@ export function CustomsAI() {
 
       <section className="grid grid-cols-12 gap-6">
         <div className="col-span-12 xl:col-span-4">
-          <div className="material-card h-full space-y-5 p-6">
-            <div className="flex items-center justify-between">
-              <div>
+          <div className="material-card h-full min-w-0 space-y-5 p-4 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
                 <h3 className="text-slate-900">单证上传区</h3>
                 <p className="mt-1 text-sm text-slate-500">切换 PI、CI、PL 查看已上传文件与状态。</p>
               </div>
@@ -217,12 +217,12 @@ export function CustomsAI() {
             </div>
 
             <div className="rounded-[24px] border border-dashed border-slate-200 bg-slate-50/70 p-5">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-center gap-3">
                   <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-primary">
                     <Package className="h-5 w-5" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-sm font-semibold text-slate-800">模拟上传</div>
                     <div className="text-sm text-slate-500">点击后向当前分类追加一份演示文件。</div>
                   </div>
@@ -255,9 +255,9 @@ export function CustomsAI() {
         </div>
 
         <div className="col-span-12 xl:col-span-5">
-          <div className="material-card h-full space-y-5 p-6">
-            <div className="flex items-center justify-between">
-              <div>
+          <div className="material-card h-full min-w-0 space-y-5 p-4 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
                 <h3 className="text-slate-900">字段抽取与比对</h3>
                 <p className="mt-1 text-sm text-slate-500">自动抽取 PI、CI、PL 关键字段并标记不一致项。</p>
               </div>
@@ -270,8 +270,8 @@ export function CustomsAI() {
               </div>
             ) : null}
 
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left">
+            <div className="material-scrollbar overflow-x-auto">
+              <table className="min-w-[640px] text-left">
                 <thead className="bg-slate-50">
                   <tr>
                     {["字段", "PI", "CI", "PL", "状态"].map((column) => (
@@ -297,7 +297,7 @@ export function CustomsAI() {
               </table>
             </div>
 
-            <div className="flex items-center justify-between rounded-2xl border border-slate-100 bg-white px-4 py-3">
+            <div className="flex flex-col gap-3 rounded-2xl border border-slate-100 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-sm text-slate-500">
                 第 {comparisonPage}/{comparisonTotalPages} 页
               </div>
@@ -334,7 +334,7 @@ export function CustomsAI() {
         </div>
 
         <div className="col-span-12 xl:col-span-3">
-          <div className="material-card h-full space-y-4 p-6">
+          <div className="material-card h-full min-w-0 space-y-4 p-4 sm:p-6">
             <div>
               <h3 className="text-slate-900">模板回填</h3>
               <p className="mt-1 text-sm text-slate-500">把抽取结果直接回填进可编辑报关模板。</p>
@@ -343,7 +343,7 @@ export function CustomsAI() {
             {templateCards.map((item) => (
               <button key={item.title} type="button" onClick={() => setPreviewTemplate(item)} className="w-full rounded-[22px] border border-slate-100 bg-slate-50/70 p-4 text-left transition hover:border-blue-200">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-sm font-semibold text-slate-800">{item.title}</div>
                     <div className="mt-2 text-sm leading-6 text-slate-500">{item.helper}</div>
                   </div>
@@ -376,9 +376,9 @@ export function CustomsAI() {
 
       <section className="grid grid-cols-12 gap-6">
         <div className="col-span-12 xl:col-span-6">
-          <div className="material-card h-full p-6">
-            <div className="mb-5 flex items-center justify-between">
-              <div>
+          <div className="material-card h-full min-w-0 p-4 sm:p-6">
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
                 <h3 className="text-slate-900">提取摘要</h3>
                 <p className="mt-1 text-sm text-slate-500">概览 AI 已经识别出来的核心报关信息。</p>
               </div>
@@ -402,9 +402,9 @@ export function CustomsAI() {
         </div>
 
         <div className="col-span-12 xl:col-span-6">
-          <div className="material-card h-full p-6">
-            <div className="mb-5 flex items-center justify-between">
-              <div>
+          <div className="material-card h-full min-w-0 p-4 sm:p-6">
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
                 <h3 className="text-slate-900">流程去向</h3>
                 <p className="mt-1 text-sm text-slate-500">让单证处理结果可以继续进入后续模块。</p>
               </div>
@@ -416,8 +416,8 @@ export function CustomsAI() {
                 { title: "同步到对外资料版本", detail: "将最终模板和说明归档到版本管理中心。", to: "/external-docs" },
                 { title: "同步到注册项目里程碑", detail: "把需要注册配合的单证事项挂到项目看板。", to: "/registration-projects" },
               ].map((item) => (
-                <Link key={item.title} to={item.to} className="flex items-center justify-between rounded-[22px] border border-slate-100 bg-slate-50/70 p-4 transition hover:-translate-y-0.5">
-                  <div>
+                <Link key={item.title} to={item.to} className="flex flex-wrap items-center justify-between gap-3 rounded-[22px] border border-slate-100 bg-slate-50/70 p-4 transition hover:-translate-y-0.5">
+                  <div className="min-w-0">
                     <div className="text-sm font-semibold text-slate-800">{item.title}</div>
                     <div className="mt-1 text-sm text-slate-500">{item.detail}</div>
                   </div>
@@ -441,9 +441,9 @@ export function CustomsAI() {
 
       {previewFile ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/28 px-4">
-          <div className="material-card w-full max-w-2xl p-6">
-            <div className="flex items-center justify-between">
-              <div>
+          <div className="material-card w-full max-w-2xl p-4 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
                 <h3 className="text-slate-900">文件预览</h3>
                 <p className="mt-1 text-sm text-slate-500">点击上传列表后显示的详情弹窗。</p>
               </div>
@@ -454,7 +454,7 @@ export function CustomsAI() {
             <div className="mt-5 grid gap-4 md:grid-cols-2">
               <div className="material-panel">
                 <div className="text-xs uppercase tracking-[0.14em] text-slate-400">File</div>
-                <div className="mt-2 text-base font-semibold text-slate-900">{previewFile.name}</div>
+                <div className="mt-2 break-words text-base font-semibold text-slate-900">{previewFile.name}</div>
                 <div className="mt-2 text-sm text-slate-600">类型：{previewFile.type}</div>
                 <div className="mt-1 text-sm text-slate-600">上传时间：{previewFile.uploadedAt}</div>
               </div>
@@ -472,9 +472,9 @@ export function CustomsAI() {
 
       {previewTemplate ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/28 px-4">
-          <div className="material-card w-full max-w-2xl p-6">
-            <div className="flex items-center justify-between">
-              <div>
+          <div className="material-card w-full max-w-2xl p-4 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
                 <h3 className="text-slate-900">模板详情</h3>
                 <p className="mt-1 text-sm text-slate-500">模板卡片现在可以点击查看字段与动作说明。</p>
               </div>

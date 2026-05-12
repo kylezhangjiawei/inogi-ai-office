@@ -437,7 +437,7 @@ export function UserManagement() {
 
         {/* 表格 */}
         <div className="overflow-x-auto">
-          <table className="min-w-full text-left">
+          <table className="min-w-[820px] text-left">
             <thead className="bg-slate-50">
               <tr>
                 {["姓名 / 账号", "角色", "部门", "状态", "密码", "操作"].map((col) => (

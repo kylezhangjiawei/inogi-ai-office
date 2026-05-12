@@ -314,17 +314,17 @@ function TutorialVisual({ step, platform }: { step: TutorialStep; platform: Plat
       <div className="grid gap-4 lg:grid-cols-2">
         <div className="rounded border border-slate-200 bg-white p-4 text-xs text-blue-700 shadow-sm">
           {["Clash.Verge_1.7.3_x64-setup.exe", "Clash.Verge_1.7.3_x64.dmg", "Clash.Verge_1.7.3_arm64.dmg", "Clash.Verge_1.7.3_portable.zip"].map((item) => (
-            <div key={item} className="border-b border-slate-100 py-2 underline">
+            <div key={item} className="break-all border-b border-slate-100 py-2 underline">
               {item}
             </div>
           ))}
         </div>
         <div className="rounded border border-slate-200 bg-white p-4 font-serif text-sm text-slate-800 shadow-sm">
           <div className="mb-3 text-xl font-bold">Index of /clash-verge/1.7.2</div>
-          <div className="grid grid-cols-[1fr_auto_auto] gap-2 text-xs">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 text-xs">
             {["Clash Verge 1.7.2 arm64.dmg", "Clash Verge 1.7.2 x64-setup.exe", "Clash Verge 1.7.2 x64.dmg"].map((item) => (
               <React.Fragment key={item}>
-                <span className="text-blue-700 underline">{item}</span>
+                <span className="min-w-0 truncate text-blue-700 underline">{item}</span>
                 <span>2024-07-03</span>
                 <span>35M</span>
               </React.Fragment>
@@ -470,12 +470,12 @@ function TutorialBody({ body }: { body: TutorialStep["body"] }) {
 
 export function DownloadTutorialPage() {
   return (
-    <div className="mx-auto max-w-[1680px] space-y-7">
-      <section className="rounded-sm border border-blue-100 bg-white px-5 py-5 shadow-[0_10px_22px_rgba(15,23,42,0.06)]">
+    <div className="mx-auto max-w-[1680px] space-y-5 sm:space-y-7">
+      <section className="rounded-sm border border-blue-100 bg-white px-4 py-4 shadow-[0_10px_22px_rgba(15,23,42,0.06)] sm:px-5 sm:py-5">
         <h2 className="text-xl font-bold tracking-tight text-[#222a52]">下载和教程</h2>
       </section>
 
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+      <section className="grid grid-cols-1 gap-4 xl:grid-cols-2 xl:gap-6">
         {platforms.map((platform) => {
           const Icon = platform.icon;
 
@@ -484,13 +484,13 @@ export function DownloadTutorialPage() {
               key={platform.id}
               to={`/downloads/${platform.id}`}
               className={cn(
-                "group relative min-h-[190px] overflow-hidden rounded-[4px] bg-gradient-to-r px-9 py-9 text-white transition duration-200 hover:-translate-y-0.5",
+                "group relative min-h-[170px] overflow-hidden rounded-[4px] bg-gradient-to-r px-5 py-6 text-white transition duration-200 hover:-translate-y-0.5 sm:min-h-[190px] sm:px-9 sm:py-9",
                 platform.gradient,
                 platform.shadow,
               )}
             >
               <div className="relative z-10">
-                <h3 className="text-[2.75rem] font-bold leading-none tracking-normal text-white">{platform.cardName}</h3>
+                <h3 className="text-3xl font-bold leading-none tracking-normal text-white sm:text-[2.75rem]">{platform.cardName}</h3>
                 <p className="mt-4 text-base font-semibold text-white/95">{platform.version}</p>
                 <div className="mt-7 inline-flex items-center gap-2 rounded border border-white/25 bg-white/12 px-4 py-2 text-sm font-semibold text-white/85 backdrop-blur transition group-hover:bg-white/22 group-hover:text-white">
                   <BookOpen className="h-4 w-4" />
@@ -498,7 +498,7 @@ export function DownloadTutorialPage() {
                 </div>
               </div>
 
-              <Icon className={cn("pointer-events-none absolute -right-2 -top-2 h-40 w-40", platform.iconClass)} strokeWidth={1.35} />
+              <Icon className={cn("pointer-events-none absolute right-3 top-4 h-24 w-24 opacity-45 sm:-right-2 sm:-top-2 sm:h-40 sm:w-40 sm:opacity-80", platform.iconClass)} strokeWidth={1.35} />
               <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgba(0,0,0,0.08),rgba(255,255,255,0.08))]" />
             </Link>
           );
@@ -516,22 +516,22 @@ export function PlatformTutorialPage() {
 
   return (
     <div className="mx-auto max-w-[1680px] overflow-hidden rounded-sm bg-white shadow-[0_12px_28px_rgba(15,23,42,0.06)]">
-      <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-6 py-4 shadow-[0_6px_18px_rgba(15,23,42,0.06)]">
-        <div className="flex items-center gap-4">
+      <div className="sticky top-0 z-10 flex flex-col gap-3 border-b border-slate-100 bg-white px-4 py-4 shadow-[0_6px_18px_rgba(15,23,42,0.06)] sm:flex-row sm:items-center sm:justify-between sm:px-6">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
           <Link to="/downloads" className="flex h-9 w-9 items-center justify-center rounded-full text-indigo-600 transition hover:bg-indigo-50">
             <ArrowLeft className="h-5 w-5" />
           </Link>
-          <h2 className="text-2xl font-bold tracking-tight text-[#20264f]">{platform.title}</h2>
+          <h2 className="min-w-0 truncate text-xl font-bold tracking-tight text-[#20264f] sm:text-2xl">{platform.title}</h2>
         </div>
-        <Link to="/downloads" className="rounded bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_14px_rgba(79,70,229,0.28)] transition hover:bg-indigo-600">
+        <Link to="/downloads" className="inline-flex justify-center rounded bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_14px_rgba(79,70,229,0.28)] transition hover:bg-indigo-600">
           其他客户端
         </Link>
       </div>
 
       <div className="divide-y divide-slate-100">
         {platform.steps.map((step, index) => (
-          <section key={`${platform.id}-${step.title}`} className="grid min-h-[240px] gap-8 px-7 py-9 lg:grid-cols-[minmax(0,1fr)_430px] lg:items-start">
-            <div className="max-w-4xl">
+          <section key={`${platform.id}-${step.title}`} className="grid min-h-[240px] gap-6 px-4 py-7 lg:grid-cols-[minmax(0,1fr)_minmax(280px,430px)] lg:items-start lg:gap-8 lg:px-7 lg:py-9">
+            <div className="min-w-0 max-w-4xl">
               <div className={cn("text-4xl font-bold leading-none", platform.accent)}>{index + (platform.id === "windows" ? 0 : 1)}.</div>
               <h3 className="mt-3 text-base font-semibold leading-7 text-slate-600">{step.title}</h3>
               <TutorialBody body={step.body} />

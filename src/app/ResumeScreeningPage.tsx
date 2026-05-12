@@ -47,6 +47,7 @@ import {
 } from "./components/ui/tooltip";
 import { cn } from "./components/ui/utils";
 import { ImageWithFallback } from "./components/figma/ImageWithFallback";
+import { formatAiModelConfigLabel, getAiModelUsage } from "./lib/aiModelOptions";
 import {
   type CandidateDetail,
   type CandidateAiChatMessage,
@@ -586,9 +587,9 @@ function TooltipIconButton({
 
 function StatPill({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="material-neu-stat rounded-lg px-3 py-3">
+    <div className="material-neu-stat rounded-[var(--m3-shape-large)] px-3 py-2.5">
       <div className="text-xs font-semibold text-slate-500">{label}</div>
-      <div className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">{value}</div>
+      <div className="mt-1 text-xl font-semibold leading-none tracking-tight text-slate-950">{value}</div>
     </div>
   );
 }
@@ -703,6 +704,10 @@ export function ResumeScreeningPage() {
     const modelName = selectedOpenAiConfig?.model?.trim();
     return configName || modelName || "AI 模型";
   }, [selectedOpenAiConfig]);
+  const selectedOpenAiUsage = useMemo(
+    () => getAiModelUsage(selectedOpenAiConfig?.model),
+    [selectedOpenAiConfig?.model],
+  );
   const resolvedSelectedJobRule = useMemo(() => {
     const candidateIds = [
       selectedJobRuleId.trim(),
@@ -1719,18 +1724,20 @@ export function ResumeScreeningPage() {
   const candidateAiLoading = Boolean(candidateAiTarget && candidateAiLoadingId === candidateAiTarget.id);
 
   return (
-    <div className="resume-screening-surface mx-auto flex max-w-[1720px] flex-col gap-6 px-4 py-6">
-      <section className="material-panel material-neu-panel rounded-[var(--m3-shape-extra-large)] px-5 py-4">
-        <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-3">
+    <div className="resume-screening-surface mx-auto flex max-w-[1720px] flex-col gap-5 px-3 py-4 sm:px-5 sm:py-6" style={{background: 'transparent'}}>
+      <section className="resume-screening-hero material-panel material-neu-panel rounded-[var(--m3-shape-extra-large)] px-4 py-3 sm:px-5">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="resume-screening-hero-copy flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center lg:gap-3">
+            <div className="flex shrink-0 flex-wrap items-center gap-3">
               <div className="material-neu-chip inline-flex items-center gap-2 rounded-[4px] px-3 py-1 text-xs font-semibold text-blue-800">
                 <Mail className="h-3.5 w-3.5" />
                 企业邮箱简历初筛
               </div>
-              <h1 className="text-2xl font-semibold tracking-tight text-slate-950">简历筛选工作台</h1>
             </div>
-            <div className="mt-3 flex flex-wrap gap-2 text-sm font-medium text-slate-600">
+            <h1 className="text-xl font-semibold leading-tight tracking-tight text-slate-950 sm:text-2xl">
+              简历筛选工作台
+            </h1>
+            <div className="flex min-w-0 flex-wrap gap-2 text-xs font-medium text-slate-600">
               <span className="material-neu-chip rounded-[4px] px-3 py-1.5">
                 数据源：{health?.mail_configured ? "企业邮箱已连接" : "等待邮箱配置"}
               </span>
@@ -1742,7 +1749,8 @@ export function ResumeScreeningPage() {
               </span>
             </div>
           </div>
-          <div className="grid gap-3 sm:grid-cols-4 xl:min-w-[520px]">
+
+          <div className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-4 xl:min-w-[440px]">
             <StatPill label="候选人" value={stats.total} />
             <StatPill label="推荐" value={stats.recommend} />
             <StatPill label="待定" value={stats.hold} />
@@ -1760,7 +1768,7 @@ export function ResumeScreeningPage() {
         onChange={(event) => void handleUploadResumeFolder(event)}
       />
 
-      <section className="material-panel material-neu-panel-soft rounded-[var(--m3-shape-extra-large)] px-5 py-4">
+      <section className="material-panel material-neu-panel-soft rounded-[var(--m3-shape-extra-large)] px-4 py-4 sm:px-5">
         <div className="grid gap-4 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.6fr)] xl:items-end">
           <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
             <MaterialSelect
@@ -1787,7 +1795,7 @@ export function ResumeScreeningPage() {
             </button>
           </div>
 
-          <div className="grid gap-3 lg:grid-cols-[minmax(160px,1fr)_minmax(180px,1fr)_96px_96px_auto_auto_auto] lg:items-end">
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 xl:items-end 2xl:grid-cols-[minmax(160px,1fr)_minmax(180px,1fr)_96px_96px_auto_auto_auto]">
             <MaterialSelect
               label="企业邮箱"
               value={selectedMailConfigId}
@@ -1803,9 +1811,11 @@ export function ResumeScreeningPage() {
               value={selectedOpenAiConfigId}
               onValueChange={setSelectedOpenAiConfigId}
               options={openAiConfigs.map((item) => ({
-                label: `${item.name} / ${item.model}`,
+                label: formatAiModelConfigLabel(item),
                 value: item.id,
+                description: getAiModelUsage(item.model).description,
               }))}
+              hint={selectedOpenAiConfig ? `当前选择：${selectedOpenAiUsage.label} · ${selectedOpenAiUsage.description}` : undefined}
               placeholder={loadingOpenAiConfigs ? "加载中..." : "选择 AI"}
             />
             <MaterialInput
@@ -1838,7 +1848,7 @@ export function ResumeScreeningPage() {
               type="button"
               onClick={() => void handleRunSync()}
               disabled={runningSync}
-              className="material-neu-primary inline-flex h-12 cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-white transition disabled:opacity-60"
+              className="material-neu-primary inline-flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-white transition disabled:opacity-60"
             >
               {runningSync ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
               同步
@@ -1847,7 +1857,7 @@ export function ResumeScreeningPage() {
               type="button"
               onClick={() => uploadFolderInputRef.current?.click()}
               disabled={uploadingFolder}
-              className="material-neu-button inline-flex h-12 cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-slate-800 transition disabled:opacity-60"
+              className="material-neu-button inline-flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-slate-800 transition disabled:opacity-60"
             >
               {uploadingFolder ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
               上传
@@ -1855,7 +1865,7 @@ export function ResumeScreeningPage() {
             <button
               type="button"
               onClick={() => setShowSyncSettings(true)}
-              className="material-neu-button inline-flex h-12 cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-slate-800 transition"
+              className="material-neu-button inline-flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-slate-800 transition"
             >
               <Clock3 className="h-4 w-4" />
               设置
@@ -2066,9 +2076,11 @@ export function ResumeScreeningPage() {
                   onValueChange={setSelectedOpenAiConfigId}
                   className="h-12"
                   options={openAiConfigs.map((item) => ({
-                    label: `${item.name} / ${item.model}`,
+                    label: formatAiModelConfigLabel(item),
                     value: item.id,
+                    description: getAiModelUsage(item.model).description,
                   }))}
+                  hint={selectedOpenAiConfig ? `当前选择：${selectedOpenAiUsage.label} · ${selectedOpenAiUsage.description}` : undefined}
                   placeholder={loadingOpenAiConfigs ? "正在加载 AI 配置..." : "选择 AI 配置"}
                 />
                 <MaterialInput
@@ -2305,7 +2317,7 @@ export function ResumeScreeningPage() {
         </DialogContent>
       </Dialog>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(420px,0.75fr)]">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(400px,0.85fr)]">
         <section className="material-panel material-neu-panel overflow-hidden !px-0 !py-6">
           <div className="flex flex-wrap items-start justify-between gap-4 px-5">
             <div>
@@ -2336,7 +2348,7 @@ export function ResumeScreeningPage() {
             </div>
           </div>
 
-          <div className="mt-6 grid gap-3 px-5 xl:grid-cols-[1.3fr_1fr_1fr]">
+          <div className="mt-6 grid gap-3 px-5 md:grid-cols-3">
             <MaterialInput
               label="关键词搜索"
               value={candidateKeyword}
@@ -2361,7 +2373,7 @@ export function ResumeScreeningPage() {
               className="h-13"
             />
           </div>
-          <div className="mt-6 grid gap-3 px-5 xl:grid-cols-[1.3fr_1fr_1fr]">
+          <div className="mt-4 grid gap-3 px-5 md:grid-cols-3">
             <MaterialInput
                 label="最低分"
                 type="number"
@@ -2404,7 +2416,7 @@ export function ResumeScreeningPage() {
                   AI 会先分析筛选意图；条件不明确时会追问，明确后才生成新的列表评分版本。
                 </div>
               </div>
-              <div className="flex min-w-[260px] flex-wrap items-end gap-3">
+              <div className="flex w-full flex-wrap items-end gap-3 sm:w-auto sm:min-w-[260px]">
                 <MaterialSelect
                   value={selectedFilterVersion}
                   onValueChange={setSelectedFilterVersion}
@@ -2496,7 +2508,7 @@ export function ResumeScreeningPage() {
             </div>
           </div>
 
-          <div className="material-data-table mt-6 overflow-hidden">
+          <div className="material-data-table mx-3 mt-6 overflow-hidden rounded-[var(--m3-shape-large)] sm:mx-5">
             <MuiTableContainer
               className="material-scrollbar"
               sx={{
@@ -2518,7 +2530,7 @@ export function ResumeScreeningPage() {
                 <MuiTable
                   stickyHeader
                   sx={{
-                    minWidth: 1280,
+                    minWidth: 1040,
                     tableLayout: "fixed",
                     "& .MuiTableCell-root": {
                       boxSizing: "border-box",
@@ -2665,7 +2677,7 @@ export function ResumeScreeningPage() {
               )}
             </MuiTableContainer>
             {candidatePagination.total > 0 ? (
-              <div className="flex justify-end border-t border-white/70 bg-white/58 px-3">
+              <div className="flex justify-end overflow-x-auto border-t border-white/70 bg-white/58 px-3">
                 <MuiTablePagination
                   component="div"
                   count={candidatePagination.total}
@@ -2686,6 +2698,9 @@ export function ResumeScreeningPage() {
                     "& .MuiTablePagination-toolbar": {
                       minHeight: 52,
                       px: 0,
+                      flexWrap: "wrap",
+                      justifyContent: "flex-end",
+                      rowGap: 1,
                     },
                     "& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows": {
                       m: 0,
@@ -2705,7 +2720,7 @@ export function ResumeScreeningPage() {
           </div>
         </section>
 
-        <section className="material-panel material-neu-panel rounded-[var(--m3-shape-extra-large)] px-5 py-6">
+        <section className="material-panel material-neu-panel rounded-[var(--m3-shape-extra-large)] px-5 py-6 xl:sticky xl:top-5 xl:self-start">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h2 className="text-2xl font-semibold tracking-tight text-slate-950">候选人详情</h2>

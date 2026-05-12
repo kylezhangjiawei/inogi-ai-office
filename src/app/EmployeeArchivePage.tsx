@@ -240,17 +240,17 @@ export function EmployeeArchivePage() {
   };
 
   return (
-    <div className="flex h-full min-h-screen flex-col bg-gray-50">
-      <div className="border-b border-gray-200 bg-white px-6 py-4">
-        <div className="flex items-center gap-2">
+    <div className="flex min-h-full min-w-0 flex-col bg-gray-50 lg:h-full">
+      <div className="border-b border-gray-200 bg-white px-4 py-4 sm:px-6">
+        <div className="flex min-w-0 items-center gap-2">
           <Users className="h-5 w-5 text-blue-600" />
-          <h1 className="text-lg font-semibold text-gray-900">员工入职归档 & 花名册</h1>
+          <h1 className="truncate text-lg font-semibold text-gray-900">员工入职归档 & 花名册</h1>
         </div>
       </div>
 
-      <div className="flex flex-1 gap-0 overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-visible p-3 lg:flex-row lg:gap-0 lg:overflow-hidden lg:p-0">
         {/* Left: Employee Roster */}
-        <div className="flex w-[30%] flex-col border-r border-gray-200 bg-white">
+        <div className="flex min-w-0 flex-col border border-gray-200 bg-white lg:w-[30%] lg:border-y-0 lg:border-l-0 lg:border-r">
           <div className="border-b border-gray-100 px-4 py-3 space-y-2">
             {/* Search */}
             <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-1.5">
@@ -281,8 +281,8 @@ export function EmployeeArchivePage() {
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto">
-            <table className="w-full text-xs">
+          <div className="flex-1 overflow-x-auto overflow-y-auto">
+            <table className="min-w-[420px] text-xs lg:w-full">
               <thead className="sticky top-0 bg-gray-50 text-gray-500">
                 <tr>
                   <th className="px-3 py-2 text-left font-medium">姓名</th>
@@ -337,7 +337,7 @@ export function EmployeeArchivePage() {
         </div>
 
         {/* Center: Document Archive */}
-        <div className="flex w-[40%] flex-col border-r border-gray-200 bg-white">
+        <div className="flex min-w-0 flex-col border border-gray-200 bg-white lg:w-[40%] lg:border-y-0 lg:border-l-0 lg:border-r">
           {selected && (
             <>
               <div className="border-b border-gray-100 px-4 py-3">
@@ -404,7 +404,7 @@ export function EmployeeArchivePage() {
                       return (
                         <div
                           key={field.label}
-                          className="flex items-center gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2"
+                          className="flex min-w-0 flex-col gap-2 rounded-lg border border-gray-100 bg-gray-50 px-3 py-2 sm:flex-row sm:items-center"
                         >
                           <span className="w-24 shrink-0 text-xs text-gray-400">{field.label}</span>
                           {isEditing ? (
@@ -414,11 +414,11 @@ export function EmployeeArchivePage() {
                               onChange={(e) => handleFieldEdit(field.label, e.target.value)}
                               onBlur={() => handleSaveField(field.label)}
                               onKeyDown={(e) => e.key === "Enter" && handleSaveField(field.label)}
-                              className="flex-1 rounded border border-blue-300 bg-white px-2 py-0.5 text-xs text-gray-700 outline-none"
+                              className="min-w-0 flex-1 rounded border border-blue-300 bg-white px-2 py-0.5 text-xs text-gray-700 outline-none"
                             />
                           ) : (
                             <span
-                              className="flex-1 text-xs font-medium text-gray-700"
+                              className="min-w-0 flex-1 break-words text-xs font-medium text-gray-700"
                               onClick={() => setEditingKey(fieldKey)}
                             >
                               {currentValue}
@@ -441,7 +441,7 @@ export function EmployeeArchivePage() {
         </div>
 
         {/* Right: Expiry Reminder Panel */}
-        <div className="flex w-[30%] flex-col bg-white">
+        <div className="flex min-w-0 flex-col border border-gray-200 bg-white lg:w-[30%] lg:border-0">
           <div className="border-b border-gray-100 px-4 py-3">
             <div className="flex items-center gap-2">
               <Bell className="h-4 w-4 text-orange-500" />

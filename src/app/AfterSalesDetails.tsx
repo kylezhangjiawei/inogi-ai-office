@@ -137,13 +137,13 @@ export function AfterSalesDetails() {
   };
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      <div className="flex items-center justify-between">
+    <div className="mx-auto max-w-7xl space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500 sm:space-y-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <Link to="/after-sales" className="inline-flex items-center gap-2 text-sm font-medium text-gray-500 transition-colors hover:text-gray-800 group">
           <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1" />
           返回列表
         </Link>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-2 sm:gap-3">
           <button
             className="flex items-center gap-2 rounded-xl border border-gray-100 bg-white px-4 py-2 text-xs font-bold text-gray-500 transition-all hover:bg-gray-50"
             onClick={() => setDialogMode("delete")}
@@ -161,9 +161,9 @@ export function AfterSalesDetails() {
         </div>
       </div>
 
-      <div className="grid grid-cols-12 gap-6 items-start">
+      <div className="grid grid-cols-12 items-start gap-4 lg:gap-6">
         <div className="col-span-12 space-y-6 lg:col-span-8">
-          <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+          <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm sm:p-6">
             <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
               <div className="space-y-1">
                 <div className="flex items-center gap-3">
@@ -172,7 +172,7 @@ export function AfterSalesDetails() {
                     <Copy className="h-4 w-4 text-gray-400 group-hover:text-blue-500" />
                   </button>
                 </div>
-                <div className="flex items-center gap-4 text-xs font-medium text-gray-400">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs font-medium text-gray-400">
                   <div className="flex items-center gap-1.5">
                     <Calendar className="h-3.5 w-3.5" />
                     创建时间: 2026-04-16 14:23
@@ -183,7 +183,7 @@ export function AfterSalesDetails() {
                   </div>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <span className="rounded-full border border-blue-100 bg-blue-50 px-3 py-1.5 text-xs font-bold text-[#1976D2]">{status}</span>
                 <span className="flex items-center gap-1.5 rounded-full border border-orange-100 bg-orange-50 px-3 py-1.5 text-xs font-bold text-orange-600">
                   <span className="h-1.5 w-1.5 rounded-full bg-orange-500 animate-pulse" />
@@ -192,7 +192,7 @@ export function AfterSalesDetails() {
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-6 border-t border-gray-50 pt-6 md:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 border-t border-gray-50 pt-6 sm:grid-cols-2 md:grid-cols-4 md:gap-6">
               <InfoItem label="客户" value="Medline International" />
               <InfoItem label="产品型号" value="OC-5" />
               <InfoItem label="序列号" value="20260315001" />
@@ -204,7 +204,7 @@ export function AfterSalesDetails() {
             </div>
           </div>
 
-          <div className="relative overflow-hidden rounded-2xl border border-blue-100 bg-[#EBF3FB] p-8 shadow-sm">
+          <div className="relative overflow-hidden rounded-2xl border border-blue-100 bg-[#EBF3FB] p-4 shadow-sm sm:p-8">
             <div className="absolute right-0 top-0 p-4">
               <span className="flex items-center gap-1 rounded border border-blue-50 bg-white/80 px-2 py-1 text-[10px] font-bold text-[#1976D2] shadow-sm backdrop-blur">
                 <Sparkles className="h-3 w-3" />
@@ -224,8 +224,8 @@ export function AfterSalesDetails() {
               <AISummaryItem title="复现条件" content="持续使用 3 档模式 1 小时后触发" detail="高温环境下传感器过热可能触发保护机制。" />
               <AISummaryItem title="自查核实" content="过滤棉清洗、电源检查已完成" detail="客户已排除基础外部因素干扰。" />
               <AISummaryItem title="缺失材料" content="氧浓度检测视频（建议补充）" detail="需要更具体的数据判断分子筛衰减情况。" isWarning />
-              <div className="md:col-span-2 flex items-center justify-between border-t border-blue-200/50 pt-4">
-                <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-blue-200/50 pt-4 md:col-span-2">
+                <div className="flex min-w-0 items-center gap-2">
                   <AlertTriangle className="h-4 w-4 text-blue-400" />
                   <p className="text-[10px] font-medium text-blue-500">由 AI 智能引擎生成，建议技术人员复核实机后再签收。</p>
                 </div>
@@ -236,15 +236,15 @@ export function AfterSalesDetails() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
-            <div className="mb-6 flex items-center justify-between">
+          <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm sm:p-6">
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
               <h3 className="flex items-center gap-2 text-base font-bold text-gray-800">
                 <Paperclip className="h-5 w-5 text-[#1976D2]" />
                 相关附件
               </h3>
               <span className="text-xs font-bold text-gray-400">共 {attachments.length} 个文件</span>
             </div>
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
               {attachments.map((file) => (
                 <button
                   key={file.id}
@@ -290,8 +290,8 @@ export function AfterSalesDetails() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
-            <div className="mb-8 flex items-center justify-between">
+          <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm sm:p-6">
+            <div className="mb-8 flex flex-wrap items-center justify-between gap-3">
               <h3 className="flex items-center gap-2 text-base font-bold text-gray-800">
                 <History className="h-5 w-5 text-[#1976D2]" />
                 操作日志
@@ -306,7 +306,7 @@ export function AfterSalesDetails() {
         </div>
 
         <div className="col-span-12 space-y-6 lg:col-span-4">
-          <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+          <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm sm:p-6">
             <h3 className="mb-6 text-sm font-bold text-gray-800">工单状态流转</h3>
             <div className="space-y-6">
               <StepItem status="complete" label="新建工单" />
@@ -317,7 +317,7 @@ export function AfterSalesDetails() {
             </div>
           </div>
 
-          <div className="space-y-4 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+          <div className="space-y-4 rounded-2xl border border-gray-100 bg-white p-4 shadow-sm sm:p-6">
             <button
               className="flex w-full items-center justify-center gap-3 rounded-xl bg-[#1976D2] py-3.5 text-sm font-bold text-white transition-all hover:-translate-y-0.5 hover:shadow-xl"
               onClick={() => updateStatus("待客户")}
@@ -348,7 +348,7 @@ export function AfterSalesDetails() {
             </button>
           </div>
 
-          <div className="relative overflow-hidden rounded-2xl border border-orange-100 bg-orange-50 p-6 shadow-sm">
+          <div className="relative overflow-hidden rounded-2xl border border-orange-100 bg-orange-50 p-4 shadow-sm sm:p-6">
             <div className="relative z-10 space-y-4">
               <div className="flex items-center gap-3">
                 <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-100">
@@ -369,7 +369,7 @@ export function AfterSalesDetails() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+          <div className="rounded-2xl border border-gray-100 bg-white p-4 shadow-sm sm:p-6">
             <h3 className="mb-4 flex items-center gap-2 text-sm font-bold text-gray-800">
               <MessageSquare className="h-4 w-4 text-gray-400" />
               内部备注
@@ -478,8 +478,8 @@ export function AfterSalesDetails() {
           {previewAttachment ? (
             <div className="space-y-4">
               <div className="rounded-2xl border border-slate-100 bg-slate-50 p-5">
-                <div className="flex items-center justify-between">
-                  <div className="font-semibold text-slate-900">{previewAttachment.name}</div>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="min-w-0 break-words font-semibold text-slate-900">{previewAttachment.name}</div>
                   <span className="material-chip bg-slate-100 text-slate-600">{previewAttachment.type}</span>
                 </div>
                 <div className="mt-3 text-sm text-slate-600">文件大小：{previewAttachment.size}</div>

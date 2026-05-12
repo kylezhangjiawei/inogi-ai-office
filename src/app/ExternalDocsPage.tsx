@@ -218,18 +218,18 @@ export function ExternalDocsPage() {
   };
 
   return (
-    <div className="flex h-full min-h-screen flex-col bg-gray-50">
-      <div className="border-b border-gray-200 bg-white px-6 py-4">
-        <div className="flex items-center gap-2">
+    <div className="flex min-h-full min-w-0 flex-col bg-gray-50 lg:h-full">
+      <div className="border-b border-gray-200 bg-white px-4 py-4 sm:px-6">
+        <div className="flex min-w-0 items-center gap-2">
           <Package className="h-5 w-5 text-blue-600" />
-          <h1 className="text-lg font-semibold text-gray-900">对外资料版本管理 & AI推荐发包</h1>
+          <h1 className="truncate text-lg font-semibold text-gray-900">对外资料版本管理 & AI推荐发包</h1>
         </div>
       </div>
 
-      <div className="flex flex-1 gap-0 overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-visible p-3 lg:flex-row lg:gap-0 lg:overflow-hidden lg:p-0">
         {/* Left: File Index */}
-        <div className="flex w-[35%] flex-col border-r border-gray-200 bg-white">
-          <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+        <div className="flex min-w-0 flex-col border border-gray-200 bg-white lg:w-[35%] lg:border-y-0 lg:border-l-0 lg:border-r">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-4 py-3">
             <span className="text-sm font-medium text-gray-700">文件索引（{docs.length}）</span>
             <button
               onClick={() => toast.info("上传新版本功能（模拟）")}
@@ -239,8 +239,8 @@ export function ExternalDocsPage() {
               上传新版本
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto">
-            <table className="w-full text-xs">
+          <div className="flex-1 overflow-x-auto overflow-y-auto">
+            <table className="min-w-[520px] text-xs lg:w-full">
               <thead className="sticky top-0 bg-gray-50 text-gray-500">
                 <tr>
                   <th className="px-3 py-2 text-left font-medium">文件名</th>
@@ -297,7 +297,7 @@ export function ExternalDocsPage() {
         </div>
 
         {/* Center: AI Recommendation Panel */}
-        <div className="flex w-[35%] flex-col border-r border-gray-200 bg-white">
+        <div className="flex min-w-0 flex-col border border-gray-200 bg-white lg:w-[35%] lg:border-y-0 lg:border-l-0 lg:border-r">
           <div className="border-b border-gray-100 px-4 py-3">
             <div className="flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-purple-600" />
@@ -309,7 +309,7 @@ export function ExternalDocsPage() {
           <div className="border-b border-gray-100 px-4 py-3 space-y-2">
             <div>
               <label className="mb-1 block text-xs text-gray-500">客户阶段</label>
-              <div className="flex gap-1.5">
+              <div className="flex flex-wrap gap-1.5">
                 {(["L1", "L2", "L3"] as const).map((s) => (
                   <button
                     key={s}
@@ -328,12 +328,12 @@ export function ExternalDocsPage() {
             </div>
             <div>
               <label className="mb-1 block text-xs text-gray-500">自由查询（可选）</label>
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <input
                   value={customQuery}
                   onChange={(e) => setCustomQuery(e.target.value)}
                   placeholder="如：欧洲客户需要哪些合规文件…"
-                  className="flex-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs placeholder-gray-400 focus:border-purple-400 focus:outline-none"
+                  className="min-w-0 flex-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs placeholder-gray-400 focus:border-purple-400 focus:outline-none"
                 />
                 <button
                   onClick={handleAiRecommend}
@@ -424,7 +424,7 @@ export function ExternalDocsPage() {
         </div>
 
         {/* Right: Message Generator */}
-        <div className="flex w-[30%] flex-col bg-white">
+        <div className="flex min-w-0 flex-col border border-gray-200 bg-white lg:w-[30%] lg:border-0">
           {/* New version banner */}
           {hasNewVersion && (
             <div className="flex items-center gap-2 bg-orange-50 px-4 py-2 border-b border-orange-200">
@@ -445,7 +445,7 @@ export function ExternalDocsPage() {
           {/* Language switch */}
           <div className="border-b border-gray-100 px-4 py-3">
             <label className="mb-1.5 block text-xs text-gray-500">发送语言</label>
-            <div className="flex gap-1.5">
+            <div className="flex flex-wrap gap-1.5">
               {(["中文", "English", "Español"] as Lang[]).map((l) => (
                 <button
                   key={l}

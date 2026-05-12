@@ -412,19 +412,30 @@ export class ImageGenerationService {
 
   // ── 列表（分页）──────────────────────────────────────────────────────────────
 
-  async listImages(userId: string, page = 1, pageSize = 12, onlyFavorite = false, dateFrom?: string, dateTo?: string) {
-    const where = {
+  async listImages(
+    userId: string,
+    page = 1,
+    pageSize = 12,
+    onlyFavorite = false,
+    dateFrom?: string,
+    dateTo?: string,
+    query?: string,
+  ) {
+    const normalizedPage = Number.isFinite(page) && page > 0 ? page : 1;
+    const normalizedPageSize = Number.isFinite(pageSize) && pageSize > 0 ? Math.min(pageSize, 48) : 12;
+    const where: Prisma.GeneratedImageWhereInput = {
       userId,
       ...(onlyFavorite ? { isFavorite: true } : {}),
       ...this.buildCreatedAtFilter(dateFrom, dateTo),
+      ...this.buildImageSearchFilter(query),
     };
     const [total, items] = await Promise.all([
       this.prisma.generatedImage.count({ where }),
       this.prisma.generatedImage.findMany({
         where,
         orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
+        skip: (normalizedPage - 1) * normalizedPageSize,
+        take: normalizedPageSize,
         select: {
           id: true,
           prompt: true,
@@ -455,7 +466,13 @@ export class ImageGenerationService {
         },
       }),
     ]);
-    return { total, page, pageSize, totalPages: Math.ceil(total / pageSize), items };
+    return {
+      total,
+      page: normalizedPage,
+      pageSize: normalizedPageSize,
+      totalPages: Math.ceil(total / normalizedPageSize),
+      items,
+    };
   }
 
   async getUsage(userId: string, date?: string) {
@@ -1068,6 +1085,30 @@ export class ImageGenerationService {
     if (from) createdAt.gte = from;
     if (to) createdAt.lt = to;
     return Object.keys(createdAt).length > 0 ? { createdAt } : {};
+  }
+
+  private buildImageSearchFilter(query?: string): Prisma.GeneratedImageWhereInput {
+    const keyword = query?.trim().replace(/\s+/g, ' ').slice(0, 120);
+    if (!keyword) return {};
+    const terms = [...new Set(keyword.split(/[\s,，。;；、]+/).map((item) => item.trim()).filter(Boolean))].slice(0, 6);
+
+    const buildTermFilter = (term: string): Prisma.GeneratedImageWhereInput => {
+      const contains = { contains: term, mode: 'insensitive' as const };
+      return {
+        OR: [
+          { prompt: contains },
+          { revisedPrompt: contains },
+          { model: contains },
+          { style: contains },
+          { size: contains },
+          { quality: contains },
+          { editInstruction: contains },
+          { requestId: contains },
+        ],
+      };
+    };
+
+    return { AND: terms.map(buildTermFilter) };
   }
 
   private parseDate(value?: string) {

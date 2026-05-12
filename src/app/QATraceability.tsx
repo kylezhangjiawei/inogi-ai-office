@@ -39,11 +39,11 @@ export function QATraceability() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      <section className="material-card p-6 md:p-8">
-        <div className="space-y-3">
+      <section className="material-card p-4 sm:p-6 md:p-8">
+        <div className="min-w-0 space-y-3">
           <span className="material-chip bg-blue-50 text-blue-700">QA Traceability</span>
           <div>
-            <h2 className="text-[2rem] font-bold tracking-tight text-slate-900">全链路追溯查询</h2>
+            <h2 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[2rem]">全链路追溯查询</h2>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
               这一页补齐了质量追溯能力，支持按批号查看原料、过程、出货和售后去向。
             </p>
@@ -51,7 +51,7 @@ export function QATraceability() {
         </div>
       </section>
 
-      <section className="material-card p-6">
+      <section className="material-card p-4 sm:p-6">
         <div className="flex flex-col gap-4 md:flex-row">
           <div className="relative flex-1">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
@@ -63,7 +63,7 @@ export function QATraceability() {
               setSearched(true);
               toast.success(`已查询批号 ${query}`);
             }}
-            className="material-button-primary"
+            className="material-button-primary justify-center md:w-auto"
           >
             <PackageSearch className="h-4 w-4" />
             查询
@@ -73,16 +73,16 @@ export function QATraceability() {
 
       {searched ? (
         <>
-          <section className="grid gap-4 md:grid-cols-3">
-            <div className="material-card-flat p-5">
+          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="material-card-flat min-w-0 p-4 sm:p-5">
               <div className="text-sm font-medium text-slate-500">追溯批号</div>
               <div className="mt-3 text-3xl font-bold tracking-tight text-slate-900">{query}</div>
             </div>
-            <div className="material-card-flat p-5">
+            <div className="material-card-flat min-w-0 p-4 sm:p-5">
               <div className="text-sm font-medium text-slate-500">异常原料</div>
               <div className="mt-3 text-4xl font-bold tracking-tight text-slate-900">{warningCount}</div>
             </div>
-            <div className="material-card-flat p-5">
+            <div className="material-card-flat min-w-0 p-4 sm:p-5">
               <div className="text-sm font-medium text-slate-500">链路状态</div>
               <div className="mt-3 text-4xl font-bold tracking-tight text-emerald-600">可追溯</div>
             </div>
@@ -90,7 +90,7 @@ export function QATraceability() {
 
           <section className="grid grid-cols-12 gap-6">
             <div className="col-span-12 xl:col-span-4">
-              <div className="material-card p-6">
+              <div className="material-card min-w-0 p-4 sm:p-6">
                 <div className="mb-4 flex items-center gap-2">
                   <ArrowUp className="h-5 w-5 text-emerald-600" />
                   <h3 className="text-slate-900">向上追溯原料</h3>
@@ -98,8 +98,8 @@ export function QATraceability() {
                 <div className="space-y-3">
                   {traceRows.map((row) => (
                     <div key={row.batch} className="rounded-[22px] border border-slate-100 bg-slate-50/70 p-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="text-sm font-semibold text-slate-800">{row.material}</div>
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div className="min-w-0 text-sm font-semibold text-slate-800">{row.material}</div>
                         {row.status === "ok" ? (
                           <span className="material-chip bg-emerald-50 text-emerald-700">正常</span>
                         ) : (
@@ -115,7 +115,7 @@ export function QATraceability() {
             </div>
 
             <div className="col-span-12 xl:col-span-4">
-              <div className="material-card p-6">
+              <div className="material-card min-w-0 p-4 sm:p-6">
                 <div className="mb-4 flex items-center gap-2">
                   <CheckCircle2 className="h-5 w-5 text-primary" />
                   <h3 className="text-slate-900">生产过程</h3>
@@ -138,7 +138,7 @@ export function QATraceability() {
             </div>
 
             <div className="col-span-12 xl:col-span-4">
-              <div className="material-card p-6">
+              <div className="material-card min-w-0 p-4 sm:p-6">
                 <div className="mb-4 flex items-center gap-2">
                   <ArrowDown className="h-5 w-5 text-primary" />
                   <h3 className="text-slate-900">向下追溯去向</h3>
@@ -160,18 +160,18 @@ export function QATraceability() {
             </div>
           </section>
 
-          <section className="material-card p-6">
+          <section className="material-card p-4 sm:p-6">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div>
                 <h3 className="text-slate-900">追溯结论</h3>
                 <p className="mt-1 text-sm text-slate-500">当前批号可完整追溯，但主板来料存在让步接收记录，建议重点关注。</p>
               </div>
-              <div className="flex gap-3">
-                <button type="button" onClick={() => toast.success("已导出追溯 PDF")} className="material-button-secondary">
+              <div className="flex flex-col gap-2 sm:flex-row sm:gap-3">
+                <button type="button" onClick={() => toast.success("已导出追溯 PDF")} className="material-button-secondary justify-center">
                   <Download className="h-4 w-4" />
                   导出报告
                 </button>
-                <button type="button" onClick={() => toast.warning("已发起召回评估流程")} className="material-button-primary">
+                <button type="button" onClick={() => toast.warning("已发起召回评估流程")} className="material-button-primary justify-center">
                   <ShieldAlert className="h-4 w-4" />
                   发起评估
                 </button>

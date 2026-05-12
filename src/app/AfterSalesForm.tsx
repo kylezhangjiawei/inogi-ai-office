@@ -172,7 +172,7 @@ export function AfterSalesForm() {
   };
 
   return (
-    <div className="mx-auto max-w-[860px] px-4 py-8">
+    <div className="mx-auto max-w-[860px] px-3 py-5 pb-32 sm:px-4 sm:py-8 sm:pb-32">
       <div className="mb-8">
         <Link
           to="/after-sales"
@@ -181,14 +181,14 @@ export function AfterSalesForm() {
           <ArrowLeft className="h-4 w-4 transition group-hover:-translate-x-1" />
           返回售后工单
         </Link>
-        <h1 className="text-3xl font-bold tracking-tight text-slate-900">新建售后工单</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">新建售后工单</h1>
         <p className="mt-2 text-sm text-slate-500">
           录入客户信息、上传现场资料，并生成 AI 摘要后再进入售后主流程。
         </p>
       </div>
 
-      <div className="material-card mb-8 p-6">
-        <div className="mx-auto flex max-w-2xl items-center justify-between">
+      <div className="material-card material-scrollbar mb-6 overflow-x-auto p-4 sm:mb-8 sm:p-6">
+        <div className="mx-auto flex min-w-[520px] max-w-2xl items-center justify-between">
           {steps.map((step, index) => (
             <React.Fragment key={step.id}>
               <div className="relative z-10 flex flex-col items-center gap-2">
@@ -233,7 +233,7 @@ export function AfterSalesForm() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="space-y-8 p-8"
+              className="space-y-6 p-4 sm:space-y-8 sm:p-8"
             >
               <section className="space-y-5">
                 <div className="flex items-center gap-2 border-b border-slate-100 pb-2">
@@ -377,7 +377,7 @@ export function AfterSalesForm() {
               </section>
 
               <section className="space-y-5">
-                <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
                   <div className="flex items-center gap-2">
                     <div className="h-6 w-1.5 rounded-full bg-primary" />
                     <h3 className="text-base font-bold text-slate-900">现场附件</h3>
@@ -422,7 +422,7 @@ export function AfterSalesForm() {
                         attachments[slot.key].map((file) => (
                           <div
                             key={`${slot.key}-${file}`}
-                            className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 text-sm"
+                            className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white px-4 py-3 text-sm"
                           >
                             <div>
                               <div className="font-medium text-slate-800">{file}</div>
@@ -451,13 +451,13 @@ export function AfterSalesForm() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="space-y-6 p-8"
+              className="space-y-5 p-4 sm:space-y-6 sm:p-8"
             >
-              <div className="flex items-start gap-4 rounded-[28px] bg-[linear-gradient(135deg,#eef5ff_0%,#ffffff_55%,#eefaf7_100%)] p-6">
+              <div className="flex flex-col gap-4 rounded-[28px] bg-[linear-gradient(135deg,#eef5ff_0%,#ffffff_55%,#eefaf7_100%)] p-4 sm:flex-row sm:items-start sm:p-6">
                 <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-primary shadow-sm">
                   <Wand2 className="h-6 w-6" />
                 </div>
-                <div className="flex-1">
+                <div className="min-w-0 flex-1">
                   <h3 className="text-xl font-bold text-slate-900">AI 技术摘要</h3>
                   <p className="mt-2 text-sm leading-7 text-slate-600">
                     根据客户信息、问题类型与附件描述，系统会先生成一版售后流转建议，方便客服与技术人员快速判断优先级。
@@ -465,7 +465,7 @@ export function AfterSalesForm() {
                 </div>
               </div>
 
-              <div className="rounded-[28px] border border-slate-100 bg-white p-6 shadow-[0_20px_40px_rgba(15,23,42,0.06)]">
+              <div className="rounded-[28px] border border-slate-100 bg-white p-4 shadow-[0_20px_40px_rgba(15,23,42,0.06)] sm:p-6">
                 {aiGenerating ? (
                   <div className="space-y-4">
                     <div className="flex items-center gap-3 text-sm font-semibold text-primary">
@@ -483,8 +483,8 @@ export function AfterSalesForm() {
                   </div>
                 ) : (
                   <div className="space-y-5">
-                    <div className="flex items-center justify-between">
-                      <div>
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="min-w-0">
                         <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">AI Result</div>
                         <div className="mt-1 text-lg font-semibold text-slate-900">建议分派给售后二线技术组</div>
                       </div>
@@ -524,10 +524,10 @@ export function AfterSalesForm() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="space-y-6 p-8"
+              className="space-y-5 p-4 sm:space-y-6 sm:p-8"
             >
-              <div className="rounded-[28px] bg-[linear-gradient(135deg,#eaf4ff_0%,#ffffff_52%,#eefaf7_100%)] p-6">
-                <div className="flex items-center gap-3">
+              <div className="rounded-[28px] bg-[linear-gradient(135deg,#eaf4ff_0%,#ffffff_52%,#eefaf7_100%)] p-4 sm:p-6">
+                <div className="flex flex-wrap items-center gap-3">
                   <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-primary shadow-sm">
                     <FileText className="h-5 w-5" />
                   </div>
@@ -571,8 +571,8 @@ export function AfterSalesForm() {
         </AnimatePresence>
       </div>
 
-      <div className="fixed bottom-0 left-0 right-0 border-t border-slate-200/80 bg-white/90 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-[860px] items-center justify-between px-4 py-4">
+      <div className="sticky bottom-0 z-10 border-t border-slate-200/80 bg-white/90 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-[860px] flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:py-4">
           <button
             type="button"
             onClick={() => setCurrentStep((prev) => Math.max(1, prev - 1))}
@@ -583,18 +583,18 @@ export function AfterSalesForm() {
             上一步
           </button>
 
-          <div className="flex items-center gap-3">
-            <button type="button" onClick={handleSaveDraft} className="material-button-secondary">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
+            <button type="button" onClick={handleSaveDraft} className="material-button-secondary justify-center">
               保存草稿
             </button>
 
             {currentStep < 3 ? (
-              <button type="button" onClick={handleNext} className="material-button-primary">
+              <button type="button" onClick={handleNext} className="material-button-primary justify-center">
                 下一步
                 <ChevronRight className="h-4 w-4" />
               </button>
             ) : (
-              <button type="button" onClick={handleSubmit} className="material-button-primary">
+              <button type="button" onClick={handleSubmit} className="material-button-primary justify-center">
                 提交工单
                 <CheckCircle2 className="h-4 w-4" />
               </button>

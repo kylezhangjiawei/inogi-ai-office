@@ -290,7 +290,7 @@ export function DepartmentManagement() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="min-w-full text-left">
+          <table className="min-w-[900px] text-left">
             <thead className="bg-slate-50">
               <tr>
                 {["部门", "分类", "负责人", "用户数", "排序", "状态", "操作"].map((col) => (

@@ -21,7 +21,7 @@ export function Sidebar() {
     .filter((group) => group.items.length > 0);
 
   return (
-    <aside className="flex h-full w-[324px] shrink-0 flex-col border-r border-white/70 bg-[linear-gradient(180deg,#fcfdff_0%,#f4f8fd_100%)] px-4 py-5">
+    <aside className="flex h-full w-[300px] shrink-0 flex-col border-r border-white/70 bg-[linear-gradient(180deg,#fcfdff_0%,#f4f8fd_100%)] px-4 py-5 min-[1920px]:w-[324px]">
       <div className="material-card material-glow mb-5 p-4">
         <div className="mb-5 flex items-center gap-3">
           <div className="flex h-14 w-14 items-center justify-center rounded-[20px] bg-[linear-gradient(135deg,#42a5f5_0%,#1565c0_100%)] shadow-[0_16px_32px_rgba(21,101,192,0.28)]">
@@ -36,7 +36,7 @@ export function Sidebar() {
         <div className="rounded-[24px] bg-[linear-gradient(145deg,#e7f2ff_0%,#f9fbff_55%,#e8f8f5_100%)] px-4 py-4">
           <div className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">当前用户</div>
           <div className="flex items-end justify-between gap-3">
-            <div className="text-sm font-bold tracking-tight text-slate-900 truncate">{user?.name ?? "—"}</div>
+            <div className="truncate text-sm font-bold tracking-tight text-slate-900">{user?.name ?? "—"}</div>
             <span className="material-chip shrink-0 bg-white/85 text-primary shadow-sm">{user?.roleName ?? "无角色"}</span>
           </div>
           <p className="mt-2 text-xs text-slate-500 truncate">{user?.email ?? ""}</p>
@@ -63,7 +63,7 @@ export function Sidebar() {
                   }
                 >
                   {({ isActive }) => (
-                    <div className="flex items-center gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
                       <div
                         className={cn(
                           "flex h-10 w-10 items-center justify-center rounded-2xl transition-colors",
@@ -72,7 +72,7 @@ export function Sidebar() {
                       >
                         <item.icon className="h-5 w-5" />
                       </div>
-                      <span className="font-medium">{item.label}</span>
+                      <span className="truncate font-medium">{item.label}</span>
                     </div>
                   )}
                 </NavLink>

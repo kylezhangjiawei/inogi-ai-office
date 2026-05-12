@@ -595,7 +595,7 @@ export function MateChatBubble() {
         >
           <div
             className={cn(
-              "absolute inset-y-4 right-4 flex h-[calc(100vh-32px)] w-[min(1120px,calc(100vw-32px),50vw)] max-w-[calc(100vw-32px)] overflow-hidden rounded-[32px] border border-white/75 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(247,250,255,0.95))] shadow-[0_30px_80px_rgba(15,23,42,0.26)] transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+              "absolute inset-3 flex h-[calc(100vh-24px)] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-[18px] border border-white/75 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(247,250,255,0.95))] shadow-[0_30px_80px_rgba(15,23,42,0.26)] transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] md:inset-y-4 md:left-auto md:right-4 md:h-[calc(100vh-32px)] md:w-[min(1120px,calc(100vw-32px))] md:max-w-[calc(100vw-32px)] md:flex-row md:rounded-[32px]",
               visible ? "translate-x-0 scale-100 opacity-100" : "translate-x-8 scale-[0.98] opacity-0",
             )}
             onClick={(e) => e.stopPropagation()}
@@ -604,7 +604,7 @@ export function MateChatBubble() {
             aria-label="MateChat"
           >
             {/* 左侧会话列表 */}
-            <section className="flex w-[30%] min-w-[240px] flex-col border-r border-slate-200/70 bg-[linear-gradient(180deg,#f6f9ff_0%,#eef5fd_100%)]">
+            <section className="flex max-h-[38vh] min-w-0 flex-col border-b border-slate-200/70 bg-[linear-gradient(180deg,#f6f9ff_0%,#eef5fd_100%)] md:max-h-none md:w-[30%] md:min-w-[240px] md:border-b-0 md:border-r">
               <div className="border-b border-slate-200/70 px-5 py-5">
                 <div className="mb-4 flex items-center justify-between">
                   <div>

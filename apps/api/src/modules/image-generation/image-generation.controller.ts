@@ -70,6 +70,7 @@ export class ImageGenerationController {
     @Query('favorite') favorite?: string,
     @Query('dateFrom') dateFrom?: string,
     @Query('dateTo') dateTo?: string,
+    @Query('query') query?: string,
   ) {
     const userId = this.getUserId(req);
     return this.service.listImages(
@@ -79,6 +80,7 @@ export class ImageGenerationController {
       favorite === 'true',
       dateFrom,
       dateTo,
+      query,
     );
   }
 

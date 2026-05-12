@@ -257,8 +257,8 @@ export function MeetingMinutes() {
                 </div>
               </div>
 
-              <div className="overflow-hidden rounded-xl border border-slate-100">
-                <table className="w-full text-left">
+              <div className="overflow-x-auto rounded-xl border border-slate-100">
+                <table className="min-w-[760px] text-left">
                   <thead>
                     <tr className="bg-slate-50">
                       {["#", "行动项", "负责人", "截止", "状态", "操作"].map((title) => (

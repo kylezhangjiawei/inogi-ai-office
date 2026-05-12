@@ -116,7 +116,7 @@ export function TodoTable() {
         </div>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full">
+        <table className="min-w-[760px]">
           <thead>
             <tr className="border-b bg-muted/30" style={{ borderColor: '#E5E8EB' }}>
               <th className="text-left px-5 py-3 text-sm font-semibold text-muted-foreground">事项名称</th>

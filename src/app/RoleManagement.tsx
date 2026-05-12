@@ -139,7 +139,7 @@ function PermissionMatrix({
             </div>
 
             {isOpen && (
-              <div className="grid grid-cols-2 gap-2 p-4 md:grid-cols-3">
+              <div className="grid grid-cols-1 gap-2 p-4 sm:grid-cols-2 md:grid-cols-3">
                 {group.permissions.map((perm) => {
                   const checked = isWildcard || selected.includes(perm.code);
                   return (
@@ -302,18 +302,18 @@ export function RoleManagement() {
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       {/* Header */}
-      <section className="material-card p-6 md:p-8">
+      <section className="material-card p-4 sm:p-6 md:p-8">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
+          <div className="min-w-0">
             <span className="material-chip bg-blue-50 text-blue-700">Permission Matrix</span>
-            <h2 className="mt-3 text-[2rem] font-bold tracking-tight text-slate-900">角色与权限</h2>
+            <h2 className="mt-3 text-2xl font-bold tracking-tight text-slate-900 sm:text-[2rem]">角色与权限</h2>
             <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
               配置角色的页面访问权限与操作权限。权限变更实时生效——用户下次刷新 Token 后即可感知。
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
             <button
-              className="material-button-secondary w-fit"
+              className="material-button-secondary w-full justify-center sm:w-fit"
               onClick={() => void loadRoles()}
               disabled={loading}
             >
@@ -321,7 +321,7 @@ export function RoleManagement() {
               刷新
             </button>
             <PermissionGuard permission="role:create">
-              <button className="material-button-primary w-fit" onClick={openCreate}>
+              <button className="material-button-primary w-full justify-center sm:w-fit" onClick={openCreate}>
                 <Plus className="h-4 w-4" />
                 新建角色
               </button>
@@ -330,7 +330,7 @@ export function RoleManagement() {
         </div>
       </section>
 
-      <section className="grid gap-6 lg:grid-cols-[280px_minmax(0,1fr)]">
+      <section className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)] xl:gap-6">
         {/* Role list */}
         <div className="material-card p-4">
           {loading ? (
@@ -401,15 +401,15 @@ export function RoleManagement() {
         </div>
 
         {/* Permission matrix for active role */}
-        <div className="material-card p-6">
+        <div className="material-card min-w-0 p-4 sm:p-6">
           {!activeRole ? (
             <div className="flex h-48 items-center justify-center text-sm text-slate-400">
               请从左侧选择角色
             </div>
           ) : (
             <>
-              <div className="mb-6 flex items-start justify-between gap-4">
-                <div>
+              <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
                   <h3 className="text-lg font-bold text-slate-900">{activeRole.name}</h3>
                   {activeRole.description && (
                     <p className="mt-1 text-sm text-slate-500">{activeRole.description}</p>

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useDeferredValue, useEffect, useState } from "react";
 import { Pencil, Plus, Search, Trash2, Wifi } from "lucide-react";
 import { Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
 import { toast } from "sonner";
@@ -7,6 +7,7 @@ import { Switch } from "./components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./components/ui/table";
 import { AiModelItem, integrationManagementApi } from "./lib/integrationManagementApi";
 import { cn } from "./components/ui/utils";
+import { getAiModelUsage } from "./lib/aiModelOptions";
 
 const PAGE_SIZE = 8;
 
@@ -32,6 +33,12 @@ const statusToneMap: Record<string, string> = {
   未配置: "bg-slate-100 text-slate-600",
 };
 
+const usageToneMap = {
+  text: "bg-sky-50 text-sky-700",
+  multimodal: "bg-violet-50 text-violet-700",
+  image: "bg-amber-50 text-amber-700",
+};
+
 export function AiModelManagementPage() {
   const [rows, setRows] = useState<AiModelItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -54,14 +61,16 @@ export function AiModelManagementPage() {
   const [enabled, setEnabled] = useState(true);
   const [isDefaultEnabled, setIsDefaultEnabled] = useState(true);
   const [dialogError, setDialogError] = useState("");
+  const deferredKeyword = useDeferredValue(keyword);
+  const normalizedKeyword = deferredKeyword.trim();
 
-  async function loadRows(targetPage = page) {
+  const loadRows = useCallback(async (targetPage = page) => {
     setLoading(true);
     try {
       const response = await integrationManagementApi.listAiModels({
         page: targetPage,
         pageSize: PAGE_SIZE,
-        keyword,
+        keyword: normalizedKeyword,
       });
       setRows(response.items);
       setTotal(response.total);
@@ -74,15 +83,15 @@ export function AiModelManagementPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [normalizedKeyword, page]);
 
   useEffect(() => {
     setPage(1);
-  }, [keyword]);
+  }, [normalizedKeyword]);
 
   useEffect(() => {
     void loadRows();
-  }, [page, keyword]);
+  }, [loadRows]);
 
   function resetForm() {
     setName("");
@@ -276,117 +285,129 @@ export function AiModelManagementPage() {
           <div className="text-sm text-slate-500">共 {total} 个模型配置</div>
         </div>
 
-        <Table className="min-w-[1440px] text-left">
-          <TableHeader className="bg-slate-50">
-            <TableRow>
-              {[
-                "模型名称",
-                "服务商",
-                "启用",
-                "当前状态",
-                "最近成功时间",
-                "最近失败时间",
-                "最近延迟",
-                "今日请求数",
-                "今日 Token",
-                "Token 总使用量",
-                "默认启用",
-                "操作人",
-                "操作",
-              ].map((title) => (
-                <TableHead key={title} className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                  {title}
-                </TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody className="divide-y divide-slate-100">
+        <div className="material-scrollbar overflow-x-auto">
+          <Table className="min-w-[1560px] text-left">
+            <TableHeader className="bg-slate-50">
+              <TableRow>
+                {[
+                  "模型名称",
+                  "服务商",
+                  "适用场景",
+                  "启用",
+                  "当前状态",
+                  "最近成功时间",
+                  "最近失败时间",
+                  "最近延迟",
+                  "今日请求数",
+                  "今日 Token",
+                  "Token 总使用量",
+                  "默认启用",
+                  "操作人",
+                  "操作",
+                ].map((title) => (
+                  <TableHead key={title} className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    {title}
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody className="divide-y divide-slate-100">
             {loading ? (
               <TableRow>
-                <TableCell colSpan={13} className="px-4 py-8 text-center text-sm text-slate-400">
+                <TableCell colSpan={14} className="px-4 py-8 text-center text-sm text-slate-400">
                   正在加载 AI 模型...
                 </TableCell>
               </TableRow>
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={13} className="px-4 py-8 text-center text-sm text-slate-400">
+                <TableCell colSpan={14} className="px-4 py-8 text-center text-sm text-slate-400">
                   暂无数据
                 </TableCell>
               </TableRow>
             ) : (
-              rows.map((row) => (
-                <TableRow key={row.id} className="hover:bg-slate-50/70">
-                  <TableCell className="px-4 py-3 text-sm font-medium text-slate-800">
-                    <div>{row.name}</div>
-                    <div className="mt-1 text-xs text-slate-400">{row.model}</div>
-                    <div
-                      className="mt-1 max-w-[280px] truncate text-xs text-slate-400"
-                      title={row.base_url || "未配置 Base URL，默认走官方地址"}
-                    >
-                      {row.base_url || "默认官方地址"}
-                    </div>
-                  </TableCell>
-                  <TableCell className="px-4 py-3 text-sm text-slate-700">{row.provider}</TableCell>
-                  <TableCell className="px-4 py-3 text-sm text-slate-700">
-                    <div className="flex items-center gap-2">
-                      <Switch checked={row.enabled} onCheckedChange={(checked) => void handleToggleEnabled(row, checked)} />
-                      <span>{row.enabled ? "启用" : "停用"}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="px-4 py-3 text-sm">
-                    <div className="space-y-2">
-                      <span className={cn("material-chip", statusToneMap[row.current_status] ?? "bg-slate-100 text-slate-600")}>
-                        {row.current_status}
-                      </span>
-                      {row.last_error_message ? (
-                        <div className="max-w-[220px] truncate text-xs text-rose-500" title={row.last_error_message}>
-                          {row.last_error_message}
+              rows.map((row) => {
+                  const usage = getAiModelUsage(row.model);
+                  return (
+                    <TableRow key={row.id} className="hover:bg-slate-50/70">
+                      <TableCell className="px-4 py-3 text-sm font-medium text-slate-800">
+                        <div>{row.name}</div>
+                        <div className="mt-1 text-xs text-slate-400">{row.model}</div>
+                        <div
+                          className="mt-1 max-w-[280px] truncate text-xs text-slate-400"
+                          title={row.base_url || "未配置 Base URL，默认走官方地址"}
+                        >
+                          {row.base_url || "默认官方地址"}
                         </div>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                  <TableCell className="px-4 py-3 text-sm text-slate-500">{formatDate(row.last_success_at)}</TableCell>
-                  <TableCell className="px-4 py-3 text-sm text-slate-500">{formatDate(row.last_failure_at)}</TableCell>
-                  <TableCell className="px-4 py-3 text-sm text-slate-700">
-                    {typeof row.last_latency_ms === "number" ? `${row.last_latency_ms} ms` : "-"}
-                  </TableCell>
-                  <TableCell className="px-4 py-3 text-sm text-slate-700">{row.today_requests}</TableCell>
-                  <TableCell className="px-4 py-3 text-sm text-slate-700">{row.today_tokens}</TableCell>
-                  <TableCell className="px-4 py-3 text-sm text-slate-700">{row.total_tokens ?? row.today_tokens ?? 0}</TableCell>
-                  <TableCell className="px-4 py-3 text-sm text-slate-700">{row.is_default_enabled ? "是" : "否"}</TableCell>
-                  <TableCell className="px-4 py-3 text-sm text-slate-700">{row.operator_name}</TableCell>
-                  <TableCell className="px-4 py-3 text-sm">
-                    <div className="flex gap-2">
-                      <button className="material-button-secondary !px-3 !py-2" onClick={() => openEdit(row)} title="编辑">
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        className="material-button-secondary !px-3 !py-2 text-red-500 hover:border-red-200 hover:bg-red-50"
-                        onClick={() => openDelete(row)}
-                        title="删除"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
+                      </TableCell>
+                      <TableCell className="px-4 py-3 text-sm text-slate-700">{row.provider}</TableCell>
+                      <TableCell className="px-4 py-3 text-sm">
+                        <div className="space-y-1.5">
+                          <span className={cn("material-chip", usageToneMap[usage.kind])}>{usage.label}</span>
+                          <div className="max-w-[180px] text-xs leading-5 text-slate-400">{usage.description}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="px-4 py-3 text-sm text-slate-700">
+                        <div className="flex items-center gap-2">
+                          <Switch checked={row.enabled} onCheckedChange={(checked) => void handleToggleEnabled(row, checked)} />
+                          <span>{row.enabled ? "启用" : "停用"}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="px-4 py-3 text-sm">
+                        <div className="space-y-2">
+                          <span className={cn("material-chip", statusToneMap[row.current_status] ?? "bg-slate-100 text-slate-600")}>
+                            {row.current_status}
+                          </span>
+                          {row.last_error_message ? (
+                            <div className="max-w-[220px] truncate text-xs text-rose-500" title={row.last_error_message}>
+                              {row.last_error_message}
+                            </div>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell className="px-4 py-3 text-sm text-slate-500">{formatDate(row.last_success_at)}</TableCell>
+                      <TableCell className="px-4 py-3 text-sm text-slate-500">{formatDate(row.last_failure_at)}</TableCell>
+                      <TableCell className="px-4 py-3 text-sm text-slate-700">
+                        {typeof row.last_latency_ms === "number" ? `${row.last_latency_ms} ms` : "-"}
+                      </TableCell>
+                      <TableCell className="px-4 py-3 text-sm text-slate-700">{row.today_requests}</TableCell>
+                      <TableCell className="px-4 py-3 text-sm text-slate-700">{row.today_tokens}</TableCell>
+                      <TableCell className="px-4 py-3 text-sm text-slate-700">{row.total_tokens ?? row.today_tokens ?? 0}</TableCell>
+                      <TableCell className="px-4 py-3 text-sm text-slate-700">{row.is_default_enabled ? "是" : "否"}</TableCell>
+                      <TableCell className="px-4 py-3 text-sm text-slate-700">{row.operator_name}</TableCell>
+                      <TableCell className="px-4 py-3 text-sm">
+                        <div className="flex gap-2">
+                          <button className="material-button-secondary !px-3 !py-2" onClick={() => openEdit(row)} title="编辑">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            className="material-button-secondary !px-3 !py-2 text-red-500 hover:border-red-200 hover:bg-red-50"
+                            onClick={() => openDelete(row)}
+                            title="删除"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
             )}
-          </TableBody>
-        </Table>
+            </TableBody>
+          </Table>
+        </div>
 
-        <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4">
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
           <div className="text-sm text-slate-500">
             共 {total} 条，当前第 {page} / {totalPages} 页
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button className="material-button-secondary !px-3 !py-2" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1 || loading}>
               上一页
             </button>
             <button className="material-button-secondary !px-3 !py-2" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page === totalPages || loading}>
               下一页
             </button>
-            <span className="flex items-center gap-1.5 text-sm text-slate-500">
+            <span className="flex flex-wrap items-center gap-1.5 text-sm text-slate-500">
               跳转
               <input
                 className="material-input w-14 text-center"

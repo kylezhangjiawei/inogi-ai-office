@@ -137,23 +137,23 @@ export function RDIssues() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      <section className="material-card p-6 md:p-8">
+      <section className="material-card p-4 sm:p-6 md:p-8">
         <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-          <div className="space-y-3">
+          <div className="min-w-0 space-y-3">
             <span className="material-chip bg-blue-50 text-blue-700">Issue Triage</span>
             <div>
-              <h2 className="text-[2rem] font-bold tracking-tight text-slate-900">研发问题分流</h2>
+              <h2 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[2rem]">研发问题分流</h2>
               <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
                 按照文档中的 Prompt 细化为“问题提交 + AI 分类 + 历史方案匹配 + 任务池流转”的完整页面，可继续流转到售后工单、法规知识库和质量模块。
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap gap-3">
-            <Link to="/after-sales" className="material-button-secondary">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:gap-3">
+            <Link to="/after-sales" className="material-button-secondary w-full justify-center sm:w-auto">
               查看售后 Case
               <ChevronRight className="h-4 w-4" />
             </Link>
-            <Link to="/ra-knowledge" className="material-button-secondary">
+            <Link to="/ra-knowledge" className="material-button-secondary w-full justify-center sm:w-auto">
               打开法规知识库
               <ChevronRight className="h-4 w-4" />
             </Link>
@@ -163,9 +163,9 @@ export function RDIssues() {
 
       <section className="grid grid-cols-12 gap-6">
         <div className="col-span-12 xl:col-span-5">
-          <form className="material-card space-y-5 p-6" onSubmit={handleSubmit}>
-            <div className="flex items-center justify-between">
-              <div>
+          <form className="material-card min-w-0 space-y-5 p-4 sm:p-6" onSubmit={handleSubmit}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
                 <h3 className="text-slate-900">问题提交表单</h3>
                 <p className="mt-1 text-sm text-slate-500">先补齐必填项，再触发 AI 进行自动分类。</p>
               </div>
@@ -232,12 +232,12 @@ export function RDIssues() {
             </label>
 
             <div className="rounded-[22px] border border-dashed border-slate-200 bg-slate-50/70 p-5">
-              <div className="flex items-center justify-between gap-4">
-                <div className="flex items-center gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                <div className="flex min-w-0 items-center gap-3">
                   <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-50 text-primary">
                     <Upload className="h-5 w-5" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <div className="text-sm font-semibold text-slate-800">日志 / 截图附件</div>
                     <div className="text-sm text-slate-500">支持日志、截图和录像。这里用假数据模拟上传。</div>
                   </div>
@@ -262,9 +262,9 @@ export function RDIssues() {
         </div>
 
         <div className="col-span-12 xl:col-span-4">
-          <div className="material-card h-full space-y-5 p-6">
-            <div className="flex items-center justify-between">
-              <div>
+          <div className="material-card h-full min-w-0 space-y-5 p-4 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
                 <h3 className="text-slate-900">AI 分类结果</h3>
                 <p className="mt-1 text-sm text-slate-500">根据描述自动判断归属类型、相似案例与建议处理路径。</p>
               </div>
@@ -307,7 +307,7 @@ export function RDIssues() {
                   {historicalMatches.map((item) => (
                     <div key={item.id} className="rounded-2xl bg-white p-4 shadow-sm">
                       <div className="flex items-start justify-between gap-3">
-                        <div className="text-sm font-semibold text-slate-800">{item.title}</div>
+                        <div className="min-w-0 text-sm font-semibold text-slate-800">{item.title}</div>
                         <span className="material-chip bg-blue-50 text-blue-700">{item.confidence}</span>
                       </div>
                       <div className="mt-2 text-sm leading-6 text-slate-500">{item.summary}</div>
@@ -328,7 +328,7 @@ export function RDIssues() {
         </div>
 
         <div className="col-span-12 xl:col-span-3">
-          <div className="material-card h-full space-y-4 p-6">
+          <div className="material-card h-full min-w-0 space-y-4 p-4 sm:p-6">
             <div>
               <h3 className="text-slate-900">任务池</h3>
               <p className="mt-1 text-sm text-slate-500">紧急队列、普通队列与退回队列分开展示，方便主管快速处理。</p>
@@ -348,7 +348,7 @@ export function RDIssues() {
 
       <section className="grid grid-cols-12 gap-6">
         <div className="col-span-12 xl:col-span-8">
-          <div className="material-card p-6">
+          <div className="material-card min-w-0 p-4 sm:p-6">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div>
                 <h3 className="text-slate-900">分流看板明细</h3>
@@ -383,13 +383,13 @@ export function RDIssues() {
               {pagedQueueSummary.map((item) => (
                 <button key={item.id} type="button" onClick={() => setSelectedQueueItem(item)} className="material-panel text-left transition hover:border-blue-200">
                   <div className="flex items-start justify-between gap-3">
-                    <div>
+                    <div className="min-w-0">
                       <div className="text-sm font-semibold text-slate-800">{item.title}</div>
                       <div className="mt-2 text-xs uppercase tracking-[0.12em] text-slate-400">{item.id}</div>
                     </div>
                     <span className="material-chip bg-white text-slate-600">{item.category}</span>
                   </div>
-                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm text-slate-600">
+                  <div className="mt-4 grid grid-cols-1 gap-3 text-sm text-slate-600 sm:grid-cols-2">
                     <div>
                       <div className="text-xs text-slate-400">提交人</div>
                       <div className="mt-1">{item.submitter}</div>
@@ -402,7 +402,7 @@ export function RDIssues() {
                 </button>
               ))}
             </div>
-            <div className="mt-4 flex items-center justify-between rounded-2xl border border-slate-100 bg-white px-4 py-3">
+            <div className="mt-4 flex flex-col gap-3 rounded-2xl border border-slate-100 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-sm text-slate-500">
                 第 {queuePage}/{queueTotalPages} 页
               </div>
@@ -429,7 +429,7 @@ export function RDIssues() {
         </div>
 
         <div className="col-span-12 xl:col-span-4">
-          <div className="material-card space-y-5 p-6">
+          <div className="material-card min-w-0 space-y-5 p-4 sm:p-6">
             <div>
               <h3 className="text-slate-900">处理建议</h3>
               <p className="mt-1 text-sm text-slate-500">把 AI 分析后的动作项和 SLA 提醒也放到右侧，页面更完整。</p>
@@ -464,7 +464,7 @@ export function RDIssues() {
                 <Clock3 className="h-4 w-4 text-blue-600" />
                 今日队列概况
               </div>
-              <div className="mt-4 grid grid-cols-3 gap-3">
+              <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
                 {[
                   ["紧急", `${urgentQueue.length}`],
                   ["普通", `${normalQueue.length}`],
@@ -483,9 +483,9 @@ export function RDIssues() {
 
       {selectedQueueItem ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/28 px-4">
-          <div className="material-card w-full max-w-2xl p-6">
-            <div className="flex items-center justify-between">
-              <div>
+          <div className="material-card w-full max-w-2xl p-4 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
                 <h3 className="text-slate-900">队列详情</h3>
                 <p className="mt-1 text-sm text-slate-500">把分流卡片改成可点击的详情弹窗。</p>
               </div>

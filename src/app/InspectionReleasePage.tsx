@@ -164,9 +164,9 @@ export function InspectionReleasePage() {
   };
 
   return (
-    <div className="flex h-full gap-4 p-4 bg-gray-50 min-h-0">
+    <div className="flex min-h-full min-w-0 flex-col gap-4 bg-gray-50 p-3 lg:h-full lg:min-h-0 lg:flex-row lg:p-4">
       {/* Left: IQC Form */}
-      <div className="w-80 flex-shrink-0 flex flex-col gap-4 overflow-y-auto">
+      <div className="flex min-w-0 flex-col gap-4 overflow-y-auto lg:w-80 lg:flex-shrink-0">
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
@@ -245,7 +245,7 @@ export function InspectionReleasePage() {
       </div>
 
       {/* Center: Record List */}
-      <div className="w-72 flex-shrink-0 bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col">
+      <div className="flex min-w-0 flex-col rounded-xl border border-gray-100 bg-white shadow-sm lg:w-72 lg:flex-shrink-0">
         <div className="px-4 pt-4 pb-3 border-b border-gray-100">
           <h3 className="font-semibold text-gray-800 text-sm">检验记录</h3>
         </div>
@@ -279,9 +279,9 @@ export function InspectionReleasePage() {
       </div>
 
       {/* Right: QA Release Panel */}
-      <div className="flex-1 min-w-0 bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
         <div className="px-6 pt-5 pb-4 border-b border-gray-100">
-          <div className="flex items-center gap-3 mb-1">
+          <div className="mb-1 flex flex-wrap items-center gap-3">
             <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium", typeColors[selected.type])}>{selected.type}</span>
             <h3 className="font-semibold text-gray-800">{selected.batch}</h3>
             <span className={cn("ml-auto text-sm px-2.5 py-1 rounded-full font-medium", releaseColors[selected.releaseStatus])}>{selected.releaseStatus}</span>
@@ -295,7 +295,7 @@ export function InspectionReleasePage() {
             <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">检验项目明细</div>
             <div className="space-y-2">
               {selected.items.map((item, i) => (
-                <div key={i} className={cn("flex items-center justify-between p-3 rounded-xl border",
+                <div key={i} className={cn("flex flex-wrap items-center justify-between gap-3 rounded-xl border p-3",
                   item.result === "不合格" ? "border-red-100 bg-red-50" : "border-gray-100 bg-gray-50"
                 )}>
                   <div>
@@ -341,7 +341,7 @@ export function InspectionReleasePage() {
               <div className="text-xs text-teal-600 bg-teal-50 rounded-lg p-2 font-medium">
                 ⚠ 此操作视为电子签名，具有法律效力
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <button onClick={handleRelease}
                   className="flex-1 flex items-center justify-center gap-1.5 text-sm bg-teal-500 hover:bg-teal-600 text-white py-2 rounded-lg font-medium transition-colors">
                   <CheckCircle2 className="w-4 h-4" /> 批准放行

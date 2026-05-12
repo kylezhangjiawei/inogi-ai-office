@@ -339,7 +339,7 @@ export function DictionaryList() {
         <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600">维护系统全局枚举字典，左侧选择字典类型，右侧管理对应条目。</p>
       </section>
 
-      <section className="grid grid-cols-[220px_minmax(0,1fr)] gap-6">
+      <section className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-6">
         <div className="material-card overflow-hidden">
           <div className="px-3 py-3">
             <button
@@ -392,9 +392,9 @@ export function DictionaryList() {
           </div>
         </div>
 
-        <div className="material-card p-6">
+        <div className="material-card min-w-0 p-4 sm:p-6">
           <div className="mb-5 flex flex-col gap-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <h3 className="text-slate-900">{activeType?.label ?? "请选择字典类型"}</h3>
               <button
                 className="material-button-primary"
@@ -413,7 +413,7 @@ export function DictionaryList() {
               </button>
             </div>
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-              <div className="relative w-full max-w-xs">
+              <div className="relative w-full sm:max-w-xs">
                 <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
                 <input
                   className="material-input pl-11"
@@ -449,7 +449,7 @@ export function DictionaryList() {
             <>
               <div className="overflow-x-auto">
                 {activeType.kind === "email" ? (
-                  <table className="min-w-full text-left">
+                  <table className="min-w-[720px] text-left">
                     <thead className="bg-slate-50">
                       <tr>
                         {["账号", "密码", "操作时间", "操作人", "操作"].map((header) => (
@@ -507,7 +507,7 @@ export function DictionaryList() {
                     </tbody>
                   </table>
                 ) : (
-                  <table className="min-w-full text-left">
+                  <table className="min-w-[760px] text-left">
                     <thead className="bg-slate-50">
                       <tr>
                         {["编码", "标签", "备注", "操作时间", "操作人", "操作"].map((header) => (

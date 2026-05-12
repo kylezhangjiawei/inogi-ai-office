@@ -64,6 +64,7 @@ export function MaterialTextarea({ label, hint, icon, className, ...props }: Mat
 type MaterialSelectOption = {
   label: string;
   value: string;
+  description?: string;
 };
 
 const EMPTY_SELECT_VALUE = "__material-empty__";
@@ -110,6 +111,7 @@ export function MaterialSelect({
             <SelectItem
               key={option.value || EMPTY_SELECT_VALUE}
               value={option.value === "" ? EMPTY_SELECT_VALUE : option.value}
+              description={option.description}
               className="rounded-[var(--m3-shape-small)] py-2 pl-3 pr-9 text-sm text-slate-700"
             >
               {option.label}
