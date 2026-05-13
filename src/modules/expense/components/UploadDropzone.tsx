@@ -10,6 +10,7 @@ export function UploadDropzone({
   description = "支持 JPG / PNG / PDF，多文件上传后自动 OCR",
   accept = ".jpg,.jpeg,.png,.pdf",
   processingLabel = "AI 正在识别字段与分类...",
+  onFilesSelected,
 }: {
   processing?: boolean;
   className?: string;
@@ -17,6 +18,7 @@ export function UploadDropzone({
   description?: string;
   accept?: string;
   processingLabel?: string;
+  onFilesSelected?: (files: File[]) => void;
 }) {
   return (
     <label
@@ -25,7 +27,17 @@ export function UploadDropzone({
         className,
       )}
     >
-      <input type="file" multiple accept={accept} className="sr-only" />
+      <input
+        type="file"
+        multiple
+        accept={accept}
+        className="sr-only"
+        onChange={(event) => {
+          const files = Array.from(event.currentTarget.files ?? []);
+          if (files.length > 0) onFilesSelected?.(files);
+          event.currentTarget.value = "";
+        }}
+      />
       <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-white text-blue-700 shadow-sm">
         <UploadCloud className="h-5 w-5" />
       </div>

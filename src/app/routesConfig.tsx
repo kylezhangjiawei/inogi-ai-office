@@ -1,5 +1,6 @@
 import React from "react";
 import {
+  Activity,
   Bot,
   BadgeCheck,
   BookOpen,
@@ -22,6 +23,7 @@ import {
   NotebookPen,
   Presentation,
   Receipt,
+  Route,
   ScanSearch,
   ScrollText,
   ShieldCheck,
@@ -104,15 +106,31 @@ export const navGroups: NavGroup[] = [
     ],
   },
   {
-    label: "法务与系统",
+    label: "法务管理",
     items: [
       { label: "合同 AI 审查", path: "/contract-review", icon: FileText, requiredPermission: "page:contract-review" },
+    ],
+  },
+  {
+    label: "系统运维中心",
+    items: [
+      { label: "运维总览", path: "/ops-center", icon: Activity, requiredPermission: "page:ops-center" },
+      { label: "接口与错误", path: "/ops-center/api-errors", icon: Bug, requiredPermission: "page:ops-api-errors" },
+      { label: "数据库监控", path: "/ops-center/database", icon: Building2, requiredPermission: "page:ops-database" },
+      { label: "服务与任务", path: "/ops-center/services-tasks", icon: Bot, requiredPermission: "page:ops-services-tasks" },
+      { label: "告警与审计设置", path: "/ops-center/alerts-audit", icon: ShieldCheck, requiredPermission: "page:ops-alerts-audit" },
+    ],
+  },
+  {
+    label: "系统管理",
+    items: [
       { label: "邮箱管理", path: "/mailbox-management", icon: Mail, requiredPermission: "page:mailbox-management" },
       { label: "AI模型管理", path: "/ai-model-management", icon: Bot, requiredPermission: "page:ai-model-management" },
       { label: "下载和教程", path: "/downloads", icon: Download, requiredPermission: "page:downloads" },
       { label: "部门管理", path: "/departments", icon: Building2, requiredPermission: "page:departments" },
       { label: "用户管理", path: "/users", icon: UserSquare2, requiredPermission: "page:users" },
       { label: "角色权限", path: "/roles", icon: UserCog, requiredPermission: "page:roles" },
+      { label: "页面路由管理", path: "/route-management", icon: Route, requiredPermission: "page:route-management" },
       { label: "字典列表", path: "/settings", icon: MonitorCog, requiredPermission: "page:settings" },
     ],
   },
@@ -123,7 +141,13 @@ export const routeTitleMap = navGroups
   .reduce<Record<string, string>>((acc, item) => {
     acc[item.path] = item.label;
     return acc;
-  }, {});
+  }, {
+    "/ops-center/api-errors": "接口与错误",
+    "/ops-center/database": "数据库监控",
+    "/ops-center/services-tasks": "服务与任务",
+    "/ops-center/alerts-audit": "告警与审计设置",
+    "/route-management": "页面路由管理",
+  });
 
 /** Map from route path to required permission code. */
 export const routePermissionMap = navGroups

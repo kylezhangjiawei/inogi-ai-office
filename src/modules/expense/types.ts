@@ -49,6 +49,60 @@ export type InvoiceRecord = {
   voucherNo?: string;
   matchConfidence?: number;
   paymentVoucher?: string;
+  matchedVoucherId?: string;
+  matchScore?: number;
+  matchReasons?: string[];
+  matchedBy?: "system" | "manual";
+  matchedAt?: string;
+  ocrMode?: OcrMode;
+  ocrServiceKey?: string;
+  ocrServiceLabel?: string;
+  ocrAction?: string;
+  ocrRequestId?: string;
+  detectedType?: string;
+  detectedTypeConfidence?: number;
+  manualReviewRequired?: boolean;
+  thirdPartyErrors?: ThirdPartyOfficialError[];
+};
+
+export type OcrMode = "auto" | "manual";
+
+export type ThirdPartyOfficialError = {
+  provider: "tencent_ocr" | "wecom";
+  code: string | number;
+  message: string;
+  request_id?: string;
+  action?: string;
+  raw?: unknown;
+  docs: string[];
+};
+
+export type VoucherUploadRecord = {
+  id: string;
+  voucherNo: string;
+  amount: number;
+  date: string;
+  project: string;
+  subject: string;
+  counterparty?: string;
+  confidence: number;
+  reason: string;
+  fileName: string;
+  uploadedAt: string;
+  status: string;
+  ocrMode?: OcrMode;
+  ocrServiceKey?: string;
+  ocrServiceLabel?: string;
+  ocrAction?: string;
+  ocrRequestId?: string;
+  detectedType?: string;
+  matchedInvoiceId?: string;
+  matchScore?: number;
+  matchReasons?: string[];
+  matchedBy?: "system" | "manual";
+  matchedAt?: string;
+  manualReviewRequired?: boolean;
+  thirdPartyErrors?: ThirdPartyOfficialError[];
 };
 
 export type VoucherCandidate = {
@@ -60,6 +114,8 @@ export type VoucherCandidate = {
   subject: string;
   confidence: number;
   reason: string;
+  matchReasons?: string[];
+  matchStatus?: "auto" | "manual_review" | "blocked";
 };
 
 export type ReimbursementRecord = {

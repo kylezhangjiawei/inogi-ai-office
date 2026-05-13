@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { authFetch } from "./lib/authSession";
 import { cn } from "./components/ui/utils";
 import { PermissionGuard } from "./components/PermissionGuard";
-import { PERMISSION_GROUPS } from "./lib/permissions";
+import { PermissionCatalogGroup, permissionCatalogApi } from "./lib/permissionCatalogApi";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -68,10 +68,12 @@ function PermissionMatrix({
   selected,
   onChange,
   isWildcard,
+  groups,
 }: {
   selected: string[];
   onChange: (permissions: string[]) => void;
   isWildcard: boolean;
+  groups: PermissionCatalogGroup[];
 }) {
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -99,7 +101,7 @@ function PermissionMatrix({
 
   return (
     <div className="space-y-3">
-      {PERMISSION_GROUPS.map((group) => {
+      {groups.map((group) => {
         const groupCodes = group.permissions.map((p) => p.code);
         const selectedCount = groupCodes.filter((c) => selected.includes(c) || isWildcard).length;
         const allSelected = isWildcard || selectedCount === groupCodes.length;
@@ -184,6 +186,7 @@ type DialogMode = "create" | "edit" | "deleteConfirm" | null;
 
 export function RoleManagement() {
   const [roles, setRoles] = useState<Role[]>([]);
+  const [permissionGroups, setPermissionGroups] = useState<PermissionCatalogGroup[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeRoleId, setActiveRoleId] = useState<string | null>(null);
 
@@ -195,8 +198,12 @@ export function RoleManagement() {
   const loadRoles = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await apiListRoles();
+      const [data, groups] = await Promise.all([
+        apiListRoles(),
+        permissionCatalogApi.listGroups(),
+      ]);
       setRoles(data);
+      setPermissionGroups(groups);
       if (!activeRoleId && data.length > 0) {
         setActiveRoleId(data[0].id);
       }
@@ -436,6 +443,7 @@ export function RoleManagement() {
               <PermissionMatrix
                 selected={activeRole.permissions}
                 isWildcard={isWildcard}
+                groups={permissionGroups}
                 onChange={(permissions) => {
                   // Optimistic update local state
                   setRoles((prev) =>
@@ -490,6 +498,7 @@ export function RoleManagement() {
           <PermissionMatrix
             selected={form.permissions}
             isWildcard={form.permissions.includes("*")}
+            groups={permissionGroups}
             onChange={(permissions) => setForm((f) => ({ ...f, permissions }))}
           />
         </DialogContent>

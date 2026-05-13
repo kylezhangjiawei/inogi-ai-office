@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { Pencil, Plus, Search, Trash2 } from "lucide-react";
-import { Dialog, DialogActions, DialogContent, DialogTitle, FormControl, MenuItem, Select, SelectChangeEvent } from "@mui/material";
 import { toast } from "sonner";
 
 import { cn } from "./components/ui/utils";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import {
   DictionaryType,
   EmailDictionaryItem,
@@ -12,6 +12,78 @@ import {
 } from "./lib/dictionaryApi";
 
 const PAGE_SIZE = 5;
+const TABLE_HEADER_CLASS = "px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 whitespace-nowrap";
+const TABLE_CELL_CLASS = "px-5 py-4 align-middle text-sm text-slate-700";
+const SELECT_TRIGGER_CLASS = "h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm outline-none transition focus-visible:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-100 disabled:cursor-not-allowed disabled:opacity-50";
+
+function ActionIconButton({
+  children,
+  className,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { children: React.ReactNode }) {
+  return (
+    <button
+      className={cn(
+        "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50",
+        className,
+      )}
+      {...props}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ModalShell({
+  title,
+  children,
+  footer,
+  maxWidth = "max-w-lg",
+}: {
+  title: React.ReactNode;
+  children: React.ReactNode;
+  footer: React.ReactNode;
+  maxWidth?: string;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-4" role="dialog" aria-modal="true">
+      <div className={cn("w-full overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200", maxWidth)}>
+        <div className="px-6 py-4 text-base font-bold text-slate-900">{title}</div>
+        <div className="max-h-[70vh] overflow-y-auto border-y border-slate-100 px-6 py-5">{children}</div>
+        <div className="flex justify-end gap-2 px-6 py-4">{footer}</div>
+      </div>
+    </div>
+  );
+}
+
+function SelectControl({
+  value,
+  onValueChange,
+  options,
+  disabled,
+  className,
+}: {
+  value: string;
+  onValueChange: (value: string) => void;
+  options: Array<{ label: string; value: string }>;
+  disabled?: boolean;
+  className?: string;
+}) {
+  return (
+    <Select value={value} onValueChange={onValueChange} disabled={disabled}>
+      <SelectTrigger className={cn(SELECT_TRIGGER_CLASS, className)}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+        {options.map((option) => (
+          <SelectItem key={option.value} value={option.value} className="rounded-lg py-2 pl-3 pr-9 text-sm text-slate-700">
+            {option.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
 
 function formatDate(value?: string | null) {
   if (!value) return "-";
@@ -77,6 +149,8 @@ export function DictionaryList() {
   const activeType = dictTypes.find((item) => item.id === activeTypeId) ?? null;
   const emailRows = (items as EmailDictionaryItem[]) ?? [];
   const genericRows = (items as GenericDictionaryItem[]) ?? [];
+  const emailTypeCount = dictTypes.filter((item) => item.kind === "email").length;
+  const genericTypeCount = dictTypes.length - emailTypeCount;
 
   async function loadTypes(preferredTypeId?: string | null) {
     setLoadingTypes(true);
@@ -339,7 +413,21 @@ export function DictionaryList() {
         <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600">维护系统全局枚举字典，左侧选择字典类型，右侧管理对应条目。</p>
       </section>
 
-      <section className="grid gap-4 lg:grid-cols-[220px_minmax(0,1fr)] lg:gap-6">
+      <section className="grid gap-4 md:grid-cols-4">
+        {[
+          ["字典类型", dictTypes.length],
+          ["通用字典", genericTypeCount],
+          ["邮箱字典", emailTypeCount],
+          ["当前条目", total],
+        ].map(([label, value]) => (
+          <div key={label} className="material-card p-5">
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{label}</div>
+            <div className="mt-3 text-3xl font-bold text-slate-900">{value}</div>
+          </div>
+        ))}
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)] lg:gap-6">
         <div className="material-card overflow-hidden">
           <div className="px-3 py-3">
             <button
@@ -423,21 +511,16 @@ export function DictionaryList() {
                   disabled={!activeType}
                 />
               </div>
-              <FormControl size="small" sx={{ minWidth: 140 }}>
-                <Select
-                  value={operatorFilter}
-                  onChange={(event: SelectChangeEvent) => setOperatorFilter(event.target.value)}
-                  displayEmpty
-                  disabled={!activeType}
-                >
-                  <MenuItem value="ALL">全部操作人</MenuItem>
-                  {operators.map((operator) => (
-                    <MenuItem key={operator} value={operator}>
-                      {operator}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+              <SelectControl
+                value={operatorFilter}
+                onValueChange={setOperatorFilter}
+                disabled={!activeType}
+                options={[
+                  { label: "全部操作人", value: "ALL" },
+                  ...operators.map((operator) => ({ label: operator, value: operator })),
+                ]}
+                className="min-w-[160px]"
+              />
             </div>
           </div>
 
@@ -447,13 +530,21 @@ export function DictionaryList() {
             </div>
           ) : (
             <>
-              <div className="overflow-x-auto">
+              <div className="overflow-hidden rounded-2xl border border-slate-200">
+                <div className="overflow-x-auto">
                 {activeType.kind === "email" ? (
-                  <table className="min-w-[720px] text-left">
-                    <thead className="bg-slate-50">
+                  <table className="w-full min-w-[900px] table-fixed text-left">
+                    <colgroup>
+                      <col className="w-[240px]" />
+                      <col className="w-[190px]" />
+                      <col className="w-[190px]" />
+                      <col className="w-[160px]" />
+                      <col className="w-[120px]" />
+                    </colgroup>
+                    <thead className="bg-slate-50/90">
                       <tr>
                         {["账号", "密码", "操作时间", "操作人", "操作"].map((header) => (
-                          <th key={header} className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          <th key={header} className={cn(TABLE_HEADER_CLASS, header === "操作" && "text-right")}>
                             {header}
                           </th>
                         ))}
@@ -474,9 +565,9 @@ export function DictionaryList() {
                         </tr>
                       ) : (
                         emailRows.map((row) => (
-                          <tr key={row.id} className="hover:bg-slate-50/70">
-                            <td className="px-4 py-3 text-sm text-slate-800">{row.account}</td>
-                            <td className="px-4 py-3 text-sm text-slate-700">
+                          <tr key={row.id} className="h-[72px] transition hover:bg-blue-50/25">
+                            <td className={TABLE_CELL_CLASS}><div className="truncate font-medium text-slate-800">{row.account}</div></td>
+                            <td className={TABLE_CELL_CLASS}>
                               <span className="font-mono">{showPwd[row.id] ? row.password : "••••••••"}</span>
                               <button
                                 type="button"
@@ -486,19 +577,20 @@ export function DictionaryList() {
                                 {showPwd[row.id] ? "隐藏" : "显示"}
                               </button>
                             </td>
-                            <td className="px-4 py-3 text-sm text-slate-500">{formatDate(row.updated_at)}</td>
-                            <td className="px-4 py-3 text-sm text-slate-700">{row.updated_by}</td>
-                            <td className="px-4 py-3 text-sm">
-                              <div className="flex gap-2">
-                                <button className="material-button-secondary !px-3 !py-2" onClick={() => openEditEmail(row)}>
+                            <td className={TABLE_CELL_CLASS}>{formatDate(row.updated_at)}</td>
+                            <td className={TABLE_CELL_CLASS}><div className="truncate">{row.updated_by}</div></td>
+                            <td className={cn(TABLE_CELL_CLASS, "text-right")}>
+                              <div className="flex justify-end gap-2">
+                                <ActionIconButton onClick={() => openEditEmail(row)} title="编辑">
                                   <Pencil className="h-3.5 w-3.5" />
-                                </button>
-                                <button
-                                  className="material-button-secondary !px-3 !py-2 text-red-500 hover:border-red-200 hover:bg-red-50"
+                                </ActionIconButton>
+                                <ActionIconButton
+                                  className="hover:border-red-200 hover:bg-red-50"
                                   onClick={() => openDeleteRow(row.id)}
+                                  title="删除"
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
-                                </button>
+                                </ActionIconButton>
                               </div>
                             </td>
                           </tr>
@@ -507,11 +599,19 @@ export function DictionaryList() {
                     </tbody>
                   </table>
                 ) : (
-                  <table className="min-w-[760px] text-left">
-                    <thead className="bg-slate-50">
+                  <table className="w-full min-w-[1020px] table-fixed text-left">
+                    <colgroup>
+                      <col className="w-[170px]" />
+                      <col className="w-[220px]" />
+                      <col className="w-[250px]" />
+                      <col className="w-[180px]" />
+                      <col className="w-[140px]" />
+                      <col className="w-[120px]" />
+                    </colgroup>
+                    <thead className="bg-slate-50/90">
                       <tr>
                         {["编码", "标签", "备注", "操作时间", "操作人", "操作"].map((header) => (
-                          <th key={header} className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                          <th key={header} className={cn(TABLE_HEADER_CLASS, header === "操作" && "text-right")}>
                             {header}
                           </th>
                         ))}
@@ -532,23 +632,24 @@ export function DictionaryList() {
                         </tr>
                       ) : (
                         genericRows.map((row) => (
-                          <tr key={row.id} className="hover:bg-slate-50/70">
-                            <td className="px-4 py-3 text-xs font-mono text-slate-500">{row.code}</td>
-                            <td className="px-4 py-3 text-sm font-medium text-slate-800">{row.label}</td>
-                            <td className="px-4 py-3 text-sm text-slate-500">{row.remark || "—"}</td>
-                            <td className="px-4 py-3 text-sm text-slate-500">{formatDate(row.updated_at)}</td>
-                            <td className="px-4 py-3 text-sm text-slate-700">{row.updated_by}</td>
-                            <td className="px-4 py-3 text-sm">
-                              <div className="flex gap-2">
-                                <button className="material-button-secondary !px-3 !py-2" onClick={() => openEditGeneric(row)}>
+                          <tr key={row.id} className="h-[72px] transition hover:bg-blue-50/25">
+                            <td className={cn(TABLE_CELL_CLASS, "font-mono text-xs text-slate-500")}><div className="truncate">{row.code}</div></td>
+                            <td className={TABLE_CELL_CLASS}><div className="truncate font-medium text-slate-800">{row.label}</div></td>
+                            <td className={TABLE_CELL_CLASS}><div className="truncate text-slate-500">{row.remark || "—"}</div></td>
+                            <td className={TABLE_CELL_CLASS}>{formatDate(row.updated_at)}</td>
+                            <td className={TABLE_CELL_CLASS}><div className="truncate">{row.updated_by}</div></td>
+                            <td className={cn(TABLE_CELL_CLASS, "text-right")}>
+                              <div className="flex justify-end gap-2">
+                                <ActionIconButton onClick={() => openEditGeneric(row)} title="编辑">
                                   <Pencil className="h-3.5 w-3.5" />
-                                </button>
-                                <button
-                                  className="material-button-secondary !px-3 !py-2 text-red-500 hover:border-red-200 hover:bg-red-50"
+                                </ActionIconButton>
+                                <ActionIconButton
+                                  className="hover:border-red-200 hover:bg-red-50"
                                   onClick={() => openDeleteRow(row.id)}
+                                  title="删除"
                                 >
                                   <Trash2 className="h-3.5 w-3.5" />
-                                </button>
+                                </ActionIconButton>
                               </div>
                             </td>
                           </tr>
@@ -557,6 +658,7 @@ export function DictionaryList() {
                     </tbody>
                   </table>
                 )}
+                </div>
               </div>
 
               <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
@@ -599,44 +701,64 @@ export function DictionaryList() {
         </div>
       </section>
 
-      <Dialog open={dialogMode === "add-type" || dialogMode === "edit-type"} onClose={closeDialog} fullWidth maxWidth="xs">
-        <DialogTitle>{editTypeId === null ? "新增字典类型" : "编辑字典类型"}</DialogTitle>
-        <DialogContent dividers>
+      {(dialogMode === "add-type" || dialogMode === "edit-type") && (
+        <ModalShell
+          title={editTypeId === null ? "新增字典类型" : "编辑字典类型"}
+          maxWidth="max-w-md"
+          footer={
+            <>
+              <button type="button" className="material-button-secondary" onClick={closeDialog} disabled={savingType}>
+                取消
+              </button>
+              <button type="button" className="material-button-primary" onClick={submitType} disabled={savingType || !fTypeLabel.trim()}>
+                确认
+              </button>
+            </>
+          }
+        >
           <div className="space-y-4 pt-1">
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">类型名称</label>
               <input className="material-input w-full" placeholder="如：产品系列" value={fTypeLabel} onChange={(event) => setFTypeLabel(event.target.value)} />
             </div>
           </div>
-        </DialogContent>
-        <DialogActions>
-          <button type="button" className="material-button-secondary" onClick={closeDialog} disabled={savingType}>
-            取消
-          </button>
-          <button type="button" className="material-button-primary" onClick={submitType} disabled={savingType || !fTypeLabel.trim()}>
-            确认
-          </button>
-        </DialogActions>
-      </Dialog>
+        </ModalShell>
+      )}
 
-      <Dialog open={dialogMode === "delete-type"} onClose={closeDialog} fullWidth maxWidth="xs">
-        <DialogTitle>删除字典类型</DialogTitle>
-        <DialogContent dividers>
+      {dialogMode === "delete-type" && (
+        <ModalShell
+          title="删除字典类型"
+          maxWidth="max-w-md"
+          footer={
+            <>
+              <button type="button" className="material-button-secondary" onClick={closeDialog} disabled={deletingType}>
+                取消
+              </button>
+              <button type="button" className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50" onClick={confirmDeleteType} disabled={deletingType}>
+                删除
+              </button>
+            </>
+          }
+        >
           <p className="text-sm text-slate-600">删除后该类型下所有条目将一并移除，此操作不可撤销。</p>
-        </DialogContent>
-        <DialogActions>
-          <button type="button" className="material-button-secondary" onClick={closeDialog} disabled={deletingType}>
-            取消
-          </button>
-          <button type="button" className="material-button-primary !bg-red-500 hover:!bg-red-600" onClick={confirmDeleteType} disabled={deletingType}>
-            删除
-          </button>
-        </DialogActions>
-      </Dialog>
+        </ModalShell>
+      )}
 
-      <Dialog open={dialogMode === "add-email" || dialogMode === "edit-email"} onClose={closeDialog} fullWidth maxWidth="sm">
-        <DialogTitle>{editEmailId === null ? "新增邮箱账号" : "编辑邮箱账号"}</DialogTitle>
-        <DialogContent dividers>
+      {(dialogMode === "add-email" || dialogMode === "edit-email") && (
+        <ModalShell
+          title={editEmailId === null ? "新增邮箱账号" : "编辑邮箱账号"}
+          maxWidth="max-w-xl"
+          footer={
+            <>
+              <button type="button" className="material-button-secondary" onClick={closeDialog} disabled={savingItem}>
+                取消
+              </button>
+              <button type="button" className="material-button-primary" onClick={submitEmail} disabled={savingItem || !fAccount.trim() || !fPassword}>
+                确认
+              </button>
+            </>
+          }
+        >
           <div className="space-y-4 pt-1">
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">账号</label>
@@ -647,20 +769,24 @@ export function DictionaryList() {
               <input className="material-input w-full" type="password" placeholder="输入密码" value={fPassword} onChange={(event) => setFPassword(event.target.value)} />
             </div>
           </div>
-        </DialogContent>
-        <DialogActions>
-          <button type="button" className="material-button-secondary" onClick={closeDialog} disabled={savingItem}>
-            取消
-          </button>
-          <button type="button" className="material-button-primary" onClick={submitEmail} disabled={savingItem || !fAccount.trim() || !fPassword}>
-            确认
-          </button>
-        </DialogActions>
-      </Dialog>
+        </ModalShell>
+      )}
 
-      <Dialog open={dialogMode === "add-generic" || dialogMode === "edit-generic"} onClose={closeDialog} fullWidth maxWidth="sm">
-        <DialogTitle>{editGenericId === null ? `新增 · ${activeType?.label ?? ""}` : `编辑 · ${activeType?.label ?? ""}`}</DialogTitle>
-        <DialogContent dividers>
+      {(dialogMode === "add-generic" || dialogMode === "edit-generic") && (
+        <ModalShell
+          title={editGenericId === null ? `新增 · ${activeType?.label ?? ""}` : `编辑 · ${activeType?.label ?? ""}`}
+          maxWidth="max-w-xl"
+          footer={
+            <>
+              <button type="button" className="material-button-secondary" onClick={closeDialog} disabled={savingItem}>
+                取消
+              </button>
+              <button type="button" className="material-button-primary" onClick={submitGeneric} disabled={savingItem || !fCode.trim() || !fLabel.trim()}>
+                确认
+              </button>
+            </>
+          }
+        >
           <div className="space-y-4 pt-1">
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">编码</label>
@@ -675,31 +801,27 @@ export function DictionaryList() {
               <input className="material-input w-full" placeholder="（可选）" value={fRemark} onChange={(event) => setFRemark(event.target.value)} />
             </div>
           </div>
-        </DialogContent>
-        <DialogActions>
-          <button type="button" className="material-button-secondary" onClick={closeDialog} disabled={savingItem}>
-            取消
-          </button>
-          <button type="button" className="material-button-primary" onClick={submitGeneric} disabled={savingItem || !fCode.trim() || !fLabel.trim()}>
-            确认
-          </button>
-        </DialogActions>
-      </Dialog>
+        </ModalShell>
+      )}
 
-      <Dialog open={dialogMode === "delete-row"} onClose={closeDialog} fullWidth maxWidth="xs">
-        <DialogTitle>确认删除</DialogTitle>
-        <DialogContent dividers>
+      {dialogMode === "delete-row" && (
+        <ModalShell
+          title="确认删除"
+          maxWidth="max-w-md"
+          footer={
+            <>
+              <button type="button" className="material-button-secondary" onClick={closeDialog} disabled={deletingItem}>
+                取消
+              </button>
+              <button type="button" className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50" onClick={confirmDeleteRow} disabled={deletingItem}>
+                删除
+              </button>
+            </>
+          }
+        >
           <p className="text-sm text-slate-600">此操作不可撤销，确定要删除这条记录吗？</p>
-        </DialogContent>
-        <DialogActions>
-          <button type="button" className="material-button-secondary" onClick={closeDialog} disabled={deletingItem}>
-            取消
-          </button>
-          <button type="button" className="material-button-primary !bg-red-500 hover:!bg-red-600" onClick={confirmDeleteRow} disabled={deletingItem}>
-            删除
-          </button>
-        </DialogActions>
-      </Dialog>
+        </ModalShell>
+      )}
     </div>
   );
 }

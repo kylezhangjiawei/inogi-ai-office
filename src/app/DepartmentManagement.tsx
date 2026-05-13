@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Building2, Pencil, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
-import { Dialog, DialogActions, DialogContent, DialogTitle, FormControl, MenuItem, Select, SelectChangeEvent } from "@mui/material";
 import { toast } from "sonner";
 import { PermissionGuard } from "./components/PermissionGuard";
 import { cn } from "./components/ui/utils";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { authFetch } from "./lib/authSession";
 
 type Department = {
@@ -42,6 +42,76 @@ const EMPTY_FORM: DepartmentFormData = {
 };
 
 const PAGE_SIZE = 10;
+const TABLE_HEADER_CLASS = "px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 whitespace-nowrap";
+const TABLE_CELL_CLASS = "px-5 py-4 align-middle text-sm text-slate-700";
+const SELECT_TRIGGER_CLASS = "h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm outline-none transition focus-visible:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-100";
+
+function ActionIconButton({
+  children,
+  className,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { children: React.ReactNode }) {
+  return (
+    <button
+      className={cn(
+        "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50",
+        className,
+      )}
+      {...props}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ModalShell({
+  title,
+  children,
+  footer,
+  maxWidth = "max-w-lg",
+}: {
+  title: React.ReactNode;
+  children: React.ReactNode;
+  footer: React.ReactNode;
+  maxWidth?: string;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-4" role="dialog" aria-modal="true">
+      <div className={cn("w-full overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200", maxWidth)}>
+        <div className="px-6 py-4 text-base font-bold text-slate-900">{title}</div>
+        <div className="max-h-[70vh] overflow-y-auto border-y border-slate-100 px-6 py-5">{children}</div>
+        <div className="flex justify-end gap-2 px-6 py-4">{footer}</div>
+      </div>
+    </div>
+  );
+}
+
+function SelectControl({
+  value,
+  onValueChange,
+  options,
+  className,
+}: {
+  value: string;
+  onValueChange: (value: string) => void;
+  options: Array<{ label: string; value: string }>;
+  className?: string;
+}) {
+  return (
+    <Select value={value} onValueChange={onValueChange}>
+      <SelectTrigger className={cn(SELECT_TRIGGER_CLASS, className)}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+        {options.map((option) => (
+          <SelectItem key={option.value} value={option.value} className="rounded-lg py-2 pl-3 pr-9 text-sm text-slate-700">
+            {option.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
 
 async function apiListDepartments(): Promise<Department[]> {
   const res = await authFetch("/api/departments");
@@ -266,9 +336,9 @@ export function DepartmentManagement() {
         ))}
       </section>
 
-      <section className="material-card p-6">
-        <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="relative w-full max-w-sm">
+      <section className="material-card p-5 md:p-6">
+        <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="relative w-full xl:max-w-[420px]">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               className="material-input pl-11"
@@ -277,24 +347,36 @@ export function DepartmentManagement() {
               placeholder="搜索部门、编码、负责人..."
             />
           </div>
-          <FormControl size="small" sx={{ minWidth: 160 }}>
-            <Select value={categoryFilter} onChange={(event: SelectChangeEvent) => setCategoryFilter(event.target.value)}>
-              <MenuItem value="ALL">全部分类</MenuItem>
-              {categories.map((category) => (
-                <MenuItem key={category} value={category}>
-                  {category}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+          <div className="flex flex-wrap items-center gap-3">
+
+            <SelectControl
+              value={categoryFilter}
+              onValueChange={setCategoryFilter}
+              options={[
+                { label: "全部分类", value: "ALL" },
+                ...categories.map((category) => ({ label: category, value: category })),
+              ]}
+              className="min-w-[160px]"
+            />
+          </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="min-w-[900px] text-left">
-            <thead className="bg-slate-50">
+        <div className="overflow-hidden rounded-2xl border border-slate-200">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[1180px] table-fixed text-left">
+            <colgroup>
+              <col className="w-[420px]" />
+              <col className="w-[160px]" />
+              <col className="w-[160px]" />
+              <col className="w-[110px]" />
+              <col className="w-[100px]" />
+              <col className="w-[120px]" />
+              <col className="w-[150px]" />
+            </colgroup>
+            <thead className="bg-slate-50/90">
               <tr>
                 {["部门", "分类", "负责人", "用户数", "排序", "状态", "操作"].map((col) => (
-                  <th key={col} className="whitespace-nowrap px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                  <th key={col} className={cn(TABLE_HEADER_CLASS, col === "操作" && "text-right")}>
                     {col}
                   </th>
                 ))}
@@ -311,26 +393,26 @@ export function DepartmentManagement() {
                 </tr>
               ) : (
                 pagedDepartments.map((department) => (
-                  <tr key={department.id} className="hover:bg-slate-50/70">
-                    <td className="px-4 py-3">
-                      <div className="flex items-start gap-3">
-                        <div className="mt-0.5 flex h-10 w-10 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
-                          <Building2 className="h-5 w-5" />
+                  <tr key={department.id} className="h-[86px] transition hover:bg-blue-50/25">
+                    <td className={TABLE_CELL_CLASS}>
+                      <div className="flex min-w-0 items-start gap-3">
+                        <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+                          <Building2 className="h-[18px] w-[18px]" />
                         </div>
-                        <div>
-                          <div className="font-medium text-slate-800">{department.name}</div>
-                          <div className="mt-0.5 text-xs text-slate-400">{department.code}</div>
+                        <div className="min-w-0">
+                          <div className="truncate font-medium text-slate-800">{department.name}</div>
+                          <div className="mt-0.5 truncate text-xs text-slate-400">{department.code}</div>
                           {department.description && (
-                            <div className="mt-1 max-w-xl text-xs leading-5 text-slate-500">{department.description}</div>
+                            <div className="mt-1 max-w-[330px] truncate text-xs leading-5 text-slate-500">{department.description}</div>
                           )}
                         </div>
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-sm text-slate-700">{department.category}</td>
-                    <td className="px-4 py-3 text-sm text-slate-700">{department.manager || "—"}</td>
-                    <td className="px-4 py-3 text-sm text-slate-700">{department.userCount}</td>
-                    <td className="px-4 py-3 text-sm text-slate-700">{department.sortOrder}</td>
-                    <td className="px-4 py-3">
+                    <td className={TABLE_CELL_CLASS}><div className="truncate">{department.category}</div></td>
+                    <td className={TABLE_CELL_CLASS}><div className="truncate">{department.manager || "—"}</div></td>
+                    <td className={TABLE_CELL_CLASS}>{department.userCount}</td>
+                    <td className={TABLE_CELL_CLASS}>{department.sortOrder}</td>
+                    <td className={TABLE_CELL_CLASS}>
                       <button
                         type="button"
                         className={cn(
@@ -342,21 +424,21 @@ export function DepartmentManagement() {
                         {department.enabled ? "启用" : "停用"}
                       </button>
                     </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-2">
+                    <td className={cn(TABLE_CELL_CLASS, "text-right")}>
+                      <div className="flex justify-end gap-2">
                         <PermissionGuard permission="department:edit">
-                          <button className="material-button-secondary !px-3 !py-2" onClick={() => openEdit(department)} title="编辑部门">
+                          <ActionIconButton onClick={() => openEdit(department)} title="编辑部门">
                             <Pencil className="h-3.5 w-3.5" />
-                          </button>
+                          </ActionIconButton>
                         </PermissionGuard>
                         <PermissionGuard permission="department:delete">
-                          <button
-                            className="material-button-secondary !px-3 !py-2 hover:border-red-200 hover:bg-red-50"
+                          <ActionIconButton
+                            className="hover:border-red-200 hover:bg-red-50"
                             onClick={() => openDelete(department)}
                             title="删除部门"
                           >
                             <Trash2 className="h-3.5 w-3.5 text-red-500" />
-                          </button>
+                          </ActionIconButton>
                         </PermissionGuard>
                       </div>
                     </td>
@@ -365,9 +447,10 @@ export function DepartmentManagement() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
 
-        <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4">
+        <div className="mt-5 flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-sm text-slate-500">
             共 {filteredDepartments.length} 条，第 {page} / {totalPages} 页
           </div>
@@ -382,80 +465,91 @@ export function DepartmentManagement() {
         </div>
       </section>
 
-      <Dialog open={dialogMode === "create" || dialogMode === "edit"} onClose={closeDialog} fullWidth maxWidth="sm">
-        <DialogTitle>{dialogMode === "edit" ? "编辑部门" : "新建部门"}</DialogTitle>
-        <DialogContent dividers>
-          <div className="space-y-4 pt-1">
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">部门名称 *</label>
-                <input className="material-input w-full" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+      {(dialogMode === "create" || dialogMode === "edit") && (
+        <ModalShell
+          title={dialogMode === "edit" ? "编辑部门" : "新建部门"}
+          maxWidth="max-w-xl"
+          footer={
+            <>
+              <button className="material-button-secondary" onClick={closeDialog} disabled={saving}>取消</button>
+              <button className="material-button-primary" onClick={() => void handleSave()} disabled={saving}>
+                {saving ? "保存中..." : "保存部门"}
+              </button>
+            </>
+          }
+        >
+            <div className="space-y-4 pt-1">
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">部门名称 *</label>
+                  <input className="material-input w-full" value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">部门编码 *</label>
+                  <input className="material-input w-full uppercase" value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} placeholder="IT_SYSTEM" />
+                </div>
+              </div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">分类 *</label>
+                  <input className="material-input w-full" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="法务系统" />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">负责人</label>
+                  <input className="material-input w-full" value={form.manager} onChange={(e) => setForm((f) => ({ ...f, manager: e.target.value }))} />
+                </div>
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">部门编码 *</label>
-                <input className="material-input w-full uppercase" value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} placeholder="IT_SYSTEM" />
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">职责说明</label>
+                <textarea className="material-input w-full resize-none" rows={3} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
               </div>
-            </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">分类 *</label>
-                <input className="material-input w-full" value={form.category} onChange={(e) => setForm((f) => ({ ...f, category: e.target.value }))} placeholder="法务系统" />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">负责人</label>
-                <input className="material-input w-full" value={form.manager} onChange={(e) => setForm((f) => ({ ...f, manager: e.target.value }))} />
-              </div>
-            </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">职责说明</label>
-              <textarea className="material-input w-full resize-none" rows={3} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} />
-            </div>
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">排序</label>
-                <input className="material-input w-full" type="number" min={0} value={form.sortOrder} onChange={(e) => setForm((f) => ({ ...f, sortOrder: Number(e.target.value) || 0 }))} />
-              </div>
-              <div>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">排序</label>
+                  <input className="material-input w-full" type="number" min={0} value={form.sortOrder} onChange={(e) => setForm((f) => ({ ...f, sortOrder: Number(e.target.value) || 0 }))} />
+                </div>
+                <div>
                 <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">状态</label>
-                <FormControl size="small" fullWidth>
-                  <Select value={form.enabled ? "true" : "false"} onChange={(e: SelectChangeEvent) => setForm((f) => ({ ...f, enabled: e.target.value === "true" }))}>
-                    <MenuItem value="true">启用</MenuItem>
-                    <MenuItem value="false">停用</MenuItem>
-                  </Select>
-                </FormControl>
+                  <SelectControl
+                    value={form.enabled ? "true" : "false"}
+                    onValueChange={(value) => setForm((f) => ({ ...f, enabled: value === "true" }))}
+                    options={[
+                      { label: "启用", value: "true" },
+                      { label: "停用", value: "false" },
+                    ]}
+                    className="w-full"
+                  />
+                </div>
               </div>
             </div>
-          </div>
-        </DialogContent>
-        <DialogActions>
-          <button className="material-button-secondary" onClick={closeDialog} disabled={saving}>取消</button>
-          <button className="material-button-primary" onClick={() => void handleSave()} disabled={saving}>
-            {saving ? "保存中..." : "保存部门"}
-          </button>
-        </DialogActions>
-      </Dialog>
+        </ModalShell>
+      )}
 
-      <Dialog open={dialogMode === "deleteConfirm"} onClose={closeDialog} fullWidth maxWidth="xs">
-        <DialogTitle>确认删除部门</DialogTitle>
-        <DialogContent dividers>
-          <p className="text-sm text-slate-600">
-            即将删除部门 <strong>{selectedDepartment?.name}</strong>。
-            {(selectedDepartment?.userCount ?? 0) > 0 && (
-              <span className="mt-2 block text-red-600">该部门下仍有 {selectedDepartment?.userCount} 名用户，请先调整用户部门后再删除。</span>
-            )}
-          </p>
-        </DialogContent>
-        <DialogActions>
-          <button className="material-button-secondary" onClick={closeDialog} disabled={saving}>取消</button>
-          <button
-            className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
-            onClick={() => void handleDelete()}
-            disabled={saving || (selectedDepartment?.userCount ?? 0) > 0}
-          >
-            {saving ? "删除中..." : "确认删除"}
-          </button>
-        </DialogActions>
-      </Dialog>
+      {dialogMode === "deleteConfirm" && (
+        <ModalShell
+          title="确认删除部门"
+          maxWidth="max-w-md"
+          footer={
+            <>
+              <button className="material-button-secondary" onClick={closeDialog} disabled={saving}>取消</button>
+              <button
+                className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+                onClick={() => void handleDelete()}
+                disabled={saving || (selectedDepartment?.userCount ?? 0) > 0}
+              >
+                {saving ? "删除中..." : "确认删除"}
+              </button>
+            </>
+          }
+        >
+            <p className="text-sm text-slate-600">
+              即将删除部门 <strong>{selectedDepartment?.name}</strong>。
+              {(selectedDepartment?.userCount ?? 0) > 0 && (
+                <span className="mt-2 block text-red-600">该部门下仍有 {selectedDepartment?.userCount} 名用户，请先调整用户部门后再删除。</span>
+              )}
+            </p>
+        </ModalShell>
+      )}
     </div>
   );
 }

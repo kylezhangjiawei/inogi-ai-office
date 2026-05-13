@@ -19,9 +19,13 @@ import { DepartmentsModule } from './modules/departments/departments.module';
 import { IntegrationManagementModule } from './modules/integration-management/integration-management.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { ImageGenerationModule } from './modules/image-generation/image-generation.module';
+import { OpsCenterModule } from './modules/ops-center/ops-center.module';
+import { PermissionCatalogModule } from './modules/permission-catalog/permission-catalog.module';
+import { ExpenseModule } from './modules/expense/expense.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
 import { AuditInterceptor } from './modules/audit/audit.interceptor';
+import { ApiRequestLogInterceptor } from './modules/ops-center/api-request-log.interceptor';
 
 const envFilePath = [
   join(process.cwd(), 'apps/api/.env'),
@@ -49,11 +53,15 @@ const envFilePath = [
     IntegrationManagementModule,
     ChatModule,
     ImageGenerationModule,
+    OpsCenterModule,
+    PermissionCatalogModule,
+    ExpenseModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
+    { provide: APP_INTERCEPTOR, useClass: ApiRequestLogInterceptor },
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },
   ],
 })

@@ -26,6 +26,7 @@ import { InquiryPage } from "./InquiryPage";
 import { LoginPage } from "./LoginPage";
 import { MailboxManagementPage } from "./MailboxManagementPage";
 import { MeetingMinutes } from "./MeetingMinutes";
+import { OpsCenterPage } from "./OpsCenterPage";
 import { ContractReviewPage } from "./ContractReviewPage";
 import { QualityDMSPage } from "./QualityDMSPage";
 import { QATraceability } from "./QATraceability";
@@ -36,6 +37,7 @@ import { RegistrationProjects } from "./RegistrationProjects";
 import { ReportCompressionPage } from "./ReportCompressionPage";
 import { ResumeScreeningPage } from "./ResumeScreeningPage";
 import { RoleManagement } from "./RoleManagement";
+import { RouteManagementPage } from "./RouteManagementPage";
 import { UIDesignPage } from "./UIDesignPage";
 import { Root } from "./Root";
 import { DictionaryList } from "./DictionaryList";
@@ -198,6 +200,11 @@ const router = createBrowserRouter([
       { path: "contract-review", element: makeProtected(<ContractReviewPage />, "page:contract-review") },
       { path: "mailbox-management", element: makeProtected(<MailboxManagementPage />, "page:mailbox-management") },
       { path: "ai-model-management", element: makeProtected(<AiModelManagementPage />, "page:ai-model-management") },
+      { path: "ops-center", element: makeProtected(<OpsCenterPage section="overview" />, "page:ops-center") },
+      { path: "ops-center/api-errors", element: makeProtected(<OpsCenterPage section="api-errors" />, "page:ops-api-errors") },
+      { path: "ops-center/database", element: makeProtected(<OpsCenterPage section="database" />, "page:ops-database") },
+      { path: "ops-center/services-tasks", element: makeProtected(<OpsCenterPage section="services-tasks" />, "page:ops-services-tasks") },
+      { path: "ops-center/alerts-audit", element: makeProtected(<OpsCenterPage section="alerts-audit" />, "page:ops-alerts-audit") },
       { path: "inquiry", element: makeProtected(<InquiryPage />, "page:inquiry") },
       { path: "meeting", element: makeProtected(<MeetingMinutes />, "page:meeting") },
       { path: "email-ai", element: makeProtected(<EmailAIPage />, "page:email-ai") },
@@ -207,6 +214,7 @@ const router = createBrowserRouter([
       { path: "departments", element: makeProtected(<DepartmentManagement />, "page:departments") },
       { path: "users", element: makeProtected(<UserManagement />, "page:users") },
       { path: "roles", element: makeProtected(<RoleManagement />, "page:roles") },
+      { path: "route-management", element: makeProtected(<RouteManagementPage />, "page:route-management") },
       { path: "settings", element: makeProtected(<DictionaryList />, "page:settings") },
       { path: "ui-design", element: makeProtected(<UIDesignPage />, "page:ui-design") },
       { path: "*", Component: () => <Navigate to="/" replace /> },

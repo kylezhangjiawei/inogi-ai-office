@@ -1,20 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Eye, EyeOff, KeyRound, Pencil, Plus, RefreshCw, Search, Trash2, UserCheck, UserX } from "lucide-react";
-import {
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  FormControl,
-  MenuItem,
-  Select,
-  SelectChangeEvent,
-} from "@mui/material";
 import { toast } from "sonner";
 import { authFetch } from "./lib/authSession";
 import { useAuth } from "./auth";
 import { cn } from "./components/ui/utils";
 import { PermissionGuard } from "./components/PermissionGuard";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 
 // ─── 类型 ─────────────────────────────────────────────────────────────────────
 
@@ -72,6 +63,86 @@ const STATUS_LABELS: Record<UserStatus, string> = {
 };
 
 const PAGE_SIZE = 10;
+const TABLE_HEADER_CLASS = "px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 whitespace-nowrap";
+const TABLE_CELL_CLASS = "px-5 py-4 align-middle text-sm text-slate-700";
+const EMPTY_SELECT_VALUE = "__empty__";
+const SELECT_TRIGGER_CLASS = "h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm outline-none transition focus-visible:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-100";
+
+function ActionIconButton({
+  children,
+  className,
+  ...props
+}: React.ButtonHTMLAttributes<HTMLButtonElement> & { children: React.ReactNode }) {
+  return (
+    <button
+      className={cn(
+        "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-600 shadow-sm transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-50",
+        className,
+      )}
+      {...props}
+    >
+      {children}
+    </button>
+  );
+}
+
+function ModalShell({
+  title,
+  children,
+  footer,
+  maxWidth = "max-w-lg",
+}: {
+  title: React.ReactNode;
+  children: React.ReactNode;
+  footer: React.ReactNode;
+  maxWidth?: string;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/35 p-4" role="dialog" aria-modal="true">
+      <div className={cn("w-full overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200", maxWidth)}>
+        <div className="px-6 py-4 text-base font-bold text-slate-900">{title}</div>
+        <div className="max-h-[70vh] overflow-y-auto border-y border-slate-100 px-6 py-5">{children}</div>
+        <div className="flex justify-end gap-2 px-6 py-4">{footer}</div>
+      </div>
+    </div>
+  );
+}
+
+function SelectControl({
+  value,
+  onValueChange,
+  options,
+  className,
+}: {
+  value: string;
+  onValueChange: (value: string) => void;
+  options: Array<{ label: string; value: string }>;
+  className?: string;
+}) {
+  const normalizedValue = value === "" ? EMPTY_SELECT_VALUE : value;
+
+  return (
+    <Select
+      value={normalizedValue}
+      onValueChange={(nextValue) => onValueChange(nextValue === EMPTY_SELECT_VALUE ? "" : nextValue)}
+    >
+      <SelectTrigger className={cn(SELECT_TRIGGER_CLASS, className)}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+        {options.map((option) => (
+          <SelectItem
+            key={option.value || EMPTY_SELECT_VALUE}
+            value={option.value === "" ? EMPTY_SELECT_VALUE : option.value}
+            className="rounded-lg py-2 pl-3 pr-9 text-sm text-slate-700"
+          >
+            {option.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
 
 // ─── API ──────────────────────────────────────────────────────────────────────
 
@@ -165,16 +236,15 @@ function PasswordCell({
   const canChange = isSelf || (currentUserIsSuperAdmin && !isSuperAdmin(user));
 
   return (
-    <div className="flex items-center gap-2">
-      <span className="font-mono text-slate-400 tracking-widest text-xs">••••••••</span>
+    <div className="flex min-w-0 items-center gap-2">
+      <span className="shrink-0 font-mono text-xs tracking-widest text-slate-400">••••••••</span>
       {canChange && (
-        <button
-          className="material-button-secondary !px-2 !py-1.5"
+        <ActionIconButton
           onClick={() => onChangePwd(user)}
           title={isSelf ? "修改我的密码" : "重置密码"}
         >
           <KeyRound className="h-3.5 w-3.5" />
-        </button>
+        </ActionIconButton>
       )}
     </div>
   );
@@ -245,6 +315,9 @@ export function UserManagement() {
 
   const totalPages = Math.max(1, Math.ceil(filteredUsers.length / PAGE_SIZE));
   const pagedUsers = filteredUsers.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const activeCount = users.filter((user) => user.status === "ACTIVE").length;
+  const disabledCount = users.filter((user) => user.status === "DISABLED").length;
+  const assignedRoleCount = new Set(users.map((user) => user.roleId).filter(Boolean)).size;
 
   // 可分配给用户的角色（排除超管角色）
   const assignableRoles = roles.filter((r) => !r.permissions?.includes("*"));
@@ -407,11 +480,25 @@ export function UserManagement() {
         </div>
       </section>
 
+      <section className="grid gap-4 md:grid-cols-4">
+        {[
+          ["用户总数", users.length],
+          ["启用用户", activeCount],
+          ["停用用户", disabledCount],
+          ["已分配角色", assignedRoleCount],
+        ].map(([label, value]) => (
+          <div key={label} className="material-card p-5">
+            <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{label}</div>
+            <div className="mt-3 text-3xl font-bold text-slate-900">{value}</div>
+          </div>
+        ))}
+      </section>
+
       {/* 数据表格 */}
-      <section className="material-card p-6">
+      <section className="material-card p-5 md:p-6">
         {/* 筛选栏 */}
-        <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="relative w-full max-w-sm">
+        <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="relative w-full xl:max-w-[420px]">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input
               className="material-input pl-11"
@@ -420,28 +507,37 @@ export function UserManagement() {
               placeholder="搜索姓名、账号、角色、部门..."
             />
           </div>
-          <FormControl size="small" sx={{ minWidth: 140 }}>
-            <Select
+          <div className="flex flex-wrap items-center gap-3">
+            <SelectControl
               value={statusFilter}
-              onChange={(e: SelectChangeEvent) =>
-                setStatusFilter(e.target.value as "ALL" | UserStatus)
-              }
-            >
-              <MenuItem value="ALL">全部状态</MenuItem>
-              <MenuItem value="ACTIVE">启用</MenuItem>
-              <MenuItem value="INVITED">待分配</MenuItem>
-              <MenuItem value="DISABLED">停用</MenuItem>
-            </Select>
-          </FormControl>
+              onValueChange={(value) => setStatusFilter(value as "ALL" | UserStatus)}
+              options={[
+                { label: "全部状态", value: "ALL" },
+                { label: "启用", value: "ACTIVE" },
+                { label: "待分配", value: "INVITED" },
+                { label: "停用", value: "DISABLED" },
+              ]}
+              className="min-w-[150px]"
+            />
+          </div>
         </div>
 
         {/* 表格 */}
-        <div className="overflow-x-auto">
-          <table className="min-w-[820px] text-left">
-            <thead className="bg-slate-50">
+        <div className="overflow-hidden rounded-2xl border border-slate-200">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[1120px] table-fixed text-left">
+            <colgroup>
+              <col className="w-[260px]" />
+              <col className="w-[180px]" />
+              <col className="w-[180px]" />
+              <col className="w-[120px]" />
+              <col className="w-[170px]" />
+              <col className="w-[210px]" />
+            </colgroup>
+            <thead className="bg-slate-50/90">
               <tr>
                 {["姓名 / 账号", "角色", "部门", "状态", "密码", "操作"].map((col) => (
-                  <th key={col} className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 whitespace-nowrap">
+                  <th key={col} className={cn(TABLE_HEADER_CLASS, col === "操作" && "text-right")}>
                     {col}
                   </th>
                 ))}
@@ -450,21 +546,21 @@ export function UserManagement() {
             <tbody className="divide-y divide-slate-100">
               {loading ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-sm text-slate-400">加载中...</td>
+                  <td colSpan={6} className="py-12 text-center text-sm text-slate-400">加载中...</td>
                 </tr>
               ) : pagedUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-12 text-center text-sm text-slate-400">暂无数据</td>
+                  <td colSpan={6} className="py-12 text-center text-sm text-slate-400">暂无数据</td>
                 </tr>
               ) : (
                 pagedUsers.map((user) => (
-                  <tr key={user.id} className="hover:bg-slate-50/70">
+                  <tr key={user.id} className="h-[76px] transition hover:bg-blue-50/25">
                     {/* 姓名 / 账号 */}
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-1.5">
+                    <td className={TABLE_CELL_CLASS}>
+                      <div className="flex min-w-0 items-center gap-1.5">
                         <span
                           className={cn(
-                            "text-sm font-medium text-slate-800",
+                            "min-w-0 truncate text-sm font-medium text-slate-800",
                             !isSuperAdmin(user) && "cursor-pointer hover:text-primary",
                           )}
                           onClick={() => { if (!isSuperAdmin(user)) openEdit(user); }}
@@ -478,15 +574,19 @@ export function UserManagement() {
                         )}
                       </div>
                       {user.username && (
-                        <div className="mt-0.5 text-xs text-slate-400">{user.username}</div>
+                        <div className="mt-0.5 truncate text-xs text-slate-400">{user.username}</div>
                       )}
                     </td>
                     {/* 角色 */}
-                    <td className="px-4 py-3 text-sm text-slate-700">{user.role?.name ?? "—"}</td>
+                    <td className={TABLE_CELL_CLASS}>
+                      <div className="truncate">{user.role?.name ?? "—"}</div>
+                    </td>
                     {/* 部门 */}
-                    <td className="px-4 py-3 text-sm text-slate-700">{user.department ?? "—"}</td>
+                    <td className={TABLE_CELL_CLASS}>
+                      <div className="truncate">{user.department ?? "—"}</div>
+                    </td>
                     {/* 状态 */}
-                    <td className="px-4 py-3 text-sm">
+                    <td className={TABLE_CELL_CLASS}>
                       <span
                         className={cn(
                           "material-chip",
@@ -501,7 +601,7 @@ export function UserManagement() {
                       </span>
                     </td>
                     {/* 密码 */}
-                    <td className="px-4 py-3 text-sm">
+                    <td className={TABLE_CELL_CLASS}>
                       <PasswordCell
                         user={user}
                         currentUserId={currentUserId}
@@ -510,23 +610,21 @@ export function UserManagement() {
                       />
                     </td>
                     {/* 操作 */}
-                    <td className="px-4 py-3 text-sm">
+                    <td className={cn(TABLE_CELL_CLASS, "text-right")}>
                       {isSuperAdmin(user) ? (
-                        <span className="text-xs text-slate-400">—</span>
+                        <span className="text-xs text-slate-400">不可操作</span>
                       ) : (
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex justify-end gap-2">
                           <PermissionGuard permission="user:edit">
-                            <button
-                              className="material-button-secondary !px-3 !py-2"
+                            <ActionIconButton
                               onClick={() => openEdit(user)}
                               title="编辑用户"
                             >
                               <Pencil className="h-3.5 w-3.5" />
-                            </button>
+                            </ActionIconButton>
                           </PermissionGuard>
                           <PermissionGuard permission="user:disable">
-                            <button
-                              className="material-button-secondary !px-3 !py-2"
+                            <ActionIconButton
                               onClick={() => void handleToggleStatus(user)}
                               title={user.status === "DISABLED" ? "启用" : "停用"}
                             >
@@ -535,16 +633,16 @@ export function UserManagement() {
                               ) : (
                                 <UserX className="h-3.5 w-3.5 text-red-500" />
                               )}
-                            </button>
+                            </ActionIconButton>
                           </PermissionGuard>
                           <PermissionGuard permission="user:delete">
-                            <button
-                              className="material-button-secondary !px-3 !py-2 hover:border-red-200 hover:bg-red-50"
+                            <ActionIconButton
+                              className="hover:border-red-200 hover:bg-red-50"
                               onClick={() => openDelete(user)}
                               title="删除用户"
                             >
                               <Trash2 className="h-3.5 w-3.5 text-red-500" />
-                            </button>
+                            </ActionIconButton>
                           </PermissionGuard>
                         </div>
                       )}
@@ -554,10 +652,11 @@ export function UserManagement() {
               )}
             </tbody>
           </table>
+          </div>
         </div>
 
         {/* 分页 */}
-        <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4">
+        <div className="mt-5 flex flex-col gap-3 border-t border-slate-100 pt-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="text-sm text-slate-500">
             共 {filteredUsers.length} 条，第 {page} / {totalPages} 页
           </div>
@@ -581,14 +680,25 @@ export function UserManagement() {
       </section>
 
       {/* 新建 / 编辑 弹窗 */}
-      <Dialog
-        open={dialogMode === "create" || dialogMode === "edit"}
-        onClose={closeDialog}
-        fullWidth
-        maxWidth="sm"
+      {(dialogMode === "create" || dialogMode === "edit") && (
+      <ModalShell
+        title={dialogMode === "edit" ? "编辑用户" : "新建用户"}
+        maxWidth="max-w-xl"
+        footer={
+          <>
+            <button className="material-button-secondary" onClick={closeDialog} disabled={saving}>
+              取消
+            </button>
+            <button
+              className="material-button-primary"
+              onClick={() => void handleSaveUser()}
+              disabled={saving}
+            >
+              {saving ? "保存中..." : "保存"}
+            </button>
+          </>
+        }
       >
-        <DialogTitle>{dialogMode === "edit" ? "编辑用户" : "新建用户"}</DialogTitle>
-        <DialogContent dividers>
           <div className="space-y-4 pt-1">
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
@@ -642,81 +752,69 @@ export function UserManagement() {
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                 部门
               </label>
-              <FormControl size="small" fullWidth>
-                <Select
-                  value={form.department}
-                  onChange={(e: SelectChangeEvent) =>
-                    setForm((f) => ({ ...f, department: e.target.value }))
-                  }
-                  displayEmpty
-                >
-                  <MenuItem value="">— 暂不分配 —</MenuItem>
-                  {departments.map((d) => (
-                    <MenuItem key={d.id} value={d.name}>
-                      {d.name}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+              <SelectControl
+                value={form.department}
+                onValueChange={(value) => setForm((f) => ({ ...f, department: value }))}
+                options={[
+                  { label: "— 暂不分配 —", value: "" },
+                  ...departments.map((department) => ({ label: department.name, value: department.name })),
+                ]}
+                className="w-full"
+              />
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                 角色
               </label>
-              <FormControl size="small" fullWidth>
-                <Select
-                  value={form.roleId}
-                  onChange={(e: SelectChangeEvent) =>
-                    setForm((f) => ({ ...f, roleId: e.target.value }))
-                  }
-                  displayEmpty
-                >
-                  <MenuItem value="">— 暂不分配 —</MenuItem>
-                  {assignableRoles.map((r) => (
-                    <MenuItem key={r.id} value={r.id}>
-                      {r.name}
-                    </MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
+              <SelectControl
+                value={form.roleId}
+                onValueChange={(value) => setForm((f) => ({ ...f, roleId: value }))}
+                options={[
+                  { label: "— 暂不分配 —", value: "" },
+                  ...assignableRoles.map((role) => ({ label: role.name, value: role.id })),
+                ]}
+                className="w-full"
+              />
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                 状态
               </label>
-              <FormControl size="small" fullWidth>
-                <Select
-                  value={form.status}
-                  onChange={(e: SelectChangeEvent) =>
-                    setForm((f) => ({ ...f, status: e.target.value as UserStatus }))
-                  }
-                >
-                  <MenuItem value="ACTIVE">启用</MenuItem>
-                  <MenuItem value="INVITED">待分配</MenuItem>
-                  <MenuItem value="DISABLED">停用</MenuItem>
-                </Select>
-              </FormControl>
+              <SelectControl
+                value={form.status}
+                onValueChange={(value) => setForm((f) => ({ ...f, status: value as UserStatus }))}
+                options={[
+                  { label: "启用", value: "ACTIVE" },
+                  { label: "待分配", value: "INVITED" },
+                  { label: "停用", value: "DISABLED" },
+                ]}
+                className="w-full"
+              />
             </div>
           </div>
-        </DialogContent>
-        <DialogActions>
-          <button className="material-button-secondary" onClick={closeDialog} disabled={saving}>
-            取消
-          </button>
-          <button
-            className="material-button-primary"
-            onClick={() => void handleSaveUser()}
-            disabled={saving}
-          >
-            {saving ? "保存中..." : "保存"}
-          </button>
-        </DialogActions>
-      </Dialog>
+      </ModalShell>
+      )}
 
       {/* 修改 / 重置密码弹窗 */}
-      <Dialog open={dialogMode === "changePwd"} onClose={closeDialog} fullWidth maxWidth="xs">
-        <DialogTitle>{changePwdTitle}</DialogTitle>
-        <DialogContent dividers>
+      {dialogMode === "changePwd" && (
+      <ModalShell
+        title={changePwdTitle}
+        maxWidth="max-w-md"
+        footer={
+          <>
+            <button className="material-button-secondary" onClick={closeDialog} disabled={saving}>
+              取消
+            </button>
+            <button
+              className="material-button-primary"
+              onClick={() => void handleChangePassword()}
+              disabled={saving}
+            >
+              {saving ? "保存中..." : "确认"}
+            </button>
+          </>
+        }
+      >
           {selectedUser && isSelf(selectedUser) && (
             <p className="mb-4 text-sm text-slate-500">修改后需重新登录方可生效。</p>
           )}
@@ -746,42 +844,34 @@ export function UserManagement() {
               {showNewPwd ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </button>
           </div>
-        </DialogContent>
-        <DialogActions>
-          <button className="material-button-secondary" onClick={closeDialog} disabled={saving}>
-            取消
-          </button>
-          <button
-            className="material-button-primary"
-            onClick={() => void handleChangePassword()}
-            disabled={saving}
-          >
-            {saving ? "保存中..." : "确认"}
-          </button>
-        </DialogActions>
-      </Dialog>
+      </ModalShell>
+      )}
 
       {/* 删除确认弹窗 */}
-      <Dialog open={dialogMode === "deleteConfirm"} onClose={closeDialog} fullWidth maxWidth="xs">
-        <DialogTitle>确认删除用户</DialogTitle>
-        <DialogContent dividers>
+      {dialogMode === "deleteConfirm" && (
+      <ModalShell
+        title="确认删除用户"
+        maxWidth="max-w-md"
+        footer={
+          <>
+            <button className="material-button-secondary" onClick={closeDialog} disabled={saving}>
+              取消
+            </button>
+            <button
+              className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+              onClick={() => void handleDeleteUser()}
+              disabled={saving}
+            >
+              {saving ? "删除中..." : "确认删除"}
+            </button>
+          </>
+        }
+      >
           <p className="text-sm text-slate-600">
             即将永久删除用户 <strong>{selectedUser?.name}</strong>，此操作无法撤销。
           </p>
-        </DialogContent>
-        <DialogActions>
-          <button className="material-button-secondary" onClick={closeDialog} disabled={saving}>
-            取消
-          </button>
-          <button
-            className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
-            onClick={() => void handleDeleteUser()}
-            disabled={saving}
-          >
-            {saving ? "删除中..." : "确认删除"}
-          </button>
-        </DialogActions>
-      </Dialog>
+      </ModalShell>
+      )}
     </div>
   );
 }

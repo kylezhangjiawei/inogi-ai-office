@@ -114,6 +114,29 @@ model AuditLog {
   createdAt  DateTime @default(now())
 }
 
+model ApiRequestLog {
+  id           String   @id @default(cuid())
+  requestId    String   @unique
+  userId       String?
+  method       String
+  path         String
+  statusCode   Int
+  durationMs   Int
+  ip           String?
+  userAgent    String?
+  errorName    String?
+  errorMessage String?
+  errorStack   String?
+  requestMeta  Json     @default("{}")
+  responseMeta Json     @default("{}")
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([statusCode, createdAt])
+  @@index([path, createdAt])
+  @@index([userId, createdAt])
+}
+
 model SystemSetting {
   id          String   @id @default(cuid())
   category    String
@@ -122,6 +145,23 @@ model SystemSetting {
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model PermissionCatalogItem {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  label       String
+  description String   @default("")
+  groupLabel  String
+  type        String   @default("page") // page | action
+  routePath   String   @default("")
+  enabled     Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([groupLabel, sortOrder])
+  @@index([type, enabled])
 }
 
 model RuntimeState {

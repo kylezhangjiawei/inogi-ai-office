@@ -70,6 +70,11 @@ import { StatusBadge } from "../components/StatusBadge";
 import { UploadDropzone } from "../components/UploadDropzone";
 import { categoryColors } from "../mocks/expenseMock";
 import { expenseService } from "../services/expenseService";
+import type {
+  ExpenseOcrService,
+  ExpenseOcrServiceCatalog,
+  ExpenseOcrUploadOptions,
+} from "../services/expenseService";
 import { expenseText } from "../locales/zh-CN";
 import type {
   DrawerKind,
@@ -81,6 +86,7 @@ import type {
   InvoiceFilters,
   InvoiceRecord,
   ReimbursementRecord,
+  VoucherUploadRecord,
   VoucherCandidate,
 } from "../types";
 
@@ -143,6 +149,24 @@ const formatCurrency = (value: number) =>
     maximumFractionDigits: 0,
   }).format(value);
 
+const hasActiveInvoiceFilters = (filters: InvoiceFilters) =>
+  filters.quickRange !== defaultFilters.quickRange ||
+  filters.status !== defaultFilters.status ||
+  filters.category !== defaultFilters.category ||
+  filters.amountMin.trim().length > 0 ||
+  filters.amountMax.trim().length > 0 ||
+  filters.keyword.trim().length > 0 ||
+  filters.maxConfidence !== defaultFilters.maxConfidence;
+
+const formatServiceError = (error: unknown) => {
+  const payload = (error as { payload?: { official_error?: { provider?: string; code?: string | number; message?: string } } })?.payload;
+  const officialError = payload?.official_error;
+  if (officialError) {
+    return `${officialError.provider ?? "third-party"} ${officialError.code}: ${officialError.message}`;
+  }
+  return error instanceof Error ? error.message : "操作失败";
+};
+
 const getDrawerTitle = (drawer: DrawerKind) => {
   if (drawer === "upload") return expenseText.drawers.upload;
   if (drawer === "voucher-upload") return expenseText.drawers.voucherUpload;
@@ -179,6 +203,7 @@ export function ExpenseModule() {
   const [visibleColumns, setVisibleColumns] = useState(() => new Set(columns.map((column) => column.key)));
   const [loading, setLoading] = useState(true);
   const [dirtyDrawer, setDirtyDrawer] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
   const deferredFilters = useDeferredValue(filters);
 
   useEffect(() => {
@@ -190,19 +215,25 @@ export function ExpenseModule() {
       expenseService.getDashboard(),
       expenseService.listReimbursements(),
       expenseService.listRules(),
-    ]).then(([invoiceResult, dashboardResult, reimbursementResult, ruleResult]) => {
-      if (cancelled) return;
-      setInvoices(invoiceResult);
-      setDashboard(dashboardResult);
-      setReimbursements(reimbursementResult);
-      setRules(ruleResult);
-      setLoading(false);
-    });
+    ])
+      .then(([invoiceResult, dashboardResult, reimbursementResult, ruleResult]) => {
+        if (cancelled) return;
+        setInvoices(invoiceResult);
+        setDashboard(dashboardResult);
+        setReimbursements(reimbursementResult);
+        setRules(ruleResult);
+        setLoading(false);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setLoading(false);
+        toast.error(formatServiceError(error));
+      });
 
     return () => {
       cancelled = true;
     };
-  }, [deferredFilters]);
+  }, [deferredFilters, reloadToken]);
 
   const selectedInvoice = useMemo(
     () => invoices.find((invoice) => invoice.id === selectedInvoiceId) ?? invoices[0] ?? null,
@@ -234,7 +265,9 @@ export function ExpenseModule() {
     const targetInvoice = invoice ?? selectedInvoice ?? invoices[0];
     if (!targetInvoice) return;
     setSelectedInvoiceId(targetInvoice.id);
-    expenseService.listVoucherCandidates(targetInvoice.id).then(setVoucherCandidates);
+    expenseService.listVoucherCandidates(targetInvoice.id).then(setVoucherCandidates).catch((error) => {
+      toast.error(formatServiceError(error));
+    });
     openDrawer("link-voucher", targetInvoice);
   }, [invoices, openDrawer, selectedInvoice]);
 
@@ -300,7 +333,12 @@ export function ExpenseModule() {
             ) : null}
 
             {activeMenu === "matching" ? (
-              <MatchingPage invoices={invoices} onOpenDrawer={openLinkDrawer} onOpenVoucherUpload={() => openDrawer("voucher-upload")} />
+              <MatchingPage
+                invoices={invoices}
+                onOpenDrawer={openLinkDrawer}
+                onOpenVoucherUpload={() => openDrawer("voucher-upload")}
+                onDataChanged={() => setReloadToken((value) => value + 1)}
+              />
             ) : null}
 
             {activeMenu === "rules" ? (
@@ -321,15 +359,21 @@ export function ExpenseModule() {
         }}
         footer={<DrawerFooterActions drawer={drawer} selectedCount={selectedIds.size} onClose={() => setDrawer(null)} />}
       >
-        {drawer === "upload" ? <UploadInvoiceDrawer onDirtyChange={setDirtyDrawer} /> : null}
-        {drawer === "voucher-upload" ? <UploadVoucherDrawer onDirtyChange={setDirtyDrawer} /> : null}
+        {drawer === "upload" ? <UploadInvoiceDrawer onDirtyChange={setDirtyDrawer} onDataChanged={() => setReloadToken((value) => value + 1)} /> : null}
+        {drawer === "voucher-upload" ? <UploadVoucherDrawer onDirtyChange={setDirtyDrawer} onDataChanged={() => setReloadToken((value) => value + 1)} /> : null}
         {drawer === "invoice-detail" && selectedInvoice ? (
           <InvoiceDetailDrawer invoice={selectedInvoice} onDirtyChange={setDirtyDrawer} onLink={() => openLinkDrawer(selectedInvoice)} />
         ) : null}
         {drawer === "batch-classify" ? <BatchClassifyDrawer invoices={selectedInvoices.length ? selectedInvoices : pageInvoices.slice(0, 4)} onDirtyChange={setDirtyDrawer} /> : null}
-        {drawer === "link-voucher" && selectedInvoice ? <LinkVoucherDrawer invoice={selectedInvoice} candidates={voucherCandidates} /> : null}
-        {drawer === "new-reimbursement" ? <NewReimbursementDrawer invoices={invoices.slice(0, 8)} onDirtyChange={setDirtyDrawer} /> : null}
-        {drawer === "reimbursement-detail" ? <ReimbursementDetailDrawer reimbursements={reimbursements} /> : null}
+        {drawer === "link-voucher" && selectedInvoice ? (
+          <LinkVoucherDrawer
+            invoice={selectedInvoice}
+            candidates={voucherCandidates}
+            onDataChanged={() => setReloadToken((value) => value + 1)}
+          />
+        ) : null}
+        {drawer === "new-reimbursement" ? <NewReimbursementDrawer invoices={invoices.slice(0, 8)} onDirtyChange={setDirtyDrawer} onDataChanged={() => setReloadToken((value) => value + 1)} /> : null}
+        {drawer === "reimbursement-detail" ? <ReimbursementDetailDrawer reimbursements={reimbursements} onDataChanged={() => setReloadToken((value) => value + 1)} /> : null}
         {drawer === "matching-detail" && selectedInvoice ? <MatchingDetailDrawer invoice={selectedInvoice} candidates={voucherCandidates} /> : null}
         {drawer === "push-settings" ? <PushSettingsDrawer onDirtyChange={setDirtyDrawer} /> : null}
         {drawer === "rule-editor" ? <RuleEditorDrawer onDirtyChange={setDirtyDrawer} /> : null}
@@ -405,6 +449,9 @@ function WorkspacePage({
     return <EmptyState title="正在加载工作台数据" detail="KPI、图表和待办会从费用模块 service 层统一读取。" />;
   }
 
+  const hasTodos = dashboard.todos.length > 0;
+  const hasActivities = dashboard.activities.length > 0;
+
   return (
     <div className="space-y-4">
       <section className="grid auto-rows-[1fr] grid-cols-4 items-stretch gap-3">
@@ -412,36 +459,46 @@ function WorkspacePage({
       </section>
 
       <section className="material-panel p-4">
-        <PanelTitle icon={AlertTriangle} title={expenseText.workspace.todoTitle} right="点击后打开对应处理 Drawer" />
-        <div className="grid auto-rows-[1fr] grid-cols-3 items-stretch gap-3">
-          {dashboard.todos.map((todo, index) => (
-            <motion.button
-              key={todo.id}
-              type="button"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.04, duration: 0.22 }}
-              whileHover={{ y: -2 }}
-              onClick={() => onOpenDrawer(todo.drawer)}
-              className={cn(
-                "expense-tip-card relative flex h-full min-h-[116px] w-full cursor-pointer flex-col justify-between overflow-hidden rounded-[var(--m3-shape-large)] border bg-white px-4 py-3 pl-5 text-left transition-colors hover:bg-blue-50",
-                todo.severity === "error" ? "border-red-100" : todo.severity === "warning" ? "border-amber-100" : "border-blue-100",
-              )}
-            >
-              <span
+        <PanelTitle icon={AlertTriangle} title={expenseText.workspace.todoTitle} right={hasTodos ? "点击后打开对应处理 Drawer" : "暂无待处理事项"} />
+        {hasTodos ? (
+          <div className="grid auto-rows-[1fr] grid-cols-3 items-stretch gap-3">
+            {dashboard.todos.map((todo, index) => (
+              <motion.button
+                key={todo.id}
+                type="button"
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.04, duration: 0.22 }}
+                whileHover={{ y: -2 }}
+                onClick={() => onOpenDrawer(todo.drawer)}
                 className={cn(
-                  "absolute inset-y-0 left-0 w-1",
-                  todo.severity === "error" ? "bg-red-400" : todo.severity === "warning" ? "bg-amber-400" : "bg-blue-500",
+                  "expense-tip-card relative flex h-full min-h-[116px] w-full cursor-pointer flex-col justify-between overflow-hidden rounded-[var(--m3-shape-large)] border bg-white px-4 py-3 pl-5 text-left transition-colors hover:bg-blue-50",
+                  todo.severity === "error" ? "border-red-100" : todo.severity === "warning" ? "border-amber-100" : "border-blue-100",
                 )}
-              />
-              <div>
-                <div className="text-sm font-bold text-slate-900">{todo.title}</div>
-                <div className="mt-1 text-xs leading-5 text-slate-500">{todo.detail}</div>
-              </div>
-              <span className="mt-3 text-xs font-bold text-blue-700">打开处理</span>
-            </motion.button>
-          ))}
-        </div>
+              >
+                <span
+                  className={cn(
+                    "absolute inset-y-0 left-0 w-1",
+                    todo.severity === "error" ? "bg-red-400" : todo.severity === "warning" ? "bg-amber-400" : "bg-blue-500",
+                  )}
+                />
+                <div>
+                  <div className="text-sm font-bold text-slate-900">{todo.title}</div>
+                  <div className="mt-1 text-xs leading-5 text-slate-500">{todo.detail}</div>
+                </div>
+                <span className="mt-3 text-xs font-bold text-blue-700">打开处理</span>
+              </motion.button>
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            compact
+            icon={ShieldCheck}
+            title="暂无待办"
+            detail="上传票据、OCR 识别异常或企业微信审批回调失败后，会在这里生成处理任务。"
+            action={<Button type="button" size="sm" onClick={() => onOpenDrawer("upload")}><UploadCloud className="h-4 w-4" />上传票据</Button>}
+          />
+        )}
       </section>
 
       <section className="space-y-4">
@@ -481,15 +538,24 @@ function WorkspacePage({
 
       <section className="material-panel p-4">
         <PanelTitle icon={ShieldCheck} title={expenseText.workspace.activityTitle} />
-        <div className="grid auto-rows-[1fr] grid-cols-4 gap-3">
-          {dashboard.activities.map((activity) => (
-            <div key={activity.id} className="flex h-full flex-col rounded-[var(--m3-shape-large)] border border-slate-200 bg-slate-50 p-3">
-              <div className="mb-2 w-fit rounded-full border border-blue-100 bg-white px-2 py-0.5 text-xs font-bold text-blue-700">{activity.time}</div>
-              <div className="mt-2 text-sm font-bold text-slate-900">{activity.title}</div>
-              <div className="mt-1 flex-1 text-xs leading-5 text-slate-500">{activity.detail}</div>
-            </div>
-          ))}
-        </div>
+        {hasActivities ? (
+          <div className="grid auto-rows-[1fr] grid-cols-4 gap-3">
+            {dashboard.activities.map((activity) => (
+              <div key={activity.id} className="flex h-full flex-col rounded-[var(--m3-shape-large)] border border-slate-200 bg-slate-50 p-3">
+                <div className="mb-2 w-fit rounded-full border border-blue-100 bg-white px-2 py-0.5 text-xs font-bold text-blue-700">{activity.time}</div>
+                <div className="mt-2 text-sm font-bold text-slate-900">{activity.title}</div>
+                <div className="mt-1 flex-1 text-xs leading-5 text-slate-500">{activity.detail}</div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            compact
+            icon={ClockIcon}
+            title="暂无动态"
+            detail="OCR 入库、人工修正、企业微信审批提交和回调更新会记录到这里。"
+          />
+        )}
       </section>
     </div>
   );
@@ -518,6 +584,8 @@ function InvoiceFolderPage(props: {
   onVisibleColumnsChange: (columns: Set<(typeof columns)[number]["key"]>) => void;
 }) {
   const allVisibleSelected = props.invoices.length > 0 && props.invoices.every((invoice) => props.selectedIds.has(invoice.id));
+  const activeFilters = hasActiveInvoiceFilters(props.filters);
+  const showEmptyState = !props.loading && props.invoices.length === 0;
 
   return (
     <div className="space-y-4">
@@ -572,8 +640,20 @@ function InvoiceFolderPage(props: {
           </div>
         </div>
 
-        {props.loading ? <EmptyState title="正在加载票夹" /> : null}
-        {!props.loading && props.viewMode === "table" ? (
+        {props.loading ? <EmptyState title="正在加载票夹" detail="正在读取票据、OCR 状态和企业微信关联信息。" /> : null}
+        {showEmptyState ? (
+          <EmptyState
+            icon={FolderOpen}
+            title={activeFilters ? "没有符合筛选条件的票据" : "还没有票据"}
+            detail={activeFilters ? "放宽筛选条件或重置筛选后再查看。" : "上传发票或票据后，腾讯 OCR 会识别字段并写入票夹。"}
+            action={activeFilters ? (
+              <Button type="button" size="sm" variant="outline" onClick={props.onResetFilters}>重置筛选</Button>
+            ) : (
+              <Button type="button" size="sm" onClick={() => props.onOpenDrawer("upload")}><UploadCloud className="h-4 w-4" />上传票据</Button>
+            )}
+          />
+        ) : null}
+        {!props.loading && !showEmptyState && props.viewMode === "table" ? (
           <InvoiceTable
             invoices={props.invoices}
             visibleColumns={props.visibleColumns}
@@ -585,18 +665,18 @@ function InvoiceFolderPage(props: {
             onOpenLinkDrawer={props.onOpenLinkDrawer}
           />
         ) : null}
-        {!props.loading && props.viewMode === "grid" ? (
+        {!props.loading && !showEmptyState && props.viewMode === "grid" ? (
           <InvoiceGrid invoices={props.invoices} onOpenDrawer={props.onOpenDrawer} />
         ) : null}
 
-        <div className="mt-3 flex items-center justify-between border-t border-slate-200 pt-3 text-xs text-slate-500">
+        {props.total > 0 ? <div className="mt-3 flex items-center justify-between border-t border-slate-200 pt-3 text-xs text-slate-500">
           <span>{expenseText.common.total} {props.total} {expenseText.common.rows}，当前展示 20 条/页</span>
           <div className="flex items-center gap-2">
             <Button type="button" size="sm" variant="outline" disabled>上一页</Button>
             <Badge variant="outline" className="bg-white">1</Badge>
             <Button type="button" size="sm" variant="outline">下一页</Button>
           </div>
-        </div>
+        </div> : null}
       </section>
     </div>
   );
@@ -759,42 +839,58 @@ function ReimbursementPage({
     <div className="space-y-4">
       <section className="grid auto-rows-[1fr] grid-cols-4 items-stretch gap-3">
         <KPICard title="本月报销笔数" value={`${reimbursements.length} 笔`} icon={FileCheck2} />
-        <KPICard title="平均处理时长" value="1.8 天" icon={CalendarDays} trend="较上月 -0.4 天" />
+        <KPICard title="平均处理时长" value={reimbursements.length ? "1.8 天" : "0 天"} icon={CalendarDays} trend={reimbursements.length ? "较上月 -0.4 天" : "暂无报销单"} />
         <KPICard title="待审批数" value={`${pending} 笔`} icon={AlertTriangle} />
-        <KPICard title="企微审批同步" value={`${weComSynced}/${reimbursements.length}`} icon={Send} trend={`${weComActive} 笔审批中`} />
+        <KPICard title="企微审批同步" value={reimbursements.length ? `${weComSynced}/${reimbursements.length}` : "0 单"} icon={Send} trend={`${weComActive} 笔审批中`} />
       </section>
       <section className="material-panel p-4">
         <PanelTitle icon={FileCheck2} title="报销单列表" right={<Button type="button" onClick={() => onOpenDrawer("new-reimbursement")}><Plus className="h-4 w-4" />新建报销单</Button>} />
-        <Table>
-          <TableHeader><TableRow><TableHead>报销单号</TableHead><TableHead>申请人</TableHead><TableHead>申请日期</TableHead><TableHead>总金额</TableHead><TableHead>票据数</TableHead><TableHead>当前状态</TableHead><TableHead>企业微信审批</TableHead><TableHead>操作</TableHead></TableRow></TableHeader>
-          <TableBody>
-            {reimbursements.map((item) => (
-              <TableRow key={item.id}>
-                <TableCell className="font-bold">{item.id}</TableCell>
-                <TableCell>{item.applicant}</TableCell>
-                <TableCell>{item.appliedDate}</TableCell>
-                <TableCell className="font-bold">{formatCurrency(item.amount)}</TableCell>
-                <TableCell>{item.invoiceCount}</TableCell>
-                <TableCell><StatusBadge status={item.status} /> <span className="ml-2 text-xs text-slate-500">{item.node}</span></TableCell>
-                <TableCell>
-                  <div className="space-y-1">
-                    <StatusBadge status={item.weComSyncStatus} />
-                    <div className="text-xs text-slate-500">{item.weComFlowId}</div>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex gap-1">
-                    <Button type="button" size="sm" variant="outline" onClick={() => onOpenDrawer("reimbursement-detail")}>详情</Button>
-                    <Button type="button" size="sm" variant="outline" onClick={() => toast.success("已同步企业微信审批状态")}>同步企微</Button>
-                  </div>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+        {reimbursements.length ? (
+          <Table>
+            <TableHeader><TableRow><TableHead>报销单号</TableHead><TableHead>申请人</TableHead><TableHead>申请日期</TableHead><TableHead>总金额</TableHead><TableHead>票据数</TableHead><TableHead>当前状态</TableHead><TableHead>企业微信审批</TableHead><TableHead>操作</TableHead></TableRow></TableHeader>
+            <TableBody>
+              {reimbursements.map((item) => (
+                <TableRow key={item.id}>
+                  <TableCell className="font-bold">{item.id}</TableCell>
+                  <TableCell>{item.applicant}</TableCell>
+                  <TableCell>{item.appliedDate}</TableCell>
+                  <TableCell className="font-bold">{formatCurrency(item.amount)}</TableCell>
+                  <TableCell>{item.invoiceCount}</TableCell>
+                  <TableCell><StatusBadge status={item.status} /> <span className="ml-2 text-xs text-slate-500">{item.node}</span></TableCell>
+                  <TableCell>
+                    <div className="space-y-1">
+                      <StatusBadge status={item.weComSyncStatus} />
+                      <div className="text-xs text-slate-500">{item.weComFlowId}</div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex gap-1">
+                      <Button type="button" size="sm" variant="outline" onClick={() => onOpenDrawer("reimbursement-detail")}>详情</Button>
+                      <Button type="button" size="sm" variant="outline" onClick={() => toast.success("已同步企业微信审批状态")}>同步企微</Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        ) : (
+          <EmptyState
+            icon={FileCheck2}
+            title="还没有报销单"
+            detail={invoices.length ? "从票夹选择票据后，可以创建报销单并提交企业微信审批。" : "当前没有可用于报销的票据，请先上传票据。"}
+            action={invoices.length ? (
+              <Button type="button" size="sm" onClick={() => onOpenDrawer("new-reimbursement")}><Plus className="h-4 w-4" />新建报销单</Button>
+            ) : (
+              <Button type="button" size="sm" onClick={() => onOpenDrawer("upload")}><UploadCloud className="h-4 w-4" />上传票据</Button>
+            )}
+          />
+        )}
       </section>
       <section className="material-panel p-4">
         <PanelTitle icon={FolderOpen} title="可引用票夹票据" right={`${invoices.filter((item) => item.status === "已关联").length} 张已关联票据`} />
+        {!invoices.length ? (
+          <EmptyState compact icon={FolderOpen} title="暂无可引用票据" detail="票据入库后，可在新建报销单时勾选引用。" />
+        ) : null}
       </section>
     </div>
   );
@@ -804,12 +900,24 @@ function MatchingPage({
   invoices,
   onOpenDrawer,
   onOpenVoucherUpload,
+  onDataChanged,
 }: {
   invoices: InvoiceRecord[];
   onOpenDrawer: (invoice?: InvoiceRecord) => void;
   onOpenVoucherUpload: () => void;
+  onDataChanged: () => void;
 }) {
   const failed = invoices.filter((invoice) => invoice.status === "异常" || invoice.categoryConfidence < 0.7);
+  const handleAutoMatch = useCallback(async () => {
+    try {
+      const result = await expenseService.autoMatchVouchers();
+      onDataChanged();
+      toast.success(`已自动关联 ${result.auto_linked} 张票据，${result.manual_review} 条进入人工确认`);
+    } catch (error) {
+      toast.error(formatServiceError(error));
+    }
+  }, [onDataChanged]);
+
   return (
     <section className="material-panel p-4">
       <PanelTitle
@@ -821,7 +929,7 @@ function MatchingPage({
               <UploadCloud className="h-4 w-4" />
               上传付款凭证
             </Button>
-            <Button type="button" onClick={() => toast.success("已自动处理所有高置信度关联")}>
+            <Button type="button" onClick={handleAutoMatch}>
               <Link2 className="h-4 w-4" />
               批量自动关联
             </Button>
@@ -834,15 +942,50 @@ function MatchingPage({
           <TabsTrigger value="linked">已关联</TabsTrigger>
           <TabsTrigger value="failed">关联失败</TabsTrigger>
         </TabsList>
-        <TabsContent value="pending"><MatchingTable invoices={invoices.filter((item) => !item.voucherNo).slice(0, 12)} onOpenDrawer={onOpenDrawer} /></TabsContent>
-        <TabsContent value="linked"><MatchingTable invoices={invoices.filter((item) => item.voucherNo).slice(0, 12)} onOpenDrawer={onOpenDrawer} /></TabsContent>
-        <TabsContent value="failed"><MatchingTable invoices={failed.slice(0, 12)} onOpenDrawer={onOpenDrawer} /></TabsContent>
+        <TabsContent value="pending">
+          <MatchingTable
+            invoices={invoices.filter((item) => !item.voucherNo).slice(0, 12)}
+            emptyTitle={invoices.length ? "暂无待关联票据" : "还没有票据"}
+            emptyDetail={invoices.length ? "高置信度票据完成凭证匹配后，会从这里移出。" : "上传票据后才能进行付款凭证关联。"}
+            onOpenDrawer={onOpenDrawer}
+          />
+        </TabsContent>
+        <TabsContent value="linked">
+          <MatchingTable
+            invoices={invoices.filter((item) => item.voucherNo).slice(0, 12)}
+            emptyTitle="暂无已关联票据"
+            emptyDetail="完成自动或人工凭证关联后，会在这里显示关联结果。"
+            onOpenDrawer={onOpenDrawer}
+          />
+        </TabsContent>
+        <TabsContent value="failed">
+          <MatchingTable
+            invoices={failed.slice(0, 12)}
+            emptyTitle="暂无关联失败"
+            emptyDetail="金额、日期、项目或凭证信息不一致时，会进入失败列表。"
+            onOpenDrawer={onOpenDrawer}
+          />
+        </TabsContent>
       </Tabs>
     </section>
   );
 }
 
-function MatchingTable({ invoices, onOpenDrawer }: { invoices: InvoiceRecord[]; onOpenDrawer: (invoice?: InvoiceRecord) => void }) {
+function MatchingTable({
+  invoices,
+  emptyTitle,
+  emptyDetail,
+  onOpenDrawer,
+}: {
+  invoices: InvoiceRecord[];
+  emptyTitle: string;
+  emptyDetail: string;
+  onOpenDrawer: (invoice?: InvoiceRecord) => void;
+}) {
+  if (!invoices.length) {
+    return <EmptyState compact icon={Link2} title={emptyTitle} detail={emptyDetail} />;
+  }
+
   return (
     <Table>
       <TableHeader><TableRow><TableHead>发票号</TableHead><TableHead>金额</TableHead><TableHead>AI 推荐凭证</TableHead><TableHead>置信度</TableHead><TableHead>状态</TableHead><TableHead>操作</TableHead></TableRow></TableHeader>
@@ -874,22 +1017,32 @@ function RulesPage({ rules, onOpenDrawer }: { rules: ExpenseRule[]; onOpenDrawer
           <TabsTrigger value="materials">必备材料清单</TabsTrigger>
         </TabsList>
         <TabsContent value="category">
-          <Table>
-            <TableHeader><TableRow><TableHead>规则名</TableHead><TableHead>关键词</TableHead><TableHead>匹配类型</TableHead><TableHead>目标类别</TableHead><TableHead>优先级</TableHead><TableHead>命中次数</TableHead><TableHead>启用</TableHead></TableRow></TableHeader>
-            <TableBody>
-              {rules.map((rule) => (
-                <TableRow key={rule.id}>
-                  <TableCell className="font-bold">{rule.name}</TableCell>
-                  <TableCell>{rule.keywords}</TableCell>
-                  <TableCell>{rule.matchType}</TableCell>
-                  <TableCell><Badge variant="outline">{rule.targetCategory}</Badge></TableCell>
-                  <TableCell>{rule.priority}</TableCell>
-                  <TableCell>{rule.hits}</TableCell>
-                  <TableCell><Checkbox checked={rule.enabled} /></TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          {rules.length ? (
+            <Table>
+              <TableHeader><TableRow><TableHead>规则名</TableHead><TableHead>关键词</TableHead><TableHead>匹配类型</TableHead><TableHead>目标类别</TableHead><TableHead>优先级</TableHead><TableHead>命中次数</TableHead><TableHead>启用</TableHead></TableRow></TableHeader>
+              <TableBody>
+                {rules.map((rule) => (
+                  <TableRow key={rule.id}>
+                    <TableCell className="font-bold">{rule.name}</TableCell>
+                    <TableCell>{rule.keywords}</TableCell>
+                    <TableCell>{rule.matchType}</TableCell>
+                    <TableCell><Badge variant="outline">{rule.targetCategory}</Badge></TableCell>
+                    <TableCell>{rule.priority}</TableCell>
+                    <TableCell>{rule.hits}</TableCell>
+                    <TableCell><Checkbox checked={rule.enabled} /></TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <EmptyState
+              compact
+              icon={Settings2}
+              title="暂无分类规则"
+              detail="没有规则时，票据仍可入库，但分类、材料校验和审批触发需要人工确认。"
+              action={<Button type="button" size="sm" onClick={() => onOpenDrawer("rule-editor")}><Plus className="h-4 w-4" />新增规则</Button>}
+            />
+          )}
         </TabsContent>
         <TabsContent value="threshold"><ThresholdCards /></TabsContent>
         <TabsContent value="approval"><FlowConfig /></TabsContent>
@@ -899,36 +1052,305 @@ function RulesPage({ rules, onOpenDrawer }: { rules: ExpenseRule[]; onOpenDrawer
   );
 }
 
-function UploadInvoiceDrawer({ onDirtyChange }: { onDirtyChange: (dirty: boolean) => void }) {
+const emptyOcrCatalog: ExpenseOcrServiceCatalog = {
+  default_mode: "auto",
+  invoice: [],
+  voucher: [],
+};
+
+function useExpenseOcrCatalog() {
+  const [catalog, setCatalog] = useState<ExpenseOcrServiceCatalog>(emptyOcrCatalog);
+
+  useEffect(() => {
+    let mounted = true;
+    expenseService
+      .getOcrServices()
+      .then((result) => {
+        if (mounted) setCatalog(result);
+      })
+      .catch((error) => {
+        console.warn("[expense] OCR service catalog unavailable", error);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  return catalog;
+}
+
+function flattenOcrServices(catalog: ExpenseOcrServiceCatalog, kind: "invoice" | "voucher") {
+  return catalog[kind].flatMap((category) => category.services);
+}
+
+function buildOcrUploadOptions(
+  mode: "auto" | "manual",
+  manualServiceKey: string,
+): ExpenseOcrUploadOptions {
+  return mode === "manual"
+    ? { ocrMode: "manual", ocrServiceKey: manualServiceKey }
+    : { ocrMode: "auto" };
+}
+
+function OcrServicePanel({
+  mode,
+  services,
+  manualServiceKey,
+  onModeChange,
+  onServiceChange,
+}: {
+  mode: "auto" | "manual";
+  services: ExpenseOcrService[];
+  manualServiceKey: string;
+  onModeChange: (mode: "auto" | "manual") => void;
+  onServiceChange: (serviceKey: string) => void;
+}) {
+  const selectedService = services.find((service) => service.key === manualServiceKey);
+
+  return (
+    <div className="rounded-[var(--m3-shape-large)] border border-slate-200 bg-white p-4">
+      <PanelTitle
+        icon={Search}
+        title="OCR 识别方式"
+        right={<Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">{mode === "auto" ? "默认自动识别" : "指定服务重识别"}</Badge>}
+      />
+      <div className="grid gap-2 sm:grid-cols-2">
+        {[
+          { key: "auto", title: "自动识别", detail: "上传后先由系统判断票据类型" },
+          { key: "manual", title: "手动指定", detail: "识别失败或类型不准时选择服务重试" },
+        ].map((item) => (
+          <button
+            key={item.key}
+            type="button"
+            className={cn(
+              "rounded border p-3 text-left transition-colors",
+              mode === item.key
+                ? "border-blue-200 bg-blue-50 text-blue-900"
+                : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white",
+            )}
+            onClick={() => onModeChange(item.key as "auto" | "manual")}
+          >
+            <span className="block text-sm font-bold">{item.title}</span>
+            <span className="mt-1 block text-xs text-slate-500">{item.detail}</span>
+          </button>
+        ))}
+      </div>
+      {mode === "manual" ? (
+        <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+          <label className="block">
+            <span className="mb-1 block text-xs font-medium text-slate-500">选择腾讯 OCR 服务</span>
+            <Select value={manualServiceKey} onValueChange={onServiceChange}>
+              <SelectTrigger className="h-9 bg-white">
+                <SelectValue placeholder="请选择服务" />
+              </SelectTrigger>
+              <SelectContent>
+                {services.map((service) => (
+                  <SelectItem key={service.key} value={service.key}>
+                    {service.category_label} / {service.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+          {selectedService ? (
+            <Badge variant="outline" className="h-9 justify-center border-blue-100 bg-blue-50 px-3 text-blue-700">
+              {selectedService.action}
+            </Badge>
+          ) : null}
+        </div>
+      ) : null}
+      {selectedService && mode === "manual" ? (
+        <p className="mt-2 text-xs leading-5 text-slate-500">{selectedService.description}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function UploadInvoiceDrawer({
+  onDirtyChange,
+  onDataChanged,
+}: {
+  onDirtyChange: (dirty: boolean) => void;
+  onDataChanged: () => void;
+}) {
+  const [processing, setProcessing] = useState(false);
+  const [ocrMode, setOcrMode] = useState<"auto" | "manual">("auto");
+  const [manualServiceKey, setManualServiceKey] = useState("");
+  const [lastFiles, setLastFiles] = useState<File[]>([]);
+  const [uploadedInvoices, setUploadedInvoices] = useState<InvoiceRecord[]>([]);
+  const catalog = useExpenseOcrCatalog();
+  const manualServices = useMemo(
+    () => flattenOcrServices(catalog, "invoice").filter((service) => service.mode === "manual"),
+    [catalog],
+  );
+
+  useEffect(() => {
+    if (manualServices.length > 0 && !manualServices.some((service) => service.key === manualServiceKey)) {
+      setManualServiceKey(manualServices[0].key);
+    }
+  }, [manualServiceKey, manualServices]);
+
+  const uploadFiles = useCallback(async (files: File[], options: ExpenseOcrUploadOptions) => {
+    setProcessing(true);
+    setLastFiles(files);
+    try {
+      const result = await expenseService.uploadInvoiceFiles(files, options);
+      setUploadedInvoices(result);
+      onDataChanged();
+      toast.success(`已上传 ${result.length} 张票据，OCR 结果已写入票夹`);
+    } catch (error) {
+      toast.error(formatServiceError(error));
+    } finally {
+      setProcessing(false);
+    }
+  }, [onDataChanged]);
+
+  const handleFilesSelected = useCallback((files: File[]) => {
+    void uploadFiles(files, buildOcrUploadOptions(ocrMode, manualServiceKey));
+  }, [manualServiceKey, ocrMode, uploadFiles]);
+
+  const retryWithManualService = useCallback(() => {
+    if (lastFiles.length === 0) {
+      toast.error("请先上传需要重识别的票据文件");
+      return;
+    }
+    if (!manualServiceKey) {
+      toast.error("请先选择腾讯 OCR 服务");
+      return;
+    }
+    setOcrMode("manual");
+    void uploadFiles(lastFiles, { ocrMode: "manual", ocrServiceKey: manualServiceKey });
+  }, [lastFiles, manualServiceKey, uploadFiles]);
+
+  const needsManualReview = uploadedInvoices.some((invoice) => invoice.manualReviewRequired);
+
   return (
     <div className="space-y-4">
-      <UploadDropzone processing />
+      <OcrServicePanel
+        mode={ocrMode}
+        services={manualServices}
+        manualServiceKey={manualServiceKey}
+        onModeChange={setOcrMode}
+        onServiceChange={setManualServiceKey}
+      />
+      <UploadDropzone
+        processing={processing}
+        description="支持 JPG / PNG / PDF，多张上传后默认自动判断票据类型"
+        processingLabel="OCR 正在识别票据类型与字段..."
+        onFilesSelected={handleFilesSelected}
+      />
       <div className="rounded-[var(--m3-shape-large)] border border-slate-200 bg-slate-50 p-4">
-        <PanelTitle icon={Search} title="OCR 识别结果" />
-        <div className="space-y-2">
-          {["发票号 37814562", "金额 ¥4,820", "日期 2026-05-10", "类别 差旅 / AI 96%"].map((item) => (
-            <div key={item} className="rounded border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700">{item}</div>
-          ))}
-        </div>
+        <PanelTitle
+          icon={Search}
+          title="OCR 识别结果"
+          right={uploadedInvoices.length ? `${uploadedInvoices.length} 张已入库` : "等待上传"}
+        />
+        {uploadedInvoices.length ? (
+          <div className="space-y-2">
+            {uploadedInvoices.map((invoice) => (
+              <InvoiceOcrResult key={invoice.id} invoice={invoice} />
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            compact
+            icon={UploadCloud}
+            title="还没有上传票据"
+            detail="上传后先自动识别类型；识别失败或类型不准时，再切换为手动指定服务重试。"
+          />
+        )}
+        {needsManualReview ? (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded border border-amber-100 bg-amber-50 px-3 py-2">
+            <span className="text-xs font-medium text-amber-800">存在低置信度或异常票据，可选择服务后用同一批文件重识别。</span>
+            <Button type="button" size="sm" variant="outline" onClick={retryWithManualService} disabled={processing}>
+              指定服务重识别
+            </Button>
+          </div>
+        ) : null}
       </div>
       <Button type="button" variant="outline" onClick={() => onDirtyChange(true)}>编辑识别字段</Button>
     </div>
   );
 }
 
-function UploadVoucherDrawer({ onDirtyChange }: { onDirtyChange: (dirty: boolean) => void }) {
+function UploadVoucherDrawer({
+  onDirtyChange,
+  onDataChanged,
+}: {
+  onDirtyChange: (dirty: boolean) => void;
+  onDataChanged: () => void;
+}) {
+  const [processing, setProcessing] = useState(false);
+  const [ocrMode, setOcrMode] = useState<"auto" | "manual">("auto");
+  const [manualServiceKey, setManualServiceKey] = useState("");
+  const [lastFiles, setLastFiles] = useState<File[]>([]);
+  const [uploadedVouchers, setUploadedVouchers] = useState<VoucherUploadRecord[]>([]);
+  const catalog = useExpenseOcrCatalog();
+  const manualServices = useMemo(
+    () => flattenOcrServices(catalog, "voucher").filter((service) => service.mode === "manual"),
+    [catalog],
+  );
+
+  useEffect(() => {
+    if (manualServices.length > 0 && !manualServices.some((service) => service.key === manualServiceKey)) {
+      setManualServiceKey(manualServices[0].key);
+    }
+  }, [manualServiceKey, manualServices]);
+
+  const uploadFiles = useCallback(async (files: File[], options: ExpenseOcrUploadOptions) => {
+    setProcessing(true);
+    setLastFiles(files);
+    try {
+      const result = await expenseService.uploadVoucherFiles(files, options);
+      setUploadedVouchers(result);
+      onDataChanged();
+      toast.success(`已上传 ${result.length} 张付款凭证，OCR 结果已入库`);
+    } catch (error) {
+      toast.error(formatServiceError(error));
+    } finally {
+      setProcessing(false);
+    }
+  }, [onDataChanged]);
+
+  const handleFilesSelected = useCallback((files: File[]) => {
+    void uploadFiles(files, buildOcrUploadOptions(ocrMode, manualServiceKey));
+  }, [manualServiceKey, ocrMode, uploadFiles]);
+
+  const retryWithManualService = useCallback(() => {
+    if (lastFiles.length === 0) {
+      toast.error("请先上传需要重识别的付款凭证");
+      return;
+    }
+    if (!manualServiceKey) {
+      toast.error("请先选择腾讯 OCR 服务");
+      return;
+    }
+    setOcrMode("manual");
+    void uploadFiles(lastFiles, { ocrMode: "manual", ocrServiceKey: manualServiceKey });
+  }, [lastFiles, manualServiceKey, uploadFiles]);
+
+  const needsManualReview = uploadedVouchers.some((voucher) => voucher.manualReviewRequired);
+
   return (
     <div className="space-y-4">
-      <UploadDropzone
-        processing
-        title="拖拽或点击上传付款凭证"
-        description="支持银行回单、付款截图、PDF / JPG / PNG / XLSX，上传后自动提取金额、付款日期和流水号"
-        accept=".jpg,.jpeg,.png,.pdf,.xlsx"
-        processingLabel="AI 正在提取凭证字段并匹配发票..."
+      <OcrServicePanel
+        mode={ocrMode}
+        services={manualServices}
+        manualServiceKey={manualServiceKey}
+        onModeChange={setOcrMode}
+        onServiceChange={setManualServiceKey}
       />
-      <div className="rounded-[var(--m3-shape-large)] border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-emerald-50 p-4">
+      <UploadDropzone
+        processing={processing}
+        title="拖拽或点击上传付款凭证"
+        description="支持银行回单、付款截图、PDF / JPG / PNG，多张上传后自动提取金额、付款日期和流水号"
+        accept=".jpg,.jpeg,.png,.pdf"
+        processingLabel="OCR 正在提取凭证字段并准备关联票据..."
+        onFilesSelected={handleFilesSelected}
+      />
+      <div className="rounded-[var(--m3-shape-large)] border border-blue-100 bg-blue-50/60 p-4">
         <PanelTitle icon={Link2} title="凭证入库与关联规则" right={<Badge variant="outline" className="border-blue-100 bg-white text-blue-700">自动匹配</Badge>} />
-        <div className="grid grid-cols-4 gap-3 text-sm">
+        <div className="grid gap-3 text-sm sm:grid-cols-4">
           <Info label="识别字段" value="流水号 / 金额 / 日期 / 付款方" />
           <Info label="匹配条件" value="金额 + 项目 + 日期窗口" />
           <Info label="低置信度处理" value="进入人工关联池" />
@@ -936,14 +1358,100 @@ function UploadVoucherDrawer({ onDirtyChange }: { onDirtyChange: (dirty: boolean
         </div>
       </div>
       <div className="rounded-[var(--m3-shape-large)] border border-slate-200 bg-slate-50 p-4">
-        <PanelTitle icon={Search} title="本次识别预览" />
-        <div className="grid grid-cols-2 gap-2">
-          {["付款凭证 PAY-2605-118", "金额 ¥4,820", "付款日期 2026-05-11", "推荐关联发票 37814562"].map((item) => (
-            <div key={item} className="rounded border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700">{item}</div>
-          ))}
-        </div>
+        <PanelTitle icon={Search} title="本次识别结果" right={uploadedVouchers.length ? `${uploadedVouchers.length} 张已入库` : "等待上传"} />
+        {uploadedVouchers.length ? (
+          <div className="space-y-2">
+            {uploadedVouchers.map((voucher) => (
+              <VoucherOcrResult key={voucher.id} voucher={voucher} />
+            ))}
+          </div>
+        ) : (
+          <EmptyState
+            compact
+            icon={UploadCloud}
+            title="还没有上传付款凭证"
+            detail="凭证支持多张批量上传；识别失败时可切换为手动指定腾讯 OCR 服务后重试。"
+          />
+        )}
+        {needsManualReview ? (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded border border-amber-100 bg-amber-50 px-3 py-2">
+            <span className="text-xs font-medium text-amber-800">存在低置信度或异常凭证，可选择服务后用同一批文件重识别。</span>
+            <Button type="button" size="sm" variant="outline" onClick={retryWithManualService} disabled={processing}>
+              指定服务重识别
+            </Button>
+          </div>
+        ) : null}
       </div>
       <Button type="button" variant="outline" onClick={() => onDirtyChange(true)}>编辑凭证识别字段</Button>
+    </div>
+  );
+}
+
+function InvoiceOcrResult({ invoice }: { invoice: InvoiceRecord }) {
+  return (
+    <div className="rounded border border-slate-200 bg-white p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-bold text-slate-900">{invoice.vendor || invoice.invoiceNo}</div>
+          <div className="mt-1 text-xs text-slate-500">
+            {invoice.detectedType ?? "待判断类型"} / {invoice.ocrServiceLabel ?? "自动识别"} / {invoice.ocrAction ?? "-"}
+          </div>
+        </div>
+        <StatusBadge status={invoice.status} />
+      </div>
+      <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-4">
+        <Info label="票据号" value={invoice.invoiceNo} />
+        <Info label="金额" value={formatCurrency(invoice.amount)} />
+        <Info label="置信度" value={`${Math.round((invoice.detectedTypeConfidence ?? invoice.categoryConfidence ?? 0) * 100)}%`} />
+        <Info label="RequestId" value={invoice.ocrRequestId ?? "-"} />
+      </div>
+      {invoice.thirdPartyErrors?.length ? <OcrErrorList errors={invoice.thirdPartyErrors} /> : null}
+    </div>
+  );
+}
+
+function VoucherOcrResult({ voucher }: { voucher: VoucherUploadRecord }) {
+  return (
+    <div className="rounded border border-slate-200 bg-white p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate text-sm font-bold text-slate-900">{voucher.fileName || voucher.voucherNo}</div>
+          <div className="mt-1 text-xs text-slate-500">
+            {voucher.detectedType ?? voucher.subject} / {voucher.ocrServiceLabel ?? "自动识别"} / {voucher.ocrAction ?? "-"}
+          </div>
+        </div>
+        <StatusBadge status={voucher.status} />
+      </div>
+      <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-4">
+        <Info label="凭证号" value={voucher.voucherNo} />
+        <Info label="金额" value={formatCurrency(voucher.amount)} />
+        <Info label="置信度" value={`${Math.round((voucher.confidence ?? 0) * 100)}%`} />
+        <Info label="关联票据" value={voucher.matchedInvoiceId ?? "待匹配"} />
+      </div>
+      {voucher.matchReasons?.length ? (
+        <div className="mt-2 rounded border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-700">
+          {voucher.matchReasons.join("；")}
+        </div>
+      ) : null}
+      {voucher.reason ? <p className="mt-2 text-xs leading-5 text-slate-500">{voucher.reason}</p> : null}
+      {voucher.thirdPartyErrors?.length ? <OcrErrorList errors={voucher.thirdPartyErrors} /> : null}
+    </div>
+  );
+}
+
+function OcrErrorList({
+  errors,
+}: {
+  errors: Array<{ code: string | number; message: string; request_id?: string; action?: string }>;
+}) {
+  return (
+    <div className="mt-3 space-y-1 rounded border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">
+      {errors.map((error) => (
+        <div key={`${error.code}-${error.request_id ?? error.action ?? ""}`}>
+          {error.action ? `${error.action} / ` : ""}{error.code}: {error.message}
+          {error.request_id ? ` / RequestId ${error.request_id}` : ""}
+        </div>
+      ))}
     </div>
   );
 }
@@ -1049,7 +1557,39 @@ function BatchClassifyDrawer({ invoices, onDirtyChange }: { invoices: InvoiceRec
   );
 }
 
-function LinkVoucherDrawer({ invoice, candidates }: { invoice: InvoiceRecord; candidates: VoucherCandidate[] }) {
+function LinkVoucherDrawer({
+  invoice,
+  candidates,
+  onDataChanged,
+}: {
+  invoice: InvoiceRecord;
+  candidates: VoucherCandidate[];
+  onDataChanged: () => void;
+}) {
+  const [selectedVoucherId, setSelectedVoucherId] = useState(candidates[0]?.id ?? "");
+  const [linking, setLinking] = useState(false);
+
+  useEffect(() => {
+    setSelectedVoucherId(candidates[0]?.id ?? "");
+  }, [candidates]);
+
+  const confirmManualLink = useCallback(async () => {
+    if (!selectedVoucherId) {
+      toast.error("请先选择付款凭证");
+      return;
+    }
+    setLinking(true);
+    try {
+      await expenseService.linkVoucher(invoice.id, selectedVoucherId);
+      onDataChanged();
+      toast.success("人工关联已确认并写入票夹");
+    } catch (error) {
+      toast.error(formatServiceError(error));
+    } finally {
+      setLinking(false);
+    }
+  }, [invoice.id, onDataChanged, selectedVoucherId]);
+
   return (
     <div className="space-y-4">
       <div className="rounded-[var(--m3-shape-large)] border border-slate-200 bg-slate-50 p-4">
@@ -1067,7 +1607,11 @@ function LinkVoucherDrawer({ invoice, candidates }: { invoice: InvoiceRecord; ca
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: index * 0.04 }}
               whileHover={{ x: 3 }}
-              className="w-full cursor-pointer rounded-[var(--m3-shape-medium)] border border-slate-200 bg-slate-50 p-3 text-left transition-colors hover:border-blue-300 hover:bg-blue-50"
+              onClick={() => setSelectedVoucherId(candidate.id)}
+              className={cn(
+                "w-full cursor-pointer rounded-[var(--m3-shape-medium)] border bg-slate-50 p-3 text-left transition-colors hover:border-blue-300 hover:bg-blue-50",
+                selectedVoucherId === candidate.id ? "border-blue-300 bg-blue-50" : "border-slate-200",
+              )}
             >
               <div className="mb-2 flex items-center justify-between"><span className="font-bold text-slate-900">{candidate.voucherNo}</span><ConfidenceTag value={candidate.confidence} /></div>
               <div className="grid grid-cols-3 gap-3 text-xs text-slate-600"><span>{formatCurrency(candidate.amount)}</span><span>{candidate.date}</span><span>{candidate.subject}</span></div>
@@ -1093,8 +1637,11 @@ function LinkVoucherDrawer({ invoice, candidates }: { invoice: InvoiceRecord; ca
             <button
               key={`manual-${candidate.id}`}
               type="button"
-              onClick={() => toast.success(`已选择 ${candidate.voucherNo} 作为人工关联凭证`)}
-              className="cursor-pointer rounded-[var(--m3-shape-medium)] border border-blue-100 bg-white/88 p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-[0_14px_30px_rgba(30,64,175,0.12)]"
+              onClick={() => setSelectedVoucherId(candidate.id)}
+              className={cn(
+                "cursor-pointer rounded-[var(--m3-shape-medium)] border bg-white/88 p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-[0_14px_30px_rgba(30,64,175,0.12)]",
+                selectedVoucherId === candidate.id ? "border-blue-300 ring-2 ring-blue-100" : "border-blue-100",
+              )}
             >
               <div className="mb-1 flex items-center justify-between gap-2">
                 <span className="truncate text-sm font-bold text-slate-900">{candidate.voucherNo}</span>
@@ -1107,24 +1654,57 @@ function LinkVoucherDrawer({ invoice, candidates }: { invoice: InvoiceRecord; ca
         </div>
         <div className="mt-3 flex items-center justify-between rounded-[var(--m3-shape-medium)] border border-blue-100 bg-white/70 px-3 py-2 text-xs text-blue-900">
           <span>人工关联会保留操作者、选择理由和原 AI 推荐结果，方便财务复核追溯。</span>
-          <Button type="button" size="sm" onClick={() => toast.success("人工关联已确认并写入票夹")}>确认人工关联</Button>
+          <Button type="button" size="sm" onClick={confirmManualLink} disabled={linking || !selectedVoucherId}>确认人工关联</Button>
         </div>
       </div>
     </div>
   );
 }
 
-function NewReimbursementDrawer({ invoices, onDirtyChange }: { invoices: InvoiceRecord[]; onDirtyChange: (dirty: boolean) => void }) {
-  const total = invoices.slice(0, 3).reduce((sum, invoice) => sum + invoice.amount, 0);
+function NewReimbursementDrawer({
+  invoices,
+  onDirtyChange,
+  onDataChanged,
+}: {
+  invoices: InvoiceRecord[];
+  onDirtyChange: (dirty: boolean) => void;
+  onDataChanged: () => void;
+}) {
+  const selectedInvoices = invoices.slice(0, 3);
+  const total = selectedInvoices.reduce((sum, invoice) => sum + invoice.amount, 0);
+  const [title, setTitle] = useState("5 月费用报销申请");
+  const [project, setProject] = useState(selectedInvoices[0]?.project ?? "");
+  const [reason, setReason] = useState("费用报销");
+  const [submitting, setSubmitting] = useState(false);
+
+  const submitToWeCom = useCallback(async () => {
+    setSubmitting(true);
+    try {
+      const reimbursement = await expenseService.createReimbursement({
+        title,
+        project,
+        reason,
+        invoice_ids: selectedInvoices.map((invoice) => invoice.id),
+      });
+      await expenseService.submitWeComApproval(reimbursement.id);
+      onDataChanged();
+      toast.success("已提交企业微信报销审批");
+    } catch (error) {
+      toast.error(formatServiceError(error));
+    } finally {
+      setSubmitting(false);
+    }
+  }, [onDataChanged, project, reason, selectedInvoices, title]);
+
   return (
     <div className="space-y-4">
       <div className="rounded-[var(--m3-shape-large)] border border-slate-200 bg-white p-4">
         <PanelTitle icon={FileCheck2} title="基本信息" />
         <div className="grid grid-cols-2 gap-3">
-          <Input defaultValue="5 月费用报销申请" onChange={() => onDirtyChange(true)} />
+          <Input value={title} onChange={(event) => { setTitle(event.target.value); onDirtyChange(true); }} />
           <Input defaultValue="2026-05-12" type="date" onChange={() => onDirtyChange(true)} />
-          <Input placeholder="关联项目" onChange={() => onDirtyChange(true)} />
-          <Input placeholder="报销事由" onChange={() => onDirtyChange(true)} />
+          <Input value={project} placeholder="关联项目" onChange={(event) => { setProject(event.target.value); onDirtyChange(true); }} />
+          <Input value={reason} placeholder="报销事由" onChange={(event) => { setReason(event.target.value); onDirtyChange(true); }} />
         </div>
       </div>
       <div className="rounded-[var(--m3-shape-large)] border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-emerald-50 p-4 shadow-[0_18px_45px_rgba(37,99,235,0.10)]">
@@ -1137,8 +1717,20 @@ function NewReimbursementDrawer({ invoices, onDirtyChange }: { invoices: Invoice
         </div>
         <div className="mt-3 flex items-center justify-between rounded-[var(--m3-shape-medium)] border border-blue-100 bg-white/70 px-3 py-2 text-xs text-blue-900">
           <span>提交后系统生成 WeCom Approval ID，并把审批通过、驳回、付款节点回写到报销单。</span>
-          <Button type="button" size="sm" variant="outline" onClick={() => toast.success("已校验企业微信审批模板与回调地址")}>校验企微配置</Button>
+          <Button type="button" size="sm" variant="outline" onClick={() => {
+            expenseService.getIntegrationRequirements()
+              .then((requirements) => {
+                const missing = [...requirements.wecom.missing, ...requirements.tencent_ocr.missing];
+                if (missing.length) toast.warning(`缺少配置：${missing.map((item) => item.label).join("、")}`);
+                else toast.success("企业微信与腾讯 OCR 配置已完整");
+              })
+              .catch((error) => toast.error(formatServiceError(error)));
+          }}>校验企微配置</Button>
         </div>
+        <Button type="button" className="mt-3" disabled={submitting || selectedInvoices.length === 0} onClick={submitToWeCom}>
+          <Send className="h-4 w-4" />
+          {submitting ? "正在提交..." : "创建并提交企微审批"}
+        </Button>
       </div>
       <div className="rounded-[var(--m3-shape-large)] border border-slate-200 bg-slate-50 p-4">
         <PanelTitle icon={FolderOpen} title="从票夹中选取票据" right={`自动汇总 ${formatCurrency(total)}`} />
@@ -1148,8 +1740,30 @@ function NewReimbursementDrawer({ invoices, onDirtyChange }: { invoices: Invoice
   );
 }
 
-function ReimbursementDetailDrawer({ reimbursements }: { reimbursements: ReimbursementRecord[] }) {
+function ReimbursementDetailDrawer({
+  reimbursements,
+  onDataChanged,
+}: {
+  reimbursements: ReimbursementRecord[];
+  onDataChanged: () => void;
+}) {
   const current = reimbursements[0];
+  const [syncing, setSyncing] = useState(false);
+
+  const syncWeCom = useCallback(async () => {
+    if (!current) return;
+    setSyncing(true);
+    try {
+      await expenseService.syncWeComApproval(current.id);
+      onDataChanged();
+      toast.success("已拉取企业微信最新审批状态");
+    } catch (error) {
+      toast.error(formatServiceError(error));
+    } finally {
+      setSyncing(false);
+    }
+  }, [current, onDataChanged]);
+
   return (
     <div className="space-y-4">
       <div className="rounded-[var(--m3-shape-large)] border border-slate-200 bg-slate-50 p-4">
@@ -1166,7 +1780,7 @@ function ReimbursementDetailDrawer({ reimbursements }: { reimbursements: Reimbur
             <Info label="回调路径" value={`/expense/reimbursements/${current.id}/wecom/callback`} />
           </div>
           <div className="mt-3 flex gap-2">
-            <Button type="button" size="sm" onClick={() => toast.success("已拉取企业微信最新审批状态")}><RefreshCw className="h-4 w-4" />同步企微状态</Button>
+            <Button type="button" size="sm" disabled={syncing} onClick={syncWeCom}><RefreshCw className="h-4 w-4" />{syncing ? "同步中..." : "同步企微状态"}</Button>
             <Button type="button" size="sm" variant="outline" onClick={() => toast.success("已打开企业微信审批单预览")}>打开企微审批</Button>
             <Button type="button" size="sm" variant="outline" onClick={() => toast.success("已重新推送企业微信审批流")}>重新推送</Button>
           </div>
@@ -1194,8 +1808,31 @@ function MatchingDetailDrawer({ invoice, candidates }: { invoice: InvoiceRecord;
 }
 
 function PushSettingsDrawer({ onDirtyChange }: { onDirtyChange: (dirty: boolean) => void }) {
+  const [missingConfig, setMissingConfig] = useState<string[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    expenseService.getIntegrationRequirements()
+      .then((requirements) => {
+        if (cancelled) return;
+        setMissingConfig([...requirements.wecom.missing, ...requirements.tencent_ocr.missing].map((item) => item.label));
+      })
+      .catch((error) => {
+        if (!cancelled) toast.error(formatServiceError(error));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <div className="space-y-4">
+      <div className="rounded-[var(--m3-shape-large)] border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
+        <PanelTitle icon={ShieldCheck} title="第三方集成状态" right={missingConfig.length ? "待录入" : "已完整"} />
+        <div className="text-xs leading-5">
+          {missingConfig.length ? `缺少：${missingConfig.join("、")}` : "企业微信审批与腾讯 OCR 配置已完整。"}
+        </div>
+      </div>
       <Select defaultValue="monthly" onValueChange={() => onDirtyChange(true)}>
         <SelectTrigger className="material-input h-10">
           <SelectValue />
@@ -1277,6 +1914,9 @@ function SuggestionCard({ title, detail, confidence }: { title: string; detail: 
 }
 
 function InvoiceTableMini({ invoices }: { invoices: InvoiceRecord[] }) {
+  if (!invoices.length) {
+    return <EmptyState compact icon={FolderOpen} title="暂无可选票据" detail="上传并确认票据后，可以在这里勾选生成报销单。" />;
+  }
   return <div className="grid grid-cols-2 gap-2">{invoices.slice(0, 8).map((invoice) => <label key={invoice.id} className="flex items-center gap-2 rounded border border-slate-200 bg-white p-2 text-sm"><Checkbox defaultChecked={invoice.status === "已关联"} /><InvoiceThumbnail invoice={invoice} /><span className="min-w-0 flex-1 truncate">{invoice.vendor}</span><span className="font-bold">{formatCurrency(invoice.amount)}</span></label>)}</div>;
 }
 
@@ -1285,14 +1925,24 @@ function ComparePane({ title, rows }: { title: string; rows: Array<[string, Reac
 }
 
 function ChartPanel({ title, data, type }: { title: string; data: any[]; type: "trend" | "pie" | "bar" | "project" }) {
+  const hasData = data.length > 0;
+
   return (
     <div className="expense-chart-panel material-panel p-4">
       <PanelTitle
         icon={BarChart3}
         title={title}
-        right={type === "bar" || type === "project" ? <span className="text-[11px] text-slate-500">逐条独立色彩</span> : null}
+        right={hasData && (type === "bar" || type === "project") ? <span className="text-[11px] text-slate-500">逐条独立色彩</span> : null}
       />
-      <div className="h-[260px]">
+      {!hasData ? (
+        <EmptyState
+          compact
+          icon={BarChart3}
+          title="暂无统计数据"
+          detail="有票据入库并完成分类后，这里会生成对应维度的统计图。"
+        />
+      ) : null}
+      {hasData ? <div className="h-[260px]">
         <ResponsiveContainer width="100%" height="100%">
           {type === "pie" ? (
             <PieChart><Pie data={data} dataKey="amount" nameKey="category" innerRadius={56} outerRadius={92}>{data.map((item) => <Cell key={item.category} fill={categoryColors[item.category as ExpenseCategory]} />)}</Pie><Tooltip formatter={(value: number | string) => [formatCurrency(Number(value)), "金额"]} /></PieChart>
@@ -1311,7 +1961,7 @@ function ChartPanel({ title, data, type }: { title: string; data: any[]; type: "
             <LineChart data={data}><CartesianGrid stroke="var(--outline-variant)" vertical={false} /><XAxis dataKey="month" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} /><YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} /><Tooltip formatter={(value: number | string) => [formatCurrency(Number(value)), "金额"]} /><Line dataKey="差旅" stroke="var(--primary)" dot={false} /><Line dataKey="采购" stroke="var(--chart-3)" dot={false} /></LineChart>
           )}
         </ResponsiveContainer>
-      </div>
+      </div> : null}
     </div>
   );
 }

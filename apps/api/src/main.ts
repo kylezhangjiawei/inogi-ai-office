@@ -2,7 +2,7 @@ import 'reflect-metadata';
 
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { json, urlencoded } from 'express';
+import { json, text, urlencoded } from 'express';
 
 import { AppModule } from './app.module';
 
@@ -15,6 +15,7 @@ const defaultCorsOrigins = [
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bodyParser: false });
+  app.use(text({ type: ['text/*', 'application/xml', 'text/xml'], limit: '5mb' }));
   app.use(json({ limit: '25mb' }));
   app.use(urlencoded({ extended: true, limit: '25mb' }));
   app.setGlobalPrefix('api');

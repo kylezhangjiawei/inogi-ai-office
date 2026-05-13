@@ -52,7 +52,7 @@ export function Sidebar() {
                 <NavLink
                   key={item.path}
                   to={item.path}
-                  end={item.path === "/"}
+                  end={item.path === "/" || item.path === "/ops-center"}
                   className={({ isActive }) =>
                     cn(
                       "material-nav-item justify-between border",
