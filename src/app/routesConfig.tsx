@@ -16,6 +16,7 @@ import {
   GraduationCap,
   Inbox,
   LayoutDashboard,
+  LayoutGrid,
   ListChecks,
   Mail,
   MessageSquareText,
@@ -27,6 +28,7 @@ import {
   ScanSearch,
   ScrollText,
   ShieldCheck,
+  Telescope,
   UserCog,
   Users,
   UserSquare2,
@@ -51,6 +53,14 @@ export const navGroups: NavGroup[] = [
   {
     label: "总览",
     items: [{ label: "系统首页", path: "/", icon: LayoutDashboard, requiredPermission: "page:dashboard" }],
+  },
+  {
+    label: "研发任务管理",
+    items: [
+      { label: "研发任务驾驶舱", path: "/rd-task-management", icon: LayoutGrid, requiredPermission: "page:rd-task-management" },
+      { label: "个人工作台", path: "/rd-my-workspace", icon: GanttChartSquare, requiredPermission: "page:rd-my-workspace" },
+      { label: "厂长驾驶舱", path: "/rd-director-dashboard", icon: Telescope, requiredPermission: "page:rd-director-dashboard" },
+    ],
   },
   {
     label: "信息流转",

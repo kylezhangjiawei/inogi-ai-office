@@ -39,6 +39,16 @@ export const PERMISSIONS = {
   PAGE_EMAIL_AI: 'page:email-ai',
   PAGE_REPORT_COMPRESSION: 'page:report-compression',
 
+  // ─── R&D Task Management ─────────────────────────────────────────
+  PAGE_RD_TASK_MANAGEMENT: 'page:rd-task-management',
+  PAGE_RD_MY_WORKSPACE: 'page:rd-my-workspace',
+  PAGE_RD_DIRECTOR_DASHBOARD: 'page:rd-director-dashboard',
+  RD_TASK_CREATE: 'rd-task:create',
+  RD_TASK_EDIT: 'rd-task:edit',
+  RD_TASK_ARCHIVE: 'rd-task:archive',
+  RD_TASK_REASSIGN: 'rd-task:reassign',
+  RD_TASK_OVERRIDE_PRIORITY: 'rd-task:override-priority',
+
   // ─── User management ────────────────────────────────────────────
   USER_CREATE: 'user:create',
   USER_EDIT: 'user:edit',
@@ -198,6 +208,24 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     label: '页面访问 · 总览',
     permissions: [
       { code: 'page:dashboard', label: '系统首页' },
+    ],
+  },
+  {
+    label: '页面访问 · 研发任务管理',
+    permissions: [
+      { code: 'page:rd-task-management', label: '研发任务管理', description: '树状任务表，AI 解析新建，任务封存/移交' },
+      { code: 'page:rd-my-workspace', label: '个人工作台', description: '我的任务、协作任务、今日待办、待审核 AI 建议' },
+      { code: 'page:rd-director-dashboard', label: '厂长驾驶舱', description: '全局进度、人员负载热力图、批量重分配（高级权限）' },
+    ],
+  },
+  {
+    label: '操作权限 · 研发任务管理',
+    permissions: [
+      { code: 'rd-task:create', label: '新建任务', description: '通过 AI 解析或手动创建任务' },
+      { code: 'rd-task:edit', label: '编辑任务', description: '修改任务字段和状态' },
+      { code: 'rd-task:archive', label: '封存/解封任务', description: '触发任务封存或解除封存（需审批）' },
+      { code: 'rd-task:reassign', label: '转派任务', description: '批量或单条任务重分配（高级权限）' },
+      { code: 'rd-task:override-priority', label: '覆盖优先级', description: '覆盖 AI 判定的优先级（组长及以上）' },
     ],
   },
 ];

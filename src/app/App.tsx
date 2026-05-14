@@ -37,6 +37,9 @@ import { RegistrationProjects } from "./RegistrationProjects";
 import { ReportCompressionPage } from "./ReportCompressionPage";
 import { ResumeScreeningPage } from "./ResumeScreeningPage";
 import { RoleManagement } from "./RoleManagement";
+import { RDTaskManagementPage } from "./RDTaskManagementPage";
+import { RDMyWorkspacePage } from "./RDMyWorkspacePage";
+import { RDDirectorDashboardPage } from "./RDDirectorDashboardPage";
 import { RouteManagementPage } from "./RouteManagementPage";
 import { UIDesignPage } from "./UIDesignPage";
 import { Root } from "./Root";
@@ -180,6 +183,9 @@ const router = createBrowserRouter([
       { path: "after-sales", element: makeProtected(<AfterSalesList />, "page:after-sales") },
       { path: "after-sales/new", element: makeProtected(<AfterSalesForm />, "page:after-sales") },
       { path: "after-sales/:id", element: makeProtected(<AfterSalesDetails />, "page:after-sales") },
+      { path: "rd-task-management", element: makeProtected(<RDTaskManagementPage />, "page:rd-task-management") },
+      { path: "rd-my-workspace", element: makeProtected(<RDMyWorkspacePage />, "page:rd-my-workspace") },
+      { path: "rd-director-dashboard", element: makeProtected(<RDDirectorDashboardPage />, "page:rd-director-dashboard") },
       { path: "rd-triage", element: makeProtected(<RDIssues />, "page:rd-triage") },
       { path: "registration-projects", element: makeProtected(<RegistrationProjects />, "page:registration-projects") },
       { path: "bom-archive", element: makeProtected(<BOMArchive />, "page:bom-archive") },
