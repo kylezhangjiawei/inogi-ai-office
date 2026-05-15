@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -10,7 +10,12 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
+import { usePermission } from "./hooks/usePermission";
+import { AuditActor, AuditChange, recordAudit } from "./lib/auditLog";
+import { PERMISSIONS } from "./lib/permissions";
+import { createRdPerson, deleteRdPerson, fetchRdPeople, updateRdPerson } from "./lib/rdApi";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -28,17 +33,7 @@ export type Person = {
   joined_at?: string;
 };
 
-// ─── Demo seed data ──────────────────────────────────────────────────────────
-
-const INITIAL_PEOPLE: Person[] = [
-  { id: "p1", name: "王磊", position: "硬件测试工程师", department: "硬件组", email: "wanglei@inogi.com", status: "active", max_tasks: 8, joined_at: "2024-03-12" },
-  { id: "p2", name: "陈静", position: "质检员", department: "质量组", email: "chenjing@inogi.com", status: "active", max_tasks: 8, joined_at: "2024-06-01" },
-  { id: "p3", name: "李静", position: "法规工程师", department: "法规组", email: "lijing@inogi.com", status: "on_leave", max_tasks: 8, joined_at: "2023-11-20" },
-  { id: "p4", name: "张越", position: "嵌入式工程师", department: "软件组", email: "zhangyue@inogi.com", status: "active", max_tasks: 8, joined_at: "2024-08-15" },
-  { id: "p5", name: "赵强", position: "工艺工程师", department: "工艺组", email: "zhaoqiang@inogi.com", status: "active", max_tasks: 8, joined_at: "2023-09-08" },
-  { id: "p6", name: "刘华", position: "项目工程师", department: "项目组", email: "liuhua@inogi.com", status: "active", max_tasks: 8, joined_at: "2024-01-10" },
-  { id: "p7", name: "李明", position: "嵌入式工程师", department: "软件组", email: "liming@inogi.com", status: "active", max_tasks: 8, joined_at: "2024-05-22" },
-];
+const INITIAL_PEOPLE: Person[] = [];
 
 const PERSON_STATUS_CONFIG: Record<
   PersonStatus,
@@ -51,6 +46,7 @@ const PERSON_STATUS_CONFIG: Record<
 
 const DEPARTMENTS = ["硬件组", "软件组", "质量组", "项目组", "工艺组", "法规组", "其他"];
 const PEOPLE_PAGE_SIZE = 5;
+const PEOPLE_AUDIT_ACTOR: AuditActor = { id: "u-wang-zy", name: "王志远", role: "厂长" };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -97,6 +93,13 @@ function emptyPerson(): Person {
     status: "active",
     max_tasks: 8,
   };
+}
+
+function getPersonChanges(before: Person, after: Person): AuditChange[] {
+  const fields: Array<keyof Person> = ["name", "position", "department", "email", "phone", "status", "max_tasks"];
+  return fields
+    .filter((field) => before[field] !== after[field])
+    .map((field) => ({ field, before: before[field], after: after[field] }));
 }
 
 // ─── Form Field wrapper ──────────────────────────────────────────────────────
@@ -361,6 +364,32 @@ export function RDPeopleManagementPage({
   const [creating, setCreating] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Person | null>(null);
   const [page, setPage] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadPeople() {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const remotePeople = await fetchRdPeople<Person>();
+        if (cancelled) return;
+        setPeople(remotePeople);
+      } catch (error) {
+        if (cancelled) return;
+        setLoadError(error instanceof Error ? error.message : "研发成员接口加载失败");
+        setPeople(initialPeople);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void loadPeople();
+    return () => {
+      cancelled = true;
+    };
+  }, [initialPeople]);
 
   const filtered = useMemo(() => {
     return people.filter((p) => {
@@ -396,22 +425,74 @@ export function RDPeopleManagementPage({
     };
   }, [people]);
 
-  const handleSave = (p: Person) => {
+  const handleSave = async (p: Person) => {
+    if (!canManagePeople) {
+      toast.error("当前账号没有管理研发人员权限");
+      return;
+    }
     if (editing) {
-      setPeople((prev) => prev.map((x) => (x.id === p.id ? p : x)));
-      setEditing(null);
+      try {
+        const saved = await updateRdPerson({ ...p, id: editing.id });
+        const changes = getPersonChanges(editing, saved);
+        setPeople((prev) => prev.map((x) => (x.id === saved.id ? saved : x)));
+        recordAudit({
+          actor: PEOPLE_AUDIT_ACTOR,
+          action: changes.some((change) => change.field === "status") ? "person.status_changed" : "person.edited",
+          resource: { type: "person", id: saved.id, name: saved.name },
+          changes,
+          comment: "维护研发成员信息",
+          source: "web",
+        });
+        setEditing(null);
+        toast.success("研发成员已保存");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "保存研发成员失败");
+        return;
+      }
     } else {
-      setPeople((prev) => [...prev, { ...p, id: `p${Date.now()}` }]);
-      setCreating(false);
+      try {
+        const saved = await createRdPerson({ ...p, id: p.id || undefined });
+        setPeople((prev) => [saved, ...prev]);
+        recordAudit({
+          actor: PEOPLE_AUDIT_ACTOR,
+          action: "person.created",
+          resource: { type: "person", id: saved.id, name: saved.name },
+          metadata: { department: saved.department, position: saved.position },
+          source: "web",
+        });
+        setCreating(false);
+        toast.success("研发成员已创建");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "创建研发成员失败");
+        return;
+      }
     }
     setPage(1);
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
+    if (!canManagePeople) {
+      toast.error("当前账号没有管理研发人员权限");
+      return;
+    }
     if (deleteTarget) {
-      setPeople((prev) => prev.filter((p) => p.id !== deleteTarget.id));
-      setDeleteTarget(null);
-      setPage(1);
+      try {
+        await deleteRdPerson(deleteTarget.id);
+        setPeople((prev) => prev.filter((p) => p.id !== deleteTarget.id));
+        recordAudit({
+          actor: PEOPLE_AUDIT_ACTOR,
+          action: "person.deleted",
+          resource: { type: "person", id: deleteTarget.id, name: deleteTarget.name },
+          comment: "删除研发成员档案，关联任务需重新指派",
+          metadata: { department: deleteTarget.department, position: deleteTarget.position },
+          source: "web",
+        });
+        setDeleteTarget(null);
+        setPage(1);
+        toast.success("研发成员已删除");
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "删除研发成员失败");
+      }
     }
   };
 
@@ -433,14 +514,20 @@ export function RDPeopleManagementPage({
           <span className="text-xs text-slate-300">›</span>
           <span className="text-sm font-medium text-slate-800">人员管理</span>
         </div>
-        <button
-          type="button"
-          onClick={() => setCreating(true)}
-          className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.2)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-blue-700 hover:shadow-[0_12px_24px_rgba(37,99,235,0.22)] active:scale-[0.98]"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          新增成员
-        </button>
+        {canManagePeople ? (
+          <button
+            type="button"
+            onClick={() => setCreating(true)}
+            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.2)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-blue-700 hover:shadow-[0_12px_24px_rgba(37,99,235,0.22)] active:scale-[0.98]"
+          >
+            <Plus className="h-3.5 w-3.5" />
+            新增成员
+          </button>
+        ) : (
+          <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-500">
+            只读
+          </span>
+        )}
       </div>
 
       <div className="flex-1 overflow-auto px-6 py-6">
@@ -565,22 +652,53 @@ export function RDPeopleManagementPage({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filtered.length === 0 ? (
+                {loading ? (
                   <tr>
                     <td colSpan={6} className="px-6 py-16 text-center">
-                      <div className="text-sm font-medium text-slate-400">没有匹配的成员</div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setKeyword("");
-                          setStatusFilter("all");
-                          setDeptFilter("all");
-                          setPage(1);
-                        }}
-                        className="mt-3 text-xs font-medium text-blue-600 hover:underline"
-                      >
-                        重置筛选
-                      </button>
+                      <div className="text-sm font-medium text-slate-500">正在加载研发成员…</div>
+                    </td>
+                  </tr>
+                ) : filtered.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-16 text-center">
+                      <div className="text-sm font-semibold text-slate-600">
+                        {people.length === 0 ? "暂无研发成员" : "没有匹配的成员"}
+                      </div>
+                      <div className="mx-auto mt-1 max-w-sm text-xs leading-5 text-slate-400">
+                        {people.length === 0
+                          ? "后端当前没有人员数据。创建成员后，任务分配和人员负载会使用真实接口数据。"
+                          : "当前筛选条件下没有可显示的成员。"}
+                      </div>
+                      {loadError && (
+                        <div className="mx-auto mt-3 max-w-md rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                          {loadError}
+                        </div>
+                      )}
+                      <div className="mt-4 flex items-center justify-center gap-2">
+                        {people.length === 0 && canManagePeople ? (
+                          <button
+                            type="button"
+                            onClick={() => setCreating(true)}
+                            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition-all hover:bg-blue-700 active:scale-[0.98]"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                            新增成员
+                          </button>
+                        ) : people.length > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setKeyword("");
+                              setStatusFilter("all");
+                              setDeptFilter("all");
+                              setPage(1);
+                            }}
+                            className="text-xs font-medium text-blue-600 hover:underline"
+                          >
+                            重置筛选
+                          </button>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ) : (
@@ -626,26 +744,30 @@ export function RDPeopleManagementPage({
                           {p.joined_at ?? "—"}
                         </td>
                         <td className="px-4 py-3.5">
-                          <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
-                            <button
-                              type="button"
-                              onClick={() => setEditing(p)}
-                              className="rounded-md p-1.5 text-slate-400 transition-all duration-150 hover:bg-blue-50 hover:text-blue-600 active:scale-90"
-                              aria-label={`编辑 ${p.name}`}
-                              title="编辑"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setDeleteTarget(p)}
-                              className="rounded-md p-1.5 text-slate-400 transition-all duration-150 hover:bg-red-50 hover:text-red-600 active:scale-90"
-                              aria-label={`删除 ${p.name}`}
-                              title="删除"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
+                          {canManagePeople ? (
+                            <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100 group-focus-within:opacity-100">
+                              <button
+                                type="button"
+                                onClick={() => setEditing(p)}
+                                className="rounded-md p-1.5 text-slate-400 transition-all duration-150 hover:bg-blue-50 hover:text-blue-600 active:scale-90"
+                                aria-label={`编辑 ${p.name}`}
+                                title="编辑"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeleteTarget(p)}
+                                className="rounded-md p-1.5 text-slate-400 transition-all duration-150 hover:bg-red-50 hover:text-red-600 active:scale-90"
+                                aria-label={`删除 ${p.name}`}
+                                title="删除"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="flex justify-end text-xs text-slate-300">只读</span>
+                          )}
                         </td>
                       </tr>
                     );
@@ -705,7 +827,7 @@ export function RDPeopleManagementPage({
       </div>
 
       {/* Modals */}
-      {(editing || creating) && (
+      {canManagePeople && (editing || creating) && (
         <PersonFormModal
           person={editing}
           onSave={handleSave}
@@ -715,7 +837,7 @@ export function RDPeopleManagementPage({
           }}
         />
       )}
-      {deleteTarget && (
+      {canManagePeople && deleteTarget && (
         <ConfirmDeleteDialog
           person={deleteTarget}
           onConfirm={handleDelete}

@@ -11,6 +11,31 @@ export type DefaultPermissionCatalogItem = {
 export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'page:dashboard', label: '系统首页', description: '查看系统首页', groupLabel: '页面访问 · 总览', type: 'page', routePath: '/', sortOrder: 10 },
 
+  // ─── 研发任务管理 ───────────────────────────────────────────────────────────
+  { code: 'page:rd-task-management', label: '研发任务驾驶舱', description: '树状任务表 · AI 解析新建 · 任务封存/移交', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-task-management', sortOrder: 50 },
+  { code: 'page:rd-my-workspace', label: '个人工作台', description: '我的任务、协作任务、今日待办、待审核 AI 建议', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-my-workspace', sortOrder: 60 },
+  { code: 'page:rd-director-dashboard', label: '厂长驾驶舱', description: '全局进度、人员负载热力图、批量重分配（高级权限）', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-director-dashboard', sortOrder: 70 },
+  { code: 'page:rd-approval-flow', label: '审批流配置', description: '配置立项/任务审批的节点、模式、SLA', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-approval-flow', sortOrder: 75 },
+  { code: 'page:rd-audit-log', label: '操作留痕', description: '查看研发任务管理关键操作的审计时间轴', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-audit-log', sortOrder: 76 },
+  { code: 'page:rd-ai-settings', label: '研发 AI 策略', description: '配置研发模块 AI 场景模型、文件解析顺序、OCR 兜底与披露策略', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-ai-settings', sortOrder: 77 },
+
+  // 研发任务操作权限
+  { code: 'rd-task:create', label: '新建任务', description: '通过 AI 解析或手动创建任务', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 80 },
+  { code: 'rd-task:edit', label: '编辑任务', description: '修改任务字段和状态', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 81 },
+  { code: 'rd-task:archive', label: '封存/解封任务', description: '触发任务封存或解除封存（需审批）', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 82 },
+  { code: 'rd-task:reassign', label: '转派任务', description: '批量或单条任务重分配（高级权限）', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 83 },
+  { code: 'rd-task:override-priority', label: '覆盖优先级', description: '覆盖 AI 判定的优先级（组长及以上）', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 84 },
+  { code: 'rd-people:manage', label: '管理研发人员', description: '新增、编辑、删除研发成员和任务容量', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 85 },
+  { code: 'rd-approval-flow:manage', label: '管理审批流', description: '新增、调整、保存、重置研发审批流节点', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 86 },
+  { code: 'rd-audit:clear', label: '清空操作留痕', description: '清空研发任务管理操作留痕记录', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 87 },
+  { code: 'rd-ai:configure', label: '配置研发 AI 策略', description: '维护研发模块各 AI 场景模型、OCR 兜底、文件解析和人工确认策略', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 88 },
+
+  // 立项流程操作权限
+  { code: 'rd-project:propose', label: '立项申请', description: '提交立项需求，进入审核队列', groupLabel: '操作权限 · 立项流程', type: 'action', sortOrder: 90 },
+  { code: 'rd-project:review-l1', label: '立项一审', description: '研发管理员审核立项（多级中的第一级）', groupLabel: '操作权限 · 立项流程', type: 'action', sortOrder: 91 },
+  { code: 'rd-project:review-l2', label: '立项终审', description: '厂长 / 总监终审通过立项', groupLabel: '操作权限 · 立项流程', type: 'action', sortOrder: 92 },
+  { code: 'rd-project:direct', label: '直接立项', description: '跳过审核，直接生效并自动分配（厂长 / 管理员）', groupLabel: '操作权限 · 立项流程', type: 'action', sortOrder: 93 },
+
   { code: 'page:after-sales', label: '售后 Case 管理', groupLabel: '页面访问 · 信息流转', type: 'page', routePath: '/after-sales', sortOrder: 100 },
   { code: 'page:rd-triage', label: '研发问题分流', groupLabel: '页面访问 · 信息流转', type: 'page', routePath: '/rd-triage', sortOrder: 110 },
   { code: 'page:registration-projects', label: '注册项目里程碑', groupLabel: '页面访问 · 信息流转', type: 'page', routePath: '/registration-projects', sortOrder: 120 },

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import {
   AlertTriangle,
@@ -8,16 +8,25 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
+  Sparkles,
   UserCog,
   Users,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
+import { usePermission } from "./hooks/usePermission";
 import { RDPeopleManagementPage } from "./RDPeopleManagementPage";
+import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
+import { AuditTimeline } from "./RDAuditTimeline";
+import { AuditActor, recordAudit, useAuditLogs } from "./lib/auditLog";
+import { PERMISSIONS } from "./lib/permissions";
+import { fetchRdDirectorDashboard, type RdDirectorDashboardPayload } from "./lib/rdApi";
 
 const DIRECTOR_MOTION_EASE = [0.22, 1, 0.36, 1] as [number, number, number, number];
 const DIRECTOR_FAST_TRANSITION = { duration: 0.18, ease: DIRECTOR_MOTION_EASE };
 const DIRECTOR_PANEL_TRANSITION = { duration: 0.24, ease: DIRECTOR_MOTION_EASE };
+const DIRECTOR_AUDIT_ACTOR: AuditActor = { id: "u-wang-zy", name: "王志远", role: "厂长" };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -85,6 +94,29 @@ type TaskDetail = {
   collaborators?: string[];
   recent_activities?: { date: string; action: string; actor?: string }[];
 };
+
+type DirectorDashboardPayload = RdDirectorDashboardPayload<
+  CategoryProgress,
+  PersonLoad,
+  BlockedTask,
+  PendingAssignTask
+>;
+
+const EMPTY_DIRECTOR_DASHBOARD: DirectorDashboardPayload = {
+  categoryProgress: [],
+  personLoads: [],
+  blockedTasks: [],
+  pendingAssign: [],
+};
+
+function normalizeDirectorDashboard(payload: Partial<DirectorDashboardPayload> | null | undefined): DirectorDashboardPayload {
+  return {
+    categoryProgress: Array.isArray(payload?.categoryProgress) ? payload.categoryProgress : [],
+    personLoads: Array.isArray(payload?.personLoads) ? payload.personLoads : [],
+    blockedTasks: Array.isArray(payload?.blockedTasks) ? payload.blockedTasks : [],
+    pendingAssign: Array.isArray(payload?.pendingAssign) ? payload.pendingAssign : [],
+  };
+}
 
 // ─── Demo data ────────────────────────────────────────────────────────────────
 
@@ -423,8 +455,23 @@ function MiniPagination({
   );
 }
 
+function DashboardEmptyPanel({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <div className="rounded-xl border border-dashed border-slate-200 bg-white/60 px-4 py-6 text-center">
+      <div className="text-sm font-semibold text-slate-700">{title}</div>
+      <p className="mt-1 text-xs leading-5 text-slate-400">{description}</p>
+    </div>
+  );
+}
+
 function loadColor(count: number, max: number): string {
-  const ratio = count / max;
+  const ratio = max > 0 ? count / max : 0;
   if (ratio >= 1) return "bg-red-400";
   if (ratio >= 0.75) return "bg-orange-400";
   if (ratio >= 0.5) return "bg-amber-400";
@@ -432,7 +479,7 @@ function loadColor(count: number, max: number): string {
 }
 
 function loadBg(count: number, max: number): string {
-  const ratio = count / max;
+  const ratio = max > 0 ? count / max : 0;
   if (ratio >= 1) return "border-red-100 bg-red-50";
   if (ratio >= 0.75) return "border-orange-100 bg-orange-50";
   if (ratio >= 0.5) return "border-amber-100 bg-amber-50";
@@ -457,7 +504,7 @@ function PersonCard({
   onSelect: (p: PersonLoad | null) => void;
 }) {
   const shouldReduceMotion = useReducedMotion();
-  const ratio = person.task_count / person.max_tasks;
+  const ratio = person.max_tasks > 0 ? person.task_count / person.max_tasks : 0;
   return (
     <motion.div
       onClick={() => onSelect(selected ? null : person)}
@@ -490,7 +537,7 @@ function PersonCard({
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/50">
         <div
           className={cn("h-full rounded-full transition-all", loadColor(person.task_count, person.max_tasks))}
-          style={{ width: `${Math.min(100, (person.task_count / person.max_tasks) * 100)}%` }}
+          style={{ width: `${Math.min(100, ratio * 100)}%` }}
         />
       </div>
     </motion.div>
@@ -543,6 +590,38 @@ function TaskDetailDrawer({
 }) {
   const sCfg = TASK_STATUS_CONFIG[task.status];
   const pCfg = TASK_PRIORITY_CONFIG[task.priority];
+  const taskLogs = useAuditLogs({ resourceType: "task", resourceId: task.task_id });
+  const canEditTask = usePermission(PERMISSIONS.RD_TASK_EDIT);
+  const canReassignTask = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
+  const recordDirectorTaskAction = (action: "task.edited" | "task.handoff_requested" | "task.status_changed") => {
+    if (action === "task.handoff_requested" && !canReassignTask) {
+      toast.error("当前账号没有转派任务权限");
+      return;
+    }
+    if (action !== "task.handoff_requested" && !canEditTask) {
+      toast.error("当前账号没有编辑任务权限");
+      return;
+    }
+    const isComplete = action === "task.status_changed";
+    recordAudit({
+      actor: DIRECTOR_AUDIT_ACTOR,
+      action,
+      resource: { type: "task", id: task.task_id, name: task.title },
+      changes: isComplete
+        ? [{ field: "status", before: task.status, after: "completed" }]
+        : action === "task.handoff_requested"
+          ? [{ field: "owner", before: task.owner, after: "待转派确认" }]
+          : undefined,
+      comment:
+        action === "task.edited"
+          ? "从厂长驾驶舱进入编辑任务"
+          : action === "task.handoff_requested"
+            ? "从厂长驾驶舱发起任务转派"
+            : "从厂长驾驶舱标记任务完成",
+      source: "web",
+    });
+    toast.success("操作已留痕");
+  };
 
   return (
     <div
@@ -683,22 +762,37 @@ function TaskDetailDrawer({
               </ul>
             </section>
           )}
+
+          <section>
+            <div className="mb-3 flex items-center justify-between">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">操作留痕</h4>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                {taskLogs.length} 条
+              </span>
+            </div>
+            <AuditTimeline logs={taskLogs} showResource={false} emptyText="暂无此任务的操作记录" />
+          </section>
         </div>
 
-        {/* Footer actions */}
-        <footer className="flex items-center gap-2 border-t border-slate-100 bg-white px-6 py-3">
-          <button className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-[0.98]">
-            编辑
-          </button>
-          <button className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-[0.98]">
-            转派
-          </button>
-          {task.status !== "completed" && (
-            <button className="flex-1 rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(5,150,105,0.2)] transition-all duration-150 hover:bg-emerald-700 active:scale-[0.98]">
-              标记完成
-            </button>
-          )}
-        </footer>
+        {(canEditTask || canReassignTask) && (
+          <footer className="flex items-center gap-2 border-t border-slate-100 bg-white px-6 py-3">
+            {canEditTask && (
+              <button onClick={() => recordDirectorTaskAction("task.edited")} className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-[0.98]">
+                编辑
+              </button>
+            )}
+            {canReassignTask && (
+              <button onClick={() => recordDirectorTaskAction("task.handoff_requested")} className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-[0.98]">
+                转派
+              </button>
+            )}
+            {canEditTask && task.status !== "completed" && (
+              <button onClick={() => recordDirectorTaskAction("task.status_changed")} className="flex-1 rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(5,150,105,0.2)] transition-all duration-150 hover:bg-emerald-700 active:scale-[0.98]">
+                标记完成
+              </button>
+            )}
+          </footer>
+        )}
       </div>
     </div>
   );
@@ -715,8 +809,10 @@ function PersonDetailDrawer({
   onClose: () => void;
   onOpenTask: (taskId: string, ownerHint?: string) => void;
 }) {
-  const ratio = person.task_count / person.max_tasks;
+  const ratio = person.max_tasks > 0 ? person.task_count / person.max_tasks : 0;
   const ratioPct = Math.round(ratio * 100);
+  const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
+  const canReassignTask = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
   const tone =
     ratio >= 1 ? { label: "超负荷", text: "text-red-600", bg: "bg-red-50", dot: "bg-red-500" } :
     ratio >= 0.75 ? { label: "高负载", text: "text-orange-600", bg: "bg-orange-50", dot: "bg-orange-500" } :
@@ -878,15 +974,19 @@ function PersonDetailDrawer({
 
         {/* Footer actions */}
         <footer className="flex items-center gap-2 border-t border-slate-100 bg-white px-6 py-3">
-          <button className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-[0.98]">
-            编辑信息
-          </button>
+          {canManagePeople && (
+            <button className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-[0.98]">
+              编辑信息
+            </button>
+          )}
           <button className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-[0.98]">
             发消息
           </button>
-          <button className="flex-1 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.2)] transition-all duration-150 hover:bg-blue-700 active:scale-[0.98]">
-            重分配
-          </button>
+          {canReassignTask && (
+            <button className="flex-1 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.2)] transition-all duration-150 hover:bg-blue-700 active:scale-[0.98]">
+              重分配
+            </button>
+          )}
         </footer>
       </div>
     </div>
@@ -914,8 +1014,8 @@ function CategoryDetailDrawer({
   onOpenTask: (taskId: string, owner?: string) => void;
   onOpenPerson: (name: string) => void;
 }) {
-  const completedRate = Math.round((category.completed / category.total) * 100);
-  const inProgressRate = Math.round((category.in_progress / category.total) * 100);
+  const completedRate = category.total > 0 ? Math.round((category.completed / category.total) * 100) : 0;
+  const inProgressRate = category.total > 0 ? Math.round((category.in_progress / category.total) * 100) : 0;
   const notStarted = category.total - category.completed - category.in_progress - category.blocked;
 
   // Filter tasks from registry that match this category path prefix
@@ -1109,11 +1209,21 @@ function CategoryDetailDrawer({
   );
 }
 
-function BatchReassignModal({ onClose }: { onClose: () => void }) {
+function BatchReassignModal({
+  onClose,
+  blockedTasks,
+  personLoads,
+}: {
+  onClose: () => void;
+  blockedTasks: BlockedTask[];
+  personLoads: PersonLoad[];
+}) {
   const shouldReduceMotion = useReducedMotion();
   const [selectedTasks, setSelectedTasks] = useState<Set<string>>(new Set());
   const [targetPerson, setTargetPerson] = useState<PersonLoad | null>(null);
   const [confirmed, setConfirmed] = useState(false);
+  const BLOCKED_TASKS = blockedTasks;
+  const PERSON_LOADS = personLoads;
 
   const toggleTask = (id: string) => {
     setSelectedTasks((prev) => {
@@ -1121,6 +1231,35 @@ function BatchReassignModal({ onClose }: { onClose: () => void }) {
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
+  };
+
+  const confirmReassign = () => {
+    if (selectedTasks.size === 0 || !targetPerson) return;
+    const selected = BLOCKED_TASKS.filter((task) => selectedTasks.has(task.task_id));
+    recordAudit({
+      actor: DIRECTOR_AUDIT_ACTOR,
+      action: "system.bulk_reassign",
+      resource: { type: "system", id: `batch-${Date.now()}`, name: "批量重分配任务" },
+      comment: `批量转派 ${selected.length} 个阻塞任务给 ${targetPerson.name}`,
+      metadata: {
+        to: targetPerson.name,
+        task_count: selected.length,
+        task_ids: selected.map((task) => task.task_id),
+      },
+      source: "web",
+    });
+    selected.forEach((task) => {
+      recordAudit({
+        actor: DIRECTOR_AUDIT_ACTOR,
+        action: "task.reassigned",
+        resource: { type: "task", id: task.task_id, name: task.title },
+        changes: [{ field: "owner", before: task.owner, after: targetPerson.name }],
+        comment: "批量重分配中转派任务",
+        metadata: { blocked_days: task.days_blocked, reason: task.reason },
+        source: "web",
+      });
+    });
+    setConfirmed(true);
   };
 
   return (
@@ -1149,47 +1288,57 @@ function BatchReassignModal({ onClose }: { onClose: () => void }) {
               <div>
                 <div className="mb-2 text-sm font-medium text-slate-700">选择要转派的任务</div>
                 <div className="space-y-2 max-h-40 overflow-y-auto">
-                  {BLOCKED_TASKS.map((t) => (
-                    <label key={t.task_id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-100 px-3 py-2 hover:bg-slate-50">
-                      <input
-                        type="checkbox"
-                        checked={selectedTasks.has(t.task_id)}
-                        onChange={() => toggleTask(t.task_id)}
-                        className="h-4 w-4 rounded border-slate-300"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-sm text-slate-800">{t.title}</div>
-                        <div className="text-xs text-slate-400">{t.task_id} · 阻塞 {t.days_blocked} 天</div>
-                      </div>
-                    </label>
-                  ))}
+                  {BLOCKED_TASKS.length === 0 ? (
+                    <DashboardEmptyPanel title="暂无可转派任务" description="后端当前没有返回阻塞任务，无法执行批量转派。" />
+                  ) : (
+                    BLOCKED_TASKS.map((t) => (
+                      <label key={t.task_id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-100 px-3 py-2 hover:bg-slate-50">
+                        <input
+                          type="checkbox"
+                          checked={selectedTasks.has(t.task_id)}
+                          onChange={() => toggleTask(t.task_id)}
+                          className="h-4 w-4 rounded border-slate-300"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-sm text-slate-800">{t.title}</div>
+                          <div className="text-xs text-slate-400">{t.task_id} · 阻塞 {t.days_blocked} 天</div>
+                        </div>
+                      </label>
+                    ))
+                  )}
                 </div>
               </div>
 
               <div>
                 <div className="mb-2 text-sm font-medium text-slate-700">选择目标负责人</div>
                 <div className="grid grid-cols-2 gap-2">
-                  {PERSON_LOADS.filter((p) => !p.on_leave).map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => setTargetPerson(p)}
-                      className={cn(
-                        "rounded-lg border px-3 py-2 text-left text-sm transition-colors",
-                        targetPerson?.id === p.id ? "border-blue-300 bg-blue-50" : "border-slate-200 hover:bg-slate-50",
-                      )}
-                    >
-                      <div className="font-medium text-slate-800">{p.name}</div>
-                      <div className="flex items-center justify-between text-xs text-slate-400">
-                        <span>{p.position}</span>
-                        <span className={cn(
-                          "font-semibold",
-                          p.task_count / p.max_tasks >= 0.75 ? "text-orange-500" : "text-emerald-600",
-                        )}>
-                          {p.task_count} 个任务
-                        </span>
-                      </div>
-                    </button>
-                  ))}
+                  {PERSON_LOADS.filter((p) => !p.on_leave).length === 0 ? (
+                    <div className="col-span-2">
+                      <DashboardEmptyPanel title="暂无可用负责人" description="请先在人员管理中维护研发成员后再执行转派。" />
+                    </div>
+                  ) : (
+                    PERSON_LOADS.filter((p) => !p.on_leave).map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => setTargetPerson(p)}
+                        className={cn(
+                          "rounded-lg border px-3 py-2 text-left text-sm transition-colors",
+                          targetPerson?.id === p.id ? "border-blue-300 bg-blue-50" : "border-slate-200 hover:bg-slate-50",
+                        )}
+                      >
+                        <div className="font-medium text-slate-800">{p.name}</div>
+                        <div className="flex items-center justify-between text-xs text-slate-400">
+                          <span>{p.position}</span>
+                          <span className={cn(
+                            "font-semibold",
+                            p.max_tasks > 0 && p.task_count / p.max_tasks >= 0.75 ? "text-orange-500" : "text-emerald-600",
+                          )}>
+                            {p.task_count} 个任务
+                          </span>
+                        </div>
+                      </button>
+                    ))
+                  )}
                 </div>
               </div>
 
@@ -1199,7 +1348,7 @@ function BatchReassignModal({ onClose }: { onClose: () => void }) {
                 </button>
                 <button
                   disabled={selectedTasks.size === 0 || !targetPerson}
-                  onClick={() => setConfirmed(true)}
+                  onClick={confirmReassign}
                   className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.20)] transition-all hover:bg-blue-700 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none"
                 >
                   确认转派
@@ -1234,6 +1383,54 @@ export function RDDirectorDashboardPage() {
   const [selectedCategory, setSelectedCategory] = useState<CategoryProgress | null>(null);
   const [showReassign, setShowReassign] = useState(false);
   const [showPeople, setShowPeople] = useState(false);
+  const [showProposalDialog, setShowProposalDialog] = useState(false);
+  const [dashboard, setDashboard] = useState<DirectorDashboardPayload>(EMPTY_DIRECTOR_DASHBOARD);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const canReassignTasks = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
+  const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
+  const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
+
+  const loadDashboard = () => {
+    setLoading(true);
+    fetchRdDirectorDashboard<DirectorDashboardPayload>()
+      .then((payload) => {
+        setDashboard(normalizeDirectorDashboard(payload));
+        setLoadError(null);
+      })
+      .catch((error) => {
+        setDashboard(EMPTY_DIRECTOR_DASHBOARD);
+        setLoadError(error instanceof Error ? error.message : "负责人看板数据读取失败");
+      })
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetchRdDirectorDashboard<DirectorDashboardPayload>()
+      .then((payload) => {
+        if (cancelled) return;
+        setDashboard(normalizeDirectorDashboard(payload));
+        setLoadError(null);
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setDashboard(EMPTY_DIRECTOR_DASHBOARD);
+        setLoadError(error instanceof Error ? error.message : "负责人看板数据读取失败");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const CATEGORY_PROGRESS = dashboard.categoryProgress;
+  const PERSON_LOADS = dashboard.personLoads;
+  const BLOCKED_TASKS = dashboard.blockedTasks;
+  const PENDING_ASSIGN = dashboard.pendingAssign;
 
   // Pagination state for the three lists
   const [blockedPage, setBlockedPage] = useState(1);
@@ -1250,6 +1447,9 @@ export function RDDirectorDashboardPage() {
   const blockedSafePage = Math.min(blockedPage, blockedTotalPages);
   const pendingSafePage = Math.min(pendingPage, pendingTotalPages);
   const personSafePage = Math.min(personPage, personTotalPages);
+  const blockedRangeStart = BLOCKED_TASKS.length === 0 ? 0 : (blockedSafePage - 1) * BLOCKED_PAGE_SIZE + 1;
+  const pendingRangeStart = PENDING_ASSIGN.length === 0 ? 0 : (pendingSafePage - 1) * PENDING_PAGE_SIZE + 1;
+  const personRangeStart = PERSON_LOADS.length === 0 ? 0 : (personSafePage - 1) * PERSON_PAGE_SIZE + 1;
 
   const blockedPaged = BLOCKED_TASKS.slice(
     (blockedSafePage - 1) * BLOCKED_PAGE_SIZE,
@@ -1282,10 +1482,16 @@ export function RDDirectorDashboardPage() {
   const totalCompleted = CATEGORY_PROGRESS.reduce((s, c) => s + c.completed, 0);
   const totalInProgress = CATEGORY_PROGRESS.reduce((s, c) => s + c.in_progress, 0);
   const totalBlocked = CATEGORY_PROGRESS.reduce((s, c) => s + c.blocked, 0);
-  const overallRate = Math.round((totalCompleted / totalTasks) * 100);
+  const overallRate = totalTasks > 0 ? Math.round((totalCompleted / totalTasks) * 100) : 0;
+  const isDashboardEmpty =
+    !loading &&
+    CATEGORY_PROGRESS.length === 0 &&
+    PERSON_LOADS.length === 0 &&
+    BLOCKED_TASKS.length === 0 &&
+    PENDING_ASSIGN.length === 0;
 
   // ───── People management drill-down (hidden sub-page) ─────────────────────
-  if (showPeople) {
+  if (showPeople && canManagePeople) {
     return <RDPeopleManagementPage onBack={() => setShowPeople(false)} />;
   }
 
@@ -1304,21 +1510,51 @@ export function RDDirectorDashboardPage() {
             <p className="mt-0.5 text-sm text-slate-500">全局视图 · 高级权限专属 · 实时同步</p>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setShowReassign(true)}
-              className="flex items-center gap-2 rounded-xl border border-blue-100 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.04)] transition-all duration-150 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/60 hover:text-blue-700 hover:shadow-[0_12px_24px_rgba(37,99,235,0.08)] active:translate-y-0 active:scale-[0.98]"
-            >
-              <Users className="h-4 w-4" />
-              批量重分配
-            </button>
-            <button
-              onClick={() => setShowPeople(true)}
-              className="group flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(37,99,235,0.24)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-blue-700 hover:shadow-[0_14px_28px_rgba(37,99,235,0.28)] active:translate-y-0 active:scale-[0.98]"
-            >
-              <UserCog className="h-4 w-4" />
-              人员管理
-              <ChevronRight className="h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
-            </button>
+            {loading && (
+              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-500">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                正在同步
+              </span>
+            )}
+            {loadError && !loading && (
+              <button
+                type="button"
+                onClick={loadDashboard}
+                className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100"
+              >
+                接口读取失败，点击重试
+              </button>
+            )}
+            {canReassignTasks && (
+              <button
+                onClick={() => setShowReassign(true)}
+                className="flex items-center gap-2 rounded-xl border border-blue-100 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.04)] transition-all duration-150 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/60 hover:text-blue-700 hover:shadow-[0_12px_24px_rgba(37,99,235,0.08)] active:translate-y-0 active:scale-[0.98]"
+              >
+                <Users className="h-4 w-4" />
+                批量重分配
+              </button>
+            )}
+            {canDirectProject && (
+              <button
+                onClick={() => setShowProposalDialog(true)}
+                className="group flex items-center gap-2 rounded-xl bg-gradient-to-br from-violet-600 to-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(99,102,241,0.28)] transition-all duration-150 hover:-translate-y-0.5 hover:from-violet-700 hover:to-blue-700 hover:shadow-[0_14px_28px_rgba(99,102,241,0.32)] active:translate-y-0 active:scale-[0.98]"
+                title="拥有直接立项权限时可绕过审核流程"
+              >
+                <Sparkles className="h-4 w-4 transition-transform group-hover:rotate-12" />
+                AI 立项
+                <ChevronRight className="h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
+              </button>
+            )}
+            {canManagePeople && (
+              <button
+                onClick={() => setShowPeople(true)}
+                className="group flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(37,99,235,0.24)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-blue-700 hover:shadow-[0_14px_28px_rgba(37,99,235,0.28)] active:translate-y-0 active:scale-[0.98]"
+              >
+                <UserCog className="h-4 w-4" />
+                人员管理
+                <ChevronRight className="h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
+              </button>
+            )}
           </div>
         </div>
 
@@ -1345,6 +1581,34 @@ export function RDDirectorDashboardPage() {
           ))}
         </div>
 
+        {(loading || isDashboardEmpty) && (
+          <div className="mb-5 rounded-2xl border border-dashed border-slate-200 bg-white/70 p-6 text-center shadow-sm">
+            <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-500">
+              {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <BarChart2 className="h-5 w-5" />}
+            </div>
+            <div className="mt-3 text-sm font-semibold text-slate-800">
+              {loading ? "正在读取研发负责人看板" : "暂无负责人看板数据"}
+            </div>
+            <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-slate-400">
+              {loading
+                ? "正在从后端接口同步分类进度、人员负载、阻塞任务和待指派任务。"
+                : "后端当前返回空数据，页面已保留完整结构，新增任务或导入研发数据后会自动呈现看板内容。"}
+            </p>
+            {loadError && (
+              <p className="mt-2 text-xs text-amber-600">{loadError}</p>
+            )}
+            {!loading && (
+              <button
+                type="button"
+                onClick={loadDashboard}
+                className="mt-4 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+              >
+                重新读取
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="grid grid-cols-3 gap-5">
           {/* Left: Category Progress + Bottlenecks */}
           <div className="col-span-2 space-y-5">
@@ -1358,9 +1622,14 @@ export function RDDirectorDashboardPage() {
                 <span className="text-[11px] text-slate-400">点击分类查看详情</span>
               </div>
               <div className="space-y-2">
-                {CATEGORY_PROGRESS.map((cat) => {
-                  const completedRate = Math.round((cat.completed / cat.total) * 100);
-                  const inProgressRate = Math.round((cat.in_progress / cat.total) * 100);
+                {CATEGORY_PROGRESS.length === 0 ? (
+                  <DashboardEmptyPanel
+                    title={loading ? "正在读取分类进度" : "暂无分类进度"}
+                    description={loading ? "请稍候，系统正在同步研发分类统计。" : "当前没有研发分类任务数据。"}
+                  />
+                ) : CATEGORY_PROGRESS.map((cat) => {
+                  const completedRate = cat.total > 0 ? Math.round((cat.completed / cat.total) * 100) : 0;
+                  const inProgressRate = cat.total > 0 ? Math.round((cat.in_progress / cat.total) * 100) : 0;
                   return (
                     <button
                       key={cat.id}
@@ -1413,7 +1682,7 @@ export function RDDirectorDashboardPage() {
                   <span className="rounded-full bg-orange-100 px-1.5 text-xs text-orange-700">{BLOCKED_TASKS.length}</span>
                 </h2>
                 <span className="text-[11px] tabular-nums text-slate-400">
-                  {(blockedSafePage - 1) * BLOCKED_PAGE_SIZE + 1}
+                  {blockedRangeStart}
                   {" - "}
                   {Math.min(blockedSafePage * BLOCKED_PAGE_SIZE, BLOCKED_TASKS.length)}
                   <span className="mx-1 text-slate-300">/</span>
@@ -1421,44 +1690,53 @@ export function RDDirectorDashboardPage() {
                 </span>
               </div>
               <div className="space-y-2.5">
-                {blockedPaged.map((t) => (
-                  <div
-                    key={t.task_id}
-                    onClick={() => openTask(t.task_id, t.owner)}
-                    className="group flex cursor-pointer items-start gap-3 rounded-xl border border-orange-100 bg-white px-4 py-3 transition-all duration-150 hover:-translate-y-0.5 hover:border-orange-200 hover:shadow-[0_8px_20px_rgba(234,88,12,0.08)] active:translate-y-0"
-                  >
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-50 text-xs font-bold text-red-600 transition-transform group-hover:scale-105">
-                      {t.days_blocked}天
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-mono text-slate-400">{t.task_id}</span>
-                        <span className="text-sm font-medium text-slate-800 group-hover:text-slate-900">{t.title}</span>
-                      </div>
-                      <div className="mt-0.5 text-xs text-slate-500">
-                        负责人: {t.owner} · 阻塞原因: {t.reason}
-                      </div>
-                    </div>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); setShowReassign(true); }}
-                      className="flex shrink-0 items-center gap-1 rounded-lg border border-orange-200 bg-orange-50 px-2 py-1 text-xs font-semibold text-orange-700 transition-all hover:bg-orange-100 active:scale-95"
+                {blockedPaged.length === 0 ? (
+                  <DashboardEmptyPanel
+                    title={loading ? "正在读取阻塞任务" : "暂无阻塞任务"}
+                    description={loading ? "请稍候，系统正在同步异常任务。" : "当前没有阻塞或异常任务。"}
+                  />
+                ) : blockedPaged.map((t) => (
+                    <div
+                      key={t.task_id}
+                      onClick={() => openTask(t.task_id, t.owner)}
+                      className="group flex cursor-pointer items-start gap-3 rounded-xl border border-orange-100 bg-white px-4 py-3 transition-all duration-150 hover:-translate-y-0.5 hover:border-orange-200 hover:shadow-[0_8px_20px_rgba(234,88,12,0.08)] active:translate-y-0"
                     >
-                      转派
-                      <ChevronRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
-                    </button>
-                  </div>
-                ))}
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-50 text-xs font-bold text-red-600 transition-transform group-hover:scale-105">
+                        {t.days_blocked}天
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-mono text-slate-400">{t.task_id}</span>
+                          <span className="text-sm font-medium text-slate-800 group-hover:text-slate-900">{t.title}</span>
+                        </div>
+                        <div className="mt-0.5 text-xs text-slate-500">
+                          负责人: {t.owner} · 阻塞原因: {t.reason}
+                        </div>
+                      </div>
+                      {canReassignTasks && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setShowReassign(true); }}
+                          className="flex shrink-0 items-center gap-1 rounded-lg border border-orange-200 bg-orange-50 px-2 py-1 text-xs font-semibold text-orange-700 transition-all hover:bg-orange-100 active:scale-95"
+                        >
+                          转派
+                          <ChevronRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
               </div>
-              <MiniPagination
-                page={blockedSafePage}
-                totalPages={blockedTotalPages}
-                onChange={setBlockedPage}
-                className="mt-3 justify-end"
-              />
+              {BLOCKED_TASKS.length > 0 && (
+                <MiniPagination
+                  page={blockedSafePage}
+                  totalPages={blockedTotalPages}
+                  onChange={setBlockedPage}
+                  className="mt-3 justify-end"
+                />
+              )}
             </div>
 
             {/* Pending Assign */}
-            {PENDING_ASSIGN.length > 0 && (
+            {(PENDING_ASSIGN.length > 0 || loading || isDashboardEmpty) && (
               <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-5 shadow-sm">
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="flex items-center gap-2 text-sm font-bold text-slate-800">
@@ -1467,7 +1745,7 @@ export function RDDirectorDashboardPage() {
                     <span className="rounded-full bg-blue-100 px-1.5 text-xs text-blue-700">{PENDING_ASSIGN.length}</span>
                   </h2>
                   <span className="text-[11px] tabular-nums text-slate-400">
-                    {(pendingSafePage - 1) * PENDING_PAGE_SIZE + 1}
+                    {pendingRangeStart}
                     {" - "}
                     {Math.min(pendingSafePage * PENDING_PAGE_SIZE, PENDING_ASSIGN.length)}
                     <span className="mx-1 text-slate-300">/</span>
@@ -1476,7 +1754,12 @@ export function RDDirectorDashboardPage() {
                 </div>
                 <p className="mb-3 text-xs text-slate-500">以下任务规则未能自动匹配责任人，请手动指派并补充映射规则</p>
                 <div className="space-y-2">
-                  {pendingPaged.map((t) => {
+                  {pendingPaged.length === 0 ? (
+                    <DashboardEmptyPanel
+                      title={loading ? "正在读取待指派任务" : "暂无待指派任务"}
+                      description={loading ? "请稍候，系统正在同步任务分配状态。" : "当前没有需要人工指派的研发任务。"}
+                    />
+                  ) : pendingPaged.map((t) => {
                     const pCfg = PRIORITY_CONFIG[t.ai_priority];
                     return (
                       <div
@@ -1502,12 +1785,14 @@ export function RDDirectorDashboardPage() {
                     );
                   })}
                 </div>
-                <MiniPagination
-                  page={pendingSafePage}
-                  totalPages={pendingTotalPages}
-                  onChange={setPendingPage}
-                  className="mt-3 justify-end"
-                />
+                {PENDING_ASSIGN.length > 0 && (
+                  <MiniPagination
+                    page={pendingSafePage}
+                    totalPages={pendingTotalPages}
+                    onChange={setPendingPage}
+                    className="mt-3 justify-end"
+                  />
+                )}
               </div>
             )}
           </div>
@@ -1522,7 +1807,7 @@ export function RDDirectorDashboardPage() {
                   <span className="rounded-full bg-slate-100 px-1.5 text-xs text-slate-600">{PERSON_LOADS.length}</span>
                 </h2>
                 <span className="text-[11px] tabular-nums text-slate-400">
-                  {(personSafePage - 1) * PERSON_PAGE_SIZE + 1}
+                  {personRangeStart}
                   {" - "}
                   {Math.min(personSafePage * PERSON_PAGE_SIZE, PERSON_LOADS.length)}
                   <span className="mx-1 text-slate-300">/</span>
@@ -1531,16 +1816,23 @@ export function RDDirectorDashboardPage() {
               </div>
               <p className="mb-4 text-xs text-slate-400">点击查看个人详情和当前任务</p>
               <div className="space-y-2.5">
-                {personPaged.map((p) => (
-                  <PersonCard key={p.id} person={p} selected={selectedPerson?.id === p.id} onSelect={setSelectedPerson} />
-                ))}
+                {personPaged.length === 0 ? (
+                  <DashboardEmptyPanel
+                    title={loading ? "正在读取人员负载" : "暂无人员负载数据"}
+                    description={loading ? "请稍候，系统正在同步研发成员任务负载。" : "请先维护研发成员，或等待任务数据同步后生成负载热力图。"}
+                  />
+                ) : personPaged.map((p) => (
+                    <PersonCard key={p.id} person={p} selected={selectedPerson?.id === p.id} onSelect={setSelectedPerson} />
+                  ))}
               </div>
-              <MiniPagination
-                page={personSafePage}
-                totalPages={personTotalPages}
-                onChange={setPersonPage}
-                className="mt-3 justify-end"
-              />
+              {PERSON_LOADS.length > 0 && (
+                <MiniPagination
+                  page={personSafePage}
+                  totalPages={personTotalPages}
+                  onChange={setPersonPage}
+                  className="mt-3 justify-end"
+                />
+              )}
 
               <div className="mt-4 flex flex-wrap gap-2 text-[10px]">
                 {[
@@ -1558,7 +1850,7 @@ export function RDDirectorDashboardPage() {
             </div>
 
             {/* Hint card: prompt user to click a person */}
-            {!selectedPerson && (
+            {!selectedPerson && PERSON_LOADS.length > 0 && (
               <div className="rounded-2xl border border-dashed border-slate-200 bg-white/40 p-4 text-center">
                 <p className="text-xs text-slate-400">点击左侧任意人员卡片，查看详细档案和任务列表</p>
               </div>
@@ -1568,7 +1860,13 @@ export function RDDirectorDashboardPage() {
       </div>
 
       {/* Modals & Drawers */}
-      {showReassign && <BatchReassignModal onClose={() => setShowReassign(false)} />}
+      {showReassign && canReassignTasks && (
+        <BatchReassignModal
+          blockedTasks={BLOCKED_TASKS}
+          personLoads={PERSON_LOADS}
+          onClose={() => setShowReassign(false)}
+        />
+      )}
       {selectedPerson && (
         <PersonDetailDrawer
           person={selectedPerson}
@@ -1597,6 +1895,12 @@ export function RDDirectorDashboardPage() {
           }}
         />
       )}
+
+      <RDProjectProposalDialog
+        open={showProposalDialog && canDirectProject}
+        onClose={() => setShowProposalDialog(false)}
+        userRole="director"
+      />
     </motion.div>
   );
 }

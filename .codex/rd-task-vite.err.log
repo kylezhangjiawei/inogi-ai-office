@@ -2,3 +2,47 @@
 AggregateError [ECONNREFUSED]: 
     at internalConnectMultiple (node:net:1134:18)
     at afterConnectMultiple (node:net:1715:7)
+[2m16:25:43[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/integration-management/ai-models?page=1&page_size=100[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m16:25:43[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/image-generation/images?page=1&pageSize=12&favorite=false&dateTo=2026-05-13T16%3A00%3A00.000Z[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m16:25:43[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/image-generation/images?page=1&pageSize=12&favorite=false&dateFrom=2026-05-13T16%3A00%3A00.000Z&dateTo=2026-05-14T16%3A00%3A00.000Z[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m16:25:43[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/image-generation/usage[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m16:25:43[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/image-generation/images?page=1&pageSize=12&favorite=false&dateFrom=2026-05-13T16%3A00%3A00.000Z&dateTo=2026-05-14T16%3A00%3A00.000Z[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m16:25:50[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/auth/me[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m16:38:54[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/roles[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m16:38:54[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/permission-catalog/groups[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m16:39:05[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/permission-catalog/items[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m12:23:53[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/auth/me[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)
+[2m12:24:54[22m [31m[1m[vite][22m[39m [31mhttp proxy error: /api/auth/me[39m
+AggregateError [ECONNREFUSED]: 
+    at internalConnectMultiple (node:net:1134:18)
+    at afterConnectMultiple (node:net:1715:7)

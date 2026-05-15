@@ -25,6 +25,7 @@ import {
   UserPlus,
   RefreshCw,
   RotateCcw,
+  Search,
   Send,
   Sparkles,
   Target,
@@ -33,13 +34,21 @@ import {
   Wind,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./components/ui/tooltip";
+import { usePermission } from "./hooks/usePermission";
+import { AuditTimeline } from "./RDAuditTimeline";
+import { AuditActor, AuditChange, recordAudit, useAuditLogs } from "./lib/auditLog";
+import { PERMISSIONS } from "./lib/permissions";
+import { fetchRdAiSettings, fetchRdTaskCategories, type RdAiSettingsPayload } from "./lib/rdApi";
 
 const RD_MOTION_EASE = [0.22, 1, 0.36, 1] as [number, number, number, number];
 const RD_FAST_TRANSITION = { duration: 0.18, ease: RD_MOTION_EASE };
 const RD_LIST_TRANSITION = { duration: 0.2, ease: RD_MOTION_EASE };
 const RD_PANEL_TRANSITION = { duration: 0.24, ease: RD_MOTION_EASE };
+const RD_AUDIT_ACTOR: AuditActor = { id: "u-current", name: "我", role: "研发成员" };
+const RD_ADMIN_AUDIT_ACTOR: AuditActor = { id: "u-li-li", name: "李立", role: "研发管理员" };
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -2300,19 +2309,140 @@ const AI_SAMPLE_RESULT: Omit<Task, "task_id"> = {
   due_date: "2026-05-28",
 };
 
+function findRdAiScene(settings: RdAiSettingsPayload | null, sceneId: string) {
+  return settings?.scenes.find((scene) => scene.id === sceneId) ?? null;
+}
+
+function describeRdAiModel(settings: RdAiSettingsPayload | null, modelId?: string) {
+  if (!modelId) return "跟随默认模型";
+  const model = settings?.runtime?.models?.find((item) => item.id === modelId);
+  if (!model) return modelId;
+  return `${model.name || model.model} / ${model.model}`;
+}
+
+function fileExtension(filename: string) {
+  const index = filename.lastIndexOf(".");
+  return index >= 0 ? filename.slice(index + 1).toLowerCase() : "";
+}
+
+const RD_ATTACHMENT_ACCEPT = [
+  "csv",
+  "xlsx",
+  "xls",
+  "tsv",
+  "doc",
+  "docx",
+  "txt",
+  "md",
+  "pdf",
+  "png",
+  "jpg",
+  "jpeg",
+  "webp",
+  "bmp",
+  "tif",
+  "tiff",
+  "zip",
+  "rar",
+  "7z",
+  "tar",
+  "gz",
+  "tgz",
+].map((item) => `.${item}`).join(",");
+
+function rdFileKey(file: File) {
+  return `${file.name}::${file.size}::${file.lastModified}`;
+}
+
+function mergeRdFiles(current: File[], incoming: File[]) {
+  const byKey = new Map(current.map((file) => [rdFileKey(file), file]));
+  for (const file of incoming) {
+    if (file.size > 0) byKey.set(rdFileKey(file), file);
+  }
+  return Array.from(byKey.values());
+}
+
+function describeFileRule(settings: RdAiSettingsPayload | null, filename: string) {
+  const extension = fileExtension(filename);
+  const rule = settings?.file_policy.rules.find((item) => item.extensions.includes(extension));
+  if (!rule) return "未知文件 / 文本抽取 / OCR 兜底";
+  const parts = [rule.label, rule.strategy];
+  if (rule.ocr_fallback) parts.push("OCR 兜底");
+  if (rule.ai_after_parse) parts.push("AI 结构化");
+  return parts.join(" / ");
+}
+
 function AiCreatePanel({ onClose }: { onClose: () => void }) {
   const [text, setText] = useState("");
   const [aiState, setAiState] = useState<AiInputState>("idle");
   const [draft, setDraft] = useState<Omit<Task, "task_id"> | null>(null);
   const [modifiedFields, setModifiedFields] = useState<Set<string>>(new Set());
+  const [aiSettings, setAiSettings] = useState<RdAiSettingsPayload | null>(null);
+  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [fileDropActive, setFileDropActive] = useState(false);
+  const textScene = useMemo(() => findRdAiScene(aiSettings, "text_task_extract"), [aiSettings]);
+  const fileScene = useMemo(() => findRdAiScene(aiSettings, "file_task_extract"), [aiSettings]);
+  const activeScene = selectedFiles.length > 0 ? fileScene : textScene;
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchRdAiSettings()
+      .then((payload) => {
+        if (!cancelled) setAiSettings(payload);
+      })
+      .catch(() => {
+        if (!cancelled) setAiSettings(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function handleProcess() {
-    if (!text.trim()) return;
+    if (!text.trim() && selectedFiles.length === 0) return;
+    recordAudit({
+      actor: RD_AUDIT_ACTOR,
+      action: "ai.parse_triggered",
+      resource: { type: "system", id: "rd-ai-create", name: "AI 任务解析" },
+      comment: "发起 AI 任务解析",
+      metadata: {
+        input_length: text.trim().length,
+        file_count: selectedFiles.length,
+        ai_scene_id: activeScene?.id,
+        model_id: activeScene?.model_id,
+        model_label: describeRdAiModel(aiSettings, activeScene?.model_id),
+        fallback_model_id: activeScene?.fallback_model_id,
+        prompt_version: activeScene?.prompt_version,
+        ocr_provider: aiSettings?.file_policy.ocr_provider,
+        ocr_confidence_threshold: aiSettings?.file_policy.ocr_confidence_threshold,
+      },
+      source: "web",
+    });
     setAiState("processing");
     setTimeout(() => {
       setDraft({ ...AI_SAMPLE_RESULT });
       setAiState("review");
     }, 1500);
+  }
+
+  function addSelectedFiles(incoming: FileList | File[]) {
+    const incomingFiles = Array.from(incoming).filter((file) => file.size > 0);
+    if (!incomingFiles.length) return;
+    setSelectedFiles((current) => mergeRdFiles(current, incomingFiles));
+    setFileDropActive(false);
+  }
+
+  function handleFileDrop(event: React.DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    addSelectedFiles(event.dataTransfer.files);
+  }
+
+  function handleFileDrag(event: React.DragEvent<HTMLLabelElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "copy";
+    setFileDropActive(true);
   }
 
   function patchDraft<K extends keyof Omit<Task, "task_id">>(key: K, value: Omit<Task, "task_id">[K]) {
@@ -2328,6 +2458,43 @@ function AiCreatePanel({ onClose }: { onClose: () => void }) {
       next.delete(key as string);
       return next;
     });
+  }
+
+  function handleCreate() {
+    if (!draft) return;
+    const taskId = `RD-DRAFT-${Date.now().toString().slice(-5)}`;
+    recordAudit({
+      actor: RD_AUDIT_ACTOR,
+      action: "task.created",
+      resource: { type: "task", id: taskId, name: draft.title },
+      changes: [
+        { field: "primary_owner", before: undefined, after: draft.primary_owner },
+        { field: "priority", before: undefined, after: draft.final_priority },
+        { field: "due_date", before: undefined, after: draft.due_date },
+      ],
+      comment: "通过 AI 解析创建任务",
+      metadata: {
+        modified_fields: Array.from(modifiedFields),
+        category_path: draft.category_path,
+        ai_scene_id: activeScene?.id,
+        model_id: activeScene?.model_id,
+        model_label: describeRdAiModel(aiSettings, activeScene?.model_id),
+        prompt_version: activeScene?.prompt_version,
+      },
+      source: "web",
+    });
+    if (modifiedFields.size > 0) {
+      recordAudit({
+        actor: RD_AUDIT_ACTOR,
+        action: "ai.suggestion_accepted",
+        resource: { type: "task", id: taskId, name: draft.title },
+        comment: "采纳 AI 建议并人工修正字段",
+        metadata: { modified_fields: Array.from(modifiedFields) },
+        source: "web",
+      });
+    }
+    toast.success("任务已创建，关键字段已留痕");
+    onClose();
   }
 
   return (
@@ -2346,6 +2513,26 @@ function AiCreatePanel({ onClose }: { onClose: () => void }) {
         <div className="p-6">
           {aiState !== "review" && (
             <div className="space-y-3">
+              <div className="grid gap-2 rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600 md:grid-cols-2">
+                <div>
+                  <div className="font-semibold text-slate-900">当前场景</div>
+                  <div className="mt-1">{activeScene?.name ?? "未配置"}</div>
+                </div>
+                <div>
+                  <div className="font-semibold text-slate-900">当前模型</div>
+                  <div className="mt-1">{describeRdAiModel(aiSettings, activeScene?.model_id)}</div>
+                </div>
+                <div>
+                  <div className="font-semibold text-slate-900">Prompt 版本</div>
+                  <div className="mt-1">{activeScene?.prompt_version || "未指定"}</div>
+                </div>
+                <div>
+                  <div className="font-semibold text-slate-900">OCR 兜底</div>
+                  <div className="mt-1">
+                    {aiSettings?.file_policy.ocr_provider ?? "tencent_ocr"} / 阈值 {aiSettings?.file_policy.ocr_confidence_threshold ?? 0.85}
+                  </div>
+                </div>
+              </div>
               <label className="text-sm font-medium text-slate-700">粘贴会议纪要、邮件正文或需求描述</label>
               <textarea
                 className="w-full resize-none rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
@@ -2355,15 +2542,39 @@ function AiCreatePanel({ onClose }: { onClose: () => void }) {
                 onChange={(e) => setText(e.target.value)}
               />
               <div className="flex items-center justify-between">
-                <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-slate-200 px-3 py-2 text-sm text-slate-500 hover:border-blue-300 hover:text-blue-500">
+                <label
+                  className={cn(
+                    "flex cursor-pointer items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-sm transition-colors",
+                    fileDropActive
+                      ? "border-blue-400 bg-blue-50 text-blue-700"
+                      : "border-slate-200 text-slate-500 hover:border-blue-300 hover:text-blue-500",
+                  )}
+                  onDragEnter={handleFileDrag}
+                  onDragOver={handleFileDrag}
+                  onDragLeave={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setFileDropActive(false);
+                  }}
+                  onDrop={handleFileDrop}
+                >
                   <FileUp className="h-4 w-4" />
-                  拖入 Excel / Word / PDF / 图片
-                  <input type="file" className="hidden" multiple />
+                  拖入 Excel / Word / PDF / 图片 / 压缩包
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept={RD_ATTACHMENT_ACCEPT}
+                    multiple
+                    onChange={(event) => {
+                      addSelectedFiles(event.target.files ?? []);
+                      event.currentTarget.value = "";
+                    }}
+                  />
                 </label>
                 <button
                   type="button"
                   onClick={handleProcess}
-                  disabled={!text.trim() || aiState === "processing"}
+                  disabled={(!text.trim() && selectedFiles.length === 0) || aiState === "processing"}
                   className="flex cursor-pointer items-center gap-2 rounded-[8px] bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {aiState === "processing" ? (
@@ -2379,6 +2590,16 @@ function AiCreatePanel({ onClose }: { onClose: () => void }) {
                   )}
                 </button>
               </div>
+              {selectedFiles.length > 0 && (
+                <div className="space-y-2 rounded-[8px] border border-slate-200 bg-white px-4 py-3">
+                  {selectedFiles.map((file) => (
+                    <div key={`${file.name}-${file.size}`} className="flex items-center justify-between gap-3 text-xs">
+                      <span className="truncate font-medium text-slate-700">{file.name}</span>
+                      <span className="shrink-0 text-slate-400">{describeFileRule(aiSettings, file.name)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -2389,6 +2610,12 @@ function AiCreatePanel({ onClose }: { onClose: () => void }) {
                   <Pencil className="h-3 w-3" />
                   AI 已解析完成。所有字段均可就地编辑，修改后字段会高亮标记。
                 </p>
+                <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-blue-700">
+                  <span>模型：{describeRdAiModel(aiSettings, activeScene?.model_id)}</span>
+                  <span>Prompt：{activeScene?.prompt_version || "未指定"}</span>
+                  <span>阈值：{activeScene?.confidence_threshold ?? 0.8}</span>
+                  {selectedFiles.length > 0 && <span>文件数：{selectedFiles.length}</span>}
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3">
@@ -2503,7 +2730,7 @@ function AiCreatePanel({ onClose }: { onClose: () => void }) {
                   <button type="button" onClick={onClose} className="cursor-pointer rounded-[8px] border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
                     取消
                   </button>
-                  <button type="button" onClick={onClose} className="flex cursor-pointer items-center gap-2 rounded-[8px] bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+                  <button type="button" onClick={handleCreate} className="flex cursor-pointer items-center gap-2 rounded-[8px] bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
                     确认创建
                     <ArrowRight className="h-3.5 w-3.5" />
                   </button>
@@ -2645,6 +2872,43 @@ function TaskLifecycleTimeline({ task }: { task: Task }) {
 function TaskDetailDrawer({ task, onClose }: { task: Task; onClose: () => void }) {
   const shouldReduceMotion = useReducedMotion();
   const statusCfg = STATUS_CONFIG[task.status];
+  const taskLogs = useAuditLogs({ resourceType: "task", resourceId: task.task_id });
+  const canArchiveTask = usePermission(PERMISSIONS.RD_TASK_ARCHIVE);
+  const canReassignTask = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
+  const handleArchive = () => {
+    if (!canArchiveTask) {
+      toast.error("当前账号没有封存任务权限");
+      return;
+    }
+    recordAudit({
+      actor: RD_ADMIN_AUDIT_ACTOR,
+      action: "task.archived",
+      resource: { type: "task", id: task.task_id, name: task.title },
+      changes: [
+        { field: "archived", before: task.archived, after: true },
+        { field: "status", before: task.status, after: "archived" },
+      ],
+      comment: "从任务详情发起封存",
+      source: "web",
+    });
+    toast.success("封存操作已留痕");
+  };
+  const handleHandoff = () => {
+    if (!canReassignTask) {
+      toast.error("当前账号没有转派任务权限");
+      return;
+    }
+    recordAudit({
+      actor: RD_ADMIN_AUDIT_ACTOR,
+      action: "task.handoff_requested",
+      resource: { type: "task", id: task.task_id, name: task.title },
+      changes: [{ field: "primary_owner", before: task.primary_owner, after: "待移交确认" }],
+      comment: "打开移交向导并提交移交流程",
+      metadata: { current_owner: task.primary_owner },
+      source: "web",
+    });
+    toast.success("移交申请已留痕");
+  };
   return (
     <motion.div
       className="fixed inset-0 z-50 flex justify-end"
@@ -2738,6 +3002,16 @@ function TaskDetailDrawer({ task, onClose }: { task: Task; onClose: () => void }
 
           <TaskLifecycleTimeline task={task} />
 
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">操作留痕</div>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                {taskLogs.length} 条
+              </span>
+            </div>
+            <AuditTimeline logs={taskLogs} showResource={false} emptyText="暂无此任务的操作记录" />
+          </div>
+
           {task.description && (
             <div>
               <div className="mb-1 text-xs text-slate-400">任务描述</div>
@@ -2759,16 +3033,20 @@ function TaskDetailDrawer({ task, onClose }: { task: Task; onClose: () => void }
             </div>
           )}
 
-          {!task.archived && (
+          {!task.archived && (canArchiveTask || canReassignTask) && (
             <div className="flex gap-2 pt-2">
-              <button type="button" className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-[8px] border border-slate-200 py-2 text-sm text-slate-600 hover:bg-slate-50">
-                <Archive className="h-3.5 w-3.5" />
-                封存任务
-              </button>
-              <button type="button" className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-[8px] border border-slate-200 py-2 text-sm text-slate-600 hover:bg-slate-50">
-                <Users className="h-3.5 w-3.5" />
-                移交向导
-              </button>
+              {canArchiveTask && (
+                <button type="button" onClick={handleArchive} className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-[8px] border border-slate-200 py-2 text-sm text-slate-600 hover:bg-slate-50">
+                  <Archive className="h-3.5 w-3.5" />
+                  封存任务
+                </button>
+              )}
+              {canReassignTask && (
+                <button type="button" onClick={handleHandoff} className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-[8px] border border-slate-200 py-2 text-sm text-slate-600 hover:bg-slate-50">
+                  <Users className="h-3.5 w-3.5" />
+                  移交向导
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -2813,7 +3091,7 @@ function CommandCenter({
   risks: Risk[];
   pendingAssign: number;
   averageProgress: number;
-  onCreate: () => void;
+  onCreate?: () => void;
 }) {
   const criticalRisks = risks.filter((risk) => risk.severity === "critical").length;
 
@@ -3922,6 +4200,13 @@ function emptyPerson(): Person {
   };
 }
 
+function getPersonChanges(before: Person, after: Person): AuditChange[] {
+  const fields: Array<keyof Person> = ["name", "position", "department", "email", "phone", "status", "max_tasks"];
+  return fields
+    .filter((field) => before[field] !== after[field])
+    .map((field) => ({ field, before: before[field], after: after[field] }));
+}
+
 /** Form modal for creating / editing a person */
 function PersonFormModal({
   person,
@@ -4194,10 +4479,27 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
 
   const handleSave = (p: Person) => {
     if (editing) {
+      const changes = getPersonChanges(editing, p);
       setPeople((prev) => prev.map((x) => (x.id === p.id ? p : x)));
+      recordAudit({
+        actor: RD_ADMIN_AUDIT_ACTOR,
+        action: changes.some((change) => change.field === "status") ? "person.status_changed" : "person.edited",
+        resource: { type: "person", id: p.id, name: p.name },
+        changes,
+        comment: "维护研发成员信息",
+        source: "web",
+      });
       setEditing(null);
     } else {
-      setPeople((prev) => [...prev, { ...p, id: `p${Date.now()}` }]);
+      const newPerson = { ...p, id: `p${Date.now()}` };
+      setPeople((prev) => [...prev, newPerson]);
+      recordAudit({
+        actor: RD_ADMIN_AUDIT_ACTOR,
+        action: "person.created",
+        resource: { type: "person", id: newPerson.id, name: newPerson.name },
+        metadata: { department: newPerson.department, position: newPerson.position },
+        source: "web",
+      });
       setCreating(false);
     }
   };
@@ -4205,6 +4507,14 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
   const handleDelete = () => {
     if (deleteTarget) {
       setPeople((prev) => prev.filter((p) => p.id !== deleteTarget.id));
+      recordAudit({
+        actor: RD_ADMIN_AUDIT_ACTOR,
+        action: "person.deleted",
+        resource: { type: "person", id: deleteTarget.id, name: deleteTarget.name },
+        comment: "删除研发成员档案，关联任务需重新指派",
+        metadata: { department: deleteTarget.department, position: deleteTarget.position },
+        source: "web",
+      });
       setDeleteTarget(null);
     }
   };
@@ -4472,13 +4782,19 @@ function ExecutiveOverview({
   onSelectSystem,
   onSelectTask,
   onOpenPeople,
+  loading,
+  loadError,
+  onRefresh,
 }: {
   catStats: CatStat[];
   risks: Risk[];
   personLoads: PersonLoad[];
   onSelectSystem: (catId: string) => void;
   onSelectTask: (t: Task) => void;
-  onOpenPeople: () => void;
+  onOpenPeople?: () => void;
+  loading: boolean;
+  loadError: string | null;
+  onRefresh: () => void;
 }) {
   const shouldReduceMotion = useReducedMotion();
   const totalActive = catStats.reduce((s, c) => s + c.total, 0);
@@ -4506,12 +4822,45 @@ function ExecutiveOverview({
           rate={rate}
         />
 
-        <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-5">
-          <RiskHotspot risks={risks} onSelectTask={onSelectTask} className="lg:col-span-3" />
-          <PersonLoadPanel loads={personLoads} className="lg:col-span-2" onManage={onOpenPeople} />
-        </div>
+        {loading || catStats.length === 0 ? (
+          <section className="rounded-xl border border-dashed border-slate-200 bg-white px-6 py-16 text-center shadow-[0_18px_45px_rgba(15,23,42,0.04)]">
+            <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-lg bg-slate-900 text-white">
+              <LayoutGrid className="h-5 w-5" />
+            </span>
+            <h2 className="mt-4 text-lg font-semibold text-slate-950">
+              {loading ? "正在加载研发任务数据" : "暂无研发任务数据"}
+            </h2>
+            <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
+              {loading
+                ? "正在从后端接口读取任务树、风险和人员负载。"
+                : "后端当前没有任务树或任务记录。创建任务或导入数据后，这里会展示真实的系统全景、风险和负载。"}
+            </p>
+            {loadError && (
+              <p className="mx-auto mt-3 max-w-md rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                {loadError}
+              </p>
+            )}
+            {!loading && (
+              <button
+                type="button"
+                onClick={onRefresh}
+                className="mt-5 inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-all hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 active:scale-[0.98]"
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+                重新读取
+              </button>
+            )}
+          </section>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-5">
+              <RiskHotspot risks={risks} onSelectTask={onSelectTask} className="lg:col-span-3" />
+              <PersonLoadPanel loads={personLoads} className="lg:col-span-2" onManage={onOpenPeople} />
+            </div>
 
-        <SystemPanorama catStats={catStats} onSelectSystem={onSelectSystem} />
+            <SystemPanorama catStats={catStats} onSelectSystem={onSelectSystem} />
+          </>
+        )}
       </div>
     </motion.div>
   );
@@ -4521,24 +4870,52 @@ function ExecutiveOverview({
 
 export function RDTaskManagementPage() {
   const shouldReduceMotion = useReducedMotion();
+  const canCreateTask = usePermission(PERMISSIONS.RD_TASK_CREATE);
+  const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
   const [showCreate, setShowCreate] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   // Page view mode:
   //   "overview" = leadership dashboard (landing)
   //   "board"    = detailed system work view
   //   "people"   = hidden people management page (drill-down only)
   const [mode, setMode] = useState<"overview" | "board" | "people">("overview");
 
-  const risks = useMemo(() => computeRisks(DEMO_CATEGORIES), []);
-  const catStats = useMemo(() => buildCatStats(DEMO_CATEGORIES, risks), [risks]);
-  const personLoads = useMemo(() => computePersonLoads(DEMO_CATEGORIES), []);
+  const loadCategories = () => {
+    setLoading(true);
+    setLoadError(null);
+    fetchRdTaskCategories<Category>()
+      .then((nextCategories) => {
+        setCategories(nextCategories);
+        setSelectedCatId((current) => {
+          if (!current) return null;
+          const stillExists = nextCategories.some((cat) => cat.id === current || cat.children.some((sub) => sub.id === current));
+          return stillExists ? current : null;
+        });
+      })
+      .catch((error) => {
+        setCategories([]);
+        setLoadError(error instanceof Error ? error.message : "研发任务接口加载失败");
+      })
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadCategories();
+  }, []);
+
+  const risks = useMemo(() => computeRisks(categories), [categories]);
+  const catStats = useMemo(() => buildCatStats(categories, risks), [categories, risks]);
+  const personLoads = useMemo(() => computePersonLoads(categories), [categories]);
 
   const enterBoard = (catId: string) => {
     setSelectedCatId(catId);
     setMode("board");
   };
-  const allTasks = useMemo(() => DEMO_CATEGORIES.flatMap((c) => c.children.flatMap((s) => s.tasks)), []);
+  const allTasks = useMemo(() => categories.flatMap((c) => c.children.flatMap((s) => s.tasks)), [categories]);
   const totalActive = useMemo(() => allTasks.filter((t) => !t.archived).length, [allTasks]);
   const pendingAssign = useMemo(() => allTasks.filter((t) => t.status === "pending_assign").length, [allTasks]);
   const averageProgress = useMemo(() => {
@@ -4548,7 +4925,7 @@ export function RDTaskManagementPage() {
   }, [allTasks]);
 
   const selectedCategory = selectedCatId
-    ? DEMO_CATEGORIES.find((c) => c.id === selectedCatId || c.children.some((sub) => sub.id === selectedCatId))
+    ? categories.find((c) => c.id === selectedCatId || c.children.some((sub) => sub.id === selectedCatId))
     : null;
   const selectedSub = selectedCategory?.children.find((sub) => sub.id === selectedCatId) ?? null;
   const selectedLabel = selectedSub ? `${selectedCategory?.label} / ${selectedSub.label}` : selectedCategory?.label;
@@ -4586,7 +4963,10 @@ export function RDTaskManagementPage() {
           personLoads={personLoads}
           onSelectSystem={enterBoard}
           onSelectTask={setSelectedTask}
-          onOpenPeople={() => setMode("people")}
+          onOpenPeople={canManagePeople ? () => setMode("people") : undefined}
+          loading={loading}
+          loadError={loadError}
+          onRefresh={loadCategories}
         />
         <AnimatePresence>
           {selectedTask && (
@@ -4602,7 +4982,7 @@ export function RDTaskManagementPage() {
   }
 
   // ───── People management mode (hidden drill-down) ────────────────────────
-  if (mode === "people") {
+  if (mode === "people" && canManagePeople) {
     return (
       <TooltipProvider delayDuration={150}>
         <PeopleManagementPage onBack={() => setMode("overview")} />
@@ -4653,7 +5033,7 @@ export function RDTaskManagementPage() {
             risks={risks}
             pendingAssign={pendingAssign}
             averageProgress={averageProgress}
-            onCreate={() => setShowCreate(true)}
+            onCreate={canCreateTask ? () => setShowCreate(true) : undefined}
           />
 
           <div className="flex-1 overflow-auto bg-slate-50/40 px-5 py-5">
@@ -4724,7 +5104,7 @@ export function RDTaskManagementPage() {
           </div>
         </div>
 
-        {showCreate && <AiCreatePanel onClose={() => setShowCreate(false)} />}
+        {showCreate && canCreateTask && <AiCreatePanel onClose={() => setShowCreate(false)} />}
         <AnimatePresence>
           {selectedTask && (
             <TaskDetailDrawer

@@ -40,6 +40,9 @@ import { RoleManagement } from "./RoleManagement";
 import { RDTaskManagementPage } from "./RDTaskManagementPage";
 import { RDMyWorkspacePage } from "./RDMyWorkspacePage";
 import { RDDirectorDashboardPage } from "./RDDirectorDashboardPage";
+import { RDApprovalFlowPage } from "./RDApprovalFlowPage";
+import { RDAuditLogPage } from "./RDAuditLogPage";
+import { RDAiSettingsPage } from "./RDAiSettingsPage";
 import { RouteManagementPage } from "./RouteManagementPage";
 import { UIDesignPage } from "./UIDesignPage";
 import { Root } from "./Root";
@@ -186,6 +189,9 @@ const router = createBrowserRouter([
       { path: "rd-task-management", element: makeProtected(<RDTaskManagementPage />, "page:rd-task-management") },
       { path: "rd-my-workspace", element: makeProtected(<RDMyWorkspacePage />, "page:rd-my-workspace") },
       { path: "rd-director-dashboard", element: makeProtected(<RDDirectorDashboardPage />, "page:rd-director-dashboard") },
+      { path: "rd-approval-flow", element: makeProtected(<RDApprovalFlowPage />, "page:rd-approval-flow") },
+      { path: "rd-audit-log", element: makeProtected(<RDAuditLogPage />, "page:rd-audit-log") },
+      { path: "rd-ai-settings", element: makeProtected(<RDAiSettingsPage />, "page:rd-ai-settings") },
       { path: "rd-triage", element: makeProtected(<RDIssues />, "page:rd-triage") },
       { path: "registration-projects", element: makeProtected(<RegistrationProjects />, "page:registration-projects") },
       { path: "bom-archive", element: makeProtected(<BOMArchive />, "page:bom-archive") },

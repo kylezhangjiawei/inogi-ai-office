@@ -1,18 +1,12 @@
+import type { TencentOcrConfig, ThirdPartyOfficialError } from '../ocr/ocr.types';
+
+export type { TencentOcrConfig, ThirdPartyOfficialError } from '../ocr/ocr.types';
+
 export type ExpenseCategory = '差旅' | '餐饮' | '采购' | '办公' | '其他';
 export type InvoiceStatus = '待识别' | '已识别' | '待确认' | '已关联' | '异常' | '已报销';
 export type ReimbursementStatus = '草稿' | '审批中' | '已通过' | '已驳回' | '已付款';
 export type WeComSyncStatus = '未提交' | '已同步' | '审批中' | '已回调' | '同步失败';
 export type ExpenseEventLevel = 'info' | 'warning' | 'error';
-
-export type ThirdPartyOfficialError = {
-  provider: 'tencent_ocr' | 'wecom';
-  code: string | number;
-  message: string;
-  request_id?: string;
-  action?: string;
-  raw?: unknown;
-  docs: string[];
-};
 
 export type ExpenseActivity = {
   id: string;
@@ -138,15 +132,6 @@ export type VoucherCandidateValue = {
   reason: string;
   match_reasons?: string[];
   match_status?: 'auto' | 'manual_review' | 'blocked';
-};
-
-export type TencentOcrConfig = {
-  enabled: boolean;
-  secret_id: string;
-  secret_key: string;
-  region: string;
-  endpoint: string;
-  invoice_action: string;
 };
 
 export type WeComExpenseConfig = {

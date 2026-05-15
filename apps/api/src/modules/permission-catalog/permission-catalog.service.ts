@@ -70,16 +70,30 @@ export class PermissionCatalogService {
     return { ok: true };
   }
 
+  /**
+   * Ensure all default catalog entries exist in DB.
+   *
+   * Strategy: find existing codes, only insert the **missing** ones.
+   * This way:
+   *  - First-time setup: all defaults seeded
+   *  - Existing deployments: newly added defaults are auto-synced (e.g. when we
+   *    ship a new page, its permission entry shows up after backend restart)
+   *  - Admin's manual customizations to existing entries are NOT overwritten
+   */
   async ensureDefaults() {
-    const count = await this.prisma.permissionCatalogItem.count();
-    if (count > 0) return;
+    const existing = await this.prisma.permissionCatalogItem.findMany({
+      select: { code: true },
+    });
+    const existingCodes = new Set(existing.map((row) => row.code));
+    const missing = DEFAULT_PERMISSION_CATALOG.filter(
+      (item) => !existingCodes.has(item.code),
+    );
+    if (missing.length === 0) return;
 
     await this.prisma.$transaction(
-      DEFAULT_PERMISSION_CATALOG.map((item) =>
-        this.prisma.permissionCatalogItem.upsert({
-          where: { code: item.code },
-          update: {},
-          create: {
+      missing.map((item) =>
+        this.prisma.permissionCatalogItem.create({
+          data: {
             code: item.code,
             label: item.label,
             description: item.description ?? '',

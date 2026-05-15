@@ -2,19 +2,22 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { SaveRoleDto } from './dto/save-role.dto';
+import { DEFAULT_ROLES } from './roles.defaults';
 
 @Injectable()
 export class RolesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  list() {
+  async list() {
+    await this.ensureDefaultRoles();
     return this.prisma.role.findMany({
       orderBy: { updatedAt: 'desc' },
       include: { _count: { select: { users: true } } },
     });
   }
 
-  listOptions() {
+  async listOptions() {
+    await this.ensureDefaultRoles();
     return this.prisma.role.findMany({
       select: { id: true, name: true, permissions: true },
       orderBy: { name: 'asc' },
@@ -22,6 +25,7 @@ export class RolesService {
   }
 
   async findById(id: string) {
+    await this.ensureDefaultRoles();
     const role = await this.prisma.role.findUnique({
       where: { id },
       include: { _count: { select: { users: true } } },
@@ -63,5 +67,35 @@ export class RolesService {
 
     await this.prisma.role.delete({ where: { id } });
     return { ok: true };
+  }
+
+  private async ensureDefaultRoles() {
+    for (const role of DEFAULT_ROLES) {
+      const existing = await this.prisma.role.findUnique({
+        where: { name: role.name },
+        select: { id: true, permissions: true },
+      });
+
+      if (!existing) {
+        await this.prisma.role.create({
+          data: role,
+        });
+        continue;
+      }
+
+      const currentPermissions = Array.isArray(existing.permissions)
+        ? (existing.permissions as string[])
+        : [];
+      const nextPermissions = Array.from(
+        new Set([...currentPermissions, ...role.permissions]),
+      );
+
+      if (nextPermissions.length !== currentPermissions.length) {
+        await this.prisma.role.update({
+          where: { id: existing.id },
+          data: { permissions: nextPermissions },
+        });
+      }
+    }
   }
 }

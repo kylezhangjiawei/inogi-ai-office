@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   AlertTriangle,
@@ -26,6 +26,12 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "./components/ui/utils";
+import { usePermission } from "./hooks/usePermission";
+import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
+import { AuditTimeline } from "./RDAuditTimeline";
+import { AuditActor, recordAudit, useAuditLogs } from "./lib/auditLog";
+import { PERMISSIONS } from "./lib/permissions";
+import { fetchRdWorkspace, RdWorkspacePayload } from "./lib/rdApi";
 
 type Priority = "high" | "medium" | "low";
 type TaskStatus = "in_progress" | "paused_leave" | "blocked" | "pending_review";
@@ -107,6 +113,7 @@ type ConfirmDialogConfig = {
 };
 
 const TODAY_LABEL = "2026-05-14";
+const WORKSPACE_AUDIT_ACTOR: AuditActor = { id: "u-current", name: "我", role: "研发成员" };
 
 const MY_TASKS: WorkspaceTask[] = [
   {
@@ -288,6 +295,14 @@ const NOTIFICATIONS: WorkspaceNotification[] = [
     related_task_id: "RD-2026-001",
   },
 ];
+
+const EMPTY_WORKSPACE: RdWorkspacePayload<WorkspaceTask, AiSuggestion, WorkspaceNotification> = {
+  myTasks: [],
+  collabTasks: [],
+  todayTodos: [],
+  aiSuggestions: [],
+  notifications: [],
+};
 
 const PRIORITY_CONFIG: Record<Priority, { label: string; className: string }> = {
   high: { label: "高", className: "border-red-100 bg-red-50 text-red-600" },
@@ -696,6 +711,7 @@ function TaskOperationDrawer({
   const [aiAssessment, setAiAssessment] = useState<ProgressAssessment | null>(null);
   const [handoffTo, setHandoffTo] = useState("赵强");
   const [receipt, setReceipt] = useState<string | null>(null);
+  const taskLogs = useAuditLogs({ resourceType: "task", resourceId: task.task_id });
 
   const tabConfig: { key: OperationTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { key: "detail", label: "任务详情", icon: FileText },
@@ -744,6 +760,15 @@ function TaskOperationDrawer({
       ],
       onConfirm: () => {
         onProgressSave(task.task_id, draftProgress);
+        recordAudit({
+          actor: WORKSPACE_AUDIT_ACTOR,
+          action: "task.progress_updated",
+          resource: { type: "task", id: task.task_id, name: task.title },
+          changes: [{ field: "progress", before: task.progress, after: draftProgress }],
+          comment: note || "更新任务进度",
+          metadata: { source, evidence_count: uploadedEvidence.length },
+          source: "web",
+        });
         setReceipt(message);
         onLog(message);
       },
@@ -762,6 +787,26 @@ function TaskOperationDrawer({
     const assessment = buildProgressAssessment(task, merged);
     setUploadedEvidence(merged);
     setAiAssessment(assessment);
+    recordAudit({
+      actor: WORKSPACE_AUDIT_ACTOR,
+      action: "task.evidence_uploaded",
+      resource: { type: "task", id: task.task_id, name: task.title },
+      comment: "上传任务进度依据并触发 AI 判断",
+      metadata: {
+        evidence_count: nextFiles.length,
+        filenames: nextFiles.map((file) => file.name),
+        suggested_progress: assessment.progress,
+      },
+      source: "web",
+    });
+    recordAudit({
+      actor: WORKSPACE_AUDIT_ACTOR,
+      action: "ai.parse_triggered",
+      resource: { type: "task", id: task.task_id, name: task.title },
+      comment: "AI 根据上传依据判断当前任务进度",
+      metadata: { confidence: assessment.confidence, stage: assessment.stage },
+      source: "ai",
+    });
     setReceipt(null);
     setNote((current) => current || `AI 识别：${assessment.stage}。${assessment.recommendation}`);
   };
@@ -774,6 +819,15 @@ function TaskOperationDrawer({
       confirmLabel: "确认移交",
       details: ["提交后会生成移交记录", "接收人和相关负责人会看到该流程", "当前页面会保留操作日志"],
       onConfirm: () => {
+        recordAudit({
+          actor: WORKSPACE_AUDIT_ACTOR,
+          action: "task.handoff_requested",
+          resource: { type: "task", id: task.task_id, name: task.title },
+          changes: [{ field: "owner", before: task.owner, after: handoffTo }],
+          comment: "提交任务移交流程",
+          metadata: { current_progress: task.progress },
+          source: "web",
+        });
         setReceipt(message);
         onLog(message);
       },
@@ -788,6 +842,15 @@ function TaskOperationDrawer({
       confirmLabel: "确认提交",
       details: ["请确认交付物、风险说明和测试记录已补齐", "提交后会进入审核流转", "审核人会看到本次提交说明"],
       onConfirm: () => {
+        recordAudit({
+          actor: WORKSPACE_AUDIT_ACTOR,
+          action: "task.submitted",
+          resource: { type: "task", id: task.task_id, name: task.title },
+          changes: [{ field: "status", before: task.status, after: "pending_review" }],
+          comment: "提交任务结果审核",
+          metadata: { progress: task.progress },
+          source: "web",
+        });
         setReceipt(message);
         onLog(message);
       },
@@ -909,6 +972,16 @@ function TaskOperationDrawer({
                 ))}
               </div>
             </div>
+
+            <div className="rounded-xl border border-slate-200 p-4">
+              <div className="mb-3 flex items-center justify-between">
+                <div className="text-sm font-semibold text-slate-900">操作留痕</div>
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                  {taskLogs.length} 条
+                </span>
+              </div>
+              <AuditTimeline logs={taskLogs} showResource={false} emptyText="暂无此任务的操作记录" />
+            </div>
           </div>
         )}
 
@@ -968,6 +1041,15 @@ function TaskOperationDrawer({
                     onClick={() => {
                       setDraftProgress(aiAssessment.progress);
                       setReceipt(null);
+                      recordAudit({
+                        actor: WORKSPACE_AUDIT_ACTOR,
+                        action: "ai.suggestion_accepted",
+                        resource: { type: "task", id: task.task_id, name: task.title },
+                        changes: [{ field: "draft_progress", before: draftProgress, after: aiAssessment.progress }],
+                        comment: "采纳 AI 进度建议",
+                        metadata: { confidence: aiAssessment.confidence, stage: aiAssessment.stage },
+                        source: "web",
+                      });
                     }}
                   >
                     <CheckCircle2 className="h-3.5 w-3.5" />
@@ -1319,6 +1401,10 @@ function buildProgressAssessment(task: WorkspaceTask, evidence: UploadedEvidence
 }
 
 export function RDMyWorkspacePage() {
+  const canProposeProject = usePermission(PERMISSIONS.RD_PROJECT_PROPOSE);
+  const [workspace, setWorkspace] = useState<RdWorkspacePayload<WorkspaceTask, AiSuggestion, WorkspaceNotification>>(EMPTY_WORKSPACE);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [closedSuggestions, setClosedSuggestions] = useState<Set<string>>(new Set());
   const [regeneratedSuggestions, setRegeneratedSuggestions] = useState<Set<string>>(new Set());
   const [dismissedNotifs, setDismissedNotifs] = useState<Set<string>>(new Set());
@@ -1327,17 +1413,42 @@ export function RDMyWorkspacePage() {
   const [operationLogs, setOperationLogs] = useState<string[]>([]);
   const [activePanel, setActivePanel] = useState<ActivePanel | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogConfig | null>(null);
+  const [showProposalDialog, setShowProposalDialog] = useState(false);
 
-  const myTasks = useMemo(() => applyProgressOverrides(MY_TASKS, progressOverrides), [progressOverrides]);
-  const collabTasks = useMemo(() => applyProgressOverrides(COLLAB_TASKS, progressOverrides), [progressOverrides]);
+  useEffect(() => {
+    let cancelled = false;
+    async function loadWorkspace() {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const payload = await fetchRdWorkspace<RdWorkspacePayload<WorkspaceTask, AiSuggestion, WorkspaceNotification>>();
+        if (!cancelled) setWorkspace({ ...EMPTY_WORKSPACE, ...payload });
+      } catch (error) {
+        if (!cancelled) {
+          setWorkspace(EMPTY_WORKSPACE);
+          setLoadError(error instanceof Error ? error.message : "个人工作台接口加载失败");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    void loadWorkspace();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const todayTodos = workspace.todayTodos;
+  const myTasks = useMemo(() => applyProgressOverrides(workspace.myTasks, progressOverrides), [workspace.myTasks, progressOverrides]);
+  const collabTasks = useMemo(() => applyProgressOverrides(workspace.collabTasks, progressOverrides), [workspace.collabTasks, progressOverrides]);
   const allTasks = useMemo(() => [...myTasks, ...collabTasks], [myTasks, collabTasks]);
   const visibleSuggestions = useMemo(
-    () => AI_SUGGESTIONS.filter((suggestion) => !closedSuggestions.has(suggestion.id)),
-    [closedSuggestions],
+    () => workspace.aiSuggestions.filter((suggestion) => !closedSuggestions.has(suggestion.id)),
+    [closedSuggestions, workspace.aiSuggestions],
   );
   const visibleNotifications = useMemo(
-    () => NOTIFICATIONS.filter((notification) => !dismissedNotifs.has(notification.id)),
-    [dismissedNotifs],
+    () => workspace.notifications.filter((notification) => !dismissedNotifs.has(notification.id)),
+    [dismissedNotifs, workspace.notifications],
   );
 
   const averageProgress = useMemo(() => {
@@ -1362,8 +1473,25 @@ export function RDMyWorkspacePage() {
           <div>
             <h1 className="text-xl font-semibold text-slate-950">个人工作台</h1>
             <p className="mt-1 text-sm text-slate-500">只展示与我有关的任务、提醒和 AI 待确认项 / 今日 {TODAY_LABEL}</p>
+            {loadError && (
+              <p className="mt-2 inline-flex rounded-md border border-amber-100 bg-amber-50 px-3 py-1 text-xs text-amber-700">
+                {loadError}
+              </p>
+            )}
           </div>
           <div className="flex items-center gap-2">
+            {canProposeProject && (
+              <button
+                type="button"
+                onClick={() => setShowProposalDialog(true)}
+                className="group inline-flex items-center gap-1.5 rounded-md bg-gradient-to-br from-blue-600 to-violet-600 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(99,102,241,0.25)] transition-all hover:-translate-y-0.5 hover:from-blue-700 hover:to-violet-700 hover:shadow-[0_12px_24px_rgba(99,102,241,0.32)] active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+                title="AI 立项 · 上传文档或写描述，自动拆任务"
+              >
+                <Sparkles className="h-3.5 w-3.5 transition-transform group-hover:rotate-12" />
+                AI 立项
+                <ChevronRight className="h-3 w-3 transition-transform duration-200 group-hover:translate-x-0.5" />
+              </button>
+            )}
             <ActionButton
               onClick={() =>
                 setConfirmDialog({
@@ -1371,7 +1499,16 @@ export function RDMyWorkspacePage() {
                   message: "将根据当前任务、待办和操作记录生成今日研发日报。",
                   confirmLabel: "确认生成",
                   details: ["会读取当前页面的任务状态", "生成结果会进入操作记录", "不会自动提交给上级"],
-                  onConfirm: () => addLog("今日研发日报已生成"),
+                  onConfirm: () => {
+                    recordAudit({
+                      actor: WORKSPACE_AUDIT_ACTOR,
+                      action: "daily_report.generated",
+                      resource: { type: "system", id: "daily-report", name: "今日研发日报" },
+                      metadata: { task_count: allTasks.length, operation_log_count: operationLogs.length },
+                      source: "web",
+                    });
+                    addLog("今日研发日报已生成");
+                  },
                 })
               }
             >
@@ -1385,8 +1522,22 @@ export function RDMyWorkspacePage() {
                   title: "确认同步今日进展",
                   message: "将把今日进度、待办完成情况和操作记录同步到研发任务流。",
                   confirmLabel: "确认同步",
-                  details: [`已完成待办：${todoChecked.size} / ${TODAY_TODOS.length}`, `待处理通知：${visibleNotifications.length}`, `待审核 AI 建议：${visibleSuggestions.length}`],
-                  onConfirm: () => addLog("今日进展已同步到研发任务流"),
+                  details: [`已完成待办：${todoChecked.size} / ${todayTodos.length}`, `待处理通知：${visibleNotifications.length}`, `待审核 AI 建议：${visibleSuggestions.length}`],
+                  onConfirm: () => {
+                    recordAudit({
+                      actor: WORKSPACE_AUDIT_ACTOR,
+                      action: "daily_progress.synced",
+                      resource: { type: "system", id: "daily-progress", name: "今日研发进展" },
+                      metadata: {
+                        done_todos: todoChecked.size,
+                        total_todos: todayTodos.length,
+                        pending_notifications: visibleNotifications.length,
+                        pending_ai_suggestions: visibleSuggestions.length,
+                      },
+                      source: "web",
+                    });
+                    addLog("今日进展已同步到研发任务流");
+                  },
                 })
               }
             >
@@ -1413,17 +1564,33 @@ export function RDMyWorkspacePage() {
           <main className="space-y-5">
             <SectionCard title="我的任务" icon={User} count={myTasks.length} helper="按优先级和到期时间处理">
               <div className="space-y-3">
-                {myTasks.map((task) => (
-                  <TaskCardUI key={task.task_id} task={task} onOpen={openTask} />
-                ))}
+                {loading ? (
+                  <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">正在加载我的任务…</p>
+                ) : myTasks.length === 0 ? (
+                  <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-400">
+                    暂无分配给我的研发任务
+                  </p>
+                ) : (
+                  myTasks.map((task) => (
+                    <TaskCardUI key={task.task_id} task={task} onOpen={openTask} />
+                  ))
+                )}
               </div>
             </SectionCard>
 
             <SectionCard title="协作任务" icon={Users} count={collabTasks.length} helper="需要我提供输入或反馈">
               <div className="space-y-3">
-                {collabTasks.map((task) => (
-                  <TaskCardUI key={task.task_id} task={task} onOpen={openTask} />
-                ))}
+                {loading ? (
+                  <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">正在加载协作任务…</p>
+                ) : collabTasks.length === 0 ? (
+                  <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-400">
+                    暂无需要我协作的任务
+                  </p>
+                ) : (
+                  collabTasks.map((task) => (
+                    <TaskCardUI key={task.task_id} task={task} onOpen={openTask} />
+                  ))
+                )}
               </div>
             </SectionCard>
 
@@ -1452,6 +1619,14 @@ export function RDMyWorkspacePage() {
                         <ActionButton
                           onClick={() => {
                             setRegeneratedSuggestions((prev) => new Set(prev).add(suggestion.id));
+                            recordAudit({
+                              actor: WORKSPACE_AUDIT_ACTOR,
+                              action: "ai.regenerated",
+                              resource: { type: "system", id: suggestion.id, name: suggestion.title },
+                              comment: "重新生成 AI 建议",
+                              metadata: { source: suggestion.source },
+                              source: "web",
+                            });
                             setActivePanel({ kind: "ai", suggestion, regenerated: true });
                           }}
                         >
@@ -1466,7 +1641,17 @@ export function RDMyWorkspacePage() {
                               confirmLabel: "确认忽略",
                               tone: "danger",
                               details: ["忽略后会从待审核列表移除", "如需恢复，需要重新生成建议"],
-                              onConfirm: () => closeSuggestion(suggestion.id, `${suggestion.title} 已忽略`),
+                              onConfirm: () => {
+                                recordAudit({
+                                  actor: WORKSPACE_AUDIT_ACTOR,
+                                  action: "ai.suggestion_rejected",
+                                  resource: { type: "system", id: suggestion.id, name: suggestion.title },
+                                  comment: "忽略 AI 生成建议",
+                                  metadata: { source: suggestion.source },
+                                  source: "web",
+                                });
+                                closeSuggestion(suggestion.id, `${suggestion.title} 已忽略`);
+                              },
                             })
                           }
                           variant="ghost"
@@ -1483,9 +1668,14 @@ export function RDMyWorkspacePage() {
           </main>
 
           <aside className="space-y-5">
-            <SectionCard title="今日待办" icon={CheckSquare} count={`${TODAY_TODOS.length - todoChecked.size}/${TODAY_TODOS.length}`}>
+            <SectionCard title="今日待办" icon={CheckSquare} count={`${todayTodos.length - todoChecked.size}/${todayTodos.length}`}>
+              {todayTodos.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">
+                  暂无今日待办
+                </p>
+              ) : (
               <ul className="space-y-2">
-                {TODAY_TODOS.map((todo, index) => {
+                {todayTodos.map((todo, index) => {
                   const checked = todoChecked.has(index);
                   const task = findTask(todo.task_id);
                   return (
@@ -1520,6 +1710,7 @@ export function RDMyWorkspacePage() {
                   );
                 })}
               </ul>
+              )}
             </SectionCard>
 
             <SectionCard title="通知中心" icon={Bell} count={visibleNotifications.length}>
@@ -1562,7 +1753,17 @@ export function RDMyWorkspacePage() {
                               message: `将关闭「${notification.title}」这条通知。`,
                               confirmLabel: "确认关闭",
                               details: ["关闭后会从通知中心移除", "不会影响关联任务本身"],
-                              onConfirm: () => setDismissedNotifs((prev) => new Set(prev).add(notification.id)),
+                              onConfirm: () => {
+                                recordAudit({
+                                  actor: WORKSPACE_AUDIT_ACTOR,
+                                  action: "notification.handled",
+                                  resource: { type: "system", id: notification.id, name: notification.title },
+                                  comment: "关闭通知中心提醒",
+                                  metadata: { related_task_id: notification.related_task_id, notification_type: notification.type },
+                                  source: "web",
+                                });
+                                setDismissedNotifs((prev) => new Set(prev).add(notification.id));
+                              },
                             })
                           }
                           className="rounded p-1 text-slate-300 transition-colors hover:bg-white hover:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
@@ -1620,6 +1821,14 @@ export function RDMyWorkspacePage() {
           onClose={() => setActivePanel(null)}
           onRegenerate={() => {
             setRegeneratedSuggestions((prev) => new Set(prev).add(activePanel.suggestion.id));
+            recordAudit({
+              actor: WORKSPACE_AUDIT_ACTOR,
+              action: "ai.regenerated",
+              resource: { type: "system", id: activePanel.suggestion.id, name: activePanel.suggestion.title },
+              comment: "重新生成 AI 建议",
+              metadata: { source: activePanel.suggestion.source },
+              source: "web",
+            });
             setActivePanel({ kind: "ai", suggestion: activePanel.suggestion, regenerated: true });
           }}
           onConfirm={() =>
@@ -1628,7 +1837,35 @@ export function RDMyWorkspacePage() {
               message: `将把「${activePanel.suggestion.title}」生成的内容写入任务池。`,
               confirmLabel: "确认写入",
               details: [`生成任务数：${activePanel.suggestion.generated_tasks.length}`, `来源：${activePanel.suggestion.source}`, "写入后会从待审核列表移除"],
-              onConfirm: () => closeSuggestion(activePanel.suggestion.id, `${activePanel.suggestion.title} 已确认写入任务池`),
+              onConfirm: () => {
+                recordAudit({
+                  actor: WORKSPACE_AUDIT_ACTOR,
+                  action: "ai.suggestion_accepted",
+                  resource: { type: "system", id: activePanel.suggestion.id, name: activePanel.suggestion.title },
+                  comment: "确认 AI 建议写入任务池",
+                  metadata: {
+                    source: activePanel.suggestion.source,
+                    generated_tasks: activePanel.suggestion.generated_tasks.length,
+                  },
+                  source: "web",
+                });
+                activePanel.suggestion.generated_tasks.forEach((task, index) => {
+                  recordAudit({
+                    actor: WORKSPACE_AUDIT_ACTOR,
+                    action: "task.created",
+                    resource: { type: "task", id: `${activePanel.suggestion.id}-task-${index + 1}`, name: task.title },
+                    changes: [
+                      { field: "owner", before: undefined, after: task.owner },
+                      { field: "priority", before: undefined, after: task.priority },
+                      { field: "due_date", before: undefined, after: task.due },
+                    ],
+                    comment: "由 AI 建议确认后写入任务池",
+                    metadata: { suggestion_id: activePanel.suggestion.id },
+                    source: "web",
+                  });
+                });
+                closeSuggestion(activePanel.suggestion.id, `${activePanel.suggestion.title} 已确认写入任务池`);
+              },
             })
           }
           onDismiss={() =>
@@ -1638,7 +1875,17 @@ export function RDMyWorkspacePage() {
               confirmLabel: "确认忽略",
               tone: "danger",
               details: ["忽略后会从待审核列表移除", "如需恢复，需要重新生成建议"],
-              onConfirm: () => closeSuggestion(activePanel.suggestion.id, `${activePanel.suggestion.title} 已忽略`),
+              onConfirm: () => {
+                recordAudit({
+                  actor: WORKSPACE_AUDIT_ACTOR,
+                  action: "ai.suggestion_rejected",
+                  resource: { type: "system", id: activePanel.suggestion.id, name: activePanel.suggestion.title },
+                  comment: "忽略 AI 生成建议",
+                  metadata: { source: activePanel.suggestion.source },
+                  source: "web",
+                });
+                closeSuggestion(activePanel.suggestion.id, `${activePanel.suggestion.title} 已忽略`);
+              },
             })
           }
         />
@@ -1657,6 +1904,17 @@ export function RDMyWorkspacePage() {
               confirmLabel: "确认处理",
               details: ["通知会从通知中心移除", "会在操作记录中留下处理记录"],
               onConfirm: () => {
+                recordAudit({
+                  actor: WORKSPACE_AUDIT_ACTOR,
+                  action: "notification.handled",
+                  resource: { type: "system", id: activePanel.notification.id, name: activePanel.notification.title },
+                  comment: "标记通知已处理",
+                  metadata: {
+                    related_task_id: activePanel.notification.related_task_id,
+                    notification_type: activePanel.notification.type,
+                  },
+                  source: "web",
+                });
                 setDismissedNotifs((prev) => new Set(prev).add(activePanel.notification.id));
                 addLog(`${activePanel.notification.title} 已标记处理`);
                 setActivePanel(null);
@@ -1676,6 +1934,12 @@ export function RDMyWorkspacePage() {
           />
         )}
       </AnimatePresence>
+
+      <RDProjectProposalDialog
+        open={showProposalDialog && canProposeProject}
+        onClose={() => setShowProposalDialog(false)}
+        userRole="user"
+      />
     </div>
   );
 }

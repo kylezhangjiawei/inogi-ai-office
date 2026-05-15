@@ -22,6 +22,7 @@ import { ImageGenerationModule } from './modules/image-generation/image-generati
 import { OpsCenterModule } from './modules/ops-center/ops-center.module';
 import { PermissionCatalogModule } from './modules/permission-catalog/permission-catalog.module';
 import { ExpenseModule } from './modules/expense/expense.module';
+import { ResearchDevelopmentModule } from './modules/research-development/research-development.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
 import { AuditInterceptor } from './modules/audit/audit.interceptor';
@@ -56,6 +57,7 @@ const envFilePath = [
     OpsCenterModule,
     PermissionCatalogModule,
     ExpenseModule,
+    ResearchDevelopmentModule,
   ],
   providers: [
     { provide: APP_GUARD, useClass: ThrottlerGuard },
