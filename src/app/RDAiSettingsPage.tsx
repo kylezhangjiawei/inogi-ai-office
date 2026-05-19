@@ -33,6 +33,45 @@ const PIPELINE_STEPS = [
   { id: "audit", label: "留痕落库", icon: Database },
 ] as const;
 
+const FILE_RULE_META: Record<
+  string,
+  { icon: React.ComponentType<{ className?: string }>; accent: string; description: string }
+> = {
+  spreadsheet: {
+    icon: Database,
+    accent: "bg-cyan-50 text-cyan-700 ring-cyan-100",
+    description: "结构化表格优先，适合 CSV 和 Excel 批量解析。",
+  },
+  document: {
+    icon: FileText,
+    accent: "bg-blue-50 text-blue-700 ring-blue-100",
+    description: "先抽取正文，再交给 AI 做字段归一化。",
+  },
+  archive: {
+    icon: SlidersHorizontal,
+    accent: "bg-amber-50 text-amber-700 ring-amber-100",
+    description: "先解压，再按内部文件类型继续分流。",
+  },
+  pdf: {
+    icon: FileText,
+    accent: "bg-rose-50 text-rose-700 ring-rose-100",
+    description: "优先读取文本层，低质量 PDF 再进入 OCR。",
+  },
+  image: {
+    icon: ScanSearch,
+    accent: "bg-emerald-50 text-emerald-700 ring-emerald-100",
+    description: "图片和扫描件先走 OCR，再进入结构化处理。",
+  },
+};
+
+const STRATEGY_LABELS: Record<string, string> = {
+  structured_parse: "结构化解析",
+  text_extract: "文本抽取",
+  archive_extract_then_parse: "解压后解析",
+  text_extract_then_ocr: "文本优先，OCR 兜底",
+  ocr_first: "OCR 优先",
+};
+
 function formatDate(value?: string) {
   if (!value) return "未保存";
   const date = new Date(value);
@@ -156,6 +195,35 @@ function SceneRow({
   );
 }
 
+function FileCapabilityToggle({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <label
+      className={cn(
+        "flex min-h-12 cursor-pointer items-center justify-between gap-3 rounded-[8px] border px-3 py-2 text-xs font-semibold transition-colors",
+        checked
+          ? "border-indigo-200 bg-indigo-50 text-indigo-800"
+          : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50",
+      )}
+    >
+      <span className="min-w-0">{label}</span>
+      <input
+        type="checkbox"
+        className="h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 accent-indigo-600"
+        checked={checked}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+    </label>
+  );
+}
+
 function FileRuleRow({
   rule,
   onChange,
@@ -163,41 +231,76 @@ function FileRuleRow({
   rule: RdAiFileRule;
   onChange: (patch: Partial<RdAiFileRule>) => void;
 }) {
+  const meta = FILE_RULE_META[rule.id] ?? {
+    icon: FileText,
+    accent: "bg-slate-100 text-slate-600 ring-slate-200",
+    description: "按当前策略处理此类文件。",
+  };
+  const Icon = meta.icon;
+  const strategyInputId = `file-rule-${rule.id}-strategy`;
+  const extensionsInputId = `file-rule-${rule.id}-extensions`;
+
   return (
-    <div className="grid gap-3 border-b border-slate-100 px-4 py-3 last:border-b-0 md:grid-cols-[1fr_1.1fr_1.1fr_110px_110px_110px] md:items-center">
-      <div>
-        <div className="text-sm font-semibold text-slate-900">{rule.label}</div>
-        <div className="mt-1 text-xs text-slate-400">{rule.extensions.join(", ")}</div>
+    <div className="border-b border-slate-100 px-5 py-5 last:border-b-0">
+      <div className="grid gap-4 xl:grid-cols-[230px_minmax(0,1fr)_240px] xl:items-start">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-[8px] ring-1", meta.accent)}>
+              <Icon className="h-4 w-4" />
+            </span>
+            <div className="min-w-0">
+              <div className="text-sm font-semibold leading-5 text-slate-950">{rule.label}</div>
+              <div className="mt-1 text-xs leading-5 text-slate-500">{meta.description}</div>
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {rule.extensions.map((extension) => (
+              <span
+                key={extension}
+                className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1 font-mono text-[11px] font-semibold text-slate-600"
+              >
+                .{extension}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid min-w-0 gap-3 lg:grid-cols-2">
+          <label htmlFor={strategyInputId} className="block min-w-0">
+            <span className="text-xs font-semibold text-slate-500">处理策略</span>
+            <input
+              id={strategyInputId}
+              className="mt-1.5 h-10 w-full rounded-[8px] border border-slate-200 bg-white px-3 font-mono text-sm text-slate-800 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+              value={rule.strategy}
+              onChange={(event) => onChange({ strategy: event.target.value })}
+            />
+            <span className="mt-1 block text-xs text-slate-400">{STRATEGY_LABELS[rule.strategy] ?? "自定义策略"}</span>
+          </label>
+          <label htmlFor={extensionsInputId} className="block min-w-0">
+            <span className="text-xs font-semibold text-slate-500">扩展名</span>
+            <input
+              id={extensionsInputId}
+              className="mt-1.5 h-10 w-full rounded-[8px] border border-slate-200 bg-white px-3 font-mono text-sm text-slate-800 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+              value={rule.extensions.join(", ")}
+              onChange={(event) =>
+                onChange({
+                  extensions: event.target.value
+                    .split(",")
+                    .map((item) => item.trim().replace(/^\./, "").toLowerCase())
+                    .filter(Boolean),
+                })
+              }
+            />
+            <span className="mt-1 block text-xs text-slate-400">用逗号分隔，不需要写点号。</span>
+          </label>
+        </div>
+
+        <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1">
+          <FileCapabilityToggle label="AI 结构化" checked={rule.ai_after_parse} onChange={(checked) => onChange({ ai_after_parse: checked })} />
+          <FileCapabilityToggle label="OCR 兜底" checked={rule.ocr_fallback} onChange={(checked) => onChange({ ocr_fallback: checked })} />
+          <FileCapabilityToggle label="直传 AI" checked={rule.direct_ai} onChange={(checked) => onChange({ direct_ai: checked })} />
+        </div>
       </div>
-      <input
-        className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
-        value={rule.strategy}
-        onChange={(event) => onChange({ strategy: event.target.value })}
-      />
-      <input
-        className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
-        value={rule.extensions.join(", ")}
-        onChange={(event) =>
-          onChange({
-            extensions: event.target.value
-              .split(",")
-              .map((item) => item.trim().replace(/^\./, "").toLowerCase())
-              .filter(Boolean),
-          })
-        }
-      />
-      <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
-        <input type="checkbox" checked={rule.ai_after_parse} onChange={(event) => onChange({ ai_after_parse: event.target.checked })} />
-        AI
-      </label>
-      <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
-        <input type="checkbox" checked={rule.ocr_fallback} onChange={(event) => onChange({ ocr_fallback: event.target.checked })} />
-        OCR
-      </label>
-      <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
-        <input type="checkbox" checked={rule.direct_ai} onChange={(event) => onChange({ direct_ai: event.target.checked })} />
-        直传
-      </label>
     </div>
   );
 }
@@ -239,6 +342,16 @@ export function RDAiSettingsPage() {
       boundScenes: scenes.filter((scene) => scene.model_id).length,
     };
   }, [settings?.scenes]);
+
+  const fileRuleStats = useMemo(() => {
+    const rules = settings?.file_policy.rules ?? [];
+    return {
+      total: rules.length,
+      ai: rules.filter((rule) => rule.ai_after_parse).length,
+      ocr: rules.filter((rule) => rule.ocr_fallback).length,
+      directAi: rules.filter((rule) => rule.direct_ai).length,
+    };
+  }, [settings?.file_policy.rules]);
 
   const selectedFileScene = useMemo(() => {
     const scene = settings?.scenes.find((item) => item.id === "file_task_extract");
@@ -426,18 +539,39 @@ export function RDAiSettingsPage() {
         </div>
       </section>
 
-      <section className="grid gap-6 lg:grid-cols-5">
-        <div className="material-card p-6 lg:col-span-2">
+      <section className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
+        <div className="material-card p-6">
           <h3 className="text-base font-semibold text-slate-900">OCR 与兜底</h3>
           <div className="mt-5 space-y-4">
-            <label className="block">
-              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">OCR 服务</span>
-              <input className="material-input mt-1.5 w-full" value={settings.file_policy.ocr_provider} onChange={(event) => patchFilePolicy({ ocr_provider: event.target.value })} />
-            </label>
-            <label className="block">
-              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">服务 Key</span>
-              <input className="material-input mt-1.5 w-full" value={settings.file_policy.ocr_service_key} onChange={(event) => patchFilePolicy({ ocr_service_key: event.target.value })} />
-            </label>
+            <div className="rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">OCR 凭据</div>
+                  <div className="mt-1 text-sm font-semibold text-slate-900">由后端 .env 托管</div>
+                  <p className="mt-1 text-xs leading-5 text-slate-500">
+                    SecretId / SecretKey 不在系统页面展示或编辑，仅显示运行状态。
+                  </p>
+                </div>
+                <span
+                  className={cn(
+                    "shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold",
+                    settings.runtime?.ocr?.ready
+                      ? "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-100"
+                      : "bg-amber-50 text-amber-700 ring-1 ring-amber-100",
+                  )}
+                >
+                  {settings.runtime?.ocr?.ready ? "已配置" : "未就绪"}
+                </span>
+              </div>
+              <div className="mt-3 grid gap-2 text-xs text-slate-500 sm:grid-cols-2">
+                <div className="rounded-md bg-white px-3 py-2 ring-1 ring-slate-200">
+                  服务：{settings.runtime?.ocr?.provider ?? "tencent_ocr"}
+                </div>
+                <div className="rounded-md bg-white px-3 py-2 ring-1 ring-slate-200">
+                  服务 Key：系统默认策略
+                </div>
+              </div>
+            </div>
             <label className="block">
               <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">OCR 置信度阈值</span>
               <input
@@ -482,10 +616,27 @@ export function RDAiSettingsPage() {
           </div>
         </div>
 
-        <div className="material-card overflow-hidden lg:col-span-3">
+        <div className="material-card min-w-0 overflow-hidden">
           <div className="border-b border-slate-100 px-6 py-5">
-            <h3 className="text-base font-semibold text-slate-900">文件类型策略</h3>
-            <p className="mt-1 text-sm text-slate-500">按扩展名决定结构化解析、文本抽取、OCR 优先或兜底。</p>
+            <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
+              <div className="min-w-0">
+                <h3 className="text-base font-semibold text-slate-900">文件类型策略</h3>
+                <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">按扩展名决定结构化解析、文本抽取、OCR 优先或兜底。每一行保留真实策略值，同时把扩展名和能力开关拆开显示，避免中等宽度下挤压变形。</p>
+              </div>
+              <div className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-4">
+                {[
+                  ["规则", fileRuleStats.total],
+                  ["AI", fileRuleStats.ai],
+                  ["OCR", fileRuleStats.ocr],
+                  ["直传", fileRuleStats.directAi],
+                ].map(([label, value]) => (
+                  <div key={label} className="rounded-[8px] border border-slate-200 bg-slate-50 px-3 py-2 text-center">
+                    <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">{label}</div>
+                    <div className="mt-1 text-sm font-semibold tabular-nums text-slate-900">{value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
           </div>
           <div>
             {settings.file_policy.rules.map((rule) => (

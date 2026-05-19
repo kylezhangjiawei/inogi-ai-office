@@ -27,6 +27,7 @@ import {
   APPROVAL_MODE_OPTIONS,
   APPROVAL_PERMISSION_OPTIONS,
   DEFAULT_PROJECT_FLOW,
+  fetchApprovalPoolsApi,
   fetchFlowsApi,
   getPoolForPermission,
   loadFlows,
@@ -79,6 +80,7 @@ function ApprovalNodeCard({
   onDelete,
   onMoveUp,
   onMoveDown,
+  pools,
   readOnly,
 }: {
   node: ApprovalNode;
@@ -88,9 +90,10 @@ function ApprovalNodeCard({
   onDelete: () => void;
   onMoveUp: () => void;
   onMoveDown: () => void;
+  pools: Record<string, PoolMember[]>;
   readOnly?: boolean;
 }) {
-  const pool = useMemo(() => getPoolForPermission(node.permission_code), [node.permission_code]);
+  const pool = pools[node.permission_code] ?? getPoolForPermission(node.permission_code);
   const modeCfg = MODE_BADGE[node.mode];
 
   return (
@@ -406,6 +409,7 @@ export function RDApprovalFlowPage() {
   const [confirmReset, setConfirmReset] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [approvalPools, setApprovalPools] = useState<Record<string, PoolMember[]>>({});
   const canManageFlow = usePermission(PERMISSIONS.RD_APPROVAL_FLOW_MANAGE);
 
   useEffect(() => {
@@ -435,6 +439,27 @@ export function RDApprovalFlowPage() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    const permissionCodes = Array.from(
+      new Set(flows.flatMap((flow) => flow.nodes.map((node) => node.permission_code))),
+    );
+    if (permissionCodes.length === 0) {
+      setApprovalPools({});
+      return;
+    }
+    let cancelled = false;
+    fetchApprovalPoolsApi(permissionCodes)
+      .then((pools) => {
+        if (!cancelled) setApprovalPools(pools);
+      })
+      .catch(() => {
+        if (!cancelled) setApprovalPools({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [flows]);
 
   const activeFlow = useMemo(
     () => flows.find((f) => f.id === activeFlowId),
@@ -713,6 +738,7 @@ export function RDApprovalFlowPage() {
                   onDelete={() => deleteNode(node.id)}
                   onMoveUp={() => moveNode(node.id, "up")}
                   onMoveDown={() => moveNode(node.id, "down")}
+                  pools={approvalPools}
                   readOnly={!canManageFlow}
                 />
               </div>
@@ -765,11 +791,9 @@ export function RDApprovalFlowPage() {
       {canManageFlow && confirmReset && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm animate-rd-fade-in"
-          onClick={() => setConfirmReset(false)}
         >
           <div
             className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(15,23,42,0.2)] animate-rd-scale-in"
-            onClick={(e) => e.stopPropagation()}
           >
             <div className="px-6 pt-6">
               <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-50">

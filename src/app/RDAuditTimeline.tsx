@@ -20,7 +20,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { cn } from "./components/ui/utils";
-import { AuditAction, AuditLog, AUDIT_ACTION_META } from "./lib/auditLog";
+import { AuditAction, AuditLog, getAuditActionMeta } from "./lib/auditLog";
 
 // ─── Icon mapping ────────────────────────────────────────────────────────────
 
@@ -67,6 +67,7 @@ const ACTION_ICONS: Partial<Record<AuditAction, React.ComponentType<{ className?
   "notification.handled": MessageSquare,
   "daily_report.generated": FileText,
   "daily_progress.synced": CheckCircle2,
+  "task.data.cleared": Trash2,
 };
 
 const TONE_STYLES: Record<
@@ -126,9 +127,9 @@ function AuditLogEntry({
   showResource?: boolean;
   isLast?: boolean;
 }) {
-  const meta = AUDIT_ACTION_META[log.action];
+  const meta = getAuditActionMeta(log.action);
   const tone = TONE_STYLES[meta.tone];
-  const Icon = ACTION_ICONS[log.action] ?? History;
+  const Icon = ACTION_ICONS[log.action as AuditAction] ?? History;
 
   return (
     <div className="group relative flex gap-3 rounded-lg px-1 pb-4 pt-0.5 transition-colors duration-150 hover:bg-slate-50/80">

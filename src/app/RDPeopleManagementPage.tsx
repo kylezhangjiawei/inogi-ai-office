@@ -13,9 +13,16 @@ import {
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
 import { usePermission } from "./hooks/usePermission";
-import { AuditActor, AuditChange, recordAudit } from "./lib/auditLog";
+import { AuditChange, recordAudit, useAuditActor } from "./lib/auditLog";
 import { PERMISSIONS } from "./lib/permissions";
-import { createRdPerson, deleteRdPerson, fetchRdPeople, updateRdPerson } from "./lib/rdApi";
+import {
+  createRdPerson,
+  deleteRdPerson,
+  fetchRdPeople,
+  fetchRdPeopleUserOptions,
+  updateRdPerson,
+  type RdIdentityUser,
+} from "./lib/rdApi";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -23,10 +30,13 @@ export type PersonStatus = "active" | "on_leave" | "resigned";
 
 export type Person = {
   id: string;
+  user_id?: string | null;
   name: string;
   position: string;
   department: string;
   email?: string;
+  username?: string | null;
+  user_status?: string | null;
   phone?: string;
   status: PersonStatus;
   max_tasks: number;
@@ -46,7 +56,6 @@ const PERSON_STATUS_CONFIG: Record<
 
 const DEPARTMENTS = ["硬件组", "软件组", "质量组", "项目组", "工艺组", "法规组", "其他"];
 const PEOPLE_PAGE_SIZE = 5;
-const PEOPLE_AUDIT_ACTOR: AuditActor = { id: "u-wang-zy", name: "王志远", role: "厂长" };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -85,6 +94,7 @@ function PersonAvatar({ name }: { name: string }) {
 function emptyPerson(): Person {
   return {
     id: "",
+    user_id: null,
     name: "",
     position: "",
     department: "硬件组",
@@ -96,7 +106,7 @@ function emptyPerson(): Person {
 }
 
 function getPersonChanges(before: Person, after: Person): AuditChange[] {
-  const fields: Array<keyof Person> = ["name", "position", "department", "email", "phone", "status", "max_tasks"];
+  const fields: Array<keyof Person> = ["user_id", "name", "position", "department", "email", "phone", "status", "max_tasks"];
   return fields
     .filter((field) => before[field] !== after[field])
     .map((field) => ({ field, before: before[field], after: after[field] }));
@@ -131,16 +141,19 @@ function Field({
 
 function PersonFormModal({
   person,
+  users,
   onSave,
   onClose,
 }: {
   person: Person | null;
+  users: RdIdentityUser[];
   onSave: (p: Person) => void;
   onClose: () => void;
 }) {
   const isEdit = person !== null;
   const [form, setForm] = useState<Person>(person ?? emptyPerson());
   const [errors, setErrors] = useState<{ name?: string; position?: string }>({});
+  const selectedUser = users.find((user) => user.id === form.user_id);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -157,11 +170,9 @@ function PersonFormModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm animate-rd-fade-in"
-      onClick={onClose}
     >
       <div
         className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(15,23,42,0.2)] animate-rd-scale-in"
-        onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div>
@@ -183,6 +194,37 @@ function PersonFormModal({
         </header>
 
         <form onSubmit={handleSubmit} className="space-y-4 px-6 py-5">
+          <Field label="绑定登录用户">
+            <select
+              value={form.user_id ?? ""}
+              onChange={(e) => {
+                const user = users.find((item) => item.id === e.target.value);
+                setForm((current) => ({
+                  ...current,
+                  user_id: user?.id ?? null,
+                  name: user?.name ?? current.name,
+                  email: user?.email ?? current.email,
+                  department: user?.department ?? current.department,
+                  username: user?.username ?? current.username ?? null,
+                  user_status: user?.status ?? current.user_status ?? null,
+                }));
+              }}
+              className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+            >
+              <option value="">未绑定，按姓名兼容匹配</option>
+              {users.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {user.name} · {user.email}
+                </option>
+              ))}
+            </select>
+            {selectedUser && (
+              <div className="mt-1 text-[11px] text-slate-400">
+                系统账号：{selectedUser.username ?? selectedUser.email} · 状态 {selectedUser.status}
+              </div>
+            )}
+          </Field>
+
           <div className="grid grid-cols-2 gap-3">
             <Field label="姓名" required error={errors.name}>
               <input
@@ -310,11 +352,9 @@ function ConfirmDeleteDialog({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm animate-rd-fade-in"
-      onClick={onCancel}
     >
       <div
         className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(15,23,42,0.2)] animate-rd-scale-in"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="px-6 pt-6">
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-50">
@@ -356,6 +396,7 @@ export function RDPeopleManagementPage({
   onBack: () => void;
   initialPeople?: Person[];
 }) {
+  const PEOPLE_AUDIT_ACTOR = useAuditActor("研发主管");
   const [people, setPeople] = useState<Person[]>(initialPeople);
   const [keyword, setKeyword] = useState("");
   const [statusFilter, setStatusFilter] = useState<PersonStatus | "all">("all");
@@ -366,6 +407,7 @@ export function RDPeopleManagementPage({
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [systemUsers, setSystemUsers] = useState<RdIdentityUser[]>([]);
   const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
 
   useEffect(() => {
@@ -374,8 +416,29 @@ export function RDPeopleManagementPage({
       setLoading(true);
       setLoadError(null);
       try {
-        const remotePeople = await fetchRdPeople<Person>();
+        const [raw, users] = await Promise.all([
+          fetchRdPeople(),
+          canManagePeople ? fetchRdPeopleUserOptions().catch(() => []) : Promise.resolve([]),
+        ]);
         if (cancelled) return;
+        setSystemUsers(users);
+        const remotePeople: Person[] = raw.map((p) => ({
+          id: p.id,
+          user_id: p.user_id ?? null,
+          name: p.name,
+          position: p.position,
+          department: (p as Person & { department?: string }).department ?? "",
+          email: p.email,
+          username: p.username ?? null,
+          user_status: p.user_status ?? null,
+          phone: p.phone,
+          status: (
+            ((p as Person & { status?: string }).status as PersonStatus | undefined) ??
+            (p.on_leave ? "on_leave" : "active")
+          ),
+          max_tasks: p.max_tasks,
+          joined_at: (p as Person & { joined_at?: string }).joined_at,
+        }));
         setPeople(remotePeople);
       } catch (error) {
         if (cancelled) return;
@@ -389,7 +452,7 @@ export function RDPeopleManagementPage({
     return () => {
       cancelled = true;
     };
-  }, [initialPeople]);
+  }, [canManagePeople, initialPeople]);
 
   const filtered = useMemo(() => {
     return people.filter((p) => {
@@ -401,6 +464,7 @@ export function RDPeopleManagementPage({
         p.name.toLowerCase().includes(k) ||
         p.position.toLowerCase().includes(k) ||
         p.department.toLowerCase().includes(k) ||
+        (p.username?.toLowerCase().includes(k) ?? false) ||
         (p.email?.toLowerCase().includes(k) ?? false)
       );
     });
@@ -644,6 +708,7 @@ export function RDPeopleManagementPage({
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50/60 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                   <th className="px-6 py-3 text-left">成员</th>
+                  <th className="px-4 py-3 text-left">登录用户</th>
                   <th className="px-4 py-3 text-left">职位</th>
                   <th className="px-4 py-3 text-left">组</th>
                   <th className="px-4 py-3 text-left">状态</th>
@@ -654,13 +719,13 @@ export function RDPeopleManagementPage({
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-16 text-center">
+                    <td colSpan={7} className="px-6 py-16 text-center">
                       <div className="text-sm font-medium text-slate-500">正在加载研发成员…</div>
                     </td>
                   </tr>
                 ) : filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-16 text-center">
+                    <td colSpan={7} className="px-6 py-16 text-center">
                       <div className="text-sm font-semibold text-slate-600">
                         {people.length === 0 ? "暂无研发成员" : "没有匹配的成员"}
                       </div>
@@ -703,7 +768,7 @@ export function RDPeopleManagementPage({
                   </tr>
                 ) : (
                   pagedPeople.map((p) => {
-                    const cfg = PERSON_STATUS_CONFIG[p.status];
+                    const cfg = PERSON_STATUS_CONFIG[p.status] ?? PERSON_STATUS_CONFIG["active"];
                     return (
                       <tr
                         key={p.id}
@@ -721,6 +786,20 @@ export function RDPeopleManagementPage({
                               )}
                             </div>
                           </div>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          {p.user_id ? (
+                            <div className="min-w-0">
+                              <div className="truncate text-xs font-semibold text-slate-700">
+                                {p.username ?? p.email ?? "已绑定"}
+                              </div>
+                              <div className="mt-0.5 text-[11px] text-emerald-600">已绑定</div>
+                            </div>
+                          ) : (
+                            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+                              未绑定
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3.5 text-sm text-slate-700">{p.position}</td>
                         <td className="px-4 py-3.5">
@@ -830,6 +909,7 @@ export function RDPeopleManagementPage({
       {canManagePeople && (editing || creating) && (
         <PersonFormModal
           person={editing}
+          users={systemUsers}
           onSave={handleSave}
           onClose={() => {
             setEditing(null);

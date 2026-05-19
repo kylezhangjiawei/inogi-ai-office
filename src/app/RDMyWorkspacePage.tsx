@@ -29,59 +29,32 @@ import { cn } from "./components/ui/utils";
 import { usePermission } from "./hooks/usePermission";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
 import { AuditTimeline } from "./RDAuditTimeline";
-import { AuditActor, recordAudit, useAuditLogs } from "./lib/auditLog";
+import { AuditActor, recordAudit, useAuditActor, useAuditLogs } from "./lib/auditLog";
 import { PERMISSIONS } from "./lib/permissions";
-import { fetchRdWorkspace, RdWorkspacePayload } from "./lib/rdApi";
+import {
+  assessRdTaskProgress,
+  createRdDailyReport,
+  createRdTaskProgressNote,
+  fetchRdWorkspace,
+  updateRdTask,
+  type RdAiProgressAssessment,
+  type RdDailyReport,
+  type RdPriority,
+  type RdTaskStatus,
+  type RdWorkspacePayload,
+  type RdWorkspaceTask,
+  type RdAiSuggestion,
+  type RdWorkspaceNotification,
+} from "./lib/rdApi";
+import { toast } from "sonner";
 
-type Priority = "high" | "medium" | "low";
-type TaskStatus = "in_progress" | "paused_leave" | "blocked" | "pending_review";
+type Priority = RdPriority;
+type TaskStatus = RdTaskStatus;
 type TaskRole = "primary" | "collaborator";
 type OperationTab = "detail" | "progress" | "handoff" | "submit";
-
-type WorkspaceTask = {
-  task_id: string;
-  title: string;
-  priority: Priority;
-  progress: number;
-  due_date: string;
-  status: TaskStatus;
-  status_label: string;
-  role: TaskRole;
-  category_path: string;
-  owner: string;
-  collab_role?: string;
-  on_leave?: boolean;
-  ai_pending?: boolean;
-  description: string;
-  next_action: string;
-  deliverables: string[];
-  blockers: string[];
-  timeline: { label: string; time: string; state: "done" | "current" | "todo" }[];
-};
-
-type AiSuggestion = {
-  id: string;
-  type: "task_create" | "summary";
-  title: string;
-  preview: string;
-  confidence: number;
-  source: string;
-  generated_tasks: {
-    title: string;
-    owner: string;
-    due: string;
-    priority: Priority;
-  }[];
-};
-
-type WorkspaceNotification = {
-  id: string;
-  type: "blocked" | "due_soon" | "pending_ai" | "transfer";
-  title: string;
-  message: string;
-  time: string;
-  related_task_id?: string;
-};
+type WorkspaceTask = RdWorkspaceTask;
+type AiSuggestion = RdAiSuggestion;
+type WorkspaceNotification = RdWorkspaceNotification;
 
 type ActivePanel =
   | { kind: "task"; task: WorkspaceTask; tab: OperationTab }
@@ -112,8 +85,10 @@ type ConfirmDialogConfig = {
   onConfirm: () => void;
 };
 
-const TODAY_LABEL = "2026-05-14";
-const WORKSPACE_AUDIT_ACTOR: AuditActor = { id: "u-current", name: "我", role: "研发成员" };
+const TODAY_LABEL = new Date().toISOString().split("T")[0]!;
+const NOTE_ATTACHMENT_MAX_FILES = 5;
+const NOTE_ATTACHMENT_MAX_FILE_BYTES = 25 * 1024 * 1024;
+const NOTE_ATTACHMENT_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
 
 const MY_TASKS: WorkspaceTask[] = [
   {
@@ -193,7 +168,7 @@ const COLLAB_TASKS: WorkspaceTask[] = [
     priority: "high",
     progress: 65,
     due_date: "2026-05-18",
-    status: "blocked",
+    status: "paused_blocked",
     status_label: "协作受阻",
     role: "collaborator",
     category_path: "Top结构 / 嵌入式接口",
@@ -311,10 +286,15 @@ const PRIORITY_CONFIG: Record<Priority, { label: string; className: string }> = 
 };
 
 const STATUS_CONFIG: Record<TaskStatus, { className: string; dot: string }> = {
-  in_progress: { className: "bg-blue-50 text-blue-700", dot: "bg-blue-500" },
-  paused_leave: { className: "bg-amber-50 text-amber-700", dot: "bg-amber-500" },
-  blocked: { className: "bg-red-50 text-red-700", dot: "bg-red-500" },
+  draft:          { className: "bg-slate-50 text-slate-500",   dot: "bg-slate-400" },
+  in_progress:    { className: "bg-blue-50 text-blue-700",     dot: "bg-blue-500" },
   pending_review: { className: "bg-violet-50 text-violet-700", dot: "bg-violet-500" },
+  paused_leave:   { className: "bg-amber-50 text-amber-700",   dot: "bg-amber-500" },
+  paused_blocked: { className: "bg-red-50 text-red-700",       dot: "bg-red-500" },
+  on_hold:        { className: "bg-amber-50 text-amber-600",   dot: "bg-amber-400" },
+  completed:      { className: "bg-emerald-50 text-emerald-700", dot: "bg-emerald-500" },
+  pending_assign: { className: "bg-violet-50 text-violet-600", dot: "bg-violet-400" },
+  archived:       { className: "bg-slate-50 text-slate-400",   dot: "bg-slate-300" },
 };
 
 function PriorityBadge({ priority }: { priority: Priority }) {
@@ -410,18 +390,22 @@ function ActionButton({
   onClick,
   variant = "secondary",
   className,
+  disabled,
 }: {
   children: React.ReactNode;
   onClick?: () => void;
   variant?: "primary" | "secondary" | "ghost" | "danger";
   className?: string;
+  disabled?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={cn(
-        "inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200",
+        "inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200",
+        disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
         variant === "primary" && "bg-blue-600 text-white shadow-[0_8px_18px_rgba(37,99,235,0.20)] hover:bg-blue-700",
         variant === "secondary" && "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900",
         variant === "ghost" && "text-slate-500 hover:bg-slate-100 hover:text-slate-800",
@@ -457,7 +441,6 @@ function ConfirmActionModal({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.16 }}
-      onClick={onCancel}
     >
       <motion.div
         role="dialog"
@@ -468,7 +451,6 @@ function ConfirmActionModal({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 10, scale: 0.98 }}
         transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-        onClick={(event) => event.stopPropagation()}
       >
         <div className="flex items-start gap-3 border-b border-slate-100 px-5 py-4">
           <span
@@ -659,10 +641,9 @@ function DrawerShell({
   children: React.ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/20 backdrop-blur-[1px]" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/20 backdrop-blur-[1px]">
       <aside
         className="flex h-full w-full max-w-2xl flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
       >
         <header className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-4">
           <div className="flex min-w-0 items-start gap-3">
@@ -700,15 +681,19 @@ function TaskOperationDrawer({
   task: WorkspaceTask;
   initialTab: OperationTab;
   onClose: () => void;
-  onProgressSave: (taskId: string, progress: number) => void;
+  onProgressSave: (taskId: string, progress: number) => void | Promise<void>;
   onLog: (message: string) => void;
   onRequestConfirm: (config: ConfirmDialogConfig) => void;
 }) {
+  const WORKSPACE_AUDIT_ACTOR = useAuditActor("研发成员");
   const [tab, setTab] = useState<OperationTab>(initialTab);
   const [draftProgress, setDraftProgress] = useState(task.progress);
   const [note, setNote] = useState("");
   const [uploadedEvidence, setUploadedEvidence] = useState<UploadedEvidence[]>([]);
   const [aiAssessment, setAiAssessment] = useState<ProgressAssessment | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [noteAttachments, setNoteAttachments] = useState<File[]>([]);
+  const [savingNote, setSavingNote] = useState(false);
   const [handoffTo, setHandoffTo] = useState("赵强");
   const [receipt, setReceipt] = useState<string | null>(null);
   const taskLogs = useAuditLogs({ resourceType: "task", resourceId: task.task_id });
@@ -745,70 +730,203 @@ function TaskOperationDrawer({
             { label: "生成记录", helper: "沉淀操作日志", state: "todo" as const },
           ];
 
-  const submitProgress = () => {
-    const source = aiAssessment && aiAssessment.progress === draftProgress ? "AI 判断" : "人工设置";
+  const submitProgress = async () => {
+    // Validation: attachments require text
+    if (noteAttachments.length > 0 && !note.trim()) {
+      toast.error("已选择附件，进展说明文本必填");
+      return;
+    }
+    const oversized = noteAttachments.find((file) => file.size > NOTE_ATTACHMENT_MAX_FILE_BYTES);
+    if (oversized) {
+      toast.error(`${oversized.name} 超过单文件 25MB 限制`);
+      return;
+    }
+    const totalAttachmentSize = noteAttachments.reduce((sum, file) => sum + file.size, 0);
+    if (totalAttachmentSize > NOTE_ATTACHMENT_MAX_TOTAL_BYTES) {
+      toast.error("附件总大小不能超过 50MB");
+      return;
+    }
+    let assessmentForSave = aiAssessment;
+    let progressToSave = draftProgress;
+    if (note.trim()) {
+      setAiLoading(true);
+      setReceipt(null);
+      try {
+        const result: RdAiProgressAssessment = await assessRdTaskProgress({
+          text: note.trim(),
+          task: {
+            task_id: task.task_id,
+            title: task.title,
+            description: task.description,
+            category_path: task.category_path,
+            current_progress: task.progress,
+            current_status: task.status_label,
+          },
+        });
+        assessmentForSave = {
+          progress: result.progress,
+          stage: result.stage,
+          confidence: result.confidence,
+          basis: result.basis,
+          recommendation: result.recommendation,
+        };
+        progressToSave = Math.max(draftProgress, assessmentForSave.progress);
+        setAiAssessment(assessmentForSave);
+        setDraftProgress(progressToSave);
+        recordAudit({
+          actor: WORKSPACE_AUDIT_ACTOR,
+          action: "ai.parse_triggered",
+          resource: { type: "task", id: task.task_id, name: task.title },
+          comment: "AI 根据进展说明文本判断当前任务进度",
+          metadata: {
+            confidence: assessmentForSave.confidence,
+            stage: assessmentForSave.stage,
+            provider: result.provider,
+            model: result.model,
+            source: result.source,
+            note_attachment_count: noteAttachments.length,
+          },
+          source: "ai",
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "AI 进度判断失败";
+        toast.error(`AI 解析失败：${message}`);
+        return;
+      } finally {
+        setAiLoading(false);
+      }
+    }
+    const source = assessmentForSave && assessmentForSave.progress === progressToSave ? "AI 判断" : "人工设置";
     const evidenceText = uploadedEvidence.length > 0 ? `，依据 ${uploadedEvidence.length} 个上传文件` : "";
-    const message = `${task.task_id} 已通过${source}更新到 ${draftProgress}%${evidenceText}`;
+    const message = `${task.task_id} 已通过${source}更新到 ${progressToSave}%${evidenceText}`;
     onRequestConfirm({
       title: "确认保存进度",
-      message: `将把 ${task.task_id} 的进度更新为 ${draftProgress}%。`,
+      message: `将把 ${task.task_id} 的进度更新为 ${progressToSave}%。`,
       confirmLabel: "确认保存",
       details: [
         `进度来源：${source}`,
         uploadedEvidence.length > 0 ? `上传依据：${uploadedEvidence.length} 个文件` : "上传依据：无，按人工判断保存",
-        note ? "已填写进展说明" : "未填写进展说明",
+        assessmentForSave ? `AI 判断：${assessmentForSave.stage} / 置信度 ${assessmentForSave.confidence}%` : "AI 判断：未触发",
+        note ? `已填写进展说明${noteAttachments.length > 0 ? `（含 ${noteAttachments.length} 个附件）` : ""}` : "未填写进展说明",
       ],
-      onConfirm: () => {
-        onProgressSave(task.task_id, draftProgress);
-        recordAudit({
-          actor: WORKSPACE_AUDIT_ACTOR,
-          action: "task.progress_updated",
-          resource: { type: "task", id: task.task_id, name: task.title },
-          changes: [{ field: "progress", before: task.progress, after: draftProgress }],
-          comment: note || "更新任务进度",
-          metadata: { source, evidence_count: uploadedEvidence.length },
-          source: "web",
-        });
-        setReceipt(message);
-        onLog(message);
+      onConfirm: async () => {
+        setSavingNote(true);
+        try {
+          if (note.trim() || noteAttachments.length > 0) {
+            await createRdTaskProgressNote({
+              task_id: task.task_id,
+              text: note.trim(),
+              progress: progressToSave,
+              files: noteAttachments,
+            });
+          }
+          await onProgressSave(task.task_id, progressToSave);
+          recordAudit({
+            actor: WORKSPACE_AUDIT_ACTOR,
+            action: "task.progress_updated",
+            resource: { type: "task", id: task.task_id, name: task.title },
+            changes: [{ field: "progress", before: task.progress, after: progressToSave }],
+            comment: note || "更新任务进度",
+            metadata: {
+              source,
+              evidence_count: uploadedEvidence.length,
+              note_attachment_count: noteAttachments.length,
+            },
+            source: "web",
+          });
+          setReceipt(message);
+          onLog(message);
+          setNoteAttachments([]);
+          setDraftProgress(progressToSave);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : "进度记录保存失败";
+          toast.error(msg);
+        } finally {
+          setSavingNote(false);
+        }
       },
     });
   };
 
-  const handleEvidenceUpload = (files: FileList | null) => {
-    const nextFiles = Array.from(files ?? []).map((file) => ({
+  const handleEvidenceUpload = async (files: FileList | null) => {
+    const fileList = Array.from(files ?? []);
+    if (fileList.length === 0) return;
+
+    const evidenceMeta: UploadedEvidence[] = fileList.map((file) => ({
       name: file.name,
       size: file.size,
       type: file.type || "unknown",
     }));
-    if (nextFiles.length === 0) return;
-
-    const merged = [...nextFiles, ...uploadedEvidence].slice(0, 5);
-    const assessment = buildProgressAssessment(task, merged);
+    const merged = [...evidenceMeta, ...uploadedEvidence].slice(0, 5);
     setUploadedEvidence(merged);
-    setAiAssessment(assessment);
-    recordAudit({
-      actor: WORKSPACE_AUDIT_ACTOR,
-      action: "task.evidence_uploaded",
-      resource: { type: "task", id: task.task_id, name: task.title },
-      comment: "上传任务进度依据并触发 AI 判断",
-      metadata: {
-        evidence_count: nextFiles.length,
-        filenames: nextFiles.map((file) => file.name),
-        suggested_progress: assessment.progress,
-      },
-      source: "web",
-    });
-    recordAudit({
-      actor: WORKSPACE_AUDIT_ACTOR,
-      action: "ai.parse_triggered",
-      resource: { type: "task", id: task.task_id, name: task.title },
-      comment: "AI 根据上传依据判断当前任务进度",
-      metadata: { confidence: assessment.confidence, stage: assessment.stage },
-      source: "ai",
-    });
     setReceipt(null);
-    setNote((current) => current || `AI 识别：${assessment.stage}。${assessment.recommendation}`);
+
+    // Send the most recent file to AI for analysis. If user uploads multiple, we
+    // analyze the first one (the dialog is single-task scoped anyway).
+    const firstFile = fileList[0];
+    setAiLoading(true);
+    setAiAssessment(null);
+    try {
+      const result: RdAiProgressAssessment = await assessRdTaskProgress({
+        file: firstFile,
+        task: {
+          task_id: task.task_id,
+          title: task.title,
+          description: task.description,
+          category_path: task.category_path,
+          current_progress: task.progress,
+          current_status: task.status_label,
+        },
+      });
+      const assessment: ProgressAssessment = {
+        progress: result.progress,
+        stage: result.stage,
+        confidence: result.confidence,
+        basis: result.basis,
+        recommendation: result.recommendation,
+      };
+      setAiAssessment(assessment);
+      setDraftProgress(Math.max(draftProgress, assessment.progress));
+      setNote((current) => current || `AI 识别：${assessment.stage}。${assessment.recommendation}`);
+
+      recordAudit({
+        actor: WORKSPACE_AUDIT_ACTOR,
+        action: "task.evidence_uploaded",
+        resource: { type: "task", id: task.task_id, name: task.title },
+        comment: "上传任务进度依据并触发 AI 判断",
+        metadata: {
+          evidence_count: fileList.length,
+          filenames: fileList.map((file) => file.name),
+          suggested_progress: assessment.progress,
+          ai_provider: result.provider,
+          ai_model: result.model,
+          ai_source: result.source,
+        },
+        source: "web",
+      });
+      recordAudit({
+        actor: WORKSPACE_AUDIT_ACTOR,
+        action: "ai.parse_triggered",
+        resource: { type: "task", id: task.task_id, name: task.title },
+        comment: "AI 根据上传依据判断当前任务进度",
+        metadata: {
+          confidence: assessment.confidence,
+          stage: assessment.stage,
+          provider: result.provider,
+          model: result.model,
+        },
+        source: "ai",
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "AI 进度判断失败";
+      toast.error(`AI 解析失败：${message}`);
+      // Fallback to the local filename-based heuristic so the user still gets some feedback
+      const fallback = buildProgressAssessment(task, merged);
+      setAiAssessment(fallback);
+      setNote((current) => current || `本地推断：${fallback.stage}。${fallback.recommendation}`);
+    } finally {
+      setAiLoading(false);
+    }
   };
 
   const submitHandoff = () => {
@@ -998,13 +1116,25 @@ function TaskOperationDrawer({
                     支持方案、测试记录、实验数据、评审纪要等文件；AI 只给建议，最终进度由人工确认。
                   </p>
                 </div>
-                <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.18)] transition-colors hover:bg-blue-700">
-                  <UploadCloud className="h-3.5 w-3.5" />
-                  上传文件
+                <label
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.18)] transition-colors",
+                    aiLoading
+                      ? "cursor-not-allowed bg-blue-400"
+                      : "cursor-pointer bg-blue-600 hover:bg-blue-700",
+                  )}
+                >
+                  {aiLoading ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <UploadCloud className="h-3.5 w-3.5" />
+                  )}
+                  {aiLoading ? "AI 解析中…" : "上传文件"}
                   <input
                     type="file"
                     multiple
                     className="sr-only"
+                    disabled={aiLoading}
                     accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.png,.jpg,.jpeg"
                     onChange={(event) => {
                       handleEvidenceUpload(event.target.files);
@@ -1023,6 +1153,13 @@ function TaskOperationDrawer({
                       <span className="shrink-0 text-slate-400">{formatFileSize(file.size)}</span>
                     </div>
                   ))}
+                </div>
+              )}
+
+              {aiLoading && (
+                <div className="mt-3 flex items-center gap-2 rounded-lg bg-white/70 px-3 py-2 text-xs text-blue-700 ring-1 ring-blue-100">
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  AI 正在阅读文件并判断当前任务阶段…
                 </div>
               )}
             </div>
@@ -1095,20 +1232,101 @@ function TaskOperationDrawer({
               </div>
             </div>
             <label className="block">
-              <span className="text-sm font-semibold text-slate-900">进展说明</span>
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-semibold text-slate-900">
+                  进展说明
+                  {noteAttachments.length > 0 && (
+                    <span className="ml-1 text-xs font-normal text-rose-500">（已选附件，文本必填）</span>
+                  )}
+                </span>
+                <span className="text-[10px] text-slate-400">仅文本会被 AI 分析；附件用于留档展示</span>
+              </div>
               <textarea
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
                 rows={4}
                 placeholder="说明本次进度变化、上传文件依据、产出内容、仍需支持的事项"
-                className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none transition-colors focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                className={cn(
+                  "mt-2 w-full resize-none rounded-xl border px-3 py-2 text-sm outline-none transition-colors focus:ring-2",
+                  noteAttachments.length > 0 && !note.trim()
+                    ? "border-rose-300 focus:border-rose-400 focus:ring-rose-100"
+                    : "border-slate-200 focus:border-blue-300 focus:ring-blue-100",
+                )}
               />
             </label>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-700">附件（可选）</span>
+                <label
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                    savingNote
+                      ? "cursor-not-allowed bg-slate-200 text-slate-500"
+                      : "cursor-pointer border border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:text-blue-700",
+                  )}
+                >
+                  <UploadCloud className="h-3.5 w-3.5" />
+                  添加文件/图片
+                  <input
+                    type="file"
+                    multiple
+                    disabled={savingNote}
+                    className="sr-only"
+                    accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.zip,.rar,.png,.jpg,.jpeg,.webp,.bmp"
+                    onChange={(event) => {
+                      const incoming = Array.from(event.target.files ?? []);
+                      if (incoming.length === 0) return;
+                      const oversized = incoming.find((file) => file.size > NOTE_ATTACHMENT_MAX_FILE_BYTES);
+                      if (oversized) {
+                        toast.error(`${oversized.name} 超过单文件 25MB 限制`);
+                        event.target.value = "";
+                        return;
+                      }
+                      const merged = [...noteAttachments, ...incoming].slice(0, NOTE_ATTACHMENT_MAX_FILES);
+                      const totalSize = merged.reduce((sum, file) => sum + file.size, 0);
+                      if (totalSize > NOTE_ATTACHMENT_MAX_TOTAL_BYTES) {
+                        toast.error("附件总大小不能超过 50MB");
+                        event.target.value = "";
+                        return;
+                      }
+                      setNoteAttachments(merged);
+                      event.target.value = "";
+                    }}
+                  />
+                </label>
+              </div>
+              {noteAttachments.length === 0 ? (
+                <p className="mt-2 text-[11px] text-slate-400">最多 5 个，单文件 25MB 以内，总计不超过 50MB。</p>
+              ) : (
+                <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                  {noteAttachments.map((file, idx) => (
+                    <div
+                      key={`${file.name}-${file.size}-${idx}`}
+                      className="flex items-center gap-2 rounded-md bg-white px-2.5 py-1.5 text-xs text-slate-700 ring-1 ring-slate-200"
+                    >
+                      <FileText className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                      <span className="min-w-0 flex-1 truncate">{file.name}</span>
+                      <span className="shrink-0 text-slate-400">{formatFileSize(file.size)}</span>
+                      <button
+                        type="button"
+                        onClick={() => setNoteAttachments((prev) => prev.filter((_, i) => i !== idx))}
+                        className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                        aria-label="移除附件"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             <div className="flex items-center justify-end gap-2">
-              <ActionButton onClick={onClose}>取消</ActionButton>
-              <ActionButton onClick={submitProgress} variant="primary">
-                <CheckCircle2 className="h-3.5 w-3.5" />
-                保存进度
+              <ActionButton onClick={onClose} disabled={savingNote}>取消</ActionButton>
+              <ActionButton onClick={submitProgress} variant="primary" disabled={savingNote || aiLoading}>
+                {savingNote || aiLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                {aiLoading ? "AI 判断中…" : savingNote ? "保存中…" : "保存进度"}
               </ActionButton>
             </div>
           </div>
@@ -1318,18 +1536,32 @@ function NotificationDrawer({
           </div>
         )}
 
-        <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
-          <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-blue-800">
-            <ShieldCheck className="h-4 w-4" />
-            系统建议
+        {notification.type === "message" && (
+          <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3">
+            <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-blue-700">
+              <MessageSquare className="h-3.5 w-3.5" />
+              <span className="font-semibold">{notification.sender_name ?? "未知发件人"}</span>
+              {notification.sender_role && <span className="text-blue-500">· {notification.sender_role}</span>}
+              <span className="ml-auto text-blue-400">{notification.time}</span>
+            </div>
+            <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{notification.message}</p>
           </div>
-          <p className="text-sm leading-6 text-blue-700">
-            {notification.type === "due_soon" && "建议先确认是否需要顺延；如果仍由你处理，请更新下一步动作和风险说明。"}
-            {notification.type === "blocked" && "建议补充协作反馈，并把上游阻塞同步给主责人和上级。"}
-            {notification.type === "pending_ai" && "建议进入 AI 建议审核，确认后再写入任务池，避免自动生成不准确任务。"}
-            {notification.type === "transfer" && "建议确认接收人和影响范围后再提交移交流程。"}
-          </p>
-        </div>
+        )}
+
+        {notification.type !== "message" && (
+          <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
+            <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-blue-800">
+              <ShieldCheck className="h-4 w-4" />
+              系统建议
+            </div>
+            <p className="text-sm leading-6 text-blue-700">
+              {notification.type === "due_soon" && "建议先确认是否需要顺延；如果仍由你处理，请更新下一步动作和风险说明。"}
+              {notification.type === "blocked" && "建议补充协作反馈，并把上游阻塞同步给主责人和上级。"}
+              {notification.type === "pending_ai" && "建议进入 AI 建议审核，确认后再写入任务池，避免自动生成不准确任务。"}
+              {notification.type === "transfer" && "建议确认接收人和影响范围后再提交移交流程。"}
+            </p>
+          </div>
+        )}
 
         <div className="flex items-center justify-end gap-2">
           <ActionButton onClick={onClose}>稍后处理</ActionButton>
@@ -1348,6 +1580,14 @@ function applyProgressOverrides(tasks: WorkspaceTask[], overrides: Record<string
     ...task,
     progress: overrides[task.task_id] ?? task.progress,
   }));
+}
+
+function updateTaskProgressList(tasks: WorkspaceTask[], taskId: string, progress: number) {
+  return tasks.map((task) =>
+    task.task_id === taskId
+      ? { ...task, progress }
+      : task,
+  );
 }
 
 function formatFileSize(size: number) {
@@ -1402,6 +1642,9 @@ function buildProgressAssessment(task: WorkspaceTask, evidence: UploadedEvidence
 
 export function RDMyWorkspacePage() {
   const canProposeProject = usePermission(PERMISSIONS.RD_PROJECT_PROPOSE);
+  const WORKSPACE_AUDIT_ACTOR = useAuditActor("研发成员");
+  const [dailyReportLoading, setDailyReportLoading] = useState(false);
+  const [latestDailyReport, setLatestDailyReport] = useState<RdDailyReport | null>(null);
   const [workspace, setWorkspace] = useState<RdWorkspacePayload<WorkspaceTask, AiSuggestion, WorkspaceNotification>>(EMPTY_WORKSPACE);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -1421,7 +1664,7 @@ export function RDMyWorkspacePage() {
       setLoading(true);
       setLoadError(null);
       try {
-        const payload = await fetchRdWorkspace<RdWorkspacePayload<WorkspaceTask, AiSuggestion, WorkspaceNotification>>();
+        const payload = await fetchRdWorkspace();
         if (!cancelled) setWorkspace({ ...EMPTY_WORKSPACE, ...payload });
       } catch (error) {
         if (!cancelled) {
@@ -1467,7 +1710,7 @@ export function RDMyWorkspacePage() {
   };
 
   return (
-    <div className="min-h-full bg-[#f7f9fc] px-6 py-6 lg:px-8 lg:py-8">
+    <div className="min-h-full  px-6 py-6 lg:px-8 lg:py-8">
       <div className="mx-auto max-w-[1400px] space-y-6">
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
@@ -1493,27 +1736,44 @@ export function RDMyWorkspacePage() {
               </button>
             )}
             <ActionButton
+              disabled={dailyReportLoading}
               onClick={() =>
                 setConfirmDialog({
                   title: "确认生成日报",
-                  message: "将根据当前任务、待办和操作记录生成今日研发日报。",
+                  message: "将根据今日的进度记录、任务状态自动汇总成研发日报，发送至研发主管驾驶舱。",
                   confirmLabel: "确认生成",
-                  details: ["会读取当前页面的任务状态", "生成结果会进入操作记录", "不会自动提交给上级"],
-                  onConfirm: () => {
-                    recordAudit({
-                      actor: WORKSPACE_AUDIT_ACTOR,
-                      action: "daily_report.generated",
-                      resource: { type: "system", id: "daily-report", name: "今日研发日报" },
-                      metadata: { task_count: allTasks.length, operation_log_count: operationLogs.length },
-                      source: "web",
-                    });
-                    addLog("今日研发日报已生成");
+                  details: ["将基于今日的进度记录、任务变更生成", "研发主管驾驶舱可以看到", "下午 18:30 会自动生成，无需重复操作"],
+                  onConfirm: async () => {
+                    setDailyReportLoading(true);
+                    try {
+                      const report = await createRdDailyReport({});
+                      setLatestDailyReport(report);
+                      recordAudit({
+                        actor: WORKSPACE_AUDIT_ACTOR,
+                        action: "daily_report.generated",
+                        resource: { type: "system", id: report.id, name: `${report.user_name} ${report.date} 日报` },
+                        metadata: {
+                          report_date: report.date,
+                          tasks: report.summary.stats.total_tasks,
+                          notes: report.summary.stats.notes_count,
+                          trigger: report.trigger,
+                        },
+                        source: "web",
+                      });
+                      addLog(`日报已生成：${report.date}，已同步至研发主管驾驶舱`);
+                      toast.success("日报已生成，研发主管驾驶舱可查看");
+                    } catch (err) {
+                      const msg = err instanceof Error ? err.message : "日报生成失败";
+                      toast.error(msg);
+                    } finally {
+                      setDailyReportLoading(false);
+                    }
                   },
                 })
               }
             >
-              <CalendarClock className="h-3.5 w-3.5" />
-              生成日报
+              {dailyReportLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <CalendarClock className="h-3.5 w-3.5" />}
+              {dailyReportLoading ? "生成中…" : "生成日报"}
             </ActionButton>
             <ActionButton
               variant="primary"
@@ -1546,6 +1806,21 @@ export function RDMyWorkspacePage() {
             </ActionButton>
           </div>
         </header>
+
+        {latestDailyReport && (
+          <div className="rounded-xl border border-violet-100 bg-violet-50/60 px-4 py-3 text-xs text-violet-700">
+            <div className="flex items-center gap-2 font-semibold">
+              <CalendarClock className="h-3.5 w-3.5" />
+              {latestDailyReport.date} 日报已生成
+              <span className="rounded-full bg-white px-1.5 text-[10px] text-violet-700 ring-1 ring-violet-200">
+                任务 {latestDailyReport.summary.stats.total_tasks} · 进度记录 {latestDailyReport.summary.stats.notes_count}
+              </span>
+            </div>
+            <p className="mt-1 line-clamp-2 whitespace-pre-line text-[11px] text-slate-600">
+              {latestDailyReport.summary.text.split("\n").slice(2, 5).join(" ")}
+            </p>
+          </div>
+        )}
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <WorkspaceMetric label="主责任务" value={myTasks.length} helper="需要我推进闭环" icon={User} tone="text-blue-500" />
@@ -1718,14 +1993,18 @@ export function RDMyWorkspacePage() {
                 <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">暂无新通知</p>
               ) : (
                 <ul className="space-y-2">
-                  {visibleNotifications.map((notification) => (
+                  {visibleNotifications.map((notification) => {
+                    const isMessage = notification.type === "message";
+                    return (
                     <li key={notification.id}>
                       <div
                         className={cn(
                           "group flex w-full cursor-pointer items-start gap-2 rounded-xl border px-3 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:shadow-[0_10px_24px_rgba(15,23,42,0.06)]",
-                          notification.type === "blocked" || notification.type === "due_soon"
-                            ? "border-amber-100 bg-amber-50"
-                            : "border-slate-100 bg-slate-50",
+                          isMessage
+                            ? "border-blue-100 bg-blue-50/60"
+                            : notification.type === "blocked" || notification.type === "due_soon"
+                              ? "border-amber-100 bg-amber-50"
+                              : "border-slate-100 bg-slate-50",
                         )}
                       >
                         <button
@@ -1733,12 +2012,16 @@ export function RDMyWorkspacePage() {
                           onClick={() => setActivePanel({ kind: "notification", notification })}
                           className="flex min-w-0 flex-1 cursor-pointer items-start gap-2 text-left focus-visible:outline-none"
                         >
-                          <AlertTriangle
-                            className={cn(
-                              "mt-0.5 h-3.5 w-3.5 shrink-0",
-                              notification.type === "blocked" ? "text-red-500" : "text-amber-500",
-                            )}
-                          />
+                          {isMessage ? (
+                            <MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500" />
+                          ) : (
+                            <AlertTriangle
+                              className={cn(
+                                "mt-0.5 h-3.5 w-3.5 shrink-0",
+                                notification.type === "blocked" ? "text-red-500" : "text-amber-500",
+                              )}
+                            />
+                          )}
                           <span className="min-w-0 flex-1">
                             <span className="block text-xs font-semibold text-slate-800">{notification.title}</span>
                             <span className="mt-0.5 line-clamp-2 block text-xs leading-5 text-slate-600">{notification.message}</span>
@@ -1773,7 +2056,8 @@ export function RDMyWorkspacePage() {
                         </button>
                       </div>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
               )}
             </SectionCard>
@@ -1802,12 +2086,23 @@ export function RDMyWorkspacePage() {
           task={activePanel.task}
           initialTab={activePanel.tab}
           onClose={() => setActivePanel(null)}
-          onProgressSave={(taskId, progress) =>
+          onProgressSave={async (taskId, progress) => {
+            await updateRdTask(taskId, { progress });
+            setWorkspace((prev) => ({
+              ...prev,
+              myTasks: updateTaskProgressList(prev.myTasks, taskId, progress),
+              collabTasks: updateTaskProgressList(prev.collabTasks, taskId, progress),
+            }));
             setProgressOverrides((prev) => ({
               ...prev,
               [taskId]: progress,
-            }))
-          }
+            }));
+            setActivePanel((current) =>
+              current?.kind === "task" && current.task.task_id === taskId
+                ? { ...current, task: { ...current.task, progress } }
+                : current,
+            );
+          }}
           onLog={addLog}
           onRequestConfirm={setConfirmDialog}
         />

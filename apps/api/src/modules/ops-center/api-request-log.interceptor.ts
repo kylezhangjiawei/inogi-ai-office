@@ -41,12 +41,13 @@ export class ApiRequestLogInterceptor implements NestInterceptor {
     res.setHeader('x-request-id', requestId);
 
     return next.handle().pipe(
-      tap(() => {
-        this.record(req, requestId, res.statusCode, Date.now() - startedAt);
+      tap((responseBody: unknown) => {
+        this.record(req, requestId, res.statusCode, Date.now() - startedAt, undefined, responseBody);
       }),
       catchError((error: unknown) => {
         const statusCode = error instanceof HttpException ? error.getStatus() : 500;
-        this.record(req, requestId, statusCode, Date.now() - startedAt, error);
+        const errorBody = error instanceof HttpException ? error.getResponse() : undefined;
+        this.record(req, requestId, statusCode, Date.now() - startedAt, error, errorBody);
         return throwError(() => error);
       }),
     );
@@ -63,6 +64,7 @@ export class ApiRequestLogInterceptor implements NestInterceptor {
     statusCode: number,
     durationMs: number,
     error?: unknown,
+    responseBody?: unknown,
   ) {
     const errorInfo = this.getErrorInfo(error);
     const path = req.originalUrl?.replace(/^\/api/, '') || req.path || req.url || '';
@@ -88,6 +90,7 @@ export class ApiRequestLogInterceptor implements NestInterceptor {
           responseMeta: {
             statusCode,
             durationMs,
+            body: this.sanitizeResponse(responseBody),
           } as Prisma.InputJsonValue,
         },
       })
@@ -114,6 +117,21 @@ export class ApiRequestLogInterceptor implements NestInterceptor {
       message: typeof error === 'string' ? error : JSON.stringify(error),
       stack: null,
     };
+  }
+
+  private sanitizeResponse(value: unknown): unknown {
+    if (value === null || value === undefined) return null;
+    // Primitive — return as-is
+    if (typeof value !== 'object') return value;
+    // Array — show first 50 items then a summary
+    if (Array.isArray(value)) {
+      const items = value.slice(0, 50).map((item) => this.sanitize(item));
+      return value.length > 50
+        ? [...items, `... (${value.length - 50} more items)`]
+        : items;
+    }
+    // Object — use the same field-level sanitization as request bodies
+    return this.sanitize(value);
   }
 
   private sanitize(value: unknown): unknown {

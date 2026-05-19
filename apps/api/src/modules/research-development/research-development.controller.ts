@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Request, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import { FilesInterceptor } from '@nestjs/platform-express';
 
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { ResearchDevelopmentService } from './research-development.service';
@@ -33,9 +34,153 @@ export class ResearchDevelopmentController {
     return this.rdService.saveTaskCategories(payload);
   }
 
+  @Post('task-categories/tasks')
+  @Permissions('rd-task:create')
+  createTask(@Body() payload: Record<string, unknown>) {
+    return this.rdService.createTask(payload);
+  }
+
+  @Patch('task-categories/tasks/:taskId')
+  @Permissions('rd-task:edit')
+  updateTask(@Param('taskId') taskId: string, @Body() payload: Record<string, unknown>) {
+    return this.rdService.updateTask(taskId, payload);
+  }
+
+  @Delete('task-categories/tasks/:taskId')
+  @Permissions('rd-task:edit')
+  deleteTask(@Param('taskId') taskId: string) {
+    return this.rdService.deleteTask(taskId);
+  }
+
+  @Delete('task-data')
+  @Permissions('rd-data:clear')
+  clearTaskData() {
+    return this.rdService.clearAllTaskData();
+  }
+
+  @Get('task-progress-notes')
+  listTaskProgressNotes() {
+    return this.rdService.listAllTaskProgressNotes();
+  }
+
+  @Get('task-progress-notes/:taskId')
+  getTaskProgressNotes(@Param('taskId') taskId: string) {
+    return this.rdService.getTaskProgressNotes(taskId);
+  }
+
+  @Post('task-progress-notes')
+  @Permissions('page:rd-my-workspace', 'rd-task:edit', 'rd-task:create')
+  @UseInterceptors(FilesInterceptor('files', 5))
+  createTaskProgressNote(
+    @UploadedFiles() files: Array<{ originalname: string; mimetype?: string; size?: number; buffer: Buffer }> | undefined,
+    @Body()
+    body: {
+      task_id?: string;
+      text?: string;
+      progress?: string | number;
+      actor_name?: string;
+      actor_role?: string;
+    },
+    @Request() req: { user?: { id?: string; name?: string; role?: string } },
+  ) {
+    const progressRaw = body.progress;
+    const progress =
+      typeof progressRaw === 'number'
+        ? progressRaw
+        : progressRaw !== undefined && progressRaw !== ''
+          ? Number(progressRaw)
+          : undefined;
+    return this.rdService.createTaskProgressNote({
+      taskId: body.task_id ?? '',
+      text: body.text ?? '',
+      progress: Number.isFinite(progress) ? (progress as number) : undefined,
+      actor: {
+        id: req.user?.id,
+        name: body.actor_name || req.user?.name,
+        role: body.actor_role || req.user?.role,
+      },
+      files: files ?? [],
+    });
+  }
+
+  @Get('daily-reports')
+  listDailyReports(
+    @Query('user_id') userId?: string,
+    @Query('date') date?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const parsedLimit = limit ? Number(limit) : undefined;
+    return this.rdService.listDailyReports({
+      user_id: userId,
+      date,
+      limit: Number.isFinite(parsedLimit) ? (parsedLimit as number) : undefined,
+    });
+  }
+
+  @Post('daily-reports')
+  @Permissions('page:rd-my-workspace', 'rd-task:edit', 'rd-task:create')
+  createDailyReport(
+    @Body() body: { user_id?: string; user_name?: string; date?: string },
+    @Request() req: { user?: { id?: string; name?: string } },
+  ) {
+    return this.rdService.createDailyReport({
+      user_id: body.user_id || req.user?.id,
+      user_name: body.user_name || req.user?.name,
+      date: body.date,
+      trigger: 'manual',
+    });
+  }
+
+  @Post('daily-reports/regenerate-all')
+  @Permissions('rd-task:reassign', 'rd-task:edit', 'page:rd-director-dashboard')
+  regenerateAllDailyReports(@Body() body: { date?: string }) {
+    return this.rdService.generateDailyReportsForAll(body?.date);
+  }
+
+  @Get('messages')
+  listMessages(
+    @Request() req: { user?: { id?: string } },
+    @Query('recipient_id') recipientId?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const parsedLimit = limit ? Number(limit) : undefined;
+    return this.rdService.listMessages({
+      user_id: req.user?.id,
+      recipient_id: recipientId,
+      limit: Number.isFinite(parsedLimit) ? (parsedLimit as number) : undefined,
+    });
+  }
+
+  @Post('messages')
+  @Permissions('page:rd-director-dashboard', 'rd-people:manage', 'rd-task:reassign', 'rd-task:edit')
+  createMessage(
+    @Body()
+    body: {
+      recipient_id?: string;
+      recipient_person_id?: string;
+      recipient_name?: string;
+      subject?: string;
+      body: string;
+    },
+    @Request() req: { user?: { id?: string; name?: string; role?: string } },
+  ) {
+    return this.rdService.createMessage({
+      sender: {
+        id: req.user?.id,
+        name: req.user?.name,
+        role: req.user?.role,
+      },
+      recipient_id: body.recipient_id,
+      recipient_person_id: body.recipient_person_id,
+      recipient_name: body.recipient_name,
+      subject: body.subject,
+      body: body.body,
+    });
+  }
+
   @Get('workspace')
-  workspace() {
-    return this.rdService.getWorkspace();
+  workspace(@Request() req: { user?: { id?: string } }) {
+    return this.rdService.getWorkspace(req.user?.id);
   }
 
   @Put('workspace')
@@ -55,9 +200,21 @@ export class ResearchDevelopmentController {
     return this.rdService.saveDirectorDashboard(payload);
   }
 
+  @Post('director-dashboard/recompute')
+  @Permissions('rd-task:reassign', 'rd-task:edit', 'rd-task:create')
+  recomputeDirectorDashboard() {
+    return this.rdService.recomputeDashboard();
+  }
+
   @Get('people')
   people() {
     return this.rdService.getPeople();
+  }
+
+  @Get('people/user-options')
+  @Permissions('rd-people:manage')
+  peopleUserOptions() {
+    return this.rdService.getPeopleUserOptions();
   }
 
   @Post('people')
@@ -81,6 +238,15 @@ export class ResearchDevelopmentController {
   @Get('approval-flows')
   approvalFlows() {
     return this.rdService.getApprovalFlows();
+  }
+
+  @Get('approval-pools')
+  approvalPools(@Query('permissions') permissions?: string) {
+    const permissionCodes = String(permissions ?? '')
+      .split(',')
+      .map((code) => code.trim())
+      .filter(Boolean);
+    return this.rdService.getApprovalPools(permissionCodes);
   }
 
   @Put('approval-flows')

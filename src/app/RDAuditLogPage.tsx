@@ -21,12 +21,11 @@ import {
 } from "lucide-react";
 import { AuditTimeline } from "./RDAuditTimeline";
 import {
-  AuditAction,
   AuditCategory,
   AuditLog,
   AuditResource,
-  AUDIT_ACTION_META,
   CATEGORY_LABELS,
+  getAuditActionMeta,
   useAuditLogs,
 } from "./lib/auditLog";
 import { cn } from "./components/ui/utils";
@@ -115,6 +114,22 @@ const RESOURCE_LABELS: Record<FilterValue<ResourceType>, string> = {
   system: "系统",
 };
 
+const LEGACY_RESOURCE_LABELS: Record<string, string> = {
+  "rd-task-module": "研发任务模块",
+};
+
+function resourceLabel(type: string) {
+  return RESOURCE_LABELS[type as FilterValue<ResourceType>] ?? LEGACY_RESOURCE_LABELS[type] ?? type;
+}
+
+function sourceLabel(source: string) {
+  return SOURCE_LABELS[source as FilterValue<AuditSource>] ?? source;
+}
+
+function sourceBadgeClasses(source: string) {
+  return SOURCE_BADGE_CLASSES[source as AuditSource] ?? SOURCE_BADGE_CLASSES.system;
+}
+
 function categoryLabel(category: FilterValue<AuditCategory>) {
   return category === "all" ? "全部" : CATEGORY_LABELS[category];
 }
@@ -158,7 +173,7 @@ function formatValue(value: unknown): string {
 }
 
 function logSearchText(log: AuditLog): string {
-  const meta = AUDIT_ACTION_META[log.action];
+  const meta = getAuditActionMeta(log.action);
   const changes = log.changes?.map((change) => `${change.field} ${formatValue(change.before)} ${formatValue(change.after)}`).join(" ") ?? "";
   const metadata = log.metadata ? Object.entries(log.metadata).map(([key, value]) => `${key} ${formatValue(value)}`).join(" ") : "";
   return [
@@ -181,7 +196,7 @@ function logSearchText(log: AuditLog): string {
 }
 
 function summarizeLog(log: AuditLog) {
-  const meta = AUDIT_ACTION_META[log.action];
+  const meta = getAuditActionMeta(log.action);
   const target = log.resource.name ?? log.resource.id;
   return `${log.actor.name} ${meta.verb}${target ? ` · ${target}` : ""}`;
 }
@@ -199,7 +214,7 @@ export function RDAuditLogPage() {
   const [source, setSource] = useState<FilterValue<AuditSource>>("all");
   const [resourceType, setResourceType] = useState<FilterValue<ResourceType>>("all");
   const [actorId, setActorId] = useState("all");
-  const [action, setAction] = useState<FilterValue<AuditAction>>("all");
+  const [action, setAction] = useState<FilterValue<string>>("all");
   const [since, setSince] = useState("");
   const [until, setUntil] = useState("");
   const [sortOrder, setSortOrder] = useState<SortOrder>("newest");
@@ -222,10 +237,10 @@ export function RDAuditLogPage() {
   }, [allLogs]);
 
   const actionOptions = useMemo(() => {
-    const actions = Array.from(new Set(allLogs.map((log) => log.action)));
+    const actions = Array.from(new Set(allLogs.map((log) => String(log.action))));
     return actions
-      .filter((item) => category === "all" || AUDIT_ACTION_META[item].category === category)
-      .sort((a, b) => AUDIT_ACTION_META[a].label.localeCompare(AUDIT_ACTION_META[b].label, "zh-CN"));
+      .filter((item) => category === "all" || getAuditActionMeta(item).category === category)
+      .sort((a, b) => getAuditActionMeta(a).label.localeCompare(getAuditActionMeta(b).label, "zh-CN"));
   }, [allLogs, category]);
 
   const filteredLogs = useMemo(() => {
@@ -235,7 +250,7 @@ export function RDAuditLogPage() {
 
     return allLogs
       .filter((log) => {
-        const meta = AUDIT_ACTION_META[log.action];
+        const meta = getAuditActionMeta(log.action);
         if (category !== "all" && meta.category !== category) return false;
         if (source !== "all" && log.source !== source) return false;
         if (resourceType !== "all" && log.resource.type !== resourceType) return false;
@@ -257,6 +272,7 @@ export function RDAuditLogPage() {
   const safePage = Math.min(page, totalPages);
   const pagedLogs = filteredLogs.slice((safePage - 1) * pageSize, safePage * pageSize);
   const selectedLog = filteredLogs.find((log) => log.id === selectedId) ?? pagedLogs[0] ?? filteredLogs[0] ?? null;
+  const selectedMeta = selectedLog ? getAuditActionMeta(selectedLog.action) : getAuditActionMeta(undefined);
   const relatedLogs = selectedLog ? filteredLogs.filter((log) => sameResource(log, selectedLog)).slice(0, 12) : [];
   const visibleStart = filteredLogs.length === 0 ? 0 : (safePage - 1) * pageSize + 1;
   const visibleEnd = Math.min(safePage * pageSize, filteredLogs.length);
@@ -274,7 +290,7 @@ export function RDAuditLogPage() {
   const stats = useMemo(() => {
     const uniqueResources = new Set(filteredLogs.map((log) => `${log.resource.type}:${log.resource.id}`)).size;
     const uniqueActors = new Set(filteredLogs.map((log) => log.actor.id)).size;
-    const aiCount = filteredLogs.filter((log) => log.source === "ai" || AUDIT_ACTION_META[log.action].category === "ai").length;
+    const aiCount = filteredLogs.filter((log) => log.source === "ai" || getAuditActionMeta(log.action).category === "ai").length;
     const riskCount = filteredLogs.filter((log) => ["proposal.rejected", "task.reassigned", "task.archived", "flow.reset"].includes(log.action)).length;
     return { total: filteredLogs.length, uniqueResources, uniqueActors, aiCount, riskCount };
   }, [filteredLogs]);
@@ -467,7 +483,7 @@ export function RDAuditLogPage() {
               <select
                 value={action}
                 onChange={(event) => {
-                  setAction(event.target.value as FilterValue<AuditAction>);
+                  setAction(event.target.value);
                   setPage(1);
                 }}
                   className="h-9 w-full cursor-pointer rounded-md border border-slate-200 bg-white px-2.5 text-sm text-slate-700 outline-none transition-all focus:border-cyan-300 focus:ring-2 focus:ring-cyan-100"
@@ -475,7 +491,7 @@ export function RDAuditLogPage() {
                 <option value="all">全部动作</option>
                 {actionOptions.map((item) => (
                   <option key={item} value={item}>
-                    {AUDIT_ACTION_META[item].label}
+                    {getAuditActionMeta(item).label}
                   </option>
                 ))}
               </select>
@@ -494,7 +510,7 @@ export function RDAuditLogPage() {
                 >
                   {RESOURCE_FILTERS.map((item) => (
                     <option key={item} value={item}>
-                      {RESOURCE_LABELS[item]}
+                      {resourceLabel(item)}
                     </option>
                   ))}
                 </select>
@@ -631,7 +647,7 @@ export function RDAuditLogPage() {
                     </tr>
                   ) : (
                     pagedLogs.map((log, index) => {
-                      const meta = AUDIT_ACTION_META[log.action];
+                      const meta = getAuditActionMeta(log.action);
                       const selected = selectedLog?.id === log.id;
                       return (
                         <motion.tr
@@ -673,7 +689,7 @@ export function RDAuditLogPage() {
                           <td className="px-3 py-3 align-top">
                             <div className="flex min-w-0 items-center gap-2">
                               <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
-                                {RESOURCE_LABELS[log.resource.type]}
+                                {resourceLabel(log.resource.type)}
                               </span>
                               <span className="font-mono text-[11px] text-slate-400">{log.resource.id}</span>
                             </div>
@@ -681,9 +697,9 @@ export function RDAuditLogPage() {
                             {log.comment && <div className="mt-0.5 line-clamp-1 text-xs text-slate-500">{log.comment}</div>}
                           </td>
                           <td className="px-3 py-3 align-top">
-                            <span className={cn("inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-semibold", SOURCE_BADGE_CLASSES[log.source])}>
+                            <span className={cn("inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-semibold", sourceBadgeClasses(log.source))}>
                               {log.source === "ai" && <Bot className="h-3 w-3 text-indigo-500" />}
-                              {SOURCE_LABELS[log.source]}
+                              {sourceLabel(log.source)}
                             </span>
                           </td>
                           <td className="px-3 py-3 align-top">
@@ -747,11 +763,11 @@ export function RDAuditLogPage() {
                 className="flex h-full min-h-[650px] flex-col"
               >
                 <div className="relative border-b border-slate-200 px-4 py-3">
-                  <span className={cn("absolute left-0 top-0 h-full w-1", TONE_BAR_CLASSES[AUDIT_ACTION_META[selectedLog.action].tone])} />
+                  <span className={cn("absolute left-0 top-0 h-full w-1", TONE_BAR_CLASSES[selectedMeta.tone])} />
                   <div className="mb-2 flex items-center justify-between gap-2">
-                    <span className={cn("inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-semibold", TONE_BADGE_CLASSES[AUDIT_ACTION_META[selectedLog.action].tone])}>
+                    <span className={cn("inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-semibold", TONE_BADGE_CLASSES[selectedMeta.tone])}>
                       <CheckCircle2 className="h-3.5 w-3.5" />
-                      {AUDIT_ACTION_META[selectedLog.action].label}
+                      {selectedMeta.label}
                     </span>
                     <span className="font-mono text-[10px] text-slate-400">{selectedLog.id}</span>
                   </div>
@@ -764,11 +780,11 @@ export function RDAuditLogPage() {
                     <h4 className="mb-2 text-xs font-semibold text-slate-500">基础信息</h4>
                     <div className="space-y-2 rounded-lg border border-slate-100 bg-slate-50/50 p-3 text-xs">
                       {[
-                        ["动作", AUDIT_ACTION_META[selectedLog.action].label],
-                        ["类别", categoryLabel(AUDIT_ACTION_META[selectedLog.action].category)],
+                        ["动作", selectedMeta.label],
+                        ["类别", categoryLabel(selectedMeta.category)],
                         ["操作人", `${selectedLog.actor.name}${selectedLog.actor.role ? ` · ${selectedLog.actor.role}` : ""}`],
-                        ["对象", `${RESOURCE_LABELS[selectedLog.resource.type]} · ${selectedLog.resource.name ?? selectedLog.resource.id}`],
-                        ["来源", SOURCE_LABELS[selectedLog.source]],
+                        ["对象", `${resourceLabel(selectedLog.resource.type)} · ${selectedLog.resource.name ?? selectedLog.resource.id}`],
+                        ["来源", sourceLabel(selectedLog.source)],
                       ].map(([label, value]) => (
                         <div key={label} className="flex items-start justify-between gap-3">
                           <span className="shrink-0 text-slate-400">{label}</span>

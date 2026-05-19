@@ -1601,7 +1601,7 @@ function JsonBlock({ title, value }: { title: string; value: unknown }) {
   return (
     <div className="rounded border border-slate-200 bg-slate-50 p-3">
       <div className="mb-2 text-xs font-semibold text-slate-500">{title}</div>
-      <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-slate-700">{content}</pre>
+      <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-slate-700">{content}</pre>
     </div>
   );
 }

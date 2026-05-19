@@ -10,7 +10,7 @@
  * 持久化：通过研发模块 API；localStorage 仅作为离线编辑回显。
  */
 
-import { fetchRdApprovalFlows, saveRdApprovalFlows } from "./rdApi";
+import { fetchRdApprovalFlows, fetchRdApprovalPools, saveRdApprovalFlows } from "./rdApi";
 
 export type ApprovalMode = "single" | "any" | "all";
 
@@ -74,7 +74,7 @@ export const DEFAULT_PROJECT_FLOW: ApprovalFlow = {
       label: "终审",
       permission_code: "rd-project:review-l2",
       mode: "any",
-      description: "厂长/总监终审，任一人通过即生效",
+      description: "研发主管/总监终审，任一人通过即生效",
       sla_hours: 24,
       escalate_on_timeout: true,
     },
@@ -146,6 +146,10 @@ export function getActiveFlow(scope: ApprovalFlow["scope"] = "project_proposal")
 
 export function fetchFlowsApi(): Promise<ApprovalFlow[]> {
   return fetchRdApprovalFlows<ApprovalFlow>();
+}
+
+export function fetchApprovalPoolsApi(permissionCodes: string[]): Promise<Record<string, PoolMember[]>> {
+  return fetchRdApprovalPools<PoolMember>(permissionCodes);
 }
 
 export function saveFlowsApi(flows: ApprovalFlow[]): Promise<ApprovalFlow[]> {

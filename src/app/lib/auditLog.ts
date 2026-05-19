@@ -9,6 +9,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "../auth";
 import { clearRdAuditLogs, createRdAuditLog, fetchRdAuditLogs } from "./rdApi";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -67,11 +68,23 @@ export type AuditAction =
   | "ai.suggestion_accepted"
   | "ai.suggestion_rejected"
   | "ai.regenerated"
+  // Category / sub-project tree
+  | "category.created"
+  | "category.edited"
+  | "category.deleted"
+  | "sub_project.created"
+  | "sub_project.edited"
+  | "sub_project.deleted"
   // System
   | "system.bulk_reassign"
   | "notification.handled"
   | "daily_report.generated"
-  | "daily_progress.synced";
+  | "daily_progress.synced"
+  | "task.data.cleared";
+
+export type PersistedAuditAction =
+  | AuditAction
+  | (string & { readonly __persistedAuditActionBrand: unique symbol });
 
 export type AuditActor = {
   id: string;
@@ -87,6 +100,7 @@ export type AuditResource = {
     | "person"
     | "role"
     | "flow"
+    | "category"
     | "system";
   id: string;
   name?: string;
@@ -102,7 +116,7 @@ export type AuditLog = {
   id: string;
   timestamp: string;
   actor: AuditActor;
-  action: AuditAction;
+  action: PersistedAuditAction;
   resource: AuditResource;
   changes?: AuditChange[];
   comment?: string;
@@ -112,10 +126,21 @@ export type AuditLog = {
 
 // ─── Action metadata (icon hint, label, verb) ────────────────────────────────
 
-export const AUDIT_ACTION_META: Record<
-  AuditAction,
-  { category: AuditCategory; label: string; verb: string; tone: "blue" | "emerald" | "amber" | "red" | "violet" | "slate" }
-> = {
+export type AuditActionMeta = {
+  category: AuditCategory;
+  label: string;
+  verb: string;
+  tone: "blue" | "emerald" | "amber" | "red" | "violet" | "slate";
+};
+
+const UNKNOWN_AUDIT_ACTION_META: AuditActionMeta = {
+  category: "system",
+  label: "未知动作",
+  verb: "记录了操作",
+  tone: "slate",
+};
+
+export const AUDIT_ACTION_META: Record<AuditAction, AuditActionMeta> = {
   // Task
   "task.created": { category: "task", label: "新建任务", verb: "创建了任务", tone: "blue" },
   "task.edited": { category: "task", label: "编辑任务", verb: "修改了任务", tone: "blue" },
@@ -165,7 +190,20 @@ export const AUDIT_ACTION_META: Record<
   "notification.handled": { category: "system", label: "通知处理", verb: "处理了通知", tone: "slate" },
   "daily_report.generated": { category: "system", label: "生成日报", verb: "生成了研发日报", tone: "blue" },
   "daily_progress.synced": { category: "system", label: "同步进展", verb: "同步了今日研发进展", tone: "emerald" },
+  "task.data.cleared": { category: "system", label: "清理任务数据", verb: "清理了研发任务数据", tone: "amber" },
 };
+
+export function getAuditActionMeta(action: unknown): AuditActionMeta {
+  if (typeof action === "string" && Object.prototype.hasOwnProperty.call(AUDIT_ACTION_META, action)) {
+    return AUDIT_ACTION_META[action as AuditAction];
+  }
+
+  if (typeof action === "string" && action.trim()) {
+    return { ...UNKNOWN_AUDIT_ACTION_META, label: action };
+  }
+
+  return UNKNOWN_AUDIT_ACTION_META;
+}
 
 export const CATEGORY_LABELS: Record<AuditCategory, string> = {
   task: "任务",
@@ -235,6 +273,25 @@ export function clearLogs(): void {
   void clearRdAuditLogs().catch(() => {});
 }
 
+/**
+ * Returns the current logged-in user as an `AuditActor`. Use this in components
+ * that record audit entries so the actor name reflects who actually triggered
+ * the action (e.g. "刘致远") instead of a placeholder like "我".
+ */
+export function useAuditActor(roleFallback?: string): AuditActor {
+  const { user } = useAuth();
+  return useMemo<AuditActor>(() => {
+    if (!user) {
+      return { id: "anonymous", name: "未登录用户", role: roleFallback ?? "未知" };
+    }
+    return {
+      id: user.id,
+      name: user.name?.trim() || user.email || "未命名用户",
+      role: user.roleName ?? roleFallback ?? "研发成员",
+    };
+  }, [user, roleFallback]);
+}
+
 // ─── Query ───────────────────────────────────────────────────────────────────
 
 export type AuditFilter = {
@@ -254,7 +311,7 @@ export type AuditFilter = {
 function filterLogs(logs: AuditLog[], filter: AuditFilter = {}): AuditLog[] {
   return logs.filter((log) => {
     if (filter.category && filter.category !== "all") {
-      if (AUDIT_ACTION_META[log.action].category !== filter.category) return false;
+      if (getAuditActionMeta(log.action).category !== filter.category) return false;
     }
     if (filter.actorId && log.actor.id !== filter.actorId) return false;
     if (filter.resourceType && log.resource.type !== filter.resourceType) return false;
@@ -318,7 +375,7 @@ function offsetDate(hoursAgo: number): string {
 }
 
 function generateDemoLogs(): AuditLog[] {
-  const wangzy: AuditActor = { id: "u-wang-zy", name: "王志远", role: "厂长" };
+  const wangzy: AuditActor = { id: "u-wang-zy", name: "王志远", role: "研发主管" };
   const lili: AuditActor = { id: "u-li-li", name: "李立", role: "研发管理员" };
   const wanglei: AuditActor = { id: "u1", name: "王磊", role: "硬件测试工程师" };
   const chenjing: AuditActor = { id: "u2", name: "陈静", role: "质检员" };
@@ -374,7 +431,7 @@ function generateDemoLogs(): AuditLog[] {
       actor: wanglei,
       action: "proposal.submitted",
       resource: { type: "proposal", id: "PRJ-2026-001", name: "电磁阀工艺升级 v2.1" },
-      comment: "本立项已与厂长口头对齐，请尽快推进。",
+      comment: "本立项已与研发主管口头对齐，请尽快推进。",
       source: "web",
     },
     // === 今天早些 ===
@@ -386,7 +443,7 @@ function generateDemoLogs(): AuditLog[] {
       changes: [
         { field: "node[终审].mode", before: "single", after: "any" },
       ],
-      comment: "改为或签，避免厂长出差时审批堵塞。",
+      comment: "改为或签，避免研发主管出差时审批堵塞。",
       source: "web",
     },
     {

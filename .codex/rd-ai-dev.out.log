@@ -535,3 +535,5 @@
 [api] [32m[Nest] 22156  - [39m2026/05/15 17:56:28 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/research-development/ai-settings, PUT} route[39m[38;5;3m +0ms[39m
 [api] [32m[Nest] 22156  - [39m2026/05/15 17:56:28 [32m    LOG[39m [38;5;3m[RouterExplorer] [39m[32mMapped {/api/research-development/file-ingestion/plan, POST} route[39m[38;5;3m +0ms[39m
 [api] [32m[Nest] 22156  - [39m2026/05/15 17:56:28 [32m    LOG[39m [38;5;3m[NestApplication] [39m[32mNest application successfully started[39m[38;5;3m +140ms[39m
+
+E:\workCoding\INOGI AI Office System>

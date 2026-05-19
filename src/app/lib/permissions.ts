@@ -54,6 +54,7 @@ export const PERMISSIONS = {
   RD_PEOPLE_MANAGE: 'rd-people:manage',
   RD_APPROVAL_FLOW_MANAGE: 'rd-approval-flow:manage',
   RD_AUDIT_CLEAR: 'rd-audit:clear',
+  RD_DATA_CLEAR: 'rd-data:clear',
   RD_AI_CONFIGURE: 'rd-ai:configure',
 
   // 立项流程
@@ -228,7 +229,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     permissions: [
       { code: 'page:rd-task-management', label: '研发任务管理', description: '树状任务表，AI 解析新建，任务封存/移交' },
       { code: 'page:rd-my-workspace', label: '个人工作台', description: '我的任务、协作任务、今日待办、待审核 AI 建议' },
-      { code: 'page:rd-director-dashboard', label: '厂长驾驶舱', description: '全局进度、人员负载热力图、批量重分配（高级权限）' },
+      { code: 'page:rd-director-dashboard', label: '研发主管驾驶舱', description: '全局进度、人员负载热力图、批量重分配（高级权限）' },
       { code: 'page:rd-approval-flow', label: '审批流配置', description: '配置立项/任务审批的节点、模式、SLA' },
       { code: 'page:rd-audit-log', label: '操作留痕', description: '查看研发任务管理关键操作的审计时间轴' },
       { code: 'page:rd-ai-settings', label: '研发 AI 策略', description: '配置研发模块 AI 场景模型、文件解析顺序、OCR 兜底与披露策略' },
@@ -245,6 +246,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { code: 'rd-people:manage', label: '管理研发人员', description: '新增、编辑、删除研发成员和任务容量' },
       { code: 'rd-approval-flow:manage', label: '管理审批流', description: '新增、调整、保存、重置研发审批流节点' },
       { code: 'rd-audit:clear', label: '清空操作留痕', description: '清空研发任务管理操作留痕记录' },
+      { code: 'rd-data:clear', label: '清空研发任务数据', description: '清空研发任务分类、个人工作台和研发主管驾驶舱数据' },
       { code: 'rd-ai:configure', label: '配置研发 AI 策略', description: '维护研发模块各 AI 场景模型、OCR 兜底、文件解析和人工确认策略' },
     ],
   },
@@ -253,8 +255,8 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     permissions: [
       { code: 'rd-project:propose', label: '立项申请', description: '提交立项需求，进入审核队列' },
       { code: 'rd-project:review-l1', label: '立项一审', description: '研发管理员审核立项（多级中的第一级）' },
-      { code: 'rd-project:review-l2', label: '立项终审', description: '厂长 / 总监终审通过立项' },
-      { code: 'rd-project:direct', label: '直接立项', description: '跳过审核，直接生效并自动分配（厂长/管理员）' },
+      { code: 'rd-project:review-l2', label: '立项终审', description: '研发主管 / 总监终审通过立项' },
+      { code: 'rd-project:direct', label: '直接立项', description: '跳过审核，直接生效并自动分配（研发主管/管理员）' },
     ],
   },
 ];

@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { useLocation, useNavigate } from "react-router";
 import {
   AlertTriangle,
   Archive,
@@ -16,11 +17,14 @@ import {
   Cpu,
   FileUp,
   Flame,
+  FolderPlus,
   Gauge,
   LayoutGrid,
+  Loader2,
   Lock,
   Paperclip,
   Pencil,
+  Plus,
   Trash2,
   UserPlus,
   RefreshCw,
@@ -39,56 +43,58 @@ import { cn } from "./components/ui/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./components/ui/tooltip";
 import { usePermission } from "./hooks/usePermission";
 import { AuditTimeline } from "./RDAuditTimeline";
-import { AuditActor, AuditChange, recordAudit, useAuditLogs } from "./lib/auditLog";
+import { AuditActor, AuditChange, recordAudit, useAuditActor, useAuditLogs } from "./lib/auditLog";
 import { PERMISSIONS } from "./lib/permissions";
-import { fetchRdAiSettings, fetchRdTaskCategories, type RdAiSettingsPayload } from "./lib/rdApi";
+import {
+  fetchRdAiSettings,
+  fetchRdPeople,
+  fetchRdTaskCategories,
+  fetchRdTaskProgressNotes,
+  createRdTask,
+  extractRdTasksFromFile,
+  extractRdTasksFromText,
+  saveRdTaskCategories,
+  type RdAiSettingsPayload,
+  type RdAiTaskDraft,
+  type RdCategory,
+  type RdCollaborator,
+  type RdPriority,
+  type RdSubProject,
+  type RdTask,
+  type RdTaskProgressNote,
+  type RdTaskStatus,
+} from "./lib/rdApi";
+import { ProgressNoteList } from "./RDProgressEvidence";
 
 const RD_MOTION_EASE = [0.22, 1, 0.36, 1] as [number, number, number, number];
 const RD_FAST_TRANSITION = { duration: 0.18, ease: RD_MOTION_EASE };
 const RD_LIST_TRANSITION = { duration: 0.2, ease: RD_MOTION_EASE };
 const RD_PANEL_TRANSITION = { duration: 0.24, ease: RD_MOTION_EASE };
-const RD_AUDIT_ACTOR: AuditActor = { id: "u-current", name: "我", role: "研发成员" };
-const RD_ADMIN_AUDIT_ACTOR: AuditActor = { id: "u-li-li", name: "李立", role: "研发管理员" };
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+// ─── Types (aliased from rdApi shared types) ─────────────────────────────────
 
-type TaskStatus =
-  | "draft"
-  | "in_progress"
-  | "paused_leave"
-  | "paused_blocked"
-  | "completed"
-  | "pending_assign"
-  | "archived";
-
-type Priority = "high" | "medium" | "low";
-
-type Collaborator = { id: string; name: string; role: string };
-
-type Task = {
-  task_id: string;
-  title: string;
-  description?: string;
-  primary_owner: string;
-  collaborators: Collaborator[];
-  status: TaskStatus;
-  progress: number;
-  ai_priority: Priority;
-  final_priority: Priority;
-  final_duration?: number;
-  category_path: string;
-  archived: boolean;
-  attachments: number;
-  due_date?: string;
-  ai_modified?: boolean;
-  subtasks?: Task[];
+type TaskStatus = RdTaskStatus;
+type Priority = RdPriority;
+type Collaborator = RdCollaborator;
+type Task = RdTask;
+type SubProject = RdSubProject;
+type Category = RdCategory;
+type PersonProfile = {
+  id: string;
+  user_id?: string | null;
+  name: string;
+  position: string;
+  department?: string;
+  email?: string;
+  phone?: string;
+  max_tasks?: number;
+  on_leave?: boolean;
+  status?: string;
+  joined_at?: string;
 };
 
-type SubProject = { id: string; label: string; tasks: Task[] };
-type Category = { id: string; label: string; children: SubProject[] };
-
-// ─── Today (matches user's currentDate context) ──────────────────────────────
-const TODAY_STR = "2026-05-14";
+// ─── Today ───────────────────────────────────────────────────────────────────
+const TODAY_STR = new Date().toISOString().split("T")[0]!;
 const TODAY = new Date(TODAY_STR);
 
 // ─── Demo data ────────────────────────────────────────────────────────────────
@@ -105,10 +111,10 @@ const POC_BOM_STRUCTURE = [
   { id: "cat-molecular-sieve", label: "分子筛系统", parts: ["分子筛转接板", "分子筛", "分子筛衬板", "分子筛隔板", "分子筛筛料", "分子筛弹簧", "分子筛上密封圈", "分子筛下密封圈"] },
   { id: "cat-exterior", label: "外观结构", parts: ["外罩", "隔热贴"] },
   { id: "cat-accessories", label: "配件系统", parts: ["车充", "快充", "普充"] },
-  { id: "cat-tube", label: "气管系统", parts: ["硅胶管", "接头", "卡箍"] },
-  { id: "cat-harness", label: "线束系统", parts: ["主线束", "电池线", "风扇线", "屏线"] },
-  { id: "cat-fastener", label: "紧固件系统", parts: ["螺丝", "铜柱", "螺母"] },
-  { id: "cat-sealing", label: "密封系统", parts: ["O-ring", "泡棉", "密封胶"] },
+  { id: "cat-tube", label: "气管系统", parts: ["硅胶管", "接头", "卡箍"], reserved: true },
+  { id: "cat-harness", label: "线束系统", parts: ["主线束", "电池线", "风扇线", "屏线"], reserved: true },
+  { id: "cat-fastener", label: "紧固件系统", parts: ["螺丝", "铜柱", "螺母"], reserved: true },
+  { id: "cat-sealing", label: "密封系统", parts: ["O-ring", "泡棉", "密封胶"], reserved: true },
 ] as const;
 
 type PartTaskSeed = Omit<Task, "category_path" | "archived" | "attachments"> &
@@ -666,6 +672,10 @@ const DEMO_CATEGORIES: Category[] = POC_BOM_STRUCTURE.map((system) => ({
   })),
 }));
 
+const POC_BOM_RESERVED_IDS = new Set(
+  POC_BOM_STRUCTURE.filter((system) => "reserved" in system && system.reserved).map((system) => system.id),
+);
+
 // ─── Theme: per-category accent (kept minimal — only icon color + dot) ───────
 
 type CategoryTheme = {
@@ -787,6 +797,18 @@ function collectTaskIds(tasks: Task[]): Set<string> {
   return ids;
 }
 
+function flattenTasks(tasks: Task[]): Task[] {
+  const result: Task[] = [];
+  function walk(items: Task[]) {
+    for (const task of items) {
+      result.push(task);
+      if (task.subtasks) walk(task.subtasks);
+    }
+  }
+  walk(tasks);
+  return result;
+}
+
 function computeRisks(categories: Category[]): Risk[] {
   const risks = categories.flatMap((cat) =>
     cat.children.flatMap((sub) => sub.tasks.flatMap((task) => collectTaskRisks(task, cat))),
@@ -796,13 +818,13 @@ function computeRisks(categories: Category[]): Risk[] {
 }
 
 function calcCategoryProgress(cat: Category): number {
-  const tasks = cat.children.flatMap((s) => s.tasks.filter((t) => !t.archived));
+  const tasks = flattenTasks(cat.children.flatMap((s) => s.tasks)).filter((t) => !t.archived);
   if (tasks.length === 0) return 0;
   return Math.round(tasks.reduce((s, t) => s + t.progress, 0) / tasks.length);
 }
 
 function calcSubProgress(sub: SubProject): number {
-  const tasks = sub.tasks.filter((t) => !t.archived);
+  const tasks = flattenTasks(sub.tasks).filter((t) => !t.archived);
   if (tasks.length === 0) return 0;
   return Math.round(tasks.reduce((s, t) => s + t.progress, 0) / tasks.length);
 }
@@ -1051,26 +1073,23 @@ const CATEGORY_FRAME: Record<string, Frame> = {};
 const DEFAULT_FRAME: Frame = { border: "border-slate-200", tintedBg: "bg-slate-50", softBg: "bg-white" };
 
 // Infer category id from task.category_path's first segment (system label)
-const CATEGORY_LABEL_TO_ID: Record<string, string> = {
-  电源部分: "cat-power",
-  底部结构: "cat-base",
-  压缩系统: "cat-compression",
-  "310阀系统": "cat-valve-310",
-  风冷系统: "cat-cooling",
-  储气系统: "cat-air-storage",
-  "210阀系统": "cat-valve-210",
-  Top结构: "cat-top",
-  分子筛系统: "cat-molecular-sieve",
-  外观结构: "cat-exterior",
-  配件系统: "cat-accessories",
-  气管系统: "cat-tube",
-  线束系统: "cat-harness",
-  紧固件系统: "cat-fastener",
-  密封系统: "cat-sealing",
-};
+const CATEGORY_LABEL_TO_ID: Record<string, string> = Object.fromEntries(
+  POC_BOM_STRUCTURE.map((system) => [system.label, system.id]),
+);
+
+function isReservedBomSystem(categoryId: string) {
+  return POC_BOM_RESERVED_IDS.has(categoryId);
+}
+
+function splitCategoryPath(path?: string) {
+  return (path ?? "")
+    .split(/[\/／>＞]/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+}
 
 function getTaskCategoryId(task: Task): string | null {
-  const first = task.category_path?.split("/")[0];
+  const first = splitCategoryPath(task.category_path)[0];
   return first ? CATEGORY_LABEL_TO_ID[first] ?? null : null;
 }
 
@@ -1768,15 +1787,15 @@ type CatStat = {
 
 function buildCatStats(categories: Category[], risks: Risk[]): CatStat[] {
   return categories.map((cat) => {
-    const tasks = cat.children.flatMap((s) => s.tasks);
+    const tasks = flattenTasks(cat.children.flatMap((s) => s.tasks));
     const active = tasks.filter((t) => !t.archived);
     const catRisks = risks.filter((r) => r.category.id === cat.id);
     return {
       cat,
       total: active.length,
-      inProgress: tasks.filter((t) => t.status === "in_progress").length,
-      done: tasks.filter((t) => t.status === "completed").length,
-      blocked: tasks.filter((t) => t.status === "paused_blocked" || t.status === "pending_assign").length,
+      inProgress: active.filter((t) => t.status === "in_progress").length,
+      done: active.filter((t) => t.status === "completed").length,
+      blocked: active.filter((t) => t.status === "paused_blocked" || t.status === "pending_assign").length,
       progress: calcCategoryProgress(cat),
       risks: catRisks.length,
       riskItems: catRisks,
@@ -1902,12 +1921,22 @@ function computePersonLoads(categories: Category[], maxPerPerson = 8): PersonLoa
     .sort((a, b) => b.count - a.count);
 }
 
+type SystemTreeEditorRequest =
+  | { mode: "add-system" }
+  | { mode: "edit-system"; category: Category }
+  | { mode: "delete-system"; category: Category }
+  | { mode: "add-sub"; category: Category }
+  | { mode: "edit-sub"; category: Category; sub: SubProject }
+  | { mode: "delete-sub"; category: Category; sub: SubProject };
+
 function CategorySidebar({
   catStats,
   selectedId,
   onSelect,
   totalRisks,
   allRisks,
+  canManageTree = false,
+  onRequestEditor,
 }: {
   catStats: CatStat[];
   selectedId: string | null;
@@ -1915,6 +1944,8 @@ function CategorySidebar({
   totalActive: number;
   totalRisks: number;
   allRisks: Risk[];
+  canManageTree?: boolean;
+  onRequestEditor?: (req: SystemTreeEditorRequest) => void;
 }) {
   const shouldReduceMotion = useReducedMotion();
   const selectedParentCatId = useMemo(() => {
@@ -1943,9 +1974,22 @@ function CategorySidebar({
         <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Navigation</div>
         <div className="mt-1 flex items-center justify-between gap-3">
           <h2 className="text-sm font-semibold text-slate-950">研发系统树</h2>
-          {totalRisks > 0 && (
-            <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">{totalRisks} 风险</span>
-          )}
+          <div className="flex items-center gap-2">
+            {totalRisks > 0 && (
+              <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">{totalRisks} 风险</span>
+            )}
+            {canManageTree && onRequestEditor && (
+              <button
+                type="button"
+                onClick={() => onRequestEditor({ mode: "add-system" })}
+                className="inline-flex h-7 items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-2 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+                title="新增一级系统"
+              >
+                <Plus className="h-3 w-3" />
+                新增
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -1984,13 +2028,15 @@ function CategorySidebar({
           const activeWithin = active || cat.children.some((sub) => sub.id === selectedId);
           const expanded = expandedId === cat.id;
 
+          const isReserved = isReservedBomSystem(cat.id);
+          const subTaskCount = cat.children.reduce((sum, sub) => sum + sub.tasks.length, 0);
           return (
             <motion.div
               key={cat.id}
               layout
               transition={RD_LIST_TRANSITION}
               className={cn(
-                "rounded-[8px] transition-all",
+                "group/cat rounded-[8px] transition-all",
                 activeWithin ? "bg-white shadow-[0_10px_24px_rgba(15,23,42,0.06)] ring-1 ring-slate-200/80" : "hover:bg-white/65 hover:shadow-[0_8px_18px_rgba(15,23,42,0.035)]",
               )}
             >
@@ -2028,6 +2074,37 @@ function CategorySidebar({
                   <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-800">{cat.label}</span>
                 </button>
 
+                {canManageTree && onRequestEditor && (
+                  <div className="mr-1 flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/cat:opacity-100 focus-within:opacity-100">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "add-sub", category: cat }); }}
+                      className="rounded p-1 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
+                      title="新增子项"
+                    >
+                      <FolderPlus className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "edit-system", category: cat }); }}
+                      className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                      title="重命名"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    {!isReserved && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "delete-system", category: cat }); }}
+                        className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                        title={subTaskCount > 0 ? `删除（含 ${subTaskCount} 个任务，将一并删除）` : "删除"}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                )}
+
                 {risks > 0 && (
                   <Tooltip>
                     <TooltipTrigger asChild>
@@ -2060,30 +2137,58 @@ function CategorySidebar({
                       const subIds = collectTaskIds(sub.tasks);
                       const subRisks = riskItems.filter((risk) => subIds.has(risk.task.task_id));
                       const selected = selectedId === sub.id;
+                      const subTaskTotal = sub.tasks.length;
 
                       return (
-                        <button
+                        <div
                           key={sub.id}
-                          type="button"
-                          onClick={() => {
-                            setExpandedId(cat.id);
-                            onSelect(sub.id);
-                          }}
                           className={cn(
-                            "flex h-8 w-full cursor-pointer items-center gap-2 rounded-md px-2 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.99]",
+                            "group/sub flex h-8 w-full items-center gap-1 rounded-md pr-1 transition-all duration-200",
                             selected
-                              ? "bg-blue-50 text-blue-800 shadow-[0_6px_14px_rgba(37,99,235,0.08)]"
-                              : "text-slate-600 hover:translate-x-0.5 hover:bg-slate-50 hover:text-slate-900",
+                              ? "bg-blue-50 shadow-[0_6px_14px_rgba(37,99,235,0.08)]"
+                              : "hover:bg-slate-50",
                           )}
                         >
-                          <span
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setExpandedId(cat.id);
+                              onSelect(sub.id);
+                            }}
                             className={cn(
-                              "h-1.5 w-1.5 shrink-0 rounded-full transition-colors duration-200",
-                              subRisks.length > 0 ? "bg-red-500" : "bg-slate-300",
+                              "flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-2 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.99]",
+                              selected ? "text-blue-800" : "text-slate-600 hover:translate-x-0.5 hover:text-slate-900",
                             )}
-                          />
-                          <span className="min-w-0 flex-1 truncate text-xs font-semibold">{sub.label}</span>
-                        </button>
+                          >
+                            <span
+                              className={cn(
+                                "h-1.5 w-1.5 shrink-0 rounded-full transition-colors duration-200",
+                                subRisks.length > 0 ? "bg-red-500" : "bg-slate-300",
+                              )}
+                            />
+                            <span className="min-w-0 flex-1 truncate text-xs font-semibold">{sub.label}</span>
+                          </button>
+                          {canManageTree && onRequestEditor && (
+                            <div className="flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/sub:opacity-100 focus-within:opacity-100">
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "edit-sub", category: cat, sub }); }}
+                                className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                                title="重命名"
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "delete-sub", category: cat, sub }); }}
+                                className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                                title={subTaskTotal > 0 ? `删除（含 ${subTaskTotal} 个任务，将一并删除）` : "删除"}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
                       );
                     })}
                   </div>
@@ -2094,6 +2199,165 @@ function CategorySidebar({
         })}
       </nav>
     </motion.aside>
+  );
+}
+
+function SystemTreeEditorDialog({
+  request,
+  onClose,
+  onSubmit,
+}: {
+  request: SystemTreeEditorRequest;
+  onClose: () => void;
+  onSubmit: (label: string) => Promise<void> | void;
+}) {
+  const shouldReduceMotion = useReducedMotion();
+  const initialLabel =
+    request.mode === "edit-system" ? request.category.label
+    : request.mode === "edit-sub" ? request.sub.label
+    : "";
+  const [label, setLabel] = useState(initialLabel);
+  const [saving, setSaving] = useState(false);
+
+  const isDelete = request.mode === "delete-system" || request.mode === "delete-sub";
+  const isEdit = request.mode === "edit-system" || request.mode === "edit-sub";
+  const isAdd = request.mode === "add-system" || request.mode === "add-sub";
+
+  const title =
+    request.mode === "add-system" ? "新增一级系统"
+    : request.mode === "edit-system" ? "重命名一级系统"
+    : request.mode === "delete-system" ? "删除一级系统"
+    : request.mode === "add-sub" ? `在「${request.category.label}」下新增子项`
+    : request.mode === "edit-sub" ? "重命名子项"
+    : "删除子项";
+
+  const taskCount =
+    request.mode === "delete-system"
+      ? request.category.children.reduce((s, ch) => s + ch.tasks.length, 0)
+      : request.mode === "delete-sub"
+      ? request.sub.tasks.length
+      : 0;
+
+  const handleConfirm = async () => {
+    if (isDelete) {
+      setSaving(true);
+      try {
+        await onSubmit("");
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+    const trimmed = label.trim();
+    if (!trimmed) {
+      toast.error("名称不能为空");
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSubmit(trimmed);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={shouldReduceMotion ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={RD_FAST_TRANSITION}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      onClick={(e) => { if (e.target === e.currentTarget && !saving) onClose(); }}
+    >
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 14, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={RD_PANEL_TRANSITION}
+        className="w-full max-w-md rounded-2xl bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className={cn(
+          "flex items-center justify-between gap-3 border-b px-6 py-4",
+          isDelete ? "border-red-100 bg-red-50/60" : "border-slate-100",
+        )}>
+          <div className="flex items-center gap-2.5">
+            <div className={cn(
+              "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
+              isDelete ? "bg-red-100 text-red-600" : "bg-blue-100 text-blue-600",
+            )}>
+              {isDelete ? <Trash2 className="h-4 w-4" /> : isEdit ? <Pencil className="h-4 w-4" /> : <FolderPlus className="h-4 w-4" />}
+            </div>
+            <h3 className="text-base font-semibold text-slate-900">{title}</h3>
+          </div>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={onClose}
+            className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="space-y-4 px-6 py-5">
+          {isDelete ? (
+            <>
+              <p className="text-sm text-slate-700">
+                确认删除「<span className="font-semibold text-slate-900">{request.mode === "delete-system" ? request.category.label : (request as { sub: SubProject }).sub.label}</span>」？
+              </p>
+              {taskCount > 0 && (
+                <div className="flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50/70 px-3 py-2.5 text-xs text-amber-700">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>该节点下还有 <b>{taskCount}</b> 个任务，删除后会一并清除，操作不可恢复。</span>
+                </div>
+              )}
+              {taskCount === 0 && (
+                <p className="text-xs text-slate-500">该节点下没有任务，删除安全。</p>
+              )}
+            </>
+          ) : (
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-slate-700">名称</label>
+              <input
+                autoFocus
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Enter") handleConfirm(); }}
+                placeholder={isAdd ? (request.mode === "add-system" ? "例：新型动力系统" : "例：主控板") : "新名称"}
+                disabled={saving}
+                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50"
+              />
+              {request.mode === "add-system" && (
+                <p className="mt-1.5 text-[11px] text-slate-400">将作为研发系统树的一级节点；可在保存后添加子项。</p>
+              )}
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
+          <button
+            type="button"
+            disabled={saving}
+            onClick={onClose}
+            className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={handleConfirm}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors disabled:opacity-60",
+              isDelete ? "bg-red-600 hover:bg-red-700" : "bg-blue-600 hover:bg-blue-700",
+            )}
+          >
+            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {isDelete ? "确认删除" : isEdit ? "保存" : "新增"}
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
   );
 }
 
@@ -2372,10 +2636,59 @@ function describeFileRule(settings: RdAiSettingsPayload | null, filename: string
   return parts.join(" / ");
 }
 
-function AiCreatePanel({ onClose }: { onClose: () => void }) {
+function normalizeRdPathSegment(value: string) {
+  return value.replace(/\s+/g, "").toLowerCase();
+}
+
+function aiDraftToTask(draft: RdAiTaskDraft): Omit<Task, "task_id"> {
+  return {
+    title: draft.title,
+    description: draft.description,
+    primary_owner: draft.owner || "待指派",
+    collaborators: [],
+    status: "draft",
+    progress: 0,
+    ai_priority: draft.priority,
+    final_priority: draft.priority,
+    final_duration: draft.estimated_days,
+    category_path: draft.category_path,
+    archived: false,
+    attachments: 0,
+    due_date: draft.due_date,
+  };
+}
+
+function resolveAiCreateTarget(categories: Category[], categoryPath: string) {
+  const segments = categoryPath.split(/[\/／>＞|]/).map((item) => item.trim()).filter(Boolean);
+  const systemKey = normalizeRdPathSegment(segments[0] ?? "");
+  const partKey = normalizeRdPathSegment(segments[1] ?? "");
+  const category =
+    categories.find((item) => normalizeRdPathSegment(item.label) === systemKey) ??
+    categories.find((item) => systemKey && normalizeRdPathSegment(item.label).includes(systemKey)) ??
+    categories[0];
+  if (!category) return null;
+  const child =
+    category.children.find((item) => normalizeRdPathSegment(item.label) === partKey) ??
+    category.children.find((item) => partKey && normalizeRdPathSegment(item.label).includes(partKey)) ??
+    category.children[0];
+  return { category, child };
+}
+
+function AiCreatePanel({
+  onClose,
+  categories,
+  onCreated,
+}: {
+  onClose: () => void;
+  categories: Category[];
+  onCreated: () => void;
+}) {
+  const RD_AUDIT_ACTOR = useAuditActor("研发成员");
   const [text, setText] = useState("");
   const [aiState, setAiState] = useState<AiInputState>("idle");
   const [draft, setDraft] = useState<Omit<Task, "task_id"> | null>(null);
+  const [originalDraft, setOriginalDraft] = useState<Omit<Task, "task_id"> | null>(null);
+  const [aiSummary, setAiSummary] = useState("");
   const [modifiedFields, setModifiedFields] = useState<Set<string>>(new Set());
   const [aiSettings, setAiSettings] = useState<RdAiSettingsPayload | null>(null);
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
@@ -2398,7 +2711,7 @@ function AiCreatePanel({ onClose }: { onClose: () => void }) {
     };
   }, []);
 
-  function handleProcess() {
+  async function handleProcess() {
     if (!text.trim() && selectedFiles.length === 0) return;
     recordAudit({
       actor: RD_AUDIT_ACTOR,
@@ -2419,10 +2732,37 @@ function AiCreatePanel({ onClose }: { onClose: () => void }) {
       source: "web",
     });
     setAiState("processing");
-    setTimeout(() => {
-      setDraft({ ...AI_SAMPLE_RESULT });
+    try {
+      const categoryLabels = categories.flatMap((category) => [
+        category.label,
+        ...category.children.map((child) => `${category.label} / ${child.label}`),
+      ]);
+      const result = selectedFiles.length > 0
+        ? await extractRdTasksFromFile({
+            file: selectedFiles[0]!,
+            categoryLabels,
+            proposalTitle: text.trim().slice(0, 80) || selectedFiles[0]!.name,
+          })
+        : await extractRdTasksFromText({
+            text: text.trim(),
+            categoryLabels,
+            proposalTitle: text.trim().slice(0, 80) || undefined,
+          });
+      const firstTask = result.tasks[0];
+      if (!firstTask) {
+        throw new Error("AI 未解析出可创建的研发任务");
+      }
+      const nextDraft = aiDraftToTask(firstTask);
+      setDraft(nextDraft);
+      setOriginalDraft(nextDraft);
+      setAiSummary(result.summary ?? `已解析 ${result.tasks.length} 个任务，当前展示第 1 个`);
+      setModifiedFields(new Set());
       setAiState("review");
-    }, 1500);
+      toast.success(`AI 已解析 ${result.tasks.length} 个任务`);
+    } catch (error) {
+      setAiState("idle");
+      toast.error(error instanceof Error ? error.message : "AI 解析失败");
+    }
   }
 
   function addSelectedFiles(incoming: FileList | File[]) {
@@ -2451,7 +2791,7 @@ function AiCreatePanel({ onClose }: { onClose: () => void }) {
   }
 
   function resetField<K extends keyof Omit<Task, "task_id">>(key: K) {
-    const orig = AI_SAMPLE_RESULT[key];
+    const orig = (originalDraft ?? AI_SAMPLE_RESULT)[key];
     setDraft((prev) => (prev ? { ...prev, [key]: orig } : prev));
     setModifiedFields((prev) => {
       const next = new Set(prev);
@@ -2460,9 +2800,33 @@ function AiCreatePanel({ onClose }: { onClose: () => void }) {
     });
   }
 
-  function handleCreate() {
+  async function handleCreate() {
     if (!draft) return;
-    const taskId = `RD-DRAFT-${Date.now().toString().slice(-5)}`;
+    const target = resolveAiCreateTarget(categories, draft.category_path);
+    if (!target) {
+      toast.error("请先配置研发系统树，再创建任务");
+      return;
+    }
+    let created: Task;
+    try {
+      created = await createRdTask({
+        category_id: target.category.id,
+        sub_project_id: target.child?.id,
+        title: draft.title,
+        primary_owner: draft.primary_owner,
+        status: draft.status,
+        progress: draft.progress,
+        ai_priority: draft.ai_priority,
+        final_priority: draft.final_priority,
+        due_date: draft.due_date,
+        description: draft.description,
+        category_path: draft.category_path,
+      } as Parameters<typeof createRdTask>[0]);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "任务创建失败");
+      return;
+    }
+    const taskId = created.task_id;
     recordAudit({
       actor: RD_AUDIT_ACTOR,
       action: "task.created",
@@ -2494,6 +2858,7 @@ function AiCreatePanel({ onClose }: { onClose: () => void }) {
       });
     }
     toast.success("任务已创建，关键字段已留痕");
+    onCreated();
     onClose();
   }
 
@@ -2618,6 +2983,8 @@ function AiCreatePanel({ onClose }: { onClose: () => void }) {
                 </div>
               </div>
 
+              {aiSummary && <p className="-mt-2 text-xs text-blue-700">{aiSummary}</p>}
+
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2 space-y-1">
                   <label className="flex items-center gap-1 text-xs font-medium text-slate-500">
@@ -2719,6 +3086,8 @@ function AiCreatePanel({ onClose }: { onClose: () => void }) {
                   onClick={() => {
                     setAiState("idle");
                     setDraft(null);
+                    setOriginalDraft(null);
+                    setAiSummary("");
                     setModifiedFields(new Set());
                   }}
                   className="flex cursor-pointer items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700"
@@ -2869,12 +3238,40 @@ function TaskLifecycleTimeline({ task }: { task: Task }) {
   );
 }
 
-function TaskDetailDrawer({ task, onClose }: { task: Task; onClose: () => void }) {
+function TaskDetailDrawer({
+  task,
+  onClose,
+  onOpenPerson,
+}: {
+  task: Task;
+  onClose: () => void;
+  onOpenPerson?: (name: string) => void;
+}) {
+  const RD_ADMIN_AUDIT_ACTOR = useAuditActor("研发管理员");
   const shouldReduceMotion = useReducedMotion();
   const statusCfg = STATUS_CONFIG[task.status];
   const taskLogs = useAuditLogs({ resourceType: "task", resourceId: task.task_id });
+  const [progressNotes, setProgressNotes] = useState<RdTaskProgressNote[]>([]);
+  const [progressNotesLoading, setProgressNotesLoading] = useState(false);
   const canArchiveTask = usePermission(PERMISSIONS.RD_TASK_ARCHIVE);
   const canReassignTask = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
+  useEffect(() => {
+    let cancelled = false;
+    setProgressNotesLoading(true);
+    fetchRdTaskProgressNotes(task.task_id)
+      .then((notes) => {
+        if (!cancelled) setProgressNotes(notes);
+      })
+      .catch(() => {
+        if (!cancelled) setProgressNotes([]);
+      })
+      .finally(() => {
+        if (!cancelled) setProgressNotesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [task.task_id]);
   const handleArchive = () => {
     if (!canArchiveTask) {
       toast.error("当前账号没有封存任务权限");
@@ -2912,15 +3309,13 @@ function TaskDetailDrawer({ task, onClose }: { task: Task; onClose: () => void }
   return (
     <motion.div
       className="fixed inset-0 z-50 flex justify-end"
-      onClick={onClose}
       initial={shouldReduceMotion ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={RD_FAST_TRANSITION}
     >
       <motion.div
-        className="flex h-full w-full max-w-md flex-col overflow-y-auto border-l border-slate-200 bg-white shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
+        className="flex h-full w-full max-w-[620px] flex-col overflow-y-auto border-l border-slate-200 bg-white shadow-2xl sm:w-[min(620px,92vw)]"
         initial={shouldReduceMotion ? false : { opacity: 0, x: 36 }}
         animate={{ opacity: 1, x: 0 }}
         exit={{ opacity: 0, x: 28 }}
@@ -2958,10 +3353,16 @@ function TaskDetailDrawer({ task, onClose }: { task: Task; onClose: () => void }
             </div>
             <div>
               <div className="mb-1 text-xs text-slate-400">主责人</div>
-              <div className="flex items-center gap-2 font-medium text-slate-700">
+              <button
+                type="button"
+                onClick={() => onOpenPerson?.(task.primary_owner)}
+                disabled={/已离职|待指派|外部机构/.test(task.primary_owner)}
+                className="flex items-center gap-2 rounded-md py-0.5 font-medium text-slate-700 transition-colors enabled:cursor-pointer enabled:hover:text-blue-600 disabled:cursor-default"
+              >
                 <OwnerAvatar name={task.primary_owner} />
                 {task.primary_owner}
-              </div>
+                {!/已离职|待指派|外部机构/.test(task.primary_owner) && <ChevronRight className="h-3 w-3 text-slate-300" />}
+              </button>
             </div>
             <div>
               <div className="mb-1 text-xs text-slate-400">截止日期</div>
@@ -3004,6 +3405,21 @@ function TaskDetailDrawer({ task, onClose }: { task: Task; onClose: () => void }
 
           <div>
             <div className="mb-2 flex items-center justify-between">
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">进度留痕附件</div>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                {progressNotesLoading ? "加载中" : `${progressNotes.reduce((sum, note) => sum + note.attachments.length, 0)} 个附件`}
+              </span>
+            </div>
+            <ProgressNoteList
+              notes={progressNotes}
+              loading={progressNotesLoading}
+              emptyText="暂无进度留痕附件"
+              compact
+            />
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-center justify-between">
               <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">操作留痕</div>
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
                 {taskLogs.length} 条
@@ -3033,22 +3449,22 @@ function TaskDetailDrawer({ task, onClose }: { task: Task; onClose: () => void }
             </div>
           )}
 
-          {!task.archived && (canArchiveTask || canReassignTask) && (
-            <div className="flex gap-2 pt-2">
-              {canArchiveTask && (
-                <button type="button" onClick={handleArchive} className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-[8px] border border-slate-200 py-2 text-sm text-slate-600 hover:bg-slate-50">
-                  <Archive className="h-3.5 w-3.5" />
-                  封存任务
-                </button>
-              )}
-              {canReassignTask && (
-                <button type="button" onClick={handleHandoff} className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-[8px] border border-slate-200 py-2 text-sm text-slate-600 hover:bg-slate-50">
-                  <Users className="h-3.5 w-3.5" />
-                  移交向导
-                </button>
-              )}
-            </div>
-          )}
+          {/*{!task.archived && (canArchiveTask || canReassignTask) && (*/}
+          {/*  <div className="flex gap-2 pt-2">*/}
+          {/*    {canArchiveTask && (*/}
+          {/*      <button type="button" onClick={handleArchive} className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-[8px] border border-slate-200 py-2 text-sm text-slate-600 hover:bg-slate-50">*/}
+          {/*        <Archive className="h-3.5 w-3.5" />*/}
+          {/*        封存任务*/}
+          {/*      </button>*/}
+          {/*    )}*/}
+          {/*    {canReassignTask && (*/}
+          {/*      <button type="button" onClick={handleHandoff} className="flex flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-[8px] border border-slate-200 py-2 text-sm text-slate-600 hover:bg-slate-50">*/}
+          {/*        <Users className="h-3.5 w-3.5" />*/}
+          {/*        移交向导*/}
+          {/*      </button>*/}
+          {/*    )}*/}
+          {/*  </div>*/}
+          {/*)}*/}
         </div>
       </motion.div>
     </motion.div>
@@ -3209,13 +3625,15 @@ function RiskHotspot({
   onSelectTask,
   className,
   title = "决策焦点 · 风险任务",
-  subtitle = "按严重度排序 · 点击查看详情",
+  subtitle = "仅显示风险任务；全部任务在任务清单中",
+  totalTasks,
 }: {
   risks: Risk[];
   onSelectTask: (t: Task) => void;
   className?: string;
   title?: string;
   subtitle?: string;
+  totalTasks?: number;
 }) {
   const shouldReduceMotion = useReducedMotion();
   const [riskFilter, setRiskFilter] = useState<Risk["type"] | "all">("all");
@@ -3256,9 +3674,16 @@ function RiskHotspot({
           <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
           <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>
         </div>
-        <span className="text-2xl font-semibold tabular-nums tracking-tight text-slate-900">
-          {riskFilter === "all" ? risks.length : `${filteredRisks.length}/${risks.length}`}
-        </span>
+        <div className="text-right">
+          <div className="text-2xl font-semibold tabular-nums tracking-tight text-slate-900">
+            {riskFilter === "all" ? risks.length : `${filteredRisks.length}/${risks.length}`}
+          </div>
+          {typeof totalTasks === "number" && (
+            <div className="mt-0.5 text-[11px] font-medium text-slate-400">
+              共 {totalTasks} 个任务
+            </div>
+          )}
+        </div>
       </header>
 
       <div className="flex flex-wrap gap-2 border-b border-slate-100 px-6 py-3">
@@ -3295,7 +3720,9 @@ function RiskHotspot({
 
       <ul className="flex-1 divide-y divide-slate-100">
         {shownRisks.length === 0 ? (
-          <li className="px-6 py-10 text-center text-sm text-slate-400">暂无风险任务</li>
+          <li className="px-6 py-10 text-center text-sm text-slate-400">
+            {totalTasks ? "暂无风险任务，全部任务请查看任务清单" : "暂无风险任务"}
+          </li>
         ) : (
           shownRisks.map((r) => (
           <li
@@ -3395,10 +3822,12 @@ function PersonLoadPanel({
   loads,
   className,
   onManage,
+  onSelectPerson,
 }: {
   loads: PersonLoad[];
   className?: string;
   onManage?: () => void;
+  onSelectPerson?: (name: string) => void;
 }) {
   const shouldReduceMotion = useReducedMotion();
   const [page, setPage] = useState(1);
@@ -3466,7 +3895,16 @@ function PersonLoadPanel({
             return (
               <li
                 key={p.name}
-                className="flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-slate-50/80"
+                onClick={() => onSelectPerson?.(p.name)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onSelectPerson?.(p.name);
+                  }
+                }}
+                role="button"
+                tabIndex={0}
+                className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-slate-50/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
               >
                 <OwnerAvatar name={p.name} size="xs" />
                 <div className="min-w-0 flex-1">
@@ -3489,6 +3927,7 @@ function PersonLoadPanel({
                     />
                   </div>
                 </div>
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-slate-300" />
               </li>
             );
           })
@@ -3550,6 +3989,124 @@ function PersonLoadPanel({
   );
 }
 
+function PersonDetailDrawer({
+  name,
+  profile,
+  load,
+  tasks,
+  onClose,
+  onOpenTask,
+}: {
+  name: string;
+  profile?: PersonProfile;
+  load?: PersonLoad;
+  tasks: Task[];
+  onClose: () => void;
+  onOpenTask: (task: Task) => void;
+}) {
+  const shouldReduceMotion = useReducedMotion();
+  const activeTasks = tasks.filter((task) => !task.archived && task.status !== "completed");
+  const maxTasks = profile?.max_tasks ?? load?.max ?? 8;
+  const count = load?.count ?? activeTasks.length;
+  const ratio = maxTasks > 0 ? Math.min(100, Math.round((count / maxTasks) * 100)) : 0;
+  const statusLabel = profile?.status === "on_leave" || load?.onLeave ? "请假中" : profile?.status === "resigned" ? "已离职" : "在岗";
+  return (
+    <motion.div
+      className="fixed inset-0 z-50 flex justify-end bg-slate-900/25 backdrop-blur-sm"
+      initial={shouldReduceMotion ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={RD_FAST_TRANSITION}
+    >
+      <motion.div
+        className="flex h-full w-full max-w-[620px] flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl sm:w-[min(620px,92vw)]"
+        initial={shouldReduceMotion ? false : { opacity: 0, x: 36 }}
+        animate={{ opacity: 1, x: 0 }}
+        exit={{ opacity: 0, x: 28 }}
+        transition={RD_PANEL_TRANSITION}
+      >
+        <header className="flex items-start justify-between border-b border-slate-100 px-6 py-5">
+          <div className="flex min-w-0 items-center gap-3">
+            <OwnerAvatar name={name} />
+            <div className="min-w-0">
+              <h3 className="truncate text-lg font-semibold text-slate-900">{name}</h3>
+              <p className="mt-0.5 text-xs text-slate-500">{profile?.position ?? "研发成员"} · {profile?.department ?? "未设置部门"}</p>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
+            <X className="h-4 w-4" />
+          </button>
+        </header>
+
+        <div className="flex-1 space-y-5 overflow-auto px-6 py-5">
+          <section className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
+            <div className="grid grid-cols-3 gap-3 text-center">
+              <div>
+                <div className="text-2xl font-semibold tabular-nums text-slate-900">{count}</div>
+                <div className="mt-0.5 text-[11px] text-slate-500">当前负载</div>
+              </div>
+              <div>
+                <div className="text-2xl font-semibold tabular-nums text-blue-600">{maxTasks}</div>
+                <div className="mt-0.5 text-[11px] text-slate-500">容量上限</div>
+              </div>
+              <div>
+                <div className={cn("text-2xl font-semibold", statusLabel === "在岗" ? "text-emerald-600" : "text-amber-600")}>{statusLabel}</div>
+                <div className="mt-0.5 text-[11px] text-slate-500">人员状态</div>
+              </div>
+            </div>
+            <div className="mt-4 h-2 overflow-hidden rounded-full bg-white">
+              <div
+                className={cn("h-full rounded-full", ratio >= 100 ? "bg-red-500" : ratio >= 80 ? "bg-orange-500" : "bg-emerald-400")}
+                style={{ width: `${ratio}%` }}
+              />
+            </div>
+          </section>
+
+          <section className="grid grid-cols-2 gap-3 text-sm">
+            <div className="rounded-lg border border-slate-100 bg-white p-3">
+              <div className="text-[11px] text-slate-400">邮箱</div>
+              <div className="mt-1 truncate font-medium text-slate-700">{profile?.email ?? "-"}</div>
+            </div>
+            <div className="rounded-lg border border-slate-100 bg-white p-3">
+              <div className="text-[11px] text-slate-400">电话</div>
+              <div className="mt-1 font-medium text-slate-700">{profile?.phone ?? "-"}</div>
+            </div>
+          </section>
+
+          <section>
+            <div className="mb-2 flex items-center justify-between">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">负责/协作任务</h4>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-slate-500">{tasks.length} 项</span>
+            </div>
+            {tasks.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/50 py-8 text-center text-sm text-slate-400">暂无关联任务</div>
+            ) : (
+              <ul className="space-y-2">
+                {tasks.slice(0, 12).map((task) => (
+                  <li key={task.task_id}>
+                    <button
+                      type="button"
+                      onClick={() => onOpenTask(task)}
+                      className="flex w-full items-center gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2 text-left transition-all hover:border-blue-100 hover:bg-blue-50/40"
+                    >
+                      <span className={cn("h-2 w-2 shrink-0 rounded-full", taskAccentClass(task))} />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-medium text-slate-800">{task.title}</div>
+                        <div className="mt-0.5 text-[11px] text-slate-400">{task.task_id} · {task.progress}%</div>
+                      </div>
+                      <ChevronRight className="h-3.5 w-3.5 text-slate-300" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 function SystemHealthCard({
   stat,
   onClick,
@@ -3562,6 +4119,7 @@ function SystemHealthCard({
   const health = getSystemHealth(stat);
   const hConfig = HEALTH_CONFIG[health];
   const isIdle = health === "idle";
+  const reserved = isReservedBomSystem(stat.cat.id);
 
   return (
     <motion.button
@@ -3592,6 +4150,11 @@ function SystemHealthCard({
         <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-900">
           {stat.cat.label}
         </span>
+        {reserved && (
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+            预留
+          </span>
+        )}
         <Tooltip>
           <TooltipTrigger asChild>
             <span
@@ -3670,6 +4233,9 @@ function SystemHealthCard({
           </span>{" "}
           任务
         </span>
+        <span className="text-slate-400">
+          <span className="font-semibold tabular-nums text-slate-500">{stat.cat.children.length}</span> 部件
+        </span>
         {stat.inProgress > 0 && (
           <span className="text-slate-500">
             <span className="font-semibold tabular-nums text-blue-600">{stat.inProgress}</span> 进行中
@@ -3695,6 +4261,7 @@ function SystemPanorama({
   onSelectSystem: (catId: string) => void;
 }) {
   const shouldReduceMotion = useReducedMotion();
+  const reservedCount = catStats.filter((stat) => isReservedBomSystem(stat.cat.id)).length;
   return (
     <motion.section
       initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
@@ -3706,7 +4273,7 @@ function SystemPanorama({
         <div>
           <h3 className="text-sm font-semibold text-slate-950">子系统全景</h3>
           <p className="mt-0.5 text-xs text-slate-500">
-            {catStats.length} 个产品子系统 · 点击进入工作视图
+            当前研发分类树 · {catStats.length} 个子系统 · 预留 {reservedCount} 个管理节点
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
@@ -3891,103 +4458,237 @@ function SystemDetailHero({
 /** Upcoming milestones strip — next 30 days grouped by week */
 function UpcomingMilestonesSection({
   scope,
+  tasks,
   onOpen,
 }: {
   scope: Category | SubProject | null;
+  tasks?: Task[];
   onOpen: (t: Task) => void;
 }) {
-  if (!scope) return null;
-  const allTasks = collectAllActiveTasks(scope);
+  const [windowFilter, setWindowFilter] = useState<string>("all");
+  const [page, setPage] = useState(1);
+  const allTasks = tasks ?? collectAllActiveTasks(scope);
   const upcoming = allTasks
     .filter((t) => t.due_date && t.status !== "completed")
     .map((t) => ({ task: t, dleft: daysUntil(t.due_date)! }))
     .filter((it) => it.dleft >= -7 && it.dleft <= 30) // include 1 week overdue too
     .sort((a, b) => a.dleft - b.dleft);
 
+  useEffect(() => {
+    setPage(1);
+  }, [windowFilter, upcoming.length]);
+
+  if (!scope && !tasks) return null;
   if (upcoming.length === 0) return null;
 
-  const buckets: { key: string; label: string; range: [number, number] }[] = [
-    { key: "overdue", label: "已逾期", range: [-Infinity, -1] },
-    { key: "this-week", label: "本周内", range: [0, 7] },
-    { key: "next-week", label: "下周", range: [8, 14] },
-    { key: "later", label: "三周后", range: [15, 30] },
+  const buckets: {
+    key: string;
+    label: string;
+    range: [number, number];
+    tone: string;
+    dot: string;
+  }[] = [
+    { key: "overdue", label: "已逾期", range: [-Infinity, -1], tone: "text-red-600", dot: "bg-red-500" },
+    { key: "today", label: "今日", range: [0, 0], tone: "text-orange-600", dot: "bg-orange-500" },
+    { key: "next-3", label: "3 天内", range: [1, 3], tone: "text-amber-600", dot: "bg-amber-500" },
+    { key: "this-week", label: "本周", range: [4, 7], tone: "text-blue-600", dot: "bg-blue-500" },
+    { key: "next-week", label: "下周", range: [8, 14], tone: "text-slate-600", dot: "bg-slate-400" },
+    { key: "later", label: "15-30 天", range: [15, 30], tone: "text-slate-500", dot: "bg-slate-300" },
   ];
 
   const grouped = buckets
     .map((b) => ({
       ...b,
       items: upcoming.filter((it) => it.dleft >= b.range[0] && it.dleft <= b.range[1]),
-    }))
-    .filter((b) => b.items.length > 0);
+    }));
+  const activeBucket = grouped.find((bucket) => bucket.key === windowFilter);
+  const filteredItems = windowFilter === "all" ? upcoming : activeBucket?.items ?? [];
+  const pageSize = 10;
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const visibleItems = filteredItems.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const within7 = upcoming.filter((it) => it.dleft >= 0 && it.dleft <= 7).length;
+  const overdue = upcoming.filter((it) => it.dleft < 0).length;
+  const activeWindowLabel = windowFilter === "all" ? "全部窗口" : activeBucket?.label ?? "全部窗口";
 
   return (
-    <section className="rounded-xl border border-slate-100 bg-white p-5">
-      <header className="mb-4 flex items-center justify-between">
+    <section className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.04)]">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
         <div>
           <h3 className="text-sm font-semibold text-slate-900">里程碑预报</h3>
           <p className="mt-0.5 text-xs text-slate-500">
-            未来 30 天 · {upcoming.length} 个截止日 · 含 1 周内逾期
+            未来 30 天 · {upcoming.length} 个截止日 · {within7} 个 7 天内到期
           </p>
         </div>
-        <span className="text-xs text-slate-400">点击查看任务</span>
+        <div className="flex items-center gap-2 text-xs">
+          {overdue > 0 && (
+            <span className="rounded-full bg-red-50 px-2 py-0.5 font-semibold text-red-600">
+              逾期 {overdue}
+            </span>
+          )}
+          <span className="rounded-full bg-slate-50 px-2 py-0.5 font-medium text-slate-500 ring-1 ring-slate-200">
+            点击任务查看详情
+          </span>
+        </div>
       </header>
 
-      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {grouped.map((b) => {
-          const isOverdue = b.key === "overdue";
-          const isThisWeek = b.key === "this-week";
-          return (
-            <div key={b.key} className="space-y-2">
-              <div className="flex items-center justify-between border-b border-slate-100 pb-2">
-                <span
+      <div className="grid gap-0 lg:grid-cols-[220px_minmax(0,1fr)]">
+        <aside className="border-b border-slate-100 bg-slate-50/70 px-5 py-4 lg:border-b-0 lg:border-r">
+          <div className="mb-3 flex items-center gap-2">
+            <CalendarClock className="h-4 w-4 text-slate-400" />
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">时间窗口</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 lg:grid-cols-1">
+            <button
+              type="button"
+              onClick={() => setWindowFilter("all")}
+              className={cn(
+                "flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 active:scale-[0.99]",
+                windowFilter === "all"
+                  ? "border-blue-200 bg-blue-50 text-blue-700 shadow-[0_8px_18px_rgba(37,99,235,0.10)]"
+                  : "border-slate-200 bg-white hover:border-blue-100 hover:bg-white hover:shadow-[0_6px_14px_rgba(15,23,42,0.035)]",
+              )}
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", windowFilter === "all" ? "bg-blue-500" : "bg-slate-400")} />
+                <span className="truncate text-xs font-semibold">全部窗口</span>
+              </span>
+              <span className="text-xs font-semibold tabular-nums">{upcoming.length}</span>
+            </button>
+            {grouped.map((b) => {
+              const active = b.items.length > 0;
+              const selected = windowFilter === b.key;
+              return (
+                <button
+                  key={b.key}
+                  type="button"
+                  onClick={() => {
+                    if (active) setWindowFilter(b.key);
+                  }}
+                  disabled={!active}
                   className={cn(
-                    "text-xs font-semibold uppercase tracking-wider",
-                    isOverdue ? "text-red-600" : isThisWeek ? "text-orange-600" : "text-slate-500",
+                    "flex items-center justify-between rounded-lg border px-3 py-2 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 active:scale-[0.99]",
+                    selected
+                      ? "border-blue-200 bg-blue-50 shadow-[0_8px_18px_rgba(37,99,235,0.10)]"
+                      : active
+                        ? "cursor-pointer border-slate-200 bg-white hover:border-blue-100 hover:bg-white hover:shadow-[0_6px_14px_rgba(15,23,42,0.035)]"
+                        : "cursor-not-allowed border-slate-100 bg-white/55",
                   )}
                 >
-                  {b.label}
-                </span>
-                <span className="text-xs font-semibold tabular-nums text-slate-400">{b.items.length}</span>
-              </div>
-              <ul className="space-y-1.5">
-                {b.items.slice(0, 5).map(({ task, dleft }) => {
-                  const dayLabel =
-                    dleft < 0 ? `逾期 ${-dleft}d` : dleft === 0 ? "今日" : `${dleft}天后`;
-                  return (
-                    <li
-                      key={task.task_id}
-                      onClick={() => onOpen(task)}
-                      className="group flex cursor-pointer items-start gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-slate-50"
-                    >
-                      <span
-                        className={cn(
-                          "mt-0.5 inline-block w-12 shrink-0 text-[11px] font-semibold tabular-nums",
-                          isOverdue ? "text-red-600" : isThisWeek ? "text-orange-600" : "text-slate-500",
-                        )}
-                      >
-                        {dayLabel}
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", b.dot, !active && "opacity-30")} />
+                    <span className={cn("truncate text-xs font-medium", selected ? "text-blue-700" : active ? b.tone : "text-slate-400")}>{b.label}</span>
+                  </span>
+                  <span className={cn("text-xs font-semibold tabular-nums", selected ? "text-blue-700" : active ? "text-slate-900" : "text-slate-300")}>
+                    {b.items.length}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </aside>
+
+        <div className="px-5 py-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div className="text-xs text-slate-500">
+              当前筛选：<span className="font-semibold text-slate-800">{activeWindowLabel}</span>
+              <span className="mx-1 text-slate-300">·</span>
+              <span className="font-semibold tabular-nums text-slate-800">{filteredItems.length}</span> 项
+            </div>
+            <div className="text-xs tabular-nums text-slate-400">
+              {filteredItems.length === 0 ? "0 / 0" : `${(safePage - 1) * pageSize + 1}-${Math.min(safePage * pageSize, filteredItems.length)} / ${filteredItems.length}`}
+            </div>
+          </div>
+          <div className="grid gap-2 xl:grid-cols-2">
+            {visibleItems.map(({ task, dleft }) => {
+              const dayLabel =
+                dleft < 0 ? `逾期 ${-dleft}d` : dleft === 0 ? "今日" : `${dleft}天后`;
+              const bucket =
+                grouped.find((b) => dleft >= b.range[0] && dleft <= b.range[1]) ?? grouped[grouped.length - 1];
+              const path = splitCategoryPath(task.category_path).slice(0, 2).join(" / ");
+              const progressTone =
+                task.progress >= 80 ? "bg-emerald-500" : task.progress >= 50 ? "bg-blue-500" : task.progress > 0 ? "bg-amber-500" : "bg-slate-300";
+              return (
+                <button
+                  key={task.task_id}
+                  type="button"
+                  onClick={() => onOpen(task)}
+                  className="group flex min-w-0 cursor-pointer items-start gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2.5 text-left transition-all hover:border-blue-100 hover:bg-blue-50/30 hover:shadow-[0_8px_18px_rgba(15,23,42,0.05)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 active:scale-[0.995]"
+                >
+                  <span className={cn("mt-0.5 w-14 shrink-0 text-xs font-semibold tabular-nums", bucket?.tone ?? "text-slate-500")}>
+                    {dayLabel}
+                  </span>
+                  <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", bucket?.dot ?? "bg-slate-300")} />
+                  <span className="min-w-0 flex-1">
+                    <span className="line-clamp-2 text-sm font-semibold leading-5 text-slate-800 group-hover:text-slate-950">
+                      {task.title}
+                    </span>
+                    <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-400">
+                      <span className="max-w-[180px] truncate text-slate-500">{path || "未分类"}</span>
+                      <span className="text-slate-300">·</span>
+                      <span>{task.primary_owner}</span>
+                      <span className="text-slate-300">·</span>
+                      <span className="font-mono">{task.task_id}</span>
+                    </span>
+                    <span className="mt-2 flex items-center gap-2">
+                      <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                        <span className={cn("block h-full rounded-full", progressTone)} style={{ width: `${Math.max(3, task.progress)}%` }} />
                       </span>
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate text-xs font-medium text-slate-700 group-hover:text-slate-900">
-                          {task.title}
-                        </div>
-                        <div className="mt-0.5 flex items-center gap-1.5 text-[10px] text-slate-400">
-                          <StatusDot status={task.status} />
-                          <span>{task.primary_owner}</span>
-                          <span>·</span>
-                          <span className="tabular-nums">{task.progress}%</span>
-                        </div>
-                      </div>
-                    </li>
+                      <span className="w-8 text-right text-[11px] font-semibold tabular-nums text-slate-500">{task.progress}%</span>
+                    </span>
+                  </span>
+                  <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-slate-300 opacity-0 transition-all group-hover:translate-x-0.5 group-hover:opacity-100" />
+                </button>
+              );
+            })}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+              <span className="text-xs text-slate-500">
+                每页 10 条 · 第 <span className="font-semibold tabular-nums text-slate-800">{safePage}</span> / {totalPages} 页
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setPage((current) => Math.max(1, current - 1))}
+                  disabled={safePage <= 1}
+                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-slate-400 transition-all hover:bg-white hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30"
+                  aria-label="上一页"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                {Array.from({ length: totalPages }).map((_, index) => {
+                  const nextPage = index + 1;
+                  const current = nextPage === safePage;
+                  return (
+                    <button
+                      key={nextPage}
+                      type="button"
+                      onClick={() => setPage(nextPage)}
+                      className={cn(
+                        "h-7 min-w-7 cursor-pointer rounded-md px-1.5 text-[11px] font-semibold tabular-nums transition-all active:scale-90",
+                        current ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200" : "text-slate-500 hover:bg-white hover:text-slate-700",
+                      )}
+                      aria-current={current ? "page" : undefined}
+                    >
+                      {nextPage}
+                    </button>
                   );
                 })}
-                {b.items.length > 5 && (
-                  <li className="px-2 text-[11px] text-slate-400">…还有 {b.items.length - 5} 项</li>
-                )}
-              </ul>
+                <button
+                  type="button"
+                  onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                  disabled={safePage >= totalPages}
+                  className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-slate-400 transition-all hover:bg-white hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30"
+                  aria-label="下一页"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+              </div>
             </div>
-          );
-        })}
+          )}
+        </div>
       </div>
     </section>
   );
@@ -4005,16 +4706,16 @@ function TasksByPartSection({
 }) {
   if (!category) return null;
   // If a sub-project is explicitly selected, show only that one. Otherwise list all parts with tasks.
-  const parts = sub ? [sub] : category.children.filter((c) => c.tasks.length > 0);
+  const parts = sub ? [sub] : category.children.filter((c) => flattenTasks(c.tasks).some((task) => !task.archived));
   if (parts.length === 0) return null;
 
-  const totalCount = parts.reduce((s, p) => s + p.tasks.filter((t) => !t.archived).length, 0);
+  const totalCount = parts.reduce((s, p) => s + flattenTasks(p.tasks).filter((t) => !t.archived).length, 0);
 
   return (
     <section className="space-y-3">
       <header className="flex items-center justify-between px-1">
         <div>
-          <h3 className="text-sm font-semibold text-slate-900">任务清单</h3>
+          <h3 className="text-sm font-semibold text-slate-900">全部任务清单</h3>
           <p className="mt-0.5 text-xs text-slate-500">
             {sub ? `${sub.label} · ` : `按部件分组 · ${parts.length} 个部件 · `}
             {totalCount} 个活跃任务
@@ -4060,10 +4761,11 @@ function PartHealthGrid({
   onSelectSub: (subId: string) => void;
 }) {
   const parts = category.children.map((sub) => {
-    const active = sub.tasks.filter((t) => !t.archived).length;
+    const tasks = flattenTasks(sub.tasks);
+    const active = tasks.filter((t) => !t.archived).length;
     const progress = calcSubProgress(sub);
-    const riskTasks = sub.tasks.filter((t) => taskNeedsAttention(t)).length;
-    const blocked = sub.tasks.filter(
+    const riskTasks = tasks.filter((t) => taskNeedsAttention(t)).length;
+    const blocked = tasks.filter(
       (t) => t.status === "paused_blocked" || t.status === "pending_assign",
     ).length;
     return { sub, active, progress, risks: riskTasks, blocked };
@@ -4236,11 +4938,9 @@ function PersonFormModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm animate-rd-fade-in"
-      onClick={onClose}
     >
       <div
         className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(15,23,42,0.2)] animate-rd-scale-in"
-        onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div>
@@ -4404,11 +5104,9 @@ function ConfirmDeleteDialog({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm animate-rd-fade-in"
-      onClick={onCancel}
     >
       <div
         className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(15,23,42,0.2)] animate-rd-scale-in"
-        onClick={(e) => e.stopPropagation()}
       >
         <div className="px-6 pt-6">
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-50">
@@ -4443,6 +5141,7 @@ function ConfirmDeleteDialog({
 
 /** People management page — full CRUD, hidden from main nav */
 function PeopleManagementPage({ onBack }: { onBack: () => void }) {
+  const RD_ADMIN_AUDIT_ACTOR = useAuditActor("研发管理员");
   const shouldReduceMotion = useReducedMotion();
   const [people, setPeople] = useState<Person[]>(INITIAL_PEOPLE);
   const [keyword, setKeyword] = useState("");
@@ -4781,6 +5480,7 @@ function ExecutiveOverview({
   personLoads,
   onSelectSystem,
   onSelectTask,
+  onSelectPerson,
   onOpenPeople,
   loading,
   loadError,
@@ -4791,6 +5491,7 @@ function ExecutiveOverview({
   personLoads: PersonLoad[];
   onSelectSystem: (catId: string) => void;
   onSelectTask: (t: Task) => void;
+  onSelectPerson: (name: string) => void;
   onOpenPeople?: () => void;
   loading: boolean;
   loadError: string | null;
@@ -4801,8 +5502,7 @@ function ExecutiveOverview({
   const inProgress = catStats.reduce((s, c) => s + c.inProgress, 0);
   const done = catStats.reduce((s, c) => s + c.done, 0);
   const blocked = catStats.reduce((s, c) => s + c.blocked, 0);
-  const totalAll = totalActive + done;
-  const rate = totalAll > 0 ? Math.round((done / totalAll) * 100) : 0;
+  const rate = totalActive > 0 ? Math.round((done / totalActive) * 100) : 0;
 
   return (
     <motion.div
@@ -4854,8 +5554,13 @@ function ExecutiveOverview({
         ) : (
           <>
             <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-5">
-              <RiskHotspot risks={risks} onSelectTask={onSelectTask} className="lg:col-span-3" />
-              <PersonLoadPanel loads={personLoads} className="lg:col-span-2" onManage={onOpenPeople} />
+              <RiskHotspot
+                risks={risks}
+                totalTasks={totalActive}
+                onSelectTask={onSelectTask}
+                className="lg:col-span-3"
+              />
+              <PersonLoadPanel loads={personLoads} className="lg:col-span-2" onManage={onOpenPeople} onSelectPerson={onSelectPerson} />
             </div>
 
             <SystemPanorama catStats={catStats} onSelectSystem={onSelectSystem} />
@@ -4870,12 +5575,17 @@ function ExecutiveOverview({
 
 export function RDTaskManagementPage() {
   const shouldReduceMotion = useReducedMotion();
+  const location = useLocation();
+  const navigate = useNavigate();
   const canCreateTask = usePermission(PERMISSIONS.RD_TASK_CREATE);
   const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
+  const RD_ADMIN_AUDIT_ACTOR = useAuditActor("研发管理员");
   const [showCreate, setShowCreate] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [selectedPersonName, setSelectedPersonName] = useState<string | null>(null);
   const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
+  const [peopleProfiles, setPeopleProfiles] = useState<PersonProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   // Page view mode:
@@ -4887,7 +5597,7 @@ export function RDTaskManagementPage() {
   const loadCategories = () => {
     setLoading(true);
     setLoadError(null);
-    fetchRdTaskCategories<Category>()
+    fetchRdTaskCategories()
       .then((nextCategories) => {
         setCategories(nextCategories);
         setSelectedCatId((current) => {
@@ -4907,6 +5617,131 @@ export function RDTaskManagementPage() {
     loadCategories();
   }, []);
 
+  // ── System tree CRUD ─────────────────────────────────────────────────────
+  const [treeEditor, setTreeEditor] = useState<SystemTreeEditorRequest | null>(null);
+
+  const handleTreeEditorSubmit = async (label: string) => {
+    if (!treeEditor) return;
+    const safeLabel = label.trim();
+    let nextCategories: Category[] = categories;
+    let auditAction: "category.created" | "category.edited" | "category.deleted" | "sub_project.created" | "sub_project.edited" | "sub_project.deleted" = "category.created";
+    let auditResourceId = "";
+    let auditResourceName = "";
+
+    if (treeEditor.mode === "add-system") {
+      const dup = categories.find((c) => c.label.trim() === safeLabel);
+      if (dup) { toast.error(`已存在同名系统：${safeLabel}`); return; }
+      const newCat: Category = {
+        id: `rd-cat-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        label: safeLabel,
+        children: [],
+      };
+      nextCategories = [...categories, newCat];
+      auditAction = "category.created";
+      auditResourceId = newCat.id;
+      auditResourceName = newCat.label;
+    } else if (treeEditor.mode === "edit-system") {
+      const target = treeEditor.category;
+      if (categories.some((c) => c.id !== target.id && c.label.trim() === safeLabel)) {
+        toast.error(`已存在同名系统：${safeLabel}`); return;
+      }
+      nextCategories = categories.map((c) => (c.id === target.id ? { ...c, label: safeLabel } : c));
+      auditAction = "category.edited";
+      auditResourceId = target.id;
+      auditResourceName = safeLabel;
+    } else if (treeEditor.mode === "delete-system") {
+      const target = treeEditor.category;
+      nextCategories = categories.filter((c) => c.id !== target.id);
+      auditAction = "category.deleted";
+      auditResourceId = target.id;
+      auditResourceName = target.label;
+    } else if (treeEditor.mode === "add-sub") {
+      const target = treeEditor.category;
+      if (target.children.some((s) => s.label.trim() === safeLabel)) {
+        toast.error(`「${target.label}」下已存在同名子项：${safeLabel}`); return;
+      }
+      const newSub: SubProject = {
+        id: `rd-sub-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        label: safeLabel,
+        tasks: [],
+      };
+      nextCategories = categories.map((c) =>
+        c.id === target.id ? { ...c, children: [...c.children, newSub] } : c,
+      );
+      auditAction = "sub_project.created";
+      auditResourceId = newSub.id;
+      auditResourceName = `${target.label} / ${newSub.label}`;
+    } else if (treeEditor.mode === "edit-sub") {
+      const { category, sub } = treeEditor;
+      if (category.children.some((s) => s.id !== sub.id && s.label.trim() === safeLabel)) {
+        toast.error(`「${category.label}」下已存在同名子项：${safeLabel}`); return;
+      }
+      nextCategories = categories.map((c) =>
+        c.id === category.id
+          ? { ...c, children: c.children.map((s) => (s.id === sub.id ? { ...s, label: safeLabel } : s)) }
+          : c,
+      );
+      auditAction = "sub_project.edited";
+      auditResourceId = sub.id;
+      auditResourceName = `${category.label} / ${safeLabel}`;
+    } else {
+      // delete-sub
+      const { category, sub } = treeEditor;
+      nextCategories = categories.map((c) =>
+        c.id === category.id
+          ? { ...c, children: c.children.filter((s) => s.id !== sub.id) }
+          : c,
+      );
+      auditAction = "sub_project.deleted";
+      auditResourceId = sub.id;
+      auditResourceName = `${category.label} / ${sub.label}`;
+    }
+
+    try {
+      const saved = await saveRdTaskCategories(nextCategories);
+      setCategories(saved);
+      recordAudit({
+        actor: RD_ADMIN_AUDIT_ACTOR,
+        action: auditAction,
+        resource: { type: "category", id: auditResourceId, name: auditResourceName },
+        comment: `通过研发系统树管理${treeEditor.mode.startsWith("add") ? "新增" : treeEditor.mode.startsWith("edit") ? "重命名" : "删除"}节点`,
+        source: "web",
+      });
+      toast.success(
+        treeEditor.mode.startsWith("add") ? "新增成功"
+        : treeEditor.mode.startsWith("edit") ? "已更新"
+        : "已删除",
+      );
+      setTreeEditor(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "保存失败");
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchRdPeople()
+      .then((people) => {
+        if (!cancelled) setPeopleProfiles(people as PersonProfile[]);
+      })
+      .catch(() => {
+        if (!cancelled) setPeopleProfiles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const view = params.get("view");
+    const categoryId = params.get("category");
+    if (view === "board" || categoryId) {
+      setMode("board");
+      setSelectedCatId(categoryId);
+    }
+  }, [location.search]);
+
   const risks = useMemo(() => computeRisks(categories), [categories]);
   const catStats = useMemo(() => buildCatStats(categories, risks), [categories, risks]);
   const personLoads = useMemo(() => computePersonLoads(categories), [categories]);
@@ -4915,7 +5750,7 @@ export function RDTaskManagementPage() {
     setSelectedCatId(catId);
     setMode("board");
   };
-  const allTasks = useMemo(() => categories.flatMap((c) => c.children.flatMap((s) => s.tasks)), [categories]);
+  const allTasks = useMemo(() => flattenTasks(categories.flatMap((c) => c.children.flatMap((s) => s.tasks))), [categories]);
   const totalActive = useMemo(() => allTasks.filter((t) => !t.archived).length, [allTasks]);
   const pendingAssign = useMemo(() => allTasks.filter((t) => t.status === "pending_assign").length, [allTasks]);
   const averageProgress = useMemo(() => {
@@ -4923,6 +5758,35 @@ export function RDTaskManagementPage() {
     if (activeTasks.length === 0) return 0;
     return Math.round(activeTasks.reduce((sum, task) => sum + task.progress, 0) / activeTasks.length);
   }, [allTasks]);
+  const allSystemSummary = useMemo(() => {
+    const activeTasks = allTasks.filter((task) => !task.archived);
+    return {
+      inProgress: activeTasks.filter((task) => task.status === "in_progress").length,
+      done: activeTasks.filter((task) => task.status === "completed").length,
+      blocked: activeTasks.filter((task) => task.status === "paused_blocked" || task.status === "pending_assign").length,
+      rate: activeTasks.length > 0 ? Math.round((activeTasks.filter((task) => task.status === "completed").length / activeTasks.length) * 100) : 0,
+    };
+  }, [allTasks]);
+  const openPersonDetail = (name: string) => {
+    if (!name || /已离职|待指派|外部机构/.test(name)) return;
+    setSelectedPersonName(name);
+  };
+  const selectedPersonProfile = useMemo(
+    () => peopleProfiles.find((person) => person.name === selectedPersonName),
+    [peopleProfiles, selectedPersonName],
+  );
+  const selectedPersonLoad = useMemo(
+    () => personLoads.find((load) => load.name === selectedPersonName),
+    [personLoads, selectedPersonName],
+  );
+  const selectedPersonTasks = useMemo(() => {
+    if (!selectedPersonName) return [];
+    return allTasks.filter(
+      (task) =>
+        task.primary_owner === selectedPersonName ||
+        task.collaborators.some((collaborator) => collaborator.name === selectedPersonName),
+    );
+  }, [allTasks, selectedPersonName]);
 
   const selectedCategory = selectedCatId
     ? categories.find((c) => c.id === selectedCatId || c.children.some((sub) => sub.id === selectedCatId))
@@ -4942,7 +5806,7 @@ export function RDTaskManagementPage() {
 
   const selectedStat = selectedSub
     ? {
-        total: selectedSub.tasks.filter((task) => !task.archived).length,
+        total: flattenTasks(selectedSub.tasks).filter((task) => !task.archived).length,
         progress: calcSubProgress(selectedSub),
       }
     : selectedCatId
@@ -4952,6 +5816,14 @@ export function RDTaskManagementPage() {
   const primaryRisk = scopedRisks[0] ?? null;
   const criticalCount = scopedRisks.filter((risk) => risk.severity === "critical").length;
   const scopeTitle = selectedLabel ?? "全部研发系统";
+  const detailScope = selectedSub ?? selectedCategory ?? null;
+  const detailActiveTasks = useMemo(
+    () => (detailScope ? collectAllActiveTasks(detailScope) : allTasks.filter((task) => !task.archived)),
+    [allTasks, detailScope],
+  );
+  const detailBlockedCount = detailActiveTasks.filter(
+    (task) => task.status === "paused_blocked" || task.status === "pending_assign",
+  ).length;
 
   // ───── Overview mode (leadership landing) ────────────────────────────────
   if (mode === "overview") {
@@ -4963,7 +5835,8 @@ export function RDTaskManagementPage() {
           personLoads={personLoads}
           onSelectSystem={enterBoard}
           onSelectTask={setSelectedTask}
-          onOpenPeople={canManagePeople ? () => setMode("people") : undefined}
+          onSelectPerson={openPersonDetail}
+          onOpenPeople={canManagePeople ? () => navigate("/rd-people-management") : undefined}
           loading={loading}
           loadError={loadError}
           onRefresh={loadCategories}
@@ -4974,6 +5847,23 @@ export function RDTaskManagementPage() {
               key={selectedTask.task_id}
               task={selectedTask}
               onClose={() => setSelectedTask(null)}
+              onOpenPerson={(name) => {
+                setSelectedTask(null);
+                openPersonDetail(name);
+              }}
+            />
+          )}
+          {selectedPersonName && (
+            <PersonDetailDrawer
+              name={selectedPersonName}
+              profile={selectedPersonProfile}
+              load={selectedPersonLoad}
+              tasks={selectedPersonTasks}
+              onClose={() => setSelectedPersonName(null)}
+              onOpenTask={(task) => {
+                setSelectedPersonName(null);
+                setSelectedTask(task);
+              }}
             />
           )}
         </AnimatePresence>
@@ -5025,6 +5915,8 @@ export function RDTaskManagementPage() {
           totalActive={totalActive}
           totalRisks={risks.length}
           allRisks={risks}
+          canManageTree={canCreateTask}
+          onRequestEditor={setTreeEditor}
         />
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -5044,73 +5936,137 @@ export function RDTaskManagementPage() {
               transition={RD_PANEL_TRANSITION}
               className="mx-auto max-w-7xl space-y-5 rd-stagger-children"
             >
-              {/* Hero: compact scope summary */}
-              <SystemDetailHero
-                category={selectedCategory ?? null}
-                sub={selectedSub}
-                totalActive={selectedStat?.total ?? 0}
-                rate={selectedStat?.progress ?? 0}
-                riskCount={scopedRisks.length}
-                criticalCount={criticalCount}
-                blockedCount={
-                  selectedCategory
-                    ? selectedCategory.children
-                        .flatMap((s) => s.tasks)
-                        .filter(
-                          (t) =>
-                            t.status === "paused_blocked" || t.status === "pending_assign",
-                        ).length
-                    : 0
-                }
-              />
+              {selectedCatId === null ? (
+                <>
+                  <KpiStrip
+                    totalActive={totalActive}
+                    inProgress={allSystemSummary.inProgress}
+                    done={allSystemSummary.done}
+                    blocked={allSystemSummary.blocked}
+                    totalRisks={risks.length}
+                    rate={allSystemSummary.rate}
+                  />
 
-              {/* Part health — only when viewing a system (not a specific part) */}
-              {selectedCategory && !selectedSub && selectedCategory.children.length > 1 && (
-                <PartHealthGrid
-                  category={selectedCategory}
-                  selectedSubId={selectedCatId}
-                  onSelectSub={setSelectedCatId}
-                />
+                  <UpcomingMilestonesSection
+                    scope={null}
+                    tasks={allTasks.filter((task) => !task.archived)}
+                    onOpen={setSelectedTask}
+                  />
+
+                  <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-5">
+                    <RiskHotspot
+                      risks={risks}
+                      totalTasks={totalActive}
+                      onSelectTask={setSelectedTask}
+                      className="lg:col-span-3"
+                      title="需要决策"
+                      subtitle="按严重度排序 · 点击查看详情"
+                    />
+                    <PersonLoadPanel
+                      loads={personLoads}
+                      className="lg:col-span-2"
+                      onManage={canManagePeople ? () => navigate("/rd-people-management") : undefined}
+                      onSelectPerson={openPersonDetail}
+                    />
+                  </div>
+
+                </>
+              ) : (
+                <>
+                  {/* Hero: compact scope summary */}
+                  <SystemDetailHero
+                    category={selectedCategory ?? null}
+                    sub={selectedSub}
+                    totalActive={selectedStat?.total ?? 0}
+                    rate={selectedStat?.progress ?? 0}
+                    riskCount={scopedRisks.length}
+                    criticalCount={criticalCount}
+                    blockedCount={detailBlockedCount}
+                  />
+
+                  {/* Part health - only when viewing a system (not a specific part) */}
+                  {selectedCategory && !selectedSub && selectedCategory.children.length > 1 && (
+                    <PartHealthGrid
+                      category={selectedCategory}
+                      selectedSubId={selectedCatId}
+                      onSelectSub={setSelectedCatId}
+                    />
+                  )}
+
+                  {/* Decision focus: risks + scoped people */}
+                  <div className="grid gap-5 lg:grid-cols-5">
+                    <RiskHotspot
+                      risks={scopedRisks}
+                      totalTasks={detailActiveTasks.length}
+                      onSelectTask={setSelectedTask}
+                      className="lg:col-span-3"
+                      title={selectedLabel ? `${selectedLabel} · 需要决策` : "需要决策"}
+                      subtitle="按严重度排序 · 点击查看详情"
+                    />
+                    <PersonLoadPanel
+                      loads={computeScopedPersonLoads(selectedSub ?? selectedCategory)}
+                      className="lg:col-span-2"
+                      onSelectPerson={openPersonDetail}
+                    />
+                  </div>
+
+                  {/* Upcoming milestones */}
+                  <UpcomingMilestonesSection
+                    scope={selectedSub ?? selectedCategory}
+                    onOpen={setSelectedTask}
+                  />
+
+                  {/* Full task list: show every task in the selected system */}
+                  <TasksByPartSection
+                    category={selectedCategory ?? null}
+                    sub={selectedSub}
+                    onOpen={setSelectedTask}
+                  />
+                </>
               )}
-
-              {/* Decision focus: risks + scoped people */}
-              <div className="grid gap-5 lg:grid-cols-5">
-                <RiskHotspot
-                  risks={scopedRisks}
-                  onSelectTask={setSelectedTask}
-                  className="lg:col-span-3"
-                  title={selectedLabel ? `${selectedLabel} · 需要决策` : "需要决策"}
-                  subtitle="按严重度排序 · 点击查看详情"
-                />
-                <PersonLoadPanel
-                  loads={computeScopedPersonLoads(selectedSub ?? selectedCategory)}
-                  className="lg:col-span-2"
-                />
-              </div>
-
-              {/* Upcoming milestones */}
-              <UpcomingMilestonesSection
-                scope={selectedSub ?? selectedCategory}
-                onOpen={setSelectedTask}
-              />
-
-              {/* Tasks list grouped by part */}
-              <TasksByPartSection
-                category={selectedCategory ?? null}
-                sub={selectedSub}
-                onOpen={setSelectedTask}
-              />
             </motion.div>
           </div>
         </div>
 
-        {showCreate && canCreateTask && <AiCreatePanel onClose={() => setShowCreate(false)} />}
+        {showCreate && canCreateTask && (
+          <AiCreatePanel
+            categories={categories}
+            onCreated={loadCategories}
+            onClose={() => setShowCreate(false)}
+          />
+        )}
+        <AnimatePresence>
+          {treeEditor && (
+            <SystemTreeEditorDialog
+              request={treeEditor}
+              onClose={() => setTreeEditor(null)}
+              onSubmit={handleTreeEditorSubmit}
+            />
+          )}
+        </AnimatePresence>
         <AnimatePresence>
           {selectedTask && (
             <TaskDetailDrawer
               key={selectedTask.task_id}
               task={selectedTask}
               onClose={() => setSelectedTask(null)}
+              onOpenPerson={(name) => {
+                setSelectedTask(null);
+                openPersonDetail(name);
+              }}
+            />
+          )}
+          {selectedPersonName && (
+            <PersonDetailDrawer
+              name={selectedPersonName}
+              profile={selectedPersonProfile}
+              load={selectedPersonLoad}
+              tasks={selectedPersonTasks}
+              onClose={() => setSelectedPersonName(null)}
+              onOpenTask={(task) => {
+                setSelectedPersonName(null);
+                setSelectedTask(task);
+              }}
             />
           )}
         </AnimatePresence>

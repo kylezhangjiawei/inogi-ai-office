@@ -38,6 +38,7 @@ export type TencentOcrTextResult = {
   service_key?: string;
   service_label?: string;
   request_id?: string;
+  confidence?: number;
   text: string;
   lines: string[];
   raw_response: unknown;

@@ -112,6 +112,7 @@ export class OcrService {
       service_key: service?.key,
       service_label: service?.label,
       request_id: response.RequestId,
+      confidence: this.extractTencentConfidence(response),
       text: lines.join('\n'),
       lines,
       raw_response: response,
@@ -149,6 +150,30 @@ export class OcrService {
       }
       this.collectTencentText(child, lines, key);
     });
+  }
+
+  private extractTencentConfidence(response: unknown) {
+    const values: number[] = [];
+    this.collectTencentConfidence(response, values);
+    if (!values.length) return undefined;
+    const normalized = values.map((value) => (value > 1 ? value / 100 : value)).filter((value) => value >= 0 && value <= 1);
+    if (!normalized.length) return undefined;
+    return Math.round((normalized.reduce((sum, value) => sum + value, 0) / normalized.length) * 1000) / 1000;
+  }
+
+  private collectTencentConfidence(value: unknown, values: number[], parentKey?: string) {
+    if (Array.isArray(value)) {
+      value.forEach((item) => this.collectTencentConfidence(item, values, parentKey));
+      return;
+    }
+    if (!value || typeof value !== 'object') {
+      const numeric = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN;
+      if (Number.isFinite(numeric) && parentKey && /confidence|score|prob|rate/i.test(parentKey)) {
+        values.push(numeric);
+      }
+      return;
+    }
+    Object.entries(value).forEach(([key, child]) => this.collectTencentConfidence(child, values, key));
   }
 
   private envBool(key: string) {

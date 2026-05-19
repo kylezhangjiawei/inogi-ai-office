@@ -60,7 +60,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { label: "研发任务驾驶舱", path: "/rd-task-management", icon: LayoutGrid, requiredPermission: "page:rd-task-management" },
       { label: "个人工作台", path: "/rd-my-workspace", icon: GanttChartSquare, requiredPermission: "page:rd-my-workspace" },
-      { label: "厂长驾驶舱", path: "/rd-director-dashboard", icon: Telescope, requiredPermission: "page:rd-director-dashboard" },
+      { label: "研发主管驾驶舱", path: "/rd-director-dashboard", icon: Telescope, requiredPermission: "page:rd-director-dashboard" },
       { label: "审批流配置", path: "/rd-approval-flow", icon: GitBranch, requiredPermission: "page:rd-approval-flow" },
       { label: "操作留痕", path: "/rd-audit-log", icon: ShieldCheck, requiredPermission: "page:rd-audit-log" },
       { label: "研发 AI 策略", path: "/rd-ai-settings", icon: Bot, requiredPermission: "page:rd-ai-settings" },

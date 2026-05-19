@@ -1,7 +1,8 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
+  CalendarDays,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -16,16 +17,34 @@ import {
   X,
 } from "lucide-react";
 import { cn } from "./components/ui/utils";
+import { Calendar } from "./components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "./components/ui/select";
 import { usePermission } from "./hooks/usePermission";
 import { toast } from "sonner";
 import {
   ApprovalNode,
+  fetchApprovalPoolsApi,
   getActiveFlow,
   getPoolForPermission,
-  MOCK_USERS_BY_PERMISSION,
+  PoolMember,
 } from "./lib/approvalFlowConfig";
-import { AuditActor, recordAudit } from "./lib/auditLog";
+import { AuditActor, recordAudit, useAuditActor } from "./lib/auditLog";
 import { PERMISSIONS } from "./lib/permissions";
+import {
+  createRdTask,
+  fetchRdDirectorDashboard,
+  extractRdTasksFromFile,
+  extractRdTasksFromText,
+  fetchRdPeople,
+  fetchRdTaskCategories,
+  recomputeRdDirectorDashboard,
+  saveRdTaskCategories,
+  type RdAiPersonContext,
+  type RdAiTaskDraft,
+  type RdCategory,
+  type RdPersonLoad,
+} from "./lib/rdApi";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -53,14 +72,277 @@ type ParentProjectOption = {
   task_count: number;
 };
 
-// ─── Demo data (mock) ────────────────────────────────────────────────────────
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-const EXISTING_PROJECTS: ParentProjectOption[] = [
-  { id: "prj-001", label: "电磁阀工艺升级 (v2.1)", task_count: 12 },
-  { id: "prj-002", label: "OC-10 制氧机量产准备", task_count: 28 },
-  { id: "prj-003", label: "电池组 510K 申报", task_count: 9 },
-  { id: "prj-004", label: "车充 EMC 整改", task_count: 6 },
-];
+const RD_POC_BOM_CATEGORY_TREE = [
+  { id: "cat-power", label: "电源部分", parts: ["电池", "电池PCB"] },
+  { id: "cat-base", label: "底部结构", parts: ["底座", "底座减震器", "底座进气隔板", "底座过滤棉"] },
+  { id: "cat-compression", label: "压缩系统", parts: ["压缩机", "压缩机罩"] },
+  { id: "cat-valve-310", label: "310阀系统", parts: ["310阀组", "310电磁阀"] },
+  { id: "cat-cooling", label: "风冷系统", parts: ["电风扇"] },
+  { id: "cat-air-storage", label: "储气系统", parts: ["储气罐", "储气罐进气隔板"] },
+  { id: "cat-valve-210", label: "210阀系统", parts: ["210阀组", "210电磁阀"] },
+  { id: "cat-top", label: "Top结构", parts: ["Top板", "成孔螺丝", "显示屏"] },
+  { id: "cat-molecular-sieve", label: "分子筛系统", parts: ["分子筛转接板", "分子筛", "分子筛衬板", "分子筛隔板", "分子筛筛料", "分子筛弹簧", "分子筛上密封圈", "分子筛下密封圈"] },
+  { id: "cat-exterior", label: "外观结构", parts: ["外罩", "隔热贴"] },
+  { id: "cat-accessories", label: "配件系统", parts: ["车充", "快充", "普充"] },
+  { id: "cat-tube", label: "气管系统", parts: ["硅胶管", "接头", "卡箍"] },
+  { id: "cat-harness", label: "线束系统", parts: ["主线束", "电池线", "风扇线", "屏线"] },
+  { id: "cat-fastener", label: "紧固件系统", parts: ["螺丝", "铜柱", "螺母"] },
+  { id: "cat-sealing", label: "密封系统", parts: ["O-ring", "泡棉", "密封胶"] },
+] as const;
+
+const DEFAULT_TASK_TYPE_FOR_CATEGORY = "研发任务";
+const REVIEW_SELECT_TRIGGER_CLASS =
+  "h-11 rounded-md border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-none outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 data-[placeholder]:text-slate-400";
+
+type OwnerOption = {
+  value: string;
+  label: string;
+  description?: string;
+};
+
+type CategoryPathGroup = {
+  label: string;
+  options: { value: string; label: string; description?: string }[];
+};
+
+function normalizeCategoryKey(value: string): string {
+  return value
+    .trim()
+    .toLocaleLowerCase("zh-CN")
+    .replace(/\s+/g, "")
+    .replace(/[\/／\\|>＞·•・._-]/g, "");
+}
+
+function splitCategoryPath(value: string): string[] {
+  return value
+    .split(/[\/／>＞|]/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function bomChildId(systemId: string, partIndex: number): string {
+  return `${systemId}-part-${partIndex + 1}`;
+}
+
+function ensureProposalCategoryTree(categories: RdCategory[]): { categories: RdCategory[]; changed: boolean } {
+  let changed = false;
+  const next = categories.map((category) => ({
+    ...category,
+    children: category.children.map((child) => ({
+      ...child,
+      tasks: [...child.tasks],
+    })),
+  }));
+
+  RD_POC_BOM_CATEGORY_TREE.forEach((system) => {
+    let category = next.find((item) => item.id === system.id || normalizeCategoryKey(item.label) === normalizeCategoryKey(system.label));
+    if (!category) {
+      category = {
+        id: system.id,
+        label: system.label,
+        children: system.parts.map((part, index) => ({
+          id: bomChildId(system.id, index),
+          label: part,
+          tasks: [],
+        })),
+      };
+      next.push(category);
+      changed = true;
+      return;
+    }
+
+    if (category.id !== system.id || category.label !== system.label) {
+      category.id = system.id;
+      category.label = system.label;
+      changed = true;
+    }
+
+    system.parts.forEach((part, index) => {
+      const child = category.children.find((item) => normalizeCategoryKey(item.label) === normalizeCategoryKey(part));
+      const expectedId = bomChildId(system.id, index);
+      if (!child) {
+        category.children.push({ id: expectedId, label: part, tasks: [] });
+        changed = true;
+      } else if (child.id !== expectedId || child.label !== part) {
+        child.id = expectedId;
+        child.label = part;
+        changed = true;
+      }
+    });
+  });
+
+  return { categories: next, changed };
+}
+
+function resolveCategoryTargetFromPath(task: ProposedTask, categories: RdCategory[]): { categoryId: string; subProjectId: string } | null {
+  const [categoryLabel, childLabel] = splitCategoryPath(task.category_path);
+  if (!categoryLabel) return null;
+
+  const category = categories.find((item) => normalizeCategoryKey(item.label) === normalizeCategoryKey(categoryLabel));
+  if (!category) return null;
+
+  const child = childLabel
+    ? category.children.find((item) => normalizeCategoryKey(item.label) === normalizeCategoryKey(childLabel)) ?? category.children[0]
+    : category.children[0];
+  if (!child) return null;
+
+  return { categoryId: category.id, subProjectId: child.id };
+}
+
+function categoriesToOptions(categories: RdCategory[]): ParentProjectOption[] {
+  return categories.map((cat) => ({
+    id: cat.id,
+    label: cat.label,
+    task_count: cat.children.reduce((sum, ch) => sum + ch.tasks.length, 0),
+  }));
+}
+
+function toAiPersonContext(person: RdPersonLoad): RdAiPersonContext {
+  return {
+    id: person.id,
+    name: person.name,
+    position: person.position,
+    task_count: person.task_count,
+    max_tasks: person.max_tasks,
+    on_leave: person.on_leave,
+    tasks: Array.isArray(person.tasks) ? person.tasks.slice(0, 6) : [],
+    department: person.department,
+    completed_this_month: person.completed_this_month,
+    blocked_count: person.blocked_count,
+    avg_completion: person.avg_completion,
+  };
+}
+
+function mergePeopleForAi(basePeople: RdPersonLoad[], livePeople: RdPersonLoad[]): RdPersonLoad[] {
+  const byName = new Map<string, RdPersonLoad>();
+  basePeople.forEach((person) => {
+    if (person.name) byName.set(person.name, person);
+  });
+  livePeople.forEach((person) => {
+    if (!person.name) return;
+    const existing = byName.get(person.name);
+    byName.set(person.name, existing ? { ...existing, ...person } : person);
+  });
+  return Array.from(byName.values());
+}
+
+function buildOwnerOptions(peopleProfiles: RdAiPersonContext[], currentOwner?: string): OwnerOption[] {
+  const byName = new Map<string, OwnerOption>();
+  byName.set("待指派", { value: "待指派", label: "待指派", description: "暂不指定主责人" });
+  peopleProfiles.forEach((person) => {
+    const name = person.name?.trim();
+    if (!name) return;
+    const description = [person.position, person.department]
+      .filter(Boolean)
+      .join(" · ");
+    byName.set(name, {
+      value: name,
+      label: name,
+      description: description || undefined,
+    });
+  });
+  const owner = currentOwner?.trim();
+  if (owner && !byName.has(owner)) {
+    byName.set(owner, { value: owner, label: owner, description: "当前 AI 输出，未在人员管理列表中匹配" });
+  }
+  return Array.from(byName.values());
+}
+
+function buildCategoryPathGroups(categories: RdCategory[]): CategoryPathGroup[] {
+  const systems = new Map<string, Set<string>>();
+  RD_POC_BOM_CATEGORY_TREE.forEach((system) => {
+    systems.set(system.label, new Set<string>(system.parts));
+  });
+  categories.forEach((category) => {
+    const parts = systems.get(category.label) ?? new Set<string>();
+    category.children.forEach((child) => {
+      if (child.label) parts.add(child.label);
+    });
+    systems.set(category.label, parts);
+  });
+
+  return Array.from(systems.entries()).map(([systemLabel, parts]) => ({
+    label: systemLabel,
+    options: Array.from(parts).map((part) => ({
+      value: `${systemLabel} / ${part} / ${DEFAULT_TASK_TYPE_FOR_CATEGORY}`,
+      label: part,
+      description: `${systemLabel} / ${part}`,
+    })),
+  }));
+}
+
+function withCurrentCategoryPath(groups: CategoryPathGroup[], currentPath: string): CategoryPathGroup[] {
+  const value = currentPath.trim();
+  if (!value) return groups;
+  const exists = groups.some((group) => group.options.some((option) => option.value === value));
+  if (exists) return groups;
+  return [
+    {
+      label: "当前值",
+      options: [{ value, label: value, description: "AI 输出或人工录入路径" }],
+    },
+    ...groups,
+  ];
+}
+
+function parseReviewDate(value: string): Date | undefined {
+  const match = value.trim().replace(/\//g, "-").match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (!match) return undefined;
+  return new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+}
+
+function formatReviewDateValue(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function displayReviewDate(value: string): string {
+  return value ? value.replace(/-/g, "/") : "选择日期";
+}
+
+function TaskDueDatePicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const selected = parseReviewDate(value);
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            REVIEW_SELECT_TRIGGER_CLASS,
+            "flex w-full items-center justify-between text-left",
+            !value && "text-slate-400",
+          )}
+        >
+          <span className="tabular-nums">{displayReviewDate(value)}</span>
+          <CalendarDays className="h-4 w-4 text-slate-500" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-auto rounded-xl border-slate-200 bg-white p-0 shadow-xl">
+        <Calendar
+          mode="single"
+          selected={selected}
+          onSelect={(date) => {
+            if (!date) return;
+            onChange(formatReviewDateValue(date));
+            setOpen(false);
+          }}
+          initialFocus
+        />
+      </PopoverContent>
+    </Popover>
+  );
+}
 
 /**
  * Returns the approval nodes applicable to this user role.
@@ -84,153 +366,204 @@ const MODE_LABEL: Record<"single" | "any" | "all", { label: string; text: string
   all: { label: "全员审", text: "text-violet-700", bg: "bg-violet-100" },
 };
 
-const PROPOSAL_ACTORS: Record<UserRole, AuditActor> = {
-  user: { id: "u-current", name: "我", role: "研发成员" },
-  admin: { id: "u-li-li", name: "李立", role: "研发管理员" },
-  director: { id: "u-wang-zy", name: "王志远", role: "厂长" },
-};
-
 function createProposalId(): string {
   return `PRJ-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
 }
 
-// ─── AI Mock Parser ──────────────────────────────────────────────────────────
+// ─── CSV / text parser ───────────────────────────────────────────────────────
 
-/** Generate 3-4 mock tasks based on keywords in description. */
-function mockAiParse(_title: string, description: string): ProposedTask[] {
-  const text = description.toLowerCase();
-  const seed = Date.now();
-  const baseDate = new Date(2026, 4, 14); // 2026-05-14
-  const dateAfter = (days: number) =>
-    new Date(baseDate.getTime() + days * 86400000).toISOString().slice(0, 10);
-
-  // Detect domain
-  let domain: "valve" | "battery" | "oc" | "charger" | "generic" = "generic";
-  if (/电磁阀|阀/.test(text)) domain = "valve";
-  else if (/电池|寿命|充放电/.test(text)) domain = "battery";
-  else if (/制氧|氧浓度|分子筛|压力/.test(text)) domain = "oc";
-  else if (/车充|emc|快充|电源/.test(text)) domain = "charger";
-
-  const templates: Record<typeof domain, ProposedTask[]> = {
-    valve: [
-      {
-        id: `t-${seed}-1`, title: "电磁阀温升测试方案制定", description: "依据 510K 要求制定温升测试方案，覆盖额定/超载/低温工况",
-        owner: "王磊", owner_reason: "按规则 A5.3：硬件/电磁阀/测试类 → 硬件测试工程师 · 王磊当前负载 5/8",
-        collaborators: ["陈静"], due_date: dateAfter(7), priority: "high",
-        category_path: "310阀系统 / 310电磁阀 / 测试类", estimated_days: 5,
-        duration_basis: "参考 RD-2023-118 / RD-2024-076 同类温升测试均值",
-      },
-      {
-        id: `t-${seed}-2`, title: "电磁阀 BOM 影响评估", description: "评估新工艺对 BOM 的影响项，输出变更清单",
-        owner: "刘华", owner_reason: "按规则：BOM 变更 → 项目工程师 · 刘华当前 6/8",
-        collaborators: ["王磊"], due_date: dateAfter(4), priority: "medium",
-        category_path: "310阀系统 / 310电磁阀 / 文档类", estimated_days: 3,
-        duration_basis: "BOM 评估历史均值 2.5 天，含一轮评审",
-      },
-      {
-        id: `t-${seed}-3`, title: "电磁阀寿命测试夹具准备", description: "采购 / 调试寿命测试夹具，准备测试环境",
-        owner: "赵强", owner_reason: "按规则：测试夹具 → 工艺工程师 · 赵强当前 2/8",
-        collaborators: [], due_date: dateAfter(10), priority: "medium",
-        category_path: "310阀系统 / 310电磁阀 / 工艺类", estimated_days: 4,
-        duration_basis: "夹具采购周期 + 调试 1 天",
-      },
-    ],
-    battery: [
-      {
-        id: `t-${seed}-1`, title: "电池循环寿命测试", description: "完成 500 次循环测试，输出衰减曲线",
-        owner: "王磊", owner_reason: "按规则：电池/寿命/测试类 → 硬件测试工程师 · 王磊",
-        collaborators: ["陈静"], due_date: dateAfter(14), priority: "high",
-        category_path: "电源部分 / 电池 / 测试类", estimated_days: 14,
-        duration_basis: "循环寿命测试固定 14 天工期",
-      },
-      {
-        id: `t-${seed}-2`, title: "低温放电曲线采集", description: "-10°C 环境放电曲线采集，验证低温性能",
-        owner: "陈静", owner_reason: "按规则：低温测试 → 质检员 · 陈静",
-        collaborators: ["王磊"], due_date: dateAfter(7), priority: "high",
-        category_path: "电源部分 / 电池 / 测试类", estimated_days: 5,
-        duration_basis: "低温箱预约 + 测试 3 天",
-      },
-      {
-        id: `t-${seed}-3`, title: "电池规格书更新", description: "依据测试结果更新规格书",
-        owner: "李静", owner_reason: "按规则：规格书 → 法规工程师 · 李静（注意：请假中，复岗后开始）",
-        collaborators: [], due_date: dateAfter(20), priority: "medium",
-        category_path: "电源部分 / 电池 / 文档类", estimated_days: 3,
-        duration_basis: "规格书更新历史均值 3 天",
-      },
-    ],
-    oc: [
-      {
-        id: `t-${seed}-1`, title: "OC-10 压力传感器标定", description: "对 OC-10 压力传感器进行多点标定",
-        owner: "王磊", owner_reason: "按规则：制氧机/压力/测试类 → 硬件测试工程师",
-        collaborators: ["陈静"], due_date: dateAfter(10), priority: "high",
-        category_path: "储气系统 / 压力模块 / 测试类", estimated_days: 6,
-        duration_basis: "标定流程 + 双向复测",
-      },
-      {
-        id: `t-${seed}-2`, title: "氧浓度稳定性测试", description: "8 小时连续工作氧浓度稳定性验证",
-        owner: "陈静", owner_reason: "按规则：氧浓度测试 → 质检员",
-        collaborators: [], due_date: dateAfter(5), priority: "medium",
-        category_path: "分子筛系统 / 测试类", estimated_days: 3,
-        duration_basis: "标准 8 小时连续测试",
-      },
-      {
-        id: `t-${seed}-3`, title: "分子筛性能基线", description: "建立分子筛基线性能参数",
-        owner: "赵强", owner_reason: "按规则：分子筛工艺 → 工艺工程师",
-        collaborators: [], due_date: dateAfter(8), priority: "medium",
-        category_path: "分子筛系统 / 工艺类", estimated_days: 5,
-        duration_basis: "首次基线建立 + 复核",
-      },
-    ],
-    charger: [
-      {
-        id: `t-${seed}-1`, title: "车充 EMC 整改测试", description: "对 EMC 不达标项进行整改并复测",
-        owner: "张越", owner_reason: "按规则：EMC → 嵌入式工程师 · 张越",
-        collaborators: ["王磊"], due_date: dateAfter(14), priority: "high",
-        category_path: "配件系统 / 车充 / 测试类", estimated_days: 10,
-        duration_basis: "EMC 整改 + 外部实验室排期",
-      },
-      {
-        id: `t-${seed}-2`, title: "车充电源拓扑评审", description: "组织拓扑评审会议，识别优化点",
-        owner: "刘华", owner_reason: "按规则：电源评审 → 项目工程师",
-        collaborators: ["张越"], due_date: dateAfter(7), priority: "medium",
-        category_path: "配件系统 / 车充 / 文档类", estimated_days: 3,
-        duration_basis: "评审准备 + 会议",
-      },
-    ],
-    generic: [
-      {
-        id: `t-${seed}-1`, title: "需求确认与边界梳理", description: "组织一次需求评审，明确边界",
-        owner: "刘华", owner_reason: "按规则：需求评审 → 项目工程师 · 刘华当前 6/8",
-        collaborators: [], due_date: dateAfter(3), priority: "high",
-        category_path: "待定 / 需明确",
-        estimated_days: 2, duration_basis: "标准需求评审 1-2 天",
-      },
-      {
-        id: `t-${seed}-2`, title: "技术方案初稿", description: "撰写技术方案初稿，含可行性分析",
-        owner: "王磊", owner_reason: "按规则：技术方案 → 硬件测试工程师（待人工确认是否合适）",
-        collaborators: ["张越"], due_date: dateAfter(7), priority: "medium",
-        category_path: "待定 / 需明确", estimated_days: 4,
-        duration_basis: "方案撰写均值 3-5 天",
-      },
-      {
-        id: `t-${seed}-3`, title: "评审与归档", description: "组织方案评审，归档评审结论",
-        owner: "刘华", owner_reason: "按规则：评审 → 项目工程师",
-        collaborators: [], due_date: dateAfter(10), priority: "low",
-        category_path: "待定 / 文档类", estimated_days: 2,
-        duration_basis: "评审 + 归档固定 2 天",
-      },
-    ],
-  };
-
-  return templates[domain];
+function parseCsvLine(line: string, sep: string): string[] {
+  if (sep !== ",") return line.split(sep).map((c) => c.trim().replace(/^"|"$/g, ""));
+  const result: string[] = [];
+  let cur = "";
+  let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') { inQ = !inQ; }
+    else if (ch === "," && !inQ) { result.push(cur.trim()); cur = ""; }
+    else { cur += ch; }
+  }
+  result.push(cur.trim().replace(/^"|"$/g, ""));
+  return result;
 }
 
-function mockSuggestProject(description: string): string | null {
+function findCol(header: string[], candidates: string[]): number {
+  for (const c of candidates) {
+    const idx = header.findIndex((h) => h.includes(c));
+    if (idx >= 0) return idx;
+  }
+  return -1;
+}
+
+function parseDate(raw: string): string {
+  if (!raw?.trim()) return "";
+  const s = raw.trim();
+  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(s)) return s;
+  const m = s.match(/(\d{4})[\/\.\-](\d{1,2})[\/\.\-](\d{1,2})/);
+  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+  const m2 = s.match(/(\d{1,2})[\/\-](\d{1,2})/);
+  if (m2) return `2026-${m2[1].padStart(2, "0")}-${m2[2].padStart(2, "0")}`;
+  return "";
+}
+
+function parsePriority(raw: string): Priority {
+  const t = (raw ?? "").toLowerCase();
+  if (/高|high|紧急|urgent|p0|p1/.test(t)) return "high";
+  if (/低|low|p3/.test(t)) return "low";
+  return "medium";
+}
+
+function parseTasksFromContent(proposalTitle: string, content: string): ProposedTask[] {
+  const seed = Date.now();
+  const defaultDue = "2026-06-30";
+  const lines = content.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (lines.length < 2) return fallbackTasks(proposalTitle, content, seed);
+
+  // Detect separator: tab > comma > semicolon
+  const sample = lines[0];
+  const sep = sample.includes("\t") ? "\t"
+    : sample.split(",").length >= sample.split(";").length ? ","
+    : ";";
+
+  const rows = lines.map((l) => parseCsvLine(l, sep));
+  const header = rows[0].map((h) => h.toLowerCase().replace(/[\s ]/g, ""));
+
+  // Map columns
+  const iTitle   = findCol(header, ["任务内容", "任务名称", "任务", "标题", "title", "事项", "工作项", "工作内容"]);
+  const iOwner   = findCol(header, ["负责人", "责任人", "执行人", "owner", "人员", "分配"]);
+  const iDue     = findCol(header, ["截止日期", "截止时间", "完成时间", "期限", "date", "日期", "时间"]);
+  const iPri     = findCol(header, ["优先级", "优先", "重要程度", "priority", "级别"]);
+  const iDesc    = findCol(header, ["描述", "备注", "说明", "remark", "详情", "内容", "detail"]);
+  const iCat     = findCol(header, ["分类", "类别", "模块", "category", "项目"]);
+
+  if (iTitle === -1) {
+    // No header found — try one-task-per-line (plain list)
+    return plainListToTasks(proposalTitle, lines, seed, defaultDue);
+  }
+
+  const tasks: ProposedTask[] = [];
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    const title = row[iTitle]?.trim();
+    if (!title || /^[-—–\s]*$/.test(title)) continue;
+
+    const owner   = iOwner >= 0 ? (row[iOwner]?.trim() || "待指派") : "待指派";
+    const dueRaw  = iDue  >= 0 ? parseDate(row[iDue])  : "";
+    const due     = dueRaw || defaultDue;
+    const pri     = iPri  >= 0 ? parsePriority(row[iPri]) : "medium";
+    const desc    = iDesc >= 0 ? row[iDesc]?.trim()    : "";
+    const cat     = iCat  >= 0 ? row[iCat]?.trim()     : "";
+
+    tasks.push({
+      id: `t-${seed}-${i}`,
+      title,
+      description: desc || undefined,
+      owner,
+      owner_reason: owner !== "待指派" ? `文件中指定：${owner}` : "文件中未指定，待分配",
+      collaborators: [],
+      due_date: due,
+      priority: pri,
+      category_path: cat || proposalTitle || "待定",
+      estimated_days: 5,
+      duration_basis: "来自上传文件",
+    });
+  }
+
+  return tasks.length > 0 ? tasks : fallbackTasks(proposalTitle, content, seed);
+}
+
+/** When file has no header: infer grouped blocks "负责人\n任务1\n任务2\n\n负责人2\n..." */
+function plainListToTasks(proposalTitle: string, lines: string[], seed: number, defaultDue: string): ProposedTask[] {
+  // Heuristic: short lines (≤8 chars, no common punctuation) that look like names → owner header
+  const PERSON_RE = /^[一-龥a-zA-Z]{1,8}(（.*?）|\(.*?\))?$/;
+  const tasks: ProposedTask[] = [];
+  let currentOwner = "待指派";
+  let idx = 0;
+
+  for (const line of lines) {
+    const clean = line.replace(/\s+/g, " ").trim();
+    if (!clean) continue;
+    if (PERSON_RE.test(clean) && clean.length <= 12) {
+      currentOwner = clean;
+    } else {
+      tasks.push({
+        id: `t-${seed}-${idx++}`,
+        title: clean,
+        owner: currentOwner,
+        owner_reason: currentOwner !== "待指派" ? `文件中归属：${currentOwner}` : "文件中未指定",
+        collaborators: [],
+        due_date: defaultDue,
+        priority: "medium",
+        category_path: proposalTitle || "待定",
+        estimated_days: 5,
+        duration_basis: "来自上传文件",
+      });
+    }
+  }
+
+  return tasks.length > 0 ? tasks : [];
+}
+
+/** Last-resort keyword template (original mock) — only used when file has no parseable content */
+function fallbackTasks(proposalTitle: string, description: string, seed: number): ProposedTask[] {
   const text = description.toLowerCase();
-  if (/电磁阀|工艺|阀/.test(text)) return "prj-001";
-  if (/制氧|分子筛|压力|氧浓度/.test(text)) return "prj-002";
-  if (/电池|寿命/.test(text)) return "prj-003";
-  if (/车充|emc/.test(text)) return "prj-004";
+  const today = new Date(2026, 4, 18);
+  const dateAfter = (days: number) =>
+    new Date(today.getTime() + days * 86400000).toISOString().slice(0, 10);
+
+  const base = (n: number, title: string, owner: string, days: number, priority: Priority, cat: string): ProposedTask => ({
+    id: `t-${seed}-${n}`,
+    title,
+    owner,
+    owner_reason: `关键词模板匹配，请人工确认`,
+    collaborators: [],
+    due_date: dateAfter(days),
+    priority,
+    category_path: cat,
+    estimated_days: days,
+    duration_basis: "默认工期估算",
+  });
+
+  if (/电磁阀|阀/.test(text)) return [
+    base(1, "电磁阀温升测试方案制定", "待指派", 7, "high", `${proposalTitle || "310阀系统"} / 测试类`),
+    base(2, "电磁阀 BOM 影响评估",   "待指派", 4, "medium", `${proposalTitle || "310阀系统"} / 文档类`),
+    base(3, "电磁阀寿命测试夹具准备", "待指派", 10, "medium", `${proposalTitle || "310阀系统"} / 工艺类`),
+  ];
+  if (/电池|寿命|充放电/.test(text)) return [
+    base(1, "电池循环寿命测试",  "待指派", 14, "high",   `${proposalTitle || "电源部分"} / 测试类`),
+    base(2, "低温放电曲线采集", "待指派",  7, "high",   `${proposalTitle || "电源部分"} / 测试类`),
+    base(3, "电池规格书更新",   "待指派", 20, "medium", `${proposalTitle || "电源部分"} / 文档类`),
+  ];
+  if (/制氧|氧浓度|分子筛|压力/.test(text)) return [
+    base(1, "压力传感器标定",    "待指派", 10, "high",   `${proposalTitle || "储气系统"} / 测试类`),
+    base(2, "氧浓度稳定性测试", "待指派",  5, "medium", `${proposalTitle || "分子筛系统"} / 测试类`),
+    base(3, "分子筛性能基线",   "待指派",  8, "medium", `${proposalTitle || "分子筛系统"} / 工艺类`),
+  ];
+  if (/车充|emc|快充/.test(text)) return [
+    base(1, "车充 EMC 整改测试", "待指派", 14, "high",   `${proposalTitle || "配件系统"} / 测试类`),
+    base(2, "车充电源拓扑评审", "待指派",  7, "medium", `${proposalTitle || "配件系统"} / 文档类`),
+  ];
+  return [
+    base(1, "需求确认与边界梳理", "待指派",  3, "high",   `${proposalTitle || "待定"}`),
+    base(2, "技术方案初稿",       "待指派",  7, "medium", `${proposalTitle || "待定"}`),
+    base(3, "评审与归档",         "待指派", 10, "low",    `${proposalTitle || "待定"}`),
+  ];
+}
+
+function mockSuggestProject(description: string, categories: RdCategory[]): string | null {
+  const text = description.toLowerCase();
+  const RULES: [RegExp, RegExp][] = [
+    [/电磁阀|工艺|阀/, /阀/],
+    [/制氧|分子筛|压力|氧浓度/, /制氧|氧/],
+    [/电池|寿命/, /电池/],
+    [/车充|emc/, /车充|emc/i],
+  ];
+  for (const cat of categories) {
+    const label = cat.label.toLowerCase();
+    for (const [descRe, labelRe] of RULES) {
+      if (descRe.test(text) && labelRe.test(label)) return cat.id;
+    }
+  }
   return null;
 }
 
@@ -336,6 +669,23 @@ async function extractProposalAttachmentText(files: File[]) {
     }),
   );
   return chunks.filter(Boolean).join("\n\n");
+}
+
+async function extractProposalAttachmentParseText(files: File[]) {
+  const chunks = await Promise.all(
+    files.map(async (file) => {
+      const extension = attachmentExtension(file.name);
+      if (BROWSER_TEXT_EXTENSIONS.has(extension) && file.size <= MAX_BROWSER_TEXT_BYTES) {
+        return (await file.text()).slice(0, MAX_ATTACHMENT_TEXT_CHARS);
+      }
+      return "";
+    }),
+  );
+  return chunks.filter(Boolean).join("\n\n");
+}
+
+function isAiConfigurationError(message: string) {
+  return /AI\s*未配置|OPENAI_API_KEY|DASHSCOPE_API_KEY|QWEN_API_KEY|qwen-doc-turbo/i.test(message);
 }
 
 function StepInput({
@@ -590,17 +940,26 @@ function StepProcessing({ progress, label }: { progress: number; label: string }
 
 function TaskEditRow({
   task,
+  ownerOptions,
+  categoryPathGroups,
   onChange,
   onDelete,
   onRequestAiHelp,
 }: {
   task: ProposedTask;
+  ownerOptions: OwnerOption[];
+  categoryPathGroups: CategoryPathGroup[];
   onChange: (t: ProposedTask) => void;
   onDelete: () => void;
   onRequestAiHelp: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const pCfg = PRIORITY_OPTIONS.find((p) => p.value === task.priority)!;
+  const categoryGroups = withCurrentCategoryPath(categoryPathGroups, task.category_path);
+  const effectiveOwnerOptions = buildOwnerOptions([], task.owner).reduce((options, option) => {
+    if (ownerOptions.some((item) => item.value === option.value)) return options;
+    return [option, ...options];
+  }, ownerOptions);
 
   return (
     <div className="rounded-lg border border-slate-200 bg-white transition-all hover:border-slate-300 hover:shadow-[0_4px_12px_rgba(15,23,42,0.05)]">
@@ -643,14 +1002,14 @@ function TaskEditRow({
         </div>
 
         <div className="flex shrink-0 items-center gap-0.5">
-          <button
-            type="button"
-            onClick={onRequestAiHelp}
-            className="rounded p-1.5 text-slate-400 transition-colors hover:bg-violet-50 hover:text-violet-600"
-            title="请 AI 优化"
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-          </button>
+          {/*<button*/}
+          {/*  type="button"*/}
+          {/*  onClick={onRequestAiHelp}*/}
+          {/*  className="rounded p-1.5 text-slate-400 transition-colors hover:bg-violet-50 hover:text-violet-600"*/}
+          {/*  title="请 AI 优化"*/}
+          {/*>*/}
+          {/*  <Sparkles className="h-3.5 w-3.5" />*/}
+          {/*</button>*/}
           <button
             type="button"
             onClick={onDelete}
@@ -676,42 +1035,87 @@ function TaskEditRow({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-[11px] font-medium text-slate-500">主责人</label>
-              <input
-                value={task.owner}
-                onChange={(e) => onChange({ ...task, owner: e.target.value })}
-                className="w-full rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-blue-300 focus:ring-1 focus:ring-blue-100"
-              />
+              <Select
+                value={task.owner || "待指派"}
+                onValueChange={(owner) =>
+                  onChange({
+                    ...task,
+                    owner,
+                    owner_reason: owner === "待指派" ? "人工选择：待指派" : `人工选择主责人：${owner}`,
+                  })
+                }
+              >
+                <SelectTrigger className={REVIEW_SELECT_TRIGGER_CLASS}>
+                  <SelectValue placeholder="选择主责人" />
+                </SelectTrigger>
+                <SelectContent className="max-h-72 rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
+                  {effectiveOwnerOptions.map((option) => (
+                    <SelectItem
+                      key={option.value}
+                      value={option.value}
+                      className="rounded-lg py-2 pl-3 pr-9 text-sm text-slate-700"
+                      description={option.description}
+                    >
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <label className="mb-1 block text-[11px] font-medium text-slate-500">截止日期</label>
-              <input
-                type="date"
+              <TaskDueDatePicker
                 value={task.due_date}
-                onChange={(e) => onChange({ ...task, due_date: e.target.value })}
-                className="w-full rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-blue-300 focus:ring-1 focus:ring-blue-100"
+                onChange={(due_date) => onChange({ ...task, due_date })}
               />
             </div>
             <div>
               <label className="mb-1 block text-[11px] font-medium text-slate-500">优先级</label>
-              <select
+              <Select
                 value={task.priority}
-                onChange={(e) => onChange({ ...task, priority: e.target.value as Priority })}
-                className="w-full cursor-pointer rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-blue-300 focus:ring-1 focus:ring-blue-100"
+                onValueChange={(priority) => onChange({ ...task, priority: priority as Priority })}
               >
-                {PRIORITY_OPTIONS.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.label}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger className={REVIEW_SELECT_TRIGGER_CLASS}>
+                  <SelectValue placeholder="选择优先级" />
+                </SelectTrigger>
+                <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
+                  {PRIORITY_OPTIONS.map((p) => (
+                    <SelectItem key={p.value} value={p.value} className="rounded-lg py-2 pl-3 pr-9 text-sm text-slate-700">
+                      {p.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div>
               <label className="mb-1 block text-[11px] font-medium text-slate-500">分类路径</label>
-              <input
+              <Select
                 value={task.category_path}
-                onChange={(e) => onChange({ ...task, category_path: e.target.value })}
-                className="w-full rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-blue-300 focus:ring-1 focus:ring-blue-100"
-              />
+                onValueChange={(category_path) => onChange({ ...task, category_path })}
+              >
+                <SelectTrigger className={REVIEW_SELECT_TRIGGER_CLASS}>
+                  <SelectValue placeholder="选择分类路径" />
+                </SelectTrigger>
+                <SelectContent className="max-h-80 rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
+                  {categoryGroups.map((group) => (
+                    <SelectGroup key={group.label}>
+                      <SelectLabel className="px-2 py-1.5 text-[11px] font-semibold text-slate-400">
+                        {group.label}
+                      </SelectLabel>
+                      {group.options.map((option) => (
+                        <SelectItem
+                          key={option.value}
+                          value={option.value}
+                          className="rounded-lg py-2 pl-3 pr-9 text-sm text-slate-700"
+                          description={option.description}
+                        >
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <div className="rounded border border-blue-100 bg-blue-50/40 px-2.5 py-2 text-[11px] leading-relaxed text-blue-700">
@@ -736,6 +1140,8 @@ function StepReview({
   setTasks,
   proposalId,
   auditActor,
+  categories,
+  peopleProfiles,
   onBack,
   onNext,
 }: {
@@ -749,9 +1155,14 @@ function StepReview({
   setTasks: (t: ProposedTask[]) => void;
   proposalId: string;
   auditActor: AuditActor;
+  categories: RdCategory[];
+  peopleProfiles: RdAiPersonContext[];
   onBack: () => void;
   onNext: () => void;
 }) {
+  const ownerOptions = useMemo(() => buildOwnerOptions(peopleProfiles), [peopleProfiles]);
+  const categoryPathGroups = useMemo(() => buildCategoryPathGroups(categories), [categories]);
+
   const addTask = () => {
     const taskId = `t-${Date.now()}`;
     setTasks([
@@ -850,9 +1261,9 @@ function StepReview({
               className="w-full cursor-pointer rounded border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
             >
               <option value="new">+ 创建新项目节点</option>
-              {EXISTING_PROJECTS.map((p) => (
+              {categoriesToOptions(categories).map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.label} （已有 {p.task_count} 个任务）
+                  {p.label}（已有 {p.task_count} 个任务）
                 </option>
               ))}
             </select>
@@ -879,17 +1290,17 @@ function StepReview({
               <h3 className="text-sm font-semibold text-slate-900">
                 AI 解析出 {tasks.length} 个任务
               </h3>
-              <p className="mt-0.5 text-[11px] text-slate-500">点击行展开编辑，可单独/批量请 AI 优化</p>
+              <p className="mt-0.5 text-[11px] text-slate-500">点击行展开编辑</p>
             </div>
             <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={requestAiOptimizeAll}
-                className="inline-flex items-center gap-1 rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 transition-all hover:-translate-y-0.5 hover:bg-violet-100 active:scale-95"
-              >
-                <Sparkles className="h-3 w-3" />
-                请 AI 优化全部
-              </button>
+              {/*<button*/}
+              {/*  type="button"*/}
+              {/*  onClick={requestAiOptimizeAll}*/}
+              {/*  className="inline-flex items-center gap-1 rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 transition-all hover:-translate-y-0.5 hover:bg-violet-100 active:scale-95"*/}
+              {/*>*/}
+              {/*  <Sparkles className="h-3 w-3" />*/}
+              {/*  请 AI 优化全部*/}
+              {/*</button>*/}
               <button
                 type="button"
                 onClick={addTask}
@@ -911,6 +1322,8 @@ function StepReview({
                 <TaskEditRow
                   key={task.id}
                   task={task}
+                  ownerOptions={ownerOptions}
+                  categoryPathGroups={categoryPathGroups}
                   onChange={(t) => updateTask(task.id, t)}
                   onDelete={() => deleteTask(task.id)}
                   onRequestAiHelp={() => requestAiHelpForTask(task.id)}
@@ -954,6 +1367,8 @@ function StepSubmit({
   newProjectName,
   comment,
   setComment,
+  categories,
+  submitting,
   onBack,
   onSubmit,
   onSaveDraft,
@@ -968,6 +1383,8 @@ function StepSubmit({
   newProjectName: string;
   comment: string;
   setComment: (v: string) => void;
+  categories: RdCategory[];
+  submitting: boolean;
   onBack: () => void;
   onSubmit: () => void;
   onSaveDraft: () => void;
@@ -975,14 +1392,34 @@ function StepSubmit({
   canSubmitProposal: boolean;
   canDirectProject: boolean;
 }) {
-  const reviewNodes = getApplicableNodes(userRole);
+  const reviewNodes = useMemo(() => getApplicableNodes(userRole), [userRole]);
+  const [approvalPools, setApprovalPools] = useState<Record<string, PoolMember[]>>({});
   const canDirect = canDirectProject;
   const directOnly = userRole === "director" && canDirectProject;
+
+  useEffect(() => {
+    const permissionCodes = Array.from(new Set(reviewNodes.map((node) => node.permission_code)));
+    if (permissionCodes.length === 0) {
+      setApprovalPools({});
+      return;
+    }
+    let cancelled = false;
+    fetchApprovalPoolsApi(permissionCodes)
+      .then((pools) => {
+        if (!cancelled) setApprovalPools(pools);
+      })
+      .catch(() => {
+        if (!cancelled) setApprovalPools({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [reviewNodes]);
 
   const projectName =
     parentProjectId === "new"
       ? newProjectName || "（新项目节点）"
-      : EXISTING_PROJECTS.find((p) => p.id === parentProjectId)?.label ?? "—";
+      : categories.find((c) => c.id === parentProjectId)?.label ?? "—";
 
   return (
     <div className="flex max-h-[70vh] flex-col">
@@ -1033,7 +1470,7 @@ function StepSubmit({
               </div>
               {/* Chain of approval nodes */}
               {reviewNodes.map((node, idx) => {
-                const pool = getPoolForPermission(node.permission_code);
+                const pool = approvalPools[node.permission_code] ?? getPoolForPermission(node.permission_code);
                 const modeCfg = MODE_LABEL[node.mode];
                 return (
                   <React.Fragment key={node.id}>
@@ -1103,7 +1540,7 @@ function StepSubmit({
           )}
           <p className="mt-1.5 text-[11px] text-slate-400">
             {directOnly
-              ? "厂长可直接立项，无需审核"
+              ? "研发主管可直接立项，无需审核"
               : canDirect
                 ? "你有「直接立项」权限，可选择跳过审核（适用于紧急/已对齐过的立项）"
                 : "提交后进入审核队列。或签模式下任一审核人通过即转下一级，会签则需池内全部通过"}
@@ -1119,7 +1556,7 @@ function StepSubmit({
             value={comment}
             onChange={(e) => setComment(e.target.value)}
             rows={3}
-            placeholder="例：本立项已与厂长口头对齐，关键节点请尽快推进。"
+            placeholder="例：本立项已与研发主管口头对齐，关键节点请尽快推进。"
             className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
           />
         </section>
@@ -1139,7 +1576,8 @@ function StepSubmit({
         <button
           type="button"
           onClick={onBack}
-          className="group inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 active:scale-[0.98]"
+          disabled={submitting}
+          className="group inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 active:scale-[0.98] disabled:opacity-40"
         >
           <ChevronLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
           返回
@@ -1148,7 +1586,8 @@ function StepSubmit({
           <button
             type="button"
             onClick={onSaveDraft}
-            className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 active:scale-[0.98]"
+            disabled={submitting}
+            className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 active:scale-[0.98] disabled:opacity-40"
           >
             保存草稿
           </button>
@@ -1156,19 +1595,21 @@ function StepSubmit({
             <button
               type="button"
               onClick={onSubmit}
-              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.22)] transition-all hover:bg-blue-700 active:scale-[0.98]"
+              disabled={submitting}
+              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.22)] transition-all hover:bg-blue-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
             >
+              {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
               提交审核
-              <ArrowRight className="h-3.5 w-3.5" />
             </button>
           )}
           {canDirect && (
             <button
               type="button"
               onClick={onDirectDispatch}
-              className="inline-flex items-center gap-1.5 rounded-md bg-gradient-to-br from-emerald-500 to-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(5,150,105,0.25)] transition-all hover:from-emerald-600 hover:to-emerald-700 active:scale-[0.98]"
+              disabled={submitting}
+              className="inline-flex items-center gap-1.5 rounded-md bg-gradient-to-br from-emerald-500 to-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(5,150,105,0.25)] transition-all hover:from-emerald-600 hover:to-emerald-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
             >
-              <Sparkles className="h-3.5 w-3.5" />
+              {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               {directOnly ? "立项并分配" : "直接立项并分配"}
             </button>
           )}
@@ -1183,10 +1624,12 @@ function StepSubmit({
 export function RDProjectProposalDialog({
   open,
   onClose,
+  onCompleted,
   userRole = "user",
 }: {
   open: boolean;
   onClose: () => void;
+  onCompleted?: () => void | Promise<void>;
   userRole?: UserRole;
 }) {
   const [step, setStep] = useState<Step>(1);
@@ -1200,9 +1643,28 @@ export function RDProjectProposalDialog({
   const [aiProgress, setAiProgress] = useState(0);
   const [aiLabel, setAiLabel] = useState("");
   const [proposalId, setProposalId] = useState(createProposalId);
-  const auditActor = PROPOSAL_ACTORS[userRole];
+  const [categories, setCategories] = useState<RdCategory[]>([]);
+  const [peopleNames, setPeopleNames] = useState<string[]>([]);
+  const [peopleProfiles, setPeopleProfiles] = useState<RdAiPersonContext[]>([]);
+  const [submitting, setSubmitting] = useState(false);
+  const auditActor = useAuditActor(userRole === "director" ? "研发主管" : userRole === "admin" ? "研发管理员" : "研发成员");
   const canSubmitProposal = usePermission(PERMISSIONS.RD_PROJECT_PROPOSE);
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
+
+  useEffect(() => {
+    if (open) {
+      fetchRdTaskCategories().then(setCategories).catch(() => {});
+      Promise.allSettled([fetchRdPeople(), fetchRdDirectorDashboard()])
+        .then(([peopleResult, dashboardResult]) => {
+          const people = peopleResult.status === "fulfilled" ? peopleResult.value : [];
+          const livePeople = dashboardResult.status === "fulfilled" ? dashboardResult.value.personLoads : [];
+          const mergedPeople = mergePeopleForAi(people, livePeople);
+          setPeopleNames(mergedPeople.map((p) => p.name).filter(Boolean));
+          setPeopleProfiles(mergedPeople.map(toAiPersonContext).filter((person) => person.name));
+        })
+        .catch(() => {});
+    }
+  }, [open]);
 
   const STEP_LABELS: Record<Step, string> = {
     1: "描述内容",
@@ -1222,6 +1684,7 @@ export function RDProjectProposalDialog({
     setComment("");
     setAiProgress(0);
     setProposalId(createProposalId());
+    setSubmitting(false);
   };
 
   const handleClose = () => {
@@ -1229,12 +1692,31 @@ export function RDProjectProposalDialog({
     setTimeout(reset, 200); // wait for close animation
   };
 
-  // Mock AI processing
+  const notifyCompleted = async () => {
+    try {
+      await onCompleted?.();
+    } catch (error) {
+      console.error("Failed to refresh proposal parent view", error);
+    }
+  };
+
+  // Convert backend AI draft to local ProposedTask shape
+  const aiDraftToProposedTask = (draft: RdAiTaskDraft, idx: number): ProposedTask => ({
+    id: `t-${Date.now()}-${idx}`,
+    title: draft.title,
+    description: draft.description,
+    owner: draft.owner,
+    owner_reason: draft.owner_reason,
+    collaborators: [],
+    due_date: draft.due_date,
+    priority: draft.priority,
+    category_path: draft.category_path,
+    estimated_days: draft.estimated_days,
+    duration_basis: "由 AI 估算",
+  });
+
+  // Real AI parsing: text or file → backend AI → structured tasks
   const runAiParse = () => {
-    const attachmentTextPromise = extractProposalAttachmentText(files).catch(() => {
-      toast.error("附件读取失败，请重新选择文件");
-      return "";
-    });
     recordAudit({
       actor: auditActor,
       action: "ai.parse_triggered",
@@ -1246,74 +1728,209 @@ export function RDProjectProposalDialog({
       },
       source: "web",
     });
+
     setStep(2);
     setAiProgress(0);
-    const stages = [
-      { label: "解析文本内容…", to: 25 },
-      { label: "提取任务项…", to: 55 },
-      { label: "按规则 A5.3 匹配责任人…", to: 80 },
-      { label: "估算工期与优先级…", to: 100 },
-    ];
+    setAiLabel("准备中…");
 
-    let cursor = 0;
-    const tick = () => {
-      if (cursor >= stages.length) {
-        // Done
-        attachmentTextPromise.then((attachmentText) => {
-          const aiInput = [description, attachmentText].filter((item) => item.trim()).join("\n\n");
-          const parsedTasks = mockAiParse(title, aiInput);
-          setTasks(parsedTasks);
-          if (!title) {
-            setTitle(parsedTasks[0]?.title.replace(/[（(].*$/, "").trim() ?? "AI 立项");
-          }
-          const suggestedProject = mockSuggestProject(aiInput);
-          if (suggestedProject) {
-            setParentProjectId(suggestedProject);
-          }
-          setTimeout(() => setStep(3), 250);
-        });
-        return;
-      }
-      const stage = stages[cursor];
-      setAiLabel(stage.label);
-      const start = cursor === 0 ? 0 : stages[cursor - 1].to;
-      const duration = 600;
-      const startTime = Date.now();
-      const interval = setInterval(() => {
-        const elapsed = Date.now() - startTime;
-        const ratio = Math.min(1, elapsed / duration);
-        setAiProgress(Math.round(start + (stage.to - start) * ratio));
-        if (ratio >= 1) {
-          clearInterval(interval);
-          cursor++;
-          tick();
+    // Background progress animation — slows down past 90 until the API resolves
+    let currentProgress = 0;
+    setAiLabel(files.length > 0 ? "上传并读取文件…" : "调用 AI 模型解析…");
+    const progressTimer = setInterval(() => {
+      currentProgress = Math.min(90, currentProgress + (currentProgress < 50 ? 3 : currentProgress < 80 ? 1.5 : 0.4));
+      setAiProgress(Math.round(currentProgress));
+      if (currentProgress >= 50 && currentProgress < 60) setAiLabel("AI 模型分析中…");
+      else if (currentProgress >= 60 && currentProgress < 80) setAiLabel("提取任务条目…");
+      else if (currentProgress >= 80) setAiLabel("整理字段与优先级…");
+    }, 200);
+
+    const categoryLabels = categories.map((c) => c.label);
+
+    const aiCall: Promise<{ tasks: RdAiTaskDraft[]; suggested_category?: string; summary?: string }> =
+      files.length > 0
+          ? extractRdTasksFromFile({
+              file: files[0],
+              peopleNames,
+              peopleProfiles,
+              categoryLabels,
+              proposalTitle: title || undefined,
+            })
+          : extractRdTasksFromText({
+              text: description.trim(),
+              peopleNames,
+              peopleProfiles,
+              categoryLabels,
+              proposalTitle: title || undefined,
+            });
+
+    aiCall
+      .then((result) => {
+        const drafted = (result.tasks ?? []).map((draft, idx) => ({
+          ...aiDraftToProposedTask(draft, idx),
+          duration_basis: result.provider === "local" ? "本地规则解析" : "由 AI 估算",
+        }));
+        setTasks(drafted);
+        if (!title && drafted[0]) {
+          setTitle(drafted[0].title.replace(/[（(].*$/, "").trim() || "AI 立项");
         }
-      }, 16);
-    };
-    tick();
+        // Try to match suggested_category against existing real categories
+        if (result.suggested_category) {
+          const match = categories.find(
+            (c) => c.label === result.suggested_category || c.label.includes(result.suggested_category!) || result.suggested_category!.includes(c.label),
+          );
+          if (match) setParentProjectId(match.id);
+        }
+        setAiProgress(100);
+        setAiLabel(`${result.provider === "local" ? "本地解析" : "AI 解析"}完成，共 ${drafted.length} 个任务`);
+        if (result.provider === "local") {
+          toast.warning("AI 未配置，已使用本地规则解析继续立项", {
+            description: "如需模型增强抽取，请配置 OPENAI_API_KEY 或 DASHSCOPE_API_KEY。",
+          });
+        }
+        setTimeout(() => setStep(3), 250);
+      })
+      .catch(async (err: unknown) => {
+        const message = err instanceof Error ? err.message : "AI 解析失败";
+        if (isAiConfigurationError(message)) {
+          try {
+            const attachmentText = await extractProposalAttachmentParseText(files);
+            const localText = [description.trim(), attachmentText].filter(Boolean).join("\n\n");
+            if (!localText.trim()) {
+              throw new Error("No local parseable content");
+            }
+            const drafted = parseTasksFromContent(title, localText).map((task, idx) => ({
+              ...task,
+              id: `local-${Date.now()}-${idx}`,
+              duration_basis: task.duration_basis || "本地文件解析",
+            }));
+            if (drafted.length > 0) {
+              setTasks(drafted);
+              if (!title && drafted[0]) {
+                setTitle(drafted[0].title.replace(/[（(].*$/, "").trim() || "AI 立项");
+              }
+              setAiProgress(100);
+              setAiLabel(`本地解析完成，共 ${drafted.length} 个任务`);
+              toast.warning("AI 未配置，已使用本地文件解析继续立项", {
+                description: "CSV、TXT、MD、JSON 文件可在浏览器本地解析；如需模型增强，请配置 API Key。",
+              });
+              setTimeout(() => setStep(3), 250);
+              return;
+            }
+          } catch {
+            // Fall through to the standard error message below.
+          }
+        }
+        toast.error(`AI 解析失败：${message}`);
+        setTasks([]);
+        setAiProgress(0);
+        setStep(1);
+      })
+      .finally(() => {
+        clearInterval(progressTimer);
+      });
   };
 
-  const handleSubmit = () => {
+  const ensurePersistentCategoryTree = async (): Promise<RdCategory[]> => {
+    const result = ensureProposalCategoryTree(categories);
+    if (result.changed) {
+      await saveRdTaskCategories(result.categories);
+      setCategories(result.categories);
+    }
+    return result.categories;
+  };
+
+  const resolveFallbackTargetIds = async (
+    baseCategories: RdCategory[],
+  ): Promise<{ target: { categoryId: string; subProjectId: string } | null; categories: RdCategory[] }> => {
+    if (parentProjectId === "new") {
+      const catId = `rd-cat-${Date.now()}`;
+      const subId = `rd-sub-${Date.now()}`;
+      const newCat: RdCategory = {
+        id: catId,
+        label: newProjectName.trim() || title.trim() || "未命名立项",
+        children: [{ id: subId, label: "立项任务", tasks: [] }],
+      };
+      const updated = [...baseCategories, newCat];
+      await saveRdTaskCategories(updated);
+      setCategories(updated);
+      return { target: { categoryId: catId, subProjectId: subId }, categories: updated };
+    }
+    const cat = baseCategories.find((c) => c.id === parentProjectId);
+    const firstChild = cat?.children[0];
+    if (!firstChild) {
+      toast.error("所选分类下暂无子项目，请先添加子项目");
+      return { target: null, categories: baseCategories };
+    }
+    return { target: { categoryId: parentProjectId, subProjectId: firstChild.id }, categories: baseCategories };
+  };
+
+  const createTasksFromProposal = async (status: "pending_review" | "in_progress") => {
+    let workingCategories = await ensurePersistentCategoryTree();
+    let fallbackTarget: { categoryId: string; subProjectId: string } | null = null;
+
+    const getFallbackTarget = async () => {
+      if (fallbackTarget) return fallbackTarget;
+      const resolved = await resolveFallbackTargetIds(workingCategories);
+      workingCategories = resolved.categories;
+      fallbackTarget = resolved.target;
+      return fallbackTarget;
+    };
+
+    for (const task of tasks) {
+      const target = resolveCategoryTargetFromPath(task, workingCategories) ?? await getFallbackTarget();
+      if (!target) return false;
+
+      await createRdTask({
+        category_id: target.categoryId,
+        sub_project_id: target.subProjectId,
+        title: task.title,
+        primary_owner: task.owner,
+        status,
+        final_priority: task.priority,
+        ai_priority: task.priority,
+        due_date: task.due_date,
+        description: task.description,
+        category_path: task.category_path,
+      });
+    }
+
+    return true;
+  };
+
+  const handleSubmit = async () => {
     if (!canSubmitProposal) {
       toast.error("当前账号没有立项申请权限");
       return;
     }
-    recordAudit({
-      actor: auditActor,
-      action: "proposal.submitted",
-      resource: { type: "proposal", id: proposalId, name: title || "未命名立项" },
-      comment: comment || "提交立项审核",
-      metadata: {
-        task_count: tasks.length,
-        review_node_count: getApplicableNodes(userRole).length,
-        parent_project_id: parentProjectId,
-      },
-      source: "web",
-    });
-    toast.success("立项已提交审核", {
-      description: `共 ${tasks.length} 个任务，预计 24 小时内完成审核流转`,
-    });
-    handleClose();
+    setSubmitting(true);
+    try {
+      const created = await createTasksFromProposal("pending_review");
+      if (!created) { setSubmitting(false); return; }
+      await recomputeRdDirectorDashboard().catch(() => {});
+      await notifyCompleted();
+
+      recordAudit({
+        actor: auditActor,
+        action: "proposal.submitted",
+        resource: { type: "proposal", id: proposalId, name: title || "未命名立项" },
+        comment: comment || "提交立项审核",
+        metadata: {
+          task_count: tasks.length,
+          review_node_count: getApplicableNodes(userRole).length,
+          parent_project_id: parentProjectId,
+        },
+        source: "web",
+      });
+      toast.success("立项已提交审核", {
+        description: `共 ${tasks.length} 个任务，预计 24 小时内完成审核流转`,
+      });
+      handleClose();
+    } catch (err) {
+      toast.error("提交失败，请重试");
+      console.error(err);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleSaveDraft = () => {
@@ -1331,42 +1948,63 @@ export function RDProjectProposalDialog({
     handleClose();
   };
 
-  const handleDirectDispatch = () => {
+  const handleDirectDispatch = async () => {
     if (!canDirectProject) {
       toast.error("当前账号没有直接立项权限");
       return;
     }
-    recordAudit({
-      actor: auditActor,
-      action: "proposal.direct_dispatched",
-      resource: { type: "proposal", id: proposalId, name: title || "未命名立项" },
-      comment: comment || "直接立项并分配任务",
-      metadata: {
-        task_count: tasks.length,
-        parent_project_id: parentProjectId,
-        project_name: parentProjectId === "new" ? newProjectName || title || "未命名立项" : parentProjectId,
-      },
-      source: "web",
-    });
-    tasks.forEach((task) => {
+    setSubmitting(true);
+    try {
+      let failed = 0;
+      const created = await createTasksFromProposal("in_progress");
+      if (!created) { setSubmitting(false); return; }
+      await recomputeRdDirectorDashboard().catch(() => {});
+      await notifyCompleted();
+
       recordAudit({
         actor: auditActor,
-        action: "task.created",
-        resource: { type: "task", id: task.id, name: task.title },
-        changes: [
-          { field: "owner", before: undefined, after: task.owner },
-          { field: "priority", before: undefined, after: task.priority },
-          { field: "due_date", before: undefined, after: task.due_date },
-        ],
-        comment: "立项直接生效后自动创建任务",
-        metadata: { proposal_id: proposalId, category_path: task.category_path },
+        action: "proposal.direct_dispatched",
+        resource: { type: "proposal", id: proposalId, name: title || "未命名立项" },
+        comment: comment || "直接立项并分配任务",
+        metadata: {
+          task_count: tasks.length,
+          parent_project_id: parentProjectId,
+          project_name: parentProjectId === "new" ? newProjectName || title || "未命名立项" : parentProjectId,
+        },
         source: "web",
       });
-    });
-    toast.success("立项已生效并自动分配", {
-      description: `${tasks.length} 个任务已下发至责任人，相关人员将收到通知`,
-    });
-    handleClose();
+      tasks.forEach((task) => {
+        recordAudit({
+          actor: auditActor,
+          action: "task.created",
+          resource: { type: "task", id: task.id, name: task.title },
+          changes: [
+            { field: "owner", before: undefined, after: task.owner },
+            { field: "priority", before: undefined, after: task.priority },
+            { field: "due_date", before: undefined, after: task.due_date },
+          ],
+          comment: "立项直接生效后自动创建任务",
+          metadata: { proposal_id: proposalId, category_path: task.category_path },
+          source: "web",
+        });
+      });
+
+      if (failed > 0) {
+        toast.warning(`立项完成，但 ${failed} 个任务创建失败`, {
+          description: "请到任务驾驶舱手动补录",
+        });
+      } else {
+        toast.success("立项已生效并自动分配", {
+          description: `${tasks.length} 个任务已下发至责任人，相关人员将收到通知`,
+        });
+      }
+      handleClose();
+    } catch (err) {
+      toast.error("立项失败，请重试");
+      console.error(err);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (!open) return null;
@@ -1374,11 +2012,9 @@ export function RDProjectProposalDialog({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm animate-rd-fade-in"
-      onClick={handleClose}
     >
       <div
         className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(15,23,42,0.2)] animate-rd-scale-in"
-        onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <header className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
@@ -1442,6 +2078,8 @@ export function RDProjectProposalDialog({
             setTasks={setTasks}
             proposalId={proposalId}
             auditActor={auditActor}
+            categories={categories}
+            peopleProfiles={peopleProfiles}
             onBack={() => setStep(1)}
             onNext={() => setStep(4)}
           />
@@ -1455,6 +2093,8 @@ export function RDProjectProposalDialog({
             newProjectName={newProjectName}
             comment={comment}
             setComment={setComment}
+            categories={categories}
+            submitting={submitting}
             onBack={() => setStep(3)}
             onSubmit={handleSubmit}
             onSaveDraft={handleSaveDraft}
