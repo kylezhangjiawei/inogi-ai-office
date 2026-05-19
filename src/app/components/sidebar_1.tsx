@@ -4,6 +4,7 @@ import { useAuth } from "../auth";
 import { hasPermission } from "../lib/permissions";
 import { navGroups } from "../routesConfig";
 import { cn } from "./ui/utils";
+import logo from '../../assets/logo.png'
 
 export function Sidebar() {
   const { user } = useAuth();
@@ -24,9 +25,8 @@ export function Sidebar() {
     <aside className="flex h-full w-[300px] shrink-0 flex-col border-r border-white/70 bg-[linear-gradient(180deg,#fcfdff_0%,#f4f8fd_100%)] px-4 py-5 min-[1920px]:w-[324px]">
       <div className="material-card material-glow mb-5 p-4">
         <div className="mb-5 flex items-center gap-3">
-          <div className="flex h-14 w-14 items-center justify-center rounded-[20px] bg-[linear-gradient(135deg,#42a5f5_0%,#1565c0_100%)] shadow-[0_16px_32px_rgba(21,101,192,0.28)]">
-            <span className="text-lg font-bold text-white">I</span>
-          </div>
+
+            <img className="flex h-14 w-14 items-center justify-center rounded-[4px] " src={logo} alt="" />
           <div>
             <div className="text-lg font-bold tracking-tight text-slate-900">INOGI AI</div>
             <div className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">Office Console</div>

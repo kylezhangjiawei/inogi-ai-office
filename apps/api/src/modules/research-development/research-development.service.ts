@@ -1449,12 +1449,22 @@ export class ResearchDevelopmentService {
       lines.push('✍️ 今日未提交进度记录。');
     }
     lines.push('');
-    if (blocked > 0) {
+    if (blocked > 0 && todayNotes.length === 0) {
+      lines.push(`⚠️ 注意：当前有 ${blocked} 个任务处于阻塞状态，且今日未提交任何进度记录，请关注推进情况。`);
+    } else if (blocked > 0) {
       lines.push(`⚠️ 注意：当前有 ${blocked} 个任务处于阻塞状态，需要支援。`);
+    } else if (completed > 0 && todayNotes.length > 0) {
+      lines.push(`✅ 今日推进顺利，已完成 ${completed} 个任务，并提交了进度记录。`);
     } else if (completed > 0) {
-      lines.push(`✅ 今日推进顺利，已完成 ${completed} 个任务。`);
-    } else {
+      lines.push(`✅ 已完成 ${completed} 个任务，但今日未提交进度记录，建议补充说明。`);
+    } else if (inProgress > 0 && todayNotes.length === 0) {
+      lines.push(`🔔 今日有 ${inProgress} 个任务进行中，但未提交任何进度记录，请及时更新进展。`);
+    } else if (inProgress > 0) {
       lines.push('🟦 今日推进正常，请保持节奏。');
+    } else if (pending > 0) {
+      lines.push(`📋 当前有 ${pending} 个任务待处理，尚未开始执行，请关注任务启动情况。`);
+    } else {
+      lines.push('📭 当前暂无任务，请确认任务分配情况。');
     }
 
     return {

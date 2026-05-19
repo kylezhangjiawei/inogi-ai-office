@@ -25,6 +25,7 @@ type AuthContextValue = {
   hydrated: boolean;
   login: (payload: LoginPayload) => Promise<{ ok: boolean; message?: string }>;
   logout: () => Promise<void>;
+  refreshUser: () => Promise<AuthUser | null>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -97,6 +98,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       user,
       hydrated,
+
+      async refreshUser() {
+        const payload = await fetchCurrentUser();
+        saveAuthSession({
+          accessToken: getStoredAccessToken() ?? "",
+          refreshToken: getRefreshToken() ?? "",
+          user: payload.user,
+        });
+        setUser(payload.user);
+        return payload.user;
+      },
 
       async login(payload) {
         try {

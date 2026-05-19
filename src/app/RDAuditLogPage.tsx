@@ -28,6 +28,8 @@ import {
   getAuditActionMeta,
   useAuditLogs,
 } from "./lib/auditLog";
+import { Input } from "./components/ui/input";
+import { NativeSelect } from "./components/ui/native-select";
 import { cn } from "./components/ui/utils";
 
 type FilterValue<T extends string> = T | "all";
@@ -440,7 +442,7 @@ export function RDAuditLogPage() {
               <span className="mb-1 block text-xs font-medium text-slate-600">关键字</span>
               <div className="flex items-center gap-2 rounded-md border border-slate-200 px-2.5 py-2 transition-all focus-within:border-cyan-300 focus-within:ring-2 focus-within:ring-cyan-100">
                 <Search className={cn("h-3.5 w-3.5 transition-colors", keyword ? "text-cyan-700" : "text-slate-400")} />
-                <input
+                <Input
                   value={keyword}
                   onChange={(event) => {
                     setKeyword(event.target.value);
@@ -480,7 +482,7 @@ export function RDAuditLogPage() {
 
             <label className="block">
               <span className="mb-1 block text-xs font-medium text-slate-600">动作类型</span>
-              <select
+              <NativeSelect
                 value={action}
                 onChange={(event) => {
                   setAction(event.target.value);
@@ -494,13 +496,13 @@ export function RDAuditLogPage() {
                     {getAuditActionMeta(item).label}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </label>
 
             <div className="grid grid-cols-2 gap-2">
               <label className="block">
                 <span className="mb-1 block text-xs font-medium text-slate-600">对象</span>
-                <select
+                <NativeSelect
                   value={resourceType}
                   onChange={(event) => {
                     setResourceType(event.target.value as FilterValue<ResourceType>);
@@ -513,11 +515,11 @@ export function RDAuditLogPage() {
                       {resourceLabel(item)}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
               </label>
               <label className="block">
                 <span className="mb-1 block text-xs font-medium text-slate-600">来源</span>
-                <select
+                <NativeSelect
                   value={source}
                   onChange={(event) => {
                     setSource(event.target.value as FilterValue<AuditSource>);
@@ -530,13 +532,13 @@ export function RDAuditLogPage() {
                       {SOURCE_LABELS[item]}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
               </label>
             </div>
 
             <label className="block">
               <span className="mb-1 block text-xs font-medium text-slate-600">操作人</span>
-              <select
+              <NativeSelect
                 value={actorId}
                 onChange={(event) => {
                   setActorId(event.target.value);
@@ -550,7 +552,7 @@ export function RDAuditLogPage() {
                     {actor.name}（{actor.count}）
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </label>
 
             <div className="grid grid-cols-2 gap-2">
@@ -559,7 +561,7 @@ export function RDAuditLogPage() {
                   <CalendarDays className="h-3 w-3" />
                   开始
                 </span>
-                <input
+                <Input
                   type="date"
                   value={since}
                   onChange={(event) => {
@@ -574,7 +576,7 @@ export function RDAuditLogPage() {
                   <CalendarDays className="h-3 w-3" />
                   结束
                 </span>
-                <input
+                <Input
                   type="date"
                   value={until}
                   onChange={(event) => {
@@ -607,7 +609,7 @@ export function RDAuditLogPage() {
                   {sortOrder === "newest" ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
                   {sortOrder === "newest" ? "最新优先" : "最早优先"}
                 </button>
-                <select
+                <NativeSelect
                   value={pageSize}
                   onChange={(event) => {
                     setPageSize(Number(event.target.value) as (typeof PAGE_SIZE_OPTIONS)[number]);
@@ -620,7 +622,7 @@ export function RDAuditLogPage() {
                       每页 {item}
                     </option>
                   ))}
-                </select>
+                </NativeSelect>
               </div>
             </div>
 

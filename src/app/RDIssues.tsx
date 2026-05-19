@@ -16,6 +16,8 @@ import {
   Upload,
 } from "lucide-react";
 import { Link } from "react-router";
+import { Input } from "./components/ui/input";
+import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
 
 type IssueCategory = "hardware" | "software" | "production" | "configuration";
@@ -183,7 +185,7 @@ export function RDIssues() {
             <div className="grid gap-4 md:grid-cols-2">
               <label className="space-y-2">
                 <span className="text-sm font-medium text-slate-600">产品型号</span>
-                <input
+                <Input
                   className="material-input"
                   value={form.productModel}
                   onChange={(event) => setForm((prev) => ({ ...prev, productModel: event.target.value }))}
@@ -192,7 +194,7 @@ export function RDIssues() {
               </label>
               <label className="space-y-2">
                 <span className="text-sm font-medium text-slate-600">版本号</span>
-                <input
+                <Input
                   className="material-input"
                   value={form.version}
                   onChange={(event) => setForm((prev) => ({ ...prev, version: event.target.value }))}
@@ -201,7 +203,7 @@ export function RDIssues() {
               </label>
               <label className="space-y-2">
                 <span className="text-sm font-medium text-slate-600">BOM 版本</span>
-                <input
+                <Input
                   className="material-input"
                   value={form.bomVersion}
                   onChange={(event) => setForm((prev) => ({ ...prev, bomVersion: event.target.value }))}
@@ -210,7 +212,7 @@ export function RDIssues() {
               </label>
               <label className="space-y-2">
                 <span className="text-sm font-medium text-slate-600">固件版本</span>
-                <input
+                <Input
                   className="material-input"
                   value={form.firmwareVersion}
                   onChange={(event) => setForm((prev) => ({ ...prev, firmwareVersion: event.target.value }))}
@@ -221,7 +223,7 @@ export function RDIssues() {
 
             <label className="block space-y-2">
               <span className="text-sm font-medium text-slate-600">问题描述</span>
-              <textarea
+              <Textarea
                 rows={6}
                 className="material-input min-h-[144px] resize-none"
                 value={form.description}

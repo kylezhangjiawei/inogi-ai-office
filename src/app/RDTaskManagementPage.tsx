@@ -39,6 +39,9 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { Input } from "./components/ui/input";
+import { NativeSelect } from "./components/ui/native-select";
+import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./components/ui/tooltip";
 import { usePermission } from "./hooks/usePermission";
@@ -1789,7 +1792,7 @@ function SystemTreeEditorDialog({
           ) : (
             <div>
               <label className="mb-1.5 block text-xs font-medium text-slate-700">名称</label>
-              <input
+              <Input
                 autoFocus
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
@@ -2370,7 +2373,7 @@ function AiCreatePanel({
                 </div>
               </div>
               <label className="text-sm font-medium text-slate-700">粘贴会议纪要、邮件正文或需求描述</label>
-              <textarea
+              <Textarea
                 className="w-full resize-none rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
                 rows={5}
                 placeholder="例：电磁阀耐压测试需要在本月底前完成，由王磊负责，陈静配合质检……"
@@ -2396,7 +2399,7 @@ function AiCreatePanel({
                 >
                   <FileUp className="h-4 w-4" />
                   拖入 Excel / Word / PDF / 图片 / 压缩包
-                  <input
+                  <Input
                     type="file"
                     className="hidden"
                     accept={RD_ATTACHMENT_ACCEPT}
@@ -2467,7 +2470,7 @@ function AiCreatePanel({
                       </button>
                     )}
                   </label>
-                  <input
+                  <Input
                     className={cn(
                       "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100",
                       modifiedFields.has("title") ? "border-amber-300 bg-amber-50" : "border-slate-200",
@@ -2479,7 +2482,7 @@ function AiCreatePanel({
 
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-slate-500">主责人</label>
-                  <input
+                  <Input
                     className={cn(
                       "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100",
                       modifiedFields.has("primary_owner") ? "border-amber-300 bg-amber-50" : "border-slate-200",
@@ -2494,7 +2497,7 @@ function AiCreatePanel({
                     最终优先级
                     <span className="ml-auto text-slate-400">AI 建议: {PRIORITY_CONFIG[draft.ai_priority].label}</span>
                   </label>
-                  <select
+                  <NativeSelect
                     className={cn(
                       "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100",
                       modifiedFields.has("final_priority") ? "border-amber-300 bg-amber-50" : "border-slate-200",
@@ -2505,12 +2508,12 @@ function AiCreatePanel({
                     <option value="high">高</option>
                     <option value="medium">中</option>
                     <option value="low">低</option>
-                  </select>
+                  </NativeSelect>
                 </div>
 
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-slate-500">分类路径</label>
-                  <input
+                  <Input
                     className={cn(
                       "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100",
                       modifiedFields.has("category_path") ? "border-amber-300 bg-amber-50" : "border-slate-200",
@@ -2522,7 +2525,7 @@ function AiCreatePanel({
 
                 <div className="space-y-1">
                   <label className="text-xs font-medium text-slate-500">预估工期（天）</label>
-                  <input
+                  <Input
                     type="number"
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
                     value={draft.final_duration ?? ""}
@@ -2532,7 +2535,7 @@ function AiCreatePanel({
 
                 <div className="col-span-2 space-y-1">
                   <label className="text-xs font-medium text-slate-500">截止日期</label>
-                  <input
+                  <Input
                     type="date"
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
                     value={draft.due_date ?? ""}
@@ -2542,7 +2545,7 @@ function AiCreatePanel({
 
                 <div className="col-span-2 space-y-1">
                   <label className="text-xs font-medium text-slate-500">任务描述</label>
-                  <textarea
+                  <Textarea
                     className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
                     rows={3}
                     value={draft.description ?? ""}
@@ -4156,14 +4159,14 @@ function TasksByPartSection({
       <div className="grid gap-2 rounded-[8px] border border-slate-200 bg-white p-3 md:grid-cols-[minmax(180px,1fr)_140px_120px_120px_auto]">
         <label className="relative block">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-          <input
+          <Input
             className="h-9 w-full rounded-[8px] border border-slate-200 bg-slate-50 pl-8 pr-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-50"
             placeholder="搜索任务、编号、负责人、路径"
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
           />
         </label>
-        <select
+        <NativeSelect
           className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
           value={statusFilter}
           onChange={(event) => setStatusFilter(event.target.value as TaskStatus | "all")}
@@ -4172,8 +4175,8 @@ function TasksByPartSection({
           {(Object.keys(STATUS_CONFIG) as TaskStatus[]).map((status) => (
             <option key={status} value={status}>{STATUS_CONFIG[status].label}</option>
           ))}
-        </select>
-        <select
+        </NativeSelect>
+        <NativeSelect
           className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
           value={priorityFilter}
           onChange={(event) => setPriorityFilter(event.target.value as Priority | "all")}
@@ -4182,8 +4185,8 @@ function TasksByPartSection({
           <option value="high">高优先级</option>
           <option value="medium">中优先级</option>
           <option value="low">低优先级</option>
-        </select>
-        <select
+        </NativeSelect>
+        <NativeSelect
           className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
           value={dueFilter}
           onChange={(event) => setDueFilter(event.target.value as TaskDueFilter)}
@@ -4194,7 +4197,7 @@ function TasksByPartSection({
           <option value="3d">3 天内</option>
           <option value="7d">7 天内</option>
           <option value="no_due">无截止日</option>
-        </select>
+        </NativeSelect>
         <button
           type="button"
           onClick={() => {
@@ -4457,7 +4460,7 @@ function PersonFormModal({
         <form onSubmit={handleSubmit} className="space-y-4 px-6 py-5">
           <div className="grid grid-cols-2 gap-3">
             <Field label="姓名" required error={errors.name}>
-              <input
+              <Input
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                 className={cn(
@@ -4469,7 +4472,7 @@ function PersonFormModal({
               />
             </Field>
             <Field label="职位" required error={errors.position}>
-              <input
+              <Input
                 value={form.position}
                 onChange={(e) => setForm((f) => ({ ...f, position: e.target.value }))}
                 className={cn(
@@ -4483,7 +4486,7 @@ function PersonFormModal({
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="所属部门">
-              <select
+              <NativeSelect
                 value={form.department}
                 onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))}
                 className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
@@ -4493,10 +4496,10 @@ function PersonFormModal({
                     {d}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </Field>
             <Field label="状态">
-              <select
+              <NativeSelect
                 value={form.status}
                 onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as PersonStatus }))}
                 className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
@@ -4504,12 +4507,12 @@ function PersonFormModal({
                 <option value="active">在岗</option>
                 <option value="on_leave">请假中</option>
                 <option value="resigned">已离职</option>
-              </select>
+              </NativeSelect>
             </Field>
           </div>
 
           <Field label="邮箱">
-            <input
+            <Input
               type="email"
               value={form.email ?? ""}
               onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
@@ -4520,7 +4523,7 @@ function PersonFormModal({
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="联系电话">
-              <input
+              <Input
                 value={form.phone ?? ""}
                 onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
                 className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
@@ -4528,7 +4531,7 @@ function PersonFormModal({
               />
             </Field>
             <Field label="任务上限">
-              <input
+              <Input
                 type="number"
                 min={1}
                 max={20}
@@ -4785,7 +4788,7 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
           <section className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-100 bg-white px-4 py-3">
             <div className="flex min-w-[260px] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 transition-all focus-within:border-blue-300 focus-within:ring-2 focus-within:ring-blue-100">
               <Search className="h-3.5 w-3.5 text-slate-400" />
-              <input
+              <Input
                 value={keyword}
                 onChange={(e) => setKeyword(e.target.value)}
                 placeholder="搜索姓名 / 职位 / 部门 / 邮箱…"
@@ -4821,7 +4824,7 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
               ))}
             </div>
 
-            <select
+            <NativeSelect
               value={deptFilter}
               onChange={(e) => setDeptFilter(e.target.value)}
               className="cursor-pointer rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
@@ -4832,7 +4835,7 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
                   {d}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
 
             <span className="ml-auto text-xs tabular-nums text-slate-400">
               共 <span className="font-semibold text-slate-700">{filtered.length}</span> /{" "}

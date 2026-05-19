@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Request } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, Request } from '@nestjs/common';
 
 import { AuthService } from './auth.service';
 import { Public } from './decorators/public.decorator';
@@ -30,6 +30,14 @@ export class AuthController {
   @Get('me')
   me(@Request() req: { user: { id: string } }) {
     return this.authService.getCurrentUser(req.user.id);
+  }
+
+  @Patch('me')
+  updateMe(
+    @Request() req: { user: { id: string } },
+    @Body() body: { name?: string; email?: string },
+  ) {
+    return this.authService.updateCurrentUser(req.user.id, body);
   }
 
   @Post('logout')

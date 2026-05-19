@@ -13,6 +13,9 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { Checkbox } from "./components/ui/checkbox";
+import { Input } from "./components/ui/input";
+import { NativeSelect } from "./components/ui/native-select";
 import { Switch } from "./components/ui/switch";
 import { cn } from "./components/ui/utils";
 import {
@@ -121,7 +124,7 @@ function ModelSelect({
 }) {
   const selectedMissing = value && !models.some((item) => item.id === value);
   return (
-    <select
+    <NativeSelect
       className="h-9 w-full rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
       value={value}
       onChange={(event) => onChange(event.target.value)}
@@ -133,7 +136,7 @@ function ModelSelect({
           {model.name || model.model} / {model.model}
         </option>
       ))}
-    </select>
+    </NativeSelect>
   );
 }
 
@@ -159,12 +162,12 @@ function SceneRow({
       </div>
       <ModelSelect value={scene.model_id} models={models} onChange={(model_id) => onChange({ model_id })} />
       <ModelSelect value={scene.fallback_model_id} models={models} onChange={(fallback_model_id) => onChange({ fallback_model_id })} />
-      <input
+      <Input
         className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
         value={scene.prompt_version}
         onChange={(event) => onChange({ prompt_version: event.target.value })}
       />
-      <input
+      <Input
         type="number"
         min={0}
         max={1}
@@ -175,18 +178,16 @@ function SceneRow({
       />
       <div className="flex items-center justify-end gap-4 text-xs font-medium text-slate-600 xl:justify-start">
         <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={scene.require_human_review}
-            onChange={(event) => onChange({ require_human_review: event.target.checked })}
+            onCheckedChange={(checked) => onChange({ require_human_review: Boolean(checked) })}
           />
           复核
         </label>
         <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
+          <Checkbox
             checked={scene.show_to_user}
-            onChange={(event) => onChange({ show_to_user: event.target.checked })}
+            onCheckedChange={(checked) => onChange({ show_to_user: Boolean(checked) })}
           />
           可见
         </label>
@@ -214,11 +215,10 @@ function FileCapabilityToggle({
       )}
     >
       <span className="min-w-0">{label}</span>
-      <input
-        type="checkbox"
+      <Checkbox
         className="h-4 w-4 shrink-0 cursor-pointer rounded border-slate-300 accent-indigo-600"
         checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
+        onCheckedChange={(nextChecked) => onChange(Boolean(nextChecked))}
       />
     </label>
   );
@@ -268,7 +268,7 @@ function FileRuleRow({
         <div className="grid min-w-0 gap-3 lg:grid-cols-2">
           <label htmlFor={strategyInputId} className="block min-w-0">
             <span className="text-xs font-semibold text-slate-500">处理策略</span>
-            <input
+            <Input
               id={strategyInputId}
               className="mt-1.5 h-10 w-full rounded-[8px] border border-slate-200 bg-white px-3 font-mono text-sm text-slate-800 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
               value={rule.strategy}
@@ -278,7 +278,7 @@ function FileRuleRow({
           </label>
           <label htmlFor={extensionsInputId} className="block min-w-0">
             <span className="text-xs font-semibold text-slate-500">扩展名</span>
-            <input
+            <Input
               id={extensionsInputId}
               className="mt-1.5 h-10 w-full rounded-[8px] border border-slate-200 bg-white px-3 font-mono text-sm text-slate-800 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
               value={rule.extensions.join(", ")}
@@ -574,7 +574,7 @@ export function RDAiSettingsPage() {
             </div>
             <label className="block">
               <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">OCR 置信度阈值</span>
-              <input
+              <Input
                 type="number"
                 min={0}
                 max={1}
@@ -586,7 +586,7 @@ export function RDAiSettingsPage() {
             </label>
             <label className="block">
               <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">低置信度动作</span>
-              <select
+              <NativeSelect
                 className="material-input mt-1.5 w-full"
                 value={settings.file_policy.low_confidence_action}
                 onChange={(event) => patchFilePolicy({ low_confidence_action: event.target.value })}
@@ -594,7 +594,7 @@ export function RDAiSettingsPage() {
                 <option value="manual_review">人工确认</option>
                 <option value="reject">阻止落库</option>
                 <option value="allow_with_warning">允许但标警告</option>
-              </select>
+              </NativeSelect>
             </label>
             <div className="space-y-3 rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
               {[

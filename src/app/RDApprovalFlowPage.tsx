@@ -18,6 +18,8 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { Input } from "./components/ui/input";
+import { NativeSelect } from "./components/ui/native-select";
 import { cn } from "./components/ui/utils";
 import { usePermission } from "./hooks/usePermission";
 import {
@@ -106,7 +108,7 @@ function ApprovalNodeCard({
       <div className="px-5 py-4">
         {/* Header row */}
         <div className="mb-3 flex items-center gap-3">
-          <input
+          <Input
             value={node.label}
             onChange={(e) => onChange({ label: e.target.value })}
             readOnly={readOnly}
@@ -157,7 +159,7 @@ function ApprovalNodeCard({
         </div>
 
         {/* Description */}
-        <input
+        <Input
           value={node.description ?? ""}
           onChange={(e) => onChange({ description: e.target.value })}
           readOnly={readOnly}
@@ -172,7 +174,7 @@ function ApprovalNodeCard({
             <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">
               关联权限
             </label>
-            <select
+            <NativeSelect
               value={node.permission_code}
               onChange={(e) => onChange({ permission_code: e.target.value })}
               disabled={readOnly}
@@ -183,7 +185,7 @@ function ApprovalNodeCard({
                   {opt.label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
             <p className="mt-1 text-[10px] text-slate-400">
               拥有此权限的所有用户自动入审核池
             </p>
@@ -224,7 +226,7 @@ function ApprovalNodeCard({
               <Clock className="h-3 w-3" />
               SLA 时长（小时）
             </label>
-            <input
+            <Input
               type="number"
               min={1}
               value={node.sla_hours ?? ""}

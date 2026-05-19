@@ -1,0 +1,37 @@
+{
+  "date": "2026-05-19",
+  "url": "http://localhost:5173",
+  "scope": "研发任务管理模块",
+  "healthScore": 93,
+  "verdict": "release_ready",
+  "issues": [
+    {
+      "id": "RD-QA-001",
+      "title": "提交审核路径无法从 UI 完成审批闭环",
+      "severity": "resolved",
+      "category": "functional"
+    },
+    {
+      "id": "RD-QA-002",
+      "title": "审批流配置页面把多类流程权限混在立项审批配置下，存在认知风险",
+      "severity": "medium",
+      "category": "ux"
+    },
+    {
+      "id": "RD-QA-003",
+      "title": "前端主 chunk 体积较大",
+      "severity": "low",
+      "category": "performance"
+    }
+  ],
+  "categoryScores": {
+    "console": 100,
+    "links": 95,
+    "visual": 95,
+    "functional": 94,
+    "ux": 88,
+    "performance": 90,
+    "content": 95,
+    "accessibility": 82
+  }
+}

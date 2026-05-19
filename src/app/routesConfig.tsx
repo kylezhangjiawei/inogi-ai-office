@@ -156,6 +156,8 @@ export const routeTitleMap = navGroups
     acc[item.path] = item.label;
     return acc;
   }, {
+    "/profile": "个人中心",
+    "/message-center": "消息中心",
     "/ops-center/api-errors": "接口与错误",
     "/ops-center/database": "数据库监控",
     "/ops-center/services-tasks": "服务与任务",

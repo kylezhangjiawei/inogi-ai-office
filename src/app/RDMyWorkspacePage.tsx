@@ -26,6 +26,10 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { Checkbox } from "./components/ui/checkbox";
+import { Input } from "./components/ui/input";
+import { NativeSelect } from "./components/ui/native-select";
+import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
 import { usePermission } from "./hooks/usePermission";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
@@ -986,7 +990,7 @@ function TaskOperationDrawer({
                     <UploadCloud className="h-3.5 w-3.5" />
                   )}
                   {aiLoading ? "AI 解析中…" : "上传文件"}
-                  <input
+                  <Input
                     type="file"
                     multiple
                     className="sr-only"
@@ -1068,7 +1072,7 @@ function TaskOperationDrawer({
                 <span className="font-semibold text-slate-900">人工确认进度</span>
                 <span className="font-semibold tabular-nums text-blue-700">{draftProgress}%</span>
               </div>
-              <input
+              <Input
                 type="range"
                 min={0}
                 max={100}
@@ -1097,7 +1101,7 @@ function TaskOperationDrawer({
                 </span>
                 <span className="text-[10px] text-slate-400">仅文本会被 AI 分析；附件用于留档展示</span>
               </div>
-              <textarea
+              <Textarea
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
                 rows={4}
@@ -1124,7 +1128,7 @@ function TaskOperationDrawer({
                 >
                   <UploadCloud className="h-3.5 w-3.5" />
                   添加文件/图片
-                  <input
+                  <Input
                     type="file"
                     multiple
                     disabled={savingNote}
@@ -1192,7 +1196,7 @@ function TaskOperationDrawer({
           <div className="space-y-4 rounded-xl border border-slate-200 p-4">
             <label className="block">
               <span className="text-sm font-semibold text-slate-900">接收人</span>
-              <select
+              <NativeSelect
                 value={handoffTo}
                 onChange={(event) => setHandoffTo(event.target.value)}
                 className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
@@ -1201,11 +1205,11 @@ function TaskOperationDrawer({
                 <option>陈静</option>
                 <option>王磊</option>
                 <option>刘华</option>
-              </select>
+              </NativeSelect>
             </label>
             <label className="block">
               <span className="text-sm font-semibold text-slate-900">移交原因和影响</span>
-              <textarea
+              <Textarea
                 rows={4}
                 placeholder="说明为什么移交、当前进展、未解决风险和期望接收人下一步动作"
                 className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
@@ -1231,7 +1235,7 @@ function TaskOperationDrawer({
               <div className="grid gap-2 sm:grid-cols-2">
                 {["交付物已上传", "风险已说明", "测试记录已补齐", "关联人员已同步"].map((item) => (
                   <label key={item} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600">
-                    <input type="checkbox" className="rounded border-slate-300 text-blue-600" />
+                    <Checkbox className="rounded border-slate-300 text-blue-600" />
                     {item}
                   </label>
                 ))}
@@ -1239,7 +1243,7 @@ function TaskOperationDrawer({
             </div>
             <label className="block">
               <span className="text-sm font-semibold text-slate-900">提交说明</span>
-              <textarea
+              <Textarea
                 rows={4}
                 placeholder="补充本次提交的结论、已知风险和需要审核人关注的重点"
                 className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
@@ -1324,7 +1328,7 @@ function AISuggestionDrawer({
 
         <label className="block">
           <span className="text-sm font-semibold text-slate-900">调整意见</span>
-          <textarea
+          <Textarea
             rows={3}
             placeholder="例如：拆得更细、责任人改为赵强、截止日期顺延到下周三"
             className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
@@ -1804,14 +1808,14 @@ export function RDMyWorkspacePage() {
           <div className="grid gap-2 md:grid-cols-[minmax(220px,1fr)_140px_140px_130px_auto]">
             <label className="relative block">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-              <input
+              <Input
                 className="h-9 w-full rounded-[8px] border border-slate-200 bg-slate-50 pl-8 pr-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-50"
                 placeholder="搜索任务、负责人、系统、下一步"
                 value={taskKeyword}
                 onChange={(event) => setTaskKeyword(event.target.value)}
               />
             </label>
-            <select
+            <NativeSelect
               className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
               value={taskPriorityFilter}
               onChange={(event) => setTaskPriorityFilter(event.target.value as Priority | "all")}
@@ -1820,8 +1824,8 @@ export function RDMyWorkspacePage() {
               <option value="high">高优先级</option>
               <option value="medium">中优先级</option>
               <option value="low">低优先级</option>
-            </select>
-            <select
+            </NativeSelect>
+            <NativeSelect
               className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
               value={taskStatusFilter}
               onChange={(event) => setTaskStatusFilter(event.target.value as TaskStatus | "all")}
@@ -1832,8 +1836,8 @@ export function RDMyWorkspacePage() {
               <option value="paused_blocked">阻塞</option>
               <option value="paused_leave">请假暂停</option>
               <option value="completed">已完成</option>
-            </select>
-            <select
+            </NativeSelect>
+            <NativeSelect
               className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
               value={taskDueFilter}
               onChange={(event) => setTaskDueFilter(event.target.value as WorkspaceDueFilter)}
@@ -1844,7 +1848,7 @@ export function RDMyWorkspacePage() {
               <option value="3d">3 天内</option>
               <option value="7d">7 天内</option>
               <option value="no_due">无截止日</option>
-            </select>
+            </NativeSelect>
             <button
               type="button"
               onClick={() => {

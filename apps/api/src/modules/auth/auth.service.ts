@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -102,15 +103,71 @@ export class AuthService {
     return { user: this.toAuthUserProfile(user) };
   }
 
+  async updateCurrentUser(
+    userId: string,
+    payload: { name?: string; email?: string },
+  ) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { role: true },
+    });
+    if (!user || user.status === 'DISABLED') {
+      throw new UnauthorizedException();
+    }
+
+    if (this.isSuperAdminRole(user.role?.permissions)) {
+      throw new ForbiddenException('超级管理员仅允许修改头像，名称、邮箱和密码不允许在个人中心修改');
+    }
+
+    const name = payload.name?.trim();
+    const email = payload.email?.trim();
+    if (!name) throw new BadRequestException('名称不能为空');
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new BadRequestException('邮箱格式不正确');
+    }
+
+    if (email !== user.email) {
+      const existing = await this.prisma.user.findUnique({ where: { email } });
+      if (existing && existing.id !== userId) {
+        throw new BadRequestException('邮箱已被其他账号使用');
+      }
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: { name, email },
+      include: { role: true },
+    });
+
+    return { user: this.toAuthUserProfile(updated) };
+  }
+
   async logout(rawToken: string, userId: string) {
     await this.prisma.refreshToken.deleteMany({ where: { token: rawToken, userId } });
     return { ok: true };
   }
 
   async setPassword(userId: string, newPassword: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { role: true },
+    });
+    if (!user || user.status === 'DISABLED') {
+      throw new UnauthorizedException();
+    }
+    if (this.isSuperAdminRole(user.role?.permissions)) {
+      throw new ForbiddenException('超级管理员密码不允许在个人中心修改');
+    }
+    if (!newPassword || newPassword.length < 8) {
+      throw new BadRequestException('新密码至少需要 8 位');
+    }
     const hash = await argon2.hash(newPassword, { type: argon2.argon2id });
     await this.prisma.user.update({ where: { id: userId }, data: { passwordHash: hash } });
     return { ok: true };
+  }
+
+  private isSuperAdminRole(permissions: unknown): boolean {
+    return Array.isArray(permissions) && (permissions as string[]).includes('*');
   }
 
   private async issueTokens(user: AuthUserProfile) {

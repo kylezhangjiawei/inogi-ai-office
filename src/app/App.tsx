@@ -26,7 +26,9 @@ import { InquiryPage } from "./InquiryPage";
 import { LoginPage } from "./LoginPage";
 import { MailboxManagementPage } from "./MailboxManagementPage";
 import { MeetingMinutes } from "./MeetingMinutes";
+import { MessageCenterPage } from "./MessageCenterPage";
 import { OpsCenterPage } from "./OpsCenterPage";
+import { PersonalCenterPage } from "./PersonalCenterPage";
 import { ContractReviewPage } from "./ContractReviewPage";
 import { QualityDMSPage } from "./QualityDMSPage";
 import { QATraceability } from "./QATraceability";
@@ -184,6 +186,8 @@ const router = createBrowserRouter([
     Component: ProtectedLayout,
     children: [
       { index: true, element: makeProtected(<Dashboard />, routePermissionMap["/"] ?? "page:dashboard") },
+      { path: "profile", element: <PersonalCenterPage /> },
+      { path: "message-center", element: <MessageCenterPage /> },
       { path: "after-sales", element: makeProtected(<AfterSalesList />, "page:after-sales") },
       { path: "after-sales/new", element: makeProtected(<AfterSalesForm />, "page:after-sales") },
       { path: "after-sales/:id", element: makeProtected(<AfterSalesDetails />, "page:after-sales") },

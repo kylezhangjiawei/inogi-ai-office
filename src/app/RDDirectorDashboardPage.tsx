@@ -29,6 +29,7 @@ import { Button } from "./components/ui/button";
 import { Calendar } from "./components/ui/calendar";
 import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
+import { NativeSelect } from "./components/ui/native-select";
 import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { Textarea } from "./components/ui/textarea";
@@ -517,6 +518,7 @@ function TaskDetailDrawer({
   onClose,
   onOpenPerson,
   onOpenReassign,
+  onReviewTask,
   onUpdate,
   onDelete,
 }: {
@@ -524,6 +526,7 @@ function TaskDetailDrawer({
   onClose: () => void;
   onOpenPerson?: (name: string) => void;
   onOpenReassign?: (task: TaskDetail) => void;
+  onReviewTask?: (task: TaskDetail, decision: "approved" | "rejected") => void;
   onUpdate?: () => void;
   onDelete?: () => void;
 }) {
@@ -718,7 +721,7 @@ function TaskDetailDrawer({
           <div className="border-b border-slate-100 bg-slate-50/60 px-6 py-4 space-y-3">
             <div>
               <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">任务标题</label>
-              <input
+              <Input
                 type="text"
                 value={editForm.title}
                 onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
@@ -728,7 +731,7 @@ function TaskDetailDrawer({
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">状态</label>
-                <select
+                <NativeSelect
                   value={editForm.status}
                   onChange={(e) => setEditForm((f) => ({ ...f, status: e.target.value as TaskStatus }))}
                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-400"
@@ -736,11 +739,11 @@ function TaskDetailDrawer({
                   {(Object.keys(TASK_STATUS_CONFIG) as TaskStatus[]).map((s) => (
                     <option key={s} value={s}>{TASK_STATUS_CONFIG[s].label}</option>
                   ))}
-                </select>
+                </NativeSelect>
               </div>
               <div>
                 <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">优先级</label>
-                <select
+                <NativeSelect
                   value={editForm.priority}
                   onChange={(e) => setEditForm((f) => ({ ...f, priority: e.target.value as Priority }))}
                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-400"
@@ -748,11 +751,11 @@ function TaskDetailDrawer({
                   <option value="high">高</option>
                   <option value="medium">中</option>
                   <option value="low">低</option>
-                </select>
+                </NativeSelect>
               </div>
               <div>
                 <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">进度 %</label>
-                <input
+                <Input
                   type="number"
                   min={0}
                   max={100}
@@ -763,7 +766,7 @@ function TaskDetailDrawer({
               </div>
               <div>
                 <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">截止日期</label>
-                <input
+                <Input
                   type="date"
                   value={editForm.due_date}
                   onChange={(e) => setEditForm((f) => ({ ...f, due_date: e.target.value }))}
@@ -773,7 +776,7 @@ function TaskDetailDrawer({
             </div>
             <div>
               <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">主责人</label>
-              <input
+              <Input
                 type="text"
                 value={editForm.owner}
                 onChange={(e) => setEditForm((f) => ({ ...f, owner: e.target.value }))}
@@ -782,7 +785,7 @@ function TaskDetailDrawer({
             </div>
             <div>
               <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">任务描述</label>
-              <textarea
+              <Textarea
                 value={editForm.description}
                 onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
                 rows={3}
@@ -1000,7 +1003,24 @@ function TaskDetailDrawer({
 
         {!isEditing && (canReassignTask || (canEditTask && task.status !== "completed")) && (
           <footer className="flex items-center gap-2 border-t border-slate-100 bg-white px-6 py-3">
-            {canReassignTask && (
+            {task.status === "pending_review" && canEditTask ? (
+              <>
+                <button
+                  disabled={saving}
+                  onClick={() => onReviewTask?.(task, "rejected")}
+                  className="flex-1 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 transition-all duration-150 hover:bg-red-100 active:scale-[0.98] disabled:opacity-50"
+                >
+                  驳回
+                </button>
+                <button
+                  disabled={saving}
+                  onClick={() => onReviewTask?.(task, "approved")}
+                  className="flex-1 rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(5,150,105,0.2)] transition-all duration-150 hover:bg-emerald-700 active:scale-[0.98] disabled:opacity-50"
+                >
+                  审核通过
+                </button>
+              </>
+            ) : canReassignTask && (
               <button
                 disabled={saving}
                 onClick={() => onOpenReassign?.(task)}
@@ -1009,7 +1029,7 @@ function TaskDetailDrawer({
                 {task.status === "pending_assign" || task.owner === "待指派" ? "指派负责人" : "转派任务"}
               </button>
             )}
-            {canEditTask && task.status !== "completed" && (
+            {canEditTask && task.status !== "completed" && task.status !== "pending_review" && (
               <button disabled={saving} onClick={() => recordDirectorTaskAction("task.status_changed")} className="flex-1 rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(5,150,105,0.2)] transition-all duration-150 hover:bg-emerald-700 active:scale-[0.98] disabled:opacity-50">
                 标记完成
               </button>
@@ -1655,7 +1675,7 @@ function BatchReassignModal({
                   ) : (
                     ASSIGNABLE_TASKS.map((t) => (
                       <label key={t.task_id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-100 px-3 py-2 hover:bg-slate-50">
-                        <input
+                        <Input
                           type="checkbox"
                           checked={selectedTasks.has(t.task_id)}
                           onChange={() => toggleTask(t.task_id)}
@@ -1801,7 +1821,7 @@ function CategoryEditorModal({
         <div className="space-y-4 p-6">
           <div>
             <label className="mb-1.5 block text-xs font-semibold text-slate-500">分类名称</label>
-            <input
+            <Input
               value={label}
               onChange={(event) => setLabel(event.target.value)}
               className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
@@ -1810,7 +1830,7 @@ function CategoryEditorModal({
           </div>
           <div>
             <label className="mb-1.5 block text-xs font-semibold text-slate-500">子项/部件</label>
-            <textarea
+            <Textarea
               value={childrenText}
               onChange={(event) => setChildrenText(event.target.value)}
               rows={8}
@@ -2004,7 +2024,7 @@ function CreateTaskModal({
         <div className="space-y-4 p-6">
           <div>
             <label className="mb-1 block text-xs font-semibold text-slate-600">任务标题 *</label>
-            <input
+            <Input
               type="text"
               value={form.title}
               onChange={(e) => setField("title", e.target.value)}
@@ -2016,7 +2036,7 @@ function CreateTaskModal({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600">所属分类 *</label>
-              <select
+              <NativeSelect
                 value={form.categoryId}
                 onChange={(e) => {
                   const categoryId = e.target.value;
@@ -2028,11 +2048,11 @@ function CreateTaskModal({
                 {categories.map((c) => (
                   <option key={c.id} value={c.id}>{c.label}</option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600">子项目</label>
-              <select
+              <NativeSelect
                 value={form.subProjectId}
                 onChange={(e) => setField("subProjectId", e.target.value)}
                 disabled={subProjects.length === 0}
@@ -2042,11 +2062,11 @@ function CreateTaskModal({
                 {subProjects.map((s) => (
                   <option key={s.id} value={s.id}>{s.label}</option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600">优先级</label>
-              <select
+              <NativeSelect
                 value={form.priority}
                 onChange={(e) => setField("priority", e.target.value as Priority)}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
@@ -2054,11 +2074,11 @@ function CreateTaskModal({
                 <option value="high">高</option>
                 <option value="medium">中</option>
                 <option value="low">低</option>
-              </select>
+              </NativeSelect>
             </div>
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600">初始状态</label>
-              <select
+              <NativeSelect
                 value={form.status}
                 onChange={(e) => setField("status", e.target.value as TaskStatus)}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
@@ -2066,11 +2086,11 @@ function CreateTaskModal({
                 {(Object.keys(TASK_STATUS_CONFIG) as TaskStatus[]).map((s) => (
                   <option key={s} value={s}>{TASK_STATUS_CONFIG[s].label}</option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600">主责人</label>
-              <select
+              <NativeSelect
                 value={form.ownerKey || "待指派"}
                 onChange={(e) => setField("ownerKey", e.target.value === "待指派" ? "" : e.target.value)}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
@@ -2081,11 +2101,11 @@ function CreateTaskModal({
                     {person.name}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </div>
             <div>
               <label className="mb-1 block text-xs font-semibold text-slate-600">截止日期</label>
-              <input
+              <Input
                 type="date"
                 value={form.due_date}
                 onChange={(e) => setField("due_date", e.target.value)}
@@ -2096,7 +2116,7 @@ function CreateTaskModal({
 
           <div>
             <label className="mb-1 block text-xs font-semibold text-slate-600">任务描述</label>
-            <textarea
+            <Textarea
               value={form.description}
               onChange={(e) => setField("description", e.target.value)}
               rows={3}
@@ -2404,7 +2424,7 @@ function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleare
             <label className="mb-1.5 block text-sm font-medium text-slate-700">
               请输入「<span className="font-bold text-red-600">{CONFIRM_KEYWORD}</span>」以继续
             </label>
-            <input
+            <Input
               type="text"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
@@ -2513,7 +2533,7 @@ function PersonEditModal({
         <div className="grid grid-cols-2 gap-3 px-6 py-5">
           <label className="col-span-2 block">
             <span className="mb-1 block text-xs font-medium text-slate-700">姓名</span>
-            <input
+            <Input
               autoFocus
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -2522,7 +2542,7 @@ function PersonEditModal({
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-700">岗位</span>
-            <input
+            <Input
               value={form.position}
               onChange={(e) => setForm({ ...form, position: e.target.value })}
               className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
@@ -2530,7 +2550,7 @@ function PersonEditModal({
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-700">部门</span>
-            <input
+            <Input
               value={form.department}
               onChange={(e) => setForm({ ...form, department: e.target.value })}
               className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
@@ -2538,7 +2558,7 @@ function PersonEditModal({
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-700">邮箱</span>
-            <input
+            <Input
               type="email"
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
@@ -2547,7 +2567,7 @@ function PersonEditModal({
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-700">电话</span>
-            <input
+            <Input
               value={form.phone}
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
               className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
@@ -2555,7 +2575,7 @@ function PersonEditModal({
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-700">最大任务数</span>
-            <input
+            <Input
               type="number"
               min={1}
               max={50}
@@ -2565,7 +2585,7 @@ function PersonEditModal({
             />
           </label>
           <label className="col-span-2 flex items-center gap-2 text-sm text-slate-700">
-            <input
+            <Input
               type="checkbox"
               checked={form.on_leave}
               onChange={(e) => setForm({ ...form, on_leave: e.target.checked })}
@@ -2666,7 +2686,7 @@ function SendMessageModal({
         <div className="space-y-3 px-6 py-5">
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-700">标题（可选）</span>
-            <input
+            <Input
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
               placeholder="例：本周阻塞跟进"
@@ -2675,7 +2695,7 @@ function SendMessageModal({
           </label>
           <label className="block">
             <span className="mb-1 block text-xs font-medium text-slate-700">消息内容</span>
-            <textarea
+            <Textarea
               autoFocus
               rows={5}
               value={body}
@@ -2739,6 +2759,8 @@ export function RDDirectorDashboardPage() {
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
   const canCreateTask = usePermission(PERMISSIONS.RD_TASK_CREATE);
   const canClearData = usePermission(PERMISSIONS.RD_DATA_CLEAR);
+  const canEditTasks = usePermission(PERMISSIONS.RD_TASK_EDIT);
+  const DIRECTOR_AUDIT_ACTOR = useAuditActor("研发主管");
 
   const isMountedRef = useRef(true);
   useEffect(() => () => { isMountedRef.current = false; }, []);
@@ -2799,6 +2821,8 @@ export function RDDirectorDashboardPage() {
   const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
   const [reportDateFilter, setReportDateFilter] = useState<string>(""); // YYYY-MM-DD or empty for all
   const [reportUserFilter, setReportUserFilter] = useState<string>(""); // user_id or empty for all
+  const [reportPage, setReportPage] = useState(1);
+  const REPORT_PAGE_SIZE = 5; // date groups per page
   const [progressNoteMap, setProgressNoteMap] = useState<Record<string, RdTaskProgressNote[]>>({});
 
   const loadDailyReports = useCallback(() => {
@@ -2908,7 +2932,7 @@ export function RDDirectorDashboardPage() {
   const PERSON_PAGE_SIZE = 6;
 
   // KPI filter for the task list
-  type TaskKpiFilter = "all" | "completed" | "in_progress" | "blocked";
+  type TaskKpiFilter = "all" | "completed" | "in_progress" | "blocked" | "pending_review";
   const [kpiFilter, setKpiFilter] = useState<TaskKpiFilter>("all");
   const [taskKeyword, setTaskKeyword] = useState("");
   const [taskPriorityFilter, setTaskPriorityFilter] = useState<Priority | "all">("all");
@@ -2956,12 +2980,18 @@ export function RDDirectorDashboardPage() {
     return rows;
   }, [allTasksFlat, BLOCKED_TASKS, PENDING_ASSIGN]);
 
+  const pendingReviewTasks = useMemo(
+    () => taskListRows.filter((task) => task.status === "pending_review"),
+    [taskListRows],
+  );
+
   const filteredTasks = useMemo(() => {
     const keyword = taskKeyword.trim().toLowerCase();
     return taskListRows.filter((task) => {
       if (kpiFilter === "completed" && task.status !== "completed") return false;
       if (kpiFilter === "in_progress" && task.status !== "in_progress") return false;
       if (kpiFilter === "blocked" && task.status !== "paused_blocked") return false;
+      if (kpiFilter === "pending_review" && task.status !== "pending_review") return false;
       if (taskPriorityFilter !== "all" && task.priority !== taskPriorityFilter) return false;
       if (taskStatusFilter !== "all" && task.status !== taskStatusFilter) return false;
       if (!directorDueMatches(task, taskDueFilter)) return false;
@@ -3027,6 +3057,36 @@ export function RDDirectorDashboardPage() {
     setSelectedTask(null);
     setShowReassign(true);
   };
+
+  const reviewTask = useCallback(
+    async (task: TaskDetail, decision: "approved" | "rejected") => {
+      if (!canEditTasks) {
+        toast.error("当前账号没有编辑任务权限");
+        return;
+      }
+      const approved = decision === "approved";
+      const nextStatus: TaskStatus = approved ? "in_progress" : "on_hold";
+      try {
+        await updateRdTask(task.task_id, { status: nextStatus });
+        await recomputeRdDirectorDashboard().catch(() => {});
+        recordAudit({
+          actor: DIRECTOR_AUDIT_ACTOR,
+          action: approved ? "proposal.approved" : "proposal.rejected",
+          resource: { type: "task", id: task.task_id, name: task.title },
+          changes: [{ field: "status", before: task.status, after: nextStatus }],
+          comment: approved ? "主管审核通过，任务进入执行" : "主管驳回审核，任务挂起待调整",
+          metadata: { task_id: task.task_id, category_path: task.category_path },
+          source: "web",
+        });
+        toast.success(approved ? "审核已通过" : "审核已驳回");
+        setSelectedTask(null);
+        reloadAll();
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "审核操作失败");
+      }
+    },
+    [DIRECTOR_AUDIT_ACTOR, canEditTasks, reloadAll],
+  );
 
   // Build task list for the selected category drawer (uses live task data)
   const categoryRelatedTasks = useMemo((): TaskDetail[] => {
@@ -3115,7 +3175,7 @@ export function RDDirectorDashboardPage() {
   const totalBlocked = CATEGORY_PROGRESS.reduce((s, c) => s + c.blocked, 0);
   const overallRate = totalTasks > 0 ? Math.round((totalCompleted / totalTasks) * 100) : 0;
   const highLoadPeople = PERSON_LOADS.filter((person) => person.task_count / Math.max(1, person.max_tasks) >= 0.75).length;
-  const actionQueueCount = BLOCKED_TASKS.length + PENDING_ASSIGN.length;
+  const actionQueueCount = BLOCKED_TASKS.length + PENDING_ASSIGN.length + pendingReviewTasks.length;
   const isDashboardEmpty =
     !loading &&
     CATEGORY_PROGRESS.length === 0 &&
@@ -3218,7 +3278,7 @@ export function RDDirectorDashboardPage() {
             { key: "in_progress", label: "进行中", value: totalInProgress, sub: "正常执行", color: "text-blue-600", ring: "ring-blue-400" },
             { key: "blocked", label: "阻塞/异常", value: totalBlocked, sub: "需要关注", color: "text-red-500", ring: "ring-red-400" },
             { key: null, label: "高负载人员", value: highLoadPeople, sub: `${PERSON_LOADS.length} 人在线`, color: "text-amber-600", ring: "ring-amber-400" },
-            { key: null, label: "行动队列", value: actionQueueCount, sub: `${PENDING_ASSIGN.length} 待指派`, color: "text-violet-600", ring: "ring-violet-400" },
+            { key: "pending_review", label: "行动队列", value: actionQueueCount, sub: `${pendingReviewTasks.length} 待审核 · ${PENDING_ASSIGN.length} 待指派`, color: "text-violet-600", ring: "ring-violet-400" },
           ] as const).map((kpi) => {
             const active = kpi.key !== null && kpiFilter === kpi.key;
             return (
@@ -3298,40 +3358,55 @@ export function RDDirectorDashboardPage() {
                         onClick={() => setKpiFilter("all")}
                         className="ml-1 inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-100"
                       >
-                        {kpiFilter === "completed" ? "已完成" : kpiFilter === "in_progress" ? "进行中" : "阻塞"}
+                        {kpiFilter === "completed" ? "已完成" : kpiFilter === "in_progress" ? "进行中" : kpiFilter === "pending_review" ? "待审核" : "阻塞"}
                         <X className="h-3 w-3" />
                       </button>
                     )}
                   </h2>
                   <p className="mt-0.5 text-[11px] text-slate-400">
-                    待人工指派已合并到此列表 · 操作列可直接指派或转派
+                    待审核与待人工指派已合并到此列表 · 操作列可直接审核、指派或转派
                   </p>
                 </div>
-                {PENDING_ASSIGN.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setKpiFilter("all");
-                      setTaskStatusFilter("pending_assign");
-                    }}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-violet-100 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 transition-colors hover:bg-violet-100"
-                  >
-                    待指派 {PENDING_ASSIGN.length}
-                    <ChevronRight className="h-3.5 w-3.5" />
-                  </button>
-                )}
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  {pendingReviewTasks.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setKpiFilter("pending_review");
+                        setTaskStatusFilter("all");
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-100"
+                    >
+                      待审核 {pendingReviewTasks.length}
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                  {PENDING_ASSIGN.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setKpiFilter("all");
+                        setTaskStatusFilter("pending_assign");
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-violet-100 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 transition-colors hover:bg-violet-100"
+                    >
+                      待指派 {PENDING_ASSIGN.length}
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
               </div>
               <div className="mb-3 grid gap-2 rounded-xl border border-slate-100 bg-slate-50/70 p-3 md:grid-cols-[minmax(220px,1fr)_130px_130px_120px_auto]">
                 <label className="relative block">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                  <input
+                  <Input
                     className="h-9 w-full rounded-[8px] border border-slate-200 bg-white pl-8 pr-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
                     placeholder="搜索任务、编号、负责人、系统"
                     value={taskKeyword}
                     onChange={(event) => setTaskKeyword(event.target.value)}
                   />
                 </label>
-                <select
+                <NativeSelect
                   className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
                   value={taskPriorityFilter}
                   onChange={(event) => setTaskPriorityFilter(event.target.value as Priority | "all")}
@@ -3340,8 +3415,8 @@ export function RDDirectorDashboardPage() {
                   <option value="high">高优先级</option>
                   <option value="medium">中优先级</option>
                   <option value="low">低优先级</option>
-                </select>
-                <select
+                </NativeSelect>
+                <NativeSelect
                   className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
                   value={taskStatusFilter}
                   onChange={(event) => setTaskStatusFilter(event.target.value as TaskStatus | "all")}
@@ -3350,8 +3425,8 @@ export function RDDirectorDashboardPage() {
                   {(Object.keys(TASK_STATUS_CONFIG) as TaskStatus[]).map((status) => (
                     <option key={status} value={status}>{TASK_STATUS_CONFIG[status].label}</option>
                   ))}
-                </select>
-                <select
+                </NativeSelect>
+                <NativeSelect
                   className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
                   value={taskDueFilter}
                   onChange={(event) => setTaskDueFilter(event.target.value as DirectorDueFilter)}
@@ -3362,7 +3437,7 @@ export function RDDirectorDashboardPage() {
                   <option value="3d">3 天内</option>
                   <option value="7d">7 天内</option>
                   <option value="no_due">无截止日</option>
-                </select>
+                </NativeSelect>
                 <button
                   type="button"
                   onClick={() => {
@@ -3408,6 +3483,7 @@ export function RDDirectorDashboardPage() {
                           const sCfg = TASK_STATUS_CONFIG[task.status] ?? TASK_STATUS_CONFIG.in_progress;
                           const pCfg = TASK_PRIORITY_CONFIG[task.priority] ?? TASK_PRIORITY_CONFIG.medium;
                           const isPendingAssign = task.status === "pending_assign" || task.owner === "待指派";
+                          const isPendingReview = task.status === "pending_review";
                           return (
                             <tr
                               key={task.task_id}
@@ -3452,7 +3528,19 @@ export function RDDirectorDashboardPage() {
                               </td>
                               <td className="px-3 py-3 text-[11px] tabular-nums text-slate-500">{task.due_date || "—"}</td>
                               <td className="px-3 py-3 text-right">
-                                {canReassignTasks && task.status !== "completed" && task.status !== "archived" ? (
+                                {isPendingReview && canEditTasks ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      void reviewTask(task, "approved");
+                                    }}
+                                    className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-[0_8px_16px_rgba(5,150,105,0.18)] transition-all hover:bg-emerald-700 active:scale-95"
+                                  >
+                                    <CheckCircle2 className="h-3.5 w-3.5" />
+                                    通过
+                                  </button>
+                                ) : canReassignTasks && task.status !== "completed" && task.status !== "archived" ? (
                                   <button
                                     type="button"
                                     onClick={(e) => {
@@ -3694,59 +3782,58 @@ export function RDDirectorDashboardPage() {
               </div>
 
               {/* History filters */}
-              <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-violet-100 bg-white/60 px-3 py-2">
-                <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500">
-                  <CalendarDays className="h-3 w-3" />
-                  日期
+              <div className="mb-3 flex items-center gap-2 rounded-lg border border-violet-100 bg-white/60 px-3 py-2">
+                {/* date group — can shrink */}
+                <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
+                  <div className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-slate-500">
+                    <CalendarDays className="h-3 w-3" />
+                    日期
+                  </div>
+                  <Input
+                    type="date"
+                    value={reportDateFilter}
+                    onChange={(e) => { setReportDateFilter(e.target.value); setReportPage(1); }}
+                    className="h-7 w-32 shrink-0 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
+                  />
+                  <div className="flex shrink-0 items-center gap-1 text-[10px]">
+                    {[
+                      { label: "今天", value: new Date().toISOString().slice(0, 10) },
+                      { label: "昨天", value: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10) },
+                      { label: "近 7 天", value: "" },
+                    ].map((preset) => (
+                      <button
+                        key={preset.label}
+                        type="button"
+                        onClick={() => {
+                          if (preset.label === "近 7 天") setReportDateFilter("");
+                          else setReportDateFilter(preset.value);
+                          setReportPage(1);
+                        }}
+                        className={cn(
+                          "rounded-full px-2 py-0.5 font-medium transition-colors",
+                          reportDateFilter === preset.value
+                            ? "bg-violet-600 text-white"
+                            : "bg-slate-100 text-slate-600 hover:bg-violet-100 hover:text-violet-700",
+                        )}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <input
-                  type="date"
-                  value={reportDateFilter}
-                  onChange={(e) => setReportDateFilter(e.target.value)}
-                  className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
-                />
-                <div className="ml-2 flex items-center gap-1 text-[10px]">
-                  {[
-                    { label: "今天", value: new Date().toISOString().slice(0, 10) },
-                    {
-                      label: "昨天",
-                      value: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10),
-                    },
-                    {
-                      label: "近 7 天",
-                      value: "",
-                    },
-                  ].map((preset) => (
-                    <button
-                      key={preset.label}
-                      type="button"
-                      onClick={() => {
-                        if (preset.label === "近 7 天") setReportDateFilter("");
-                        else setReportDateFilter(preset.value);
-                      }}
-                      className={cn(
-                        "rounded-full px-2 py-0.5 font-medium transition-colors",
-                        reportDateFilter === preset.value
-                          ? "bg-violet-600 text-white"
-                          : "bg-slate-100 text-slate-600 hover:bg-violet-100 hover:text-violet-700",
-                      )}
-                    >
-                      {preset.label}
-                    </button>
-                  ))}
-                </div>
-                <div className="ml-auto flex items-center gap-1.5">
-                  <span className="text-[11px] font-semibold text-slate-500">成员</span>
-                  <select
+                {/* member filter — always on one line, never wraps */}
+                <div className="flex shrink-0 items-center gap-1.5">
+                  {/*<span className="text-[11px] font-semibold text-slate-500">成员</span>*/}
+                  <NativeSelect
                     value={reportUserFilter}
-                    onChange={(e) => setReportUserFilter(e.target.value)}
+                    onChange={(e) => { setReportUserFilter(e.target.value); setReportPage(1); }}
                     className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
                   >
                     <option value="">全部成员</option>
                     {reportUserOptions.map((opt) => (
                       <option key={opt.value} value={opt.value}>{opt.label}</option>
                     ))}
-                  </select>
+                  </NativeSelect>
                 </div>
               </div>
 
@@ -3763,7 +3850,7 @@ export function RDDirectorDashboardPage() {
                 />
               ) : (
                 <div className="space-y-3">
-                  {reportsByDate.map(([date, reportsInDate]) => (
+                  {reportsByDate.slice((reportPage - 1) * REPORT_PAGE_SIZE, reportPage * REPORT_PAGE_SIZE).map(([date, reportsInDate]) => (
                     <div key={date}>
                       <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-slate-500">
                         <span className="rounded-md bg-violet-100 px-1.5 py-0.5 text-violet-700">{date}</span>
@@ -3855,6 +3942,47 @@ export function RDDirectorDashboardPage() {
                       </ul>
                     </div>
                   ))}
+                  {/* pagination */}
+                  {reportsByDate.length > REPORT_PAGE_SIZE && (
+                    <div className="flex items-center justify-between pt-1">
+                      <span className="text-[11px] text-slate-400">
+                        共 {reportsByDate.length} 天 · 第 {reportPage} / {Math.ceil(reportsByDate.length / REPORT_PAGE_SIZE)} 页
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          disabled={reportPage === 1}
+                          onClick={() => setReportPage((p) => p - 1)}
+                          className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-violet-300 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <ChevronLeft className="h-3.5 w-3.5" />
+                        </button>
+                        {Array.from({ length: Math.ceil(reportsByDate.length / REPORT_PAGE_SIZE) }, (_, i) => i + 1).map((pg) => (
+                          <button
+                            key={pg}
+                            type="button"
+                            onClick={() => setReportPage(pg)}
+                            className={cn(
+                              "flex h-7 min-w-[28px] items-center justify-center rounded-md border px-1.5 text-xs font-semibold transition",
+                              pg === reportPage
+                                ? "border-violet-400 bg-violet-600 text-white"
+                                : "border-slate-200 bg-white text-slate-600 hover:border-violet-300 hover:text-violet-700",
+                            )}
+                          >
+                            {pg}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          disabled={reportPage === Math.ceil(reportsByDate.length / REPORT_PAGE_SIZE)}
+                          onClick={() => setReportPage((p) => p + 1)}
+                          className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-violet-300 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -3998,6 +4126,7 @@ export function RDDirectorDashboardPage() {
           onClose={() => setSelectedTask(null)}
           onOpenPerson={openPersonByName}
           onOpenReassign={openDirectTaskReassign}
+          onReviewTask={reviewTask}
           onUpdate={() => { setSelectedTask(null); reloadAll(); }}
           onDelete={() => { setSelectedTask(null); reloadAll(); }}
         />

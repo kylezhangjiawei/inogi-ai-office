@@ -18,8 +18,11 @@ import {
 } from "lucide-react";
 import { cn } from "./components/ui/utils";
 import { Calendar } from "./components/ui/calendar";
+import { Input } from "./components/ui/input";
+import { NativeSelect } from "./components/ui/native-select";
 import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "./components/ui/select";
+import { Textarea } from "./components/ui/textarea";
 import { usePermission } from "./hooks/usePermission";
 import { toast } from "sonner";
 import {
@@ -759,7 +762,7 @@ function StepInput({
         <label className="mb-1.5 block text-xs font-medium text-slate-700">
           立项标题（可选，AI 会自动生成）
         </label>
-        <input
+        <Input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="例：电磁阀工艺升级 v2.1"
@@ -791,7 +794,7 @@ function StepInput({
             {hasFiles && !hasDescription ? "可省略（附件已提供）" : "或粘贴文本"}
           </span>
         </div>
-        <textarea
+        <Textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           rows={5}
@@ -841,7 +844,7 @@ function StepInput({
           {hasFiles
             ? `已选 ${files.length} 个文件，点击继续添加`
             : "拖入或点击上传 Excel / Word / PDF / 图片"}
-          <input
+          <Input
             type="file"
             className="hidden"
             accept={PROPOSAL_ATTACHMENT_ACCEPT}
@@ -975,7 +978,7 @@ function TaskEditRow({
         </button>
 
         <div className="min-w-0 flex-1 space-y-2">
-          <input
+          <Input
             value={task.title}
             onChange={(e) => onChange({ ...task, title: e.target.value })}
             className="w-full rounded border-0 bg-transparent px-0 py-0 text-sm font-medium text-slate-900 outline-none placeholder:text-slate-400 focus:bg-slate-50 focus:px-1.5"
@@ -1026,7 +1029,7 @@ function TaskEditRow({
         <div className="space-y-3 border-t border-slate-100 bg-slate-50/40 px-3.5 py-3">
           <div>
             <label className="mb-1 block text-[11px] font-medium text-slate-500">描述</label>
-            <textarea
+            <Textarea
               value={task.description ?? ""}
               onChange={(e) => onChange({ ...task, description: e.target.value })}
               rows={2}
@@ -1244,7 +1247,7 @@ function StepReview({
         <section className="space-y-3 rounded-xl border border-slate-100 bg-slate-50/40 p-4">
           <div>
             <label className="mb-1.5 block text-xs font-medium text-slate-700">立项标题</label>
-            <input
+            <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               className="w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
@@ -1256,7 +1259,7 @@ function StepReview({
               <FolderPlus className="h-3 w-3" />
               归属项目节点
             </label>
-            <select
+            <NativeSelect
               value={parentProjectId}
               onChange={(e) => setParentProjectId(e.target.value as string | "new")}
               className="w-full cursor-pointer rounded border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
@@ -1267,9 +1270,9 @@ function StepReview({
                   {p.label}（已有 {p.task_count} 个任务）
                 </option>
               ))}
-            </select>
+            </NativeSelect>
             {parentProjectId === "new" && (
-              <input
+              <Input
                 value={newProjectName}
                 onChange={(e) => setNewProjectName(e.target.value)}
                 placeholder="新项目名称（例：电磁阀工艺升级 v2.1）"
@@ -1553,7 +1556,7 @@ function StepSubmit({
           <label className="mb-1.5 block text-xs font-medium text-slate-700">
             备注 / 提交说明（可选）
           </label>
-          <textarea
+          <Textarea
             value={comment}
             onChange={(e) => setComment(e.target.value)}
             rows={3}
@@ -1923,7 +1926,7 @@ export function RDProjectProposalDialog({
         source: "web",
       });
       toast.success("立项已提交审核", {
-        description: `共 ${tasks.length} 个任务，预计 24 小时内完成审核流转`,
+        description: `共 ${tasks.length} 个任务，已进入主管驾驶舱待审核队列`,
       });
       handleClose();
     } catch (err) {

@@ -11,6 +11,8 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { Input } from "./components/ui/input";
+import { NativeSelect } from "./components/ui/native-select";
 import { cn } from "./components/ui/utils";
 import { usePermission } from "./hooks/usePermission";
 import { AuditChange, recordAudit, useAuditActor } from "./lib/auditLog";
@@ -195,7 +197,7 @@ function PersonFormModal({
 
         <form onSubmit={handleSubmit} className="space-y-4 px-6 py-5">
           <Field label="绑定登录用户">
-            <select
+            <NativeSelect
               value={form.user_id ?? ""}
               onChange={(e) => {
                 const user = users.find((item) => item.id === e.target.value);
@@ -217,7 +219,7 @@ function PersonFormModal({
                   {user.name} · {user.email}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
             {selectedUser && (
               <div className="mt-1 text-[11px] text-slate-400">
                 系统账号：{selectedUser.username ?? selectedUser.email} · 状态 {selectedUser.status}
@@ -227,7 +229,7 @@ function PersonFormModal({
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="姓名" required error={errors.name}>
-              <input
+              <Input
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                 className={cn(
@@ -239,7 +241,7 @@ function PersonFormModal({
               />
             </Field>
             <Field label="职位" required error={errors.position}>
-              <input
+              <Input
                 value={form.position}
                 onChange={(e) => setForm((f) => ({ ...f, position: e.target.value }))}
                 className={cn(
@@ -253,7 +255,7 @@ function PersonFormModal({
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="所属组">
-              <select
+              <NativeSelect
                 value={form.department}
                 onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))}
                 className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
@@ -263,10 +265,10 @@ function PersonFormModal({
                     {d}
                   </option>
                 ))}
-              </select>
+              </NativeSelect>
             </Field>
             <Field label="状态">
-              <select
+              <NativeSelect
                 value={form.status}
                 onChange={(e) =>
                   setForm((f) => ({ ...f, status: e.target.value as PersonStatus }))
@@ -276,12 +278,12 @@ function PersonFormModal({
                 <option value="active">在岗</option>
                 <option value="on_leave">请假中</option>
                 <option value="resigned">已离职</option>
-              </select>
+              </NativeSelect>
             </Field>
           </div>
 
           <Field label="邮箱">
-            <input
+            <Input
               type="email"
               value={form.email ?? ""}
               onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
@@ -292,7 +294,7 @@ function PersonFormModal({
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="联系电话">
-              <input
+              <Input
                 value={form.phone ?? ""}
                 onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
                 className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
@@ -300,7 +302,7 @@ function PersonFormModal({
               />
             </Field>
             <Field label="任务上限">
-              <input
+              <Input
                 type="number"
                 min={1}
                 max={20}
@@ -635,7 +637,7 @@ export function RDPeopleManagementPage({
           <section className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-100 bg-white px-4 py-3">
             <div className="flex min-w-[260px] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 transition-all focus-within:border-blue-300 focus-within:ring-2 focus-within:ring-blue-100">
               <Search className="h-3.5 w-3.5 text-slate-400" />
-              <input
+              <Input
                 value={keyword}
                 onChange={(e) => {
                   setKeyword(e.target.value);
@@ -680,7 +682,7 @@ export function RDPeopleManagementPage({
               ))}
             </div>
 
-            <select
+            <NativeSelect
               value={deptFilter}
               onChange={(e) => {
                 setDeptFilter(e.target.value);
@@ -694,7 +696,7 @@ export function RDPeopleManagementPage({
                   {d}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
 
             <span className="ml-auto text-xs tabular-nums text-slate-400">
               共 <span className="font-semibold text-slate-700">{filtered.length}</span> /{" "}

@@ -1,9 +1,18 @@
 import React, { useMemo, useState } from "react";
-import { Bell, ChevronDown, LogOut, Search, Settings } from "lucide-react";
+import { Bell, ChevronDown, LogOut, MessageSquareText, Search, Settings, ShieldCheck, UserRound } from "lucide-react";
 import { useLocation, useNavigate } from "react-router";
 import { getRoleLabel, useAuth } from "../auth";
 import { routeTitleMap } from "../routesConfig";
+import { useUserAvatar } from "../lib/userAvatar";
+import { hasPermission, PERMISSIONS } from "../lib/permissions";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "./ui/dropdown-menu";
 
 const notifications = [
   "OC-10 注册项目已 3 天未更新，请跟进负责人。",
@@ -26,8 +35,10 @@ export function Header() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const avatar = useUserAvatar(user?.id);
   const [open, setOpen] = useState(false);
   const today = new Date().toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" });
+  const canOpenSettings = user ? hasPermission(user.permissions, PERMISSIONS.PAGE_SETTINGS) : false;
 
   const title = useMemo(() => resolveRouteTitle(location.pathname), [location.pathname]);
   const breadcrumb = useMemo(
@@ -70,35 +81,64 @@ export function Header() {
             <button
               className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white/92 text-slate-600 shadow-sm transition hover:-translate-y-0.5 hover:text-primary"
               onClick={() => setOpen((value) => !value)}
+              aria-label="打开通知预览"
             >
               <Bell className="h-5 w-5" />
               <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white" />
             </button>
 
-            <button className="flex min-w-0 items-center gap-3 rounded-[22px] border border-slate-200 bg-white/94 px-3 py-2 shadow-sm transition hover:-translate-y-0.5">
-              <div className="h-11 w-11 overflow-hidden rounded-2xl ring-2 ring-blue-50">
-                <ImageWithFallback
-                  src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?q=80&w=200&h=200&auto=format&fit=crop"
-                  alt={user?.name ?? "User"}
-                />
-              </div>
-              <div className="min-w-0 text-left">
-                <div className="truncate text-sm font-semibold text-slate-800">{user?.name ?? "访客"}</div>
-                <div className="truncate text-xs text-slate-500">{user ? getRoleLabel(user.roleName) : "未登录"}</div>
-              </div>
-              <ChevronDown className="h-4 w-4 text-slate-400" />
-            </button>
-
-            <button
-              className="material-button-secondary shrink-0 !px-4"
-              onClick={async () => {
-                await logout();
-                navigate("/login", { replace: true });
-              }}
-            >
-              <LogOut className="h-4 w-4" />
-              <span>退出</span>
-            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="flex min-w-0 cursor-pointer items-center gap-3 rounded-[22px] border border-slate-200 bg-white/94 px-3 py-2 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+                  aria-label="打开用户菜单"
+                >
+                  <div className="h-11 w-11 overflow-hidden rounded-2xl ring-2 ring-blue-50">
+                    {avatar ? (
+                      <img src={avatar} alt={user?.name ?? "User"} className="h-full w-full object-cover" />
+                    ) : (
+                      <ImageWithFallback
+                        src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?q=80&w=200&h=200&auto=format&fit=crop"
+                        alt={user?.name ?? "User"}
+                      />
+                    )}
+                  </div>
+                  <div className="min-w-0 text-left">
+                    <div className="truncate text-sm font-semibold text-slate-800">{user?.name ?? "访客"}</div>
+                    <div className="truncate text-xs text-slate-500">{user ? getRoleLabel(user.roleName) : "未登录"}</div>
+                  </div>
+                  <ChevronDown className="h-4 w-4 text-slate-400" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" sideOffset={10} className="w-72 rounded-[18px] border-slate-200 bg-white/98 p-2 shadow-[0_18px_42px_rgba(15,23,42,0.16)] backdrop-blur-xl">
+                <DropdownMenuItem className="cursor-pointer rounded-xl px-3 py-2.5 text-slate-700 focus:bg-blue-50 focus:text-blue-700" onSelect={() => navigate("/profile")}>
+                  <UserRound className="h-4 w-4" />
+                  <span>个人中心</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem className="cursor-pointer rounded-xl px-3 py-2.5 text-slate-700 focus:bg-blue-50 focus:text-blue-700" onSelect={() => navigate("/message-center")}>
+                  <MessageSquareText className="h-4 w-4" />
+                  <span>消息中心</span>
+                </DropdownMenuItem>
+                {canOpenSettings ? (
+                  <DropdownMenuItem className="cursor-pointer rounded-xl px-3 py-2.5 text-slate-700 focus:bg-blue-50 focus:text-blue-700" onSelect={() => navigate("/settings")}>
+                    <ShieldCheck className="h-4 w-4" />
+                    <span>账号与系统设置</span>
+                  </DropdownMenuItem>
+                ) : null}
+                <DropdownMenuSeparator className="bg-slate-100" />
+                <DropdownMenuItem
+                  className="cursor-pointer rounded-xl px-3 py-2.5 text-red-600 focus:bg-red-50 focus:text-red-700"
+                  onSelect={async () => {
+                    await logout();
+                    navigate("/login", { replace: true });
+                  }}
+                >
+                  <LogOut className="h-4 w-4" />
+                  <span>退出登录</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </div>
@@ -113,6 +153,16 @@ export function Header() {
               </div>
             ))}
           </div>
+          <button
+            type="button"
+            onClick={() => {
+              setOpen(false);
+              navigate("/message-center");
+            }}
+            className="mt-3 w-full cursor-pointer rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+          >
+            查看消息中心
+          </button>
         </div>
       ) : null}
     </header>
