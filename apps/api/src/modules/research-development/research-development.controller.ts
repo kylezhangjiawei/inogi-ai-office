@@ -13,6 +13,15 @@ const RD_READ_PERMISSIONS = [
   'page:rd-ai-settings',
 ];
 
+type AuthedRequest = { user?: { id?: string; name?: string; role?: string; permissions?: string[] } };
+
+/** Determines if the current request belongs to a manager who can view all cross-user data. */
+function buildViewer(req: AuthedRequest): { userId?: string; hasFullAccess: boolean } {
+  const perms = req.user?.permissions ?? [];
+  const hasFullAccess = perms.includes('*') || perms.includes('rd-task:reassign');
+  return { userId: req.user?.id, hasFullAccess };
+}
+
 @Controller('research-development')
 @Permissions(...RD_READ_PERMISSIONS)
 export class ResearchDevelopmentController {
@@ -59,13 +68,13 @@ export class ResearchDevelopmentController {
   }
 
   @Get('task-progress-notes')
-  listTaskProgressNotes() {
-    return this.rdService.listAllTaskProgressNotes();
+  listTaskProgressNotes(@Request() req: AuthedRequest) {
+    return this.rdService.listAllTaskProgressNotes(buildViewer(req));
   }
 
   @Get('task-progress-notes/:taskId')
-  getTaskProgressNotes(@Param('taskId') taskId: string) {
-    return this.rdService.getTaskProgressNotes(taskId);
+  getTaskProgressNotes(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
+    return this.rdService.getTaskProgressNotes(taskId, buildViewer(req));
   }
 
   @Post('task-progress-notes')
@@ -105,16 +114,20 @@ export class ResearchDevelopmentController {
 
   @Get('daily-reports')
   listDailyReports(
+    @Request() req: AuthedRequest,
     @Query('user_id') userId?: string,
     @Query('date') date?: string,
     @Query('limit') limit?: string,
   ) {
     const parsedLimit = limit ? Number(limit) : undefined;
-    return this.rdService.listDailyReports({
-      user_id: userId,
-      date,
-      limit: Number.isFinite(parsedLimit) ? (parsedLimit as number) : undefined,
-    });
+    return this.rdService.listDailyReports(
+      {
+        user_id: userId,
+        date,
+        limit: Number.isFinite(parsedLimit) ? (parsedLimit as number) : undefined,
+      },
+      buildViewer(req),
+    );
   }
 
   @Post('daily-reports')
@@ -139,16 +152,52 @@ export class ResearchDevelopmentController {
 
   @Get('messages')
   listMessages(
-    @Request() req: { user?: { id?: string } },
+    @Request() req: AuthedRequest,
     @Query('recipient_id') recipientId?: string,
     @Query('limit') limit?: string,
   ) {
     const parsedLimit = limit ? Number(limit) : undefined;
-    return this.rdService.listMessages({
-      user_id: req.user?.id,
-      recipient_id: recipientId,
-      limit: Number.isFinite(parsedLimit) ? (parsedLimit as number) : undefined,
+    return this.rdService.listMessages(
+      {
+        user_id: req.user?.id,
+        recipient_id: recipientId,
+        limit: Number.isFinite(parsedLimit) ? (parsedLimit as number) : undefined,
+      },
+      buildViewer(req),
+    );
+  }
+
+  @Get('proposal-drafts')
+  listProposalDrafts(@Request() req: AuthedRequest) {
+    return this.rdService.listProposalDrafts(buildViewer(req));
+  }
+
+  @Post('proposal-drafts')
+  @Permissions('rd-project:propose', 'rd-project:direct', 'page:rd-director-dashboard')
+  saveProposalDraft(
+    @Body()
+    body: {
+      draft_id?: string;
+      title?: string;
+      description?: string;
+      comment?: string;
+      parent_project_id?: string;
+      new_project_name?: string;
+      tasks?: unknown[];
+      file_names?: string[];
+    },
+    @Request() req: AuthedRequest,
+  ) {
+    return this.rdService.saveProposalDraft({
+      ...body,
+      author: { id: req.user?.id, name: req.user?.name, role: req.user?.role },
     });
+  }
+
+  @Delete('proposal-drafts/:draftId')
+  @Permissions('rd-project:propose', 'rd-project:direct')
+  deleteProposalDraft(@Param('draftId') draftId: string, @Request() req: AuthedRequest) {
+    return this.rdService.deleteProposalDraft(draftId, buildViewer(req));
   }
 
   @Post('messages')

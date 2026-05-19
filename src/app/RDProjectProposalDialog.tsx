@@ -39,6 +39,7 @@ import {
   fetchRdPeople,
   fetchRdTaskCategories,
   recomputeRdDirectorDashboard,
+  saveRdProposalDraft,
   saveRdTaskCategories,
   type RdAiPersonContext,
   type RdAiTaskDraft,
@@ -1695,8 +1696,8 @@ export function RDProjectProposalDialog({
   const notifyCompleted = async () => {
     try {
       await onCompleted?.();
-    } catch (error) {
-      console.error("Failed to refresh proposal parent view", error);
+    } catch {
+      // Parent refresh failure is non-fatal; data has already been saved.
     }
   };
 
@@ -1926,26 +1927,42 @@ export function RDProjectProposalDialog({
       });
       handleClose();
     } catch (err) {
-      toast.error("提交失败，请重试");
-      console.error(err);
+      toast.error(err instanceof Error ? err.message : "提交失败，请重试");
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleSaveDraft = () => {
-    recordAudit({
-      actor: auditActor,
-      action: "proposal.draft_saved",
-      resource: { type: "proposal", id: proposalId, name: title || "未命名立项" },
-      comment: comment || "保存立项草稿",
-      metadata: { task_count: tasks.length, attachment_count: files.length },
-      source: "web",
-    });
-    toast.info("立项已保存为草稿", {
-      description: "可在「我的立项」中继续编辑",
-    });
-    handleClose();
+  const handleSaveDraft = async () => {
+    setSubmitting(true);
+    try {
+      const saved = await saveRdProposalDraft({
+        draft_id: proposalId,
+        title: title || "未命名立项",
+        description,
+        comment,
+        parent_project_id: parentProjectId === "new" ? "new" : parentProjectId,
+        new_project_name: newProjectName,
+        tasks: tasks as unknown[],
+        file_names: files.map((f) => f.name),
+      });
+      recordAudit({
+        actor: auditActor,
+        action: "proposal.draft_saved",
+        resource: { type: "proposal", id: saved.id, name: saved.title },
+        comment: comment || "保存立项草稿",
+        metadata: { task_count: tasks.length, attachment_count: files.length, draft_id: saved.id },
+        source: "web",
+      });
+      toast.success("立项已保存为草稿", {
+        description: `已存档 ${tasks.length} 个任务草案，可后续继续编辑或提交`,
+      });
+      handleClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "草稿保存失败");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleDirectDispatch = async () => {
@@ -2000,8 +2017,7 @@ export function RDProjectProposalDialog({
       }
       handleClose();
     } catch (err) {
-      toast.error("立项失败，请重试");
-      console.error(err);
+      toast.error(err instanceof Error ? err.message : "立项失败，请重试");
     } finally {
       setSubmitting(false);
     }

@@ -34,7 +34,7 @@ import {
   PoolMember,
   saveFlows,
 } from "./lib/approvalFlowConfig";
-import { AuditActor, AuditChange, recordAudit } from "./lib/auditLog";
+import { AuditActor, AuditChange, recordAudit, useAuditActor } from "./lib/auditLog";
 import { PERMISSIONS } from "./lib/permissions";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -325,8 +325,6 @@ function FlowConnector() {
   );
 }
 
-const FLOW_AUDIT_ACTOR: AuditActor = { id: "u-li-li", name: "李立", role: "研发管理员" };
-
 function nodeSummary(node: ApprovalNode): string {
   return `${node.level}.${node.label}(${node.permission_code}/${node.mode})`;
 }
@@ -341,7 +339,7 @@ function nodeEditChanges(before: ApprovalNode, after: ApprovalNode): AuditChange
   return changes;
 }
 
-function recordFlowSaveAudit(previous: ApprovalFlow | undefined, next: ApprovalFlow) {
+function recordFlowSaveAudit(previous: ApprovalFlow | undefined, next: ApprovalFlow, actor: AuditActor) {
   const resource = { type: "flow" as const, id: next.id, name: next.name };
   const previousNodes = new Map(previous?.nodes.map((node) => [node.id, node]) ?? []);
   const nextNodes = new Map(next.nodes.map((node) => [node.id, node]));
@@ -349,7 +347,7 @@ function recordFlowSaveAudit(previous: ApprovalFlow | undefined, next: ApprovalF
   next.nodes.forEach((node) => {
     if (!previousNodes.has(node.id)) {
       recordAudit({
-        actor: FLOW_AUDIT_ACTOR,
+        actor,
         action: "flow.node_added",
         resource,
         comment: `新增审批节点：${node.label}`,
@@ -362,7 +360,7 @@ function recordFlowSaveAudit(previous: ApprovalFlow | undefined, next: ApprovalF
   previousNodes.forEach((node, nodeId) => {
     if (!nextNodes.has(nodeId)) {
       recordAudit({
-        actor: FLOW_AUDIT_ACTOR,
+        actor,
         action: "flow.node_removed",
         resource,
         comment: `删除审批节点：${node.label}`,
@@ -378,7 +376,7 @@ function recordFlowSaveAudit(previous: ApprovalFlow | undefined, next: ApprovalF
     const changes = nodeEditChanges(before, node);
     if (changes.length === 0) return;
     recordAudit({
-      actor: FLOW_AUDIT_ACTOR,
+      actor,
       action: changes.some((change) => change.field === "mode") ? "flow.mode_changed" : "flow.node_edited",
       resource,
       changes,
@@ -388,7 +386,7 @@ function recordFlowSaveAudit(previous: ApprovalFlow | undefined, next: ApprovalF
   });
 
   recordAudit({
-    actor: FLOW_AUDIT_ACTOR,
+    actor,
     action: "flow.saved",
     resource,
     changes: previous
@@ -402,6 +400,7 @@ function recordFlowSaveAudit(previous: ApprovalFlow | undefined, next: ApprovalF
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
 export function RDApprovalFlowPage() {
+  const flowAuditActor = useAuditActor("研发管理员");
   const [flows, setFlowsState] = useState<ApprovalFlow[]>([]);
   const [savedFlows, setSavedFlows] = useState<ApprovalFlow[]>([]);
   const [activeFlowId, setActiveFlowId] = useState<string>("");
@@ -615,7 +614,7 @@ export function RDApprovalFlowPage() {
       return;
     }
     const previousFlow = savedFlows.find((f) => f.id === activeFlow.id);
-    recordFlowSaveAudit(previousFlow, activeFlow);
+    recordFlowSaveAudit(previousFlow, activeFlow, flowAuditActor);
     saveFlows(flows);
     setSavedFlows(flows);
     setDirty(false);
@@ -631,7 +630,7 @@ export function RDApprovalFlowPage() {
     }
     const previousFlow = activeFlow;
     recordAudit({
-      actor: FLOW_AUDIT_ACTOR,
+      actor: flowAuditActor,
       action: "flow.reset",
       resource: { type: "flow", id: DEFAULT_PROJECT_FLOW.id, name: DEFAULT_PROJECT_FLOW.name },
       changes: [{ field: "node_count", before: previousFlow.nodes.length, after: DEFAULT_PROJECT_FLOW.nodes.length }],

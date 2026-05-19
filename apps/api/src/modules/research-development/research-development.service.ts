@@ -31,7 +31,8 @@ type RdStoreKey =
   | 'rd.aiSettings'
   | 'rd.taskProgressNotes'
   | 'rd.dailyReports'
-  | 'rd.messages';
+  | 'rd.messages'
+  | 'rd.proposalDrafts';
 
 const CATEGORY = 'research-development';
 const MAX_AUDIT_LOGS = 1000;
@@ -1104,13 +1105,33 @@ export class ResearchDevelopmentService {
 
   // ── Task progress notes (text + attachments) ───────────────────────────
 
-  async getTaskProgressNotes(taskId: string) {
+  async getTaskProgressNotes(taskId: string, viewer?: { userId?: string; hasFullAccess?: boolean }) {
     const map = await this.getProgressNoteMap();
-    return map[taskId] ?? [];
+    const notes = map[taskId] ?? [];
+    if (viewer?.hasFullAccess) return notes;
+    // Non-managers can only see notes they themselves authored
+    const userId = viewer?.userId;
+    if (!userId) return [];
+    return notes.filter((note) => {
+      const actor = isRecord(note.actor) ? note.actor : null;
+      return Boolean(actor && actor.id === userId);
+    });
   }
 
-  async listAllTaskProgressNotes() {
-    return this.getProgressNoteMap();
+  async listAllTaskProgressNotes(viewer?: { userId?: string; hasFullAccess?: boolean }) {
+    const map = await this.getProgressNoteMap();
+    if (viewer?.hasFullAccess) return map;
+    const userId = viewer?.userId;
+    if (!userId) return {};
+    const filtered: Record<string, JsonRecord[]> = {};
+    for (const [taskId, notes] of Object.entries(map)) {
+      const own = notes.filter((note) => {
+        const actor = isRecord(note.actor) ? note.actor : null;
+        return Boolean(actor && actor.id === userId);
+      });
+      if (own.length > 0) filtered[taskId] = own;
+    }
+    return filtered;
   }
 
   async createTaskProgressNote(payload: {
@@ -1258,11 +1279,22 @@ export class ResearchDevelopmentService {
 
   // ── Daily reports ───────────────────────────────────────────────────────
 
-  async listDailyReports(filters?: { user_id?: string; date?: string; limit?: number }) {
+  async listDailyReports(
+    filters?: { user_id?: string; date?: string; limit?: number },
+    viewer?: { userId?: string; hasFullAccess?: boolean },
+  ) {
     const all = await this.readArray('rd.dailyReports');
     const reports = all.filter(isRecord);
     const limit = Math.max(1, Math.min(500, filters?.limit ?? 100));
     let filtered = reports;
+
+    // Privacy: non-managers can only see their own daily reports
+    if (viewer && !viewer.hasFullAccess) {
+      const ownId = viewer.userId;
+      if (!ownId) return [];
+      filtered = filtered.filter((r) => r.user_id === ownId);
+    }
+
     if (filters?.user_id) filtered = filtered.filter((r) => r.user_id === filters.user_id);
     if (filters?.date) filtered = filtered.filter((r) => r.date === filters.date);
     return filtered
@@ -1453,10 +1485,21 @@ export class ResearchDevelopmentService {
 
   // ── Internal messages (sender → recipient) ────────────────────────────────
 
-  async listMessages(filters?: { user_id?: string; recipient_id?: string; limit?: number }) {
+  async listMessages(
+    filters?: { user_id?: string; recipient_id?: string; limit?: number },
+    viewer?: { userId?: string; hasFullAccess?: boolean },
+  ) {
     const all = (await this.readArray('rd.messages')).filter(isRecord);
     const limit = Math.max(1, Math.min(500, filters?.limit ?? 200));
     let filtered = all;
+
+    // Privacy: non-managers can only see messages they sent or received
+    if (viewer && !viewer.hasFullAccess) {
+      const ownId = viewer.userId;
+      if (!ownId) return [];
+      filtered = filtered.filter((m) => m.recipient_id === ownId || m.sender_id === ownId);
+    }
+
     if (filters?.user_id) {
       filtered = filtered.filter((m) => m.recipient_id === filters.user_id || m.sender_id === filters.user_id);
     }
@@ -1507,6 +1550,83 @@ export class ResearchDevelopmentService {
     return message;
   }
 
+  // ── Proposal drafts (AI 立项 草稿) ──────────────────────────────────────
+
+  async listProposalDrafts(viewer?: { userId?: string; hasFullAccess?: boolean }) {
+    const all = (await this.readArray('rd.proposalDrafts')).filter(isRecord);
+    if (viewer?.hasFullAccess) return all;
+    const userId = viewer?.userId;
+    if (!userId) return [];
+    return all.filter((d) => {
+      const author = isRecord(d.author) ? d.author : null;
+      return Boolean(author && author.id === userId);
+    });
+  }
+
+  async saveProposalDraft(payload: {
+    draft_id?: string;
+    title?: string;
+    description?: string;
+    comment?: string;
+    parent_project_id?: string;
+    new_project_name?: string;
+    tasks?: unknown[];
+    file_names?: string[];
+    author: { id?: string | null; name?: string | null; role?: string | null };
+  }) {
+    const title = (payload.title ?? '').trim() || '未命名立项';
+    const now = new Date().toISOString();
+    const draft = {
+      id: payload.draft_id || `draft-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      title,
+      description: (payload.description ?? '').trim() || null,
+      comment: (payload.comment ?? '').trim() || null,
+      parent_project_id: (payload.parent_project_id ?? '').trim() || null,
+      new_project_name: (payload.new_project_name ?? '').trim() || null,
+      tasks: Array.isArray(payload.tasks) ? payload.tasks : [],
+      file_names: Array.isArray(payload.file_names) ? payload.file_names.map((n) => String(n)) : [],
+      author: {
+        id: payload.author.id ?? null,
+        name: payload.author.name ?? '我',
+        role: payload.author.role ?? null,
+      },
+      created_at: now,
+      updated_at: now,
+    };
+
+    const existing = (await this.readArray('rd.proposalDrafts')).filter(isRecord);
+    // Replace by id if exists, otherwise prepend
+    const idx = existing.findIndex((d) => d.id === draft.id);
+    let next: unknown[];
+    if (idx >= 0) {
+      // Preserve original created_at
+      const original = existing[idx];
+      const preserved = { ...draft, created_at: typeof original.created_at === 'string' ? original.created_at : now };
+      next = [preserved, ...existing.filter((_, i) => i !== idx)];
+    } else {
+      next = [draft, ...existing];
+    }
+    await this.writeValue('rd.proposalDrafts', next.slice(0, 500));
+    return draft;
+  }
+
+  async deleteProposalDraft(draftId: string, viewer?: { userId?: string; hasFullAccess?: boolean }) {
+    const existing = (await this.readArray('rd.proposalDrafts')).filter(isRecord);
+    const target = existing.find((d) => d.id === draftId);
+    if (!target) throw new NotFoundException('草稿不存在');
+
+    // Permission check: only the author or a manager can delete
+    if (!viewer?.hasFullAccess) {
+      const author = isRecord(target.author) ? target.author : null;
+      if (!author || author.id !== viewer?.userId) {
+        throw new BadRequestException('无权删除他人草稿');
+      }
+    }
+
+    await this.writeValue('rd.proposalDrafts', existing.filter((d) => d.id !== draftId));
+    return { ok: true };
+  }
+
   async clearAllTaskData() {
     await Promise.all([
       this.writeValue('rd.taskCategories', []),
@@ -1515,6 +1635,7 @@ export class ResearchDevelopmentService {
       this.writeValue('rd.taskProgressNotes', {}),
       this.writeValue('rd.dailyReports', []),
       this.writeValue('rd.messages', []),
+      this.writeValue('rd.proposalDrafts', []),
     ]);
     return { ok: true };
   }

@@ -2,11 +2,50 @@ import { authFetch, readErrorMessage } from "./authSession";
 
 const RD_API_BASE = "/api/research-development";
 
-async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await authFetch(`${RD_API_BASE}${path}`, init);
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "研发模块接口请求失败"));
+/** Default per-request timeout for RD module. AI and file-upload calls override via `timeoutMs`. */
+const RD_DEFAULT_TIMEOUT_MS = 30_000;
+/** Longer timeout for AI inference / large file ingestion — must comfortably exceed server-side `OPENAI_TIMEOUT_MS` (120s). */
+const RD_AI_TIMEOUT_MS = 180_000;
+
+type RequestJsonOptions = RequestInit & { timeoutMs?: number };
+
+async function fetchWithTimeout(
+  path: string,
+  init: RequestInit,
+  timeoutMs: number,
+  fallbackErrorMessage: string,
+): Promise<Response> {
+  const { signal: callerSignal, ...rest } = init;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  if (callerSignal) {
+    if (callerSignal.aborted) controller.abort();
+    else callerSignal.addEventListener("abort", () => controller.abort(), { once: true });
   }
+  try {
+    const response = await authFetch(`${RD_API_BASE}${path}`, { ...rest, signal: controller.signal });
+    if (!response.ok) {
+      throw new Error(await readErrorMessage(response, fallbackErrorMessage));
+    }
+    return response;
+  } catch (err) {
+    if (err instanceof Error && (err.name === "AbortError" || controller.signal.aborted)) {
+      throw new Error(`请求超时（>${Math.round(timeoutMs / 1000)}s），请检查网络或稍后再试`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function requestJson<T>(path: string, init?: RequestJsonOptions): Promise<T> {
+  const { timeoutMs, ...rest } = init ?? {};
+  const response = await fetchWithTimeout(
+    path,
+    rest,
+    timeoutMs ?? RD_DEFAULT_TIMEOUT_MS,
+    "研发模块接口请求失败",
+  );
   return (await response.json()) as T;
 }
 
@@ -486,6 +525,7 @@ export function extractRdTasksFromText(payload: {
   return requestJson<RdAiExtractResult>("/ai/extract-tasks", {
     method: "POST",
     body: JSON.stringify(payload),
+    timeoutMs: RD_AI_TIMEOUT_MS,
   });
 }
 
@@ -503,13 +543,12 @@ export async function extractRdTasksFromFile(payload: {
   if (payload.categoryLabels) form.append("categoryLabels", JSON.stringify(payload.categoryLabels));
   if (payload.proposalTitle) form.append("proposalTitle", payload.proposalTitle);
 
-  const response = await authFetch(`${RD_API_BASE}/ai/extract-from-file`, {
-    method: "POST",
-    body: form,
-  });
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "AI 文件解析失败"));
-  }
+  const response = await fetchWithTimeout(
+    "/ai/extract-from-file",
+    { method: "POST", body: form },
+    RD_AI_TIMEOUT_MS,
+    "AI 文件解析失败",
+  );
   return (await response.json()) as RdAiExtractResult;
 }
 
@@ -551,13 +590,12 @@ export async function assessRdTaskProgress(payload: {
   }
   if (payload.task.current_status) form.append("current_status", payload.task.current_status);
 
-  const response = await authFetch(`${RD_API_BASE}/ai/assess-progress`, {
-    method: "POST",
-    body: form,
-  });
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "AI 进度判断失败"));
-  }
+  const response = await fetchWithTimeout(
+    "/ai/assess-progress",
+    { method: "POST", body: form },
+    RD_AI_TIMEOUT_MS,
+    "AI 进度判断失败",
+  );
   return (await response.json()) as RdAiProgressAssessment;
 }
 
@@ -597,13 +635,12 @@ export async function createRdTaskProgressNote(payload: {
   if (typeof payload.progress === "number") form.append("progress", String(payload.progress));
   (payload.files ?? []).forEach((file) => form.append("files", file));
 
-  const response = await authFetch(`${RD_API_BASE}/task-progress-notes`, {
-    method: "POST",
-    body: form,
-  });
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "进度记录保存失败"));
-  }
+  const response = await fetchWithTimeout(
+    "/task-progress-notes",
+    { method: "POST", body: form },
+    60_000,
+    "进度记录保存失败",
+  );
   return (await response.json()) as RdTaskProgressNote;
 }
 
@@ -658,6 +695,7 @@ export function regenerateAllRdDailyReports(date?: string) {
   return requestJson<{ date: string; count: number }>("/daily-reports/regenerate-all", {
     method: "POST",
     body: JSON.stringify({ date }),
+    timeoutMs: 90_000,
   });
 }
 
@@ -695,5 +733,47 @@ export function sendRdMessage(payload: {
   return requestJson<RdMessage>("/messages", {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+// ── AI 立项草稿 ─────────────────────────────────────────────────────────────
+
+export type RdProposalDraft = {
+  id: string;
+  title: string;
+  description: string | null;
+  comment: string | null;
+  parent_project_id: string | null;
+  new_project_name: string | null;
+  tasks: unknown[];
+  file_names: string[];
+  author: { id: string | null; name: string; role: string | null };
+  created_at: string;
+  updated_at: string;
+};
+
+export function fetchRdProposalDrafts() {
+  return requestJson<RdProposalDraft[]>("/proposal-drafts");
+}
+
+export function saveRdProposalDraft(payload: {
+  draft_id?: string;
+  title?: string;
+  description?: string;
+  comment?: string;
+  parent_project_id?: string;
+  new_project_name?: string;
+  tasks?: unknown[];
+  file_names?: string[];
+}) {
+  return requestJson<RdProposalDraft>("/proposal-drafts", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteRdProposalDraft(draftId: string) {
+  return requestJson<{ ok: true }>(`/proposal-drafts/${encodeURIComponent(draftId)}`, {
+    method: "DELETE",
   });
 }
