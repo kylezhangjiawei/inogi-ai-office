@@ -17,6 +17,7 @@ import {
   Info,
   MessageSquare,
   RefreshCw,
+  Search,
   Send,
   ShieldCheck,
   Sparkles,
@@ -89,6 +90,42 @@ const TODAY_LABEL = new Date().toISOString().split("T")[0]!;
 const NOTE_ATTACHMENT_MAX_FILES = 5;
 const NOTE_ATTACHMENT_MAX_FILE_BYTES = 25 * 1024 * 1024;
 const NOTE_ATTACHMENT_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
+type WorkspaceDueFilter = "all" | "overdue" | "today" | "3d" | "7d" | "no_due";
+
+function workspaceDaysUntil(dateStr?: string): number | null {
+  if (!dateStr) return null;
+  const target = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(target.getTime())) return null;
+  const today = new Date(`${TODAY_LABEL}T00:00:00`);
+  return Math.round((target.getTime() - today.getTime()) / 86400000);
+}
+
+function workspaceTaskMatches(
+  task: WorkspaceTask,
+  keyword: string,
+  priority: Priority | "all",
+  status: TaskStatus | "all",
+  due: WorkspaceDueFilter,
+) {
+  if (priority !== "all" && task.priority !== priority) return false;
+  if (status !== "all" && task.status !== status) return false;
+  const days = workspaceDaysUntil(task.due_date);
+  if (due === "no_due" && days !== null) return false;
+  if (due === "overdue" && (days === null || days >= 0)) return false;
+  if (due === "today" && days !== 0) return false;
+  if (due === "3d" && (days === null || days < 0 || days > 3)) return false;
+  if (due === "7d" && (days === null || days < 0 || days > 7)) return false;
+  if (!keyword) return true;
+  return [
+    task.task_id,
+    task.title,
+    task.owner,
+    task.category_path,
+    task.description,
+    task.status_label,
+    task.next_action,
+  ].some((value) => value?.toLowerCase().includes(keyword));
+}
 
 const MY_TASKS: WorkspaceTask[] = [
   {
@@ -1681,10 +1718,24 @@ export function RDMyWorkspacePage() {
     };
   }, []);
 
+  const [taskKeyword, setTaskKeyword] = useState("");
+  const [taskPriorityFilter, setTaskPriorityFilter] = useState<Priority | "all">("all");
+  const [taskStatusFilter, setTaskStatusFilter] = useState<TaskStatus | "all">("all");
+  const [taskDueFilter, setTaskDueFilter] = useState<WorkspaceDueFilter>("all");
   const todayTodos = workspace.todayTodos;
   const myTasks = useMemo(() => applyProgressOverrides(workspace.myTasks, progressOverrides), [workspace.myTasks, progressOverrides]);
   const collabTasks = useMemo(() => applyProgressOverrides(workspace.collabTasks, progressOverrides), [workspace.collabTasks, progressOverrides]);
   const allTasks = useMemo(() => [...myTasks, ...collabTasks], [myTasks, collabTasks]);
+  const normalizedTaskKeyword = taskKeyword.trim().toLowerCase();
+  const taskFiltersActive = Boolean(normalizedTaskKeyword) || taskPriorityFilter !== "all" || taskStatusFilter !== "all" || taskDueFilter !== "all";
+  const filteredMyTasks = useMemo(
+    () => myTasks.filter((task) => workspaceTaskMatches(task, normalizedTaskKeyword, taskPriorityFilter, taskStatusFilter, taskDueFilter)),
+    [myTasks, normalizedTaskKeyword, taskPriorityFilter, taskStatusFilter, taskDueFilter],
+  );
+  const filteredCollabTasks = useMemo(
+    () => collabTasks.filter((task) => workspaceTaskMatches(task, normalizedTaskKeyword, taskPriorityFilter, taskStatusFilter, taskDueFilter)),
+    [collabTasks, normalizedTaskKeyword, taskPriorityFilter, taskStatusFilter, taskDueFilter],
+  );
   const visibleSuggestions = useMemo(
     () => workspace.aiSuggestions.filter((suggestion) => !closedSuggestions.has(suggestion.id)),
     [closedSuggestions, workspace.aiSuggestions],
@@ -1835,34 +1886,98 @@ export function RDMyWorkspacePage() {
           />
         </div>
 
+        <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+          <div className="grid gap-2 md:grid-cols-[minmax(220px,1fr)_140px_140px_130px_auto]">
+            <label className="relative block">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+              <input
+                className="h-9 w-full rounded-[8px] border border-slate-200 bg-slate-50 pl-8 pr-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-50"
+                placeholder="搜索任务、负责人、系统、下一步"
+                value={taskKeyword}
+                onChange={(event) => setTaskKeyword(event.target.value)}
+              />
+            </label>
+            <select
+              className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+              value={taskPriorityFilter}
+              onChange={(event) => setTaskPriorityFilter(event.target.value as Priority | "all")}
+            >
+              <option value="all">全部优先级</option>
+              <option value="high">高优先级</option>
+              <option value="medium">中优先级</option>
+              <option value="low">低优先级</option>
+            </select>
+            <select
+              className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+              value={taskStatusFilter}
+              onChange={(event) => setTaskStatusFilter(event.target.value as TaskStatus | "all")}
+            >
+              <option value="all">全部状态</option>
+              <option value="in_progress">进行中</option>
+              <option value="pending_review">待评审</option>
+              <option value="paused_blocked">阻塞</option>
+              <option value="paused_leave">请假暂停</option>
+              <option value="completed">已完成</option>
+            </select>
+            <select
+              className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+              value={taskDueFilter}
+              onChange={(event) => setTaskDueFilter(event.target.value as WorkspaceDueFilter)}
+            >
+              <option value="all">全部时间</option>
+              <option value="overdue">已逾期</option>
+              <option value="today">今天到期</option>
+              <option value="3d">3 天内</option>
+              <option value="7d">7 天内</option>
+              <option value="no_due">无截止日</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => {
+                setTaskKeyword("");
+                setTaskPriorityFilter("all");
+                setTaskStatusFilter("all");
+                setTaskDueFilter("all");
+              }}
+              disabled={!taskFiltersActive}
+              className="h-9 cursor-pointer rounded-[8px] border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              清空
+            </button>
+          </div>
+          <div className="mt-2 text-xs text-slate-500">
+            当前显示 <span className="font-semibold text-slate-800">{filteredMyTasks.length + filteredCollabTasks.length}</span> / {allTasks.length} 个任务
+          </div>
+        </div>
+
         <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
           <main className="space-y-5">
-            <SectionCard title="我的任务" icon={User} count={myTasks.length} helper="按优先级和到期时间处理">
+            <SectionCard title="我的任务" icon={User} count={filteredMyTasks.length} helper="按优先级和到期时间处理">
               <div className="space-y-3">
                 {loading ? (
                   <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">正在加载我的任务…</p>
-                ) : myTasks.length === 0 ? (
+                ) : filteredMyTasks.length === 0 ? (
                   <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-400">
                     暂无分配给我的研发任务
                   </p>
                 ) : (
-                  myTasks.map((task) => (
+                  filteredMyTasks.map((task) => (
                     <TaskCardUI key={task.task_id} task={task} onOpen={openTask} />
                   ))
                 )}
               </div>
             </SectionCard>
 
-            <SectionCard title="协作任务" icon={Users} count={collabTasks.length} helper="需要我提供输入或反馈">
+            <SectionCard title="协作任务" icon={Users} count={filteredCollabTasks.length} helper="需要我提供输入或反馈">
               <div className="space-y-3">
                 {loading ? (
                   <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">正在加载协作任务…</p>
-                ) : collabTasks.length === 0 ? (
+                ) : filteredCollabTasks.length === 0 ? (
                   <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-400">
                     暂无需要我协作的任务
                   </p>
                 ) : (
-                  collabTasks.map((task) => (
+                  filteredCollabTasks.map((task) => (
                     <TaskCardUI key={task.task_id} task={task} onOpen={openTask} />
                   ))
                 )}

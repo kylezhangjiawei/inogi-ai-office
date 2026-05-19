@@ -1299,8 +1299,30 @@ function TaskItem({
 
 // ─── Tree sections ────────────────────────────────────────────────────────────
 
-function taskMatches(task: Task, keyword: string, statusFilter: TaskStatus | "all"): boolean {
+type TaskDueFilter = "all" | "overdue" | "today" | "3d" | "7d" | "no_due";
+
+function taskDueMatches(task: Task, dueFilter: TaskDueFilter): boolean {
+  if (dueFilter === "all") return true;
+  const days = daysUntil(task.due_date);
+  if (dueFilter === "no_due") return days === null;
+  if (days === null) return false;
+  if (dueFilter === "overdue") return days < 0;
+  if (dueFilter === "today") return days === 0;
+  if (dueFilter === "3d") return days >= 0 && days <= 3;
+  if (dueFilter === "7d") return days >= 0 && days <= 7;
+  return true;
+}
+
+function taskMatches(
+  task: Task,
+  keyword: string,
+  statusFilter: TaskStatus | "all",
+  priorityFilter: Priority | "all" = "all",
+  dueFilter: TaskDueFilter = "all",
+): boolean {
   if (statusFilter !== "all" && task.status !== statusFilter) return false;
+  if (priorityFilter !== "all" && task.final_priority !== priorityFilter) return false;
+  if (!taskDueMatches(task, dueFilter)) return false;
   if (!keyword) return true;
   return (
     task.title.includes(keyword) ||
@@ -1670,20 +1692,24 @@ function SubProjectSection({
   sub,
   keyword,
   statusFilter,
+  priorityFilter,
+  dueFilter,
   onOpen,
 }: {
   sub: SubProject;
   keyword: string;
   statusFilter: TaskStatus | "all";
+  priorityFilter: Priority | "all";
+  dueFilter: TaskDueFilter;
   onOpen: (t: Task) => void;
 }) {
   const [open, setOpen] = useState(true);
   const filteredTasks = useMemo(
-    () => sub.tasks.filter((t) => taskMatches(t, keyword, statusFilter)),
-    [sub.tasks, keyword, statusFilter],
+    () => sub.tasks.filter((t) => taskMatches(t, keyword, statusFilter, priorityFilter, dueFilter)),
+    [sub.tasks, keyword, statusFilter, priorityFilter, dueFilter],
   );
 
-  if (filteredTasks.length === 0 && (keyword || statusFilter !== "all")) return null;
+  if (filteredTasks.length === 0 && (keyword || statusFilter !== "all" || priorityFilter !== "all" || dueFilter !== "all")) return null;
   const progress = calcSubProgress(sub);
   const riskCount = filteredTasks.filter((task) => taskNeedsAttention(task)).length;
   const activeCount = filteredTasks.filter((task) => !task.archived).length;
@@ -4704,36 +4730,110 @@ function TasksByPartSection({
   sub: SubProject | null;
   onOpen: (t: Task) => void;
 }) {
+  const [keyword, setKeyword] = useState("");
+  const [statusFilter, setStatusFilter] = useState<TaskStatus | "all">("all");
+  const [priorityFilter, setPriorityFilter] = useState<Priority | "all">("all");
+  const [dueFilter, setDueFilter] = useState<TaskDueFilter>("all");
   if (!category) return null;
   // If a sub-project is explicitly selected, show only that one. Otherwise list all parts with tasks.
   const parts = sub ? [sub] : category.children.filter((c) => flattenTasks(c.tasks).some((task) => !task.archived));
   if (parts.length === 0) return null;
 
   const totalCount = parts.reduce((s, p) => s + flattenTasks(p.tasks).filter((t) => !t.archived).length, 0);
+  const normalizedKeyword = keyword.trim();
+  const filtersActive = Boolean(normalizedKeyword) || statusFilter !== "all" || priorityFilter !== "all" || dueFilter !== "all";
+  const filteredTotal = parts.reduce(
+    (sum, part) => sum + flattenTasks(part.tasks).filter((task) => taskMatches(task, normalizedKeyword, statusFilter, priorityFilter, dueFilter)).length,
+    0,
+  );
 
   return (
     <section className="space-y-3">
-      <header className="flex items-center justify-between px-1">
+      <header className="flex flex-wrap items-start justify-between gap-3 px-1">
         <div>
           <h3 className="text-sm font-semibold text-slate-900">全部任务清单</h3>
           <p className="mt-0.5 text-xs text-slate-500">
             {sub ? `${sub.label} · ` : `按部件分组 · ${parts.length} 个部件 · `}
-            {totalCount} 个活跃任务
+            {filtersActive ? `${filteredTotal} / ${totalCount}` : totalCount} 个活跃任务
           </p>
         </div>
         <span className="text-xs text-slate-400">点击展开部件 / 卡片查看子任务</span>
       </header>
+
+      <div className="grid gap-2 rounded-[8px] border border-slate-200 bg-white p-3 md:grid-cols-[minmax(180px,1fr)_140px_120px_120px_auto]">
+        <label className="relative block">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+          <input
+            className="h-9 w-full rounded-[8px] border border-slate-200 bg-slate-50 pl-8 pr-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-50"
+            placeholder="搜索任务、编号、负责人、路径"
+            value={keyword}
+            onChange={(event) => setKeyword(event.target.value)}
+          />
+        </label>
+        <select
+          className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+          value={statusFilter}
+          onChange={(event) => setStatusFilter(event.target.value as TaskStatus | "all")}
+        >
+          <option value="all">全部状态</option>
+          {(Object.keys(STATUS_CONFIG) as TaskStatus[]).map((status) => (
+            <option key={status} value={status}>{STATUS_CONFIG[status].label}</option>
+          ))}
+        </select>
+        <select
+          className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+          value={priorityFilter}
+          onChange={(event) => setPriorityFilter(event.target.value as Priority | "all")}
+        >
+          <option value="all">全部优先级</option>
+          <option value="high">高优先级</option>
+          <option value="medium">中优先级</option>
+          <option value="low">低优先级</option>
+        </select>
+        <select
+          className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+          value={dueFilter}
+          onChange={(event) => setDueFilter(event.target.value as TaskDueFilter)}
+        >
+          <option value="all">全部时间</option>
+          <option value="overdue">已逾期</option>
+          <option value="today">今天到期</option>
+          <option value="3d">3 天内</option>
+          <option value="7d">7 天内</option>
+          <option value="no_due">无截止日</option>
+        </select>
+        <button
+          type="button"
+          onClick={() => {
+            setKeyword("");
+            setStatusFilter("all");
+            setPriorityFilter("all");
+            setDueFilter("all");
+          }}
+          disabled={!filtersActive}
+          className="h-9 cursor-pointer rounded-[8px] border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          清空
+        </button>
+      </div>
 
       <div className="space-y-3">
         {parts.map((part) => (
           <SubProjectSection
             key={part.id}
             sub={part}
-            keyword=""
-            statusFilter="all"
+            keyword={normalizedKeyword}
+            statusFilter={statusFilter}
+            priorityFilter={priorityFilter}
+            dueFilter={dueFilter}
             onOpen={onOpen}
           />
         ))}
+        {filteredTotal === 0 && filtersActive && (
+          <div className="rounded-[8px] border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm font-medium text-slate-500">
+            当前筛选条件下暂无任务
+          </div>
+        )}
       </div>
     </section>
   );

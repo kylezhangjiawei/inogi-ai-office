@@ -15,6 +15,7 @@ import {
   Loader2,
   Pencil,
   Plus,
+  Search,
   Sparkles,
   Trash2,
   UserCog,
@@ -245,6 +246,28 @@ function formatLocalDate(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
   return `${year}-${month}-${day}`;
+}
+
+type DirectorDueFilter = "all" | "overdue" | "today" | "3d" | "7d" | "no_due";
+
+function directorDaysUntil(dateStr?: string): number | null {
+  if (!dateStr) return null;
+  const target = parseLocalDate(dateStr);
+  if (!target) return null;
+  const today = parseLocalDate(formatLocalDate(new Date()))!;
+  return Math.round((target.getTime() - today.getTime()) / 86400000);
+}
+
+function directorDueMatches(task: RdTask, dueFilter: DirectorDueFilter) {
+  if (dueFilter === "all") return true;
+  const days = directorDaysUntil(task.due_date);
+  if (dueFilter === "no_due") return days === null;
+  if (days === null) return false;
+  if (dueFilter === "overdue") return days < 0;
+  if (dueFilter === "today") return days === 0;
+  if (dueFilter === "3d") return days >= 0 && days <= 3;
+  if (dueFilter === "7d") return days >= 0 && days <= 7;
+  return true;
 }
 
 function toReassignableTask(task: RdTask): ReassignableTask {
@@ -2811,6 +2834,10 @@ export function RDDirectorDashboardPage() {
   // KPI filter for the task list
   type TaskKpiFilter = "all" | "completed" | "in_progress" | "blocked";
   const [kpiFilter, setKpiFilter] = useState<TaskKpiFilter>("all");
+  const [taskKeyword, setTaskKeyword] = useState("");
+  const [taskPriorityFilter, setTaskPriorityFilter] = useState<Priority | "all">("all");
+  const [taskStatusFilter, setTaskStatusFilter] = useState<TaskStatus | "all">("all");
+  const [taskDueFilter, setTaskDueFilter] = useState<DirectorDueFilter>("all");
   const [taskListPage, setTaskListPage] = useState(1);
   const TASK_LIST_PAGE_SIZE = 10;
 
@@ -2828,13 +2855,21 @@ export function RDDirectorDashboardPage() {
   }, [allCategories]);
 
   const filteredTasks = useMemo(() => {
-    if (kpiFilter === "completed") return allTasksFlat.filter((t) => t.status === "completed");
-    if (kpiFilter === "in_progress") return allTasksFlat.filter((t) => t.status === "in_progress");
-    if (kpiFilter === "blocked") return allTasksFlat.filter((t) => t.status === "paused_blocked");
-    return allTasksFlat;
-  }, [allTasksFlat, kpiFilter]);
+    const keyword = taskKeyword.trim().toLowerCase();
+    return allTasksFlat.filter((task) => {
+      if (kpiFilter === "completed" && task.status !== "completed") return false;
+      if (kpiFilter === "in_progress" && task.status !== "in_progress") return false;
+      if (kpiFilter === "blocked" && task.status !== "paused_blocked") return false;
+      if (taskPriorityFilter !== "all" && task.final_priority !== taskPriorityFilter) return false;
+      if (taskStatusFilter !== "all" && task.status !== taskStatusFilter) return false;
+      if (!directorDueMatches(task, taskDueFilter)) return false;
+      if (!keyword) return true;
+      return [task.task_id, task.title, task.primary_owner, task.category_path, task.description]
+        .some((value) => value?.toLowerCase().includes(keyword));
+    });
+  }, [allTasksFlat, kpiFilter, taskKeyword, taskPriorityFilter, taskStatusFilter, taskDueFilter]);
 
-  useEffect(() => { setTaskListPage(1); }, [kpiFilter]);
+  useEffect(() => { setTaskListPage(1); }, [kpiFilter, taskKeyword, taskPriorityFilter, taskStatusFilter, taskDueFilter]);
   const taskListTotalPages = Math.max(1, Math.ceil(filteredTasks.length / TASK_LIST_PAGE_SIZE));
   const taskListSafePage = Math.min(taskListPage, taskListTotalPages);
   const taskListRangeStart = filteredTasks.length === 0 ? 0 : (taskListSafePage - 1) * TASK_LIST_PAGE_SIZE + 1;
@@ -3174,6 +3209,62 @@ export function RDDirectorDashboardPage() {
                 {/*    </button>*/}
                 {/*  )}*/}
                 {/*</div>*/}
+              </div>
+              <div className="mb-3 grid gap-2 rounded-xl border border-slate-100 bg-slate-50/70 p-3 md:grid-cols-[minmax(220px,1fr)_130px_130px_120px_auto]">
+                <label className="relative block">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                  <input
+                    className="h-9 w-full rounded-[8px] border border-slate-200 bg-white pl-8 pr-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+                    placeholder="搜索任务、编号、负责人、系统"
+                    value={taskKeyword}
+                    onChange={(event) => setTaskKeyword(event.target.value)}
+                  />
+                </label>
+                <select
+                  className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+                  value={taskPriorityFilter}
+                  onChange={(event) => setTaskPriorityFilter(event.target.value as Priority | "all")}
+                >
+                  <option value="all">全部优先级</option>
+                  <option value="high">高优先级</option>
+                  <option value="medium">中优先级</option>
+                  <option value="low">低优先级</option>
+                </select>
+                <select
+                  className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+                  value={taskStatusFilter}
+                  onChange={(event) => setTaskStatusFilter(event.target.value as TaskStatus | "all")}
+                >
+                  <option value="all">全部状态</option>
+                  {(Object.keys(TASK_STATUS_CONFIG) as TaskStatus[]).map((status) => (
+                    <option key={status} value={status}>{TASK_STATUS_CONFIG[status].label}</option>
+                  ))}
+                </select>
+                <select
+                  className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+                  value={taskDueFilter}
+                  onChange={(event) => setTaskDueFilter(event.target.value as DirectorDueFilter)}
+                >
+                  <option value="all">全部时间</option>
+                  <option value="overdue">已逾期</option>
+                  <option value="today">今天到期</option>
+                  <option value="3d">3 天内</option>
+                  <option value="7d">7 天内</option>
+                  <option value="no_due">无截止日</option>
+                </select>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTaskKeyword("");
+                    setTaskPriorityFilter("all");
+                    setTaskStatusFilter("all");
+                    setTaskDueFilter("all");
+                    setKpiFilter("all");
+                  }}
+                  className="h-9 cursor-pointer rounded-[8px] border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                >
+                  清空
+                </button>
               </div>
               {filteredTasks.length === 0 ? (
                 <DashboardEmptyPanel
