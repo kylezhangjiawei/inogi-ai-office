@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Download,
   FileText,
+  Info,
   LayoutGrid,
   ListChecks,
   Loader2,
@@ -176,6 +177,33 @@ function rdTaskToDetail(task: RdTask, blocked?: BlockedTask): TaskDetail {
   };
 }
 
+function pendingAssignToDetail(task: PendingAssignTask): TaskDetail {
+  return {
+    task_id: task.task_id,
+    title: task.title,
+    status: "pending_assign",
+    owner: "待指派",
+    owner_user_id: null,
+    priority: task.ai_priority,
+    progress: 0,
+    category_path: task.category_path,
+    description: "规则未能自动匹配责任人，请在任务列表或详情抽屉中直接指派负责人。",
+    attachments: 0,
+    collaborators: [],
+    recent_activities: [],
+  };
+}
+
+function taskDetailToReassignable(task: TaskDetail): ReassignableTask {
+  return {
+    task_id: task.task_id,
+    title: task.title,
+    owner: task.owner || "待指派",
+    reason: task.status === "pending_assign" ? "待人工指派" : task.blocked_reason || task.category_path || "任务转派",
+    days_blocked: task.blocked_days ?? 0,
+  };
+}
+
 function collectRdTasks(tasks: RdTask[]): RdTask[] {
   const output: RdTask[] = [];
   tasks.forEach((task) => {
@@ -258,7 +286,7 @@ function directorDaysUntil(dateStr?: string): number | null {
   return Math.round((target.getTime() - today.getTime()) / 86400000);
 }
 
-function directorDueMatches(task: RdTask, dueFilter: DirectorDueFilter) {
+function directorDueMatches(task: { due_date?: string }, dueFilter: DirectorDueFilter) {
   if (dueFilter === "all") return true;
   const days = directorDaysUntil(task.due_date);
   if (dueFilter === "no_due") return days === null;
@@ -449,16 +477,16 @@ function PersonCard({
 
 // ─── Task Detail Drawer ──────────────────────────────────────────────────────
 
-const TASK_STATUS_CONFIG: Record<TaskStatus, { label: string; bg: string; text: string; dot: string }> = {
-  draft:          { label: "草稿",     bg: "bg-slate-50",   text: "text-slate-500",   dot: "bg-slate-400" },
-  in_progress:    { label: "进行中",   bg: "bg-blue-50",    text: "text-blue-700",    dot: "bg-blue-500" },
-  pending_review: { label: "待审核",   bg: "bg-cyan-50",    text: "text-cyan-700",    dot: "bg-cyan-500" },
-  paused_leave:   { label: "暂停/休假", bg: "bg-amber-50",  text: "text-amber-600",   dot: "bg-amber-400" },
-  paused_blocked: { label: "阻塞",     bg: "bg-orange-50",  text: "text-orange-700",  dot: "bg-orange-500" },
-  on_hold:        { label: "暂停",     bg: "bg-amber-50",   text: "text-amber-700",   dot: "bg-amber-500" },
-  completed:      { label: "已完成",   bg: "bg-emerald-50", text: "text-emerald-700", dot: "bg-emerald-500" },
-  pending_assign: { label: "待指派",   bg: "bg-violet-50",  text: "text-violet-700",  dot: "bg-violet-500" },
-  archived:       { label: "已归档",   bg: "bg-slate-50",   text: "text-slate-400",   dot: "bg-slate-300" },
+const TASK_STATUS_CONFIG: Record<TaskStatus, { label: string; bg: string; text: string; dot: string; border: string; accent: string }> = {
+  draft:          { label: "草稿",     bg: "bg-slate-50",   text: "text-slate-600",   dot: "bg-slate-400",   border: "border-slate-200",   accent: "bg-slate-400" },
+  in_progress:    { label: "进行中",   bg: "bg-blue-50",    text: "text-blue-700",    dot: "bg-blue-500",    border: "border-blue-200",    accent: "bg-blue-500" },
+  pending_review: { label: "待审核",   bg: "bg-cyan-50",    text: "text-cyan-700",    dot: "bg-cyan-500",    border: "border-cyan-200",    accent: "bg-cyan-500" },
+  paused_leave:   { label: "休假暂停", bg: "bg-amber-50",   text: "text-amber-700",   dot: "bg-amber-500",   border: "border-amber-200",   accent: "bg-amber-500" },
+  paused_blocked: { label: "阻塞",     bg: "bg-red-50",     text: "text-red-700",     dot: "bg-red-500",     border: "border-red-200",     accent: "bg-red-500" },
+  on_hold:        { label: "暂停",     bg: "bg-orange-50",  text: "text-orange-700",  dot: "bg-orange-500",  border: "border-orange-200",  accent: "bg-orange-500" },
+  completed:      { label: "已完成",   bg: "bg-emerald-50", text: "text-emerald-700", dot: "bg-emerald-500", border: "border-emerald-200", accent: "bg-emerald-500" },
+  pending_assign: { label: "待指派",   bg: "bg-violet-50",  text: "text-violet-700",  dot: "bg-violet-500",  border: "border-violet-200",  accent: "bg-violet-500" },
+  archived:       { label: "已归档",   bg: "bg-zinc-50",    text: "text-zinc-500",    dot: "bg-zinc-300",    border: "border-zinc-200",    accent: "bg-zinc-300" },
 };
 
 const TASK_PRIORITY_CONFIG = {
@@ -488,12 +516,14 @@ function TaskDetailDrawer({
   task,
   onClose,
   onOpenPerson,
+  onOpenReassign,
   onUpdate,
   onDelete,
 }: {
   task: TaskDetail;
   onClose: () => void;
   onOpenPerson?: (name: string) => void;
+  onOpenReassign?: (task: TaskDetail) => void;
   onUpdate?: () => void;
   onDelete?: () => void;
 }) {
@@ -580,40 +610,26 @@ function TaskDetailDrawer({
     }
   };
 
-  const recordDirectorTaskAction = async (action: "task.handoff_requested" | "task.status_changed") => {
-    if (action === "task.handoff_requested" && !canReassignTask) {
-      toast.error("当前账号没有转派任务权限");
-      return;
-    }
-    if (action !== "task.handoff_requested" && !canEditTask) {
+  const recordDirectorTaskAction = async (action: "task.status_changed") => {
+    if (!canEditTask) {
       toast.error("当前账号没有编辑任务权限");
       return;
     }
     setSaving(true);
     try {
-      if (action === "task.handoff_requested") {
-        await updateRdTask(task.task_id, { primary_owner: "待指派", primary_owner_user_id: null, status: "pending_assign" });
-      } else {
-        await updateRdTask(task.task_id, { status: "completed", progress: 100 });
-      }
+      await updateRdTask(task.task_id, { status: "completed", progress: 100 });
       recordAudit({
         actor: DIRECTOR_AUDIT_ACTOR,
         action,
         resource: { type: "task", id: task.task_id, name: task.title },
-        changes:
-          action === "task.status_changed"
-            ? [
-                { field: "status", before: task.status, after: "completed" },
-                { field: "progress", before: task.progress, after: 100 },
-              ]
-            : [
-                { field: "owner", before: task.owner, after: "待指派" },
-                { field: "status", before: task.status, after: "pending_assign" },
-              ],
-        comment: action === "task.handoff_requested" ? "从研发主管驾驶舱发起任务转派" : "从研发主管驾驶舱标记任务完成",
+        changes: [
+          { field: "status", before: task.status, after: "completed" },
+          { field: "progress", before: task.progress, after: 100 },
+        ],
+        comment: "从研发主管驾驶舱标记任务完成",
         source: "web",
       });
-      toast.success(action === "task.handoff_requested" ? "任务已转入待指派" : "任务已标记完成");
+      toast.success("任务已标记完成");
       onUpdate?.();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "操作失败");
@@ -634,7 +650,7 @@ function TaskDetailDrawer({
           <div className="min-w-0 flex-1">
             <div className="mb-1.5 flex items-center gap-2">
               <span className="font-mono text-xs text-slate-400">{task.task_id}</span>
-              <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold", sCfg.bg, sCfg.text)}>
+              <span className={cn("inline-flex min-w-[72px] items-center justify-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold", sCfg.bg, sCfg.text, sCfg.border)}>
                 <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
                 {sCfg.label}
               </span>
@@ -985,8 +1001,12 @@ function TaskDetailDrawer({
         {!isEditing && (canReassignTask || (canEditTask && task.status !== "completed")) && (
           <footer className="flex items-center gap-2 border-t border-slate-100 bg-white px-6 py-3">
             {canReassignTask && (
-              <button disabled={saving} onClick={() => recordDirectorTaskAction("task.handoff_requested")} className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-[0.98] disabled:opacity-50">
-                转派
+              <button
+                disabled={saving}
+                onClick={() => onOpenReassign?.(task)}
+                className="flex-1 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 transition-all duration-150 hover:bg-blue-100 active:scale-[0.98] disabled:opacity-50"
+              >
+                {task.status === "pending_assign" || task.owner === "待指派" ? "指派负责人" : "转派任务"}
               </button>
             )}
             {canEditTask && task.status !== "completed" && (
@@ -1008,6 +1028,7 @@ function PersonDetailDrawer({
   onClose,
   onOpenTask,
   taskMap,
+  reassignableTaskCount = 0,
   onEditPerson,
   onSendMessage,
   onReassignPerson,
@@ -1016,6 +1037,7 @@ function PersonDetailDrawer({
   onClose: () => void;
   onOpenTask: (taskId: string, ownerHint?: string) => void;
   taskMap: Map<string, RdTask>;
+  reassignableTaskCount?: number;
   onEditPerson?: (person: PersonLoad) => void;
   onSendMessage?: (person: PersonLoad) => void;
   onReassignPerson?: (person: PersonLoad) => void;
@@ -1024,6 +1046,7 @@ function PersonDetailDrawer({
   const ratioPct = Math.round(ratio * 100);
   const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
   const canReassignTask = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
+  const canReassignPersonTasks = reassignableTaskCount > 0;
   const tone =
     ratio >= 1 ? { label: "超负荷", text: "text-red-600", bg: "bg-red-50", dot: "bg-red-500" } :
     ratio >= 0.75 ? { label: "高负载", text: "text-orange-600", bg: "bg-orange-50", dot: "bg-orange-500" } :
@@ -1119,11 +1142,33 @@ function PersonDetailDrawer({
             </div>
           </section>
 
+          {canReassignTask && (
+            <section
+              className={cn(
+                "rounded-xl border px-3 py-2.5 text-xs",
+                canReassignPersonTasks ? "border-blue-100 bg-blue-50/70 text-blue-700" : "border-slate-100 bg-slate-50 text-slate-500",
+              )}
+            >
+              <div className="flex items-center gap-2 font-semibold">
+                <Info className={cn("h-3.5 w-3.5", canReassignPersonTasks ? "text-blue-500" : "text-slate-400")} />
+                可转派任务 {reassignableTaskCount} / 当前任务 {person.tasks.length}
+              </div>
+              <p className="mt-1 leading-5">
+                {canReassignPersonTasks
+                  ? "转派会把该成员未完成且未归档的任务交给其他负责人，并同步更新人员负载。"
+                  : "当前任务均不可转派，通常是已完成、已归档，或任务数据暂未绑定到当前成员。"}
+              </p>
+            </section>
+          )}
+
           {/* Tasks */}
           <section>
             <div className="mb-2 flex items-center justify-between">
               <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">当前任务</h4>
-              <span className="text-[11px] tabular-nums text-slate-400">{person.tasks.length} 项</span>
+              <span className="text-[11px] tabular-nums text-slate-400">
+                {person.tasks.length} 项
+                {canReassignTask && <span className="ml-1 text-blue-500">· 可转派 {reassignableTaskCount}</span>}
+              </span>
             </div>
             <ul className="space-y-1.5">
               {person.tasks.map((taskTitle, idx) => {
@@ -1204,10 +1249,19 @@ function PersonDetailDrawer({
           {canReassignTask && onReassignPerson && (
             <button
               type="button"
-              onClick={() => onReassignPerson(person)}
-              className="flex-1 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.2)] transition-all duration-150 hover:bg-blue-700 active:scale-[0.98]"
+              disabled={!canReassignPersonTasks}
+              onClick={() => {
+                if (canReassignPersonTasks) onReassignPerson(person);
+              }}
+              title={canReassignPersonTasks ? "选择该成员的任务并转派给其他负责人" : "当前没有可转派任务"}
+              className={cn(
+                "flex-1 rounded-md px-3 py-2 text-sm font-semibold transition-all duration-150 active:scale-[0.98]",
+                canReassignPersonTasks
+                  ? "bg-blue-600 text-white shadow-[0_8px_18px_rgba(37,99,235,0.2)] hover:bg-blue-700"
+                  : "cursor-not-allowed bg-slate-100 text-slate-400 shadow-none",
+              )}
             >
-              重分配
+              {canReassignPersonTasks ? "转派任务" : "暂无可转派"}
             </button>
           )}
         </footer>
@@ -1402,7 +1456,10 @@ function CategoryDetailDrawer({
                             <span className="truncate text-sm font-medium text-slate-800 group-hover:text-slate-900">{t.title}</span>
                           </div>
                           <div className="mt-0.5 flex items-center gap-2 text-[10px]">
-                            <span className={cn("font-semibold", sCfg.text)}>{sCfg.label}</span>
+                            <span className={cn("inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-semibold", sCfg.bg, sCfg.text, sCfg.border)}>
+                              <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
+                              {sCfg.label}
+                            </span>
                             <span className="text-slate-300">·</span>
                             <span className="tabular-nums text-slate-500">{t.progress}%</span>
                             {t.owner && (
@@ -1497,6 +1554,12 @@ function BatchReassignModal({
   const [saving, setSaving] = useState(false);
   const ASSIGNABLE_TASKS = tasks;
   const PERSON_LOADS = personLoads;
+  const selectedAssignableTasks = ASSIGNABLE_TASKS.filter((task) => selectedTasks.has(task.task_id));
+  const targetIsCurrentOwner =
+    Boolean(targetPerson) &&
+    selectedAssignableTasks.length > 0 &&
+    selectedAssignableTasks.every((task) => task.owner === targetPerson?.name);
+  const selectedHasPendingAssign = selectedAssignableTasks.some((task) => task.owner === "待指派");
 
   const toggleTask = (id: string) => {
     setSelectedTasks((prev) => {
@@ -1508,8 +1571,12 @@ function BatchReassignModal({
 
   const confirmReassign = async () => {
     if (selectedTasks.size === 0 || !targetPerson) return;
-    const selected = ASSIGNABLE_TASKS.filter((task) => selectedTasks.has(task.task_id));
+    const selected = selectedAssignableTasks;
     if (selected.length === 0) return;
+    if (targetIsCurrentOwner) {
+      toast.info("目标负责人不能与当前负责人相同");
+      return;
+    }
 
     setSaving(true);
     try {
@@ -1525,7 +1592,7 @@ function BatchReassignModal({
       recordAudit({
         actor: DIRECTOR_AUDIT_ACTOR,
         action: "system.bulk_reassign",
-        resource: { type: "system", id: `batch-${Date.now()}`, name: "批量重分配任务" },
+        resource: { type: "system", id: `batch-${Date.now()}`, name: "批量转派任务" },
         comment: `批量转派 ${selected.length} 个任务给 ${targetPerson.name}`,
         metadata: {
           to: targetPerson.name,
@@ -1543,7 +1610,7 @@ function BatchReassignModal({
             { field: "owner", before: task.owner, after: targetPerson.name },
             { field: "status", before: task.owner === "待指派" ? "pending_assign" : undefined, after: "in_progress" },
           ],
-          comment: "批量重分配中转派任务",
+          comment: "批量转派中更新负责人",
           metadata: { blocked_days: task.days_blocked, reason: task.reason },
           source: "web",
         });
@@ -1571,7 +1638,7 @@ function BatchReassignModal({
         className="w-full max-w-lg rounded-2xl bg-white shadow-2xl"
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-          <span className="font-semibold text-slate-800">批量重分配任务</span>
+          <span className="font-semibold text-slate-800">批量转派任务</span>
           <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100">
             <X className="h-4 w-4 text-slate-500" />
           </button>
@@ -1581,7 +1648,7 @@ function BatchReassignModal({
           {!confirmed ? (
             <>
               <div>
-                <div className="mb-2 text-sm font-medium text-slate-700">选择要转派的任务</div>
+                <div className="mb-2 text-sm font-medium text-slate-700">选择任务</div>
                 <div className="space-y-2 max-h-40 overflow-y-auto">
                   {ASSIGNABLE_TASKS.length === 0 ? (
                     <DashboardEmptyPanel title="暂无可转派任务" description="当前没有阻塞或待指派任务，无法执行批量转派。" />
@@ -1597,7 +1664,12 @@ function BatchReassignModal({
                         <div className="min-w-0 flex-1">
                           <div className="text-sm text-slate-800">{t.title}</div>
                           <div className="text-xs text-slate-400">
-                            {t.task_id}{t.days_blocked ? ` · 阻塞 ${t.days_blocked} 天` : " · 待指派"}
+                            {t.task_id}
+                            {t.owner === "待指派"
+                              ? " · 待指派"
+                              : t.days_blocked
+                                ? ` · 阻塞 ${t.days_blocked} 天`
+                                : ` · 当前负责人 ${t.owner}`}
                           </div>
                         </div>
                       </label>
@@ -1614,14 +1686,19 @@ function BatchReassignModal({
                       <DashboardEmptyPanel title="暂无可用负责人" description="请先在人员管理中维护研发成员后再执行转派。" />
                     </div>
                   ) : (
-                    PERSON_LOADS.filter((p) => !p.on_leave).map((p) => (
+                    PERSON_LOADS.filter((p) => !p.on_leave).map((p) => {
+                      const isNoopTarget = selectedAssignableTasks.length > 0 && selectedAssignableTasks.every((task) => task.owner === p.name);
+                      return (
                       <button
                         key={p.id}
-                        onClick={() => setTargetPerson(p)}
+                        disabled={isNoopTarget}
+                        onClick={() => !isNoopTarget && setTargetPerson(p)}
                         className={cn(
                           "rounded-lg border px-3 py-2 text-left text-sm transition-colors",
+                          isNoopTarget && "cursor-not-allowed opacity-45",
                           targetPerson?.id === p.id ? "border-blue-300 bg-blue-50" : "border-slate-200 hover:bg-slate-50",
                         )}
+                        title={isNoopTarget ? "不能转派给当前负责人本人" : undefined}
                       >
                         <div className="font-medium text-slate-800">{p.name}</div>
                         <div className="flex items-center justify-between text-xs text-slate-400">
@@ -1634,7 +1711,8 @@ function BatchReassignModal({
                           </span>
                         </div>
                       </button>
-                    ))
+                    );
+                    })
                   )}
                 </div>
               </div>
@@ -1644,11 +1722,11 @@ function BatchReassignModal({
                   取消
                 </button>
                 <button
-                  disabled={selectedTasks.size === 0 || !targetPerson || saving}
+                  disabled={selectedTasks.size === 0 || !targetPerson || targetIsCurrentOwner || saving}
                   onClick={confirmReassign}
                   className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.20)] transition-all hover:bg-blue-700 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none"
                 >
-                  {saving ? "转派中..." : "确认转派"}
+                  {saving ? "处理中..." : selectedHasPendingAssign ? "确认指派" : "确认转派"}
                   <ArrowRight className="h-3.5 w-3.5" />
                 </button>
               </div>
@@ -2821,14 +2899,12 @@ export function RDDirectorDashboardPage() {
     [BLOCKED_TASKS, PENDING_ASSIGN],
   );
 
-  // Pagination state for the three lists
+  // Pagination state for the dashboard lists
   const [categoryPage, setCategoryPage] = useState(1);
   const [blockedPage, setBlockedPage] = useState(1);
-  const [pendingPage, setPendingPage] = useState(1);
   const [personPage, setPersonPage] = useState(1);
   const CATEGORY_PAGE_SIZE = 10;
   const BLOCKED_PAGE_SIZE = 3;
-  const PENDING_PAGE_SIZE = 3;
   const PERSON_PAGE_SIZE = 6;
 
   // KPI filter for the task list
@@ -2854,20 +2930,46 @@ export function RDDirectorDashboardPage() {
     return out;
   }, [allCategories]);
 
+  const getPersonReassignableTasks = useCallback(
+    (person: PersonLoad): ReassignableTask[] =>
+      allTasksFlat
+        .filter((task) => {
+          const samePerson =
+            (Boolean(task.primary_owner_user_id) && Boolean(person.user_id) && task.primary_owner_user_id === person.user_id) ||
+            task.primary_owner === person.name;
+          return samePerson && !task.archived && task.status !== "completed" && task.status !== "archived";
+        })
+        .map((task) => ({
+          ...toReassignableTask(task),
+          reason: task.status === "paused_blocked" ? task.blocked_reason || task.category_path : task.category_path || "人员负载转派",
+        })),
+    [allTasksFlat],
+  );
+
+  const taskListRows = useMemo<TaskDetail[]>(() => {
+    const blockedById = new Map(BLOCKED_TASKS.map((task) => [task.task_id, task]));
+    const rows = allTasksFlat.map((task) => rdTaskToDetail(task, blockedById.get(task.task_id)));
+    const existingIds = new Set(rows.map((task) => task.task_id));
+    PENDING_ASSIGN.forEach((task) => {
+      if (!existingIds.has(task.task_id)) rows.push(pendingAssignToDetail(task));
+    });
+    return rows;
+  }, [allTasksFlat, BLOCKED_TASKS, PENDING_ASSIGN]);
+
   const filteredTasks = useMemo(() => {
     const keyword = taskKeyword.trim().toLowerCase();
-    return allTasksFlat.filter((task) => {
+    return taskListRows.filter((task) => {
       if (kpiFilter === "completed" && task.status !== "completed") return false;
       if (kpiFilter === "in_progress" && task.status !== "in_progress") return false;
       if (kpiFilter === "blocked" && task.status !== "paused_blocked") return false;
-      if (taskPriorityFilter !== "all" && task.final_priority !== taskPriorityFilter) return false;
+      if (taskPriorityFilter !== "all" && task.priority !== taskPriorityFilter) return false;
       if (taskStatusFilter !== "all" && task.status !== taskStatusFilter) return false;
       if (!directorDueMatches(task, taskDueFilter)) return false;
       if (!keyword) return true;
-      return [task.task_id, task.title, task.primary_owner, task.category_path, task.description]
+      return [task.task_id, task.title, task.owner, task.category_path, task.description]
         .some((value) => value?.toLowerCase().includes(keyword));
     });
-  }, [allTasksFlat, kpiFilter, taskKeyword, taskPriorityFilter, taskStatusFilter, taskDueFilter]);
+  }, [taskListRows, kpiFilter, taskKeyword, taskPriorityFilter, taskStatusFilter, taskDueFilter]);
 
   useEffect(() => { setTaskListPage(1); }, [kpiFilter, taskKeyword, taskPriorityFilter, taskStatusFilter, taskDueFilter]);
   const taskListTotalPages = Math.max(1, Math.ceil(filteredTasks.length / TASK_LIST_PAGE_SIZE));
@@ -2880,16 +2982,13 @@ export function RDDirectorDashboardPage() {
 
   const categoryTotalPages = Math.max(1, Math.ceil(CATEGORY_PROGRESS.length / CATEGORY_PAGE_SIZE));
   const blockedTotalPages = Math.max(1, Math.ceil(BLOCKED_TASKS.length / BLOCKED_PAGE_SIZE));
-  const pendingTotalPages = Math.max(1, Math.ceil(PENDING_ASSIGN.length / PENDING_PAGE_SIZE));
   const personTotalPages = Math.max(1, Math.ceil(PERSON_LOADS.length / PERSON_PAGE_SIZE));
 
   const categorySafePage = Math.min(categoryPage, categoryTotalPages);
   const blockedSafePage = Math.min(blockedPage, blockedTotalPages);
-  const pendingSafePage = Math.min(pendingPage, pendingTotalPages);
   const personSafePage = Math.min(personPage, personTotalPages);
   const categoryRangeStart = CATEGORY_PROGRESS.length === 0 ? 0 : (categorySafePage - 1) * CATEGORY_PAGE_SIZE + 1;
   const blockedRangeStart = BLOCKED_TASKS.length === 0 ? 0 : (blockedSafePage - 1) * BLOCKED_PAGE_SIZE + 1;
-  const pendingRangeStart = PENDING_ASSIGN.length === 0 ? 0 : (pendingSafePage - 1) * PENDING_PAGE_SIZE + 1;
   const personRangeStart = PERSON_LOADS.length === 0 ? 0 : (personSafePage - 1) * PERSON_PAGE_SIZE + 1;
 
   const categoryPaged = CATEGORY_PROGRESS.slice(
@@ -2899,10 +2998,6 @@ export function RDDirectorDashboardPage() {
   const blockedPaged = BLOCKED_TASKS.slice(
     (blockedSafePage - 1) * BLOCKED_PAGE_SIZE,
     blockedSafePage * BLOCKED_PAGE_SIZE,
-  );
-  const pendingPaged = PENDING_ASSIGN.slice(
-    (pendingSafePage - 1) * PENDING_PAGE_SIZE,
-    pendingSafePage * PENDING_PAGE_SIZE,
   );
   const personPaged = PERSON_LOADS.slice(
     (personSafePage - 1) * PERSON_PAGE_SIZE,
@@ -2922,7 +3017,15 @@ export function RDDirectorDashboardPage() {
   const openTask = (idOrTitle: string, ownerHint?: string) => {
     const rdTask = taskMap.get(idOrTitle);
     const blockedInfo = BLOCKED_TASKS.find((b) => b.task_id === idOrTitle);
-    setSelectedTask(rdTask ? rdTaskToDetail(rdTask, blockedInfo) : makePlaceholderDetail(idOrTitle, ownerHint));
+    const pendingTask = PENDING_ASSIGN.find((task) => task.task_id === idOrTitle);
+    setSelectedTask(rdTask ? rdTaskToDetail(rdTask, blockedInfo) : pendingTask ? pendingAssignToDetail(pendingTask) : makePlaceholderDetail(idOrTitle, ownerHint));
+  };
+
+  const openDirectTaskReassign = (task: TaskDetail) => {
+    setCategoryReassignTasks([taskDetailToReassignable(task)]);
+    setReassignInitialTaskId(task.task_id);
+    setSelectedTask(null);
+    setShowReassign(true);
   };
 
   // Build task list for the selected category drawer (uses live task data)
@@ -3011,6 +3114,8 @@ export function RDDirectorDashboardPage() {
   const totalInProgress = CATEGORY_PROGRESS.reduce((s, c) => s + c.in_progress, 0);
   const totalBlocked = CATEGORY_PROGRESS.reduce((s, c) => s + c.blocked, 0);
   const overallRate = totalTasks > 0 ? Math.round((totalCompleted / totalTasks) * 100) : 0;
+  const highLoadPeople = PERSON_LOADS.filter((person) => person.task_count / Math.max(1, person.max_tasks) >= 0.75).length;
+  const actionQueueCount = BLOCKED_TASKS.length + PENDING_ASSIGN.length;
   const isDashboardEmpty =
     !loading &&
     CATEGORY_PROGRESS.length === 0 &&
@@ -3024,16 +3129,16 @@ export function RDDirectorDashboardPage() {
       initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={DIRECTOR_PANEL_TRANSITION}
-      className="min-h-full p-8"
+      className="min-h-full px-5 py-6 lg:px-7"
     >
-      <div className="mx-auto max-w-6xl">
+      <div className="mx-auto max-w-[1680px]">
         {/* Header */}
-        <div className="mb-6 flex items-center justify-between">
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white bg-white/70 px-5 py-4 shadow-sm">
           <div>
             <h1 className="text-xl font-bold text-slate-900">研发主管驾驶舱</h1>
             <p className="mt-0.5 text-sm text-slate-500">全局视图 · 高级权限专属 · 实时同步</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {loading && (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-500">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -3059,7 +3164,7 @@ export function RDDirectorDashboardPage() {
                 className="flex items-center gap-2 rounded-xl border border-blue-100 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.04)] transition-all duration-150 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/60 hover:text-blue-700 hover:shadow-[0_12px_24px_rgba(37,99,235,0.08)] active:translate-y-0 active:scale-[0.98]"
               >
                 <Users className="h-4 w-4" />
-                批量重分配
+                批量转派
               </button>
             )}
             {canCreateTask && (
@@ -3106,31 +3211,36 @@ export function RDDirectorDashboardPage() {
         </div>
 
         {/* KPI Row — click to filter the task list below */}
-        <div className="mb-5 grid grid-cols-4 gap-4">
+        <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-6">
           {([
             { key: "all", label: "总任务数", value: totalTasks, sub: "全部分类", color: "text-slate-800", ring: "ring-slate-300" },
             { key: "completed", label: "完成率", value: `${overallRate}%`, sub: `${totalCompleted} 已完成`, color: "text-emerald-600", ring: "ring-emerald-400" },
             { key: "in_progress", label: "进行中", value: totalInProgress, sub: "正常执行", color: "text-blue-600", ring: "ring-blue-400" },
             { key: "blocked", label: "阻塞/异常", value: totalBlocked, sub: "需要关注", color: "text-red-500", ring: "ring-red-400" },
+            { key: null, label: "高负载人员", value: highLoadPeople, sub: `${PERSON_LOADS.length} 人在线`, color: "text-amber-600", ring: "ring-amber-400" },
+            { key: null, label: "行动队列", value: actionQueueCount, sub: `${PENDING_ASSIGN.length} 待指派`, color: "text-violet-600", ring: "ring-violet-400" },
           ] as const).map((kpi) => {
-            const active = kpiFilter === kpi.key;
+            const active = kpi.key !== null && kpiFilter === kpi.key;
             return (
               <motion.button
                 type="button"
                 key={kpi.label}
-                onClick={() => setKpiFilter(kpi.key)}
+                onClick={() => {
+                  if (kpi.key !== null) setKpiFilter(kpi.key);
+                }}
                 initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={DIRECTOR_PANEL_TRANSITION}
                 whileHover={shouldReduceMotion ? undefined : { y: -2 }}
                 className={cn(
-                  "rounded-2xl border bg-white p-4 text-left shadow-sm transition-all hover:shadow-[0_14px_30px_rgba(15,23,42,0.07)]",
+                  "rounded-xl border bg-white p-3 text-left shadow-sm transition-all hover:shadow-[0_14px_30px_rgba(15,23,42,0.07)]",
+                  kpi.key === null && "cursor-default",
                   active
                     ? cn("border-transparent ring-2 ring-offset-1", kpi.ring)
                     : "border-white",
                 )}
               >
-                <div className={cn("text-3xl font-bold", kpi.color)}>{kpi.value}</div>
+                <div className={cn("text-2xl font-bold tabular-nums", kpi.color)}>{kpi.value}</div>
                 <div className="mt-1 flex items-center gap-1.5 text-sm font-medium text-slate-700">
                   {kpi.label}
                   {active && <span className="text-[10px] font-semibold text-blue-600">· 已筛选</span>}
@@ -3169,9 +3279,9 @@ export function RDDirectorDashboardPage() {
           </div>
         )}
 
-        <div className="grid grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 gap-5 2xl:grid-cols-[minmax(0,1.55fr)_minmax(360px,0.9fr)]">
           {/* Left: Category Progress + Bottlenecks */}
-          <div className="col-span-2 space-y-5">
+          <div className="space-y-5">
             {/* Task list — filterable by KPI cards above */}
             <div className="rounded-2xl border border-white bg-white/70 p-5 shadow-sm">
               <div className="mb-4 flex items-center justify-between gap-3">
@@ -3194,21 +3304,22 @@ export function RDDirectorDashboardPage() {
                     )}
                   </h2>
                   <p className="mt-0.5 text-[11px] text-slate-400">
-                    点击上方 KPI 卡片可筛选 · 点击任意任务行查看详情
+                    待人工指派已合并到此列表 · 操作列可直接指派或转派
                   </p>
                 </div>
-                {/*<div className="flex items-center gap-2">*/}
-                {/*  {canCreateTask && (*/}
-                {/*    <button*/}
-                {/*      type="button"*/}
-                {/*      onClick={() => setCategoryEditor({ mode: "create" })}*/}
-                {/*      className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-all hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"*/}
-                {/*    >*/}
-                {/*      <Plus className="h-3.5 w-3.5" />*/}
-                {/*      新增分类*/}
-                {/*    </button>*/}
-                {/*  )}*/}
-                {/*</div>*/}
+                {PENDING_ASSIGN.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setKpiFilter("all");
+                      setTaskStatusFilter("pending_assign");
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-violet-100 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 transition-colors hover:bg-violet-100"
+                  >
+                    待指派 {PENDING_ASSIGN.length}
+                    <ChevronRight className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
               <div className="mb-3 grid gap-2 rounded-xl border border-slate-100 bg-slate-50/70 p-3 md:grid-cols-[minmax(220px,1fr)_130px_130px_120px_auto]">
                 <label className="relative block">
@@ -3289,33 +3400,39 @@ export function RDDirectorDashboardPage() {
                           <th className="px-3 py-2.5">优先级</th>
                           <th className="px-3 py-2.5">进度</th>
                           <th className="px-3 py-2.5">截止</th>
+                          <th className="px-3 py-2.5 text-right">操作</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 bg-white/70">
-                        {taskListPaged.map((rdTask) => {
-                          const sCfg = TASK_STATUS_CONFIG[rdTask.status] ?? TASK_STATUS_CONFIG.in_progress;
-                          const pCfg = TASK_PRIORITY_CONFIG[rdTask.final_priority] ?? TASK_PRIORITY_CONFIG.medium;
+                        {taskListPaged.map((task) => {
+                          const sCfg = TASK_STATUS_CONFIG[task.status] ?? TASK_STATUS_CONFIG.in_progress;
+                          const pCfg = TASK_PRIORITY_CONFIG[task.priority] ?? TASK_PRIORITY_CONFIG.medium;
+                          const isPendingAssign = task.status === "pending_assign" || task.owner === "待指派";
                           return (
                             <tr
-                              key={rdTask.task_id}
-                              onClick={() => openTask(rdTask.task_id, rdTask.primary_owner)}
+                              key={task.task_id}
+                              onClick={() => openTask(task.task_id, task.owner)}
                               className="cursor-pointer transition-colors hover:bg-slate-50/80"
                             >
                               <td className="px-3 py-3">
-                                <div className="max-w-[300px] truncate font-medium text-slate-800">{rdTask.title}</div>
-                                <div className="mt-0.5 truncate text-[11px] text-slate-400">{rdTask.category_path}</div>
+                                <div className="max-w-[300px] truncate font-medium text-slate-800">{task.title}</div>
+                                <div className="mt-0.5 truncate text-[11px] text-slate-400">{task.category_path}</div>
                               </td>
                               <td className="px-3 py-3 text-sm text-slate-700">
-                                <button
-                                  type="button"
-                                  onClick={(e) => { e.stopPropagation(); openPersonByName(rdTask.primary_owner); }}
-                                  className="hover:text-blue-600 hover:underline"
-                                >
-                                  {rdTask.primary_owner}
-                                </button>
+                                {isPendingAssign || task.owner === "外部机构" ? (
+                                  <span className={cn("font-medium", isPendingAssign ? "text-violet-600" : "text-slate-500")}>{task.owner}</span>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.stopPropagation(); openPersonByName(task.owner); }}
+                                    className="hover:text-blue-600 hover:underline"
+                                  >
+                                    {task.owner}
+                                  </button>
+                                )}
                               </td>
                               <td className="px-3 py-3">
-                                <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold", sCfg.bg, sCfg.text)}>
+                                <span className={cn("inline-flex min-w-[76px] items-center justify-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold", sCfg.bg, sCfg.text, sCfg.border)}>
                                   <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
                                   {sCfg.label}
                                 </span>
@@ -3328,12 +3445,34 @@ export function RDDirectorDashboardPage() {
                               <td className="px-3 py-3">
                                 <div className="flex min-w-[110px] items-center gap-2">
                                   <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
-                                    <div className="h-full rounded-full bg-blue-400" style={{ width: `${Math.max(0, Math.min(100, rdTask.progress))}%` }} />
+                                    <div className="h-full rounded-full bg-blue-400" style={{ width: `${Math.max(0, Math.min(100, task.progress))}%` }} />
                                   </div>
-                                  <span className="w-9 text-right text-xs tabular-nums text-slate-500">{rdTask.progress}%</span>
+                                  <span className="w-9 text-right text-xs tabular-nums text-slate-500">{task.progress}%</span>
                                 </div>
                               </td>
-                              <td className="px-3 py-3 text-[11px] tabular-nums text-slate-500">{rdTask.due_date || "—"}</td>
+                              <td className="px-3 py-3 text-[11px] tabular-nums text-slate-500">{task.due_date || "—"}</td>
+                              <td className="px-3 py-3 text-right">
+                                {canReassignTasks && task.status !== "completed" && task.status !== "archived" ? (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openDirectTaskReassign(task);
+                                    }}
+                                    className={cn(
+                                      "inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all active:scale-95",
+                                      isPendingAssign
+                                        ? "bg-blue-600 text-white shadow-[0_8px_16px_rgba(37,99,235,0.18)] hover:bg-blue-700"
+                                        : "border border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700",
+                                    )}
+                                  >
+                                    <UserCog className="h-3.5 w-3.5" />
+                                    {isPendingAssign ? "指派" : "转派"}
+                                  </button>
+                                ) : (
+                                  <span className="text-[11px] text-slate-300">—</span>
+                                )}
+                              </td>
                             </tr>
                           );
                         })}
@@ -3351,6 +3490,81 @@ export function RDDirectorDashboardPage() {
                     <MiniPagination page={taskListSafePage} totalPages={taskListTotalPages} onChange={setTaskListPage} />
                   </div>
                 </div>
+              )}
+            </div>
+
+            {/* Category progress matrix */}
+            <div className="rounded-2xl border border-white bg-white/70 p-5 shadow-sm">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="flex items-center gap-2 text-sm font-bold text-slate-800">
+                    <LayoutGrid className="h-4 w-4 text-emerald-500" />
+                    系统进度矩阵
+                    <span className="rounded-full bg-slate-100 px-1.5 text-xs font-medium text-slate-600">{CATEGORY_PROGRESS.length}</span>
+                  </h2>
+                  <p className="mt-0.5 text-[11px] text-slate-400">按系统查看进度、阻塞和完成量，点击进入分类详情</p>
+                </div>
+                <span className="text-[11px] tabular-nums text-slate-400">
+                  {categoryRangeStart}
+                  {" - "}
+                  {Math.min(categorySafePage * CATEGORY_PAGE_SIZE, CATEGORY_PROGRESS.length)}
+                  <span className="mx-1 text-slate-300">/</span>
+                  {CATEGORY_PROGRESS.length}
+                </span>
+              </div>
+              {categoryPaged.length === 0 ? (
+                <DashboardEmptyPanel
+                  title={loading ? "正在读取系统进度" : "暂无系统进度数据"}
+                  description={loading ? "请稍候，系统正在同步分类进度。" : "新增任务或导入研发数据后，这里会显示系统维度进度。"}
+                />
+              ) : (
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {categoryPaged.map((category) => {
+                    const rate = category.total > 0 ? Math.round((category.completed / category.total) * 100) : 0;
+                    const barColor = getCategoryColorClass(category.color, "bg-blue-500");
+                    return (
+                      <button
+                        key={category.id}
+                        type="button"
+                        onClick={() => setSelectedCategory(category)}
+                        className="group rounded-xl border border-slate-100 bg-white p-3 text-left transition-all hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_12px_24px_rgba(15,23,42,0.07)]"
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-slate-900">{category.label}</div>
+                            <div className="mt-1 text-[11px] text-slate-400">
+                              {category.completed} / {category.total} 已完成
+                            </div>
+                          </div>
+                          {category.blocked > 0 && (
+                            <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-600">
+                              阻塞 {category.blocked}
+                            </span>
+                          )}
+                        </div>
+                        <div className="mt-3 flex items-center gap-2">
+                          <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-100">
+                            <div className={cn("h-full rounded-full", barColor)} style={{ width: `${rate}%` }} />
+                          </div>
+                          <span className="w-10 text-right text-xs font-semibold tabular-nums text-slate-600">{rate}%</span>
+                        </div>
+                        <div className="mt-3 grid grid-cols-3 gap-2 text-[11px]">
+                          <span className="rounded-lg bg-blue-50 px-2 py-1 text-blue-700">进行 {category.in_progress}</span>
+                          <span className="rounded-lg bg-emerald-50 px-2 py-1 text-emerald-700">完成 {category.completed}</span>
+                          <span className="rounded-lg bg-slate-50 px-2 py-1 text-slate-600">总计 {category.total}</span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              {CATEGORY_PROGRESS.length > 0 && (
+                <MiniPagination
+                  page={categorySafePage}
+                  totalPages={categoryTotalPages}
+                  onChange={setCategoryPage}
+                  className="mt-3 justify-end"
+                />
               )}
             </div>
 
@@ -3645,75 +3859,10 @@ export function RDDirectorDashboardPage() {
               )}
             </div>
 
-            {/* Pending Assign */}
-            {(PENDING_ASSIGN.length > 0 || loading || isDashboardEmpty) && (
-              <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-5 shadow-sm">
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="flex items-center gap-2 text-sm font-bold text-slate-800">
-                    <Loader2 className="h-4 w-4 text-blue-500" />
-                    待人工指派
-                    <span className="rounded-full bg-blue-100 px-1.5 text-xs text-blue-700">{PENDING_ASSIGN.length}</span>
-                  </h2>
-                  <span className="text-[11px] tabular-nums text-slate-400">
-                    {pendingRangeStart}
-                    {" - "}
-                    {Math.min(pendingSafePage * PENDING_PAGE_SIZE, PENDING_ASSIGN.length)}
-                    <span className="mx-1 text-slate-300">/</span>
-                    {PENDING_ASSIGN.length}
-                  </span>
-                </div>
-                <p className="mb-3 text-xs text-slate-500">以下任务规则未能自动匹配责任人，请手动指派并补充映射规则</p>
-                <div className="space-y-2">
-                  {pendingPaged.length === 0 ? (
-                    <DashboardEmptyPanel
-                      title={loading ? "正在读取待指派任务" : "暂无待指派任务"}
-                      description={loading ? "请稍候，系统正在同步任务分配状态。" : "当前没有需要人工指派的研发任务。"}
-                    />
-                  ) : pendingPaged.map((t) => {
-                    const pCfg = PRIORITY_CONFIG[t.ai_priority] ?? PRIORITY_CONFIG.medium;
-                    return (
-                      <div
-                        key={t.task_id}
-                        onClick={() => openTask(t.task_id, "待指派")}
-                        className="group flex cursor-pointer items-center gap-3 rounded-xl border border-blue-100 bg-white px-4 py-3 transition-all duration-150 hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_8px_20px_rgba(37,99,235,0.08)] active:translate-y-0"
-                      >
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-mono text-slate-400">{t.task_id}</span>
-                            <span className={cn("rounded border px-1.5 py-0.5 text-xs font-semibold", pCfg.color)}>{pCfg.label}</span>
-                          </div>
-                          <div className="mt-0.5 text-sm font-medium text-slate-800 group-hover:text-slate-900">{t.title}</div>
-                          <div className="text-xs text-slate-400">{t.category_path}</div>
-                        </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setReassignInitialTaskId(t.task_id);
-                            setCategoryReassignTasks(null);
-                            setShowReassign(true);
-                          }}
-                          className="flex shrink-0 items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_16px_rgba(37,99,235,0.18)] transition-all hover:bg-blue-700 active:scale-95"
-                        >
-                          手动指派
-                        </button>
-                      </div>
-                    );
-                  })}
-                </div>
-                {PENDING_ASSIGN.length > 0 && (
-                  <MiniPagination
-                    page={pendingSafePage}
-                    totalPages={pendingTotalPages}
-                    onChange={setPendingPage}
-                    className="mt-3 justify-end"
-                  />
-                )}
-              </div>
-            )}
           </div>
 
           {/* Right: Personnel Heatmap */}
-          <div className="space-y-5">
+          <div className="space-y-5 2xl:sticky 2xl:top-5 2xl:self-start">
             <div className="rounded-2xl border border-white bg-white/70 p-5 shadow-sm">
               <div className="mb-1 flex items-center justify-between">
                 <h2 className="flex items-center gap-2 text-sm font-bold text-slate-800">
@@ -3810,13 +3959,13 @@ export function RDDirectorDashboardPage() {
           onClose={() => setSelectedPerson(null)}
           onOpenTask={(id, hint) => openTask(id, hint)}
           taskMap={taskMap}
+          reassignableTaskCount={getPersonReassignableTasks(selectedPerson).length}
           onEditPerson={(p) => setEditingPerson(p)}
           onSendMessage={(p) => setMessageTarget(p)}
           onReassignPerson={(p) => {
-            // Filter reassignable tasks down to this person and open the modal
-            const personTasks = REASSIGNABLE_TASKS.filter((t) => t.owner === p.name);
+            const personTasks = getPersonReassignableTasks(p);
             if (personTasks.length === 0) {
-              toast.info(`${p.name} 当前没有可重分配的任务`);
+              toast.info(`${p.name} 当前没有可转派的任务`);
               return;
             }
             setCategoryReassignTasks(personTasks);
@@ -3848,6 +3997,7 @@ export function RDDirectorDashboardPage() {
           task={selectedTask}
           onClose={() => setSelectedTask(null)}
           onOpenPerson={openPersonByName}
+          onOpenReassign={openDirectTaskReassign}
           onUpdate={() => { setSelectedTask(null); reloadAll(); }}
           onDelete={() => { setSelectedTask(null); reloadAll(); }}
         />

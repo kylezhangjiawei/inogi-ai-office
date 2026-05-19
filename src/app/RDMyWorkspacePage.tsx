@@ -200,7 +200,7 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   return (
-    <section className="rounded-xl border border-slate-200/80 bg-white p-5 shadow-[0_16px_36px_rgba(15,23,42,0.045)]">
+    <section className="rounded-2xl border border-white bg-white/75 p-4 shadow-[0_16px_36px_rgba(15,23,42,0.045)]">
       <div className="mb-3 flex items-center justify-between gap-3">
         <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
           <Icon className="h-4 w-4 text-slate-500" />
@@ -209,7 +209,7 @@ function SectionCard({
             <span className="rounded-full bg-slate-100 px-1.5 text-xs font-semibold text-slate-500">{count}</span>
           )}
         </h2>
-        {helper && <span className="text-xs text-slate-400">{helper}</span>}
+        {helper && <span className="hidden text-xs text-slate-400 md:inline">{helper}</span>}
       </div>
       {children}
     </section>
@@ -230,7 +230,7 @@ function WorkspaceMetric({
   tone: string;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200/75 bg-white px-4 py-3 shadow-[0_12px_30px_rgba(15,23,42,0.04)]">
+    <div className="rounded-xl border border-white bg-white/75 px-4 py-3 shadow-[0_12px_30px_rgba(15,23,42,0.04)]">
       <div className="mb-2 flex items-center justify-between">
         <span className="text-xs font-medium text-slate-500">{label}</span>
         <Icon className={cn("h-4 w-4", tone)} />
@@ -379,8 +379,8 @@ function TaskCardUI({
   return (
     <article
       className={cn(
-        "group rounded-xl border bg-white px-4 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.035)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_34px_rgba(15,23,42,0.07)]",
-        task.on_leave ? "border-amber-100 bg-amber-50/40" : task.status === "blocked" ? "border-red-100 bg-red-50/30" : "border-slate-200/80",
+        "group rounded-xl border bg-white px-3 py-2.5 shadow-[0_10px_24px_rgba(15,23,42,0.035)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_16px_34px_rgba(15,23,42,0.07)]",
+        task.on_leave ? "border-amber-100 bg-amber-50/40" : task.status === "paused_blocked" ? "border-red-100 bg-red-50/30" : "border-slate-200/80",
       )}
     >
       <button
@@ -401,12 +401,12 @@ function TaskCardUI({
               )}
             </div>
             <h3 className="mt-1 truncate text-sm font-semibold text-slate-900">{task.title}</h3>
-            <p className="mt-1 line-clamp-1 text-xs text-slate-500">{task.next_action}</p>
+            <p className="mt-0.5 line-clamp-1 text-xs text-slate-500">{task.next_action}</p>
           </div>
           <PriorityBadge priority={task.priority} />
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-500">
+        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
           <span className="flex items-center gap-1">
             {task.role === "primary" ? <User className="h-3 w-3" /> : <Users className="h-3 w-3" />}
             {task.role === "primary" ? "我主责" : `协作 / ${task.collab_role}`}
@@ -418,13 +418,13 @@ function TaskCardUI({
           <span className="min-w-0 truncate text-slate-400">{task.category_path}</span>
         </div>
 
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-2 flex items-center gap-2">
           <ProgressBar value={task.progress} />
           <span className="w-9 shrink-0 text-right text-xs font-semibold tabular-nums text-slate-500">{task.progress}%</span>
         </div>
       </button>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 opacity-100 md:opacity-0 md:transition-opacity md:group-hover:opacity-100">
+      <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2 opacity-100 md:opacity-0 md:transition-opacity md:group-hover:opacity-100">
         <ActionButton onClick={() => onOpen(task, "detail")} variant="ghost">
           <Info className="h-3.5 w-3.5" />
           详情
@@ -1568,6 +1568,40 @@ export function RDMyWorkspacePage() {
     if (allTasks.length === 0) return 0;
     return Math.round(allTasks.reduce((sum, task) => sum + task.progress, 0) / allTasks.length);
   }, [allTasks]);
+  const dueStats = useMemo(
+    () =>
+      allTasks.reduce(
+        (stats, task) => {
+          const days = workspaceDaysUntil(task.due_date);
+          if (days !== null && days < 0) stats.overdue += 1;
+          if (days === 0) stats.today += 1;
+          return stats;
+        },
+        { overdue: 0, today: 0 },
+      ),
+    [allTasks],
+  );
+  const overdueCount = dueStats.overdue;
+  const dueTodayCount = dueStats.today;
+  const highPriorityCount = useMemo(() => allTasks.filter((task) => task.priority === "high").length, [allTasks]);
+  const focusQueue = useMemo(
+    () =>
+      allTasks
+        .filter((task) => {
+          const days = workspaceDaysUntil(task.due_date);
+          return task.ai_pending || task.priority === "high" || task.status === "paused_blocked" || (days !== null && days <= 3);
+        })
+        .sort((a, b) => {
+          const aDays = workspaceDaysUntil(a.due_date) ?? 999;
+          const bDays = workspaceDaysUntil(b.due_date) ?? 999;
+          const aRisk = (a.status === "paused_blocked" ? 0 : 4) + (a.priority === "high" ? 0 : 2) + (a.ai_pending ? 0 : 1) + aDays;
+          const bRisk = (b.status === "paused_blocked" ? 0 : 4) + (b.priority === "high" ? 0 : 2) + (b.ai_pending ? 0 : 1) + bDays;
+          return aRisk - bRisk;
+        })
+        .slice(0, 6),
+    [allTasks],
+  );
+  const todoCompletionRate = todayTodos.length > 0 ? Math.round((todoChecked.size / todayTodos.length) * 100) : 0;
 
   const findTask = (taskId?: string) => allTasks.find((task) => task.task_id === taskId);
   const openTask = (task: WorkspaceTask, tab: OperationTab) => setActivePanel({ kind: "task", task, tab });
@@ -1580,9 +1614,9 @@ export function RDMyWorkspacePage() {
   };
 
   return (
-    <div className="min-h-full  px-6 py-6 lg:px-8 lg:py-8">
-      <div className="mx-auto max-w-[1400px] space-y-6">
-        <header className="flex flex-wrap items-end justify-between gap-4">
+    <div className="min-h-full px-5 py-6 lg:px-7">
+      <div className="mx-auto max-w-[1680px] space-y-5">
+        <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white bg-white/75 px-5 py-4 shadow-sm">
           <div>
             <h1 className="text-xl font-semibold text-slate-950">个人工作台</h1>
             <p className="mt-1 text-sm text-slate-500">只展示与我有关的任务、提醒和 AI 待确认项 / 今日 {TODAY_LABEL}</p>
@@ -1592,7 +1626,7 @@ export function RDMyWorkspacePage() {
               </p>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {canProposeProject && (
               <button
                 type="button"
@@ -1645,35 +1679,35 @@ export function RDMyWorkspacePage() {
               {dailyReportLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <CalendarClock className="h-3.5 w-3.5" />}
               {dailyReportLoading ? "生成中…" : "生成日报"}
             </ActionButton>
-            <ActionButton
-              variant="primary"
-              onClick={() =>
-                setConfirmDialog({
-                  title: "确认同步今日进展",
-                  message: "将把今日进度、待办完成情况和操作记录同步到研发任务流。",
-                  confirmLabel: "确认同步",
-                  details: [`已完成待办：${todoChecked.size} / ${todayTodos.length}`, `待处理通知：${visibleNotifications.length}`, `待审核 AI 建议：${visibleSuggestions.length}`],
-                  onConfirm: () => {
-                    recordAudit({
-                      actor: WORKSPACE_AUDIT_ACTOR,
-                      action: "daily_progress.synced",
-                      resource: { type: "system", id: "daily-progress", name: "今日研发进展" },
-                      metadata: {
-                        done_todos: todoChecked.size,
-                        total_todos: todayTodos.length,
-                        pending_notifications: visibleNotifications.length,
-                        pending_ai_suggestions: visibleSuggestions.length,
-                      },
-                      source: "web",
-                    });
-                    addLog("今日进展已同步到研发任务流");
-                  },
-                })
-              }
-            >
-              <CheckSquare className="h-3.5 w-3.5" />
-              同步今日进展
-            </ActionButton>
+            {/*<ActionButton*/}
+            {/*  variant="primary"*/}
+            {/*  onClick={() =>*/}
+            {/*    setConfirmDialog({*/}
+            {/*      title: "确认同步今日进展",*/}
+            {/*      message: "将把今日进度、待办完成情况和操作记录同步到研发任务流。",*/}
+            {/*      confirmLabel: "确认同步",*/}
+            {/*      details: [`已完成待办：${todoChecked.size} / ${todayTodos.length}`, `待处理通知：${visibleNotifications.length}`, `待审核 AI 建议：${visibleSuggestions.length}`],*/}
+            {/*      onConfirm: () => {*/}
+            {/*        recordAudit({*/}
+            {/*          actor: WORKSPACE_AUDIT_ACTOR,*/}
+            {/*          action: "daily_progress.synced",*/}
+            {/*          resource: { type: "system", id: "daily-progress", name: "今日研发进展" },*/}
+            {/*          metadata: {*/}
+            {/*            done_todos: todoChecked.size,*/}
+            {/*            total_todos: todayTodos.length,*/}
+            {/*            pending_notifications: visibleNotifications.length,*/}
+            {/*            pending_ai_suggestions: visibleSuggestions.length,*/}
+            {/*          },*/}
+            {/*          source: "web",*/}
+            {/*        });*/}
+            {/*        addLog("今日进展已同步到研发任务流");*/}
+            {/*      },*/}
+            {/*    })*/}
+            {/*  }*/}
+            {/*>*/}
+            {/*  <CheckSquare className="h-3.5 w-3.5" />*/}
+            {/*  同步今日进展*/}
+            {/*</ActionButton>*/}
           </div>
         </header>
 
@@ -1692,10 +1726,11 @@ export function RDMyWorkspacePage() {
           </div>
         )}
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <WorkspaceMetric label="主责任务" value={myTasks.length} helper="需要我推进闭环" icon={User} tone="text-blue-500" />
           <WorkspaceMetric label="协作任务" value={collabTasks.length} helper="我作为协作人参与" icon={Users} tone="text-slate-500" />
           <WorkspaceMetric label="平均完成率" value={`${averageProgress}%`} helper="按当前任务计算" icon={CheckCircle2} tone="text-emerald-500" />
+          <WorkspaceMetric label="今日到期" value={dueTodayCount} helper={`${overdueCount} 个已逾期`} icon={Clock} tone={overdueCount > 0 ? "text-red-500" : "text-blue-500"} />
           <WorkspaceMetric
             label="待处理事项"
             value={visibleNotifications.length + visibleSuggestions.length}
@@ -1705,7 +1740,67 @@ export function RDMyWorkspacePage() {
           />
         </div>
 
-        <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+        <section className="rounded-2xl border border-white bg-white/75 p-4 shadow-sm">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <ClipboardCheck className="h-4 w-4 text-blue-500" />
+                今日焦点队列
+                <span className="rounded-full bg-blue-50 px-1.5 text-xs font-semibold text-blue-700">{focusQueue.length}</span>
+              </h2>
+              <p className="mt-0.5 text-xs text-slate-400">优先展示逾期、高优先级、AI 待确认和 3 天内到期任务</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
+                高优先级 {highPriorityCount}
+              </span>
+              <span className="flex items-center gap-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                今日待办完成 {todoCompletionRate}%
+              </span>
+            </div>
+          </div>
+          {focusQueue.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center text-sm text-slate-400">
+              当前没有需要优先处理的任务
+            </div>
+          ) : (
+            <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+              {focusQueue.map((task) => {
+                const days = workspaceDaysUntil(task.due_date);
+                const dueText = days === null ? "无截止日" : days < 0 ? `逾期 ${Math.abs(days)} 天` : days === 0 ? "今天到期" : `${days} 天后`;
+                return (
+                  <button
+                    key={task.task_id}
+                    type="button"
+                    onClick={() => openTask(task, "progress")}
+                    className="group rounded-xl border border-slate-100 bg-white px-3 py-3 text-left transition-all hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_12px_28px_rgba(15,23,42,0.07)]"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-[11px] text-slate-400">{task.task_id}</span>
+                          <PriorityBadge priority={task.priority} />
+                        </div>
+                        <div className="mt-1 truncate text-sm font-semibold text-slate-900">{task.title}</div>
+                        <div className="mt-1 truncate text-xs text-slate-400">{task.category_path}</div>
+                      </div>
+                      <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold", days !== null && days <= 0 ? "bg-red-50 text-red-600" : "bg-blue-50 text-blue-700")}>
+                        {dueText}
+                      </span>
+                    </div>
+                    <div className="mt-3 flex items-center gap-2">
+                      <ProgressBar value={task.progress} />
+                      <span className="w-9 shrink-0 text-right text-xs font-semibold tabular-nums text-slate-500">{task.progress}%</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        <div className="sticky top-4 z-10 rounded-2xl border border-white bg-white/90 p-3 shadow-sm backdrop-blur">
           <div className="grid gap-2 md:grid-cols-[minmax(220px,1fr)_140px_140px_130px_auto]">
             <label className="relative block">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
@@ -1769,14 +1864,14 @@ export function RDMyWorkspacePage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
+        <div className="grid grid-cols-1 gap-5 2xl:grid-cols-[minmax(0,1.55fr)_minmax(360px,0.75fr)]">
           <main className="space-y-5">
             <SectionCard title="我的任务" icon={User} count={filteredMyTasks.length} helper="按优先级和到期时间处理">
-              <div className="space-y-3">
+              <div className="grid gap-3 xl:grid-cols-2">
                 {loading ? (
-                  <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">正在加载我的任务…</p>
+                  <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-400 xl:col-span-2">正在加载我的任务…</p>
                 ) : filteredMyTasks.length === 0 ? (
-                  <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-400">
+                  <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-400 xl:col-span-2">
                     暂无分配给我的研发任务
                   </p>
                 ) : (
@@ -1788,11 +1883,11 @@ export function RDMyWorkspacePage() {
             </SectionCard>
 
             <SectionCard title="协作任务" icon={Users} count={filteredCollabTasks.length} helper="需要我提供输入或反馈">
-              <div className="space-y-3">
+              <div className="grid gap-3 xl:grid-cols-2">
                 {loading ? (
-                  <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">正在加载协作任务…</p>
+                  <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-400 xl:col-span-2">正在加载协作任务…</p>
                 ) : filteredCollabTasks.length === 0 ? (
-                  <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-400">
+                  <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-400 xl:col-span-2">
                     暂无需要我协作的任务
                   </p>
                 ) : (
@@ -1876,7 +1971,7 @@ export function RDMyWorkspacePage() {
             )}
           </main>
 
-          <aside className="space-y-5">
+          <aside className="space-y-5 2xl:sticky 2xl:top-20 2xl:self-start">
             <SectionCard title="今日待办" icon={CheckSquare} count={`${todayTodos.length - todoChecked.size}/${todayTodos.length}`}>
               {todayTodos.length === 0 ? (
                 <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">

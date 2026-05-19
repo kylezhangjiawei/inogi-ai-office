@@ -229,7 +229,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     permissions: [
       { code: 'page:rd-task-management', label: '研发任务管理', description: '树状任务表，AI 解析新建，任务封存/移交' },
       { code: 'page:rd-my-workspace', label: '个人工作台', description: '我的任务、协作任务、今日待办、待审核 AI 建议' },
-      { code: 'page:rd-director-dashboard', label: '研发主管驾驶舱', description: '全局进度、人员负载热力图、批量重分配（高级权限）' },
+      { code: 'page:rd-director-dashboard', label: '研发主管驾驶舱', description: '全局进度、人员负载热力图、批量转派（高级权限）' },
       { code: 'page:rd-approval-flow', label: '审批流配置', description: '配置立项/任务审批的节点、模式、SLA' },
       { code: 'page:rd-audit-log', label: '操作留痕', description: '查看研发任务管理关键操作的审计时间轴' },
       { code: 'page:rd-ai-settings', label: '研发 AI 策略', description: '配置研发模块 AI 场景模型、文件解析顺序、OCR 兜底与披露策略' },
@@ -241,7 +241,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { code: 'rd-task:create', label: '新建任务', description: '通过 AI 解析或手动创建任务' },
       { code: 'rd-task:edit', label: '编辑任务', description: '修改任务字段和状态' },
       { code: 'rd-task:archive', label: '封存/解封任务', description: '触发任务封存或解除封存（需审批）' },
-      { code: 'rd-task:reassign', label: '转派任务', description: '批量或单条任务重分配（高级权限）' },
+      { code: 'rd-task:reassign', label: '转派任务', description: '批量或单条任务转派（高级权限）' },
       { code: 'rd-task:override-priority', label: '覆盖优先级', description: '覆盖 AI 判定的优先级（组长及以上）' },
       { code: 'rd-people:manage', label: '管理研发人员', description: '新增、编辑、删除研发成员和任务容量' },
       { code: 'rd-approval-flow:manage', label: '管理审批流', description: '新增、调整、保存、重置研发审批流节点' },

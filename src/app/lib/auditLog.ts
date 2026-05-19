@@ -186,7 +186,7 @@ export const AUDIT_ACTION_META: Record<AuditAction, AuditActionMeta> = {
   "ai.suggestion_rejected": { category: "ai", label: "拒绝 AI 建议", verb: "拒绝了 AI 建议", tone: "red" },
   "ai.regenerated": { category: "ai", label: "重新生成", verb: "重新生成了 AI 输出", tone: "blue" },
   // System
-  "system.bulk_reassign": { category: "system", label: "批量重分配", verb: "执行了批量重分配", tone: "violet" },
+  "system.bulk_reassign": { category: "system", label: "批量转派", verb: "执行了批量转派", tone: "violet" },
   "notification.handled": { category: "system", label: "通知处理", verb: "处理了通知", tone: "slate" },
   "daily_report.generated": { category: "system", label: "生成日报", verb: "生成了研发日报", tone: "blue" },
   "daily_progress.synced": { category: "system", label: "同步进展", verb: "同步了今日研发进展", tone: "emerald" },

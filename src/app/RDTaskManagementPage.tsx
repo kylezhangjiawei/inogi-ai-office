@@ -2756,7 +2756,7 @@ function TaskDetailDrawer({
         exit={{ opacity: 0, x: 28 }}
         transition={RD_PANEL_TRANSITION}
       >
-        <div className="sticky top-0 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
+        <div className="sticky top-0 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4 z-[100]">
           <div>
             <div className="text-xs font-mono text-slate-400">{task.task_id}</div>
             <div className="text-base font-semibold text-slate-800">{task.title}</div>
