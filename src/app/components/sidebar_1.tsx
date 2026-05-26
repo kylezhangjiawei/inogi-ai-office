@@ -1,7 +1,8 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { NavLink } from "react-router";
 import { useAuth } from "../auth";
 import { hasPermission } from "../lib/permissions";
+import { permissionCatalogApi } from "../lib/permissionCatalogApi";
 import { navGroups } from "../routesConfig";
 import { cn } from "./ui/utils";
 import logo from '../../assets/logo.png'
@@ -10,14 +11,27 @@ export function Sidebar() {
   const { user } = useAuth();
   const userPermissions = user?.permissions ?? [];
 
+  // Fetch nav-hidden codes from the permission catalog.
+  // Hidden pages are still accessible but not shown in the sidebar.
+  const [navHiddenCodes, setNavHiddenCodes] = useState<Set<string>>(new Set());
+  useEffect(() => {
+    if (!user) return;
+    permissionCatalogApi
+      .getNavHiddenCodes()
+      .then((codes) => setNavHiddenCodes(new Set(codes)))
+      .catch(() => { /* silently ignore — show all items on error */ });
+  }, [user]);
+
   const visibleGroups = navGroups
     .map((group) => ({
       ...group,
-      items: group.items.filter(
-        (item) =>
-          !item.requiredPermission ||
-          hasPermission(userPermissions, item.requiredPermission),
-      ),
+      items: group.items.filter((item) => {
+        // Must have the required permission (or no permission required)
+        if (item.requiredPermission && !hasPermission(userPermissions, item.requiredPermission)) return false;
+        // Must not be marked as nav-hidden in the permission catalog
+        if (item.requiredPermission && navHiddenCodes.has(item.requiredPermission)) return false;
+        return true;
+      }),
     }))
     .filter((group) => group.items.length > 0);
 

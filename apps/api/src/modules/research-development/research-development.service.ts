@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { OcrService } from '../ocr/ocr.service';
+import { OssService } from '../oss/oss.service';
+import { RdAiService } from './rd-ai.service';
 
 type JsonRecord = Record<string, unknown>;
 type IdentityUser = {
@@ -15,6 +17,11 @@ type IdentityUser = {
 type IdentityContext = {
   users: IdentityUser[];
   people: JsonRecord[];
+};
+type MessageRecipientIdentity = {
+  userId: string;
+  nameKey: string;
+  personIds: Set<string>;
 };
 type NormalizedAiSettings = JsonRecord & {
   scenes: JsonRecord[];
@@ -32,7 +39,11 @@ type RdStoreKey =
   | 'rd.taskProgressNotes'
   | 'rd.dailyReports'
   | 'rd.messages'
-  | 'rd.proposalDrafts';
+  | 'rd.proposalDrafts'
+  | 'rd.products'
+  | 'rd.productTaskCategories'
+  | 'rd.knowledgeCategories'
+  | 'rd.knowledgeEntries';
 
 const CATEGORY = 'research-development';
 const MAX_AUDIT_LOGS = 1000;
@@ -62,6 +73,52 @@ const RD_POC_BOM_CATEGORIES = [
   { id: 'cat-fastener', label: '紧固件系统', parts: ['螺丝', '铜柱', '螺母'] },
   { id: 'cat-sealing', label: '密封系统', parts: ['O-ring', '泡棉', '密封胶'] },
 ] as const;
+
+const DEFAULT_KB_CATEGORIES = [
+  { id: 'kb-hardware', label: '硬件研发', icon: 'Cpu', color: '#3b82f6', order: 1, children: [
+    { id: 'kb-pcb', label: '电路/PCB设计', order: 1 },
+    { id: 'kb-structure', label: '结构设计', order: 2 },
+    { id: 'kb-bom', label: 'BOM管理', order: 3 },
+    { id: 'kb-components', label: '元器件选型', order: 4 },
+  ]},
+  { id: 'kb-software', label: '软件研发', icon: 'Code2', color: '#8b5cf6', order: 2, children: [
+    { id: 'kb-firmware', label: '固件/嵌入式', order: 1 },
+    { id: 'kb-app', label: '应用软件', order: 2 },
+    { id: 'kb-protocol', label: '接口协议', order: 3 },
+  ]},
+  { id: 'kb-test', label: '测试验证', icon: 'FlaskConical', color: '#10b981', order: 3, children: [
+    { id: 'kb-test-plan', label: '测试方案', order: 1 },
+    { id: 'kb-test-report', label: '测试报告', order: 2 },
+    { id: 'kb-issue', label: '问题记录', order: 3 },
+  ]},
+  { id: 'kb-standard', label: '规范标准', icon: 'ShieldCheck', color: '#f59e0b', order: 4, children: [
+    { id: 'kb-industry', label: '行业标准', order: 1 },
+    { id: 'kb-internal', label: '内部规范', order: 2 },
+    { id: 'kb-cert', label: '法规/认证', order: 3 },
+  ]},
+  { id: 'kb-archive', label: '项目归档', icon: 'Archive', color: '#6366f1', order: 5, children: [
+    { id: 'kb-milestone', label: '里程碑材料', order: 1 },
+    { id: 'kb-review', label: '评审记录', order: 2 },
+    { id: 'kb-decision', label: '决策留痕', order: 3 },
+  ]},
+  { id: 'kb-other', label: '其他', icon: 'FolderOpen', color: '#94a3b8', order: 6, children: [] },
+];
+
+const KB_CATEGORY_PATH_RULES: { keywords: string[]; categoryId: string }[] = [
+  { keywords: ['电路', 'PCB', 'pcb', '电源部分', '电源'], categoryId: 'kb-pcb' },
+  { keywords: ['结构', '外观', 'Top结构', '底部结构'], categoryId: 'kb-structure' },
+  { keywords: ['BOM', 'bom'], categoryId: 'kb-bom' },
+  { keywords: ['测试', '验证', '检验', '放行'], categoryId: 'kb-test-report' },
+  { keywords: ['固件', '软件', '嵌入式', '协议'], categoryId: 'kb-firmware' },
+  { keywords: ['分子筛', '储气', '阀系统', '压缩', '风冷', '气管', '密封', '紧固', '线束', '配件'], categoryId: 'kb-hardware' },
+];
+
+function inferKbCategoryId(categoryPath: string): string {
+  for (const rule of KB_CATEGORY_PATH_RULES) {
+    if (rule.keywords.some(kw => categoryPath.includes(kw))) return rule.categoryId;
+  }
+  return 'kb-other';
+}
 
 const DEFAULT_AI_SETTINGS = {
   version: 1,
@@ -451,13 +508,14 @@ function ensurePocBomTaskCategories(rawCategories: unknown[]): JsonRecord[] {
     return {
       ...(existing ?? {}),
       id: system.id,
-      label: system.label,
+      label: (existing && typeof existing.label === 'string' && existing.label.trim()) ? existing.label : system.label,
       children: system.parts.map((part, index) => {
-        const existingChild = findChildByLabel(existingChildren, part);
+        const childId = bomChildId(system.id, index);
+        const existingChild = existingChildren.find((c) => c.id === childId) ?? findChildByLabel(existingChildren, part);
         return {
           ...(existingChild ?? {}),
-          id: bomChildId(system.id, index),
-          label: part,
+          id: childId,
+          label: (existingChild && typeof existingChild.label === 'string' && existingChild.label.trim()) ? existingChild.label : part,
           tasks: [],
         };
       }),
@@ -533,6 +591,8 @@ export class ResearchDevelopmentService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ocrService: OcrService,
+    private readonly ossService: OssService,
+    private readonly rdAiService: RdAiService,
   ) {}
 
   private async listIdentityUsers(): Promise<IdentityUser[]> {
@@ -593,6 +653,10 @@ export class ResearchDevelopmentService {
       const maxTasks = Number(person.max_tasks);
       const explicitStatus = cleanText(person.status);
       const onLeave = explicitStatus ? explicitStatus === 'on_leave' : person.on_leave === true;
+      const rawKbLevel = Number(person.kb_level);
+      const kbLevel = cleanText(person.kb_level_scale) === 'score'
+        ? ResearchDevelopmentService.clampLevel(rawKbLevel)
+        : ResearchDevelopmentService.legacyKbLevelToScore(rawKbLevel);
       return {
         ...person,
         id: cleanText(person.id) || `rd-person-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -609,6 +673,8 @@ export class ResearchDevelopmentService {
         max_tasks: Number.isFinite(maxTasks) && maxTasks > 0 ? Math.round(maxTasks) : 8,
         tasks: asArray(person.tasks).map((item) => cleanText(item)).filter(Boolean),
         task_ids: asArray(person.task_ids).map((item) => cleanText(item)).filter(Boolean),
+        kb_level: kbLevel,
+        kb_level_scale: 'score',
       };
     });
   }
@@ -786,6 +852,74 @@ export class ResearchDevelopmentService {
     return saved;
   }
 
+  // ── Products (产品线) ────────────────────────────────────────────────────────
+
+  async getProducts(): Promise<JsonRecord[]> {
+    const raw = await this.readValue('rd.products');
+    if (Array.isArray(raw) && raw.length > 0) return (raw as unknown[]).filter(isRecord);
+    const defaults = this.buildDefaultProducts();
+    await this.writeValue('rd.products', defaults);
+    return defaults;
+  }
+
+  async saveProducts(products: unknown[]): Promise<{ ok: boolean }> {
+    if (!Array.isArray(products)) throw new BadRequestException('products 必须是数组');
+    await this.writeValue('rd.products', products);
+    return { ok: true };
+  }
+
+  // ── Per-product task categories ────────────────────────────────────────────
+
+  /** 读取指定产品的独立研发分类树（首次访问自动 seed 空 BOM） */
+  async getProductTaskCategories(productId: string): Promise<JsonRecord[]> {
+    const store = await this.readProductCategoryStore();
+    if (Array.isArray(store[productId]) && (store[productId] as unknown[]).length > 0) {
+      return ensurePocBomTaskCategories(store[productId] as unknown[]);
+    }
+    const seed = ensurePocBomTaskCategories([]);
+    await this.saveProductCategoryStore({ ...store, [productId]: seed });
+    return seed;
+  }
+
+  /** 保存指定产品的研发分类树 */
+  async saveProductTaskCategoriesForProduct(productId: string, categories: unknown[]): Promise<{ ok: boolean }> {
+    const store = await this.readProductCategoryStore();
+    const normalized = ensurePocBomTaskCategories(categories);
+    await this.saveProductCategoryStore({ ...store, [productId]: normalized });
+    return { ok: true };
+  }
+
+  private async readProductCategoryStore(): Promise<Record<string, unknown>> {
+    const raw = await this.readValue('rd.productTaskCategories');
+    return isRecord(raw) ? (raw as Record<string, unknown>) : {};
+  }
+
+  private async saveProductCategoryStore(store: Record<string, unknown>) {
+    await this.writeValue('rd.productTaskCategories', store);
+  }
+
+  private buildDefaultProducts(): JsonRecord[] {
+    const now = new Date().toISOString();
+    return [
+      {
+        id: 'prod-portable-o2',
+        name: '便携式制氧机',
+        description: '便携式家用制氧机，适用于医疗保健场景',
+        status: 'active',
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'prod-5l-dc-o2',
+        name: '5L直流式制氧机',
+        description: '5L大流量直流式医用制氧机',
+        status: 'developing',
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+  }
+
   async createTask(payload: JsonRecord) {
     const [categories, identity] = await Promise.all([
       this.readNormalizedTaskCategories(),
@@ -814,6 +948,7 @@ export class ResearchDevelopmentService {
         attachments: 0,
         collaborators: Array.isArray(taskData.collaborators) ? taskData.collaborators : [],
         subtasks: [],
+        updated_at: new Date().toISOString(),
       }),
       identity.people,
       identity.users,
@@ -862,26 +997,73 @@ export class ResearchDevelopmentService {
   }
 
   async updateTask(taskId: string, patch: JsonRecord) {
+    // Strip private notification-metadata fields before persisting
+    const {
+      task_id: _protected,
+      _review_action,
+      _reviewer_name,
+      _reject_reason,
+      ...persistPatch
+    } = patch as JsonRecord & {
+      _review_action?: string;
+      _reviewer_name?: string;
+      _reject_reason?: string;
+    };
+    void _protected;
+
+    // When _review_action is provided but no explicit status is in the patch,
+    // auto-derive the new task status so the downstream notification fires correctly.
+    // approve: result-review → completed; collaboration-review → in_progress
+    // reject:  always → in_progress (task sent back for revision)
+    let resolvedPatch: JsonRecord = persistPatch;
+
     const [categories, identity] = await Promise.all([
       this.readNormalizedTaskCategories(),
       this.getIdentityContext(),
     ]);
     let found = false;
+    let originalTask: JsonRecord | null = null;
 
     const updateInTasks = (tasks: unknown[]): unknown[] => {
       return tasks.map((t) => {
         if (!isRecord(t)) return t;
         if (t.task_id === taskId) {
           found = true;
-          const { task_id: _protected, ...safePatch } = patch;
-          void _protected;
-          const ownerNameChanged = Object.prototype.hasOwnProperty.call(safePatch, 'primary_owner');
-          const ownerUserIdProvided = Object.prototype.hasOwnProperty.call(safePatch, 'primary_owner_user_id');
+          originalTask = { ...t };
+
+          // Resolve review actions now that we have the original task.
+          if (_review_action) {
+            const reviewType = String((t as JsonRecord).pending_review_type ?? 'result');
+            const actionPatch: JsonRecord = { ...persistPatch };
+
+            if (!Object.prototype.hasOwnProperty.call(persistPatch, 'status')) {
+              actionPatch.status =
+                _review_action === 'approve'
+                  ? reviewType === 'result' ? 'completed' : 'in_progress'
+                  : 'in_progress';
+            }
+
+            actionPatch.pending_review_type = null;
+
+            if (reviewType === 'collaboration') {
+              actionPatch.pending_collaborators = [];
+              actionPatch.pending_collaboration_reason = null;
+              actionPatch.pending_collaboration_requested_at = null;
+              if (_review_action === 'approve') {
+                actionPatch.collaborators = asArray((t as JsonRecord).pending_collaborators).filter(isRecord);
+              }
+            }
+
+            resolvedPatch = actionPatch;
+          }
+
+          const ownerNameChanged = Object.prototype.hasOwnProperty.call(resolvedPatch, 'primary_owner');
+          const ownerUserIdProvided = Object.prototype.hasOwnProperty.call(resolvedPatch, 'primary_owner_user_id');
           const identityPatch =
             ownerNameChanged && !ownerUserIdProvided
-              ? { ...safePatch, primary_owner_user_id: null }
-              : safePatch;
-          const merged = { ...t, ...identityPatch, task_id: taskId };
+              ? { ...resolvedPatch, primary_owner_user_id: null }
+              : resolvedPatch;
+          const merged = { ...t, ...identityPatch, task_id: taskId, updated_at: new Date().toISOString() };
           return this.normalizeTaskIdentity(merged, identity.people, identity.users);
         }
         if (Array.isArray(t.subtasks)) {
@@ -905,7 +1087,190 @@ export class ResearchDevelopmentService {
     if (!found) throw new NotFoundException('任务不存在');
     await this.writeValue('rd.taskCategories', updated);
     await this.recomputeDirectorDashboard();
+
+    // Auto-send review notifications (best-effort, never blocks response)
+    if (originalTask) {
+      const oldStatus = String((originalTask as JsonRecord).status ?? '');
+      const newStatus = String(resolvedPatch.status ?? oldStatus);
+      // Also re-notify when a member explicitly re-submits a task already in pending_review
+      // (e.g., admin missed the first notification). Exclude admin review actions.
+      const explicitlySubmittingForReview =
+        !_review_action &&
+        newStatus === 'pending_review' &&
+        Object.prototype.hasOwnProperty.call(persistPatch, 'status');
+      if (newStatus === 'pending_review' && (oldStatus !== 'pending_review' || explicitlySubmittingForReview)) {
+        void this.notifyAdminsOfPendingReview(originalTask as JsonRecord, resolvedPatch);
+      } else if (oldStatus === 'pending_review' && newStatus !== 'pending_review' && _review_action) {
+        const reviewType = String((originalTask as JsonRecord).pending_review_type ?? 'result');
+        void (async () => {
+          await this.notifySubmitterOfReviewResult(
+            originalTask as JsonRecord,
+            _review_action,
+            String(_reviewer_name ?? '管理员'),
+            String(_reject_reason ?? ''),
+            reviewType,
+          );
+          if (_review_action === 'approve' && reviewType === 'collaboration') {
+            await this.notifyCollaboratorsOfCollaborationApproval(
+              originalTask as JsonRecord,
+              asArray((originalTask as JsonRecord).pending_collaborators).filter(isRecord),
+              String(_reviewer_name ?? '管理员'),
+            );
+          }
+        })();
+      }
+    }
+
     return { ok: true, task_id: taskId };
+  }
+
+  private async getUsersWithAnyPermission(codes: string[]): Promise<Array<{ id: string; name: string }>> {
+    const users = await this.prisma.user.findMany({
+      where: { status: 'ACTIVE' },
+      select: { id: true, name: true, role: { select: { permissions: true } } },
+    });
+    return users
+      .filter((u) => {
+        const perms = Array.isArray(u.role?.permissions) ? (u.role!.permissions as string[]) : [];
+        return perms.includes('*') || codes.some((c) => perms.includes(c));
+      })
+      .map((u) => ({ id: u.id, name: u.name }));
+  }
+
+  private async notifyAdminsOfPendingReview(task: JsonRecord, patch: JsonRecord): Promise<void> {
+    try {
+      const reviewType = String(patch.pending_review_type ?? task.pending_review_type ?? 'result');
+      const admins = await this.getUsersWithAnyPermission(['rd-task:edit', 'rd-task:reassign']);
+      const body = JSON.stringify({
+        type: 'review_request',
+        review_type: reviewType,
+        task_id: String(task.task_id ?? ''),
+        task_title: String(task.title ?? ''),
+        submitter_name: String(task.primary_owner ?? ''),
+        submitter_user_id: String(task.primary_owner_user_id ?? ''),
+        note: String(patch.pending_collaboration_reason ?? task.pending_collaboration_reason ?? ''),
+        pending_collaborators: patch.pending_collaborators ?? task.pending_collaborators ?? [],
+        current_progress: typeof task.progress === 'number' ? task.progress : 0,
+      });
+      const typeLabel = reviewType === 'collaboration' ? '协作变更' : '结果';
+      const subject = `[待审核] 「${task.title}」申请${typeLabel}审核`;
+      for (const admin of admins) {
+        await this.createMessage({
+          sender: { id: null, name: '系统通知', role: 'system' },
+          recipient_id: admin.id,
+          subject,
+          body,
+        });
+      }
+    } catch {
+      // best-effort
+    }
+  }
+
+  private async notifySubmitterOfReviewResult(
+    task: JsonRecord,
+    action: string,
+    reviewerName: string,
+    rejectReason: string,
+    reviewType = 'result',
+  ): Promise<void> {
+    try {
+      const submitterId = String(task.primary_owner_user_id ?? '').trim();
+      const submitterName = String(task.primary_owner ?? '').trim();
+      // Need at least one recipient identifier to deliver the message
+      if (!submitterId && !submitterName) return;
+      const isApproved = action === 'approve';
+      const isCollaboration = reviewType === 'collaboration';
+      const taskTitle = String(task.title ?? '');
+      const body = JSON.stringify({
+        type: 'review_result',
+        review_type: reviewType,
+        result: isApproved ? 'approved' : 'rejected',
+        task_id: String(task.task_id ?? ''),
+        task_title: taskTitle,
+        reviewer_name: reviewerName,
+        reason: rejectReason,
+      });
+      const subject = isCollaboration
+        ? `[审核结果] 「${taskTitle}」协作申请${isApproved ? '已通过' : '被打回'}`
+        : `[审核结果] 「${taskTitle}」${isApproved ? '已通过审核' : '被打回，请修改后重新提交'}`;
+      await this.createMessage({
+        sender: { id: null, name: '系统通知', role: 'system' },
+        recipient_id: submitterId || null,
+        recipient_name: submitterName || null, // keep a name fallback in case a task has a stale linked user_id
+        subject,
+        body,
+      });
+    } catch {
+      // best-effort
+    }
+  }
+
+  private async notifyCollaboratorsOfCollaborationApproval(
+    task: JsonRecord,
+    collaborators: JsonRecord[],
+    reviewerName: string,
+  ): Promise<void> {
+    try {
+      const taskTitle = String(task.title ?? '');
+      const ownerName = String(task.primary_owner ?? task.owner ?? '');
+      const body = `${reviewerName} 已批准协作申请，你现在是任务「${taskTitle}」的协作人。${ownerName ? `主责人：${ownerName}` : ''}`;
+      const subject = `[协作任务] 「${taskTitle}」你已被加入协作`;
+      const seenRecipients = new Set<string>();
+
+      for (const collaborator of collaborators) {
+        const recipientId = cleanUserId(collaborator.user_id);
+        const recipientPersonId = cleanText(collaborator.id);
+        const recipientName = cleanText(collaborator.name);
+        const recipientNameKey = personNameLookupKey(recipientName);
+        const recipientKey = recipientId
+          ? `u:${recipientId}`
+          : recipientPersonId
+            ? `p:${recipientPersonId}`
+            : recipientNameKey
+              ? `n:${recipientNameKey}`
+              : '';
+        if (!recipientKey || seenRecipients.has(recipientKey)) continue;
+        seenRecipients.add(recipientKey);
+
+        await this.createMessage({
+          sender: { id: null, name: '系统通知', role: 'system' },
+          recipient_id: recipientId || null,
+          recipient_person_id: recipientPersonId || null,
+          recipient_name: recipientName || null,
+          subject,
+          body,
+        });
+      }
+    } catch {
+      // best-effort
+    }
+  }
+
+  async patchMessage(
+    messageId: string,
+    patch: { read?: boolean; handled?: boolean },
+    viewer: { userId?: string; hasFullAccess?: boolean },
+  ) {
+    const all = (await this.readArray('rd.messages')).filter(isRecord);
+    const idx = all.findIndex((m) => m.id === messageId);
+    if (idx === -1) throw new NotFoundException('消息不存在');
+    const msg = all[idx];
+    if (!viewer.hasFullAccess && viewer.userId !== msg.recipient_id && viewer.userId !== msg.sender_id) {
+      // Name-based fallback: system messages may carry only a recipient name, or a stale linked user_id.
+      if (msg.recipient_name && viewer.userId) {
+        const users = await this.listIdentityUsers();
+        const caller = users.find((u) => u.id === viewer.userId);
+        if (!caller || personNameLookupKey(caller.name) !== personNameLookupKey(String(msg.recipient_name))) {
+          throw new BadRequestException('无权修改此消息');
+        }
+      } else {
+        throw new BadRequestException('无权修改此消息');
+      }
+    }
+    all[idx] = { ...msg, ...patch };
+    await this.writeValue('rd.messages', all);
+    return all[idx];
   }
 
   async deleteTask(taskId: string) {
@@ -1166,12 +1531,26 @@ export class ResearchDevelopmentService {
       throw new BadRequestException('附件总大小超过 50MB 限制');
     }
 
-    const attachments = files.map((f) => ({
-      id: `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      name: f.originalname,
-      mime: f.mimetype ?? 'application/octet-stream',
-      size: f.size ?? f.buffer.length,
-      data_url: `data:${f.mimetype ?? 'application/octet-stream'};base64,${f.buffer.toString('base64')}`,
+    const attachments = await Promise.all(files.map(async (f) => {
+      const id = `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const objectKey = await this.ossService.uploadBuffer(
+        f.buffer,
+        'rd/progress-notes',
+        f.originalname,
+        f.mimetype,
+      );
+      const ossUrl = objectKey ? this.ossService.getSignedUrl(objectKey, 30 * 24 * 3600) : null;
+      return {
+        id,
+        name: f.originalname,
+        mime: f.mimetype ?? 'application/octet-stream',
+        size: f.size ?? f.buffer.length,
+        // 优先使用 OSS 签名 URL，OSS 未配置时降级存 base64
+        ...(ossUrl
+          ? { oss_url: ossUrl }
+          : { data_url: `data:${f.mimetype ?? 'application/octet-stream'};base64,${f.buffer.toString('base64')}` }
+        ),
+      };
     }));
 
     const note = {
@@ -1193,6 +1572,37 @@ export class ResearchDevelopmentService {
     map[taskId] = [note, ...existing].slice(0, 100);
     await this.writeValue('rd.taskProgressNotes', map);
     await this.incrementTaskAttachmentCount(taskId, attachments.length);
+
+    // Auto-ingest attachments into the knowledge base
+    if (attachments.length > 0) {
+      // Lookup task title and category path (best-effort, don't block the response)
+      try {
+        const categories = await this.readNormalizedTaskCategories();
+        let taskTitle: string | undefined;
+        let categoryPath: string | undefined;
+        outer: for (const cat of categories) {
+          for (const sub of (isRecord(cat) ? asArray(cat.children) : [])) {
+            for (const task of (isRecord(sub) ? asArray(sub.tasks) : [])) {
+              if (String((task as JsonRecord).task_id) === taskId) {
+                taskTitle = String((task as JsonRecord).title ?? '');
+                categoryPath = String((task as JsonRecord).category_path ?? (isRecord(cat) ? cat.label : ''));
+                break outer;
+              }
+            }
+          }
+        }
+        void this.ingestProgressNoteAttachments({
+          taskId,
+          taskTitle,
+          categoryPath,
+          attachments,
+          actorId: payload.actor?.id,
+          actorName: payload.actor?.name,
+        });
+      } catch {
+        // Best-effort: never let KB ingestion fail the main request
+      }
+    }
 
     return note;
   }
@@ -1495,6 +1905,49 @@ export class ResearchDevelopmentService {
 
   // ── Internal messages (sender → recipient) ────────────────────────────────
 
+  private async getMessageRecipientIdentity(userId?: string): Promise<MessageRecipientIdentity> {
+    const cleanId = cleanUserId(userId);
+    if (!cleanId) return { userId: '', nameKey: '', personIds: new Set<string>() };
+
+    const [users, rawPeople] = await Promise.all([
+      this.listIdentityUsers(),
+      this.readArray('rd.people'),
+    ]);
+    const user = users.find((item) => item.id === cleanId);
+    const nameKey = personNameLookupKey(user?.name);
+    const people = this.normalizePeopleRecords(rawPeople, users);
+    const personIds = new Set(
+      people
+        .filter((person) => {
+          if (cleanUserId(person.user_id) === cleanId) return true;
+          return Boolean(nameKey && personNameLookupKey(person.name) === nameKey);
+        })
+        .map((person) => cleanText(person.id))
+        .filter(Boolean),
+    );
+
+    return { userId: cleanId, nameKey, personIds };
+  }
+
+  private messageMatchesRecipient(message: JsonRecord, identity: MessageRecipientIdentity): boolean {
+    const recipientId = cleanUserId(message.recipient_id);
+    if (recipientId && recipientId === identity.userId) return true;
+
+    const recipientPersonId = cleanText(message.recipient_person_id);
+    if (recipientPersonId && identity.personIds.has(recipientPersonId)) return true;
+
+    if (identity.nameKey) {
+      const recipientNameKey = personNameLookupKey(message.recipient_name);
+      if (recipientNameKey && recipientNameKey === identity.nameKey) return true;
+    }
+
+    return false;
+  }
+
+  private messageMatchesParticipant(message: JsonRecord, identity: MessageRecipientIdentity): boolean {
+    return cleanUserId(message.sender_id) === identity.userId || this.messageMatchesRecipient(message, identity);
+  }
+
   async listMessages(
     filters?: { user_id?: string; recipient_id?: string; limit?: number },
     viewer?: { userId?: string; hasFullAccess?: boolean },
@@ -1502,19 +1955,30 @@ export class ResearchDevelopmentService {
     const all = (await this.readArray('rd.messages')).filter(isRecord);
     const limit = Math.max(1, Math.min(500, filters?.limit ?? 200));
     let filtered = all;
+    const identityCache = new Map<string, Promise<MessageRecipientIdentity>>();
+    const resolveIdentity = (userId?: string) => {
+      const id = cleanUserId(userId);
+      if (!identityCache.has(id)) {
+        identityCache.set(id, this.getMessageRecipientIdentity(id));
+      }
+      return identityCache.get(id)!;
+    };
 
     // Privacy: non-managers can only see messages they sent or received
     if (viewer && !viewer.hasFullAccess) {
       const ownId = viewer.userId;
       if (!ownId) return [];
-      filtered = filtered.filter((m) => m.recipient_id === ownId || m.sender_id === ownId);
+      const ownIdentity = await resolveIdentity(ownId);
+      filtered = filtered.filter((m) => this.messageMatchesParticipant(m, ownIdentity));
     }
 
     if (filters?.user_id) {
-      filtered = filtered.filter((m) => m.recipient_id === filters.user_id || m.sender_id === filters.user_id);
+      const userIdentity = await resolveIdentity(filters.user_id);
+      filtered = filtered.filter((m) => this.messageMatchesParticipant(m, userIdentity));
     }
     if (filters?.recipient_id) {
-      filtered = filtered.filter((m) => m.recipient_id === filters.recipient_id);
+      const recipientIdentity = await resolveIdentity(filters.recipient_id);
+      filtered = filtered.filter((m) => this.messageMatchesRecipient(m, recipientIdentity));
     }
     return filtered
       .slice()
@@ -1707,6 +2171,20 @@ export class ResearchDevelopmentService {
       category_path: cleanText(task.category_path),
       owner: cleanText(task.primary_owner ?? task.owner),
       owner_user_id: cleanUserId(task.primary_owner_user_id ?? task.owner_user_id) || null,
+      collaborators: asArray(task.collaborators).filter(isRecord).map((collaborator) => ({
+        id: cleanText(collaborator.id) || cleanUserId(collaborator.user_id) || cleanText(collaborator.name),
+        name: cleanText(collaborator.name),
+        user_id: cleanUserId(collaborator.user_id) || null,
+        role: cleanText(collaborator.role) || '协作人',
+      })).filter((collaborator) => collaborator.name),
+      pending_review_type: cleanText(task.pending_review_type) || null,
+      pending_collaborators: asArray(task.pending_collaborators).filter(isRecord).map((collaborator) => ({
+        id: cleanText(collaborator.id) || cleanUserId(collaborator.user_id) || cleanText(collaborator.name),
+        name: cleanText(collaborator.name),
+        user_id: cleanUserId(collaborator.user_id) || null,
+        role: cleanText(collaborator.role) || '协作人',
+      })).filter((collaborator) => collaborator.name),
+      pending_collaboration_reason: cleanText(task.pending_collaboration_reason) || null,
       collab_role: collabRole,
       on_leave: task.status === 'paused_leave',
       ai_pending: task.ai_modified === true,
@@ -1724,7 +2202,7 @@ export class ResearchDevelopmentService {
     };
   }
 
-  async getWorkspace(currentUserId?: string) {
+  async getWorkspace(currentUserId?: string, currentUserName?: string) {
     const value = await this.readValue('rd.workspace');
     const saved = {
       ...EMPTY_WORKSPACE,
@@ -1733,14 +2211,22 @@ export class ResearchDevelopmentService {
 
     if (!currentUserId) return saved;
 
-    const [categories, users] = await Promise.all([
+    const [categories, identity] = await Promise.all([
       this.readNormalizedTaskCategories(),
-      this.listIdentityUsers(),
+      this.getIdentityContext(),
     ]);
+    const { people, users } = identity;
     const currentUser = users.find((user) => user.id === currentUserId);
-    if (!currentUser) return saved;
-
-    const currentNameKey = personNameLookupKey(currentUser.name);
+    const currentNameKey = personNameLookupKey(currentUser?.name ?? currentUserName);
+    const currentPersonIds = new Set(
+      people
+        .filter((person) => {
+          if (cleanUserId(person.user_id) === currentUserId) return true;
+          return Boolean(currentNameKey && personNameLookupKey(person.name) === currentNameKey);
+        })
+        .map((person) => cleanText(person.id))
+        .filter(Boolean),
+    );
     const activeTasks = this.collectAllCategoryTasks(categories).filter(
       (task) => !isArchivedTask(task) && !isCompletedTask(task),
     );
@@ -1779,7 +2265,7 @@ export class ResearchDevelopmentService {
       .slice(0, 5);
 
     // Merge inbox messages addressed to this user into the notifications feed
-    const inboxMessages = await this.collectInboxMessagesAsNotifications(currentUserId, currentNameKey);
+    const inboxMessages = await this.collectInboxMessagesAsNotifications(currentUserId, currentNameKey, currentPersonIds);
     const savedNotifications: unknown[] = Array.isArray(saved.notifications) ? (saved.notifications as unknown[]) : [];
     const mergedNotifications = [
       ...inboxMessages,
@@ -1801,16 +2287,18 @@ export class ResearchDevelopmentService {
   private async collectInboxMessagesAsNotifications(
     currentUserId: string,
     currentNameKey: string,
+    currentPersonIds = new Set<string>(),
   ): Promise<JsonRecord[]> {
     const messages = (await this.readArray('rd.messages')).filter(isRecord);
     const matched = messages.filter((m) => {
+      // Exclude messages that have already been fully handled (approved/rejected)
+      if (Boolean(m.handled)) return false;
       const recipientId = cleanUserId(m.recipient_id);
       if (recipientId && recipientId === currentUserId) return true;
-      // Fallback: match by name when the recipient has no user_id linked
-      if (!recipientId) {
-        const nameKey = personNameLookupKey(m.recipient_name);
-        return Boolean(nameKey && nameKey === currentNameKey);
-      }
+      const recipientPersonId = cleanText(m.recipient_person_id);
+      if (recipientPersonId && currentPersonIds.has(recipientPersonId)) return true;
+      const nameKey = personNameLookupKey(m.recipient_name);
+      if (nameKey && nameKey === currentNameKey) return true;
       return false;
     });
 
@@ -1818,16 +2306,60 @@ export class ResearchDevelopmentService {
       const senderName = cleanText(m.sender_name) || '系统';
       const subject = cleanText(m.subject);
       const body = cleanText(m.body);
+      // Parse JSON body to produce human-readable titles and summaries
+      let parsedBody: Record<string, unknown> | null = null;
+      try { parsedBody = JSON.parse(body) as Record<string, unknown>; } catch { /* plain text */ }
+
+      const msgType = parsedBody ? String(parsedBody['type'] ?? '') : '';
+      const taskTitle = parsedBody ? String(parsedBody['task_title'] ?? '') : '';
+
+      let defaultTitle: string;
+      let displayMessage: string;
+
+      if (msgType === 'review_request') {
+        const submitterName = String(parsedBody!['submitter_name'] ?? senderName);
+        const reviewType = String(parsedBody!['review_type'] ?? 'result');
+        const reviewLabel = reviewType === 'collaboration' ? '协作变更' : '结果';
+        defaultTitle = `系统通知：【待审核】「${taskTitle}」申请${reviewLabel}审核`;
+        displayMessage = `${submitterName} 提交了任务「${taskTitle}」的${reviewLabel}审核，请处理。`;
+      } else if (msgType === 'review_result') {
+        const result = String(parsedBody!['result'] ?? '');
+        const reviewerName = String(parsedBody!['reviewer_name'] ?? '管理员');
+        const reviewType = String(parsedBody!['review_type'] ?? 'result');
+        const isApproved = result === 'approved';
+        const isCollaboration = reviewType === 'collaboration';
+        defaultTitle = isCollaboration
+          ? `协作审核：「${taskTitle}」${isApproved ? '已通过' : '被打回'}`
+          : `审核结果：「${taskTitle}」${isApproved ? '已通过审核 ✓' : '被打回，需修改'}`;
+        const reason = String(parsedBody!['reason'] ?? '');
+        if (isCollaboration) {
+          displayMessage = isApproved
+            ? `${reviewerName} 已批准任务「${taskTitle}」的协作申请，协作人已生效。`
+            : `${reviewerName} 打回了任务「${taskTitle}」的协作申请。${reason ? `原因：${reason}` : ''}`;
+        } else {
+          displayMessage = isApproved
+            ? `${reviewerName} 已批准任务「${taskTitle}」，任务已完成。`
+            : `${reviewerName} 打回了任务「${taskTitle}」，请修改后重新提交。${reason ? `原因：${reason}` : ''}`;
+        }
+      } else {
+        defaultTitle = subject ? `${senderName}：${subject}` : `${senderName} 给你发来一条消息`;
+        displayMessage = body.length > 200 ? `${body.slice(0, 200)}…` : body;
+      }
+
+      const relatedTaskId = parsedBody ? cleanText(parsedBody['task_id']) : '';
       return {
         id: String(m.id ?? `msg-${Date.now()}`),
         type: 'message',
-        title: subject ? `${senderName}：${subject}` : `${senderName} 给你发来一条消息`,
-        message: body.length > 200 ? `${body.slice(0, 200)}…` : body,
+        title: (msgType === 'review_request' || msgType === 'review_result') ? defaultTitle : (subject || defaultTitle),
+        message: displayMessage,
+        related_task_id: relatedTaskId || undefined,
+        raw_body: body,
         time: this.formatRelativeTime(String(m.created_at ?? '')),
         sender_id: m.sender_id ?? null,
         sender_name: senderName,
         sender_role: m.sender_role ?? null,
         read: Boolean(m.read),
+        handled: Boolean(m.handled),
         created_at: m.created_at ?? null,
       };
     });
@@ -2113,6 +2645,578 @@ export class ResearchDevelopmentService {
     };
   }
 
+  // ── Knowledge Base ────────────────────────────────────────────────────────
+
+  private cloneKnowledgeCategories(source: unknown): JsonRecord[] {
+    return JSON.parse(JSON.stringify(source)) as JsonRecord[];
+  }
+
+  private normalizeKnowledgeCategories(categories: unknown[]): JsonRecord[] {
+    const seen = new Set<string>();
+
+    const normalizeNode = (node: unknown, index: number): JsonRecord | null => {
+      if (!isRecord(node)) return null;
+      const label = cleanText(node.label) || '未命名类目';
+      const rawId = cleanText(node.id);
+      let id = rawId || `kb-cat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      while (seen.has(id)) {
+        id = `${id}-${Math.random().toString(36).slice(2, 5)}`;
+      }
+      seen.add(id);
+
+      const children = asArray(node.children)
+        .map((child, childIndex) => normalizeNode(child, childIndex))
+        .filter((child): child is JsonRecord => Boolean(child));
+
+      const normalized: JsonRecord = {
+        ...node,
+        id,
+        label,
+        order: Number.isFinite(Number(node.order)) ? Number(node.order) : index + 1,
+        children,
+      };
+      delete normalized.entry_count;
+      delete normalized.total_entry_count;
+      return normalized;
+    };
+
+    return categories
+      .map((category, index) => normalizeNode(category, index))
+      .filter((category): category is JsonRecord => Boolean(category));
+  }
+
+  private async readKnowledgeCategoryRecords(): Promise<JsonRecord[]> {
+    const raw = await this.readValue('rd.knowledgeCategories');
+    const source = Array.isArray(raw) && raw.length > 0 ? raw : DEFAULT_KB_CATEGORIES;
+    return this.normalizeKnowledgeCategories(this.cloneKnowledgeCategories(source));
+  }
+
+  private async readActiveKnowledgeEntryRecords(): Promise<JsonRecord[]> {
+    const raw = await this.readValue('rd.knowledgeEntries');
+    const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
+    return entries
+      .map(ResearchDevelopmentService.normalizeKbEntry)
+      .filter((entry) => !entry.archived);
+  }
+
+  private stripKnowledgeCategoryComputedFields(categories: JsonRecord[]): JsonRecord[] {
+    return categories.map((category) => {
+      const next: JsonRecord = { ...category };
+      delete next.entry_count;
+      delete next.total_entry_count;
+      next.children = this.stripKnowledgeCategoryComputedFields(asArray(category.children).filter(isRecord));
+      return next;
+    });
+  }
+
+  private attachKnowledgeCategoryCounts(categories: JsonRecord[], entries: JsonRecord[]): JsonRecord[] {
+    const directCounts = new Map<string, number>();
+    for (const entry of entries) {
+      const categoryId = cleanText(entry.category_id);
+      if (!categoryId) continue;
+      directCounts.set(categoryId, (directCounts.get(categoryId) ?? 0) + 1);
+    }
+
+    const attachCounts = (category: JsonRecord): JsonRecord => {
+      const id = cleanText(category.id);
+      const children = asArray(category.children).filter(isRecord).map(attachCounts);
+      const directCount = directCounts.get(id) ?? 0;
+      const childTotal = children.reduce((sum, child) => sum + Number(child.total_entry_count ?? 0), 0);
+      return {
+        ...category,
+        children,
+        entry_count: directCount,
+        total_entry_count: directCount + childTotal,
+      };
+    };
+
+    return categories.map(attachCounts);
+  }
+
+  private findKnowledgeCategory(
+    categories: JsonRecord[],
+    id: string,
+  ): { category: JsonRecord; siblings: JsonRecord[] } | null {
+    for (const category of categories) {
+      if (cleanText(category.id) === id) return { category, siblings: categories };
+      const children = Array.isArray(category.children) ? (category.children as JsonRecord[]) : [];
+      const found = this.findKnowledgeCategory(children, id);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  private collectKnowledgeCategoryIds(categories: JsonRecord[]): Set<string> {
+    const ids = new Set<string>();
+    const walk = (nodes: JsonRecord[]) => {
+      for (const node of nodes) {
+        const id = cleanText(node.id);
+        if (id) ids.add(id);
+        walk(asArray(node.children).filter(isRecord));
+      }
+    };
+    walk(categories);
+    return ids;
+  }
+
+  private collectKnowledgeCategorySubtreeIds(category: JsonRecord): Set<string> {
+    const ids = new Set<string>();
+    const walk = (node: JsonRecord) => {
+      const id = cleanText(node.id);
+      if (id) ids.add(id);
+      for (const child of asArray(node.children).filter(isRecord)) walk(child);
+    };
+    walk(category);
+    return ids;
+  }
+
+  private categoryHasActiveEntries(category: JsonRecord, entries: JsonRecord[]): boolean {
+    const ids = this.collectKnowledgeCategorySubtreeIds(category);
+    return entries.some((entry) => ids.has(cleanText(entry.category_id)));
+  }
+
+  private generateKnowledgeCategoryId(existingIds: Set<string>): string {
+    let id = `kb-cat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    while (existingIds.has(id)) {
+      id = `kb-cat-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    }
+    return id;
+  }
+
+  private async resolveKnowledgeCategoryId(
+    categoryId: unknown,
+    options?: { fallbackToOther?: boolean },
+  ): Promise<string> {
+    const categories = await this.readKnowledgeCategoryRecords();
+    const ids = this.collectKnowledgeCategoryIds(categories);
+    const id = cleanText(categoryId);
+    if (id && ids.has(id)) return id;
+    if (options?.fallbackToOther && ids.has('kb-other')) return 'kb-other';
+    throw new BadRequestException('知识库类目不存在');
+  }
+
+  async getKnowledgeCategories() {
+    const categories = await this.readKnowledgeCategoryRecords();
+    const entries = await this.readActiveKnowledgeEntryRecords();
+    return this.attachKnowledgeCategoryCounts(categories, entries);
+  }
+
+  async saveKnowledgeCategories(categories: unknown[]) {
+    const normalized = this.normalizeKnowledgeCategories(categories);
+    await this.writeValue('rd.knowledgeCategories', this.stripKnowledgeCategoryComputedFields(normalized));
+    const entries = await this.readActiveKnowledgeEntryRecords();
+    return { ok: true, categories: this.attachKnowledgeCategoryCounts(normalized, entries) };
+  }
+
+  async createKnowledgeCategory(payload: { label?: unknown; parent_id?: unknown; icon?: unknown; color?: unknown }) {
+    const label = cleanText(payload.label);
+    if (!label) throw new BadRequestException('类目名称不能为空');
+    if (label.length > 40) throw new BadRequestException('类目名称不能超过 40 个字符');
+
+    const categories = await this.readKnowledgeCategoryRecords();
+    const parentId = cleanText(payload.parent_id);
+    let siblings = categories;
+
+    if (parentId) {
+      const parent = this.findKnowledgeCategory(categories, parentId);
+      if (!parent) throw new NotFoundException('父级类目不存在');
+      const children = Array.isArray(parent.category.children) ? (parent.category.children as JsonRecord[]) : [];
+      parent.category.children = children;
+      siblings = children;
+    }
+
+    if (siblings.some((category) => cleanText(category.label) === label)) {
+      throw new BadRequestException('同级类目名称已存在');
+    }
+
+    const existingIds = this.collectKnowledgeCategoryIds(categories);
+    const category: JsonRecord = {
+      id: this.generateKnowledgeCategoryId(existingIds),
+      label,
+      icon: cleanText(payload.icon) || 'FolderOpen',
+      color: cleanText(payload.color) || '#3b82f6',
+      order: Math.max(0, ...siblings.map((item) => Number(item.order) || 0)) + 1,
+      children: [],
+    };
+
+    siblings.push(category);
+    await this.writeValue('rd.knowledgeCategories', this.stripKnowledgeCategoryComputedFields(categories));
+    const entries = await this.readActiveKnowledgeEntryRecords();
+    return { ok: true, category, categories: this.attachKnowledgeCategoryCounts(categories, entries) };
+  }
+
+  async updateKnowledgeCategory(
+    id: string,
+    payload: { label?: unknown; icon?: unknown; color?: unknown },
+  ) {
+    const categoryId = cleanText(id);
+    const categories = await this.readKnowledgeCategoryRecords();
+    const found = this.findKnowledgeCategory(categories, categoryId);
+    if (!found) throw new NotFoundException('知识库类目不存在');
+
+    const entries = await this.readActiveKnowledgeEntryRecords();
+    if (this.categoryHasActiveEntries(found.category, entries)) {
+      throw new BadRequestException('类目下存在文件，无法编辑；请先将文件移动到其他类目');
+    }
+
+    if (Object.prototype.hasOwnProperty.call(payload, 'label')) {
+      const label = cleanText(payload.label);
+      if (!label) throw new BadRequestException('类目名称不能为空');
+      if (label.length > 40) throw new BadRequestException('类目名称不能超过 40 个字符');
+      if (found.siblings.some((category) => cleanText(category.id) !== categoryId && cleanText(category.label) === label)) {
+        throw new BadRequestException('同级类目名称已存在');
+      }
+      found.category.label = label;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(payload, 'icon')) {
+      found.category.icon = cleanText(payload.icon) || 'FolderOpen';
+    }
+    if (Object.prototype.hasOwnProperty.call(payload, 'color')) {
+      found.category.color = cleanText(payload.color) || '#3b82f6';
+    }
+    found.category.updated_at = new Date().toISOString();
+
+    await this.writeValue('rd.knowledgeCategories', this.stripKnowledgeCategoryComputedFields(categories));
+    return { ok: true, category: found.category, categories: this.attachKnowledgeCategoryCounts(categories, entries) };
+  }
+
+  async deleteKnowledgeCategory(id: string) {
+    const categoryId = cleanText(id);
+    if (categoryId === 'kb-other') {
+      throw new BadRequestException('默认“其他”类目不能删除');
+    }
+
+    const categories = await this.readKnowledgeCategoryRecords();
+    const found = this.findKnowledgeCategory(categories, categoryId);
+    if (!found) throw new NotFoundException('知识库类目不存在');
+
+    const entries = await this.readActiveKnowledgeEntryRecords();
+    if (this.categoryHasActiveEntries(found.category, entries)) {
+      throw new BadRequestException('类目下存在文件，无法删除；请先将文件移动到其他类目');
+    }
+
+    const index = found.siblings.findIndex((category) => cleanText(category.id) === categoryId);
+    if (index >= 0) found.siblings.splice(index, 1);
+    await this.writeValue('rd.knowledgeCategories', this.stripKnowledgeCategoryComputedFields(categories));
+    return { ok: true, categories: this.attachKnowledgeCategoryCounts(categories, entries) };
+  }
+
+  /** Convert legacy visibility string to numeric 0-100 score (backward compat). */
+  private static visibilityToLevel(vis?: unknown): number {
+    if (vis === 'restricted') return 50;
+    if (vis === 'internal') return 20;
+    return 0; // 'public' or unknown → fully public
+  }
+
+  /**
+   * Clamp a raw permission_level value to 0-100.
+   * Legacy values 1-5 (from old Lv system) are preserved as-is (low end of 0-100 scale).
+   */
+  private static clampLevel(raw?: unknown): number {
+    const n = Number(raw);
+    return Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n))) : 0;
+  }
+
+  private static legacyKbLevelToScore(raw?: unknown): number {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return 20;
+    if (Number.isInteger(n) && n >= 1 && n <= 5) {
+      return [0, 25, 50, 75, 100][n - 1] ?? 20;
+    }
+    return ResearchDevelopmentService.clampLevel(n);
+  }
+
+  /** Normalise a single KB entry to always carry a numeric permission_level. */
+  private static normalizeKbEntry(e: JsonRecord): JsonRecord {
+    const level = typeof e.permission_level === 'number'
+      ? ResearchDevelopmentService.clampLevel(e.permission_level)
+      : ResearchDevelopmentService.visibilityToLevel(e.visibility);
+    return { ...e, permission_level: level };
+  }
+
+  async getKnowledgeEntries(
+    filter?: {
+      categoryId?: string;
+      keyword?: string;
+      source?: string;
+      fileType?: string;
+      visibility?: string;
+      permissionLevel?: number;
+    },
+    viewer?: { userId?: string; hasFullAccess?: boolean },
+  ) {
+    const raw = await this.readValue('rd.knowledgeEntries');
+    let entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
+    // Always carry normalised permission_level
+    entries = entries.map(ResearchDevelopmentService.normalizeKbEntry);
+    entries = entries.filter(e => !e.archived);
+
+    // ── Viewer-level access control ──────────────────────────────────────
+    if (viewer && !viewer.hasFullAccess) {
+      // Find the person linked to this viewer to get their kb_level
+      const rawPeople = await this.readArray('rd.people');
+      const personRecord = rawPeople.filter(isRecord).find(p => p.user_id === viewer.userId);
+      const viewerLevel: number = isRecord(personRecord)
+        ? cleanText(personRecord.kb_level_scale) === 'score'
+          ? ResearchDevelopmentService.clampLevel(personRecord.kb_level)
+          : ResearchDevelopmentService.legacyKbLevelToScore(personRecord.kb_level)
+        : 0;
+      entries = entries.filter(e => (e.permission_level as number) <= viewerLevel);
+    }
+
+    // ── Filters ───────────────────────────────────────────────────────────
+    if (filter?.categoryId) {
+      // Support comma-separated list so the frontend can pass parent + all child IDs at once
+      const ids = new Set(filter.categoryId.split(',').map((s) => s.trim()).filter(Boolean));
+      entries = entries.filter((e) => ids.has(String(e.category_id ?? '')));
+    }
+    if (filter?.source) entries = entries.filter(e => e.source === filter.source);
+    // permissionLevel filter = "show files accessible to a user with this score" (score ≥ file score)
+    if (filter?.permissionLevel != null) entries = entries.filter(e => (e.permission_level as number) <= filter.permissionLevel!);
+    if (filter?.visibility) entries = entries.filter(e => e.visibility === filter.visibility);
+    if (filter?.fileType) {
+      // The frontend sends category names ('image','pdf','doc','video','other'), not raw extensions.
+      // Map each category to the set of known file extensions it covers.
+      const ft = filter.fileType.toLowerCase();
+      const EXT_MAP: Record<string, string[]> = {
+        image: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico'],
+        pdf: ['pdf'],
+        doc: ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'md', 'csv'],
+        video: ['mp4', 'avi', 'mov', 'webm', 'mkv'],
+      };
+      if (ft in EXT_MAP) {
+        const allowed = new Set(EXT_MAP[ft]);
+        entries = entries.filter((e) => allowed.has(String(e.file_type ?? '').toLowerCase()));
+      } else if (ft === 'other') {
+        const known = new Set(Object.values(EXT_MAP).flat());
+        entries = entries.filter((e) => !known.has(String(e.file_type ?? '').toLowerCase()));
+      } else {
+        // Exact extension match (legacy / future use)
+        entries = entries.filter((e) => String(e.file_type ?? '').toLowerCase() === ft);
+      }
+    }
+    if (filter?.keyword) {
+      const kw = filter.keyword.toLowerCase();
+      entries = entries.filter(e =>
+        String(e.title ?? '').toLowerCase().includes(kw) ||
+        String(e.description ?? '').toLowerCase().includes(kw) ||
+        (Array.isArray(e.tags) && (e.tags as string[]).some(t => t.toLowerCase().includes(kw))) ||
+        String(e.source_task_id ?? '').toLowerCase().includes(kw)
+      );
+    }
+    // Sort: newest first — strip data_url from list to avoid returning 50MB+ payloads
+    return entries
+      .sort((a, b) => {
+        const ta = String(a.created_at ?? '');
+        const tb = String(b.created_at ?? '');
+        return tb > ta ? 1 : tb < ta ? -1 : 0;
+      })
+      .map(({ data_url, ...rest }) => ({
+        ...rest,
+        // Expose a lightweight flag so the frontend knows a downloadable file exists
+        has_data_file: Boolean(data_url),
+      }));
+  }
+
+  /** Return a single KB entry including its data_url (used for download). */
+  async getKnowledgeEntryById(id: string): Promise<JsonRecord | null> {
+    const raw = await this.readValue('rd.knowledgeEntries');
+    const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
+    return entries.find((e) => e.id === id) ?? null;
+  }
+
+  async classifyKbFiles(filenames: string[]) {
+    const categories = await this.getKnowledgeCategories() as Array<{
+      id: string; label: string; children?: Array<{ id: string; label: string }>
+    }>;
+    return this.rdAiService.classifyKbFiles({ filenames, categories });
+  }
+
+  async createKnowledgeEntry(payload: {
+    title: string;
+    description?: string;
+    category_id: string;
+    tags?: string[];
+    visibility?: string;
+    permission_level?: number;
+    source?: string;
+    source_task_id?: string;
+    source_task_title?: string;
+    file_name?: string;
+    file_type?: string;
+    file_size?: number;
+    data_url?: string;
+    oss_url?: string;
+    external_url?: string;
+    created_by_id?: string;
+    created_by_name?: string;
+  }) {
+    const raw = await this.readValue('rd.knowledgeEntries');
+    const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
+    const now = new Date().toISOString();
+    const categoryId = await this.resolveKnowledgeCategoryId(payload.category_id, { fallbackToOther: true });
+    const resolvedLevel = typeof payload.permission_level === 'number'
+      ? ResearchDevelopmentService.clampLevel(payload.permission_level)
+      : ResearchDevelopmentService.visibilityToLevel(payload.visibility);
+    const entry: JsonRecord = {
+      id: `kb-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      title: payload.title,
+      description: payload.description ?? '',
+      category_id: categoryId,
+      tags: payload.tags ?? [],
+      permission_level: resolvedLevel,
+      visibility: payload.visibility ?? 'internal',
+      source: payload.source ?? 'manual',
+      source_task_id: payload.source_task_id ?? null,
+      source_task_title: payload.source_task_title ?? null,
+      file_name: payload.file_name ?? null,
+      file_type: payload.file_type ?? null,
+      file_size: payload.file_size ?? null,
+      data_url: payload.data_url ?? null,
+      oss_url: payload.oss_url ?? null,
+      external_url: payload.external_url ?? null,
+      view_count: 0,
+      download_count: 0,
+      created_by_id: payload.created_by_id ?? null,
+      created_by_name: payload.created_by_name ?? '系统',
+      created_at: now,
+      updated_at: now,
+      archived: false,
+    };
+    entries.unshift(entry);
+    // Cap at 2000 entries to avoid unbounded growth
+    await this.writeValue('rd.knowledgeEntries', entries.slice(0, 2000));
+    return entry;
+  }
+
+  /**
+   * One-shot repair: re-encode garbled Latin-1 filenames back to UTF-8.
+   * Safe to run repeatedly — only touches strings that are actually garbled.
+   */
+  async repairKbFilenameEncoding(): Promise<{ fixed: number; total: number }> {
+    const raw = await this.readValue('rd.knowledgeEntries');
+    const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
+    let fixed = 0;
+
+    const tryFix = (s: unknown): { value: string; changed: boolean } => {
+      if (typeof s !== 'string' || !s) return { value: String(s ?? ''), changed: false };
+      // ASCII-only strings are never garbled
+      if (!/[^\x00-\x7F]/.test(s)) return { value: s, changed: false };
+      try {
+        const decoded = Buffer.from(s, 'latin1').toString('utf8');
+        // If decoding produces replacement chars, original was valid UTF-8 already
+        if (decoded.includes('�')) return { value: s, changed: false };
+        if (decoded === s) return { value: s, changed: false };
+        return { value: decoded, changed: true };
+      } catch {
+        return { value: s, changed: false };
+      }
+    };
+
+    const repaired = entries.map(e => {
+      const titleFix = tryFix(e.title);
+      const fileNameFix = tryFix(e.file_name);
+      const descFix = tryFix(e.description);
+      if (!titleFix.changed && !fileNameFix.changed && !descFix.changed) return e;
+      fixed++;
+      return {
+        ...e,
+        ...(titleFix.changed ? { title: titleFix.value } : {}),
+        ...(fileNameFix.changed ? { file_name: fileNameFix.value } : {}),
+        ...(descFix.changed ? { description: descFix.value } : {}),
+        updated_at: new Date().toISOString(),
+      };
+    });
+
+    await this.writeValue('rd.knowledgeEntries', repaired);
+    return { fixed, total: entries.length };
+  }
+
+  async updateKnowledgeEntry(id: string, payload: Partial<{
+    title: string; description: string; category_id: string;
+    tags: string[]; visibility: string; permission_level: number; archived: boolean;
+  }>) {
+    const raw = await this.readValue('rd.knowledgeEntries');
+    const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
+    const categoryId = payload.category_id !== undefined
+      ? await this.resolveKnowledgeCategoryId(payload.category_id)
+      : undefined;
+    let found = false;
+    const updated = entries.map(e => {
+      if (e.id !== id) return e;
+      found = true;
+      const patch: JsonRecord = { ...payload };
+      if (categoryId !== undefined) patch.category_id = categoryId;
+      // Normalise permission_level if provided; else derive from visibility if changed
+      if (typeof patch.permission_level === 'number') {
+        patch.permission_level = ResearchDevelopmentService.clampLevel(patch.permission_level);
+      } else if (patch.visibility) {
+        patch.permission_level = ResearchDevelopmentService.visibilityToLevel(patch.visibility);
+      }
+      return { ...e, ...patch, updated_at: new Date().toISOString() };
+    });
+    if (!found) throw new NotFoundException('知识条目不存在');
+    await this.writeValue('rd.knowledgeEntries', updated);
+    return updated.find(e => e.id === id);
+  }
+
+  async moveKnowledgeEntry(id: string, categoryId: string) {
+    return this.updateKnowledgeEntry(id, { category_id: categoryId });
+  }
+
+  async deleteKnowledgeEntry(id: string) {
+    const raw = await this.readValue('rd.knowledgeEntries');
+    const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
+    const updated = entries.map(e => e.id === id ? { ...e, archived: true, updated_at: new Date().toISOString() } : e);
+    await this.writeValue('rd.knowledgeEntries', updated);
+    return { ok: true };
+  }
+
+  async incrementKbEntryViewCount(id: string) {
+    const raw = await this.readValue('rd.knowledgeEntries');
+    const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
+    const updated = entries.map(e => e.id === id ? { ...e, view_count: (Number(e.view_count) || 0) + 1 } : e);
+    await this.writeValue('rd.knowledgeEntries', updated);
+    return { ok: true };
+  }
+
+  /** Auto-ingest attachments from a task progress note into the knowledge base. */
+  async ingestProgressNoteAttachments(payload: {
+    taskId: string;
+    taskTitle?: string;
+    categoryPath?: string;
+    attachments: Array<{ id: string; name: string; mime: string; size: number; data_url?: string; oss_url?: string }>;
+    actorId?: string;
+    actorName?: string;
+  }) {
+    if (!payload.attachments.length) return;
+    const categoryId = inferKbCategoryId(payload.categoryPath ?? '');
+    const entries = await Promise.all(
+      payload.attachments.map(att => {
+        const ext = att.name.includes('.') ? att.name.split('.').pop()!.toLowerCase() : '';
+        return this.createKnowledgeEntry({
+          title: att.name,
+          description: `来自任务 ${payload.taskId}${payload.taskTitle ? ` · ${payload.taskTitle}` : ''} 的进度附件`,
+          category_id: categoryId,
+          tags: [],
+          visibility: 'internal',
+          source: 'task_attachment',
+          source_task_id: payload.taskId,
+          source_task_title: payload.taskTitle ?? payload.taskId,
+          file_name: att.name,
+          file_type: ext,
+          file_size: att.size,
+          oss_url: att.oss_url,
+          data_url: att.data_url,
+          created_by_id: payload.actorId,
+          created_by_name: payload.actorName ?? '系统',
+        });
+      })
+    );
+    return entries;
+  }
+
   private async readNormalizedTaskCategories() {
     const raw = await this.readArray('rd.taskCategories');
     const bomNormalized = ensurePocBomTaskCategories(raw);
@@ -2262,17 +3366,27 @@ export class ResearchDevelopmentService {
       },
     });
 
-    return configs.map((config) => {
-      const metadata = asRecord(config.metadata, {});
-      return {
-        id: config.id,
-        name: config.name,
-        provider: config.provider ?? 'OpenAI',
-        model: config.model ?? '',
-        enabled: config.isActive,
-        is_default_enabled: metadata.is_default_enabled === true,
-      };
-    });
+    return configs
+      .map((config) => {
+        const metadata = asRecord(config.metadata, {});
+        const usageKind = typeof metadata.usage_kind === 'string' ? metadata.usage_kind : 'auto';
+        return {
+          id: config.id,
+          name: config.name,
+          provider: config.provider ?? 'OpenAI',
+          model: config.model ?? '',
+          enabled: config.isActive,
+          is_default_enabled: metadata.is_default_enabled === true,
+          usage_kind: usageKind,
+        };
+      })
+      // 图片生成模型不适用于研发 AI 场景（任务提取/进度评估等均为文本任务）
+      .filter((item) => {
+        if (item.usage_kind === 'image') return false;
+        if (item.usage_kind !== 'auto') return true;
+        const n = (item.model ?? '').toLowerCase();
+        return !(n.includes('gpt-image') || n.includes('image-to-image') || n === 'dall-e-2' || n.startsWith('dall-e-'));
+      });
   }
 
   private buildFileIngestionPlan(file: JsonRecord, settings: NormalizedAiSettings) {

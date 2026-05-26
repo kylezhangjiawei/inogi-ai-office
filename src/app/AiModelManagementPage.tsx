@@ -58,6 +58,7 @@ export function AiModelManagementPage() {
   const [model, setModel] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [usageKind, setUsageKind] = useState("auto");
   const [enabled, setEnabled] = useState(true);
   const [isDefaultEnabled, setIsDefaultEnabled] = useState(true);
   const [dialogError, setDialogError] = useState("");
@@ -99,6 +100,7 @@ export function AiModelManagementPage() {
     setModel("");
     setBaseUrl("");
     setApiKey("");
+    setUsageKind("auto");
     setEnabled(true);
     setIsDefaultEnabled(true);
     setDialogError("");
@@ -123,6 +125,7 @@ export function AiModelManagementPage() {
     setModel(row.model);
     setBaseUrl(row.base_url || "");
     setApiKey("");
+    setUsageKind(row.usage_kind || "auto");
     setEnabled(row.enabled);
     setIsDefaultEnabled(row.is_default_enabled);
     setDialogMode("edit");
@@ -152,6 +155,7 @@ export function AiModelManagementPage() {
         enabled,
         current_status: selectedRow?.current_status ?? "未配置",
         is_default_enabled: isDefaultEnabled,
+        usage_kind: usageKind,
       });
       toast.success(dialogMode === "edit" ? "AI 模型已更新" : "AI 模型已新增");
       closeDialog();
@@ -286,7 +290,7 @@ export function AiModelManagementPage() {
         </div>
 
         <div className="material-scrollbar overflow-x-auto">
-          <Table className="min-w-[1560px] text-left">
+          <Table className="min-w-[1480px] text-left">
             <TableHeader className="bg-slate-50">
               <TableRow>
                 {[
@@ -326,7 +330,16 @@ export function AiModelManagementPage() {
               </TableRow>
             ) : (
               rows.map((row) => {
-                  const usage = getAiModelUsage(row.model);
+                  // 优先使用管理员显式设置的用途类型，回退到模型名称推断
+                  const explicitKind = row.usage_kind && row.usage_kind !== "auto" ? row.usage_kind : null;
+                  const usage = explicitKind
+                    ? { kind: explicitKind as "text" | "multimodal" | "image",
+                        label: explicitKind === "image" ? "图片" : explicitKind === "multimodal" ? "文本/图片" : "文本",
+                        description: explicitKind === "image" ? "适合图片生成、参考图生图或图片编辑任务。"
+                          : explicitKind === "multimodal" ? "适合文本任务，也适合带图片输入的理解、分析和问答。"
+                          : "适合文本对话、摘要、筛选和结构化提取任务。",
+                      }
+                    : getAiModelUsage(row.model);
                   return (
                     <TableRow key={row.id} className="hover:bg-slate-50/70">
                       <TableCell className="px-4 py-3 text-sm font-medium text-slate-800">
@@ -340,14 +353,20 @@ export function AiModelManagementPage() {
                         </div>
                       </TableCell>
                       <TableCell className="px-4 py-3 text-sm text-slate-700">{row.provider}</TableCell>
-                      <TableCell className="px-4 py-3 text-sm">
+                      <TableCell className="px-4 py-3 text-sm w-[220px] max-w-[220px]">
                         <div className="space-y-1.5">
-                          <span className={cn("material-chip", usageToneMap[usage.kind])}>{usage.label}</span>
-                          <div className="max-w-[180px] text-xs leading-5 text-slate-400">{usage.description}</div>
+                          <div className="flex items-center gap-1.5">
+                            <span className={cn("material-chip shrink-0", usageToneMap[usage.kind])}>{usage.label}</span>
+                            {explicitKind
+                              ? <span className="text-[10px] text-emerald-600 font-medium shrink-0">手动</span>
+                              : <span className="text-[10px] text-slate-400 shrink-0">自动</span>
+                            }
+                          </div>
+                          <div className="w-[188px] text-xs leading-5 text-slate-400 whitespace-normal">{usage.description}</div>
                         </div>
                       </TableCell>
-                      <TableCell className="px-4 py-3 text-sm text-slate-700">
-                        <div className="flex items-center gap-2">
+                      <TableCell className="px-4 py-3 text-sm w-[100px] min-w-[100px]">
+                        <div className="flex items-center gap-2 whitespace-nowrap">
                           <Switch checked={row.enabled} onCheckedChange={(checked) => void handleToggleEnabled(row, checked)} />
                           <span>{row.enabled ? "启用" : "停用"}</span>
                         </div>
@@ -461,6 +480,24 @@ export function AiModelManagementPage() {
               />
               <p className="mt-1.5 text-xs leading-5 text-slate-400">
                 不填写时默认走后端环境中的官方地址；如果浏览器能通、服务端不能通，优先在这里配置代理或网关地址。
+              </p>
+            </div>
+            <div className="md:col-span-2">
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                用途类型
+              </label>
+              <select
+                className="material-input w-full"
+                value={usageKind}
+                onChange={(event) => setUsageKind(event.target.value)}
+              >
+                <option value="auto">自动识别（根据模型名称推断）</option>
+                <option value="text">文本 — 纯文字对话、摘要、提取</option>
+                <option value="multimodal">文本/图片 — 多模态理解（可接收图片输入）</option>
+                <option value="image">图片生成 — 文生图、参考图生图</option>
+              </select>
+              <p className="mt-1.5 text-xs leading-5 text-slate-400">
+                手动指定后，系统将精准分配此模型到对应场景（对话、图片生成等），避免模型出现在不兼容的选择列表中。
               </p>
             </div>
             <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">

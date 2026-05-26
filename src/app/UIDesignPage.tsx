@@ -46,7 +46,8 @@ type GeneratedImage = {
   style: Style;
   size: Size;
   quality: string;
-  imageData: string;
+  imageData?: string;     // base64，新图片有 imageUrl 后可能为空
+  imageUrl?: string | null; // OSS 公网 URL，优先使用
   model: string;
   isFavorite: boolean;
   createdAt: string;
@@ -594,11 +595,12 @@ async function prepareReferenceImagesForSubmit(items: ReferenceImageItem[]) {
   };
 }
 
-function MiniPreview({ variant, imageData }: { variant?: ArtworkVariant; imageData?: string }) {
+function MiniPreview({ variant, imageData, imageUrl }: { variant?: ArtworkVariant; imageData?: string; imageUrl?: string | null }) {
+  const src = imageUrl || imageData;
   return (
     <div className="relative h-12 w-14 shrink-0 overflow-hidden rounded-xl border border-white/70 bg-slate-100">
-      {imageData ? (
-        <img src={imageData} alt="作品缩略图" className="h-full w-full object-cover" />
+      {src ? (
+        <img src={src} alt="作品缩略图" className="h-full w-full object-cover" />
       ) : (
         <ArtworkVisual variant={variant ?? "product"} compact />
       )}
@@ -694,7 +696,7 @@ function ArtworkCard({
   return (
     <article className="group overflow-hidden rounded-[10px] border border-border/80 bg-surface-container-lowest shadow-[0_16px_34px_rgba(15,23,42,0.055)] ring-1 ring-white/70 transition duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_24px_48px_rgba(15,23,42,0.1)]">
       <div className="relative aspect-[16/10] overflow-hidden bg-slate-100">
-        <img src={item.imageData} alt={item.prompt} className="h-full w-full object-cover" />
+        <img src={item.imageUrl || item.imageData} alt={item.prompt} className="h-full w-full object-cover" />
         <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(15,23,42,0.04)_0%,transparent_42%,rgba(15,23,42,0.2)_100%)] opacity-80 transition group-hover:opacity-60" />
         <div className="absolute left-4 top-4 rounded-[8px] border border-white/25 bg-slate-950/68 px-3 py-1 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md">
           {String(index + 1).padStart(2, "0")}
@@ -802,7 +804,7 @@ export function UIDesignPage() {
     modelsLoading,
     loadModels,
     imageModelOptions,
-    textModelOptions,
+    chatModelOptions,
     preferredManagedImageModelValue,
   } = useAiModelOptions();
 
@@ -811,9 +813,10 @@ export function UIDesignPage() {
     [imageModelOptions, selectedModel],
   );
 
+  // 提示词优化：文本 + 多模态模型均可（chatModelOptions）
   const selectedPromptModelOption = useMemo(
-    () => textModelOptions.find((item) => item.value === promptChatModel) ?? textModelOptions[0],
-    [textModelOptions, promptChatModel],
+    () => chatModelOptions.find((item) => item.value === promptChatModel) ?? chatModelOptions[0],
+    [chatModelOptions, promptChatModel],
   );
 
   const selectedRatioOption = ratios.find((item) => item.value === selectedRatio) ?? ratios[1];
@@ -954,11 +957,11 @@ export function UIDesignPage() {
   }, [imageModelOptions, preferredManagedImageModelValue, selectedModel]);
 
   useEffect(() => {
-    if (promptChatModel && textModelOptions.some((item) => item.value === promptChatModel)) {
+    if (promptChatModel && chatModelOptions.some((item) => item.value === promptChatModel)) {
       return;
     }
-    setPromptChatModel(textModelOptions[0]?.value ?? "");
-  }, [promptChatModel, textModelOptions]);
+    setPromptChatModel(chatModelOptions[0]?.value ?? "");
+  }, [promptChatModel, chatModelOptions]);
 
   useEffect(() => {
     const target = activeTab === "收藏" ? "favorite" : activeTab === "历史" ? "history" : "current";
@@ -1155,9 +1158,27 @@ export function UIDesignPage() {
     }
   }
 
-  function handleDownload(item: GeneratedImage) {
+  async function handleDownload(item: GeneratedImage) {
+    const src = item.imageUrl || item.imageData;
+    if (!src) return;
+    // OSS URL 是 HTTPS 跨域地址，需 fetch 后转 blob 才能触发 download
     const link = document.createElement("a");
-    link.href = item.imageData;
+    if (item.imageUrl) {
+      try {
+        const resp = await fetch(item.imageUrl);
+        const blob = await resp.blob();
+        link.href = URL.createObjectURL(blob);
+        link.download = `ai-image-${item.id}.png`;
+        link.click();
+        URL.revokeObjectURL(link.href);
+        return;
+      } catch {
+        // 降级：直接用 URL 打开（由浏览器决定行为）
+        window.open(item.imageUrl, "_blank");
+        return;
+      }
+    }
+    link.href = src;
     link.download = `ai-image-${item.id}.png`;
     link.click();
   }
@@ -1180,9 +1201,14 @@ export function UIDesignPage() {
 
     setEditingImage(true);
     try {
-      const sourceReference = await compressDataUrlForUpstream(previewItem.imageData, MAX_UPSTREAM_REFERENCE_IMAGE_BYTES);
-      if (sourceReference.compressed) {
-        toast.info(`已压缩当前图片用于提交，大小 ${formatFileSize(sourceReference.size)}`);
+      // 有 imageData（base64）时压缩后作为参考图发送；无 imageData 时后端直接从 DB 读取
+      let referenceDataUrl: string | undefined;
+      if (previewItem.imageData) {
+        const sourceReference = await compressDataUrlForUpstream(previewItem.imageData, MAX_UPSTREAM_REFERENCE_IMAGE_BYTES);
+        if (sourceReference.compressed) {
+          toast.info(`已压缩当前图片用于提交，大小 ${formatFileSize(sourceReference.size)}`);
+        }
+        referenceDataUrl = sourceReference.dataUrl;
       }
       const result = await apiEditImage(previewItem.id, {
         message,
@@ -1190,7 +1216,7 @@ export function UIDesignPage() {
         size: previewItem.size,
         model_id: selectedModelOption.managed ? selectedModelOption.modelId : undefined,
         model: selectedModelOption.model,
-        reference_image_data: sourceReference.dataUrl,
+        reference_image_data: referenceDataUrl,
       });
       setEditInstruction("");
       setPreviewItem(result);
@@ -1528,7 +1554,7 @@ export function UIDesignPage() {
                 <button
                   key={tab}
                   type="button"
-                  onClick={() => setActiveTab(tab)}
+                  onClick={() => { setGalleryLoading(true); setActiveTab(tab); }}
                   className={cn(
                     "flex-1 cursor-pointer rounded-[6px] px-4 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 sm:flex-none",
                     activeTab === tab ? "bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(30,64,175,0.2)]" : "text-slate-500 hover:bg-surface-container-low hover:text-slate-900",
@@ -1609,7 +1635,7 @@ export function UIDesignPage() {
           </div>
         </section>
 
-        <aside className="material-scrollbar grid gap-4 min-[1280px]:col-span-2 min-[1280px]:grid-cols-3 min-[1280px]:pr-1 min-[1440px]:col-span-1 min-[1440px]:block min-[1440px]:min-h-0 min-[1440px]:space-y-3 min-[1440px]:overflow-y-auto">
+        <aside className="material-scrollbar grid gap-4 min-[1280px]:col-span-2 min-[1280px]:grid-cols-3 min-[1280px]:pr-1 min-[1440px]:col-span-1 min-[1440px]:flex min-[1440px]:flex-col min-[1440px]:min-h-0 min-[1440px]:gap-3 min-[1440px]:overflow-y-auto">
           {/*<section className={cn("rounded-[20px] p-5", glassCard)}>*/}
           {/*  <div className="mb-4 flex items-center justify-between">*/}
           {/*    <div>*/}
@@ -1630,18 +1656,17 @@ export function UIDesignPage() {
           {/*  </div>*/}
           {/*</section>*/}
 
-          <section className="relative overflow-hidden rounded-[10px] border border-slate-900 bg-slate-950 p-5 text-white shadow-[0_18px_44px_rgba(15,23,42,0.18)] ring-1 ring-white/10">
-            <div className="pointer-events-none absolute inset-0 opacity-35 [background-image:linear-gradient(rgba(255,255,255,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.07)_1px,transparent_1px)] [background-size:28px_28px]" />
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-[linear-gradient(90deg,transparent,var(--primary-container),transparent)]" />
+          <section className={cn("relative overflow-hidden rounded-[10px] p-5", glassCard)}>
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,var(--primary),var(--chart-2),var(--primary))]" />
             <div className="mb-4 flex items-center gap-2">
-              <Settings2 className="h-4 w-4 text-primary-container" />
-              <h2 className="text-sm font-semibold text-white">生成设置</h2>
+              <Settings2 className="h-4 w-4 text-primary" />
+              <h2 className="text-sm font-semibold text-slate-950">生成设置</h2>
             </div>
-            <div className="relative space-y-3">
+            <div className="relative space-y-2">
               {generationSettings.map(([label, value]) => (
-                <div key={label} className="flex items-center justify-between gap-3 border-b border-white/10 pb-2 last:border-b-0 last:pb-0">
-                  <span className="text-xs text-white/55">{label}</span>
-                  <span className="truncate text-right text-xs font-semibold text-white">{value}</span>
+                <div key={label} className="flex items-center justify-between gap-3 border-b border-border/60 pb-2 last:border-b-0 last:pb-0">
+                  <span className="text-xs text-slate-500">{label}</span>
+                  <span className="truncate text-right text-xs font-semibold text-slate-800">{value}</span>
                 </div>
               ))}
             </div>
@@ -1713,7 +1738,7 @@ export function UIDesignPage() {
             )}
           </section>
 
-          <section className={cn("rounded-[10px] p-5", glassCard)}>
+          <section className={cn("rounded-[10px] p-5 min-[1440px]:flex min-[1440px]:flex-1 min-[1440px]:flex-col", glassCard)}>
             <div className="mb-4 flex items-center gap-2">
               <Clipboard className="h-4 w-4 text-primary" />
               <h2 className="text-sm font-semibold text-slate-950">最近创作</h2>
@@ -1726,7 +1751,7 @@ export function UIDesignPage() {
                   onClick={() => setPreviewItem(item)}
                   className="flex w-full cursor-pointer items-center gap-3 rounded-[8px] border border-slate-200 bg-surface-container-low p-2.5 text-left transition hover:border-primary/25 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
                 >
-                  <MiniPreview imageData={item.imageData} />
+                  <MiniPreview imageData={item.imageData} imageUrl={item.imageUrl} />
                   <div className="min-w-0">
                     <div className="truncate text-xs font-semibold text-slate-800">
                       {item.prompt}
@@ -1954,10 +1979,10 @@ export function UIDesignPage() {
                       value={promptChatModel}
                       onChange={(event) => setPromptChatModel(event.target.value)}
                       className="material-input h-11 w-full cursor-pointer appearance-none rounded-[16px] pr-9 text-xs font-semibold"
-                      disabled={promptChatLoading || textModelOptions.length === 0}
+                      disabled={promptChatLoading || chatModelOptions.length === 0}
                     >
-                      {textModelOptions.length > 0 ? (
-                        textModelOptions.map((item) => (
+                      {chatModelOptions.length > 0 ? (
+                        chatModelOptions.map((item) => (
                           <option key={item.value} value={item.value}>
                             {formatAiModelOptionLabel(item)}
                           </option>
@@ -2033,7 +2058,7 @@ export function UIDesignPage() {
             </div>
             <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_360px]">
               <div className="relative min-h-[260px] bg-slate-100 md:min-h-0">
-                <img src={previewItem.imageData} alt={previewItem.prompt} className="h-full w-full object-contain" />
+                <img src={previewItem.imageUrl || previewItem.imageData} alt={previewItem.prompt} className="h-full w-full object-contain" />
               </div>
               <aside className="flex min-h-0 max-h-[46vh] flex-col border-t border-slate-200/70 bg-white md:max-h-none md:border-l md:border-t-0">
                 <div className="shrink-0 border-b border-slate-200/70 p-4">

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
-import { Edit3, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
+import { Edit3, Eye, EyeOff, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./components/ui/table";
@@ -21,6 +21,7 @@ const emptyForm: SavePermissionCatalogItemPayload = {
   type: "page",
   routePath: "",
   enabled: true,
+  navHidden: false,
   sortOrder: 1000,
 };
 
@@ -41,8 +42,10 @@ export function RouteManagementPage() {
   const [items, setItems] = useState<PermissionCatalogItem[]>([]);
   const [keyword, setKeyword] = useState("");
   const [typeFilter, setTypeFilter] = useState<"all" | "page" | "action">("all");
+  const [navFilter, setNavFilter] = useState<"all" | "visible" | "hidden">("all");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
   const [dialogMode, setDialogMode] = useState<DialogMode>(null);
   const [selected, setSelected] = useState<PermissionCatalogItem | null>(null);
   const [form, setForm] = useState<SavePermissionCatalogItemPayload>(emptyForm);
@@ -56,15 +59,19 @@ export function RouteManagementPage() {
     const normalized = keyword.trim().toLowerCase();
     return items.filter((item) => {
       const typeMatched = typeFilter === "all" || item.type === typeFilter;
+      const navMatched =
+        navFilter === "all" ||
+        (navFilter === "visible" && !item.navHidden) ||
+        (navFilter === "hidden" && item.navHidden);
       const keywordMatched =
         !normalized ||
         item.code.toLowerCase().includes(normalized) ||
         item.label.toLowerCase().includes(normalized) ||
         item.groupLabel.toLowerCase().includes(normalized) ||
         item.routePath.toLowerCase().includes(normalized);
-      return typeMatched && keywordMatched;
+      return typeMatched && navMatched && keywordMatched;
     });
-  }, [items, keyword, typeFilter]);
+  }, [items, keyword, typeFilter, navFilter]);
 
   const loadItems = useCallback(async () => {
     setLoading(true);
@@ -102,6 +109,7 @@ export function RouteManagementPage() {
       type: item.type,
       routePath: item.routePath,
       enabled: item.enabled,
+      navHidden: item.navHidden,
       sortOrder: item.sortOrder,
     });
     setDialogMode("edit");
@@ -163,6 +171,36 @@ export function RouteManagementPage() {
     }
   }
 
+  /** Quick-toggle navHidden without opening the full edit dialog */
+  async function handleToggleNavHidden(item: PermissionCatalogItem) {
+    setTogglingId(item.id);
+    try {
+      await permissionCatalogApi.saveItem({
+        id: item.id,
+        code: item.code,
+        label: item.label,
+        description: item.description,
+        groupLabel: item.groupLabel,
+        type: item.type,
+        routePath: item.routePath,
+        enabled: item.enabled,
+        navHidden: !item.navHidden,
+        sortOrder: item.sortOrder,
+      });
+      toast.success(item.navHidden ? `「${item.label}」已设为导航显示` : `「${item.label}」已设为导航隐藏`);
+      // Optimistic update
+      setItems((prev) => prev.map((i) => (i.id === item.id ? { ...i, navHidden: !item.navHidden } : i)));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "操作失败");
+    } finally {
+      setTogglingId(null);
+    }
+  }
+
+  const pageItems = filteredItems.filter((i) => i.type === "page");
+  const hiddenCount = items.filter((i) => i.type === "page" && i.navHidden).length;
+  const visibleCount = items.filter((i) => i.type === "page" && !i.navHidden).length;
+
   return (
     <div className="space-y-6">
       <section className="material-card p-6 md:p-8">
@@ -171,10 +209,26 @@ export function RouteManagementPage() {
             <span className="material-chip bg-blue-50 text-blue-700">Route Permission Catalog</span>
             <h2 className="mt-4 text-3xl font-bold tracking-tight text-slate-950">页面路由管理</h2>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-600">
-              维护页面访问权限和按钮操作权限。角色权限矩阵会实时从这里读取，不再依赖前端写死的权限配置。
+              维护页面访问权限和按钮操作权限。角色权限矩阵会实时从这里读取。
+              <br />
+              <span className="text-slate-500">
+                <strong className="text-slate-700">导航显示</strong>：页面出现在侧边栏中；
+                <strong className="text-slate-700">导航隐藏</strong>：页面可正常访问，但不出现在导航栏（可通过链接直接进入）。隐藏页面仍然在角色权限中显示，可以为角色授权。
+              </span>
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
+            <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2 text-xs text-slate-600">
+              <span className="flex items-center gap-1.5">
+                <Eye className="h-3.5 w-3.5 text-emerald-500" />
+                导航显示 <strong>{visibleCount}</strong>
+              </span>
+              <span className="h-3 w-px bg-slate-300" />
+              <span className="flex items-center gap-1.5">
+                <EyeOff className="h-3.5 w-3.5 text-slate-400" />
+                导航隐藏 <strong>{hiddenCount}</strong>
+              </span>
+            </div>
             <button className="material-button-secondary" onClick={() => void loadItems()} disabled={loading}>
               <RefreshCw className="h-4 w-4" />
               刷新
@@ -189,7 +243,7 @@ export function RouteManagementPage() {
 
       <section className="material-card p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="grid gap-3 sm:grid-cols-[320px_160px]">
+          <div className="grid gap-3 sm:grid-cols-[280px_140px_160px]">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input
@@ -204,6 +258,11 @@ export function RouteManagementPage() {
               <option value="page">页面权限</option>
               <option value="action">按钮权限</option>
             </select>
+            <select className="material-input py-2.5" value={navFilter} onChange={(event) => setNavFilter(event.target.value as typeof navFilter)}>
+              <option value="all">全部导航状态</option>
+              <option value="visible">导航显示</option>
+              <option value="hidden">导航隐藏</option>
+            </select>
           </div>
           <span className="material-chip bg-slate-100 text-slate-600">{filteredItems.length} 项权限</span>
         </div>
@@ -217,7 +276,7 @@ export function RouteManagementPage() {
                 <TableHead>分组</TableHead>
                 <TableHead>类型</TableHead>
                 <TableHead>路由</TableHead>
-                <TableHead>排序</TableHead>
+                <TableHead>导航</TableHead>
                 <TableHead>状态</TableHead>
                 <TableHead>更新时间</TableHead>
                 <TableHead className="text-right">操作</TableHead>
@@ -228,17 +287,39 @@ export function RouteManagementPage() {
                 <TableRow key={item.id} className="align-top">
                   <TableCell>
                     <div className="font-semibold text-slate-900">{item.label}</div>
-                    <div className="mt-1 max-w-[260px] truncate text-xs text-slate-500">{item.description || "无描述"}</div>
+                    <div className="mt-1 max-w-[240px] truncate text-xs text-slate-500">{item.description || "无描述"}</div>
                   </TableCell>
                   <TableCell className="font-mono text-xs">{item.code}</TableCell>
-                  <TableCell>{item.groupLabel}</TableCell>
+                  <TableCell className="text-xs text-slate-600">{item.groupLabel}</TableCell>
                   <TableCell>
                     <span className={cn("material-chip", item.type === "page" ? "bg-blue-50 text-blue-700" : "bg-emerald-50 text-emerald-700")}>
                       {item.type === "page" ? "页面" : "按钮"}
                     </span>
                   </TableCell>
                   <TableCell className="font-mono text-xs text-slate-600">{item.routePath || "-"}</TableCell>
-                  <TableCell>{item.sortOrder}</TableCell>
+                  <TableCell>
+                    {item.type === "page" ? (
+                      <button
+                        type="button"
+                        title={item.navHidden ? "点击设为导航显示" : "点击设为导航隐藏"}
+                        disabled={togglingId === item.id}
+                        onClick={() => void handleToggleNavHidden(item)}
+                        className={cn(
+                          "material-chip inline-flex cursor-pointer items-center gap-1.5 transition-all hover:opacity-80",
+                          item.navHidden ? "bg-slate-100 text-slate-500" : "bg-emerald-50 text-emerald-700",
+                          togglingId === item.id && "opacity-50 cursor-not-allowed",
+                        )}
+                      >
+                        {item.navHidden ? (
+                          <><EyeOff className="h-3 w-3" />隐藏</>
+                        ) : (
+                          <><Eye className="h-3 w-3" />显示</>
+                        )}
+                      </button>
+                    ) : (
+                      <span className="text-xs text-slate-400">—</span>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <span className={cn("material-chip", item.enabled ? "bg-emerald-50 text-emerald-700" : "bg-slate-100 text-slate-500")}>
                       {item.enabled ? "启用" : "停用"}
@@ -257,11 +338,19 @@ export function RouteManagementPage() {
                   </TableCell>
                 </TableRow>
               ))}
+              {filteredItems.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={9} className="py-10 text-center text-sm text-slate-400">
+                    {loading ? "加载中…" : "暂无匹配的权限项"}
+                  </TableCell>
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </div>
       </section>
 
+      {/* Create / Edit dialog */}
       <Dialog open={dialogMode === "create" || dialogMode === "edit"} onClose={closeDialog} maxWidth="md" fullWidth>
         <DialogTitle>{dialogMode === "edit" ? "编辑权限目录" : "新增权限目录"}</DialogTitle>
         <DialogContent>
@@ -298,12 +387,26 @@ export function RouteManagementPage() {
             </label>
             <label className="space-y-2 md:col-span-2">
               <span className="text-sm font-semibold text-slate-700">描述</span>
-              <textarea className="material-input min-h-[96px] resize-none" value={form.description ?? ""} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} placeholder="说明该权限控制的页面或按钮" />
+              <textarea className="material-input min-h-[80px] resize-none" value={form.description ?? ""} onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))} placeholder="说明该权限控制的页面或按钮" />
             </label>
-            <label className="flex items-center gap-3 rounded border border-slate-200 bg-slate-50 p-3">
-              <input type="checkbox" checked={form.enabled} onChange={(event) => setForm((current) => ({ ...current, enabled: event.target.checked }))} />
-              <span className="text-sm font-semibold text-slate-700">启用该权限</span>
-            </label>
+            <div className="md:col-span-2 grid gap-3 sm:grid-cols-2">
+              <label className="flex items-center gap-3 rounded border border-slate-200 bg-slate-50 p-3 cursor-pointer">
+                <input type="checkbox" checked={form.enabled} onChange={(event) => setForm((current) => ({ ...current, enabled: event.target.checked }))} />
+                <div>
+                  <div className="text-sm font-semibold text-slate-700">启用该权限</div>
+                  <div className="text-xs text-slate-500">停用后角色权限矩阵不显示此项</div>
+                </div>
+              </label>
+              {form.type === "page" && (
+                <label className="flex items-center gap-3 rounded border border-slate-200 bg-slate-50 p-3 cursor-pointer">
+                  <input type="checkbox" checked={!form.navHidden} onChange={(event) => setForm((current) => ({ ...current, navHidden: !event.target.checked }))} />
+                  <div>
+                    <div className="text-sm font-semibold text-slate-700">显示在导航栏</div>
+                    <div className="text-xs text-slate-500">取消勾选则页面可访问但不出现在侧边栏</div>
+                  </div>
+                </label>
+              )}
+            </div>
           </div>
         </DialogContent>
         <DialogActions>
@@ -312,11 +415,12 @@ export function RouteManagementPage() {
         </DialogActions>
       </Dialog>
 
+      {/* Delete dialog */}
       <Dialog open={dialogMode === "delete"} onClose={closeDialog} maxWidth="xs" fullWidth>
         <DialogTitle>删除权限目录</DialogTitle>
         <DialogContent>
           <p className="text-sm leading-6 text-slate-600">
-            确认删除“{selected?.label}”？已分配给角色的权限编码不会自动从角色中清理，但后续权限矩阵不再显示该项。
+            确认删除「{selected?.label}」？已分配给角色的权限编码不会自动清理，但后续权限矩阵不再显示该项。
           </p>
         </DialogContent>
         <DialogActions>

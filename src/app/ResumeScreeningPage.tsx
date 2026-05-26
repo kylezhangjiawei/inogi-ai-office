@@ -704,10 +704,6 @@ export function ResumeScreeningPage() {
     const modelName = selectedOpenAiConfig?.model?.trim();
     return configName || modelName || "AI 模型";
   }, [selectedOpenAiConfig]);
-  const selectedOpenAiUsage = useMemo(
-    () => getAiModelUsage(selectedOpenAiConfig?.model),
-    [selectedOpenAiConfig?.model],
-  );
   const resolvedSelectedJobRule = useMemo(() => {
     const candidateIds = [
       selectedJobRuleId.trim(),
@@ -1129,7 +1125,14 @@ export function ResumeScreeningPage() {
   async function loadOpenAiConfigs() {
     setLoadingOpenAiConfigs(true);
     try {
-      const next = await recruitmentApi.listOpenAiConfigs();
+      const raw = await recruitmentApi.listOpenAiConfigs();
+      // Defensive: filter out image-only models (backend should already exclude them)
+      const next = raw.filter((c) => {
+        if (c.usage_kind === 'image') return false;
+        if (c.usage_kind && c.usage_kind !== 'auto') return true;
+        const n = (c.model ?? '').toLowerCase();
+        return !(n.includes('gpt-image') || n.includes('image-to-image') || n === 'dall-e-2' || n.startsWith('dall-e-'));
+      });
       setOpenAiConfigs(next);
       setSelectedOpenAiConfigId((current) => {
         if (current && next.some((item) => item.id === current)) return current;
@@ -1815,7 +1818,6 @@ export function ResumeScreeningPage() {
                 value: item.id,
                 description: getAiModelUsage(item.model).description,
               }))}
-              hint={selectedOpenAiConfig ? `当前选择：${selectedOpenAiUsage.label} · ${selectedOpenAiUsage.description}` : undefined}
               placeholder={loadingOpenAiConfigs ? "加载中..." : "选择 AI"}
             />
             <MaterialInput
@@ -2080,7 +2082,6 @@ export function ResumeScreeningPage() {
                     value: item.id,
                     description: getAiModelUsage(item.model).description,
                   }))}
-                  hint={selectedOpenAiConfig ? `当前选择：${selectedOpenAiUsage.label} · ${selectedOpenAiUsage.description}` : undefined}
                   placeholder={loadingOpenAiConfigs ? "正在加载 AI 配置..." : "选择 AI 配置"}
                 />
                 <MaterialInput

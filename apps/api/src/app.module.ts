@@ -7,6 +7,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { PrismaModule } from './prisma/prisma.module';
+import { MulterConfigModule } from './modules/multer-config/multer-config.module';
 import { HealthModule } from './modules/health/health.module';
 import { UsersModule } from './modules/users/users.module';
 import { RolesModule } from './modules/roles/roles.module';
@@ -23,6 +24,8 @@ import { OpsCenterModule } from './modules/ops-center/ops-center.module';
 import { PermissionCatalogModule } from './modules/permission-catalog/permission-catalog.module';
 import { ExpenseModule } from './modules/expense/expense.module';
 import { ResearchDevelopmentModule } from './modules/research-development/research-development.module';
+import { OssModule } from './modules/oss/oss.module';
+import { FilesModule } from './modules/files/files.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
 import { AuditInterceptor } from './modules/audit/audit.interceptor';
@@ -41,6 +44,7 @@ const envFilePath = [
     }),
     ScheduleModule.forRoot(),
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
+    MulterConfigModule,
     PrismaModule,
     HealthModule,
     UsersModule,
@@ -56,6 +60,8 @@ const envFilePath = [
     ImageGenerationModule,
     OpsCenterModule,
     PermissionCatalogModule,
+    OssModule,
+    FilesModule,
     ExpenseModule,
     ResearchDevelopmentModule,
   ],

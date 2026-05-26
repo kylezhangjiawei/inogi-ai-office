@@ -18,6 +18,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   UserRound,
+  User,
 } from "lucide-react";
 import { getRoleLabel, useAuth } from "./auth";
 import { authFetch, readErrorMessage } from "./lib/authSession";
@@ -55,10 +56,10 @@ async function updateProfile(payload: { name: string; email: string }) {
   if (!response.ok) throw new Error(await readErrorMessage(response, "个人资料保存失败"));
 }
 
-async function updatePassword(password: string) {
+async function updatePassword(oldPassword: string, newPassword: string) {
   const response = await authFetch("/api/auth/me/password", {
     method: "POST",
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ oldPassword, newPassword }),
   });
   if (!response.ok) throw new Error(await readErrorMessage(response, "密码修改失败"));
 }
@@ -72,10 +73,11 @@ export function PersonalCenterPage() {
   const avatar = useUserAvatar(user?.id);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [email, setEmail] = useState(user?.email ?? "");
-  const [passwordForm, setPasswordForm] = useState({ password: "", confirmPassword: "" });
+  const [passwordForm, setPasswordForm] = useState({ oldPassword: "", password: "", confirmPassword: "" });
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showOldPassword, setShowOldPassword] = useState(false);
   const shouldReduceMotion = useReducedMotion();
 
   const isSuperAdmin = Boolean(user?.permissions.includes("*"));
@@ -127,12 +129,13 @@ export function PersonalCenterPage() {
 
   async function handleSavePassword() {
     if (!canEditAccountFields) { toast.error("超级管理员只允许修改头像"); return; }
+    if (!passwordForm.oldPassword.trim()) { toast.error("请输入当前密码"); return; }
     if (passwordForm.password.length < 8) { toast.error("新密码至少需要 8 位"); return; }
     if (passwordForm.password !== passwordForm.confirmPassword) { toast.error("两次输入的新密码不一致"); return; }
     setSavingPassword(true);
     try {
-      await updatePassword(passwordForm.password);
-      setPasswordForm({ password: "", confirmPassword: "" });
+      await updatePassword(passwordForm.oldPassword, passwordForm.password);
+      setPasswordForm({ oldPassword: "", password: "", confirmPassword: "" });
       toast.success("密码已修改");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "密码修改失败");
@@ -142,9 +145,9 @@ export function PersonalCenterPage() {
   }
 
   const statusTiles = [
-    { label: "账号 ID", value: user?.id?.slice(-8) ?? "-", icon: Fingerprint },
+    { label: "登录账号", value: user?.username ?? user?.email?.split("@")[0] ?? "-", icon: User },
     { label: "权限范围", value: permissionSummary, icon: Gauge },
-    { label: "头像策略", value: "可自定义", icon: Camera },
+    { label: "账号 ID", value: user?.id?.slice(-8) ?? "-", icon: Fingerprint },
   ];
 
   const inputClass =
@@ -401,6 +404,31 @@ export function PersonalCenterPage() {
 
           {/* body */}
           <div className="flex flex-1 flex-col gap-4 p-6">
+            {/* current password */}
+            <div className="space-y-1.5">
+              <FieldLabel htmlFor="profile-old-password">当前密码</FieldLabel>
+              <div className="relative">
+                <input
+                  id="profile-old-password"
+                  type={showOldPassword ? "text" : "password"}
+                  className={`${inputClass} pr-11`}
+                  value={passwordForm.oldPassword}
+                  disabled={!canEditAccountFields || savingPassword}
+                  onChange={(event) => setPasswordForm((cur) => ({ ...cur, oldPassword: event.target.value }))}
+                  autoComplete="current-password"
+                  placeholder="请输入当前密码"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowOldPassword((v) => !v)}
+                  className="absolute right-2 top-1/2 flex h-8 w-8 -translate-y-1/2 cursor-pointer items-center justify-center rounded-[8px] text-on-surface-variant transition hover:bg-primary-container hover:text-primary focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/10"
+                  aria-label={showOldPassword ? "隐藏密码" : "显示密码"}
+                >
+                  {showOldPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+
             {/* new password */}
             <div className="space-y-1.5">
               <FieldLabel htmlFor="profile-password">新密码</FieldLabel>

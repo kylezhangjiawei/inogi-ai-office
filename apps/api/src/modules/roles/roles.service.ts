@@ -1,8 +1,10 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { SaveRoleDto } from './dto/save-role.dto';
 import { DEFAULT_ROLES } from './roles.defaults';
+
+const DEFAULT_ROLE_SEED_SETTING_KEY = 'roles.defaultsSeeded';
 
 @Injectable()
 export class RolesService {
@@ -62,7 +64,7 @@ export class RolesService {
     });
     if (!role) throw new NotFoundException('角色不存在');
     if (role._count.users > 0) {
-      throw new Error(`该角色下仍有 ${role._count.users} 名用户，请先移除或重新分配后再删除`);
+      throw new BadRequestException(`该角色下仍有 ${role._count.users} 名用户，请先移除或重新分配后再删除`);
     }
 
     await this.prisma.role.delete({ where: { id } });
@@ -70,32 +72,40 @@ export class RolesService {
   }
 
   private async ensureDefaultRoles() {
+    const seeded = await this.prisma.systemSetting.findUnique({
+      where: { key: DEFAULT_ROLE_SEED_SETTING_KEY },
+      select: { id: true },
+    });
+    if (seeded) return;
+
     for (const role of DEFAULT_ROLES) {
       const existing = await this.prisma.role.findUnique({
         where: { name: role.name },
-        select: { id: true, permissions: true },
+        select: { id: true },
       });
 
       if (!existing) {
-        await this.prisma.role.create({
-          data: role,
-        });
-        continue;
-      }
-
-      const currentPermissions = Array.isArray(existing.permissions)
-        ? (existing.permissions as string[])
-        : [];
-      const nextPermissions = Array.from(
-        new Set([...currentPermissions, ...role.permissions]),
-      );
-
-      if (nextPermissions.length !== currentPermissions.length) {
-        await this.prisma.role.update({
-          where: { id: existing.id },
-          data: { permissions: nextPermissions },
-        });
+        await this.prisma.role.create({ data: role });
       }
     }
+
+    await this.prisma.systemSetting.upsert({
+      where: { key: DEFAULT_ROLE_SEED_SETTING_KEY },
+      create: {
+        category: 'system',
+        key: DEFAULT_ROLE_SEED_SETTING_KEY,
+        value: {
+          seeded_at: new Date().toISOString(),
+          role_names: DEFAULT_ROLES.map((role) => role.name),
+        },
+        description: 'Default roles have been initialized once; do not recreate roles after user edits/deletes them.',
+      },
+      update: {
+        value: {
+          seeded_at: new Date().toISOString(),
+          role_names: DEFAULT_ROLES.map((role) => role.name),
+        },
+      },
+    });
   }
 }

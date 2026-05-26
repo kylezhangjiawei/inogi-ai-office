@@ -156,6 +156,8 @@ model PermissionCatalogItem {
   type        String   @default("page") // page | action
   routePath   String   @default("")
   enabled     Boolean  @default(true)
+  /// When true the page is accessible but hidden from the sidebar navigation.
+  navHidden   Boolean  @default(false)
   sortOrder   Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -255,7 +257,8 @@ model GeneratedImage {
   style         String   @default("vivid")
   size          String   @default("1024x1024")
   quality       String   @default("standard")
-  imageData     String   // base64 data URL
+  imageData     String   // base64 data URL (保留用于编辑操作)
+  imageUrl      String   @default("")  // OSS 公网 URL，列表接口优先使用此字段
   model         String   @default("dall-e-3")
   isFavorite    Boolean  @default(false)
   requestId          String?
@@ -352,4 +355,24 @@ model EmailIngestionLog {
   candidate    Candidate? @relation(fields: [candidateId], references: [id])
   errorMessage String?
   createdAt    DateTime  @default(now())
+}
+
+model FileAsset {
+  id           String    @id @default(cuid())
+  bucket       String
+  objectKey    String    @unique
+  fileName     String
+  mimeType     String
+  fileSize     Int
+  fileHash     String?
+  businessType String
+  businessId   String?
+  uploadedBy   String?
+  status       String    @default("active")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  @@index([businessType, businessId])
+  @@index([uploadedBy])
 }

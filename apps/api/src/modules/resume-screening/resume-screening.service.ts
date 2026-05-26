@@ -21,6 +21,7 @@ import { SaveMailConfigDto } from './dto/save-mail-config.dto';
 import { SaveMailSyncScheduleDto } from './dto/save-mail-sync-schedule.dto';
 import { SaveOpenAiConfigDto } from './dto/save-openai-config.dto';
 import { UploadResumeFilesDto } from './dto/upload-resume-files.dto';
+import { OssService } from '../oss/oss.service';
 import { MailIngestionService } from './mail-ingestion.service';
 import { OpenAiScreeningService } from './openai-screening.service';
 import { ResumeDocumentService } from './resume-document.service';
@@ -114,6 +115,7 @@ export class ResumeScreeningService implements OnModuleInit {
     private readonly resumeDocumentService: ResumeDocumentService,
     private readonly resumeParserService: ResumeParserService,
     private readonly openAiScreeningService: OpenAiScreeningService,
+    private readonly ossService: OssService,
   ) {
     const configuredConcurrency = Number(process.env.AI_SCREENING_CONCURRENCY ?? 2);
     this.screeningConcurrency = Number.isFinite(configuredConcurrency)
@@ -230,16 +232,30 @@ export class ResumeScreeningService implements OnModuleInit {
       orderBy: { updatedAt: 'desc' },
     });
 
-    return configs.map((c) => ({
-      id: c.id,
-      kind: c.kind,
-      provider: c.provider ?? 'openai',
-      name: c.name,
-      model: c.model ?? '',
-      enabled: c.isActive,
-      created_at: c.createdAt.toISOString(),
-      updated_at: c.updatedAt.toISOString(),
-    }));
+    return configs
+      .map((c) => {
+        const metadata = c.metadata && typeof c.metadata === 'object' && !Array.isArray(c.metadata)
+          ? (c.metadata as Record<string, unknown>)
+          : {};
+        return {
+          id: c.id,
+          kind: c.kind,
+          provider: c.provider ?? 'openai',
+          name: c.name,
+          model: c.model ?? '',
+          enabled: c.isActive,
+          usage_kind: typeof metadata.usage_kind === 'string' ? metadata.usage_kind : 'auto',
+          created_at: c.createdAt.toISOString(),
+          updated_at: c.updatedAt.toISOString(),
+        };
+      })
+      // 简历筛选属于文本任务，图片生成模型不适用
+      .filter((c) => {
+        if (c.usage_kind === 'image') return false;
+        if (c.usage_kind !== 'auto') return true;
+        const n = c.model.toLowerCase();
+        return !(n.includes('gpt-image') || n.includes('image-to-image') || n === 'dall-e-2' || n.startsWith('dall-e-'));
+      });
   }
 
   async saveOpenAiConfig(payload: SaveOpenAiConfigDto) {
@@ -879,6 +895,14 @@ export class ResumeScreeningService implements OnModuleInit {
           });
           continue;
         }
+
+        // 上传简历原始文件到 OSS（异步，不阻塞 AI 筛选流程）
+        void this.ossService.uploadBuffer(
+          file.buffer,
+          'recruitment/resumes',
+          fileName,
+          typeof file.mimetype === 'string' ? file.mimetype : undefined,
+        );
 
         await this.createIngestionLog(uploadedSource, null, 'queued');
         this.enqueueFileScreeningTask({

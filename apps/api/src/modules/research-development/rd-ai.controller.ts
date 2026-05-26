@@ -9,7 +9,12 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 
 import { Permissions } from '../auth/decorators/permissions.decorator';
-import { RdAiService, type RdAiPersonContext } from './rd-ai.service';
+import {
+  RdAiService,
+  type RdAiPersonContext,
+  type RdAiProposalRefineScope,
+  type RdAiProposalTaskInput,
+} from './rd-ai.service';
 
 function parseList(raw: unknown): string[] {
   if (Array.isArray(raw)) return raw.map((x) => String(x).trim()).filter(Boolean);
@@ -48,6 +53,32 @@ function parsePeopleProfiles(raw: unknown): RdAiPersonContext[] {
       };
     })
     .filter((item): item is RdAiPersonContext => item !== null);
+}
+
+function parseTaskDrafts(raw: unknown): RdAiProposalTaskInput[] {
+  const value = typeof raw === 'string' && raw.trim() ? safeJsonParse(raw) : raw;
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item): RdAiProposalTaskInput | null => {
+      if (!item || typeof item !== 'object') return null;
+      const task = item as Record<string, unknown>;
+      const title = typeof task.title === 'string' ? task.title.trim() : '';
+      if (!title) return null;
+      return {
+        id: typeof task.id === 'string' ? task.id : undefined,
+        title,
+        description: typeof task.description === 'string' ? task.description : undefined,
+        owner: typeof task.owner === 'string' ? task.owner : '待指派',
+        owner_reason: typeof task.owner_reason === 'string' ? task.owner_reason : '',
+        due_date: typeof task.due_date === 'string' ? task.due_date : '',
+        priority: task.priority === 'high' || task.priority === 'low' ? task.priority : 'medium',
+        category_path: typeof task.category_path === 'string' ? task.category_path : '',
+        estimated_days: toOptionalNumber(task.estimated_days) ?? 5,
+        ai_estimated_days: toOptionalNumber(task.ai_estimated_days),
+        duration_basis: typeof task.duration_basis === 'string' ? task.duration_basis : undefined,
+      };
+    })
+    .filter((item): item is RdAiProposalTaskInput => item !== null);
 }
 
 function safeJsonParse(raw: string): unknown {
@@ -106,6 +137,39 @@ export class RdAiController {
       peopleProfiles: parsePeopleProfiles(body.peopleProfiles),
       categoryLabels: parseList(body.categoryLabels),
       proposalTitle: body.proposalTitle,
+    });
+  }
+
+  @Post('refine-proposal')
+  async refineProposal(
+    @Body()
+    body: {
+      proposalTitle?: string;
+      originalInput?: string;
+      currentTasks?: unknown;
+      instruction?: string;
+      peopleNames?: string[];
+      peopleProfiles?: RdAiPersonContext[];
+      categoryLabels?: string[];
+      scope?: RdAiProposalRefineScope;
+      selectedTaskIds?: string[];
+    },
+  ) {
+    const scope =
+      body.scope === 'all' || body.scope === 'selected' || body.scope === 'single'
+        ? body.scope
+        : undefined;
+
+    return this.rdAiService.refineProposal({
+      proposalTitle: body.proposalTitle,
+      originalInput: body.originalInput,
+      currentTasks: parseTaskDrafts(body.currentTasks),
+      instruction: String(body.instruction ?? ''),
+      peopleNames: parseList(body.peopleNames),
+      peopleProfiles: parsePeopleProfiles(body.peopleProfiles),
+      categoryLabels: parseList(body.categoryLabels),
+      scope,
+      selectedTaskIds: parseList(body.selectedTaskIds),
     });
   }
 

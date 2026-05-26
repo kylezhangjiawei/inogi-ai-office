@@ -329,7 +329,15 @@ export function RDAiSettingsPage() {
   }, [loadSettings]);
 
   const modelOptions = useMemo(
-    () => settings?.runtime?.models?.filter((model) => model.enabled && model.model) ?? [],
+    () =>
+      (settings?.runtime?.models ?? []).filter((m) => {
+        if (!m.enabled || !m.model) return false;
+        // 图片生成模型不适用于研发 AI 场景
+        if (m.usage_kind === 'image') return false;
+        if (m.usage_kind && m.usage_kind !== 'auto') return true;
+        const n = m.model.toLowerCase();
+        return !(n.includes('gpt-image') || n.includes('image-to-image') || n === 'dall-e-2' || n.startsWith('dall-e-'));
+      }),
     [settings?.runtime?.models],
   );
 

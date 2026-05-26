@@ -41,6 +41,7 @@ import { ResumeScreeningPage } from "./ResumeScreeningPage";
 import { RoleManagement } from "./RoleManagement";
 import { RDTaskManagementPage } from "./RDTaskManagementPage";
 import { RDMyWorkspacePage } from "./RDMyWorkspacePage";
+import { RDKnowledgeBasePage } from "./RDKnowledgeBasePage";
 import { RDPeopleManagementPage } from "./RDPeopleManagementPage";
 import { RDDirectorDashboardPage } from "./RDDirectorDashboardPage";
 import { RDApprovalFlowPage } from "./RDApprovalFlowPage";
@@ -194,6 +195,8 @@ const router = createBrowserRouter([
       { path: "rd-task-management", element: makeProtected(<RDTaskManagementPage />, "page:rd-task-management") },
       { path: "rd-people-management", element: makeProtected(<RDPeopleManagementPage onBack={() => window.history.back()} />, "rd-people:manage") },
       { path: "rd-my-workspace", element: makeProtected(<RDMyWorkspacePage />, "page:rd-my-workspace") },
+      { path: "rd-knowledge-base", element: makeProtected(<RDKnowledgeBasePage />, "page:rd-knowledge-base") },
+      // 研发主管驾驶舱 — 导航可见性由页面路由管理中的「导航」开关控制（默认隐藏）
       { path: "rd-director-dashboard", element: makeProtected(<RDDirectorDashboardPage />, "page:rd-director-dashboard") },
       { path: "rd-approval-flow", element: makeProtected(<RDApprovalFlowPage />, "page:rd-approval-flow") },
       { path: "rd-audit-log", element: makeProtected(<RDAuditLogPage />, "page:rd-audit-log") },

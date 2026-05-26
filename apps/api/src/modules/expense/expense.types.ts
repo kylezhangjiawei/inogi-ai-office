@@ -57,6 +57,7 @@ export type ExpenseInvoiceValue = {
   manual_review_required?: boolean;
   ocr_raw_response?: unknown;
   third_party_errors?: ThirdPartyOfficialError[];
+  file_url?: string;
 };
 
 export type ExpenseVoucherValue = {
@@ -86,6 +87,7 @@ export type ExpenseVoucherValue = {
   manual_review_required?: boolean;
   ocr_raw_response?: unknown;
   third_party_errors?: ThirdPartyOfficialError[];
+  file_url?: string;
 };
 
 export type ExpenseReimbursementValue = {

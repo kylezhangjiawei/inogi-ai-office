@@ -32,6 +32,7 @@ import { Label } from "./components/ui/label";
 import { NativeSelect } from "./components/ui/native-select";
 import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
 import { usePermission } from "./hooks/usePermission";
@@ -57,6 +58,7 @@ import {
   type RdBlockedTask,
   type RdCategory,
   type RdCategoryProgress,
+  type RdCollaborator,
   type RdDailyReport,
   type RdDirectorDashboardPayload,
   type RdPendingAssignTask,
@@ -122,6 +124,9 @@ type TaskDetail = {
   blocked_days?: number;
   attachments?: number;
   collaborators?: string[];
+  pending_review_type?: "collaboration" | "result" | string | null;
+  pending_collaborators?: RdCollaborator[];
+  pending_collaboration_reason?: string | null;
   recent_activities?: { date: string; action: string; actor?: string }[];
 };
 
@@ -174,6 +179,9 @@ function rdTaskToDetail(task: RdTask, blocked?: BlockedTask): TaskDetail {
     blocked_days: blocked?.days_blocked,
     attachments: task.attachments,
     collaborators: task.collaborators.map((c) => c.name),
+    pending_review_type: task.pending_review_type,
+    pending_collaborators: task.pending_collaborators,
+    pending_collaboration_reason: task.pending_collaboration_reason,
     recent_activities: [],
   };
 }
@@ -2931,6 +2939,9 @@ export function RDDirectorDashboardPage() {
   const BLOCKED_PAGE_SIZE = 3;
   const PERSON_PAGE_SIZE = 6;
 
+  // Person-task nav tab (人员任务驾驶台)
+  const [personTabId, setPersonTabId] = useState("all");
+
   // KPI filter for the task list
   type TaskKpiFilter = "all" | "completed" | "in_progress" | "blocked" | "pending_review";
   const [kpiFilter, setKpiFilter] = useState<TaskKpiFilter>("all");
@@ -3065,20 +3076,41 @@ export function RDDirectorDashboardPage() {
         return;
       }
       const approved = decision === "approved";
-      const nextStatus: TaskStatus = approved ? "in_progress" : "on_hold";
+      const isCollaborationReview = task.pending_review_type === "collaboration";
+      const nextStatus: TaskStatus = isCollaborationReview ? "in_progress" : approved ? "in_progress" : "on_hold";
       try {
-        await updateRdTask(task.task_id, { status: nextStatus });
+        await updateRdTask(task.task_id, isCollaborationReview
+          ? {
+              status: nextStatus,
+              collaborators: approved ? task.pending_collaborators ?? [] : undefined,
+              pending_review_type: null,
+              pending_collaborators: [],
+              pending_collaboration_reason: null,
+              pending_collaboration_requested_at: null,
+            }
+          : { status: nextStatus });
         await recomputeRdDirectorDashboard().catch(() => {});
         recordAudit({
           actor: DIRECTOR_AUDIT_ACTOR,
           action: approved ? "proposal.approved" : "proposal.rejected",
           resource: { type: "task", id: task.task_id, name: task.title },
-          changes: [{ field: "status", before: task.status, after: nextStatus }],
-          comment: approved ? "主管审核通过，任务进入执行" : "主管驳回审核，任务挂起待调整",
-          metadata: { task_id: task.task_id, category_path: task.category_path },
+          changes: [
+            { field: "status", before: task.status, after: nextStatus },
+            ...(isCollaborationReview
+              ? [{
+                  field: "collaborators",
+                  before: task.collaborators?.join("、") ?? "",
+                  after: approved ? (task.pending_collaborators ?? []).map((item) => item.name).join("、") : task.collaborators?.join("、") ?? "",
+                }]
+              : []),
+          ],
+          comment: isCollaborationReview
+            ? approved ? "主管审核通过，协同人变更已生效" : "主管驳回协同人变更"
+            : approved ? "主管审核通过，任务进入执行" : "主管驳回审核，任务挂起待调整",
+          metadata: { task_id: task.task_id, category_path: task.category_path, pending_review_type: task.pending_review_type },
           source: "web",
         });
-        toast.success(approved ? "审核已通过" : "审核已驳回");
+        toast.success(isCollaborationReview ? (approved ? "协作变更已生效" : "协作变更已驳回") : approved ? "审核已通过" : "审核已驳回");
         setSelectedTask(null);
         reloadAll();
       } catch (err) {
@@ -3339,8 +3371,7 @@ export function RDDirectorDashboardPage() {
           </div>
         )}
 
-        <div className="grid grid-cols-1 gap-5 2xl:grid-cols-[minmax(0,1.55fr)_minmax(360px,0.9fr)]">
-          {/* Left: Category Progress + Bottlenecks */}
+        <div className="grid grid-cols-1 gap-5">
           <div className="space-y-5">
             {/* Task list — filterable by KPI cards above */}
             <div className="rounded-2xl border border-white bg-white/70 p-5 shadow-sm">
@@ -3656,71 +3687,333 @@ export function RDDirectorDashboardPage() {
               )}
             </div>
 
-            {/* Bottlenecks */}
-            <div className="rounded-2xl border border-orange-100 bg-orange-50/50 p-5 shadow-sm">
-              <div className="mb-4 flex items-center justify-between">
+            {/* 决策焦点 · 人员任务驾驶台 — 风险任务 + 人员负载合并 */}
+            <div className="overflow-hidden rounded-2xl border border-white bg-white/70 shadow-sm">
+              {/* Section header */}
+              <div className="flex flex-wrap items-center gap-3 px-5 pt-5">
                 <h2 className="flex items-center gap-2 text-sm font-bold text-slate-800">
                   <AlertTriangle className="h-4 w-4 text-orange-500" />
-                  瓶颈识别 · 阻塞任务
-                  <span className="rounded-full bg-orange-100 px-1.5 text-xs text-orange-700">{BLOCKED_TASKS.length}</span>
+                  决策焦点
                 </h2>
-                <span className="text-[11px] tabular-nums text-slate-400">
-                  {blockedRangeStart}
-                  {" - "}
-                  {Math.min(blockedSafePage * BLOCKED_PAGE_SIZE, BLOCKED_TASKS.length)}
-                  <span className="mx-1 text-slate-300">/</span>
-                  {BLOCKED_TASKS.length}
+                {BLOCKED_TASKS.length > 0 && (
+                  <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-600">
+                    {BLOCKED_TASKS.length} 风险任务
+                  </span>
+                )}
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+                  {PERSON_LOADS.length} 人在线
                 </span>
               </div>
-              <div className="space-y-2.5">
-                {blockedPaged.length === 0 ? (
-                  <DashboardEmptyPanel
-                    title={loading ? "正在读取阻塞任务" : "暂无阻塞任务"}
-                    description={loading ? "请稍候，系统正在同步异常任务。" : "当前没有阻塞或异常任务。"}
-                  />
-                ) : blockedPaged.map((t) => (
-                    <div
-                      key={t.task_id}
-                      onClick={() => openTask(t.task_id, t.owner)}
-                      className="group flex cursor-pointer items-start gap-3 rounded-xl border border-orange-100 bg-white px-4 py-3 transition-all duration-150 hover:-translate-y-0.5 hover:border-orange-200 hover:shadow-[0_8px_20px_rgba(234,88,12,0.08)] active:translate-y-0"
+
+              <Tabs value={personTabId} onValueChange={setPersonTabId} className="mt-3 gap-0">
+                {/* ── Nav bar ── */}
+                <div className="border-b border-slate-100 px-5">
+                  <TabsList className="h-auto w-full justify-start gap-0.5 overflow-x-auto rounded-none bg-transparent p-0">
+                    {/* 全部 tab */}
+                    <TabsTrigger
+                      value="all"
+                      className="relative flex shrink-0 items-center gap-1.5 rounded-none rounded-t-lg border-x border-t border-transparent px-3 pb-3 pt-2 text-xs font-semibold text-slate-500 transition-none data-[state=active]:border-slate-200 data-[state=active]:bg-white data-[state=active]:text-orange-600"
                     >
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-50 text-xs font-bold text-red-600 transition-transform group-hover:scale-105">
-                        {t.days_blocked}天
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-xs font-mono text-slate-400">{t.task_id}</span>
-                          <span className="text-sm font-medium text-slate-800 group-hover:text-slate-900">{t.title}</span>
-                        </div>
-                        <div className="mt-0.5 text-xs text-slate-500">
-                          负责人: {t.owner} · 阻塞原因: {t.reason}
-                        </div>
-                      </div>
-                      {canReassignTasks && (
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setReassignInitialTaskId(t.task_id);
-                            setCategoryReassignTasks(null);
-                            setShowReassign(true);
-                          }}
-                          className="flex shrink-0 items-center gap-1 rounded-lg border border-orange-200 bg-orange-50 px-2 py-1 text-xs font-semibold text-orange-700 transition-all hover:bg-orange-100 active:scale-95"
-                        >
-                          转派
-                          <ChevronRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
-                        </button>
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      全部
+                      {BLOCKED_TASKS.length > 0 && (
+                        <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-600">
+                          {BLOCKED_TASKS.length}
+                        </span>
                       )}
+                    </TabsTrigger>
+                    {/* Per-person tabs */}
+                    {PERSON_LOADS.map((p) => {
+                      const ratio = p.max_tasks > 0 ? p.task_count / p.max_tasks : 0;
+                      const dotColor =
+                        ratio >= 1
+                          ? "bg-red-500"
+                          : ratio >= 0.75
+                            ? "bg-orange-500"
+                            : ratio >= 0.5
+                              ? "bg-amber-400"
+                              : "bg-emerald-400";
+                      return (
+                        <TabsTrigger
+                          key={p.id}
+                          value={p.id}
+                          className="relative flex shrink-0 items-center gap-1.5 rounded-none rounded-t-lg border-x border-t border-transparent px-3 pb-3 pt-2 text-xs font-semibold text-slate-500 transition-none data-[state=active]:border-slate-200 data-[state=active]:bg-white data-[state=active]:text-blue-600"
+                        >
+                          <span className={cn("h-2 w-2 shrink-0 rounded-full", dotColor)} />
+                          {p.name}
+                          <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
+                            {p.task_count}
+                          </span>
+                          {p.on_leave && (
+                            <span className="rounded bg-amber-100 px-1 text-[10px] text-amber-700">假</span>
+                          )}
+                        </TabsTrigger>
+                      );
+                    })}
+                  </TabsList>
+                </div>
+
+                {/* ── "全部" tab → 风险任务 + 人员负载概览 ── */}
+                <TabsContent value="all" className="mt-0 p-5">
+                  {/* Blocked tasks */}
+                  <div className="space-y-2.5">
+                    {BLOCKED_TASKS.length === 0 ? (
+                      <DashboardEmptyPanel
+                        title={loading ? "正在读取风险任务" : "暂无风险任务"}
+                        description={loading ? "请稍候，系统正在同步异常任务。" : "当前没有阻塞或异常任务。"}
+                      />
+                    ) : (
+                      BLOCKED_TASKS.map((t) => (
+                        <div
+                          key={t.task_id}
+                          onClick={() => openTask(t.task_id, t.owner)}
+                          className="group flex cursor-pointer items-start gap-3 rounded-xl border border-orange-100 bg-white px-4 py-3 transition-all duration-150 hover:-translate-y-0.5 hover:border-orange-200 hover:shadow-[0_8px_20px_rgba(234,88,12,0.08)] active:translate-y-0"
+                        >
+                          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-50 text-xs font-bold text-red-600 transition-transform group-hover:scale-105">
+                            {t.days_blocked}天
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-xs text-slate-400">{t.task_id}</span>
+                              <span className="text-sm font-medium text-slate-800 group-hover:text-slate-900">{t.title}</span>
+                            </div>
+                            <div className="mt-0.5 text-xs text-slate-500">
+                              负责人: {t.owner} · 阻塞原因: {t.reason}
+                            </div>
+                          </div>
+                          {canReassignTasks && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setReassignInitialTaskId(t.task_id);
+                                setCategoryReassignTasks(null);
+                                setShowReassign(true);
+                              }}
+                              className="flex shrink-0 items-center gap-1 rounded-lg border border-orange-200 bg-orange-50 px-2 py-1 text-xs font-semibold text-orange-700 transition-all hover:bg-orange-100 active:scale-95"
+                            >
+                              转派
+                              <ChevronRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
+                            </button>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Person load mini-overview */}
+                  {PERSON_LOADS.length > 0 && (
+                    <div className="mt-5 border-t border-slate-100 pt-4">
+                      <div className="mb-2.5 flex items-center gap-2 text-xs font-semibold text-slate-500">
+                        <Users className="h-3.5 w-3.5" />
+                        人员负载概览 · 点击切换人员任务
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
+                        {PERSON_LOADS.map((p) => {
+                          const ratio = p.max_tasks > 0 ? p.task_count / p.max_tasks : 0;
+                          const barColor =
+                            ratio >= 1
+                              ? "bg-red-500"
+                              : ratio >= 0.75
+                                ? "bg-orange-400"
+                                : ratio >= 0.5
+                                  ? "bg-amber-400"
+                                  : "bg-emerald-400";
+                          const textColor =
+                            ratio >= 1 ? "text-red-600" : ratio >= 0.75 ? "text-orange-600" : "text-slate-700";
+                          return (
+                            <button
+                              key={p.id}
+                              type="button"
+                              onClick={() => setPersonTabId(p.id)}
+                              className="rounded-xl border border-slate-100 bg-white p-2.5 text-left transition-all hover:border-blue-200 hover:shadow-sm active:scale-[0.98]"
+                            >
+                              <div className="flex items-center justify-between gap-1">
+                                <span className="truncate text-xs font-semibold text-slate-700">{p.name}</span>
+                                <span className={cn("tabular-nums text-xs font-bold", textColor)}>
+                                  {p.task_count}
+                                </span>
+                              </div>
+                              {p.on_leave && (
+                                <span className="mt-0.5 block rounded bg-amber-100 px-1 text-[10px] text-amber-700">请假中</span>
+                              )}
+                              <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-slate-100">
+                                <div
+                                  className={cn("h-full rounded-full", barColor)}
+                                  style={{ width: `${Math.min(100, ratio * 100)}%` }}
+                                />
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                      {/* Legend */}
+                      <div className="mt-3 flex flex-wrap gap-3 text-[10px] text-slate-400">
+                        {[
+                          { color: "bg-emerald-400", label: "< 50% 负载" },
+                          { color: "bg-amber-400", label: "50–75%" },
+                          { color: "bg-orange-400", label: "75–100%" },
+                          { color: "bg-red-500", label: "超负荷" },
+                        ].map((l) => (
+                          <span key={l.label} className="flex items-center gap-1">
+                            <span className={cn("inline-block h-2 w-2 rounded-sm", l.color)} />
+                            {l.label}
+                          </span>
+                        ))}
+                      </div>
                     </div>
-                  ))}
-              </div>
-              {BLOCKED_TASKS.length > 0 && (
-                <MiniPagination
-                  page={blockedSafePage}
-                  totalPages={blockedTotalPages}
-                  onChange={setBlockedPage}
-                  className="mt-3 justify-end"
-                />
-              )}
+                  )}
+                </TabsContent>
+
+                {/* ── Per-person tabs → 任务列表 + 图片组 ── */}
+                {PERSON_LOADS.map((person) => {
+                  const personTasks = person.tasks
+                    .map((id) => taskMap.get(id))
+                    .filter((t): t is RdTask => t !== undefined);
+                  const personAllImages = person.tasks
+                    .flatMap((id) => progressNoteMap[id] ?? [])
+                    .flatMap((n) => n.attachments.filter((a) => a.mime.startsWith("image/")));
+
+                  return (
+                    <TabsContent key={person.id} value={person.id} className="mt-0 p-5">
+                      {/* Person header */}
+                      <div className="mb-4 flex flex-wrap items-center gap-3">
+                        <MiniAvatar name={person.name} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm font-bold text-slate-800">{person.name}</span>
+                            {person.on_leave && (
+                              <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+                                请假中
+                              </span>
+                            )}
+                            {(person.blocked_count ?? 0) > 0 && (
+                              <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-600">
+                                阻塞 {person.blocked_count}
+                              </span>
+                            )}
+                          </div>
+                          <div className="mt-0.5 text-xs text-slate-400">
+                            {person.position} · 任务 {person.task_count}/{person.max_tasks}
+                            {typeof person.avg_completion === "number" && ` · 平均完成 ${person.avg_completion}%`}
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 items-center gap-2">
+                          {canReassignTasks && person.tasks.length > 0 && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                const tasks = getPersonReassignableTasks(person);
+                                if (tasks.length === 0) {
+                                  toast.info(`${person.name} 当前没有可转派的任务`);
+                                  return;
+                                }
+                                setCategoryReassignTasks(tasks);
+                                setReassignInitialTaskId(null);
+                                setShowReassign(true);
+                              }}
+                            >
+                              批量转派
+                            </Button>
+                          )}
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setSelectedPerson(person)}
+                          >
+                            详细档案
+                            <ChevronRight className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+
+                      {/* Task cards */}
+                      {personTasks.length === 0 ? (
+                        <DashboardEmptyPanel
+                          title="暂无任务数据"
+                          description="该成员任务信息未加载，或当前没有进行中的任务。"
+                        />
+                      ) : (
+                        <div className="space-y-2.5">
+                          {personTasks.map((task) => {
+                            const sCfg = TASK_STATUS_CONFIG[task.status];
+                            const pCfg = TASK_PRIORITY_CONFIG[task.priority ?? "medium"];
+                            const taskImages = (progressNoteMap[task.task_id] ?? [])
+                              .flatMap((n) => n.attachments.filter((a) => a.mime.startsWith("image/")));
+                            return (
+                              <div
+                                key={task.task_id}
+                                onClick={() => openTask(task.task_id, person.name)}
+                                className="group cursor-pointer rounded-xl border border-slate-100 bg-white px-4 py-3.5 transition-all duration-150 hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_8px_20px_rgba(37,99,235,0.07)] active:translate-y-0"
+                              >
+                                {/* Top row: id + badges + due date */}
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span className="font-mono text-[11px] text-slate-400">{task.task_id}</span>
+                                  <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-semibold", sCfg.bg, sCfg.text)}>
+                                    {sCfg.label}
+                                  </span>
+                                  <span className={cn("rounded-full border px-1.5 py-0.5 text-[10px] font-semibold", pCfg.color)}>
+                                    {pCfg.label}优先
+                                  </span>
+                                  {task.due_date && (
+                                    <span className="ml-auto shrink-0 text-[11px] tabular-nums text-slate-400">
+                                      截止 {task.due_date}
+                                    </span>
+                                  )}
+                                </div>
+                                {/* Title */}
+                                <div className="mt-1.5 text-sm font-semibold text-slate-800 group-hover:text-slate-900">
+                                  {task.title}
+                                </div>
+                                {/* Description */}
+                                {task.description && (
+                                  <div className="mt-0.5 line-clamp-1 text-xs text-slate-400">{task.description}</div>
+                                )}
+                                {/* Progress bar */}
+                                <div className="mt-2.5 flex items-center gap-2">
+                                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                                    <div
+                                      className={cn("h-full rounded-full transition-all", sCfg.accent)}
+                                      style={{ width: `${task.progress ?? 0}%` }}
+                                    />
+                                  </div>
+                                  <span className="w-9 text-right text-[11px] font-semibold tabular-nums text-slate-500">
+                                    {task.progress ?? 0}%
+                                  </span>
+                                </div>
+                                {/* Image group */}
+                                {taskImages.length > 0 && (
+                                  <div className="mt-3">
+                                    <ProgressAttachmentGrid
+                                      attachments={taskImages.slice(0, 6)}
+                                      compact
+                                      className="grid-cols-3 sm:grid-cols-4 md:grid-cols-6"
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+
+                      {/* 人员全部进度图片汇总（跨任务） */}
+                      {personAllImages.length > 0 && (
+                        <div className="mt-5 border-t border-slate-100 pt-4">
+                          <div className="mb-2 text-[11px] font-semibold text-slate-500">
+                            进度图片汇总 · {personAllImages.length} 张
+                          </div>
+                          <ProgressAttachmentGrid
+                            attachments={personAllImages.slice(0, 12)}
+                            compact
+                            className="grid-cols-3 sm:grid-cols-4 md:grid-cols-6"
+                          />
+                        </div>
+                      )}
+                    </TabsContent>
+                  );
+                })}
+              </Tabs>
             </div>
 
             {/* Daily reports */}
@@ -3989,65 +4282,6 @@ export function RDDirectorDashboardPage() {
 
           </div>
 
-          {/* Right: Personnel Heatmap */}
-          <div className="space-y-5 2xl:sticky 2xl:top-5 2xl:self-start">
-            <div className="rounded-2xl border border-white bg-white/70 p-5 shadow-sm">
-              <div className="mb-1 flex items-center justify-between">
-                <h2 className="flex items-center gap-2 text-sm font-bold text-slate-800">
-                  <Users className="h-4 w-4 text-slate-500" />
-                  人员负载热力图
-                  <span className="rounded-full bg-slate-100 px-1.5 text-xs text-slate-600">{PERSON_LOADS.length}</span>
-                </h2>
-                <span className="text-[11px] tabular-nums text-slate-400">
-                  {personRangeStart}
-                  {" - "}
-                  {Math.min(personSafePage * PERSON_PAGE_SIZE, PERSON_LOADS.length)}
-                  <span className="mx-1 text-slate-300">/</span>
-                  {PERSON_LOADS.length}
-                </span>
-              </div>
-              <p className="mb-4 text-xs text-slate-400">点击查看个人详情和当前任务</p>
-              <div className="space-y-2.5">
-                {personPaged.length === 0 ? (
-                  <DashboardEmptyPanel
-                    title={loading ? "正在读取人员负载" : "暂无人员负载数据"}
-                    description={loading ? "请稍候，系统正在同步研发成员任务负载。" : "请先维护研发成员，或等待任务数据同步后生成负载热力图。"}
-                  />
-                ) : personPaged.map((p) => (
-                    <PersonCard key={p.id} person={p} selected={selectedPerson?.id === p.id} onSelect={setSelectedPerson} />
-                  ))}
-              </div>
-              {PERSON_LOADS.length > 0 && (
-                <MiniPagination
-                  page={personSafePage}
-                  totalPages={personTotalPages}
-                  onChange={setPersonPage}
-                  className="mt-3 justify-end"
-                />
-              )}
-
-              <div className="mt-4 flex flex-wrap gap-2 text-[10px]">
-                {[
-                  { color: "bg-emerald-400", label: "< 50% 负载" },
-                  { color: "bg-amber-400", label: "50–75%" },
-                  { color: "bg-orange-400", label: "75–100%" },
-                  { color: "bg-red-400", label: "超负荷" },
-                ].map((l) => (
-                  <span key={l.label} className="flex items-center gap-1 text-slate-400">
-                    <span className={cn("inline-block h-2 w-2 rounded-sm", l.color)} />
-                    {l.label}
-                  </span>
-                ))}
-              </div>
-            </div>
-
-            {/* Hint card: prompt user to click a person */}
-            {!selectedPerson && PERSON_LOADS.length > 0 && (
-              <div className="rounded-2xl border border-dashed border-slate-200 bg-white/40 p-4 text-center">
-                <p className="text-xs text-slate-400">点击左侧任意人员卡片，查看详细档案和任务列表</p>
-              </div>
-            )}
-          </div>
         </div>
       </div>
 

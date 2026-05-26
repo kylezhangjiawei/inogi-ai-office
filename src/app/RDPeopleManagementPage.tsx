@@ -7,12 +7,16 @@ import {
   Pencil,
   Plus,
   Search,
+  ShieldCheck,
   Trash2,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { Badge } from "./components/ui/badge";
+import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { NativeSelect } from "./components/ui/native-select";
+import { Slider } from "./components/ui/slider";
 import { cn } from "./components/ui/utils";
 import { usePermission } from "./hooks/usePermission";
 import { AuditChange, recordAudit, useAuditActor } from "./lib/auditLog";
@@ -43,6 +47,9 @@ export type Person = {
   status: PersonStatus;
   max_tasks: number;
   joined_at?: string;
+  /** 知识库访问分值：0（完全公开）~ 100（最高权限）。成员分值 >= 文件分值时可查看。 */
+  kb_level?: number;
+  kb_level_scale?: "score";
 };
 
 const INITIAL_PEOPLE: Person[] = [];
@@ -78,6 +85,45 @@ function hashColor(name: string): string {
   return colors[h % colors.length];
 }
 
+function clampAccessScore(value: unknown): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 20;
+  return Math.max(0, Math.min(100, Math.round(numeric)));
+}
+
+function getAccessScoreConfig(score: number) {
+  if (score <= 25) {
+    return {
+      label: "公开",
+      badgeClass: "border-emerald-200 bg-emerald-50 text-emerald-700",
+      sliderClass: "[&_[data-slot=slider-range]]:bg-emerald-500",
+      hint: "仅查看公开资料",
+    };
+  }
+  if (score <= 50) {
+    return {
+      label: "内部",
+      badgeClass: "border-blue-200 bg-blue-50 text-blue-700",
+      sliderClass: "[&_[data-slot=slider-range]]:bg-blue-500",
+      hint: "可查看常规研发资料",
+    };
+  }
+  if (score <= 75) {
+    return {
+      label: "受限",
+      badgeClass: "border-amber-200 bg-amber-50 text-amber-700",
+      sliderClass: "[&_[data-slot=slider-range]]:bg-amber-500",
+      hint: "可查看受限项目资料",
+    };
+  }
+  return {
+    label: "机密",
+    badgeClass: "border-red-200 bg-red-50 text-red-700",
+    sliderClass: "[&_[data-slot=slider-range]]:bg-red-500",
+    hint: "最高权限，可查看全部资料",
+  };
+}
+
 function PersonAvatar({ name }: { name: string }) {
   const initial = name.replace(/\(.+?\)/g, "").trim().slice(0, 1) || "?";
   return (
@@ -104,11 +150,13 @@ function emptyPerson(): Person {
     phone: "",
     status: "active",
     max_tasks: 8,
+    kb_level: 20,
+    kb_level_scale: "score",
   };
 }
 
 function getPersonChanges(before: Person, after: Person): AuditChange[] {
-  const fields: Array<keyof Person> = ["user_id", "name", "position", "department", "email", "phone", "status", "max_tasks"];
+  const fields: Array<keyof Person> = ["user_id", "name", "position", "department", "email", "phone", "status", "max_tasks", "kb_level"];
   return fields
     .filter((field) => before[field] !== after[field])
     .map((field) => ({ field, before: before[field], after: after[field] }));
@@ -156,6 +204,8 @@ function PersonFormModal({
   const [form, setForm] = useState<Person>(person ?? emptyPerson());
   const [errors, setErrors] = useState<{ name?: string; position?: string }>({});
   const selectedUser = users.find((user) => user.id === form.user_id);
+  const kbScore = clampAccessScore(form.kb_level);
+  const kbScoreConfig = getAccessScoreConfig(kbScore);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -166,7 +216,7 @@ function PersonFormModal({
       setErrors(newErrors);
       return;
     }
-    onSave(form);
+    onSave({ ...form, kb_level: kbScore, kb_level_scale: "score" });
   };
 
   return (
@@ -318,21 +368,56 @@ function PersonFormModal({
             </Field>
           </div>
 
+          <Field label="知识库访问分值（0–100）">
+            <div className="rounded-xl border border-slate-200 bg-slate-50/70 px-3 py-3">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold tabular-nums text-slate-900">{kbScore}/100</div>
+                  <p className="mt-0.5 text-[11px] text-slate-500">{kbScoreConfig.hint}</p>
+                </div>
+                <Badge className={cn("shrink-0 gap-1 rounded-full border px-2.5 py-1 text-[11px] font-semibold", kbScoreConfig.badgeClass)}>
+                  <ShieldCheck className="h-3 w-3" />
+                  {kbScoreConfig.label}
+                </Badge>
+              </div>
+              <Slider
+                value={[kbScore]}
+                min={0}
+                max={100}
+                step={5}
+                onValueChange={([value]) => setForm((f) => ({ ...f, kb_level: clampAccessScore(value), kb_level_scale: "score" }))}
+                className={cn(
+                  "w-full [&_[data-slot=slider-track]]:h-2 [&_[data-slot=slider-thumb]]:size-4",
+                  kbScoreConfig.sliderClass,
+                )}
+              />
+              <div className="mt-2 flex items-center justify-between text-[10px] text-slate-400">
+                <span>0 公开</span>
+                <span>25</span>
+                <span>50</span>
+                <span>75</span>
+                <span>100 最高</span>
+              </div>
+            </div>
+            <p className="mt-1 text-[11px] text-slate-400">该成员可查看“文件权限分值 ≤ 成员分值”的所有知识库文件。</p>
+          </Field>
+
           <footer className="flex items-center justify-end gap-2 border-t border-slate-100 pt-4">
-            <button
+            <Button
               type="button"
+              variant="outline"
               onClick={onClose}
-              className="rounded-md border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-[0.98]"
+              className="h-9 rounded-md border-slate-200 px-4 text-sm font-medium text-slate-700"
             >
               取消
-            </button>
-            <button
+            </Button>
+            <Button
               type="submit"
-              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.2)] transition-all duration-150 hover:bg-blue-700 active:scale-[0.98]"
+              className="h-9 gap-1.5 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.2)] hover:bg-blue-700"
             >
               {isEdit ? "保存修改" : "创建成员"}
               <ArrowRight className="h-3.5 w-3.5" />
-            </button>
+            </Button>
           </footer>
         </form>
       </div>
@@ -714,6 +799,7 @@ export function RDPeopleManagementPage({
                   <th className="px-4 py-3 text-left">职位</th>
                   <th className="px-4 py-3 text-left">组</th>
                   <th className="px-4 py-3 text-left">状态</th>
+                  <th className="px-4 py-3 text-left">知识库等级</th>
                   <th className="px-4 py-3 text-left">入职日期</th>
                   <th className="px-4 py-3 text-right">操作</th>
                 </tr>
@@ -721,13 +807,13 @@ export function RDPeopleManagementPage({
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-16 text-center">
+                    <td colSpan={8} className="px-6 py-16 text-center">
                       <div className="text-sm font-medium text-slate-500">正在加载研发成员…</div>
                     </td>
                   </tr>
                 ) : filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="px-6 py-16 text-center">
+                    <td colSpan={8} className="px-6 py-16 text-center">
                       <div className="text-sm font-semibold text-slate-600">
                         {people.length === 0 ? "暂无研发成员" : "没有匹配的成员"}
                       </div>
@@ -820,6 +906,34 @@ export function RDPeopleManagementPage({
                             <span className={cn("h-1.5 w-1.5 rounded-full", cfg.dot)} />
                             {cfg.label}
                           </span>
+                        </td>
+                        <td className="px-4 py-3.5">
+                          {(() => {
+                            const score = clampAccessScore(p.kb_level);
+                            const scoreCfg = getAccessScoreConfig(score);
+                            return (
+                              <div className="min-w-[150px] max-w-[190px]">
+                                <div className="mb-1.5 flex items-center justify-between gap-2">
+                                  <Badge className={cn("gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold", scoreCfg.badgeClass)}>
+                                    <ShieldCheck className="h-3 w-3" />
+                                    {scoreCfg.label}
+                                  </Badge>
+                                  <span className="text-xs font-semibold tabular-nums text-slate-700">{score}</span>
+                                </div>
+                                <Slider
+                                  value={[score]}
+                                  min={0}
+                                  max={100}
+                                  step={5}
+                                  disabled
+                                  className={cn(
+                                    "w-full [&_[data-slot=slider-track]]:h-1.5 [&_[data-slot=slider-thumb]]:hidden",
+                                    scoreCfg.sliderClass,
+                                  )}
+                                />
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td className="px-4 py-3.5 text-xs tabular-nums text-slate-500">
                           {p.joined_at ?? "—"}

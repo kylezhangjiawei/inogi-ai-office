@@ -51,8 +51,9 @@ export class AuthController {
   @Post('me/password')
   setPassword(
     @Request() req: { user: { id: string } },
-    @Body('password') password: string,
+    @Body('oldPassword') oldPassword: string,
+    @Body('newPassword') newPassword: string,
   ) {
-    return this.authService.setPassword(req.user.id, password);
+    return this.authService.setPassword(req.user.id, oldPassword, newPassword);
   }
 }

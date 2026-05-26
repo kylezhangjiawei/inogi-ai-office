@@ -33,6 +33,10 @@ export class SavePermissionCatalogItemDto {
   @IsBoolean()
   enabled!: boolean;
 
+  @IsOptional()
+  @IsBoolean()
+  navHidden?: boolean;
+
   @IsInt()
   @Min(0)
   sortOrder!: number;

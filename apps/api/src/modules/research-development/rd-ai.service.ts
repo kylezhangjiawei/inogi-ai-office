@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, HttpException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import OpenAI, { toFile } from 'openai';
 
@@ -8,10 +8,12 @@ import { SecureConfigService } from '../security/secure-config.service';
 
 const TASK_EXTRACTION_SCHEMA_DESC =
   '{"tasks": [{"title": string, "description"?: string, "owner": string, "due_date": string YYYY-MM-DD, ' +
-  '"priority": "high"|"medium"|"low", "category_path": string, "estimated_days": integer 1-90, ' +
+  '"priority": "high"|"medium"|"low", "category_path": string, ' +
+  '"estimated_days": integer（必填，根据任务复杂度估算，不确定时填5，禁止全部填1）, ' +
   '"owner_reason": string}], "suggested_category"?: string, "summary"?: string}';
 
 const QWEN_DOC_MODEL = 'qwen-doc-turbo';
+const DEFAULT_QWEN_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 const DEFAULT_TEXT_MODEL = 'gpt-4.1-mini';
 
 const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tif', 'tiff']);
@@ -76,6 +78,34 @@ export type RdAiTaskDraft = {
   estimated_days: number;
 };
 
+export type RdAiProposalRefineScope = 'all' | 'selected' | 'single';
+
+export type RdAiProposalTaskInput = RdAiTaskDraft & {
+  id?: string;
+  ai_estimated_days?: number;
+  duration_basis?: string;
+};
+
+export type RdAiProposalRefineInput = {
+  proposalTitle?: string;
+  originalInput?: string;
+  currentTasks?: RdAiProposalTaskInput[];
+  instruction: string;
+  peopleNames?: string[];
+  peopleProfiles?: RdAiPersonContext[];
+  categoryLabels?: string[];
+  scope?: RdAiProposalRefineScope;
+  selectedTaskIds?: string[];
+};
+
+export type RdAiProposalRefineResult = {
+  tasks: RdAiProposalTaskInput[];
+  change_summary: string[];
+  warnings: string[];
+  provider: 'openai' | 'qwen' | 'local';
+  model: string;
+};
+
 export type RdAiExtractResult = {
   tasks: RdAiTaskDraft[];
   suggested_category?: string;
@@ -134,12 +164,12 @@ const DEFAULT_FILE_POLICY_RUNTIME: RdAiFilePolicyRuntime = {
 @Injectable()
 export class RdAiService {
   private readonly logger = new Logger(RdAiService.name);
-  private readonly envOpenAiKey: string | null;
-  private readonly envOpenAiModel: string;
-  private readonly envOpenAiBase: string | null;
-  private readonly envQwenKey: string | null;
-  private readonly envQwenBase: string | null;
+  /** 通用 AI 调用超时（短问答、进度判断等） */
   private readonly timeoutMs: number;
+  /** 立项/提取专用超时 — 需要处理大段文本或文档，允许更长时间 */
+  private readonly extractTimeoutMs: number;
+  /** 任务抽取输出通常是长 JSON，4096 容易被截断。 */
+  private readonly extractMaxTokens: number;
 
   constructor(
     private readonly config: ConfigService,
@@ -147,19 +177,10 @@ export class RdAiService {
     private readonly ocrService: OcrService,
     private readonly secureConfigService: SecureConfigService,
   ) {
-    this.envOpenAiKey = this.config.get<string>('OPENAI_API_KEY') ?? null;
-    this.envOpenAiModel = this.config.get<string>('OPENAI_MODEL') ?? DEFAULT_TEXT_MODEL;
-    this.envOpenAiBase = this.normalizeBaseUrl(this.config.get<string>('OPENAI_BASE_URL') ?? null);
-    this.envQwenKey =
-      this.config.get<string>('DASHSCOPE_API_KEY') ??
-      this.config.get<string>('QWEN_API_KEY') ??
-      null;
-    this.envQwenBase = this.normalizeBaseUrl(
-      this.config.get<string>('DASHSCOPE_BASE_URL') ??
-        this.config.get<string>('QWEN_BASE_URL') ??
-        'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    );
-    this.timeoutMs = Number(this.config.get('OPENAI_TIMEOUT_MS') ?? 120000);
+    this.timeoutMs = Number(this.config.get('OPENAI_TIMEOUT_MS') ?? 120_000);
+    // 立项提取场景允许更长等待，可通过 RD_EXTRACT_TIMEOUT_MS 覆盖，默认 5 分钟
+    this.extractTimeoutMs = Number(this.config.get('RD_EXTRACT_TIMEOUT_MS') ?? 300_000);
+    this.extractMaxTokens = Number(this.config.get('RD_EXTRACT_MAX_TOKENS') ?? 12_000);
   }
 
   /**
@@ -194,6 +215,89 @@ export class RdAiService {
     return this.extractFromText(input.text ?? '', input, 'text', filePolicy);
   }
 
+  async refineProposal(input: RdAiProposalRefineInput): Promise<RdAiProposalRefineResult> {
+    const instruction = input.instruction?.trim();
+    if (!instruction) {
+      throw new BadRequestException('instruction 不能为空');
+    }
+
+    const currentTasks = (input.currentTasks ?? [])
+      .map((task, index) => this.normalizeProposalTaskInput(task, input, index))
+      .filter((task): task is RdAiProposalTaskInput => Boolean(task.title));
+
+    if (currentTasks.length === 0) {
+      throw new BadRequestException('currentTasks 至少需要包含一个任务');
+    }
+
+    const selectedTaskIds = (input.selectedTaskIds ?? []).map((id) => String(id).trim()).filter(Boolean);
+    const scope = input.scope ?? (selectedTaskIds.length > 0 ? 'selected' : 'all');
+    if ((scope === 'selected' || scope === 'single') && selectedTaskIds.length === 0) {
+      throw new BadRequestException('选择单条或部分任务微调时需要提供 selectedTaskIds');
+    }
+
+    const selectedModel = await this.resolveSceneModelConfig('text_task_extract').catch(() => null);
+    if (!selectedModel) {
+      return {
+        tasks: currentTasks,
+        change_summary: ['AI 模型未配置，已保留当前立项草稿。'],
+        warnings: ['请先在 AI 模型管理中配置可用模型，再使用智能微调。'],
+        provider: 'local',
+        model: 'local-refine-fallback',
+      };
+    }
+
+    const { provider, model, apiKey, baseUrl } = selectedModel;
+    const client = this.createClient(apiKey, provider, baseUrl, this.extractTimeoutMs);
+
+    let response: OpenAI.Chat.Completions.ChatCompletion;
+    try {
+      response = await client.chat.completions.create({
+        model,
+        messages: this.buildProposalRefineMessages({ ...input, instruction, scope, selectedTaskIds }, currentTasks),
+        response_format: { type: 'json_object' },
+        temperature: 0.2,
+        max_tokens: this.extractMaxTokens,
+        ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+      });
+    } catch (error) {
+      if (this.isExternalAiTimeout(error)) {
+        return {
+          tasks: currentTasks,
+          change_summary: ['AI 微调服务超时，已保留当前立项草稿。'],
+          warnings: ['请稍后重试，或缩小微调范围后再提交。'],
+          provider: 'local',
+          model: 'local-timeout-fallback',
+        };
+      }
+      throw this.toExternalAiException(error, 'AI 立项微调服务调用失败');
+    }
+
+    const content = this.stringifyMessageContent(response.choices[0]?.message?.content) || '{}';
+    const parsed = this.parseProposalRefinePayload(content, { ...input, instruction, scope, selectedTaskIds }, currentTasks);
+    const result: RdAiProposalRefineResult = {
+      tasks: parsed.tasks.length > 0 ? parsed.tasks : currentTasks,
+      change_summary: parsed.change_summary.length > 0 ? parsed.change_summary : ['已根据微调要求重新整理立项草稿。'],
+      warnings: parsed.warnings,
+      provider,
+      model,
+    };
+
+    await this.recordAiArtifact('proposal_refine', 'text', undefined, await this.readFilePolicyRuntime(), {
+      original_text: JSON.stringify({
+        proposalTitle: input.proposalTitle,
+        instruction,
+        scope,
+        selectedTaskIds,
+        currentTasks,
+      }).slice(0, 32000),
+      ai_result: result,
+      model,
+      provider,
+    });
+
+    return result;
+  }
+
   // ─── Pipeline implementations ─────────────────────────────────────────────
 
   private async extractFromText(
@@ -225,28 +329,152 @@ export class RdAiService {
     }
 
     const { provider, model, apiKey, baseUrl } = selectedModel;
-    const client = this.createClient(apiKey, provider, baseUrl);
+    let resultProvider: AiProvider = provider;
+    let resultModel = model;
+    // 立项提取可能需要处理较长文本，使用专用超时（默认 5 分钟）
+    const client = this.createClient(apiKey, provider, baseUrl, this.extractTimeoutMs);
     const messages = this.buildMessages(truncated, input);
 
-    const response = await client.chat.completions.create({
-      model,
-      messages,
-      response_format: { type: 'json_object' },
-      ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
-    });
+    let response: OpenAI.Chat.Completions.ChatCompletion;
+    try {
+      response = await client.chat.completions.create({
+        model,
+        messages,
+        response_format: { type: 'json_object' },
+        max_tokens: this.extractMaxTokens,
+        ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+      });
+    } catch (error) {
+      if (this.isExternalAiTimeout(error)) {
+        const parsed = this.extractWithLocalParser(truncated, input);
+        parsed.summary = 'AI 服务调用超时，已使用本地规则解析。';
+        await this.recordAiArtifact('task_extract', source, input.file?.originalname, filePolicy, {
+          original_text: truncated,
+          ai_result: parsed,
+          timeout: true,
+          model,
+          provider,
+        });
+        return {
+          ...parsed,
+          provider: 'local',
+          model: 'local-timeout-fallback',
+          raw_text_length: truncated.length,
+          source,
+        };
+      }
+      throw this.toExternalAiException(error, 'AI 立项文本解析服务调用失败');
+    }
 
-    const content = response.choices[0]?.message?.content ?? '{}';
-    const parsed = this.parseTasksPayload(content, input);
+    const firstChoice = response.choices[0];
+    const firstAiContent = this.stringifyMessageContent(firstChoice?.message?.content) || '{}';
+    let content = firstAiContent;
+    let parsed = this.parseTasksPayload(content, input);
+    const emptyRepairMetadata: Record<string, unknown> = {
+      first_ai_response: firstAiContent.slice(0, 8000),
+      first_ai_finish_reason: firstChoice?.finish_reason ?? null,
+      first_ai_usage: response.usage ?? null,
+    };
+
+    if (parsed.tasks.length === 0) {
+      const sameModelRepair = await this.retryEmptyTaskExtraction(client, provider, model, truncated, input, 'same_model').catch((error) => {
+        this.logger.warn(
+          `[extractFromText] empty-result same-model repair failed. source=${source} model=${model} error=${(error as Error).message}`,
+        );
+        emptyRepairMetadata.same_model_repair_error = (error as Error).message;
+        return null;
+      });
+      emptyRepairMetadata.same_model_repair_attempted = true;
+      if (sameModelRepair) {
+        emptyRepairMetadata.same_model_repair_response = sameModelRepair.content.slice(0, 8000);
+        if (sameModelRepair.parsed.tasks.length > 0) {
+          content = sameModelRepair.content;
+          parsed = sameModelRepair.parsed;
+          emptyRepairMetadata.repaired_by_ai = true;
+          emptyRepairMetadata.repair_model = model;
+          emptyRepairMetadata.repair_provider = provider;
+        }
+      }
+    }
+
+    if (parsed.tasks.length === 0) {
+      const fallbackModel = await this.resolveSceneFallbackModelConfig(sceneId, selectedModel).catch(() => null);
+      if (fallbackModel) {
+        emptyRepairMetadata.fallback_ai_model = fallbackModel.model;
+        emptyRepairMetadata.fallback_ai_provider = fallbackModel.provider;
+        const fallbackClient = this.createClient(
+          fallbackModel.apiKey,
+          fallbackModel.provider,
+          fallbackModel.baseUrl,
+          this.extractTimeoutMs,
+        );
+        const fallbackRepair = await this.retryEmptyTaskExtraction(
+          fallbackClient,
+          fallbackModel.provider,
+          fallbackModel.model,
+          truncated,
+          input,
+          'fallback_model',
+        ).catch((error) => {
+          this.logger.warn(
+            `[extractFromText] empty-result fallback-model repair failed. source=${source} model=${fallbackModel.model} error=${(error as Error).message}`,
+          );
+          emptyRepairMetadata.fallback_ai_error = (error as Error).message;
+          return null;
+        });
+        emptyRepairMetadata.fallback_ai_attempted = true;
+        if (fallbackRepair) {
+          emptyRepairMetadata.fallback_ai_response = fallbackRepair.content.slice(0, 8000);
+          if (fallbackRepair.parsed.tasks.length > 0) {
+            content = fallbackRepair.content;
+            parsed = fallbackRepair.parsed;
+            resultProvider = fallbackModel.provider;
+            resultModel = fallbackModel.model;
+            emptyRepairMetadata.repaired_by_ai = true;
+            emptyRepairMetadata.repair_model = fallbackModel.model;
+            emptyRepairMetadata.repair_provider = fallbackModel.provider;
+          }
+        }
+      }
+    }
+
+    if (parsed.tasks.length === 0) {
+      const fallback = this.extractWithLocalParser(truncated, input);
+      if (fallback.tasks.length > 0) {
+        fallback.summary = parsed.summary
+          ? `${parsed.summary}；AI 未返回任务，已使用本地规则补充。`
+          : 'AI 未返回任务，已使用本地规则补充。';
+        await this.recordAiArtifact('task_extract', source, input.file?.originalname, filePolicy, {
+          original_text: truncated,
+          ai_result: fallback,
+          ai_empty_result: true,
+          model,
+          provider,
+          ...emptyRepairMetadata,
+        });
+        this.logger.warn(
+          `[extractFromText] AI returned empty tasks, used local fallback. source=${source} model=${model} raw_text_length=${truncated.length}`,
+        );
+        return {
+          ...fallback,
+          provider: 'local',
+          model: 'local-empty-result-fallback',
+          raw_text_length: truncated.length,
+          source,
+        };
+      }
+    }
     await this.recordAiArtifact('task_extract', source, input.file?.originalname, filePolicy, {
       original_text: truncated,
       ai_result: parsed,
-      model,
-      provider,
+      model: resultModel,
+      provider: resultProvider,
+      ...(emptyRepairMetadata.repaired_by_ai ? emptyRepairMetadata : {}),
     });
     return {
       ...parsed,
-      provider,
-      model,
+      provider: resultProvider,
+      model: resultModel,
       raw_text_length: truncated.length,
       source,
     };
@@ -296,35 +524,66 @@ export class RdAiService {
     input: RdAiExtractInput,
     filePolicy: RdAiFilePolicyRuntime = DEFAULT_FILE_POLICY_RUNTIME,
   ): Promise<RdAiExtractResult> {
-    if (!this.envQwenKey) {
-      throw new BadRequestException('PDF/Word/Excel 解析需要配置 DASHSCOPE_API_KEY (qwen-doc-turbo)');
+    // 优先从数据库已配置模型中查找 qwen-doc-turbo 专用配置，
+    // 其次回退到任意可用的 Qwen 配置。
+    const docModelConfig = await this.resolveDocModelConfig();
+    if (!docModelConfig) {
+      throw new BadRequestException(
+        'PDF/Word/Excel 解析需要在 AI 模型管理中配置 qwen-doc-turbo 或可用的 Qwen 模型',
+      );
     }
-    const client = this.createClient(this.envQwenKey, 'qwen');
+
+    const { apiKey, baseUrl } = docModelConfig;
+    // 文档解析（PDF/Word/Excel）可能文件较大，使用立项专用超时
+    const client = this.createClient(apiKey, 'qwen', baseUrl, this.extractTimeoutMs);
     const startedAt = Date.now();
 
     let uploadedFileId: string | null = null;
     try {
-      const uploadable = await toFile(file.buffer, file.originalname, {
-        type: file.mimetype?.trim() || undefined,
-      });
-      const uploaded = await client.files.create({
-        file: uploadable,
-        purpose: 'file-extract' as OpenAI.FilePurpose,
-      });
-      uploadedFileId = uploaded.id;
+      let response: OpenAI.Chat.Completions.ChatCompletion;
+      try {
+        const uploadable = await toFile(file.buffer, file.originalname, {
+          type: file.mimetype?.trim() || undefined,
+        });
+        const uploaded = await client.files.create({
+          file: uploadable,
+          purpose: 'file-extract' as OpenAI.FilePurpose,
+        });
+        uploadedFileId = uploaded.id;
 
-      const userMessage = this.buildUserMessage('（请从上传的文件中提取所有任务）', input);
-      const response = await client.chat.completions.create({
-        model: QWEN_DOC_MODEL,
-        messages: [
-          { role: 'system', content: this.buildSystemPrompt(input) },
-          { role: 'system', content: `fileid://${uploaded.id}` },
-          { role: 'user', content: userMessage },
-        ],
-        response_format: { type: 'json_object' },
-      });
+        const userMessage = this.buildUserMessage('（请从上传的文件中提取所有任务）', input);
+        response = await client.chat.completions.create({
+          model: QWEN_DOC_MODEL,
+          messages: [
+            { role: 'system', content: this.buildSystemPrompt(input) },
+            { role: 'system', content: `fileid://${uploaded.id}` },
+            { role: 'user', content: userMessage },
+          ],
+          response_format: { type: 'json_object' },
+          max_tokens: this.extractMaxTokens,
+        });
+      } catch (error) {
+        if (this.isExternalAiTimeout(error)) {
+          const parsed = this.extractWithLocalParser(this.safeUtf8(file.buffer).slice(0, 32000), input);
+          parsed.summary = 'AI 文件解析超时，已尝试使用本地文本规则解析。';
+          await this.recordAiArtifact('task_extract', 'file_doc_model', file.originalname, filePolicy, {
+            ai_result: parsed,
+            timeout: true,
+            model: QWEN_DOC_MODEL,
+            provider: 'qwen',
+          });
+          return {
+            ...parsed,
+            provider: 'local',
+            model: 'local-timeout-fallback',
+            raw_text_length: file.buffer.length,
+            source: 'file_doc_model',
+          };
+        }
+        throw this.toExternalAiException(error, 'AI 文件解析服务调用失败');
+      }
 
-      const content = response.choices[0]?.message?.content ?? '{}';
+      const content = this.stringifyMessageContent(response.choices[0]?.message?.content) || '{}';
       const parsed = this.parseTasksPayload(content, input);
       await this.recordAiArtifact('task_extract', 'file_doc_model', file.originalname, filePolicy, {
         ai_result: parsed,
@@ -350,6 +609,49 @@ export class RdAiService {
     }
   }
 
+  /**
+   * Resolve API key for qwen-doc-turbo from AI model management only:
+   * 1. DB config where model = 'qwen-doc-turbo'
+   * 2. Any active Qwen DB config (reuses its key on the doc-turbo endpoint)
+   */
+  private async resolveDocModelConfig(): Promise<{ apiKey: string; baseUrl?: string } | null> {
+    // 1. 精确匹配 qwen-doc-turbo
+    const exact = await this.prisma.integrationConfig.findFirst({
+      where: { kind: 'openai', isActive: true, model: QWEN_DOC_MODEL },
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (exact) {
+      const apiKey = this.decryptSecret(exact.encryptedSecret);
+      if (apiKey) {
+        const meta = this.parseAiModelMetadata(exact.metadata);
+        return { apiKey, baseUrl: meta.base_url || DEFAULT_QWEN_BASE_URL };
+      }
+    }
+
+    // 2. 任意活跃 Qwen 配置（key 可复用）
+    const anyQwen = await this.prisma.integrationConfig.findFirst({
+      where: {
+        kind: 'openai',
+        isActive: true,
+        OR: [
+          { provider: { contains: 'qwen', mode: 'insensitive' } },
+          { provider: { contains: 'tongyi', mode: 'insensitive' } },
+          { model: { contains: 'qwen', mode: 'insensitive' } },
+        ],
+      },
+      orderBy: { updatedAt: 'desc' },
+    });
+    if (anyQwen) {
+      const apiKey = this.decryptSecret(anyQwen.encryptedSecret);
+      if (apiKey) {
+        const meta = this.parseAiModelMetadata(anyQwen.metadata);
+        return { apiKey, baseUrl: meta.base_url || DEFAULT_QWEN_BASE_URL };
+      }
+    }
+
+    return null;
+  }
+
   // ─── Prompt building ──────────────────────────────────────────────────────
 
   private async extractViaVisionModel(
@@ -365,21 +667,44 @@ export class RdAiService {
 
     const client = this.createClient(selectedModel.apiKey, selectedModel.provider, selectedModel.baseUrl);
     const dataUrl = `data:${file.mimetype?.trim() || 'image/png'};base64,${file.buffer.toString('base64')}`;
-    const response = await client.chat.completions.create({
-      model: selectedModel.model,
-      messages: [
-        { role: 'system', content: this.buildSystemPrompt(input) },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: this.buildUserMessage(`请直接读取图片内容并抽取研发任务。OCR 兜底原因：${reason}`, input) },
-            { type: 'image_url', image_url: { url: dataUrl } },
-          ],
-        },
-      ],
-      response_format: { type: 'json_object' },
-      ...(selectedModel.provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
-    } as any);
+    let response: OpenAI.Chat.Completions.ChatCompletion;
+    try {
+      response = await client.chat.completions.create({
+        model: selectedModel.model,
+        messages: [
+          { role: 'system', content: this.buildSystemPrompt(input) },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: this.buildUserMessage(`请直接读取图片内容并抽取研发任务。OCR 兜底原因：${reason}`, input) },
+              { type: 'image_url', image_url: { url: dataUrl } },
+            ],
+          },
+        ],
+        response_format: { type: 'json_object' },
+        ...(selectedModel.provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+      } as any);
+    } catch (error) {
+      if (this.isExternalAiTimeout(error)) {
+        const parsed = this.extractWithLocalParser(this.safeUtf8(file.buffer).slice(0, 32000), input);
+        parsed.summary = 'AI 图片兜底解析超时，已尝试使用本地文本规则解析。';
+        await this.recordAiArtifact('task_extract', 'file_ocr', file.originalname, filePolicy, {
+          ai_result: parsed,
+          fallback_reason: reason,
+          timeout: true,
+          fallback_model: selectedModel.model,
+          fallback_provider: selectedModel.provider,
+        });
+        return {
+          ...parsed,
+          provider: 'local',
+          model: 'local-timeout-fallback',
+          raw_text_length: file.buffer.length,
+          source: 'file_ocr',
+        };
+      }
+      throw this.toExternalAiException(error, 'AI 图片兜底解析服务调用失败');
+    }
 
     const content = response.choices[0]?.message?.content ?? '{}';
     const parsed = this.parseTasksPayload(content, input);
@@ -408,6 +733,54 @@ export class RdAiService {
     ];
   }
 
+  private async retryEmptyTaskExtraction(
+    client: OpenAI,
+    provider: AiProvider,
+    model: string,
+    textBody: string,
+    input: RdAiExtractInput,
+    reason: 'same_model' | 'fallback_model',
+  ): Promise<{ content: string; parsed: { tasks: RdAiTaskDraft[]; suggested_category?: string; summary?: string } }> {
+    const response = await client.chat.completions.create({
+      model,
+      messages: this.buildEmptyResultRepairMessages(textBody, input, reason),
+      response_format: { type: 'json_object' },
+      temperature: 0.1,
+      max_tokens: this.extractMaxTokens,
+      ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+    });
+    const content = this.stringifyMessageContent(response.choices[0]?.message?.content) || '{}';
+    return { content, parsed: this.parseTasksPayload(content, input) };
+  }
+
+  private buildEmptyResultRepairMessages(
+    textBody: string,
+    input: RdAiExtractInput,
+    reason: 'same_model' | 'fallback_model',
+  ): Array<{ role: 'system' | 'user'; content: string }> {
+    return [
+      {
+        role: 'system',
+        content: [
+          '你是研发任务抽取修复器。上一轮 AI 返回了空 tasks，但原文可读时这是错误结果。',
+          reason === 'fallback_model'
+            ? '当前是 fallback 模型修复，请独立重新抽取，不要沿用上一轮空结果。'
+            : '当前是同模型二次修复，请严格按规则重新抽取。',
+          '必须返回严格 JSON，结构为：',
+          TASK_EXTRACTION_SCHEMA_DESC,
+          '修复规则：',
+          '1) 禁止因为原文是 CSV、Excel 导出、状态表、进度表或已有任务表就返回空 tasks。',
+          '2) 如果原文是表格，首行是表头；优先用“任务名称/标题/事项/工作内容/name/title/task”列作为 title，不要把“任务属性/状态/分类”列当 title。',
+          '3) 每个有效数据行至少生成 1 条任务；若任务名称为空但备注/当前进度/下一步有内容，用这些内容生成任务。',
+          '4) 已有负责人、日期、优先级、分类时优先沿用；日期无法确定再按 estimated_days 推算。',
+          '5) 只有原文完全为空、无法读取，或完全不是研发/产品/测试/采购/评审/项目材料时，才允许返回 {"tasks": []}。',
+          '6) 对当前这类研发任务表，必须返回非空 tasks。',
+        ].join('\n'),
+      },
+      { role: 'user', content: this.buildUserMessage(textBody, input) },
+    ];
+  }
+
   private buildSystemPrompt(input: RdAiExtractInput): string {
     const today = new Date().toISOString().slice(0, 10);
     return [
@@ -421,16 +794,21 @@ export class RdAiService {
       '2) 如果原文已有明确的负责人姓名，优先沿用；优先匹配下方"当前人员"。无法匹配或无法判断时填 "待指派"。',
       '3) due_date 必须是 YYYY-MM-DD 格式；如果原文有日期，用原文日期；否则按 estimated_days 推算到今天之后的日期。',
       '4) priority 默认 medium；标题/描述出现"紧急/卡住/客户/ECN/发布/优先/影响交付"等关键词时设为 high；明显次要的设为 low。',
-      '5) estimated_days 必须结合任务复杂度、任务类型和交付物估算；简单跟进 1-2 天，常规设计/开发/测试 3-7 天，跨模块或验证闭环 8-20 天。',
+      '5) estimated_days 必须结合任务复杂度、任务类型和交付物认真估算，不得统一填写固定值：' +
+      '发邮件/简单确认/简单跟进=1-2天，常规设计/开发/测试/文档=3-7天，跨模块设计或完整验证闭环=8-20天，复杂系统集成/大型测试项目=21-90天；' +
+      '无法判断时默认填5，严禁把所有任务都填1。',
       '6) category_path 用「一级分类 / 二级分类 / 任务类型」格式（例如 "310阀系统 / 310电磁阀 / 测试验证"）。一级分类必须优先从下方"研发分类预设"中选择；二级分类优先选择该大项下最接近的部件。',
       '7) 不要把立项标题、客户名称或临时项目名当作一级分类；只有完全无法匹配预设大项时，才允许创建新的一级分类。',
       '8) 任务类型要从任务内容中判断，例如：需求澄清、方案设计、结构设计、电气设计、软件开发、工艺准备、采购跟进、样件制作、测试验证、问题整改、文档交付、评审确认。',
       '9) 分配负责人时综合：原文负责人、任务分类、任务类型、任务内容关键词、人员岗位/部门、当前任务数、容量上限、阻塞数、请假状态；避免分给请假、明显超载或阻塞过多的人。',
       '10) 若多人都可承担，优先选择当前负载更低且岗位/部门更匹配的人；高优先级任务优先给容量充足的人。',
       '11) owner_reason 必须简短说明分配依据（如"原文指定"、"结构设计任务且当前负载较低"、"测试验证任务匹配测试岗位"）。',
-      '12) 必须提取原文中的所有任务，不要遗漏；不要编造原文未提及的任务。',
+      '12) 必须提取原文中的所有任务，不要遗漏；不要添加与原文目标无关的任务。',
       '13) suggested_category 返回本次立项最主要的一级分类名称，优先从研发分类预设中选择。',
       '14) 如果原文是表格/列表，每一行/项作为一个任务；如果是叙述文本，按可执行动作切分。',
+      '15) 只要原文内容不为空且属于研发、产品、测试、结构、电气、软件、采购、文档、评审等工作材料，tasks 至少返回 1 条。',
+      '16) 若原文是立项背景、需求说明、问题描述、客户反馈、改进目标或方案说明，而不是明确任务清单，必须把目标转成必需执行动作；这不是编造任务。owner_reason 中说明"根据立项材料推导"。',
+      '17) 只有在原文为空、无法读取，或内容完全不是研发工作材料时，才允许返回 {"tasks": []}，并在 summary 中说明无法提取的具体原因。',
     ].join('\n');
   }
 
@@ -459,6 +837,7 @@ export class RdAiService {
     lines.push('===== 原文内容 END =====');
     lines.push('');
     lines.push('请按上述处理顺序提取全部任务，完成分类、优先级、工期估算和负责人分配后输出 JSON。');
+    lines.push('重要：如果原文内容可读且与研发工作有关，禁止返回空 tasks；至少拆出 1 条可执行任务。');
     return lines.join('\n');
   }
 
@@ -539,6 +918,107 @@ export class RdAiService {
     return Number.isFinite(numeric) ? numeric : undefined;
   }
 
+  private normalizeProposalTaskInput(
+    task: unknown,
+    input: RdAiProposalRefineInput,
+    index: number,
+  ): RdAiProposalTaskInput {
+    const record = this.asRecord(task, {});
+    const fallbackDue = new Date(Date.now() + 14 * 86400000).toISOString().slice(0, 10);
+    const id = String(record.id ?? `task-${index + 1}`).trim() || `task-${index + 1}`;
+    const title = String(record.title ?? '').trim() || `未命名任务 ${index + 1}`;
+    const description = String(record.description ?? '').trim();
+    const peopleList = this.getAvailablePeopleNames(input);
+    const rawOwner = String(record.owner ?? '').trim() || '待指派';
+    const owner = this.matchOwner(rawOwner, peopleList) ?? rawOwner;
+    const dueRaw = String(record.due_date ?? '').trim();
+    const dueDate = /^\d{4}-\d{1,2}-\d{1,2}$/.test(dueRaw) ? this.padDate(dueRaw) : fallbackDue;
+    const estimatedDays = this.clampInt(record.estimated_days, 1, 365, 5);
+    const aiEstimatedRaw = Number(record.ai_estimated_days);
+    const aiEstimatedDays = Number.isFinite(aiEstimatedRaw)
+      ? Math.max(1, Math.min(365, Math.round(aiEstimatedRaw)))
+      : undefined;
+    const categoryPath = this.normalizeAiCategoryPath(
+      String(record.category_path ?? '').trim(),
+      [title, description, input.proposalTitle].filter(Boolean).join(' '),
+    );
+
+    return {
+      id,
+      title,
+      description: description || undefined,
+      owner,
+      owner_reason:
+        String(record.owner_reason ?? '').trim() ||
+        (owner === '待指派' ? 'AI 微调后仍未匹配到责任人' : '由 AI 微调建议分配'),
+      due_date: dueDate,
+      priority: this.normalizePriority(record.priority),
+      category_path: categoryPath,
+      estimated_days: estimatedDays,
+      ai_estimated_days: aiEstimatedDays,
+      duration_basis: String(record.duration_basis ?? '').trim() || '由 AI 微调估算',
+    };
+  }
+
+  private buildProposalRefineMessages(
+    input: RdAiProposalRefineInput,
+    currentTasks: RdAiProposalTaskInput[],
+  ): Array<{ role: 'system' | 'user'; content: string }> {
+    const selectedTaskIds = (input.selectedTaskIds ?? []).map((id) => String(id).trim()).filter(Boolean);
+    const people = this.normalizePeopleContexts(input);
+    const peopleText = people.length > 0
+      ? people.map((person, index) => `${index + 1}. ${this.formatPersonForPrompt(person)}`).join('\n')
+      : '暂无人员上下文，请只在当前 owner 中做保守调整。';
+    const categoryText = this.formatBomCategoryTreeForPrompt().join('\n');
+    const categoryLabels = this.normalizeCategoryLabels(input.categoryLabels ?? []).join('、');
+
+    return [
+      {
+        role: 'system',
+        content: [
+          '你是研发立项草稿微调助手。用户已经得到一版 AI 立项结果，现在希望按新的偏好继续打磨。',
+          '你只能围绕当前草稿做最小必要修改，不要改动无关任务，不要引入和用户指令无关的新任务。',
+          '必须返回严格 JSON，结构为：',
+          '{"tasks":[{"id":string,"title":string,"description"?:string,"owner":string,"owner_reason":string,"due_date":"YYYY-MM-DD","priority":"high|medium|low","category_path":string,"estimated_days":integer,"ai_estimated_days"?:integer,"duration_basis":string}],"change_summary":string[],"warnings":string[]}',
+          '规则：',
+          '1) 现有任务必须保留原 id；只有用户明确要求新增或拆分任务时才允许新增 id。',
+          '2) scope=selected 或 scope=single 时，只能修改 selectedTaskIds 中的任务；未选任务要原样返回。',
+          '3) 如果用户要求删除、合并或拆分任务，可以调整 tasks 数量，但必须在 change_summary 中说明。',
+          '4) due_date 必须是 YYYY-MM-DD；priority 只能是 high、medium、low；estimated_days 必须是 1-365 的整数。',
+          '5) owner 优先匹配当前人员上下文；无法判断时使用“待指派”，并在 owner_reason 说明原因。',
+          '6) category_path 优先使用当前分类树或现有 category_path，格式保持“系统 / 部件 / 类型”。',
+          '7) 输出文案保持中文，change_summary 写给业务用户看，warnings 只放真正需要人工注意的风险。',
+        ].join('\n'),
+      },
+      {
+        role: 'user',
+        content: [
+          `立项标题：${input.proposalTitle || '未命名立项'}`,
+          `微调范围：${input.scope ?? 'all'}`,
+          `选中任务 ID：${selectedTaskIds.length > 0 ? selectedTaskIds.join(', ') : '无'}`,
+          '',
+          '===== 用户微调要求 =====',
+          input.instruction,
+          '',
+          '===== 当前任务草稿 JSON =====',
+          JSON.stringify(currentTasks, null, 2),
+          '',
+          '===== 人员上下文 =====',
+          peopleText,
+          '',
+          '===== 可用分类 =====',
+          categoryText,
+          categoryLabels ? `补充分类标签：${categoryLabels}` : '',
+          '',
+          '===== 原始立项输入摘要 =====',
+          input.originalInput?.trim() ? input.originalInput.trim().slice(0, 6000) : '无',
+          '',
+          '请返回完整 tasks 数组和微调说明 JSON。',
+        ].filter(Boolean).join('\n'),
+      },
+    ];
+  }
+
   private extractWithLocalParser(
     text: string,
     input: RdAiExtractInput,
@@ -551,7 +1031,7 @@ export class RdAiService {
     const rows = lines.map((line) => this.parseDelimitedLine(line, delimiter));
     const header = rows[0]?.map((cell) => cell.toLowerCase().replace(/\s/g, '')) ?? [];
     const availablePeople = this.getAvailablePeopleNames(input);
-    const titleIndex = this.findColumn(header, ['title', 'task', 'name', '任务', '标题', '事项', '工作']);
+    const titleIndex = this.findTaskTitleColumn(header);
     const ownerIndex = this.findColumn(header, ['owner', 'assignee', '负责人', '责任人', '执行人', '人员']);
     const dueIndex = this.findColumn(header, ['date', 'due', 'deadline', '截止', '日期', '时间', '期限']);
     const priorityIndex = this.findColumn(header, ['priority', '优先级', '优先', '重要']);
@@ -627,6 +1107,30 @@ export class RdAiService {
     }
     result.push(current.trim().replace(/^"|"$/g, ''));
     return result;
+  }
+
+  private findTaskTitleColumn(header: string[]): number {
+    const strongCandidates = [
+      '任务名称',
+      '任务名',
+      '工作内容',
+      '任务内容',
+      '事项名称',
+      '标题',
+      'title',
+      'taskname',
+      'task_name',
+      'name',
+    ];
+    const strong = header.findIndex((cell) => strongCandidates.some((candidate) => cell.includes(candidate)));
+    if (strong >= 0) return strong;
+
+    const weak = this.findColumn(header, ['task', '任务', '事项', '工作']);
+    const nonTitleHeaders = ['任务属性', '状态', '优先级', '负责人', '开始日期', '结束日期', '分类', '备注', '父任务'];
+    if (weak >= 0 && !nonTitleHeaders.some((candidate) => header[weak]?.includes(candidate))) {
+      return weak;
+    }
+    return header.findIndex((cell) => !nonTitleHeaders.some((candidate) => cell.includes(candidate)));
   }
 
   private findColumn(header: string[], candidates: string[]): number {
@@ -727,23 +1231,20 @@ export class RdAiService {
     rawJson: string,
     input: RdAiExtractInput,
   ): { tasks: RdAiTaskDraft[]; suggested_category?: string; summary?: string } {
-    let obj: Record<string, unknown> = {};
+    let parsedPayload: unknown = {};
     try {
-      const trimmed = (rawJson ?? '').trim();
-      const cleaned = trimmed.startsWith('```')
-        ? trimmed.replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim()
-        : trimmed;
-      obj = JSON.parse(cleaned);
+      parsedPayload = this.parseJsonLikePayload(rawJson);
     } catch (err) {
       this.logger.warn(`[parseTasksPayload] JSON parse failed: ${(err as Error).message}; raw="${rawJson.slice(0, 200)}"`);
       return { tasks: [] };
     }
+    const obj = this.asRecord(parsedPayload, {});
 
     const today = new Date();
     const defaultDue = new Date(today.getTime() + 14 * 86400000).toISOString().slice(0, 10);
     const peopleList = this.getAvailablePeopleNames(input);
 
-    const rawTasks = Array.isArray((obj as { tasks?: unknown }).tasks) ? (obj.tasks as unknown[]) : [];
+    const rawTasks = this.extractRawTaskArray(parsedPayload);
 
     const tasks: RdAiTaskDraft[] = rawTasks
       .map((t): RdAiTaskDraft | null => {
@@ -757,7 +1258,11 @@ export class RdAiService {
         const priority = this.normalizePriority(r.priority);
         const dueRaw = String(r.due_date ?? '').trim();
         const due_date = /^\d{4}-\d{1,2}-\d{1,2}$/.test(dueRaw) ? this.padDate(dueRaw) : defaultDue;
-        const estimated_days = this.clampInt(r.estimated_days, 1, 90, 5);
+        // AI 若返回 0 或非法值，视为未作答，用 fallback=5；合法值范围 1-90
+        const rawDays = Number(r.estimated_days);
+        const estimated_days = Number.isFinite(rawDays) && rawDays >= 1
+          ? Math.min(90, Math.round(rawDays))
+          : 5;
 
         return {
           title,
@@ -782,6 +1287,138 @@ export class RdAiService {
     const summary = typeof obj.summary === 'string' ? obj.summary.trim() || undefined : undefined;
 
     return { tasks, suggested_category, summary };
+  }
+
+  private parseProposalRefinePayload(
+    rawJson: string,
+    input: RdAiProposalRefineInput,
+    fallbackTasks: RdAiProposalTaskInput[],
+  ): { tasks: RdAiProposalTaskInput[]; change_summary: string[]; warnings: string[] } {
+    let parsedPayload: unknown = {};
+    try {
+      parsedPayload = this.parseJsonLikePayload(rawJson);
+    } catch (err) {
+      this.logger.warn(`[parseProposalRefinePayload] JSON parse failed: ${(err as Error).message}; raw="${rawJson.slice(0, 200)}"`);
+      return {
+        tasks: fallbackTasks,
+        change_summary: [],
+        warnings: ['AI 微调结果解析失败，已保留当前立项草稿。'],
+      };
+    }
+
+    const obj = this.asRecord(parsedPayload, {});
+    const rawTasks = this.extractRawTaskArray(parsedPayload);
+    const normalizedTasks = rawTasks
+      .map((task, index) => this.normalizeProposalTaskInput(task, input, index))
+      .filter((task): task is RdAiProposalTaskInput => Boolean(task.title));
+
+    const selectedIds = new Set((input.selectedTaskIds ?? []).map((id) => String(id).trim()).filter(Boolean));
+    const fallbackIds = new Set(fallbackTasks.map((task) => task.id).filter(Boolean) as string[]);
+    const shouldProtectUnselected = input.scope === 'selected' || input.scope === 'single';
+
+    let tasks = normalizedTasks;
+    if (shouldProtectUnselected && selectedIds.size > 0) {
+      const returnedById = new Map(normalizedTasks.map((task) => [task.id, task]));
+      const additions = normalizedTasks.filter((task) => !task.id || !fallbackIds.has(task.id));
+      tasks = fallbackTasks.map((task) => {
+        const id = task.id ?? '';
+        if (!selectedIds.has(id)) return task;
+        return returnedById.get(id) ?? task;
+      });
+      if (additions.length > 0) {
+        tasks = [...tasks, ...additions];
+      }
+    }
+
+    return {
+      tasks,
+      change_summary: this.stringArrayFromPayload(obj.change_summary ?? obj.changes ?? obj.summary),
+      warnings: this.stringArrayFromPayload(obj.warnings ?? obj.warning),
+    };
+  }
+
+  private stringArrayFromPayload(value: unknown): string[] {
+    if (Array.isArray(value)) {
+      return value.map((item) => String(item).trim()).filter(Boolean).slice(0, 8);
+    }
+    if (typeof value === 'string' && value.trim()) {
+      return [value.trim()];
+    }
+    return [];
+  }
+
+  private parseJsonLikePayload(rawJson: string): unknown {
+    const trimmed = (rawJson ?? '').trim();
+    if (!trimmed) return {};
+
+    const candidates = new Set<string>();
+    const cleanedFence = trimmed.startsWith('```')
+      ? trimmed.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/i, '').trim()
+      : trimmed;
+    candidates.add(cleanedFence);
+
+    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fenced?.[1]) candidates.add(fenced[1].trim());
+
+    const objectJson = this.extractBalancedJson(cleanedFence, '{', '}');
+    if (objectJson) candidates.add(objectJson);
+    const arrayJson = this.extractBalancedJson(cleanedFence, '[', ']');
+    if (arrayJson) candidates.add(arrayJson);
+
+    let lastError: unknown = null;
+    for (const candidate of candidates) {
+      try {
+        return JSON.parse(candidate);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError instanceof Error ? lastError : new Error('Unable to parse JSON payload');
+  }
+
+  private extractBalancedJson(text: string, openChar: '{' | '[', closeChar: '}' | ']'): string | null {
+    const start = text.indexOf(openChar);
+    if (start < 0) return null;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = start; index < text.length; index += 1) {
+      const char = text[index];
+      if (inString) {
+        if (escaped) {
+          escaped = false;
+        } else if (char === '\\') {
+          escaped = true;
+        } else if (char === '"') {
+          inString = false;
+        }
+        continue;
+      }
+      if (char === '"') {
+        inString = true;
+      } else if (char === openChar) {
+        depth += 1;
+      } else if (char === closeChar) {
+        depth -= 1;
+        if (depth === 0) return text.slice(start, index + 1);
+      }
+    }
+    return null;
+  }
+
+  private extractRawTaskArray(parsedPayload: unknown): unknown[] {
+    if (Array.isArray(parsedPayload)) return parsedPayload;
+    const root = this.asRecord(parsedPayload, {});
+    const keys = ['tasks', 'task_list', 'items', 'data', 'result', 'results', '任务', '任务列表', '研发任务'];
+    for (const key of keys) {
+      const value = root[key];
+      if (Array.isArray(value)) return value;
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        const nested = this.extractRawTaskArray(value);
+        if (nested.length > 0) return nested;
+      }
+    }
+    return [];
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -840,10 +1477,24 @@ export class RdAiService {
     const fromFallback = fallbackModelId ? await this.resolveConfiguredModel(fallbackModelId) : null;
     if (fromFallback) return fromFallback;
 
-    const fromDefault = await this.resolveDefaultConfiguredModel();
-    if (fromDefault) return fromDefault;
+    return this.resolveDefaultConfiguredModel();
+  }
 
-    return this.resolveEnvModelConfig();
+  private async resolveSceneFallbackModelConfig(
+    sceneId: string,
+    primary: AiModelRuntimeConfig,
+  ): Promise<AiModelRuntimeConfig | null> {
+    const scenes = await this.readAiScenes();
+    const scene = scenes.find((item) => item.id === sceneId && item.enabled !== false);
+    const fallbackModelId = scene?.fallback_model_id ?? '';
+    if (!fallbackModelId) return null;
+    const fallback = await this.resolveConfiguredModel(fallbackModelId);
+    if (!fallback || this.isSameRuntimeModel(primary, fallback)) return null;
+    return fallback;
+  }
+
+  private isSameRuntimeModel(left: AiModelRuntimeConfig, right: AiModelRuntimeConfig): boolean {
+    return left.provider === right.provider && left.model === right.model && (left.baseUrl ?? '') === (right.baseUrl ?? '');
   }
 
   private async readAiScenes(): Promise<Array<{ id: string; enabled: boolean; model_id: string; fallback_model_id: string }>> {
@@ -899,23 +1550,12 @@ export class RdAiService {
     const apiKey = this.decryptSecret(config.encryptedSecret);
     if (!apiKey) return null;
     const metadata = this.parseAiModelMetadata(config.metadata);
-    return {
-      provider: this.normalizeProvider(config.provider, model),
-      model,
-      apiKey,
-      baseUrl: metadata.base_url || undefined,
-    };
-  }
-
-  private resolveEnvModelConfig(): AiModelRuntimeConfig | null {
-    const { provider, model } = this.pickTextProvider();
-    const apiKey = this.resolveApiKey(provider);
-    if (!apiKey) return null;
+    const provider = this.normalizeProvider(config.provider, model);
     return {
       provider,
       model,
       apiKey,
-      baseUrl: this.resolveBaseUrl(provider) ?? undefined,
+      baseUrl: metadata.base_url || this.defaultBaseUrlForProvider(provider),
     };
   }
 
@@ -943,6 +1583,21 @@ export class RdAiService {
     return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
       ? (value as Record<string, unknown>)
       : fallback;
+  }
+
+  private stringifyMessageContent(content: unknown): string {
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+      return content
+        .map((part) => {
+          if (typeof part === 'string') return part;
+          const record = this.asRecord(part, {});
+          return typeof record.text === 'string' ? record.text : '';
+        })
+        .filter(Boolean)
+        .join('\n');
+    }
+    return content == null ? '' : String(content);
   }
 
   // ─── Progress assessment from evidence file ──────────────────────────────
@@ -1069,17 +1724,36 @@ export class RdAiService {
         source = 'file_text';
       } else if (DOC_EXT.has(ext)) {
         // Upload to Qwen doc model — assessment call below will reference fileid://
-        if (!this.envQwenKey) {
-          throw new BadRequestException('PDF/Word/Excel 识别需要配置 DASHSCOPE_API_KEY');
+        // 优先读 AI 模型管理配置，不从 .env 读取模型 key。
+        const docCfg = await this.resolveDocModelConfig();
+        if (!docCfg) {
+          throw new BadRequestException(
+            'PDF/Word/Excel 识别需要在 AI 模型管理中配置 qwen-doc-turbo 或可用的 Qwen 模型',
+          );
         }
-        docClient = this.createClient(this.envQwenKey, 'qwen');
+        docClient = this.createClient(docCfg.apiKey, 'qwen', docCfg.baseUrl, this.extractTimeoutMs);
         const uploadable = await toFile(input.file.buffer, input.file.originalname, {
           type: input.file.mimetype?.trim() || undefined,
         });
-        const uploaded = await docClient.files.create({
-          file: uploadable,
-          purpose: 'file-extract' as OpenAI.FilePurpose,
-        });
+        let uploaded: OpenAI.Files.FileObject;
+        try {
+          uploaded = await docClient.files.create({
+            file: uploadable,
+            purpose: 'file-extract' as OpenAI.FilePurpose,
+          });
+        } catch (error) {
+          if (this.isExternalAiTimeout(error)) {
+            const parsed = this.buildTimeoutProgressFallback(input.task, 'file_doc_model', input.file.buffer.length);
+            await this.recordAiArtifact('progress_assessment', 'file_doc_model', input.file.originalname, filePolicy, {
+              ai_result: parsed,
+              timeout: true,
+              model: QWEN_DOC_MODEL,
+              provider: 'qwen',
+            });
+            return parsed;
+          }
+          throw this.toExternalAiException(error, 'AI 进度文件上传服务调用失败');
+        }
         docFileId = uploaded.id;
         source = 'file_doc_model';
       } else {
@@ -1097,15 +1771,30 @@ export class RdAiService {
 
     try {
       if (source === 'file_doc_model' && docClient && docFileId) {
-        const response = await docClient.chat.completions.create({
-          model: QWEN_DOC_MODEL,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'system', content: `fileid://${docFileId}` },
-            { role: 'user', content: userMessage },
-          ],
-          response_format: { type: 'json_object' },
-        });
+        let response: OpenAI.Chat.Completions.ChatCompletion;
+        try {
+          response = await docClient.chat.completions.create({
+            model: QWEN_DOC_MODEL,
+            messages: [
+              { role: 'system', content: systemPrompt },
+              { role: 'system', content: `fileid://${docFileId}` },
+              { role: 'user', content: userMessage },
+            ],
+            response_format: { type: 'json_object' },
+          });
+        } catch (error) {
+          if (this.isExternalAiTimeout(error)) {
+            const parsed = this.buildTimeoutProgressFallback(input.task, 'file_doc_model', input.file?.buffer.length ?? 0);
+            await this.recordAiArtifact('progress_assessment', 'file_doc_model', input.file?.originalname, filePolicy, {
+              ai_result: parsed,
+              timeout: true,
+              model: QWEN_DOC_MODEL,
+              provider: 'qwen',
+            });
+            return parsed;
+          }
+          throw this.toExternalAiException(error, 'AI 进度文件解析服务调用失败');
+        }
         const content = response.choices[0]?.message?.content ?? '{}';
         const parsed = this.parseProgressPayload(content, input.task);
         await this.recordAiArtifact('progress_assessment', 'file_doc_model', input.file?.originalname, filePolicy, {
@@ -1116,21 +1805,20 @@ export class RdAiService {
         return { ...parsed, provider: 'qwen', model: QWEN_DOC_MODEL, source, raw_text_length: input.file?.buffer.length ?? 0 };
       }
 
-      // Text path — try AI scene-configured model first
+      // Text path — AI 模型管理优先（scene → default），不从 .env 读取模型 key。
       const selectedModel = await this.resolveSceneModelConfig('progress_summary').catch(() => null);
-      const fallback = this.pickTextProvider();
-      const apiKey = selectedModel?.apiKey ?? this.resolveApiKey(fallback.provider);
-      const provider: AiProvider = selectedModel?.provider ?? fallback.provider;
-      const model = selectedModel?.model ?? fallback.model;
+      const apiKey = selectedModel?.apiKey ?? null;
+      const provider: AiProvider = selectedModel?.provider ?? 'openai';
+      const model = selectedModel?.model ?? DEFAULT_TEXT_MODEL;
       const baseUrl = selectedModel?.baseUrl;
 
       if (!apiKey) {
-        // No AI configured — return a baseline assessment so the user still gets feedback
+        // AI 模型管理中未配置任何可用模型
         return {
           progress: Math.max(0, input.task.current_progress ?? 0),
           stage: '资料已上传，AI 未配置，无法自动判断',
           confidence: 40,
-          basis: ['后端未配置 OPENAI_API_KEY 或 DASHSCOPE_API_KEY', '当前仅记录文件元信息'],
+          basis: ['未在 AI 模型管理中配置可用模型', '当前仅记录文件元信息'],
           recommendation: '请在 AI 模型管理中配置可用模型，或人工选择进度节点。',
           provider: 'local',
           model: 'local-progress-fallback',
@@ -1140,15 +1828,32 @@ export class RdAiService {
       }
 
       const client = this.createClient(apiKey, provider, baseUrl);
-      const response = await client.chat.completions.create({
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userMessage },
-        ],
-        response_format: { type: 'json_object' },
-        ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
-      });
+      let response: OpenAI.Chat.Completions.ChatCompletion;
+      try {
+        response = await client.chat.completions.create({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: userMessage },
+          ],
+          response_format: { type: 'json_object' },
+          ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+        });
+      } catch (error) {
+        if (this.isExternalAiTimeout(error)) {
+          const parsed = this.buildTimeoutProgressFallback(input.task, source, evidenceText.length);
+          await this.recordAiArtifact('progress_assessment', source, input.file?.originalname, filePolicy, {
+            original_text: source === 'text' || source === 'file_text' ? evidenceText : undefined,
+            ocr_text: source === 'file_ocr' ? evidenceText : undefined,
+            ai_result: parsed,
+            timeout: true,
+            model,
+            provider,
+          });
+          return parsed;
+        }
+        throw this.toExternalAiException(error, 'AI 进度判断服务调用失败');
+      }
       const content = response.choices[0]?.message?.content ?? '{}';
       const parsed = this.parseProgressPayload(content, input.task);
       await this.recordAiArtifact('progress_assessment', source, input.file?.originalname, filePolicy, {
@@ -1181,21 +1886,37 @@ export class RdAiService {
 
     const client = this.createClient(selectedModel.apiKey, selectedModel.provider, selectedModel.baseUrl);
     const dataUrl = `data:${file.mimetype?.trim() || 'image/png'};base64,${file.buffer.toString('base64')}`;
-    const response = await client.chat.completions.create({
-      model: selectedModel.model,
-      messages: [
-        { role: 'system', content: this.buildProgressSystemPrompt() },
-        {
-          role: 'user',
-          content: [
-            { type: 'text', text: this.buildProgressUserMessage(`请直接读取图片证据并判断进度。OCR 兜底原因：${reason}`, input) },
-            { type: 'image_url', image_url: { url: dataUrl } },
-          ],
-        },
-      ],
-      response_format: { type: 'json_object' },
-      ...(selectedModel.provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
-    } as any);
+    let response: OpenAI.Chat.Completions.ChatCompletion;
+    try {
+      response = await client.chat.completions.create({
+        model: selectedModel.model,
+        messages: [
+          { role: 'system', content: this.buildProgressSystemPrompt() },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: this.buildProgressUserMessage(`请直接读取图片证据并判断进度。OCR 兜底原因：${reason}`, input) },
+              { type: 'image_url', image_url: { url: dataUrl } },
+            ],
+          },
+        ],
+        response_format: { type: 'json_object' },
+        ...(selectedModel.provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+      } as any);
+    } catch (error) {
+      if (this.isExternalAiTimeout(error)) {
+        const parsed = this.buildTimeoutProgressFallback(input.task, 'file_ocr', file.buffer.length);
+        await this.recordAiArtifact('progress_assessment', 'file_ocr', file.originalname, filePolicy, {
+          ai_result: parsed,
+          fallback_reason: reason,
+          timeout: true,
+          fallback_model: selectedModel.model,
+          fallback_provider: selectedModel.provider,
+        });
+        return parsed;
+      }
+      throw this.toExternalAiException(error, 'AI 进度图片兜底解析服务调用失败');
+    }
 
     const content = response.choices[0]?.message?.content ?? '{}';
     const parsed = this.parseProgressPayload(content, input.task);
@@ -1230,7 +1951,7 @@ export class RdAiService {
       '{"progress": integer 0-100, "stage": string, "confidence": integer 0-100, "basis": [string,...], "recommendation": string}',
       '',
       '规则：',
-      '1) progress 不能低于当前进度，除非依据明确表明回退（如"测试失败需重做方案"）。',
+      '1) progress 是最终绝对进度，不是相对增量；不要把当前进度与本次判断相加，也不要因为当前进度较高而自动取更大值。依据不足或无关时返回当前进度；依据表明回退时可返回更低进度。',
       '2) basis 给出 2-4 条简短证据（参考文件中的关键内容，如"含 EMC 测试报告"、"完成 BOM 变更说明"）。',
       '3) stage 用一句话描述当前所处阶段及理由（不超过 25 字）。',
       '4) confidence 反映你对推断的把握，依据越具体越高。',
@@ -1274,7 +1995,7 @@ export class RdAiService {
     const currentProgress = Math.max(0, Math.min(100, Math.round(task.current_progress ?? 0)));
     const rawProgress = Number(obj.progress);
     const progress = Number.isFinite(rawProgress)
-      ? Math.max(currentProgress, Math.max(0, Math.min(100, Math.round(rawProgress))))
+      ? Math.max(0, Math.min(100, Math.round(rawProgress)))
       : currentProgress;
     const stage = typeof obj.stage === 'string' && obj.stage.trim() ? obj.stage.trim() : '资料已上传，待 AI 进一步分析';
     const rawConfidence = Number(obj.confidence);
@@ -1288,36 +2009,270 @@ export class RdAiService {
     return { progress, stage, confidence, basis, recommendation };
   }
 
-  private pickTextProvider(): { provider: AiProvider; model: string } {
-    if (this.envOpenAiKey) {
-      return { provider: 'openai', model: this.envOpenAiModel };
-    }
-    if (this.envQwenKey) {
-      return { provider: 'qwen', model: 'qwen-plus' };
-    }
-    return { provider: 'openai', model: DEFAULT_TEXT_MODEL };
+  private defaultBaseUrlForProvider(provider: AiProvider): string | undefined {
+    return provider === 'qwen' ? DEFAULT_QWEN_BASE_URL : undefined;
   }
 
-  private resolveApiKey(provider: AiProvider): string | null {
-    return provider === 'qwen' ? this.envQwenKey : this.envOpenAiKey;
-  }
-
-  private resolveBaseUrl(provider: AiProvider): string | null {
-    return provider === 'qwen' ? this.envQwenBase : this.envOpenAiBase;
-  }
-
-  private createClient(apiKey: string, provider: AiProvider, configuredBaseUrl?: string): OpenAI {
-    const baseURL = configuredBaseUrl ?? this.resolveBaseUrl(provider);
+  private createClient(apiKey: string, provider: AiProvider, configuredBaseUrl?: string, timeoutOverride?: number): OpenAI {
+    const baseURL = configuredBaseUrl ?? this.defaultBaseUrlForProvider(provider);
     return new OpenAI({
       apiKey,
-      timeout: this.timeoutMs,
+      timeout: timeoutOverride ?? this.timeoutMs,
       ...(baseURL ? { baseURL } : {}),
     });
   }
 
-  private normalizeBaseUrl(raw: string | null): string | null {
-    if (!raw) return null;
-    const trimmed = raw.trim();
-    return trimmed.length > 0 ? trimmed.replace(/\/$/, '') : null;
+  private isExternalAiTimeout(error: unknown): boolean {
+    const record = error && typeof error === 'object' ? (error as Record<string, unknown>) : {};
+    const name = error instanceof Error ? error.name : String(record.name ?? '');
+    const message = error instanceof Error ? error.message : String(record.message ?? record.error ?? '');
+    const code = String(record.code ?? record.type ?? '').toLowerCase();
+    const status = Number(record.status ?? record.statusCode);
+    const text = `${name} ${message}`.toLowerCase();
+    return (
+      text.includes('timeout') ||
+      text.includes('timed out') ||
+      text.includes('abort') ||
+      code.includes('timeout') ||
+      code === 'etimedout' ||
+      status === 408 ||
+      status === 504
+    );
+  }
+
+  private buildTimeoutProgressFallback(
+    task: { current_progress?: number },
+    source: 'text' | 'file_text' | 'file_ocr' | 'file_doc_model',
+    rawTextLength: number,
+  ): RdAiProgressAssessmentResult {
+    const progress = Math.max(0, Math.min(100, Math.round(task.current_progress ?? 0)));
+    return {
+      progress,
+      stage: 'AI 服务超时，保持当前进度',
+      confidence: 35,
+      basis: ['AI 服务在限定时间内未返回结果', '已保留用户提交的进展材料，未自动提高进度'],
+      recommendation: '稍后重试或人工确认进度节点。',
+      provider: 'local',
+      model: 'local-timeout-fallback',
+      source,
+      raw_text_length: rawTextLength,
+    };
+  }
+
+  private toExternalAiException(error: unknown, context: string): HttpException {
+    if (error instanceof HttpException) return error;
+    const message = this.extractExternalAiErrorMessage(error);
+    this.logger.warn(`[${context}] ${message}`);
+    return new BadGatewayException(`${context}：${message}`);
+  }
+
+  private extractExternalAiErrorMessage(error: unknown): string {
+    if (error instanceof Error && error.message.trim()) {
+      return error.message.trim().replace(/Bearer\s+[A-Za-z0-9._-]+/g, 'Bearer [redacted]').slice(0, 500);
+    }
+    if (error && typeof error === 'object') {
+      const record = error as Record<string, unknown>;
+      const maybeMessage = record.message ?? record.error ?? record.code;
+      if (maybeMessage) return String(maybeMessage).slice(0, 500);
+    }
+    return '第三方 AI 服务返回异常，请检查模型、API Key、Base URL、文件大小和网络连通性';
+  }
+
+  // ─── KB file classification ───────────────────────────────────────────────
+
+  /**
+   * Classify a list of filenames into KB categories.
+   * Uses rule-based scoring first; calls AI for low-confidence files.
+   */
+  async classifyKbFiles(params: {
+    filenames: string[];
+    categories: Array<{ id: string; label: string; children?: Array<{ id: string; label: string }> }>;
+  }): Promise<Array<{ filename: string; category_id: string | null; confidence: number; method: 'rule' | 'ai' | 'none' }>> {
+    const { filenames, categories } = params;
+    if (filenames.length === 0) return [];
+
+    const flatCats = this.flattenKbCategories(categories);
+    if (flatCats.length === 0) {
+      return filenames.map((f) => ({ filename: f, category_id: null, confidence: 0, method: 'none' as const }));
+    }
+
+    // Step 1: rule-based
+    const results: Array<{ filename: string; category_id: string | null; confidence: number; method: 'rule' | 'ai' | 'none' }> =
+      filenames.map((filename) => ({ filename, ...this.ruleBasedKbClassify(filename, flatCats) }));
+
+    // Step 2: AI for low-confidence items (confidence < 0.45)
+    const needsAi = results.filter((r) => r.confidence < 0.45);
+    if (needsAi.length > 0) {
+      try {
+        const aiSuggestions = await this.aiKbClassify(
+          needsAi.map((r) => r.filename),
+          flatCats,
+        );
+        for (const ai of aiSuggestions) {
+          const r = results.find((x) => x.filename === ai.filename);
+          if (r && ai.confidence > r.confidence) {
+            r.category_id = ai.category_id;
+            r.confidence = ai.confidence;
+            r.method = 'ai';
+          }
+        }
+      } catch (err) {
+        this.logger.warn(`KB AI classify failed, rule-based only: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+
+    return results;
+  }
+
+  private flattenKbCategories(
+    categories: Array<{ id: string; label: string; children?: Array<{ id: string; label: string }> }>,
+  ): Array<{ id: string; label: string }> {
+    const result: Array<{ id: string; label: string }> = [];
+    for (const cat of categories) {
+      result.push({ id: cat.id, label: cat.label });
+      for (const child of cat.children ?? []) {
+        result.push({ id: child.id, label: child.label });
+      }
+    }
+    return result;
+  }
+
+  private ruleBasedKbClassify(
+    filename: string,
+    cats: Array<{ id: string; label: string }>,
+  ): { category_id: string | null; confidence: number; method: 'rule' } {
+    const base = filename.replace(/\.[^.]+$/, '').toLowerCase();
+    const ext = (filename.split('.').pop() ?? '').toLowerCase();
+
+    // Extension → thematic keywords
+    const EXT_KEYWORDS: Record<string, string[]> = {
+      pdf:  ['文档', '说明', '规范', '报告', '手册', '设计'],
+      doc:  ['文档', '说明', '规范', '报告', '手册'],
+      docx: ['文档', '说明', '规范', '报告', '手册'],
+      xls:  ['数据', '统计', '表格', '报表'],
+      xlsx: ['数据', '统计', '表格', '报表'],
+      ppt:  ['演示', '汇报', '方案', '设计'],
+      pptx: ['演示', '汇报', '方案', '设计'],
+      png:  ['图片', '截图', '设计', 'UI'],
+      jpg:  ['图片', '截图', '照片'],
+      jpeg: ['图片', '截图', '照片'],
+      gif:  ['图片', '动图'],
+      svg:  ['图片', '设计', 'UI'],
+      mp4:  ['视频', '演示', '录制'],
+      avi:  ['视频', '录制'],
+      mov:  ['视频', '录制'],
+      md:   ['文档', '说明', '规范', 'readme'],
+      txt:  ['文档', '说明', '日志'],
+      json: ['数据', '配置', '接口', 'API'],
+      yaml: ['配置', '运维', '部署'],
+      yml:  ['配置', '运维', '部署'],
+      zip:  ['资源', '附件', '归档'],
+      rar:  ['资源', '附件', '归档'],
+    };
+
+    // Filename patterns → thematic keywords
+    const NAME_PATTERNS: Array<{ re: RegExp; hints: string[] }> = [
+      { re: /需求|prd|brd|requirement|spec|产品规格/i,          hints: ['需求', '产品', '功能'] },
+      { re: /架构|arch|design|设计|blueprint|方案|solution/i,   hints: ['架构', '设计', '方案'] },
+      { re: /api|接口|swagger|openapi|endpoint|rest/i,          hints: ['API', '接口', '开发', '技术'] },
+      { re: /测试|test|qa|bug|issue|defect|case/i,              hints: ['测试', 'QA'] },
+      { re: /部署|deploy|运维|devops|ci|cd|pipeline|k8s/i,      hints: ['运维', '部署', '基础设施'] },
+      { re: /安全|security|auth|权限|加密|encrypt/i,             hints: ['安全', '权限'] },
+      { re: /数据库|database|db|sql|schema|migration/i,         hints: ['数据', '数据库', '后端'] },
+      { re: /ui|ux|原型|prototype|wireframe|figma|mockup|界面/i, hints: ['UI', 'UX', '设计', '原型'] },
+      { re: /报告|report|汇报|总结|summary|review|周报|月报/i,   hints: ['报告', '总结', '文档'] },
+      { re: /培训|training|教程|tutorial|guide|手册|onboard/i,  hints: ['培训', '文档', '手册'] },
+      { re: /流程|process|workflow|业务|bpmn/i,                  hints: ['流程', '业务', '规范'] },
+      { re: /算法|algorithm|model|模型|ai|ml|nlp|deep/i,        hints: ['算法', 'AI', '技术'] },
+      { re: /readme|changelog|license|contributing/i,           hints: ['文档', '开源', '说明'] },
+    ];
+
+    const hints: string[] = [...(EXT_KEYWORDS[ext] ?? [])];
+    for (const { re, hints: h } of NAME_PATTERNS) {
+      if (re.test(base)) hints.push(...h);
+    }
+
+    if (hints.length === 0) return { category_id: null, confidence: 0, method: 'rule' };
+
+    // Score each category: count hint tokens that appear in the label (or vice-versa)
+    let best: { id: string; score: number } | null = null;
+    for (const cat of cats) {
+      const label = cat.label.toLowerCase();
+      let score = 0;
+      for (const hint of hints) {
+        const h = hint.toLowerCase();
+        if (label.includes(h) || h.includes(label)) score += 1;
+      }
+      if (score > 0 && (!best || score > best.score)) {
+        best = { id: cat.id, score };
+      }
+    }
+
+    if (!best) return { category_id: null, confidence: 0, method: 'rule' };
+
+    // Normalise confidence: cap at 0.88 to leave room for AI to potentially override
+    const confidence = Math.min(best.score / Math.max(hints.length * 0.5, 1), 0.88);
+    return { category_id: best.id, confidence, method: 'rule' };
+  }
+
+  private async aiKbClassify(
+    filenames: string[],
+    cats: Array<{ id: string; label: string }>,
+  ): Promise<Array<{ filename: string; category_id: string | null; confidence: number; method: 'ai' }>> {
+    const selectedModel = await this.resolveSceneModelConfig('file_task_extract').catch(() => null)
+      ?? await this.resolveDefaultConfiguredModel().catch(() => null)
+      ?? null;
+
+    if (!selectedModel) {
+      return filenames.map((f) => ({ filename: f, category_id: null, confidence: 0, method: 'ai' as const }));
+    }
+
+    const catList = cats.map((c) => `  {"id":"${c.id}","label":"${c.label}"}`).join(',\n');
+    const fileList = filenames.map((f, i) => `${i + 1}. ${f}`).join('\n');
+
+    const prompt =
+      `你是一个文件分类助手。根据文件名，将每个文件分配到最合适的知识库分类。\n\n` +
+      `可用分类（JSON 数组）：\n[\n${catList}\n]\n\n` +
+      `需要分类的文件：\n${fileList}\n\n` +
+      `请仅返回 JSON，格式：{"results":[{"filename":"...","category_id":"...","confidence":0.0-1.0}]}\n` +
+      `无法判断时 category_id 为 null，confidence 为 0。`;
+
+    const client = this.createClient(selectedModel.apiKey, selectedModel.provider, selectedModel.baseUrl);
+
+    let raw = '';
+    try {
+      const response = await client.chat.completions.create({
+        model: selectedModel.model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1,
+        max_tokens: 800,
+        ...(selectedModel.provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+      });
+      raw = response.choices[0]?.message?.content ?? '';
+    } catch {
+      return filenames.map((f) => ({ filename: f, category_id: null, confidence: 0, method: 'ai' as const }));
+    }
+
+    let parsed: { results?: unknown[] } = {};
+    try {
+      const match = raw.match(/\{[\s\S]*\}/);
+      if (match) parsed = JSON.parse(match[0]) as typeof parsed;
+    } catch {
+      return filenames.map((f) => ({ filename: f, category_id: null, confidence: 0, method: 'ai' as const }));
+    }
+
+    const rows = Array.isArray(parsed.results) ? parsed.results : [];
+    return filenames.map((filename) => {
+      const row = (rows as Array<{ filename?: string; category_id?: string; confidence?: number }>)
+        .find((r) => r.filename === filename);
+      if (!row) return { filename, category_id: null, confidence: 0, method: 'ai' as const };
+      const validCat = cats.find((c) => c.id === row.category_id);
+      return {
+        filename,
+        category_id: validCat ? (row.category_id ?? null) : null,
+        confidence: Math.min(Math.max(Number(row.confidence ?? 0), 0), 1),
+        method: 'ai' as const,
+      };
+    });
   }
 }

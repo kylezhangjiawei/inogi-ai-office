@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useLocation, useNavigate } from "react-router";
 import {
@@ -7,6 +7,7 @@ import {
   ArrowRight,
   Battery,
   CalendarClock,
+  CalendarDays,
   CarFront,
   CheckCircle2,
   ChevronDown,
@@ -19,13 +20,17 @@ import {
   Flame,
   FolderPlus,
   Gauge,
+  Image as ImageIcon,
   LayoutGrid,
+  ListChecks,
   Loader2,
   Lock,
   Paperclip,
+  FileText,
   Pencil,
   Plus,
   Trash2,
+  UserCog,
   UserPlus,
   RefreshCw,
   RotateCcw,
@@ -37,12 +42,15 @@ import {
   Users,
   Wind,
   X,
+  Settings2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Input } from "./components/ui/input";
 import { NativeSelect } from "./components/ui/native-select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
+import { useAuth } from "./auth";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./components/ui/tooltip";
 import { usePermission } from "./hooks/usePermission";
 import { AuditTimeline } from "./RDAuditTimeline";
@@ -57,17 +65,33 @@ import {
   extractRdTasksFromFile,
   extractRdTasksFromText,
   saveRdTaskCategories,
+  clearRdAllTaskData,
+  updateRdTask,
+  fetchRdProducts,
+  saveRdProducts,
+  fetchProductTaskCategories,
+  type RdAiPersonContext,
   type RdAiSettingsPayload,
   type RdAiTaskDraft,
   type RdCategory,
   type RdCollaborator,
+  type RdPersonLoad,
   type RdPriority,
   type RdSubProject,
   type RdTask,
+  type RdTaskProgressAttachment,
   type RdTaskProgressNote,
   type RdTaskStatus,
+  type RdProductDef,
+  type RdProductStatus,
 } from "./lib/rdApi";
-import { ProgressNoteList } from "./RDProgressEvidence";
+import { ProgressAttachmentGrid, ProgressNoteList } from "./RDProgressEvidence";
+import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
+import { Button } from "./components/ui/button";
+import { Label } from "./components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
+import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover";
+import { Calendar } from "./components/ui/calendar";
 
 const RD_MOTION_EASE = [0.22, 1, 0.36, 1] as [number, number, number, number];
 const RD_FAST_TRANSITION = { duration: 0.18, ease: RD_MOTION_EASE };
@@ -82,6 +106,7 @@ type Collaborator = RdCollaborator;
 type Task = RdTask;
 type SubProject = RdSubProject;
 type Category = RdCategory;
+type ProductDef = RdProductDef;
 type PersonProfile = {
   id: string;
   user_id?: string | null;
@@ -165,6 +190,8 @@ const STATUS_CONFIG: Record<TaskStatus, { label: string; dot: string; text: stri
   paused_blocked: { label: "暂停·阻塞", dot: "bg-red-500", text: "text-red-700", bg: "bg-red-50" },
   completed: { label: "已完成", dot: "bg-emerald-500", text: "text-emerald-700", bg: "bg-emerald-50" },
   pending_assign: { label: "待指派", dot: "bg-violet-500", text: "text-violet-700", bg: "bg-violet-50" },
+  pending_review: { label: "待审核", dot: "bg-purple-500", text: "text-purple-700", bg: "bg-purple-50" },
+  on_hold: { label: "已挂起", dot: "bg-slate-400", text: "text-slate-600", bg: "bg-slate-100" },
   archived: { label: "已封存", dot: "bg-slate-400", text: "text-slate-500", bg: "bg-slate-100" },
 };
 
@@ -175,6 +202,10 @@ const PRIORITY_CONFIG: Record<Priority, { label: string; text: string; bg: strin
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function normalizeIdentity(value?: string | null) {
+  return (value ?? "").trim().toLowerCase();
+}
 
 function daysUntil(dateStr?: string): number | null {
   if (!dateStr) return null;
@@ -261,8 +292,13 @@ function computeRisks(categories: Category[]): Risk[] {
   const risks = categories.flatMap((cat) =>
     cat.children.flatMap((sub) => sub.tasks.flatMap((task) => collectTaskRisks(task, cat))),
   );
-  // critical first, then by overdue/due_soon
-  return risks.sort((a, b) => (a.severity === b.severity ? 0 : a.severity === "critical" ? -1 : 1));
+  // critical first，同等严重度按更新时间倒序
+  return risks.sort((a, b) => {
+    if (a.severity !== b.severity) return a.severity === "critical" ? -1 : 1;
+    const ta = a.task.updated_at ?? "";
+    const tb = b.task.updated_at ?? "";
+    return tb > ta ? 1 : tb < ta ? -1 : 0;
+  });
 }
 
 function calcCategoryProgress(cat: Category): number {
@@ -300,9 +336,9 @@ function StatusDot({ status }: { status: TaskStatus }) {
   );
 }
 
-function PriorityPill({ priority, aiPriority }: { priority: Priority; aiPriority: Priority }) {
+function PriorityPill({ priority, aiPriority }: { priority: Priority; aiPriority?: Priority }) {
   const cfg = PRIORITY_CONFIG[priority];
-  const adjusted = priority !== aiPriority;
+  const adjusted = aiPriority !== undefined && priority !== aiPriority;
   return (
     <span
       className={cn(
@@ -311,7 +347,7 @@ function PriorityPill({ priority, aiPriority }: { priority: Priority; aiPriority
         cfg.text,
         adjusted && "ring-1 ring-amber-300",
       )}
-      title={adjusted ? `AI 建议: ${PRIORITY_CONFIG[aiPriority].label}，已被组长调整` : `优先级 ${cfg.label}`}
+      title={adjusted && aiPriority ? `AI 建议: ${PRIORITY_CONFIG[aiPriority].label}，已被组长调整` : `优先级 ${cfg.label}`}
     >
       {cfg.label}
       {adjusted && <span className="ml-px text-[8px] opacity-70">·</span>}
@@ -1007,6 +1043,10 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
             <PriorityPill priority={task.final_priority} aiPriority={task.ai_priority} />
           </div>
 
+          {task.description && (
+            <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-500">{task.description}</p>
+          )}
+
           <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
             <span className="inline-flex min-w-0 items-center gap-1.5">
               <OwnerAvatar name={task.primary_owner} size="xs" />
@@ -1016,7 +1056,6 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
               <TimerReset className="h-3.5 w-3.5 text-slate-400" />
               {task.due_date ? <DueDateChip dateStr={task.due_date} /> : <span className="font-medium text-slate-500">未设截止</span>}
             </span>
-            {task.description && <span className="min-w-[180px] flex-1 truncate text-slate-500">{task.description}</span>}
             {task.attachments > 0 && (
               <span className="inline-flex items-center gap-1 font-medium text-slate-500">
                 <Paperclip className="h-3.5 w-3.5" />
@@ -1395,13 +1434,69 @@ function computePersonLoads(categories: Category[], maxPerPerson = 8): PersonLoa
     .sort((a, b) => b.count - a.count);
 }
 
+function buildAiPeopleProfiles(
+  people: PersonProfile[],
+  loads: PersonLoad[],
+  categories: Category[],
+): RdAiPersonContext[] {
+  const loadByName = new Map(loads.map((load) => [load.name, load]));
+  const tasksByOwner = new Map<string, string[]>();
+  const blockedByOwner = new Map<string, number>();
+  const completedThisMonthByOwner = new Map<string, number>();
+
+  const collect = (tasks: Task[]) => {
+    for (const task of tasks) {
+      if (task.archived) continue;
+      const owner = task.primary_owner?.trim();
+      if (owner && !/已离职|待指派|外部机构/.test(owner)) {
+        if (task.status !== "completed") {
+          const titles = tasksByOwner.get(owner) ?? [];
+          if (titles.length < 6) titles.push(task.title);
+          tasksByOwner.set(owner, titles);
+        }
+        if (task.status === "paused_blocked" || task.risk_flag) {
+          blockedByOwner.set(owner, (blockedByOwner.get(owner) ?? 0) + 1);
+        }
+        if (task.status === "completed" && task.updated_at?.startsWith(TODAY_STR.slice(0, 7))) {
+          completedThisMonthByOwner.set(owner, (completedThisMonthByOwner.get(owner) ?? 0) + 1);
+        }
+      }
+      if (task.subtasks) collect(task.subtasks);
+    }
+  };
+
+  for (const category of categories) {
+    for (const child of category.children) collect(child.tasks);
+  }
+
+  return people
+    .filter((person) => person.name.trim())
+    .map((person) => {
+      const load = loadByName.get(person.name);
+      return {
+        id: person.id,
+        user_id: person.user_id ?? undefined,
+        name: person.name,
+        position: person.position,
+        department: person.department,
+        task_count: load?.count ?? 0,
+        max_tasks: person.max_tasks ?? load?.max,
+        on_leave: person.on_leave === true || person.status === "on_leave" || load?.onLeave === true,
+        blocked_count: blockedByOwner.get(person.name) ?? 0,
+        completed_this_month: completedThisMonthByOwner.get(person.name) ?? 0,
+        tasks: tasksByOwner.get(person.name) ?? [],
+      };
+    });
+}
+
 type SystemTreeEditorRequest =
   | { mode: "add-system" }
   | { mode: "edit-system"; category: Category }
   | { mode: "delete-system"; category: Category }
   | { mode: "add-sub"; category: Category }
   | { mode: "edit-sub"; category: Category; sub: SubProject }
-  | { mode: "delete-sub"; category: Category; sub: SubProject };
+  | { mode: "delete-sub"; category: Category; sub: SubProject }
+  | { mode: "move-tasks"; fromCategory: Category; fromSub: SubProject };
 
 function CategorySidebar({
   catStats,
@@ -1421,6 +1516,12 @@ function CategorySidebar({
   canManageTree?: boolean;
   onRequestEditor?: (req: SystemTreeEditorRequest) => void;
 }) {
+  const { user } = useAuth();
+  const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
+  const canReviewProjectL1 = usePermission(PERMISSIONS.RD_PROJECT_REVIEW_L1);
+  const canReviewProjectL2 = usePermission(PERMISSIONS.RD_PROJECT_REVIEW_L2);
+  const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
+  const canReassignTasks = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
   const shouldReduceMotion = useReducedMotion();
   const selectedParentCatId = useMemo(() => {
     const id = selectedId;
@@ -1646,17 +1747,39 @@ function CategorySidebar({
                             <div className="flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/sub:opacity-100 focus-within:opacity-100">
                               <button
                                 type="button"
-                                onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "edit-sub", category: cat, sub }); }}
-                                className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                                title="重命名"
+                                disabled={subTaskTotal > 0}
+                                onClick={(e) => { e.stopPropagation(); if (subTaskTotal === 0) onRequestEditor({ mode: "edit-sub", category: cat, sub }); }}
+                                className={cn(
+                                  "rounded p-1 transition-colors",
+                                  subTaskTotal > 0
+                                    ? "cursor-not-allowed text-slate-300"
+                                    : "text-slate-400 hover:bg-slate-100 hover:text-slate-700",
+                                )}
+                                title={subTaskTotal > 0 ? `含 ${subTaskTotal} 个任务，请先移空后再改名` : "重命名"}
                               >
                                 <Pencil className="h-3 w-3" />
                               </button>
+                              {subTaskTotal > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "move-tasks", fromCategory: cat, fromSub: sub }); }}
+                                  className="rounded p-1 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
+                                  title="移动任务"
+                                >
+                                  <ArrowRight className="h-3 w-3" />
+                                </button>
+                              )}
                               <button
                                 type="button"
-                                onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "delete-sub", category: cat, sub }); }}
-                                className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                                title={subTaskTotal > 0 ? `删除（含 ${subTaskTotal} 个任务，将一并删除）` : "删除"}
+                                disabled={subTaskTotal > 0}
+                                onClick={(e) => { e.stopPropagation(); if (subTaskTotal === 0) onRequestEditor({ mode: "delete-sub", category: cat, sub }); }}
+                                className={cn(
+                                  "rounded p-1 transition-colors",
+                                  subTaskTotal > 0
+                                    ? "cursor-not-allowed text-slate-300"
+                                    : "text-slate-400 hover:bg-red-50 hover:text-red-600",
+                                )}
+                                title={subTaskTotal > 0 ? `含 ${subTaskTotal} 个任务，请先移空后再删除` : "删除"}
                               >
                                 <Trash2 className="h-3 w-3" />
                               </button>
@@ -2128,6 +2251,7 @@ function aiDraftToTask(draft: RdAiTaskDraft): Omit<Task, "task_id"> {
     category_path: draft.category_path,
     archived: false,
     attachments: 0,
+    start_date: draft.start_date,
     due_date: draft.due_date,
   };
 }
@@ -2151,10 +2275,14 @@ function resolveAiCreateTarget(categories: Category[], categoryPath: string) {
 function AiCreatePanel({
   onClose,
   categories,
+  peopleProfiles,
+  personLoads,
   onCreated,
 }: {
   onClose: () => void;
   categories: Category[];
+  peopleProfiles: PersonProfile[];
+  personLoads: PersonLoad[];
   onCreated: () => void;
 }) {
   const RD_AUDIT_ACTOR = useAuditActor("研发成员");
@@ -2211,14 +2339,19 @@ function AiCreatePanel({
         category.label,
         ...category.children.map((child) => `${category.label} / ${child.label}`),
       ]);
+      const aiPeopleProfiles = buildAiPeopleProfiles(peopleProfiles, personLoads, categories);
       const result = selectedFiles.length > 0
         ? await extractRdTasksFromFile({
             file: selectedFiles[0]!,
+            peopleNames: aiPeopleProfiles.map((person) => person.name),
+            peopleProfiles: aiPeopleProfiles,
             categoryLabels,
             proposalTitle: text.trim().slice(0, 80) || selectedFiles[0]!.name,
           })
         : await extractRdTasksFromText({
             text: text.trim(),
+            peopleNames: aiPeopleProfiles.map((person) => person.name),
+            peopleProfiles: aiPeopleProfiles,
             categoryLabels,
             proposalTitle: text.trim().slice(0, 80) || undefined,
           });
@@ -2289,7 +2422,7 @@ function AiCreatePanel({
         title: draft.title,
         primary_owner: draft.primary_owner,
         status: draft.status,
-        progress: draft.progress,
+        progress: Math.max(0, Math.min(100, draft.progress ?? 0)),
         ai_priority: draft.ai_priority,
         final_priority: draft.final_priority,
         due_date: draft.due_date,
@@ -2533,7 +2666,17 @@ function AiCreatePanel({
                   />
                 </div>
 
-                <div className="col-span-2 space-y-1">
+                <div className="space-y-1">
+                  <label className="text-xs font-medium text-slate-500">起始日期</label>
+                  <Input
+                    type="date"
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
+                    value={draft.start_date ?? ""}
+                    onChange={(e) => patchDraft("start_date", e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-1">
                   <label className="text-xs font-medium text-slate-500">截止日期</label>
                   <Input
                     type="date"
@@ -2712,21 +2855,406 @@ function TaskLifecycleTimeline({ task }: { task: Task }) {
   );
 }
 
+// ─── SubmitConfirmDialog ──────────────────────────────────────────────────────
+function SubmitConfirmDialog({
+  taskTitle,
+  onConfirm,
+  onCancel,
+  submitting,
+}: {
+  taskTitle: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  submitting: boolean;
+}) {
+  const shouldReduceMotion = useReducedMotion();
+  return (
+    <motion.div
+      initial={shouldReduceMotion ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={RD_FAST_TRANSITION}
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      onClick={onCancel}
+    >
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 14, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 14, scale: 0.98 }}
+        transition={RD_PANEL_TRANSITION}
+        className="w-full max-w-md rounded-2xl bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+            <Send className="h-4 w-4" />
+          </div>
+          <h3 className="text-base font-semibold text-slate-900">提交任务审核</h3>
+        </div>
+        <div className="space-y-3 px-6 py-5">
+          <p className="text-sm text-slate-700">
+            确认提交「<span className="font-semibold text-slate-900">{taskTitle}</span>」进入待审核状态？
+          </p>
+          <p className="text-xs text-slate-500">提交将任务进入待审核状态，请确认成果已准备好。</p>
+        </div>
+        <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={onCancel}
+            className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={onConfirm}
+            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-60"
+          >
+            {submitting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+            确认提交
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// ─── HandoverDialog ───────────────────────────────────────────────────────────
+function CompleteConfirmDialog({
+  taskTitle,
+  onConfirm,
+  onCancel,
+  submitting,
+}: {
+  taskTitle: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+  submitting: boolean;
+}) {
+  const shouldReduceMotion = useReducedMotion();
+
+  return (
+    <motion.div
+      initial={shouldReduceMotion ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={RD_FAST_TRANSITION}
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      onClick={onCancel}
+    >
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 14, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 14, scale: 0.98 }}
+        transition={RD_PANEL_TRANSITION}
+        className="w-full max-w-md rounded-2xl bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-3 border-b border-emerald-100 bg-emerald-50/60 px-6 py-4">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
+            <CheckCircle2 className="h-4 w-4" />
+          </div>
+          <h3 className="text-base font-semibold text-slate-900">标记任务完成</h3>
+        </div>
+        <div className="space-y-3 px-6 py-5">
+          <p className="text-sm text-slate-700">
+            确认将「<span className="font-semibold text-slate-900">{taskTitle}</span>」直接标记为已完成？
+          </p>
+          <p className="text-xs text-slate-500">管理员/主管操作会跳过提交审核，任务进度将设为 100%。</p>
+        </div>
+        <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={onCancel}
+            className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={onConfirm}
+            className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:opacity-60"
+          >
+            {submitting ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+            确认完成
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function HandoverDialog({
+  taskTitle,
+  currentOwner,
+  people,
+  onConfirm,
+  onCancel,
+}: {
+  taskId: string;
+  taskTitle: string;
+  currentOwner: string;
+  people: { name: string }[];
+  onConfirm: (newOwner: string) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const shouldReduceMotion = useReducedMotion();
+  const [newOwner, setNewOwner] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const options = people.filter((p) => p.name !== currentOwner);
+
+  const handleConfirm = async () => {
+    if (!newOwner) { toast.error("请选择新责任人"); return; }
+    if (newOwner === currentOwner) { toast.error("新责任人与当前负责人相同"); return; }
+    setSaving(true);
+    try {
+      await onConfirm(newOwner);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={shouldReduceMotion ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={RD_FAST_TRANSITION}
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      onClick={onCancel}
+    >
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 14, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 14, scale: 0.98 }}
+        transition={RD_PANEL_TRANSITION}
+        className="w-full max-w-md rounded-2xl bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
+            <ArrowRight className="h-4 w-4" />
+          </div>
+          <h3 className="text-base font-semibold text-slate-900">移交任务</h3>
+        </div>
+        <div className="space-y-4 px-6 py-5">
+          <p className="text-sm text-slate-700">
+            将「<span className="font-semibold text-slate-900">{taskTitle}</span>」移交给新责任人
+          </p>
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-slate-700">当前负责人</label>
+            <div className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-500">{currentOwner}</div>
+          </div>
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-slate-700">新责任人</label>
+            <Select value={newOwner} onValueChange={setNewOwner} disabled={saving}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="请选择新责任人" />
+              </SelectTrigger>
+              <SelectContent>
+                {options.length === 0 ? (
+                  <div className="px-3 py-4 text-center text-xs text-slate-400">暂无可选人员</div>
+                ) : (
+                  options.map((p) => (
+                    <SelectItem key={p.name} value={p.name}>{p.name}</SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
+          <button
+            type="button"
+            disabled={saving}
+            onClick={onCancel}
+            className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            disabled={saving || !newOwner}
+            onClick={handleConfirm}
+            className="inline-flex items-center gap-1.5 rounded-md bg-slate-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 disabled:opacity-60"
+          >
+            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
+            确认移交
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// ─── ApprovalActionDialog ─────────────────────────────────────────────────────
+function ApprovalActionDialog({
+  mode,
+  task,
+  onConfirm,
+  onCancel,
+  submitting,
+}: {
+  mode: "approve" | "reject";
+  task: Task;
+  onConfirm: (reason?: string, rollbackProgress?: number) => Promise<void>;
+  onCancel: () => void;
+  submitting: boolean;
+}) {
+  const shouldReduceMotion = useReducedMotion();
+  const [reason, setReason] = useState("");
+  const [rollbackProgress, setRollbackProgress] = useState(Math.max(0, task.progress - 10));
+
+  const isApprove = mode === "approve";
+
+  const handleConfirm = async () => {
+    if (!isApprove && !reason.trim()) { toast.error("请填写打回原因"); return; }
+    await onConfirm(reason.trim() || undefined, isApprove ? undefined : rollbackProgress);
+  };
+
+  return (
+    <motion.div
+      initial={shouldReduceMotion ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={RD_FAST_TRANSITION}
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      onClick={onCancel}
+    >
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 14, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 14, scale: 0.98 }}
+        transition={RD_PANEL_TRANSITION}
+        className="w-full max-w-md rounded-2xl bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className={cn(
+          "flex items-center gap-3 border-b px-6 py-4",
+          isApprove ? "border-emerald-100 bg-emerald-50/60" : "border-red-100 bg-red-50/60",
+        )}>
+          <div className={cn(
+            "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
+            isApprove ? "bg-emerald-100 text-emerald-600" : "bg-red-100 text-red-600",
+          )}>
+            {isApprove ? <CheckCircle2 className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
+          </div>
+          <h3 className="text-base font-semibold text-slate-900">
+            {isApprove ? "审核通过" : "打回修改"}
+          </h3>
+        </div>
+        <div className="space-y-4 px-6 py-5">
+          <p className="text-sm text-slate-700">
+            {isApprove
+              ? <>确认通过「<span className="font-semibold text-slate-900">{task.title}</span>」的审核？任务将标记为已完成，进度设为 100%。</>
+              : <>将「<span className="font-semibold text-slate-900">{task.title}</span>」打回给负责人重新修改。</>
+            }
+          </p>
+          {!isApprove && (
+            <>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-slate-700">打回原因 <span className="text-red-500">*</span></label>
+                <Textarea
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  rows={3}
+                  placeholder="请说明需要修改的原因…"
+                  className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-medium text-slate-700">回退进度（%）</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={99}
+                  value={rollbackProgress}
+                  onChange={(e) => setRollbackProgress(Math.min(99, Math.max(0, Number(e.target.value))))}
+                  className="w-24 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                />
+                <span className="ml-2 text-xs text-slate-400">当前进度 {task.progress}%</span>
+              </div>
+            </>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
+          <button
+            type="button"
+            disabled={submitting}
+            onClick={onCancel}
+            className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            disabled={submitting || (!isApprove && !reason.trim())}
+            onClick={handleConfirm}
+            className={cn(
+              "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors disabled:opacity-60",
+              isApprove ? "bg-emerald-600 hover:bg-emerald-700" : "bg-red-600 hover:bg-red-700",
+            )}
+          >
+            {submitting ? <Loader2 className="h-3 w-3 animate-spin" /> : isApprove ? <CheckCircle2 className="h-3 w-3" /> : <RotateCcw className="h-3 w-3" />}
+            {isApprove ? "确认通过" : "确认打回"}
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 function TaskDetailDrawer({
   task,
   onClose,
   onOpenPerson,
+  onDescriptionUpdated,
+  onTaskCompleted,
+  onMoveTask,
+  people,
 }: {
   task: Task;
   onClose: () => void;
   onOpenPerson?: (name: string) => void;
+  onDescriptionUpdated?: (taskId: string, description: string) => void;
+  onTaskCompleted?: (task: Task) => void;
+  onMoveTask?: () => void;
+  people?: { name: string }[];
 }) {
   const RD_ADMIN_AUDIT_ACTOR = useAuditActor("研发管理员");
   const shouldReduceMotion = useReducedMotion();
+  const [editingDesc, setEditingDesc] = useState(false);
+  const [descDraft, setDescDraft] = useState(task.description ?? "");
+  const [savingDesc, setSavingDesc] = useState(false);
+  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
+  const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
+  const [showHandoverDialog, setShowHandoverDialog] = useState(false);
+  const [showApprovalDialog, setShowApprovalDialog] = useState<"approve" | "reject" | null>(null);
+  const [submitting, setSubmitting] = useState(false);
   const statusCfg = STATUS_CONFIG[task.status];
   const taskLogs = useAuditLogs({ resourceType: "task", resourceId: task.task_id });
   const [progressNotes, setProgressNotes] = useState<RdTaskProgressNote[]>([]);
   const [progressNotesLoading, setProgressNotesLoading] = useState(false);
+  const canManageTaskFlow = canDirectProject || canReviewProjectL1 || canReviewProjectL2 || canManagePeople || canReassignTasks;
+  const userIdentityKeys = new Set([
+    normalizeIdentity(user?.name),
+    normalizeIdentity(user?.username),
+    normalizeIdentity(user?.email),
+  ].filter(Boolean));
+  const isCurrentOwner =
+    Boolean(user?.id && task.primary_owner_user_id && task.primary_owner_user_id === user.id) ||
+    userIdentityKeys.has(normalizeIdentity(task.primary_owner));
+  const canSubmitForReview = task.status === "in_progress" && isCurrentOwner && !canManageTaskFlow;
+  const canCompleteDirectly = task.status === "in_progress" && canManageTaskFlow;
+  const canReviewPendingTask = task.status === "pending_review" && canManageTaskFlow;
+  const canHandoverTask = task.status === "in_progress" && canManageTaskFlow;
+  const showActionBar = !task.archived && (canSubmitForReview || canCompleteDirectly || canReviewPendingTask || canHandoverTask);
   useEffect(() => {
     let cancelled = false;
     setProgressNotesLoading(true);
@@ -2744,6 +3272,178 @@ function TaskDetailDrawer({
       cancelled = true;
     };
   }, [task.task_id]);
+
+  const saveDescription = async () => {
+    if (savingDesc) return;
+    setSavingDesc(true);
+    try {
+      await updateRdTask(task.task_id, { description: descDraft.trim() });
+      recordAudit({
+        actor: RD_ADMIN_AUDIT_ACTOR,
+        action: "task.updated",
+        resource: { type: "task", id: task.task_id, name: task.title },
+        changes: [{ field: "description", before: task.description ?? "", after: descDraft.trim() }],
+        comment: "更新任务描述",
+        source: "web",
+      });
+      onDescriptionUpdated?.(task.task_id, descDraft.trim());
+      setEditingDesc(false);
+      toast.success("描述已保存");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "保存失败");
+    } finally {
+      setSavingDesc(false);
+    }
+  };
+
+  const handleSubmitForReview = async () => {
+    setSubmitting(true);
+    try {
+      await updateRdTask(task.task_id, { status: "pending_review", progress: 100 });
+      const changes: AuditChange[] = [
+        { field: "status", before: task.status, after: "pending_review" },
+      ];
+      if (task.progress !== 100) {
+        changes.push({ field: "progress", before: String(task.progress), after: "100" });
+      }
+      recordAudit({
+        actor: RD_ADMIN_AUDIT_ACTOR,
+        action: "task.updated",
+        resource: { type: "task", id: task.task_id, name: task.title },
+        changes,
+        comment: "提交任务审核，进度自动置为 100%",
+        source: "web",
+      });
+      toast.success("任务已提交审核，等待确认");
+      window.dispatchEvent(new CustomEvent('rd:review-submitted'));
+      setShowSubmitConfirm(false);
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "提交失败");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleDirectComplete = async () => {
+    setSubmitting(true);
+    try {
+      await updateRdTask(task.task_id, { status: "completed", progress: 100 });
+      recordAudit({
+        actor: RD_ADMIN_AUDIT_ACTOR,
+        action: "task.updated",
+        resource: { type: "task", id: task.task_id, name: task.title },
+        changes: [
+          { field: "status", before: task.status, after: "completed" },
+          { field: "progress", before: String(task.progress), after: "100" },
+        ],
+        comment: "管理员直接标记任务完成",
+        source: "web",
+      });
+      toast.success("任务已标记完成");
+      setShowCompleteConfirm(false);
+      onTaskCompleted?.({ ...task, status: "completed", progress: 100 });
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "操作失败");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleHandover = async (newOwner: string) => {
+    await updateRdTask(task.task_id, { primary_owner: newOwner });
+    recordAudit({
+      actor: RD_ADMIN_AUDIT_ACTOR,
+      action: "task.updated",
+      resource: { type: "task", id: task.task_id, name: task.title },
+      changes: [{ field: "primary_owner", before: task.primary_owner, after: newOwner }],
+      comment: `移交任务给 ${newOwner}`,
+      source: "web",
+    });
+    toast.success(`任务已移交给 ${newOwner}`);
+    setShowHandoverDialog(false);
+    onClose();
+  };
+
+  const handleApproval = async (reason?: string, rollbackProgress?: number) => {
+    if (!showApprovalDialog) return;
+    setSubmitting(true);
+    try {
+      const isApprove = showApprovalDialog === "approve";
+      const isCollaborationReview = task.pending_review_type === "collaboration";
+      if (isCollaborationReview) {
+        const nextCollaborators = task.pending_collaborators ?? task.collaborators;
+        await updateRdTask(task.task_id, {
+          status: "in_progress",
+          collaborators: isApprove ? nextCollaborators : task.collaborators,
+          pending_review_type: null,
+          pending_collaborators: [],
+          pending_collaboration_reason: null,
+          pending_collaboration_requested_at: null,
+        });
+        recordAudit({
+          actor: RD_ADMIN_AUDIT_ACTOR,
+          action: "task.updated",
+          resource: { type: "task", id: task.task_id, name: task.title },
+          changes: [
+            { field: "status", before: task.status, after: "in_progress" },
+            {
+              field: "collaborators",
+              before: task.collaborators.map((item) => item.name).join("、"),
+              after: isApprove ? nextCollaborators.map((item) => item.name).join("、") : task.collaborators.map((item) => item.name).join("、"),
+            },
+          ],
+          comment: isApprove ? "协作变更审核通过" : `协作变更打回：${reason ?? ""}`,
+          source: "web",
+        });
+        toast.success(isApprove ? "协作变更已生效" : "协作变更已打回");
+        setShowApprovalDialog(null);
+        onClose();
+        return;
+      }
+      if (isApprove) {
+        await updateRdTask(task.task_id, { status: "completed", progress: 100 });
+        recordAudit({
+          actor: RD_ADMIN_AUDIT_ACTOR,
+          action: "task.updated",
+          resource: { type: "task", id: task.task_id, name: task.title },
+          changes: [
+            { field: "status", before: task.status, after: "completed" },
+            { field: "progress", before: String(task.progress), after: "100" },
+          ],
+          comment: "审核通过，任务标记为已完成",
+          source: "web",
+        });
+        toast.success("审核通过，任务已完成");
+        setShowApprovalDialog(null);
+        onTaskCompleted?.(task);
+        onClose();
+      } else {
+        const rp = rollbackProgress ?? task.progress;
+        await updateRdTask(task.task_id, { status: "in_progress", progress: rp });
+        recordAudit({
+          actor: RD_ADMIN_AUDIT_ACTOR,
+          action: "task.updated",
+          resource: { type: "task", id: task.task_id, name: task.title },
+          changes: [
+            { field: "status", before: task.status, after: "in_progress" },
+            { field: "progress", before: String(task.progress), after: String(rp) },
+          ],
+          comment: `打回修改：${reason ?? ""}`,
+          source: "web",
+        });
+        toast.success("已打回，任务重新进入进行中");
+        setShowApprovalDialog(null);
+        onClose();
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "操作失败");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   return (
     <motion.div
       className="fixed inset-0 z-50 flex justify-end"
@@ -2834,9 +3534,82 @@ function TaskDetailDrawer({
               </div>
             </div>
             <div className="col-span-2">
-              <div className="mb-1 text-xs text-slate-400">分类路径</div>
+              <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
+                <span>分类路径</span>
+                {onMoveTask && !task.archived && (
+                  <button
+                    type="button"
+                    onClick={onMoveTask}
+                    className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-blue-500 hover:bg-blue-50 hover:text-blue-700"
+                  >
+                    <ArrowRight className="h-2.5 w-2.5" />
+                    移动到其他类目
+                  </button>
+                )}
+              </div>
               <div className="font-medium text-slate-700">{task.category_path}</div>
             </div>
+          </div>
+
+          {/* ── 任务描述（可内联编辑）── */}
+          <div className="rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-xs font-semibold text-slate-500">任务描述</span>
+              {!task.archived && (
+                editingDesc ? (
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => { setEditingDesc(false); setDescDraft(task.description ?? ""); }}
+                      className="cursor-pointer rounded px-2 py-0.5 text-[11px] text-slate-500 hover:bg-slate-200"
+                    >
+                      取消
+                    </button>
+                    <button
+                      type="button"
+                      onClick={saveDescription}
+                      disabled={savingDesc}
+                      className="flex cursor-pointer items-center gap-1 rounded bg-blue-600 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                    >
+                      {savingDesc ? <RefreshCw className="h-2.5 w-2.5 animate-spin" /> : <CheckCircle2 className="h-2.5 w-2.5" />}
+                      保存
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setEditingDesc(true)}
+                    className="flex cursor-pointer items-center gap-1 rounded px-2 py-0.5 text-[11px] text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+                  >
+                    <Pencil className="h-2.5 w-2.5" />
+                    编辑
+                  </button>
+                )
+              )}
+            </div>
+            {editingDesc ? (
+              <Textarea
+                value={descDraft}
+                onChange={(e) => setDescDraft(e.target.value)}
+                rows={4}
+                placeholder="描述这个任务具体要做什么、目标和预期输出…"
+                className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                autoFocus
+              />
+            ) : task.description ? (
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{task.description}</p>
+            ) : (
+              <button
+                type="button"
+                onClick={() => !task.archived && setEditingDesc(true)}
+                className={cn(
+                  "w-full rounded-lg border border-dashed border-slate-200 py-3 text-center text-xs text-slate-400",
+                  !task.archived && "cursor-pointer hover:border-blue-300 hover:text-blue-500",
+                )}
+              >
+                暂无描述，点击添加
+              </button>
+            )}
           </div>
 
           <TaskLifecycleTimeline task={task} />
@@ -2866,13 +3639,6 @@ function TaskDetailDrawer({
             <AuditTimeline logs={taskLogs} showResource={false} emptyText="暂无此任务的操作记录" />
           </div>
 
-          {task.description && (
-            <div>
-              <div className="mb-1 text-xs text-slate-400">任务描述</div>
-              <p className="rounded-[8px] border border-slate-100 bg-slate-50 px-4 py-3 text-sm text-slate-700">{task.description}</p>
-            </div>
-          )}
-
           {task.status === "paused_leave" && (
             <div className="flex items-start gap-2 rounded-[8px] border border-amber-100 bg-amber-50 px-4 py-3">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
@@ -2887,8 +3653,124 @@ function TaskDetailDrawer({
             </div>
           )}
 
+          {task.pending_review_type === "collaboration" && (
+            <div className="rounded-[8px] border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+              <div className="font-semibold">协同人变更待审核</div>
+              <div className="mt-1">
+                拟协同人：{(task.pending_collaborators ?? []).map((item) => item.name).join("、") || "未选择"}
+              </div>
+              {task.pending_collaboration_reason && (
+                <div className="mt-1 text-blue-600">说明：{task.pending_collaboration_reason}</div>
+              )}
+            </div>
+          )}
+
         </div>
+
+        {/* ── 操作按钮区 ── */}
+        {showActionBar && (
+          <div className="sticky bottom-0 border-t border-slate-100 bg-white px-6 py-3 flex gap-2 justify-end">
+            {task.status === "in_progress" && (
+              <>
+                {canSubmitForReview && (
+                  <button
+                    type="button"
+                    onClick={() => setShowSubmitConfirm(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                    提交审核
+                  </button>
+                )}
+                {canHandoverTask && (
+                  <button
+                    type="button"
+                    onClick={() => setShowHandoverDialog(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
+                  >
+                    <ArrowRight className="h-3.5 w-3.5" />
+                    移交任务
+                  </button>
+                )}
+                {canCompleteDirectly && (
+                  <button
+                    type="button"
+                    onClick={() => setShowCompleteConfirm(true)}
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    标记完成
+                  </button>
+                )}
+              </>
+            )}
+            {canReviewPendingTask && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowApprovalDialog("approve")}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  审核通过
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowApprovalDialog("reject")}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100"
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  打回修改
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
       </motion.div>
+
+      {/* ── Nested dialogs ── */}
+      <AnimatePresence>
+        {showSubmitConfirm && (
+          <SubmitConfirmDialog
+            key="submit-confirm"
+            taskTitle={task.title}
+            onConfirm={handleSubmitForReview}
+            onCancel={() => setShowSubmitConfirm(false)}
+            submitting={submitting}
+          />
+        )}
+        {showCompleteConfirm && (
+          <CompleteConfirmDialog
+            key="complete-confirm"
+            taskTitle={task.title}
+            onConfirm={handleDirectComplete}
+            onCancel={() => setShowCompleteConfirm(false)}
+            submitting={submitting}
+          />
+        )}
+        {showHandoverDialog && (
+          <HandoverDialog
+            key="handover"
+            taskId={task.task_id}
+            taskTitle={task.title}
+            currentOwner={task.primary_owner}
+            people={people ?? []}
+            onConfirm={handleHandover}
+            onCancel={() => setShowHandoverDialog(false)}
+          />
+        )}
+        {showApprovalDialog && (
+          <ApprovalActionDialog
+            key="approval"
+            mode={showApprovalDialog}
+            task={task}
+            onConfirm={handleApproval}
+            onCancel={() => setShowApprovalDialog(null)}
+            submitting={submitting}
+          />
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
@@ -2988,55 +3870,59 @@ function KpiStrip({
       initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={RD_PANEL_TRANSITION}
-      className="overflow-hidden rounded-xl border border-slate-100 bg-white"
+      className="overflow-hidden rounded-xl border border-blue-100/80 bg-[linear-gradient(135deg,#ffffff_0%,#f8fbff_58%,#eff6ff_100%)] shadow-[0_12px_30px_rgba(30,64,175,0.06)]"
     >
-      {/* Section header */}
-      <div className="flex items-center justify-between border-b border-slate-100 px-5 py-2.5">
-        <h2 className="text-sm font-semibold text-slate-900">执行统计</h2>
-        <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-400">
-          <span className="relative flex h-1.5 w-1.5">
-            <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400 opacity-60" />
-            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+      <div className="grid items-center gap-3 px-4 py-3 lg:grid-cols-[auto_minmax(0,1fr)]">
+        <div className="flex min-w-[150px] items-center gap-3">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-blue-600 ring-1 ring-blue-100 shadow-[0_8px_18px_rgba(30,64,175,0.08)]">
+            <Gauge className="h-4.5 w-4.5" />
           </span>
-          今日实时
-        </span>
-      </div>
+          <div>
+            <h2 className="text-sm font-bold text-slate-950">执行统计</h2>
+            <span className="mt-0.5 flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400 opacity-60" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              </span>
+              今日实时
+            </span>
+          </div>
+        </div>
 
-      {/* KPI cells — flat layout with vertical dividers */}
-      <div className="grid grid-cols-2 divide-x divide-slate-100 md:grid-cols-3 xl:grid-cols-6">
-        {items.map((it, idx) => (
-          <motion.div
-            key={it.label}
-            initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={shouldReduceMotion ? { duration: 0 } : { ...RD_LIST_TRANSITION, delay: idx * 0.035 }}
-            whileHover={shouldReduceMotion ? undefined : { y: -2 }}
-            whileTap={shouldReduceMotion ? undefined : { scale: 0.985 }}
-            className={cn(
-              "group flex items-center gap-3 px-5 py-4 transition-colors duration-200 hover:bg-slate-50/70",
-              idx >= 3 && "border-t border-slate-100 xl:border-t-0",
-            )}
-          >
-            <it.Icon
-              className={cn(
-                "h-5 w-5 shrink-0 transition-all duration-200 group-hover:scale-110",
-                it.iconTone,
-              )}
-              strokeWidth={1.5}
-            />
-            <div className="min-w-0 flex-1">
-              <div
-                className={cn(
-                  "text-3xl font-semibold leading-none tabular-nums tracking-tight transition-colors",
-                  it.tone,
-                )}
-              >
-                {it.value}
+        <div className="grid grid-cols-2 gap-2 md:grid-cols-3 lg:grid-cols-6">
+          {items.map((it, idx) => (
+            <motion.div
+              key={it.label}
+              initial={shouldReduceMotion ? false : { opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={shouldReduceMotion ? { duration: 0 } : { ...RD_LIST_TRANSITION, delay: idx * 0.025 }}
+              whileHover={shouldReduceMotion ? undefined : { y: -1 }}
+              whileTap={shouldReduceMotion ? undefined : { scale: 0.99 }}
+              className="group flex min-w-0 items-center gap-2 rounded-lg border border-slate-100 bg-white/82 px-3 py-2 shadow-[0_6px_16px_rgba(30,64,175,0.045)] transition-all duration-200 hover:border-blue-200 hover:bg-white hover:shadow-[0_10px_20px_rgba(30,64,175,0.08)]"
+            >
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-slate-50 to-blue-50 ring-1 ring-slate-100 transition-all duration-200 group-hover:ring-blue-100">
+                <it.Icon
+                  className={cn(
+                    "h-3.5 w-3.5 transition-transform duration-200 group-hover:scale-110",
+                    it.iconTone,
+                  )}
+                  strokeWidth={1.8}
+                />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div
+                  className={cn(
+                    "text-lg font-bold leading-none tabular-nums tracking-tight transition-colors",
+                    it.tone,
+                  )}
+                >
+                  {it.value}
+                </div>
+                <div className="mt-0.5 truncate text-[10px] font-semibold text-slate-500">{it.label}</div>
               </div>
-              <div className="mt-1 truncate text-[11px] font-medium text-slate-500">{it.label}</div>
-            </div>
-          </motion.div>
-        ))}
+            </motion.div>
+          ))}
+        </div>
       </div>
     </motion.section>
   );
@@ -3089,14 +3975,22 @@ function RiskHotspot({
       initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={RD_PANEL_TRANSITION}
-      className={cn("flex h-full flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.05)]", className)}
+      className={cn(
+        "flex h-full min-h-[410px] flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.05)]",
+        className,
+      )}
     >
-      <header className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
-          <p className="mt-0.5 text-xs text-slate-500">{subtitle}</p>
+      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-100 bg-gradient-to-r from-white via-white to-slate-50/70 px-5 py-4 sm:px-6">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600 ring-1 ring-red-100">
+            <AlertTriangle className="h-[18px] w-[18px]" />
+          </span>
+          <div className="min-w-0">
+            <h3 className="truncate text-sm font-semibold text-slate-950">{title}</h3>
+            <p className="mt-1 text-xs leading-relaxed text-slate-500">{subtitle}</p>
+          </div>
         </div>
-        <div className="text-right">
+        <div className="shrink-0 rounded-lg border border-slate-100 bg-white px-3 py-2 text-right shadow-[0_8px_20px_rgba(15,23,42,0.04)]">
           <div className="text-2xl font-semibold tabular-nums tracking-tight text-slate-900">
             {riskFilter === "all" ? risks.length : `${filteredRisks.length}/${risks.length}`}
           </div>
@@ -3108,7 +4002,7 @@ function RiskHotspot({
         </div>
       </header>
 
-      <div className="flex flex-wrap gap-2 border-b border-slate-100 px-6 py-3">
+      <div className="flex gap-2 overflow-x-auto border-b border-slate-100 px-5 py-3 sm:px-6">
         {filterOptions.map((b) => {
           const active = riskFilter === b.type;
           const disabled = b.count === 0;
@@ -3121,7 +4015,7 @@ function RiskHotspot({
               whileHover={!disabled && !shouldReduceMotion ? { y: -1 } : undefined}
               whileTap={!disabled && !shouldReduceMotion ? { scale: 0.97 } : undefined}
               className={cn(
-                "flex items-center gap-2 rounded-md border px-2.5 py-1 text-xs transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300",
+                "flex shrink-0 items-center gap-2 rounded-md border px-2.5 py-1 text-xs transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300",
                 active
                   ? "border-blue-200 bg-blue-50 text-blue-700 shadow-[0_8px_18px_rgba(37,99,235,0.10)] ring-1 ring-blue-100"
                   : disabled
@@ -3140,7 +4034,7 @@ function RiskHotspot({
         })}
       </div>
 
-      <ul className="flex-1 divide-y divide-slate-100">
+      <ul className="flex-1 divide-y divide-slate-100 overflow-hidden">
         {shownRisks.length === 0 ? (
           <li className="px-6 py-10 text-center text-sm text-slate-400">
             {totalTasks ? "暂无风险任务，全部任务请查看任务清单" : "暂无风险任务"}
@@ -3158,14 +4052,14 @@ function RiskHotspot({
               }}
               role="button"
               tabIndex={0}
-              className="group flex cursor-pointer items-center gap-3 px-6 py-3 transition-all hover:bg-slate-50/80 focus-visible:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-300"
+              className="group grid cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-1 px-5 py-3 transition-all hover:bg-slate-50/80 focus-visible:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-slate-300 sm:px-6 lg:grid-cols-[auto_minmax(0,1fr)_auto_auto]"
             >
               <span className={cn("h-2 w-2 shrink-0 rounded-full", RISK_DOT_COLOR[r.type])} />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium text-slate-800 group-hover:text-slate-900">
                   {r.task.title}
                 </div>
-                <div className="mt-0.5 flex items-center gap-2 text-xs text-slate-500">
+                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-slate-500">
                   <span
                     className={cn(r.severity === "critical" ? "font-semibold text-red-600" : "text-amber-600")}
                   >
@@ -3177,7 +4071,9 @@ function RiskHotspot({
                   <span className="font-mono text-[11px] text-slate-400">{r.task.task_id}</span>
                 </div>
               </div>
-              <OwnerAvatar name={r.task.primary_owner} size="xs" />
+              <div className="hidden sm:block">
+                <OwnerAvatar name={r.task.primary_owner} size="xs" />
+              </div>
               <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 opacity-0 transition-all group-hover:translate-x-0.5 group-hover:opacity-100 group-focus-visible:opacity-100" />
             </li>
           ))
@@ -3265,15 +4161,18 @@ function PersonLoadPanel({
       initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={RD_PANEL_TRANSITION}
-      className={cn("flex h-full flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.05)]", className)}
+      className={cn(
+        "flex h-full min-h-[410px] flex-col overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.05)]",
+        className,
+      )}
     >
-      <header className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-        <div>
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 bg-gradient-to-r from-white via-white to-slate-50/70 px-5 py-4 sm:px-6">
+        <div className="min-w-0">
           <h3 className="text-sm font-semibold text-slate-900">人员负载</h3>
           <p className="mt-0.5 text-xs text-slate-500">活跃任务分布</p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-baseline gap-3 text-xs">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <div className="flex items-baseline gap-2 rounded-lg border border-slate-100 bg-white px-2.5 py-1.5 text-xs shadow-[0_8px_20px_rgba(15,23,42,0.04)]">
             {heavy > 0 && (
               <span className="text-red-600">
                 <span className="font-semibold tabular-nums">{heavy}</span> 高负载
@@ -3300,7 +4199,7 @@ function PersonLoadPanel({
         </div>
       </header>
 
-      <ul className="flex-1 space-y-2 px-6 py-3">
+      <ul className="flex-1 space-y-1.5 overflow-hidden px-5 py-3 sm:px-6">
         {shownLoads.length === 0 ? (
           <li className="py-6 text-center text-sm text-slate-400">暂无负载数据</li>
         ) : (
@@ -3326,7 +4225,7 @@ function PersonLoadPanel({
                 }}
                 role="button"
                 tabIndex={0}
-                className="flex cursor-pointer items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-slate-50/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+                className="flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-2 py-2 transition-all hover:border-slate-100 hover:bg-slate-50/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
               >
                 <OwnerAvatar name={p.name} size="xs" />
                 <div className="min-w-0 flex-1">
@@ -3534,7 +4433,7 @@ function SystemHealthCard({
   onClick,
 }: {
   stat: CatStat;
-  onClick: () => void;
+  onClick?: () => void;
 }) {
   const shouldReduceMotion = useReducedMotion();
   const theme = getTheme(stat.cat.id);
@@ -3675,15 +4574,87 @@ function SystemHealthCard({
   );
 }
 
+// ─── Product status constants ─────────────────────────────────────────────────
+
+const PRODUCT_STATUS_LABEL: Record<RdProductStatus, string> = {
+  active: "活跃",
+  developing: "研发中",
+  paused: "暂停",
+  archived: "归档",
+};
+
+const PRODUCT_STATUS_STYLE: Record<RdProductStatus, string> = {
+  active: "bg-emerald-50 text-emerald-700 border-emerald-100",
+  developing: "bg-blue-50 text-blue-700 border-blue-100",
+  paused: "bg-amber-50 text-amber-700 border-amber-100",
+  archived: "bg-slate-100 text-slate-500 border-slate-200",
+};
+
+const PRODUCT_STATUS_DOT: Record<RdProductStatus, string> = {
+  active: "bg-emerald-500",
+  developing: "bg-blue-500",
+  paused: "bg-amber-500",
+  archived: "bg-slate-400",
+};
+
+// ─── SystemPanorama ───────────────────────────────────────────────────────────
+
+/** prod-portable-o2 的任务数据存在主 rd.taskCategories 里，直接用全局 catStats */
+const MAIN_PRODUCT_ID = "prod-portable-o2";
+
 function SystemPanorama({
-  catStats,
+  mainCatStats,
+  mainRisks,
+  products,
   onSelectSystem,
+  onManageProducts,
+  canManage,
 }: {
-  catStats: CatStat[];
+  mainCatStats: CatStat[];          // 便携式制氧机的全局 catStats
+  mainRisks: Risk[];
+  products: ProductDef[];
   onSelectSystem: (catId: string) => void;
+  onManageProducts: () => void;
+  canManage: boolean;
 }) {
   const shouldReduceMotion = useReducedMotion();
-  const reservedCount = catStats.filter((stat) => isReservedBomSystem(stat.cat.id)).length;
+  const [activeProdId, setActiveProdId] = useState(() => products[0]?.id ?? "");
+
+  // 缓存其他产品的已加载分类数据 { productId → CatStat[] }
+  const [productCatStatsCache, setProductCatStatsCache] = useState<Record<string, CatStat[]>>({});
+  const [loadingProdId, setLoadingProdId] = useState<string | null>(null);
+
+  const activeProd = products.find((p) => p.id === activeProdId) ?? products[0] ?? null;
+
+  // 当切换到非主产品时，按需加载该产品的分类数据
+  useEffect(() => {
+    if (!activeProdId || activeProdId === MAIN_PRODUCT_ID) return;
+    if (productCatStatsCache[activeProdId]) return; // 已缓存
+    setLoadingProdId(activeProdId);
+    fetchProductTaskCategories(activeProdId)
+      .then((cats) => {
+        const risks = computeRisks(cats);
+        const stats = buildCatStats(cats, risks);
+        setProductCatStatsCache((prev) => ({ ...prev, [activeProdId]: stats }));
+      })
+      .catch(() => {
+        setProductCatStatsCache((prev) => ({ ...prev, [activeProdId]: [] }));
+      })
+      .finally(() => setLoadingProdId(null));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProdId]);
+
+  // 当前产品对应的 catStats
+  const activeCatStats: CatStat[] =
+    activeProdId === MAIN_PRODUCT_ID
+      ? mainCatStats
+      : (productCatStatsCache[activeProdId] ?? []);
+
+  const isLoadingActive = loadingProdId === activeProdId;
+
+  // 健康图例计数（使用全部 activeCatStats）
+  const legendStats = activeCatStats;
+
   return (
     <motion.section
       initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
@@ -3691,32 +4662,100 @@ function SystemPanorama({
       transition={RD_PANEL_TRANSITION}
       className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-[0_22px_55px_rgba(15,23,42,0.06)]"
     >
+      {/* Header */}
       <header className="mb-4 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h3 className="text-sm font-semibold text-slate-950">子系统全景</h3>
           <p className="mt-0.5 text-xs text-slate-500">
-            当前研发分类树 · {catStats.length} 个子系统 · 预留 {reservedCount} 个管理节点
+            {activeProd
+              ? `${activeProd.name} · ${activeCatStats.length} 个子系统`
+              : `当前研发分类树 · ${mainCatStats.length} 个子系统`}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-          {(["healthy", "watch", "alert", "idle"] as const).map((h) => {
-            const count = catStats.filter((s) => getSystemHealth(s) === h).length;
-            const cfg = HEALTH_CONFIG[h];
-            return (
-              <span key={h} className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2 py-1">
-                <span className={cn("h-1.5 w-1.5 rounded-full", cfg.dot)} />
-                {cfg.label}
-                <span className={cn("font-semibold tabular-nums", cfg.text)}>{count}</span>
-              </span>
-            );
-          })}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Health legend */}
+          {legendStats.length > 0 && !isLoadingActive && (
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
+              {(["healthy", "watch", "alert", "idle"] as const).map((h) => {
+                const count = legendStats.filter((s) => getSystemHealth(s) === h).length;
+                const cfg = HEALTH_CONFIG[h];
+                return (
+                  <span key={h} className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2 py-1">
+                    <span className={cn("h-1.5 w-1.5 rounded-full", cfg.dot)} />
+                    {cfg.label}
+                    <span className={cn("font-semibold tabular-nums", cfg.text)}>{count}</span>
+                  </span>
+                );
+              })}
+            </div>
+          )}
+          {/* Manage button */}
+          {canManage && (
+            <button
+              type="button"
+              onClick={onManageProducts}
+              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-all hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 active:scale-[0.97]"
+            >
+              <Settings2 className="h-3.5 w-3.5" />
+              管理产品
+            </button>
+          )}
         </div>
       </header>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-        {catStats.map((stat) => (
-          <SystemHealthCard key={stat.cat.id} stat={stat} onClick={() => onSelectSystem(stat.cat.id)} />
-        ))}
-      </div>
+
+      {/* Product tabs */}
+      {products.length === 0 ? (
+        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 py-12 text-center">
+          <Settings2 className="mx-auto mb-3 h-8 w-8 text-slate-300" />
+          <p className="text-sm font-medium text-slate-500">暂无产品线</p>
+          <p className="mt-1 text-xs text-slate-400">请点击"管理产品"添加产品线和子系统</p>
+        </div>
+      ) : (
+        <>
+          {/* Tab strip */}
+          <div className="mb-4 flex gap-1 overflow-x-auto border-b border-slate-100 pb-0">
+            {products.map((prod) => {
+              const isActive = prod.id === activeProd?.id;
+              const pStatus: RdProductStatus = prod.status ?? "developing";
+              const dot = PRODUCT_STATUS_DOT[pStatus];
+              return (
+                <button
+                  key={prod.id}
+                  type="button"
+                  onClick={() => setActiveProdId(prod.id)}
+                  className={cn(
+                    "flex shrink-0 items-center gap-2 rounded-t-lg px-3 py-2 text-xs font-semibold transition-all",
+                    isActive
+                      ? "border-b-2 border-blue-500 text-blue-700"
+                      : "text-slate-500 hover:bg-slate-50 hover:text-slate-700",
+                  )}
+                >
+                  <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dot)} />
+                  {prod.name}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Loading state */}
+          {isLoadingActive ? (
+            <div className="flex h-32 items-center justify-center gap-2 text-sm text-slate-400">
+              <Loader2 className="h-4 w-4 animate-spin" />
+              加载中…
+            </div>
+          ) : activeProd ? (
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+              {activeCatStats.map((stat) => (
+                <SystemHealthCard
+                  key={stat.cat.id}
+                  stat={stat}
+                  onClick={activeProdId === MAIN_PRODUCT_ID ? () => onSelectSystem(stat.cat.id) : undefined}
+                />
+              ))}
+            </div>
+          ) : null}
+        </>
+      )}
     </motion.section>
   );
 }
@@ -4156,7 +5195,7 @@ function TasksByPartSection({
         <span className="text-xs text-slate-400">点击展开部件 / 卡片查看子任务</span>
       </header>
 
-      <div className="grid gap-2 rounded-[8px] border border-slate-200 bg-white p-3 md:grid-cols-[minmax(180px,1fr)_140px_120px_120px_auto]">
+      <div className="grid gap-2 rounded-[8px] border border-slate-200 bg-white p-3 sm:grid-cols-[minmax(150px,1fr)_auto_auto_auto_auto]">
         <label className="relative block">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
           <Input
@@ -4171,7 +5210,7 @@ function TasksByPartSection({
           value={statusFilter}
           onChange={(event) => setStatusFilter(event.target.value as TaskStatus | "all")}
         >
-          <option value="all">全部状态</option>
+          <option value="all">状态</option>
           {(Object.keys(STATUS_CONFIG) as TaskStatus[]).map((status) => (
             <option key={status} value={status}>{STATUS_CONFIG[status].label}</option>
           ))}
@@ -4181,17 +5220,17 @@ function TasksByPartSection({
           value={priorityFilter}
           onChange={(event) => setPriorityFilter(event.target.value as Priority | "all")}
         >
-          <option value="all">全部优先级</option>
-          <option value="high">高优先级</option>
-          <option value="medium">中优先级</option>
-          <option value="low">低优先级</option>
+          <option value="all">优先级</option>
+          <option value="high">高</option>
+          <option value="medium">中</option>
+          <option value="low">低</option>
         </NativeSelect>
         <NativeSelect
           className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
           value={dueFilter}
           onChange={(event) => setDueFilter(event.target.value as TaskDueFilter)}
         >
-          <option value="all">全部时间</option>
+          <option value="all">时间</option>
           <option value="overdue">已逾期</option>
           <option value="today">今天到期</option>
           <option value="3d">3 天内</option>
@@ -4970,10 +6009,1332 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
   );
 }
 
-function ExecutiveOverview({
-  catStats,
+// ─── PersonTaskCockpit ────────────────────────────────────────────────────────
+// 决策焦点：风险任务 + 人员负载合并为顶部 Tab 导航
+// 根据负载比例返回 Instagram Stories 风格的渐变 ring 色
+function loadRingGradient(ratio: number, onLeave: boolean) {
+  if (onLeave) return { from: "#94a3b8", to: "#64748b" }; // slate
+  if (ratio >= 1)   return { from: "#f87171", to: "#dc2626" }; // red
+  if (ratio >= 0.8) return { from: "#fb923c", to: "#ea580c" }; // orange
+  if (ratio >= 0.6) return { from: "#fbbf24", to: "#d97706" }; // amber
+  return { from: "#34d399", to: "#059669" };                   // emerald
+}
+
+const TASK_PAGE_SIZE = 4; // 每次滚动加载的任务数
+const MAX_ATTACHMENT_PREVIEW = 5;
+
+// ─── Image lightbox (gallery preview) ─────────────────────────────────────────
+function ImageGallery({
+  images,
+  startIndex,
+  onClose,
+}: {
+  images: RdTaskProgressAttachment[];
+  startIndex: number;
+  onClose: () => void;
+}) {
+  const [idx, setIdx] = useState(startIndex);
+  const shouldReduceMotion = useReducedMotion();
+
+  const prev = useCallback(() => setIdx((i) => (i - 1 + images.length) % images.length), [images.length]);
+  const next = useCallback(() => setIdx((i) => (i + 1) % images.length), [images.length]);
+
+  // Keyboard navigation
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "ArrowLeft") prev();
+      else if (e.key === "ArrowRight") next();
+      else if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [prev, next, onClose]);
+
+  return (
+    <motion.div
+      initial={shouldReduceMotion ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.18 }}
+      className="fixed inset-0 z-[90] flex flex-col items-center justify-center bg-black/92 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      {/* Close */}
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute right-5 top-5 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-white transition-all hover:bg-white/20"
+      >
+        <X className="h-5 w-5" />
+      </button>
+
+      {/* Counter */}
+      <div className="absolute top-5 left-1/2 -translate-x-1/2 rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/80 backdrop-blur-sm">
+        {idx + 1} / {images.length}
+      </div>
+
+      {/* Main image */}
+      <AnimatePresence mode="wait">
+        <motion.img
+          key={idx}
+          src={images[idx].data_url}
+          alt={images[idx].name}
+          initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.96 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.96 }}
+          transition={{ duration: 0.15, ease: RD_MOTION_EASE }}
+          className="max-h-[78vh] max-w-[82vw] rounded-2xl object-contain shadow-2xl"
+          onClick={(e) => e.stopPropagation()}
+          loading="lazy"
+        />
+      </AnimatePresence>
+
+      {/* Prev / Next */}
+      {images.length > 1 && (
+        <>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); prev(); }}
+            className="absolute left-4 top-1/2 -translate-y-1/2 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-all hover:bg-white/25 active:scale-95"
+          >
+            <ChevronLeft className="h-6 w-6" />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); next(); }}
+            className="absolute right-4 top-1/2 -translate-y-1/2 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-all hover:bg-white/25 active:scale-95"
+          >
+            <ChevronRight className="h-6 w-6" />
+          </button>
+        </>
+      )}
+
+      {/* Thumbnail strip */}
+      {images.length > 1 && (
+        <div className="absolute bottom-5 flex gap-2 overflow-x-auto px-4">
+          {images.map((img, i) => (
+            <button
+              key={img.id}
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setIdx(i); }}
+              className={cn(
+                "h-12 w-12 shrink-0 overflow-hidden rounded-lg border-2 transition-all",
+                i === idx ? "border-white scale-110" : "border-white/20 opacity-60 hover:opacity-90",
+              )}
+            >
+              <img src={img.data_url} alt={img.name} className="h-full w-full object-cover" loading="lazy" />
+            </button>
+          ))}
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+// ─── Task image strip inside card ─────────────────────────────────────────────
+function TaskAttachmentStrip({
+  attachments,
+  onOpenGallery,
+}: {
+  attachments: RdTaskProgressAttachment[];
+  onOpenGallery: (startIdx: number) => void;
+}) {
+  const images = attachments.filter((attachment) => attachment.mime.startsWith("image/"));
+  const files = attachments.filter((attachment) => !attachment.mime.startsWith("image/"));
+  const visibleImages = images.slice(0, MAX_ATTACHMENT_PREVIEW);
+  const visibleFiles = files.slice(0, Math.max(0, MAX_ATTACHMENT_PREVIEW - visibleImages.length));
+  const extraCount = attachments.length - visibleImages.length - visibleFiles.length;
+
+  if (attachments.length === 0) return null;
+
+  return (
+    <div className="border-b border-blue-100 bg-gradient-to-r from-blue-50/90 via-cyan-50/70 to-white px-4 py-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold text-blue-700">
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-white text-blue-600 ring-1 ring-blue-100">
+            <Paperclip className="h-3 w-3" />
+          </span>
+          <span className="truncate">附件</span>
+          <span className="rounded-full bg-white px-1.5 py-0.5 tabular-nums text-blue-700 ring-1 ring-blue-200 shadow-[0_4px_12px_rgba(30,64,175,0.06)]">
+            {attachments.length}
+          </span>
+        </div>
+        {images.length > 0 && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onOpenGallery(0); }}
+            className="shrink-0 rounded-md border border-blue-200 bg-white px-2 py-1 text-[10px] font-semibold text-blue-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800"
+          >
+            <ImageIcon className="mr-1 inline h-3 w-3 align-[-2px]" />
+            查看图片
+          </button>
+        )}
+      </div>
+
+      <div className="mt-2 flex gap-2 overflow-x-auto pb-0.5">
+        {visibleImages.map((img, imageIndex) => (
+          <button
+            key={img.id}
+            type="button"
+            className="group/att relative h-16 w-20 shrink-0 cursor-pointer overflow-hidden rounded-lg border border-blue-100 bg-white shadow-[0_8px_18px_rgba(30,64,175,0.08)] transition-all hover:border-blue-300 hover:shadow-[0_12px_24px_rgba(30,64,175,0.14)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+            onClick={(e) => { e.stopPropagation(); onOpenGallery(imageIndex); }}
+            title={img.name}
+          >
+            <img
+              src={img.data_url}
+              alt={img.name}
+              className="h-full w-full object-cover transition-transform duration-300 group-hover/att:scale-[1.04]"
+              loading="lazy"
+            />
+          </button>
+        ))}
+
+        {visibleFiles.map((file) => (
+          <div
+            key={file.id}
+            className="flex h-16 w-28 shrink-0 items-center gap-2 rounded-lg border border-blue-100 bg-white/90 px-2 shadow-[0_8px_18px_rgba(30,64,175,0.07)]"
+            title={file.name}
+          >
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-blue-50 to-cyan-50 text-blue-600 ring-1 ring-blue-100">
+              <FileText className="h-4 w-4" />
+            </span>
+            <span className="line-clamp-2 min-w-0 text-[10px] font-medium leading-snug text-slate-600">
+              {file.name}
+            </span>
+          </div>
+        ))}
+
+        {extraCount > 0 && (
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-dashed border-blue-200 bg-white/70 text-xs font-bold tabular-nums text-blue-600">
+            +{extraCount}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PersonTaskCockpit({
   risks,
   personLoads,
+  allTasks,
+  onSelectTask,
+  onSelectPerson,
+  canReassign,
+  onReassignTask,
+}: {
+  risks: Risk[];
+  personLoads: PersonLoad[];
+  allTasks: Task[];
+  onSelectTask: (t: Task) => void;
+  onSelectPerson: (name: string) => void;
+  canReassign?: boolean;
+  onReassignTask?: (task: Task) => void;
+}) {
+  const shouldReduceMotion = useReducedMotion();
+
+  // ── Tab state (with prev-tab for slide direction) ──
+  const [activeTab, setActiveTab] = useState("all");
+  const [prevTab, setPrevTab] = useState("all");
+  const tabOrder = useMemo(() => ["all", ...personLoads.map((p) => p.name)], [personLoads]);
+  const direction = tabOrder.indexOf(activeTab) >= tabOrder.indexOf(prevTab) ? 1 : -1;
+
+  const handleTabChange = useCallback((v: string) => {
+    setPrevTab(activeTab);
+    setActiveTab(v);
+  }, [activeTab]);
+
+  // ── Notes (images) lazy fetch ──
+  const [notesMap, setNotesMap] = useState<Record<string, RdTaskProgressNote[]>>({});
+  const [loadingNotes, setLoadingNotes] = useState(false);
+
+  // ── Risk scroll load more ──
+  const [riskVisibleCount, setRiskVisibleCount] = useState(8);
+
+  const handleRiskScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (nearBottom) {
+      setRiskVisibleCount((prev) => Math.min(prev + 8, risks.length));
+    }
+  }, [risks.length]);
+
+  // ── Per-person scroll load more ──
+  const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({});
+
+  // 固定高度容器内的 onScroll 触发分页
+  const handleTaskScroll = useCallback(
+    (e: React.UIEvent<HTMLDivElement>, personName: string, totalTasks: number) => {
+      const el = e.currentTarget;
+      const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+      if (nearBottom) {
+        setVisibleCounts((prev) => {
+          const current = prev[personName] ?? TASK_PAGE_SIZE;
+          if (current >= totalTasks) return prev;
+          return { ...prev, [personName]: Math.min(current + TASK_PAGE_SIZE, totalTasks) };
+        });
+      }
+    },
+    [],
+  );
+
+  // ── Gallery lightbox ──
+  const [galleryState, setGalleryState] = useState<{ images: RdTaskProgressAttachment[]; startIndex: number } | null>(null);
+
+  // ── Derived data ──
+  const personTasksMap = useMemo(() => {
+    const map = new Map<string, Task[]>();
+    for (const p of personLoads) {
+      map.set(p.name, allTasks.filter(
+        (t) => !t.archived && t.status !== "completed" &&
+          (t.primary_owner === p.name || t.collaborators.some((c) => c.name === p.name)),
+      ));
+    }
+    return map;
+  }, [personLoads, allTasks]);
+
+  // Lazy-fetch notes when person tab opens
+  useEffect(() => {
+    if (activeTab === "all") return;
+    const personTasks = personTasksMap.get(activeTab) ?? [];
+    const toFetch = personTasks.filter((t) => t.attachments > 0 && !(t.task_id in notesMap));
+    if (toFetch.length === 0) return;
+    let cancelled = false;
+    setLoadingNotes(true);
+    Promise.all(toFetch.map((t) =>
+      fetchRdTaskProgressNotes(t.task_id)
+        .then((notes) => [t.task_id, notes] as const)
+        .catch(() => [t.task_id, []] as const),
+    ))
+      .then((entries) => { if (!cancelled) setNotesMap((prev) => ({ ...prev, ...Object.fromEntries(entries) })); })
+      .finally(() => { if (!cancelled) setLoadingNotes(false); });
+    return () => { cancelled = true; };
+  }, [activeTab, personTasksMap]);
+
+  const shownRisks = risks.slice(0, riskVisibleCount);
+  const hasMoreRisks = riskVisibleCount < risks.length;
+
+  // Slide variants for tab content transitions
+  const slideVariants = {
+    enter: (dir: number) => ({
+      x: shouldReduceMotion ? 0 : dir > 0 ? 36 : -36,
+      opacity: 0,
+    }),
+    center: { x: 0, opacity: 1 },
+    exit: (dir: number) => ({
+      x: shouldReduceMotion ? 0 : dir > 0 ? -36 : 36,
+      opacity: 0,
+    }),
+  };
+
+  return (
+    <>
+      {/* ── Gallery Lightbox (portal-style, rendered at root) ── */}
+      <AnimatePresence>
+        {galleryState && (
+          <ImageGallery
+            images={galleryState.images}
+            startIndex={galleryState.startIndex}
+            onClose={() => setGalleryState(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={RD_PANEL_TRANSITION}
+        className="overflow-hidden rounded-2xl border border-blue-100/80 bg-white shadow-[0_24px_60px_rgba(30,64,175,0.10)]"
+      >
+        <Tabs value={activeTab} onValueChange={handleTabChange} className="gap-0">
+
+          {/* ── INS Stories-style 人员导航栏 ── */}
+          <TabsList className="flex h-auto w-full justify-start gap-0 overflow-x-auto rounded-none border-b border-blue-100 bg-gradient-to-r from-white via-blue-50/40 to-cyan-50/40 px-4 py-4 pb-3">
+
+            {/* 全部 — 风险汇总入口 */}
+            <TabsTrigger
+              value="all"
+              className="flex shrink-0 flex-col items-center gap-1.5 rounded-none border-none bg-transparent px-3 py-0 shadow-none outline-none ring-0 transition-none focus-visible:ring-0"
+            >
+              <div className="relative">
+                <div
+                  className="flex h-[54px] w-[54px] items-center justify-center rounded-full p-[2.5px] transition-all duration-200"
+                  style={{
+                    background: activeTab === "all"
+                      ? "linear-gradient(135deg,#2563eb,#06b6d4)"
+                      : risks.length > 0
+                        ? "linear-gradient(135deg,#93c5fd,#f87171)"
+                        : "#cbd5e1",
+                  }}
+                >
+                  <div className={cn(
+                    "flex h-full w-full items-center justify-center rounded-full bg-white transition-all",
+                    activeTab === "all" ? "p-[2px]" : "p-0",
+                  )}>
+                    <div className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-blue-50 to-cyan-50">
+                      <ListChecks className={cn("h-5 w-5 transition-colors", activeTab === "all" ? "text-blue-600" : "text-slate-500")} />
+                    </div>
+                  </div>
+                </div>
+                {risks.length > 0 && (
+                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] font-black text-white">
+                    {risks.length > 99 ? "99+" : risks.length}
+                  </span>
+                )}
+              </div>
+              <span className={cn("text-[10px] font-semibold leading-none", activeTab === "all" ? "text-blue-800" : "text-slate-500")}>
+                全部
+              </span>
+            </TabsTrigger>
+
+            {/* Per-person Stories avatars */}
+            {personLoads.map((p) => {
+              const ratio = p.max > 0 ? p.count / p.max : 0;
+              const grad = loadRingGradient(ratio, p.onLeave);
+              const isActive = activeTab === p.name;
+              const initial = p.name.replace(/\(.+?\)/g, "").trim().slice(0, 1) || "?";
+              return (
+                <TabsTrigger
+                  key={p.name}
+                  value={p.name}
+                  className="flex shrink-0 flex-col items-center gap-1.5 rounded-none border-none bg-transparent px-3 py-0 shadow-none outline-none ring-0 transition-none focus-visible:ring-0"
+                >
+                  <div className="relative">
+                    <div
+                      className="flex h-[54px] w-[54px] items-center justify-center rounded-full transition-all duration-200"
+                      style={{
+                        background: p.onLeave
+                          ? "#e2e8f0"
+                          : `linear-gradient(135deg, ${grad.from}, ${grad.to})`,
+                        padding: isActive ? "2.5px" : "2px",
+                      }}
+                    >
+                      <div className={cn("flex h-full w-full items-center justify-center rounded-full bg-white", isActive ? "p-[2px]" : "p-[1.5px]")}>
+                        <div className={cn("flex h-full w-full items-center justify-center rounded-full text-sm font-bold text-white select-none", hashColor(p.name), p.onLeave && "opacity-50")}>
+                          {initial}
+                        </div>
+                      </div>
+                    </div>
+                    {p.count > 0 && (
+                      <span
+                        className="absolute -bottom-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full px-0.5 text-[9px] font-black text-white"
+                        style={{ background: `linear-gradient(135deg, ${grad.from}, ${grad.to})` }}
+                      >
+                        {p.count}
+                      </span>
+                    )}
+                    {p.onLeave && (
+                      <span className="absolute -top-0.5 left-1/2 -translate-x-1/2 rounded-sm bg-amber-400 px-1 text-[8px] font-black text-white leading-none py-0.5">
+                        假
+                      </span>
+                    )}
+                  </div>
+                  <span className={cn("max-w-[56px] truncate text-[10px] font-semibold leading-none", isActive ? "text-blue-800" : "text-slate-500")}>
+                    {p.name}
+                  </span>
+                  {isActive && (
+                    <motion.span
+                      layoutId="cockpit-tab-dot"
+                      className="mt-0 h-1 w-4 rounded-full"
+                      style={{ background: `linear-gradient(135deg, ${grad.from}, ${grad.to})` }}
+                      transition={{ duration: 0.22, ease: RD_MOTION_EASE }}
+                    />
+                  )}
+                </TabsTrigger>
+              );
+            })}
+          </TabsList>
+
+          {/* ── Animated tab content area ── */}
+          <div className="relative overflow-hidden bg-[linear-gradient(180deg,#f8fbff_0%,#f4f8ff_48%,#eef6ff_100%)]">
+            <AnimatePresence mode="wait" custom={direction}>
+              <motion.div
+                key={activeTab}
+                custom={direction}
+                variants={slideVariants}
+                initial="enter"
+                animate="center"
+                exit="exit"
+                transition={{ duration: 0.22, ease: RD_MOTION_EASE }}
+              >
+
+                {/* ── "全部" Tab — INS 风格滚动 feed ── */}
+                {activeTab === "all" && (
+                  <div
+                    className="cockpit-scroll overflow-y-auto"
+                    style={{ height: 480 }}
+                    onScroll={handleRiskScroll}
+                  >
+                    {risks.length === 0 ? (
+                      <div className="flex h-full items-center justify-center text-sm text-slate-400">
+                        暂无风险任务
+                      </div>
+                    ) : (
+                      <div className="space-y-2.5 px-4 py-3">
+                        {shownRisks.map((r, idx) => {
+                          const RiskIcon = RISK_ICON[r.type];
+                          const isCritical = r.severity === "critical";
+                          return (
+                            <motion.div
+                              key={r.task.task_id + r.type}
+                              initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+                              animate={{ opacity: 1, y: 0 }}
+                              transition={{ ...RD_LIST_TRANSITION, delay: idx * 0.03 }}
+                              onClick={() => onSelectTask(r.task)}
+                              role="button"
+                              tabIndex={0}
+                              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectTask(r.task); } }}
+                              className="group relative flex cursor-pointer items-center gap-3.5 overflow-hidden rounded-xl border border-blue-100/80 bg-white/92 px-4 py-3.5 shadow-[0_10px_24px_rgba(30,64,175,0.06),inset_0_1px_0_rgba(255,255,255,0.9)] transition-all duration-200 hover:border-blue-300 hover:bg-white hover:shadow-[0_16px_32px_rgba(30,64,175,0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+                            >
+                              {/* 左侧彩色竖条 */}
+                              <div
+                                className={cn("absolute left-0 top-0 h-full w-1 rounded-l-2xl", isCritical ? "bg-gradient-to-b from-red-500 to-orange-400" : "bg-gradient-to-b from-amber-400 to-yellow-500")}
+                              />
+
+                              {/* 状态图标圆 */}
+                              <div className={cn(
+                                "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ring-1",
+                                isCritical ? "bg-gradient-to-br from-red-50 to-orange-50 ring-red-100" : "bg-gradient-to-br from-amber-50 to-yellow-50 ring-amber-100",
+                              )}>
+                                <RiskIcon className={cn("h-4 w-4", isCritical ? "text-red-600" : "text-amber-600")} />
+                              </div>
+
+                              {/* 文字区 */}
+                              <div className="min-w-0 flex-1">
+                                <div className="truncate text-sm font-semibold leading-snug text-slate-900">
+                                  {r.task.title}
+                                </div>
+                                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px]">
+                                  <span className={cn(
+                                    "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 font-semibold",
+                                    isCritical ? "border-red-100 bg-red-50 text-red-700" : "border-amber-100 bg-amber-50 text-amber-700",
+                                  )}>
+                                    <RiskIcon className="h-3 w-3" />
+                                    {RISK_LABEL[r.type]}
+                                  </span>
+                                  <span className="text-slate-400">{r.reason}</span>
+                                </div>
+                                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-slate-500">
+                                  {r.task.start_date && (
+                                    <span className="flex items-center gap-1 rounded-md bg-white/70 px-1.5 py-0.5 text-slate-500 ring-1 ring-slate-100">
+                                      <CalendarDays className="h-3 w-3 shrink-0 text-blue-400" />
+                                      起 {r.task.start_date}
+                                    </span>
+                                  )}
+                                  {r.task.due_date && (
+                                    <span className="flex items-center gap-1 rounded-md bg-white/70 px-1.5 py-0.5 text-slate-500 ring-1 ring-slate-100">
+                                      <CalendarClock className="h-3 w-3 shrink-0 text-amber-500" />
+                                      止 {r.task.due_date}
+                                    </span>
+                                  )}
+                                  {r.task.updated_at && (
+                                    <span className="flex items-center gap-1 text-slate-400">
+                                      <RefreshCw className="h-3 w-3 shrink-0 text-slate-300" />
+                                      更新 {r.task.updated_at.slice(0, 16).replace("T", " ")}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* 责任人头像 */}
+                              <div className="shrink-0">
+                                <OwnerAvatar name={r.task.primary_owner} size="sm" />
+                              </div>
+
+                              {canReassign && onReassignTask && r.task.status !== "completed" && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => { e.stopPropagation(); onReassignTask(r.task); }}
+                                  className={cn(
+                                    "shrink-0 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold transition-all active:scale-95",
+                                    r.task.primary_owner === "待指派"
+                                      ? "bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-[0_10px_22px_rgba(37,99,235,0.22)] hover:from-blue-700 hover:to-cyan-600"
+                                      : "border border-blue-100 bg-white text-blue-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800",
+                                  )}
+                                >
+                                  <UserCog className="h-3 w-3" />
+                                  {r.task.primary_owner === "待指派" ? "指派" : "转派"}
+                                </button>
+                              )}
+
+                              <ChevronRight className="h-4 w-4 shrink-0 text-blue-300 opacity-0 transition-all duration-150 group-hover:translate-x-0.5 group-hover:opacity-100" />
+                            </motion.div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* 底部状态 */}
+                    {hasMoreRisks ? (
+                      <div className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400">
+                        <ChevronDown className="h-3 w-3 animate-bounce" />
+                        <span>继续向下滚动 · 已显示 <span className="font-semibold tabular-nums text-slate-500">{shownRisks.length}</span> / 共 <span className="font-semibold tabular-nums text-slate-500">{risks.length}</span> 条风险</span>
+                      </div>
+                    ) : risks.length > 0 ? (
+                      <div className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400">
+                        <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+                        <span>已显示全部 <span className="font-semibold tabular-nums text-slate-500">{risks.length}</span> 条风险任务</span>
+                      </div>
+                    ) : null}
+                  </div>
+                )}
+
+                {/* ── Per-person Tab ── */}
+                {activeTab !== "all" && (() => {
+                  const p = personLoads.find((x) => x.name === activeTab);
+                  if (!p) return null;
+                  const tasks = personTasksMap.get(p.name) ?? [];
+                  const visibleCount = visibleCounts[p.name] ?? TASK_PAGE_SIZE;
+                  const shownTasks = tasks.slice(0, visibleCount);
+                  const hasMore = visibleCount < tasks.length;
+                  const ratio = p.max > 0 ? p.count / p.max : 0;
+                  const grad = loadRingGradient(ratio, p.onLeave);
+                  const initial = p.name.replace(/\(.+?\)/g, "").trim().slice(0, 1) || "?";
+
+                  return (
+                    <div>
+                      {/* 附件图片加载中提示 */}
+                      <AnimatePresence>
+                        {loadingNotes && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            exit={{ opacity: 0, height: 0 }}
+                            transition={RD_FAST_TRANSITION}
+                            className="flex items-center gap-2 border-b border-blue-100 bg-blue-50 px-4 py-2 text-[11px] text-blue-600"
+                          >
+                            <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+                            正在加载任务附件图片…
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                      {/* Task list — 与"全部"相同的 INS 风格滚动 feed */}
+                      {tasks.length === 0 ? (
+                        <div className="flex h-[480px] flex-col items-center justify-center gap-2 text-sm text-slate-400">
+                          <span>该成员当前暂无活跃任务</span>
+                        </div>
+                      ) : (
+                        <div
+                          className="cockpit-scroll overflow-y-auto"
+                          style={{ height: 480 }}
+                          onScroll={(e) => handleTaskScroll(e, p.name, tasks.length)}
+                        >
+                          <div className="space-y-2.5 px-4 py-3">
+                            <AnimatePresence>
+                              {shownTasks.map((task, taskIdx) => {
+                                const sCfg = STATUS_CONFIG[task.status] ?? STATUS_CONFIG.draft;
+                                const pCfg = PRIORITY_CONFIG[task.final_priority ?? task.ai_priority ?? "medium"];
+                                const taskNotes = notesMap[task.task_id] ?? [];
+                                const taskAttachments: RdTaskProgressAttachment[] = taskNotes.flatMap((n) => n.attachments);
+                                const taskImages = taskAttachments.filter((a) => a.mime.startsWith("image/"));
+                                const hasLoadedAttachments = taskAttachments.length > 0;
+
+                                return (
+                                  <motion.div
+                                    key={task.task_id}
+                                    initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+                                    animate={{ opacity: 1, y: 0 }}
+                                    transition={{ ...RD_LIST_TRANSITION, delay: taskIdx * 0.03 }}
+                                    onClick={() => onSelectTask(task)}
+                                    role="button"
+                                    tabIndex={0}
+                                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectTask(task); } }}
+                                    className="group relative cursor-pointer overflow-hidden rounded-xl border border-blue-100/80 bg-white/92 shadow-[0_10px_24px_rgba(30,64,175,0.06),inset_0_1px_0_rgba(255,255,255,0.9)] transition-all duration-200 hover:border-blue-300 hover:bg-white hover:shadow-[0_16px_32px_rgba(30,64,175,0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+                                  >
+                                    {/* 附件预览（图片 + 文件，稳定高度横向展示） */}
+                                    {hasLoadedAttachments && (
+                                      <TaskAttachmentStrip
+                                        attachments={taskAttachments}
+                                        onOpenGallery={(startIdx) => setGalleryState({ images: taskImages, startIndex: startIdx })}
+                                      />
+                                    )}
+
+                                    {/* 左侧渐变竖条 */}
+                                    <div
+                                      className="absolute left-0 top-0 h-full w-1 rounded-l-2xl"
+                                      style={{ background: `linear-gradient(to bottom, ${grad.from}, ${grad.to})` }}
+                                    />
+
+                                    <div className="flex items-start gap-3.5 px-4 py-3.5">
+                                      {/* 状态 + 优先级 badges */}
+                                      <div className="flex min-w-0 flex-1 flex-col gap-1">
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                          <span className={cn("inline-flex shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-white/50", sCfg.bg, sCfg.text)}>
+                                            {sCfg.label}
+                                          </span>
+                                          <span className={cn("inline-flex shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold", pCfg.bg, pCfg.text)}>
+                                            {pCfg.label}
+                                          </span>
+                                          {task.attachments > 0 && !hasLoadedAttachments && (
+                                            <span className="flex items-center gap-0.5 rounded-md border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
+                                              <Paperclip className="h-3 w-3" />{task.attachments}
+                                            </span>
+                                          )}
+                                          {canReassign && onReassignTask && task.status !== "completed" && (
+                                            <button
+                                              type="button"
+                                              onClick={(e) => { e.stopPropagation(); onReassignTask(task); }}
+                                              className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-blue-100 bg-white px-2 py-0.5 text-[10px] font-semibold text-blue-700 transition-all hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800 active:scale-95"
+                                            >
+                                              <UserCog className="h-3 w-3" />
+                                              转派
+                                            </button>
+                                          )}
+                                        </div>
+                                        <div className="line-clamp-2 text-sm font-semibold leading-snug text-slate-900">
+                                          {task.title}
+                                        </div>
+                                        {(task.start_date || task.due_date || task.updated_at) && (
+                                          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-slate-500">
+                                            {task.start_date && (
+                                              <span className="flex items-center gap-1 rounded-md bg-white/70 px-1.5 py-0.5 ring-1 ring-slate-100">
+                                                <CalendarDays className="h-3 w-3 shrink-0 text-blue-400" />
+                                                起 {task.start_date}
+                                              </span>
+                                            )}
+                                            {task.due_date && (
+                                              <span className="flex items-center gap-1 rounded-md bg-white/70 px-1.5 py-0.5 ring-1 ring-slate-100">
+                                                <CalendarClock className="h-3 w-3 shrink-0 text-amber-500" />
+                                                止 {task.due_date}
+                                              </span>
+                                            )}
+                                            {task.updated_at && (
+                                              <span className="flex items-center gap-1 text-slate-400">
+                                                <RefreshCw className="h-3 w-3 shrink-0 text-slate-300" />
+                                                更新 {task.updated_at.slice(0, 16).replace("T", " ")}
+                                              </span>
+                                            )}
+                                          </div>
+                                        )}
+                                        {/* 进度条 */}
+                                        <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+                                          <div className="h-1 flex-1 overflow-hidden rounded-full bg-blue-100/80">
+                                            <motion.div
+                                              className="h-full rounded-full"
+                                              initial={{ width: 0 }}
+                                              animate={{ width: `${task.progress}%` }}
+                                              transition={{ duration: 0.45, ease: RD_MOTION_EASE, delay: taskIdx * 0.03 }}
+                                              style={{ background: task.progress === 100 ? "#10b981" : `linear-gradient(90deg, ${grad.from}, ${grad.to})` }}
+                                            />
+                                          </div>
+                                          <span className="w-8 shrink-0 text-right text-[10px] font-bold tabular-nums text-blue-700">
+                                            {task.progress}%
+                                          </span>
+                                        </div>
+                                      </div>
+
+                                      <ChevronRight className="h-4 w-4 shrink-0 text-blue-300 opacity-0 transition-all duration-150 group-hover:translate-x-0.5 group-hover:opacity-100" />
+                                    </div>
+                                  </motion.div>
+                                );
+                              })}
+                            </AnimatePresence>
+                          </div>
+
+                          {/* 底部状态 */}
+                          {hasMore ? (
+                            <div className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400">
+                              <ChevronDown className="h-3 w-3 animate-bounce" />
+                              <span>继续向下滚动 · 已显示 <span className="font-semibold tabular-nums text-slate-500">{shownTasks.length}</span> / 共 <span className="font-semibold tabular-nums text-slate-500">{tasks.length}</span> 个任务</span>
+                            </div>
+                          ) : tasks.length > 0 ? (
+                            <div className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400">
+                              <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+                              <span>已显示全部 <span className="font-semibold tabular-nums text-slate-500">{tasks.length}</span> 个任务</span>
+                            </div>
+                          ) : null}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+
+              </motion.div>
+            </AnimatePresence>
+          </div>
+        </Tabs>
+      </motion.div>
+    </>
+  );
+}
+
+// ─── Local helper functions (shared with migrated modals) ────────────────────
+function rdPersonOptionValue(person: RdPersonLoad): string {
+  return person.user_id ? `uid:${person.user_id}` : `name:${person.name}`;
+}
+function findRdPersonByOptionValue(people: RdPersonLoad[], value: string): RdPersonLoad | undefined {
+  return people.find((p) => rdPersonOptionValue(p) === value);
+}
+function parseLocalDate(value: string): Date | undefined {
+  if (!value) return undefined;
+  const [y, m, d] = value.split("-").map(Number);
+  if (!y || !m || !d) return undefined;
+  return new Date(y, m - 1, d);
+}
+function formatLocalDate(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+// ─── ReassignableTask type ────────────────────────────────────────────────────
+type ReassignableTask = { task_id: string; title: string; owner: string; priority: Priority };
+
+// ─── TaskReassignModal ────────────────────────────────────────────────────────
+function TaskReassignModal({
+  onClose,
+  initialTaskId,
+  allTasks,
+  onUpdated,
+}: {
+  onClose: () => void;
+  initialTaskId?: string | null;
+  allTasks: Task[];
+  onUpdated?: () => void;
+}) {
+  const AUDIT_ACTOR = useAuditActor("研发管理员");
+  const shouldReduceMotion = useReducedMotion();
+  const assignableTasks: ReassignableTask[] = allTasks
+    .filter((t) => !t.archived && t.status !== "completed")
+    .map((t) => ({ task_id: t.task_id, title: t.title, owner: t.primary_owner, priority: t.final_priority }));
+  const [selectedTasks, setSelectedTasks] = useState<Set<string>>(
+    () => new Set(initialTaskId ? [initialTaskId] : []),
+  );
+  const [targetPerson, setTargetPerson] = useState<RdPersonLoad | null>(null);
+  const [people, setPeople] = useState<RdPersonLoad[]>([]);
+  const [peopleError, setPeopleError] = useState(false);
+  const [confirmed, setConfirmed] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fetchRdPeople()
+      .then((data) => { setPeople(data); setPeopleError(false); })
+      .catch(() => { setPeople([]); setPeopleError(true); });
+  }, []);
+
+  const selectedAssignable = assignableTasks.filter((t) => selectedTasks.has(t.task_id));
+  const targetIsCurrentOwner =
+    Boolean(targetPerson) &&
+    selectedAssignable.length > 0 &&
+    selectedAssignable.every((t) => t.owner === targetPerson?.name);
+  const hasPendingAssign = selectedAssignable.some((t) => t.owner === "待指派");
+
+  const toggleTask = (id: string) =>
+    setSelectedTasks((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  const handleConfirm = async () => {
+    if (selectedTasks.size === 0 || !targetPerson || targetIsCurrentOwner) return;
+    setSaving(true);
+    try {
+      const results = await Promise.allSettled(
+        selectedAssignable.map((t) =>
+          updateRdTask(t.task_id, {
+            primary_owner: targetPerson.name,
+            primary_owner_user_id: targetPerson.user_id ?? null,
+            status: "in_progress",
+          }),
+        ),
+      );
+      const succeeded = results.filter((r) => r.status === "fulfilled").length;
+      const failed = results.filter((r) => r.status === "rejected").length;
+      recordAudit({
+        actor: AUDIT_ACTOR,
+        action: "system.bulk_reassign",
+        resource: { type: "system", id: `batch-${Date.now()}`, name: "批量转派任务" },
+        comment: `批量转派 ${succeeded} 个任务给 ${targetPerson.name}${failed > 0 ? `（${failed} 个失败）` : ""}`,
+        metadata: { to: targetPerson.name, task_count: succeeded, failed_count: failed },
+        source: "web",
+      });
+      if (failed > 0) {
+        toast.warning(`${succeeded} 个任务转派成功，${failed} 个失败，请检查后重试`);
+      } else {
+        onUpdated?.();
+        setConfirmed(true);
+      }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "转派失败");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={shouldReduceMotion ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={RD_FAST_TRANSITION}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 14, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 14, scale: 0.98 }}
+        transition={RD_PANEL_TRANSITION}
+        className="w-full max-w-lg rounded-2xl bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+          <span className="font-semibold text-slate-800">批量转派任务</span>
+          <button type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100">
+            <X className="h-4 w-4 text-slate-500" />
+          </button>
+        </div>
+        <div className="p-6 space-y-4">
+          {!confirmed ? (
+            <>
+              <div>
+                <div className="mb-2 text-sm font-medium text-slate-700">选择任务</div>
+                <div className="cockpit-scroll space-y-2 overflow-y-auto" style={{ maxHeight: "min(280px, 40vh)" }}>
+                  {assignableTasks.length === 0 ? (
+                    <p className="py-4 text-center text-sm text-slate-400">暂无可转派任务</p>
+                  ) : assignableTasks.map((t) => (
+                    <label key={t.task_id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-100 px-3 py-2 hover:bg-slate-50">
+                      <input
+                        type="checkbox"
+                        checked={selectedTasks.has(t.task_id)}
+                        onChange={() => toggleTask(t.task_id)}
+                        className="h-4 w-4 rounded border-slate-300 accent-blue-600"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                          <div className="truncate text-sm text-slate-800">{t.title}</div>
+                          <PriorityPill priority={t.priority} />
+                        </div>
+                        <div className="text-xs text-slate-400">
+                          {t.owner === "待指派" ? "待指派" : `当前负责人 ${t.owner}`}
+                        </div>
+                      </div>
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div className="mb-2 text-sm font-medium text-slate-700">选择目标负责人</div>
+                {peopleError && (
+                  <p className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                    人员数据加载失败，请关闭后重试
+                  </p>
+                )}
+                <div className="grid grid-cols-2 gap-2">
+                  {people.filter((p) => !p.on_leave).map((p) => {
+                    const isNoop = selectedAssignable.length > 0 && selectedAssignable.every((t) => t.owner === p.name);
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        disabled={isNoop}
+                        onClick={() => !isNoop && setTargetPerson(p)}
+                        className={cn(
+                          "rounded-lg border px-3 py-2 text-left text-sm transition-colors",
+                          isNoop && "cursor-not-allowed opacity-45",
+                          targetPerson?.id === p.id ? "border-blue-300 bg-blue-50" : "border-slate-200 hover:bg-slate-50",
+                        )}
+                      >
+                        <div className="font-medium text-slate-800">{p.name}</div>
+                        <div className="flex items-center justify-between text-xs text-slate-400">
+                          <span>{p.position}</span>
+                          <span className={cn("font-semibold", p.max_tasks > 0 && p.task_count / p.max_tasks >= 0.75 ? "text-orange-500" : "text-emerald-600")}>
+                            {p.task_count} 个任务
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">取消</button>
+                <button
+                  type="button"
+                  disabled={selectedTasks.size === 0 || !targetPerson || targetIsCurrentOwner || saving}
+                  onClick={handleConfirm}
+                  className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.20)] transition-all hover:bg-blue-700 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none"
+                >
+                  {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
+                  {saving ? "处理中..." : hasPendingAssign ? "确认指派" : "确认转派"}
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="py-4 text-center">
+              <CheckCircle2 className="mx-auto mb-3 h-10 w-10 text-emerald-500" />
+              <p className="font-semibold text-slate-800">操作成功</p>
+              <p className="mt-1 text-sm text-slate-500">
+                已将 {selectedAssignable.length} 个任务转派给 {targetPerson?.name}，操作已记录。
+              </p>
+              <button type="button" onClick={onClose} className="mt-4 rounded-xl bg-slate-100 px-4 py-2 text-sm text-slate-600 hover:bg-slate-200">关闭</button>
+            </div>
+          )}
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// ─── ClearDataDialog ──────────────────────────────────────────────────────────
+function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleared: () => void }) {
+  const AUDIT_ACTOR = useAuditActor("研发管理员");
+  const shouldReduceMotion = useReducedMotion();
+  const [confirmText, setConfirmText] = useState("");
+  const [clearing, setClearing] = useState(false);
+  const KEYWORD = "确认清空";
+  const ready = confirmText.trim() === KEYWORD;
+
+  const handleClear = async () => {
+    if (!ready) return;
+    setClearing(true);
+    try {
+      await clearRdAllTaskData();
+      recordAudit({
+        actor: AUDIT_ACTOR,
+        action: "task.data.cleared",
+        resource: { type: "system", id: "rd-task-data", name: "研发任务模块数据" },
+        comment: "清空研发任务模块全部数据",
+        source: "web",
+      });
+      toast.success("研发任务模块数据已全部清空");
+      onCleared();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "清空失败");
+      setConfirmText("");
+      setClearing(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={shouldReduceMotion ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={RD_FAST_TRANSITION}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 14, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 14, scale: 0.98 }}
+        transition={RD_PANEL_TRANSITION}
+        className="w-full max-w-md rounded-2xl bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-3 border-b border-red-100 bg-red-50/60 px-6 py-4">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-100">
+            <Trash2 className="h-5 w-5 text-red-600" />
+          </div>
+          <div>
+            <div className="font-semibold text-red-800">清空研发任务模块数据</div>
+            <div className="text-xs text-red-600">此操作不可恢复，需拥有数据清空权限</div>
+          </div>
+        </div>
+        <div className="space-y-4 p-6">
+          <div className="rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-red-700 leading-relaxed">
+            <p className="font-semibold mb-1">将被清空的数据：</p>
+            <ul className="list-disc pl-4 space-y-0.5 text-xs">
+              <li>所有研发任务分类、子项目及任务</li>
+              <li>个人工作台任务数据</li>
+              <li>驾驶舱看板数据（分类进度、人员负载）</li>
+            </ul>
+            <p className="mt-2 text-xs text-red-500">注：人员档案、审批流、AI 策略、操作留痕不受影响。</p>
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              请输入「<span className="font-bold text-red-600">{KEYWORD}</span>」以继续
+            </label>
+            <Input
+              type="text"
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder={KEYWORD}
+            />
+          </div>
+        </div>
+        <div className="flex gap-3 border-t border-slate-100 px-6 py-4">
+          <button type="button" onClick={onClose} disabled={clearing}
+            className="flex-1 rounded-xl border border-slate-200 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50">
+            取消
+          </button>
+          <button type="button" onClick={handleClear} disabled={!ready || clearing}
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-600 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(220,38,38,0.20)] transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40">
+            {clearing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            确认清空
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// ─── ProductManageDialog ──────────────────────────────────────────────────────
+
+type ProductFormState = {
+  id: string;
+  name: string;
+  description: string;
+  status: RdProductStatus;
+};
+
+function ProductManageDialog({
+  open,
+  products,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  products: ProductDef[];
+  onClose: () => void;
+  onSave: (products: ProductDef[]) => Promise<void>;
+}) {
+  const shouldReduceMotion = useReducedMotion();
+  const [view, setView] = useState<"list" | "form">("list");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState<ProductFormState>({
+    id: "",
+    name: "",
+    description: "",
+    status: "developing",
+  });
+
+  const openNew = () => {
+    setEditingId(null);
+    setForm({ id: "", name: "", description: "", status: "developing" });
+    setView("form");
+  };
+
+  const openEdit = (prod: ProductDef) => {
+    setEditingId(prod.id);
+    setForm({
+      id: prod.id,
+      name: prod.name,
+      description: prod.description ?? "",
+      status: prod.status ?? "developing",
+    });
+    setView("form");
+  };
+
+  const handleSaveForm = async () => {
+    if (!form.name.trim()) return;
+    setSaving(true);
+    try {
+      const now = new Date().toISOString();
+      let next: ProductDef[];
+      if (editingId) {
+        next = products.map((p) =>
+          p.id === editingId
+            ? { ...p, name: form.name.trim(), description: form.description.trim() || undefined, status: form.status, updatedAt: now }
+            : p,
+        );
+      } else {
+        const newProd: ProductDef = {
+          id: crypto.randomUUID(),
+          name: form.name.trim(),
+          description: form.description.trim() || undefined,
+          status: form.status,
+          createdAt: now,
+          updatedAt: now,
+        };
+        next = [...products, newProd];
+      }
+      await onSave(next);
+      setView("list");
+      toast.success(editingId ? "产品已更新" : "产品已创建");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "保存失败，请重试");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async (id: string) => {
+    if (products.length <= 1) return;
+    const next = products.filter((p) => p.id !== id);
+    try {
+      await onSave(next);
+      toast.success("产品已删除");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "删除失败，请重试");
+    }
+  };
+
+  if (!open) return null;
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          key="product-manage-backdrop"
+          initial={shouldReduceMotion ? false : { opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={RD_FAST_TRANSITION}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+        >
+          <motion.div
+            key="product-manage-panel"
+            initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.97, y: 8 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.97, y: 8 }}
+            transition={RD_PANEL_TRANSITION}
+            className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(15,23,42,0.18)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+              <h2 className="text-base font-semibold text-slate-900">
+                {view === "list" ? "产品线管理" : editingId ? "编辑产品" : "新增产品"}
+              </h2>
+              <button
+                type="button"
+                onClick={view === "list" ? onClose : () => setView("list")}
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            {/* List view */}
+            {view === "list" && (
+              <div className="flex flex-col">
+                <div className="max-h-[420px] overflow-y-auto divide-y divide-slate-100">
+                  {products.length === 0 ? (
+                    <div className="py-12 text-center text-sm text-slate-400">暂无产品线，请点击下方添加</div>
+                  ) : (
+                    products.map((prod) => {
+                      const pStatus: RdProductStatus = prod.status ?? "developing";
+                      const style = PRODUCT_STATUS_STYLE[pStatus];
+                      const dot = PRODUCT_STATUS_DOT[pStatus];
+                      const label = PRODUCT_STATUS_LABEL[pStatus];
+                      return (
+                        <div key={prod.id} className="flex items-center gap-3 px-6 py-3">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-sm font-semibold text-slate-800">{prod.name}</span>
+                              <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold", style)}>
+                                <span className={cn("h-1 w-1 rounded-full", dot)} />
+                                {label}
+                              </span>
+                            </div>
+                            {prod.description && <div className="mt-0.5 truncate text-xs text-slate-400">{prod.description}</div>}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => openEdit(prod)}
+                            className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
+                          >
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(prod.id)}
+                            disabled={products.length <= 1}
+                            className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+                <div className="border-t border-slate-100 px-6 py-4">
+                  <button
+                    type="button"
+                    onClick={openNew}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 py-2.5 text-sm font-semibold text-slate-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+                  >
+                    <Plus className="h-4 w-4" />
+                    新增产品
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Form view */}
+            {view === "form" && (
+              <div className="flex flex-col gap-4 px-6 py-5 max-h-[560px] overflow-y-auto">
+                {/* Name */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-slate-700">产品名称 *</Label>
+                  <Input
+                    value={form.name}
+                    onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+                    placeholder="请输入产品名称"
+                    className="text-sm"
+                  />
+                </div>
+                {/* Description */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-slate-700">产品描述</Label>
+                  <Textarea
+                    value={form.description}
+                    onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
+                    placeholder="可选，简要描述产品用途"
+                    className="text-sm resize-none"
+                    rows={2}
+                  />
+                </div>
+                {/* Status */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs font-semibold text-slate-700">研发状态</Label>
+                  <Select
+                    value={form.status}
+                    onValueChange={(v) => setForm((prev) => ({ ...prev, status: v as RdProductStatus }))}
+                  >
+                    <SelectTrigger className="text-sm">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">活跃</SelectItem>
+                      <SelectItem value="developing">研发中</SelectItem>
+                      <SelectItem value="paused">暂停</SelectItem>
+                      <SelectItem value="archived">归档</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {/* Actions */}
+                <div className="flex gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setView("list")}
+                    className="flex-1 rounded-xl border border-slate-200 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSaveForm}
+                    disabled={!form.name.trim() || saving}
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-blue-600 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.20)] transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                    保存
+                  </button>
+                </div>
+              </div>
+            )}
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+function ExecutiveOverview({
+  catStats,
+  products,
+  risks,
+  personLoads,
+  allTasks,
   onSelectSystem,
   onSelectTask,
   onSelectPerson,
@@ -4981,10 +7342,23 @@ function ExecutiveOverview({
   loading,
   loadError,
   onRefresh,
+  onCreateTask,
+  onReassign,
+  onClearData,
+  onAiProject,
+  canCreateTask,
+  canReassign,
+  canClearData,
+  canDirectProject,
+  onReassignTask,
+  onManageProducts,
+  canManageProducts,
 }: {
   catStats: CatStat[];
+  products: ProductDef[];
   risks: Risk[];
   personLoads: PersonLoad[];
+  allTasks: Task[];
   onSelectSystem: (catId: string) => void;
   onSelectTask: (t: Task) => void;
   onSelectPerson: (name: string) => void;
@@ -4992,6 +7366,17 @@ function ExecutiveOverview({
   loading: boolean;
   loadError: string | null;
   onRefresh: () => void;
+  onCreateTask?: () => void;
+  onReassign?: () => void;
+  onClearData?: () => void;
+  onAiProject?: () => void;
+  canCreateTask?: boolean;
+  canReassign?: boolean;
+  canClearData?: boolean;
+  canDirectProject?: boolean;
+  onReassignTask?: (t: Task) => void;
+  onManageProducts?: () => void;
+  canManageProducts?: boolean;
 }) {
   const shouldReduceMotion = useReducedMotion();
   const totalActive = catStats.reduce((s, c) => s + c.total, 0);
@@ -5009,14 +7394,114 @@ function ExecutiveOverview({
       style={{ background: "transparent" }}
     >
       <div className="mx-auto max-w-[1400px] space-y-6 rd-stagger-children">
-        <KpiStrip
-          totalActive={totalActive}
-          inProgress={inProgress}
-          done={done}
-          blocked={blocked}
-          totalRisks={risks.length}
-          rate={rate}
-        />
+        <section className="relative overflow-hidden rounded-2xl border border-blue-100/80 bg-[linear-gradient(135deg,#ffffff_0%,#eff6ff_48%,#ecfeff_100%)] px-4 py-3 shadow-[0_18px_42px_rgba(30,64,175,0.08)]">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-400/55 to-transparent" />
+          <div className="grid gap-3 lg:grid-cols-[minmax(280px,1fr)_auto]">
+            <div className="order-1 flex min-w-0 items-center gap-3 rounded-xl border border-white/70 bg-white/55 px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 text-white shadow-[0_12px_26px_rgba(37,99,235,0.24)]">
+                <Sparkles className="h-5 w-5" />
+              </span>
+              <div className="min-w-0">
+                <h2 className="truncate text-base font-bold text-slate-950">研发执行提示</h2>
+                <p className="mt-0.5 truncate text-xs font-medium text-blue-700/70">
+                  优先处理阻塞、逾期和待指派任务；新增需求建议先走 AI 立项拆解。
+                </p>
+              </div>
+            </div>
+
+            <div className="order-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:col-span-2 lg:grid-cols-6">
+              {[
+                { label: "活跃", value: totalActive, Icon: Target, tone: "text-blue-700", bg: "from-blue-50 to-white" },
+                { label: "完成率", value: `${rate}%`, Icon: Gauge, tone: "text-slate-900", bg: "from-slate-50 to-white" },
+                { label: "进行中", value: inProgress, Icon: CircleDot, tone: "text-blue-600", bg: "from-blue-50 to-white" },
+                { label: "完成", value: done, Icon: CheckCircle2, tone: "text-emerald-700", bg: "from-emerald-50 to-white" },
+                { label: "阻塞/待派", value: blocked, Icon: Users, tone: blocked > 0 ? "text-amber-700" : "text-slate-400", bg: blocked > 0 ? "from-amber-50 to-white" : "from-slate-50 to-white" },
+                { label: "风险", value: risks.length, Icon: AlertTriangle, tone: risks.length > 0 ? "text-red-700" : "text-slate-400", bg: risks.length > 0 ? "from-red-50 to-white" : "from-slate-50 to-white" },
+              ].map((item) => (
+                <div
+                  key={item.label}
+                  className={cn(
+                    "flex min-w-0 items-center gap-2 rounded-xl border border-white/80 bg-gradient-to-br px-2.5 py-2 shadow-[0_6px_16px_rgba(30,64,175,0.045)] ring-1 ring-blue-100/70",
+                    item.bg,
+                  )}
+                >
+                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/80 ring-1 ring-slate-100">
+                    <item.Icon className={cn("h-3.5 w-3.5", item.tone)} />
+                  </span>
+                  <div className="min-w-0">
+                    <div className={cn("text-base font-bold leading-none tabular-nums", item.tone)}>{item.value}</div>
+                    <div className="mt-0.5 truncate text-[10px] font-semibold text-slate-500">{item.label}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {(canReassign || onCreateTask || canClearData || canDirectProject || onOpenPeople) && (
+              <div className="order-2 flex flex-wrap justify-start gap-2 lg:justify-end">
+                {canDirectProject && onAiProject && (
+                  <button
+                    type="button"
+                    onClick={onAiProject}
+                    className="group flex flex-none items-center gap-2 rounded-xl bg-gradient-to-br from-blue-600 via-blue-500 to-cyan-500 px-2.5 py-2 text-left text-xs font-semibold text-white shadow-[0_12px_24px_rgba(37,99,235,0.24)] transition-all hover:-translate-y-0.5 hover:shadow-[0_16px_30px_rgba(37,99,235,0.30)] active:translate-y-0 active:scale-[0.98]"
+                  >
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/18">
+                      <Sparkles className="h-4 w-4 transition-transform group-hover:rotate-12" />
+                    </span>
+                    <span className="min-w-0">AI 立项</span>
+                  </button>
+                )}
+                {onCreateTask && (
+                  <button
+                    type="button"
+                    onClick={onCreateTask}
+                    className="group flex flex-none items-center gap-2 rounded-xl border border-emerald-100 bg-white/90 px-2.5 py-2 text-left text-xs font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700 active:translate-y-0 active:scale-[0.98]"
+                  >
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
+                      <Plus className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0">新建任务</span>
+                  </button>
+                )}
+                {canReassign && onReassign && (
+                  <button
+                    type="button"
+                    onClick={onReassign}
+                    className="group flex flex-none items-center gap-2 rounded-xl border border-blue-100 bg-white/90 px-2.5 py-2 text-left text-xs font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 active:translate-y-0 active:scale-[0.98]"
+                  >
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 ring-1 ring-blue-100">
+                      <UserCog className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0">批量转派</span>
+                  </button>
+                )}
+                {onOpenPeople && (
+                  <button
+                    type="button"
+                    onClick={onOpenPeople}
+                    className="group flex flex-none items-center gap-2 rounded-xl border border-indigo-100 bg-white/90 px-2.5 py-2 text-left text-xs font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 active:translate-y-0 active:scale-[0.98]"
+                  >
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
+                      <UserPlus className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0">人员管理</span>
+                  </button>
+                )}
+                {canClearData && onClearData && (
+                  <button
+                    type="button"
+                    onClick={onClearData}
+                    className="group flex flex-none items-center gap-2 rounded-xl border border-red-100 bg-white/90 px-2.5 py-2 text-left text-xs font-semibold text-red-600 shadow-[0_8px_18px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:border-red-200 hover:bg-red-50 active:translate-y-0 active:scale-[0.98]"
+                  >
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600 ring-1 ring-red-100">
+                      <Trash2 className="h-4 w-4" />
+                    </span>
+                    <span className="min-w-0">清空数据</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </section>
 
         {loading || catStats.length === 0 ? (
           <section className="rounded-xl border border-dashed border-slate-200 bg-white px-6 py-16 text-center shadow-[0_18px_45px_rgba(15,23,42,0.04)]">
@@ -5049,20 +7534,406 @@ function ExecutiveOverview({
           </section>
         ) : (
           <>
-            <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-5">
-              <RiskHotspot
-                risks={risks}
-                totalTasks={totalActive}
-                onSelectTask={onSelectTask}
-                className="lg:col-span-3"
-              />
-              <PersonLoadPanel loads={personLoads} className="lg:col-span-2" onManage={onOpenPeople} onSelectPerson={onSelectPerson} />
-            </div>
+            <PersonTaskCockpit
+              risks={risks}
+              personLoads={personLoads}
+              allTasks={allTasks}
+              onSelectTask={onSelectTask}
+              onSelectPerson={onSelectPerson}
+              canReassign={canReassign}
+              onReassignTask={onReassignTask}
+            />
 
-            <SystemPanorama catStats={catStats} onSelectSystem={onSelectSystem} />
+            <SystemPanorama
+              mainCatStats={catStats}
+              mainRisks={risks}
+              products={products}
+              onSelectSystem={onSelectSystem}
+              onManageProducts={onManageProducts ?? (() => {})}
+              canManage={canManageProducts ?? false}
+            />
           </>
         )}
       </div>
+    </motion.div>
+  );
+}
+
+// ─── MoveTaskDialog (single task) ────────────────────────────────────────────
+function MoveTaskDialog({
+  task,
+  categories,
+  onConfirm,
+  onClose,
+}: {
+  task: Task;
+  categories: Category[];
+  onConfirm: (targetCatId: string, targetSubId: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const shouldReduceMotion = useReducedMotion();
+  const [targetCatId, setTargetCatId] = useState<string>("");
+  const [targetSubId, setTargetSubId] = useState<string>("");
+  const [saving, setSaving] = useState(false);
+
+  // Find which sub the task currently lives in
+  const currentSubId = useMemo(() => {
+    for (const cat of categories) {
+      for (const sub of cat.children) {
+        if (sub.tasks.some((t) => t.task_id === task.task_id)) return sub.id;
+      }
+    }
+    return null;
+  }, [categories, task.task_id]);
+
+  const allTargetOptions = useMemo(() => {
+    const opts: { cat: Category; sub: SubProject }[] = [];
+    for (const cat of categories) {
+      for (const sub of cat.children) {
+        if (sub.id !== currentSubId) opts.push({ cat, sub });
+      }
+    }
+    return opts;
+  }, [categories, currentSubId]);
+
+  useEffect(() => { setTargetSubId(""); }, [targetCatId]);
+
+  const targetSubOptions = useMemo(
+    () => targetCatId ? allTargetOptions.filter((o) => o.cat.id === targetCatId) : allTargetOptions,
+    [allTargetOptions, targetCatId],
+  );
+
+  const handleConfirm = async () => {
+    if (!targetSubId) { toast.error("请选择目标子项"); return; }
+    setSaving(true);
+    try {
+      await onConfirm(targetCatId, targetSubId);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={shouldReduceMotion ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={RD_FAST_TRANSITION}
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 14, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 14, scale: 0.98 }}
+        transition={RD_PANEL_TRANSITION}
+        className="w-full max-w-md rounded-2xl bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+              <ArrowRight className="h-4 w-4" />
+            </div>
+            <div>
+              <h3 className="text-base font-semibold text-slate-900">移动任务</h3>
+              <p className="max-w-[260px] truncate text-xs text-slate-500">{task.title}</p>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100">
+            <X className="h-4 w-4 text-slate-500" />
+          </button>
+        </div>
+
+        <div className="space-y-4 p-6">
+          <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+            当前位置：<span className="font-medium text-slate-700">{task.category_path || "未分类"}</span>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700">目标位置</label>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">一级系统</label>
+                <NativeSelect
+                  value={targetCatId}
+                  onChange={(e) => setTargetCatId(e.target.value)}
+                  className="w-full text-sm"
+                >
+                  <option value="">全部系统</option>
+                  {categories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>{cat.label}</option>
+                  ))}
+                </NativeSelect>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">子项</label>
+                <NativeSelect
+                  value={targetSubId}
+                  onChange={(e) => setTargetSubId(e.target.value)}
+                  className="w-full text-sm"
+                >
+                  <option value="">请选择子项</option>
+                  {targetSubOptions.map(({ cat, sub }) => (
+                    <option key={sub.id} value={sub.id}>{cat.label} / {sub.label}</option>
+                  ))}
+                </NativeSelect>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
+          <button
+            type="button"
+            disabled={saving}
+            onClick={onClose}
+            className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            disabled={saving || !targetSubId}
+            onClick={handleConfirm}
+            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-60"
+          >
+            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
+            确认移动
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// ─── MoveTasksDialog ─────────────────────────────────────────────────────────
+function MoveTasksDialog({
+  fromCategory,
+  fromSub,
+  categories,
+  onConfirm,
+  onClose,
+}: {
+  fromCategory: Category;
+  fromSub: SubProject;
+  categories: Category[];
+  onConfirm: (taskIds: string[], targetCatId: string, targetSubId: string) => Promise<void>;
+  onClose: () => void;
+}) {
+  const shouldReduceMotion = useReducedMotion();
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [targetCatId, setTargetCatId] = useState<string>("");
+  const [targetSubId, setTargetSubId] = useState<string>("");
+  const [saving, setSaving] = useState(false);
+
+  // All subs except the source
+  const allTargetOptions = useMemo(() => {
+    const opts: { cat: Category; sub: SubProject }[] = [];
+    for (const cat of categories) {
+      for (const sub of cat.children) {
+        if (sub.id !== fromSub.id) {
+          opts.push({ cat, sub });
+        }
+      }
+    }
+    return opts;
+  }, [categories, fromSub.id]);
+
+  // When cat selection changes, reset sub
+  useEffect(() => {
+    setTargetSubId("");
+  }, [targetCatId]);
+
+  const targetSubOptions = useMemo(() => {
+    if (!targetCatId) return allTargetOptions;
+    return allTargetOptions.filter((o) => o.cat.id === targetCatId);
+  }, [allTargetOptions, targetCatId]);
+
+  const toggleTask = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (selectedIds.size === fromSub.tasks.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(fromSub.tasks.map((t) => t.task_id)));
+    }
+  };
+
+  const handleConfirm = async () => {
+    if (selectedIds.size === 0) { toast.error("请选择要移动的任务"); return; }
+    if (!targetSubId) { toast.error("请选择目标子项"); return; }
+    setSaving(true);
+    try {
+      await onConfirm(Array.from(selectedIds), targetCatId, targetSubId);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={shouldReduceMotion ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={RD_FAST_TRANSITION}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 14, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 14, scale: 0.98 }}
+        transition={RD_PANEL_TRANSITION}
+        className="w-full max-w-lg rounded-2xl bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+              <ArrowRight className="h-4 w-4" />
+            </div>
+            <div>
+              <h3 className="text-base font-semibold text-slate-900">移动任务</h3>
+              <p className="text-xs text-slate-500">从「{fromCategory.label} / {fromSub.label}」移动任务到其他子项</p>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100">
+            <X className="h-4 w-4 text-slate-500" />
+          </button>
+        </div>
+
+        <div className="space-y-4 p-6">
+          <div>
+            <div className="mb-2 flex items-center justify-between text-sm font-medium text-slate-700">
+              <span>选择任务 ({selectedIds.size}/{fromSub.tasks.length})</span>
+              <button type="button" onClick={toggleAll} className="text-xs text-blue-600 hover:underline">
+                {selectedIds.size === fromSub.tasks.length ? "取消全选" : "全选"}
+              </button>
+            </div>
+            <div className="cockpit-scroll space-y-2 overflow-y-auto" style={{ maxHeight: "min(240px, 35vh)" }}>
+              {fromSub.tasks.length === 0 ? (
+                <p className="py-4 text-center text-sm text-slate-400">该子项下暂无任务</p>
+              ) : fromSub.tasks.map((t) => (
+                <label key={t.task_id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-100 px-3 py-2 hover:bg-slate-50">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(t.task_id)}
+                    onChange={() => toggleTask(t.task_id)}
+                    className="h-4 w-4 rounded border-slate-300 accent-blue-600"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm text-slate-800">{t.title}</div>
+                    <div className="text-xs text-slate-400">{t.primary_owner} · {STATUS_CONFIG[t.status]?.label ?? t.status}</div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700">目标位置</label>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">一级系统</label>
+                <NativeSelect
+                  value={targetCatId}
+                  onChange={(e) => setTargetCatId(e.target.value)}
+                  className="w-full text-sm"
+                >
+                  <option value="">全部系统</option>
+                  {categories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>{cat.label}</option>
+                  ))}
+                </NativeSelect>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">子项</label>
+                <NativeSelect
+                  value={targetSubId}
+                  onChange={(e) => setTargetSubId(e.target.value)}
+                  className="w-full text-sm"
+                >
+                  <option value="">请选择子项</option>
+                  {targetSubOptions.map(({ cat, sub }) => (
+                    <option key={sub.id} value={sub.id}>{cat.label} / {sub.label}</option>
+                  ))}
+                </NativeSelect>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
+          <button
+            type="button"
+            disabled={saving}
+            onClick={onClose}
+            className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            disabled={saving || selectedIds.size === 0 || !targetSubId}
+            onClick={handleConfirm}
+            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-60"
+          >
+            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
+            确认移动
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+// ─── TaskCompletedCelebration ─────────────────────────────────────────────────
+function TaskCompletedCelebration({ task, onClose }: { task: Task; onClose: () => void }) {
+  const shouldReduceMotion = useReducedMotion();
+  useEffect(() => {
+    const timer = setTimeout(onClose, 4000);
+    return () => clearTimeout(timer);
+  }, [onClose]);
+  return (
+    <motion.div
+      initial={shouldReduceMotion ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={RD_FAST_TRANSITION}
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 20, scale: 0.96 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 20, scale: 0.96 }}
+        transition={RD_PANEL_TRANSITION}
+        className="w-full max-w-sm rounded-2xl bg-white p-8 text-center shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-4 flex justify-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
+            <CheckCircle2 className="h-9 w-9 text-emerald-500" />
+          </div>
+        </div>
+        <h3 className="mb-2 text-xl font-bold text-slate-900">太棒了！</h3>
+        <p className="mb-1 font-semibold text-slate-700">{task.title}</p>
+        <p className="mb-6 text-sm text-slate-500">任务已审核通过并完成</p>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-xl bg-emerald-600 px-6 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
+        >
+          好的
+        </button>
+      </motion.div>
     </motion.div>
   );
 }
@@ -5075,15 +7946,26 @@ export function RDTaskManagementPage() {
   const navigate = useNavigate();
   const canCreateTask = usePermission(PERMISSIONS.RD_TASK_CREATE);
   const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
+  const canReassignTasks = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
+  const canClearData = usePermission(PERMISSIONS.RD_DATA_CLEAR);
+  const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
   const RD_ADMIN_AUDIT_ACTOR = useAuditActor("研发管理员");
   const [showCreate, setShowCreate] = useState(false);
+  const [showReassign, setShowReassign] = useState(false);
+  const [reassignTaskId, setReassignTaskId] = useState<string | null>(null);
+  const [showClearData, setShowClearData] = useState(false);
+  const [showProposalDialog, setShowProposalDialog] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [moveTaskTarget, setMoveTaskTarget] = useState<Task | null>(null);
   const [selectedPersonName, setSelectedPersonName] = useState<string | null>(null);
   const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
   const [peopleProfiles, setPeopleProfiles] = useState<PersonProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [products, setProducts] = useState<ProductDef[]>([]);
+  const [showProductManage, setShowProductManage] = useState(false);
+  const [completedTaskNotice, setCompletedTaskNotice] = useState<Task | null>(null);
   // Page view mode:
   //   "overview" = leadership dashboard (landing)
   //   "board"    = detailed system work view
@@ -5111,10 +7993,19 @@ export function RDTaskManagementPage() {
 
   useEffect(() => {
     loadCategories();
+    fetchRdProducts().then(setProducts).catch(() => {
+      toast.error("产品线数据加载失败，部分功能可能不可用");
+    });
   }, []);
+
+  const handleSaveProducts = async (next: ProductDef[]) => {
+    await saveRdProducts(next);
+    setProducts(next);
+  };
 
   // ── System tree CRUD ─────────────────────────────────────────────────────
   const [treeEditor, setTreeEditor] = useState<SystemTreeEditorRequest | null>(null);
+  const [moveTasks, setMoveTasks] = useState<{ fromCat: Category; fromSub: SubProject } | null>(null);
 
   const handleTreeEditorSubmit = async (label: string) => {
     if (!treeEditor) return;
@@ -5180,7 +8071,7 @@ export function RDTaskManagementPage() {
       auditAction = "sub_project.edited";
       auditResourceId = sub.id;
       auditResourceName = `${category.label} / ${safeLabel}`;
-    } else {
+    } else if (treeEditor.mode === "delete-sub") {
       // delete-sub
       const { category, sub } = treeEditor;
       nextCategories = categories.map((c) =>
@@ -5191,6 +8082,9 @@ export function RDTaskManagementPage() {
       auditAction = "sub_project.deleted";
       auditResourceId = sub.id;
       auditResourceName = `${category.label} / ${sub.label}`;
+    } else {
+      // move-tasks — handled separately via handleTreeEditorRequest, should not reach here
+      return;
     }
 
     try {
@@ -5211,6 +8105,90 @@ export function RDTaskManagementPage() {
       setTreeEditor(null);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "保存失败");
+    }
+  };
+
+  const handleTreeEditorRequest = (req: SystemTreeEditorRequest) => {
+    if (req.mode === "move-tasks") {
+      setMoveTasks({ fromCat: req.fromCategory, fromSub: req.fromSub });
+    } else {
+      setTreeEditor(req);
+    }
+  };
+
+  const handleMoveTasksConfirm = async (taskIds: string[], _targetCatId: string, targetSubId: string) => {
+    const nextCategories = categories.map((cat) => ({
+      ...cat,
+      children: cat.children.map((sub) => {
+        if (sub.id === moveTasks?.fromSub.id) {
+          return { ...sub, tasks: sub.tasks.filter((t) => !taskIds.includes(t.task_id)) };
+        }
+        if (sub.id === targetSubId) {
+          const tasksToMove = (moveTasks?.fromSub.tasks ?? []).filter((t) => taskIds.includes(t.task_id));
+          return { ...sub, tasks: [...sub.tasks, ...tasksToMove] };
+        }
+        return sub;
+      }),
+    }));
+    const saved = await saveRdTaskCategories(nextCategories);
+    setCategories(saved);
+    recordAudit({
+      actor: RD_ADMIN_AUDIT_ACTOR,
+      action: "task.updated",
+      resource: { type: "system", id: targetSubId, name: "移动任务" },
+      comment: `批量移动 ${taskIds.length} 个任务到目标子项`,
+      metadata: { taskIds, targetSubId, fromSubId: moveTasks?.fromSub.id },
+      source: "web",
+    });
+    toast.success(`已移动 ${taskIds.length} 个任务`);
+    setMoveTasks(null);
+  };
+
+  const handleSingleMoveTaskConfirm = async (_targetCatId: string, targetSubId: string) => {
+    const task = moveTaskTarget;
+    if (!task) return;
+    // Find source sub
+    let fromSubId: string | null = null;
+    for (const cat of categories) {
+      for (const sub of cat.children) {
+        if (sub.tasks.some((t) => t.task_id === task.task_id)) { fromSubId = sub.id; break; }
+      }
+      if (fromSubId) break;
+    }
+    // Determine new category_path from target
+    let newPath = task.category_path;
+    for (const cat of categories) {
+      const sub = cat.children.find((s) => s.id === targetSubId);
+      if (sub) { newPath = `${cat.label} / ${sub.label}`; break; }
+    }
+    const nextCategories = categories.map((cat) => ({
+      ...cat,
+      children: cat.children.map((sub) => {
+        if (fromSubId && sub.id === fromSubId) {
+          return { ...sub, tasks: sub.tasks.filter((t) => t.task_id !== task.task_id) };
+        }
+        if (sub.id === targetSubId) {
+          return { ...sub, tasks: [...sub.tasks, { ...task, category_path: newPath }] };
+        }
+        return sub;
+      }),
+    }));
+    try {
+      const saved = await saveRdTaskCategories(nextCategories);
+      setCategories(saved);
+      setSelectedTask((prev) => prev && prev.task_id === task.task_id ? { ...prev, category_path: newPath } : prev);
+      recordAudit({
+        actor: RD_ADMIN_AUDIT_ACTOR,
+        action: "task.updated",
+        resource: { type: "task", id: task.task_id, name: task.title },
+        changes: [{ field: "category_path", before: task.category_path, after: newPath }],
+        comment: `手动调整任务类目 → ${newPath}`,
+        source: "web",
+      });
+      toast.success(`任务已移动到 ${newPath}`);
+      setMoveTaskTarget(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "移动失败，请重试");
     }
   };
 
@@ -5246,7 +8224,17 @@ export function RDTaskManagementPage() {
     setSelectedCatId(catId);
     setMode("board");
   };
-  const allTasks = useMemo(() => flattenTasks(categories.flatMap((c) => c.children.flatMap((s) => s.tasks))), [categories]);
+  const allTasks = useMemo(() => {
+    const tasks = flattenTasks(categories.flatMap((c) => c.children.flatMap((s) => s.tasks)));
+    // 按更新时间倒序排列，最新变更的任务排最前
+    return tasks.sort((a, b) => {
+      const ta = a.updated_at ?? "";
+      const tb = b.updated_at ?? "";
+      if (tb > ta) return 1;
+      if (tb < ta) return -1;
+      return 0;
+    });
+  }, [categories]);
   const totalActive = useMemo(() => allTasks.filter((t) => !t.archived).length, [allTasks]);
   const pendingAssign = useMemo(() => allTasks.filter((t) => t.status === "pending_assign").length, [allTasks]);
   const averageProgress = useMemo(() => {
@@ -5327,8 +8315,10 @@ export function RDTaskManagementPage() {
       <TooltipProvider delayDuration={150}>
         <ExecutiveOverview
           catStats={catStats}
+          products={products}
           risks={risks}
           personLoads={personLoads}
+          allTasks={allTasks}
           onSelectSystem={enterBoard}
           onSelectTask={setSelectedTask}
           onSelectPerson={openPersonDetail}
@@ -5336,6 +8326,17 @@ export function RDTaskManagementPage() {
           loading={loading}
           loadError={loadError}
           onRefresh={loadCategories}
+          onCreateTask={canCreateTask ? () => setShowCreate(true) : undefined}
+          onReassign={canReassignTasks ? () => { setReassignTaskId(null); setShowReassign(true); } : undefined}
+          onClearData={canClearData ? () => setShowClearData(true) : undefined}
+          onAiProject={canDirectProject ? () => setShowProposalDialog(true) : undefined}
+          canCreateTask={canCreateTask}
+          canReassign={canReassignTasks}
+          canClearData={canClearData}
+          canDirectProject={canDirectProject}
+          onReassignTask={(task) => { setReassignTaskId(task.task_id); setShowReassign(true); }}
+          onManageProducts={canCreateTask ? () => setShowProductManage(true) : undefined}
+          canManageProducts={canCreateTask}
         />
         <AnimatePresence>
           {selectedTask && (
@@ -5347,6 +8348,23 @@ export function RDTaskManagementPage() {
                 setSelectedTask(null);
                 openPersonDetail(name);
               }}
+              onDescriptionUpdated={(taskId, description) => {
+                setSelectedTask((prev) => prev && prev.task_id === taskId ? { ...prev, description } : prev);
+              }}
+              onTaskCompleted={(completedTask) => {
+                setSelectedTask(null);
+                setCompletedTaskNotice(completedTask);
+                loadCategories();
+              }}
+              onMoveTask={() => setMoveTaskTarget(selectedTask)}
+              people={peopleProfiles}
+            />
+          )}
+          {completedTaskNotice && (
+            <TaskCompletedCelebration
+              key="completed-notice"
+              task={completedTaskNotice}
+              onClose={() => setCompletedTaskNotice(null)}
             />
           )}
           {selectedPersonName && (
@@ -5362,7 +8380,53 @@ export function RDTaskManagementPage() {
               }}
             />
           )}
+          {showReassign && (
+            <TaskReassignModal
+              initialTaskId={reassignTaskId}
+              allTasks={allTasks}
+              onClose={() => { setShowReassign(false); setReassignTaskId(null); }}
+              onUpdated={loadCategories}
+            />
+          )}
+          {showClearData && (
+            <ClearDataDialog
+              onClose={() => setShowClearData(false)}
+              onCleared={() => { setShowClearData(false); loadCategories(); }}
+            />
+          )}
+          {moveTaskTarget && (
+            <MoveTaskDialog
+              key={`move-task-${moveTaskTarget.task_id}`}
+              task={moveTaskTarget}
+              categories={categories}
+              onConfirm={handleSingleMoveTaskConfirm}
+              onClose={() => setMoveTaskTarget(null)}
+            />
+          )}
         </AnimatePresence>
+        {showProposalDialog && (
+          <RDProjectProposalDialog
+            open={showProposalDialog}
+            onClose={() => setShowProposalDialog(false)}
+            onCompleted={() => { setShowProposalDialog(false); loadCategories(); }}
+            userRole="admin"
+          />
+        )}
+        {showCreate && canCreateTask && (
+          <AiCreatePanel
+            categories={categories}
+            peopleProfiles={peopleProfiles}
+            personLoads={personLoads}
+            onCreated={loadCategories}
+            onClose={() => setShowCreate(false)}
+          />
+        )}
+        <ProductManageDialog
+          open={showProductManage}
+          products={products}
+          onClose={() => setShowProductManage(false)}
+          onSave={handleSaveProducts}
+        />
       </TooltipProvider>
     );
   }
@@ -5412,7 +8476,7 @@ export function RDTaskManagementPage() {
           totalRisks={risks.length}
           allRisks={risks}
           canManageTree={canCreateTask}
-          onRequestEditor={setTreeEditor}
+          onRequestEditor={handleTreeEditorRequest}
         />
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -5449,18 +8513,18 @@ export function RDTaskManagementPage() {
                     onOpen={setSelectedTask}
                   />
 
-                  <div className="grid grid-cols-1 items-stretch gap-5 lg:grid-cols-5">
+                  <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.75fr)]">
                     <RiskHotspot
                       risks={risks}
                       totalTasks={totalActive}
                       onSelectTask={setSelectedTask}
-                      className="lg:col-span-3"
+                      className="min-w-0"
                       title="需要决策"
                       subtitle="按严重度排序 · 点击查看详情"
                     />
                     <PersonLoadPanel
                       loads={personLoads}
-                      className="lg:col-span-2"
+                      className="min-w-0"
                       onManage={canManagePeople ? () => navigate("/rd-people-management") : undefined}
                       onSelectPerson={openPersonDetail}
                     />
@@ -5490,18 +8554,18 @@ export function RDTaskManagementPage() {
                   )}
 
                   {/* Decision focus: risks + scoped people */}
-                  <div className="grid gap-5 lg:grid-cols-5">
+                  <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.75fr)]">
                     <RiskHotspot
                       risks={scopedRisks}
                       totalTasks={detailActiveTasks.length}
                       onSelectTask={setSelectedTask}
-                      className="lg:col-span-3"
+                      className="min-w-0"
                       title={selectedLabel ? `${selectedLabel} · 需要决策` : "需要决策"}
                       subtitle="按严重度排序 · 点击查看详情"
                     />
                     <PersonLoadPanel
                       loads={computeScopedPersonLoads(selectedSub ?? selectedCategory)}
-                      className="lg:col-span-2"
+                      className="min-w-0"
                       onSelectPerson={openPersonDetail}
                     />
                   </div>
@@ -5539,6 +8603,16 @@ export function RDTaskManagementPage() {
               onSubmit={handleTreeEditorSubmit}
             />
           )}
+          {moveTasks && (
+            <MoveTasksDialog
+              key="move-tasks"
+              fromCategory={moveTasks.fromCat}
+              fromSub={moveTasks.fromSub}
+              categories={categories}
+              onConfirm={handleMoveTasksConfirm}
+              onClose={() => setMoveTasks(null)}
+            />
+          )}
         </AnimatePresence>
         <AnimatePresence>
           {selectedTask && (
@@ -5550,6 +8624,23 @@ export function RDTaskManagementPage() {
                 setSelectedTask(null);
                 openPersonDetail(name);
               }}
+              onDescriptionUpdated={(taskId, description) => {
+                setSelectedTask((prev) => prev && prev.task_id === taskId ? { ...prev, description } : prev);
+              }}
+              onTaskCompleted={(completedTask) => {
+                setSelectedTask(null);
+                setCompletedTaskNotice(completedTask);
+                loadCategories();
+              }}
+              onMoveTask={() => setMoveTaskTarget(selectedTask)}
+              people={peopleProfiles}
+            />
+          )}
+          {completedTaskNotice && (
+            <TaskCompletedCelebration
+              key="completed-notice-board"
+              task={completedTaskNotice}
+              onClose={() => setCompletedTaskNotice(null)}
             />
           )}
           {selectedPersonName && (
@@ -5563,6 +8654,15 @@ export function RDTaskManagementPage() {
                 setSelectedPersonName(null);
                 setSelectedTask(task);
               }}
+            />
+          )}
+          {moveTaskTarget && (
+            <MoveTaskDialog
+              key={`move-task-${moveTaskTarget.task_id}`}
+              task={moveTaskTarget}
+              categories={categories}
+              onConfirm={handleSingleMoveTaskConfirm}
+              onClose={() => setMoveTaskTarget(null)}
             />
           )}
         </AnimatePresence>

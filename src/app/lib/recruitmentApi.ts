@@ -313,6 +313,7 @@ export interface OpenAiConfigItem {
   name: string;
   model: string;
   enabled: boolean;
+  usage_kind?: string;
   created_at: string;
   updated_at: string;
 }

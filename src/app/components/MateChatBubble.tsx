@@ -44,7 +44,7 @@ type ApiMessage = {
   createdAt: string;
 };
 
-type ModelOption = { id: string; label: string; provider: string; model: string };
+type ModelOption = { id: string; label: string; provider: string; model: string; usage_kind?: string };
 
 type SseEvent =
   | { type: "userMessage"; messageId: string }
@@ -147,7 +147,14 @@ async function apiDeleteMessage(msgId: string): Promise<void> {
 async function apiListModels(): Promise<ModelOption[]> {
   const res = await authFetch("/api/chat/models");
   if (!res.ok) return [];
-  return res.json() as Promise<ModelOption[]>;
+  const all = (await res.json()) as ModelOption[];
+  // 图片生成模型不支持对话（后端已过滤，前端再加一层防护）
+  return all.filter((m) => {
+    if (m.usage_kind === "image") return false;
+    if (m.usage_kind && m.usage_kind !== "auto") return true;
+    const n = m.model.toLowerCase();
+    return !(n.includes("gpt-image") || n.includes("image-to-image") || n === "dall-e-2" || n.startsWith("dall-e-"));
+  });
 }
 
 // ─── 主组件 ───────────────────────────────────────────────────────────────────

@@ -1,10 +1,10 @@
-import React, { useMemo, useState } from "react";
-import { Bell, ChevronDown, LogOut, MessageSquareText, Search, Settings, ShieldCheck, UserRound } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Bell, ChevronDown, LogOut, MessageSquareText, Search, Settings, UserRound } from "lucide-react";
 import { useLocation, useNavigate } from "react-router";
 import { getRoleLabel, useAuth } from "../auth";
 import { routeTitleMap } from "../routesConfig";
 import { useUserAvatar } from "../lib/userAvatar";
-import { hasPermission, PERMISSIONS } from "../lib/permissions";
+import { fetchRdMessages, patchRdMessage, type RdMessage } from "../lib/rdApi";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import {
   DropdownMenu,
@@ -14,11 +14,23 @@ import {
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu";
 
-const notifications = [
-  "OC-10 注册项目已 3 天未更新，请跟进负责人。",
-  "文件《文件控制程序》已更新至 V3.2，请提醒替换旧版。",
-  "员工罗成的劳动合同将在 13 天后到期。",
-];
+/** Parse the message body to a human-readable summary line. */
+function getMsgSummary(msg: RdMessage): string {
+  try {
+    const b = JSON.parse(msg.body) as Record<string, unknown>;
+    if (b.type === "review_request") {
+      const reviewType = b.review_type === "collaboration" ? "协作申请" : "成果提交";
+      return `【${reviewType}】${String(b.submitter_name ?? "")} 提交了任务「${String(b.task_title ?? "")}」`;
+    }
+    if (b.type === "review_result") {
+      const resultLabel = b.result === "approved" ? "✅ 已批准" : "❌ 已打回";
+      return `${resultLabel} 任务「${String(b.task_title ?? "")}」`;
+    }
+  } catch {
+    // fallthrough
+  }
+  return msg.subject ?? msg.body.slice(0, 60);
+}
 
 function resolveRouteTitle(pathname: string) {
   const directTitle = routeTitleMap[pathname];
@@ -37,8 +49,49 @@ export function Header() {
   const { user, logout } = useAuth();
   const avatar = useUserAvatar(user?.id);
   const [open, setOpen] = useState(false);
+  const [rdMessages, setRdMessages] = useState<RdMessage[]>([]);
+  const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const today = new Date().toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" });
-  const canOpenSettings = user ? hasPermission(user.permissions, PERMISSIONS.PAGE_SETTINGS) : false;
+
+  const loadRdMessages = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const data = await fetchRdMessages({ recipient_id: user.id, limit: 50 });
+      setRdMessages(data.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+      window.dispatchEvent(new CustomEvent("rd:messages-updated"));
+    } catch {
+      // silent — header should not disrupt UX on failure
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    void loadRdMessages();
+    // Poll every 60s for new messages
+    pollRef.current = setInterval(() => { void loadRdMessages(); }, 60_000);
+    // Immediately refresh when a review is submitted from any page
+    const onReviewSubmitted = () => { void loadRdMessages(); };
+    window.addEventListener('rd:review-submitted', onReviewSubmitted);
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+      window.removeEventListener('rd:review-submitted', onReviewSubmitted);
+    };
+  }, [loadRdMessages]);
+
+  useEffect(() => {
+    if (!open) return;
+    const timer = window.setTimeout(() => setOpen(false), 3_000);
+    return () => window.clearTimeout(timer);
+  }, [open]);
+
+  const markMessageRead = useCallback((messageId: string) => {
+    setRdMessages((prev) => prev.map((item) => (item.id === messageId ? { ...item, read: true } : item)));
+    void patchRdMessage(messageId, { read: true })
+      .then(() => window.dispatchEvent(new CustomEvent("rd:messages-updated")))
+      .catch(() => {});
+  }, []);
+
+  const unreadCount = useMemo(() => rdMessages.filter((m) => !m.read).length, [rdMessages]);
+  const previewMessages = useMemo(() => rdMessages.slice(0, 5), [rdMessages]);
 
   const title = useMemo(() => resolveRouteTitle(location.pathname), [location.pathname]);
   const breadcrumb = useMemo(
@@ -46,7 +99,7 @@ export function Header() {
     [location.pathname, title],
   );
   return (
-    <header className="relative border-b border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.82),rgba(255,255,255,0.72))] px-6 py-4 backdrop-blur-xl">
+    <header className="relative z-40 border-b border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.82),rgba(255,255,255,0.72))] px-6 py-4 backdrop-blur-xl">
       <div className="flex flex-col gap-4 min-[1680px]:flex-row min-[1680px]:items-center min-[1680px]:justify-between">
         <div className="flex min-w-0 items-start gap-4">
           <div className="hidden h-14 w-1 rounded-full bg-[linear-gradient(180deg,#42a5f5_0%,#1976d2_100%)] min-[1680px]:block" />
@@ -84,7 +137,11 @@ export function Header() {
               aria-label="打开通知预览"
             >
               <Bell className="h-5 w-5" />
-              <span className="absolute right-2 top-2 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white" />
+              {unreadCount > 0 && (
+                <span className="absolute right-2 top-2 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white ring-2 ring-white">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
             </button>
 
             <DropdownMenu>
@@ -120,12 +177,6 @@ export function Header() {
                   <MessageSquareText className="h-4 w-4" />
                   <span>消息中心</span>
                 </DropdownMenuItem>
-                {canOpenSettings ? (
-                  <DropdownMenuItem className="cursor-pointer rounded-xl px-3 py-2.5 text-slate-700 focus:bg-blue-50 focus:text-blue-700" onSelect={() => navigate("/settings")}>
-                    <ShieldCheck className="h-4 w-4" />
-                    <span>账号与系统设置</span>
-                  </DropdownMenuItem>
-                ) : null}
                 <DropdownMenuSeparator className="bg-slate-100" />
                 <DropdownMenuItem
                   className="cursor-pointer rounded-xl px-3 py-2.5 text-red-600 focus:bg-red-50 focus:text-red-700"
@@ -144,14 +195,49 @@ export function Header() {
       </div>
 
       {open ? (
-        <div className="absolute right-3 top-full z-20 mt-2 w-[min(360px,calc(100vw-24px))] rounded-[18px] border border-slate-200 bg-white/96 p-4 shadow-[0_18px_36px_rgba(15,23,42,0.14)] backdrop-blur-xl md:right-6 md:rounded-[24px]">
-          <div className="mb-3 text-sm font-semibold text-slate-900">系统通知</div>
-          <div className="space-y-3">
-            {notifications.map((item) => (
-              <div key={item} className="rounded-2xl bg-slate-50/80 px-4 py-3 text-sm leading-6 text-slate-600">
-                {item}
-              </div>
-            ))}
+        <div className="absolute right-3 top-full z-[90] mt-2 w-[min(380px,calc(100vw-24px))] rounded-[18px] border border-slate-200 bg-white/98 p-4 shadow-[0_24px_54px_rgba(15,23,42,0.18)] backdrop-blur-xl md:right-6 md:rounded-[24px]">
+          <div className="mb-3 flex items-center justify-between">
+            <span className="text-sm font-semibold text-slate-900">
+              消息通知
+              {unreadCount > 0 && (
+                <span className="ml-2 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                  {unreadCount}
+                </span>
+              )}
+            </span>
+          </div>
+          <div className="space-y-2">
+            {previewMessages.length === 0 ? (
+              <div className="py-4 text-center text-sm text-slate-400">暂无消息</div>
+            ) : (
+              previewMessages.map((msg) => (
+                <button
+                  type="button"
+                  key={msg.id}
+                  onClick={() => {
+                    markMessageRead(msg.id);
+                    setOpen(false);
+                    navigate("/message-center");
+                  }}
+                  className="flex w-full cursor-pointer items-start gap-2 rounded-2xl bg-slate-50/80 px-4 py-3 text-left text-sm leading-6 text-slate-600 transition hover:bg-blue-50/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+                >
+                  <span
+                    className={[
+                      "mt-1.5 inline-flex h-5 shrink-0 items-center rounded-full px-1.5 text-[10px] font-semibold leading-none",
+                      msg.read ? "bg-slate-100 text-slate-500" : "bg-red-50 text-red-600 ring-1 ring-red-100",
+                    ].join(" ")}
+                  >
+                    {msg.read ? "已读" : "未读"}
+                  </span>
+                  <span className={msg.read ? "min-w-0 flex-1 text-slate-500" : "min-w-0 flex-1 font-medium text-slate-800"}>
+                    {getMsgSummary(msg)}
+                  </span>
+                  {!msg.read ? (
+                    <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-red-500" aria-hidden="true" />
+                  ) : null}
+                </button>
+              ))
+            )}
           </div>
           <button
             type="button"
@@ -161,7 +247,7 @@ export function Header() {
             }}
             className="mt-3 w-full cursor-pointer rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100"
           >
-            查看消息中心
+            查看全部消息
           </button>
         </div>
       ) : null}

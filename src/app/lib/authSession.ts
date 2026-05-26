@@ -1,6 +1,7 @@
 export type AuthUser = {
   id: string;
   name: string;
+  username: string | null;
   email: string;
   roleId: string | null;
   roleName: string | null;
@@ -30,6 +31,8 @@ const AUTH_CLEARED_EVENT = "inogi-auth-cleared";
 let refreshPromise: Promise<AuthSession | null> | null = null;
 let loginPublicKeyPromise: Promise<CryptoKey> | null = null;
 
+const TRANSIENT_API_RETRY_DELAYS_MS = [300, 700, 1500, 3000];
+
 function getStorage() {
   if (typeof window === "undefined") return null;
   return window.localStorage;
@@ -45,6 +48,40 @@ function createHeaders(headersInit?: HeadersInit, body?: BodyInit | null) {
     headers.set("Content-Type", "application/json");
   }
   return headers;
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function shouldRetryTransientApiFailure(response: Response) {
+  return [500, 502, 503, 504].includes(response.status);
+}
+
+function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === "AbortError";
+}
+
+async function fetchWithTransientRetry(url: string, init: RequestInit) {
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt <= TRANSIENT_API_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      const response = await fetch(url, init);
+      if (!shouldRetryTransientApiFailure(response) || attempt === TRANSIENT_API_RETRY_DELAYS_MS.length) {
+        return response;
+      }
+    } catch (error) {
+      if (isAbortError(error) || attempt === TRANSIENT_API_RETRY_DELAYS_MS.length) {
+        throw error;
+      }
+      lastError = error;
+    }
+
+    await delay(TRANSIENT_API_RETRY_DELAYS_MS[attempt]);
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("API request failed");
 }
 
 function pemToArrayBuffer(pem: string) {
@@ -220,7 +257,7 @@ export async function readErrorMessage(response: Response, fallback: string) {
 }
 
 export async function apiFetch(path: string, init: RequestInit = {}) {
-  return fetch(getApiUrl(path), {
+  return fetchWithTransientRetry(getApiUrl(path), {
     ...init,
     headers: createHeaders(init.headers, init.body),
   });
@@ -268,7 +305,7 @@ export async function authFetch(path: string, init: RequestInit = {}, retry = tr
     headers.set("Authorization", `Bearer ${accessToken}`);
   }
 
-  let response = await fetch(getApiUrl(path), {
+  let response = await fetchWithTransientRetry(getApiUrl(path), {
     ...init,
     headers,
   });
@@ -286,7 +323,7 @@ export async function authFetch(path: string, init: RequestInit = {}, retry = tr
   }
 
   headers.set("Authorization", `Bearer ${refreshedSession.accessToken}`);
-  response = await fetch(getApiUrl(path), {
+  response = await fetchWithTransientRetry(getApiUrl(path), {
     ...init,
     headers,
   });

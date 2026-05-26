@@ -529,12 +529,18 @@ export function RoleManagement() {
             )}
           </p>
         </DialogContent>
-        <DialogActions>
-          <button className="material-button-secondary" onClick={closeDialog} disabled={saving}>
+        <DialogActions className="!gap-3 !px-6 !py-4">
+          <button
+            type="button"
+            className="material-button-secondary min-w-[104px] disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={closeDialog}
+            disabled={saving}
+          >
             取消
           </button>
           <button
-            className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+            type="button"
+            className="material-button-danger min-w-[104px]"
             onClick={() => void handleDeleteRole()}
             disabled={saving || (selectedRole?._count?.users ?? 0) > 0}
           >

@@ -36,6 +36,7 @@ import type {
   WeComSyncStatus,
 } from './expense.types';
 import { UploadExpenseOcrFilesDto } from './dto/upload-expense-ocr-files.dto';
+import { OssService } from '../oss/oss.service';
 
 type UploadedExpenseFile = {
   originalname: string;
@@ -100,6 +101,7 @@ export class ExpenseService {
     private readonly prisma: PrismaService,
     private readonly secureConfigService: SecureConfigService,
     private readonly configService: ConfigService,
+    private readonly ossService: OssService,
   ) {}
 
   async listInvoices(query: ListExpenseInvoicesQueryDto) {
@@ -615,6 +617,17 @@ export class ExpenseService {
       ocrMode === 'manual' ? payload.ocr_service_key : undefined,
       'invoice',
     );
+
+    // 上传原始文件到 OSS（非阻塞，失败不影响主流程）
+    const invoiceObjectKey = await this.ossService.uploadBuffer(
+      file.buffer,
+      'expense/invoices',
+      file.originalname,
+      file.mimetype,
+    );
+    const fileUrl = invoiceObjectKey ? this.ossService.getSignedUrl(invoiceObjectKey, 30 * 24 * 3600) : null;
+    if (fileUrl) baseInvoice.file_url = fileUrl;
+
     const config = await this.getResolvedIntegrationConfig();
     if (!this.hasTencentConfig(config)) {
       const next: ExpenseInvoiceValue = {
@@ -688,6 +701,16 @@ export class ExpenseService {
       ocrMode === 'manual' ? payload.ocr_service_key : undefined,
       'voucher',
     );
+
+    // 上传原始文件到 OSS（非阻塞，失败不影响主流程）
+    const voucherObjectKey = await this.ossService.uploadBuffer(
+      file.buffer,
+      'expense/vouchers',
+      file.originalname,
+      file.mimetype,
+    );
+    const fileUrl = voucherObjectKey ? this.ossService.getSignedUrl(voucherObjectKey, 30 * 24 * 3600) : null;
+
     const baseVoucher: ExpenseVoucherValue = {
       id: this.newBusinessId('VOU'),
       voucher_no: `待识别-${now.getTime()}`,
@@ -705,6 +728,7 @@ export class ExpenseService {
       ocr_service_label: service?.label,
       ocr_action: service?.action,
       manual_review_required: true,
+      ...(fileUrl ? { file_url: fileUrl } : {}),
     };
     const config = await this.getResolvedIntegrationConfig();
     if (!this.hasTencentConfig(config)) {

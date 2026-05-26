@@ -6,6 +6,7 @@ import { randomUUID } from 'node:crypto';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecureConfigService } from '../security/secure-config.service';
+import { OssService } from '../oss/oss.service';
 import { EditImageDto } from './dto/edit-image.dto';
 import { GenerateImageDto } from './dto/generate-image.dto';
 import { CreatePromptChatSessionDto, PromptChatDto } from './dto/prompt-chat.dto';
@@ -106,6 +107,7 @@ export class ImageGenerationService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly secureConfigService: SecureConfigService,
+    private readonly ossService: OssService,
   ) {}
 
   // ── 生成图片（优先命中缓存）────────────────────────────────────────────────
@@ -135,6 +137,8 @@ export class ImageGenerationService {
           size,
           quality: storedQuality,
           imageData: cached.imageData,
+          // 缓存命中时直接复用已有 OSS URL（若有）
+          imageUrl: cached.imageUrl || '',
           model: cached.model,
           requestId,
           parentImageId: null,
@@ -158,6 +162,10 @@ export class ImageGenerationService {
           } as Prisma.InputJsonValue,
         },
       });
+      // 若缓存源无 OSS URL，异步上传并更新
+      if (!savedFromCache.imageUrl) {
+        void this.uploadAndSaveImageUrl(savedFromCache.id, savedFromCache.imageData);
+      }
       return { ...this.toResponse(savedFromCache), fromCache: true, similarity: cached._similarity };
     }
 
@@ -217,7 +225,9 @@ export class ImageGenerationService {
       },
     });
 
-    return { ...this.toResponse(saved), fromCache: false, similarity: 0 };
+    // 5. 上传到 OSS（同步完成后写回 imageUrl，确保响应中携带 URL）
+    const imageUrl = await this.uploadAndSaveImageUrl(saved.id, imageData);
+    return { ...this.toResponse({ ...saved, imageUrl: imageUrl ?? '' }), fromCache: false, similarity: 0 };
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -429,7 +439,7 @@ export class ImageGenerationService {
       ...this.buildCreatedAtFilter(dateFrom, dateTo),
       ...this.buildImageSearchFilter(query),
     };
-    const [total, items] = await Promise.all([
+    const [total, rawItems] = await Promise.all([
       this.prisma.generatedImage.count({ where }),
       this.prisma.generatedImage.findMany({
         where,
@@ -443,7 +453,9 @@ export class ImageGenerationService {
           style: true,
           size: true,
           quality: true,
+          // 有 imageUrl 时不返回 imageData，减少响应体积
           imageData: true,
+          imageUrl: true,
           model: true,
           isFavorite: true,
           requestId: true,
@@ -466,6 +478,20 @@ export class ImageGenerationService {
         },
       }),
     ]);
+
+    // imageUrl 字段存的是 objectKey（私有 Bucket）；响应时转为 10 分钟签名 URL。
+    // 旧数据 imageUrl 为 http(s) URL 时原样返回（兼容历史记录）。
+    const items = rawItems.map((item) => {
+      const resolvedUrl = item.imageUrl
+        ? (item.imageUrl.startsWith('http') ? item.imageUrl : this.ossService.getSignedUrl(item.imageUrl, 600))
+        : null;
+      return {
+        ...item,
+        imageUrl: resolvedUrl,
+        imageData: resolvedUrl ? undefined : item.imageData,
+      };
+    });
+
     return {
       total,
       page: normalizedPage,
@@ -723,6 +749,8 @@ export class ImageGenerationService {
           } as Prisma.InputJsonValue,
         },
       });
+      // 上传编辑结果到 OSS
+      const editedImageUrl = await this.uploadAndSaveImageUrl(saved.id, imageData);
 
       await this.prisma.imageEditMessage.create({
         data: {
@@ -750,7 +778,7 @@ export class ImageGenerationService {
       });
 
       return {
-        ...this.toResponse(saved),
+        ...this.toResponse({ ...saved, imageUrl: editedImageUrl ?? saved.imageUrl ?? '' }),
         fromCache: false,
         similarity: 0,
         conversation: await this.getImageConversation(userId, saved.id),
@@ -808,6 +836,29 @@ export class ImageGenerationService {
     return img;
   }
 
+  /**
+   * 将 base64 imageData 上传到 OSS，将 objectKey 存入 DB 的 imageUrl 字段，返回签名 URL（失败返回 null）。
+   * DB 中存 objectKey（非 URL），通过 getSignedUrl 在响应层按需生成可访问链接。
+   */
+  private async uploadAndSaveImageUrl(id: string, imageData: string): Promise<string | null> {
+    if (!this.ossService.isEnabled) return null;
+    try {
+      const match = imageData.match(/^data:(image\/(?:png|jpeg|webp));base64,(.+)$/i);
+      if (!match) return null;
+      const mimeType = match[1].toLowerCase();
+      const ext = mimeType === 'image/png' ? '.png' : mimeType === 'image/webp' ? '.webp' : '.jpg';
+      const buffer = Buffer.from(match[2], 'base64');
+      const objectKey = await this.ossService.uploadBuffer(buffer, 'images/generated', `${id}${ext}`, mimeType);
+      if (objectKey) {
+        await this.prisma.generatedImage.update({ where: { id }, data: { imageUrl: objectKey } });
+      }
+      return objectKey ? this.ossService.getSignedUrl(objectKey, 600) : null;
+    } catch (err) {
+      this.logger.warn(`uploadAndSaveImageUrl failed for ${id}: ${this.getErrorMessage(err)}`);
+      return null;
+    }
+  }
+
   private generatedImageResponseSelect() {
     return {
       id: true,
@@ -817,6 +868,7 @@ export class ImageGenerationService {
       size: true,
       quality: true,
       imageData: true,
+      imageUrl: true,
       model: true,
       isFavorite: true,
       requestId: true,
@@ -1760,6 +1812,7 @@ export class ImageGenerationService {
     size: string;
     quality: string;
     imageData: string;
+    imageUrl?: string | null;
     model: string;
     isFavorite: boolean;
     requestId?: string | null;
@@ -1787,7 +1840,10 @@ export class ImageGenerationService {
       style: img.style,
       size: img.size,
       quality: img.quality,
-      imageData: img.imageData,
+      imageData: img.imageUrl ? undefined : img.imageData,
+      imageUrl: img.imageUrl
+        ? (img.imageUrl.startsWith('http') ? img.imageUrl : this.ossService.getSignedUrl(img.imageUrl, 600))
+        : null,
       model: img.model,
       isFavorite: img.isFavorite,
       requestId: img.requestId ?? null,

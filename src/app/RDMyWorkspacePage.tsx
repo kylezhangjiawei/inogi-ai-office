@@ -7,7 +7,7 @@ import {
   CalendarClock,
   Check,
   CheckCircle2,
-  CheckSquare,
+  ChevronDown,
   ChevronRight,
   CircleDot,
   ClipboardCheck,
@@ -32,18 +32,21 @@ import { NativeSelect } from "./components/ui/native-select";
 import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
 import { usePermission } from "./hooks/usePermission";
+import { useAuth } from "./auth";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
 import { AuditTimeline } from "./RDAuditTimeline";
 import { AuditActor, recordAudit, useAuditActor, useAuditLogs } from "./lib/auditLog";
 import { PERMISSIONS } from "./lib/permissions";
 import {
   assessRdTaskProgress,
-  createRdDailyReport,
   createRdTaskProgressNote,
+  fetchRdPeople,
   fetchRdWorkspace,
+  patchRdMessage,
   updateRdTask,
   type RdAiProgressAssessment,
-  type RdDailyReport,
+  type RdCollaborator,
+  type RdPersonLoad,
   type RdPriority,
   type RdTaskStatus,
   type RdWorkspacePayload,
@@ -62,7 +65,7 @@ type AiSuggestion = RdAiSuggestion;
 type WorkspaceNotification = RdWorkspaceNotification;
 
 type ActivePanel =
-  | { kind: "task"; task: WorkspaceTask; tab: OperationTab }
+  | { kind: "task"; task: WorkspaceTask; tab: OperationTab; openedAt: number }
   | { kind: "ai"; suggestion: AiSuggestion; regenerated?: boolean }
   | { kind: "notification"; notification: WorkspaceNotification };
 
@@ -87,7 +90,7 @@ type ConfirmDialogConfig = {
   cancelLabel?: string;
   tone?: "primary" | "danger";
   details?: string[];
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
 };
 
 const TODAY_LABEL = new Date().toISOString().split("T")[0]!;
@@ -102,6 +105,12 @@ function workspaceDaysUntil(dateStr?: string): number | null {
   if (Number.isNaN(target.getTime())) return null;
   const today = new Date(`${TODAY_LABEL}T00:00:00`);
   return Math.round((target.getTime() - today.getTime()) / 86400000);
+}
+
+function clampProgressValue(value: number): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return 0;
+  return Math.max(0, Math.min(100, Math.round(numeric)));
 }
 
 function workspaceTaskMatches(
@@ -129,6 +138,23 @@ function workspaceTaskMatches(
     task.status_label,
     task.next_action,
   ].some((value) => value?.toLowerCase().includes(keyword));
+}
+
+function rdPersonOptionValue(person: RdPersonLoad): string {
+  return person.user_id ? `user:${person.user_id}` : `person:${person.id}`;
+}
+
+function collaboratorOptionValue(collaborator: RdCollaborator): string {
+  return collaborator.user_id ? `user:${collaborator.user_id}` : `person:${collaborator.id || collaborator.name}`;
+}
+
+function personToCollaborator(person: RdPersonLoad): RdCollaborator {
+  return {
+    id: person.user_id ?? person.id,
+    name: person.name,
+    user_id: person.user_id ?? null,
+    role: "协作人",
+  };
 }
 
 const EMPTY_WORKSPACE: RdWorkspacePayload<WorkspaceTask, AiSuggestion, WorkspaceNotification> = {
@@ -220,31 +246,6 @@ function SectionCard({
   );
 }
 
-function WorkspaceMetric({
-  label,
-  value,
-  helper,
-  icon: Icon,
-  tone,
-}: {
-  label: string;
-  value: string | number;
-  helper: string;
-  icon: React.ComponentType<{ className?: string }>;
-  tone: string;
-}) {
-  return (
-    <div className="rounded-xl border border-white bg-white/75 px-4 py-3 shadow-[0_12px_30px_rgba(15,23,42,0.04)]">
-      <div className="mb-2 flex items-center justify-between">
-        <span className="text-xs font-medium text-slate-500">{label}</span>
-        <Icon className={cn("h-4 w-4", tone)} />
-      </div>
-      <div className="text-2xl font-semibold leading-none tabular-nums text-slate-950">{value}</div>
-      <div className="mt-1 text-xs text-slate-400">{helper}</div>
-    </div>
-  );
-}
-
 function ActionButton({
   children,
   onClick,
@@ -288,10 +289,18 @@ function ConfirmActionModal({
   const shouldReduceMotion = useReducedMotion();
   const isDanger = config.tone === "danger";
   const Icon = isDanger ? AlertTriangle : ShieldCheck;
+  const [confirming, setConfirming] = useState(false);
 
-  const confirm = () => {
-    config.onConfirm();
-    onCancel();
+  const confirm = async () => {
+    if (confirming) return;
+    setConfirming(true);
+    try {
+      await config.onConfirm();
+      onCancel();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "操作失败，请重试");
+      setConfirming(false);
+    }
   };
 
   return (
@@ -357,15 +366,16 @@ function ConfirmActionModal({
           <button
             type="button"
             onClick={confirm}
+            disabled={confirming}
             className={cn(
-              "inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-all duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2",
+              "inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-all duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-60",
               isDanger
                 ? "bg-red-600 hover:bg-red-700 focus-visible:ring-red-200"
                 : "bg-blue-600 hover:bg-blue-700 focus-visible:ring-blue-200",
             )}
           >
-            <CheckCircle2 className="h-3.5 w-3.5" />
-            {config.confirmLabel}
+            {confirming ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+            {confirming ? "处理中..." : config.confirmLabel}
           </button>
         </div>
       </motion.div>
@@ -537,6 +547,8 @@ function TaskOperationDrawer({
   onProgressSave,
   onLog,
   onRequestConfirm,
+  onSubmittedForReview,
+  onCollaborationChanged,
 }: {
   task: WorkspaceTask;
   initialTab: OperationTab;
@@ -544,19 +556,64 @@ function TaskOperationDrawer({
   onProgressSave: (taskId: string, progress: number) => void | Promise<void>;
   onLog: (message: string) => void;
   onRequestConfirm: (config: ConfirmDialogConfig) => void;
+  onSubmittedForReview: (taskId: string) => void | Promise<void>;
+  onCollaborationChanged: (taskId: string, collaborators: RdCollaborator[], status?: TaskStatus) => void | Promise<void>;
 }) {
   const WORKSPACE_AUDIT_ACTOR = useAuditActor("研发成员");
+  const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
+  const canReviewProjectL1 = usePermission(PERMISSIONS.RD_PROJECT_REVIEW_L1);
+  const canReviewProjectL2 = usePermission(PERMISSIONS.RD_PROJECT_REVIEW_L2);
+  const canReassignTask = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
+  const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
   const [tab, setTab] = useState<OperationTab>(initialTab);
-  const [draftProgress, setDraftProgress] = useState(task.progress);
+  const [draftProgress, setDraftProgress] = useState(() => clampProgressValue(task.progress));
   const [note, setNote] = useState("");
   const [uploadedEvidence, setUploadedEvidence] = useState<UploadedEvidence[]>([]);
   const [aiAssessment, setAiAssessment] = useState<ProgressAssessment | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [noteAttachments, setNoteAttachments] = useState<File[]>([]);
   const [savingNote, setSavingNote] = useState(false);
-  const [handoffTo, setHandoffTo] = useState("赵强");
+  const [peopleOptions, setPeopleOptions] = useState<RdPersonLoad[]>([]);
+  const [peopleLoading, setPeopleLoading] = useState(false);
+  const [peopleError, setPeopleError] = useState(false);
+  const [handoffReason, setHandoffReason] = useState(task.pending_collaboration_reason ?? "");
+  const [selectedCollaboratorKeys, setSelectedCollaboratorKeys] = useState<Set<string>>(
+    () => new Set((task.pending_review_type === "collaboration" ? task.pending_collaborators : task.collaborators ?? []).map(collaboratorOptionValue)),
+  );
   const [receipt, setReceipt] = useState<string | null>(null);
   const taskLogs = useAuditLogs({ resourceType: "task", resourceId: task.task_id });
+  const canApplyCollaborationDirectly = canDirectProject || canReviewProjectL1 || canReviewProjectL2 || canReassignTask || canManagePeople;
+
+  useEffect(() => {
+    let cancelled = false;
+    setPeopleLoading(true);
+    fetchRdPeople()
+      .then((people) => {
+        if (cancelled) return;
+        setPeopleOptions(people);
+        setPeopleError(false);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setPeopleOptions([]);
+        setPeopleError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setPeopleLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const collaboratorCandidates = peopleOptions.filter((person) => {
+    if (!person.name.trim()) return false;
+    if (person.user_id && task.owner_user_id && person.user_id === task.owner_user_id) return false;
+    return person.name.trim() !== task.owner.trim();
+  });
+  const selectedCollaborators = collaboratorCandidates
+    .filter((person) => selectedCollaboratorKeys.has(rdPersonOptionValue(person)))
+    .map(personToCollaborator);
 
   const tabConfig: { key: OperationTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
     { key: "detail", label: "任务详情", icon: FileText },
@@ -574,9 +631,9 @@ function TaskOperationDrawer({
         ]
       : tab === "handoff"
       ? [
-          { label: "选择接收人", helper: "明确新责任人", state: "current" as const },
-          { label: "说明影响", helper: "交代风险和下一步", state: "todo" as const },
-          { label: "提交审批", helper: "同步给负责人", state: "todo" as const },
+          { label: "选择协同人", helper: "可选择多个执行人", state: selectedCollaboratorKeys.size > 0 ? "done" as const : "current" as const },
+          { label: "说明影响", helper: "补充协作范围和风险", state: handoffReason.trim() ? "done" as const : "todo" as const },
+          { label: canApplyCollaborationDirectly ? "直接生效" : "提交审批", helper: canApplyCollaborationDirectly ? "主管权限直接写入任务" : "流转给主管审核", state: "todo" as const },
         ]
       : tab === "submit"
         ? [
@@ -607,7 +664,7 @@ function TaskOperationDrawer({
       return;
     }
     let assessmentForSave = aiAssessment;
-    let progressToSave = draftProgress;
+    const progressToSave = clampProgressValue(draftProgress);
     if (note.trim()) {
       setAiLoading(true);
       setReceipt(null);
@@ -630,9 +687,7 @@ function TaskOperationDrawer({
           basis: result.basis,
           recommendation: result.recommendation,
         };
-        progressToSave = Math.max(draftProgress, assessmentForSave.progress);
         setAiAssessment(assessmentForSave);
-        setDraftProgress(progressToSave);
         recordAudit({
           actor: WORKSPACE_AUDIT_ACTOR,
           action: "ai.parse_triggered",
@@ -664,6 +719,7 @@ function TaskOperationDrawer({
       message: `将把 ${task.task_id} 的进度更新为 ${progressToSave}%。`,
       confirmLabel: "确认保存",
       details: [
+        `最终写入进度：${progressToSave}%（以本次确认值为准，不做累加）`,
         `进度来源：${source}`,
         uploadedEvidence.length > 0 ? `上传依据：${uploadedEvidence.length} 个文件` : "上传依据：无，按人工判断保存",
         assessmentForSave ? `AI 判断：${assessmentForSave.stage} / 置信度 ${assessmentForSave.confidence}%` : "AI 判断：未触发",
@@ -746,7 +802,6 @@ function TaskOperationDrawer({
         recommendation: result.recommendation,
       };
       setAiAssessment(assessment);
-      setDraftProgress(Math.max(draftProgress, assessment.progress));
       setNote((current) => current || `AI 识别：${assessment.stage}。${assessment.recommendation}`);
 
       recordAudit({
@@ -790,47 +845,100 @@ function TaskOperationDrawer({
   };
 
   const submitHandoff = () => {
-    const message = `${task.task_id} 已提交移交给 ${handoffTo}`;
+    if (selectedCollaborators.length === 0) {
+      toast.error("请选择至少一名协同人");
+      return;
+    }
+    if (!canApplyCollaborationDirectly && !handoffReason.trim()) {
+      toast.error("请填写协作原因和影响说明");
+      return;
+    }
+    const collaboratorNames = selectedCollaborators.map((collaborator) => collaborator.name).join("、");
     onRequestConfirm({
-      title: "确认提交移交",
-      message: `将把 ${task.task_id} 的移交流程提交给 ${handoffTo}。`,
-      confirmLabel: "确认移交",
-      details: ["提交后会生成移交记录", "接收人和相关负责人会看到该流程", "当前页面会保留操作日志"],
-      onConfirm: () => {
+      title: canApplyCollaborationDirectly ? "确认更新协同人" : "确认提交协作审批",
+      message: canApplyCollaborationDirectly
+        ? `将把 ${collaboratorNames} 设置为 ${task.task_id} 的协同执行人。`
+        : `将把 ${task.task_id} 的协作变更提交给研发主管审核。`,
+      confirmLabel: canApplyCollaborationDirectly ? "直接生效" : "提交审批",
+      details: [
+        `协同人：${collaboratorNames}`,
+        canApplyCollaborationDirectly ? "当前角色可直接更新任务协同人" : "审批通过后才会写入任务协同人",
+        handoffReason.trim() ? `说明：${handoffReason.trim()}` : "未填写补充说明",
+      ],
+      onConfirm: async () => {
+        if (canApplyCollaborationDirectly) {
+          await updateRdTask(task.task_id, {
+            collaborators: selectedCollaborators,
+            pending_review_type: null,
+            pending_collaborators: [],
+            pending_collaboration_reason: null,
+            pending_collaboration_requested_at: null,
+          });
+          recordAudit({
+            actor: WORKSPACE_AUDIT_ACTOR,
+            action: "task.collaboration_updated",
+            resource: { type: "task", id: task.task_id, name: task.title },
+            changes: [{ field: "collaborators", before: (task.collaborators ?? []).map((item) => item.name).join("、"), after: collaboratorNames }],
+            comment: handoffReason.trim() || "主管直接更新任务协同人",
+            metadata: { collaborators: selectedCollaborators },
+            source: "web",
+          });
+          toast.success(`${task.task_id} 协同人已更新`);
+          await onCollaborationChanged(task.task_id, selectedCollaborators);
+          onClose();
+          return;
+        }
+
+        await updateRdTask(task.task_id, {
+          status: "pending_review",
+          pending_review_type: "collaboration",
+          pending_collaborators: selectedCollaborators,
+          pending_collaboration_reason: handoffReason.trim(),
+          pending_collaboration_requested_at: new Date().toISOString(),
+        });
         recordAudit({
           actor: WORKSPACE_AUDIT_ACTOR,
-          action: "task.handoff_requested",
+          action: "task.collaboration_requested",
           resource: { type: "task", id: task.task_id, name: task.title },
-          changes: [{ field: "owner", before: task.owner, after: handoffTo }],
-          comment: "提交任务移交流程",
-          metadata: { current_progress: task.progress },
+          changes: [{ field: "pending_collaborators", before: (task.collaborators ?? []).map((item) => item.name).join("、"), after: collaboratorNames }],
+          comment: handoffReason.trim(),
+          metadata: { current_progress: task.progress, collaborators: selectedCollaborators },
           source: "web",
         });
-        setReceipt(message);
-        onLog(message);
+        toast.success(`${task.task_id} 已提交协作审批`);
+        onLog(`${task.task_id} 已提交协作审批`);
+        window.dispatchEvent(new CustomEvent('rd:review-submitted'));
+        await onCollaborationChanged(task.task_id, selectedCollaborators, "pending_review");
+        onClose();
       },
     });
   };
 
   const submitResult = () => {
-    const message = `${task.task_id} 已提交结果审核`;
     onRequestConfirm({
       title: "确认提交审核",
       message: `将把 ${task.task_id} 提交给上级审核。`,
       confirmLabel: "确认提交",
       details: ["请确认交付物、风险说明和测试记录已补齐", "提交后会进入审核流转", "审核人会看到本次提交说明"],
-      onConfirm: () => {
+      onConfirm: async () => {
+        await updateRdTask(task.task_id, { status: "pending_review", pending_review_type: "result", progress: 100 });
         recordAudit({
           actor: WORKSPACE_AUDIT_ACTOR,
           action: "task.submitted",
           resource: { type: "task", id: task.task_id, name: task.title },
-          changes: [{ field: "status", before: task.status, after: "pending_review" }],
-          comment: "提交任务结果审核",
-          metadata: { progress: task.progress },
+          changes: [
+            { field: "status", before: task.status, after: "pending_review" },
+            { field: "progress", before: String(task.progress), after: "100" },
+          ],
+          comment: "提交任务结果审核，进度自动置为 100%",
+          metadata: { progress: 100 },
           source: "web",
         });
-        setReceipt(message);
-        onLog(message);
+        toast.success(`${task.task_id} 已提交结果审核`);
+        onLog(`${task.task_id} 已提交结果审核`);
+        window.dispatchEvent(new CustomEvent('rd:review-submitted'));
+        await onSubmittedForReview(task.task_id);
+        onClose();
       },
     });
   };
@@ -1036,7 +1144,7 @@ function TaskOperationDrawer({
                   <ActionButton
                     variant="primary"
                     onClick={() => {
-                      setDraftProgress(aiAssessment.progress);
+                      setDraftProgress(clampProgressValue(aiAssessment.progress));
                       setReceipt(null);
                       recordAudit({
                         actor: WORKSPACE_AUDIT_ACTOR,
@@ -1077,8 +1185,9 @@ function TaskOperationDrawer({
                 min={0}
                 max={100}
                 value={draftProgress}
+                disabled={savingNote || aiLoading}
                 onChange={(event) => {
-                  setDraftProgress(Number(event.target.value));
+                  setDraftProgress(clampProgressValue(Number(event.target.value)));
                   setReceipt(null);
                 }}
                 className="w-full accent-blue-600"
@@ -1194,35 +1303,82 @@ function TaskOperationDrawer({
 
         {tab === "handoff" && (
           <div className="space-y-4 rounded-xl border border-slate-200 p-4">
+            <div>
+              <div className="flex items-center justify-between gap-3">
+                <span className="text-sm font-semibold text-slate-900">协同人</span>
+                <span className="text-xs text-slate-400">已选 {selectedCollaboratorKeys.size} 人</span>
+              </div>
+              <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50/60 p-2">
+                {peopleLoading ? (
+                  <div className="flex items-center justify-center gap-2 py-5 text-xs text-slate-400">
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    正在读取研发人员
+                  </div>
+                ) : peopleError ? (
+                  <div className="rounded-lg bg-rose-50 px-3 py-3 text-xs text-rose-600">研发人员加载失败，请稍后重试。</div>
+                ) : collaboratorCandidates.length === 0 ? (
+                  <div className="rounded-lg bg-white px-3 py-3 text-xs text-slate-400">暂无可选择的协同人。</div>
+                ) : (
+                  <div className="grid max-h-56 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
+                    {collaboratorCandidates.map((person) => {
+                      const value = rdPersonOptionValue(person);
+                      const checked = selectedCollaboratorKeys.has(value);
+                      return (
+                        <label
+                          key={value}
+                          className={cn(
+                            "flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 transition-colors",
+                            checked ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-700 hover:border-blue-100 hover:bg-blue-50/50",
+                          )}
+                        >
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={(next) => {
+                              setSelectedCollaboratorKeys((current) => {
+                                const copy = new Set(current);
+                                if (next === true) copy.add(value);
+                                else copy.delete(value);
+                                return copy;
+                              });
+                            }}
+                            className="mt-0.5 rounded border-slate-300 text-blue-600"
+                          />
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-semibold">{person.name}</span>
+                            <span className="mt-0.5 block truncate text-xs text-slate-400">
+                              {[person.position, person.department].filter(Boolean).join(" · ") || "研发成员"}
+                            </span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
             <label className="block">
-              <span className="text-sm font-semibold text-slate-900">接收人</span>
-              <NativeSelect
-                value={handoffTo}
-                onChange={(event) => setHandoffTo(event.target.value)}
-                className="mt-2 w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
-              >
-                <option>赵强</option>
-                <option>陈静</option>
-                <option>王磊</option>
-                <option>刘华</option>
-              </NativeSelect>
-            </label>
-            <label className="block">
-              <span className="text-sm font-semibold text-slate-900">移交原因和影响</span>
+              <span className="text-sm font-semibold text-slate-900">协作原因和影响</span>
               <Textarea
+                value={handoffReason}
+                onChange={(event) => setHandoffReason(event.target.value)}
                 rows={4}
-                placeholder="说明为什么移交、当前进展、未解决风险和期望接收人下一步动作"
+                placeholder="说明为什么需要协同、当前进展、未解决风险和期望协同人下一步动作"
                 className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
               />
             </label>
-            <div className="rounded-lg bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">
-              提交后会生成一条移交审批记录，并同步给原主责、接收人和上级查看。
+            <div className={cn(
+              "rounded-lg px-3 py-2 text-xs leading-5",
+              canApplyCollaborationDirectly ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700",
+            )}>
+              {canApplyCollaborationDirectly
+                ? "当前角色可直接更新协同人，保存后协同任务立即生效。"
+                : "提交后会进入研发主管审核，通过后才会写入任务协同人。"}
             </div>
             <div className="flex items-center justify-end gap-2">
               <ActionButton onClick={onClose}>取消</ActionButton>
-              <ActionButton onClick={submitHandoff} variant="primary">
+              <ActionButton onClick={submitHandoff} variant="primary" disabled={peopleLoading || selectedCollaborators.length === 0}>
                 <GitBranch className="h-3.5 w-3.5" />
-                提交移交
+                {canApplyCollaborationDirectly ? "保存协同人" : "提交审批"}
               </ActionButton>
             </div>
           </div>
@@ -1230,6 +1386,23 @@ function TaskOperationDrawer({
 
         {tab === "submit" && (
           <div className="space-y-4 rounded-xl border border-slate-200 p-4">
+            {/* Already-submitted banner */}
+            {task.status === "pending_review" && (
+              <div className="flex items-start gap-3 rounded-xl border border-violet-100 bg-violet-50/60 px-4 py-3">
+                <ClipboardCheck className="mt-0.5 h-4 w-4 shrink-0 text-violet-500" />
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold text-violet-700">审核申请已提交，等待处理</div>
+                  <div className="mt-0.5 text-xs text-violet-500">如审核人未收到通知，可点击「重新发送通知」再次提醒。</div>
+                </div>
+                <ActionButton
+                  onClick={submitResult}
+                  className="shrink-0 text-violet-700 ring-violet-200 hover:bg-violet-100"
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  重新发送通知
+                </ActionButton>
+              </div>
+            )}
             <div>
               <div className="mb-2 text-sm font-semibold text-slate-900">提交前检查</div>
               <div className="grid gap-2 sm:grid-cols-2">
@@ -1254,10 +1427,12 @@ function TaskOperationDrawer({
                 <UploadCloud className="h-3.5 w-3.5" />
                 上传附件
               </ActionButton>
-              <ActionButton onClick={submitResult} variant="primary">
-                <Send className="h-3.5 w-3.5" />
-                提交审核
-              </ActionButton>
+              {task.status !== "pending_review" && (
+                <ActionButton onClick={submitResult} variant="primary">
+                  <Send className="h-3.5 w-3.5" />
+                  提交审核
+                </ActionButton>
+              )}
             </div>
           </div>
         )}
@@ -1357,13 +1532,66 @@ function NotificationDrawer({
   onClose,
   onDismiss,
   onOpenTask,
+  canReview,
+  onApprove,
+  onReject,
 }: {
   notification: WorkspaceNotification;
   relatedTask?: WorkspaceTask;
   onClose: () => void;
   onDismiss: () => void;
   onOpenTask: (task: WorkspaceTask, tab: OperationTab) => void;
+  canReview?: boolean;
+  onApprove?: () => void | Promise<void>;
+  onReject?: (reason: string) => Promise<void>;
 }) {
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [isActing, setIsActing] = useState(false);
+
+  // Parse JSON body if available
+  let parsedBody: Record<string, unknown> | null = null;
+  try {
+    if (notification.raw_body) parsedBody = JSON.parse(notification.raw_body) as Record<string, unknown>;
+  } catch { /* plain text */ }
+
+  const msgBodyType = parsedBody?.type ?? "";
+  const isReviewRequest = msgBodyType === "review_request";
+  const isReviewResult = msgBodyType === "review_result";
+
+  // review_request fields
+  const reviewType = isReviewRequest ? String(parsedBody!.review_type ?? "") : "";
+  const reviewTaskId = isReviewRequest ? String(parsedBody!.task_id ?? "") : "";
+  const reviewTaskTitle = isReviewRequest ? String(parsedBody!.task_title ?? "") : "";
+  const reviewSubmitterName = isReviewRequest ? String(parsedBody!.submitter_name ?? "") : "";
+  const reviewNote = isReviewRequest ? String(parsedBody!.note ?? "") : "";
+
+  // review_result fields
+  const resultApproved = isReviewResult ? String(parsedBody!.result ?? "") === "approved" : false;
+  const resultTaskTitle = isReviewResult ? String(parsedBody!.task_title ?? "") : "";
+  const resultTaskId = isReviewResult ? String(parsedBody!.task_id ?? "") : "";
+  const resultReviewerName = isReviewResult ? String(parsedBody!.reviewer_name ?? "管理员") : "";
+  const resultReason = isReviewResult ? String(parsedBody!.reason ?? "") : "";
+
+  const isHandled = Boolean(notification.handled);
+  const showReviewButtons = isReviewRequest && canReview && !isHandled && !rejectOpen;
+
+  const doApprove = async () => {
+    if (!onApprove) return;
+    setIsActing(true);
+    try { await onApprove(); } finally { setIsActing(false); }
+  };
+
+  const doReject = async () => {
+    if (!onReject || !rejectReason.trim()) return;
+    setIsActing(true);
+    try {
+      await onReject(rejectReason.trim());
+      setRejectOpen(false);
+      setRejectReason("");
+    } finally { setIsActing(false); }
+  };
+
   return (
     <DrawerShell
       title={notification.title}
@@ -1372,10 +1600,69 @@ function NotificationDrawer({
       onClose={onClose}
     >
       <div className="space-y-5">
-        <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
-          <p className="text-sm leading-6 text-slate-700">{notification.message}</p>
-        </div>
 
+        {/* ── Review request card ── */}
+        {isReviewRequest ? (
+          <div className="rounded-xl border border-amber-100 bg-amber-50/60 p-4 space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              {isHandled ? (
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">已审核</span>
+              ) : (
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">待审核</span>
+              )}
+              <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500 ring-1 ring-slate-200">
+                {reviewType === "result" ? "成果审核" : "协作变更审核"}
+              </span>
+            </div>
+            <div>
+              <div className="font-mono text-xs text-slate-400 mb-0.5">{reviewTaskId}</div>
+              <div className="text-sm font-semibold text-slate-800">{reviewTaskTitle}</div>
+            </div>
+            <div className="text-sm text-slate-500">提交人：<span className="font-medium text-slate-700">{reviewSubmitterName}</span></div>
+            {reviewNote && (
+              <div className="rounded-lg bg-white px-3 py-2 text-sm text-slate-700 ring-1 ring-slate-200">
+                <span className="font-medium text-slate-500">备注：</span>{reviewNote}
+              </div>
+            )}
+            {isHandled && (
+              <div className="flex items-center gap-1.5 text-sm text-emerald-600">
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                审核已处理
+              </div>
+            )}
+          </div>
+        ) : isReviewResult ? (
+          /* ── Review result card ── */
+          <div className={`rounded-xl border p-4 space-y-3 ${resultApproved ? "border-emerald-100 bg-emerald-50/60" : "border-red-100 bg-red-50/60"}`}>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${resultApproved ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
+                {resultApproved ? "✓ 审核通过" : "✕ 被打回"}
+              </span>
+              <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500 ring-1 ring-slate-200">审核结果</span>
+            </div>
+            <div>
+              <div className="font-mono text-xs text-slate-400 mb-0.5">{resultTaskId}</div>
+              <div className="text-sm font-semibold text-slate-800">{resultTaskTitle}</div>
+            </div>
+            <div className="text-sm text-slate-500">审核人：<span className="font-medium text-slate-700">{resultReviewerName}</span></div>
+            {resultApproved ? (
+              <div className="rounded-lg bg-white px-3 py-2 text-sm text-emerald-700 ring-1 ring-emerald-100">
+                任务已通过审核，恭喜完成！
+              </div>
+            ) : (
+              <div className="rounded-lg bg-white px-3 py-2 text-sm text-red-700 ring-1 ring-red-100">
+                <span className="font-medium">打回原因：</span>{resultReason || "请联系审核人了解详情"}
+              </div>
+            )}
+          </div>
+        ) : (
+          /* ── Plain message ── */
+          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
+            <p className="text-sm leading-6 text-slate-700">{notification.message}</p>
+          </div>
+        )}
+
+        {/* ── Related task block ── */}
         {relatedTask && (
           <div className="rounded-xl border border-slate-200 p-4">
             <div className="mb-2 flex items-start justify-between gap-3">
@@ -1396,7 +1683,8 @@ function NotificationDrawer({
           </div>
         )}
 
-        {notification.type === "message" && (
+        {/* ── Sender info (non-review messages) ── */}
+        {notification.type === "message" && !isReviewRequest && !isReviewResult && (
           <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3">
             <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-blue-700">
               <MessageSquare className="h-3.5 w-3.5" />
@@ -1408,6 +1696,7 @@ function NotificationDrawer({
           </div>
         )}
 
+        {/* ── System suggestion (non-message notifications) ── */}
         {notification.type !== "message" && (
           <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
             <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-blue-800">
@@ -1423,12 +1712,54 @@ function NotificationDrawer({
           </div>
         )}
 
-        <div className="flex items-center justify-end gap-2">
-          <ActionButton onClick={onClose}>稍后处理</ActionButton>
-          <ActionButton onClick={onDismiss} variant="primary">
-            <CheckCircle2 className="h-3.5 w-3.5" />
-            标记已处理
-          </ActionButton>
+        {/* ── Inline reject dialog ── */}
+        {rejectOpen && (
+          <div className="rounded-xl border border-red-100 bg-red-50/60 p-4 space-y-3">
+            <div className="text-sm font-semibold text-red-700">填写驳回原因</div>
+            <Textarea
+              rows={3}
+              placeholder="请说明驳回原因，申请人将收到通知…"
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              className="bg-white text-sm"
+            />
+            <div className="flex items-center justify-end gap-2">
+              <ActionButton onClick={() => { setRejectOpen(false); setRejectReason(""); }} disabled={isActing}>
+                取消
+              </ActionButton>
+              <ActionButton variant="danger" onClick={doReject} disabled={!rejectReason.trim() || isActing}>
+                {isActing ? "处理中…" : "确认驳回"}
+              </ActionButton>
+            </div>
+          </div>
+        )}
+
+        {/* ── Action buttons ── */}
+        <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
+          {showReviewButtons && (
+            <>
+              <ActionButton variant="primary" onClick={doApprove} disabled={isActing}>
+                <Check className="h-3.5 w-3.5" />
+                {isActing ? "处理中…" : "批准"}
+              </ActionButton>
+              <ActionButton variant="danger" onClick={() => setRejectOpen(true)} disabled={isActing}>
+                驳回
+              </ActionButton>
+            </>
+          )}
+          <ActionButton onClick={onClose} className="ml-auto">稍后处理</ActionButton>
+          {!isReviewRequest && !isReviewResult && (
+            <ActionButton onClick={onDismiss} variant="primary">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              标记已处理
+            </ActionButton>
+          )}
+          {isReviewResult && (
+            <ActionButton onClick={onDismiss} variant="primary">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              知道了
+            </ActionButton>
+          )}
         </div>
       </div>
     </DrawerShell>
@@ -1450,12 +1781,39 @@ function updateTaskProgressList(tasks: WorkspaceTask[], taskId: string, progress
   );
 }
 
+function markTaskSubmittedForReviewList(tasks: WorkspaceTask[], taskId: string) {
+  return tasks.map((task) =>
+    task.task_id === taskId
+      ? { ...task, status: "pending_review", status_label: "待审核", next_action: "等待上级审核", progress: 100 }
+      : task,
+  );
+}
+
+function updateTaskCollaboratorsList(tasks: WorkspaceTask[], taskId: string, collaborators: RdCollaborator[], status?: TaskStatus) {
+  return tasks.map((task) =>
+    task.task_id === taskId
+      ? {
+          ...task,
+          ...(status
+            ? {
+                status,
+                status_label: status === "pending_review" ? "待审核" : task.status_label,
+                next_action: status === "pending_review" ? "等待主管审核协同变更" : task.next_action,
+                pending_review_type: status === "pending_review" ? "collaboration" : task.pending_review_type,
+                pending_collaborators: status === "pending_review" ? collaborators : task.pending_collaborators,
+              }
+            : { collaborators }),
+        }
+      : task,
+  );
+}
+
 function formatFileSize(size: number) {
   if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function buildProgressAssessment(task: WorkspaceTask, evidence: UploadedEvidence[]): ProgressAssessment {
+function buildProgressAssessment(_task: WorkspaceTask, evidence: UploadedEvidence[]): ProgressAssessment {
   const names = evidence.map((file) => file.name.toLowerCase()).join(" ");
   const hasReview = /评审|审核|review|submit|提交|final/.test(names);
   const hasTest = /测试|试验|实验|数据|记录|test|report|log/.test(names);
@@ -1463,7 +1821,7 @@ function buildProgressAssessment(task: WorkspaceTask, evidence: UploadedEvidence
 
   if (hasReview) {
     return {
-      progress: Math.max(task.progress, 88),
+      progress: 88,
       stage: "结果已形成，待审核关闭",
       confidence: evidence.length > 1 ? 92 : 88,
       basis: ["文件名包含评审/提交类线索", "可作为提交审核前的完成依据", "建议同步风险和交付物清单"],
@@ -1473,7 +1831,7 @@ function buildProgressAssessment(task: WorkspaceTask, evidence: UploadedEvidence
 
   if (hasTest) {
     return {
-      progress: Math.max(task.progress, 68),
+      progress: 68,
       stage: "验证数据已产出，处于测试收敛阶段",
       confidence: evidence.length > 1 ? 86 : 82,
       basis: ["文件名包含测试、实验、记录或数据线索", "说明任务已从方案阶段进入验证阶段", "仍需要补充结论或异常说明"],
@@ -1483,7 +1841,7 @@ function buildProgressAssessment(task: WorkspaceTask, evidence: UploadedEvidence
 
   if (hasPlan) {
     return {
-      progress: Math.max(task.progress, 52),
+      progress: 52,
       stage: "方案资料已形成，待验证推进",
       confidence: evidence.length > 1 ? 82 : 78,
       basis: ["文件名包含方案、计划、ECN 或规格说明线索", "说明基础资料已经具备", "下一步应进入验证或跨部门确认"],
@@ -1492,7 +1850,7 @@ function buildProgressAssessment(task: WorkspaceTask, evidence: UploadedEvidence
   }
 
   return {
-    progress: Math.max(task.progress, 45),
+    progress: 45,
     stage: "资料已上传，需人工补充判断",
     confidence: evidence.length > 1 ? 76 : 70,
     basis: ["文件已上传但名称未体现明确阶段", "AI 只能判断为已有阶段性输入", "需要人工补充进展说明降低误判"],
@@ -1500,52 +1858,195 @@ function buildProgressAssessment(task: WorkspaceTask, evidence: UploadedEvidence
   };
 }
 
+const WORKSPACE_PAGE_SIZE = 8;
+const NOTIF_PAGE_SIZE = 5;
+
+const WS_PRIORITY_GRAD: Record<string, { from: string; to: string }> = {
+  high:   { from: "#f87171", to: "#dc2626" },
+  medium: { from: "#fb923c", to: "#ea580c" },
+  low:    { from: "#34d399", to: "#059669" },
+};
+
+const WS_STATUS_CONFIG: Record<string, { label: string; bg: string; text: string }> = {
+  draft:          { label: "草稿",   bg: "bg-slate-100",   text: "text-slate-500" },
+  in_progress:    { label: "进行中", bg: "bg-blue-50",     text: "text-blue-700" },
+  pending_review: { label: "待审核", bg: "bg-violet-50",   text: "text-violet-700" },
+  paused_leave:   { label: "请假暂停", bg: "bg-amber-50",  text: "text-amber-700" },
+  paused_blocked: { label: "阻塞",   bg: "bg-red-50",      text: "text-red-700" },
+  on_hold:        { label: "挂起",   bg: "bg-slate-100",   text: "text-slate-500" },
+  completed:      { label: "已完成", bg: "bg-emerald-50",  text: "text-emerald-700" },
+  pending_assign: { label: "待指派", bg: "bg-orange-50",   text: "text-orange-700" },
+  archived:       { label: "已归档", bg: "bg-slate-100",   text: "text-slate-400" },
+};
+
+const WS_PRIORITY_CONFIG: Record<string, { label: string; bg: string; text: string }> = {
+  high:   { label: "高",  bg: "bg-red-50",    text: "text-red-700"    },
+  medium: { label: "中",  bg: "bg-amber-50",  text: "text-amber-700"  },
+  low:    { label: "低",  bg: "bg-slate-100", text: "text-slate-500"  },
+};
+
+function WorkspaceTaskCard({
+  task,
+  onOpen,
+}: {
+  task: WorkspaceTask;
+  onOpen: (task: WorkspaceTask, tab: OperationTab) => void;
+}) {
+  const grad = WS_PRIORITY_GRAD[task.priority] ?? WS_PRIORITY_GRAD.medium!;
+  const sCfg = WS_STATUS_CONFIG[task.status] ?? WS_STATUS_CONFIG.draft!;
+  const pCfg = WS_PRIORITY_CONFIG[task.priority] ?? WS_PRIORITY_CONFIG.medium!;
+  const days = workspaceDaysUntil(task.due_date);
+  const isOverdue = days !== null && days < 0;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2 }}
+      onClick={() => onOpen(task, "detail")}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(task, "detail"); } }}
+      className="group relative cursor-pointer overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_1px_4px_rgba(15,23,42,0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-200 hover:shadow-[0_8px_24px_rgba(15,23,42,0.09)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+    >
+      {/* Left gradient stripe */}
+      <div
+        className="absolute left-0 top-0 h-full w-1 rounded-l-2xl"
+        style={{ background: `linear-gradient(to bottom, ${grad.from}, ${grad.to})` }}
+      />
+
+      <div className="flex items-center gap-3.5 px-4 py-3.5">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
+          {/* Badges */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className={cn("inline-flex shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold", sCfg.bg, sCfg.text)}>
+              {sCfg.label}
+            </span>
+            <span className={cn("inline-flex shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold", pCfg.bg, pCfg.text)}>
+              {pCfg.label}
+            </span>
+            <span className={cn(
+              "inline-flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
+              task.role === "primary" ? "bg-blue-50 text-blue-600" : "bg-slate-100 text-slate-500"
+            )}>
+              {task.role === "primary" ? "主责" : `协作${task.collab_role ? ` · ${task.collab_role}` : ""}`}
+            </span>
+            {task.ai_pending && (
+              <span className="inline-flex items-center gap-0.5 rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-600">
+                <Sparkles className="h-2.5 w-2.5" />
+                AI待确认
+              </span>
+            )}
+          </div>
+
+          {/* Title */}
+          <div className="truncate text-[13px] font-semibold leading-snug text-slate-800 group-hover:text-slate-900">
+            {task.title}
+          </div>
+
+          {/* Dates + category */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-slate-400">
+            {task.due_date && (
+              <span className={cn("flex items-center gap-0.5", isOverdue && "text-red-400 font-semibold")}>
+                <CalendarClock className="h-2.5 w-2.5 shrink-0" />
+                {isOverdue ? `逾期 ${Math.abs(days!)} 天` : days === 0 ? "今天到期" : `止 ${task.due_date}`}
+              </span>
+            )}
+            {task.category_path && (
+              <span className="truncate">{task.category_path}</span>
+            )}
+          </div>
+
+          {/* Progress bar */}
+          <div className="mt-0.5 flex items-center gap-2">
+            <div className="h-1 flex-1 overflow-hidden rounded-full bg-slate-100">
+              <div
+                className="h-full rounded-full transition-all duration-500"
+                style={{
+                  width: `${task.progress}%`,
+                  background: task.progress === 100 ? "#10b981" : `linear-gradient(90deg, ${grad.from}, ${grad.to})`,
+                }}
+              />
+            </div>
+            <span className="w-8 shrink-0 text-right text-[10px] font-bold tabular-nums text-slate-500">
+              {task.progress}%
+            </span>
+          </div>
+        </div>
+
+        <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 opacity-0 transition-all duration-150 group-hover:translate-x-0.5 group-hover:opacity-100" />
+      </div>
+    </motion.div>
+  );
+}
+
 export function RDMyWorkspacePage() {
+  const { user } = useAuth();
   const canProposeProject = usePermission(PERMISSIONS.RD_PROJECT_PROPOSE);
   const WORKSPACE_AUDIT_ACTOR = useAuditActor("研发成员");
-  const [dailyReportLoading, setDailyReportLoading] = useState(false);
-  const [latestDailyReport, setLatestDailyReport] = useState<RdDailyReport | null>(null);
+  const canReview = user
+    ? user.permissions.includes("*") || user.permissions.includes("rd-task:edit") || user.permissions.includes("rd-task:reassign")
+    : false;
   const [workspace, setWorkspace] = useState<RdWorkspacePayload<WorkspaceTask, AiSuggestion, WorkspaceNotification>>(EMPTY_WORKSPACE);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [closedSuggestions, setClosedSuggestions] = useState<Set<string>>(new Set());
   const [regeneratedSuggestions, setRegeneratedSuggestions] = useState<Set<string>>(new Set());
   const [dismissedNotifs, setDismissedNotifs] = useState<Set<string>>(new Set());
-  const [todoChecked, setTodoChecked] = useState<Set<number>>(new Set());
+  const [notifVisibleCount, setNotifVisibleCount] = useState(NOTIF_PAGE_SIZE);
   const [progressOverrides, setProgressOverrides] = useState<Record<string, number>>({});
-  const [operationLogs, setOperationLogs] = useState<string[]>([]);
   const [activePanel, setActivePanel] = useState<ActivePanel | null>(null);
+  const [taskVisibleCount, setTaskVisibleCount] = useState(WORKSPACE_PAGE_SIZE);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogConfig | null>(null);
   const [showProposalDialog, setShowProposalDialog] = useState(false);
+  const taskScrollRef = React.useRef<HTMLDivElement>(null);
+  const taskSentinelRef = React.useRef<HTMLDivElement>(null);
+  const filteredAllTasksLengthRef = React.useRef(0);
+
+  const loadWorkspace = React.useCallback(async (options?: { silent?: boolean }) => {
+    if (!options?.silent) setLoading(true);
+    setLoadError(null);
+    try {
+      const payload = await fetchRdWorkspace();
+      setWorkspace({ ...EMPTY_WORKSPACE, ...payload });
+    } catch (error) {
+      if (!options?.silent) setWorkspace(EMPTY_WORKSPACE);
+      setLoadError(error instanceof Error ? error.message : "个人工作台接口加载失败");
+    } finally {
+      if (!options?.silent) setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    async function loadWorkspace() {
-      setLoading(true);
-      setLoadError(null);
-      try {
-        const payload = await fetchRdWorkspace();
-        if (!cancelled) setWorkspace({ ...EMPTY_WORKSPACE, ...payload });
-      } catch (error) {
-        if (!cancelled) {
-          setWorkspace(EMPTY_WORKSPACE);
-          setLoadError(error instanceof Error ? error.message : "个人工作台接口加载失败");
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
     void loadWorkspace();
-    return () => {
-      cancelled = true;
+  }, [loadWorkspace]);
+
+  useEffect(() => {
+    const refreshSilently = () => {
+      void loadWorkspace({ silent: true });
     };
-  }, []);
+    const interval = window.setInterval(refreshSilently, 60_000);
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refreshSilently();
+    };
+
+    window.addEventListener("focus", refreshSilently);
+    window.addEventListener("rd:messages-updated", refreshSilently);
+    window.addEventListener("rd:review-submitted", refreshSilently);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshSilently);
+      window.removeEventListener("rd:messages-updated", refreshSilently);
+      window.removeEventListener("rd:review-submitted", refreshSilently);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [loadWorkspace]);
 
   const [taskKeyword, setTaskKeyword] = useState("");
   const [taskPriorityFilter, setTaskPriorityFilter] = useState<Priority | "all">("all");
   const [taskStatusFilter, setTaskStatusFilter] = useState<TaskStatus | "all">("all");
   const [taskDueFilter, setTaskDueFilter] = useState<WorkspaceDueFilter>("all");
-  const todayTodos = workspace.todayTodos;
   const myTasks = useMemo(() => applyProgressOverrides(workspace.myTasks, progressOverrides), [workspace.myTasks, progressOverrides]);
   const collabTasks = useMemo(() => applyProgressOverrides(workspace.collabTasks, progressOverrides), [workspace.collabTasks, progressOverrides]);
   const allTasks = useMemo(() => [...myTasks, ...collabTasks], [myTasks, collabTasks]);
@@ -1567,6 +2068,25 @@ export function RDMyWorkspacePage() {
     () => workspace.notifications.filter((notification) => !dismissedNotifs.has(notification.id)),
     [dismissedNotifs, workspace.notifications],
   );
+  const shownNotifications = visibleNotifications.slice(0, notifVisibleCount);
+  const hasMoreNotifs = visibleNotifications.length > notifVisibleCount;
+
+  const markNotificationRead = React.useCallback((notification: WorkspaceNotification) => {
+    setWorkspace((prev) => ({
+      ...prev,
+      notifications: prev.notifications.map((item) => (item.id === notification.id ? { ...item, read: true } : item)),
+    }));
+    if (notification.id.startsWith("msg-")) {
+      void patchRdMessage(notification.id, { read: true })
+        .then(() => window.dispatchEvent(new CustomEvent("rd:messages-updated")))
+        .catch(() => {});
+    }
+  }, []);
+
+  // Reset notification page when the list changes (e.g. on workspace reload)
+  useEffect(() => {
+    setNotifVisibleCount(NOTIF_PAGE_SIZE);
+  }, [workspace.notifications]);
 
   const averageProgress = useMemo(() => {
     if (allTasks.length === 0) return 0;
@@ -1587,55 +2107,160 @@ export function RDMyWorkspacePage() {
   );
   const overdueCount = dueStats.overdue;
   const dueTodayCount = dueStats.today;
-  const highPriorityCount = useMemo(() => allTasks.filter((task) => task.priority === "high").length, [allTasks]);
-  const focusQueue = useMemo(
-    () =>
-      allTasks
-        .filter((task) => {
-          const days = workspaceDaysUntil(task.due_date);
-          return task.ai_pending || task.priority === "high" || task.status === "paused_blocked" || (days !== null && days <= 3);
-        })
-        .sort((a, b) => {
-          const aDays = workspaceDaysUntil(a.due_date) ?? 999;
-          const bDays = workspaceDaysUntil(b.due_date) ?? 999;
-          const aRisk = (a.status === "paused_blocked" ? 0 : 4) + (a.priority === "high" ? 0 : 2) + (a.ai_pending ? 0 : 1) + aDays;
-          const bRisk = (b.status === "paused_blocked" ? 0 : 4) + (b.priority === "high" ? 0 : 2) + (b.ai_pending ? 0 : 1) + bDays;
-          return aRisk - bRisk;
-        })
-        .slice(0, 6),
-    [allTasks],
+
+  // Combined + filtered tasks in one list
+  const filteredAllTasks = useMemo(
+    () => [...filteredMyTasks, ...filteredCollabTasks],
+    [filteredMyTasks, filteredCollabTasks],
   );
-  const todoCompletionRate = todayTodos.length > 0 ? Math.round((todoChecked.size / todayTodos.length) * 100) : 0;
+  const shownTasks = filteredAllTasks.slice(0, taskVisibleCount);
+  const hasMoreTasks = taskVisibleCount < filteredAllTasks.length;
+  // Keep ref in sync so the IntersectionObserver callback always has the latest value
+  filteredAllTasksLengthRef.current = filteredAllTasks.length;
+
+  // Reset pagination when filters change
+  const prevFiltersRef = React.useRef({ taskKeyword, taskPriorityFilter, taskStatusFilter, taskDueFilter });
+  useEffect(() => {
+    prevFiltersRef.current = { taskKeyword, taskPriorityFilter, taskStatusFilter, taskDueFilter };
+    setTaskVisibleCount(WORKSPACE_PAGE_SIZE);
+  }, [taskKeyword, taskPriorityFilter, taskStatusFilter, taskDueFilter]);
+
+  // Infinite scroll: load more tasks when sentinel enters the task scroll area.
+  useEffect(() => {
+    const el = taskSentinelRef.current;
+    const root = taskScrollRef.current;
+    if (!el || !root || !hasMoreTasks) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setTaskVisibleCount((prev) => {
+            const total = filteredAllTasksLengthRef.current;
+            return prev >= total ? prev : Math.min(prev + WORKSPACE_PAGE_SIZE, total);
+          });
+        }
+      },
+      { root, rootMargin: "180px 0px 240px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [filteredAllTasks.length, hasMoreTasks, loading]);
 
   const findTask = (taskId?: string) => allTasks.find((task) => task.task_id === taskId);
-  const openTask = (task: WorkspaceTask, tab: OperationTab) => setActivePanel({ kind: "task", task, tab });
-  const addLog = (message: string) => setOperationLogs((prev) => [message, ...prev].slice(0, 5));
+  const openTask = (task: WorkspaceTask, tab: OperationTab) => setActivePanel({ kind: "task", task, tab, openedAt: Date.now() });
 
-  const closeSuggestion = (id: string, message: string) => {
+  const approveNotificationReview = React.useCallback((notification: WorkspaceNotification) => {
+    if (!notification.raw_body) {
+      toast.error("通知内容缺少审核任务信息");
+      return;
+    }
+
+    let body: Record<string, unknown>;
+    try {
+      body = JSON.parse(notification.raw_body) as Record<string, unknown>;
+    } catch {
+      toast.error("通知内容解析失败，无法审核");
+      return;
+    }
+
+    const taskId = String(body.task_id ?? "").trim();
+    const taskTitle = String(body.task_title ?? "").trim() || notification.title;
+    const reviewType = String(body.review_type ?? "result");
+    const submitterName = String(body.submitter_name ?? "").trim();
+    const reviewTypeLabel = reviewType === "collaboration" ? "协作变更审核" : "成果审核";
+    if (!taskId) {
+      toast.error("通知内容缺少任务 ID，无法审核");
+      return;
+    }
+
+    setConfirmDialog({
+      title: "确认审核通过",
+      message: `确认通过「${taskTitle}」的${reviewTypeLabel}？`,
+      confirmLabel: "确认通过",
+      cancelLabel: "再看看",
+      details: [
+        `任务编号：${taskId}`,
+        submitterName ? `提交人：${submitterName}` : "提交人：未识别",
+        reviewType === "collaboration"
+          ? "通过后协作人变更会立即生效，任务回到进行中。"
+          : "通过后任务会进入审核通过状态，并通知对应申请人员。",
+      ],
+      onConfirm: async () => {
+        await updateRdTask(taskId, {
+          _review_action: "approve",
+          _reviewer_name: user?.name,
+        } as Parameters<typeof updateRdTask>[1]);
+        await patchRdMessage(notification.id, { handled: true, read: true });
+        recordAudit({
+          actor: WORKSPACE_AUDIT_ACTOR,
+          action: "task.review_approved",
+          resource: { type: "task", id: taskId, name: taskTitle },
+          comment: "批准任务审核",
+          metadata: { notification_id: notification.id, reviewer: user?.name },
+          source: "web",
+        });
+        toast.success(`已批准「${taskTitle}」`);
+        setDismissedNotifs((prev) => new Set(prev).add(notification.id));
+        window.dispatchEvent(new CustomEvent("rd:review-submitted"));
+        setActivePanel(null);
+        await loadWorkspace({ silent: true });
+      },
+    });
+  }, [WORKSPACE_AUDIT_ACTOR, loadWorkspace, user?.name]);
+
+  const closeSuggestion = (id: string) => {
     setClosedSuggestions((prev) => new Set(prev).add(id));
-    addLog(message);
     setActivePanel(null);
   };
 
   return (
-    <div className="min-h-full px-5 py-6 lg:px-7">
-      <div className="mx-auto max-w-[1680px] space-y-5">
-        <header className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white bg-white/75 px-5 py-4 shadow-sm">
-          <div>
-            <h1 className="text-xl font-semibold text-slate-950">个人工作台</h1>
-            <p className="mt-1 text-sm text-slate-500">只展示与我有关的任务、提醒和 AI 待确认项 / 今日 {TODAY_LABEL}</p>
-            {loadError && (
-              <p className="mt-2 inline-flex rounded-md border border-amber-100 bg-amber-50 px-3 py-1 text-xs text-amber-700">
-                {loadError}
-              </p>
-            )}
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
+    <div className="flex h-full min-h-0 px-5 py-6 lg:px-7">
+      <div className="mx-auto flex h-full min-h-0 w-full max-w-[1680px] flex-col gap-4">
+        {/* ── Compact header ── */}
+        <header className="rounded-2xl border border-white bg-white/75 px-5 py-3 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            {/* Left group: title + date + stat chips */}
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <h1 className="text-base font-semibold text-slate-950 shrink-0">个人工作台</h1>
+              <span className="text-xs text-slate-400 shrink-0">今日 {TODAY_LABEL}</span>
+              {/* Stat chips — always shown */}
+              <span className="rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-blue-700">
+                主责 {myTasks.length}
+              </span>
+              <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">
+                协作 {collabTasks.length}
+              </span>
+              <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
+                完成率 {averageProgress}%
+              </span>
+              {/* Conditional chips */}
+              {overdueCount > 0 && (
+                <span className="rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-semibold text-red-600">
+                  逾期 {overdueCount}
+                </span>
+              )}
+              {dueTodayCount > 0 && (
+                <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
+                  今日到期 {dueTodayCount}
+                </span>
+              )}
+              {visibleNotifications.length + visibleSuggestions.length > 0 && (
+                <span className="rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-semibold text-violet-700">
+                  待处理 {visibleNotifications.length + visibleSuggestions.length}
+                </span>
+              )}
+              {/* Inline error */}
+              {loadError && (
+                <span className="inline-flex items-center rounded-md border border-amber-100 bg-amber-50 px-2.5 py-0.5 text-xs text-amber-700">
+                  {loadError}
+                </span>
+              )}
+            </div>
+            {/* Right: AI 立项 button */}
             {canProposeProject && (
               <button
                 type="button"
                 onClick={() => setShowProposalDialog(true)}
-                className="group inline-flex items-center gap-1.5 rounded-md bg-gradient-to-br from-blue-600 to-violet-600 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(99,102,241,0.25)] transition-all hover:-translate-y-0.5 hover:from-blue-700 hover:to-violet-700 hover:shadow-[0_12px_24px_rgba(99,102,241,0.32)] active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+                className="group inline-flex shrink-0 items-center gap-1.5 rounded-md bg-gradient-to-br from-blue-600 to-violet-600 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(99,102,241,0.25)] transition-all hover:-translate-y-0.5 hover:from-blue-700 hover:to-violet-700 hover:shadow-[0_12px_24px_rgba(99,102,241,0.32)] active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
                 title="AI 立项 · 上传文档或写描述，自动拆任务"
               >
                 <Sparkles className="h-3.5 w-3.5 transition-transform group-hover:rotate-12" />
@@ -1643,285 +2268,267 @@ export function RDMyWorkspacePage() {
                 <ChevronRight className="h-3 w-3 transition-transform duration-200 group-hover:translate-x-0.5" />
               </button>
             )}
-            <ActionButton
-              disabled={dailyReportLoading}
-              onClick={() =>
-                setConfirmDialog({
-                  title: "确认生成日报",
-                  message: "将根据今日的进度记录、任务状态自动汇总成研发日报，发送至研发主管驾驶舱。",
-                  confirmLabel: "确认生成",
-                  details: ["将基于今日的进度记录、任务变更生成", "研发主管驾驶舱可以看到", "下午 18:30 会自动生成，无需重复操作"],
-                  onConfirm: async () => {
-                    setDailyReportLoading(true);
-                    try {
-                      const report = await createRdDailyReport({});
-                      setLatestDailyReport(report);
-                      recordAudit({
-                        actor: WORKSPACE_AUDIT_ACTOR,
-                        action: "daily_report.generated",
-                        resource: { type: "system", id: report.id, name: `${report.user_name} ${report.date} 日报` },
-                        metadata: {
-                          report_date: report.date,
-                          tasks: report.summary.stats.total_tasks,
-                          notes: report.summary.stats.notes_count,
-                          trigger: report.trigger,
-                        },
-                        source: "web",
-                      });
-                      addLog(`日报已生成：${report.date}，已同步至研发主管驾驶舱`);
-                      toast.success("日报已生成，研发主管驾驶舱可查看");
-                    } catch (err) {
-                      const msg = err instanceof Error ? err.message : "日报生成失败";
-                      toast.error(msg);
-                    } finally {
-                      setDailyReportLoading(false);
-                    }
-                  },
-                })
-              }
-            >
-              {dailyReportLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <CalendarClock className="h-3.5 w-3.5" />}
-              {dailyReportLoading ? "生成中…" : "生成日报"}
-            </ActionButton>
-            {/*<ActionButton*/}
-            {/*  variant="primary"*/}
-            {/*  onClick={() =>*/}
-            {/*    setConfirmDialog({*/}
-            {/*      title: "确认同步今日进展",*/}
-            {/*      message: "将把今日进度、待办完成情况和操作记录同步到研发任务流。",*/}
-            {/*      confirmLabel: "确认同步",*/}
-            {/*      details: [`已完成待办：${todoChecked.size} / ${todayTodos.length}`, `待处理通知：${visibleNotifications.length}`, `待审核 AI 建议：${visibleSuggestions.length}`],*/}
-            {/*      onConfirm: () => {*/}
-            {/*        recordAudit({*/}
-            {/*          actor: WORKSPACE_AUDIT_ACTOR,*/}
-            {/*          action: "daily_progress.synced",*/}
-            {/*          resource: { type: "system", id: "daily-progress", name: "今日研发进展" },*/}
-            {/*          metadata: {*/}
-            {/*            done_todos: todoChecked.size,*/}
-            {/*            total_todos: todayTodos.length,*/}
-            {/*            pending_notifications: visibleNotifications.length,*/}
-            {/*            pending_ai_suggestions: visibleSuggestions.length,*/}
-            {/*          },*/}
-            {/*          source: "web",*/}
-            {/*        });*/}
-            {/*        addLog("今日进展已同步到研发任务流");*/}
-            {/*      },*/}
-            {/*    })*/}
-            {/*  }*/}
-            {/*>*/}
-            {/*  <CheckSquare className="h-3.5 w-3.5" />*/}
-            {/*  同步今日进展*/}
-            {/*</ActionButton>*/}
           </div>
         </header>
 
-        {latestDailyReport && (
-          <div className="rounded-xl border border-violet-100 bg-violet-50/60 px-4 py-3 text-xs text-violet-700">
-            <div className="flex items-center gap-2 font-semibold">
-              <CalendarClock className="h-3.5 w-3.5" />
-              {latestDailyReport.date} 日报已生成
-              <span className="rounded-full bg-white px-1.5 text-[10px] text-violet-700 ring-1 ring-violet-200">
-                任务 {latestDailyReport.summary.stats.total_tasks} · 进度记录 {latestDailyReport.summary.stats.notes_count}
-              </span>
-            </div>
-            <p className="mt-1 line-clamp-2 whitespace-pre-line text-[11px] text-slate-600">
-              {latestDailyReport.summary.text.split("\n").slice(2, 5).join(" ")}
-            </p>
-          </div>
-        )}
+        {/* ── Body: 2-column grid ── */}
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden 2xl:grid-cols-[minmax(0,1.6fr)_minmax(320px,0.65fr)]">
+          {/* ── LEFT column ── */}
+          <main className="flex min-h-0 flex-col gap-3">
+            {/* Sticky filter bar */}
+            <div className="shrink-0 rounded-2xl border border-white bg-white/90 p-3 shadow-sm backdrop-blur">
+              <div className="flex items-center gap-2">
+                {/* Search — grows to fill spare space */}
+                <label className="relative block min-w-0 flex-1">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                  <Input
+                    className="h-8 w-full rounded-[8px] border border-slate-200 bg-slate-50 pl-8 pr-3 text-xs text-slate-700 outline-none transition focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-50"
+                    placeholder="搜索任务、负责人…"
+                    value={taskKeyword}
+                    onChange={(event) => setTaskKeyword(event.target.value)}
+                  />
+                </label>
 
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-          <WorkspaceMetric label="主责任务" value={myTasks.length} helper="需要我推进闭环" icon={User} tone="text-blue-500" />
-          <WorkspaceMetric label="协作任务" value={collabTasks.length} helper="我作为协作人参与" icon={Users} tone="text-slate-500" />
-          <WorkspaceMetric label="平均完成率" value={`${averageProgress}%`} helper="按当前任务计算" icon={CheckCircle2} tone="text-emerald-500" />
-          <WorkspaceMetric label="今日到期" value={dueTodayCount} helper={`${overdueCount} 个已逾期`} icon={Clock} tone={overdueCount > 0 ? "text-red-500" : "text-blue-500"} />
-          <WorkspaceMetric
-            label="待处理事项"
-            value={visibleNotifications.length + visibleSuggestions.length}
-            helper="通知和 AI 建议"
-            icon={Bell}
-            tone="text-amber-500"
-          />
-        </div>
-
-        <section className="rounded-2xl border border-white bg-white/75 p-4 shadow-sm">
-          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                <ClipboardCheck className="h-4 w-4 text-blue-500" />
-                今日焦点队列
-                <span className="rounded-full bg-blue-50 px-1.5 text-xs font-semibold text-blue-700">{focusQueue.length}</span>
-              </h2>
-              <p className="mt-0.5 text-xs text-slate-400">优先展示逾期、高优先级、AI 待确认和 3 天内到期任务</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700">
-                高优先级 {highPriorityCount}
-              </span>
-              <span className="flex items-center gap-2 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-500">
-                <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                今日待办完成 {todoCompletionRate}%
-              </span>
-            </div>
-          </div>
-          {focusQueue.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-5 text-center text-sm text-slate-400">
-              当前没有需要优先处理的任务
-            </div>
-          ) : (
-            <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
-              {focusQueue.map((task) => {
-                const days = workspaceDaysUntil(task.due_date);
-                const dueText = days === null ? "无截止日" : days < 0 ? `逾期 ${Math.abs(days)} 天` : days === 0 ? "今天到期" : `${days} 天后`;
-                return (
-                  <button
-                    key={task.task_id}
-                    type="button"
-                    onClick={() => openTask(task, "progress")}
-                    className="group rounded-xl border border-slate-100 bg-white px-3 py-3 text-left transition-all hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_12px_28px_rgba(15,23,42,0.07)]"
+                {/* Selects + 清空 + count — always one row, never wrap */}
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <NativeSelect
+                    className="h-8 rounded-[8px] border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+                    value={taskPriorityFilter}
+                    onChange={(event) => setTaskPriorityFilter(event.target.value as Priority | "all")}
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-[11px] text-slate-400">{task.task_id}</span>
-                          <PriorityBadge priority={task.priority} />
-                        </div>
-                        <div className="mt-1 truncate text-sm font-semibold text-slate-900">{task.title}</div>
-                        <div className="mt-1 truncate text-xs text-slate-400">{task.category_path}</div>
-                      </div>
-                      <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold", days !== null && days <= 0 ? "bg-red-50 text-red-600" : "bg-blue-50 text-blue-700")}>
-                        {dueText}
-                      </span>
-                    </div>
-                    <div className="mt-3 flex items-center gap-2">
-                      <ProgressBar value={task.progress} />
-                      <span className="w-9 shrink-0 text-right text-xs font-semibold tabular-nums text-slate-500">{task.progress}%</span>
-                    </div>
+                    <option value="all">优先级</option>
+                    <option value="high">高</option>
+                    <option value="medium">中</option>
+                    <option value="low">低</option>
+                  </NativeSelect>
+                  <NativeSelect
+                    className="h-8 rounded-[8px] border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+                    value={taskStatusFilter}
+                    onChange={(event) => setTaskStatusFilter(event.target.value as TaskStatus | "all")}
+                  >
+                    <option value="all">状态</option>
+                    <option value="in_progress">进行中</option>
+                    <option value="pending_review">待评审</option>
+                    <option value="paused_blocked">阻塞</option>
+                    <option value="paused_leave">请假暂停</option>
+                    <option value="completed">已完成</option>
+                  </NativeSelect>
+                  <NativeSelect
+                    className="h-8 rounded-[8px] border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+                    value={taskDueFilter}
+                    onChange={(event) => setTaskDueFilter(event.target.value as WorkspaceDueFilter)}
+                  >
+                    <option value="all">时间</option>
+                    <option value="overdue">已逾期</option>
+                    <option value="today">今天到期</option>
+                    <option value="3d">3 天内</option>
+                    <option value="7d">7 天内</option>
+                    <option value="no_due">无截止日</option>
+                  </NativeSelect>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTaskKeyword("");
+                      setTaskPriorityFilter("all");
+                      setTaskStatusFilter("all");
+                      setTaskDueFilter("all");
+                    }}
+                    disabled={!taskFiltersActive}
+                    className="h-8 cursor-pointer rounded-[8px] border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    清空
                   </button>
-                );
-              })}
+                  <span className="whitespace-nowrap pl-1 text-[11px] text-slate-400">
+                    {loading ? "加载中…" : `${filteredAllTasks.length} / ${allTasks.length} 个`}
+                  </span>
+                </div>
+              </div>
             </div>
-          )}
-        </section>
 
-        <div className="sticky top-4 z-10 rounded-2xl border border-white bg-white/90 p-3 shadow-sm backdrop-blur">
-          <div className="grid gap-2 md:grid-cols-[minmax(220px,1fr)_140px_140px_130px_auto]">
-            <label className="relative block">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-              <Input
-                className="h-9 w-full rounded-[8px] border border-slate-200 bg-slate-50 pl-8 pr-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-50"
-                placeholder="搜索任务、负责人、系统、下一步"
-                value={taskKeyword}
-                onChange={(event) => setTaskKeyword(event.target.value)}
-              />
-            </label>
-            <NativeSelect
-              className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
-              value={taskPriorityFilter}
-              onChange={(event) => setTaskPriorityFilter(event.target.value as Priority | "all")}
-            >
-              <option value="all">全部优先级</option>
-              <option value="high">高优先级</option>
-              <option value="medium">中优先级</option>
-              <option value="low">低优先级</option>
-            </NativeSelect>
-            <NativeSelect
-              className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
-              value={taskStatusFilter}
-              onChange={(event) => setTaskStatusFilter(event.target.value as TaskStatus | "all")}
-            >
-              <option value="all">全部状态</option>
-              <option value="in_progress">进行中</option>
-              <option value="pending_review">待评审</option>
-              <option value="paused_blocked">阻塞</option>
-              <option value="paused_leave">请假暂停</option>
-              <option value="completed">已完成</option>
-            </NativeSelect>
-            <NativeSelect
-              className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
-              value={taskDueFilter}
-              onChange={(event) => setTaskDueFilter(event.target.value as WorkspaceDueFilter)}
-            >
-              <option value="all">全部时间</option>
-              <option value="overdue">已逾期</option>
-              <option value="today">今天到期</option>
-              <option value="3d">3 天内</option>
-              <option value="7d">7 天内</option>
-              <option value="no_due">无截止日</option>
-            </NativeSelect>
-            <button
-              type="button"
-              onClick={() => {
-                setTaskKeyword("");
-                setTaskPriorityFilter("all");
-                setTaskStatusFilter("all");
-                setTaskDueFilter("all");
-              }}
-              disabled={!taskFiltersActive}
-              className="h-9 cursor-pointer rounded-[8px] border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              清空
-            </button>
-          </div>
-          <div className="mt-2 text-xs text-slate-500">
-            当前显示 <span className="font-semibold text-slate-800">{filteredMyTasks.length + filteredCollabTasks.length}</span> / {allTasks.length} 个任务
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 gap-5 2xl:grid-cols-[minmax(0,1.55fr)_minmax(360px,0.75fr)]">
-          <main className="space-y-5">
-            <SectionCard title="我的任务" icon={User} count={filteredMyTasks.length} helper="按优先级和到期时间处理">
-              <div className="grid gap-3 xl:grid-cols-2">
-                {loading ? (
-                  <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-400 xl:col-span-2">正在加载我的任务…</p>
-                ) : filteredMyTasks.length === 0 ? (
-                  <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-400 xl:col-span-2">
-                    暂无分配给我的研发任务
+            <div ref={taskScrollRef} className="material-scrollbar min-h-0 flex-1 overflow-y-auto pr-1">
+              {/* Task list */}
+              {loading ? (
+                <div className="space-y-2">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-[84px] animate-pulse rounded-2xl bg-slate-100" />
+                  ))}
+                </div>
+              ) : filteredAllTasks.length === 0 ? (
+                <div className="flex min-h-[260px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 py-12 text-center">
+                  <CheckCircle2 className="mb-2 h-8 w-8 text-slate-300" />
+                  <p className="text-sm font-medium text-slate-500">
+                    {taskFiltersActive ? "没有匹配的任务" : "当前没有分配给我的任务"}
                   </p>
-                ) : (
-                  filteredMyTasks.map((task) => (
-                    <TaskCardUI key={task.task_id} task={task} onOpen={openTask} />
-                  ))
-                )}
-              </div>
+                </div>
+              ) : (
+                <>
+                  <div className="space-y-2">
+                    <AnimatePresence>
+                      {shownTasks.map((task) => (
+                        <WorkspaceTaskCard key={task.task_id} task={task} onOpen={openTask} />
+                      ))}
+                    </AnimatePresence>
+                  </div>
+
+                  {/* Infinite scroll sentinel */}
+                  <div ref={taskSentinelRef}>
+                    {hasMoreTasks ? (
+                      <div className="mt-3 flex items-center justify-center gap-1.5 py-2 text-[11px] text-slate-400">
+                        <ChevronDown className="h-3 w-3 animate-bounce" />
+                        <span>滚动加载更多 · 已显示 <span className="tabular-nums">{shownTasks.length}</span> / 共 <span className="tabular-nums">{filteredAllTasks.length}</span> 个</span>
+                      </div>
+                    ) : filteredAllTasks.length > WORKSPACE_PAGE_SIZE ? (
+                      <div className="mt-3 flex items-center justify-center gap-1.5 py-2 text-[11px] text-slate-400">
+                        <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+                        <span>已显示全部 <span className="font-semibold tabular-nums text-slate-500">{filteredAllTasks.length}</span> 个任务</span>
+                      </div>
+                    ) : null}
+                  </div>
+                </>
+              )}
+            </div>
+          </main>
+
+          {/* ── RIGHT column ── */}
+          <aside className="material-scrollbar min-h-0 space-y-4 overflow-y-auto pr-1">
+            {/* 通知中心 */}
+            <SectionCard title="通知中心" icon={Bell} count={visibleNotifications.length}>
+              {visibleNotifications.length === 0 ? (
+                <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">暂无新通知</p>
+              ) : (
+                <>
+                  <ul className="space-y-2">
+                    {shownNotifications.map((notification) => {
+                      const isMessage = notification.type === "message";
+                      return (
+                        <li key={notification.id}>
+                          <div
+                            className={cn(
+                              "group flex w-full cursor-pointer items-start gap-2 rounded-xl border px-3 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:shadow-[0_10px_24px_rgba(15,23,42,0.06)]",
+                              isMessage
+                                ? "border-blue-100 bg-blue-50/60"
+                                : notification.type === "blocked" || notification.type === "due_soon"
+                                  ? "border-amber-100 bg-amber-50"
+                                  : "border-slate-100 bg-slate-50",
+                            )}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const openedNotification = { ...notification, read: true };
+                                markNotificationRead(notification);
+                                setActivePanel({ kind: "notification", notification: openedNotification });
+                              }}
+                              className="flex min-w-0 flex-1 cursor-pointer items-start gap-2 text-left focus-visible:outline-none"
+                            >
+                              {isMessage ? (
+                                <MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500" />
+                              ) : (
+                                <AlertTriangle
+                                  className={cn(
+                                    "mt-0.5 h-3.5 w-3.5 shrink-0",
+                                    notification.type === "blocked" ? "text-red-500" : "text-amber-500",
+                                  )}
+                                />
+                              )}
+                              <span className="min-w-0 flex-1">
+                                <span className="flex min-w-0 items-center gap-2">
+                                  <span className="truncate text-xs font-semibold text-slate-800">{notification.title}</span>
+                                  {isMessage ? (
+                                    <span
+                                      className={cn(
+                                        "shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none",
+                                        notification.read ? "bg-slate-100 text-slate-500" : "bg-red-50 text-red-600 ring-1 ring-red-100",
+                                      )}
+                                    >
+                                      {notification.read ? "已读" : "未读"}
+                                    </span>
+                                  ) : null}
+                                </span>
+                                <span className="mt-0.5 line-clamp-2 block text-xs leading-5 text-slate-600">{notification.message}</span>
+                                <span className="mt-1 block text-[10px] text-slate-400">{notification.time}</span>
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setConfirmDialog({
+                                  title: "确认关闭通知",
+                                  message: `将关闭「${notification.title}」这条通知。`,
+                                  confirmLabel: "确认关闭",
+                                  details: ["关闭后会从通知中心移除", "不会影响关联任务本身"],
+                                  onConfirm: () => {
+                                    recordAudit({
+                                      actor: WORKSPACE_AUDIT_ACTOR,
+                                      action: "notification.handled",
+                                      resource: { type: "system", id: notification.id, name: notification.title },
+                                      comment: "关闭通知中心提醒",
+                                      metadata: { related_task_id: notification.related_task_id, notification_type: notification.type },
+                                      source: "web",
+                                    });
+                                    // Persist handled state to backend so it survives page refresh
+                                    if (notification.id.startsWith("msg-")) {
+                                      void patchRdMessage(notification.id, { handled: true, read: true }).catch(() => {});
+                                    }
+                                    setDismissedNotifs((prev) => new Set(prev).add(notification.id));
+                                  },
+                                })
+                              }
+                              className="rounded p-1 text-slate-300 transition-colors hover:bg-white hover:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+                              aria-label="关闭通知"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+
+                  {/* Pagination */}
+                  {hasMoreNotifs ? (
+                    <div className="mt-2 flex items-center justify-center gap-1.5 py-1.5 text-[11px] text-slate-400">
+                      <ChevronDown className="h-3 w-3" />
+                      <button
+                        type="button"
+                        onClick={() => setNotifVisibleCount((prev) => prev + NOTIF_PAGE_SIZE)}
+                        className="font-semibold text-slate-500 underline underline-offset-2 hover:text-slate-700"
+                      >
+                        加载更多
+                      </button>
+                      <span>· 已显示 {shownNotifications.length} / 共 {visibleNotifications.length} 条</span>
+                    </div>
+                  ) : visibleNotifications.length > NOTIF_PAGE_SIZE ? (
+                    <div className="mt-2 flex items-center justify-center gap-1.5 py-1.5 text-[11px] text-slate-400">
+                      <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+                      <span>已显示全部 <span className="font-semibold tabular-nums text-slate-500">{visibleNotifications.length}</span> 条通知</span>
+                    </div>
+                  ) : null}
+                </>
+              )}
             </SectionCard>
 
-            <SectionCard title="协作任务" icon={Users} count={filteredCollabTasks.length} helper="需要我提供输入或反馈">
-              <div className="grid gap-3 xl:grid-cols-2">
-                {loading ? (
-                  <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-400 xl:col-span-2">正在加载协作任务…</p>
-                ) : filteredCollabTasks.length === 0 ? (
-                  <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-400 xl:col-span-2">
-                    暂无需要我协作的任务
-                  </p>
-                ) : (
-                  filteredCollabTasks.map((task) => (
-                    <TaskCardUI key={task.task_id} task={task} onOpen={openTask} />
-                  ))
-                )}
-              </div>
-            </SectionCard>
-
+            {/* AI 建议 */}
             {visibleSuggestions.length > 0 && (
               <SectionCard title="待审核 AI 建议" icon={Sparkles} count={visibleSuggestions.length} helper="确认后才写入任务池">
-                <div className="grid gap-3 lg:grid-cols-2">
+                <div className="space-y-3">
                   {visibleSuggestions.map((suggestion) => (
-                    <article key={suggestion.id} className="rounded-xl border border-violet-100 bg-gradient-to-br from-violet-50 to-blue-50 p-4">
+                    <article key={suggestion.id} className="rounded-xl border border-violet-100 bg-gradient-to-br from-violet-50 to-blue-50 p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
-                          <h3 className="text-sm font-semibold text-slate-900">{suggestion.title}</h3>
-                          <p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{suggestion.preview}</p>
+                          <h3 className="text-xs font-semibold text-slate-900">{suggestion.title}</h3>
+                          <p className="mt-0.5 line-clamp-2 text-[11px] leading-5 text-slate-500">{suggestion.preview}</p>
                         </div>
                         <span className="shrink-0 rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-violet-700">
                           {regeneratedSuggestions.has(suggestion.id) ? suggestion.confidence + 6 : suggestion.confidence}%
                         </span>
                       </div>
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
                         <ActionButton
                           onClick={() => setActivePanel({ kind: "ai", suggestion, regenerated: regeneratedSuggestions.has(suggestion.id) })}
                           variant="primary"
                         >
-                          <CheckCircle2 className="h-3.5 w-3.5" />
+                          <CheckCircle2 className="h-3 w-3" />
                           审核
                         </ActionButton>
                         <ActionButton
@@ -1938,7 +2545,7 @@ export function RDMyWorkspacePage() {
                             setActivePanel({ kind: "ai", suggestion, regenerated: true });
                           }}
                         >
-                          <RefreshCw className="h-3.5 w-3.5" />
+                          <RefreshCw className="h-3 w-3" />
                           重新生成
                         </ActionButton>
                         <ActionButton
@@ -1958,7 +2565,7 @@ export function RDMyWorkspacePage() {
                                   metadata: { source: suggestion.source },
                                   source: "web",
                                 });
-                                closeSuggestion(suggestion.id, `${suggestion.title} 已忽略`);
+                                closeSuggestion(suggestion.id);
                               },
                             })
                           }
@@ -1973,149 +2580,13 @@ export function RDMyWorkspacePage() {
                 </div>
               </SectionCard>
             )}
-          </main>
-
-          <aside className="space-y-5 2xl:sticky 2xl:top-20 2xl:self-start">
-            <SectionCard title="今日待办" icon={CheckSquare} count={`${todayTodos.length - todoChecked.size}/${todayTodos.length}`}>
-              {todayTodos.length === 0 ? (
-                <p className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">
-                  暂无今日待办
-                </p>
-              ) : (
-              <ul className="space-y-2">
-                {todayTodos.map((todo, index) => {
-                  const checked = todoChecked.has(index);
-                  const task = findTask(todo.task_id);
-                  return (
-                    <li key={todo.text}>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setTodoChecked((prev) => {
-                            const next = new Set(prev);
-                            if (next.has(index)) next.delete(index);
-                            else next.add(index);
-                            return next;
-                          })
-                        }
-                        className={cn(
-                          "flex w-full cursor-pointer items-start gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors hover:bg-slate-50",
-                          checked ? "text-slate-300 line-through" : "text-slate-700",
-                        )}
-                      >
-                        <span
-                          className={cn(
-                            "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors",
-                            checked ? "border-emerald-300 bg-emerald-400 text-white" : "border-slate-300 text-transparent",
-                          )}
-                        >
-                          <Check className="h-3 w-3" />
-                        </span>
-                        <span className="min-w-0 flex-1">{todo.text}</span>
-                        {task && <ChevronRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-300" />}
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-              )}
-            </SectionCard>
-
-            <SectionCard title="通知中心" icon={Bell} count={visibleNotifications.length}>
-              {visibleNotifications.length === 0 ? (
-                <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">暂无新通知</p>
-              ) : (
-                <ul className="space-y-2">
-                  {visibleNotifications.map((notification) => {
-                    const isMessage = notification.type === "message";
-                    return (
-                    <li key={notification.id}>
-                      <div
-                        className={cn(
-                          "group flex w-full cursor-pointer items-start gap-2 rounded-xl border px-3 py-2.5 text-left transition-all hover:-translate-y-0.5 hover:shadow-[0_10px_24px_rgba(15,23,42,0.06)]",
-                          isMessage
-                            ? "border-blue-100 bg-blue-50/60"
-                            : notification.type === "blocked" || notification.type === "due_soon"
-                              ? "border-amber-100 bg-amber-50"
-                              : "border-slate-100 bg-slate-50",
-                        )}
-                      >
-                        <button
-                          type="button"
-                          onClick={() => setActivePanel({ kind: "notification", notification })}
-                          className="flex min-w-0 flex-1 cursor-pointer items-start gap-2 text-left focus-visible:outline-none"
-                        >
-                          {isMessage ? (
-                            <MessageSquare className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500" />
-                          ) : (
-                            <AlertTriangle
-                              className={cn(
-                                "mt-0.5 h-3.5 w-3.5 shrink-0",
-                                notification.type === "blocked" ? "text-red-500" : "text-amber-500",
-                              )}
-                            />
-                          )}
-                          <span className="min-w-0 flex-1">
-                            <span className="block text-xs font-semibold text-slate-800">{notification.title}</span>
-                            <span className="mt-0.5 line-clamp-2 block text-xs leading-5 text-slate-600">{notification.message}</span>
-                            <span className="mt-1 block text-[10px] text-slate-400">{notification.time}</span>
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setConfirmDialog({
-                              title: "确认关闭通知",
-                              message: `将关闭「${notification.title}」这条通知。`,
-                              confirmLabel: "确认关闭",
-                              details: ["关闭后会从通知中心移除", "不会影响关联任务本身"],
-                              onConfirm: () => {
-                                recordAudit({
-                                  actor: WORKSPACE_AUDIT_ACTOR,
-                                  action: "notification.handled",
-                                  resource: { type: "system", id: notification.id, name: notification.title },
-                                  comment: "关闭通知中心提醒",
-                                  metadata: { related_task_id: notification.related_task_id, notification_type: notification.type },
-                                  source: "web",
-                                });
-                                setDismissedNotifs((prev) => new Set(prev).add(notification.id));
-                              },
-                            })
-                          }
-                          className="rounded p-1 text-slate-300 transition-colors hover:bg-white hover:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
-                          aria-label="关闭通知"
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
-                      </div>
-                    </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </SectionCard>
-
-            <SectionCard title="操作记录" icon={MessageSquare} count={operationLogs.length}>
-              {operationLogs.length === 0 ? (
-                <div className="rounded-xl bg-slate-50 px-4 py-5 text-sm text-slate-400">今天还没有提交类操作。</div>
-              ) : (
-                <ul className="space-y-2">
-                  {operationLogs.map((log, index) => (
-                    <li key={`${log}-${index}`} className="flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                      <CircleDot className="mt-0.5 h-3.5 w-3.5 shrink-0 text-blue-500" />
-                      {log}
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </SectionCard>
           </aside>
         </div>
       </div>
 
       {activePanel?.kind === "task" && (
         <TaskOperationDrawer
-          key={`${activePanel.task.task_id}-${activePanel.tab}`}
+          key={`panel-task-${activePanel.openedAt}`}
           task={activePanel.task}
           initialTab={activePanel.tab}
           onClose={() => setActivePanel(null)}
@@ -2130,14 +2601,29 @@ export function RDMyWorkspacePage() {
               ...prev,
               [taskId]: progress,
             }));
-            setActivePanel((current) =>
-              current?.kind === "task" && current.task.task_id === taskId
-                ? { ...current, task: { ...current.task, progress } }
-                : current,
-            );
+            setActivePanel(null);
+            await loadWorkspace({ silent: true });
           }}
-          onLog={addLog}
+          onLog={() => {}}
           onRequestConfirm={setConfirmDialog}
+          onSubmittedForReview={async (taskId) => {
+            setWorkspace((prev) => ({
+              ...prev,
+              myTasks: markTaskSubmittedForReviewList(prev.myTasks, taskId),
+              collabTasks: markTaskSubmittedForReviewList(prev.collabTasks, taskId),
+            }));
+            setActivePanel(null);
+            await loadWorkspace({ silent: true });
+          }}
+          onCollaborationChanged={async (taskId, collaborators, status) => {
+            setWorkspace((prev) => ({
+              ...prev,
+              myTasks: updateTaskCollaboratorsList(prev.myTasks, taskId, collaborators, status),
+              collabTasks: updateTaskCollaboratorsList(prev.collabTasks, taskId, collaborators, status),
+            }));
+            setActivePanel(null);
+            await loadWorkspace({ silent: true });
+          }}
         />
       )}
 
@@ -2192,7 +2678,7 @@ export function RDMyWorkspacePage() {
                     source: "web",
                   });
                 });
-                closeSuggestion(activePanel.suggestion.id, `${activePanel.suggestion.title} 已确认写入任务池`);
+                closeSuggestion(activePanel.suggestion.id);
               },
             })
           }
@@ -2212,7 +2698,7 @@ export function RDMyWorkspacePage() {
                   metadata: { source: activePanel.suggestion.source },
                   source: "web",
                 });
-                closeSuggestion(activePanel.suggestion.id, `${activePanel.suggestion.title} 已忽略`);
+                closeSuggestion(activePanel.suggestion.id);
               },
             })
           }
@@ -2243,13 +2729,51 @@ export function RDMyWorkspacePage() {
                   },
                   source: "web",
                 });
+                // Persist handled state so the message doesn't reappear after page refresh
+                if (activePanel.notification.id.startsWith("msg-")) {
+                  void patchRdMessage(activePanel.notification.id, { handled: true, read: true }).catch(() => {});
+                }
                 setDismissedNotifs((prev) => new Set(prev).add(activePanel.notification.id));
-                addLog(`${activePanel.notification.title} 已标记处理`);
                 setActivePanel(null);
               },
             })
           }
-          onOpenTask={(task, tab) => setActivePanel({ kind: "task", task, tab })}
+          onOpenTask={(task, tab) => setActivePanel({ kind: "task", task, tab, openedAt: Date.now() })}
+          canReview={canReview}
+          onApprove={() => {
+            const notif = activePanel!.kind === "notification" ? activePanel!.notification : null;
+            if (notif) approveNotificationReview(notif);
+          }}
+          onReject={async (reason) => {
+            const notif = activePanel!.kind === "notification" ? activePanel!.notification : null;
+            if (!notif?.raw_body) return;
+            try {
+              const body = JSON.parse(notif.raw_body) as Record<string, unknown>;
+              const taskId = String(body.task_id ?? "");
+              const taskTitle = String(body.task_title ?? "");
+              await updateRdTask(taskId, {
+                _review_action: "reject",
+                _reviewer_name: user?.name,
+                _reject_reason: reason,
+              } as Parameters<typeof updateRdTask>[1]);
+              await patchRdMessage(notif.id, { handled: true, read: true });
+              recordAudit({
+                actor: WORKSPACE_AUDIT_ACTOR,
+                action: "task.review_rejected",
+                resource: { type: "task", id: taskId, name: taskTitle },
+                comment: `驳回任务审核：${reason}`,
+                metadata: { notification_id: notif.id, reviewer: user?.name, reason },
+                source: "web",
+              });
+              toast.success(`已驳回「${taskTitle}」`);
+              setDismissedNotifs((prev) => new Set(prev).add(notif.id));
+              window.dispatchEvent(new CustomEvent("rd:review-submitted"));
+              setActivePanel(null);
+              await loadWorkspace({ silent: true });
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : "操作失败");
+            }
+          }}
         />
       )}
 

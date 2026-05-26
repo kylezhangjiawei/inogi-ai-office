@@ -4,8 +4,8 @@ const RD_API_BASE = "/api/research-development";
 
 /** Default per-request timeout for RD module. AI and file-upload calls override via `timeoutMs`. */
 const RD_DEFAULT_TIMEOUT_MS = 30_000;
-/** Longer timeout for AI inference / large file ingestion — must comfortably exceed server-side `OPENAI_TIMEOUT_MS` (120s). */
-const RD_AI_TIMEOUT_MS = 180_000;
+/** Longer timeout for AI inference / large file ingestion — must exceed server-side `RD_EXTRACT_TIMEOUT_MS` (300s). */
+const RD_AI_TIMEOUT_MS = 360_000;
 
 type RequestJsonOptions = RequestInit & { timeoutMs?: number };
 
@@ -79,6 +79,10 @@ export type RdTask = {
   primary_owner: string;
   primary_owner_user_id?: string | null;
   collaborators: RdCollaborator[];
+  pending_review_type?: "collaboration" | "result" | string | null;
+  pending_collaborators?: RdCollaborator[];
+  pending_collaboration_reason?: string | null;
+  pending_collaboration_requested_at?: string | null;
   status: RdTaskStatus;
   progress: number;
   ai_priority: RdPriority;
@@ -87,13 +91,50 @@ export type RdTask = {
   category_path: string;
   archived: boolean;
   attachments: number;
+  start_date?: string;
   due_date?: string;
   ai_modified?: boolean;
   subtasks?: RdTask[];
+  updated_at?: string;
 };
 
 export type RdSubProject = { id: string; label: string; tasks: RdTask[] };
 export type RdCategory = { id: string; label: string; children: RdSubProject[] };
+
+// ── Products (产品线) ──────────────────────────────────────────────────────────
+
+export type RdProductStatus = 'active' | 'developing' | 'paused' | 'archived';
+
+export type RdProductDef = {
+  id: string;
+  name: string;
+  description?: string;
+  status?: RdProductStatus;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export function fetchRdProducts() {
+  return requestJson<RdProductDef[]>('/products');
+}
+
+export function saveRdProducts(products: RdProductDef[]) {
+  return requestJson<{ ok: boolean }>('/products', {
+    method: 'PUT',
+    body: JSON.stringify(products),
+  });
+}
+
+export function fetchProductTaskCategories(productId: string) {
+  return requestJson<RdCategory[]>(`/product-task-categories/${encodeURIComponent(productId)}`);
+}
+
+export function saveProductTaskCategories(productId: string, categories: RdCategory[]) {
+  return requestJson<{ ok: boolean }>(`/product-task-categories/${encodeURIComponent(productId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(categories),
+  });
+}
 
 // ── Workspace payload ─────────────────────────────────────────────────────────
 
@@ -111,6 +152,10 @@ export type RdWorkspaceTask = {
   category_path: string;
   owner: string;
   owner_user_id?: string | null;
+  collaborators?: RdCollaborator[];
+  pending_review_type?: "collaboration" | "result" | string | null;
+  pending_collaborators?: RdCollaborator[];
+  pending_collaboration_reason?: string | null;
   collab_role?: string;
   on_leave?: boolean;
   ai_pending?: boolean;
@@ -143,6 +188,10 @@ export type RdWorkspaceNotification = {
   sender_name?: string;
   sender_role?: string | null;
   read?: boolean;
+  /** Whether the message has been approved/rejected (review handled) */
+  handled?: boolean;
+  /** Full raw body string — present for inbox messages so the UI can parse JSON review requests */
+  raw_body?: string;
   created_at?: string | null;
 };
 
@@ -190,6 +239,9 @@ export type RdPersonLoad = {
   blocked_count?: number;
   avg_completion?: number;
   recent_activities?: { date: string; action: string }[];
+  /** KB 知识库访问分值：0（公开）~ 100（最高权限）。成员分值 >= 文件分值时可见。 */
+  kb_level?: number;
+  kb_level_scale?: "score" | string;
 };
 
 export type RdIdentityUser = {
@@ -303,6 +355,8 @@ export type RdAiSettingsPayload = {
       model: string;
       enabled: boolean;
       is_default_enabled?: boolean;
+      /** 显式用途类型：text | multimodal | image | auto */
+      usage_kind?: string;
     }>;
   };
 };
@@ -495,14 +549,18 @@ export function planRdFileIngestion(files: Array<{ name: string; mime_type?: str
 // ── AI: 立项任务抽取 ─────────────────────────────────────────────────────────
 
 export type RdAiTaskDraft = {
+  id?: string;
   title: string;
   description?: string;
   owner: string;
   owner_reason: string;
+  start_date?: string;
   due_date: string;
   priority: "high" | "medium" | "low";
   category_path: string;
   estimated_days: number;
+  ai_estimated_days?: number;
+  duration_basis?: string;
 };
 
 export type RdAiExtractResult = {
@@ -550,6 +608,34 @@ export async function extractRdTasksFromFile(payload: {
     "AI 文件解析失败",
   );
   return (await response.json()) as RdAiExtractResult;
+}
+
+export type RdAiProposalRefineScope = "all" | "selected" | "single";
+
+export type RdAiProposalRefineResult = {
+  tasks: RdAiTaskDraft[];
+  change_summary: string[];
+  warnings: string[];
+  provider: "openai" | "qwen" | "local";
+  model: string;
+};
+
+export function refineRdProposalTasks(payload: {
+  proposalTitle?: string;
+  originalInput?: string;
+  currentTasks: RdAiTaskDraft[];
+  instruction: string;
+  peopleNames?: string[];
+  peopleProfiles?: RdAiPersonContext[];
+  categoryLabels?: string[];
+  scope?: RdAiProposalRefineScope;
+  selectedTaskIds?: string[];
+}) {
+  return requestJson<RdAiProposalRefineResult>("/ai/refine-proposal", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    timeoutMs: RD_AI_TIMEOUT_MS,
+  });
 }
 
 // ── AI: 任务进度判断 ─────────────────────────────────────────────────────────
@@ -712,6 +798,7 @@ export type RdMessage = {
   subject: string | null;
   body: string;
   read: boolean;
+  handled?: boolean;
   created_at: string;
 };
 
@@ -733,6 +820,13 @@ export function sendRdMessage(payload: {
   return requestJson<RdMessage>("/messages", {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+export function patchRdMessage(messageId: string, patch: { read?: boolean; handled?: boolean }) {
+  return requestJson<RdMessage>(`/messages/${messageId}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
   });
 }
 
@@ -776,4 +870,253 @@ export function deleteRdProposalDraft(draftId: string) {
   return requestJson<{ ok: true }>(`/proposal-drafts/${encodeURIComponent(draftId)}`, {
     method: "DELETE",
   });
+}
+
+// ── Knowledge Base ────────────────────────────────────────────────────────────
+
+export type KbVisibility = 'public' | 'internal' | 'restricted';
+export type KbSource = 'task_attachment' | 'manual' | 'import';
+
+export type KbCategory = {
+  id: string;
+  label: string;
+  icon?: string;
+  color?: string;
+  order?: number;
+  /** Direct files in this category. Returned by the API for sidebar rules/counts. */
+  entry_count?: number;
+  /** Files in this category and all children. Returned by the API for edit/delete locks. */
+  total_entry_count?: number;
+  children?: KbCategory[];
+};
+
+export type KbEntry = {
+  id: string;
+  title: string;
+  description?: string;
+  category_id: string;
+  tags: string[];
+  visibility: KbVisibility;
+  /** 数值访问权限分值：0（完全公开）~ 100（绝密）。用户分值 ≥ 此值方可访问。 */
+  permission_level?: number;
+  source: KbSource;
+  source_task_id?: string | null;
+  source_task_title?: string | null;
+  file_name?: string | null;
+  file_type?: string | null;
+  file_size?: number | null;
+  /** Only present on single-entry detail fetch; stripped from list for performance. */
+  data_url?: string | null;
+  /** True when this entry has a base64 file stored server-side (data_url not included in list). */
+  has_data_file?: boolean;
+  oss_url?: string | null;
+  external_url?: string | null;
+  view_count: number;
+  download_count: number;
+  created_by_id?: string | null;
+  created_by_name?: string;
+  created_at: string;
+  updated_at: string;
+  archived: boolean;
+};
+
+export function fetchKbCategories(): Promise<KbCategory[]> {
+  return requestJson<KbCategory[]>('/knowledge/categories');
+}
+
+export function saveKbCategories(categories: KbCategory[]): Promise<{ ok: boolean }> {
+  return requestJson<{ ok: boolean }>('/knowledge/categories', {
+    method: 'PUT',
+    body: JSON.stringify(categories),
+  });
+}
+
+export type KbCategoryMutationResult = {
+  ok: boolean;
+  categories: KbCategory[];
+  category?: KbCategory;
+};
+
+export function createKbCategory(payload: {
+  label: string;
+  parent_id?: string;
+  icon?: string;
+  color?: string;
+}): Promise<KbCategoryMutationResult> {
+  return requestJson<KbCategoryMutationResult>('/knowledge/categories', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateKbCategory(
+  id: string,
+  payload: { label?: string; icon?: string; color?: string },
+): Promise<KbCategoryMutationResult> {
+  return requestJson<KbCategoryMutationResult>(`/knowledge/categories/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteKbCategory(id: string): Promise<KbCategoryMutationResult> {
+  return requestJson<KbCategoryMutationResult>(`/knowledge/categories/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+export function fetchKbEntries(params?: {
+  category_id?: string;
+  keyword?: string;
+  source?: string;
+  file_type?: string;
+  visibility?: string;
+  permission_level?: number;
+}): Promise<KbEntry[]> {
+  const qs = params ? new URLSearchParams(
+    Object.entries(params).filter(([, v]) => v !== undefined && v !== '') as [string, string][]
+  ).toString() : '';
+  return requestJson<KbEntry[]>(`/knowledge/entries${qs ? `?${qs}` : ''}`);
+}
+
+/** Fetch a single KB entry including its full data_url (for download of base64 files). */
+export function fetchKbEntry(id: string): Promise<KbEntry> {
+  return requestJson<KbEntry>(`/knowledge/entries/${encodeURIComponent(id)}`);
+}
+
+export function updateKbEntry(id: string, payload: Partial<Pick<KbEntry, 'title' | 'description' | 'category_id' | 'tags' | 'visibility' | 'permission_level' | 'archived'>>): Promise<KbEntry> {
+  return requestJson<KbEntry>(`/knowledge/entries/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export function moveKbEntry(id: string, categoryId: string): Promise<KbEntry> {
+  return requestJson<KbEntry>(`/knowledge/entries/${encodeURIComponent(id)}/move`, {
+    method: 'PATCH',
+    body: JSON.stringify({ category_id: categoryId }),
+  });
+}
+
+export function deleteKbEntry(id: string): Promise<{ ok: boolean }> {
+  return requestJson<{ ok: boolean }>(`/knowledge/entries/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+export type KbClassifyResult = Array<{
+  filename: string;
+  category_id: string | null;
+  confidence: number;
+  method: 'rule' | 'ai' | 'none';
+}>;
+
+export function classifyKbFiles(filenames: string[]): Promise<KbClassifyResult> {
+  return requestJson<KbClassifyResult>('/knowledge/classify-files', {
+    method: 'POST',
+    body: JSON.stringify({ filenames }),
+    timeoutMs: RD_AI_TIMEOUT_MS,
+  });
+}
+
+type PresignResult = {
+  enabled: boolean;
+  files: Array<{ objectKey: string; putUrl: string | null; contentType: string }>;
+};
+
+/**
+ * Upload KB files with automatic path selection:
+ *
+ * When OSS is configured → browser-direct-upload (fast):
+ *   1. GET presigned PUT URLs from server (tiny JSON)
+ *   2. PUT files directly from browser to OSS in parallel (single hop, no server bottleneck)
+ *   3. POST object keys to server to create KB entries (tiny JSON)
+ *
+ * When OSS is not configured → server-mediated fallback (original behavior):
+ *   POST files as multipart/form-data to server → server stores as base64
+ *
+ * Prerequisite for direct upload: OSS bucket must have a CORS rule:
+ *   AllowedOrigin: *   AllowedMethod: PUT   AllowedHeader: *
+ */
+export async function uploadKbFiles(params: {
+  files: File[];
+  category_id: string;
+  description?: string;
+  visibility?: string;
+  permission_level?: number;
+  tags?: string;
+}): Promise<KbEntry[]> {
+  // ── Step 1: request presigned PUT URLs ──────────────────────────────────────
+  let presign: PresignResult;
+  try {
+    presign = await requestJson<PresignResult>('/knowledge/presign-upload', {
+      method: 'POST',
+      body: JSON.stringify({
+        files: params.files.map((f) => ({
+          filename: f.name,
+          content_type: f.type || 'application/octet-stream',
+        })),
+      }),
+    });
+  } catch {
+    // If presign endpoint fails, fall straight through to server-mediated upload
+    presign = { enabled: false, files: [] };
+  }
+
+  // ── Path A: browser direct upload to OSS ───────────────────────────────────
+  if (presign.enabled && presign.files.length > 0 && presign.files.every((pf) => pf.putUrl)) {
+    // Upload all files to OSS in parallel — one HTTP hop per file, no server involved
+    await Promise.all(
+      presign.files.map((pf, i) => {
+        const file = params.files[i]!;
+        return fetch(pf.putUrl!, {
+          method: 'PUT',
+          body: file,
+          headers: { 'Content-Type': pf.contentType },
+        }).then((res) => {
+          if (!res.ok) throw new Error(`OSS 直传失败 (${file.name}): HTTP ${res.status}`);
+        });
+      }),
+    );
+
+    // Notify server to create KB entries for the already-uploaded objects
+    return requestJson<KbEntry[]>('/knowledge/entries/from-oss-keys', {
+      method: 'POST',
+      body: JSON.stringify({
+        oss_files: presign.files.map((pf, i) => ({
+          oss_key: pf.objectKey,
+          filename: params.files[i]!.name,
+          file_size: params.files[i]!.size,
+          content_type: pf.contentType,
+        })),
+        category_id: params.category_id,
+        description: params.description,
+        visibility: params.visibility,
+        permission_level: params.permission_level,
+        tags: params.tags,
+      }),
+    });
+  }
+
+  // ── Path B: server-mediated upload (OSS not configured, or presign failed) ──
+  const fd = new FormData();
+  for (const f of params.files) fd.append('files', f);
+  fd.append('category_id', params.category_id);
+  if (params.description) fd.append('description', params.description);
+  if (params.visibility) fd.append('visibility', params.visibility);
+  if (typeof params.permission_level === 'number') fd.append('permission_level', String(params.permission_level));
+  if (params.tags) fd.append('tags', params.tags);
+  const { authFetch, readErrorMessage } = await import('./authSession');
+  const response = await authFetch(`${RD_API_BASE}/knowledge/entries`, { method: 'POST', body: fd });
+  if (!response.ok) throw new Error(await readErrorMessage(response, '上传失败'));
+  return (await response.json()) as KbEntry[];
+}
+
+export function recordKbView(id: string): Promise<{ ok: boolean }> {
+  return requestJson<{ ok: boolean }>(`/knowledge/entries/${encodeURIComponent(id)}/view`, { method: 'POST' });
+}
+
+/** One-shot: ask the backend to fix garbled Latin-1 filenames on all KB entries. */
+export function repairKbFilenames(): Promise<{ fixed: number; total: number }> {
+  return requestJson<{ fixed: number; total: number }>('/knowledge/repair-filenames', { method: 'POST' });
 }

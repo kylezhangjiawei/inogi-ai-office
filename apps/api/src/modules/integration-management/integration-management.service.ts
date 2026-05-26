@@ -13,6 +13,11 @@ type MailboxMetadata = {
   operator_name: string;
 };
 
+/** 模型用途类型：text=纯文本, multimodal=图文理解, image=图片生成, auto=根据模型名称自动推断 */
+type AiModelUsageKind = 'text' | 'multimodal' | 'image' | 'auto';
+
+const VALID_USAGE_KINDS: readonly string[] = ['text', 'multimodal', 'image', 'auto'];
+
 type AiModelMetadata = {
   operator_name: string;
   base_url: string;
@@ -27,6 +32,8 @@ type AiModelMetadata = {
   is_default_enabled: boolean;
   today_usage_date: string;
   last_error_message: string | null;
+  /** 显式用途类型；不设置时前端按模型名称自动推断 */
+  usage_kind: AiModelUsageKind;
 };
 
 type AiModelDailyTokenUsage = {
@@ -417,6 +424,7 @@ export class IntegrationManagementService {
         is_default_enabled: false,
         today_usage_date: '',
         last_error_message: null,
+        usage_kind: 'auto' as AiModelUsageKind,
       };
     }
 
@@ -428,6 +436,7 @@ export class IntegrationManagementService {
         ? parsed.total_tokens
         : Math.max(todayTokens, dailyTokenUsage.reduce((sum, item) => sum + item.tokens, 0));
 
+    const rawUsageKind = typeof parsed.usage_kind === 'string' ? parsed.usage_kind : 'auto';
     return {
       operator_name: typeof parsed.operator_name === 'string' ? parsed.operator_name : '系统',
       base_url: typeof parsed.base_url === 'string' ? parsed.base_url : '',
@@ -442,6 +451,7 @@ export class IntegrationManagementService {
       is_default_enabled: typeof parsed.is_default_enabled === 'boolean' ? parsed.is_default_enabled : false,
       today_usage_date: typeof parsed.today_usage_date === 'string' ? parsed.today_usage_date : '',
       last_error_message: typeof parsed.last_error_message === 'string' ? parsed.last_error_message : null,
+      usage_kind: (VALID_USAGE_KINDS.includes(rawUsageKind) ? rawUsageKind : 'auto') as AiModelUsageKind,
     };
   }
 
@@ -479,6 +489,11 @@ export class IntegrationManagementService {
       is_default_enabled: Boolean(payload.is_default_enabled),
       today_usage_date: base?.today_usage_date ?? '',
       last_error_message: base?.last_error_message ?? null,
+      usage_kind: (
+        VALID_USAGE_KINDS.includes(payload.usage_kind ?? '')
+          ? payload.usage_kind
+          : (base?.usage_kind ?? 'auto')
+      ) as AiModelUsageKind,
     };
   }
 
@@ -557,6 +572,7 @@ export class IntegrationManagementService {
       daily_token_usage: metadata.daily_token_usage,
       enabled: config.isActive,
       is_default_enabled: metadata.is_default_enabled,
+      usage_kind: metadata.usage_kind,
       created_at: config.createdAt.toISOString(),
       updated_at: config.updatedAt.toISOString(),
       operator_name: metadata.operator_name,

@@ -48,6 +48,7 @@ export class PermissionCatalogService {
       type: payload.type,
       routePath: payload.routePath?.trim() ?? '',
       enabled: payload.enabled,
+      navHidden: payload.navHidden ?? false,
       sortOrder: payload.sortOrder,
     };
 
@@ -59,6 +60,16 @@ export class PermissionCatalogService {
     }
 
     return this.prisma.permissionCatalogItem.create({ data });
+  }
+
+  /** Returns all permission codes whose pages are hidden from the sidebar navigation. */
+  async getNavHiddenCodes(): Promise<string[]> {
+    await this.ensureDefaults();
+    const items = await this.prisma.permissionCatalogItem.findMany({
+      where: { navHidden: true },
+      select: { code: true },
+    });
+    return items.map((item) => item.code);
   }
 
   async remove(id: string) {
@@ -101,6 +112,7 @@ export class PermissionCatalogService {
             type: item.type,
             routePath: item.routePath ?? '',
             enabled: true,
+            navHidden: item.navHidden ?? false,
             sortOrder: item.sortOrder,
           },
         }),

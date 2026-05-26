@@ -41,10 +41,13 @@ import {
   extractRdTasksFromText,
   fetchRdPeople,
   fetchRdTaskCategories,
+  refineRdProposalTasks,
   recomputeRdDirectorDashboard,
   saveRdProposalDraft,
   saveRdTaskCategories,
   type RdAiPersonContext,
+  type RdAiProposalRefineResult,
+  type RdAiProposalRefineScope,
   type RdAiTaskDraft,
   type RdCategory,
   type RdPersonLoad,
@@ -66,7 +69,8 @@ type ProposedTask = {
   due_date: string;
   priority: Priority;
   category_path: string;
-  estimated_days: number;
+  estimated_days: number;       // 人工调整工时（可编辑）
+  ai_estimated_days?: number;   // AI 建议工时（只读参考）
   duration_basis: string;
 };
 
@@ -74,6 +78,20 @@ type ParentProjectOption = {
   id: string;
   label: string;
   task_count: number;
+};
+
+type ProposalRefinePreview = {
+  tasks: ProposedTask[];
+  changeSummary: string[];
+  warnings: string[];
+  provider: RdAiProposalRefineResult["provider"];
+  model: string;
+};
+
+type ProposalRefineDiff = {
+  added: ProposedTask[];
+  removed: ProposedTask[];
+  changed: ProposedTask[];
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -306,6 +324,80 @@ function formatReviewDateValue(date: Date): string {
 
 function displayReviewDate(value: string): string {
   return value ? value.replace(/-/g, "/") : "选择日期";
+}
+
+function proposedTaskToAiDraft(task: ProposedTask): RdAiTaskDraft {
+  return {
+    id: task.id,
+    title: task.title,
+    description: task.description,
+    owner: task.owner,
+    owner_reason: task.owner_reason,
+    due_date: task.due_date,
+    priority: task.priority,
+    category_path: task.category_path,
+    estimated_days: task.estimated_days,
+    ai_estimated_days: task.ai_estimated_days,
+    duration_basis: task.duration_basis,
+  };
+}
+
+function aiDraftToProposedTaskWithFallback(
+  draft: RdAiTaskDraft,
+  fallback: ProposedTask | undefined,
+  idx: number,
+): ProposedTask {
+  const safeDays = Number.isFinite(draft.estimated_days) && draft.estimated_days >= 1
+    ? Math.min(365, Math.round(draft.estimated_days))
+    : fallback?.estimated_days ?? 5;
+  const aiDays = Number.isFinite(draft.ai_estimated_days) && (draft.ai_estimated_days ?? 0) >= 1
+    ? Math.min(365, Math.round(draft.ai_estimated_days ?? safeDays))
+    : fallback?.ai_estimated_days ?? safeDays;
+  const priority = draft.priority === "high" || draft.priority === "low" || draft.priority === "medium"
+    ? draft.priority
+    : fallback?.priority ?? "medium";
+
+  return {
+    id: draft.id ?? fallback?.id ?? `refined-${Date.now()}-${idx}`,
+    title: draft.title?.trim() || fallback?.title || "未命名任务",
+    description: draft.description ?? fallback?.description,
+    owner: draft.owner?.trim() || fallback?.owner || "待指派",
+    owner_reason: draft.owner_reason?.trim() || fallback?.owner_reason || "由 AI 微调建议分配",
+    collaborators: fallback?.collaborators ?? [],
+    due_date: draft.due_date || fallback?.due_date || formatReviewDateValue(new Date()),
+    priority,
+    category_path: draft.category_path?.trim() || fallback?.category_path || "待定 / 待确认 / 研发任务",
+    estimated_days: safeDays,
+    ai_estimated_days: aiDays,
+    duration_basis: draft.duration_basis?.trim() || fallback?.duration_basis || "由 AI 微调估算",
+  };
+}
+
+function buildRefineDiff(before: ProposedTask[], after: ProposedTask[]): ProposalRefineDiff {
+  const beforeById = new Map(before.map((task) => [task.id, task]));
+  const afterById = new Map(after.map((task) => [task.id, task]));
+  const comparableKeys: Array<keyof ProposedTask> = [
+    "title",
+    "description",
+    "owner",
+    "owner_reason",
+    "due_date",
+    "priority",
+    "category_path",
+    "estimated_days",
+    "ai_estimated_days",
+    "duration_basis",
+  ];
+
+  const added = after.filter((task) => !beforeById.has(task.id));
+  const removed = before.filter((task) => !afterById.has(task.id));
+  const changed = after.filter((task) => {
+    const previous = beforeById.get(task.id);
+    if (!previous) return false;
+    return comparableKeys.some((key) => String(previous[key] ?? "").trim() !== String(task[key] ?? "").trim());
+  });
+
+  return { added, removed, changed };
 }
 
 function TaskDueDatePicker({
@@ -688,8 +780,13 @@ async function extractProposalAttachmentParseText(files: File[]) {
   return chunks.filter(Boolean).join("\n\n");
 }
 
+/**
+ * 判断是否是"AI 模型未配置"导致的错误（而非模型已配置但 API 调用失败）。
+ * 仅匹配配置缺失类信息，不匹配 API 调用失败（502/服务调用失败）等运行时错误，
+ * 避免在模型已正确配置但调用出错时误报"AI 未配置"。
+ */
 function isAiConfigurationError(message: string) {
-  return /AI\s*未配置|OPENAI_API_KEY|DASHSCOPE_API_KEY|QWEN_API_KEY|qwen-doc-turbo/i.test(message);
+  return /AI\s*未配置|OPENAI_API_KEY|DASHSCOPE_API_KEY|QWEN_API_KEY|qwen-doc-turbo|未配置.*模型|模型.*未配置|请配置.*API\s*Key|需要配置.*OCR/i.test(message);
 }
 
 function StepInput({
@@ -949,13 +1046,17 @@ function TaskEditRow({
   onChange,
   onDelete,
   onRequestAiHelp,
+  selected = false,
+  onSelectedChange,
 }: {
   task: ProposedTask;
   ownerOptions: OwnerOption[];
   categoryPathGroups: CategoryPathGroup[];
   onChange: (t: ProposedTask) => void;
   onDelete: () => void;
-  onRequestAiHelp: () => void;
+  onRequestAiHelp?: () => void;
+  selected?: boolean;
+  onSelectedChange?: (checked: boolean) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const pCfg = PRIORITY_OPTIONS.find((p) => p.value === task.priority)!;
@@ -968,6 +1069,16 @@ function TaskEditRow({
   return (
     <div className="rounded-lg border border-slate-200 bg-white transition-all hover:border-slate-300 hover:shadow-[0_4px_12px_rgba(15,23,42,0.05)]">
       <div className="flex items-start gap-3 px-3.5 py-3">
+        {onSelectedChange && (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={(event) => onSelectedChange(event.target.checked)}
+            onClick={(event) => event.stopPropagation()}
+            className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-violet-600 focus:ring-violet-200"
+            aria-label={`选择任务 ${task.title}`}
+          />
+        )}
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
@@ -1001,19 +1112,32 @@ function TaskEditRow({
             </span>
             <span className="text-slate-300">·</span>
             {/* Duration */}
-            <span title={task.duration_basis}>预估 {task.estimated_days} 天</span>
+            <span className="flex items-center gap-1" title={task.duration_basis}>
+              {task.ai_estimated_days !== undefined && task.ai_estimated_days !== task.estimated_days ? (
+                <>
+                  <span className="rounded bg-violet-100 px-1 py-0.5 text-[10px] font-semibold text-violet-600">
+                    AI {task.ai_estimated_days}天
+                  </span>
+                  <span className="font-semibold text-slate-700">{task.estimated_days}天</span>
+                </>
+              ) : (
+                <span>预估 {task.estimated_days} 天</span>
+              )}
+            </span>
           </div>
         </div>
 
         <div className="flex shrink-0 items-center gap-0.5">
-          {/*<button*/}
-          {/*  type="button"*/}
-          {/*  onClick={onRequestAiHelp}*/}
-          {/*  className="rounded p-1.5 text-slate-400 transition-colors hover:bg-violet-50 hover:text-violet-600"*/}
-          {/*  title="请 AI 优化"*/}
-          {/*>*/}
-          {/*  <Sparkles className="h-3.5 w-3.5" />*/}
-          {/*</button>*/}
+          {onRequestAiHelp && (
+            <button
+              type="button"
+              onClick={onRequestAiHelp}
+              className="rounded p-1.5 text-slate-400 transition-colors hover:bg-violet-50 hover:text-violet-600"
+              title="请 AI 微调此任务"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+            </button>
+          )}
           <button
             type="button"
             onClick={onDelete}
@@ -1122,6 +1246,43 @@ function TaskEditRow({
               </Select>
             </div>
           </div>
+          {/* Duration: AI suggestion + manual override */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-slate-500">AI 建议工时（天）</label>
+              <div className="flex h-11 items-center rounded border border-slate-100 bg-slate-100/60 px-3 text-sm text-slate-400">
+                {task.ai_estimated_days ?? "—"}
+                <span className="ml-1 text-[11px]">天</span>
+              </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-[11px] font-medium text-slate-500">人工调整工时（天）</label>
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  min={1}
+                  max={365}
+                  value={task.estimated_days}
+                  onChange={(e) => {
+                    const v = parseInt(e.target.value, 10);
+                    // 只在用户输入合法正整数时立即更新；空/非数字时等 onBlur 再校正
+                    if (Number.isFinite(v) && v >= 1) {
+                      onChange({ ...task, estimated_days: Math.min(365, v) });
+                    }
+                  }}
+                  onBlur={(e) => {
+                    // 离开时兜底：非正整数恢复 AI 建议值或默认 5
+                    const v = parseInt(e.target.value, 10);
+                    if (!Number.isFinite(v) || v < 1) {
+                      onChange({ ...task, estimated_days: task.ai_estimated_days ?? 5 });
+                    }
+                  }}
+                  className="h-11 w-full rounded border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                />
+                <span className="shrink-0 text-xs text-slate-400">天</span>
+              </div>
+            </div>
+          </div>
           <div className="rounded border border-blue-100 bg-blue-50/40 px-2.5 py-2 text-[11px] leading-relaxed text-blue-700">
             <span className="font-semibold">AI 推荐理由：</span>
             {task.owner_reason}
@@ -1133,9 +1294,114 @@ function TaskEditRow({
   );
 }
 
+// ─── CapacityPanel ───────────────────────────────────────────────────────────
+
+const DEFAULT_CAPACITY_DAYS = 20; // 每人每月可用工作日参考上限
+
+function CapacityPanel({
+  tasks,
+  peopleProfiles,
+}: {
+  tasks: ProposedTask[];
+  peopleProfiles: RdAiPersonContext[];
+}) {
+  const profileByName = useMemo(() => {
+    const map = new Map<string, RdAiPersonContext>();
+    for (const p of peopleProfiles) if (p.name) map.set(p.name, p);
+    return map;
+  }, [peopleProfiles]);
+
+  const rows = useMemo(() => {
+    const byOwner = new Map<string, { aiDays: number; manualDays: number; taskCount: number }>();
+    for (const t of tasks) {
+      if (!t.owner || t.owner === "待指派") continue;
+      const row = byOwner.get(t.owner) ?? { aiDays: 0, manualDays: 0, taskCount: 0 };
+      row.aiDays += t.ai_estimated_days ?? t.estimated_days;
+      row.manualDays += t.estimated_days;
+      row.taskCount += 1;
+      byOwner.set(t.owner, row);
+    }
+    return Array.from(byOwner.entries())
+      .map(([name, data]) => {
+        const profile = profileByName.get(name);
+        const capacityDays = profile ? (profile.max_tasks ?? 8) * 3 : DEFAULT_CAPACITY_DAYS;
+        return { name, ...data, capacityDays, profile };
+      })
+      .sort((a, b) => b.manualDays - a.manualDays);
+  }, [tasks, profileByName]);
+
+  const pendingCount = tasks.filter((t) => !t.owner || t.owner === "待指派").length;
+  const totalAiDays = tasks.reduce((s, t) => s + (t.ai_estimated_days ?? t.estimated_days), 0);
+  const totalManualDays = tasks.reduce((s, t) => s + t.estimated_days, 0);
+
+  if (rows.length === 0 && pendingCount === 0) return null;
+
+  return (
+    <section className="space-y-2.5 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+      <div className="flex items-center justify-between">
+        <h4 className="text-xs font-semibold text-slate-700">人力容量预估</h4>
+        <div className="flex items-center gap-3 text-[11px] text-slate-500">
+          <span>
+            AI建议合计：<span className="font-semibold text-violet-600">{totalAiDays} 天</span>
+          </span>
+          <span className="text-slate-300">|</span>
+          <span>
+            人工调整合计：<span className="font-semibold text-slate-700">{totalManualDays} 天</span>
+          </span>
+        </div>
+      </div>
+
+      {rows.map(({ name, aiDays, manualDays, taskCount, capacityDays }) => {
+        const ratio = manualDays / capacityDays;
+        const overload = ratio > 1;
+        const warn = ratio > 0.75 && !overload;
+        const barColor = overload ? "bg-red-500" : warn ? "bg-amber-400" : "bg-emerald-500";
+        const textColor = overload ? "text-red-600" : warn ? "text-amber-600" : "text-emerald-600";
+        const aiDiffers = aiDays !== manualDays;
+
+        return (
+          <div key={name} className="space-y-1">
+            <div className="flex items-center justify-between text-[11px]">
+              <div className="flex items-center gap-1.5">
+                <MiniAvatar name={name} size="xs" />
+                <span className="font-medium text-slate-700">{name}</span>
+                <span className="text-slate-400">{taskCount} 个任务</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {aiDiffers && (
+                  <span className="text-violet-500">AI {aiDays}天</span>
+                )}
+                <span className={cn("font-semibold tabular-nums", textColor)}>
+                  {manualDays} / {capacityDays} 天
+                </span>
+                {overload && <span className="rounded bg-red-100 px-1 py-0.5 text-[10px] font-bold text-red-600">超载</span>}
+                {warn && <span className="rounded bg-amber-100 px-1 py-0.5 text-[10px] font-bold text-amber-600">较满</span>}
+              </div>
+            </div>
+            <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
+              <div
+                className={cn("h-full rounded-full transition-all", barColor)}
+                style={{ width: `${Math.min(100, ratio * 100).toFixed(1)}%` }}
+              />
+            </div>
+          </div>
+        );
+      })}
+
+      {pendingCount > 0 && (
+        <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
+          <span className="h-2 w-2 rounded-full bg-slate-300" />
+          {pendingCount} 个任务尚未指派，未计入容量
+        </div>
+      )}
+    </section>
+  );
+}
+
 function StepReview({
   title,
   setTitle,
+  originalInput,
   parentProjectId,
   setParentProjectId,
   newProjectName,
@@ -1151,6 +1417,7 @@ function StepReview({
 }: {
   title: string;
   setTitle: (v: string) => void;
+  originalInput?: string;
   parentProjectId: string | "new";
   setParentProjectId: (v: string | "new") => void;
   newProjectName: string;
@@ -1166,6 +1433,22 @@ function StepReview({
 }) {
   const ownerOptions = useMemo(() => buildOwnerOptions(peopleProfiles), [peopleProfiles]);
   const categoryPathGroups = useMemo(() => buildCategoryPathGroups(categories), [categories]);
+  const [refineInstruction, setRefineInstruction] = useState("");
+  const [refineScope, setRefineScope] = useState<RdAiProposalRefineScope>("all");
+  const [selectedTaskIds, setSelectedTaskIds] = useState<string[]>([]);
+  const [refining, setRefining] = useState(false);
+  const [refinePreview, setRefinePreview] = useState<ProposalRefinePreview | null>(null);
+  const [previousTasks, setPreviousTasks] = useState<ProposedTask[] | null>(null);
+  const selectedCount = selectedTaskIds.length;
+  const previewDiff = useMemo(
+    () => (refinePreview ? buildRefineDiff(tasks, refinePreview.tasks) : null),
+    [tasks, refinePreview],
+  );
+
+  useEffect(() => {
+    const existingIds = new Set(tasks.map((task) => task.id));
+    setSelectedTaskIds((prev) => prev.filter((id) => existingIds.has(id)));
+  }, [tasks]);
 
   const addTask = () => {
     const taskId = `t-${Date.now()}`;
@@ -1214,30 +1497,108 @@ function StepReview({
     }
   };
 
-  const requestAiHelpForTask = (id: string) => {
-    const target = tasks.find((x) => x.id === id);
+  const runAiRefine = async (options?: {
+    scope?: RdAiProposalRefineScope;
+    selectedIds?: string[];
+    instruction?: string;
+  }) => {
+    const instruction = (options?.instruction ?? refineInstruction).trim();
+    if (!instruction) {
+      toast.error("请先写清楚希望 AI 如何微调");
+      return;
+    }
+    if (tasks.length === 0) {
+      toast.error("当前没有可微调的任务");
+      return;
+    }
+
+    const scope = options?.scope ?? refineScope;
+    const selectedIds = options?.selectedIds ?? selectedTaskIds;
+    if ((scope === "selected" || scope === "single") && selectedIds.length === 0) {
+      toast.error("请先勾选要微调的任务");
+      return;
+    }
+
+    setRefining(true);
+    setRefinePreview(null);
+    try {
+      const result = await refineRdProposalTasks({
+        proposalTitle: title || undefined,
+        originalInput: originalInput?.trim() || undefined,
+        currentTasks: tasks.map(proposedTaskToAiDraft),
+        instruction,
+        peopleNames: peopleProfiles.map((person) => person.name).filter(Boolean),
+        peopleProfiles,
+        categoryLabels: categories.map((category) => category.label),
+        scope,
+        selectedTaskIds: selectedIds,
+      });
+      const fallbackById = new Map(tasks.map((task) => [task.id, task]));
+      const refinedTasks = (result.tasks ?? []).map((draft, idx) =>
+        aiDraftToProposedTaskWithFallback(draft, fallbackById.get(draft.id ?? ""), idx),
+      );
+      setRefinePreview({
+        tasks: refinedTasks.length > 0 ? refinedTasks : tasks,
+        changeSummary: result.change_summary ?? [],
+        warnings: result.warnings ?? [],
+        provider: result.provider,
+        model: result.model,
+      });
+      recordAudit({
+        actor: auditActor,
+        action: "ai.proposal_refined",
+        resource: { type: "proposal", id: proposalId, name: title || "AI 立项" },
+        comment: instruction,
+        metadata: {
+          proposal_id: proposalId,
+          scope,
+          selected_task_ids: selectedIds,
+          task_count: tasks.length,
+          provider: result.provider,
+          model: result.model,
+        },
+        source: "web",
+      });
+      toast.success("已生成 AI 微调预览", { description: "确认后再应用到当前任务草稿" });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "AI 微调失败";
+      toast.error(message, { description: "当前任务草稿未被修改" });
+    } finally {
+      setRefining(false);
+    }
+  };
+
+  const applyRefinePreview = () => {
+    if (!refinePreview) return;
+    setPreviousTasks(tasks);
+    setTasks(refinePreview.tasks);
+    setSelectedTaskIds([]);
+    setRefinePreview(null);
     recordAudit({
       actor: auditActor,
-      action: "ai.regenerated",
-      resource: { type: "task", id, name: target?.title ?? "AI 任务建议" },
-      comment: "请求 AI 重新优化单条任务建议",
-      metadata: { proposal_id: proposalId },
+      action: "ai.proposal_refine_applied",
+      resource: { type: "proposal", id: proposalId, name: title || "AI 立项" },
+      comment: "应用 AI 微调预览到立项任务草稿",
+      metadata: { proposal_id: proposalId, task_count: refinePreview.tasks.length },
       source: "web",
     });
-    toast.success("已请 AI 重新生成该任务建议", { description: "可在结果中继续编辑" });
-    // Mock: keep as-is for demo
+    toast.success("已应用 AI 微调结果");
+  };
+
+  const undoLastRefine = () => {
+    if (!previousTasks) return;
+    setTasks(previousTasks);
+    setPreviousTasks(null);
+    setRefinePreview(null);
+    toast.success("已撤回上次 AI 微调应用");
+  };
+
+  const requestAiHelpForTask = (id: string) => {
+    void runAiRefine({ scope: "single", selectedIds: [id] });
   };
 
   const requestAiOptimizeAll = () => {
-    recordAudit({
-      actor: auditActor,
-      action: "ai.regenerated",
-      resource: { type: "proposal", id: proposalId, name: title || "AI 立项" },
-      comment: "请求 AI 重新评估全部任务建议",
-      metadata: { task_count: tasks.length },
-      source: "web",
-    });
-    toast.success("AI 已对全部任务重新评估", { description: `刷新了 ${tasks.length} 个任务的责任人 / 工期建议` });
+    void runAiRefine({ scope: "all" });
   };
 
   return (
@@ -1287,6 +1648,120 @@ function StepReview({
           </div>
         </section>
 
+        {/* AI refine */}
+        <section className="space-y-3 rounded-xl border border-violet-100 bg-violet-50/40 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h4 className="text-xs font-semibold text-slate-800">AI 微调立项草稿</h4>
+              <p className="mt-0.5 text-[11px] text-slate-500">
+                先生成预览，确认后再应用；已手工调整的内容不会被立即覆盖。
+              </p>
+            </div>
+            {previousTasks && (
+              <button
+                type="button"
+                onClick={undoLastRefine}
+                className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-all hover:bg-slate-50 active:scale-95"
+              >
+                <RefreshCw className="h-3 w-3" />
+                撤回上次应用
+              </button>
+            )}
+          </div>
+
+          <Textarea
+            value={refineInstruction}
+            onChange={(event) => setRefineInstruction(event.target.value)}
+            rows={3}
+            placeholder="例如：把测试类任务拆得更细；优先安排给低负载人员；把交付日期压缩到 6 月 10 日前；不要改动采购跟进任务。"
+            className="w-full resize-none rounded-lg border border-violet-100 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
+          />
+
+          <div className="flex flex-wrap items-center gap-2">
+            <NativeSelect
+              value={refineScope}
+              onChange={(event) => setRefineScope(event.target.value as RdAiProposalRefineScope)}
+              className="h-9 min-w-36 cursor-pointer rounded-md border border-violet-100 bg-white px-2.5 text-xs text-slate-700 outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
+            >
+              <option value="all">微调全部任务</option>
+              <option value="selected">只微调已选任务</option>
+            </NativeSelect>
+            <button
+              type="button"
+              disabled={
+                refining ||
+                !refineInstruction.trim() ||
+                tasks.length === 0 ||
+                (refineScope === "selected" && selectedCount === 0)
+              }
+              onClick={() => void runAiRefine()}
+              className="inline-flex items-center gap-1.5 rounded-md bg-violet-600 px-3 py-2 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(124,58,237,0.18)] transition-all hover:bg-violet-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45"
+            >
+              {refining ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              生成微调预览
+            </button>
+            <span className="text-[11px] text-slate-500">
+              已选 {selectedCount} / {tasks.length} 个
+            </span>
+          </div>
+
+          {refinePreview && previewDiff && (
+            <div className="rounded-lg border border-violet-100 bg-white p-3 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs font-semibold text-slate-800">微调预览</div>
+                <div className="text-[11px] text-slate-400">
+                  {refinePreview.provider} / {refinePreview.model}
+                </div>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
+                <span className="rounded bg-emerald-50 px-2 py-1 font-medium text-emerald-700">
+                  新增 {previewDiff.added.length}
+                </span>
+                <span className="rounded bg-blue-50 px-2 py-1 font-medium text-blue-700">
+                  调整 {previewDiff.changed.length}
+                </span>
+                <span className="rounded bg-rose-50 px-2 py-1 font-medium text-rose-700">
+                  移除 {previewDiff.removed.length}
+                </span>
+              </div>
+              {refinePreview.changeSummary.length > 0 && (
+                <ul className="mt-2 space-y-1 text-[11px] leading-relaxed text-slate-600">
+                  {refinePreview.changeSummary.slice(0, 4).map((item, index) => (
+                    <li key={`${item}-${index}`} className="flex gap-1.5">
+                      <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0 text-emerald-500" />
+                      <span>{item}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {refinePreview.warnings.length > 0 && (
+                <div className="mt-2 rounded-md border border-amber-100 bg-amber-50 px-2.5 py-2 text-[11px] leading-relaxed text-amber-700">
+                  {refinePreview.warnings.slice(0, 3).join("；")}
+                </div>
+              )}
+              <div className="mt-3 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRefinePreview(null)}
+                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition-all hover:bg-slate-50 active:scale-95"
+                >
+                  放弃预览
+                </button>
+                <button
+                  type="button"
+                  onClick={applyRefinePreview}
+                  className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition-all hover:bg-slate-800 active:scale-95"
+                >
+                  应用这次微调
+                </button>
+              </div>
+            </div>
+          )}
+        </section>
+
+        {/* Capacity */}
+        <CapacityPanel tasks={tasks} peopleProfiles={peopleProfiles} />
+
         {/* Tasks */}
         <section>
           <div className="mb-3 flex items-center justify-between">
@@ -1294,17 +1769,20 @@ function StepReview({
               <h3 className="text-sm font-semibold text-slate-900">
                 AI 解析出 {tasks.length} 个任务
               </h3>
-              <p className="mt-0.5 text-[11px] text-slate-500">点击行展开编辑</p>
+              <p className="mt-0.5 text-[11px] text-slate-500">
+                点击行展开编辑 · 可调整人工工时 · 已选 {selectedCount} 个用于局部微调
+              </p>
             </div>
             <div className="flex items-center gap-1.5">
-              {/*<button*/}
-              {/*  type="button"*/}
-              {/*  onClick={requestAiOptimizeAll}*/}
-              {/*  className="inline-flex items-center gap-1 rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 transition-all hover:-translate-y-0.5 hover:bg-violet-100 active:scale-95"*/}
-              {/*>*/}
-              {/*  <Sparkles className="h-3 w-3" />*/}
-              {/*  请 AI 优化全部*/}
-              {/*</button>*/}
+              <button
+                type="button"
+                disabled={refining || !refineInstruction.trim() || tasks.length === 0}
+                onClick={requestAiOptimizeAll}
+                className="inline-flex items-center gap-1 rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 transition-all hover:-translate-y-0.5 hover:bg-violet-100 active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                <Sparkles className="h-3 w-3" />
+                请 AI 微调全部
+              </button>
               <button
                 type="button"
                 onClick={addTask}
@@ -1331,6 +1809,14 @@ function StepReview({
                   onChange={(t) => updateTask(task.id, t)}
                   onDelete={() => deleteTask(task.id)}
                   onRequestAiHelp={() => requestAiHelpForTask(task.id)}
+                  selected={selectedTaskIds.includes(task.id)}
+                  onSelectedChange={(checked) => {
+                    setSelectedTaskIds((prev) =>
+                      checked
+                        ? Array.from(new Set([...prev, task.id]))
+                        : prev.filter((id) => id !== task.id),
+                    );
+                  }}
                 />
               ))
             )}
@@ -1595,7 +2081,7 @@ function StepSubmit({
           >
             保存草稿
           </button>
-          {reviewNodes.length > 0 && canSubmitProposal && (
+          {userRole === "user" && reviewNodes.length > 0 && canSubmitProposal && (
             <button
               type="button"
               onClick={onSubmit}
@@ -1651,9 +2137,16 @@ export function RDProjectProposalDialog({
   const [peopleNames, setPeopleNames] = useState<string[]>([]);
   const [peopleProfiles, setPeopleProfiles] = useState<RdAiPersonContext[]>([]);
   const [submitting, setSubmitting] = useState(false);
-  const auditActor = useAuditActor(userRole === "director" ? "研发主管" : userRole === "admin" ? "研发管理员" : "研发成员");
   const canSubmitProposal = usePermission(PERMISSIONS.RD_PROJECT_PROPOSE);
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
+  const canReviewProjectL1 = usePermission(PERMISSIONS.RD_PROJECT_REVIEW_L1);
+  const canReviewProjectL2 = usePermission(PERMISSIONS.RD_PROJECT_REVIEW_L2);
+  const effectiveUserRole: UserRole = canDirectProject
+    ? "director"
+    : canReviewProjectL1 || canReviewProjectL2
+      ? "admin"
+      : userRole;
+  const auditActor = useAuditActor(effectiveUserRole === "director" ? "研发主管" : effectiveUserRole === "admin" ? "研发管理员" : "研发成员");
 
   useEffect(() => {
     if (open) {
@@ -1705,19 +2198,26 @@ export function RDProjectProposalDialog({
   };
 
   // Convert backend AI draft to local ProposedTask shape
-  const aiDraftToProposedTask = (draft: RdAiTaskDraft, idx: number): ProposedTask => ({
-    id: `t-${Date.now()}-${idx}`,
-    title: draft.title,
-    description: draft.description,
-    owner: draft.owner,
-    owner_reason: draft.owner_reason,
-    collaborators: [],
-    due_date: draft.due_date,
-    priority: draft.priority,
-    category_path: draft.category_path,
-    estimated_days: draft.estimated_days,
-    duration_basis: "由 AI 估算",
-  });
+  const aiDraftToProposedTask = (draft: RdAiTaskDraft, idx: number): ProposedTask => {
+    // 防御：后端已做过 clamp，但前端再兜一次：非正整数统一 fallback 到 5
+    const safeDays = Number.isFinite(draft.estimated_days) && draft.estimated_days >= 1
+      ? draft.estimated_days
+      : 5;
+    return {
+      id: `t-${Date.now()}-${idx}`,
+      title: draft.title,
+      description: draft.description,
+      owner: draft.owner,
+      owner_reason: draft.owner_reason,
+      collaborators: [],
+      due_date: draft.due_date,
+      priority: draft.priority,
+      category_path: draft.category_path,
+      estimated_days: safeDays,
+      ai_estimated_days: safeDays,   // 记录 AI 原始建议（用户调整后与此对比）
+      duration_basis: "由 AI 估算",
+    };
+  };
 
   // Real AI parsing: text or file → backend AI → structured tasks
   const runAiParse = () => {
@@ -1788,20 +2288,21 @@ export function RDProjectProposalDialog({
         setAiLabel(`${result.provider === "local" ? "本地解析" : "AI 解析"}完成，共 ${drafted.length} 个任务`);
         if (result.provider === "local") {
           toast.warning("AI 未配置，已使用本地规则解析继续立项", {
-            description: "如需模型增强抽取，请配置 OPENAI_API_KEY 或 DASHSCOPE_API_KEY。",
+            description: "如需模型增强抽取，请在 AI 模型管理中配置可用模型。",
           });
         }
         setTimeout(() => setStep(3), 250);
       })
       .catch(async (err: unknown) => {
         const message = err instanceof Error ? err.message : "AI 解析失败";
-        if (isAiConfigurationError(message)) {
+        const isConfigMissing = isAiConfigurationError(message);
+
+        if (isConfigMissing) {
+          // 未配置 AI 模型 — 本地兜底解析，让用户仍可继续流程
           try {
             const attachmentText = await extractProposalAttachmentParseText(files);
             const localText = [description.trim(), attachmentText].filter(Boolean).join("\n\n");
-            if (!localText.trim()) {
-              throw new Error("No local parseable content");
-            }
+            if (!localText.trim()) throw new Error("No local parseable content");
             const drafted = parseTasksFromContent(title, localText).map((task, idx) => ({
               ...task,
               id: `local-${Date.now()}-${idx}`,
@@ -1815,16 +2316,24 @@ export function RDProjectProposalDialog({
               setAiProgress(100);
               setAiLabel(`本地解析完成，共 ${drafted.length} 个任务`);
               toast.warning("AI 未配置，已使用本地文件解析继续立项", {
-                description: "CSV、TXT、MD、JSON 文件可在浏览器本地解析；如需模型增强，请配置 API Key。",
+                description: "如需 AI 增强抽取，请在「AI 模型管理」中配置可用模型。",
               });
               setTimeout(() => setStep(3), 250);
               return;
             }
           } catch {
-            // Fall through to the standard error message below.
+            // 本地解析也失败，继续向下报错
           }
+          toast.error(`AI 未配置：${message}`);
+        } else {
+          // AI 已配置但调用失败（超时、网络、模型错误等）
+          // 不降级本地解析 — 显示真实错误，让用户重试或检查配置
+          toast.error(`AI 解析失败：${message}`, {
+            description: "请检查网络连接、API Key 是否有效，或稍后重试。",
+            duration: 8000,
+          });
         }
-        toast.error(`AI 解析失败：${message}`);
+
         setTasks([]);
         setAiProgress(0);
         setStep(1);
@@ -1902,6 +2411,10 @@ export function RDProjectProposalDialog({
   };
 
   const handleSubmit = async () => {
+    if (effectiveUserRole !== "user") {
+      toast.error("只有研发成员需要提交立项审核，当前角色请使用直接立项流程");
+      return;
+    }
     if (!canSubmitProposal) {
       toast.error("当前账号没有立项申请权限");
       return;
@@ -1920,7 +2433,7 @@ export function RDProjectProposalDialog({
         comment: comment || "提交立项审核",
         metadata: {
           task_count: tasks.length,
-          review_node_count: getApplicableNodes(userRole).length,
+          review_node_count: getApplicableNodes(effectiveUserRole).length,
           parent_project_id: parentProjectId,
         },
         source: "web",
@@ -2089,6 +2602,7 @@ export function RDProjectProposalDialog({
           <StepReview
             title={title}
             setTitle={setTitle}
+            originalInput={description}
             parentProjectId={parentProjectId}
             setParentProjectId={setParentProjectId}
             newProjectName={newProjectName}
@@ -2105,7 +2619,7 @@ export function RDProjectProposalDialog({
         )}
         {step === 4 && (
           <StepSubmit
-            userRole={userRole}
+            userRole={effectiveUserRole}
             taskCount={tasks.length}
             title={title}
             parentProjectId={parentProjectId}

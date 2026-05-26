@@ -138,11 +138,12 @@ export class ChatService {
           label: config.name,
           provider: config.provider ?? 'openai',
           model: config.model ?? '',
+          usage_kind: metadata.usage_kind,
           isDefault: metadata.is_default_enabled,
           ready: hasApiKey,
         };
       })
-      .filter((item) => item.model && item.ready)
+      .filter((item) => item.model && item.ready && !this.isImageOnlyModel(item.model, item.usage_kind))
       .sort((left, right) => Number(right.isDefault) - Number(left.isDefault));
   }
 
@@ -318,7 +319,7 @@ export class ChatService {
 
   private parseAiModelMetadata(value: unknown) {
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
-      return { base_url: '', is_default_enabled: false };
+      return { base_url: '', is_default_enabled: false, usage_kind: 'auto' };
     }
 
     const parsed = value as Record<string, unknown>;
@@ -326,7 +327,16 @@ export class ChatService {
       base_url: typeof parsed.base_url === 'string' ? parsed.base_url.trim() : '',
       is_default_enabled:
         typeof parsed.is_default_enabled === 'boolean' ? parsed.is_default_enabled : false,
+      usage_kind: typeof parsed.usage_kind === 'string' ? parsed.usage_kind : 'auto',
     };
+  }
+
+  /** 图片生成模型不支持对话，需要过滤掉 */
+  private isImageOnlyModel(model: string, usageKind: string): boolean {
+    if (usageKind === 'image') return true;
+    if (usageKind !== 'auto') return false;
+    const n = model.toLowerCase();
+    return n.includes('gpt-image') || n.includes('image-to-image') || n === 'dall-e-2' || n.startsWith('dall-e-');
   }
 
   private decryptSecret(value: string) {

@@ -19,6 +19,7 @@ const ACCESS_TOKEN_TTL = '15m';
 type AuthUserProfile = {
   id: string;
   name: string;
+  username: string | null;
   email: string;
   roleId: string | null;
   roleName: string | null;
@@ -147,7 +148,7 @@ export class AuthService {
     return { ok: true };
   }
 
-  async setPassword(userId: string, newPassword: string) {
+  async setPassword(userId: string, oldPassword: string, newPassword: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       include: { role: true },
@@ -158,8 +159,18 @@ export class AuthService {
     if (this.isSuperAdminRole(user.role?.permissions)) {
       throw new ForbiddenException('超级管理员密码不允许在个人中心修改');
     }
+    if (!oldPassword || !oldPassword.trim()) {
+      throw new BadRequestException('请输入当前密码');
+    }
     if (!newPassword || newPassword.length < 8) {
       throw new BadRequestException('新密码至少需要 8 位');
+    }
+    if (!user.passwordHash) {
+      throw new BadRequestException('当前账号暂未设置密码，请联系管理员');
+    }
+    const valid = await argon2.verify(user.passwordHash, oldPassword);
+    if (!valid) {
+      throw new BadRequestException('当前密码不正确');
     }
     const hash = await argon2.hash(newPassword, { type: argon2.argon2id });
     await this.prisma.user.update({ where: { id: userId }, data: { passwordHash: hash } });
@@ -201,6 +212,7 @@ export class AuthService {
   private toAuthUserProfile(user: {
     id: string;
     name: string;
+    username?: string | null;
     email: string;
     roleId: string | null;
     role?: { name: string; permissions: unknown } | null;
@@ -208,6 +220,7 @@ export class AuthService {
     return {
       id: user.id,
       name: user.name,
+      username: user.username ?? null,
       email: user.email,
       roleId: user.roleId,
       roleName: user.role?.name ?? null,

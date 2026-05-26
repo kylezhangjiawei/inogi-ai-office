@@ -22,6 +22,8 @@ export type PermissionCatalogItem = {
   type: "page" | "action";
   routePath: string;
   enabled: boolean;
+  /** When true the page is accessible but hidden from the sidebar navigation. */
+  navHidden: boolean;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
@@ -36,6 +38,8 @@ export type SavePermissionCatalogItemPayload = {
   type: "page" | "action";
   routePath?: string;
   enabled: boolean;
+  /** When true the page is accessible but hidden from the sidebar navigation. */
+  navHidden?: boolean;
   sortOrder: number;
 };
 
@@ -62,6 +66,10 @@ export const permissionCatalogApi = {
   },
   listItems() {
     return request<PermissionCatalogItem[]>("/api/permission-catalog/items");
+  },
+  /** Returns array of permission codes whose pages are hidden from sidebar navigation. */
+  getNavHiddenCodes() {
+    return request<string[]>("/api/permission-catalog/nav-hidden");
   },
   saveItem(payload: SavePermissionCatalogItemPayload) {
     return request<PermissionCatalogItem>("/api/permission-catalog/items", {

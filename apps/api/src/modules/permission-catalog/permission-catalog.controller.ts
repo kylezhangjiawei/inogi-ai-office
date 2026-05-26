@@ -20,6 +20,17 @@ export class PermissionCatalogController {
     return this.permissionCatalogService.listItems();
   }
 
+  /**
+   * Returns an array of permission codes that are marked as nav-hidden.
+   * Used by the sidebar to filter which nav items to show.
+   * Requires only basic login (page:dashboard is the minimum permission any user has).
+   */
+  @Get('nav-hidden')
+  @Permissions('page:dashboard')
+  getNavHiddenCodes() {
+    return this.permissionCatalogService.getNavHiddenCodes();
+  }
+
   @Post('items')
   @Permissions('page:route-management')
   save(@Body() payload: SavePermissionCatalogItemDto) {

@@ -45,6 +45,8 @@ export interface AiModelItem {
     tokens: number;
   }>;
   is_default_enabled: boolean;
+  /** 显式用途类型：text | multimodal | image | auto（auto 表示按模型名称自动推断） */
+  usage_kind: string;
   created_at: string;
   updated_at: string;
   operator_name: string;
@@ -67,6 +69,8 @@ export interface SaveAiModelPayload {
   today_requests?: number;
   today_tokens?: number;
   is_default_enabled: boolean;
+  /** 显式用途类型：text | multimodal | image | auto */
+  usage_kind?: string;
 }
 
 export interface TestAiModelConnectionPayload {
