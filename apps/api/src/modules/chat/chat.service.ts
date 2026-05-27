@@ -363,6 +363,11 @@ export class ChatService {
     const hits = (words: string[]) => keywords.some((k) => words.some((w) => k.includes(w) || w.includes(k)));
 
     const sections: string[] = [];
+    const normalizedKeywords = keywords.map((keyword) => keyword.toLowerCase());
+    const textMatches = (value: unknown) => {
+      const text = String(value ?? '').toLowerCase();
+      return normalizedKeywords.some((keyword) => text.includes(keyword));
+    };
 
     // ── 1. 部门（Department 表，权威来源）────────────────────────────────────
     try {
@@ -536,6 +541,109 @@ export class ChatService {
           .filter(Boolean);
         if (labels.length > 0) {
           sections.push(`【字典·${typeLabel}】共 ${labels.length} 条：${labels.join('、')}`);
+        }
+      }
+    } catch { /* ignore */ }
+
+    // ── 8. 研发任务 / 研发人员 / 知识库（SystemSetting JSON 数据）──────────────
+    try {
+      const rdKeywords = ['研发', '任务', '项目', '进度', '负责人', '知识库', '里程碑', 'rd'];
+      const isGeneral = hits(rdKeywords);
+      if (isGeneral) {
+        const stores = await this.prisma.systemSetting.findMany({
+          where: { key: { in: ['rd.taskCategories', 'rd.people', 'rd.knowledgeEntries'] } },
+          select: { key: true, value: true },
+        });
+        const byKey = new Map(stores.map((row) => [row.key, row.value as unknown]));
+        const asRecord = (value: unknown): Record<string, unknown> =>
+          value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
+        const asArray = (value: unknown): unknown[] => Array.isArray(value) ? value : [];
+        const clean = (value: unknown) => String(value ?? '').trim();
+
+        const taskRows: Array<{
+          title: string;
+          owner: string;
+          status: string;
+          progress: string;
+          due: string;
+          path: string;
+        }> = [];
+        const collectTasks = (tasks: unknown[], path: string) => {
+          for (const rawTask of tasks) {
+            const task = asRecord(rawTask);
+            const title = clean(task.title);
+            const taskPath = clean(task.category_path) || path;
+            const searchable = [title, clean(task.task_id), clean(task.primary_owner), taskPath, clean(task.status)].join(' ');
+            if (title && (textMatches(searchable) || taskRows.length < 12)) {
+              taskRows.push({
+                title,
+                owner: clean(task.primary_owner ?? task.owner) || '待指派',
+                status: clean(task.status) || '未知',
+                progress: Number.isFinite(Number(task.progress)) ? `${Math.round(Number(task.progress))}%` : '未设置',
+                due: clean(task.due_date) || '未设置',
+                path: taskPath || '未分类',
+              });
+            }
+            collectTasks(asArray(task.subtasks), taskPath);
+          }
+        };
+
+        for (const rawCategory of asArray(byKey.get('rd.taskCategories'))) {
+          const category = asRecord(rawCategory);
+          const categoryLabel = clean(category.label);
+          for (const rawChild of asArray(category.children)) {
+            const child = asRecord(rawChild);
+            collectTasks(asArray(child.tasks), [categoryLabel, clean(child.label)].filter(Boolean).join(' / '));
+          }
+        }
+        const matchedTasks = taskRows
+          .filter((task) => isGeneral || textMatches(`${task.title} ${task.owner} ${task.status} ${task.path}`))
+          .slice(0, 12);
+        if (matchedTasks.length > 0) {
+          sections.push(`【研发任务】${matchedTasks.length} 条相关任务`);
+          matchedTasks.forEach((task) => {
+            sections.push(`- ${task.title}｜负责人：${task.owner}｜状态：${task.status}｜进度：${task.progress}｜截止：${task.due}｜路径：${task.path}`);
+          });
+        }
+
+        const people = asArray(byKey.get('rd.people'))
+          .map((item) => asRecord(item))
+          .filter((person) => {
+            const searchable = [person.name, person.position, person.department, person.status].map(clean).join(' ');
+            return isGeneral || textMatches(searchable);
+          })
+          .slice(0, 12);
+        if (people.length > 0) {
+          sections.push(`【研发人员】${people.length} 名相关成员`);
+          people.forEach((person) => {
+            sections.push(
+              `- ${clean(person.name)}｜岗位：${clean(person.position) || '未设置'}｜部门：${clean(person.department) || '未设置'}｜任务数：${clean(person.task_count) || '0'}/${clean(person.max_tasks) || '未设置'}`,
+            );
+          });
+        }
+
+        const kbEntries = asArray(byKey.get('rd.knowledgeEntries'))
+          .map((item) => asRecord(item))
+          .filter((entry) => {
+            const searchable = [
+              entry.title,
+              entry.name,
+              entry.filename,
+              entry.summary,
+              entry.description,
+              entry.content,
+              Array.isArray(entry.tags) ? entry.tags.join(' ') : '',
+            ].map(clean).join(' ');
+            return textMatches(searchable);
+          })
+          .slice(0, 8);
+        if (kbEntries.length > 0) {
+          sections.push(`【研发知识库】${kbEntries.length} 条相关资料`);
+          kbEntries.forEach((entry) => {
+            const title = clean(entry.title ?? entry.name ?? entry.filename) || '未命名资料';
+            const excerpt = clean(entry.summary ?? entry.description ?? entry.content).slice(0, 160);
+            sections.push(`- ${title}${excerpt ? `：${excerpt}` : ''}`);
+          });
         }
       }
     } catch { /* ignore */ }

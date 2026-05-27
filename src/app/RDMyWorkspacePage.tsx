@@ -1943,6 +1943,11 @@ function WorkspaceTaskCard({
           <div className="truncate text-[13px] font-semibold leading-snug text-slate-800 group-hover:text-slate-900">
             {task.title}
           </div>
+          {task.latest_progress_summary?.text ? (
+            <div className="line-clamp-2 rounded-lg bg-slate-50 px-2 py-1 text-[11px] leading-4 text-slate-600 ring-1 ring-slate-100">
+              最新进度：{task.latest_progress_summary.text}
+            </div>
+          ) : null}
 
           {/* Dates + category */}
           <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-slate-400">
@@ -2791,6 +2796,7 @@ export function RDMyWorkspacePage() {
         open={showProposalDialog && canProposeProject}
         onClose={() => setShowProposalDialog(false)}
         userRole="user"
+        forceOwnerToCurrentUser
       />
     </div>
   );

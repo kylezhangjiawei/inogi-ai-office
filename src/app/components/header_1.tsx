@@ -57,7 +57,11 @@ export function Header() {
     if (!user?.id) return;
     try {
       const data = await fetchRdMessages({ recipient_id: user.id, limit: 50 });
-      setRdMessages(data.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
+      setRdMessages(
+        data
+          .filter((message) => !message.handled)
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+      );
       window.dispatchEvent(new CustomEvent("rd:messages-updated"));
     } catch {
       // silent — header should not disrupt UX on failure

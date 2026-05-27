@@ -162,30 +162,6 @@ const DEFAULT_AI_SETTINGS = {
       show_to_user: true,
     },
     {
-      id: 'task_breakdown',
-      name: '任务拆解',
-      description: '把需求拆成子任务、协作人、交付物和里程碑',
-      enabled: true,
-      model_id: '',
-      fallback_model_id: '',
-      prompt_version: 'rd-task-breakdown-v1',
-      confidence_threshold: 0.8,
-      require_human_review: true,
-      show_to_user: true,
-    },
-    {
-      id: 'priority_duration',
-      name: '优先级与工期建议',
-      description: '评估优先级、预计工期和延期风险',
-      enabled: true,
-      model_id: '',
-      fallback_model_id: '',
-      prompt_version: 'rd-priority-duration-v1',
-      confidence_threshold: 0.78,
-      require_human_review: true,
-      show_to_user: true,
-    },
-    {
       id: 'progress_summary',
       name: '进度材料总结',
       description: '从上传材料、记录和备注中总结当前进展',
@@ -198,26 +174,14 @@ const DEFAULT_AI_SETTINGS = {
       show_to_user: true,
     },
     {
-      id: 'risk_detection',
-      name: '风险识别',
-      description: '识别阻塞、延期、缺失资料和跨部门依赖',
+      id: 'daily_report_summary',
+      name: '日报智能汇总',
+      description: '把当日任务变更、进度记录和风险信号汇总成可读日报',
       enabled: true,
       model_id: '',
       fallback_model_id: '',
-      prompt_version: 'rd-risk-detection-v1',
-      confidence_threshold: 0.8,
-      require_human_review: true,
-      show_to_user: true,
-    },
-    {
-      id: 'audit_summary',
-      name: '留痕摘要',
-      description: '为关键操作生成可审计的摘要和变更说明',
-      enabled: true,
-      model_id: '',
-      fallback_model_id: '',
-      prompt_version: 'rd-audit-summary-v1',
-      confidence_threshold: 0.8,
+      prompt_version: 'rd-daily-report-summary-v1',
+      confidence_threshold: 0.78,
       require_human_review: false,
       show_to_user: true,
     },
@@ -1102,6 +1066,11 @@ export class ResearchDevelopmentService {
         void this.notifyAdminsOfPendingReview(originalTask as JsonRecord, resolvedPatch);
       } else if (oldStatus === 'pending_review' && newStatus !== 'pending_review' && _review_action) {
         const reviewType = String((originalTask as JsonRecord).pending_review_type ?? 'result');
+        try {
+          await this.markReviewRequestMessagesHandled(taskId, reviewType);
+        } catch {
+          // best-effort: task status has already been updated
+        }
         void (async () => {
           await this.notifySubmitterOfReviewResult(
             originalTask as JsonRecord,
@@ -1244,6 +1213,35 @@ export class ResearchDevelopmentService {
       }
     } catch {
       // best-effort
+    }
+  }
+
+  private async markReviewRequestMessagesHandled(taskId: string, reviewType: string): Promise<void> {
+    const all = (await this.readArray('rd.messages')).filter(isRecord);
+    let changed = false;
+    const next = all.map((message) => {
+      const body = cleanText(message.body);
+      if (!body) return message;
+
+      let parsed: Record<string, unknown> | null = null;
+      try {
+        parsed = JSON.parse(body) as Record<string, unknown>;
+      } catch {
+        return message;
+      }
+
+      const sameTask =
+        parsed.type === 'review_request' &&
+        cleanText(parsed.task_id) === taskId &&
+        (!reviewType || cleanText(parsed.review_type || 'result') === reviewType);
+      if (!sameTask) return message;
+
+      changed = true;
+      return { ...message, handled: true, read: true };
+    });
+
+    if (changed) {
+      await this.writeValue('rd.messages', next);
     }
   }
 
@@ -1659,11 +1657,16 @@ export class ResearchDevelopmentService {
     noteMap: Record<string, JsonRecord[]>,
   ): JsonRecord[] {
     const attachmentCounts = new Map<string, number>();
+    const latestNotes = new Map<string, JsonRecord>();
     for (const [taskId, notes] of Object.entries(noteMap)) {
       const count = notes.reduce((sum, note) => {
         return sum + (Array.isArray(note.attachments) ? note.attachments.length : 0);
       }, 0);
       attachmentCounts.set(taskId, count);
+      const latest = notes
+        .slice()
+        .sort((a, b) => cleanText(b.created_at).localeCompare(cleanText(a.created_at)))[0];
+      if (latest) latestNotes.set(taskId, latest);
     }
 
     const updateTasks = (tasks: unknown[]): unknown[] =>
@@ -1671,9 +1674,12 @@ export class ResearchDevelopmentService {
         if (!isRecord(task)) return task;
         const progressAttachmentCount = attachmentCounts.get(String(task.task_id ?? '')) ?? 0;
         const existing = typeof task.attachments === 'number' ? task.attachments : 0;
+        const latestProgressSummary = this.normalizeLatestProgressSummary(latestNotes.get(String(task.task_id ?? '')));
+        const { latest_progress_summary: _latestProgressSummary, ...taskWithoutLatestSummary } = task;
         return {
-          ...task,
+          ...taskWithoutLatestSummary,
           attachments: Math.max(existing, progressAttachmentCount),
+          ...(latestProgressSummary ? { latest_progress_summary: latestProgressSummary } : {}),
           subtasks: Array.isArray(task.subtasks) ? updateTasks(task.subtasks) : task.subtasks,
         };
       });
@@ -1685,6 +1691,29 @@ export class ResearchDevelopmentService {
         return { ...child, tasks: updateTasks(asArray(child.tasks)) };
       }),
     }));
+  }
+
+  private normalizeLatestProgressSummary(value: unknown): JsonRecord | null {
+    if (!isRecord(value)) return null;
+    const actor = isRecord(value.actor) ? value.actor : {};
+    const attachmentsCount = Array.isArray(value.attachments)
+      ? value.attachments.length
+      : Number.isFinite(Number(value.attachments_count))
+        ? Number(value.attachments_count)
+        : 0;
+    const text = cleanText(value.text);
+    const fallbackText = attachmentsCount > 0 ? `上传了 ${attachmentsCount} 个附件` : '';
+    const createdAt = cleanText(value.created_at);
+    const progressValue = Number(value.progress);
+    if (!text && !fallbackText) return null;
+
+    return {
+      text: text || fallbackText,
+      progress: Number.isFinite(progressValue) ? Math.round(progressValue) : null,
+      actor_name: cleanText(value.actor_name ?? actor.name) || '系统',
+      created_at: createdAt,
+      attachments_count: attachmentsCount,
+    };
   }
 
   // ── Daily reports ───────────────────────────────────────────────────────
@@ -1836,58 +1865,89 @@ export class ResearchDevelopmentService {
     const blocked = myTasks.filter((t) => t.status === 'paused_blocked').length;
     const pending = myTasks.filter((t) => t.status === 'pending_assign' || t.status === 'pending_review').length;
 
-    // 4. Build a text summary. If we ever wire an LLM later, this is the place to swap in.
-    const lines: string[] = [];
-    lines.push(`【${userName} · ${date} 工作日报】`);
-    lines.push('');
-    lines.push(`📊 任务概况：共 ${myTasks.length} 个任务（进行中 ${inProgress} · 已完成 ${completed} · 阻塞 ${blocked} · 待办 ${pending}）`);
-    lines.push('');
-    if (todayNotes.length > 0) {
-      lines.push(`✍️ 今日提交了 ${todayNotes.length} 条进度记录：`);
-      const sorted = todayNotes
-        .slice()
-        .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
-      for (const note of sorted) {
-        const text = String(note.text ?? '').trim().slice(0, 200);
-        const progress = typeof note.progress === 'number' ? `${note.progress}%` : '—';
-        const titleHint = this.lookupTaskTitle(allTasks, String(note.task_id ?? ''));
-        const att = Array.isArray(note.attachments) ? note.attachments.length : 0;
-        lines.push(`  • ${titleHint ? `《${titleHint}》` : note.task_id}（进度 ${progress}${att > 0 ? ` · ${att} 个附件` : ''}）`);
-        if (text) lines.push(`    ${text}`);
-      }
-    } else {
-      lines.push('✍️ 今日未提交进度记录。');
-    }
-    lines.push('');
-    if (blocked > 0 && todayNotes.length === 0) {
-      lines.push(`⚠️ 注意：当前有 ${blocked} 个任务处于阻塞状态，且今日未提交任何进度记录，请关注推进情况。`);
-    } else if (blocked > 0) {
-      lines.push(`⚠️ 注意：当前有 ${blocked} 个任务处于阻塞状态，需要支援。`);
-    } else if (completed > 0 && todayNotes.length > 0) {
-      lines.push(`✅ 今日推进顺利，已完成 ${completed} 个任务，并提交了进度记录。`);
-    } else if (completed > 0) {
-      lines.push(`✅ 已完成 ${completed} 个任务，但今日未提交进度记录，建议补充说明。`);
-    } else if (inProgress > 0 && todayNotes.length === 0) {
-      lines.push(`🔔 今日有 ${inProgress} 个任务进行中，但未提交任何进度记录，请及时更新进展。`);
-    } else if (inProgress > 0) {
-      lines.push('🟦 今日推进正常，请保持节奏。');
-    } else if (pending > 0) {
-      lines.push(`📋 当前有 ${pending} 个任务待处理，尚未开始执行，请关注任务启动情况。`);
-    } else {
-      lines.push('📭 当前暂无任务，请确认任务分配情况。');
-    }
+    // 4. 优先调用 AI 模型生成日报正文；失败/未配置时回退到本地拼接版本。
+    const stats = {
+      total_tasks: myTasks.length,
+      in_progress: inProgress,
+      completed,
+      blocked,
+      pending,
+      notes_count: todayNotes.length,
+    };
 
-    return {
-      text: lines.join('\n'),
+    const sortedNotes = todayNotes
+      .slice()
+      .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
+
+    const noteSummaries = sortedNotes.map((note) => ({
+      taskTitle: this.lookupTaskTitle(allTasks, String(note.task_id ?? '')) || undefined,
+      progress: typeof note.progress === 'number' ? note.progress : null,
+      excerpt: String(note.text ?? '').trim().slice(0, 200),
+      attachmentsCount: Array.isArray(note.attachments) ? note.attachments.length : 0,
+    }));
+
+    let summaryText: string;
+    const aiResult = await this.rdAiService.summarizeDailyReport({
+      userName,
+      date,
       stats: {
-        total_tasks: myTasks.length,
-        in_progress: inProgress,
+        totalTasks: stats.total_tasks,
+        inProgress,
         completed,
         blocked,
         pending,
-        notes_count: todayNotes.length,
+        notesCount: stats.notes_count,
       },
-      note_refs: todayNotes.map((note) => ({
+      notes: noteSummaries,
+    });
+
+    if (aiResult) {
+      summaryText = `【${userName} · ${date} 工作日报】\n\n${aiResult.text}`;
+    } else {
+      // 本地兜底：AI 未配置 / 调用失败时拼出可读文本
+      const lines: string[] = [];
+      lines.push(`【${userName} · ${date} 工作日报】`);
+      lines.push('');
+      lines.push(`📊 任务概况：共 ${myTasks.length} 个任务（进行中 ${inProgress} · 已完成 ${completed} · 阻塞 ${blocked} · 待办 ${pending}）`);
+      lines.push('');
+      if (sortedNotes.length > 0) {
+        lines.push(`✍️ 今日提交了 ${sortedNotes.length} 条进度记录：`);
+        for (const note of sortedNotes) {
+          const text = String(note.text ?? '').trim().slice(0, 200);
+          const progress = typeof note.progress === 'number' ? `${note.progress}%` : '—';
+          const titleHint = this.lookupTaskTitle(allTasks, String(note.task_id ?? ''));
+          const att = Array.isArray(note.attachments) ? note.attachments.length : 0;
+          lines.push(`  • ${titleHint ? `《${titleHint}》` : note.task_id}（进度 ${progress}${att > 0 ? ` · ${att} 个附件` : ''}）`);
+          if (text) lines.push(`    ${text}`);
+        }
+      } else {
+        lines.push('✍️ 今日未提交进度记录。');
+      }
+      lines.push('');
+      if (blocked > 0 && sortedNotes.length === 0) {
+        lines.push(`⚠️ 注意：当前有 ${blocked} 个任务处于阻塞状态，且今日未提交任何进度记录，请关注推进情况。`);
+      } else if (blocked > 0) {
+        lines.push(`⚠️ 注意：当前有 ${blocked} 个任务处于阻塞状态，需要支援。`);
+      } else if (completed > 0 && sortedNotes.length > 0) {
+        lines.push(`✅ 今日推进顺利，已完成 ${completed} 个任务，并提交了进度记录。`);
+      } else if (completed > 0) {
+        lines.push(`✅ 已完成 ${completed} 个任务，但今日未提交进度记录，建议补充说明。`);
+      } else if (inProgress > 0 && sortedNotes.length === 0) {
+        lines.push(`🔔 今日有 ${inProgress} 个任务进行中，但未提交任何进度记录，请及时更新进展。`);
+      } else if (inProgress > 0) {
+        lines.push('🟦 今日推进正常，请保持节奏。');
+      } else if (pending > 0) {
+        lines.push(`📋 当前有 ${pending} 个任务待处理，尚未开始执行，请关注任务启动情况。`);
+      } else {
+        lines.push('📭 当前暂无任务，请确认任务分配情况。');
+      }
+      summaryText = lines.join('\n');
+    }
+
+    return {
+      text: summaryText,
+      stats,
+      note_refs: sortedNotes.map((note) => ({
         note_id: String(note.id ?? ''),
         task_id: String(note.task_id ?? ''),
         progress: typeof note.progress === 'number' ? note.progress : null,
@@ -2188,6 +2248,7 @@ export class ResearchDevelopmentService {
       collab_role: collabRole,
       on_leave: task.status === 'paused_leave',
       ai_pending: task.ai_modified === true,
+      latest_progress_summary: this.normalizeLatestProgressSummary(task.latest_progress_summary),
       description: cleanText(task.description),
       next_action: role === 'primary' ? '推进当前节点并同步最新进展。' : '配合主责人完成协作事项。',
       deliverables: asArray(task.deliverables).map((item) => cleanText(item)).filter(Boolean),
@@ -2211,10 +2272,12 @@ export class ResearchDevelopmentService {
 
     if (!currentUserId) return saved;
 
-    const [categories, identity] = await Promise.all([
+    const [rawCategories, identity, noteMap] = await Promise.all([
       this.readNormalizedTaskCategories(),
       this.getIdentityContext(),
+      this.getProgressNoteMap(),
     ]);
+    const categories = this.applyProgressAttachmentCounts(rawCategories, noteMap);
     const { people, users } = identity;
     const currentUser = users.find((user) => user.id === currentUserId);
     const currentNameKey = personNameLookupKey(currentUser?.name ?? currentUserName);
@@ -2617,7 +2680,7 @@ export class ResearchDevelopmentService {
       runtime: {
         ocr: {
           provider: 'tencent_ocr',
-          ready: this.ocrService.hasTencentConfig(),
+          ready: await this.ocrService.hasTencentConfig(),
         },
         models: await this.listAiModelRefs(),
       },

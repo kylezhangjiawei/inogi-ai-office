@@ -672,46 +672,53 @@ function TaskItem({
         {/* Priority */}
         <PriorityPill priority={task.final_priority} aiPriority={task.ai_priority} />
 
-        {/* Title (single line, ID on hover) */}
-        <div className="flex min-w-0 flex-1 items-baseline gap-2">
-          <span
-            className={cn(
-              "truncate",
-              task.archived
-                ? "text-slate-400 line-through"
-                : task.status === "completed"
-                  ? "text-slate-400"
-                  : depth === 0
-                    ? "text-[15px] font-semibold text-slate-950"
-                    : "text-sm font-medium text-slate-700",
+        {/* Title + latest progress summary */}
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <div className="flex min-w-0 items-baseline gap-2">
+            <span
+              className={cn(
+                "truncate",
+                task.archived
+                  ? "text-slate-400 line-through"
+                  : task.status === "completed"
+                    ? "text-slate-400"
+                    : depth === 0
+                      ? "text-[15px] font-semibold text-slate-950"
+                      : "text-sm font-medium text-slate-700",
+              )}
+            >
+              {task.title}
+            </span>
+            {hasSubtasks && (
+              <span className="shrink-0 rounded bg-slate-200 px-1.5 text-xs font-semibold text-slate-600">
+                {task.subtasks!.length}
+              </span>
             )}
-          >
-            {task.title}
-          </span>
-          {hasSubtasks && (
-            <span className="shrink-0 rounded bg-slate-200 px-1.5 text-xs font-semibold text-slate-600">
-              {task.subtasks!.length}
+            <span
+              className={cn(
+                "shrink-0 font-mono text-xs text-slate-500",
+                depth === 0 ? "hidden group-hover:inline" : "inline",
+              )}
+            >
+              {depth === 0 ? task.task_id : task.task_id.replace("RD-2026-", "")}
             </span>
-          )}
-          <span
-            className={cn(
-              "shrink-0 font-mono text-xs text-slate-500",
-              depth === 0 ? "hidden group-hover:inline" : "inline",
+            {task.ai_modified && (
+              <span className="inline-flex shrink-0 text-amber-500" title="AI 输出已被人工修改">
+                <Pencil className="h-3 w-3" />
+              </span>
             )}
-          >
-            {depth === 0 ? task.task_id : task.task_id.replace("RD-2026-", "")}
-          </span>
-          {task.ai_modified && (
-            <span className="inline-flex shrink-0 text-amber-500" title="AI 输出已被人工修改">
-              <Pencil className="h-3 w-3" />
-            </span>
-          )}
-          {task.attachments > 0 && (
-            <span className="hidden shrink-0 items-center gap-0.5 text-xs text-slate-500 group-hover:inline-flex">
-              <Paperclip className="h-3 w-3" />
-              {task.attachments}
-            </span>
-          )}
+            {task.attachments > 0 && (
+              <span className="hidden shrink-0 items-center gap-0.5 text-xs text-slate-500 group-hover:inline-flex">
+                <Paperclip className="h-3 w-3" />
+                {task.attachments}
+              </span>
+            )}
+          </div>
+          {task.latest_progress_summary?.text ? (
+            <div className="line-clamp-1 text-[11px] leading-4 text-slate-500">
+              最新进度：{task.latest_progress_summary.text}
+            </div>
+          ) : null}
         </div>
 
         {/* Owners */}
@@ -3229,6 +3236,12 @@ function TaskDetailDrawer({
 }) {
   const RD_ADMIN_AUDIT_ACTOR = useAuditActor("研发管理员");
   const shouldReduceMotion = useReducedMotion();
+  const { user } = useAuth();
+  const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
+  const canReviewProjectL1 = usePermission(PERMISSIONS.RD_PROJECT_REVIEW_L1);
+  const canReviewProjectL2 = usePermission(PERMISSIONS.RD_PROJECT_REVIEW_L2);
+  const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
+  const canReassignTasks = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState(task.description ?? "");
   const [savingDesc, setSavingDesc] = useState(false);
@@ -3459,7 +3472,7 @@ function TaskDetailDrawer({
         exit={{ opacity: 0, x: 28 }}
         transition={RD_PANEL_TRANSITION}
       >
-        <div className="sticky top-0 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4 z-[100]">
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
           <div>
             <div className="text-xs font-mono text-slate-400">{task.task_id}</div>
             <div className="text-base font-semibold text-slate-800">{task.title}</div>
@@ -6248,30 +6261,19 @@ function PersonTaskCockpit({
   const [notesMap, setNotesMap] = useState<Record<string, RdTaskProgressNote[]>>({});
   const [loadingNotes, setLoadingNotes] = useState(false);
 
-  // ── Risk scroll load more ──
-  const [riskVisibleCount, setRiskVisibleCount] = useState(8);
-
-  const handleRiskScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    const el = e.currentTarget;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-    if (nearBottom) {
-      setRiskVisibleCount((prev) => Math.min(prev + 8, risks.length));
-    }
-  }, [risks.length]);
-
-  // ── Per-person scroll load more ──
+  // ── Per-tab visible counts (for infinite scroll pagination) ──
   const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({});
 
   // 固定高度容器内的 onScroll 触发分页
   const handleTaskScroll = useCallback(
-    (e: React.UIEvent<HTMLDivElement>, personName: string, totalTasks: number) => {
+    (e: React.UIEvent<HTMLDivElement>, tabKey: string, totalTasks: number) => {
       const el = e.currentTarget;
       const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
       if (nearBottom) {
         setVisibleCounts((prev) => {
-          const current = prev[personName] ?? TASK_PAGE_SIZE;
+          const current = prev[tabKey] ?? TASK_PAGE_SIZE;
           if (current >= totalTasks) return prev;
-          return { ...prev, [personName]: Math.min(current + TASK_PAGE_SIZE, totalTasks) };
+          return { ...prev, [tabKey]: Math.min(current + TASK_PAGE_SIZE, totalTasks) };
         });
       }
     },
@@ -6281,17 +6283,39 @@ function PersonTaskCockpit({
   // ── Gallery lightbox ──
   const [galleryState, setGalleryState] = useState<{ images: RdTaskProgressAttachment[]; startIndex: number } | null>(null);
 
+  // ── Sort helper: newest updated first ──
+  const sortByUpdatedDesc = useCallback((arr: Task[]): Task[] => {
+    return arr.slice().sort((a, b) => {
+      const at = a.updated_at || "";
+      const bt = b.updated_at || "";
+      if (at === bt) return 0;
+      return at < bt ? 1 : -1;
+    });
+  }, []);
+
   // ── Derived data ──
+  // "全部" tab — all active tasks sorted by updated_at desc
+  const allActiveTasks = useMemo(() => {
+    return sortByUpdatedDesc(
+      allTasks.filter((t) => !t.archived && t.status !== "completed"),
+    );
+  }, [allTasks, sortByUpdatedDesc]);
+
+  // Per-person — sorted by updated_at desc
   const personTasksMap = useMemo(() => {
     const map = new Map<string, Task[]>();
     for (const p of personLoads) {
-      map.set(p.name, allTasks.filter(
+      const filtered = allTasks.filter(
         (t) => !t.archived && t.status !== "completed" &&
           (t.primary_owner === p.name || t.collaborators.some((c) => c.name === p.name)),
-      ));
+      );
+      map.set(p.name, sortByUpdatedDesc(filtered));
     }
     return map;
-  }, [personLoads, allTasks]);
+  }, [personLoads, allTasks, sortByUpdatedDesc]);
+
+  // Risk task IDs for quick lookup (to show risk indicator in "全部" tab)
+  const riskTaskIds = useMemo(() => new Set(risks.map((r) => r.task.task_id)), [risks]);
 
   // Lazy-fetch notes when person tab opens
   useEffect(() => {
@@ -6311,8 +6335,24 @@ function PersonTaskCockpit({
     return () => { cancelled = true; };
   }, [activeTab, personTasksMap]);
 
-  const shownRisks = risks.slice(0, riskVisibleCount);
-  const hasMoreRisks = riskVisibleCount < risks.length;
+  // Lazy-fetch notes for "全部" tab — fetch attachments of visible tasks
+  useEffect(() => {
+    if (activeTab !== "all") return;
+    const visibleCount = visibleCounts["all"] ?? TASK_PAGE_SIZE;
+    const visibleTasks = allActiveTasks.slice(0, visibleCount);
+    const toFetch = visibleTasks.filter((t) => t.attachments > 0 && !(t.task_id in notesMap));
+    if (toFetch.length === 0) return;
+    let cancelled = false;
+    setLoadingNotes(true);
+    Promise.all(toFetch.map((t) =>
+      fetchRdTaskProgressNotes(t.task_id)
+        .then((notes) => [t.task_id, notes] as const)
+        .catch(() => [t.task_id, []] as const),
+    ))
+      .then((entries) => { if (!cancelled) setNotesMap((prev) => ({ ...prev, ...Object.fromEntries(entries) })); })
+      .finally(() => { if (!cancelled) setLoadingNotes(false); });
+    return () => { cancelled = true; };
+  }, [activeTab, allActiveTasks, visibleCounts]);
 
   // Slide variants for tab content transitions
   const slideVariants = {
@@ -6325,6 +6365,141 @@ function PersonTaskCockpit({
       x: shouldReduceMotion ? 0 : dir > 0 ? -36 : 36,
       opacity: 0,
     }),
+  };
+
+  // ── Shared task card renderer (used by both "全部" and per-person tabs) ──
+  const renderTaskCard = (
+    task: Task,
+    taskIdx: number,
+    grad: { from: string; to: string },
+    options: { showOwner?: boolean } = {},
+  ) => {
+    const { showOwner = false } = options;
+    const sCfg = STATUS_CONFIG[task.status] ?? STATUS_CONFIG.draft;
+    const pCfg = PRIORITY_CONFIG[task.final_priority ?? task.ai_priority ?? "medium"];
+    const taskNotes = notesMap[task.task_id] ?? [];
+    const taskAttachments: RdTaskProgressAttachment[] = taskNotes.flatMap((n) => n.attachments);
+    const taskImages = taskAttachments.filter((a) => a.mime.startsWith("image/"));
+    const hasLoadedAttachments = taskAttachments.length > 0;
+    const isRisk = riskTaskIds.has(task.task_id);
+
+    return (
+      <motion.div
+        key={task.task_id}
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ ...RD_LIST_TRANSITION, delay: taskIdx * 0.03 }}
+        onClick={() => onSelectTask(task)}
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectTask(task); } }}
+        className={cn(
+          "group relative cursor-pointer overflow-hidden rounded-xl border bg-white/92 shadow-[0_10px_24px_rgba(30,64,175,0.06),inset_0_1px_0_rgba(255,255,255,0.9)] transition-all duration-200 hover:bg-white hover:shadow-[0_16px_32px_rgba(30,64,175,0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200",
+          isRisk ? "border-red-200/80 hover:border-red-300" : "border-blue-100/80 hover:border-blue-300",
+        )}
+      >
+        {hasLoadedAttachments && (
+          <TaskAttachmentStrip
+            attachments={taskAttachments}
+            onOpenGallery={(startIdx) => setGalleryState({ images: taskImages, startIndex: startIdx })}
+          />
+        )}
+
+        {/* 左侧渐变竖条 */}
+        <div
+          className="absolute left-0 top-0 h-full w-1 rounded-l-2xl"
+          style={{ background: isRisk
+            ? "linear-gradient(to bottom, #ef4444, #f97316)"
+            : `linear-gradient(to bottom, ${grad.from}, ${grad.to})` }}
+        />
+
+        <div className="flex items-start gap-3.5 px-4 py-3.5">
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <div className="flex flex-wrap items-center gap-1.5">
+              <span className={cn("inline-flex shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-white/50", sCfg.bg, sCfg.text)}>
+                {sCfg.label}
+              </span>
+              <span className={cn("inline-flex shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold", pCfg.bg, pCfg.text)}>
+                {pCfg.label}
+              </span>
+              {isRisk && (
+                <span className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
+                  <AlertTriangle className="h-3 w-3" />
+                  风险
+                </span>
+              )}
+              {task.attachments > 0 && !hasLoadedAttachments && (
+                <span className="flex items-center gap-0.5 rounded-md border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
+                  <Paperclip className="h-3 w-3" />{task.attachments}
+                </span>
+              )}
+              {canReassign && onReassignTask && task.status !== "completed" && (
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); onReassignTask(task); }}
+                  className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-blue-100 bg-white px-2 py-0.5 text-[10px] font-semibold text-blue-700 transition-all hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800 active:scale-95"
+                >
+                  <UserCog className="h-3 w-3" />
+                  转派
+                </button>
+              )}
+            </div>
+            <div className="line-clamp-2 text-sm font-semibold leading-snug text-slate-900">
+              {task.title}
+            </div>
+            {task.latest_progress_summary?.text ? (
+              <div className="line-clamp-2 rounded-md bg-blue-50/70 px-2 py-1 text-[11px] leading-4 text-blue-700 ring-1 ring-blue-100">
+                最新进度：{task.latest_progress_summary.text}
+              </div>
+            ) : null}
+            {(task.start_date || task.due_date || task.updated_at) && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-slate-500">
+                {task.start_date && (
+                  <span className="flex items-center gap-1 rounded-md bg-white/70 px-1.5 py-0.5 ring-1 ring-slate-100">
+                    <CalendarDays className="h-3 w-3 shrink-0 text-blue-400" />
+                    起 {task.start_date}
+                  </span>
+                )}
+                {task.due_date && (
+                  <span className="flex items-center gap-1 rounded-md bg-white/70 px-1.5 py-0.5 ring-1 ring-slate-100">
+                    <CalendarClock className="h-3 w-3 shrink-0 text-amber-500" />
+                    止 {task.due_date}
+                  </span>
+                )}
+                {task.updated_at && (
+                  <span className="flex items-center gap-1 text-slate-400">
+                    <RefreshCw className="h-3 w-3 shrink-0 text-slate-300" />
+                    更新 {task.updated_at.slice(0, 16).replace("T", " ")}
+                  </span>
+                )}
+              </div>
+            )}
+            <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+              <div className="h-1 flex-1 overflow-hidden rounded-full bg-blue-100/80">
+                <motion.div
+                  className="h-full rounded-full"
+                  initial={{ width: 0 }}
+                  animate={{ width: `${task.progress}%` }}
+                  transition={{ duration: 0.45, ease: RD_MOTION_EASE, delay: taskIdx * 0.03 }}
+                  style={{ background: task.progress === 100 ? "#10b981" : `linear-gradient(90deg, ${grad.from}, ${grad.to})` }}
+                />
+              </div>
+              <span className="w-8 shrink-0 text-right text-[10px] font-bold tabular-nums text-blue-700">
+                {task.progress}%
+              </span>
+            </div>
+          </div>
+
+          {showOwner && task.primary_owner && (
+            <div className="shrink-0">
+              <OwnerAvatar name={task.primary_owner} size="sm" />
+            </div>
+          )}
+
+          <ChevronRight className="h-4 w-4 shrink-0 text-blue-300 opacity-0 transition-all duration-150 group-hover:translate-x-0.5 group-hover:opacity-100" />
+        </div>
+      </motion.div>
+    );
   };
 
   return (
@@ -6348,10 +6523,10 @@ function PersonTaskCockpit({
       >
         <Tabs value={activeTab} onValueChange={handleTabChange} className="gap-0">
 
-          {/* ── INS Stories-style 人员导航栏 ── */}
-          <TabsList className="flex h-auto w-full justify-start gap-0 overflow-x-auto rounded-none border-b border-blue-100 bg-gradient-to-r from-white via-blue-50/40 to-cyan-50/40 px-4 py-4 pb-3">
+          {/* ── INS Stories-style 人员导航栏 (with visible horizontal scrollbar) ── */}
+          <TabsList className="flex h-auto w-full justify-start gap-0 overflow-x-auto rounded-none border-b border-blue-100 bg-gradient-to-r from-white via-blue-50/40 to-cyan-50/40 px-4 pt-4 pb-2 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/70 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400">
 
-            {/* 全部 — 风险汇总入口 */}
+            {/* 全部 — 所有活跃任务入口 */}
             <TabsTrigger
               value="all"
               className="flex shrink-0 flex-col items-center gap-1.5 rounded-none border-none bg-transparent px-3 py-0 shadow-none outline-none ring-0 transition-none focus-visible:ring-0"
@@ -6364,7 +6539,7 @@ function PersonTaskCockpit({
                       ? "linear-gradient(135deg,#2563eb,#06b6d4)"
                       : risks.length > 0
                         ? "linear-gradient(135deg,#93c5fd,#f87171)"
-                        : "#cbd5e1",
+                        : "linear-gradient(135deg,#cbd5e1,#94a3b8)",
                   }}
                 >
                   <div className={cn(
@@ -6376,8 +6551,18 @@ function PersonTaskCockpit({
                     </div>
                   </div>
                 </div>
+                {/* Total tasks badge */}
+                {allActiveTasks.length > 0 && (
+                  <span className="absolute -bottom-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 px-0.5 text-[9px] font-black text-white">
+                    {allActiveTasks.length > 99 ? "99+" : allActiveTasks.length}
+                  </span>
+                )}
+                {/* Risk indicator dot top-right */}
                 {risks.length > 0 && (
-                  <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] font-black text-white">
+                  <span
+                    className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] font-black text-white"
+                    title={`${risks.length} 个风险任务`}
+                  >
                     {risks.length > 99 ? "99+" : risks.length}
                   </span>
                 )}
@@ -6458,126 +6643,62 @@ function PersonTaskCockpit({
                 transition={{ duration: 0.22, ease: RD_MOTION_EASE }}
               >
 
-                {/* ── "全部" Tab — INS 风格滚动 feed ── */}
-                {activeTab === "all" && (
-                  <div
-                    className="cockpit-scroll overflow-y-auto"
-                    style={{ height: 480 }}
-                    onScroll={handleRiskScroll}
-                  >
-                    {risks.length === 0 ? (
-                      <div className="flex h-full items-center justify-center text-sm text-slate-400">
-                        暂无风险任务
-                      </div>
-                    ) : (
-                      <div className="space-y-2.5 px-4 py-3">
-                        {shownRisks.map((r, idx) => {
-                          const RiskIcon = RISK_ICON[r.type];
-                          const isCritical = r.severity === "critical";
-                          return (
-                            <motion.div
-                              key={r.task.task_id + r.type}
-                              initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              transition={{ ...RD_LIST_TRANSITION, delay: idx * 0.03 }}
-                              onClick={() => onSelectTask(r.task)}
-                              role="button"
-                              tabIndex={0}
-                              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectTask(r.task); } }}
-                              className="group relative flex cursor-pointer items-center gap-3.5 overflow-hidden rounded-xl border border-blue-100/80 bg-white/92 px-4 py-3.5 shadow-[0_10px_24px_rgba(30,64,175,0.06),inset_0_1px_0_rgba(255,255,255,0.9)] transition-all duration-200 hover:border-blue-300 hover:bg-white hover:shadow-[0_16px_32px_rgba(30,64,175,0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
-                            >
-                              {/* 左侧彩色竖条 */}
-                              <div
-                                className={cn("absolute left-0 top-0 h-full w-1 rounded-l-2xl", isCritical ? "bg-gradient-to-b from-red-500 to-orange-400" : "bg-gradient-to-b from-amber-400 to-yellow-500")}
-                              />
+                {/* ── "全部" Tab — 全部活跃任务，按更新时间倒序 ── */}
+                {activeTab === "all" && (() => {
+                  const visibleCount = visibleCounts["all"] ?? TASK_PAGE_SIZE;
+                  const shownTasks = allActiveTasks.slice(0, visibleCount);
+                  const hasMore = visibleCount < allActiveTasks.length;
+                  const allGrad = { from: "#3b82f6", to: "#06b6d4" };
 
-                              {/* 状态图标圆 */}
-                              <div className={cn(
-                                "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ring-1",
-                                isCritical ? "bg-gradient-to-br from-red-50 to-orange-50 ring-red-100" : "bg-gradient-to-br from-amber-50 to-yellow-50 ring-amber-100",
-                              )}>
-                                <RiskIcon className={cn("h-4 w-4", isCritical ? "text-red-600" : "text-amber-600")} />
-                              </div>
+                  return (
+                    <div>
+                      <AnimatePresence>
+                        {loadingNotes && (
+                          <motion.div
+                            initial={{ opacity: 0, height: 0 }}
+                            animate={{ opacity: 1, height: "auto" }}
+                            exit={{ opacity: 0, height: 0 }}
+                            transition={RD_FAST_TRANSITION}
+                            className="flex items-center gap-2 border-b border-blue-100 bg-blue-50 px-4 py-2 text-[11px] text-blue-600"
+                          >
+                            <Loader2 className="h-3 w-3 animate-spin shrink-0" />
+                            正在加载任务附件图片…
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
 
-                              {/* 文字区 */}
-                              <div className="min-w-0 flex-1">
-                                <div className="truncate text-sm font-semibold leading-snug text-slate-900">
-                                  {r.task.title}
-                                </div>
-                                <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px]">
-                                  <span className={cn(
-                                    "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 font-semibold",
-                                    isCritical ? "border-red-100 bg-red-50 text-red-700" : "border-amber-100 bg-amber-50 text-amber-700",
-                                  )}>
-                                    <RiskIcon className="h-3 w-3" />
-                                    {RISK_LABEL[r.type]}
-                                  </span>
-                                  <span className="text-slate-400">{r.reason}</span>
-                                </div>
-                                <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-slate-500">
-                                  {r.task.start_date && (
-                                    <span className="flex items-center gap-1 rounded-md bg-white/70 px-1.5 py-0.5 text-slate-500 ring-1 ring-slate-100">
-                                      <CalendarDays className="h-3 w-3 shrink-0 text-blue-400" />
-                                      起 {r.task.start_date}
-                                    </span>
-                                  )}
-                                  {r.task.due_date && (
-                                    <span className="flex items-center gap-1 rounded-md bg-white/70 px-1.5 py-0.5 text-slate-500 ring-1 ring-slate-100">
-                                      <CalendarClock className="h-3 w-3 shrink-0 text-amber-500" />
-                                      止 {r.task.due_date}
-                                    </span>
-                                  )}
-                                  {r.task.updated_at && (
-                                    <span className="flex items-center gap-1 text-slate-400">
-                                      <RefreshCw className="h-3 w-3 shrink-0 text-slate-300" />
-                                      更新 {r.task.updated_at.slice(0, 16).replace("T", " ")}
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
+                      {allActiveTasks.length === 0 ? (
+                        <div className="flex h-[480px] flex-col items-center justify-center gap-2 text-sm text-slate-400">
+                          <span>暂无活跃任务</span>
+                        </div>
+                      ) : (
+                        <div
+                          className="cockpit-scroll overflow-y-auto"
+                          style={{ height: 480 }}
+                          onScroll={(e) => handleTaskScroll(e, "all", allActiveTasks.length)}
+                        >
+                          <div className="space-y-2.5 px-4 py-3">
+                            <AnimatePresence>
+                              {shownTasks.map((task, idx) => renderTaskCard(task, idx, allGrad, { showOwner: true }))}
+                            </AnimatePresence>
+                          </div>
 
-                              {/* 责任人头像 */}
-                              <div className="shrink-0">
-                                <OwnerAvatar name={r.task.primary_owner} size="sm" />
-                              </div>
-
-                              {canReassign && onReassignTask && r.task.status !== "completed" && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => { e.stopPropagation(); onReassignTask(r.task); }}
-                                  className={cn(
-                                    "shrink-0 inline-flex items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-semibold transition-all active:scale-95",
-                                    r.task.primary_owner === "待指派"
-                                      ? "bg-gradient-to-r from-blue-600 to-cyan-500 text-white shadow-[0_10px_22px_rgba(37,99,235,0.22)] hover:from-blue-700 hover:to-cyan-600"
-                                      : "border border-blue-100 bg-white text-blue-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800",
-                                  )}
-                                >
-                                  <UserCog className="h-3 w-3" />
-                                  {r.task.primary_owner === "待指派" ? "指派" : "转派"}
-                                </button>
-                              )}
-
-                              <ChevronRight className="h-4 w-4 shrink-0 text-blue-300 opacity-0 transition-all duration-150 group-hover:translate-x-0.5 group-hover:opacity-100" />
-                            </motion.div>
-                          );
-                        })}
-                      </div>
-                    )}
-
-                    {/* 底部状态 */}
-                    {hasMoreRisks ? (
-                      <div className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400">
-                        <ChevronDown className="h-3 w-3 animate-bounce" />
-                        <span>继续向下滚动 · 已显示 <span className="font-semibold tabular-nums text-slate-500">{shownRisks.length}</span> / 共 <span className="font-semibold tabular-nums text-slate-500">{risks.length}</span> 条风险</span>
-                      </div>
-                    ) : risks.length > 0 ? (
-                      <div className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400">
-                        <CheckCircle2 className="h-3 w-3 text-emerald-400" />
-                        <span>已显示全部 <span className="font-semibold tabular-nums text-slate-500">{risks.length}</span> 条风险任务</span>
-                      </div>
-                    ) : null}
-                  </div>
-                )}
+                          {hasMore ? (
+                            <div className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400">
+                              <ChevronDown className="h-3 w-3 animate-bounce" />
+                              <span>继续向下滚动 · 已显示 <span className="font-semibold tabular-nums text-slate-500">{shownTasks.length}</span> / 共 <span className="font-semibold tabular-nums text-slate-500">{allActiveTasks.length}</span> 个任务</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400">
+                              <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+                              <span>已显示全部 <span className="font-semibold tabular-nums text-slate-500">{allActiveTasks.length}</span> 个任务 · {risks.length > 0 && <span className="text-red-500 font-semibold">{risks.length} 个风险</span>}</span>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
 
                 {/* ── Per-person Tab ── */}
                 {activeTab !== "all" && (() => {
@@ -6622,113 +6743,7 @@ function PersonTaskCockpit({
                         >
                           <div className="space-y-2.5 px-4 py-3">
                             <AnimatePresence>
-                              {shownTasks.map((task, taskIdx) => {
-                                const sCfg = STATUS_CONFIG[task.status] ?? STATUS_CONFIG.draft;
-                                const pCfg = PRIORITY_CONFIG[task.final_priority ?? task.ai_priority ?? "medium"];
-                                const taskNotes = notesMap[task.task_id] ?? [];
-                                const taskAttachments: RdTaskProgressAttachment[] = taskNotes.flatMap((n) => n.attachments);
-                                const taskImages = taskAttachments.filter((a) => a.mime.startsWith("image/"));
-                                const hasLoadedAttachments = taskAttachments.length > 0;
-
-                                return (
-                                  <motion.div
-                                    key={task.task_id}
-                                    initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
-                                    animate={{ opacity: 1, y: 0 }}
-                                    transition={{ ...RD_LIST_TRANSITION, delay: taskIdx * 0.03 }}
-                                    onClick={() => onSelectTask(task)}
-                                    role="button"
-                                    tabIndex={0}
-                                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectTask(task); } }}
-                                    className="group relative cursor-pointer overflow-hidden rounded-xl border border-blue-100/80 bg-white/92 shadow-[0_10px_24px_rgba(30,64,175,0.06),inset_0_1px_0_rgba(255,255,255,0.9)] transition-all duration-200 hover:border-blue-300 hover:bg-white hover:shadow-[0_16px_32px_rgba(30,64,175,0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
-                                  >
-                                    {/* 附件预览（图片 + 文件，稳定高度横向展示） */}
-                                    {hasLoadedAttachments && (
-                                      <TaskAttachmentStrip
-                                        attachments={taskAttachments}
-                                        onOpenGallery={(startIdx) => setGalleryState({ images: taskImages, startIndex: startIdx })}
-                                      />
-                                    )}
-
-                                    {/* 左侧渐变竖条 */}
-                                    <div
-                                      className="absolute left-0 top-0 h-full w-1 rounded-l-2xl"
-                                      style={{ background: `linear-gradient(to bottom, ${grad.from}, ${grad.to})` }}
-                                    />
-
-                                    <div className="flex items-start gap-3.5 px-4 py-3.5">
-                                      {/* 状态 + 优先级 badges */}
-                                      <div className="flex min-w-0 flex-1 flex-col gap-1">
-                                        <div className="flex flex-wrap items-center gap-1.5">
-                                          <span className={cn("inline-flex shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-white/50", sCfg.bg, sCfg.text)}>
-                                            {sCfg.label}
-                                          </span>
-                                          <span className={cn("inline-flex shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold", pCfg.bg, pCfg.text)}>
-                                            {pCfg.label}
-                                          </span>
-                                          {task.attachments > 0 && !hasLoadedAttachments && (
-                                            <span className="flex items-center gap-0.5 rounded-md border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
-                                              <Paperclip className="h-3 w-3" />{task.attachments}
-                                            </span>
-                                          )}
-                                          {canReassign && onReassignTask && task.status !== "completed" && (
-                                            <button
-                                              type="button"
-                                              onClick={(e) => { e.stopPropagation(); onReassignTask(task); }}
-                                              className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-blue-100 bg-white px-2 py-0.5 text-[10px] font-semibold text-blue-700 transition-all hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800 active:scale-95"
-                                            >
-                                              <UserCog className="h-3 w-3" />
-                                              转派
-                                            </button>
-                                          )}
-                                        </div>
-                                        <div className="line-clamp-2 text-sm font-semibold leading-snug text-slate-900">
-                                          {task.title}
-                                        </div>
-                                        {(task.start_date || task.due_date || task.updated_at) && (
-                                          <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-slate-500">
-                                            {task.start_date && (
-                                              <span className="flex items-center gap-1 rounded-md bg-white/70 px-1.5 py-0.5 ring-1 ring-slate-100">
-                                                <CalendarDays className="h-3 w-3 shrink-0 text-blue-400" />
-                                                起 {task.start_date}
-                                              </span>
-                                            )}
-                                            {task.due_date && (
-                                              <span className="flex items-center gap-1 rounded-md bg-white/70 px-1.5 py-0.5 ring-1 ring-slate-100">
-                                                <CalendarClock className="h-3 w-3 shrink-0 text-amber-500" />
-                                                止 {task.due_date}
-                                              </span>
-                                            )}
-                                            {task.updated_at && (
-                                              <span className="flex items-center gap-1 text-slate-400">
-                                                <RefreshCw className="h-3 w-3 shrink-0 text-slate-300" />
-                                                更新 {task.updated_at.slice(0, 16).replace("T", " ")}
-                                              </span>
-                                            )}
-                                          </div>
-                                        )}
-                                        {/* 进度条 */}
-                                        <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-                                          <div className="h-1 flex-1 overflow-hidden rounded-full bg-blue-100/80">
-                                            <motion.div
-                                              className="h-full rounded-full"
-                                              initial={{ width: 0 }}
-                                              animate={{ width: `${task.progress}%` }}
-                                              transition={{ duration: 0.45, ease: RD_MOTION_EASE, delay: taskIdx * 0.03 }}
-                                              style={{ background: task.progress === 100 ? "#10b981" : `linear-gradient(90deg, ${grad.from}, ${grad.to})` }}
-                                            />
-                                          </div>
-                                          <span className="w-8 shrink-0 text-right text-[10px] font-bold tabular-nums text-blue-700">
-                                            {task.progress}%
-                                          </span>
-                                        </div>
-                                      </div>
-
-                                      <ChevronRight className="h-4 w-4 shrink-0 text-blue-300 opacity-0 transition-all duration-150 group-hover:translate-x-0.5 group-hover:opacity-100" />
-                                    </div>
-                                  </motion.div>
-                                );
-                              })}
+                              {shownTasks.map((task, taskIdx) => renderTaskCard(task, taskIdx, grad))}
                             </AnimatePresence>
                           </div>
 
@@ -8326,7 +8341,7 @@ export function RDTaskManagementPage() {
           loading={loading}
           loadError={loadError}
           onRefresh={loadCategories}
-          onCreateTask={canCreateTask ? () => setShowCreate(true) : undefined}
+          onCreateTask={undefined}
           onReassign={canReassignTasks ? () => { setReassignTaskId(null); setShowReassign(true); } : undefined}
           onClearData={canClearData ? () => setShowClearData(true) : undefined}
           onAiProject={canDirectProject ? () => setShowProposalDialog(true) : undefined}
@@ -8485,7 +8500,7 @@ export function RDTaskManagementPage() {
             risks={risks}
             pendingAssign={pendingAssign}
             averageProgress={averageProgress}
-            onCreate={canCreateTask ? () => setShowCreate(true) : undefined}
+            onCreate={undefined}
           />
 
           <div className="flex-1 overflow-auto bg-slate-50/40 px-5 py-5">

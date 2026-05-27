@@ -72,6 +72,14 @@ export type RdPriority = "high" | "medium" | "low";
 
 export type RdCollaborator = { id: string; name: string; role: string; user_id?: string | null };
 
+export type RdLatestProgressSummary = {
+  text: string;
+  progress: number | null;
+  actor_name: string;
+  created_at: string;
+  attachments_count: number;
+};
+
 export type RdTask = {
   task_id: string;
   title: string;
@@ -94,6 +102,7 @@ export type RdTask = {
   start_date?: string;
   due_date?: string;
   ai_modified?: boolean;
+  latest_progress_summary?: RdLatestProgressSummary | null;
   subtasks?: RdTask[];
   updated_at?: string;
 };
@@ -159,6 +168,7 @@ export type RdWorkspaceTask = {
   collab_role?: string;
   on_leave?: boolean;
   ai_pending?: boolean;
+  latest_progress_summary?: RdLatestProgressSummary | null;
   description: string;
   next_action: string;
   deliverables: string[];

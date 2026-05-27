@@ -24,6 +24,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "./components/ui/select";
 import { Textarea } from "./components/ui/textarea";
 import { usePermission } from "./hooks/usePermission";
+import { useAuth } from "./auth";
 import { toast } from "sonner";
 import {
   ApprovalNode,
@@ -67,6 +68,8 @@ type ProposedTask = {
   owner_reason: string;
   collaborators: string[];
   due_date: string;
+  /** 原文中的时间节点短语（如 "今明完成"、"周三"、"会后同步"）。仅 review 步骤展示，不参与持久化。 */
+  due_date_original?: string;
   priority: Priority;
   category_path: string;
   estimated_days: number;       // 人工调整工时（可编辑）
@@ -346,6 +349,7 @@ function aiDraftToProposedTaskWithFallback(
   draft: RdAiTaskDraft,
   fallback: ProposedTask | undefined,
   idx: number,
+  forcedOwnerName?: string,
 ): ProposedTask {
   const safeDays = Number.isFinite(draft.estimated_days) && draft.estimated_days >= 1
     ? Math.min(365, Math.round(draft.estimated_days))
@@ -357,14 +361,24 @@ function aiDraftToProposedTaskWithFallback(
     ? draft.priority
     : fallback?.priority ?? "medium";
 
+  // 个人工作台模式：强制把所有任务的 owner 绑定到当前用户
+  const useForcedOwner = !!forcedOwnerName;
+  const owner = useForcedOwner
+    ? forcedOwnerName!
+    : draft.owner?.trim() || fallback?.owner || "待指派";
+  const owner_reason = useForcedOwner
+    ? "个人工作台 · 已绑定到当前账号"
+    : draft.owner_reason?.trim() || fallback?.owner_reason || "由 AI 微调建议分配";
+
   return {
     id: draft.id ?? fallback?.id ?? `refined-${Date.now()}-${idx}`,
     title: draft.title?.trim() || fallback?.title || "未命名任务",
     description: draft.description ?? fallback?.description,
-    owner: draft.owner?.trim() || fallback?.owner || "待指派",
-    owner_reason: draft.owner_reason?.trim() || fallback?.owner_reason || "由 AI 微调建议分配",
+    owner,
+    owner_reason,
     collaborators: fallback?.collaborators ?? [],
     due_date: draft.due_date || fallback?.due_date || formatReviewDateValue(new Date()),
+    due_date_original: draft.due_date_original?.trim() || fallback?.due_date_original,
     priority,
     category_path: draft.category_path?.trim() || fallback?.category_path || "待定 / 待确认 / 研发任务",
     estimated_days: safeDays,
@@ -1043,6 +1057,7 @@ function TaskEditRow({
   task,
   ownerOptions,
   categoryPathGroups,
+  ownerLocked = false,
   onChange,
   onDelete,
   onRequestAiHelp,
@@ -1052,6 +1067,8 @@ function TaskEditRow({
   task: ProposedTask;
   ownerOptions: OwnerOption[];
   categoryPathGroups: CategoryPathGroup[];
+  /** 个人工作台模式：锁定 owner 为当前账号，不允许在 review 步骤修改 */
+  ownerLocked?: boolean;
   onChange: (t: ProposedTask) => void;
   onDelete: () => void;
   onRequestAiHelp?: () => void;
@@ -1162,40 +1179,64 @@ function TaskEditRow({
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-[11px] font-medium text-slate-500">主责人</label>
-              <Select
-                value={task.owner || "待指派"}
-                onValueChange={(owner) =>
-                  onChange({
-                    ...task,
-                    owner,
-                    owner_reason: owner === "待指派" ? "人工选择：待指派" : `人工选择主责人：${owner}`,
-                  })
-                }
-              >
-                <SelectTrigger className={REVIEW_SELECT_TRIGGER_CLASS}>
-                  <SelectValue placeholder="选择主责人" />
-                </SelectTrigger>
-                <SelectContent className="max-h-72 rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
-                  {effectiveOwnerOptions.map((option) => (
-                    <SelectItem
-                      key={option.value}
-                      value={option.value}
-                      className="rounded-lg py-2 pl-3 pr-9 text-sm text-slate-700"
-                      description={option.description}
-                    >
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <label className="mb-1 block text-[11px] font-medium text-slate-500">
+                主责人{ownerLocked && <span className="ml-1 text-[10px] text-blue-500">· 已锁定为本人</span>}
+              </label>
+              {ownerLocked ? (
+                <div
+                  className="flex h-9 w-full items-center gap-2 rounded-md border border-blue-200 bg-blue-50/60 px-3 text-sm text-blue-700"
+                  title="个人工作台立项：所有任务强制绑定到当前账号"
+                >
+                  <MiniAvatar name={task.owner} size="xs" />
+                  <span className="font-medium">{task.owner}</span>
+                </div>
+              ) : (
+                <Select
+                  value={task.owner || "待指派"}
+                  onValueChange={(owner) =>
+                    onChange({
+                      ...task,
+                      owner,
+                      owner_reason: owner === "待指派" ? "人工选择：待指派" : `人工选择主责人：${owner}`,
+                    })
+                  }
+                >
+                  <SelectTrigger className={REVIEW_SELECT_TRIGGER_CLASS}>
+                    <SelectValue placeholder="选择主责人" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72 rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
+                    {effectiveOwnerOptions.map((option) => (
+                      <SelectItem
+                        key={option.value}
+                        value={option.value}
+                        className="rounded-lg py-2 pl-3 pr-9 text-sm text-slate-700"
+                        description={option.description}
+                      >
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
             <div>
-              <label className="mb-1 block text-[11px] font-medium text-slate-500">截止日期</label>
+              <label className="mb-1 block text-[11px] font-medium text-slate-500">
+                截止日期
+                {task.due_date_original && (
+                  <span className="ml-1 text-[10px] text-amber-600" title={`AI 从原文识别的时间节点：${task.due_date_original}`}>
+                    · AI 识别
+                  </span>
+                )}
+              </label>
               <TaskDueDatePicker
                 value={task.due_date}
                 onChange={(due_date) => onChange({ ...task, due_date })}
               />
+              {task.due_date_original && (
+                <div className="mt-1 truncate rounded border border-amber-100 bg-amber-50/70 px-1.5 py-0.5 text-[10px] text-amber-700" title={task.due_date_original}>
+                  原文节点：{task.due_date_original}
+                </div>
+              )}
             </div>
             <div>
               <label className="mb-1 block text-[11px] font-medium text-slate-500">优先级</label>
@@ -1414,6 +1455,12 @@ function StepReview({
   peopleProfiles,
   onBack,
   onNext,
+  onQuickSubmit,
+  quickSubmitLabel,
+  quickSubmitDisabled,
+  submitting,
+  ownerLocked = false,
+  forcedOwnerName = "",
 }: {
   title: string;
   setTitle: (v: string) => void;
@@ -1428,6 +1475,18 @@ function StepReview({
   auditActor: AuditActor;
   categories: RdCategory[];
   peopleProfiles: RdAiPersonContext[];
+  /** 一键立项回调：null 表示当前账号无可用的提交途径 */
+  onQuickSubmit?: () => void;
+  /** 一键立项按钮文案 */
+  quickSubmitLabel?: string;
+  /** 一键立项按钮禁用标志（如有任务字段缺失） */
+  quickSubmitDisabled?: boolean;
+  /** 提交中 */
+  submitting?: boolean;
+  /** 个人工作台模式：owner 锁定 */
+  ownerLocked?: boolean;
+  /** 个人工作台模式：强制 owner 的姓名（refine 流程要用） */
+  forcedOwnerName?: string;
   onBack: () => void;
   onNext: () => void;
 }) {
@@ -1535,7 +1594,12 @@ function StepReview({
       });
       const fallbackById = new Map(tasks.map((task) => [task.id, task]));
       const refinedTasks = (result.tasks ?? []).map((draft, idx) =>
-        aiDraftToProposedTaskWithFallback(draft, fallbackById.get(draft.id ?? ""), idx),
+        aiDraftToProposedTaskWithFallback(
+          draft,
+          fallbackById.get(draft.id ?? ""),
+          idx,
+          ownerLocked ? forcedOwnerName : undefined,
+        ),
       );
       setRefinePreview({
         tasks: refinedTasks.length > 0 ? refinedTasks : tasks,
@@ -1806,6 +1870,7 @@ function StepReview({
                   task={task}
                   ownerOptions={ownerOptions}
                   categoryPathGroups={categoryPathGroups}
+                  ownerLocked={ownerLocked}
                   onChange={(t) => updateTask(task.id, t)}
                   onDelete={() => deleteTask(task.id)}
                   onRequestAiHelp={() => requestAiHelpForTask(task.id)}
@@ -1824,7 +1889,7 @@ function StepReview({
         </section>
       </div>
 
-      <footer className="flex items-center justify-between border-t border-slate-100 px-6 py-3">
+      <footer className="flex items-center justify-between gap-3 border-t border-slate-100 px-6 py-3">
         <button
           type="button"
           onClick={onBack}
@@ -1833,15 +1898,29 @@ function StepReview({
           <ChevronLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
           返回修改
         </button>
-        <button
-          type="button"
-          disabled={tasks.length === 0}
-          onClick={onNext}
-          className="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(15,23,42,0.2)] transition-all hover:bg-slate-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          下一步：审核流程
-          <ArrowRight className="h-3.5 w-3.5" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            disabled={tasks.length === 0 || submitting}
+            onClick={onNext}
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            手动审核流程
+            <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+          {onQuickSubmit && quickSubmitLabel && (
+            <button
+              type="button"
+              disabled={tasks.length === 0 || quickSubmitDisabled || submitting}
+              onClick={onQuickSubmit}
+              title="跳过审核流程预览，直接按 AI 建议立项"
+              className="inline-flex items-center gap-1.5 rounded-md bg-gradient-to-br from-blue-600 via-blue-500 to-cyan-500 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(37,99,235,0.24)] transition-all hover:from-blue-700 hover:via-blue-600 hover:to-cyan-600 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              {quickSubmitLabel}
+            </button>
+          )}
+        </div>
       </footer>
     </div>
   );
@@ -2116,11 +2195,17 @@ export function RDProjectProposalDialog({
   onClose,
   onCompleted,
   userRole = "user",
+  forceOwnerToCurrentUser = false,
 }: {
   open: boolean;
   onClose: () => void;
   onCompleted?: () => void | Promise<void>;
   userRole?: UserRole;
+  /**
+   * 个人工作台场景下设为 true：AI 生成的所有任务强制绑定到当前登录用户，
+   * 并锁定 owner 选择器。驾驶舱保持默认 false，AI 自由分派。
+   */
+  forceOwnerToCurrentUser?: boolean;
 }) {
   const [step, setStep] = useState<Step>(1);
   const [title, setTitle] = useState("");
@@ -2137,6 +2222,7 @@ export function RDProjectProposalDialog({
   const [peopleNames, setPeopleNames] = useState<string[]>([]);
   const [peopleProfiles, setPeopleProfiles] = useState<RdAiPersonContext[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const { user } = useAuth();
   const canSubmitProposal = usePermission(PERMISSIONS.RD_PROJECT_PROPOSE);
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
   const canReviewProjectL1 = usePermission(PERMISSIONS.RD_PROJECT_REVIEW_L1);
@@ -2146,6 +2232,11 @@ export function RDProjectProposalDialog({
     : canReviewProjectL1 || canReviewProjectL2
       ? "admin"
       : userRole;
+  // 个人工作台模式下需要把 owner 锁到当前用户。优先用 name，没有则回退 email/username
+  const forcedOwnerName = forceOwnerToCurrentUser
+    ? (user?.name?.trim() || user?.email || user?.username || "")
+    : "";
+  const ownerLocked = forceOwnerToCurrentUser && !!forcedOwnerName;
   const auditActor = useAuditActor(effectiveUserRole === "director" ? "研发主管" : effectiveUserRole === "admin" ? "研发管理员" : "研发成员");
 
   useEffect(() => {
@@ -2203,14 +2294,17 @@ export function RDProjectProposalDialog({
     const safeDays = Number.isFinite(draft.estimated_days) && draft.estimated_days >= 1
       ? draft.estimated_days
       : 5;
+    // 个人工作台模式：覆盖 AI 分派的 owner，强制绑定当前账号
+    const useForcedOwner = ownerLocked;
     return {
       id: `t-${Date.now()}-${idx}`,
       title: draft.title,
       description: draft.description,
-      owner: draft.owner,
-      owner_reason: draft.owner_reason,
+      owner: useForcedOwner ? forcedOwnerName : draft.owner,
+      owner_reason: useForcedOwner ? "个人工作台 · 已绑定到当前账号" : draft.owner_reason,
       collaborators: [],
       due_date: draft.due_date,
+      due_date_original: draft.due_date_original?.trim() || undefined,
       priority: draft.priority,
       category_path: draft.category_path,
       estimated_days: safeDays,
@@ -2282,7 +2376,13 @@ export function RDProjectProposalDialog({
           const match = categories.find(
             (c) => c.label === result.suggested_category || c.label.includes(result.suggested_category!) || result.suggested_category!.includes(c.label),
           );
-          if (match) setParentProjectId(match.id);
+          if (match) {
+            setParentProjectId(match.id);
+          } else {
+            // 没匹配到现有分类时，直接用 AI 建议作为新项目名，免去 Step 4 还要手动输入
+            setParentProjectId("new");
+            setNewProjectName((current) => current.trim() || result.suggested_category!.trim());
+          }
         }
         setAiProgress(100);
         setAiLabel(`${result.provider === "local" ? "本地解析" : "AI 解析"}完成，共 ${drafted.length} 个任务`);
@@ -2393,11 +2493,14 @@ export function RDProjectProposalDialog({
       const target = resolveCategoryTargetFromPath(task, workingCategories) ?? await getFallbackTarget();
       if (!target) return false;
 
+      // 个人工作台模式：save 时再做一次防御性 override，杜绝用户在 review 步骤手改 owner 的情况
+      const primaryOwner = ownerLocked ? forcedOwnerName : task.owner;
+
       await createRdTask({
         category_id: target.categoryId,
         sub_project_id: target.subProjectId,
         title: task.title,
-        primary_owner: task.owner,
+        primary_owner: primaryOwner,
         status,
         final_priority: task.priority,
         ai_priority: task.priority,
@@ -2613,8 +2716,26 @@ export function RDProjectProposalDialog({
             auditActor={auditActor}
             categories={categories}
             peopleProfiles={peopleProfiles}
+            ownerLocked={ownerLocked}
+            forcedOwnerName={forcedOwnerName}
+            submitting={submitting}
             onBack={() => setStep(1)}
             onNext={() => setStep(4)}
+            onQuickSubmit={
+              canDirectProject
+                ? () => void handleDirectDispatch()
+                : canSubmitProposal
+                  ? () => void handleSubmit()
+                  : undefined
+            }
+            quickSubmitLabel={
+              canDirectProject
+                ? "AI 一键立项"
+                : canSubmitProposal
+                  ? "AI 一键提交审核"
+                  : undefined
+            }
+            quickSubmitDisabled={tasks.some((t) => !t.title.trim())}
           />
         )}
         {step === 4 && (

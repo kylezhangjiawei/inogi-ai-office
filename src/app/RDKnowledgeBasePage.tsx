@@ -1134,16 +1134,16 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-4xl w-full rounded-2xl border-0 bg-white p-0 shadow-[0_32px_80px_rgba(15,23,42,0.36)] [&>button]:hidden overflow-hidden">
+      <DialogContent className="sm:max-w-5xl w-[calc(100vw-2rem)] gap-0 rounded-2xl border-0 bg-white p-0 shadow-[0_32px_80px_rgba(15,23,42,0.36)] [&>button]:hidden overflow-hidden">
         <DialogDescription className="sr-only">
           预览知识库文件并查看文件元数据。
         </DialogDescription>
 
         {/* ── Header ── */}
-        <div className="flex items-center gap-3 px-5 py-3.5 border-b border-slate-100 bg-white">
+        <div className="flex items-center gap-3 px-5 py-3 border-b border-slate-100 bg-white">
           {/* File icon */}
-          <div className="shrink-0 p-2.5 rounded-xl bg-slate-50 ring-1 ring-slate-200/80 shadow-[0_2px_6px_rgba(15,23,42,0.06)]">
-            <FileTypeIcon entry={entry} className="w-5 h-5" />
+          <div className="shrink-0 p-2 rounded-lg bg-slate-50 ring-1 ring-slate-200/80">
+            <FileTypeIcon entry={entry} className="w-4 h-4" />
           </div>
 
           {/* Title + meta */}
@@ -1151,27 +1151,33 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
             <DialogTitle className="text-sm font-semibold text-slate-900 truncate leading-snug">
               {entry.title}
             </DialogTitle>
-            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+            <div className="flex items-center gap-2 mt-0.5">
               {entry.file_name && entry.file_name !== entry.title && (
-                <span className="text-[11px] text-slate-400 truncate max-w-[220px]">{entry.file_name}</span>
+                <span className="text-[11px] text-slate-400 truncate min-w-0">{entry.file_name}</span>
               )}
               {entry.file_size && (
-                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-slate-100 text-slate-500 border-0 font-mono">
+                <Badge variant="secondary" className="shrink-0 text-[10px] px-1.5 py-0 h-4 bg-slate-100 text-slate-500 border-0 font-mono">
                   {formatSize(entry.file_size)}
                 </Badge>
               )}
             </div>
           </div>
 
-          {/* Permission score pill */}
+          {/* Permission score pill (simplified — slider moved to tooltip) */}
           <Tooltip>
             <TooltipTrigger asChild>
               <div className={cn(
-                'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold border shrink-0 cursor-default select-none',
+                'flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold border shrink-0 cursor-default select-none',
                 permCfg.badgeClass,
               )}>
                 <ShieldCheck className="w-3 h-3 shrink-0" />
-                <span>{permScore}</span>
+                <span className="tabular-nums">{permScore}</span>
+                <span className="opacity-70">· {permCfg.label}</span>
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" className="max-w-xs">
+              <div className="space-y-1.5">
+                <p className="font-semibold">权限分值 {permScore}/100 · {permCfg.label}</p>
                 <Slider
                   value={[permScore]}
                   min={0}
@@ -1179,15 +1185,12 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
                   step={5}
                   disabled
                   className={cn(
-                    'w-12 pointer-events-none data-[disabled]:opacity-100 [&_[data-slot=slider-track]]:h-1.5 [&_[data-slot=slider-thumb]]:hidden',
+                    'w-40 pointer-events-none data-[disabled]:opacity-100 [&_[data-slot=slider-track]]:h-1.5 [&_[data-slot=slider-thumb]]:hidden',
                     permCfg.sliderClass,
                   )}
                 />
+                <p className="opacity-70 text-[11px]">用户分值 ≥ {permScore} 方可访问</p>
               </div>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              <p className="font-semibold">权限分值 {permScore}/100 · {permCfg.label}</p>
-              <p className="opacity-70 text-[11px]">用户分值 ≥ {permScore} 方可访问</p>
             </TooltipContent>
           </Tooltip>
 
@@ -1197,10 +1200,10 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
               variant="outline"
               size="sm"
               onClick={() => void downloadKbEntry(entry)}
-              className="h-8 shrink-0 gap-1.5 rounded-lg border-blue-100 bg-blue-50/70 px-3 text-xs font-semibold text-blue-700 hover:border-blue-200 hover:bg-blue-100"
+              className="h-8 shrink-0 gap-1.5 rounded-lg border-blue-200 bg-blue-50/70 px-3 text-xs font-semibold text-blue-700 hover:border-blue-300 hover:bg-blue-100"
             >
               <ArrowDownToLine className="h-3.5 w-3.5" />
-              {entry.external_url ? '打开' : '下载'}
+              <span className="hidden sm:inline">{entry.external_url ? '打开链接' : '下载'}</span>
             </Button>
           )}
 
@@ -1220,27 +1223,25 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
         <div className={cn(
           'flex items-center justify-center overflow-hidden',
           isDarkBg
-            ? 'bg-[#0d1117] min-h-[300px]'
+            ? 'bg-linear-to-br from-slate-900 via-slate-800 to-slate-900 min-h-[320px]'
             : fileType === 'pdf'
               ? 'bg-slate-100'
               : 'bg-[radial-gradient(#e2e8f0_1px,transparent_1px)] [background-size:18px_18px] bg-white min-h-[240px]',
         )}>
           {loading && (
             <div className="flex flex-col items-center gap-3 py-14 text-slate-400">
-              <div className="relative">
-                <div className="w-12 h-12 rounded-full border-2 border-slate-200 border-t-blue-500 animate-spin" />
-              </div>
+              <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
               <p className="text-sm font-medium">正在加载文件…</p>
             </div>
           )}
 
-          {/* Image preview — dark background, checkered transparency hint */}
+          {/* Image preview */}
           {!loading && fileType === 'image' && fileUrl && (
-            <div className="flex items-center justify-center w-full max-h-[66vh] overflow-hidden p-2">
+            <div className="flex items-center justify-center w-full p-4">
               <img
                 src={fileUrl}
                 alt={entry.title}
-                className="max-w-full max-h-[64vh] object-contain rounded-lg shadow-[0_0_40px_rgba(0,0,0,0.5)]"
+                className="max-w-full max-h-[70vh] object-contain rounded-md shadow-[0_8px_24px_rgba(0,0,0,0.4)]"
                 draggable={false}
               />
             </div>
@@ -1250,7 +1251,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
           {!loading && fileType === 'pdf' && fileUrl && (
             <iframe
               src={fileUrl}
-              className="w-full h-[66vh] border-0"
+              className="w-full h-[70vh] border-0"
               title={entry.title}
             />
           )}
@@ -1260,7 +1261,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
             <video
               src={fileUrl}
               controls
-              className="max-w-full max-h-[66vh] outline-none rounded-sm shadow-[0_0_40px_rgba(0,0,0,0.5)]"
+              className="max-w-full max-h-[70vh] outline-none rounded-md shadow-[0_8px_24px_rgba(0,0,0,0.4)]"
             />
           )}
 
@@ -1308,77 +1309,62 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
         </div>
 
         {/* ── Metadata footer ── */}
-        <div className="border-t border-slate-100 bg-white px-5 py-3 flex items-center gap-4 flex-wrap">
-          {/* Left: uploader + time + source + stats + tags */}
-          <div className="flex items-center gap-2.5 min-w-0 flex-1 flex-wrap text-xs text-slate-500">
-            {/* Uploader */}
-            <div className="flex items-center gap-1.5 shrink-0">
-              <Avatar className="h-5 w-5 shrink-0">
-                <AvatarFallback className="bg-gradient-to-br from-blue-500 to-cyan-500 text-white text-[8px] font-bold">
-                  {(entry.created_by_name ?? '?').charAt(0).toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <span className="font-medium text-slate-700 shrink-0">{entry.created_by_name ?? '未知'}</span>
-            </div>
-
-            <Separator orientation="vertical" className="h-3.5 shrink-0 hidden sm:block" />
-            <span className="text-slate-400 shrink-0 hidden sm:block">{relativeTime(entry.created_at)}</span>
-
-            <Separator orientation="vertical" className="h-3.5 shrink-0 hidden sm:block" />
-            <span className={cn('flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium shrink-0 hidden sm:flex', srcCfg.className)}>
-              {srcCfg.label}
-            </span>
-
-            <Separator orientation="vertical" className="h-3.5 shrink-0" />
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="flex items-center gap-1 shrink-0 cursor-default">
-                  <Eye className="w-3 h-3" />
-                  <strong className="font-semibold text-slate-600">{entry.view_count}</strong>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>浏览次数</TooltipContent>
-            </Tooltip>
-
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="flex items-center gap-1 shrink-0 cursor-default">
-                  <ArrowDownToLine className="w-3 h-3" />
-                  <strong className="font-semibold text-slate-600">{entry.download_count}</strong>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent>下载次数</TooltipContent>
-            </Tooltip>
-
-            {/* Tags */}
-            {entry.tags.length > 0 && (
-              <>
-                <Separator orientation="vertical" className="h-3.5 shrink-0 hidden md:block" />
-                <div className="items-center gap-1 hidden md:flex">
-                  <Tag className="w-3 h-3 text-slate-400 shrink-0" />
-                  {entry.tags.slice(0, 3).map((tag) => (
-                    <Badge key={tag} variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-slate-100 text-slate-500 border-0">
-                      {tag}
-                    </Badge>
-                  ))}
-                  {entry.tags.length > 3 && (
-                    <span className="text-[10px] text-slate-400">+{entry.tags.length - 3}</span>
-                  )}
-                </div>
-              </>
-            )}
+        <div className="border-t border-slate-100 bg-slate-50/40 px-5 py-2.5 flex items-center gap-3 flex-wrap text-xs text-slate-500">
+          {/* Uploader */}
+          <div className="flex items-center gap-1.5 shrink-0">
+            <Avatar className="h-5 w-5 shrink-0">
+              <AvatarFallback className="bg-linear-to-br from-blue-500 to-cyan-500 text-white text-[9px] font-bold">
+                {(entry.created_by_name ?? '?').charAt(0).toUpperCase()}
+              </AvatarFallback>
+            </Avatar>
+            <span className="font-medium text-slate-700">{entry.created_by_name ?? '未知'}</span>
           </div>
 
-          {/* Right: download button */}
-          {hasDownloadable && canPreview && (
-            <Button
-              type="button"
-              onClick={() => void downloadKbEntry(entry)}
-              className="shrink-0 h-8 px-4 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-lg shadow-[0_4px_12px_rgba(37,99,235,0.22)] gap-1.5"
-            >
-              <ArrowDownToLine className="w-3.5 h-3.5" />
-              {entry.external_url ? '打开链接' : '下载'}
-            </Button>
+          <Separator orientation="vertical" className="h-3.5 shrink-0" />
+          <span className="text-slate-400 shrink-0">{relativeTime(entry.created_at)}</span>
+
+          <Separator orientation="vertical" className="h-3.5 shrink-0" />
+          <span className={cn('flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium shrink-0', srcCfg.className)}>
+            {srcCfg.label}
+          </span>
+
+          <Separator orientation="vertical" className="h-3.5 shrink-0" />
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="flex items-center gap-1 shrink-0 cursor-default">
+                <Eye className="w-3 h-3" />
+                <strong className="font-semibold text-slate-600 tabular-nums">{entry.view_count}</strong>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>浏览次数</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="flex items-center gap-1 shrink-0 cursor-default">
+                <ArrowDownToLine className="w-3 h-3" />
+                <strong className="font-semibold text-slate-600 tabular-nums">{entry.download_count}</strong>
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>下载次数</TooltipContent>
+          </Tooltip>
+
+          {/* Tags */}
+          {entry.tags.length > 0 && (
+            <>
+              <Separator orientation="vertical" className="h-3.5 shrink-0" />
+              <div className="flex items-center gap-1 min-w-0">
+                <Tag className="w-3 h-3 text-slate-400 shrink-0" />
+                {entry.tags.slice(0, 4).map((tag) => (
+                  <Badge key={tag} variant="secondary" className="text-[10px] px-1.5 py-0 h-4 bg-white text-slate-600 border border-slate-200">
+                    {tag}
+                  </Badge>
+                ))}
+                {entry.tags.length > 4 && (
+                  <span className="text-[10px] text-slate-400">+{entry.tags.length - 4}</span>
+                )}
+              </div>
+            </>
           )}
         </div>
       </DialogContent>

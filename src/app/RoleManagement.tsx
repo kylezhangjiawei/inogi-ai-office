@@ -1,11 +1,40 @@
-import React, { useCallback, useEffect, useState } from "react";
-import { ChevronDown, ChevronUp, Pencil, Plus, RefreshCw, Trash2 } from "lucide-react";
-import { Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  ChevronDown,
+  Crown,
+  FileText,
+  MousePointerClick,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Shield,
+  Sparkles,
+  Trash2,
+  User,
+  Users,
+} from "lucide-react";
 import { toast } from "sonner";
+
 import { authFetch } from "./lib/authSession";
 import { cn } from "./components/ui/utils";
 import { PermissionGuard } from "./components/PermissionGuard";
 import { PermissionCatalogGroup, permissionCatalogApi } from "./lib/permissionCatalogApi";
+import { Button } from "./components/ui/button";
+import { Input } from "./components/ui/input";
+import { Textarea } from "./components/ui/textarea";
+import { Label } from "./components/ui/label";
+import { Badge } from "./components/ui/badge";
+import { Checkbox } from "./components/ui/checkbox";
+import { Progress } from "./components/ui/progress";
+import { Separator } from "./components/ui/separator";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "./components/ui/dialog";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -64,6 +93,27 @@ async function apiDeleteRole(id: string): Promise<void> {
 
 // ─── Permission Matrix ────────────────────────────────────────────────────────
 
+function getGroupIcon(label: string) {
+  if (label.startsWith("操作权限") || label.includes("操作")) {
+    return MousePointerClick;
+  }
+  return FileText;
+}
+
+function computeInitialCollapsed(
+  groups: PermissionCatalogGroup[],
+  selected: string[],
+  isWildcard: boolean,
+): Record<string, boolean> {
+  if (isWildcard) return {};
+  const next: Record<string, boolean> = {};
+  for (const group of groups) {
+    const hasAnySelected = group.permissions.some((p) => selected.includes(p.code));
+    if (!hasAnySelected) next[group.label] = true;
+  }
+  return next;
+}
+
 function PermissionMatrix({
   selected,
   onChange,
@@ -75,7 +125,9 @@ function PermissionMatrix({
   isWildcard: boolean;
   groups: PermissionCatalogGroup[];
 }) {
-  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() =>
+    computeInitialCollapsed(groups, selected, isWildcard),
+  );
 
   function toggleGroup(label: string) {
     setCollapsed((prev) => ({ ...prev, [label]: !prev[label] }));
@@ -94,85 +146,157 @@ function PermissionMatrix({
     if (allSelected) {
       onChange(selected.filter((p) => !codes.includes(p)));
     } else {
-      const merged = Array.from(new Set([...selected, ...codes]));
-      onChange(merged);
+      onChange(Array.from(new Set([...selected, ...codes])));
     }
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2.5">
       {groups.map((group) => {
         const groupCodes = group.permissions.map((p) => p.code);
-        const selectedCount = groupCodes.filter((c) => selected.includes(c) || isWildcard).length;
-        const allSelected = isWildcard || selectedCount === groupCodes.length;
+        const selectedCount = isWildcard
+          ? groupCodes.length
+          : groupCodes.filter((c) => selected.includes(c)).length;
+        const allSelected = selectedCount === groupCodes.length;
+        const noneSelected = selectedCount === 0;
         const isOpen = !collapsed[group.label];
+        const Icon = getGroupIcon(group.label);
+        const progress = groupCodes.length === 0 ? 0 : (selectedCount / groupCodes.length) * 100;
 
         return (
-          <div key={group.label} className="rounded-2xl border border-slate-100 overflow-hidden">
+          <div
+            key={group.label}
+            className={cn(
+              "overflow-hidden rounded-lg border transition-colors duration-200",
+              allSelected
+                ? "border-emerald-200 bg-emerald-50/40"
+                : !noneSelected
+                  ? "border-blue-200 bg-blue-50/30"
+                  : "border-slate-200 bg-white",
+            )}
+          >
+            {/* Group header */}
+            <button
+              type="button"
+              onClick={() => toggleGroup(group.label)}
+              className="group/grp flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-200"
+            >
+              <Checkbox
+                checked={allSelected ? true : selectedCount > 0 ? "indeterminate" : false}
+                disabled={isWildcard}
+                onCheckedChange={() => {
+                  if (!isWildcard) toggleGroupAll(groupCodes);
+                }}
+                onClick={(e) => e.stopPropagation()}
+                className={cn(
+                  "shrink-0",
+                  allSelected && "data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500",
+                )}
+              />
+              <span
+                className={cn(
+                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors",
+                  allSelected
+                    ? "bg-emerald-100 text-emerald-600"
+                    : !noneSelected
+                      ? "bg-blue-100 text-blue-600"
+                      : "bg-slate-100 text-slate-400",
+                )}
+              >
+                <Icon className="h-3.5 w-3.5" />
+              </span>
+              <span className="flex-1 text-sm font-semibold text-slate-800">{group.label}</span>
+
+              {/* Progress + count */}
+              <div className="flex items-center gap-2.5 shrink-0">
+                <span
+                  className={cn(
+                    "text-xs tabular-nums font-medium",
+                    allSelected
+                      ? "text-emerald-600"
+                      : !noneSelected
+                        ? "text-blue-600"
+                        : "text-slate-400",
+                  )}
+                >
+                  {selectedCount}/{groupCodes.length}
+                </span>
+                <Progress
+                  value={progress}
+                  className={cn(
+                    "w-16 h-1.5 transition-colors",
+                    allSelected ? "bg-emerald-100 [&>[data-slot=progress-indicator]]:bg-emerald-500" :
+                      !noneSelected ? "bg-blue-100 [&>[data-slot=progress-indicator]]:bg-blue-500" :
+                        "bg-slate-100 [&>[data-slot=progress-indicator]]:bg-slate-400",
+                  )}
+                />
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 text-slate-400 transition-transform duration-200 ease-out",
+                    isOpen && "rotate-180",
+                  )}
+                />
+              </div>
+            </button>
+
+            {/* Animated permission grid */}
             <div
               className={cn(
-                "flex items-center justify-between px-4 py-3 cursor-pointer transition-colors",
-                allSelected ? "bg-blue-50" : "bg-slate-50/70",
+                "grid transition-all duration-300 ease-out",
+                isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
               )}
-              onClick={() => toggleGroup(group.label)}
             >
-              <div className="flex items-center gap-3">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  disabled={isWildcard}
-                  onChange={(e) => {
-                    e.stopPropagation();
-                    if (!isWildcard) toggleGroupAll(groupCodes);
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  className="h-4 w-4 rounded border-slate-300 text-primary"
-                />
-                <span className="text-sm font-semibold text-slate-700">{group.label}</span>
-                <span className="text-xs text-slate-400">
-                  {isWildcard ? groupCodes.length : selectedCount}/{groupCodes.length}
-                </span>
+              <div className="overflow-hidden">
+                <div className="border-t border-slate-100 bg-white">
+                  <div className="grid grid-cols-1 gap-2 p-3 sm:grid-cols-2 md:grid-cols-3">
+                    {group.permissions.map((perm) => {
+                      const checked = isWildcard || selected.includes(perm.code);
+                      const ItemIcon = perm.type === "action" ? MousePointerClick : FileText;
+                      return (
+                        <label
+                          key={perm.code}
+                          className={cn(
+                            "group/perm flex cursor-pointer items-start gap-2.5 rounded-md border p-2.5 text-sm transition-all duration-150",
+                            checked
+                              ? "border-blue-200 bg-blue-50/70 hover:border-blue-300"
+                              : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
+                            isWildcard && "cursor-default opacity-70",
+                          )}
+                        >
+                          <Checkbox
+                            checked={checked}
+                            disabled={isWildcard}
+                            onCheckedChange={() => {
+                              if (!isWildcard) togglePermission(perm.code);
+                            }}
+                            className="mt-0.5 shrink-0"
+                          />
+                          <ItemIcon
+                            className={cn(
+                              "mt-0.5 h-3.5 w-3.5 shrink-0 transition-colors",
+                              checked ? "text-blue-500" : "text-slate-300 group-hover/perm:text-slate-400",
+                            )}
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className={cn(
+                              "text-sm font-medium transition-colors leading-tight",
+                              checked ? "text-blue-800" : "text-slate-700",
+                            )}>
+                              {perm.label}
+                            </div>
+                            {perm.description && (
+                              <div className="mt-0.5 text-[11px] text-slate-400 line-clamp-2 leading-snug">
+                                {perm.description}
+                              </div>
+                            )}
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
-              {isOpen ? (
-                <ChevronUp className="h-4 w-4 text-slate-400" />
-              ) : (
-                <ChevronDown className="h-4 w-4 text-slate-400" />
-              )}
             </div>
-
-            {isOpen && (
-              <div className="grid grid-cols-1 gap-2 p-4 sm:grid-cols-2 md:grid-cols-3">
-                {group.permissions.map((perm) => {
-                  const checked = isWildcard || selected.includes(perm.code);
-                  return (
-                    <label
-                      key={perm.code}
-                      className={cn(
-                        "flex cursor-pointer items-start gap-2 rounded-xl border p-3 text-sm transition-colors",
-                        checked ? "border-blue-200 bg-blue-50/60" : "border-slate-100 hover:bg-slate-50",
-                        isWildcard && "opacity-60 cursor-default",
-                      )}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={checked}
-                        disabled={isWildcard}
-                        onChange={() => {
-                          if (!isWildcard) togglePermission(perm.code);
-                        }}
-                        className="mt-0.5 h-4 w-4 shrink-0 rounded border-slate-300 text-primary"
-                      />
-                      <div>
-                        <div className="font-medium text-slate-800">{perm.label}</div>
-                        {perm.description && (
-                          <div className="mt-0.5 text-xs text-slate-400">{perm.description}</div>
-                        )}
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
-            )}
           </div>
         );
       })}
@@ -221,6 +345,11 @@ export function RoleManagement() {
 
   const activeRole = roles.find((r) => r.id === activeRoleId) ?? roles[0] ?? null;
   const isWildcard = activeRole?.permissions.includes("*") ?? false;
+
+  const totalPermissions = useMemo(
+    () => permissionGroups.reduce((sum, g) => sum + g.permissions.length, 0),
+    [permissionGroups],
+  );
 
   function openCreate() {
     setForm(EMPTY_FORM);
@@ -307,145 +436,243 @@ export function RoleManagement() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      {/* Header */}
-      <section className="material-card p-4 sm:p-6 md:p-8">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+    <div className="mx-auto max-w-7xl space-y-5 animate-rd-fade-in">
+      {/* ── Header ──────────────────────────────────────────────────── */}
+      <section className="material-card overflow-hidden">
+        <div className="h-0.5 bg-linear-to-r from-primary via-blue-400 to-sky-300" />
+        <div className="flex flex-col gap-4 p-6 lg:flex-row lg:items-center lg:justify-between md:p-8">
           <div className="min-w-0">
-            <span className="material-chip bg-blue-50 text-blue-700">Permission Matrix</span>
-            <h2 className="mt-3 text-2xl font-bold tracking-tight text-slate-900 sm:text-[2rem]">角色与权限</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
+            <span className="material-chip bg-blue-50 text-blue-700 text-xs tracking-wide">
+              Permission Matrix
+            </span>
+            <h2 className="mt-3 text-2xl font-bold tracking-tight text-slate-950 sm:text-[1.75rem]">
+              角色与权限
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
               配置角色的页面访问权限与操作权限。权限变更实时生效——用户下次刷新 Token 后即可感知。
             </p>
           </div>
-          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-            <button
-              className="material-button-secondary w-full justify-center sm:w-fit"
+          <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+            <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs">
+              <Users className="h-3.5 w-3.5 text-slate-400" />
+              <span className="text-slate-500">角色</span>
+              <span className="font-bold text-slate-800">{roles.length}</span>
+              <Separator orientation="vertical" className="mx-1.5 h-3.5" />
+              <Shield className="h-3.5 w-3.5 text-slate-400" />
+              <span className="text-slate-500">权限项</span>
+              <span className="font-bold text-slate-800">{totalPermissions}</span>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
               onClick={() => void loadRoles()}
               disabled={loading}
+              className="gap-1.5"
             >
-              <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
+              <RefreshCw className={cn("h-3.5 w-3.5", loading && "animate-spin")} />
               刷新
-            </button>
+            </Button>
             <PermissionGuard permission="role:create">
-              <button className="material-button-primary w-full justify-center sm:w-fit" onClick={openCreate}>
-                <Plus className="h-4 w-4" />
+              <Button size="sm" onClick={openCreate} className="gap-1.5">
+                <Plus className="h-3.5 w-3.5" />
                 新建角色
-              </button>
+              </Button>
             </PermissionGuard>
           </div>
         </div>
       </section>
 
-      <section className="grid gap-5 xl:grid-cols-[280px_minmax(0,1fr)] xl:gap-6">
-        {/* Role list */}
-        <div className="material-card p-4">
+      <section className="grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)] xl:gap-5">
+        {/* ── Role list ──────────────────────────────────────────── */}
+        <div className="material-card p-3">
           {loading ? (
-            <div className="py-8 text-center text-sm text-slate-400">加载中...</div>
+            <div className="flex flex-col items-center justify-center gap-2 py-12 text-slate-400">
+              <RefreshCw className="h-5 w-5 animate-spin" />
+              <span className="text-sm">加载中…</span>
+            </div>
           ) : roles.length === 0 ? (
-            <div className="py-8 text-center text-sm text-slate-400">暂无角色</div>
+            <div className="flex flex-col items-center justify-center gap-2 py-12 text-slate-400">
+              <Users className="h-6 w-6 text-slate-200" />
+              <span className="text-sm">暂无角色</span>
+            </div>
           ) : (
-            <div className="space-y-2">
-              {roles.map((role) => (
-                <div
-                  key={role.id}
-                  className={cn(
-                    "group flex items-start justify-between rounded-[20px] border px-4 py-4 transition cursor-pointer",
-                    activeRoleId === role.id
-                      ? "border-blue-200 bg-blue-50 ring-2 ring-blue-200"
-                      : "border-slate-100 bg-slate-50/70 hover:border-slate-200",
-                  )}
-                  onClick={() => setActiveRoleId(role.id)}
-                >
-                  <div className="min-w-0">
-                    <div
+            <div className="space-y-1.5">
+              {roles.map((role) => {
+                const isActive = activeRoleId === role.id;
+                const isSuper = role.permissions.includes("*");
+                const userCount = role._count?.users ?? 0;
+                const RoleIcon = isSuper ? Crown : User;
+
+                return (
+                  <div
+                    key={role.id}
+                    onClick={() => setActiveRoleId(role.id)}
+                    className={cn(
+                      "group/role relative flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-all duration-200",
+                      isActive
+                        ? "border-blue-300 bg-linear-to-br from-blue-50 to-sky-50/50 shadow-sm"
+                        : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60",
+                    )}
+                  >
+                    {/* Left active accent */}
+                    {isActive && (
+                      <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-r bg-linear-to-b from-blue-500 to-sky-400" />
+                    )}
+
+                    {/* Role icon */}
+                    <span
                       className={cn(
-                        "font-semibold truncate",
-                        activeRoleId === role.id ? "text-blue-700" : "text-slate-700",
+                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors",
+                        isSuper
+                          ? "bg-linear-to-br from-amber-100 to-orange-100 text-amber-600 ring-1 ring-amber-200"
+                          : isActive
+                            ? "bg-blue-100 text-blue-600 ring-1 ring-blue-200"
+                            : "bg-slate-100 text-slate-500 ring-1 ring-slate-200 group-hover/role:bg-slate-200",
                       )}
                     >
-                      {role.name}
-                      {role.permissions.includes("*") && (
-                        <span className="ml-2 rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-700">
-                          超级
+                      <RoleIcon className="h-4 w-4" />
+                    </span>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={cn(
+                            "truncate text-sm font-semibold",
+                            isActive ? "text-blue-700" : "text-slate-800",
+                          )}
+                        >
+                          {role.name}
                         </span>
+                        {isSuper && (
+                          <Badge className="shrink-0 h-4 px-1 text-[10px] font-bold gap-0.5 bg-linear-to-r from-amber-400 to-orange-400 text-white border-0 hover:from-amber-500 hover:to-orange-500">
+                            <Sparkles className="h-2 w-2" />
+                            超级
+                          </Badge>
+                        )}
+                      </div>
+                      {role.description && (
+                        <div className="mt-0.5 text-xs text-slate-400 line-clamp-2 leading-snug">
+                          {role.description}
+                        </div>
                       )}
+                      <div className="mt-1.5 flex items-center gap-2 text-[11px] text-slate-500">
+                        <span className="flex items-center gap-0.5">
+                          <Users className="h-2.5 w-2.5" />
+                          {userCount}
+                        </span>
+                        <span className="text-slate-300">·</span>
+                        <span>
+                          {isSuper ? "全部权限" : `${role.permissions.length} 项`}
+                        </span>
+                      </div>
                     </div>
-                    {role.description && (
-                      <div className="mt-1 text-xs text-slate-400 line-clamp-2">{role.description}</div>
+
+                    {/* Actions (hover) */}
+                    {!isSuper && (
+                      <div className="ml-1 flex shrink-0 gap-0.5 opacity-0 transition-opacity duration-150 group-hover/role:opacity-100">
+                        <PermissionGuard permission="role:edit">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 text-slate-500 hover:text-blue-600 hover:bg-blue-50"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openEdit(role);
+                                }}
+                              >
+                                <Pencil className="h-3 w-3" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" sideOffset={4}>编辑</TooltipContent>
+                          </Tooltip>
+                        </PermissionGuard>
+                        <PermissionGuard permission="role:delete">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-6 w-6 text-slate-400 hover:text-red-500 hover:bg-red-50"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openDelete(role);
+                                }}
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" sideOffset={4}>删除</TooltipContent>
+                          </Tooltip>
+                        </PermissionGuard>
+                      </div>
                     )}
-                    <div className="mt-1.5 text-xs text-slate-400">
-                      {role._count?.users ?? 0} 名用户 ·{" "}
-                      {role.permissions.includes("*") ? "全部权限" : `${role.permissions.length} 项权限`}
-                    </div>
                   </div>
-                  {!role.permissions.includes("*") && (
-                    <div className="ml-2 flex shrink-0 gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <PermissionGuard permission="role:edit">
-                        <button
-                          className="rounded-lg p-1.5 hover:bg-white"
-                          onClick={(e) => { e.stopPropagation(); openEdit(role); }}
-                          title="编辑角色"
-                        >
-                          <Pencil className="h-3.5 w-3.5 text-slate-500" />
-                        </button>
-                      </PermissionGuard>
-                      <PermissionGuard permission="role:delete">
-                        <button
-                          className="rounded-lg p-1.5 hover:bg-red-50"
-                          onClick={(e) => { e.stopPropagation(); openDelete(role); }}
-                          title="删除角色"
-                        >
-                          <Trash2 className="h-3.5 w-3.5 text-red-500" />
-                        </button>
-                      </PermissionGuard>
-                    </div>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
 
-        {/* Permission matrix for active role */}
+        {/* ── Permission matrix for active role ────────────────── */}
         <div className="material-card min-w-0 p-4 sm:p-6">
           {!activeRole ? (
-            <div className="flex h-48 items-center justify-center text-sm text-slate-400">
-              请从左侧选择角色
+            <div className="flex h-48 flex-col items-center justify-center gap-2 text-slate-400">
+              <Shield className="h-8 w-8 text-slate-200" />
+              <span className="text-sm">请从左侧选择角色</span>
             </div>
           ) : (
             <>
-              <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
-                  <h3 className="text-lg font-bold text-slate-900">{activeRole.name}</h3>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={cn(
+                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+                        isWildcard
+                          ? "bg-linear-to-br from-amber-100 to-orange-100 text-amber-600 ring-1 ring-amber-200"
+                          : "bg-blue-100 text-blue-600 ring-1 ring-blue-200",
+                      )}
+                    >
+                      {isWildcard ? <Crown className="h-4 w-4" /> : <User className="h-4 w-4" />}
+                    </span>
+                    <h3 className="text-lg font-bold text-slate-900">{activeRole.name}</h3>
+                    {isWildcard && (
+                      <Badge className="h-5 px-1.5 text-[11px] font-bold gap-0.5 bg-linear-to-r from-amber-400 to-orange-400 text-white border-0">
+                        <Sparkles className="h-2.5 w-2.5" />
+                        超级权限
+                      </Badge>
+                    )}
+                  </div>
                   {activeRole.description && (
-                    <p className="mt-1 text-sm text-slate-500">{activeRole.description}</p>
+                    <p className="mt-1.5 text-sm text-slate-500 leading-6">{activeRole.description}</p>
                   )}
                   {isWildcard && (
-                    <p className="mt-2 rounded-xl bg-amber-50 px-3 py-1.5 text-xs text-amber-700">
-                      该角色拥有超级权限（*），可访问所有功能。若要限制权限，请编辑角色并手动指定权限列表。
-                    </p>
+                    <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700 leading-5">
+                      <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      <span>该角色拥有超级权限（*），可访问所有功能。若要限制权限，请编辑角色并手动指定权限列表。</span>
+                    </div>
                   )}
                 </div>
                 {!isWildcard && (
                   <PermissionGuard permission="role:edit">
-                    <button
-                      className="material-button-primary shrink-0"
-                      onClick={() => openEdit(activeRole)}
-                    >
-                      <Pencil className="h-4 w-4" />
+                    <Button size="sm" onClick={() => openEdit(activeRole)} className="shrink-0 gap-1.5">
+                      <Pencil className="h-3.5 w-3.5" />
                       编辑角色
-                    </button>
+                    </Button>
                   </PermissionGuard>
                 )}
               </div>
 
+              <Separator className="mb-4" />
+
               <PermissionMatrix
+                key={activeRole.id}
                 selected={activeRole.permissions}
                 isWildcard={isWildcard}
                 groups={permissionGroups}
                 onChange={(permissions) => {
-                  // Optimistic update local state
                   setRoles((prev) =>
                     prev.map((r) =>
                       r.id === activeRole.id ? { ...r, permissions } : r,
@@ -459,94 +686,117 @@ export function RoleManagement() {
         </div>
       </section>
 
-      {/* Create / Edit Dialog */}
+      {/* ── Create / Edit Dialog ─────────────────────────────────── */}
       <Dialog
         open={dialogMode === "create" || dialogMode === "edit"}
-        onClose={closeDialog}
-        fullWidth
-        maxWidth="md"
+        onOpenChange={(open) => !open && closeDialog()}
       >
-        <DialogTitle>{dialogMode === "edit" ? "编辑角色" : "新建角色"}</DialogTitle>
-        <DialogContent dividers>
-          <div className="mb-5 space-y-4">
-            <div>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                角色名称 <span className="text-red-500">*</span>
-              </label>
-              <input
-                className="material-input w-full"
-                value={form.name}
-                onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
-                placeholder="请输入角色名称"
-              />
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              {dialogMode === "edit" ? (
+                <><Pencil className="h-4 w-4 text-blue-500" />编辑角色</>
+              ) : (
+                <><Plus className="h-4 w-4 text-blue-500" />新建角色</>
+              )}
+            </DialogTitle>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-[1fr_2fr]">
+              <div className="space-y-1.5">
+                <Label htmlFor="role-name">
+                  角色名称 <span className="text-red-500">*</span>
+                </Label>
+                <Input
+                  id="role-name"
+                  value={form.name}
+                  onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+                  placeholder="请输入角色名称"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="role-desc">角色说明</Label>
+                <Textarea
+                  id="role-desc"
+                  rows={1}
+                  value={form.description}
+                  onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                  placeholder="简要说明该角色的职责范围"
+                  className="min-h-9"
+                />
+              </div>
             </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">角色说明</label>
-              <textarea
-                className="material-input w-full resize-none"
-                rows={2}
-                value={form.description}
-                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
-                placeholder="简要说明该角色的职责范围"
-              />
+
+            <Separator />
+
+            <div className="flex items-center justify-between">
+              <Label className="flex items-center gap-1.5 text-sm font-semibold text-slate-700">
+                <Shield className="h-3.5 w-3.5 text-slate-400" />
+                权限配置
+              </Label>
+              <span className="text-xs text-slate-400">
+                已选 <strong className="text-slate-700 tabular-nums">{form.permissions.filter((p) => p !== "*").length}</strong> 项 / 共 {totalPermissions} 项
+              </span>
             </div>
+
+            <PermissionMatrix
+              selected={form.permissions}
+              isWildcard={form.permissions.includes("*")}
+              groups={permissionGroups}
+              onChange={(permissions) => setForm((f) => ({ ...f, permissions }))}
+            />
           </div>
 
-          <div className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-            权限配置
-          </div>
-          <PermissionMatrix
-            selected={form.permissions}
-            isWildcard={form.permissions.includes("*")}
-            groups={permissionGroups}
-            onChange={(permissions) => setForm((f) => ({ ...f, permissions }))}
-          />
+          <DialogFooter>
+            <Button variant="outline" onClick={closeDialog} disabled={saving}>
+              取消
+            </Button>
+            <Button onClick={() => void handleSaveRole()} disabled={saving} className="gap-1.5">
+              {saving && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+              {saving ? "保存中…" : "保存角色"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
-        <DialogActions>
-          <button className="material-button-secondary" onClick={closeDialog} disabled={saving}>
-            取消
-          </button>
-          <button
-            className="material-button-primary"
-            onClick={() => void handleSaveRole()}
-            disabled={saving}
-          >
-            {saving ? "保存中..." : "保存角色"}
-          </button>
-        </DialogActions>
       </Dialog>
 
-      {/* Delete Confirm */}
-      <Dialog open={dialogMode === "deleteConfirm"} onClose={closeDialog} fullWidth maxWidth="xs">
-        <DialogTitle>确认删除角色</DialogTitle>
-        <DialogContent dividers>
-          <p className="text-sm text-slate-600">
-            即将永久删除角色 <strong>{selectedRole?.name}</strong>。
+      {/* ── Delete Confirm ───────────────────────────────────────── */}
+      <Dialog open={dialogMode === "deleteConfirm"} onOpenChange={(open) => !open && closeDialog()}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Trash2 className="h-4 w-4 text-red-500" />
+              确认删除角色
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm leading-6 text-slate-600">
+              即将永久删除角色「<strong className="text-slate-900">{selectedRole?.name}</strong>」。
+            </p>
             {(selectedRole?._count?.users ?? 0) > 0 && (
-              <span className="mt-2 block text-red-600">
-                该角色下仍有 {selectedRole?._count?.users} 名用户，请先移除或重新分配后再删除。
-              </span>
+              <div className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-600 leading-5">
+                <Users className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  该角色下仍有 <strong>{selectedRole?._count?.users}</strong> 名用户，请先移除或重新分配后再删除。
+                </span>
+              </div>
             )}
-          </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={closeDialog} disabled={saving}>
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => void handleDeleteRole()}
+              disabled={saving || (selectedRole?._count?.users ?? 0) > 0}
+              className="gap-1.5"
+            >
+              {saving && <RefreshCw className="h-3.5 w-3.5 animate-spin" />}
+              {saving ? "删除中…" : "确认删除"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
-        <DialogActions className="!gap-3 !px-6 !py-4">
-          <button
-            type="button"
-            className="material-button-secondary min-w-[104px] disabled:cursor-not-allowed disabled:opacity-50"
-            onClick={closeDialog}
-            disabled={saving}
-          >
-            取消
-          </button>
-          <button
-            type="button"
-            className="material-button-danger min-w-[104px]"
-            onClick={() => void handleDeleteRole()}
-            disabled={saving || (selectedRole?._count?.users ?? 0) > 0}
-          >
-            {saving ? "删除中..." : "确认删除"}
-          </button>
-        </DialogActions>
       </Dialog>
     </div>
   );

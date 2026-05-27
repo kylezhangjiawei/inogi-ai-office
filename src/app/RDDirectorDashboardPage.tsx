@@ -657,7 +657,7 @@ function TaskDetailDrawer({
         className="flex h-full w-full max-w-[620px] flex-col overflow-hidden border-l border-slate-100 bg-white shadow-[-12px_0_40px_rgba(15,23,42,0.12)] animate-in slide-in-from-right duration-300 sm:w-[min(620px,92vw)]"
       >
         {/* Header */}
-        <header className="flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-6 py-4 z-[100]">
+        <header className="flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-6 py-4">
           <div className="min-w-0 flex-1">
             <div className="mb-1.5 flex items-center gap-2">
               <span className="font-mono text-xs text-slate-400">{task.task_id}</span>

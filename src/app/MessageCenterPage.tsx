@@ -474,9 +474,11 @@ export function MessageCenterPage() {
   useEffect(() => {
     void loadMessages();
 
-    // Immediately refresh when another tab/panel submits a review request
+    // Immediately refresh when another tab/panel submits a review request or message state changes.
     const onReviewSubmitted = () => { void loadMessages(); };
+    const onMessagesUpdated = () => { void loadMessages(); };
     window.addEventListener('rd:review-submitted', onReviewSubmitted);
+    window.addEventListener('rd:messages-updated', onMessagesUpdated);
 
     // Also refresh when the page becomes visible (e.g. switching back from another tab)
     const onVisibilityChange = () => {
@@ -484,9 +486,13 @@ export function MessageCenterPage() {
     };
     document.addEventListener('visibilitychange', onVisibilityChange);
 
+    const timer = window.setInterval(() => { void loadMessages(); }, 60_000);
+
     return () => {
       window.removeEventListener('rd:review-submitted', onReviewSubmitted);
+      window.removeEventListener('rd:messages-updated', onMessagesUpdated);
       document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.clearInterval(timer);
     };
   }, [loadMessages]);
 

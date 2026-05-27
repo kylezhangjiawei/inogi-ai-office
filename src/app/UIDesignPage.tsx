@@ -786,6 +786,7 @@ export function UIDesignPage() {
   const [editingImage, setEditingImage] = useState(false);
   const [favoriteBusyId, setFavoriteBusyId] = useState<string | null>(null);
   const [previewItem, setPreviewItem] = useState<GeneratedImage | null>(null);
+  const [editingItem, setEditingItem] = useState<GeneratedImage | null>(null);
   const [editInstruction, setEditInstruction] = useState("");
   const [conversation, setConversation] = useState<ImageConversationResponse | null>(null);
   const [conversationLoading, setConversationLoading] = useState(false);
@@ -972,15 +973,15 @@ export function UIDesignPage() {
   }, [activeTab, loadGallery, normalizedSearchKeyword]);
 
   useEffect(() => {
-    if (!previewItem) {
+    if (!editingItem) {
       setConversation(null);
       setEditInstruction("");
       return;
     }
-    setConversation(previewItem.conversation ?? null);
+    setConversation(editingItem.conversation ?? null);
     setEditInstruction("");
-    void loadConversation(previewItem.id);
-  }, [loadConversation, previewItem]);
+    void loadConversation(editingItem.id);
+  }, [editingItem, loadConversation]);
 
   function appendPrompt(fragment: string) {
     setPrompt((current) => {
@@ -1184,11 +1185,11 @@ export function UIDesignPage() {
   }
 
   function handleOpenEdit(item: GeneratedImage) {
-    setPreviewItem(item);
+    setEditingItem(item);
   }
 
   async function handleEditImage() {
-    if (!previewItem) return;
+    if (!editingItem) return;
     const message = editInstruction.trim();
     if (!message) {
       toast.error("请先输入修改要求");
@@ -1203,23 +1204,23 @@ export function UIDesignPage() {
     try {
       // 有 imageData（base64）时压缩后作为参考图发送；无 imageData 时后端直接从 DB 读取
       let referenceDataUrl: string | undefined;
-      if (previewItem.imageData) {
-        const sourceReference = await compressDataUrlForUpstream(previewItem.imageData, MAX_UPSTREAM_REFERENCE_IMAGE_BYTES);
+      if (editingItem.imageData) {
+        const sourceReference = await compressDataUrlForUpstream(editingItem.imageData, MAX_UPSTREAM_REFERENCE_IMAGE_BYTES);
         if (sourceReference.compressed) {
           toast.info(`已压缩当前图片用于提交，大小 ${formatFileSize(sourceReference.size)}`);
         }
         referenceDataUrl = sourceReference.dataUrl;
       }
-      const result = await apiEditImage(previewItem.id, {
+      const result = await apiEditImage(editingItem.id, {
         message,
         style: "vivid",
-        size: previewItem.size,
+        size: editingItem.size,
         model_id: selectedModelOption.managed ? selectedModelOption.modelId : undefined,
         model: selectedModelOption.model,
         reference_image_data: referenceDataUrl,
       });
       setEditInstruction("");
-      setPreviewItem(result);
+      setEditingItem(result);
       setCurrentImages((images) => [result, ...images.filter((item) => item.id !== result.id)]);
       setActiveTab("当前");
       if (result.conversation) {
@@ -1233,7 +1234,7 @@ export function UIDesignPage() {
       void loadUsage();
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "图片修改失败");
-      void loadConversation(previewItem.id);
+      void loadConversation(editingItem.id);
     } finally {
       setEditingImage(false);
     }
@@ -2028,37 +2029,61 @@ export function UIDesignPage() {
       ) : null}
 
       {previewItem ? (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/48 p-3 backdrop-blur-sm"
+          role="dialog"
+          aria-modal="true"
+          onClick={() => setPreviewItem(null)}
+        >
+          <div
+            className="relative flex h-[50dvh] w-[50dvw] max-w-[calc(100vw-32px)] items-center justify-center overflow-hidden rounded-[18px] border border-white/15 bg-slate-950 shadow-[0_28px_80px_rgba(15,23,42,0.42)]"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <img src={previewItem.imageUrl || previewItem.imageData} alt={previewItem.prompt} className="h-full w-full object-contain" />
+            <button
+              className="absolute right-3 top-3 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full bg-white/92 text-slate-600 shadow-sm transition hover:bg-white hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              type="button"
+              onClick={() => setPreviewItem(null)}
+              aria-label="关闭图片预览"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {editingItem ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/48 p-3 backdrop-blur-sm md:p-4 xl:p-8" role="dialog" aria-modal="true">
           <div className="flex max-h-[calc(100vh-24px)] w-full max-w-7xl flex-col overflow-hidden rounded-[22px] border border-slate-200 bg-white shadow-[0_32px_90px_rgba(15,23,42,0.35)] xl:max-h-[calc(100vh-64px)]">
             <div className="flex shrink-0 flex-col gap-3 border-b border-slate-200/70 px-4 py-4 md:flex-row md:items-center md:justify-between md:px-5">
               <div className="min-w-0">
-                <div className="text-sm font-semibold text-slate-950">图片预览</div>
-                <div className="mt-1 max-w-2xl truncate text-xs text-slate-500">{previewItem.prompt}</div>
+                <div className="text-sm font-semibold text-slate-950">图片修改</div>
+                <div className="mt-1 max-w-2xl truncate text-xs text-slate-500">{editingItem.prompt}</div>
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-semibold text-slate-600">
                   <span className="rounded-full border border-slate-200 bg-white/70 px-2.5 py-1">
-                    成本 {formatImageCost(previewItem)}
+                    成本 {formatImageCost(editingItem)}
                   </span>
                   <span className="rounded-full border border-slate-200 bg-white/70 px-2.5 py-1">
-                    output {(previewItem.outputTokens ?? 0) > 0 ? (previewItem.outputTokens ?? 0).toLocaleString("zh-CN") : "-"}
+                    output {(editingItem.outputTokens ?? 0) > 0 ? (editingItem.outputTokens ?? 0).toLocaleString("zh-CN") : "-"}
                   </span>
                   <span className="rounded-full border border-slate-200 bg-white/70 px-2.5 py-1">
-                    调用 {previewItem.upstreamCallCount ?? 0}
-                    {(previewItem.upstreamRetryCount ?? 0) > 0 ? ` · 重试 ${previewItem.upstreamRetryCount}` : ""}
+                    调用 {editingItem.upstreamCallCount ?? 0}
+                    {(editingItem.upstreamRetryCount ?? 0) > 0 ? ` · 重试 ${editingItem.upstreamRetryCount}` : ""}
                   </span>
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                <button className="h-9 cursor-pointer rounded-[14px] border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300" type="button" onClick={() => handleReuse(previewItem)}>
+                <button className="h-9 cursor-pointer rounded-[14px] border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300" type="button" onClick={() => handleReuse(editingItem)}>
                   复用提示词
                 </button>
-                <button className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-[14px] border border-slate-200 bg-slate-50 text-slate-500 transition hover:border-blue-200 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300" type="button" onClick={() => setPreviewItem(null)} aria-label="关闭图片预览">
+                <button className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-[14px] border border-slate-200 bg-slate-50 text-slate-500 transition hover:border-blue-200 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300" type="button" onClick={() => setEditingItem(null)} aria-label="关闭图片修改">
                   <X className="h-4 w-4" />
                 </button>
               </div>
             </div>
             <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_360px]">
               <div className="relative min-h-[260px] bg-slate-100 md:min-h-0">
-                <img src={previewItem.imageUrl || previewItem.imageData} alt={previewItem.prompt} className="h-full w-full object-contain" />
+                <img src={editingItem.imageUrl || editingItem.imageData} alt={editingItem.prompt} className="h-full w-full object-contain" />
               </div>
               <aside className="flex min-h-0 max-h-[46vh] flex-col border-t border-slate-200/70 bg-white md:max-h-none md:border-l md:border-t-0">
                 <div className="shrink-0 border-b border-slate-200/70 p-4">
@@ -2069,12 +2094,12 @@ export function UIDesignPage() {
                   <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
                     <div className="rounded-2xl border border-slate-200 bg-white/70 px-3 py-2">
                       <div className="text-slate-500">当前版本</div>
-                      <div className="mt-1 font-semibold text-slate-900">v{(previewItem.editDepth ?? 0) + 1}</div>
+                      <div className="mt-1 font-semibold text-slate-900">v{(editingItem.editDepth ?? 0) + 1}</div>
                     </div>
                     <div className="rounded-2xl border border-slate-200 bg-white/70 px-3 py-2">
                       <div className="text-slate-500">累计费用</div>
                       <div className="mt-1 font-semibold text-slate-900">
-                        {formatUsd(conversation?.summary.estimatedCostUsd ?? previewItem.cumulativeEstimatedCostUsd ?? previewItem.estimatedCostUsd ?? 0)}
+                        {formatUsd(conversation?.summary.estimatedCostUsd ?? editingItem.cumulativeEstimatedCostUsd ?? editingItem.estimatedCostUsd ?? 0)}
                       </div>
                     </div>
                   </div>

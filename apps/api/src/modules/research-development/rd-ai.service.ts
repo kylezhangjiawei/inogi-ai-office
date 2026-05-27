@@ -8,6 +8,7 @@ import { SecureConfigService } from '../security/secure-config.service';
 
 const TASK_EXTRACTION_SCHEMA_DESC =
   '{"tasks": [{"title": string, "description"?: string, "owner": string, "due_date": string YYYY-MM-DD, ' +
+  '"due_date_original"?: string（原文时间节点的原始短语，例如"今明完成"、"周三"、"会后同步"、"到货当日"；如果原文没写时间则省略）, ' +
   '"priority": "high"|"medium"|"low", "category_path": string, ' +
   '"estimated_days": integer（必填，根据任务复杂度估算，不确定时填5，禁止全部填1）, ' +
   '"owner_reason": string}], "suggested_category"?: string, "summary"?: string}';
@@ -73,6 +74,8 @@ export type RdAiTaskDraft = {
   owner: string;
   owner_reason: string;
   due_date: string;
+  /** 原文中的时间节点短语（如 "今明"、"周三"、"会后同步"）。仅用于前端 review 时展示原始上下文，不存数据库。 */
+  due_date_original?: string;
   priority: 'high' | 'medium' | 'low';
   category_path: string;
   estimated_days: number;
@@ -486,8 +489,8 @@ export class RdAiService {
     filePolicy: RdAiFilePolicyRuntime = DEFAULT_FILE_POLICY_RUNTIME,
   ): Promise<RdAiExtractResult> {
     try {
-    if (!this.ocrService.hasTencentConfig()) {
-      throw new BadRequestException('图片解析需要配置腾讯 OCR (TENCENTCLOUD_SECRET_ID / SECRET_KEY)');
+    if (!(await this.ocrService.hasTencentConfig())) {
+      throw new BadRequestException('图片解析需要配置腾讯 OCR（请在系统设置 → 集成配置中绑定 tencent_ocr 凭据）');
     }
     const ocrResult = await this.ocrService.recognizeWithTencent(
       { originalname: file.originalname, buffer: file.buffer, mimetype: file.mimetype },
@@ -792,11 +795,23 @@ export class RdAiService {
       '规则：',
       '1) 一条任务对应一个动作或交付物，标题保持简洁（30 字以内）。',
       '2) 如果原文已有明确的负责人姓名，优先沿用；优先匹配下方"当前人员"。无法匹配或无法判断时填 "待指派"。',
-      '3) due_date 必须是 YYYY-MM-DD 格式；如果原文有日期，用原文日期；否则按 estimated_days 推算到今天之后的日期。',
-      '4) priority 默认 medium；标题/描述出现"紧急/卡住/客户/ECN/发布/优先/影响交付"等关键词时设为 high；明显次要的设为 low。',
+      '3) due_date 必须是 YYYY-MM-DD 格式，结合"今天日期"做中文时间表达换算：',
+      '   • 绝对日期："2026/5/30"、"5月30日"、"30号" → 严格转 YYYY-MM-DD（无年份默认今年；日已过则下一个匹配的月份）。',
+      '   • 相对日期："今天/即日/立刻/立即" → 今天；"明天" → 今天+1；"后天" → 今天+2；"今明" / "今明两天" / "今明完成" → 今天+1；"近两天" → 今天+1；"三天内" → 今天+3；"一周内" / "本周完成" → 今天+7。',
+      '   • 周内日期："本周三/周三" → 推算到本周对应日（若已过则下周）；"下周一" → 下周一。',
+      '   • 月级：本月底 → 本月最后一天；下月初 → 下月 1 日。',
+      '   • 模糊节点："会后同步" / "采购到货当日" / "样品寄出后" / "随后" 等无法对应到具体日期的，due_date 用今天兜底，必须把原文短语放到 due_date_original，并在 description 末尾补一行"⏰ 节点：{原文}"。',
+      '   • 原文完全没写时间时：按 estimated_days 推算（今天 + estimated_days），不必填 due_date_original。',
+      '   • due_date_original 字段保留原文中关于时间的完整短语（如"今明测试沟通后寄出调配"），便于人工核对。如果原文写了明确日期（如"6月10日"）也写进去。',
+      '4) priority 判定：',
+      '   • 默认 medium。',
+      '   • 标题/描述含"紧急/卡住/客户投诉/ECN/发布/优先/影响交付/必须/务必"等关键词 → high。',
+      '   • due_date 落在「今天 ~ 今天+2 天」之间 → 至少 high。落在「今天+3 ~ 今天+7 天」 → 至少 medium。',
+      '   • 明显次要、可延后的任务 → low。',
       '5) estimated_days 必须结合任务复杂度、任务类型和交付物认真估算，不得统一填写固定值：' +
       '发邮件/简单确认/简单跟进=1-2天，常规设计/开发/测试/文档=3-7天，跨模块设计或完整验证闭环=8-20天，复杂系统集成/大型测试项目=21-90天；' +
-      '无法判断时默认填5，严禁把所有任务都填1。',
+      '无法判断时默认填5，严禁把所有任务都填1。' +
+      '另外：如果原文给了明确的 due_date（如"今天完成/周三/明天交付"），estimated_days 必须与"今天到 due_date 的天数"协调（不超过该跨度，最小为 1）。',
       '6) category_path 用「一级分类 / 二级分类 / 任务类型」格式（例如 "310阀系统 / 310电磁阀 / 测试验证"）。一级分类必须优先从下方"研发分类预设"中选择；二级分类优先选择该大项下最接近的部件。',
       '7) 不要把立项标题、客户名称或临时项目名当作一级分类；只有完全无法匹配预设大项时，才允许创建新的一级分类。',
       '8) 任务类型要从任务内容中判断，例如：需求澄清、方案设计、结构设计、电气设计、软件开发、工艺准备、采购跟进、样件制作、测试验证、问题整改、文档交付、评审确认。',
@@ -805,7 +820,13 @@ export class RdAiService {
       '11) owner_reason 必须简短说明分配依据（如"原文指定"、"结构设计任务且当前负载较低"、"测试验证任务匹配测试岗位"）。',
       '12) 必须提取原文中的所有任务，不要遗漏；不要添加与原文目标无关的任务。',
       '13) suggested_category 返回本次立项最主要的一级分类名称，优先从研发分类预设中选择。',
-      '14) 如果原文是表格/列表，每一行/项作为一个任务；如果是叙述文本，按可执行动作切分。',
+      '14) 如果原文是表格/列表（含 OCR 提取的表格、Markdown 表格、Excel 粘贴文本、Word 表格），每一行/项作为一个任务。列头按以下别名映射到字段：',
+      '   • title ← "事项 / 任务 / 工作内容 / 主题 / item / task"。',
+      '   • description ← "核心要求 / 详细说明 / 描述 / 备注 / 要点 / 完成标准 / details / remark"。',
+      '   • owner ← "责任人 / 负责人 / 接手人 / 主责 / 主办 / owner / assignee"。',
+      '   • due_date ← "时间节点 / 截止 / 完成时间 / 期限 / 交付时间 / deadline / due"。',
+      '   • priority ← "优先级 / priority"。',
+      '   忽略列头识别失败的列；表头不要作为任务行。',
       '15) 只要原文内容不为空且属于研发、产品、测试、结构、电气、软件、采购、文档、评审等工作材料，tasks 至少返回 1 条。',
       '16) 若原文是立项背景、需求说明、问题描述、客户反馈、改进目标或方案说明，而不是明确任务清单，必须把目标转成必需执行动作；这不是编造任务。owner_reason 中说明"根据立项材料推导"。',
       '17) 只有在原文为空、无法读取，或内容完全不是研发工作材料时，才允许返回 {"tasks": []}，并在 summary 中说明无法提取的具体原因。',
@@ -933,6 +954,8 @@ export class RdAiService {
     const owner = this.matchOwner(rawOwner, peopleList) ?? rawOwner;
     const dueRaw = String(record.due_date ?? '').trim();
     const dueDate = /^\d{4}-\d{1,2}-\d{1,2}$/.test(dueRaw) ? this.padDate(dueRaw) : fallbackDue;
+    const dueOriginalRaw = String(record.due_date_original ?? '').trim();
+    const dueOriginal = dueOriginalRaw && dueOriginalRaw.length <= 60 ? dueOriginalRaw : undefined;
     const estimatedDays = this.clampInt(record.estimated_days, 1, 365, 5);
     const aiEstimatedRaw = Number(record.ai_estimated_days);
     const aiEstimatedDays = Number.isFinite(aiEstimatedRaw)
@@ -952,6 +975,7 @@ export class RdAiService {
         String(record.owner_reason ?? '').trim() ||
         (owner === '待指派' ? 'AI 微调后仍未匹配到责任人' : '由 AI 微调建议分配'),
       due_date: dueDate,
+      due_date_original: dueOriginal,
       priority: this.normalizePriority(record.priority),
       category_path: categoryPath,
       estimated_days: estimatedDays,
@@ -979,12 +1003,12 @@ export class RdAiService {
           '你是研发立项草稿微调助手。用户已经得到一版 AI 立项结果，现在希望按新的偏好继续打磨。',
           '你只能围绕当前草稿做最小必要修改，不要改动无关任务，不要引入和用户指令无关的新任务。',
           '必须返回严格 JSON，结构为：',
-          '{"tasks":[{"id":string,"title":string,"description"?:string,"owner":string,"owner_reason":string,"due_date":"YYYY-MM-DD","priority":"high|medium|low","category_path":string,"estimated_days":integer,"ai_estimated_days"?:integer,"duration_basis":string}],"change_summary":string[],"warnings":string[]}',
+          '{"tasks":[{"id":string,"title":string,"description"?:string,"owner":string,"owner_reason":string,"due_date":"YYYY-MM-DD","due_date_original"?:string,"priority":"high|medium|low","category_path":string,"estimated_days":integer,"ai_estimated_days"?:integer,"duration_basis":string}],"change_summary":string[],"warnings":string[]}',
           '规则：',
           '1) 现有任务必须保留原 id；只有用户明确要求新增或拆分任务时才允许新增 id。',
           '2) scope=selected 或 scope=single 时，只能修改 selectedTaskIds 中的任务；未选任务要原样返回。',
           '3) 如果用户要求删除、合并或拆分任务，可以调整 tasks 数量，但必须在 change_summary 中说明。',
-          '4) due_date 必须是 YYYY-MM-DD；priority 只能是 high、medium、low；estimated_days 必须是 1-365 的整数。',
+          '4) due_date 必须是 YYYY-MM-DD；priority 只能是 high、medium、low；estimated_days 必须是 1-365 的整数。如果用户在指令中提到"今天/明天/周三/会后"等中文时间，参照立项 prompt 的换算规则转成具体日期，并把原文短语写入 due_date_original。',
           '5) owner 优先匹配当前人员上下文；无法判断时使用“待指派”，并在 owner_reason 说明原因。',
           '6) category_path 优先使用当前分类树或现有 category_path，格式保持“系统 / 部件 / 类型”。',
           '7) 输出文案保持中文，change_summary 写给业务用户看，warnings 只放真正需要人工注意的风险。',
@@ -1258,6 +1282,9 @@ export class RdAiService {
         const priority = this.normalizePriority(r.priority);
         const dueRaw = String(r.due_date ?? '').trim();
         const due_date = /^\d{4}-\d{1,2}-\d{1,2}$/.test(dueRaw) ? this.padDate(dueRaw) : defaultDue;
+        // 原文时间节点：AI 把"今明/周三/会后"这类原始短语回填到这里，供前端 review 展示
+        const dueOriginalRaw = String(r.due_date_original ?? '').trim();
+        const due_date_original = dueOriginalRaw && dueOriginalRaw.length <= 60 ? dueOriginalRaw : undefined;
         // AI 若返回 0 或非法值，视为未作答，用 fallback=5；合法值范围 1-90
         const rawDays = Number(r.estimated_days);
         const estimated_days = Number.isFinite(rawDays) && rawDays >= 1
@@ -1269,6 +1296,7 @@ export class RdAiService {
           description: r.description ? String(r.description).trim() || undefined : undefined,
           owner,
           owner_reason: String(r.owner_reason ?? '').trim() || (owner === '待指派' ? 'AI 未匹配到负责人' : '由 AI 解析分配'),
+          due_date_original,
           due_date,
           priority,
           category_path: this.normalizeAiCategoryPath(
@@ -1425,12 +1453,24 @@ export class RdAiService {
 
   private matchOwner(raw: string, people: string[]): string | null {
     if (!raw || raw === '待指派') return null;
-    // Exact
-    const exact = people.find((p) => p === raw);
+    const trimmed = raw.trim();
+    // 1. Exact
+    const exact = people.find((p) => p === trimmed);
     if (exact) return exact;
-    // Fuzzy: substring match in either direction (handles names like "刘致远(研发管理员)")
-    const fuzzy = people.find((p) => raw.includes(p) || p.includes(raw));
-    return fuzzy ?? null;
+    // 2. Substring (handles "刘致远(研发管理员)" vs "刘致远")
+    const fuzzy = people.find((p) => trimmed.includes(p) || p.includes(trimmed));
+    if (fuzzy) return fuzzy;
+    // 3. 昵称匹配：「小X」/「老X」/「X姐」/「X哥」→ 唯一姓为 X 的人员
+    const nicknameMatch = trimmed.match(/^(?:小|老|大)?([一-龥])(?:姐|哥|总)?$/);
+    if (nicknameMatch) {
+      const surname = nicknameMatch[1];
+      const candidates = people.filter((p) => {
+        const baseName = p.replace(/[(（].*$/, '').trim(); // 去掉括号注释
+        return baseName.startsWith(surname);
+      });
+      if (candidates.length === 1) return candidates[0]; // 仅当唯一时匹配，避免歧义
+    }
+    return null;
   }
 
   private normalizePriority(value: unknown): 'high' | 'medium' | 'low' {
@@ -1703,11 +1743,12 @@ export class RdAiService {
     if (input.file) {
       const ext = this.extOf(input.file.originalname);
       if (IMAGE_EXT.has(ext)) {
-        if (!this.ocrService.hasTencentConfig() && filePolicy.allow_vision_fallback) {
+        const tencentReady = await this.ocrService.hasTencentConfig();
+        if (!tencentReady && filePolicy.allow_vision_fallback) {
           return this.assessProgressViaVision(input.file, input, filePolicy, 'ocr_not_configured');
         }
-        if (!this.ocrService.hasTencentConfig()) {
-          throw new BadRequestException('图片识别需要配置腾讯 OCR (TENCENTCLOUD_SECRET_ID / SECRET_KEY)');
+        if (!tencentReady) {
+          throw new BadRequestException('图片识别需要配置腾讯 OCR（请在系统设置 → 集成配置中绑定 tencent_ocr 凭据）');
         }
         const ocr = await this.ocrService.recognizeWithTencent(
           { originalname: input.file.originalname, buffer: input.file.buffer, mimetype: input.file.mimetype },
@@ -2274,5 +2315,84 @@ export class RdAiService {
         method: 'ai' as const,
       };
     });
+  }
+
+  // ── 日报智能汇总 ─────────────────────────────────────────────────────────
+  // 输入当日活动数据，返回 LLM 生成的中文日报正文。
+  // AI 未配置 / 调用失败时返回 null，由调用方回退到本地拼接版本。
+  async summarizeDailyReport(input: {
+    userName: string;
+    date: string;
+    stats: {
+      totalTasks: number;
+      inProgress: number;
+      completed: number;
+      blocked: number;
+      pending: number;
+      notesCount: number;
+    };
+    notes: Array<{
+      taskTitle?: string;
+      progress?: number | null;
+      excerpt?: string;
+      attachmentsCount?: number;
+    }>;
+  }): Promise<{ text: string; model: string; provider: AiProvider } | null> {
+    const selectedModel = await this.resolveSceneModelConfig('daily_report_summary').catch(() => null);
+    if (!selectedModel?.apiKey) return null;
+
+    const provider: AiProvider = selectedModel.provider;
+    const model = selectedModel.model;
+    const baseUrl = selectedModel.baseUrl;
+
+    const { userName, date, stats, notes } = input;
+    const systemPrompt =
+      '你是一名研发主管的智能助理，负责把当日工作数据汇总成精炼、可读的中文日报。' +
+      '要求：(1) 全文不超过 350 字；(2) 使用「📊 任务概况 / ✍️ 今日推进 / ⚠️ 需关注 / 🎯 下一步建议」四段式结构；' +
+      '(3) 客观描述事实，不要编造未提供的信息；(4) 数据为 0 的段落允许省略；' +
+      '(5) 结尾给出 1 句具体的下一步行动建议（如有阻塞优先提该项）。';
+
+    const notesBlock = notes.length === 0
+      ? '今日无新增进度记录。'
+      : notes
+          .map((n, idx) => {
+            const title = n.taskTitle ? `《${n.taskTitle}》` : '（任务标题缺失）';
+            const progress = typeof n.progress === 'number' ? `${n.progress}%` : '—';
+            const att = (n.attachmentsCount ?? 0) > 0 ? ` · ${n.attachmentsCount} 附件` : '';
+            const excerpt = (n.excerpt ?? '').trim().slice(0, 160);
+            return `${idx + 1}. ${title} 进度${progress}${att}${excerpt ? ` — ${excerpt}` : ''}`;
+          })
+          .join('\n');
+
+    const userMessage = [
+      `用户：${userName}`,
+      `日期：${date}`,
+      '',
+      '【任务概况】',
+      `总任务 ${stats.totalTasks} · 进行中 ${stats.inProgress} · 已完成 ${stats.completed} · 阻塞 ${stats.blocked} · 待办 ${stats.pending}`,
+      '',
+      '【今日进度记录】',
+      notesBlock,
+    ].join('\n');
+
+    const client = this.createClient(selectedModel.apiKey, provider, baseUrl);
+    try {
+      const response = await client.chat.completions.create({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage },
+        ],
+        ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+      });
+      const text = (response.choices[0]?.message?.content ?? '').trim();
+      if (!text) return null;
+      return { text, model, provider };
+    } catch (error) {
+      // AI 失败不阻塞日报生成，记录后让调用方走本地兜底
+      // eslint-disable-next-line no-console
+      console.warn('[summarizeDailyReport] AI call failed:', error instanceof Error ? error.message : error);
+      return null;
+    }
   }
 }

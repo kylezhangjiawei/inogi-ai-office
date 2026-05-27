@@ -82,6 +82,130 @@ const TONE_STYLES: Record<
   slate: { dot: "bg-slate-400", bg: "bg-slate-100", text: "text-slate-700", border: "border-slate-200" },
 };
 
+// ─── Field / value Chinese labels ────────────────────────────────────────────
+
+// 字段名（出现在 changes diff 和 metadata 中）的中文标签
+const FIELD_LABELS: Record<string, string> = {
+  // 任务字段
+  progress: "进度",
+  status: "状态",
+  priority: "优先级",
+  final_priority: "最终优先级",
+  ai_priority: "AI 建议优先级",
+  due_date: "截止日期",
+  start_date: "开始日期",
+  owner: "负责人",
+  primary_owner: "主负责人",
+  collaborators: "协作人",
+  description: "描述",
+  title: "标题",
+  category: "分类",
+  category_path: "分类路径",
+  tags: "标签",
+  attachments: "附件",
+  estimated_days: "预估工期(天)",
+  ai_estimated_days: "AI 预估工期(天)",
+  notes: "备注",
+  comment: "评论",
+  duration_basis: "工期依据",
+  // 权限 / 角色
+  permissions: "权限",
+  permission: "权限编码",
+  role: "角色",
+  // 人员
+  position: "职位",
+  department: "部门",
+  name: "名称",
+  email: "邮箱",
+  phone: "电话",
+  // 操作上下文
+  from: "原负责人",
+  to: "新负责人",
+  task_count: "任务数",
+  tasks_generated: "生成任务数",
+  tasks_created: "创建任务数",
+  filename: "文件名",
+  node_label: "节点名称",
+  node: "节点",
+  mode: "模式",
+  // AI 解析相关
+  model: "模型",
+  provider: "提供方",
+  source: "来源",
+  stage: "阶段",
+  confidence: "置信度",
+  evidence_count: "依据数量",
+  note_attachment_count: "附件数量",
+  raw_text_length: "原始文本长度",
+  suggestion: "建议内容",
+  // 其它
+  enabled: "启用状态",
+  disabled: "停用状态",
+};
+
+// 部分字段的枚举值需要中文化（按 field 分组）
+const VALUE_LABELS: Record<string, Record<string, string>> = {
+  status: {
+    draft: "草稿",
+    in_progress: "进行中",
+    completed: "已完成",
+    blocked: "阻塞",
+    paused_blocked: "阻塞中",
+    paused_leave: "请假暂停",
+    pending_review: "待审核",
+    pending_assign: "待指派",
+    cancelled: "已取消",
+    active: "活跃",
+    on_leave: "请假中",
+  },
+  priority: { high: "高", medium: "中", low: "低" },
+  final_priority: { high: "高", medium: "中", low: "低" },
+  ai_priority: { high: "高", medium: "中", low: "低" },
+  source: {
+    text: "文本",
+    file_text: "文件文本",
+    file_ocr: "文件 OCR",
+    ai: "AI",
+    ocr: "OCR",
+    vision: "视觉模型",
+    web: "网页",
+    api: "API",
+    system: "系统",
+    cron: "定时任务",
+    manual: "手动",
+    import: "批量导入",
+    task_attachment: "任务附件",
+  },
+  provider: {
+    openai: "OpenAI",
+    qwen: "通义千问",
+    tencent: "腾讯云",
+    tencent_ocr: "腾讯 OCR",
+    local: "本地",
+  },
+  mode: { single: "单签", any: "或签", all: "会签" },
+};
+
+// 日志条目底部右下角的 source 标签
+const LOG_SOURCE_LABELS: Record<string, string> = {
+  web: "网页",
+  api: "API",
+  ai: "AI",
+  system: "系统",
+};
+
+function labelForField(key: string): string {
+  return FIELD_LABELS[key] ?? key;
+}
+
+function labelForValue(field: string, value: unknown): string {
+  if (value === null || value === undefined) return "—";
+  const raw = typeof value === "string" ? value : typeof value === "number" || typeof value === "boolean" ? String(value) : "";
+  if (raw && VALUE_LABELS[field]?.[raw]) return VALUE_LABELS[field][raw];
+  // 没匹配到映射时走通用格式化
+  return formatChangeValue(value);
+}
+
 // ─── Time formatting ─────────────────────────────────────────────────────────
 
 function formatRelative(iso: string): string {
@@ -185,14 +309,14 @@ function AuditLogEntry({
                 key={idx}
                 className="flex flex-wrap items-center gap-1.5 rounded-md border border-slate-100 bg-white/80 px-2 py-1 text-[11px]"
               >
-                <span className="font-mono font-semibold text-slate-500">{c.field}</span>
+                <span className="font-semibold text-slate-600">{labelForField(c.field)}</span>
                 <span className="text-slate-400">:</span>
                 <span className="rounded bg-rose-50 px-1 py-0.5 text-rose-600 line-through decoration-rose-300">
-                  {formatChangeValue(c.before)}
+                  {labelForValue(c.field, c.before)}
                 </span>
                 <ArrowRight className="h-3 w-3 text-slate-400" />
                 <span className="rounded bg-emerald-50 px-1 py-0.5 font-semibold text-emerald-700">
-                  {formatChangeValue(c.after)}
+                  {labelForValue(c.field, c.after)}
                 </span>
               </div>
             ))}
@@ -204,8 +328,8 @@ function AuditLogEntry({
           <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-500">
             {Object.entries(log.metadata).map(([k, v]) => (
               <span key={k}>
-                <span className="text-slate-400">{k}:</span>{" "}
-                <span className="font-medium text-slate-700">{formatChangeValue(v)}</span>
+                <span className="text-slate-400">{labelForField(k)}：</span>
+                <span className="font-medium text-slate-700">{labelForValue(k, v)}</span>
               </span>
             ))}
           </div>
@@ -228,7 +352,7 @@ function AuditLogEntry({
             <>
               <span className="text-slate-300">·</span>
               <span className="rounded border border-slate-200 bg-white px-1 text-[9px] font-semibold text-slate-500">
-                {log.source}
+                {LOG_SOURCE_LABELS[log.source] ?? log.source}
               </span>
             </>
           )}
