@@ -60,6 +60,14 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'page:email-ai', label: '邮件 AI 写作', groupLabel: '页面访问 · 沟通协同', type: 'page', routePath: '/email-ai', sortOrder: 420 },
   { code: 'page:report-compression', label: '汇报材料压缩', groupLabel: '页面访问 · 沟通协同', type: 'page', routePath: '/report-compression', sortOrder: 430 },
 
+  { code: 'page:order-fulfillment', label: '订单履约中心', description: '聚焦今日异常、自动生成和发货提醒的履约工作台', groupLabel: '页面访问 · 订单履约', type: 'page', routePath: '/order-fulfillment', sortOrder: 450 },
+  { code: 'page:order-fulfillment-intake', label: '订货单导入', description: 'Gmail 同步、附件上传和订货单来源队列', groupLabel: '页面访问 · 订单履约', type: 'page', routePath: '/order-fulfillment/intake', navHidden: true, sortOrder: 451 },
+  { code: 'page:order-fulfillment-review', label: '订单核对', description: 'AI 识别结果与仓库库存、价格、规格、总价核对', groupLabel: '页面访问 · 订单履约', type: 'page', routePath: '/order-fulfillment/review', navHidden: true, sortOrder: 452 },
+  { code: 'page:order-fulfillment-shipments', label: '出货单生成', description: '按可切换模板生成和导出出货单', groupLabel: '页面访问 · 订单履约', type: 'page', routePath: '/order-fulfillment/shipments', navHidden: true, sortOrder: 453 },
+  { code: 'page:order-fulfillment-inventory', label: '库存与价格', description: '维护库存、规格、安全线和客户价格规则', groupLabel: '页面访问 · 订单履约', type: 'page', routePath: '/order-fulfillment/inventory', navHidden: true, sortOrder: 454 },
+  { code: 'page:order-fulfillment-templates', label: '模板配置', description: '维护出货单模板库和字段映射', groupLabel: '页面访问 · 订单履约', type: 'page', routePath: '/order-fulfillment/templates', navHidden: true, sortOrder: 455 },
+  { code: 'page:order-fulfillment-alerts', label: '发货提醒', description: '按发货日期和异常风险配置提醒规则', groupLabel: '页面访问 · 订单履约', type: 'page', routePath: '/order-fulfillment/alerts', navHidden: true, sortOrder: 456 },
+
   { code: 'page:resume-screening', label: '简历筛选', groupLabel: '页面访问 · 人事行政', type: 'page', routePath: '/resume-screening', sortOrder: 500 },
   { code: 'page:employee-archive', label: '员工入职归档', groupLabel: '页面访问 · 人事行政', type: 'page', routePath: '/employee-archive', sortOrder: 510 },
   { code: 'page:quick-capture', label: '随手记任务分流', groupLabel: '页面访问 · 人事行政', type: 'page', routePath: '/quick-capture', sortOrder: 520 },

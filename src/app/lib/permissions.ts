@@ -38,6 +38,13 @@ export const PERMISSIONS = {
   PAGE_MEETING: 'page:meeting',
   PAGE_EMAIL_AI: 'page:email-ai',
   PAGE_REPORT_COMPRESSION: 'page:report-compression',
+  PAGE_ORDER_FULFILLMENT: 'page:order-fulfillment',
+  PAGE_ORDER_FULFILLMENT_INTAKE: 'page:order-fulfillment-intake',
+  PAGE_ORDER_FULFILLMENT_REVIEW: 'page:order-fulfillment-review',
+  PAGE_ORDER_FULFILLMENT_SHIPMENTS: 'page:order-fulfillment-shipments',
+  PAGE_ORDER_FULFILLMENT_INVENTORY: 'page:order-fulfillment-inventory',
+  PAGE_ORDER_FULFILLMENT_TEMPLATES: 'page:order-fulfillment-templates',
+  PAGE_ORDER_FULFILLMENT_ALERTS: 'page:order-fulfillment-alerts',
 
   // ─── R&D Task Management ─────────────────────────────────────────
   PAGE_RD_TASK_MANAGEMENT: 'page:rd-task-management',
@@ -186,6 +193,18 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { code: 'page:meeting', label: '会议纪要' },
       { code: 'page:email-ai', label: '邮件 AI 写作' },
       { code: 'page:report-compression', label: '汇报材料压缩' },
+    ],
+  },
+  {
+    label: '页面访问 · 订单履约',
+    permissions: [
+      { code: 'page:order-fulfillment', label: '订单履约中心', description: '聚焦今日异常、自动生成和发货提醒的履约工作台' },
+      { code: 'page:order-fulfillment-intake', label: '订货单导入', description: 'Gmail 同步、附件上传和订货单来源队列' },
+      { code: 'page:order-fulfillment-review', label: '订单核对', description: 'AI 识别结果与仓库库存、价格、规格、总价核对' },
+      { code: 'page:order-fulfillment-shipments', label: '出货单生成', description: '按可切换模板生成和导出出货单' },
+      { code: 'page:order-fulfillment-inventory', label: '库存与价格', description: '维护库存、规格、安全线和客户价格规则' },
+      { code: 'page:order-fulfillment-templates', label: '模板配置', description: '维护出货单模板库和字段映射' },
+      { code: 'page:order-fulfillment-alerts', label: '发货提醒', description: '按发货日期和异常风险配置提醒规则' },
     ],
   },
   {

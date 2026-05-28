@@ -28,6 +28,15 @@ import { MailboxManagementPage } from "./MailboxManagementPage";
 import { MeetingMinutes } from "./MeetingMinutes";
 import { MessageCenterPage } from "./MessageCenterPage";
 import { OpsCenterPage } from "./OpsCenterPage";
+import {
+  InventoryPricingPage,
+  OrderFulfillmentPage,
+  OrderIntakePage,
+  OrderReviewPage,
+  ShipmentGenerationPage,
+  ShippingAlertsPage,
+  TemplateConfigurationPage,
+} from "./OrderFulfillmentPage";
 import { PersonalCenterPage } from "./PersonalCenterPage";
 import { ContractReviewPage } from "./ContractReviewPage";
 import { QualityDMSPage } from "./QualityDMSPage";
@@ -230,6 +239,13 @@ const router = createBrowserRouter([
       { path: "meeting", element: makeProtected(<MeetingMinutes />, "page:meeting") },
       { path: "email-ai", element: makeProtected(<EmailAIPage />, "page:email-ai") },
       { path: "report-compression", element: makeProtected(<ReportCompressionPage />, "page:report-compression") },
+      { path: "order-fulfillment", element: makeProtected(<OrderFulfillmentPage />, "page:order-fulfillment") },
+      { path: "order-fulfillment/intake", element: makeProtected(<OrderIntakePage />, "page:order-fulfillment-intake") },
+      { path: "order-fulfillment/review", element: makeProtected(<OrderReviewPage />, "page:order-fulfillment-review") },
+      { path: "order-fulfillment/shipments", element: makeProtected(<ShipmentGenerationPage />, "page:order-fulfillment-shipments") },
+      { path: "order-fulfillment/inventory", element: makeProtected(<InventoryPricingPage />, "page:order-fulfillment-inventory") },
+      { path: "order-fulfillment/templates", element: makeProtected(<TemplateConfigurationPage />, "page:order-fulfillment-templates") },
+      { path: "order-fulfillment/alerts", element: makeProtected(<ShippingAlertsPage />, "page:order-fulfillment-alerts") },
       { path: "downloads", element: makeProtected(<DownloadTutorialPage />, "page:downloads") },
       { path: "downloads/:platformId", element: makeProtected(<PlatformTutorialPage />, "page:downloads") },
       { path: "departments", element: makeProtected(<DepartmentManagement />, "page:departments") },

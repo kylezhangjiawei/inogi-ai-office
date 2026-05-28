@@ -3,13 +3,16 @@ import {
   Activity,
   Bot,
   BadgeCheck,
+  BellRing,
   BookOpen,
   Bug,
   Building2,
   ClipboardList,
+  ClipboardCheck,
   Download,
   FileBox,
   FileSearch,
+  FileSpreadsheet,
   FileText,
   FolderKanban,
   GanttChartSquare,
@@ -20,9 +23,12 @@ import {
   LayoutGrid,
   ListChecks,
   Mail,
+  MailCheck,
   MessageSquareText,
   MonitorCog,
   NotebookPen,
+  PackageCheck,
+  PanelsTopLeft,
   Presentation,
   Receipt,
   Route,
@@ -35,6 +41,7 @@ import {
   UserSquare2,
   Wand2,
   Waypoints,
+  Warehouse,
 } from "lucide-react";
 
 export type NavItem = {
@@ -43,6 +50,8 @@ export type NavItem = {
   icon: React.ComponentType<{ className?: string }>;
   /** Permission code required to see this item. Omit for always-visible items. */
   requiredPermission?: string;
+  /** Default sidebar visibility before the permission catalog response arrives. */
+  navHidden?: boolean;
 };
 
 export type NavGroup = {
@@ -102,6 +111,18 @@ export const navGroups: NavGroup[] = [
       { label: "会议纪要", path: "/meeting", icon: NotebookPen, requiredPermission: "page:meeting" },
       { label: "邮件 AI 写作", path: "/email-ai", icon: Mail, requiredPermission: "page:email-ai" },
       { label: "汇报材料压缩", path: "/report-compression", icon: Presentation, requiredPermission: "page:report-compression" },
+    ],
+  },
+  {
+    label: "订单履约",
+    items: [
+      { label: "订单履约中心", path: "/order-fulfillment", icon: PackageCheck, requiredPermission: "page:order-fulfillment" },
+      { label: "订货单导入", path: "/order-fulfillment/intake", icon: MailCheck, requiredPermission: "page:order-fulfillment-intake", navHidden: true },
+      { label: "订单核对", path: "/order-fulfillment/review", icon: ClipboardCheck, requiredPermission: "page:order-fulfillment-review", navHidden: true },
+      { label: "出货单生成", path: "/order-fulfillment/shipments", icon: FileSpreadsheet, requiredPermission: "page:order-fulfillment-shipments", navHidden: true },
+      { label: "库存与价格", path: "/order-fulfillment/inventory", icon: Warehouse, requiredPermission: "page:order-fulfillment-inventory", navHidden: true },
+      { label: "模板配置", path: "/order-fulfillment/templates", icon: PanelsTopLeft, requiredPermission: "page:order-fulfillment-templates", navHidden: true },
+      { label: "发货提醒", path: "/order-fulfillment/alerts", icon: BellRing, requiredPermission: "page:order-fulfillment-alerts", navHidden: true },
     ],
   },
   {

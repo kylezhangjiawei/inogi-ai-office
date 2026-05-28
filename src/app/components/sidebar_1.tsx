@@ -7,25 +7,34 @@ import { navGroups } from "../routesConfig";
 import { cn } from "./ui/utils";
 import logo from '../../assets/logo.png'
 
+const defaultNavHiddenCodes = new Set(
+  navGroups
+    .flatMap((group) => group.items)
+    .filter((item) => item.navHidden && item.requiredPermission)
+    .map((item) => item.requiredPermission as string),
+);
+
 export function Sidebar() {
   const { user } = useAuth();
   const userPermissions = user?.permissions ?? [];
 
-  // Fetch nav-hidden codes from the permission catalog.
-  // Hidden pages are still accessible but not shown in the sidebar.
-  const [navHiddenCodes, setNavHiddenCodes] = useState<Set<string>>(new Set());
+  // Fetch nav-hidden codes from the permission catalog. Defaults prevent hidden child
+  // pages from flashing in the sidebar before the catalog response arrives.
+  const [navHiddenCodes, setNavHiddenCodes] = useState<Set<string>>(defaultNavHiddenCodes);
   useEffect(() => {
     if (!user) return;
     permissionCatalogApi
       .getNavHiddenCodes()
-      .then((codes) => setNavHiddenCodes(new Set(codes)))
-      .catch(() => { /* silently ignore — show all items on error */ });
+      .then((codes) => setNavHiddenCodes(new Set([...defaultNavHiddenCodes, ...codes])))
+      .catch(() => { /* silently keep route defaults */ });
   }, [user]);
 
   const visibleGroups = navGroups
     .map((group) => ({
       ...group,
       items: group.items.filter((item) => {
+        // Route-level child pages are accessible but never shown in the sidebar.
+        if (item.navHidden) return false;
         // Must have the required permission (or no permission required)
         if (item.requiredPermission && !hasPermission(userPermissions, item.requiredPermission)) return false;
         // Must not be marked as nav-hidden in the permission catalog
