@@ -58,4 +58,53 @@ export default defineConfig({
 
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
+
+  build: {
+    // 单 chunk 上限 2MB（业务主包目前 ~1.8MB，正常）。
+    // 后续可通过 React.lazy 路由懒加载进一步拆分，把首屏 chunk 控制到 < 1MB。
+    chunkSizeWarningLimit: 2000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // React 全家桶单独打一个包（占很大体积，但很少变化，浏览器缓存命中率高）
+          'react-vendor': ['react', 'react-dom', 'react/jsx-runtime', 'react-router'],
+          // Radix UI 组件库（大量 UI 原子组件，独立缓存）
+          'radix-vendor': [
+            '@radix-ui/react-accordion',
+            '@radix-ui/react-alert-dialog',
+            '@radix-ui/react-aspect-ratio',
+            '@radix-ui/react-avatar',
+            '@radix-ui/react-checkbox',
+            '@radix-ui/react-collapsible',
+            '@radix-ui/react-context-menu',
+            '@radix-ui/react-dialog',
+            '@radix-ui/react-dropdown-menu',
+            '@radix-ui/react-hover-card',
+            '@radix-ui/react-label',
+            '@radix-ui/react-menubar',
+            '@radix-ui/react-navigation-menu',
+            '@radix-ui/react-popover',
+            '@radix-ui/react-progress',
+            '@radix-ui/react-radio-group',
+            '@radix-ui/react-scroll-area',
+            '@radix-ui/react-select',
+            '@radix-ui/react-separator',
+            '@radix-ui/react-slider',
+            '@radix-ui/react-slot',
+            '@radix-ui/react-switch',
+            '@radix-ui/react-tabs',
+            '@radix-ui/react-toggle',
+            '@radix-ui/react-toggle-group',
+            '@radix-ui/react-tooltip',
+          ],
+          // 大型独立库：图表 / 动画 / 图标 / 表格
+          'recharts-vendor': ['recharts'],
+          'motion-vendor': ['motion'],
+          'lucide-vendor': ['lucide-react'],
+          // MUI（如果有用到，比较大）
+          'mui-vendor': ['@mui/material', '@mui/icons-material', '@emotion/react', '@emotion/styled'],
+        },
+      },
+    },
+  },
 })

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { SavePermissionCatalogItemDto } from './dto/save-permission-catalog-item.dto';
@@ -6,6 +6,8 @@ import { DEFAULT_PERMISSION_CATALOG } from './permission-catalog.defaults';
 
 @Injectable()
 export class PermissionCatalogService {
+  private readonly logger = new Logger(PermissionCatalogService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async listGroups(options: { enabledOnly?: boolean } = {}) {
@@ -90,21 +92,42 @@ export class PermissionCatalogService {
    *  - Existing deployments: newly added defaults are auto-synced (e.g. when we
    *    ship a new page, its permission entry shows up after backend restart)
    *  - Admin's manual customizations to existing entries are NOT overwritten
+   *
+   * Failure tolerance: each item is inserted independently with try-catch.
+   * A single bad item (e.g. unique-constraint race, invalid data) will only
+   * be logged and skipped — it will NOT crash the entire endpoint. This is
+   * critical because `ensureDefaults` runs on every list/save/remove call,
+   * so a transaction-wide failure would make the whole permission-catalog
+   * page unusable in production.
    */
   async ensureDefaults() {
-    const existing = await this.prisma.permissionCatalogItem.findMany({
-      select: { code: true },
-    });
+    let existing: Array<{ code: string }>;
+    try {
+      existing = await this.prisma.permissionCatalogItem.findMany({
+        select: { code: true },
+      });
+    } catch (err) {
+      this.logger.error(
+        `[ensureDefaults] failed to query existing codes: ${(err as Error).message}`,
+      );
+      // If we can't even read, bail out silently — let the caller's own query
+      // surface the real DB error rather than masking it here.
+      return;
+    }
+
     const existingCodes = new Set(existing.map((row) => row.code));
     const missing = DEFAULT_PERMISSION_CATALOG.filter(
       (item) => !existingCodes.has(item.code),
     );
     if (missing.length === 0) return;
 
-    await this.prisma.$transaction(
-      missing.map((item) =>
-        this.prisma.permissionCatalogItem.create({
-          data: {
+    let okCount = 0;
+    let failCount = 0;
+    for (const item of missing) {
+      try {
+        await this.prisma.permissionCatalogItem.upsert({
+          where: { code: item.code },
+          create: {
             code: item.code,
             label: item.label,
             description: item.description ?? '',
@@ -115,8 +138,26 @@ export class PermissionCatalogService {
             navHidden: item.navHidden ?? false,
             sortOrder: item.sortOrder,
           },
-        }),
-      ),
-    );
+          // Do NOT overwrite admin's manual customizations on existing rows.
+          // upsert is used purely for race-condition safety (two requests
+          // both seeing the code as "missing" and both trying to insert).
+          update: {},
+        });
+        okCount += 1;
+      } catch (err) {
+        failCount += 1;
+        this.logger.warn(
+          `[ensureDefaults] failed to seed code="${item.code}" label="${item.label}": ${(err as Error).message}`,
+        );
+      }
+    }
+
+    if (failCount > 0) {
+      this.logger.warn(
+        `[ensureDefaults] seeding done: ${okCount} ok, ${failCount} failed (see warnings above)`,
+      );
+    } else if (okCount > 0) {
+      this.logger.log(`[ensureDefaults] seeded ${okCount} new permission(s)`);
+    }
   }
 }

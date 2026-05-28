@@ -1234,7 +1234,7 @@ export async function uploadKbFiles(params: {
   if (params.visibility) fd.append('visibility', params.visibility);
   if (typeof params.permission_level === 'number') fd.append('permission_level', String(params.permission_level));
   if (params.tags) fd.append('tags', params.tags);
-  const { authFetch, readErrorMessage } = await import('./authSession');
+  // authFetch/readErrorMessage 顶部已经 import，无需 dynamic import（之前的写法会触发 Rollup 警告）
   const response = await authFetch(`${RD_API_BASE}/knowledge/entries`, { method: 'POST', body: fd });
   if (!response.ok) throw new Error(await readErrorMessage(response, '上传失败'));
   return (await response.json()) as KbEntry[];
