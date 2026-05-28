@@ -11,6 +11,7 @@ import {
   Fingerprint,
   Gauge,
   KeyRound,
+  Loader2,
   LockKeyhole,
   Mail,
   RotateCcw,
@@ -56,6 +57,20 @@ async function updateProfile(payload: { name: string; email: string }) {
   if (!response.ok) throw new Error(await readErrorMessage(response, "个人资料保存失败"));
 }
 
+async function uploadMyAvatar(file: File): Promise<{ avatarUrl: string | null }> {
+  const formData = new FormData();
+  formData.append("file", file);
+  // 注意：FormData 必须让浏览器自动设 boundary 的 Content-Type，authFetch 自动跳过 JSON 头
+  const response = await authFetch("/api/auth/me/avatar", { method: "POST", body: formData });
+  if (!response.ok) throw new Error(await readErrorMessage(response, "头像上传失败"));
+  return response.json() as Promise<{ avatarUrl: string | null }>;
+}
+
+async function resetMyAvatar(): Promise<void> {
+  const response = await authFetch("/api/auth/me/avatar", { method: "DELETE" });
+  if (!response.ok) throw new Error(await readErrorMessage(response, "头像重置失败"));
+}
+
 async function updatePassword(oldPassword: string, newPassword: string) {
   const response = await authFetch("/api/auth/me/password", {
     method: "POST",
@@ -76,6 +91,9 @@ export function PersonalCenterPage() {
   const [passwordForm, setPasswordForm] = useState({ oldPassword: "", password: "", confirmPassword: "" });
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
+  /** 头像上传中状态：用于禁用按钮 + 显示 spinner，让用户能感知请求进行/完成 */
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [resettingAvatar, setResettingAvatar] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [showOldPassword, setShowOldPassword] = useState(false);
   const shouldReduceMotion = useReducedMotion();
@@ -101,14 +119,29 @@ export function PersonalCenterPage() {
     event.target.value = "";
     if (!file || !user) return;
     if (!file.type.startsWith("image/")) { toast.error("请选择图片文件"); return; }
-    if (file.size > 1024 * 1024 * 2) { toast.error("头像图片不能超过 2MB"); return; }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = String(reader.result ?? "");
-      if (dataUrl) { saveStoredUserAvatar(user.id, dataUrl); toast.success("头像已更新"); }
-    };
-    reader.onerror = () => toast.error("头像读取失败");
-    reader.readAsDataURL(file);
+    if (file.size > 1024 * 1024 * 10) { toast.error("头像图片不能超过 10MB"); return; }
+    if (uploadingAvatar) return; // 防止用户连点
+    setUploadingAvatar(true);
+    // 用 toast.promise 给用户全过程反馈：上传中 → 成功/失败
+    try {
+      await toast.promise(
+        (async () => {
+          // 上传到 OSS（后端 multer 接收 → uploadBuffer → 写 DB avatarObjectKey）
+          await uploadMyAvatar(file);
+          // 兼容历史 localStorage 缓存：清掉本地旧 dataURL，让 hook 走 user.avatarUrl
+          clearStoredUserAvatar(user.id);
+          // 重新拉 user，拿到带新 avatarUrl 的 profile（带签名 URL）
+          await refreshUser();
+        })(),
+        {
+          loading: "正在上传头像到 OSS…",
+          success: "头像已更新",
+          error: (err) => (err instanceof Error ? err.message : "头像上传失败"),
+        },
+      );
+    } finally {
+      setUploadingAvatar(false);
+    }
   }
 
   async function handleSaveProfile() {
@@ -198,17 +231,35 @@ export function PersonalCenterPage() {
                 <div className="absolute -inset-1 rounded-[10px] bg-[linear-gradient(135deg,var(--primary),var(--chart-2),var(--chart-4))] opacity-65 blur-[2px]" />
                 <div className="relative flex h-[110px] w-[110px] items-center justify-center overflow-hidden rounded-[9px] border border-white/80 bg-white/90 text-4xl font-black text-primary shadow-[0_20px_48px_rgba(30,64,175,0.16)]">
                   {avatar ? <img src={avatar} alt="当前头像" className="h-full w-full object-cover" /> : initials(user?.name)}
+                  {/* 上传中遮罩：暗化头像 + 居中 spinner + 文案 */}
+                  {(uploadingAvatar || resettingAvatar) && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-slate-900/55 text-white backdrop-blur-[2px]">
+                      <Loader2 className="h-6 w-6 animate-spin" />
+                      <span className="text-[10px] font-semibold tracking-wide">
+                        {uploadingAvatar ? "上传中…" : "重置中…"}
+                      </span>
+                    </div>
+                  )}
                 </div>
                 <motion.button
                   type="button"
-                  whileTap={shouldReduceMotion ? undefined : { scale: 0.93 }}
+                  whileTap={shouldReduceMotion || uploadingAvatar ? undefined : { scale: 0.93 }}
                   onClick={() => fileInputRef.current?.click()}
-                  className="absolute -bottom-3 -right-3 flex h-10 w-10 cursor-pointer items-center justify-center rounded-[8px] border border-primary/20 bg-primary text-primary-foreground shadow-[0_10px_24px_rgba(30,64,175,0.28)] transition hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20"
+                  disabled={uploadingAvatar || resettingAvatar}
+                  className="absolute -bottom-3 -right-3 flex h-10 w-10 cursor-pointer items-center justify-center rounded-[8px] border border-primary/20 bg-primary text-primary-foreground shadow-[0_10px_24px_rgba(30,64,175,0.28)] transition hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
                   aria-label="上传头像"
+                  title={uploadingAvatar ? "上传中，请稍候" : "选择图片上传头像"}
                 >
-                  <Camera className="h-4 w-4" />
+                  {uploadingAvatar ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
                 </motion.button>
-                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarFile} />
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleAvatarFile}
+                  disabled={uploadingAvatar || resettingAvatar}
+                />
               </motion.div>
 
               {/* name + role + email badges */}
@@ -301,11 +352,31 @@ export function PersonalCenterPage() {
               <motion.button
                 type="button"
                 whileTap={shouldReduceMotion ? undefined : { scale: 0.98 }}
-                onClick={() => { if (!user) return; clearStoredUserAvatar(user.id); toast.success("头像已恢复为默认样式"); }}
-                className="inline-flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-[8px] border border-primary/15 bg-white/80 px-3 text-sm font-bold text-primary backdrop-blur transition hover:border-primary/25 hover:bg-primary-container focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/15"
+                onClick={async () => {
+                  if (!user || resettingAvatar) return;
+                  setResettingAvatar(true);
+                  try {
+                    await toast.promise(
+                      (async () => {
+                        await resetMyAvatar();
+                        clearStoredUserAvatar(user.id);
+                        await refreshUser();
+                      })(),
+                      {
+                        loading: "正在恢复默认头像…",
+                        success: "头像已恢复为默认样式",
+                        error: (err) => (err instanceof Error ? err.message : "头像重置失败"),
+                      },
+                    );
+                  } finally {
+                    setResettingAvatar(false);
+                  }
+                }}
+                disabled={resettingAvatar || uploadingAvatar}
+                className="inline-flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-[8px] border border-primary/15 bg-white/80 px-3 text-sm font-bold text-primary backdrop-blur transition hover:border-primary/25 hover:bg-primary-container focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/15 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                <RotateCcw className="h-4 w-4" />
-                恢复默认头像
+                {resettingAvatar ? <Loader2 className="h-4 w-4 animate-spin" /> : <RotateCcw className="h-4 w-4" />}
+                {resettingAvatar ? "恢复中…" : "恢复默认头像"}
               </motion.button>
             ) : null}
           </aside>

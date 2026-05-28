@@ -214,13 +214,18 @@ export class IntegrationManagementService {
     const name = payload.name?.trim();
     const provider = payload.provider?.trim();
     const model = payload.model?.trim();
-    const currentStatus = payload.current_status?.trim();
 
-    if (!name || !provider || !model || !currentStatus) {
-      throw new BadRequestException('模型名称、服务商、模型标识和当前状态不能为空');
+    if (!name || !provider || !model) {
+      throw new BadRequestException('模型名称、服务商、模型标识不能为空');
     }
 
     const operatorName = await this.resolveOperatorName(userId);
+
+    // 若本次保存把这条设为默认，先把其它模型的 is_default_enabled 清零
+    // 保证全表至多一条默认模型，避免前端"默认模型不确定"的问题
+    if (payload.is_default_enabled) {
+      await this.clearOtherDefaultModels(payload.id);
+    }
 
     if (payload.id) {
       const existing = await this.prisma.integrationConfig.findFirst({
@@ -302,19 +307,29 @@ export class IntegrationManagementService {
 
     const provider = payload.provider?.trim() || existing?.provider || 'openai';
     const useImageModelTest = this.shouldUseImageModelConnectionTest(provider, model);
+    const useEmbeddingModelTest = this.shouldUseEmbeddingConnectionTest(model);
 
     try {
-      const result = useImageModelTest ? await this.openAiScreeningService.testImageConnection(
-        apiKey,
-        model,
-        baseUrl || undefined,
-        provider,
-      ) : await this.openAiScreeningService.testConnection(
-        apiKey,
-        model,
-        baseUrl || undefined,
-        provider,
-      );
+      const result = useImageModelTest
+        ? await this.openAiScreeningService.testImageConnection(
+            apiKey,
+            model,
+            baseUrl || undefined,
+            provider,
+          )
+        : useEmbeddingModelTest
+          ? await this.openAiScreeningService.testEmbeddingConnection(
+              apiKey,
+              model,
+              baseUrl || undefined,
+              provider,
+            )
+          : await this.openAiScreeningService.testConnection(
+              apiKey,
+              model,
+              baseUrl || undefined,
+              provider,
+            );
 
       if (existing) {
         const runtimeMetadata = this.mergeAiRuntimeMetadata(existingMetadata, {
@@ -386,6 +401,12 @@ export class IntegrationManagementService {
     return isOpenAiProvider && (normalizedModel.startsWith('gpt-image-') || normalizedModel.startsWith('dall-e-'));
   }
 
+  /** 模型名含 embedding/embed 的走 embeddings.create 测试，避免 chat 接口 400 */
+  private shouldUseEmbeddingConnectionTest(model: string) {
+    const normalizedModel = model.trim().toLowerCase();
+    return /(^|[\-_/])embed(ding)?(s)?($|[\-_/])/.test(normalizedModel) || normalizedModel.includes('embedding');
+  }
+
   private async resolveOperatorName(userId?: string) {
     if (!userId) return '系统';
 
@@ -455,35 +476,56 @@ export class IntegrationManagementService {
     };
   }
 
+  /**
+   * 把除 excludeId 之外的所有 openai 类型模型的 is_default_enabled 清零，
+   * 保证全表至多一条"默认模型"。
+   */
+  private async clearOtherDefaultModels(excludeId?: string): Promise<void> {
+    const candidates = await this.prisma.integrationConfig.findMany({
+      where: {
+        kind: 'openai',
+        ...(excludeId ? { NOT: { id: excludeId } } : {}),
+      },
+    });
+    await Promise.all(
+      candidates
+        .filter((cfg) => {
+          const meta = this.parseAiModelMetadata(cfg.metadata);
+          return meta.is_default_enabled;
+        })
+        .map((cfg) => {
+          const meta = this.parseAiModelMetadata(cfg.metadata);
+          return this.prisma.integrationConfig.update({
+            where: { id: cfg.id },
+            data: {
+              metadata: {
+                ...meta,
+                is_default_enabled: false,
+              } as Prisma.InputJsonValue,
+            },
+          });
+        }),
+    );
+  }
+
   private toAiModelMetadata(
     payload: SaveAiModelDto,
     operatorName: string,
     base?: AiModelMetadata,
   ): AiModelMetadata {
+    // 运行时字段（current_status / last_success_at / last_failure_at / last_latency_ms /
+    // today_requests / today_tokens / total_tokens / daily_token_usage / today_usage_date /
+    // last_error_message）只能由"测试连通性"和"实际使用"路径写入，不允许通过保存表单覆盖。
+    // 否则会出现：测试成功 → 用户保存 → 把刚刚刷新的"运行正常"又覆盖回旧的"连接异常"。
     return {
       operator_name: operatorName,
       base_url: typeof payload.base_url === 'string' ? payload.base_url.trim() : base?.base_url ?? '',
-      current_status: payload.current_status?.trim() || base?.current_status || '未配置',
-      last_success_at:
-        typeof payload.last_success_at === 'string'
-          ? payload.last_success_at.trim() || null
-          : base?.last_success_at ?? null,
-      last_failure_at:
-        typeof payload.last_failure_at === 'string'
-          ? payload.last_failure_at.trim() || null
-          : base?.last_failure_at ?? null,
-      last_latency_ms:
-        typeof payload.last_latency_ms === 'number'
-          ? payload.last_latency_ms
-          : base?.last_latency_ms ?? null,
-      today_requests:
-        typeof payload.today_requests === 'number'
-          ? payload.today_requests
-          : base?.today_requests ?? 0,
-      today_tokens:
-        typeof payload.today_tokens === 'number'
-          ? payload.today_tokens
-          : base?.today_tokens ?? 0,
+      current_status: base?.current_status ?? '未配置',
+      last_success_at: base?.last_success_at ?? null,
+      last_failure_at: base?.last_failure_at ?? null,
+      last_latency_ms: base?.last_latency_ms ?? null,
+      today_requests: base?.today_requests ?? 0,
+      today_tokens: base?.today_tokens ?? 0,
       total_tokens: base?.total_tokens ?? 0,
       daily_token_usage: base?.daily_token_usage ?? [],
       is_default_enabled: Boolean(payload.is_default_enabled),

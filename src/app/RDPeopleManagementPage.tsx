@@ -29,6 +29,37 @@ import {
   updateRdPerson,
   type RdIdentityUser,
 } from "./lib/rdApi";
+import { authFetch } from "./lib/authSession";
+
+// ─── Department API（复用 /api/departments，独立于 RD API 前缀） ──────────────
+
+type DepartmentOption = { id: string; code: string; name: string; category: string };
+
+async function apiListDepartmentOptions(): Promise<DepartmentOption[]> {
+  const res = await authFetch("/api/departments/options");
+  if (!res.ok) throw new Error("获取分组列表失败");
+  return res.json() as Promise<DepartmentOption[]>;
+}
+
+async function apiCreateDepartment(name: string): Promise<DepartmentOption> {
+  // 兜底自动生成 code/category，避免要求管理员填一堆字段
+  const code = `RD-${Date.now().toString(36).toUpperCase()}`;
+  const res = await authFetch("/api/departments", {
+    method: "POST",
+    body: JSON.stringify({
+      name: name.trim(),
+      code,
+      category: "研发",
+      enabled: true,
+    }),
+  });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { message?: string | string[] };
+    const msg = Array.isArray(err.message) ? err.message.join(", ") : (err.message ?? "新建分组失败");
+    throw new Error(msg);
+  }
+  return res.json() as Promise<DepartmentOption>;
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -192,17 +223,74 @@ function Field({
 function PersonFormModal({
   person,
   users,
+  canManageDepartments,
   onSave,
   onClose,
 }: {
   person: Person | null;
   users: RdIdentityUser[];
+  canManageDepartments: boolean;
   onSave: (p: Person) => void;
   onClose: () => void;
 }) {
   const isEdit = person !== null;
   const [form, setForm] = useState<Person>(person ?? emptyPerson());
   const [errors, setErrors] = useState<{ name?: string; position?: string }>({});
+  // 切换编辑对象 / 重新打开同一个对象时，把表单 state 同步到最新 person prop，避免显示老数据
+  useEffect(() => {
+    setForm(person ?? emptyPerson());
+    setErrors({});
+  }, [person?.id]);
+
+  // 分组选项：来自后端 /api/departments/options；失败时回退到旧的硬编码兜底
+  const [departments, setDepartments] = useState<string[]>([]);
+  const [creatingDept, setCreatingDept] = useState(false);
+  const [newDeptName, setNewDeptName] = useState("");
+  const [savingNewDept, setSavingNewDept] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    apiListDepartmentOptions()
+      .then((list) => {
+        if (cancelled) return;
+        const names = list.map((d) => d.name).filter(Boolean);
+        // 确保至少含有当前 form.department，避免编辑时下拉里没有当前值
+        const merged = Array.from(new Set([...names, ...(form.department ? [form.department] : [])]));
+        setDepartments(merged.length > 0 ? merged : DEPARTMENTS);
+      })
+      .catch(() => {
+        if (!cancelled) setDepartments(DEPARTMENTS);
+      });
+    return () => { cancelled = true; };
+    // 故意只在挂载时拉一次；新建后会手动 push 到 departments
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleCreateDepartment = async () => {
+    const name = newDeptName.trim();
+    if (!name) {
+      toast.error("分组名称不能为空");
+      return;
+    }
+    if (departments.includes(name)) {
+      toast.error("该分组已存在");
+      return;
+    }
+    setSavingNewDept(true);
+    try {
+      const created = await apiCreateDepartment(name);
+      setDepartments((prev) => Array.from(new Set([...prev, created.name])));
+      setForm((f) => ({ ...f, department: created.name }));
+      toast.success(`已新建分组：${created.name}`);
+      setCreatingDept(false);
+      setNewDeptName("");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "新建分组失败");
+    } finally {
+      setSavingNewDept(false);
+    }
+  };
+
   const selectedUser = users.find((user) => user.id === form.user_id);
   const kbScore = clampAccessScore(form.kb_level);
   const kbScoreConfig = getAccessScoreConfig(kbScore);
@@ -305,17 +393,61 @@ function PersonFormModal({
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="所属组">
-              <NativeSelect
-                value={form.department}
-                onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))}
-                className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
-              >
-                {DEPARTMENTS.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </NativeSelect>
+              {creatingDept ? (
+                <div className="flex items-center gap-1.5">
+                  <Input
+                    value={newDeptName}
+                    onChange={(e) => setNewDeptName(e.target.value)}
+                    placeholder="新分组名"
+                    autoFocus
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") { e.preventDefault(); void handleCreateDepartment(); }
+                      else if (e.key === "Escape") { setCreatingDept(false); setNewDeptName(""); }
+                    }}
+                    className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                  />
+                  <button
+                    type="button"
+                    disabled={savingNewDept || !newDeptName.trim()}
+                    onClick={() => void handleCreateDepartment()}
+                    className="shrink-0 rounded-md bg-blue-600 px-2 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-60"
+                  >
+                    {savingNewDept ? "..." : "保存"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setCreatingDept(false); setNewDeptName(""); }}
+                    className="shrink-0 rounded-md border border-slate-200 bg-white px-2 py-2 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+                  >
+                    取消
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5">
+                  <NativeSelect
+                    value={form.department}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      if (v === "__create__") {
+                        setCreatingDept(true);
+                        return;
+                      }
+                      setForm((f) => ({ ...f, department: v }));
+                    }}
+                    className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                  >
+                    {!form.department && <option value="">未指定</option>}
+                    {departments.map((d) => (
+                      <option key={d} value={d}>
+                        {d}
+                      </option>
+                    ))}
+                    {canManageDepartments && (
+                      <option value="__create__">＋ 新建分组…</option>
+                    )}
+                  </NativeSelect>
+                </div>
+              )}
             </Field>
             <Field label="状态">
               <NativeSelect
@@ -525,6 +657,9 @@ export function RDPeopleManagementPage({
           ),
           max_tasks: p.max_tasks,
           joined_at: (p as Person & { joined_at?: string }).joined_at,
+          // ⚠️ 之前漏映射了 kb_level / kb_level_scale，导致页面 fallback 全显示 20
+          kb_level: typeof p.kb_level === "number" ? p.kb_level : undefined,
+          kb_level_scale: p.kb_level_scale === "score" ? "score" : undefined,
         }));
         setPeople(remotePeople);
       } catch (error) {
@@ -1026,6 +1161,7 @@ export function RDPeopleManagementPage({
         <PersonFormModal
           person={editing}
           users={systemUsers}
+          canManageDepartments={canManagePeople}
           onSave={handleSave}
           onClose={() => {
             setEditing(null);

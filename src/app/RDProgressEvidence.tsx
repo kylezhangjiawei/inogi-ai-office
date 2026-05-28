@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Download, FileText, ImageIcon, Paperclip, X } from "lucide-react";
 import { cn } from "./components/ui/utils";
-import type { RdTaskProgressAttachment, RdTaskProgressNote } from "./lib/rdApi";
+import { getAttachmentUrl, type RdTaskProgressAttachment, type RdTaskProgressNote } from "./lib/rdApi";
 
 export function formatRdFileSize(size: number): string {
   if (!Number.isFinite(size) || size <= 0) return "0 B";
@@ -48,7 +48,7 @@ export function ProgressAttachmentGrid({
               >
                 <div className={cn("relative bg-slate-100", compact ? "h-20" : "h-32")}>
                   <img
-                    src={att.data_url}
+                    src={getAttachmentUrl(att)}
                     alt={att.name}
                     className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
                     loading="lazy"
@@ -113,8 +113,10 @@ function AttachmentPreviewModal({
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <a
-              href={attachment.data_url}
+              href={getAttachmentUrl(attachment)}
               download={attachment.name}
+              target="_blank"
+              rel="noopener noreferrer"
               className="inline-flex h-8 items-center gap-1.5 rounded-[8px] border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-700 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
             >
               <Download className="h-3.5 w-3.5" />
@@ -133,11 +135,11 @@ function AttachmentPreviewModal({
         <div className="min-h-0 flex-1 overflow-auto bg-slate-100 p-4">
           {isImage ? (
             <div className="flex min-h-[52vh] items-center justify-center">
-              <img src={attachment.data_url} alt={attachment.name} className="max-h-[72vh] max-w-full rounded-[8px] bg-white object-contain shadow-sm" />
+              <img src={getAttachmentUrl(attachment)} alt={attachment.name} className="max-h-[72vh] max-w-full rounded-[8px] bg-white object-contain shadow-sm" />
             </div>
           ) : canInlinePreview ? (
             <iframe
-              src={attachment.data_url}
+              src={getAttachmentUrl(attachment)}
               title={attachment.name}
               className="h-[72vh] w-full rounded-[8px] border border-slate-200 bg-white"
             />

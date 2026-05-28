@@ -1,6 +1,7 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    # pgvector 官方镜像，基于 postgres:16 + 预装 pgvector 扩展（用于 RAG 知识检索）
+    image: pgvector/pgvector:pg16
     container_name: inogi-postgres
     restart: unless-stopped
     environment:

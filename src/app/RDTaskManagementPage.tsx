@@ -9,6 +9,7 @@ import {
   CalendarClock,
   CalendarDays,
   CarFront,
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronLeft,
@@ -55,11 +56,15 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./comp
 import { usePermission } from "./hooks/usePermission";
 import { AuditTimeline } from "./RDAuditTimeline";
 import { AuditActor, AuditChange, recordAudit, useAuditActor, useAuditLogs } from "./lib/auditLog";
-import { PERMISSIONS } from "./lib/permissions";
+import { PERMISSIONS, isSuperAdmin } from "./lib/permissions";
 import {
+  backfillRdTaskCompletionScores,
+  backfillRdTaskProgressNoteExtraction,
   fetchRdAiSettings,
   fetchRdPeople,
   fetchRdTaskCategories,
+  fetchRdTaskCompletionScore,
+  fetchRdTaskCompletionScoreDebug,
   fetchRdTaskProgressNotes,
   createRdTask,
   extractRdTasksFromFile,
@@ -79,13 +84,21 @@ import {
   type RdPriority,
   type RdSubProject,
   type RdTask,
+  type RdTaskCompletionScore,
+  type RdTaskCompletionScoreDebug,
   type RdTaskProgressAttachment,
   type RdTaskProgressNote,
   type RdTaskStatus,
   type RdProductDef,
   type RdProductStatus,
+  getAttachmentUrl,
 } from "./lib/rdApi";
 import { ProgressAttachmentGrid, ProgressNoteList } from "./RDProgressEvidence";
+import {
+  computeTaskCompletionScore,
+  getGradeTone,
+  type TaskCompletionScore,
+} from "./lib/taskCompletionScore";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
 import { Button } from "./components/ui/button";
 import { Label } from "./components/ui/label";
@@ -212,6 +225,56 @@ function daysUntil(dateStr?: string): number | null {
   const d = new Date(dateStr);
   return Math.ceil((d.getTime() - TODAY.getTime()) / (1000 * 60 * 60 * 24));
 }
+
+/**
+ * 把 ISO 时间戳格式化成"最近更新"的相对短语 + 配色 tone：
+ *   今天 HH:MM (绿，新鲜)
+ *   昨天      (蓝)
+ *   N 天前    (1-7 → 琥珀色；7+ → 灰色)
+ *   N 个月前 / N 年前 (灰色，过期）
+ */
+function formatRelativeUpdate(iso?: string | null): {
+  label: string;
+  tone: "fresh" | "recent" | "aging" | "stale";
+} | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return null;
+  const now = Date.now();
+  const diffMs = now - t;
+  if (diffMs < 0) {
+    // 未来时间（数据脏）按"刚刚"处理
+    return { label: "刚刚", tone: "fresh" };
+  }
+  const min = Math.floor(diffMs / 60000);
+  if (min < 1) return { label: "刚刚", tone: "fresh" };
+  if (min < 60) return { label: `${min} 分钟前`, tone: "fresh" };
+
+  // 按"自然日"计算今天/昨天，不是 24 小时
+  const dt = new Date(iso);
+  const today = new Date(TODAY_STR);
+  const dtDay = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate());
+  const todayDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const dayDiff = Math.floor((todayDay.getTime() - dtDay.getTime()) / 86_400_000);
+
+  const hhmm = `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
+  if (dayDiff === 0) return { label: `今天 ${hhmm}`, tone: "fresh" };
+  if (dayDiff === 1) return { label: `昨天 ${hhmm}`, tone: "recent" };
+  if (dayDiff <= 7) return { label: `${dayDiff} 天前`, tone: "aging" };
+  if (dayDiff <= 30) return { label: `${dayDiff} 天前`, tone: "stale" };
+  if (dayDiff <= 365) return { label: `${Math.floor(dayDiff / 30)} 个月前`, tone: "stale" };
+  return { label: `${Math.floor(dayDiff / 365)} 年前`, tone: "stale" };
+}
+
+const RELATIVE_UPDATE_TONE: Record<
+  "fresh" | "recent" | "aging" | "stale",
+  { bg: string; text: string; border: string; dot: string }
+> = {
+  fresh: { bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200", dot: "bg-emerald-500" },
+  recent: { bg: "bg-blue-50", text: "text-blue-700", border: "border-blue-200", dot: "bg-blue-500" },
+  aging: { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200", dot: "bg-amber-500" },
+  stale: { bg: "bg-slate-100", text: "text-slate-600", border: "border-slate-200", dot: "bg-slate-400" },
+};
 
 type Risk = {
   task: Task;
@@ -678,6 +741,7 @@ function TaskItem({
             <span
               className={cn(
                 "truncate",
+                "line-clamp-2 break-words", // 长标题最多两行，超过省略
                 task.archived
                   ? "text-slate-400 line-through"
                   : task.status === "completed"
@@ -686,6 +750,7 @@ function TaskItem({
                       ? "text-[15px] font-semibold text-slate-950"
                       : "text-sm font-medium text-slate-700",
               )}
+              title={task.title}
             >
               {task.title}
             </span>
@@ -1303,6 +1368,17 @@ type CatStat = {
   progress: number;
   risks: number;
   riskItems: Risk[];
+};
+
+// 研发执行提示 KPI 卡片筛选：点击 KPI 卡片可筛选下方任务列表
+type KpiFilter = "all" | "in_progress" | "completed" | "blocked" | "risk";
+
+const KPI_FILTER_LABEL: Record<KpiFilter, string> = {
+  all: "全部",
+  in_progress: "进行中",
+  completed: "已完成",
+  blocked: "阻塞 / 待派",
+  risk: "风险任务",
 };
 
 function buildCatStats(categories: Category[], risks: Risk[]): CatStat[] {
@@ -3099,6 +3175,155 @@ function HandoverDialog({
   );
 }
 
+// ─── AddCollaboratorsDialog（管理员专用：直接添加，不走审核流程）──────────────
+function AddCollaboratorsDialog({
+  taskTitle,
+  currentOwner,
+  existingCollaborators,
+  people,
+  onConfirm,
+  onCancel,
+}: {
+  taskTitle: string;
+  currentOwner: string;
+  existingCollaborators: RdCollaborator[];
+  people: PersonProfile[];
+  onConfirm: (newCollaborators: RdCollaborator[]) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const shouldReduceMotion = useReducedMotion();
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [saving, setSaving] = useState(false);
+
+  const existingNames = useMemo(
+    () => new Set(existingCollaborators.map((c) => c.name).concat([currentOwner])),
+    [existingCollaborators, currentOwner],
+  );
+
+  // 候选人 = 全部人员 - 主责人 - 已有协作人
+  const candidates = useMemo(
+    () => people.filter((p) => p.name && !existingNames.has(p.name)),
+    [people, existingNames],
+  );
+
+  const toggle = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleConfirm = async () => {
+    if (selected.size === 0) { toast.error("请至少选择一位协作人"); return; }
+    const additions: RdCollaborator[] = candidates
+      .filter((p) => selected.has(p.id))
+      .map((p) => ({
+        id: p.id,
+        name: p.name,
+        role: p.position || "协作人",
+        user_id: p.user_id ?? null,
+      }));
+    setSaving(true);
+    try {
+      await onConfirm(additions);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={shouldReduceMotion ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={RD_FAST_TRANSITION}
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      onClick={onCancel}
+    >
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 14, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 14, scale: 0.98 }}
+        transition={RD_PANEL_TRANSITION}
+        className="flex w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center gap-3 border-b border-blue-100 bg-blue-50/60 px-6 py-4">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+            <UserPlus className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-base font-semibold text-slate-900">添加协作人</h3>
+            <p className="mt-0.5 truncate text-[11px] text-slate-500">{taskTitle}</p>
+          </div>
+        </div>
+        <div className="space-y-3 px-6 py-4">
+          <p className="text-xs leading-relaxed text-slate-500">
+            管理员直接添加将<span className="font-semibold text-blue-700">立即生效</span>，不需要走审核流程。
+            已选 <span className="font-semibold text-slate-700 tabular-nums">{selected.size}</span> / {candidates.length} 人
+          </p>
+          <div className="max-h-72 overflow-y-auto rounded-md border border-slate-200">
+            {candidates.length === 0 ? (
+              <div className="px-3 py-6 text-center text-xs text-slate-400">无可添加的人员（其他人都已在协作或主责）</div>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {candidates.map((p) => {
+                  const isSelected = selected.has(p.id);
+                  return (
+                    <li key={p.id}>
+                      <button
+                        type="button"
+                        onClick={() => toggle(p.id)}
+                        className={cn(
+                          "flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition-colors",
+                          isSelected ? "bg-blue-50 text-blue-800" : "hover:bg-slate-50 text-slate-700",
+                        )}
+                      >
+                        <span
+                          className={cn(
+                            "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
+                            isSelected ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300 bg-white",
+                          )}
+                        >
+                          {isSelected && <Check className="h-3 w-3" />}
+                        </span>
+                        <OwnerAvatar name={p.name} size="xs" />
+                        <span className="min-w-0 flex-1 truncate font-medium">{p.name}</span>
+                        {p.position && <span className="shrink-0 text-[11px] text-slate-400">{p.position}</span>}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
+          <button
+            type="button"
+            disabled={saving}
+            onClick={onCancel}
+            className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            disabled={saving || selected.size === 0}
+            onClick={handleConfirm}
+            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-60"
+          >
+            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <UserPlus className="h-3 w-3" />}
+            确认添加 {selected.size > 0 ? `(${selected.size})` : ""}
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 // ─── ApprovalActionDialog ─────────────────────────────────────────────────────
 function ApprovalActionDialog({
   mode,
@@ -3217,12 +3442,460 @@ function ApprovalActionDialog({
   );
 }
 
+function TaskCompletionScoreCard({
+  task,
+  notes: _notes,
+  loading,
+  canView,
+}: {
+  task: Task;
+  notes: RdTaskProgressNote[];
+  loading: boolean;
+  canView: boolean;
+}) {
+  const { user } = useAuth();
+  const isSuper = isSuperAdmin(user?.permissions);
+  const [aiScore, setAiScore] = useState<RdTaskCompletionScore | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiFetched, setAiFetched] = useState(false);
+  const [debugOpen, setDebugOpen] = useState(false);
+  const [debugData, setDebugData] = useState<RdTaskCompletionScoreDebug | null>(null);
+  const [debugLoading, setDebugLoading] = useState(false);
+  void _notes;
+
+  const openDebug = useCallback(async () => {
+    setDebugOpen(true);
+    if (debugData) return; // 已经拉过
+    setDebugLoading(true);
+    try {
+      const d = await fetchRdTaskCompletionScoreDebug(task.task_id);
+      setDebugData(d);
+    } finally {
+      setDebugLoading(false);
+    }
+  }, [debugData, task.task_id]);
+
+  // 拉取 AI 评分（接口已做权限过滤；未授权时返回 null）
+  useEffect(() => {
+    if (!canView) {
+      setAiScore(null);
+      setAiFetched(true);
+      return;
+    }
+    let cancelled = false;
+    setAiLoading(true);
+    fetchRdTaskCompletionScore(task.task_id)
+      .then((score) => { if (!cancelled) setAiScore(score); })
+      .catch(() => { if (!cancelled) setAiScore(null); })
+      .finally(() => { if (!cancelled) { setAiLoading(false); setAiFetched(true); } });
+    return () => { cancelled = true; };
+  }, [task.task_id, canView]);
+
+  if (!canView) {
+    return (
+      <div className="rounded-[8px] border border-dashed border-slate-200 bg-slate-50/60 px-3 py-4 text-center text-xs text-slate-400">
+        完成质量评分仅对该任务关联人员和管理员可见
+      </div>
+    );
+  }
+
+  if (loading || aiLoading || !aiFetched) {
+    return (
+      <div className="rounded-[8px] border border-dashed border-slate-200 bg-slate-50/60 px-3 py-4 text-center text-xs text-slate-400">
+        正在读取 AI 完成质量评分…
+      </div>
+    );
+  }
+
+  // AI 评分未生成 → 展示等待生成的空状态（不再使用规则估算填充，避免误导）
+  if (!aiScore) {
+    return (
+      <div className="rounded-[8px] border border-dashed border-indigo-200 bg-indigo-50/40 p-4 space-y-2">
+        <div className="flex items-center gap-2 text-sm font-semibold text-indigo-800">
+          <Sparkles className="h-4 w-4" />
+          完成质量评分
+        </div>
+        <p className="text-xs leading-relaxed text-slate-600">
+          AI 评分尚未生成。审核通过的任务会自动触发评分（每条 5-20 秒）；
+          历史已完成任务可在驾驶舱「完成」筛选条点击「AI 复盘评分」批量生成。
+        </p>
+      </div>
+    );
+  }
+
+  const total = aiScore.total;
+  const grade = aiScore.grade;
+  const gradeLabel = aiScore.grade_label;
+  const dimensions = aiScore.dimensions.map((d) => ({
+    key: d.key,
+    label: d.label,
+    score: d.score,
+    max: d.max,
+    detail: d.comment,
+  }));
+  const tone = getGradeTone(grade);
+  const useAi = !aiScore.fallback_reason;
+
+  return (
+    <div className={cn("rounded-[8px] border bg-white p-4 space-y-3", tone.border)}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <Sparkles className={cn("h-4 w-4 shrink-0", tone.text)} />
+            <div className="text-sm font-semibold text-slate-800">完成质量评分</div>
+            <span
+              className={cn(
+                "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold",
+                useAi
+                  ? "border-indigo-200 bg-indigo-50 text-indigo-700"
+                  : "border-slate-200 bg-slate-50 text-slate-500",
+              )}
+              title={useAi ? `AI 模型：${aiScore!.provider}/${aiScore!.model}` : "AI 评分未生成"}
+            >
+              {useAi ? "AI 复盘" : "规则估算"}
+            </span>
+            {!useAi && (
+              <span
+                className="inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700"
+                title={aiScore.fallback_reason}
+              >
+                AI 不可用·兜底
+              </span>
+            )}
+          </div>
+          {aiScore.summary && (
+            <p className="mt-1.5 text-xs leading-5 text-slate-700">{aiScore.summary}</p>
+          )}
+        </div>
+        <div className="shrink-0 text-right">
+          <div className="flex items-baseline justify-end gap-1">
+            <span className={cn("text-2xl font-bold tabular-nums", tone.text)}>{total}</span>
+            <span className="text-xs text-slate-400">/ 100</span>
+          </div>
+          <span
+            className={cn(
+              "mt-1 inline-flex items-center justify-center rounded-md border px-2 py-0.5 text-xs font-bold ring-1",
+              tone.bg,
+              tone.text,
+              tone.border,
+              tone.ring,
+            )}
+            title={gradeLabel}
+          >
+            {grade} · {gradeLabel}
+          </span>
+        </div>
+      </div>
+
+      <ul className="space-y-2">
+        {dimensions.map((d) => {
+          const pct = Math.round((d.score / d.max) * 100);
+          return (
+            <li key={d.key} className="space-y-1">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="font-medium text-slate-700">{d.label}</span>
+                <span className="tabular-nums text-slate-500">
+                  <span className="font-semibold text-slate-700">{d.score}</span>
+                  <span className="text-slate-400"> / {d.max}</span>
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                  <div className={cn("h-full rounded-full", tone.bar)} style={{ width: `${pct}%` }} />
+                </div>
+                <span className="w-40 shrink-0 truncate text-right text-[10px] text-slate-500" title={d.detail}>
+                  {d.detail}
+                </span>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+
+      {(aiScore.highlights.length > 0 || aiScore.improvements.length > 0) && (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {aiScore.highlights.length > 0 && (
+            <div className="rounded-md border border-emerald-100 bg-emerald-50/60 px-2.5 py-2">
+              <div className="mb-1 flex items-center gap-1 text-[11px] font-semibold text-emerald-700">
+                <CheckCircle2 className="h-3 w-3" />
+                亮点
+              </div>
+              <ul className="space-y-0.5 text-[11px] leading-relaxed text-emerald-800">
+                {aiScore.highlights.map((h, i) => (
+                  <li key={i}>· {h}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {aiScore.improvements.length > 0 && (
+            <div className="rounded-md border border-amber-100 bg-amber-50/60 px-2.5 py-2">
+              <div className="mb-1 flex items-center gap-1 text-[11px] font-semibold text-amber-700">
+                <AlertTriangle className="h-3 w-3" />
+                改进建议
+              </div>
+              <ul className="space-y-0.5 text-[11px] leading-relaxed text-amber-800">
+                {aiScore.improvements.map((s, i) => (
+                  <li key={i}>· {s}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-2 rounded-md bg-slate-50 px-2.5 py-1.5 text-[10px] leading-relaxed text-slate-500">
+        <p className="min-w-0 flex-1">
+          {useAi ? (
+            <>
+              AI 复盘基于时效性、过程透明度、交付证据、协作与风险管理 4 维度评分。模型：
+              <span className="font-mono">{aiScore.provider}/{aiScore.model}</span> · 生成于
+              <span className="tabular-nums"> {new Date(aiScore.computed_at).toLocaleString("zh-CN")}</span>
+            </>
+          ) : (
+            <>
+              AI 模型调用失败或未配置，使用规则估算兜底（仅时效/留痕/附件/协作 4 指标，无 AI 推理）。
+              原因：<span className="font-mono">{aiScore.fallback_reason ?? "未知"}</span>
+            </>
+          )}
+        </p>
+        {isSuper && (
+          <button
+            type="button"
+            onClick={openDebug}
+            className="shrink-0 inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+            title="超级管理员专属：查看 AI 评分的原始 prompt 和 AI 响应（用于审查抽取/RAG 是否真的传到 AI）"
+          >
+            <Settings2 className="h-3 w-3" />
+            调试
+          </button>
+        )}
+      </div>
+      {debugOpen && (
+        <CompletionScoreDebugDialog
+          loading={debugLoading}
+          data={debugData}
+          onClose={() => setDebugOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function CompletionScoreDebugDialog({
+  loading,
+  data,
+  onClose,
+}: {
+  loading: boolean;
+  data: RdTaskCompletionScoreDebug | null;
+  onClose: () => void;
+}) {
+  const shouldReduceMotion = useReducedMotion();
+  const debug = data?._debug;
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text).then(
+      () => toast.success(`${label}已复制`),
+      () => toast.error(`复制${label}失败`),
+    );
+  };
+  return (
+    <motion.div
+      initial={shouldReduceMotion ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={RD_FAST_TRANSITION}
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 18, scale: 0.97 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 18, scale: 0.97 }}
+        transition={RD_PANEL_TRANSITION}
+        className="flex h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50 px-6 py-3">
+          <div className="flex items-center gap-2">
+            <Settings2 className="h-4 w-4 text-indigo-600" />
+            <h3 className="text-sm font-semibold text-slate-900">AI 评分调试 · 原始 prompt + AI 响应</h3>
+            <span className="rounded-md border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-bold text-rose-700">
+              仅超管可见
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
+            aria-label="关闭"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-6">
+          {loading ? (
+            <div className="flex h-full items-center justify-center text-sm text-slate-400">
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              正在拉取调试数据…
+            </div>
+          ) : !data || !debug ? (
+            <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-slate-400">
+              <AlertTriangle className="h-5 w-5 text-amber-400" />
+              <p>该任务尚无 AI 评分数据，或调试信息未保存（仅新评分会带 _debug 字段）</p>
+              <p className="text-[11px] text-slate-400">让管理员重新触发一次 AI 评分即可。</p>
+            </div>
+          ) : (
+            <div className="space-y-4 text-xs">
+              {/* 元数据条 */}
+              <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600">
+                  <span>
+                    模型：<span className="font-mono font-semibold text-slate-900">{data.provider}/{data.model}</span>
+                  </span>
+                  <span className="text-slate-300">|</span>
+                  <span>
+                    耗时：<span className="font-semibold tabular-nums">{debug.duration_ms} ms</span>
+                  </span>
+                  <span className="text-slate-300">|</span>
+                  <span>
+                    开始：<span className="tabular-nums">{new Date(debug.request_started_at).toLocaleString("zh-CN")}</span>
+                  </span>
+                  <span className="text-slate-300">|</span>
+                  <span>
+                    结束：<span className="tabular-nums">{new Date(debug.request_finished_at).toLocaleString("zh-CN")}</span>
+                  </span>
+                  {data.fallback_reason && (
+                    <>
+                      <span className="text-slate-300">|</span>
+                      <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
+                        兜底：{data.fallback_reason}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {/* 1. System Prompt */}
+              <DebugSection
+                title="1. System Prompt（评分员角色 + 规则）"
+                content={debug.system_prompt}
+                onCopy={() => copyToClipboard(debug.system_prompt, "System Prompt")}
+              />
+
+              {/* 2. User Message */}
+              <DebugSection
+                title="2. User Message（任务数据 + 附件抽取内容 + RAG 上下文）"
+                content={debug.user_message}
+                onCopy={() => copyToClipboard(debug.user_message, "User Message")}
+                highlightLength
+              />
+
+              {/* 3. Raw AI Response */}
+              <DebugSection
+                title="3. AI 原始响应（JSON 字符串）"
+                content={prettyJsonOrText(debug.raw_response)}
+                onCopy={() => copyToClipboard(debug.raw_response, "AI 原始响应")}
+              />
+
+              {/* 4. Parsed result */}
+              <DebugSection
+                title="4. 解析后的评分结果（持久化到 rd.taskCompletionScores）"
+                content={JSON.stringify(
+                  {
+                    total: data.total,
+                    grade: data.grade,
+                    grade_label: data.grade_label,
+                    summary: data.summary,
+                    dimensions: data.dimensions,
+                    highlights: data.highlights,
+                    improvements: data.improvements,
+                  },
+                  null,
+                  2,
+                )}
+                onCopy={() =>
+                  copyToClipboard(
+                    JSON.stringify(
+                      {
+                        total: data.total,
+                        grade: data.grade,
+                        dimensions: data.dimensions,
+                        highlights: data.highlights,
+                        improvements: data.improvements,
+                      },
+                      null,
+                      2,
+                    ),
+                    "解析后结果",
+                  )
+                }
+              />
+            </div>
+          )}
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function DebugSection({
+  title,
+  content,
+  onCopy,
+  highlightLength = false,
+}: {
+  title: string;
+  content: string;
+  onCopy: () => void;
+  highlightLength?: boolean;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+  return (
+    <section className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+      <header className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-3 py-1.5">
+        <button
+          type="button"
+          onClick={() => setCollapsed((v) => !v)}
+          className="flex min-w-0 items-center gap-1.5 text-left text-xs font-semibold text-slate-700 hover:text-indigo-700"
+        >
+          <ChevronRight className={cn("h-3 w-3 transition-transform", !collapsed && "rotate-90")} />
+          <span className="truncate">{title}</span>
+          <span className="shrink-0 text-[10px] font-normal text-slate-400">
+            ({content.length.toLocaleString()} 字符{highlightLength && content.length > 12000 ? " · ⚠️ 较长" : ""})
+          </span>
+        </button>
+        <button
+          type="button"
+          onClick={onCopy}
+          className="shrink-0 rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+        >
+          复制
+        </button>
+      </header>
+      {!collapsed && (
+        <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words bg-slate-950 px-3 py-2 text-[11px] leading-relaxed text-slate-100">
+          {content || "(空)"}
+        </pre>
+      )}
+    </section>
+  );
+}
+
+function prettyJsonOrText(raw: string): string {
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return raw;
+  }
+}
+
 function TaskDetailDrawer({
   task,
   onClose,
   onOpenPerson,
   onDescriptionUpdated,
   onTaskCompleted,
+  onTaskMutated,
   onMoveTask,
   people,
 }: {
@@ -3231,8 +3904,10 @@ function TaskDetailDrawer({
   onOpenPerson?: (name: string) => void;
   onDescriptionUpdated?: (taskId: string, description: string) => void;
   onTaskCompleted?: (task: Task) => void;
+  /** 任意会影响任务数据（协作人/移交/字段更新等）的动作后回调，父组件用来重新拉数据刷新列表 */
+  onTaskMutated?: () => void;
   onMoveTask?: () => void;
-  people?: { name: string }[];
+  people?: PersonProfile[];
 }) {
   const RD_ADMIN_AUDIT_ACTOR = useAuditActor("研发管理员");
   const shouldReduceMotion = useReducedMotion();
@@ -3248,6 +3923,7 @@ function TaskDetailDrawer({
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
   const [showHandoverDialog, setShowHandoverDialog] = useState(false);
+  const [showAddCollaboratorsDialog, setShowAddCollaboratorsDialog] = useState(false);
   const [showApprovalDialog, setShowApprovalDialog] = useState<"approve" | "reject" | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const statusCfg = STATUS_CONFIG[task.status];
@@ -3263,6 +3939,14 @@ function TaskDetailDrawer({
   const isCurrentOwner =
     Boolean(user?.id && task.primary_owner_user_id && task.primary_owner_user_id === user.id) ||
     userIdentityKeys.has(normalizeIdentity(task.primary_owner));
+  const isCurrentCollaborator = (task.collaborators ?? []).some((c) =>
+    Boolean(
+      (user?.id && c.user_id && c.user_id === user.id) ||
+      userIdentityKeys.has(normalizeIdentity(c.name)),
+    ),
+  );
+  // 完成质量评分可见性：任务关联人员（主责人 / 协作人）和管理员可见
+  const canViewCompletionScore = isCurrentOwner || isCurrentCollaborator || canManageTaskFlow;
   const canSubmitForReview = task.status === "in_progress" && isCurrentOwner && !canManageTaskFlow;
   const canCompleteDirectly = task.status === "in_progress" && canManageTaskFlow;
   const canReviewPendingTask = task.status === "pending_review" && canManageTaskFlow;
@@ -3365,7 +4049,11 @@ function TaskDetailDrawer({
   };
 
   const handleHandover = async (newOwner: string) => {
-    await updateRdTask(task.task_id, { primary_owner: newOwner });
+    // _actor_name 让后端通知里能显示"谁移交的"，而不是默认的"管理员"
+    await updateRdTask(task.task_id, {
+      primary_owner: newOwner,
+      _actor_name: user?.name || "管理员",
+    } as Partial<Omit<Task, "task_id">> & { _actor_name?: string });
     recordAudit({
       actor: RD_ADMIN_AUDIT_ACTOR,
       action: "task.updated",
@@ -3376,7 +4064,33 @@ function TaskDetailDrawer({
     });
     toast.success(`任务已移交给 ${newOwner}`);
     setShowHandoverDialog(false);
+    onTaskMutated?.(); // 移交后老/新主责人的任务数量都变了，需要刷新
     onClose();
+  };
+
+  // 管理员直接添加协作人：写 collaborators 字段，不带 _review_action / pending_review_type，
+  // 后端会作为普通字段更新立即生效（updateTask 仅当 _review_action 存在时才走审核分支）
+  const handleAddCollaboratorsDirect = async (newCollaborators: RdCollaborator[]) => {
+    const merged = [...(task.collaborators ?? []), ...newCollaborators];
+    try {
+      await updateRdTask(task.task_id, {
+        collaborators: merged,
+        _actor_name: user?.name || "管理员",
+      } as Partial<Omit<Task, "task_id">> & { _actor_name?: string });
+      recordAudit({
+        actor: RD_ADMIN_AUDIT_ACTOR,
+        action: "task.updated",
+        resource: { type: "task", id: task.task_id, name: task.title },
+        comment: `管理员直接添加协作人：${newCollaborators.map((c) => c.name).join("、")}`,
+        source: "web",
+      });
+      toast.success(`已添加 ${newCollaborators.length} 位协作人`);
+      setShowAddCollaboratorsDialog(false);
+      onTaskMutated?.(); // 触发父组件重新拉数据，刷新驾驶舱任务列表 + 人员头像计数
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "添加协作人失败");
+    }
   };
 
   const handleApproval = async (reason?: string, rollbackProgress?: number) => {
@@ -3520,7 +4234,20 @@ function TaskDetailDrawer({
               <div className="font-medium text-slate-700">{task.due_date ?? "—"}</div>
             </div>
             <div className="col-span-2">
-              <div className="mb-1 text-xs text-slate-400">协作人</div>
+              <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
+                <span>协作人</span>
+                {canManageTaskFlow && !task.archived && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAddCollaboratorsDialog(true)}
+                    className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-blue-700 transition-colors hover:border-blue-300 hover:bg-blue-50"
+                    title="管理员直接添加协作人，不走审核流程"
+                  >
+                    <UserPlus className="h-3 w-3" />
+                    添加
+                  </button>
+                )}
+              </div>
               {task.collaborators.length > 0 ? (
                 <div className="flex flex-wrap gap-2">
                   {task.collaborators.map((c) => (
@@ -3626,6 +4353,15 @@ function TaskDetailDrawer({
           </div>
 
           <TaskLifecycleTimeline task={task} />
+
+          {task.status === "completed" && (
+            <TaskCompletionScoreCard
+              task={task}
+              notes={progressNotes}
+              loading={progressNotesLoading}
+              canView={canViewCompletionScore}
+            />
+          )}
 
           <div>
             <div className="mb-2 flex items-center justify-between">
@@ -3771,6 +4507,17 @@ function TaskDetailDrawer({
             people={people ?? []}
             onConfirm={handleHandover}
             onCancel={() => setShowHandoverDialog(false)}
+          />
+        )}
+        {showAddCollaboratorsDialog && (
+          <AddCollaboratorsDialog
+            key="add-collaborators"
+            taskTitle={task.title}
+            currentOwner={task.primary_owner}
+            existingCollaborators={task.collaborators ?? []}
+            people={people ?? []}
+            onConfirm={handleAddCollaboratorsDirect}
+            onCancel={() => setShowAddCollaboratorsDialog(false)}
           />
         )}
         {showApprovalDialog && (
@@ -6090,7 +6837,7 @@ function ImageGallery({
       <AnimatePresence mode="wait">
         <motion.img
           key={idx}
-          src={images[idx].data_url}
+          src={getAttachmentUrl(images[idx])}
           alt={images[idx].name}
           initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.96 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -6135,7 +6882,7 @@ function ImageGallery({
                 i === idx ? "border-white scale-110" : "border-white/20 opacity-60 hover:opacity-90",
               )}
             >
-              <img src={img.data_url} alt={img.name} className="h-full w-full object-cover" loading="lazy" />
+              <img src={getAttachmentUrl(img)} alt={img.name} className="h-full w-full object-cover" loading="lazy" />
             </button>
           ))}
         </div>
@@ -6194,7 +6941,7 @@ function TaskAttachmentStrip({
             title={img.name}
           >
             <img
-              src={img.data_url}
+              src={getAttachmentUrl(img)}
               alt={img.name}
               className="h-full w-full object-cover transition-transform duration-300 group-hover/att:scale-[1.04]"
               loading="lazy"
@@ -6235,6 +6982,8 @@ function PersonTaskCockpit({
   onSelectPerson,
   canReassign,
   onReassignTask,
+  kpiFilter = "all",
+  onClearKpiFilter,
 }: {
   risks: Risk[];
   personLoads: PersonLoad[];
@@ -6243,6 +6992,8 @@ function PersonTaskCockpit({
   onSelectPerson: (name: string) => void;
   canReassign?: boolean;
   onReassignTask?: (task: Task) => void;
+  kpiFilter?: KpiFilter;
+  onClearKpiFilter?: () => void;
 }) {
   const shouldReduceMotion = useReducedMotion();
 
@@ -6260,6 +7011,92 @@ function PersonTaskCockpit({
   // ── Notes (images) lazy fetch ──
   const [notesMap, setNotesMap] = useState<Record<string, RdTaskProgressNote[]>>({});
   const [loadingNotes, setLoadingNotes] = useState(false);
+  // ── AI 完成质量评分 lazy fetch（已完成任务，按需拉取）──
+  // 值为 null 表示已请求但后端尚未生成评分（或当前用户无权查看）
+  const [aiScoreMap, setAiScoreMap] = useState<Record<string, RdTaskCompletionScore | null>>({});
+  // 一次性补跑全部已完成任务 AI 评分的进行中标记
+  const [backfillBusy, setBackfillBusy] = useState(false);
+  // 批量补抽取历史附件的进行中标记
+  const [extractionBackfillBusy, setExtractionBackfillBusy] = useState(false);
+
+  const handleBackfillScores = useCallback(async () => {
+    if (backfillBusy) return;
+    setBackfillBusy(true);
+    const toastId = toast.loading("[1/2] 正在抽取历史附件文本（OCR/文档/视觉）…");
+
+    // Step 1：先做附件抽取，让评分时 AI 能"看到"附件内容
+    let extractionSummary = "";
+    let extractionHasMore = false;
+    try {
+      const extractResult = await backfillRdTaskProgressNoteExtraction({ max_items: 50 });
+      if (extractResult.processed === 0) {
+        extractionSummary = "附件全部已抽取";
+      } else {
+        extractionSummary = `附件抽取 ${extractResult.succeeded} 成功${
+          extractResult.failed > 0 ? ` / ${extractResult.failed} 失败` : ""
+        }`;
+        if (extractResult.has_more) {
+          extractionHasMore = true;
+          extractionSummary += `（剩 ${extractResult.total_pending - extractResult.processed} 个待处理）`;
+        }
+      }
+    } catch (err) {
+      extractionSummary = `附件抽取失败：${err instanceof Error ? err.message : "未知错误"}`;
+      // 抽取失败不阻塞评分，AI 依然能基于元数据评分
+    }
+
+    // Step 2：AI 评分
+    toast.loading(`[2/2] ${extractionSummary} → 生成 AI 评分中…`, { id: toastId });
+    try {
+      const result = await backfillRdTaskCompletionScores();
+      const scoreSummary = `AI 评分：${result.scored} 新评分 / ${result.skipped} 已存在${
+        result.failed > 0 ? ` / ${result.failed} 失败` : ""
+      }`;
+      const finalMsg = [extractionSummary, scoreSummary, extractionHasMore ? "提示：附件仍有未抽取项，可再次点击继续完善评分" : ""]
+        .filter(Boolean)
+        .join("\n");
+      if (result.failed > 0 || extractionHasMore) {
+        toast.warning(finalMsg, { id: toastId, duration: 8000 });
+      } else {
+        toast.success(finalMsg, { id: toastId, duration: 6000 });
+      }
+      // 清空两个 map，触发可见任务重新拉取
+      setAiScoreMap({});
+      setNotesMap({});
+    } catch (err) {
+      toast.error(`AI 评分失败：${err instanceof Error ? err.message : "未知错误"}`, { id: toastId });
+    } finally {
+      setBackfillBusy(false);
+    }
+  }, [backfillBusy]);
+
+  const handleBackfillExtraction = useCallback(async () => {
+    if (extractionBackfillBusy) return;
+    setExtractionBackfillBusy(true);
+    const toastId = toast.loading("正在批量抽取历史附件文本（OCR/文档/视觉，每个 5-30 秒）…");
+    try {
+      const result = await backfillRdTaskProgressNoteExtraction({ max_items: 50 });
+      const lines = [
+        `本次处理 ${result.processed} / 待处理 ${result.total_pending}`,
+        `成功 ${result.succeeded}${result.failed > 0 ? ` · 失败 ${result.failed}` : ""}`,
+      ];
+      if (result.has_more) {
+        lines.push("（剩余附件较多，可再次点击继续）");
+      }
+      const msg = lines.join("，");
+      if (result.failed > 0) toast.warning(msg, { id: toastId, duration: 6000 });
+      else if (result.processed === 0) toast.info("没有待抽取的附件，全部已处理过", { id: toastId });
+      else toast.success(msg, { id: toastId, duration: 6000 });
+      // 清空 notesMap，触发可见任务重新拉取（这样新的 extracted_text 会反映出来）
+      setNotesMap({});
+      // 评分也清空，因为下次评分能用上新抽取的内容
+      setAiScoreMap({});
+    } catch (err) {
+      toast.error(`批量抽取失败：${err instanceof Error ? err.message : "未知错误"}`, { id: toastId });
+    } finally {
+      setExtractionBackfillBusy(false);
+    }
+  }, [extractionBackfillBusy]);
 
   // ── Per-tab visible counts (for infinite scroll pagination) ──
   const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({});
@@ -6293,29 +7130,55 @@ function PersonTaskCockpit({
     });
   }, []);
 
+  // Risk task IDs for quick lookup (to show risk indicator in "全部" tab)
+  const riskTaskIds = useMemo(() => new Set(risks.map((r) => r.task.task_id)), [risks]);
+
+  // KPI 卡片筛选谓词：与顶部 KPI 计数口径保持一致
+  // - 阻塞/待派 与 catStat.blocked 保持一致（paused_blocked || pending_assign）
+  const matchesKpiFilter = useCallback(
+    (t: Task): boolean => {
+      switch (kpiFilter) {
+        case "in_progress":
+          return t.status === "in_progress";
+        case "completed":
+          return t.status === "completed";
+        case "blocked":
+          return t.status === "paused_blocked" || t.status === "pending_assign";
+        case "risk":
+          return riskTaskIds.has(t.task_id);
+        case "all":
+        default:
+          return true;
+      }
+    },
+    [kpiFilter, riskTaskIds],
+  );
+
   // ── Derived data ──
-  // "全部" tab — all active tasks sorted by updated_at desc
+  // "全部" tab — 默认包含所有非归档任务（含已完成），按更新时间倒序；如有 KPI 筛选则再过滤
   const allActiveTasks = useMemo(() => {
     return sortByUpdatedDesc(
-      allTasks.filter((t) => !t.archived && t.status !== "completed"),
+      allTasks.filter((t) => !t.archived && matchesKpiFilter(t)),
     );
-  }, [allTasks, sortByUpdatedDesc]);
+  }, [allTasks, sortByUpdatedDesc, matchesKpiFilter]);
 
-  // Per-person — sorted by updated_at desc
+  // Per-person — 同步包含已完成任务并应用 KPI 筛选
   const personTasksMap = useMemo(() => {
     const map = new Map<string, Task[]>();
     for (const p of personLoads) {
       const filtered = allTasks.filter(
-        (t) => !t.archived && t.status !== "completed" &&
+        (t) => !t.archived && matchesKpiFilter(t) &&
           (t.primary_owner === p.name || t.collaborators.some((c) => c.name === p.name)),
       );
       map.set(p.name, sortByUpdatedDesc(filtered));
     }
     return map;
-  }, [personLoads, allTasks, sortByUpdatedDesc]);
+  }, [personLoads, allTasks, sortByUpdatedDesc, matchesKpiFilter]);
 
-  // Risk task IDs for quick lookup (to show risk indicator in "全部" tab)
-  const riskTaskIds = useMemo(() => new Set(risks.map((r) => r.task.task_id)), [risks]);
+  // 切换 KPI 筛选时重置分页计数，避免旧偏移导致空白
+  useEffect(() => {
+    setVisibleCounts({});
+  }, [kpiFilter]);
 
   // Lazy-fetch notes when person tab opens
   useEffect(() => {
@@ -6354,6 +7217,29 @@ function PersonTaskCockpit({
     return () => { cancelled = true; };
   }, [activeTab, allActiveTasks, visibleCounts]);
 
+  // Lazy-fetch AI completion scores — 仅针对可见的已完成任务
+  useEffect(() => {
+    const visibleCount = activeTab === "all"
+      ? (visibleCounts["all"] ?? TASK_PAGE_SIZE)
+      : (visibleCounts[activeTab] ?? TASK_PAGE_SIZE);
+    const sourceTasks = activeTab === "all"
+      ? allActiveTasks
+      : (personTasksMap.get(activeTab) ?? []);
+    const visibleCompleted = sourceTasks
+      .slice(0, visibleCount)
+      .filter((t) => t.status === "completed" && !(t.task_id in aiScoreMap));
+    if (visibleCompleted.length === 0) return;
+    let cancelled = false;
+    Promise.all(visibleCompleted.map((t) =>
+      fetchRdTaskCompletionScore(t.task_id)
+        .then((score) => [t.task_id, score] as const)
+        .catch(() => [t.task_id, null] as const),
+    )).then((entries) => {
+      if (!cancelled) setAiScoreMap((prev) => ({ ...prev, ...Object.fromEntries(entries) }));
+    });
+    return () => { cancelled = true; };
+  }, [activeTab, allActiveTasks, personTasksMap, visibleCounts]);
+
   // Slide variants for tab content transitions
   const slideVariants = {
     enter: (dir: number) => ({
@@ -6382,6 +7268,31 @@ function PersonTaskCockpit({
     const taskImages = taskAttachments.filter((a) => a.mime.startsWith("image/"));
     const hasLoadedAttachments = taskAttachments.length > 0;
     const isRisk = riskTaskIds.has(task.task_id);
+    // 最近更新时间：优先取最新进度留痕时间，没有则用 task.updated_at
+    const lastUpdateIso = task.latest_progress_summary?.created_at ?? task.updated_at ?? null;
+    const relativeUpdate = formatRelativeUpdate(lastUpdateIso);
+    const updateTone = relativeUpdate ? RELATIVE_UPDATE_TONE[relativeUpdate.tone] : null;
+    // 已完成任务的质量评分：仅展示 AI 评分；未生成时显示"评分待生成"占位，不再用规则估算误导
+    const aiScore = task.status === "completed" ? aiScoreMap[task.task_id] ?? null : null;
+    const aiScoreFetched = task.status === "completed" && task.task_id in aiScoreMap;
+    const completionScore = aiScore
+      ? {
+          total: aiScore.total,
+          grade: aiScore.grade,
+          gradeLabel: aiScore.grade_label,
+          dimensions: aiScore.dimensions.map((d) => ({
+            key: d.key,
+            label: d.label,
+            score: d.score,
+            max: d.max,
+            detail: d.comment,
+          })),
+          summary: aiScore.summary,
+          isFallback: Boolean(aiScore.fallback_reason),
+        }
+      : null;
+    const gradeTone = completionScore ? getGradeTone(completionScore.grade) : null;
+    const showPendingScoreBadge = task.status === "completed" && !aiScore;
 
     return (
       <motion.div
@@ -6413,90 +7324,174 @@ function PersonTaskCockpit({
             : `linear-gradient(to bottom, ${grad.from}, ${grad.to})` }}
         />
 
-        <div className="flex items-start gap-3.5 px-4 py-3.5">
-          <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <div className="flex flex-wrap items-center gap-1.5">
-              <span className={cn("inline-flex shrink-0 rounded-md px-1.5 py-0.5 text-[10px] font-semibold ring-1 ring-white/50", sCfg.bg, sCfg.text)}>
-                {sCfg.label}
-              </span>
-              <span className={cn("inline-flex shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold", pCfg.bg, pCfg.text)}>
-                {pCfg.label}
-              </span>
-              {isRisk && (
-                <span className="inline-flex shrink-0 items-center gap-0.5 rounded-md border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
-                  <AlertTriangle className="h-3 w-3" />
-                  风险
-                </span>
+        <div className="flex min-w-0 flex-col gap-2 px-4 py-3.5">
+          {/* ─── 关键指标条（顶部、左对齐）：时间戳（主） + AI 评分（次） ─── */}
+          {(completionScore || showPendingScoreBadge || relativeUpdate) && (
+            <div className="flex flex-wrap items-center gap-2">
+              {/* 时间戳（主视觉，字号 18px，比评分大）*/}
+              {relativeUpdate && updateTone && (
+                <div
+                  className={cn(
+                    "inline-flex items-center gap-2 rounded-xl border-2 px-3 py-1.5 font-bold",
+                    updateTone.bg,
+                    updateTone.text,
+                    updateTone.border,
+                  )}
+                  title={lastUpdateIso ? `最近更新：${new Date(lastUpdateIso).toLocaleString("zh-CN")}` : ""}
+                >
+                  <span className="relative flex h-2.5 w-2.5 shrink-0">
+                    {relativeUpdate.tone === "fresh" && (
+                      <span className={cn("absolute inline-flex h-full w-full animate-ping rounded-full opacity-60", updateTone.dot)} />
+                    )}
+                    <span className={cn("relative inline-flex h-2.5 w-2.5 rounded-full", updateTone.dot)} />
+                  </span>
+                  <span className="text-lg leading-none tabular-nums">{relativeUpdate.label}</span>
+                </div>
               )}
-              {task.attachments > 0 && !hasLoadedAttachments && (
-                <span className="flex items-center gap-0.5 rounded-md border border-blue-100 bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">
-                  <Paperclip className="h-3 w-3" />{task.attachments}
-                </span>
+
+              {/* AI 评分（次视觉，压扁的横向药丸，整体小一号）*/}
+              {completionScore && gradeTone && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <div
+                      onClick={(e) => e.stopPropagation()}
+                      className={cn(
+                        "inline-flex cursor-help items-center gap-1.5 rounded-lg border px-2 py-1 transition-all hover:shadow-sm",
+                        gradeTone.bg,
+                        gradeTone.border,
+                      )}
+                      title={completionScore.isFallback ? "AI 调用失败，使用规则兜底" : "AI 复盘评分"}
+                    >
+                      <Sparkles className={cn("h-3 w-3 shrink-0", gradeTone.text)} />
+                      <span className={cn("text-[10px] font-semibold opacity-75", gradeTone.text)}>AI</span>
+                      <span className={cn("flex items-baseline gap-0.5", gradeTone.text)}>
+                        <span className="text-sm font-black leading-none tabular-nums">{completionScore.total}</span>
+                        <span className="text-[9px] font-semibold opacity-60">/100</span>
+                      </span>
+                      <span className={cn("rounded px-1 py-0.5 text-[9px] font-black text-white", gradeTone.bar)}>
+                        {completionScore.grade}·{completionScore.gradeLabel}
+                      </span>
+                      {completionScore.isFallback && (
+                        <span className="rounded bg-amber-100 px-1 py-0.5 text-[9px] font-bold text-amber-800">兜底</span>
+                      )}
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" align="start">
+                    <div className="min-w-[220px] max-w-xs space-y-1">
+                      <div className="flex items-center justify-between gap-3 text-xs font-semibold">
+                        <span>AI 复盘评分{completionScore.isFallback ? "（兜底）" : ""}</span>
+                        <span>{completionScore.total} / 100 · {completionScore.grade}</span>
+                      </div>
+                      {completionScore.summary && (
+                        <div className="text-[11px] leading-relaxed opacity-90">{completionScore.summary}</div>
+                      )}
+                      <ul className="space-y-0.5 text-[11px] opacity-90">
+                        {completionScore.dimensions.map((d) => (
+                          <li key={d.key} className="flex items-center justify-between gap-2">
+                            <span>{d.label}</span>
+                            <span className="tabular-nums">{d.score}/{d.max} · {d.detail}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </TooltipContent>
+                </Tooltip>
               )}
+
+              {showPendingScoreBadge && (
+                <div
+                  onClick={(e) => e.stopPropagation()}
+                  className="inline-flex items-center gap-1 rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-2 py-1 text-slate-400"
+                  title={aiScoreFetched ? "AI 评分尚未生成，可在「完成」筛选中点击「AI 复盘评分」按钮批量生成" : "正在读取 AI 评分…"}
+                >
+                  <Sparkles className="h-3 w-3 opacity-50" />
+                  <span className="text-[10px] font-semibold">{aiScoreFetched ? "评分待生成" : "评分加载中"}</span>
+                </div>
+              )}
+
               {canReassign && onReassignTask && task.status !== "completed" && (
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); onReassignTask(task); }}
-                  className="shrink-0 inline-flex items-center gap-1 rounded-lg border border-blue-100 bg-white px-2 py-0.5 text-[10px] font-semibold text-blue-700 transition-all hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800 active:scale-95"
+                  className="ml-auto inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
                 >
                   <UserCog className="h-3 w-3" />
                   转派
                 </button>
               )}
             </div>
-            <div className="line-clamp-2 text-sm font-semibold leading-snug text-slate-900">
-              {task.title}
-            </div>
-            {task.latest_progress_summary?.text ? (
-              <div className="line-clamp-2 rounded-md bg-blue-50/70 px-2 py-1 text-[11px] leading-4 text-blue-700 ring-1 ring-blue-100">
-                最新进度：{task.latest_progress_summary.text}
-              </div>
-            ) : null}
-            {(task.start_date || task.due_date || task.updated_at) && (
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-slate-500">
-                {task.start_date && (
-                  <span className="flex items-center gap-1 rounded-md bg-white/70 px-1.5 py-0.5 ring-1 ring-slate-100">
-                    <CalendarDays className="h-3 w-3 shrink-0 text-blue-400" />
-                    起 {task.start_date}
-                  </span>
-                )}
-                {task.due_date && (
-                  <span className="flex items-center gap-1 rounded-md bg-white/70 px-1.5 py-0.5 ring-1 ring-slate-100">
-                    <CalendarClock className="h-3 w-3 shrink-0 text-amber-500" />
-                    止 {task.due_date}
-                  </span>
-                )}
-                {task.updated_at && (
-                  <span className="flex items-center gap-1 text-slate-400">
-                    <RefreshCw className="h-3 w-3 shrink-0 text-slate-300" />
-                    更新 {task.updated_at.slice(0, 16).replace("T", " ")}
-                  </span>
-                )}
-              </div>
-            )}
-            <div className="mt-2 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-              <div className="h-1 flex-1 overflow-hidden rounded-full bg-blue-100/80">
-                <motion.div
-                  className="h-full rounded-full"
-                  initial={{ width: 0 }}
-                  animate={{ width: `${task.progress}%` }}
-                  transition={{ duration: 0.45, ease: RD_MOTION_EASE, delay: taskIdx * 0.03 }}
-                  style={{ background: task.progress === 100 ? "#10b981" : `linear-gradient(90deg, ${grad.from}, ${grad.to})` }}
-                />
-              </div>
-              <span className="w-8 shrink-0 text-right text-[10px] font-bold tabular-nums text-blue-700">
-                {task.progress}%
-              </span>
-            </div>
-          </div>
-
-          {showOwner && task.primary_owner && (
-            <div className="shrink-0">
-              <OwnerAvatar name={task.primary_owner} size="sm" />
-            </div>
           )}
 
-          <ChevronRight className="h-4 w-4 shrink-0 text-blue-300 opacity-0 transition-all duration-150 group-hover:translate-x-0.5 group-hover:opacity-100" />
+          {/* ─── 标题（释放全宽、字号 16px） ─── */}
+          <div className="flex items-start gap-2">
+            <h3 className="line-clamp-2 min-w-0 flex-1 text-base font-semibold leading-snug text-slate-900">
+              {task.title}
+            </h3>
+            <ChevronRight className="h-4 w-4 shrink-0 self-center text-slate-300 opacity-0 transition-all duration-150 group-hover:translate-x-0.5 group-hover:opacity-100" />
+          </div>
+
+          {/* ─── 最新进度（如有） ─── */}
+          {task.latest_progress_summary?.text && (
+            <p className="line-clamp-2 rounded-md bg-blue-50/60 px-2.5 py-1.5 text-xs leading-relaxed text-blue-800/90">
+              {task.latest_progress_summary.text}
+            </p>
+          )}
+
+          {/* ─── 元数据单行：人 · 状态 · 优先级 · 截止 · 风险 · 附件 ─── */}
+          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-slate-500">
+            {showOwner && task.primary_owner && (
+              <>
+                <span className="inline-flex items-center gap-1.5">
+                  <OwnerAvatar name={task.primary_owner} size="xs" />
+                  <span className="font-medium text-slate-700">{task.primary_owner}</span>
+                </span>
+                <span className="text-slate-300">·</span>
+              </>
+            )}
+            <span className="inline-flex items-center gap-1">
+              <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.text.replace("text-", "bg-"))} />
+              {sCfg.label}
+            </span>
+            <span className="text-slate-300">·</span>
+            <span className={cn("font-medium", pCfg.text)}>{pCfg.label}优先</span>
+            {task.due_date && (
+              <>
+                <span className="text-slate-300">·</span>
+                <span className="inline-flex items-center gap-1">
+                  <CalendarClock className="h-3 w-3 text-amber-500" />
+                  止 {task.due_date.slice(5)}
+                </span>
+              </>
+            )}
+            {isRisk && (
+              <span className="inline-flex items-center gap-0.5 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
+                <AlertTriangle className="h-3 w-3" />
+                风险
+              </span>
+            )}
+            {task.attachments > 0 && !hasLoadedAttachments && (
+              <span className="inline-flex items-center gap-0.5 text-slate-500">
+                <Paperclip className="h-3 w-3" />
+                {task.attachments}
+              </span>
+            )}
+          </div>
+
+          {/* ─── 进度条 ─── */}
+          <div className="flex items-center gap-2 pt-0.5">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+              <motion.div
+                className="h-full rounded-full"
+                initial={{ width: 0 }}
+                animate={{ width: `${task.progress}%` }}
+                transition={{ duration: 0.45, ease: RD_MOTION_EASE, delay: taskIdx * 0.03 }}
+                style={{ background: task.progress === 100 ? "#10b981" : `linear-gradient(90deg, ${grad.from}, ${grad.to})` }}
+              />
+            </div>
+            <span className="w-9 shrink-0 text-right text-xs font-bold tabular-nums text-slate-700">
+              {task.progress}%
+            </span>
+          </div>
         </div>
       </motion.div>
     );
@@ -6630,6 +7625,66 @@ function PersonTaskCockpit({
             })}
           </TabsList>
 
+          {/* ── 当前 KPI 筛选条 ── */}
+          {kpiFilter !== "all" && (
+            <div className="flex items-center justify-between gap-3 border-b border-blue-100 bg-gradient-to-r from-blue-50/80 via-white to-cyan-50/60 px-4 py-2 text-xs">
+              <div className="flex min-w-0 items-center gap-2">
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-blue-700 ring-1 ring-blue-200 shadow-[0_4px_10px_rgba(30,64,175,0.06)]">
+                  <ListChecks className="h-3 w-3" />
+                  当前筛选：
+                  <span className="ml-0.5">{KPI_FILTER_LABEL[kpiFilter]}</span>
+                </span>
+                <span className="truncate text-slate-500">
+                  共 <span className="font-bold tabular-nums text-slate-700">{allActiveTasks.length}</span> 个任务符合此筛选
+                </span>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                {kpiFilter === "completed" && canReassign && (
+                  <button
+                    type="button"
+                    onClick={handleBackfillScores}
+                    disabled={backfillBusy}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-md border border-indigo-200 bg-white px-2 py-1 text-[11px] font-semibold text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    title="一键执行：① 自动抽取附件文本（OCR/文档/视觉） → ② 调 AI 评分。已抽取/已评分的会跳过（幂等）。"
+                  >
+                    {backfillBusy ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Sparkles className="h-3 w-3" />
+                    )}
+                    {backfillBusy ? "抽取+评分中…" : "AI 复盘评分"}
+                  </button>
+                )}
+                {canReassign && (
+                  <button
+                    type="button"
+                    onClick={handleBackfillExtraction}
+                    disabled={extractionBackfillBusy}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    title="仅抽取附件文本（不触发评分）。用于进行中/暂停任务的附件抽取，便于知识库 RAG 检索；已完成任务请直接用 AI 复盘评分（已包含抽取）。"
+                  >
+                    {extractionBackfillBusy ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <FileText className="h-3 w-3" />
+                    )}
+                    {extractionBackfillBusy ? "抽取中…" : "仅抽取附件"}
+                  </button>
+                )}
+                {onClearKpiFilter && (
+                  <button
+                    type="button"
+                    onClick={onClearKpiFilter}
+                    className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                  >
+                    <X className="h-3 w-3" />
+                    清除筛选
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* ── Animated tab content area ── */}
           <div className="relative overflow-hidden bg-[linear-gradient(180deg,#f8fbff_0%,#f4f8ff_48%,#eef6ff_100%)]">
             <AnimatePresence mode="wait" custom={direction}>
@@ -6669,7 +7724,17 @@ function PersonTaskCockpit({
 
                       {allActiveTasks.length === 0 ? (
                         <div className="flex h-[480px] flex-col items-center justify-center gap-2 text-sm text-slate-400">
-                          <span>暂无活跃任务</span>
+                          <span>{kpiFilter === "all" ? "暂无任务" : `当前筛选「${KPI_FILTER_LABEL[kpiFilter]}」下暂无任务`}</span>
+                          {kpiFilter !== "all" && onClearKpiFilter && (
+                            <button
+                              type="button"
+                              onClick={onClearKpiFilter}
+                              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                            >
+                              <X className="h-3 w-3" />
+                              清除筛选
+                            </button>
+                          )}
                         </div>
                       ) : (
                         <div
@@ -6691,7 +7756,12 @@ function PersonTaskCockpit({
                           ) : (
                             <div className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400">
                               <CheckCircle2 className="h-3 w-3 text-emerald-400" />
-                              <span>已显示全部 <span className="font-semibold tabular-nums text-slate-500">{allActiveTasks.length}</span> 个任务 · {risks.length > 0 && <span className="text-red-500 font-semibold">{risks.length} 个风险</span>}</span>
+                              <span>
+                                已显示全部 <span className="font-semibold tabular-nums text-slate-500">{allActiveTasks.length}</span> 个任务
+                                {kpiFilter === "all" && risks.length > 0 && (
+                                  <> · <span className="text-red-500 font-semibold">{risks.length} 个风险</span></>
+                                )}
+                              </span>
                             </div>
                           )}
                         </div>
@@ -6733,7 +7803,17 @@ function PersonTaskCockpit({
                       {/* Task list — 与"全部"相同的 INS 风格滚动 feed */}
                       {tasks.length === 0 ? (
                         <div className="flex h-[480px] flex-col items-center justify-center gap-2 text-sm text-slate-400">
-                          <span>该成员当前暂无活跃任务</span>
+                          <span>{kpiFilter === "all" ? "该成员当前暂无任务" : `该成员当前筛选「${KPI_FILTER_LABEL[kpiFilter]}」下暂无任务`}</span>
+                          {kpiFilter !== "all" && onClearKpiFilter && (
+                            <button
+                              type="button"
+                              onClick={onClearKpiFilter}
+                              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                            >
+                              <X className="h-3 w-3" />
+                              清除筛选
+                            </button>
+                          )}
                         </div>
                       ) : (
                         <div
@@ -7000,11 +8080,33 @@ function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleare
   const shouldReduceMotion = useReducedMotion();
   const [confirmText, setConfirmText] = useState("");
   const [clearing, setClearing] = useState(false);
+  const [cooldown, setCooldown] = useState(0); // 关键词输入正确后的 3 秒冷却
   const KEYWORD = "确认清空";
-  const ready = confirmText.trim() === KEYWORD;
+  const keywordMatched = confirmText.trim() === KEYWORD;
+  const ready = keywordMatched && cooldown === 0;
+
+  // 关键词刚输完整时启动 3 秒冷却，给用户后悔窗口
+  useEffect(() => {
+    if (!keywordMatched) {
+      setCooldown(0);
+      return;
+    }
+    setCooldown(3);
+    const timer = setInterval(() => {
+      setCooldown((prev) => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [keywordMatched]);
 
   const handleClear = async () => {
-    if (!ready) return;
+    // 多防线：keyword + cooldown + clearing 状态都校验
+    if (!keywordMatched || cooldown > 0 || clearing) return;
     setClearing(true);
     try {
       await clearRdAllTaskData();
@@ -7080,7 +8182,7 @@ function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleare
           <button type="button" onClick={handleClear} disabled={!ready || clearing}
             className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-600 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(220,38,38,0.20)] transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40">
             {clearing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            确认清空
+            {clearing ? "清空中…" : cooldown > 0 ? `${cooldown} 秒后可执行` : "确认清空"}
           </button>
         </div>
       </motion.div>
@@ -7400,6 +8502,12 @@ function ExecutiveOverview({
   const blocked = catStats.reduce((s, c) => s + c.blocked, 0);
   const rate = totalActive > 0 ? Math.round((done / totalActive) * 100) : 0;
 
+  // KPI 卡片筛选：点击切换；再点一次取消。
+  const [kpiFilter, setKpiFilter] = useState<KpiFilter>("all");
+  const toggleKpiFilter = useCallback((key: KpiFilter) => {
+    setKpiFilter((prev) => (prev === key ? "all" : key));
+  }, []);
+
   return (
     <motion.div
       initial={shouldReduceMotion ? false : { opacity: 0 }}
@@ -7425,30 +8533,51 @@ function ExecutiveOverview({
             </div>
 
             <div className="order-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:col-span-2 lg:grid-cols-6">
-              {[
-                { label: "活跃", value: totalActive, Icon: Target, tone: "text-blue-700", bg: "from-blue-50 to-white" },
-                { label: "完成率", value: `${rate}%`, Icon: Gauge, tone: "text-slate-900", bg: "from-slate-50 to-white" },
-                { label: "进行中", value: inProgress, Icon: CircleDot, tone: "text-blue-600", bg: "from-blue-50 to-white" },
-                { label: "完成", value: done, Icon: CheckCircle2, tone: "text-emerald-700", bg: "from-emerald-50 to-white" },
-                { label: "阻塞/待派", value: blocked, Icon: Users, tone: blocked > 0 ? "text-amber-700" : "text-slate-400", bg: blocked > 0 ? "from-amber-50 to-white" : "from-slate-50 to-white" },
-                { label: "风险", value: risks.length, Icon: AlertTriangle, tone: risks.length > 0 ? "text-red-700" : "text-slate-400", bg: risks.length > 0 ? "from-red-50 to-white" : "from-slate-50 to-white" },
-              ].map((item) => (
-                <div
-                  key={item.label}
-                  className={cn(
-                    "flex min-w-0 items-center gap-2 rounded-xl border border-white/80 bg-gradient-to-br px-2.5 py-2 shadow-[0_6px_16px_rgba(30,64,175,0.045)] ring-1 ring-blue-100/70",
-                    item.bg,
-                  )}
-                >
-                  <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/80 ring-1 ring-slate-100">
-                    <item.Icon className={cn("h-3.5 w-3.5", item.tone)} />
-                  </span>
-                  <div className="min-w-0">
-                    <div className={cn("text-base font-bold leading-none tabular-nums", item.tone)}>{item.value}</div>
-                    <div className="mt-0.5 truncate text-[10px] font-semibold text-slate-500">{item.label}</div>
-                  </div>
-                </div>
-              ))}
+              {([
+                { label: "活跃", value: totalActive, Icon: Target, tone: "text-blue-700", bg: "from-blue-50 to-white", filterKey: null, activeRing: "ring-blue-300" },
+                { label: "完成率", value: `${rate}%`, Icon: Gauge, tone: "text-slate-900", bg: "from-slate-50 to-white", filterKey: null, activeRing: "ring-slate-300" },
+                { label: "进行中", value: inProgress, Icon: CircleDot, tone: "text-blue-600", bg: "from-blue-50 to-white", filterKey: "in_progress" as KpiFilter, activeRing: "ring-blue-400" },
+                { label: "完成", value: done, Icon: CheckCircle2, tone: "text-emerald-700", bg: "from-emerald-50 to-white", filterKey: "completed" as KpiFilter, activeRing: "ring-emerald-400" },
+                { label: "阻塞/待派", value: blocked, Icon: Users, tone: blocked > 0 ? "text-amber-700" : "text-slate-400", bg: blocked > 0 ? "from-amber-50 to-white" : "from-slate-50 to-white", filterKey: "blocked" as KpiFilter, activeRing: "ring-amber-400" },
+                { label: "风险", value: risks.length, Icon: AlertTriangle, tone: risks.length > 0 ? "text-red-700" : "text-slate-400", bg: risks.length > 0 ? "from-red-50 to-white" : "from-slate-50 to-white", filterKey: "risk" as KpiFilter, activeRing: "ring-red-400" },
+              ] as const).map((item) => {
+                const clickable = item.filterKey !== null;
+                const active = clickable && kpiFilter === item.filterKey;
+                const Wrapper: React.ElementType = clickable ? "button" : "div";
+                return (
+                  <Wrapper
+                    key={item.label}
+                    {...(clickable
+                      ? {
+                          type: "button" as const,
+                          onClick: () => toggleKpiFilter(item.filterKey as KpiFilter),
+                          "aria-pressed": active,
+                          title: active ? `已筛选「${item.label}」· 再次点击取消` : `按「${item.label}」筛选任务列表`,
+                        }
+                      : {})}
+                    className={cn(
+                      "flex min-w-0 items-center gap-2 rounded-xl border bg-gradient-to-br px-2.5 py-2 shadow-[0_6px_16px_rgba(30,64,175,0.045)] ring-1 transition-all",
+                      item.bg,
+                      active
+                        ? cn("border-transparent ring-2 ring-offset-1 shadow-[0_10px_24px_rgba(30,64,175,0.12)]", item.activeRing)
+                        : "border-white/80 ring-blue-100/70",
+                      clickable && !active && "cursor-pointer hover:-translate-y-0.5 hover:shadow-[0_10px_22px_rgba(30,64,175,0.10)] hover:ring-blue-200",
+                      clickable && "text-left",
+                    )}
+                  >
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/80 ring-1 ring-slate-100">
+                      <item.Icon className={cn("h-3.5 w-3.5", item.tone)} />
+                    </span>
+                    <div className="min-w-0">
+                      <div className={cn("text-base font-bold leading-none tabular-nums", item.tone)}>{item.value}</div>
+                      <div className="mt-0.5 flex items-center gap-1 truncate text-[10px] font-semibold text-slate-500">
+                        <span className="truncate">{item.label}</span>
+                        {active && <span className="shrink-0 rounded-sm bg-blue-100 px-1 py-px text-[9px] font-bold leading-none text-blue-700">筛选中</span>}
+                      </div>
+                    </div>
+                  </Wrapper>
+                );
+              })}
             </div>
 
             {(canReassign || onCreateTask || canClearData || canDirectProject || onOpenPeople) && (
@@ -7557,6 +8686,8 @@ function ExecutiveOverview({
               onSelectPerson={onSelectPerson}
               canReassign={canReassign}
               onReassignTask={onReassignTask}
+              kpiFilter={kpiFilter}
+              onClearKpiFilter={() => setKpiFilter("all")}
             />
 
             <SystemPanorama
@@ -8371,6 +9502,7 @@ export function RDTaskManagementPage() {
                 setCompletedTaskNotice(completedTask);
                 loadCategories();
               }}
+              onTaskMutated={loadCategories}
               onMoveTask={() => setMoveTaskTarget(selectedTask)}
               people={peopleProfiles}
             />
@@ -8647,6 +9779,7 @@ export function RDTaskManagementPage() {
                 setCompletedTaskNotice(completedTask);
                 loadCategories();
               }}
+              onTaskMutated={loadCategories}
               onMoveTask={() => setMoveTaskTarget(selectedTask)}
               people={peopleProfiles}
             />

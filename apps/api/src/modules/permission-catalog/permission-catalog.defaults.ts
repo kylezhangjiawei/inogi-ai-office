@@ -34,6 +34,16 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'rd-audit:clear', label: '清空操作留痕', description: '清空研发任务管理操作留痕记录', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 87 },
   { code: 'rd-ai:configure', label: '配置研发 AI 策略', description: '维护研发模块各 AI 场景模型、OCR 兜底、文件解析和人工确认策略', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 88 },
 
+  // 研发知识库操作权限（细粒度，与页面权限 page:rd-knowledge-base 配合使用）
+  { code: 'rd-kb:upload', label: '上传知识库文件', description: '向知识库上传文件（含拖拽 / 文件选择）', groupLabel: '操作权限 · 研发知识库', type: 'action', sortOrder: 95 },
+  { code: 'rd-kb:entry:edit', label: '编辑知识库文件', description: '修改已上传文件的名称、描述、标签、权限分值', groupLabel: '操作权限 · 研发知识库', type: 'action', sortOrder: 96 },
+  { code: 'rd-kb:entry:move', label: '移动知识库文件', description: '把文件在分类之间移动归位', groupLabel: '操作权限 · 研发知识库', type: 'action', sortOrder: 97 },
+  { code: 'rd-kb:entry:delete', label: '删除知识库文件', description: '删除已上传的文件', groupLabel: '操作权限 · 研发知识库', type: 'action', sortOrder: 98 },
+  { code: 'rd-kb:category:create', label: '新增知识库分类', description: '新建一级或子级分类', groupLabel: '操作权限 · 研发知识库', type: 'action', sortOrder: 99 },
+  { code: 'rd-kb:category:edit', label: '编辑知识库分类', description: '修改分类名称 / 图标 / 颜色', groupLabel: '操作权限 · 研发知识库', type: 'action', sortOrder: 100 },
+  { code: 'rd-kb:category:delete', label: '删除知识库分类', description: '删除空分类（含子分类）', groupLabel: '操作权限 · 研发知识库', type: 'action', sortOrder: 101 },
+  { code: 'rd-kb:manage', label: '管理知识库（兼容旧权限）', description: '旧的笼统管理权限，建议改用上面细分的权限；后端仍兼容此权限以避免历史角色失效', groupLabel: '操作权限 · 研发知识库', type: 'action', sortOrder: 102 },
+
   // 立项流程操作权限
   { code: 'rd-project:propose', label: '立项申请', description: '提交立项需求，进入审核队列', groupLabel: '操作权限 · 立项流程', type: 'action', sortOrder: 90 },
   { code: 'rd-project:review-l1', label: '立项一审', description: '研发管理员审核立项（多级中的第一级）', groupLabel: '操作权限 · 立项流程', type: 'action', sortOrder: 91 },

@@ -353,15 +353,15 @@ export function RDAuditLogPage() {
       initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={AUDIT_PANEL}
-      className="min-h-full bg-[#f4f7f8] px-5 py-5 lg:px-7 lg:py-6"
+      className="flex h-full min-h-0 flex-col overflow-hidden px-5 py-5 lg:px-7 lg:py-6"
       style={{
         backgroundImage:
           "linear-gradient(180deg, rgba(236,253,245,0.45) 0%, rgba(244,247,248,0) 260px), linear-gradient(90deg, rgba(8,145,178,0.05) 1px, transparent 1px)",
         backgroundSize: "auto, 28px 28px",
       }}
     >
-      <div className="mx-auto flex max-w-[1500px] flex-col gap-4">
-        <header className="flex flex-wrap items-end justify-between gap-4 border-b border-slate-200/80 pb-4">
+      <div className="mx-auto flex h-full min-h-0 w-full max-w-[1500px] flex-col gap-4 overflow-hidden">
+        <header className="flex shrink-0 flex-wrap items-end justify-between gap-4 border-b border-slate-200/80 pb-4">
           <div>
             <div className="flex items-center gap-2">
               <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#13262f] text-white shadow-[0_10px_22px_rgba(15,23,42,0.18)]">
@@ -401,7 +401,7 @@ export function RDAuditLogPage() {
           </div>
         </header>
 
-        <section className="grid grid-cols-2 gap-2 md:grid-cols-5">
+        <section className="grid shrink-0 grid-cols-2 gap-2 md:grid-cols-5">
           {[
             { label: "匹配记录", value: stats.total, Icon: Database, tone: "text-slate-900" },
             { label: "涉及对象", value: stats.uniqueResources, Icon: Activity, tone: "text-cyan-700" },
@@ -426,8 +426,8 @@ export function RDAuditLogPage() {
           ))}
         </section>
 
-        <div className="grid min-h-[650px] gap-4 xl:grid-cols-[300px_minmax(0,1fr)_360px]">
-          <aside className="space-y-3 rounded-lg border border-slate-200 bg-white/95 p-4 shadow-[0_10px_24px_rgba(15,23,42,0.05)] xl:sticky xl:top-4 xl:self-start">
+        <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[300px_minmax(0,1fr)_360px]">
+          <aside className="space-y-3 overflow-y-auto rounded-lg border border-slate-200 bg-white/95 p-4 shadow-[0_10px_24px_rgba(15,23,42,0.05)] xl:self-stretch">
             <div className="flex items-center justify-between">
               <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                 <ListFilter className="h-4 w-4 text-slate-500" />
@@ -589,8 +589,8 @@ export function RDAuditLogPage() {
             </div>
           </aside>
 
-          <main className="min-w-0 overflow-hidden rounded-lg border border-slate-200 bg-white/95 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+          <main className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white/95 shadow-[0_10px_24px_rgba(15,23,42,0.05)]">
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
               <div>
                 <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                   <History className="h-4 w-4 text-slate-500" />
@@ -626,7 +626,7 @@ export function RDAuditLogPage() {
               </div>
             </div>
 
-            <div className="overflow-x-auto">
+            <div className="min-h-0 flex-1 overflow-auto">
               <table className="w-full min-w-[920px]">
                 <thead>
                   <tr className="border-b border-slate-100 bg-[#f8fafb] text-left text-[11px] font-semibold text-slate-500">
@@ -720,7 +720,7 @@ export function RDAuditLogPage() {
               </table>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3">
+            <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3">
               <div className="text-xs tabular-nums text-slate-500">
                 显示 {filteredLogs.length === 0 ? 0 : (safePage - 1) * pageSize + 1}-
                 {Math.min(safePage * pageSize, filteredLogs.length)}
@@ -753,7 +753,7 @@ export function RDAuditLogPage() {
             </div>
           </main>
 
-          <aside className="overflow-hidden rounded-lg border border-slate-200 bg-white/95 shadow-[0_10px_24px_rgba(15,23,42,0.05)] xl:sticky xl:top-4 xl:self-start">
+          <aside className="flex min-h-0 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white/95 shadow-[0_10px_24px_rgba(15,23,42,0.05)] xl:self-stretch">
             <AnimatePresence mode="wait" initial={false}>
               {selectedLog ? (
               <motion.div
@@ -762,9 +762,9 @@ export function RDAuditLogPage() {
                 animate={{ opacity: 1, x: 0 }}
                 exit={shouldReduceMotion ? { opacity: 1 } : { opacity: 0, x: -8 }}
                 transition={AUDIT_FAST}
-                className="flex h-full min-h-[650px] flex-col"
+                className="flex min-h-0 flex-1 flex-col"
               >
-                <div className="relative border-b border-slate-200 px-4 py-3">
+                <div className="relative shrink-0 border-b border-slate-200 px-4 py-3">
                   <span className={cn("absolute left-0 top-0 h-full w-1", TONE_BAR_CLASSES[selectedMeta.tone])} />
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <span className={cn("inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-semibold", TONE_BADGE_CLASSES[selectedMeta.tone])}>
@@ -777,7 +777,7 @@ export function RDAuditLogPage() {
                   <div className="mt-1 text-xs text-slate-500">{formatDateTimeFull(selectedLog.timestamp)}</div>
                 </div>
 
-                <div className="flex-1 space-y-4 overflow-auto px-4 pb-28 pt-4">
+                <div className="min-h-0 flex-1 space-y-4 overflow-auto px-4 pb-6 pt-4">
                   <section>
                     <h4 className="mb-2 text-xs font-semibold text-slate-500">基础信息</h4>
                     <div className="space-y-2 rounded-lg border border-slate-100 bg-slate-50/50 p-3 text-xs">
@@ -855,7 +855,7 @@ export function RDAuditLogPage() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={shouldReduceMotion ? { opacity: 1 } : { opacity: 0, y: -8 }}
                 transition={AUDIT_FAST}
-                className="flex h-full min-h-[650px] flex-col items-center justify-center px-6 text-center"
+                className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center"
               >
                 <History className="mb-2 h-6 w-6 text-slate-300" />
                 <div className="text-sm font-medium text-slate-500">暂无选中记录</div>

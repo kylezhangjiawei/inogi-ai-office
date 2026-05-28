@@ -37,9 +37,14 @@ export class SaveAiModelDto {
   @IsString()
   plain_secret?: string;
 
+  /**
+   * 以下字段都是「运行时状态」，只能由系统通过测试/使用流程写入，
+   * 用户表单传过来会被忽略——避免保存时把已成功的状态反向覆盖回旧值。
+   * 字段保留为 optional 是为了向后兼容旧前端的 payload，不做校验也不做使用。
+   */
+  @IsOptional()
   @IsString()
-  @MaxLength(40)
-  current_status!: string;
+  current_status?: string;
 
   @IsOptional()
   @IsString()

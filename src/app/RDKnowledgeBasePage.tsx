@@ -57,6 +57,8 @@ import {
 import { cn } from "./components/ui/utils";
 import { useAuth } from "./auth";
 import { hasPermission } from "./lib/permissions";
+import { recordAudit, useAuditActor } from "./lib/auditLog";
+import { KbAdvancedPreview } from "./components/KbAdvancedPreview";
 import {
   fetchKbCategories,
   fetchKbEntries,
@@ -67,6 +69,8 @@ import {
   deleteKbEntry,
   moveKbEntry,
   uploadKbFiles,
+  updateKbEntry,
+  fetchRdPeople,
   classifyKbFiles,
   recordKbView,
   repairKbFilenames,
@@ -141,11 +145,15 @@ const CAT_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> 
 function getFileType(
   fileName?: string | null,
   _mime?: string | null,
-): 'image' | 'pdf' | 'doc' | 'video' | 'link' | 'other' {
+): 'image' | 'pdf' | 'doc' | 'video' | 'link' | 'html' | 'text' | 'xlsx' | 'docx' | 'other' {
   const ext = (fileName ?? '').split('.').pop()?.toLowerCase() ?? '';
   if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp'].includes(ext)) return 'image';
   if (ext === 'pdf') return 'pdf';
-  if (['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'txt', 'md'].includes(ext)) return 'doc';
+  if (['html', 'htm'].includes(ext)) return 'html';
+  if (['xlsx', 'xls', 'csv'].includes(ext)) return 'xlsx';
+  if (['docx', 'doc'].includes(ext)) return 'docx';
+  if (['txt', 'md', 'log', 'json', 'xml', 'yaml', 'yml'].includes(ext)) return 'text';
+  if (['ppt', 'pptx'].includes(ext)) return 'doc';
   if (['mp4', 'avi', 'mov', 'webm'].includes(ext)) return 'video';
   return 'other';
 }
@@ -327,21 +335,28 @@ function FileTypeIcon({ entry, className }: { entry: KbEntry; className?: string
 
 interface EntryCardProps {
   entry: KbEntry;
-  canManage: boolean;
+  canEdit: boolean;
+  canMove: boolean;
+  canDelete: boolean;
+  onEdit: (entry: KbEntry) => void;
   onDelete: (entry: KbEntry) => void;
   onMove: (entry: KbEntry) => void;
   onPreview: (entry: KbEntry) => void;
 }
 
 const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(function EntryCard(
-  { entry, canManage, onDelete, onMove, onPreview },
+  { entry, canEdit, canMove, canDelete, onEdit, onDelete, onMove, onPreview },
   ref,
 ) {
+  const hasAnyManageAction = canEdit || canMove || canDelete;
   const fileType = getFileType(entry.file_name, entry.file_type);
   const srcCfg = SOURCE_CONFIG[entry.source] ?? SOURCE_CONFIG.manual;
   const hasFile = entry.has_data_file || !!entry.oss_url;
   const hasAction = hasFile || !!entry.external_url;
-  const isPreviewable = (fileType === 'image' || fileType === 'pdf' || fileType === 'video') && hasFile;
+  const isPreviewable = (
+    fileType === 'image' || fileType === 'pdf' || fileType === 'video'
+    || fileType === 'html' || fileType === 'text' || fileType === 'xlsx' || fileType === 'docx'
+  ) && hasFile;
 
   return (
     <div
@@ -418,59 +433,83 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
         </div>
       </div>
 
-      {/* Action buttons */}
-      <div className="flex items-center gap-2 pt-2 border-t border-slate-100/80">
-        {isPreviewable && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => onPreview(entry)}
-            className="h-8 flex-1 rounded-lg border-blue-100 bg-blue-50/70 px-2.5 text-xs font-semibold text-blue-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] hover:border-blue-200 hover:bg-blue-100"
-          >
-            <Eye className="w-3.5 h-3.5" />
-            预览
-          </Button>
-        )}
-        {hasAction && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => void downloadKbEntry(entry)}
-            className={cn(
-              "h-8 rounded-lg px-2.5 text-xs font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]",
-              isPreviewable ? "flex-1" : "flex-1 border-blue-100 bg-blue-50/70 text-blue-700 hover:border-blue-200 hover:bg-blue-100",
-              isPreviewable && "border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700",
+      {/* Action buttons — 主操作和管理操作分两行，窄屏时各自再自动换行 */}
+      <div className="flex flex-col gap-2 pt-2 border-t border-slate-100/80">
+        {/* Row 1: 主操作（预览 / 下载） */}
+        {(isPreviewable || hasAction) && (
+          <div className="flex flex-wrap items-center gap-2">
+            {isPreviewable && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => onPreview(entry)}
+                className="h-8 flex-1 min-w-[88px] rounded-lg border-blue-100 bg-blue-50/70 px-2.5 text-xs font-semibold text-blue-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] hover:border-blue-200 hover:bg-blue-100"
+              >
+                <Eye className="w-3.5 h-3.5" />
+                预览
+              </Button>
             )}
-          >
-            <ArrowDownToLine className="w-3.5 h-3.5" />
-            {entry.external_url ? '打开链接' : '下载'}
-          </Button>
+            {hasAction && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void downloadKbEntry(entry)}
+                className={cn(
+                  "h-8 flex-1 min-w-[88px] rounded-lg px-2.5 text-xs font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]",
+                  isPreviewable
+                    ? "border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                    : "border-blue-100 bg-blue-50/70 text-blue-700 hover:border-blue-200 hover:bg-blue-100",
+                )}
+              >
+                <ArrowDownToLine className="w-3.5 h-3.5" />
+                {entry.external_url ? '打开链接' : '下载'}
+              </Button>
+            )}
+          </div>
         )}
-        {canManage && (
-          <>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => onMove(entry)}
-              className="ml-auto h-7 px-2.5 text-xs font-medium text-slate-500 hover:text-blue-700 hover:bg-blue-50 rounded-md gap-1.5"
-            >
-              <MoveRight className="w-3.5 h-3.5" />
-              移动
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => onDelete(entry)}
-              className="h-7 px-2.5 text-xs font-medium text-red-500 hover:text-red-600 hover:bg-red-50 rounded-md gap-1.5"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              删除
-            </Button>
-          </>
+
+        {/* Row 2: 管理操作（编辑 / 移动 / 删除）— 仅在有任一管理权限时显示，靠右对齐，可换行 */}
+        {hasAnyManageAction && (
+          <div className="flex flex-wrap items-center justify-end gap-1">
+            {canEdit && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => onEdit(entry)}
+                className="h-7 px-2 text-xs font-medium text-slate-500 hover:text-blue-700 hover:bg-blue-50 rounded-md gap-1"
+              >
+                <Edit3 className="w-3.5 h-3.5" />
+                编辑
+              </Button>
+            )}
+            {canMove && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => onMove(entry)}
+                className="h-7 px-2 text-xs font-medium text-slate-500 hover:text-blue-700 hover:bg-blue-50 rounded-md gap-1"
+              >
+                <MoveRight className="w-3.5 h-3.5" />
+                移动
+              </Button>
+            )}
+            {canDelete && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => onDelete(entry)}
+                className="h-7 px-2 text-xs font-medium text-red-500 hover:text-red-600 hover:bg-red-50 rounded-md gap-1"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                删除
+              </Button>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -479,12 +518,192 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
 
 EntryCard.displayName = "EntryCard";
 
+// ── Edit Entry Dialog ─────────────────────────────────────────────────────────
+// 编辑已上传文件的元数据（标题、描述、分类、标签、权限分值）。
+// 不能改文件内容本身——那需要重新上传一个版本。
+function EditEntryDialog({
+  entry,
+  categories,
+  onSaved,
+  onClose,
+}: {
+  entry: KbEntry;
+  categories: KbCategory[];
+  onSaved: (updated: KbEntry) => void;
+  onClose: () => void;
+}) {
+  const flatCats = useMemo(() => flattenCategories(categories), [categories]);
+  const [title, setTitle] = useState(entry.title);
+  const [description, setDescription] = useState(entry.description ?? '');
+  const [categoryId, setCategoryId] = useState(entry.category_id);
+  const [tags, setTags] = useState((entry.tags ?? []).join(', '));
+  const [permissionLevel, setPermissionLevel] = useState<number>(entry.permission_level ?? 0);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setTitle(entry.title);
+    setDescription(entry.description ?? '');
+    setCategoryId(entry.category_id);
+    setTags((entry.tags ?? []).join(', '));
+    setPermissionLevel(entry.permission_level ?? 0);
+  }, [entry]);
+
+  const permCfg = getPermissionScoreConfig(permissionLevel);
+
+  async function handleSave() {
+    const trimmedTitle = title.trim();
+    if (!trimmedTitle) {
+      toast.error('标题不能为空');
+      return;
+    }
+    if (!categoryId) {
+      toast.error('请选择分类');
+      return;
+    }
+    const tagsArray = tags
+      .split(/[,，;\s]+/)
+      .map((t) => t.trim())
+      .filter(Boolean);
+    setSaving(true);
+    try {
+      const updated = await updateKbEntry(entry.id, {
+        title: trimmedTitle,
+        description: description.trim(),
+        category_id: categoryId,
+        tags: tagsArray,
+        permission_level: Math.max(0, Math.min(100, Math.round(permissionLevel))),
+      });
+      toast.success('文件已更新');
+      onSaved(updated);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '保存失败');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-lg rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden">
+        <DialogHeader className="border-b border-slate-100 px-5 py-4 text-left">
+          <DialogTitle className="flex items-center gap-2 text-base font-semibold text-slate-950">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+              <Edit3 className="h-4 w-4" />
+            </span>
+            编辑文件信息
+          </DialogTitle>
+          <DialogDescription className="sr-only">
+            修改已上传文件的元数据，包括标题、描述、分类、标签和权限分值。
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 px-5 py-4">
+          {/* 文件基础信息条 */}
+          <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
+            <FileTypeIcon entry={entry} className="h-4 w-4 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs font-medium text-slate-500">原文件名</p>
+              <p className="mt-0.5 truncate text-xs text-slate-700">{entry.file_name ?? '—'}</p>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-slate-600">标题 <span className="text-red-500">*</span></Label>
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="文件标题"
+              className="h-9 rounded-md border-slate-200 text-sm"
+            />
+          </div>
+
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold text-slate-600">描述</Label>
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="文件描述（可选）"
+              rows={2}
+              className="rounded-md border-slate-200 text-sm"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-slate-600">分类 <span className="text-red-500">*</span></Label>
+              <NativeSelect
+                value={categoryId}
+                onChange={(e) => setCategoryId(e.target.value)}
+                className="w-full h-9 cursor-pointer rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              >
+                <option value="">请选择</option>
+                {flatCats.map((c) => (
+                  <option key={c.id} value={c.id}>{c.label}</option>
+                ))}
+              </NativeSelect>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold text-slate-600">标签</Label>
+              <Input
+                value={tags}
+                onChange={(e) => setTags(e.target.value)}
+                placeholder="逗号分隔，如：研发,规范"
+                className="h-9 rounded-md border-slate-200 text-sm"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <div className="flex items-center justify-between gap-3">
+              <Label className="text-xs font-semibold text-slate-600">权限分值（0–100）</Label>
+              <Badge className={cn('shrink-0 gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold', permCfg.badgeClass)}>
+                <ShieldCheck className="h-3 w-3" />
+                {permissionLevel}/100 · {permCfg.label}
+              </Badge>
+            </div>
+            <Slider
+              value={[permissionLevel]}
+              min={0}
+              max={100}
+              step={5}
+              onValueChange={([v]) => setPermissionLevel(Math.max(0, Math.min(100, Math.round(v))))}
+              className={cn('w-full [&_[data-slot=slider-track]]:h-2 [&_[data-slot=slider-thumb]]:size-4', permCfg.sliderClass)}
+            />
+            <p className="text-[11px] leading-relaxed text-slate-400">
+              用户分值 ≥ 文件分值才可访问。0 = 完全公开，100 = 最高密级。
+            </p>
+          </div>
+        </div>
+
+        <DialogFooter className="border-t border-slate-100 px-5 py-4">
+          <Button type="button" variant="ghost" onClick={onClose} disabled={saving} className="h-9 rounded-lg px-4 text-slate-600">
+            取消
+          </Button>
+          <Button
+            type="button"
+            onClick={() => void handleSave()}
+            disabled={saving || !title.trim() || !categoryId}
+            className="h-9 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+          >
+            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            保存修改
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ── Category Sidebar ──────────────────────────────────────────────────────────
 
 interface CategorySidebarProps {
   categories: KbCategory[];
   selectedCatId: string | null;
+  /** 任一管理权限存在时显示动作区；具体按钮再按 canCreate/canEdit/canDelete 单独控制 */
   canManage: boolean;
+  canCreate: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
   onSelect: (id: string | null) => void;
   onCreate: (parentId: string | null) => void;
   onEdit: (category: KbCategory) => void;
@@ -496,6 +715,9 @@ const CategorySidebar = React.memo(function CategorySidebar({
   categories,
   selectedCatId,
   canManage,
+  canCreate,
+  canEdit,
+  canDelete,
   onSelect,
   onCreate,
   onEdit,
@@ -535,7 +757,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
         )}
         onClick={(event) => event.stopPropagation()}
       >
-        {allowChild && (
+        {allowChild && canCreate && (
           <Button
             type="button"
             variant="ghost"
@@ -550,38 +772,42 @@ const CategorySidebar = React.memo(function CategorySidebar({
             <FolderPlus className="h-3.5 w-3.5" />
           </Button>
         )}
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          disabled={locked}
-          onClick={(event) => {
-            stopAction(event);
-            if (!locked) {
-              onEdit(category);
-            }
-          }}
-          className={actionClass}
-          title={locked ? "类目下有文件，需先移动文件后编辑" : "编辑类目"}
-        >
-          <Edit3 className="h-3.5 w-3.5" />
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          disabled={locked || category.id === 'kb-other'}
-          onClick={(event) => {
-            stopAction(event);
-            if (!locked && category.id !== 'kb-other') {
-              onDelete(category);
-            }
-          }}
-          className={cn(actionClass, selected ? "hover:text-white" : "hover:text-red-600 hover:bg-red-50")}
-          title={locked ? "类目下有文件，需先移动文件后删除" : category.id === 'kb-other' ? "默认类目不能删除" : "删除类目"}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
+        {canEdit && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            disabled={locked}
+            onClick={(event) => {
+              stopAction(event);
+              if (!locked) {
+                onEdit(category);
+              }
+            }}
+            className={actionClass}
+            title={locked ? "类目下有文件，需先移动文件后编辑" : "编辑类目"}
+          >
+            <Edit3 className="h-3.5 w-3.5" />
+          </Button>
+        )}
+        {canDelete && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            disabled={locked || category.id === 'kb-other'}
+            onClick={(event) => {
+              stopAction(event);
+              if (!locked && category.id !== 'kb-other') {
+                onDelete(category);
+              }
+            }}
+            className={cn(actionClass, selected ? "hover:text-white" : "hover:text-red-600 hover:bg-red-50")}
+            title={locked ? "类目下有文件，需先移动文件后删除" : category.id === 'kb-other' ? "默认类目不能删除" : "删除类目"}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        )}
       </div>
     );
   };
@@ -591,7 +817,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
       <div className="hidden lg:flex items-center justify-between px-3 pb-2 pt-1 text-[11px] font-semibold uppercase text-slate-400">
         <span>知识域</span>
         <div className="flex items-center gap-2">
-          {canManage && (
+          {canCreate && (
             <Button
               type="button"
               variant="ghost"
@@ -1120,7 +1346,10 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
   const permCfg = getPermissionScoreConfig(permScore);
   const srcCfg = SOURCE_CONFIG[entry.source] ?? SOURCE_CONFIG.manual;
   const isDarkBg = fileType === 'image' || fileType === 'video';
-  const canPreview = fileType === 'image' || fileType === 'pdf' || fileType === 'video';
+  const canPreview = (
+    fileType === 'image' || fileType === 'pdf' || fileType === 'video'
+    || fileType === 'html' || fileType === 'text' || fileType === 'xlsx' || fileType === 'docx'
+  );
   const hasDownloadable = entry.has_data_file || !!entry.oss_url || !!entry.external_url;
 
   React.useEffect(() => {
@@ -1265,6 +1494,11 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
             />
           )}
 
+          {/* HTML / 纯文本 / Excel / Word：客户端解析渲染 */}
+          {!loading && fileUrl && (fileType === 'html' || fileType === 'text' || fileType === 'xlsx' || fileType === 'docx') && (
+            <KbAdvancedPreview fileUrl={fileUrl} fileType={fileType} fileName={entry.file_name ?? undefined} />
+          )}
+
           {/* Previewable type but URL failed to load */}
           {!loading && canPreview && !fileUrl && (
             <div className="flex flex-col items-center gap-4 py-14">
@@ -1384,6 +1618,7 @@ interface UploadDialogProps {
 }
 
 function UploadDialog({ categories, initialFiles = [], onClose, onUploaded }: UploadDialogProps) {
+  const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
   const [selectedFiles, setSelectedFiles] = useState<File[]>(() => initialFiles);
@@ -1391,11 +1626,32 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded }: Up
   const [categorySource, setCategorySource] = useState<'manual' | 'rule' | 'ai' | null>(null);
   const [classifyResults, setClassifyResults] = useState<KbClassifyResult>([]);
   const [classifying, setClassifying] = useState(false);
+  // 默认 permission_level 取当前用户在「人员管理」里配置的 kb_level；拉不到时兜底 20
   const [permissionLevel, setPermissionLevel] = useState<number>(20);
+  const [permissionLevelTouched, setPermissionLevelTouched] = useState(false);
   const [description, setDescription] = useState('');
   const [tags, setTags] = useState('');
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
+
+  // 挂载时拉当前用户的 kb_level 作为默认权限分值（仅当用户没手动调过滑块时生效）
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    fetchRdPeople()
+      .then((people) => {
+        if (cancelled) return;
+        const me = people.find((p) => p.user_id === user.id);
+        const myKbLevel = typeof me?.kb_level === 'number' ? me.kb_level : null;
+        if (myKbLevel !== null && !permissionLevelTouched) {
+          setPermissionLevel(Math.max(0, Math.min(100, Math.round(myKbLevel))));
+        }
+      })
+      .catch(() => { /* 静默：默认走 20 兜底 */ });
+    return () => { cancelled = true; };
+    // 故意只在挂载时拉一次，后续用户手动调滑块后即使再 refetch 也不要覆盖
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
 
   const flatCats = useMemo(() => flattenCategories(categories), [categories]);
 
@@ -1681,7 +1937,10 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded }: Up
                 return (
                   <Slider
                     value={[permissionLevel]}
-                    onValueChange={([v]) => setPermissionLevel(v ?? 0)}
+                    onValueChange={([v]) => {
+                      setPermissionLevel(v ?? 0);
+                      setPermissionLevelTouched(true);
+                    }}
                     min={0}
                     max={100}
                     step={5}
@@ -1763,14 +2022,25 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded }: Up
 export function RDKnowledgeBasePage() {
   const { user } = useAuth();
 
+  const userPerms = user?.permissions ?? [];
+  // 留痕动作的 actor 信息，按当前账号填充；姓名/角色取自 user 对象
+  const kbAuditActor = useAuditActor(user?.name || "研发成员");
+  const isSuper = userPerms.includes('*');
   const canUpload =
     !!user &&
-    (hasPermission(user.permissions, 'rd-kb:upload') ||
-      hasPermission(user.permissions, 'rd-task:create') ||
-      user.permissions.includes('*'));
-  const canManage =
-    !!user &&
-    (hasPermission(user.permissions, 'rd-kb:manage') || user.permissions.includes('*'));
+    (hasPermission(userPerms, 'rd-kb:upload') ||
+      hasPermission(userPerms, 'rd-task:create') ||
+      isSuper);
+  // 旧的笼统 rd-kb:manage 仍向后兼容；新拆分的 entry/category 权限按动作粒度判断
+  const hasLegacyManage = hasPermission(userPerms, 'rd-kb:manage') || isSuper;
+  const canEditEntry = hasLegacyManage || hasPermission(userPerms, 'rd-kb:entry:edit');
+  const canMoveEntry = hasLegacyManage || hasPermission(userPerms, 'rd-kb:entry:move') || hasPermission(userPerms, 'rd-kb:entry:edit');
+  const canDeleteEntry = hasLegacyManage || hasPermission(userPerms, 'rd-kb:entry:delete');
+  const canCreateCategory = hasLegacyManage || hasPermission(userPerms, 'rd-kb:category:create');
+  const canEditCategory = hasLegacyManage || hasPermission(userPerms, 'rd-kb:category:edit');
+  const canDeleteCategory = hasLegacyManage || hasPermission(userPerms, 'rd-kb:category:delete');
+  // 兼容旧调用：原 `canManage` 现在等于"任一管理动作"
+  const canManage = hasLegacyManage || canEditEntry || canDeleteEntry || canCreateCategory || canEditCategory || canDeleteCategory;
 
   const [categories, setCategories] = useState<KbCategory[]>([]);
   const [entries, setEntries] = useState<KbEntry[]>([]);
@@ -1792,6 +2062,7 @@ export function RDKnowledgeBasePage() {
   const [categoryDeleteLoading, setCategoryDeleteLoading] = useState(false);
   const [movingEntry, setMovingEntry] = useState<KbEntry | null>(null);
   const [moveLoading, setMoveLoading] = useState(false);
+  const [editingEntry, setEditingEntry] = useState<KbEntry | null>(null);
   /** Entry whose preview modal is open. */
   const [previewEntry, setPreviewEntry] = useState<KbEntry | null>(null);
   const [showUpload, setShowUpload] = useState(false);
@@ -1970,6 +2241,10 @@ export function RDKnowledgeBasePage() {
     setMovingEntry(entry);
   }, []);
 
+  const handleEditRequest = useCallback((entry: KbEntry) => {
+    setEditingEntry(entry);
+  }, []);
+
   /** Opens the preview modal and records a view. */
   const handlePreview = useCallback((entry: KbEntry) => {
     setPreviewEntry(entry);
@@ -1998,6 +2273,18 @@ export function RDKnowledgeBasePage() {
     try {
       await deleteKbEntry(deletingEntry.id);
       toast.success('已删除');
+      recordAudit({
+        actor: kbAuditActor,
+        action: "kb.entry.deleted",
+        resource: { type: "knowledge", id: deletingEntry.id, name: deletingEntry.title },
+        comment: `删除知识库文件「${deletingEntry.title}」`,
+        metadata: {
+          category_id: deletingEntry.category_id,
+          file_name: deletingEntry.file_name,
+          permission_level: deletingEntry.permission_level,
+        },
+        source: "web",
+      });
       setEntries((prev) => prev.filter((e) => e.id !== deletingEntry.id));
       void fetchKbCategories().then(syncCategories).catch(() => undefined);
       setDeletingEntry(null);
@@ -2011,8 +2298,10 @@ export function RDKnowledgeBasePage() {
   async function handleCategorySubmit(payload: CategorySubmitPayload) {
     if (!categoryDialog) return;
     setCategorySaving(true);
+    const isCreate = categoryDialog.mode === 'create';
+    const before = isCreate ? null : categoryDialog.category;
     try {
-      const result = categoryDialog.mode === 'create'
+      const result = isCreate
         ? await createKbCategory(payload)
         : await updateKbCategory(categoryDialog.category.id, {
             label: payload.label,
@@ -2020,8 +2309,38 @@ export function RDKnowledgeBasePage() {
             color: payload.color,
           });
       syncCategories(result.categories);
+
+      // 留痕：新建或编辑分类
+      if (isCreate) {
+        recordAudit({
+          actor: kbAuditActor,
+          action: "kb.category.created",
+          resource: { type: "knowledge", id: payload.label, name: payload.label },
+          comment: `新建知识库分类「${payload.label}」`,
+          metadata: {
+            parent_id: payload.parent_id ?? null,
+            icon: payload.icon,
+            color: payload.color,
+          },
+          source: "web",
+        });
+      } else if (before) {
+        const changes: { field: string; before?: unknown; after?: unknown }[] = [];
+        if (before.label !== payload.label) changes.push({ field: 'label', before: before.label, after: payload.label });
+        if (before.icon !== payload.icon) changes.push({ field: 'icon', before: before.icon, after: payload.icon });
+        if (before.color !== payload.color) changes.push({ field: 'color', before: before.color, after: payload.color });
+        recordAudit({
+          actor: kbAuditActor,
+          action: "kb.category.edited",
+          resource: { type: "knowledge", id: before.id, name: payload.label },
+          changes,
+          comment: `编辑知识库分类「${payload.label}」`,
+          source: "web",
+        });
+      }
+
       setCategoryDialog(null);
-      toast.success(categoryDialog.mode === 'create' ? '类目已创建' : '类目已更新');
+      toast.success(isCreate ? '类目已创建' : '类目已更新');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '类目保存失败');
     } finally {
@@ -2036,6 +2355,14 @@ export function RDKnowledgeBasePage() {
       const deletedIds = new Set(collectCategoryIds(deletingCategory));
       const result = await deleteKbCategory(deletingCategory.id);
       syncCategories(result.categories);
+      recordAudit({
+        actor: kbAuditActor,
+        action: "kb.category.deleted",
+        resource: { type: "knowledge", id: deletingCategory.id, name: deletingCategory.label },
+        comment: `删除知识库分类「${deletingCategory.label}」`,
+        metadata: { affected_subcategory_ids: Array.from(deletedIds) },
+        source: "web",
+      });
       if (selectedCatId && deletedIds.has(selectedCatId)) setSelectedCatId(null);
       setDeletingCategory(null);
       toast.success('类目已删除');
@@ -2062,6 +2389,14 @@ export function RDKnowledgeBasePage() {
           .map((entry) => (entry.id === updatedEntry.id ? updatedEntry : entry))
           .filter((entry) => entry.id !== updatedEntry.id || movedEntryVisible);
       });
+      recordAudit({
+        actor: kbAuditActor,
+        action: "kb.entry.moved",
+        resource: { type: "knowledge", id: updatedEntry.id, name: updatedEntry.title },
+        changes: [{ field: 'category_id', before: previousCategoryId, after: updatedEntry.category_id }],
+        comment: `移动文件「${updatedEntry.title}」`,
+        source: "web",
+      });
       setMovingEntry(null);
       toast.success('文件已移动');
       void Promise.all([fetchKbCategories(), fetchKbEntries(buildParams())])
@@ -2086,6 +2421,24 @@ export function RDKnowledgeBasePage() {
     const sanitized = newEntries.map(toListEntry);
     setEntries((prev) => [...sanitized, ...prev]);
     void fetchKbCategories().then(syncCategories).catch(() => undefined);
+
+    // 留痕：上传文件（每条文件分别记录，便于审计追溯到具体文件）
+    for (const entry of sanitized) {
+      recordAudit({
+        actor: kbAuditActor,
+        action: "kb.entry.uploaded",
+        resource: { type: "knowledge", id: entry.id, name: entry.title },
+        comment: `上传知识库文件「${entry.title}」`,
+        metadata: {
+          category_id: entry.category_id,
+          file_name: entry.file_name,
+          file_size: entry.file_size,
+          file_type: entry.file_type,
+          permission_level: entry.permission_level,
+        },
+        source: "web",
+      });
+    }
   }
 
   function openUploadDialog(files: File[] = []) {
@@ -2262,7 +2615,7 @@ export function RDKnowledgeBasePage() {
             <NativeSelect
               value={fileTypeFilter}
               onValueChange={handleFileTypeFilterChange}
-              className="h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition-shadow focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              className="h-full w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition-shadow focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
             >
               {FILE_TYPE_FILTER_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -2315,6 +2668,9 @@ export function RDKnowledgeBasePage() {
           categories={categories}
           selectedCatId={selectedCatId}
           canManage={canManage}
+          canCreate={canCreateCategory}
+          canEdit={canEditCategory}
+          canDelete={canDeleteCategory}
           onSelect={handleSelectCategory}
           onCreate={handleCreateCategoryDialog}
           onEdit={handleEditCategoryDialog}
@@ -2384,7 +2740,10 @@ export function RDKnowledgeBasePage() {
                 <EntryCard
                   key={entry.id}
                   entry={entry}
-                  canManage={canManage}
+                  canEdit={canEditEntry}
+                  canMove={canMoveEntry}
+                  canDelete={canDeleteEntry}
+                  onEdit={handleEditRequest}
                   onDelete={handleDelete}
                   onMove={handleMoveRequest}
                   onPreview={handlePreview}
@@ -2434,6 +2793,35 @@ export function RDKnowledgeBasePage() {
           loading={moveLoading}
           onConfirm={(categoryId) => void handleConfirmMoveEntry(categoryId)}
           onCancel={() => setMovingEntry(null)}
+        />
+      )}
+
+      {/* Edit metadata modal */}
+      {editingEntry && (
+        <EditEntryDialog
+          entry={editingEntry}
+          categories={categories}
+          onSaved={(updated) => {
+            const before = editingEntry;
+            const changes: { field: string; before?: unknown; after?: unknown }[] = [];
+            if (before.title !== updated.title) changes.push({ field: 'title', before: before.title, after: updated.title });
+            if ((before.description ?? '') !== (updated.description ?? '')) changes.push({ field: 'description', before: before.description, after: updated.description });
+            if (before.category_id !== updated.category_id) changes.push({ field: 'category_id', before: before.category_id, after: updated.category_id });
+            if (JSON.stringify(before.tags ?? []) !== JSON.stringify(updated.tags ?? [])) changes.push({ field: 'tags', before: before.tags, after: updated.tags });
+            if ((before.permission_level ?? 0) !== (updated.permission_level ?? 0)) changes.push({ field: 'permission_level', before: before.permission_level, after: updated.permission_level });
+            recordAudit({
+              actor: kbAuditActor,
+              action: "kb.entry.edited",
+              resource: { type: "knowledge", id: updated.id, name: updated.title },
+              changes,
+              comment: `编辑知识库文件「${updated.title}」`,
+              source: "web",
+            });
+            setEntries((prev) => prev.map((e) => (e.id === updated.id ? toListEntry(updated) : e)));
+            void fetchKbCategories().then(syncCategories).catch(() => undefined);
+            setEditingEntry(null);
+          }}
+          onClose={() => setEditingEntry(null)}
         />
       )}
 

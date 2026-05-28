@@ -1198,6 +1198,8 @@ function TaskEditRow({
                       ...task,
                       owner,
                       owner_reason: owner === "待指派" ? "人工选择：待指派" : `人工选择主责人：${owner}`,
+                      // 切换主责人时，若新主责人原本在协作人里则自动剔除，避免重复
+                      collaborators: (task.collaborators ?? []).filter((name) => name !== owner),
                     })
                   }
                 >
@@ -1287,6 +1289,77 @@ function TaskEditRow({
               </Select>
             </div>
           </div>
+          {/* 协作人：多选，与主责人合并为"任务一对多"指派关系 */}
+          {!ownerLocked && (
+            <div>
+              <label className="mb-1 flex items-center gap-2 text-[11px] font-medium text-slate-500">
+                协作人
+                <span className="text-[10px] text-slate-400">（可多选，立项后将同步分配）</span>
+              </label>
+              <div className="space-y-1.5">
+                {/* 已选协作人 chips */}
+                {(task.collaborators ?? []).length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {(task.collaborators ?? []).map((name) => (
+                      <span
+                        key={name}
+                        className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] font-medium text-slate-700"
+                      >
+                        <MiniAvatar name={name} size="xs" />
+                        {name}
+                        <button
+                          type="button"
+                          onClick={() =>
+                            onChange({
+                              ...task,
+                              collaborators: (task.collaborators ?? []).filter((n) => n !== name),
+                            })
+                          }
+                          className="ml-0.5 -mr-0.5 flex h-4 w-4 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
+                          aria-label={`移除协作人 ${name}`}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {/* 添加按钮：使用同样的 Select 控件，选中后追加到 collaborators 数组 */}
+                <Select
+                  value=""
+                  onValueChange={(name) => {
+                    const trimmed = name?.trim();
+                    if (!trimmed || trimmed === "待指派" || trimmed === task.owner) return;
+                    const current = task.collaborators ?? [];
+                    if (current.includes(trimmed)) return;
+                    onChange({ ...task, collaborators: [...current, trimmed] });
+                  }}
+                >
+                  <SelectTrigger className={cn(REVIEW_SELECT_TRIGGER_CLASS, "h-9 w-full")}>
+                    <SelectValue placeholder={(task.collaborators ?? []).length > 0 ? "+ 继续添加协作人" : "+ 添加协作人"} />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-72 rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
+                    {effectiveOwnerOptions
+                      .filter((option) =>
+                        option.value !== "待指派" &&
+                        option.value !== task.owner &&
+                        !(task.collaborators ?? []).includes(option.value),
+                      )
+                      .map((option) => (
+                        <SelectItem
+                          key={option.value}
+                          value={option.value}
+                          className="rounded-lg py-2 pl-3 pr-9 text-sm text-slate-700"
+                          description={option.description}
+                        >
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
           {/* Duration: AI suggestion + manual override */}
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -2496,6 +2569,21 @@ export function RDProjectProposalDialog({
       // 个人工作台模式：save 时再做一次防御性 override，杜绝用户在 review 步骤手改 owner 的情况
       const primaryOwner = ownerLocked ? forcedOwnerName : task.owner;
 
+      // 立项 UI 里的 collaborators 只是姓名字符串数组；提交时映射成后端要求的 RdCollaborator 对象。
+      // 主责人和"待指派"自动排除，避免重复。
+      const collaborators = (task.collaborators ?? [])
+        .map((name) => name.trim())
+        .filter((name) => name && name !== "待指派" && name !== primaryOwner)
+        .map((name) => {
+          const profile = peopleProfiles.find((p) => p.name === name);
+          return {
+            id: profile?.user_id ?? `collab-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            name,
+            role: profile?.position || "协作人",
+            user_id: profile?.user_id ?? null,
+          };
+        });
+
       await createRdTask({
         category_id: target.categoryId,
         sub_project_id: target.subProjectId,
@@ -2507,6 +2595,7 @@ export function RDProjectProposalDialog({
         due_date: task.due_date,
         description: task.description,
         category_path: task.category_path,
+        ...(collaborators.length > 0 ? { collaborators } : {}),
       });
     }
 

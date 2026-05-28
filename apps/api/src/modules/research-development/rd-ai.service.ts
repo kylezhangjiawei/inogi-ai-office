@@ -131,6 +131,86 @@ type RdAiProgressAssessmentResult = {
   raw_text_length: number;
 };
 
+export type RdTaskCompletionScoreDimensionKey =
+  | 'timeliness'
+  | 'process'
+  | 'evidence'
+  | 'collaboration';
+
+export type RdTaskCompletionScoreDimension = {
+  key: RdTaskCompletionScoreDimensionKey;
+  label: string;
+  score: number;
+  max: number;
+  comment: string;
+};
+
+export type RdTaskCompletionScoreResult = {
+  total: number;
+  grade: 'A' | 'B' | 'C' | 'D';
+  grade_label: string;
+  summary: string;
+  dimensions: RdTaskCompletionScoreDimension[];
+  highlights: string[];
+  improvements: string[];
+  provider: 'openai' | 'qwen' | 'local';
+  model: string;
+  computed_at: string;
+  fallback_reason?: string;
+  /** 仅超管可见的调试信息（含发给 AI 的原始 prompt 和 AI 原始响应）。前端展示前需做权限校验。 */
+  _debug?: {
+    system_prompt: string;
+    user_message: string;
+    raw_response: string;
+    request_started_at: string;
+    request_finished_at: string;
+    duration_ms: number;
+  };
+};
+
+export type RdTaskCompletionScoreInput = {
+  task: {
+    task_id: string;
+    title: string;
+    description?: string;
+    category_path?: string;
+    primary_owner?: string;
+    collaborators?: Array<{ name?: string; role?: string }>;
+    final_priority?: string;
+    start_date?: string;
+    due_date?: string;
+    updated_at?: string;
+    attachments?: number;
+  };
+  notes: Array<{
+    text?: string;
+    progress?: number;
+    created_at?: string;
+    actor?: { name?: string; role?: string };
+    attachments?: Array<{
+      name?: string;
+      mime?: string;
+      size?: number;
+      /** L1+L2+L3 抽取出的附件文本（OCR/文档抽取/视觉模型），用于让 AI 评分时"看到"附件内容 */
+      extracted_text?: string;
+      extracted_source?: string;
+    }>;
+  }>;
+  auditLogs: Array<{
+    timestamp?: string;
+    action?: string;
+    comment?: string;
+    actor?: { name?: string };
+  }>;
+  /** L4：RAG 召回的相似任务/知识库参考资料，用于评分基准锚定 */
+  ragContext?: Array<{
+    source: string;
+    title?: string;
+    content: string;
+    similarity?: number;
+  }>;
+};
+
 type AiProvider = 'openai' | 'qwen';
 
 type AiModelRuntimeConfig = {
@@ -2394,5 +2474,518 @@ export class RdAiService {
       console.warn('[summarizeDailyReport] AI call failed:', error instanceof Error ? error.message : error);
       return null;
     }
+  }
+
+  // ── 附件内容抽取（L1+L2+L3：OCR + 文档抽取 + 视觉模型兜底）─────────────────
+
+  /**
+   * 统一附件文本抽取入口。按文件类型分发：
+   * - 纯文本（txt/md/csv/json/...）：直接 utf8 读
+   * - 图片（png/jpg/...）：腾讯 OCR（GeneralAccurateOCR）→ 文字 < 5 字时 fallback Qwen-VL 视觉描述
+   * - 文档（pdf/doc/docx/xls/xlsx/ppt/pptx）：腾讯 ExtractDocBasic → 失败/无文字 fallback Qwen doc-turbo
+   * - 其它：跳过
+   *
+   * 设计为 best-effort：内部任何外部 API 失败都吞掉返回 source: "failed"，由调用方决定是否记录。
+   * 返回的 text 已做长度截断（最大 8000 字符），避免后续 prompt 过大。
+   */
+  async extractAttachmentText(file: RdAiUploadedFile): Promise<{
+    text: string;
+    source: 'ocr' | 'vision' | 'doc_extract' | 'doc_model' | 'text' | 'failed' | 'skipped';
+  }> {
+    const MAX_CHARS = 8000;
+    const ext = this.extOf(file.originalname);
+
+    // 1. 纯文本类
+    if (PLAIN_TEXT_EXT.has(ext)) {
+      const text = this.safeUtf8(file.buffer).trim().slice(0, MAX_CHARS);
+      return { text, source: text ? 'text' : 'failed' };
+    }
+
+    // 2. 图片：OCR 优先，文字过少时 fallback vision
+    if (IMAGE_EXT.has(ext)) {
+      let ocrText = '';
+      if (await this.ocrService.hasTencentConfig().catch(() => false)) {
+        try {
+          const ocr = await this.ocrService.recognizeWithTencent(
+            { originalname: file.originalname, buffer: file.buffer, mimetype: file.mimetype },
+            { documentKind: 'invoice', serviceKey: 'accurate_text' },
+          );
+          ocrText = (ocr.text || ocr.lines.join('\n') || '').trim();
+        } catch (err) {
+          this.logger.warn(
+            `[extractAttachmentText] OCR failed (${file.originalname}): ${(err as Error).message}`,
+          );
+        }
+      }
+      if (ocrText.length >= 5) return { text: ocrText.slice(0, MAX_CHARS), source: 'ocr' };
+      // OCR 没拿到有效文字 → vision 兜底（描述图片内容，常用于图表/电路图）
+      const visionText = await this.describeImageViaVision(file).catch((err) => {
+        this.logger.warn(
+          `[extractAttachmentText] vision fallback failed (${file.originalname}): ${(err as Error).message}`,
+        );
+        return '';
+      });
+      if (visionText) return { text: visionText.slice(0, MAX_CHARS), source: 'vision' };
+      return { text: '', source: 'failed' };
+    }
+
+    // 3. 文档：腾讯 ExtractDocBasic 先试（用户已购，便宜），失败 fallback Qwen doc-turbo
+    if (DOC_EXT.has(ext)) {
+      let docText = '';
+      if (await this.ocrService.hasTencentConfig().catch(() => false)) {
+        try {
+          const ocr = await this.ocrService.recognizeWithTencent(
+            { originalname: file.originalname, buffer: file.buffer, mimetype: file.mimetype },
+            { documentKind: 'invoice', serviceKey: 'document_extract' },
+          );
+          docText = (ocr.text || ocr.lines.join('\n') || '').trim();
+        } catch (err) {
+          this.logger.warn(
+            `[extractAttachmentText] ExtractDocBasic failed (${file.originalname}): ${(err as Error).message}`,
+          );
+        }
+      }
+      if (docText.length >= 10) return { text: docText.slice(0, MAX_CHARS), source: 'doc_extract' };
+      // 腾讯不可用 / 抽取内容过少 → fallback Qwen doc-turbo
+      const qwenText = await this.extractDocumentTextViaQwen(file).catch((err) => {
+        this.logger.warn(
+          `[extractAttachmentText] Qwen doc-turbo fallback failed (${file.originalname}): ${(err as Error).message}`,
+        );
+        return '';
+      });
+      if (qwenText) return { text: qwenText.slice(0, MAX_CHARS), source: 'doc_model' };
+      return { text: '', source: 'failed' };
+    }
+
+    return { text: '', source: 'skipped' };
+  }
+
+  /** L3：让 Qwen-VL 描述图片内容（用于 OCR 拿不到文字的图表/电路图/UI 截图等） */
+  private async describeImageViaVision(file: RdAiUploadedFile): Promise<string> {
+    const visionModel = await this.resolveSceneModelConfig('image_understanding').catch(() => null);
+    if (!visionModel?.apiKey) return '';
+    const client = this.createClient(visionModel.apiKey, visionModel.provider, visionModel.baseUrl);
+    const mime = file.mimetype?.trim() || 'image/png';
+    const dataUri = `data:${mime};base64,${file.buffer.toString('base64')}`;
+    try {
+      const response = await client.chat.completions.create({
+        model: visionModel.model,
+        messages: [
+          {
+            role: 'system',
+            content:
+              '你是图像内容解读助手。请用 200 字以内的中文，客观、具体地描述图片中的关键信息：' +
+              '是图表/示意图就描述结构和数据要点；是 UI 截图就描述展示了什么界面与关键文本；是照片就描述场景。不要发挥、不要议论。',
+          },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: '请描述这张图片的关键内容。' },
+              { type: 'image_url', image_url: { url: dataUri } as { url: string } },
+            ] as unknown as string,
+          },
+        ],
+      });
+      return (response.choices[0]?.message?.content ?? '').trim();
+    } catch (err) {
+      this.logger.warn(`[describeImageViaVision] failed: ${(err as Error).message}`);
+      return '';
+    }
+  }
+
+  /** L2 fallback：用 Qwen doc-turbo 抽取 PDF/Word/Excel 全文（不做立项解析，只要原文） */
+  private async extractDocumentTextViaQwen(file: RdAiUploadedFile): Promise<string> {
+    const docCfg = await this.resolveDocModelConfig();
+    if (!docCfg) return '';
+    const client = this.createClient(docCfg.apiKey, 'qwen', docCfg.baseUrl, this.extractTimeoutMs);
+    try {
+      const uploadable = await toFile(file.buffer, file.originalname, {
+        type: file.mimetype?.trim() || undefined,
+      });
+      const uploaded = await client.files.create({
+        file: uploadable,
+        purpose: 'file-extract' as OpenAI.FilePurpose,
+      });
+      const response = await client.chat.completions.create({
+        model: QWEN_DOC_MODEL,
+        messages: [
+          {
+            role: 'system',
+            content:
+              '你是文档内容抽取器。请从上传的文档中提取关键文字内容（标题、章节、表格关键行、结论等），' +
+              '用 1500 字以内的中文输出。不要解读、不要总结你的工作，直接给原文要点。',
+          },
+          { role: 'system', content: `fileid://${uploaded.id}` },
+          { role: 'user', content: '请抽取该文档的关键文本内容。' },
+        ],
+      });
+      return (response.choices[0]?.message?.content ?? '').trim();
+    } catch (err) {
+      this.logger.warn(`[extractDocumentTextViaQwen] failed: ${(err as Error).message}`);
+      return '';
+    }
+  }
+
+  // ── 已完成任务质量评分 ───────────────────────────────────────────────────────
+
+  async scoreTaskCompletion(input: RdTaskCompletionScoreInput): Promise<RdTaskCompletionScoreResult> {
+    const systemPrompt = this.buildCompletionScoreSystemPrompt();
+    const userMessage = this.buildCompletionScoreUserMessage(input);
+
+    const selectedModel = await this.resolveSceneModelConfig('progress_summary').catch(() => null);
+    const apiKey = selectedModel?.apiKey ?? null;
+    const provider: AiProvider = selectedModel?.provider ?? 'openai';
+    const model = selectedModel?.model ?? DEFAULT_TEXT_MODEL;
+    const baseUrl = selectedModel?.baseUrl;
+
+    if (!apiKey) {
+      return this.buildFallbackCompletionScore(input, 'ai_not_configured');
+    }
+
+    const startedAt = new Date();
+    try {
+      const client = this.createClient(apiKey, provider, baseUrl);
+      const response = await client.chat.completions.create({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage },
+        ],
+        response_format: { type: 'json_object' },
+        ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+      });
+      const finishedAt = new Date();
+      const content = response.choices[0]?.message?.content ?? '{}';
+      const parsed = this.parseCompletionScorePayload(content);
+      return {
+        ...parsed,
+        provider,
+        model,
+        computed_at: finishedAt.toISOString(),
+        _debug: {
+          system_prompt: systemPrompt,
+          user_message: userMessage,
+          raw_response: content,
+          request_started_at: startedAt.toISOString(),
+          request_finished_at: finishedAt.toISOString(),
+          duration_ms: finishedAt.getTime() - startedAt.getTime(),
+        },
+      };
+    } catch (error) {
+      const finishedAt = new Date();
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`[scoreTaskCompletion] AI call failed: ${message}`);
+      const fallback = this.buildFallbackCompletionScore(input, `ai_error:${message.slice(0, 80)}`);
+      return {
+        ...fallback,
+        _debug: {
+          system_prompt: systemPrompt,
+          user_message: userMessage,
+          raw_response: `[ERROR] ${message}`,
+          request_started_at: startedAt.toISOString(),
+          request_finished_at: finishedAt.toISOString(),
+          duration_ms: finishedAt.getTime() - startedAt.getTime(),
+        },
+      };
+    }
+  }
+
+  private buildCompletionScoreSystemPrompt(): string {
+    return [
+      '你是一名经验丰富的研发项目主管，负责对刚完成的研发任务进行复盘评分。',
+      '你的目标是从多个维度客观评估任务的"完成质量"，帮助团队识别优秀实践与改进空间。',
+      '评分必须严格基于提供的事实数据，不臆测、不打感情分。',
+      '',
+      '评分维度（每项满分 25，总分 100）：',
+      '',
+      '1. 时效性 (timeliness, 0-25)',
+      '   - 是否按时/提前完成、逾期程度',
+      '   - 提前 + 完成质量稳定 = 满分；轻微逾期但有合理记录可酌情扣分；严重逾期且无说明则大幅扣分',
+      '   - 无截止日期时按中性 15 分起评',
+      '',
+      '2. 过程透明度 (process, 0-25)',
+      '   - 进度留痕的频率、阶段覆盖度、文字详尽程度',
+      '   - 是否能从留痕中清晰看出"做了什么 / 遇到什么 / 下一步是什么"',
+      '   - 零留痕直接 ≤5 分；流水账式留痕 8-12 分；阶段清晰且有判断 20+ 分',
+      '',
+      '3. 交付证据 (evidence, 0-25)',
+      '   - 留痕附件是否充分、相关、可作为完成依据',
+      '   - 文件名是否能反映出测试/方案/评审等关键产出（如 "EMC测试报告.pdf"、"BOM变更说明.xlsx" 优于 "图片1.png"）',
+      '   - 无任何附件 ≤5 分；仅截图无文档 10-15 分；有可追溯交付物 20+ 分',
+      '',
+      '4. 协作与风险管理 (collaboration, 0-25)',
+      '   - 协作人配置是否合理、协作记录是否充分',
+      '   - 是否识别并解决了阻塞/风险（看操作历史中的阻塞标记、留痕中的风险描述）',
+      '   - 独立完成不直接扣分（部分任务确实适合独立），但需在 comment 中说明判断',
+      '   - 高优先级任务对该维度要求更高',
+      '',
+      '输出严格 JSON，禁止任何额外文字或 markdown 包装：',
+      '{',
+      '  "total": integer 0-100,',
+      '  "grade": "A" | "B" | "C" | "D",',
+      '  "summary": string,              // 一句话总体评价, 40 字内',
+      '  "dimensions": [',
+      '    {',
+      '      "key": "timeliness" | "process" | "evidence" | "collaboration",',
+      '      "label": string,            // 中文标签',
+      '      "score": integer 0-25,',
+      '      "max": 25,',
+      '      "comment": string           // 该维度评分依据, 30 字内',
+      '    }',
+      '    // 必须 4 个，顺序固定: timeliness → process → evidence → collaboration',
+      '  ],',
+      '  "highlights": [string, ...],    // 1-3 条值得表扬之处, 每条 25 字内; 无可圈可点处则给空数组',
+      '  "improvements": [string, ...]   // 1-3 条改进建议, 每条 25 字内; 任务做得很好时也至少给 1 条',
+      '}',
+      '',
+      '等级映射：≥90→A 优秀；75-89→B 良好；60-74→C 合格；<60→D 需改进',
+      'total 必须等于 4 个 dimension.score 之和，不要单独算。',
+      '',
+      '如果输入数据严重缺失（如完全无留痕、无操作记录），仍要给出评分，',
+      '但 summary 中需注明"数据不足，评分仅供参考"。',
+    ].join('\n');
+  }
+
+  private buildCompletionScoreUserMessage(input: RdTaskCompletionScoreInput): string {
+    const { task, notes, auditLogs, ragContext } = input;
+    const lines: string[] = [];
+    lines.push('===== 任务基础信息 =====');
+    lines.push(`任务 ID：${task.task_id}`);
+    lines.push(`标题：${task.title}`);
+    lines.push(`描述：${task.description?.trim() || '（无）'}`);
+    if (task.category_path) lines.push(`分类路径：${task.category_path}`);
+    lines.push(`主责人：${task.primary_owner || '（未指派）'}`);
+    const collaboratorNames = (task.collaborators ?? [])
+      .map((c) => c.name)
+      .filter((name): name is string => Boolean(name && name.trim()));
+    lines.push(`协作人：${collaboratorNames.length > 0 ? collaboratorNames.join('、') : '无'}`);
+    lines.push(`优先级：${task.final_priority || 'medium'}`);
+    lines.push(`开始日期：${task.start_date || '未设'}`);
+    lines.push(`截止日期：${task.due_date || '未设'}`);
+    const completionTime = this.pickLatestNoteTime(notes) ?? task.updated_at ?? '（未知）';
+    lines.push(`实际完成时间：${completionTime}`);
+    lines.push(`任务附件数（任务本身挂载）：${task.attachments ?? 0}`);
+    lines.push('');
+
+    lines.push(`===== 进度时间线（共 ${notes.length} 条留痕，含附件 AI 抽取内容）=====`);
+    if (notes.length === 0) {
+      lines.push('⚠️ 此任务无任何进度留痕记录');
+    } else {
+      const sortedNotes = [...notes].sort((a, b) =>
+        String(a.created_at ?? '').localeCompare(String(b.created_at ?? '')),
+      );
+      sortedNotes.slice(0, 30).forEach((note, idx) => {
+        const actorLabel = note.actor?.name
+          ? `${note.actor.name}${note.actor.role ? `（${note.actor.role}）` : ''}`
+          : '（未知）';
+        lines.push(`[第 ${idx + 1} 条] ${note.created_at ?? '（无时间）'} · ${actorLabel}`);
+        if (typeof note.progress === 'number') {
+          lines.push(`  进度更新至：${note.progress}%`);
+        }
+        const text = (note.text ?? '').trim().replace(/\s+/g, ' ').slice(0, 300);
+        if (text) lines.push(`  内容：${text}`);
+        const atts = note.attachments ?? [];
+        if (atts.length > 0) {
+          lines.push(`  附件 ${atts.length} 个：`);
+          atts.slice(0, 5).forEach((att, ai) => {
+            const name = att.name ?? '未知文件';
+            const extracted = (att.extracted_text ?? '').trim();
+            if (extracted) {
+              // 截断 + 单行化，避免单个附件占满 prompt
+              const compressed = extracted.replace(/\s+/g, ' ').slice(0, 600);
+              lines.push(`    ${ai + 1}) ${name} [${att.extracted_source ?? 'ai'}]：${compressed}`);
+            } else {
+              lines.push(`    ${ai + 1}) ${name} [未抽取到内容]`);
+            }
+          });
+        }
+      });
+    }
+    lines.push('');
+
+    lines.push(`===== 关键操作历史（最近 ${Math.min(auditLogs.length, 20)} 条） =====`);
+    if (auditLogs.length === 0) {
+      lines.push('（无操作记录）');
+    } else {
+      const sortedLogs = [...auditLogs]
+        .sort((a, b) => String(a.timestamp ?? '').localeCompare(String(b.timestamp ?? '')))
+        .slice(-20);
+      for (const log of sortedLogs) {
+        const actor = log.actor?.name ?? '未知';
+        const action = log.action ?? '（未知操作）';
+        const comment = log.comment ? ` · ${log.comment.slice(0, 80)}` : '';
+        lines.push(`- ${log.timestamp ?? '（无时间）'} · ${actor} · ${action}${comment}`);
+      }
+    }
+    lines.push('');
+
+    if (ragContext && ragContext.length > 0) {
+      lines.push(`===== 评分参考资料（来自知识库 RAG 召回的 ${ragContext.length} 条相关条目）=====`);
+      lines.push('以下内容是与本任务相关的历史经验/规范/同类任务记录，可作为评分基准锚定参考：');
+      ragContext.slice(0, 5).forEach((ref, idx) => {
+        const title = ref.title ? ` · ${ref.title}` : '';
+        const sim = typeof ref.similarity === 'number' ? ` (相似度 ${(ref.similarity * 100).toFixed(0)}%)` : '';
+        const content = ref.content.replace(/\s+/g, ' ').slice(0, 400);
+        lines.push(`[${idx + 1}] ${ref.source}${title}${sim}`);
+        lines.push(`    ${content}`);
+      });
+      lines.push('');
+    }
+
+    lines.push('请基于以上事实（含附件抽取内容与参考资料）评分并输出 JSON。');
+    return lines.join('\n');
+  }
+
+  private pickLatestNoteTime(notes: RdTaskCompletionScoreInput['notes']): string | null {
+    let latest: string | null = null;
+    for (const note of notes) {
+      const t = note.created_at;
+      if (t && (!latest || t > latest)) latest = t;
+    }
+    return latest;
+  }
+
+  private parseCompletionScorePayload(
+    rawJson: string,
+  ): Omit<RdTaskCompletionScoreResult, 'provider' | 'model' | 'computed_at'> {
+    let obj: Record<string, unknown> = {};
+    try {
+      const cleaned = (rawJson || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim();
+      obj = JSON.parse(cleaned);
+    } catch (err) {
+      this.logger.warn(`[parseCompletionScorePayload] JSON parse failed: ${(err as Error).message}`);
+    }
+    const dimsRaw = Array.isArray(obj.dimensions) ? obj.dimensions : [];
+    const fixedKeys: RdTaskCompletionScoreDimensionKey[] = [
+      'timeliness',
+      'process',
+      'evidence',
+      'collaboration',
+    ];
+    const fixedLabels: Record<RdTaskCompletionScoreDimensionKey, string> = {
+      timeliness: '时效性',
+      process: '过程透明度',
+      evidence: '交付证据',
+      collaboration: '协作与风险管理',
+    };
+    const dimensions: RdTaskCompletionScoreDimension[] = fixedKeys.map((key, idx) => {
+      const found =
+        (dimsRaw.find(
+          (d) => typeof d === 'object' && d !== null && (d as Record<string, unknown>).key === key,
+        ) as Record<string, unknown> | undefined) ?? (dimsRaw[idx] as Record<string, unknown> | undefined);
+      const score = Math.max(0, Math.min(25, Math.round(Number(found?.score) || 0)));
+      const comment = typeof found?.comment === 'string' && found.comment.trim() ? found.comment.trim() : '—';
+      return { key, label: fixedLabels[key], score, max: 25, comment };
+    });
+    const computedTotal = dimensions.reduce((sum, d) => sum + d.score, 0);
+    // 以维度分之和为准（防止 AI 算错总分）
+    const total = Math.max(0, Math.min(100, computedTotal));
+    const grade: RdTaskCompletionScoreResult['grade'] =
+      total >= 90 ? 'A' : total >= 75 ? 'B' : total >= 60 ? 'C' : 'D';
+    const gradeLabelMap: Record<RdTaskCompletionScoreResult['grade'], string> = {
+      A: '优秀',
+      B: '良好',
+      C: '合格',
+      D: '需改进',
+    };
+    const summary =
+      typeof obj.summary === 'string' && obj.summary.trim()
+        ? obj.summary.trim().slice(0, 80)
+        : '已完成，详情见各维度评分。';
+    const highlights = Array.isArray(obj.highlights)
+      ? obj.highlights
+          .map((s) => String(s ?? '').trim())
+          .filter(Boolean)
+          .slice(0, 3)
+      : [];
+    const improvements = Array.isArray(obj.improvements)
+      ? obj.improvements
+          .map((s) => String(s ?? '').trim())
+          .filter(Boolean)
+          .slice(0, 3)
+      : [];
+    return {
+      total,
+      grade,
+      grade_label: gradeLabelMap[grade],
+      summary,
+      dimensions,
+      highlights,
+      improvements,
+    };
+  }
+
+  private buildFallbackCompletionScore(
+    input: RdTaskCompletionScoreInput,
+    reason: string,
+  ): RdTaskCompletionScoreResult {
+    // AI 未配置或调用失败时的兜底：用简单规则给一个保守分数，并标注原因。
+    const { task, notes } = input;
+    const completionTime = this.pickLatestNoteTime(notes) ?? task.updated_at ?? null;
+    const dueDate = task.due_date;
+    let timeliness = 15;
+    let timelinessComment = '无截止日期，按中性分';
+    if (dueDate && completionTime) {
+      const dayDiff = Math.floor(
+        (new Date(completionTime).getTime() - new Date(dueDate).getTime()) / 86_400_000,
+      );
+      if (!Number.isNaN(dayDiff)) {
+        if (dayDiff <= 0) {
+          timeliness = 25;
+          timelinessComment = dayDiff < 0 ? `提前 ${-dayDiff} 天完成` : '按时完成';
+        } else if (dayDiff <= 3) {
+          timeliness = 18;
+          timelinessComment = `逾期 ${dayDiff} 天`;
+        } else if (dayDiff <= 7) {
+          timeliness = 10;
+          timelinessComment = `逾期 ${dayDiff} 天`;
+        } else {
+          timeliness = 4;
+          timelinessComment = `严重逾期 ${dayDiff} 天`;
+        }
+      }
+    }
+    const noteCount = notes.length;
+    const process =
+      noteCount >= 5 ? 22 : noteCount >= 3 ? 17 : noteCount >= 1 ? 10 : 0;
+    const attCount =
+      notes.reduce((sum, n) => sum + (n.attachments?.length ?? 0), 0) + (task.attachments ?? 0);
+    const evidence = attCount >= 3 ? 18 : attCount >= 1 ? 10 : 0;
+    const collabCount = task.collaborators?.length ?? 0;
+    const collaboration = collabCount >= 2 ? 15 : collabCount === 1 ? 8 : 5;
+    const dimensions: RdTaskCompletionScoreDimension[] = [
+      { key: 'timeliness', label: '时效性', score: timeliness, max: 25, comment: timelinessComment },
+      { key: 'process', label: '过程透明度', score: process, max: 25, comment: `${noteCount} 条进度记录` },
+      { key: 'evidence', label: '交付证据', score: evidence, max: 25, comment: `${attCount} 个附件` },
+      {
+        key: 'collaboration',
+        label: '协作与风险管理',
+        score: collaboration,
+        max: 25,
+        comment: collabCount > 0 ? `${collabCount} 位协作人` : '独立完成',
+      },
+    ];
+    const total = dimensions.reduce((sum, d) => sum + d.score, 0);
+    const grade: RdTaskCompletionScoreResult['grade'] =
+      total >= 90 ? 'A' : total >= 75 ? 'B' : total >= 60 ? 'C' : 'D';
+    const gradeLabelMap: Record<RdTaskCompletionScoreResult['grade'], string> = {
+      A: '优秀',
+      B: '良好',
+      C: '合格',
+      D: '需改进',
+    };
+    return {
+      total,
+      grade,
+      grade_label: gradeLabelMap[grade],
+      summary: 'AI 评分不可用，使用规则估算，仅供参考。',
+      dimensions,
+      highlights: [],
+      improvements: ['配置 AI 模型可获得更准确的复盘评分'],
+      provider: 'local',
+      model: 'local-completion-fallback',
+      computed_at: new Date().toISOString(),
+      fallback_reason: reason,
+    };
   }
 }

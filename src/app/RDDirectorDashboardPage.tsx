@@ -68,6 +68,7 @@ import {
   type RdTask,
   type RdTaskProgressNote,
   type RdTaskStatus,
+  getAttachmentUrl,
 } from "./lib/rdApi";
 import { ProgressAttachmentGrid } from "./RDProgressEvidence";
 
@@ -965,23 +966,26 @@ function TaskDetailDrawer({
                       <div className="mt-3 grid gap-2 sm:grid-cols-2">
                         {note.attachments.map((att) => {
                           const isImage = att.mime.startsWith("image/");
+                          const attUrl = getAttachmentUrl(att);
                           return isImage ? (
                             <a
                               key={att.id}
-                              href={att.data_url}
+                              href={attUrl}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="group block overflow-hidden rounded-md border border-slate-200 bg-slate-50"
                               title={`${att.name} · ${formatBytes(att.size)}`}
                             >
-                              <img src={att.data_url} alt={att.name} className="h-32 w-full object-cover transition-transform group-hover:scale-105" />
+                              <img src={attUrl} alt={att.name} className="h-32 w-full object-cover transition-transform group-hover:scale-105" />
                               <div className="truncate px-2 py-1 text-[10px] text-slate-500">{att.name}</div>
                             </a>
                           ) : (
                             <a
                               key={att.id}
-                              href={att.data_url}
+                              href={attUrl}
                               download={att.name}
+                              target="_blank"
+                              rel="noopener noreferrer"
                               className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs text-slate-700 transition-colors hover:border-blue-300 hover:bg-blue-50/40 hover:text-blue-700"
                             >
                               <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />

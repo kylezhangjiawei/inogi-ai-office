@@ -46,6 +46,9 @@ model User {
   status        UserStatus         @default(ACTIVE)
   roleId        String?
   role          Role?              @relation(fields: [roleId], references: [id])
+  /// OSS 对象 key（如 "avatars/{userId}/{timestamp}.png"）。
+  /// 每次 getCurrentUser 用 getSignedUrl 生成 30 天签名 URL 返回给前端。
+  avatarObjectKey String?           @db.VarChar(500)
   refreshTokens   RefreshToken[]
   auditLogs       AuditLog[]
   conversations   ChatConversation[]
@@ -376,3 +379,42 @@ model FileAsset {
   @@index([businessType, businessId])
   @@index([uploadedBy])
 }
+
+/// 知识库向量片段。每个 chunk 是某个原始资源（KB 文档 / 任务 / 立项 / 聊天 ...）切块后的语义索引单元。
+/// 注：embedding 用 Float[]（Postgres double precision array）而非 pgvector，
+///     由 Node.js 在查询时计算余弦相似度。适合 ≤10k chunks 的规模；
+///     超规模再切到 pgvector 即可（schema 转换简单：JS 数组 → vector(N)）。
+model KnowledgeChunk {
+  id              String   @id @default(cuid())
+  /// 数据源类型：'kb' | 'rd_task' | 'rd_progress_note' | 'rd_proposal' | 'rd_daily_report' | 'chat_group' | 'chat_private' | 'audit_log' | 'candidate' | 'image' | 'file_asset'
+  sourceType      String
+  /// 原始资源 id（KB entry id / task id / chat message id ...）
+  sourceId        String
+  /// 同一资源被切成多块时的序号（0-based）
+  chunkIndex      Int      @default(0)
+  /// chunk 原文（用于回展 + LLM 注入）
+  content         String
+  /// 向量（通义 text-embedding-v3/v4 默认 1024 维），存为 Postgres float8[] 数组
+  embedding       Float[]
+  /// 权限元数据（参与权限预过滤）：
+  ///  - permission_level: number   (KB 分值制)
+  ///  - visible_user_ids: string[] (私聊参与者；空数组表示对所有人开放权限层)
+  ///  - visible_role_ids: string[] (按角色限制)
+  ///  - department_ids: string[]   (按部门限制)
+  ///  - category_id: string        (KB 分类)
+  ///  - author_id / author_name: string
+  ///  - title / file_name / tags 等业务字段（展示用）
+  ///  - ai_classification: 'work_knowledge'|'work_chat'|'personal'|'sensitive'（聊天专用）
+  metadata        Json     @default("{}")
+  /// 软删除标记：用于"作者撤回"
+  archived        Boolean  @default(false)
+  /// 索引时使用的 embedding 模型，方便后续灰度迁移
+  embeddingModel  String   @default("text-embedding-v3")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([sourceType, sourceId, chunkIndex])
+  @@index([sourceType, sourceId])
+  @@index([archived])
+}
+

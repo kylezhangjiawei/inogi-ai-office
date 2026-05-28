@@ -79,7 +79,10 @@ export class OssService implements OnModuleInit {
   ): Promise<string | null> {
     const primaryClient = this.internalClient;
     const fallbackClient = this.publicClient;
-    if (!primaryClient && !fallbackClient) return null;
+    if (!primaryClient && !fallbackClient) {
+      this.logger.warn('OSS uploadBuffer 被调用但 OSS 未配置（缺少 OSS_ACCESS_KEY_ID / OSS_BUCKET 等环境变量）');
+      return null;
+    }
 
     const ext = extname(originalname) || '';
     const objectKey = this.buildObjectKey(businessType, originalname);
@@ -88,6 +91,9 @@ export class OssService implements OnModuleInit {
       headers: { 'Cache-Control': 'max-age=31536000' },
     };
 
+    // 收集所有尝试的错误，便于一次性暴露给调用方
+    const attemptErrors: string[] = [];
+
     // Try internal endpoint first (saves egress cost on ECS).
     // Fall back to public endpoint for local dev or cross-region scenarios.
     if (primaryClient) {
@@ -95,9 +101,9 @@ export class OssService implements OnModuleInit {
         await primaryClient.put(objectKey, buffer, putOptions);
         return objectKey;
       } catch (err) {
-        this.logger.warn(
-          `OSS 内网上传失败，尝试公网回退: ${objectKey} — ${(err as Error)?.message ?? err}`,
-        );
+        const msg = (err as Error)?.message ?? String(err);
+        attemptErrors.push(`内网: ${msg}`);
+        this.logger.warn(`OSS 内网上传失败，尝试公网回退: ${objectKey} — ${msg}`);
       }
     }
 
@@ -107,10 +113,16 @@ export class OssService implements OnModuleInit {
         this.logger.log(`OSS 公网上传成功(fallback): ${objectKey}`);
         return objectKey;
       } catch (err) {
-        this.logger.error(`OSS 上传失败(内网+公网均失败): ${objectKey}`, err);
+        const msg = (err as Error)?.message ?? String(err);
+        attemptErrors.push(`公网: ${msg}`);
+        this.logger.error(`OSS 上传失败(内网+公网均失败): ${objectKey} — ${msg}`, err);
       }
     }
 
+    // 把所有尝试的错误信息塞到日志，方便排查 (CORS / endpoint 不通 / 凭据失效 等)
+    if (attemptErrors.length > 0) {
+      this.logger.error(`OSS uploadBuffer 全部失败: [${attemptErrors.join(' | ')}]`);
+    }
     return null;
   }
 

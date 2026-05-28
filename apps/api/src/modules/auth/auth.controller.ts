@@ -1,9 +1,17 @@
-import { Body, Controller, Get, Patch, Post, Request } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Patch, Post, Request, UploadedFile, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 import { AuthService } from './auth.service';
 import { Public } from './decorators/public.decorator';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+
+type UploadedAvatarFile = {
+  buffer: Buffer;
+  originalname: string;
+  mimetype: string;
+  size: number;
+};
 
 @Controller('auth')
 export class AuthController {
@@ -55,5 +63,25 @@ export class AuthController {
     @Body('newPassword') newPassword: string,
   ) {
     return this.authService.setPassword(req.user.id, oldPassword, newPassword);
+  }
+
+  /**
+   * 上传当前用户头像到 OSS。前端用 FormData：字段名 `file`。
+   * 超管也允许（截图里说"仅可改头像"），所以不走 updateMe 的超管拦截。
+   */
+  @Post('me/avatar')
+  @UseInterceptors(FileInterceptor('file'))
+  async uploadAvatar(
+    @Request() req: { user: { id: string } },
+    @UploadedFile() file: UploadedAvatarFile,
+  ) {
+    if (!file) throw new BadRequestException('请选择头像图片');
+    return this.authService.uploadAvatar(req.user.id, file);
+  }
+
+  /** 重置头像（清空 avatarObjectKey） */
+  @Delete('me/avatar')
+  resetAvatar(@Request() req: { user: { id: string } }) {
+    return this.authService.resetAvatar(req.user.id);
   }
 }

@@ -732,6 +732,43 @@ export class OpenAiScreeningService {
     };
   }
 
+  /**
+   * Embedding 模型连通性测试：调一次 embeddings.create，校验向量长度。
+   * 用于 text-embedding-v3 / text-embedding-3-* 等模型。
+   */
+  async testEmbeddingConnection(
+    overrideApiKey?: string,
+    overrideModel?: string,
+    overrideBaseUrl?: string,
+    provider?: string,
+  ) {
+    const apiKey = this.resolveApiKey(provider, overrideApiKey);
+    if (!apiKey) {
+      throw new Error('Embedding API Key 未配置');
+    }
+
+    const model = overrideModel ?? 'text-embedding-v3';
+    const client = this.createClient(apiKey, overrideBaseUrl, provider);
+    const startedAt = Date.now();
+    const resp = await client.embeddings.create({ model, input: '连通性测试' });
+    const vec = resp.data?.[0]?.embedding;
+    if (!Array.isArray(vec) || vec.length === 0) {
+      throw new Error('Embedding API 未返回向量');
+    }
+
+    return {
+      modelName: model,
+      baseUrl: this.resolveBaseUrl(provider, overrideBaseUrl),
+      durationMs: Date.now() - startedAt,
+      outputText: `Embedding OK · ${vec.length} 维`,
+      usage: {
+        promptTokens: typeof resp.usage?.prompt_tokens === 'number' ? resp.usage.prompt_tokens : 0,
+        completionTokens: 0,
+        totalTokens: typeof resp.usage?.total_tokens === 'number' ? resp.usage.total_tokens : 0,
+      },
+    };
+  }
+
   async testImageConnection(
     overrideApiKey?: string,
     overrideModel?: string,

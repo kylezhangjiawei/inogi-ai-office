@@ -418,6 +418,8 @@ export function createRdTask(payload: {
   title: string;
   primary_owner: string;
   primary_owner_user_id?: string | null;
+  /** 立项时可一次性分配多个协作人（任务-人 1:N 关系）。 */
+  collaborators?: RdCollaborator[];
   status?: RdTaskStatus;
   progress?: number;
   final_priority?: RdPriority;
@@ -702,8 +704,23 @@ export type RdTaskProgressAttachment = {
   name: string;
   mime: string;
   size: number;
-  data_url: string;
+  /** OSS 签名 URL（OSS 已配置时使用）。优先级高于 data_url。 */
+  oss_url?: string;
+  /** base64 data URI（OSS 未配置时的降级方案）。 */
+  data_url?: string;
+  /** AI 抽取出的文本内容（OCR/文档抽取/视觉模型），用于 AI 评分上下文。上传后由后台异步填充。 */
+  extracted_text?: string;
+  /** 抽取来源：ocr / vision / doc_extract / doc_model / text / failed。 */
+  extracted_source?: "ocr" | "vision" | "doc_extract" | "doc_model" | "text" | "failed" | "skipped";
+  /** 抽取时间，便于审计；可能晚于 attachment 创建时间。 */
+  extracted_at?: string;
 };
+
+/** 取附件的可用 URL：OSS 签名链接 > base64 data URI > 空串 */
+export function getAttachmentUrl(att: { oss_url?: string; data_url?: string } | null | undefined): string {
+  if (!att) return "";
+  return att.oss_url ?? att.data_url ?? "";
+}
 
 export type RdTaskProgressNote = {
   id: string;
@@ -717,6 +734,107 @@ export type RdTaskProgressNote = {
 
 export function fetchRdTaskProgressNotes(taskId: string) {
   return requestJson<RdTaskProgressNote[]>(`/task-progress-notes/${encodeURIComponent(taskId)}`);
+}
+
+// ── 已完成任务 AI 复盘评分 ───────────────────────────────────────────────────
+
+export type RdTaskCompletionScoreDimensionKey =
+  | "timeliness"
+  | "process"
+  | "evidence"
+  | "collaboration";
+
+export type RdTaskCompletionScoreDimension = {
+  key: RdTaskCompletionScoreDimensionKey;
+  label: string;
+  score: number;
+  max: number;
+  comment: string;
+};
+
+export type RdTaskCompletionScore = {
+  total: number;
+  grade: "A" | "B" | "C" | "D";
+  grade_label: string;
+  summary: string;
+  dimensions: RdTaskCompletionScoreDimension[];
+  highlights: string[];
+  improvements: string[];
+  provider: "openai" | "qwen" | "local";
+  model: string;
+  computed_at: string;
+  fallback_reason?: string;
+};
+
+/** 拉取已完成任务的 AI 复盘评分；404 / null 表示尚未评分或当前用户无权查看。 */
+export async function fetchRdTaskCompletionScore(taskId: string): Promise<RdTaskCompletionScore | null> {
+  const result = await requestJson<RdTaskCompletionScore | null>(
+    `/task-completion-scores/${encodeURIComponent(taskId)}`,
+  );
+  return result ?? null;
+}
+
+export type RdTaskCompletionScoreDebug = RdTaskCompletionScore & {
+  _debug?: {
+    system_prompt: string;
+    user_message: string;
+    raw_response: string;
+    request_started_at: string;
+    request_finished_at: string;
+    duration_ms: number;
+  };
+};
+
+/** 超管专用：拉取 AI 评分的原始 prompt 和 AI 响应（用于审查/调试）。403 时返回 null。 */
+export async function fetchRdTaskCompletionScoreDebug(
+  taskId: string,
+): Promise<RdTaskCompletionScoreDebug | null> {
+  try {
+    const result = await requestJson<RdTaskCompletionScoreDebug | null>(
+      `/task-completion-scores/${encodeURIComponent(taskId)}/debug`,
+    );
+    return result ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export type RdTaskCompletionScoreBackfillResult = {
+  total: number;
+  scored: number;
+  skipped: number;
+  failed: number;
+  failed_ids: string[];
+};
+
+/** 管理员批量为现存已完成任务补跑 AI 评分。已评分任务会跳过。 */
+export function backfillRdTaskCompletionScores(): Promise<RdTaskCompletionScoreBackfillResult> {
+  return requestJson<RdTaskCompletionScoreBackfillResult>(
+    `/task-completion-scores/backfill`,
+    { method: "POST" },
+  );
+}
+
+export type RdProgressNoteExtractionBackfillResult = {
+  total_pending: number;
+  processed: number;
+  succeeded: number;
+  failed: number;
+  has_more: boolean;
+  failed_ids: string[];
+};
+
+/**
+ * 管理员批量为现存进度留痕的附件补做 AI 抽取（OCR/文档/视觉）。
+ * 已抽取过的（含失败标记）会跳过。单次最多 N 个，剩余 has_more=true 时再点一次。
+ */
+export function backfillRdTaskProgressNoteExtraction(
+  payload: { max_items?: number } = {},
+): Promise<RdProgressNoteExtractionBackfillResult> {
+  return requestJson<RdProgressNoteExtractionBackfillResult>(
+    `/task-progress-notes/backfill-extraction`,
+    { method: "POST", body: JSON.stringify(payload) },
+  );
 }
 
 export async function createRdTaskProgressNote(payload: {

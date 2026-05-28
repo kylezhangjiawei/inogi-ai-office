@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useAuth } from "../auth";
 
 const AVATAR_EVENT = "inogi-user-avatar-updated";
 const AVATAR_KEY_PREFIX = "inogi-user-avatar:";
@@ -24,17 +25,25 @@ export function clearStoredUserAvatar(userId: string) {
   window.dispatchEvent(new CustomEvent(AVATAR_EVENT, { detail: { userId } }));
 }
 
+/**
+ * 取当前展示头像：
+ * - 优先 user.avatarUrl（OSS 签名 URL，跨设备跨浏览器同步）
+ * - 兜底 localStorage（兼容旧版本本地缓存）
+ * 当 PersonalCenter 调 saveStoredUserAvatar/clearStoredUserAvatar 时本组件也会自动刷新
+ */
 export function useUserAvatar(userId?: string | null) {
-  const [avatar, setAvatar] = useState<string | null>(() => getStoredUserAvatar(userId));
+  const { user } = useAuth();
+  const remote = user?.id === userId ? user.avatarUrl ?? null : null;
+  const [local, setLocal] = useState<string | null>(() => getStoredUserAvatar(userId));
 
   useEffect(() => {
-    setAvatar(getStoredUserAvatar(userId));
+    setLocal(getStoredUserAvatar(userId));
     if (!userId || typeof window === "undefined") return;
 
     function handleUpdate(event: Event) {
       const detail = (event as CustomEvent<{ userId?: string }>).detail;
       if (detail?.userId === userId) {
-        setAvatar(getStoredUserAvatar(userId));
+        setLocal(getStoredUserAvatar(userId));
       }
     }
 
@@ -42,5 +51,5 @@ export function useUserAvatar(userId?: string | null) {
     return () => window.removeEventListener(AVATAR_EVENT, handleUpdate);
   }, [userId]);
 
-  return avatar;
+  return remote ?? local;
 }

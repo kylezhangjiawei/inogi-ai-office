@@ -50,6 +50,8 @@ export function AiModelManagementPage() {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
+  // 行内"测试连通性"按钮的 loading 标记（每行独立）
+  const [rowTestingId, setRowTestingId] = useState<string | null>(null);
   const [dialogMode, setDialogMode] = useState<DialogMode>(null);
   const [selectedRow, setSelectedRow] = useState<AiModelItem | null>(null);
 
@@ -115,6 +117,24 @@ export function AiModelManagementPage() {
   function openCreate() {
     setSelectedRow(null);
     resetForm();
+    setDialogMode("create");
+  }
+
+  /**
+   * 快捷新增 Embedding 模型（RAG 向量检索专用）。
+   * 预填通义 text-embedding-v3，用户只需填 name + API Key 即可保存。
+   */
+  function openCreateEmbedding() {
+    setSelectedRow(null);
+    setName("通义 Embedding");
+    setProvider("Qwen");
+    setModel("text-embedding-v3");
+    setBaseUrl("https://dashscope.aliyuncs.com/compatible-mode/v1");
+    setApiKey("");
+    setUsageKind("auto");
+    setEnabled(true);
+    setIsDefaultEnabled(false);
+    setDialogError("");
     setDialogMode("create");
   }
 
@@ -208,6 +228,35 @@ export function AiModelManagementPage() {
     }
   }
 
+  /**
+   * 列表操作栏的"测试连通性"——直接用 row 数据测试，不弹编辑对话框。
+   * API Key 走已保存的密文，base_url / provider / model 都从 row 取。
+   */
+  async function handleTestRowConnection(row: AiModelItem) {
+    if (rowTestingId) return;
+    setRowTestingId(row.id);
+    try {
+      const result = await integrationManagementApi.testAiModelConnection({
+        id: row.id,
+        provider: row.provider,
+        model: row.model,
+        base_url: row.base_url || undefined,
+      });
+      if (result.success) {
+        toast.success(
+          `${row.name} 连通性正常${typeof result.duration_ms === "number" ? `，耗时 ${result.duration_ms} ms` : ""}`,
+        );
+      } else {
+        toast.error(`${row.name} 测试失败：${result.message}`);
+      }
+      await loadRows(page);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "AI 连通性测试失败");
+    } finally {
+      setRowTestingId(null);
+    }
+  }
+
   async function handleToggleEnabled(row: AiModelItem, checked: boolean) {
     try {
       const saved = await integrationManagementApi.saveAiModel({
@@ -268,10 +317,21 @@ export function AiModelManagementPage() {
               维护模型服务商、Base URL、运行状态、延迟和自动统计信息，支持按不同模型独立切换网关或代理地址。
             </p>
           </div>
-          <button className="material-button-primary w-fit" onClick={openCreate}>
-            <Plus className="h-4 w-4" />
-            新增模型
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="material-button-secondary w-fit"
+              onClick={openCreateEmbedding}
+              title="一键新增 Embedding 模型，用于知识库 RAG 向量检索"
+            >
+              <Plus className="h-4 w-4" />
+              新增 Embedding
+            </button>
+            <button className="material-button-primary w-fit" onClick={openCreate}>
+              <Plus className="h-4 w-4" />
+              新增模型
+            </button>
+          </div>
         </div>
       </section>
 
@@ -395,6 +455,14 @@ export function AiModelManagementPage() {
                       <TableCell className="px-4 py-3 text-sm text-slate-700">{row.operator_name}</TableCell>
                       <TableCell className="px-4 py-3 text-sm">
                         <div className="flex gap-2">
+                          <button
+                            className="material-button-secondary !px-3 !py-2 disabled:cursor-not-allowed disabled:opacity-50"
+                            onClick={() => void handleTestRowConnection(row)}
+                            disabled={rowTestingId === row.id}
+                            title="测试连通性"
+                          >
+                            <Wifi className={`h-3.5 w-3.5 ${rowTestingId === row.id ? "animate-pulse text-blue-500" : ""}`} />
+                          </button>
                           <button className="material-button-secondary !px-3 !py-2" onClick={() => openEdit(row)} title="编辑">
                             <Pencil className="h-3.5 w-3.5" />
                           </button>

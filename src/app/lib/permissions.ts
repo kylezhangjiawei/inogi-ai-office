@@ -63,6 +63,18 @@ export const PERMISSIONS = {
   RD_PROJECT_REVIEW_L2: 'rd-project:review-l2',
   RD_PROJECT_DIRECT: 'rd-project:direct',
 
+  // ─── R&D Knowledge Base ─────────────────────────────────────────
+  PAGE_RD_KNOWLEDGE_BASE: 'page:rd-knowledge-base',
+  RD_KB_UPLOAD: 'rd-kb:upload',
+  RD_KB_ENTRY_EDIT: 'rd-kb:entry:edit',
+  RD_KB_ENTRY_DELETE: 'rd-kb:entry:delete',
+  RD_KB_ENTRY_MOVE: 'rd-kb:entry:move',
+  RD_KB_CATEGORY_CREATE: 'rd-kb:category:create',
+  RD_KB_CATEGORY_EDIT: 'rd-kb:category:edit',
+  RD_KB_CATEGORY_DELETE: 'rd-kb:category:delete',
+  /** @deprecated 旧的笼统权限，保留向后兼容；新接口请用上面细分的 entry/category 权限 */
+  RD_KB_MANAGE: 'rd-kb:manage',
+
   // ─── User management ────────────────────────────────────────────
   USER_CREATE: 'user:create',
   USER_EDIT: 'user:edit',
@@ -259,6 +271,25 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { code: 'rd-project:direct', label: '直接立项', description: '跳过审核，直接生效并自动分配（研发主管/管理员）' },
     ],
   },
+  {
+    label: '页面访问 · 研发知识库',
+    permissions: [
+      { code: 'page:rd-knowledge-base', label: '研发知识库', description: '查看研发知识库页面' },
+    ],
+  },
+  {
+    label: '操作权限 · 研发知识库',
+    permissions: [
+      { code: 'rd-kb:upload', label: '上传知识库文件', description: '向知识库上传文件（含拖拽 / 文件选择）' },
+      { code: 'rd-kb:entry:edit', label: '编辑知识库文件', description: '修改已上传文件的名称、描述、标签、权限分值' },
+      { code: 'rd-kb:entry:move', label: '移动知识库文件', description: '把文件在分类之间移动归位' },
+      { code: 'rd-kb:entry:delete', label: '删除知识库文件', description: '删除已上传的文件' },
+      { code: 'rd-kb:category:create', label: '新增知识库分类', description: '新建一级或子级分类' },
+      { code: 'rd-kb:category:edit', label: '编辑知识库分类', description: '修改分类名称 / 图标 / 颜色' },
+      { code: 'rd-kb:category:delete', label: '删除知识库分类', description: '删除空分类（含子分类）' },
+      { code: 'rd-kb:manage', label: '管理知识库（旧）', description: '旧的笼统管理权限，建议改用上面细分的权限；后端仍兼容此权限以避免历史角色失效' },
+    ],
+  },
 ];
 
 // ─── Helper functions ────────────────────────────────────────────────────────
@@ -273,4 +304,9 @@ export function hasPermission(userPermissions: string[], permission: string): bo
 export function hasAnyPermission(userPermissions: string[], permissions: string[]): boolean {
   if (userPermissions.includes('*')) return true;
   return permissions.some((p) => userPermissions.includes(p));
+}
+
+/** 超级管理员 = 拥有通配符权限 '*' 的用户。 */
+export function isSuperAdmin(userPermissions: string[] | null | undefined): boolean {
+  return Array.isArray(userPermissions) && userPermissions.includes('*');
 }

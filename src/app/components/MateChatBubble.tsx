@@ -23,6 +23,8 @@ import { toast } from "sonner";
 import { authFetch } from "../lib/authSession";
 import { useAuth } from "../auth";
 import { cn } from "./ui/utils";
+import { ragStatus, type RagCitation, type RagStatus } from "../lib/ragApi";
+import { RagCitations, RagPermissionNotice } from "./RagCitations";
 
 // ─── 类型 ─────────────────────────────────────────────────────────────────────
 
@@ -49,9 +51,13 @@ type ModelOption = { id: string; label: string; provider: string; model: string;
 type SseEvent =
   | { type: "userMessage"; messageId: string }
   | { type: "context"; fromDb: boolean }
+  | { type: "citations"; citations: RagCitation[]; filteredByPermission: number }
   | { type: "delta"; delta: string }
   | { type: "done"; messageId: string; title?: string }
   | { type: "error"; message: string };
+
+/** assistant 消息附加的引用数据，由 'citations' SSE 事件填充 */
+type MessageCitations = { citations: RagCitation[]; filteredByPermission: number };
 
 type DeleteConfirm =
   | { kind: "conversation"; id: string; label: string }
@@ -194,6 +200,10 @@ export function MateChatBubble() {
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirm>(null);
   // key = message id, value = 'db' | 'ai'
   const [msgSources, setMsgSources] = useState<Record<string, "db" | "ai">>({});
+  // key = message id, value = 引用数据（命中知识库时由后端 SSE 推送）
+  const [msgCitations, setMsgCitations] = useState<Record<string, MessageCitations>>({});
+  // RAG 探活状态（embedding 配置 + 索引文档数）
+  const [rag, setRag] = useState<RagStatus | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -242,9 +252,16 @@ export function MateChatBubble() {
     return () => window.clearTimeout(t);
   }, [open, rendered]);
 
-  // ── 首次打开加载数据 ────────────────────────────────────────────────────────
+  // ── 首次打开加载数据（含 5 分钟缓存，避免反复开关抽屉时重复拉取） ────────────
+  const lastLoadedAt = useRef<number>(0);
+  const CACHE_TTL_MS = 5 * 60 * 1000;
 
-  const loadInit = useCallback(async () => {
+  const loadInit = useCallback(async (forceRefresh = false) => {
+    const now = Date.now();
+    // 缓存未过期且非强刷 → 跳过
+    if (!forceRefresh && conversations.length > 0 && models.length > 0 && now - lastLoadedAt.current < CACHE_TTL_MS) {
+      return;
+    }
     setLoadingConvs(true);
     try {
       const [convs, mds] = await Promise.all([apiListConversations(), apiListModels()]);
@@ -252,6 +269,9 @@ export function MateChatBubble() {
       setModels(mds);
       if (mds.length > 0 && !selectedModel) setSelectedModel(mds[0].id);
       if (convs.length > 0 && !activeId) setActiveId(convs[0].id);
+      lastLoadedAt.current = now;
+      // 探活 RAG（embedding 是否配置 + 索引文档数）— 失败不影响主流程
+      ragStatus().then(setRag).catch(() => setRag(null));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "加载失败");
     } finally {
@@ -311,7 +331,7 @@ export function MateChatBubble() {
     }
   };
 
-  // ── 发送消息（支持流式响应）────────────────────────────────────────────────
+  // ── 发送消息（智能模式：自动并行检索内部数据库 + 走 LLM 流式回答）─────────────
 
   const handleSend = useCallback(
     async (preset?: string) => {
@@ -374,6 +394,14 @@ export function MateChatBubble() {
                 currentFromDb = event.fromDb;
               }
 
+              if (event.type === "citations") {
+                // 临时挂到 tempAiId 上；done 事件里替换为 realAiId 时一起搬过去
+                setMsgCitations((prev) => ({
+                  ...prev,
+                  [tempAiId]: { citations: event.citations, filteredByPermission: event.filteredByPermission },
+                }));
+              }
+
               if (event.type === "delta") {
                 streamedContent += event.delta;
                 const captured = streamedContent;
@@ -388,6 +416,11 @@ export function MateChatBubble() {
                   prev.map((m) => (m.id === tempAiId ? { ...m, id: realAiId } : m)),
                 );
                 setMsgSources((prev) => ({ ...prev, [realAiId]: currentFromDb ? "db" : "ai" }));
+                setMsgCitations((prev) => {
+                  if (!prev[tempAiId]) return prev;
+                  const { [tempAiId]: pulled, ...rest } = prev;
+                  return { ...rest, [realAiId]: pulled };
+                });
                 setConversations((prev) =>
                   prev.map((c) =>
                     c.id === activeId
@@ -404,7 +437,10 @@ export function MateChatBubble() {
 
               if (event.type === "error") {
                 toast.error(event.message);
-                setMessages((prev) => prev.filter((m) => m.id !== tempAiId));
+                // 清掉占位的用户消息 + AI 占位，避免用户看到"自己发了消息但永远没回复"的孤儿
+                setMessages((prev) =>
+                  prev.filter((m) => m.id !== tempUserId && m.id !== tempAiId),
+                );
               }
             } catch {
               // ignore JSON parse errors
@@ -882,6 +918,13 @@ export function MateChatBubble() {
                                   ))}
                                 </div>
                               )}
+                              {/* 知识库引用：命中内部资料时由后端 SSE 推送 */}
+                              {!isUser && !isStreaming && msgCitations[msg.id] && (
+                                <div className="mt-2 max-w-[640px]">
+                                  <RagCitations citations={msgCitations[msg.id].citations} />
+                                  <RagPermissionNotice filtered={msgCitations[msg.id].filteredByPermission} />
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -926,7 +969,7 @@ export function MateChatBubble() {
                   />
                   <div className="mt-3 flex items-center justify-between gap-3">
                     {/* 模型选择器 */}
-                    <div className="relative">
+                    <div className="relative flex items-center gap-2">
                       <button
                         type="button"
                         onClick={() => setShowModelMenu((v) => !v)}
@@ -938,6 +981,30 @@ export function MateChatBubble() {
                           : models.length === 0 ? "未配置模型" : "选择模型"}
                         <ChevronDown className="h-3 w-3 text-slate-400" />
                       </button>
+                      {/* RAG 状态指示：告知用户当前是否能查到内部资料 */}
+                      {rag && (
+                        rag.embeddingConfigured && rag.chunkCount > 0 ? (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[10px] font-medium text-emerald-700 ring-1 ring-emerald-100"
+                            title={`内部知识库已就绪 · ${rag.chunkCount} 条索引（模型：${rag.embeddingModel ?? "未知"}）`}
+                          >
+                            <Database className="h-2.5 w-2.5" />
+                            RAG 就绪
+                          </span>
+                        ) : (
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-1 text-[10px] font-medium text-slate-500 ring-1 ring-slate-200"
+                            title={
+                              !rag.embeddingConfigured
+                                ? "未配置 Embedding 模型，回答仅基于通用知识"
+                                : "知识库尚未回填，请管理员触发回填"
+                            }
+                          >
+                            <Database className="h-2.5 w-2.5" />
+                            RAG 未启用
+                          </span>
+                        )
+                      )}
                       {showModelMenu && models.length > 0 && (
                         <div
                           className="absolute bottom-full left-0 mb-2 min-w-[180px] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-lg"

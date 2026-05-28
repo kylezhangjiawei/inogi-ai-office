@@ -11,16 +11,50 @@ import {
 } from '@nestjs/common';
 import { Response } from 'express';
 
+import { PrismaService } from '../../prisma/prisma.service';
 import { ChatService } from './chat.service';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { UpdateConversationDto } from './dto/update-conversation.dto';
+import type { RagUserContext } from '../rag/rag.service';
 
 type AuthedRequest = { user: { id: string; permissions: string[] } };
 
+const SUPER_ADMIN_PERMISSION = '*';
+
 @Controller('chat')
 export class ChatController {
-  constructor(private readonly chatService: ChatService) {}
+  constructor(
+    private readonly chatService: ChatService,
+    private readonly prisma: PrismaService,
+  ) {}
+
+  /** 构造 RAG/Chat 通用的用户上下文（含 kbLevel） */
+  private async buildUserContext(req: AuthedRequest): Promise<RagUserContext> {
+    const userId = req.user.id;
+    const permissions = req.user.permissions ?? [];
+    if (permissions.includes(SUPER_ADMIN_PERMISSION)) {
+      return { userId, permissions, kbLevel: 100 };
+    }
+    let kbLevel = 0;
+    try {
+      const setting = await this.prisma.systemSetting.findUnique({
+        where: { key: 'rd.people' },
+        select: { value: true },
+      });
+      const arr = Array.isArray(setting?.value) ? (setting!.value as unknown[]) : [];
+      const person = arr.find((p): p is Record<string, unknown> => {
+        if (!p || typeof p !== 'object') return false;
+        return (p as Record<string, unknown>).user_id === userId;
+      });
+      if (person && typeof person.kb_level === 'number' && Number.isFinite(person.kb_level)) {
+        kbLevel = Math.max(0, Math.min(100, Math.round(person.kb_level as number)));
+      }
+    } catch {
+      // 拿不到 person 记录就当 kbLevel=0，不阻塞聊天
+    }
+    return { userId, permissions, kbLevel };
+  }
 
   // ── Models ───────────────────────────────────────────────────────────────────
 
@@ -71,7 +105,8 @@ export class ChatController {
   ) {
     // Validation/auth errors (NotFoundException/ForbiddenException) throw BEFORE
     // res.write() is called, so the global exception filter handles them normally.
-    await this.chatService.streamMessage(id, dto, req.user.id, res);
+    const userContext = await this.buildUserContext(req);
+    await this.chatService.streamMessage(id, dto, userContext, res);
   }
 
   // ── Message actions ──────────────────────────────────────────────────────────

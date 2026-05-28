@@ -11,6 +11,7 @@ import { randomBytes } from 'crypto';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecureConfigService } from '../security/secure-config.service';
+import { OssService } from '../oss/oss.service';
 import { JwtPayload } from './strategies/jwt.strategy';
 
 const REFRESH_TOKEN_TTL_DAYS = 30;
@@ -24,7 +25,15 @@ type AuthUserProfile = {
   roleId: string | null;
   roleName: string | null;
   permissions: string[];
+  /** OSS 上头像的签名 URL（30 天 TTL），无头像时为 null */
+  avatarUrl: string | null;
 };
+
+/** OSS 头像签名 URL 的有效期：30 天（与 KB 附件等其他场景对齐） */
+const AVATAR_SIGNED_URL_TTL_SECONDS = 30 * 24 * 3600;
+/** 头像图片大小上限：10MB（前端也校验，后端兜底） */
+const AVATAR_MAX_SIZE = 10 * 1024 * 1024;
+const AVATAR_ALLOWED_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 
 @Injectable()
 export class AuthService {
@@ -35,8 +44,68 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly secureConfigService: SecureConfigService,
+    private readonly ossService: OssService,
   ) {
     this.jwtSecret = this.configService.get<string>('JWT_SECRET') ?? 'change-me-jwt-secret';
+  }
+
+  // ─── 头像 ────────────────────────────────────────────────────────────────
+
+  /**
+   * 上传头像到 OSS，写 avatarObjectKey 到 DB，返回新签名 URL。
+   * 超管也允许（与超管"仅可改头像"策略一致）。
+   */
+  async uploadAvatar(userId: string, file: { buffer: Buffer; originalname: string; mimetype: string; size: number }) {
+    if (!file?.buffer || file.size <= 0) {
+      throw new BadRequestException('未上传头像图片');
+    }
+    if (file.size > AVATAR_MAX_SIZE) {
+      throw new BadRequestException('头像图片不能超过 10MB');
+    }
+    if (!AVATAR_ALLOWED_MIME.has(file.mimetype.toLowerCase())) {
+      throw new BadRequestException('仅支持 jpg / png / webp / gif 格式');
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, status: true } });
+    if (!user || user.status === 'DISABLED') {
+      throw new UnauthorizedException();
+    }
+
+    const objectKey = await this.ossService.uploadBuffer(
+      file.buffer,
+      `avatars/${userId}`,
+      file.originalname,
+      file.mimetype,
+    );
+    if (!objectKey) {
+      throw new BadRequestException('OSS 未配置或上传失败，请联系管理员');
+    }
+
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { avatarObjectKey: objectKey },
+    });
+
+    return { avatarUrl: this.ossService.getSignedUrl(objectKey, AVATAR_SIGNED_URL_TTL_SECONDS) };
+  }
+
+  /** 重置头像（清空 DB 字段，下次 me 返回 avatarUrl=null） */
+  async resetAvatar(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { status: true } });
+    if (!user || user.status === 'DISABLED') {
+      throw new UnauthorizedException();
+    }
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { avatarObjectKey: null },
+    });
+    return { ok: true };
+  }
+
+  /** 把 avatarObjectKey 转成 30 天签名 URL；无值或 OSS 未配置返回 null */
+  private buildAvatarUrl(avatarObjectKey: string | null): string | null {
+    if (!avatarObjectKey) return null;
+    return this.ossService.getSignedUrl(avatarObjectKey, AVATAR_SIGNED_URL_TTL_SECONDS);
   }
 
   getLoginSecurityPublicKey() {
@@ -215,6 +284,7 @@ export class AuthService {
     username?: string | null;
     email: string;
     roleId: string | null;
+    avatarObjectKey?: string | null;
     role?: { name: string; permissions: unknown } | null;
   }): AuthUserProfile {
     return {
@@ -227,6 +297,8 @@ export class AuthService {
       permissions: Array.isArray(user.role?.permissions)
         ? (user.role.permissions as string[])
         : [],
+      // 每次返回都现签 URL，30 天 TTL 内长期可用
+      avatarUrl: this.buildAvatarUrl(user.avatarObjectKey ?? null),
     };
   }
 

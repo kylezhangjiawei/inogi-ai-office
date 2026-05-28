@@ -35,12 +35,14 @@ import { usePermission } from "./hooks/usePermission";
 import { useAuth } from "./auth";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
 import { AuditTimeline } from "./RDAuditTimeline";
+import { ProgressNoteList } from "./RDProgressEvidence";
 import { AuditActor, recordAudit, useAuditActor, useAuditLogs } from "./lib/auditLog";
 import { PERMISSIONS } from "./lib/permissions";
 import {
   assessRdTaskProgress,
   createRdTaskProgressNote,
   fetchRdPeople,
+  fetchRdTaskProgressNotes,
   fetchRdWorkspace,
   patchRdMessage,
   updateRdTask,
@@ -48,6 +50,7 @@ import {
   type RdCollaborator,
   type RdPersonLoad,
   type RdPriority,
+  type RdTaskProgressNote,
   type RdTaskStatus,
   type RdWorkspacePayload,
   type RdWorkspaceTask,
@@ -752,7 +755,11 @@ function TaskOperationDrawer({
           });
           setReceipt(message);
           onLog(message);
+          // 重置所有提交相关状态，避免重开对话框还看到旧附件 / 说明 / AI 判断残影
           setNoteAttachments([]);
+          setUploadedEvidence([]);
+          setAiAssessment(null);
+          setNote("");
           setDraftProgress(progressToSave);
         } catch (err) {
           const msg = err instanceof Error ? err.message : "进度记录保存失败";
@@ -1548,6 +1555,8 @@ function NotificationDrawer({
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
   const [isActing, setIsActing] = useState(false);
+  const [progressNotes, setProgressNotes] = useState<RdTaskProgressNote[]>([]);
+  const [progressNotesLoading, setProgressNotesLoading] = useState(false);
 
   // Parse JSON body if available
   let parsedBody: Record<string, unknown> | null = null;
@@ -1565,6 +1574,21 @@ function NotificationDrawer({
   const reviewTaskTitle = isReviewRequest ? String(parsedBody!.task_title ?? "") : "";
   const reviewSubmitterName = isReviewRequest ? String(parsedBody!.submitter_name ?? "") : "";
   const reviewNote = isReviewRequest ? String(parsedBody!.note ?? "") : "";
+
+  // 拉取审核任务的进度记录，作为审核参考依据
+  useEffect(() => {
+    if (!isReviewRequest || !reviewTaskId) {
+      setProgressNotes([]);
+      return;
+    }
+    let cancelled = false;
+    setProgressNotesLoading(true);
+    fetchRdTaskProgressNotes(reviewTaskId)
+      .then((list) => { if (!cancelled) setProgressNotes(list); })
+      .catch(() => { if (!cancelled) setProgressNotes([]); })
+      .finally(() => { if (!cancelled) setProgressNotesLoading(false); });
+    return () => { cancelled = true; };
+  }, [isReviewRequest, reviewTaskId]);
 
   // review_result fields
   const resultApproved = isReviewResult ? String(parsedBody!.result ?? "") === "approved" : false;
@@ -1602,7 +1626,7 @@ function NotificationDrawer({
       <div className="space-y-5">
 
         {/* ── Review request card ── */}
-        {isReviewRequest ? (
+        {isReviewRequest && (
           <div className="rounded-xl border border-amber-100 bg-amber-50/60 p-4 space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               {isHandled ? (
@@ -1631,8 +1655,32 @@ function NotificationDrawer({
               </div>
             )}
           </div>
-        ) : isReviewResult ? (
-          /* ── Review result card ── */
+        )}
+
+        {/* ── 审核参考依据：进度时间线（仅审核类通知展示） ── */}
+        {isReviewRequest && (
+          <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
+                <Clock className="h-4 w-4 text-blue-500" />
+                进度时间线
+                <span className="text-xs font-normal text-slate-400">（审核参考依据）</span>
+              </div>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                {progressNotesLoading ? "加载中" : `${progressNotes.length} 条`}
+              </span>
+            </div>
+            <ProgressNoteList
+              notes={progressNotes}
+              loading={progressNotesLoading}
+              emptyText="此任务暂无进度留痕记录"
+              compact
+            />
+          </div>
+        )}
+
+        {/* ── Review result card ── */}
+        {isReviewResult && (
           <div className={`rounded-xl border p-4 space-y-3 ${resultApproved ? "border-emerald-100 bg-emerald-50/60" : "border-red-100 bg-red-50/60"}`}>
             <div className="flex flex-wrap items-center gap-2">
               <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${resultApproved ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
@@ -1655,8 +1703,10 @@ function NotificationDrawer({
               </div>
             )}
           </div>
-        ) : (
-          /* ── Plain message ── */
+        )}
+
+        {/* ── Plain message (fallback) ── */}
+        {!isReviewRequest && !isReviewResult && (
           <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
             <p className="text-sm leading-6 text-slate-700">{notification.message}</p>
           </div>

@@ -6,6 +6,8 @@ export type AuthUser = {
   roleId: string | null;
   roleName: string | null;
   permissions: string[];
+  /** OSS 签名 URL（30 天 TTL），无头像时为 null */
+  avatarUrl: string | null;
 };
 
 type AuthSession = {

@@ -103,6 +103,35 @@ export class ResearchDevelopmentController {
     return this.rdService.getTaskProgressNotes(taskId, buildViewer(req));
   }
 
+  @Get('task-completion-scores/:taskId')
+  getTaskCompletionScore(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
+    return this.rdService.getTaskCompletionScore(taskId, buildViewer(req));
+  }
+
+  /**
+   * 超管专用：查看 AI 评分的原始 prompt + AI 响应 + 耗时。
+   * 用于审查"为什么 AI 给这个分"，验证抽取/RAG 数据是否真的传到了 AI。
+   * 仅 permissions=['*'] 的超管可访问。
+   */
+  @Get('task-completion-scores/:taskId/debug')
+  @Permissions('*')
+  getTaskCompletionScoreDebug(@Param('taskId') taskId: string) {
+    return this.rdService.getTaskCompletionScoreDebug(taskId);
+  }
+
+  @Post('task-completion-scores/backfill')
+  @Permissions('rd-task:reassign')
+  backfillTaskCompletionScores() {
+    return this.rdService.backfillTaskCompletionScores();
+  }
+
+  @Post('task-progress-notes/backfill-extraction')
+  @Permissions('rd-task:reassign')
+  backfillTaskProgressNoteExtraction(@Body() body: { max_items?: number } = {}) {
+    const maxItems = typeof body?.max_items === 'number' ? body.max_items : undefined;
+    return this.rdService.backfillTaskProgressNoteExtraction({ maxItems });
+  }
+
   @Post('task-progress-notes')
   @Permissions('page:rd-my-workspace', 'rd-task:edit', 'rd-task:create')
   @UseInterceptors(FilesInterceptor('files', 5))
@@ -382,13 +411,13 @@ export class ResearchDevelopmentController {
   }
 
   @Put('knowledge/categories')
-  @Permissions('rd-kb:manage')
+  @Permissions('rd-kb:manage', 'rd-kb:category:create', 'rd-kb:category:edit', 'rd-kb:category:delete')
   saveKnowledgeCategories(@Body() payload: unknown[]) {
     return this.rdService.saveKnowledgeCategories(payload);
   }
 
   @Post('knowledge/categories')
-  @Permissions('rd-kb:manage')
+  @Permissions('rd-kb:manage', 'rd-kb:category:create')
   createKnowledgeCategory(
     @Body() body: { label?: unknown; parent_id?: unknown; icon?: unknown; color?: unknown },
   ) {
@@ -396,7 +425,7 @@ export class ResearchDevelopmentController {
   }
 
   @Patch('knowledge/categories/:id')
-  @Permissions('rd-kb:manage')
+  @Permissions('rd-kb:manage', 'rd-kb:category:edit')
   updateKnowledgeCategory(
     @Param('id') id: string,
     @Body() body: { label?: unknown; icon?: unknown; color?: unknown },
@@ -405,7 +434,7 @@ export class ResearchDevelopmentController {
   }
 
   @Delete('knowledge/categories/:id')
-  @Permissions('rd-kb:manage')
+  @Permissions('rd-kb:manage', 'rd-kb:category:delete')
   deleteKnowledgeCategory(@Param('id') id: string) {
     return this.rdService.deleteKnowledgeCategory(id);
   }
@@ -577,7 +606,7 @@ export class ResearchDevelopmentController {
   }
 
   @Patch('knowledge/entries/:id')
-  @Permissions('rd-kb:manage', 'rd-kb:upload')
+  @Permissions('rd-kb:manage', 'rd-kb:entry:edit', 'rd-kb:upload')
   updateKnowledgeEntry(
     @Param('id') id: string,
     @Body() body: Partial<{ title: string; description: string; category_id: string; tags: string[]; visibility: string; permission_level: number; archived: boolean }>,
@@ -586,7 +615,7 @@ export class ResearchDevelopmentController {
   }
 
   @Patch('knowledge/entries/:id/move')
-  @Permissions('rd-kb:manage')
+  @Permissions('rd-kb:manage', 'rd-kb:entry:move', 'rd-kb:entry:edit')
   moveKnowledgeEntry(
     @Param('id') id: string,
     @Body() body: { category_id?: string },
@@ -595,7 +624,7 @@ export class ResearchDevelopmentController {
   }
 
   @Delete('knowledge/entries/:id')
-  @Permissions('rd-kb:manage')
+  @Permissions('rd-kb:manage', 'rd-kb:entry:delete')
   deleteKnowledgeEntry(@Param('id') id: string) {
     return this.rdService.deleteKnowledgeEntry(id);
   }
@@ -610,5 +639,15 @@ export class ResearchDevelopmentController {
   @Permissions('rd-kb:manage')
   repairKbFilenames() {
     return this.rdService.repairKbFilenameEncoding();
+  }
+
+  /**
+   * 全量回填 KB → RAG 向量索引。首次开启 RAG 或更换 embedding 模型后调用一次即可。
+   * 仅 KB 管理权限可触发。
+   */
+  @Post('knowledge/rag-backfill')
+  @Permissions('rd-kb:manage')
+  backfillKbToRag() {
+    return this.rdService.backfillAllKbToRag();
   }
 }

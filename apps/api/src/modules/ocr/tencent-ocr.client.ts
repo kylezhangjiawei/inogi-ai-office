@@ -132,12 +132,14 @@ export class TencentOcrClient {
     const secretSigning = hmac(secretService, 'tc3_request');
     const signature = hmac(secretSigning, stringToSign, 'hex') as string;
 
-    return [
-      'TC3-HMAC-SHA256',
-      `Credential=${this.config.secret_id}/${credentialScope}`,
-      `SignedHeaders=${signedHeaders}`,
-      `Signature=${signature}`,
-    ].join(', ');
+    // 腾讯 TC3 规范：算法名与 Credential 之间是空格而非逗号，
+    // 其余字段之间用 ", " 分隔。写错会触发 AuthFailure.InvalidAuthorization。
+    return (
+      `TC3-HMAC-SHA256 ` +
+      `Credential=${this.config.secret_id}/${credentialScope}, ` +
+      `SignedHeaders=${signedHeaders}, ` +
+      `Signature=${signature}`
+    );
   }
 }
 
@@ -204,13 +206,13 @@ export const TENCENT_OCR_SERVICES = [
   },
   {
     key: 'general_text',
-    label: '通用文字识别',
+    label: '通用印刷体识别（高速版）',
     category_key: 'text',
     category_label: '通用文字识别',
-    action: 'GeneralBasicOCR',
+    action: 'GeneralFastOCR',
     document_kind: 'invoice',
     mode: 'manual',
-    description: '票据类型判断不准时，作为兜底抽取全文文本。',
+    description: '票据类型判断不准时，作为兜底抽取全文文本。高速版精度略低于高精度版但成本更低。',
     input_mode: 'image',
   },
   {
@@ -270,10 +272,10 @@ export const TENCENT_OCR_SERVICES = [
   },
   {
     key: 'voucher_general_text',
-    label: '通用文字识别',
+    label: '通用印刷体识别（高速版）',
     category_key: 'text',
     category_label: '通用文字识别',
-    action: 'GeneralBasicOCR',
+    action: 'GeneralFastOCR',
     document_kind: 'voucher',
     mode: 'manual',
     description: '付款凭证、截图或银行回单版式不稳定时，先提取全文文本再做字段判断。',

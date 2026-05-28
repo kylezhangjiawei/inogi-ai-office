@@ -26,6 +26,7 @@ import { ExpenseModule } from './modules/expense/expense.module';
 import { ResearchDevelopmentModule } from './modules/research-development/research-development.module';
 import { OssModule } from './modules/oss/oss.module';
 import { FilesModule } from './modules/files/files.module';
+import { RagModule } from './modules/rag/rag.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
 import { AuditInterceptor } from './modules/audit/audit.interceptor';
@@ -63,6 +64,7 @@ const envFilePath = [
     OssModule,
     FilesModule,
     ExpenseModule,
+    RagModule,
     ResearchDevelopmentModule,
   ],
   providers: [

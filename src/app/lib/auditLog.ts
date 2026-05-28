@@ -21,6 +21,7 @@ export type AuditCategory =
   | "person"
   | "role"
   | "ai"
+  | "knowledge"
   | "system";
 
 export type AuditAction =
@@ -80,7 +81,15 @@ export type AuditAction =
   | "notification.handled"
   | "daily_report.generated"
   | "daily_progress.synced"
-  | "task.data.cleared";
+  | "task.data.cleared"
+  // Knowledge Base
+  | "kb.entry.uploaded"
+  | "kb.entry.edited"
+  | "kb.entry.moved"
+  | "kb.entry.deleted"
+  | "kb.category.created"
+  | "kb.category.edited"
+  | "kb.category.deleted";
 
 export type PersistedAuditAction =
   | AuditAction
@@ -101,6 +110,7 @@ export type AuditResource = {
     | "role"
     | "flow"
     | "category"
+    | "knowledge"
     | "system";
   id: string;
   name?: string;
@@ -191,6 +201,14 @@ export const AUDIT_ACTION_META: Record<AuditAction, AuditActionMeta> = {
   "daily_report.generated": { category: "system", label: "生成日报", verb: "生成了研发日报", tone: "blue" },
   "daily_progress.synced": { category: "system", label: "同步进展", verb: "同步了今日研发进展", tone: "emerald" },
   "task.data.cleared": { category: "system", label: "清理任务数据", verb: "清理了研发任务数据", tone: "amber" },
+  // Knowledge Base
+  "kb.entry.uploaded": { category: "knowledge", label: "上传知识库文件", verb: "上传了知识库文件", tone: "blue" },
+  "kb.entry.edited": { category: "knowledge", label: "编辑知识库文件", verb: "修改了知识库文件信息", tone: "blue" },
+  "kb.entry.moved": { category: "knowledge", label: "移动知识库文件", verb: "移动了知识库文件分类", tone: "violet" },
+  "kb.entry.deleted": { category: "knowledge", label: "删除知识库文件", verb: "删除了知识库文件", tone: "red" },
+  "kb.category.created": { category: "knowledge", label: "新建知识库分类", verb: "新建了知识库分类", tone: "emerald" },
+  "kb.category.edited": { category: "knowledge", label: "编辑知识库分类", verb: "修改了知识库分类", tone: "blue" },
+  "kb.category.deleted": { category: "knowledge", label: "删除知识库分类", verb: "删除了知识库分类", tone: "red" },
 };
 
 export function getAuditActionMeta(action: unknown): AuditActionMeta {
@@ -212,6 +230,7 @@ export const CATEGORY_LABELS: Record<AuditCategory, string> = {
   person: "人员",
   role: "角色权限",
   ai: "AI",
+  knowledge: "知识库",
   system: "系统",
 };
 

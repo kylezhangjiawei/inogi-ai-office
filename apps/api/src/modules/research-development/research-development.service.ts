@@ -1,8 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { OcrService } from '../ocr/ocr.service';
 import { OssService } from '../oss/oss.service';
+import { RagService } from '../rag/rag.service';
 import { RdAiService } from './rd-ai.service';
 
 type JsonRecord = Record<string, unknown>;
@@ -43,7 +44,8 @@ type RdStoreKey =
   | 'rd.products'
   | 'rd.productTaskCategories'
   | 'rd.knowledgeCategories'
-  | 'rd.knowledgeEntries';
+  | 'rd.knowledgeEntries'
+  | 'rd.taskCompletionScores';
 
 const CATEGORY = 'research-development';
 const MAX_AUDIT_LOGS = 1000;
@@ -304,6 +306,49 @@ function isUnassignedOwner(value: unknown): boolean {
   return !text || UNASSIGNED_OWNER_PATTERN.test(text);
 }
 
+/**
+ * 任务协作人列表归一化：
+ *  1) 去除空条目（无 name 也无 id）
+ *  2) 同一人去重（按 user_id > person id > 姓名归一化 优先级匹配）
+ *  3) 排除主责人（同一人不能既是主责又是协作）
+ *  4) 排除"待指派"占位
+ * 适用于 createTask / updateTask 写入前的兜底校验。
+ */
+function normalizeCollaboratorList(
+  rawList: unknown,
+  primaryOwner?: { name?: string | null; user_id?: string | null },
+): JsonRecord[] {
+  const list = asArray(rawList).filter(isRecord);
+  const ownerKey = (() => {
+    const uid = cleanUserId(primaryOwner?.user_id ?? '');
+    if (uid) return `u:${uid}`;
+    const nameKey = personNameLookupKey(cleanText(primaryOwner?.name ?? ''));
+    return nameKey ? `n:${nameKey}` : '';
+  })();
+
+  const seen = new Set<string>();
+  if (ownerKey) seen.add(ownerKey);
+
+  const result: JsonRecord[] = [];
+  for (const c of list) {
+    const name = cleanText(c.name);
+    const userId = cleanUserId(c.user_id);
+    const personId = cleanText(c.id);
+    if (!name && !userId && !personId) continue;
+    if (isUnassignedOwner(name)) continue;
+
+    const key = userId
+      ? `u:${userId}`
+      : personId
+        ? `p:${personId}`
+        : `n:${personNameLookupKey(name)}`;
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(c);
+  }
+  return result;
+}
+
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
@@ -552,12 +597,100 @@ function resolveCategoryTarget(
 
 @Injectable()
 export class ResearchDevelopmentService {
+  private readonly logger = new Logger(ResearchDevelopmentService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly ocrService: OcrService,
     private readonly ossService: OssService,
     private readonly rdAiService: RdAiService,
+    private readonly ragService: RagService,
   ) {}
+
+  // ─── RAG 同步钩子 ─────────────────────────────────────────────────────────
+  // KB 增删改后 best-effort 同步到 KnowledgeChunk。embedding 失败不影响 CRUD 成功。
+
+  /**
+   * 全量回填：把现有所有未 archived 的 KB 条目重新 embedding 并写入 KnowledgeChunk。
+   * 适用于：首次开启 RAG / 切换 embedding 模型后 / 清理脏数据后。
+   * 失败会跳过单条继续，最后返回成功/失败计数。
+   */
+  async backfillAllKbToRag(): Promise<{ total: number; succeeded: number; failed: number; failedIds: string[] }> {
+    const raw = await this.readValue('rd.knowledgeEntries');
+    const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
+    const active = entries.filter((e) => !e.archived);
+    let succeeded = 0;
+    let failed = 0;
+    const failedIds: string[] = [];
+    for (const entry of active) {
+      try {
+        await this.syncKbEntryToRag(entry);
+        succeeded += 1;
+      } catch (err) {
+        failed += 1;
+        failedIds.push(String(entry.id ?? ''));
+        this.logger.warn(
+          `[RAG backfill] 失败 entry=${String(entry.id)}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return { total: active.length, succeeded, failed, failedIds };
+  }
+
+  private async syncKbEntryToRag(entry: JsonRecord): Promise<void> {
+    try {
+      const id = String(entry.id ?? '').trim();
+      if (!id) return;
+      // archived → 删除 chunks
+      if (entry.archived === true) {
+        await this.ragService.removeChunksForSource('kb', id);
+        return;
+      }
+      const title = String(entry.title ?? '').trim();
+      const description = String(entry.description ?? '').trim();
+      const fileName = String(entry.file_name ?? '').trim();
+      const tags = Array.isArray(entry.tags)
+        ? (entry.tags as unknown[]).map((t) => String(t).trim()).filter(Boolean)
+        : [];
+      // 空标题 + 空描述 → 没必要索引（极少见，但兜底）
+      if (!title && !description && !fileName) return;
+
+      const text = [
+        title && `【标题】${title}`,
+        title, // 标题再放一次提升召回
+        description && `【说明】${description}`,
+        fileName && `【文件名】${fileName}`,
+        tags.length > 0 && `【标签】${tags.join('、')}`,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+
+      const permissionLevel = typeof entry.permission_level === 'number'
+        ? Math.max(0, Math.min(100, Math.round(entry.permission_level)))
+        : ResearchDevelopmentService.visibilityToLevel(entry.visibility as string | undefined);
+
+      await this.ragService.syncDocument({
+        sourceType: 'kb',
+        sourceId: id,
+        title,
+        text,
+        metadata: {
+          title,
+          permission_level: permissionLevel,
+          category_id: String(entry.category_id ?? '') || undefined,
+          author_id: String(entry.created_by_id ?? '') || undefined,
+          author_name: String(entry.created_by_name ?? '') || undefined,
+          url: `/rd-knowledge-base?entry=${encodeURIComponent(id)}`,
+          file_name: fileName || undefined,
+          tags: tags.length > 0 ? tags : undefined,
+        },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[RAG] syncKbEntryToRag 失败 (entry=${String(entry.id)}): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
 
   private async listIdentityUsers(): Promise<IdentityUser[]> {
     const users = await this.prisma.user.findMany({
@@ -910,7 +1043,14 @@ export class ResearchDevelopmentService {
         final_priority: taskData.final_priority ?? taskData.ai_priority ?? 'medium',
         archived: false,
         attachments: 0,
-        collaborators: Array.isArray(taskData.collaborators) ? taskData.collaborators : [],
+        // 兜底：去重 + 排除主责人 + 排除"待指派"
+        collaborators: normalizeCollaboratorList(taskData.collaborators, {
+          name: typeof taskData.primary_owner === 'string' ? taskData.primary_owner : null,
+          user_id:
+            typeof taskData.primary_owner_user_id === 'string'
+              ? taskData.primary_owner_user_id
+              : null,
+        }),
         subtasks: [],
         updated_at: new Date().toISOString(),
       }),
@@ -957,6 +1097,11 @@ export class ResearchDevelopmentService {
     if (!inserted) throw new NotFoundException('指定的子项目不存在');
     await this.writeValue('rd.taskCategories', updated);
     await this.recomputeDirectorDashboard();
+    // 成员立项提交（status=pending_review）时，自动通知具备审核权限的管理员，
+    // 触发管理员个人工作台通知中心的待审核卡片。直接派单（status=in_progress/draft）不触发。
+    if (newTask.status === 'pending_review') {
+      void this.notifyAdminsOfPendingReview(newTask, {});
+    }
     return newTask;
   }
 
@@ -967,11 +1112,13 @@ export class ResearchDevelopmentService {
       _review_action,
       _reviewer_name,
       _reject_reason,
+      _actor_name,
       ...persistPatch
     } = patch as JsonRecord & {
       _review_action?: string;
       _reviewer_name?: string;
       _reject_reason?: string;
+      _actor_name?: string;
     };
     void _protected;
 
@@ -1027,6 +1174,23 @@ export class ResearchDevelopmentService {
             ownerNameChanged && !ownerUserIdProvided
               ? { ...resolvedPatch, primary_owner_user_id: null }
               : resolvedPatch;
+
+          // 兜底：如果本次 patch 涉及 collaborators，归一化（去重 + 排除主责人 + 排除待指派）
+          if (Object.prototype.hasOwnProperty.call(identityPatch, 'collaborators')) {
+            const effectiveOwnerName = Object.prototype.hasOwnProperty.call(identityPatch, 'primary_owner')
+              ? String(identityPatch.primary_owner ?? '')
+              : String((t as JsonRecord).primary_owner ?? '');
+            const effectiveOwnerUserId = Object.prototype.hasOwnProperty.call(identityPatch, 'primary_owner_user_id')
+              ? (typeof identityPatch.primary_owner_user_id === 'string' ? identityPatch.primary_owner_user_id : null)
+              : (typeof (t as JsonRecord).primary_owner_user_id === 'string' ? ((t as JsonRecord).primary_owner_user_id as string) : null);
+            identityPatch.collaborators = normalizeCollaboratorList(identityPatch.collaborators, {
+              name: effectiveOwnerName,
+              user_id: effectiveOwnerUserId,
+            });
+            // resolvedPatch 后续通知逻辑会用到，保持同步
+            resolvedPatch = { ...resolvedPatch, collaborators: identityPatch.collaborators };
+          }
+
           const merged = { ...t, ...identityPatch, task_id: taskId, updated_at: new Date().toISOString() };
           return this.normalizeTaskIdentity(merged, identity.people, identity.users);
         }
@@ -1087,6 +1251,44 @@ export class ResearchDevelopmentService {
             );
           }
         })();
+        // 审核通过且为成果审核（任务进入 completed）→ 触发 AI 复盘评分（fire-and-forget）
+        if (_review_action === 'approve' && reviewType === 'result' && newStatus === 'completed') {
+          void this.triggerTaskCompletionScoring(taskId);
+        }
+      }
+
+      // 非审核动作（管理员直接改协作人/主责人）→ 给被影响的成员发系统通知
+      if (!_review_action) {
+        const actorName = String(_actor_name ?? '管理员');
+
+        // 1. 协作人直接添加 → 通知新加入的协作人
+        if (Object.prototype.hasOwnProperty.call(persistPatch, 'collaborators')) {
+          const oldCollaborators = asArray((originalTask as JsonRecord).collaborators).filter(isRecord);
+          const newCollaborators = asArray(resolvedPatch.collaborators).filter(isRecord);
+          void this.notifyNewlyAddedCollaborators(
+            originalTask as JsonRecord,
+            oldCollaborators,
+            newCollaborators,
+            actorName,
+          );
+        }
+
+        // 2. 主责人直接变更 → 通知新主责人
+        if (Object.prototype.hasOwnProperty.call(persistPatch, 'primary_owner')) {
+          const oldOwnerName = String((originalTask as JsonRecord).primary_owner ?? '');
+          const newOwnerName = String(resolvedPatch.primary_owner ?? '');
+          const newOwnerUserId =
+            typeof resolvedPatch.primary_owner_user_id === 'string'
+              ? resolvedPatch.primary_owner_user_id
+              : null;
+          void this.notifyNewPrimaryOwner(
+            originalTask as JsonRecord,
+            newOwnerName,
+            newOwnerUserId,
+            oldOwnerName,
+            actorName,
+          );
+        }
       }
     }
 
@@ -1211,6 +1413,89 @@ export class ResearchDevelopmentService {
           body,
         });
       }
+    } catch {
+      // best-effort
+    }
+  }
+
+  /** 给"新被加入的协作人"发通知（管理员直接添加，跳过协作变更审核）。oldList / newList 差集 = 新增 */
+  private async notifyNewlyAddedCollaborators(
+    task: JsonRecord,
+    oldList: JsonRecord[],
+    newList: JsonRecord[],
+    actorName: string,
+  ): Promise<void> {
+    try {
+      const collaboratorKey = (c: JsonRecord): string => {
+        const uid = cleanUserId((c as JsonRecord).user_id);
+        if (uid) return `u:${uid}`;
+        const pid = cleanText((c as JsonRecord).id);
+        if (pid) return `p:${pid}`;
+        const nameKey = personNameLookupKey(cleanText((c as JsonRecord).name));
+        if (nameKey) return `n:${nameKey}`;
+        return '';
+      };
+      const oldKeys = new Set(oldList.map(collaboratorKey).filter(Boolean));
+      const newOnes = newList.filter((c) => {
+        const k = collaboratorKey(c);
+        return k && !oldKeys.has(k);
+      });
+      if (newOnes.length === 0) return;
+
+      const taskTitle = String(task.title ?? '');
+      const ownerName = String(task.primary_owner ?? '');
+      const body = `${actorName} 将你加入任务「${taskTitle}」的协作。${ownerName ? `主责人：${ownerName}` : ''}`;
+      const subject = `[协作任务] 「${taskTitle}」你已被加入协作`;
+      const seen = new Set<string>();
+      for (const c of newOnes) {
+        const recipientId = cleanUserId((c as JsonRecord).user_id);
+        const recipientPersonId = cleanText((c as JsonRecord).id);
+        const recipientName = cleanText((c as JsonRecord).name);
+        const recipientNameKey = personNameLookupKey(recipientName);
+        const key = recipientId ? `u:${recipientId}`
+          : recipientPersonId ? `p:${recipientPersonId}`
+          : recipientNameKey ? `n:${recipientNameKey}` : '';
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        await this.createMessage({
+          sender: { id: null, name: '系统通知', role: 'system' },
+          recipient_id: recipientId || null,
+          recipient_person_id: recipientPersonId || null,
+          recipient_name: recipientName || null,
+          subject,
+          body,
+        });
+      }
+    } catch {
+      // best-effort
+    }
+  }
+
+  /** 给"新主责人"发通知（管理员直接移交任务）。oldOwnerName / newOwnerName 不同即触发 */
+  private async notifyNewPrimaryOwner(
+    task: JsonRecord,
+    newOwnerName: string,
+    newOwnerUserId: string | null,
+    oldOwnerName: string,
+    actorName: string,
+  ): Promise<void> {
+    try {
+      const trimmedNew = (newOwnerName || '').trim();
+      const trimmedOld = (oldOwnerName || '').trim();
+      if (!trimmedNew || trimmedNew === trimmedOld || trimmedNew === '待指派') return;
+
+      const taskTitle = String(task.title ?? '');
+      const body = `${actorName} 将任务「${taskTitle}」指派给你为主责人。${trimmedOld ? `原主责人：${trimmedOld}` : '原状态：未指派'}`;
+      const subject = `[任务指派] 「${taskTitle}」你已被指派为主责人`;
+
+      await this.createMessage({
+        sender: { id: null, name: '系统通知', role: 'system' },
+        recipient_id: (newOwnerUserId || '').trim() || null,
+        recipient_person_id: null,
+        recipient_name: trimmedNew || null,
+        subject,
+        body,
+      });
     } catch {
       // best-effort
     }
@@ -1529,7 +1814,8 @@ export class ResearchDevelopmentService {
       throw new BadRequestException('附件总大小超过 50MB 限制');
     }
 
-    const attachments = await Promise.all(files.map(async (f) => {
+    // 保留 buffer 引用，附件保存后用于异步 AI 抽取
+    const attachmentsWithBuffers = await Promise.all(files.map(async (f) => {
       const id = `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const objectKey = await this.ossService.uploadBuffer(
         f.buffer,
@@ -1538,7 +1824,7 @@ export class ResearchDevelopmentService {
         f.mimetype,
       );
       const ossUrl = objectKey ? this.ossService.getSignedUrl(objectKey, 30 * 24 * 3600) : null;
-      return {
+      const attachment = {
         id,
         name: f.originalname,
         mime: f.mimetype ?? 'application/octet-stream',
@@ -1549,7 +1835,9 @@ export class ResearchDevelopmentService {
           : { data_url: `data:${f.mimetype ?? 'application/octet-stream'};base64,${f.buffer.toString('base64')}` }
         ),
       };
+      return { attachment, buffer: f.buffer, mimetype: f.mimetype, originalname: f.originalname };
     }));
+    const attachments = attachmentsWithBuffers.map((a) => a.attachment);
 
     const note = {
       id: `note-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -1570,6 +1858,12 @@ export class ResearchDevelopmentService {
     map[taskId] = [note, ...existing].slice(0, 100);
     await this.writeValue('rd.taskProgressNotes', map);
     await this.incrementTaskAttachmentCount(taskId, attachments.length);
+
+    // L1+L2+L3 异步抽取附件文本：图片走 OCR/vision，文档走 ExtractDocBasic/doc-turbo。
+    // fire-and-forget，失败不影响留痕主流程。结果会回写到 rd.taskProgressNotes 对应附件的 extracted_text 字段。
+    if (attachmentsWithBuffers.length > 0) {
+      void this.backfillAttachmentExtractedTexts(taskId, note.id, attachmentsWithBuffers);
+    }
 
     // Auto-ingest attachments into the knowledge base
     if (attachments.length > 0) {
@@ -1603,6 +1897,208 @@ export class ResearchDevelopmentService {
     }
 
     return note;
+  }
+
+  /**
+   * 历史附件批量补抽取：扫描所有进度留痕，对 extracted_text 为空（且未标记为已尝试过的）附件
+   * 触发 OCR/doc/vision 抽取。幂等：已有 extracted_text（含空字符串 + extracted_source）的不重跑。
+   * 用于在 L1-L4 上线后，把旧数据全部补一遍。
+   *
+   * 限制：单次最多处理 maxItems 个附件（默认 50），防止 HTTP 超时；剩余的让用户再点一次按钮。
+   */
+  async backfillTaskProgressNoteExtraction(opts: { maxItems?: number } = {}): Promise<{
+    total_pending: number;
+    processed: number;
+    succeeded: number;
+    failed: number;
+    has_more: boolean;
+    failed_ids: string[];
+  }> {
+    const maxItems = Math.max(1, Math.min(200, opts.maxItems ?? 50));
+    const map = await this.getProgressNoteMap();
+
+    // 收集所有待处理的附件（带 taskId / noteId / attachment 引用）
+    type PendingItem = { taskId: string; noteId: string; attachment: JsonRecord };
+    const pending: PendingItem[] = [];
+    for (const [taskId, notes] of Object.entries(map)) {
+      for (const note of notes) {
+        if (!isRecord(note)) continue;
+        const noteId = String(note.id ?? '');
+        if (!noteId) continue;
+        const atts = asArray(note.attachments).filter(isRecord);
+        for (const att of atts) {
+          // 跳过已经处理过的（有 extracted_source 字段表示尝试过，无论结果）
+          if (typeof att.extracted_source === 'string') continue;
+          pending.push({ taskId, noteId, attachment: att });
+        }
+      }
+    }
+
+    const total = pending.length;
+    const toProcess = pending.slice(0, maxItems);
+    let succeeded = 0;
+    let failed = 0;
+    const failedIds: string[] = [];
+
+    // 并发 3 个，避免打爆 OCR 上游
+    const CONCURRENCY = 3;
+    const queue = [...toProcess];
+    const runners: Promise<void>[] = [];
+    for (let i = 0; i < Math.min(CONCURRENCY, queue.length); i++) {
+      runners.push(
+        (async () => {
+          while (queue.length > 0) {
+            const item = queue.shift()!;
+            const attId = String(item.attachment.id ?? '');
+            try {
+              const buffer = await this.downloadAttachmentBuffer(item.attachment);
+              if (!buffer || buffer.length === 0) {
+                await this.updateAttachmentExtractedText(item.taskId, item.noteId, attId, '', 'failed');
+                failed++;
+                failedIds.push(attId);
+                continue;
+              }
+              const result = await this.rdAiService.extractAttachmentText({
+                originalname: String(item.attachment.name ?? 'attachment'),
+                mimetype: typeof item.attachment.mime === 'string' ? item.attachment.mime : undefined,
+                buffer,
+              });
+              await this.updateAttachmentExtractedText(
+                item.taskId,
+                item.noteId,
+                attId,
+                result.text,
+                result.source,
+              );
+              if (result.source === 'failed') {
+                failed++;
+                failedIds.push(attId);
+              } else {
+                succeeded++;
+              }
+            } catch (err) {
+              this.logger.warn(
+                `[backfillTaskProgressNoteExtraction] failed for ${attId}: ${(err as Error).message}`,
+              );
+              await this.updateAttachmentExtractedText(item.taskId, item.noteId, attId, '', 'failed').catch(
+                () => {},
+              );
+              failed++;
+              failedIds.push(attId);
+            }
+          }
+        })(),
+      );
+    }
+    await Promise.all(runners);
+
+    return {
+      total_pending: total,
+      processed: toProcess.length,
+      succeeded,
+      failed,
+      has_more: total > maxItems,
+      failed_ids: failedIds,
+    };
+  }
+
+  /** 从 OSS 签名 URL 或 base64 data URI 还原附件 Buffer。失败返回 null。 */
+  private async downloadAttachmentBuffer(attachment: JsonRecord): Promise<Buffer | null> {
+    const dataUrl = typeof attachment.data_url === 'string' ? attachment.data_url : '';
+    if (dataUrl.startsWith('data:')) {
+      const commaIdx = dataUrl.indexOf(',');
+      if (commaIdx > 0) {
+        const base64 = dataUrl.slice(commaIdx + 1);
+        try {
+          return Buffer.from(base64, 'base64');
+        } catch {
+          return null;
+        }
+      }
+    }
+    const ossUrl = typeof attachment.oss_url === 'string' ? attachment.oss_url : '';
+    if (ossUrl) {
+      try {
+        const response = await fetch(ossUrl);
+        if (!response.ok) return null;
+        const arrayBuf = await response.arrayBuffer();
+        return Buffer.from(arrayBuf);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * 异步抽取附件文本并回写到 rd.taskProgressNotes。
+   * 串行处理以避免短时间内打爆 OCR / doc-turbo API。
+   * 任何单个附件失败仅记录日志，不影响其他附件。
+   */
+  private async backfillAttachmentExtractedTexts(
+    taskId: string,
+    noteId: string,
+    items: Array<{ attachment: JsonRecord; buffer: Buffer; mimetype?: string; originalname: string }>,
+  ): Promise<void> {
+    for (const item of items) {
+      try {
+        const result = await this.rdAiService.extractAttachmentText({
+          originalname: item.originalname,
+          mimetype: item.mimetype,
+          buffer: item.buffer,
+        });
+        await this.updateAttachmentExtractedText(
+          taskId,
+          noteId,
+          String(item.attachment.id ?? ''),
+          result.text,
+          result.source,
+        );
+      } catch (err) {
+        this.logger.warn(
+          `[backfillAttachmentExtractedTexts] failed for ${item.originalname}: ${(err as Error).message}`,
+        );
+        // 仍然标记 failed，避免下次重复尝试时无状态
+        await this.updateAttachmentExtractedText(
+          taskId,
+          noteId,
+          String(item.attachment.id ?? ''),
+          '',
+          'failed',
+        ).catch(() => {});
+      }
+    }
+  }
+
+  private async updateAttachmentExtractedText(
+    taskId: string,
+    noteId: string,
+    attachmentId: string,
+    text: string,
+    source: string,
+  ): Promise<void> {
+    const map = await this.getProgressNoteMap();
+    const notes = Array.isArray(map[taskId]) ? map[taskId] : [];
+    let mutated = false;
+    const updatedNotes = notes.map((n) => {
+      if (!isRecord(n) || n.id !== noteId) return n;
+      const atts = asArray(n.attachments).filter(isRecord);
+      const newAtts = atts.map((a) => {
+        if (a.id !== attachmentId) return a;
+        mutated = true;
+        return {
+          ...a,
+          extracted_text: text,
+          extracted_source: source,
+          extracted_at: new Date().toISOString(),
+        };
+      });
+      return { ...n, attachments: newAtts };
+    });
+    if (mutated) {
+      map[taskId] = updatedNotes;
+      await this.writeValue('rd.taskProgressNotes', map);
+    }
   }
 
   private async incrementTaskAttachmentCount(taskId: string, delta: number): Promise<void> {
@@ -2571,12 +3067,31 @@ export class ResearchDevelopmentService {
     let found = false;
     let beforePerson: JsonRecord | null = null;
     let afterPerson: JsonRecord | null = null;
+
+    // 防御性：显式校验/规范化 payload 中的 kb_level，避免 normalization 链路意外丢失或回退
+    const incomingKbLevelNum = Number(payload?.kb_level);
+    const hasExplicitKbLevel = Object.prototype.hasOwnProperty.call(payload ?? {}, 'kb_level')
+      && Number.isFinite(incomingKbLevelNum);
+    const sanitizedKbLevel = hasExplicitKbLevel
+      ? Math.max(0, Math.min(100, Math.round(incomingKbLevelNum)))
+      : null;
+
     const nextPeople = people.map((item) => {
       if (!isRecord(item) || item.id !== id) return item;
       found = true;
       beforePerson = item;
-      const normalizedPerson = this.normalizePeopleRecords([{ ...item, ...payload, id }], users)[0];
+      const merged: JsonRecord = { ...item, ...payload, id };
+      // 显式钉死 kb_level/kb_level_scale，确保 normalize 不会走 legacy 兜底回 20
+      if (sanitizedKbLevel !== null) {
+        merged.kb_level = sanitizedKbLevel;
+        merged.kb_level_scale = 'score';
+      }
+      const normalizedPerson = this.normalizePeopleRecords([merged], users)[0];
       if (!normalizedPerson) return item;
+      if (sanitizedKbLevel !== null) {
+        normalizedPerson.kb_level = sanitizedKbLevel;
+        normalizedPerson.kb_level_scale = 'score';
+      }
       afterPerson = normalizedPerson;
       return normalizedPerson;
     });
@@ -2656,6 +3171,317 @@ export class ResearchDevelopmentService {
     return logs
       .filter(isRecord)
       .sort((a, b) => String(b.timestamp ?? '').localeCompare(String(a.timestamp ?? '')));
+  }
+
+  // ── 已完成任务 AI 质量评分（持久化）─────────────────────────────────────────
+
+  async getTaskCompletionScore(
+    taskId: string,
+    viewer: { userId?: string; hasFullAccess: boolean },
+  ): Promise<JsonRecord | null> {
+    const allScores = await this.readValue('rd.taskCompletionScores');
+    const map = isRecord(allScores) ? allScores : {};
+    const raw = map[taskId];
+    if (!isRecord(raw)) return null;
+
+    // 可见性：主责人 / 协作人 / 拥有 hasFullAccess（管理员）可见
+    let allowed = false;
+    if (viewer.hasFullAccess) {
+      allowed = true;
+    } else if (viewer.userId) {
+      const taskOwners = await this.collectTaskParticipantUserIds(taskId);
+      if (taskOwners.has(viewer.userId)) allowed = true;
+    }
+    if (!allowed) return null;
+
+    // 一般查询去掉 _debug 字段（含原始 prompt + 响应，仅超管可见）
+    const { _debug, ...publicFields } = raw as JsonRecord & { _debug?: unknown };
+    void _debug;
+    return publicFields;
+  }
+
+  /**
+   * 超管专用：返回完整的评分结果含 _debug 字段（原始 prompt、AI 响应、耗时）。
+   * 用于"为什么 AI 给这个分"的透明审查。
+   */
+  async getTaskCompletionScoreDebug(taskId: string): Promise<JsonRecord | null> {
+    const allScores = await this.readValue('rd.taskCompletionScores');
+    const map = isRecord(allScores) ? allScores : {};
+    const raw = map[taskId];
+    if (!isRecord(raw)) return null;
+    return raw;
+  }
+
+  private async collectTaskParticipantUserIds(taskId: string): Promise<Set<string>> {
+    const result = new Set<string>();
+    const categories = await this.readNormalizedTaskCategories();
+    const walk = (tasks: unknown[]): void => {
+      for (const t of tasks) {
+        if (!isRecord(t)) continue;
+        if (t.task_id === taskId) {
+          if (typeof t.primary_owner_user_id === 'string' && t.primary_owner_user_id) {
+            result.add(t.primary_owner_user_id);
+          }
+          for (const c of asArray(t.collaborators).filter(isRecord)) {
+            if (typeof c.user_id === 'string' && c.user_id) result.add(c.user_id);
+          }
+        }
+        if (Array.isArray(t.subtasks)) walk(t.subtasks);
+      }
+    };
+    for (const cat of categories) {
+      if (!isRecord(cat)) continue;
+      for (const child of asArray(cat.children).filter(isRecord)) {
+        walk(asArray(child.tasks));
+      }
+    }
+    return result;
+  }
+
+  /**
+   * 批量为现存已完成任务补跑 AI 评分（一次性 / 升级用）。
+   * 已有评分的任务会被跳过（幂等）。返回扫描总数、成功评分数、跳过数、失败数。
+   */
+  async backfillTaskCompletionScores(): Promise<{
+    total: number;
+    scored: number;
+    skipped: number;
+    failed: number;
+    failed_ids: string[];
+  }> {
+    const categories = await this.readNormalizedTaskCategories();
+    const completedIds: string[] = [];
+    const collect = (tasks: unknown[]): void => {
+      for (const t of tasks) {
+        if (!isRecord(t)) continue;
+        if (t.status === 'completed' && typeof t.task_id === 'string') {
+          completedIds.push(t.task_id);
+        }
+        if (Array.isArray(t.subtasks)) collect(t.subtasks);
+      }
+    };
+    for (const cat of categories) {
+      if (!isRecord(cat)) continue;
+      for (const child of asArray(cat.children).filter(isRecord)) {
+        collect(asArray(child.tasks));
+      }
+    }
+
+    const existing = await this.readValue('rd.taskCompletionScores');
+    const existingMap: JsonRecord = isRecord(existing) ? existing : {};
+    let scored = 0;
+    let skipped = 0;
+    let failed = 0;
+    const failedIds: string[] = [];
+
+    // 并发 3 个，避免一次性把 AI 上游打爆
+    const CONCURRENCY = 3;
+    const queue = [...completedIds];
+    const runners: Promise<void>[] = [];
+    for (let i = 0; i < Math.min(CONCURRENCY, queue.length); i++) {
+      runners.push(
+        (async () => {
+          while (queue.length > 0) {
+            const taskId = queue.shift()!;
+            if (isRecord(existingMap[taskId])) {
+              skipped++;
+              continue;
+            }
+            const before = await this.readValue('rd.taskCompletionScores');
+            const beforeMap = isRecord(before) ? before : {};
+            try {
+              await this.triggerTaskCompletionScoring(taskId);
+              const after = await this.readValue('rd.taskCompletionScores');
+              const afterMap = isRecord(after) ? after : {};
+              if (isRecord(afterMap[taskId]) && !isRecord(beforeMap[taskId])) {
+                scored++;
+              } else if (isRecord(afterMap[taskId])) {
+                skipped++;
+              } else {
+                failed++;
+                failedIds.push(taskId);
+              }
+            } catch {
+              failed++;
+              failedIds.push(taskId);
+            }
+          }
+        })(),
+      );
+    }
+    await Promise.all(runners);
+
+    return {
+      total: completedIds.length,
+      scored,
+      skipped,
+      failed,
+      failed_ids: failedIds,
+    };
+  }
+
+  /**
+   * 触发已完成任务的 AI 评分；幂等：已有评分则跳过。仅在主管审核通过将任务标记为 completed 后调用。
+   * 设计为 fire-and-forget；失败仅记录日志，不影响审核主流程。
+   */
+  async triggerTaskCompletionScoring(taskId: string): Promise<void> {
+    try {
+      const allScores = await this.readValue('rd.taskCompletionScores');
+      const map: JsonRecord = isRecord(allScores) ? { ...allScores } : {};
+      // 幂等：已有评分则跳过（用户要求"不需要重新评分"）
+      if (isRecord(map[taskId])) return;
+
+      // 收集任务详情
+      const categories = await this.readNormalizedTaskCategories();
+      let foundTask: JsonRecord | null = null;
+      const findInTasks = (tasks: unknown[]): void => {
+        for (const t of tasks) {
+          if (!isRecord(t)) continue;
+          if (t.task_id === taskId) {
+            foundTask = t;
+            return;
+          }
+          if (Array.isArray(t.subtasks)) findInTasks(t.subtasks);
+        }
+      };
+      for (const cat of categories) {
+        if (!isRecord(cat)) continue;
+        for (const child of asArray(cat.children).filter(isRecord)) {
+          findInTasks(asArray(child.tasks));
+          if (foundTask) break;
+        }
+        if (foundTask) break;
+      }
+      if (!foundTask) {
+        this.logger.warn(`[triggerTaskCompletionScoring] task not found: ${taskId}`);
+        return;
+      }
+
+      const notesMap = await this.getProgressNoteMap();
+      const notes = notesMap[taskId] ?? [];
+      const allLogs = await this.getAuditLogs();
+      const taskLogs = allLogs.filter((log) => {
+        const resource = isRecord(log.resource) ? log.resource : null;
+        return resource && resource.id === taskId;
+      });
+
+      const aiResult = await this.rdAiService.scoreTaskCompletion({
+        task: {
+          task_id: String((foundTask as JsonRecord).task_id ?? taskId),
+          title: String((foundTask as JsonRecord).title ?? ''),
+          description: typeof (foundTask as JsonRecord).description === 'string'
+            ? ((foundTask as JsonRecord).description as string)
+            : undefined,
+          category_path: typeof (foundTask as JsonRecord).category_path === 'string'
+            ? ((foundTask as JsonRecord).category_path as string)
+            : undefined,
+          primary_owner: typeof (foundTask as JsonRecord).primary_owner === 'string'
+            ? ((foundTask as JsonRecord).primary_owner as string)
+            : undefined,
+          collaborators: asArray((foundTask as JsonRecord).collaborators)
+            .filter(isRecord)
+            .map((c) => ({
+              name: typeof c.name === 'string' ? c.name : undefined,
+              role: typeof c.role === 'string' ? c.role : undefined,
+            })),
+          final_priority: typeof (foundTask as JsonRecord).final_priority === 'string'
+            ? ((foundTask as JsonRecord).final_priority as string)
+            : undefined,
+          start_date: typeof (foundTask as JsonRecord).start_date === 'string'
+            ? ((foundTask as JsonRecord).start_date as string)
+            : undefined,
+          due_date: typeof (foundTask as JsonRecord).due_date === 'string'
+            ? ((foundTask as JsonRecord).due_date as string)
+            : undefined,
+          updated_at: typeof (foundTask as JsonRecord).updated_at === 'string'
+            ? ((foundTask as JsonRecord).updated_at as string)
+            : undefined,
+          attachments: typeof (foundTask as JsonRecord).attachments === 'number'
+            ? ((foundTask as JsonRecord).attachments as number)
+            : 0,
+        },
+        notes: notes.map((n) => ({
+          text: typeof n.text === 'string' ? n.text : undefined,
+          progress: typeof n.progress === 'number' ? n.progress : undefined,
+          created_at: typeof n.created_at === 'string' ? n.created_at : undefined,
+          actor: isRecord(n.actor)
+            ? {
+                name: typeof n.actor.name === 'string' ? n.actor.name : undefined,
+                role: typeof n.actor.role === 'string' ? n.actor.role : undefined,
+              }
+            : undefined,
+          attachments: asArray(n.attachments)
+            .filter(isRecord)
+            .map((a) => ({
+              name: typeof a.name === 'string' ? a.name : undefined,
+              mime: typeof a.mime === 'string' ? a.mime : undefined,
+              size: typeof a.size === 'number' ? a.size : undefined,
+              // L1+L2+L3：传入预抽取出的附件文本与来源
+              extracted_text: typeof a.extracted_text === 'string' ? a.extracted_text : undefined,
+              extracted_source: typeof a.extracted_source === 'string' ? a.extracted_source : undefined,
+            })),
+        })),
+        auditLogs: taskLogs.map((log) => ({
+          timestamp: typeof log.timestamp === 'string' ? log.timestamp : undefined,
+          action: typeof log.action === 'string' ? log.action : undefined,
+          comment: typeof log.comment === 'string' ? log.comment : undefined,
+          actor: isRecord(log.actor)
+            ? { name: typeof log.actor.name === 'string' ? log.actor.name : undefined }
+            : undefined,
+        })),
+        // L4：从知识库 RAG 召回与本任务相关的参考资料
+        ragContext: await this.getCompletionScoringRagContext(
+          String((foundTask as JsonRecord).title ?? ''),
+          typeof (foundTask as JsonRecord).description === 'string'
+            ? ((foundTask as JsonRecord).description as string)
+            : '',
+          typeof (foundTask as JsonRecord).primary_owner_user_id === 'string'
+            ? ((foundTask as JsonRecord).primary_owner_user_id as string)
+            : null,
+        ).catch(() => []),
+      });
+
+      map[taskId] = aiResult as unknown as JsonRecord;
+      await this.writeValue('rd.taskCompletionScores', map);
+      this.logger.log(
+        `[triggerTaskCompletionScoring] scored ${taskId}: ${aiResult.total}/100 (${aiResult.grade}) via ${aiResult.provider}/${aiResult.model}`,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `[triggerTaskCompletionScoring] failed for ${taskId}: ${(err as Error).message}`,
+      );
+    }
+  }
+
+  /**
+   * L4：评分前从知识库 RAG 召回与本任务相关的参考资料。
+   * 用任务标题 + 描述做 query，限制 5 条以内，绕过权限校验（评分服务端动作）。
+   * 返回精简结构，供 prompt 使用。
+   */
+  private async getCompletionScoringRagContext(
+    taskTitle: string,
+    description: string,
+    ownerUserId: string | null,
+  ): Promise<Array<{ source: string; title?: string; content: string; similarity?: number }>> {
+    const query = `${taskTitle}\n${description}`.trim().slice(0, 500);
+    if (!query) return [];
+    try {
+      // 服务端动作：用 '*' 权限绕过 KB ACL；如果设置了主责人则用其 userId 以便后续审计追溯
+      const userContext = {
+        userId: ownerUserId || 'system-completion-scoring',
+        permissions: ['*'],
+      };
+      const resp = await this.ragService.search(query, userContext, { topK: 5, threshold: 0.6 });
+      return resp.results.map((r) => ({
+        source: String(r.sourceType ?? 'kb'),
+        title: typeof r.metadata?.title === 'string' ? r.metadata.title : undefined,
+        content: r.content,
+        similarity: r.similarity,
+      }));
+    } catch (err) {
+      this.logger.warn(`[getCompletionScoringRagContext] RAG search failed: ${(err as Error).message}`);
+      return [];
+    }
   }
 
   async createAuditLog(payload: JsonRecord) {
@@ -3150,6 +3976,8 @@ export class ResearchDevelopmentService {
     entries.unshift(entry);
     // Cap at 2000 entries to avoid unbounded growth
     await this.writeValue('rd.knowledgeEntries', entries.slice(0, 2000));
+    // RAG 同步（best-effort，不阻塞返回）
+    void this.syncKbEntryToRag(entry);
     return entry;
   }
 
@@ -3221,7 +4049,10 @@ export class ResearchDevelopmentService {
     });
     if (!found) throw new NotFoundException('知识条目不存在');
     await this.writeValue('rd.knowledgeEntries', updated);
-    return updated.find(e => e.id === id);
+    const next = updated.find(e => e.id === id);
+    // RAG 同步：内容变更需要重新 embedding
+    if (next) void this.syncKbEntryToRag(next);
+    return next;
   }
 
   async moveKnowledgeEntry(id: string, categoryId: string) {
@@ -3233,6 +4064,10 @@ export class ResearchDevelopmentService {
     const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
     const updated = entries.map(e => e.id === id ? { ...e, archived: true, updated_at: new Date().toISOString() } : e);
     await this.writeValue('rd.knowledgeEntries', updated);
+    // RAG 同步：archived=true 触发 chunk 删除
+    void this.ragService.removeChunksForSource('kb', id).catch((err) => {
+      this.logger.warn(`[RAG] removeChunksForSource 失败 (entry=${id}): ${err instanceof Error ? err.message : String(err)}`);
+    });
     return { ok: true };
   }
 

@@ -126,7 +126,7 @@ export function Header() {
           </div>
 
           <div className="flex min-w-0 flex-wrap items-center gap-3">
-            <div className="rounded-[20px] border border-slate-200 bg-white/85 px-4 py-2 text-right shadow-sm">
+            <div className="rounded-[20px] bg-white/85 px-4 py-2 text-right">
               <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-400">Today</div>
               <div className="text-sm font-semibold text-slate-700">{today}</div>
             </div>
@@ -152,10 +152,10 @@ export function Header() {
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="flex min-w-0 cursor-pointer items-center gap-3 rounded-[22px] border border-slate-200 bg-white/94 px-3 py-2 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+                  className="flex min-w-0 cursor-pointer items-center gap-3 rounded-[4px] border border-slate-200 bg-white/94 px-3 py-2 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
                   aria-label="打开用户菜单"
                 >
-                  <div className="h-11 w-11 overflow-hidden rounded-2xl ring-2 ring-blue-50">
+                  <div className="h-11 w-11 overflow-hidden rounded-[4px] ring-2 ring-blue-50">
                     {avatar ? (
                       <img src={avatar} alt={user?.name ?? "User"} className="h-full w-full object-cover" />
                     ) : (
@@ -172,7 +172,7 @@ export function Header() {
                   <ChevronDown className="h-4 w-4 text-slate-400" />
                 </button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" sideOffset={10} className="w-72 rounded-[18px] border-slate-200 bg-white/98 p-2 shadow-[0_18px_42px_rgba(15,23,42,0.16)] backdrop-blur-xl">
+              <DropdownMenuContent align="end" sideOffset={10} className="w-72 rounded-[4px] border-slate-200 bg-white/98 p-2 shadow-[0_18px_42px_rgba(15,23,42,0.16)] backdrop-blur-xl">
                 <DropdownMenuItem className="cursor-pointer rounded-xl px-3 py-2.5 text-slate-700 focus:bg-blue-50 focus:text-blue-700" onSelect={() => navigate("/profile")}>
                   <UserRound className="h-4 w-4" />
                   <span>个人中心</span>
