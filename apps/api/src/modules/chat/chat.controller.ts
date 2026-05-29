@@ -29,14 +29,33 @@ export class ChatController {
     private readonly prisma: PrismaService,
   ) {}
 
-  /** 构造 RAG/Chat 通用的用户上下文（含 kbLevel） */
+  /** 构造 RAG/Chat 通用的用户上下文（含 kbLevel 与个人画像） */
   private async buildUserContext(req: AuthedRequest): Promise<RagUserContext> {
     const userId = req.user.id;
     const permissions = req.user.permissions ?? [];
-    if (permissions.includes(SUPER_ADMIN_PERMISSION)) {
-      return { userId, permissions, kbLevel: 100 };
+    const isSuper = permissions.includes(SUPER_ADMIN_PERMISSION);
+
+    // 1) 用户基本信息（姓名/部门/角色名）
+    let name: string | undefined;
+    let department: string | undefined;
+    let roleName: string | undefined;
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { name: true, department: true, role: { select: { name: true } } },
+      });
+      if (user) {
+        name = user.name ?? undefined;
+        department = user.department ?? undefined;
+        roleName = user.role?.name ?? undefined;
+      }
+    } catch {
+      // 用户档案查不到不阻塞聊天
     }
-    let kbLevel = 0;
+
+    // 2) 研发岗位 + kbLevel（都来自 rd.people）
+    let position: string | undefined;
+    let kbLevel = isSuper ? 100 : 0;
     try {
       const setting = await this.prisma.systemSetting.findUnique({
         where: { key: 'rd.people' },
@@ -47,13 +66,19 @@ export class ChatController {
         if (!p || typeof p !== 'object') return false;
         return (p as Record<string, unknown>).user_id === userId;
       });
-      if (person && typeof person.kb_level === 'number' && Number.isFinite(person.kb_level)) {
-        kbLevel = Math.max(0, Math.min(100, Math.round(person.kb_level as number)));
+      if (person) {
+        if (!isSuper && typeof person.kb_level === 'number' && Number.isFinite(person.kb_level)) {
+          kbLevel = Math.max(0, Math.min(100, Math.round(person.kb_level as number)));
+        }
+        if (typeof person.position === 'string' && person.position.trim()) {
+          position = person.position.trim();
+        }
       }
     } catch {
       // 拿不到 person 记录就当 kbLevel=0，不阻塞聊天
     }
-    return { userId, permissions, kbLevel };
+
+    return { userId, permissions, kbLevel, name, department, roleName, position };
   }
 
   // ── Models ───────────────────────────────────────────────────────────────────

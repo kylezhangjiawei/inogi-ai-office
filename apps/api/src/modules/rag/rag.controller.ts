@@ -60,8 +60,27 @@ export class RagController {
     const userId = req.user.id;
     const permissions = req.user.permissions ?? [];
     const isSuper = permissions.includes(SUPER_ADMIN_PERMISSION);
-    let kbLevel = 0;
-    if (!isSuper) {
+
+    let name: string | undefined;
+    let department: string | undefined;
+    let roleName: string | undefined;
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { name: true, department: true, role: { select: { name: true } } },
+      });
+      if (user) {
+        name = user.name ?? undefined;
+        department = user.department ?? undefined;
+        roleName = user.role?.name ?? undefined;
+      }
+    } catch {
+      // 查不到不阻塞
+    }
+
+    let position: string | undefined;
+    let kbLevel = isSuper ? 100 : 0;
+    try {
       // person 记录目前存在 SystemSetting.rd.people 的 JSON 数组里
       const setting = await this.prisma.systemSetting.findUnique({
         where: { key: 'rd.people' },
@@ -73,14 +92,16 @@ export class RagController {
         return (p as Record<string, unknown>).user_id === userId;
       });
       if (person) {
-        const rawLevel = person.kb_level;
-        if (typeof rawLevel === 'number' && Number.isFinite(rawLevel)) {
-          kbLevel = Math.max(0, Math.min(100, Math.round(rawLevel)));
+        if (!isSuper && typeof person.kb_level === 'number' && Number.isFinite(person.kb_level)) {
+          kbLevel = Math.max(0, Math.min(100, Math.round(person.kb_level)));
+        }
+        if (typeof person.position === 'string' && person.position.trim()) {
+          position = person.position.trim();
         }
       }
-    } else {
-      kbLevel = 100;
+    } catch {
+      // ignore
     }
-    return { userId, permissions, kbLevel };
+    return { userId, permissions, kbLevel, name, department, roleName, position };
   }
 }

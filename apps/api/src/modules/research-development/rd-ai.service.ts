@@ -617,8 +617,9 @@ export class RdAiService {
     }
 
     const { apiKey, baseUrl } = docModelConfig;
-    // 文档解析（PDF/Word/Excel）可能文件较大，使用立项专用超时
-    const client = this.createClient(apiKey, 'qwen', baseUrl, this.extractTimeoutMs);
+    // 文档解析（PDF/Word/Excel）可能文件较大，使用立项专用超时；maxRetries=0 关闭自动重试，
+    // 保证单次失败在 extractTimeoutMs 内快速返回（走本地兜底），不超出前端 360s 中止窗口。
+    const client = this.createClient(apiKey, 'qwen', baseUrl, this.extractTimeoutMs, 0);
     const startedAt = Date.now();
 
     let uploadedFileId: string | null = null;
@@ -1799,7 +1800,7 @@ export class RdAiService {
   }
 
   async assessProgress(input: {
-    file?: RdAiUploadedFile;
+    files?: RdAiUploadedFile[];
     text?: string;
     task: {
       task_id: string;
@@ -1810,186 +1811,277 @@ export class RdAiService {
       current_status?: string;
     };
   }): Promise<RdAiProgressAssessmentResult> {
-    if (!input.file && !input.text?.trim()) {
-      throw new BadRequestException('file 或 text 至少需要提供一项');
+    const files = input.files ?? [];
+    const userText = (input.text ?? '').trim();
+    if (files.length === 0 && !userText) {
+      throw new BadRequestException('files 或 text 至少需要提供一项');
     }
 
     const filePolicy = await this.readFilePolicyRuntime();
-    let evidenceText = '';
-    let source: 'text' | 'file_text' | 'file_ocr' | 'file_doc_model' = 'text';
-    let docFileId: string | null = null;
-    let docClient: OpenAI | null = null;
 
-    if (input.file) {
-      const ext = this.extOf(input.file.originalname);
-      if (IMAGE_EXT.has(ext)) {
-        const tencentReady = await this.ocrService.hasTencentConfig();
-        if (!tencentReady && filePolicy.allow_vision_fallback) {
-          return this.assessProgressViaVision(input.file, input, filePolicy, 'ocr_not_configured');
+    // 单文件 + 无用户文本 + 图片：保留原 OCR / Vision 兜底路径，结果更稳
+    if (files.length === 1 && !userText && IMAGE_EXT.has(this.extOf(files[0].originalname))) {
+      return this.assessProgressFromImageFile(files[0], input, filePolicy);
+    }
+
+    // 统一抽取每个文件的 evidence 文本，再与用户文本拼合，最后走文本判断
+    const segments: Array<{ label: string; text: string; source: 'text' | 'file_text' | 'file_ocr' | 'file_doc_model' | 'error' }> = [];
+    let totalRawLength = userText.length;
+
+    if (userText) {
+      segments.push({ label: '用户进展说明', text: userText.slice(0, 16000), source: 'text' });
+    }
+
+    for (const file of files) {
+      try {
+        const extracted = await this.extractEvidenceFromFile(file, filePolicy);
+        totalRawLength += file.buffer.length;
+        if (extracted.text.trim()) {
+          segments.push({ label: file.originalname, text: extracted.text, source: extracted.source });
+        } else {
+          segments.push({ label: file.originalname, text: '（文件未抽取到可读内容）', source: 'error' });
         }
-        if (!tencentReady) {
-          throw new BadRequestException('图片识别需要配置腾讯 OCR（请在系统设置 → 集成配置中绑定 tencent_ocr 凭据）');
-        }
-        const ocr = await this.ocrService.recognizeWithTencent(
-          { originalname: input.file.originalname, buffer: input.file.buffer, mimetype: input.file.mimetype },
-          { documentKind: 'invoice', serviceKey: filePolicy.ocr_service_key },
-        );
-        const confidence = typeof ocr.confidence === 'number' ? ocr.confidence : 1;
-        evidenceText = (ocr.text || ocr.lines.join('\n')).slice(0, 24000);
-        if ((!evidenceText.trim() || confidence < filePolicy.ocr_confidence_threshold) && filePolicy.allow_vision_fallback) {
-          return this.assessProgressViaVision(input.file, input, filePolicy, `ocr_low_confidence:${confidence}`);
-        }
-        source = 'file_ocr';
-      } else if (PLAIN_TEXT_EXT.has(ext)) {
-        evidenceText = this.safeUtf8(input.file.buffer).slice(0, 24000);
-        source = 'file_text';
-      } else if (DOC_EXT.has(ext)) {
-        // Upload to Qwen doc model — assessment call below will reference fileid://
-        // 优先读 AI 模型管理配置，不从 .env 读取模型 key。
-        const docCfg = await this.resolveDocModelConfig();
-        if (!docCfg) {
-          throw new BadRequestException(
-            'PDF/Word/Excel 识别需要在 AI 模型管理中配置 qwen-doc-turbo 或可用的 Qwen 模型',
-          );
-        }
-        docClient = this.createClient(docCfg.apiKey, 'qwen', docCfg.baseUrl, this.extractTimeoutMs);
-        const uploadable = await toFile(input.file.buffer, input.file.originalname, {
-          type: input.file.mimetype?.trim() || undefined,
-        });
-        let uploaded: OpenAI.Files.FileObject;
-        try {
-          uploaded = await docClient.files.create({
-            file: uploadable,
-            purpose: 'file-extract' as OpenAI.FilePurpose,
-          });
-        } catch (error) {
-          if (this.isExternalAiTimeout(error)) {
-            const parsed = this.buildTimeoutProgressFallback(input.task, 'file_doc_model', input.file.buffer.length);
-            await this.recordAiArtifact('progress_assessment', 'file_doc_model', input.file.originalname, filePolicy, {
-              ai_result: parsed,
-              timeout: true,
-              model: QWEN_DOC_MODEL,
-              provider: 'qwen',
-            });
-            return parsed;
-          }
-          throw this.toExternalAiException(error, 'AI 进度文件上传服务调用失败');
-        }
-        docFileId = uploaded.id;
-        source = 'file_doc_model';
-      } else {
-        // Unknown — try as text
-        evidenceText = this.safeUtf8(input.file.buffer).slice(0, 24000);
-        source = 'file_text';
+      } catch (err) {
+        const message = err instanceof Error ? err.message : '文件解析失败';
+        this.logger.warn(`[assessProgress] file=${file.originalname} extract failed: ${message}`);
+        segments.push({ label: file.originalname, text: `（解析失败：${message}）`, source: 'error' });
       }
-    } else {
-      evidenceText = (input.text ?? '').slice(0, 24000);
-      source = 'text';
+    }
+
+    // 选择主 source：优先级 doc_model > ocr > file_text > text
+    const sources = segments.map((s) => s.source);
+    const source: 'text' | 'file_text' | 'file_ocr' | 'file_doc_model' = sources.includes('file_doc_model')
+      ? 'file_doc_model'
+      : sources.includes('file_ocr')
+        ? 'file_ocr'
+        : sources.includes('file_text')
+          ? 'file_text'
+          : 'text';
+
+    const combinedEvidence = segments
+      .map((s) => `===== ${s.label}（${s.source}）=====\n${s.text}`)
+      .join('\n\n')
+      .slice(0, 32000);
+
+    const systemPrompt = this.buildProgressSystemPrompt();
+    const userMessage = this.buildProgressUserMessage(combinedEvidence, input);
+
+    // Text path — AI 模型管理优先（scene → default），不从 .env 读取模型 key。
+    const selectedModel = await this.resolveSceneModelConfig('progress_summary').catch(() => null);
+    const apiKey = selectedModel?.apiKey ?? null;
+    const provider: AiProvider = selectedModel?.provider ?? 'openai';
+    const model = selectedModel?.model ?? DEFAULT_TEXT_MODEL;
+    const baseUrl = selectedModel?.baseUrl;
+    const primaryFilename = files[0]?.originalname;
+
+    if (!apiKey) {
+      return {
+        progress: Math.max(0, input.task.current_progress ?? 0),
+        stage: '资料已上传，AI 未配置，无法自动判断',
+        confidence: 40,
+        basis: ['未在 AI 模型管理中配置可用模型', '当前仅记录文件元信息'],
+        recommendation: '请在 AI 模型管理中配置可用模型，或人工选择进度节点。',
+        provider: 'local',
+        model: 'local-progress-fallback',
+        source,
+        raw_text_length: totalRawLength,
+      };
+    }
+
+    const client = this.createClient(apiKey, provider, baseUrl);
+    let response: OpenAI.Chat.Completions.ChatCompletion;
+    try {
+      response = await client.chat.completions.create({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage },
+        ],
+        response_format: { type: 'json_object' },
+        ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+      });
+    } catch (error) {
+      if (this.isExternalAiTimeout(error)) {
+        const parsed = this.buildTimeoutProgressFallback(input.task, source, totalRawLength);
+        await this.recordAiArtifact('progress_assessment', source, primaryFilename, filePolicy, {
+          combined_evidence: combinedEvidence,
+          ai_result: parsed,
+          timeout: true,
+          model,
+          provider,
+          file_count: files.length,
+        });
+        return parsed;
+      }
+      throw this.toExternalAiException(error, 'AI 进度判断服务调用失败');
+    }
+    const content = response.choices[0]?.message?.content ?? '{}';
+    const parsed = this.parseProgressPayload(content, input.task);
+    await this.recordAiArtifact('progress_assessment', source, primaryFilename, filePolicy, {
+      combined_evidence: combinedEvidence,
+      ai_result: parsed,
+      model,
+      provider,
+      file_count: files.length,
+    });
+    return { ...parsed, provider, model, source, raw_text_length: totalRawLength };
+  }
+
+  /** 从单个文件抽取可读文本（图片走 OCR，文档走 Qwen doc-turbo 抽取，文本直接读）。 */
+  private async extractEvidenceFromFile(
+    file: RdAiUploadedFile,
+    filePolicy: RdAiFilePolicyRuntime,
+  ): Promise<{ text: string; source: 'file_text' | 'file_ocr' | 'file_doc_model' }> {
+    const ext = this.extOf(file.originalname);
+
+    if (IMAGE_EXT.has(ext)) {
+      const tencentReady = await this.ocrService.hasTencentConfig();
+      if (!tencentReady) {
+        throw new BadRequestException(
+          `图片 ${file.originalname} 识别需要配置腾讯 OCR（请在系统设置 → 集成配置中绑定 tencent_ocr 凭据）`,
+        );
+      }
+      const ocr = await this.ocrService.recognizeWithTencent(
+        { originalname: file.originalname, buffer: file.buffer, mimetype: file.mimetype },
+        { documentKind: 'invoice', serviceKey: filePolicy.ocr_service_key },
+      );
+      return { text: (ocr.text || ocr.lines.join('\n')).slice(0, 16000), source: 'file_ocr' };
+    }
+
+    if (PLAIN_TEXT_EXT.has(ext)) {
+      return { text: this.safeUtf8(file.buffer).slice(0, 16000), source: 'file_text' };
+    }
+
+    if (DOC_EXT.has(ext)) {
+      const docCfg = await this.resolveDocModelConfig();
+      if (!docCfg) {
+        throw new BadRequestException(
+          `PDF/Word/Excel ${file.originalname} 需要在 AI 模型管理中配置 qwen-doc-turbo 或可用的 Qwen 模型`,
+        );
+      }
+      // maxRetries=0：关闭 SDK 自动重试，避免长超时叠加重试击穿前端 360s 中止窗口
+      const docClient = this.createClient(docCfg.apiKey, 'qwen', docCfg.baseUrl, this.extractTimeoutMs, 0);
+      const uploadable = await toFile(file.buffer, file.originalname, {
+        type: file.mimetype?.trim() || undefined,
+      });
+      let uploaded: OpenAI.Files.FileObject;
+      try {
+        uploaded = await docClient.files.create({
+          file: uploadable,
+          purpose: 'file-extract' as OpenAI.FilePurpose,
+        });
+      } catch (error) {
+        throw this.toExternalAiException(error, `AI 文件上传失败（${file.originalname}）`);
+      }
+      try {
+        const response = await docClient.chat.completions.create({
+          model: QWEN_DOC_MODEL,
+          messages: [
+            {
+              role: 'system',
+              content:
+                '你是一名研发任务文档摘要助手。请提取下面这份文件中与"任务进度判断"相关的关键内容（如阶段、产出、测试数据、评审结论、待办或风险），用中文要点列出，800 字以内，不要输出 JSON。',
+            },
+            { role: 'system', content: `fileid://${uploaded.id}` },
+            { role: 'user', content: `请提取与任务进度判断相关的关键内容。文件名：${file.originalname}` },
+          ],
+        });
+        const extracted = (response.choices[0]?.message?.content ?? '').trim();
+        return { text: extracted.slice(0, 16000), source: 'file_doc_model' };
+      } catch (error) {
+        throw this.toExternalAiException(error, `AI 文件解析失败（${file.originalname}）`);
+      } finally {
+        docClient.files.delete(uploaded.id).catch(() => { /* best-effort */ });
+      }
+    }
+
+    // 未知扩展名按文本读
+    return { text: this.safeUtf8(file.buffer).slice(0, 16000), source: 'file_text' };
+  }
+
+  /** 单图片 + 无文本的快速路径：保留 OCR 失败时的 vision 兜底。 */
+  private async assessProgressFromImageFile(
+    file: RdAiUploadedFile,
+    input: {
+      task: { task_id: string; title: string; description?: string; category_path?: string; current_progress?: number; current_status?: string };
+    },
+    filePolicy: RdAiFilePolicyRuntime,
+  ): Promise<RdAiProgressAssessmentResult> {
+    const tencentReady = await this.ocrService.hasTencentConfig();
+    if (!tencentReady && filePolicy.allow_vision_fallback) {
+      return this.assessProgressViaVision(file, input, filePolicy, 'ocr_not_configured');
+    }
+    if (!tencentReady) {
+      throw new BadRequestException('图片识别需要配置腾讯 OCR（请在系统设置 → 集成配置中绑定 tencent_ocr 凭据）');
+    }
+    const ocr = await this.ocrService.recognizeWithTencent(
+      { originalname: file.originalname, buffer: file.buffer, mimetype: file.mimetype },
+      { documentKind: 'invoice', serviceKey: filePolicy.ocr_service_key },
+    );
+    const confidence = typeof ocr.confidence === 'number' ? ocr.confidence : 1;
+    const evidenceText = (ocr.text || ocr.lines.join('\n')).slice(0, 24000);
+    if ((!evidenceText.trim() || confidence < filePolicy.ocr_confidence_threshold) && filePolicy.allow_vision_fallback) {
+      return this.assessProgressViaVision(file, input, filePolicy, `ocr_low_confidence:${confidence}`);
     }
 
     const systemPrompt = this.buildProgressSystemPrompt();
     const userMessage = this.buildProgressUserMessage(evidenceText, input);
 
-    try {
-      if (source === 'file_doc_model' && docClient && docFileId) {
-        let response: OpenAI.Chat.Completions.ChatCompletion;
-        try {
-          response = await docClient.chat.completions.create({
-            model: QWEN_DOC_MODEL,
-            messages: [
-              { role: 'system', content: systemPrompt },
-              { role: 'system', content: `fileid://${docFileId}` },
-              { role: 'user', content: userMessage },
-            ],
-            response_format: { type: 'json_object' },
-          });
-        } catch (error) {
-          if (this.isExternalAiTimeout(error)) {
-            const parsed = this.buildTimeoutProgressFallback(input.task, 'file_doc_model', input.file?.buffer.length ?? 0);
-            await this.recordAiArtifact('progress_assessment', 'file_doc_model', input.file?.originalname, filePolicy, {
-              ai_result: parsed,
-              timeout: true,
-              model: QWEN_DOC_MODEL,
-              provider: 'qwen',
-            });
-            return parsed;
-          }
-          throw this.toExternalAiException(error, 'AI 进度文件解析服务调用失败');
-        }
-        const content = response.choices[0]?.message?.content ?? '{}';
-        const parsed = this.parseProgressPayload(content, input.task);
-        await this.recordAiArtifact('progress_assessment', 'file_doc_model', input.file?.originalname, filePolicy, {
-          ai_result: parsed,
-          model: QWEN_DOC_MODEL,
-          provider: 'qwen',
-        });
-        return { ...parsed, provider: 'qwen', model: QWEN_DOC_MODEL, source, raw_text_length: input.file?.buffer.length ?? 0 };
-      }
+    const selectedModel = await this.resolveSceneModelConfig('progress_summary').catch(() => null);
+    const apiKey = selectedModel?.apiKey ?? null;
+    const provider: AiProvider = selectedModel?.provider ?? 'openai';
+    const model = selectedModel?.model ?? DEFAULT_TEXT_MODEL;
+    const baseUrl = selectedModel?.baseUrl;
 
-      // Text path — AI 模型管理优先（scene → default），不从 .env 读取模型 key。
-      const selectedModel = await this.resolveSceneModelConfig('progress_summary').catch(() => null);
-      const apiKey = selectedModel?.apiKey ?? null;
-      const provider: AiProvider = selectedModel?.provider ?? 'openai';
-      const model = selectedModel?.model ?? DEFAULT_TEXT_MODEL;
-      const baseUrl = selectedModel?.baseUrl;
-
-      if (!apiKey) {
-        // AI 模型管理中未配置任何可用模型
-        return {
-          progress: Math.max(0, input.task.current_progress ?? 0),
-          stage: '资料已上传，AI 未配置，无法自动判断',
-          confidence: 40,
-          basis: ['未在 AI 模型管理中配置可用模型', '当前仅记录文件元信息'],
-          recommendation: '请在 AI 模型管理中配置可用模型，或人工选择进度节点。',
-          provider: 'local',
-          model: 'local-progress-fallback',
-          source,
-          raw_text_length: evidenceText.length,
-        };
-      }
-
-      const client = this.createClient(apiKey, provider, baseUrl);
-      let response: OpenAI.Chat.Completions.ChatCompletion;
-      try {
-        response = await client.chat.completions.create({
-          model,
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: userMessage },
-          ],
-          response_format: { type: 'json_object' },
-          ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
-        });
-      } catch (error) {
-        if (this.isExternalAiTimeout(error)) {
-          const parsed = this.buildTimeoutProgressFallback(input.task, source, evidenceText.length);
-          await this.recordAiArtifact('progress_assessment', source, input.file?.originalname, filePolicy, {
-            original_text: source === 'text' || source === 'file_text' ? evidenceText : undefined,
-            ocr_text: source === 'file_ocr' ? evidenceText : undefined,
-            ai_result: parsed,
-            timeout: true,
-            model,
-            provider,
-          });
-          return parsed;
-        }
-        throw this.toExternalAiException(error, 'AI 进度判断服务调用失败');
-      }
-      const content = response.choices[0]?.message?.content ?? '{}';
-      const parsed = this.parseProgressPayload(content, input.task);
-      await this.recordAiArtifact('progress_assessment', source, input.file?.originalname, filePolicy, {
-        original_text: source === 'text' || source === 'file_text' ? evidenceText : undefined,
-        ocr_text: source === 'file_ocr' ? evidenceText : undefined,
-        ai_result: parsed,
-        model,
-        provider,
-      });
-      return { ...parsed, provider, model, source, raw_text_length: evidenceText.length };
-    } finally {
-      if (docClient && docFileId) {
-        docClient.files.delete(docFileId).catch(() => { /* best-effort */ });
-      }
+    if (!apiKey) {
+      return {
+        progress: Math.max(0, input.task.current_progress ?? 0),
+        stage: '资料已上传，AI 未配置，无法自动判断',
+        confidence: 40,
+        basis: ['未在 AI 模型管理中配置可用模型', '当前仅记录文件元信息'],
+        recommendation: '请在 AI 模型管理中配置可用模型，或人工选择进度节点。',
+        provider: 'local',
+        model: 'local-progress-fallback',
+        source: 'file_ocr',
+        raw_text_length: evidenceText.length,
+      };
     }
+
+    const client = this.createClient(apiKey, provider, baseUrl);
+    let response: OpenAI.Chat.Completions.ChatCompletion;
+    try {
+      response = await client.chat.completions.create({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage },
+        ],
+        response_format: { type: 'json_object' },
+        ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+      });
+    } catch (error) {
+      if (this.isExternalAiTimeout(error)) {
+        const parsed = this.buildTimeoutProgressFallback(input.task, 'file_ocr', evidenceText.length);
+        await this.recordAiArtifact('progress_assessment', 'file_ocr', file.originalname, filePolicy, {
+          ocr_text: evidenceText,
+          ai_result: parsed,
+          timeout: true,
+          model,
+          provider,
+        });
+        return parsed;
+      }
+      throw this.toExternalAiException(error, 'AI 进度判断服务调用失败');
+    }
+    const content = response.choices[0]?.message?.content ?? '{}';
+    const parsed = this.parseProgressPayload(content, input.task);
+    await this.recordAiArtifact('progress_assessment', 'file_ocr', file.originalname, filePolicy, {
+      ocr_text: evidenceText,
+      ai_result: parsed,
+      model,
+      provider,
+    });
+    return { ...parsed, provider, model, source: 'file_ocr', raw_text_length: evidenceText.length };
   }
 
   private async assessProgressViaVision(
@@ -2134,11 +2226,20 @@ export class RdAiService {
     return provider === 'qwen' ? DEFAULT_QWEN_BASE_URL : undefined;
   }
 
-  private createClient(apiKey: string, provider: AiProvider, configuredBaseUrl?: string, timeoutOverride?: number): OpenAI {
+  private createClient(
+    apiKey: string,
+    provider: AiProvider,
+    configuredBaseUrl?: string,
+    timeoutOverride?: number,
+    maxRetriesOverride?: number,
+  ): OpenAI {
     const baseURL = configuredBaseUrl ?? this.defaultBaseUrlForProvider(provider);
     return new OpenAI({
       apiKey,
       timeout: timeoutOverride ?? this.timeoutMs,
+      // 默认 SDK maxRetries=2，叠加单次超时会让总耗时翻几倍。文件抽取等长超时调用须显式传 0，
+      // 否则重试会超出前端 360s 中止窗口，导致"卡住后超时"且后端兜底来不及返回。
+      ...(maxRetriesOverride !== undefined ? { maxRetries: maxRetriesOverride } : {}),
       ...(baseURL ? { baseURL } : {}),
     });
   }

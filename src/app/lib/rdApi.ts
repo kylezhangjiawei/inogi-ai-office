@@ -665,7 +665,7 @@ export type RdAiProgressAssessment = {
 };
 
 export async function assessRdTaskProgress(payload: {
-  file?: File;
+  files?: File[];
   text?: string;
   task: {
     task_id?: string;
@@ -677,7 +677,9 @@ export async function assessRdTaskProgress(payload: {
   };
 }): Promise<RdAiProgressAssessment> {
   const form = new FormData();
-  if (payload.file) form.append("file", payload.file);
+  if (payload.files) {
+    for (const file of payload.files) form.append("files", file);
+  }
   if (payload.text) form.append("text", payload.text);
   if (payload.task.task_id) form.append("task_id", payload.task.task_id);
   form.append("title", payload.task.title);

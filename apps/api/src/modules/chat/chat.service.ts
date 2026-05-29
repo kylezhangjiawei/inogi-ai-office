@@ -30,7 +30,7 @@ const SYSTEM_PROMPT = [
 ].join('\n');
 
 const RAG_PROMPT_PREFIX =
-  '以下是从系统数据库中检索到的相关信息，请优先基于这些信息回答，信息不足时再结合通用知识：\n\n';
+  '以下是从系统数据库中检索到的【权威结构化数据】（精确的任务/人员/部门等清单、数量与状态）。凡是涉及具体数量、清单、状态、归属的问题（如"我有多少未完成任务""谁负责 X"），必须以这些数据为准直接作答，不要改用下方知识库文档内容；数据不足时再结合知识库资料或通用知识：\n\n';
 
 const CONV_SELECT = {
   id: true,
@@ -43,6 +43,9 @@ const CONV_SELECT = {
 
 @Injectable()
 export class ChatService {
+  /** base64 data_url 兜底下载的内联上限：超过则不附下载链接，避免 SSE 引用负载膨胀（≈3MB base64 ≈2.2MB 文件）。 */
+  private static readonly KB_INLINE_DOWNLOAD_MAX_LEN = 3_000_000;
+
   private readonly logger = new Logger(ChatService.name);
   private readonly openaiApiKey: string | null;
   private readonly openaiBaseUrl: string | null;
@@ -243,7 +246,7 @@ export class ChatService {
     // ── 智能检索：并行做"结构化关键词搜索"+"向量语义检索"，结果合并进 system prompt ──
     // 用户无需切换模式；命中内部资料 → 优先用；没命中 → LLM 走通用知识兜底
     const [dbContext, ragResponse] = await Promise.all([
-      this.searchDatabase(dto.content).catch((err) => {
+      this.searchDatabase(dto.content, userContext).catch((err) => {
         this.logger.warn(`searchDatabase 失败: ${err instanceof Error ? err.message : err}`);
         return '';
       }),
@@ -270,13 +273,21 @@ export class ChatService {
       : '';
 
     const contextParts: string[] = [SYSTEM_PROMPT];
-    if (ragContext) {
-      contextParts.push(
-        '以下是从公司知识库中检索到的相关资料，优先基于这些资料作答；引用资料时请在对应结论后用方括号编号如 [1] [2]：\n\n' + ragContext,
-      );
+
+    // 注入当前用户身份：让 AI 直接知道"你是谁"，避免反过来追问姓名/岗位
+    const personaBlock = this.buildUserPersonaBlock(userContext);
+    if (personaBlock) {
+      contextParts.push(personaBlock);
     }
+
+    // 结构化数据是精确事实，优先级高于向量召回的知识库资料 → 先注入；KB 资料降级为补充参考，冲突时以结构化为准
     if (dbContext) {
       contextParts.push(`${RAG_PROMPT_PREFIX}${dbContext}`);
+    }
+    if (ragContext) {
+      contextParts.push(
+        '以下是从公司知识库中检索到的相关参考资料，用于补充背景或回答知识性问题；若与上方结构化数据冲突，以结构化数据为准。引用资料时请在对应结论后用方括号编号如 [1] [2]：\n\n' + ragContext,
+      );
     }
     const systemContent = contextParts.join('\n\n');
 
@@ -285,12 +296,19 @@ export class ChatService {
 
     // 推送引用卡片数据（前端在 assistant 消息下方渲染）
     if (ragChunks.length > 0 || ragResponse.filteredByPermission > 0) {
+      // 对 kb 源的 citation 反查 rd.knowledgeEntries 拿 oss_url，附加为 downloadUrl
+      const kbIds: string[] = [];
+      for (const c of ragChunks) {
+        if (c.sourceType === 'kb') kbIds.push(c.sourceId);
+      }
+      const kbDownloadMap = await this.resolveKbDownloadUrls(kbIds);
       const citations: RagChatCitation[] = ragChunks.map((r) => ({
         sourceType: r.sourceType,
         sourceId: r.sourceId,
         title: typeof r.metadata?.title === 'string' ? (r.metadata.title as string) : undefined,
         excerpt: r.content.length > 240 ? r.content.slice(0, 240) + '…' : r.content,
         url: typeof r.metadata?.url === 'string' ? (r.metadata.url as string) : undefined,
+        downloadUrl: r.sourceType === 'kb' ? kbDownloadMap.get(r.sourceId) : undefined,
         similarity: r.similarity,
       }));
       send({
@@ -456,9 +474,70 @@ export class ChatService {
     }
   }
 
+  /**
+   * 按知识库条目 id 批量查 oss_url（条目存在 SystemSetting.rd.knowledgeEntries JSON 数组里）。
+   * 仅在 ids 非空时查询；返回 Map<entryId, ossUrl>，无对应条目或无 oss_url 时不写入。
+   */
+  private async resolveKbDownloadUrls(entryIds: string[]): Promise<Map<string, string>> {
+    const result = new Map<string, string>();
+    if (entryIds.length === 0) return result;
+    try {
+      const setting = await this.prisma.systemSetting.findUnique({
+        where: { key: 'rd.knowledgeEntries' },
+        select: { value: true },
+      });
+      const arr = Array.isArray(setting?.value) ? (setting!.value as unknown[]) : [];
+      const wantSet = new Set(entryIds);
+      for (const item of arr) {
+        if (!item || typeof item !== 'object') continue;
+        const entry = item as Record<string, unknown>;
+        const id = typeof entry.id === 'string' ? entry.id : null;
+        if (!id || !wantSet.has(id)) continue;
+        // OSS 签名 URL 优先；未配置 OSS 时知识库文件以 base64 data_url 存储，作为兜底下载源。
+        const ossUrl = typeof entry.oss_url === 'string' ? entry.oss_url.trim() : '';
+        if (ossUrl) {
+          result.set(id, ossUrl);
+          continue;
+        }
+        const dataUrl = typeof entry.data_url === 'string' ? entry.data_url : '';
+        if (dataUrl.startsWith('data:') && dataUrl.length <= ChatService.KB_INLINE_DOWNLOAD_MAX_LEN) {
+          result.set(id, dataUrl);
+        }
+      }
+    } catch (err) {
+      this.logger.warn(`resolveKbDownloadUrls 失败: ${err instanceof Error ? err.message : err}`);
+    }
+    return result;
+  }
+
+  /** 拼接"当前用户是谁"提示块，加在 system prompt 之后 */
+  private buildUserPersonaBlock(user: RagUserContext): string {
+    const lines: string[] = ['【当前对话用户】'];
+    if (user.name) {
+      lines.push(`姓名：${user.name}`);
+    } else {
+      lines.push(`用户 ID：${user.userId}`);
+    }
+    if (user.department) lines.push(`部门：${user.department}`);
+    if (user.roleName) lines.push(`系统角色：${user.roleName}`);
+    if (user.position) lines.push(`研发岗位：${user.position}`);
+    if (typeof user.kbLevel === 'number') lines.push(`知识库可见级别（kbLevel）：${user.kbLevel}`);
+    const perms = Array.isArray(user.permissions) ? user.permissions : [];
+    if (perms.includes('*')) {
+      lines.push('权限：超级管理员（所有操作）');
+    } else if (perms.length > 0) {
+      lines.push(`权限项（共 ${perms.length} 项）：${perms.slice(0, 30).join('、')}${perms.length > 30 ? ' 等' : ''}`);
+    }
+    lines.push('');
+    lines.push('回答规则：');
+    lines.push('1) 用户问"我的 / 我的任务 / 我的进度 / 我的待办"等代词时，直接以上方"姓名"作为主体进行筛选，不要反过来追问"请告诉我您是谁"。');
+    lines.push('2) 涉及操作能力（创建/删除/审批等）时，依据上方权限项判断；权限不足时明确说明"你当前角色没有 X 权限"。');
+    return lines.join('\n');
+  }
+
   // ── RAG：从系统所有业务表检索相关信息 ──────────────────────────────────────
 
-  private async searchDatabase(query: string): Promise<string> {
+  private async searchDatabase(query: string, user?: RagUserContext): Promise<string> {
     const ilike = (s: string) => ({ contains: s, mode: 'insensitive' as const });
 
     // 提取长度≥2的有效关键词（最多6个），同时保留原始问题用于意图判断
@@ -677,13 +756,14 @@ export class ChatService {
           due: string;
           path: string;
         }> = [];
+        // 全量收集（capped at 500，避免极端情况下爆 prompt）
         const collectTasks = (tasks: unknown[], path: string) => {
           for (const rawTask of tasks) {
+            if (taskRows.length >= 500) return;
             const task = asRecord(rawTask);
             const title = clean(task.title);
             const taskPath = clean(task.category_path) || path;
-            const searchable = [title, clean(task.task_id), clean(task.primary_owner), taskPath, clean(task.status)].join(' ');
-            if (title && (textMatches(searchable) || taskRows.length < 12)) {
+            if (title) {
               taskRows.push({
                 title,
                 owner: clean(task.primary_owner ?? task.owner) || '待指派',
@@ -705,14 +785,38 @@ export class ChatService {
             collectTasks(asArray(child.tasks), [categoryLabel, clean(child.label)].filter(Boolean).join(' / '));
           }
         }
-        const matchedTasks = taskRows
-          .filter((task) => isGeneral || textMatches(`${task.title} ${task.owner} ${task.status} ${task.path}`))
-          .slice(0, 12);
-        if (matchedTasks.length > 0) {
-          sections.push(`【研发任务】${matchedTasks.length} 条相关任务`);
-          matchedTasks.forEach((task) => {
-            sections.push(`- ${task.title}｜负责人：${task.owner}｜状态：${task.status}｜进度：${task.progress}｜截止：${task.due}｜路径：${task.path}`);
+
+        // ① "我的任务"段：用户用"我/我的/我自己"代词时，按当前用户姓名过滤
+        const currentUserName = user?.name?.trim() ?? '';
+        const askingAboutSelf = /我的|我自己|我有|我.{0,3}(任务|进度|待办|项目)|my\s+(task|todo)/i.test(query);
+        if (currentUserName && askingAboutSelf) {
+          const ownerMatches = (owner: string) =>
+            owner.includes(currentUserName) || currentUserName.includes(owner);
+          const mineAll = taskRows.filter((t) => ownerMatches(t.owner));
+          const mineOpen = mineAll.filter((t) => !/完成|已关闭|closed|done/i.test(t.status));
+          sections.push(
+            `【${currentUserName} 的研发任务】共 ${mineAll.length} 条，其中未完成 ${mineOpen.length} 条`,
+          );
+          // 优先列未完成（限 20 条），其余汇总
+          mineOpen.slice(0, 20).forEach((task) => {
+            sections.push(`- ${task.title}｜状态：${task.status}｜进度：${task.progress}｜截止：${task.due}｜路径：${task.path}`);
           });
+          if (mineOpen.length > 20) {
+            sections.push(`（另有 ${mineOpen.length - 20} 条未完成任务未列出，可让用户再细化条件）`);
+          }
+        }
+
+        // ② "全部相关任务"段：按关键词过滤；用户问"我的"时不再重复展示（已在 ① 段输出）
+        if (!askingAboutSelf || !currentUserName) {
+          const matchedTasks = taskRows
+            .filter((task) => isGeneral || textMatches(`${task.title} ${task.owner} ${task.status} ${task.path}`))
+            .slice(0, 20);
+          if (matchedTasks.length > 0) {
+            sections.push(`【研发任务】${matchedTasks.length} 条相关任务（共 ${taskRows.length} 条）`);
+            matchedTasks.forEach((task) => {
+              sections.push(`- ${task.title}｜负责人：${task.owner}｜状态：${task.status}｜进度：${task.progress}｜截止：${task.due}｜路径：${task.path}`);
+            });
+          }
         }
 
         const people = asArray(byKey.get('rd.people'))

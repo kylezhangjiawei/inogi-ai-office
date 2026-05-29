@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { BookOpen, ChevronDown, ChevronUp, ExternalLink, FileText, Sparkles } from "lucide-react";
+import { BookOpen, ChevronDown, ChevronUp, Download, ExternalLink, FileText, Sparkles } from "lucide-react";
 import { cn } from "./ui/utils";
 import { RagCitation, RagChunk, SOURCE_TYPE_LABELS, type RagSourceType } from "../lib/ragApi";
 
@@ -52,15 +52,11 @@ export function RagCitations({
           const tint = tintFor(c.sourceType);
           const clickable = Boolean(c.url) || Boolean(onOpenSource);
           return (
-            <button
+            <div
               key={`${c.sourceType}-${c.sourceId}-${idx}`}
-              type="button"
-              onClick={() => clickable && handleClick(c)}
-              disabled={!clickable}
-              title={clickable ? "点击查看原文" : undefined}
               className={cn(
                 "group block w-full rounded border bg-white/80 p-2 text-left transition-colors",
-                clickable ? "cursor-pointer hover:bg-white" : "cursor-default opacity-90",
+                clickable ? "hover:bg-white" : "opacity-90",
                 tint.border,
               )}
             >
@@ -76,17 +72,56 @@ export function RagCitations({
                   <FileText className="h-2.5 w-2.5" />[{idx + 1}] {SOURCE_TYPE_LABELS[c.sourceType] ?? c.sourceType}
                 </span>
                 {c.title && (
-                  <span className="truncate text-[11px] font-semibold text-slate-800">{c.title}</span>
+                  <button
+                    type="button"
+                    onClick={() => clickable && handleClick(c)}
+                    disabled={!clickable}
+                    title={clickable ? "点击查看原文" : undefined}
+                    className={cn(
+                      "min-w-0 flex-1 truncate text-left text-[11px] font-semibold text-slate-800",
+                      clickable && "cursor-pointer hover:text-blue-700",
+                    )}
+                  >
+                    {c.title}
+                  </button>
                 )}
                 <span className="ml-auto shrink-0 text-[10px] tabular-nums text-slate-400">
                   {(c.similarity * 100).toFixed(0)}%
                 </span>
                 {c.url && (
-                  <ExternalLink className="h-3 w-3 shrink-0 text-slate-300 group-hover:text-slate-500" />
+                  <button
+                    type="button"
+                    onClick={() => handleClick(c)}
+                    title="查看原文"
+                    className="shrink-0 rounded p-0.5 text-slate-300 hover:bg-slate-100 hover:text-slate-600"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                  </button>
+                )}
+                {c.downloadUrl && (
+                  <a
+                    href={c.downloadUrl}
+                    download={c.title || undefined}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title="下载原文件"
+                    className="shrink-0 rounded p-0.5 text-blue-500 hover:bg-blue-50 hover:text-blue-700"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Download className="h-3 w-3" />
+                  </a>
                 )}
               </div>
-              <p className="line-clamp-2 text-[11px] leading-snug text-slate-600">{c.excerpt}</p>
-            </button>
+              <p
+                className={cn(
+                  "line-clamp-2 text-[11px] leading-snug text-slate-600",
+                  clickable && "cursor-pointer",
+                )}
+                onClick={() => clickable && handleClick(c)}
+              >
+                {c.excerpt}
+              </p>
+            </div>
           );
         })}
       </div>

@@ -60,6 +60,14 @@ export type RagUserContext = {
   permissions: string[];
   /** KB 分值（来自 person.kb_level）。超管可不传 */
   kbLevel?: number;
+  /** 当前用户姓名（用于 LLM 个性化称呼与"我的任务"等过滤） */
+  name?: string;
+  /** 当前用户所属部门 */
+  department?: string;
+  /** 当前用户系统角色名（管理员/研发等） */
+  roleName?: string;
+  /** 当前用户研发岗位（来自 rd.people.position） */
+  position?: string;
 };
 
 export type RagSearchResult = {
@@ -84,6 +92,8 @@ export type RagChatCitation = {
   title?: string;
   excerpt: string;
   url?: string;
+  /** 直接下载链接（已签名，对知识库 OSS 文件有效）。仅在源具备可下载文件时设置。 */
+  downloadUrl?: string;
   similarity: number;
 };
 

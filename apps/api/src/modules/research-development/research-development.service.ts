@@ -1795,9 +1795,6 @@ export class ResearchDevelopmentService {
     const text = (payload.text ?? '').trim();
     const files = Array.isArray(payload.files) ? payload.files : [];
 
-    if (files.length > 0 && !text) {
-      throw new BadRequestException('上传附件时进展说明文本不能为空');
-    }
     if (!text && files.length === 0) {
       throw new BadRequestException('进展说明或附件至少需要提供一项');
     }

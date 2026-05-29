@@ -638,9 +638,10 @@ export function MateChatBubble() {
         >
           <div
             className={cn(
-              "absolute inset-3 flex h-[calc(100vh-24px)] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-[18px] border border-white/75 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(247,250,255,0.95))] shadow-[0_30px_80px_rgba(15,23,42,0.26)] transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] md:inset-y-4 md:left-auto md:right-4 md:h-[calc(100vh-32px)] md:w-[min(1120px,calc(100vw-32px))] md:max-w-[calc(100vw-32px)] md:flex-row md:rounded-[32px]",
+              "absolute inset-3 flex h-[calc(100vh-24px)] max-w-[calc(100vw-24px)] flex-col overflow-hidden rounded-[4px] border border-white/75 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(247,250,255,0.95))] shadow-[0_30px_80px_rgba(15,23,42,0.26)] transition-all duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] md:inset-y-4 md:left-auto md:right-4 md:h-[calc(100vh-32px)] md:w-[min(1120px,calc(100vw-32px))] md:max-w-[calc(100vw-32px)] md:flex-row md:rounded-[32px]",
               visible ? "translate-x-0 scale-100 opacity-100" : "translate-x-8 scale-[0.98] opacity-0",
             )}
+            style={{borderRadius: '4px'}}
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
@@ -756,7 +757,7 @@ export function MateChatBubble() {
                   <button
                     type="button"
                     onClick={() => setOpen(false)}
-                    className="flex h-10 w-10 items-center justify-center rounded-2xl border border-slate-200 bg-white text-slate-500 transition hover:text-slate-900"
+                    className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white text-slate-500 transition hover:text-slate-900"
                   >
                     <X className="h-4 w-4" />
                   </button>

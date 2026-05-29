@@ -72,12 +72,6 @@ type ActivePanel =
   | { kind: "ai"; suggestion: AiSuggestion; regenerated?: boolean }
   | { kind: "notification"; notification: WorkspaceNotification };
 
-type UploadedEvidence = {
-  name: string;
-  size: number;
-  type: string;
-};
-
 type ProgressAssessment = {
   progress: number;
   stage: string;
@@ -571,7 +565,6 @@ function TaskOperationDrawer({
   const [tab, setTab] = useState<OperationTab>(initialTab);
   const [draftProgress, setDraftProgress] = useState(() => clampProgressValue(task.progress));
   const [note, setNote] = useState("");
-  const [uploadedEvidence, setUploadedEvidence] = useState<UploadedEvidence[]>([]);
   const [aiAssessment, setAiAssessment] = useState<ProgressAssessment | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [noteAttachments, setNoteAttachments] = useState<File[]>([]);
@@ -628,8 +621,8 @@ function TaskOperationDrawer({
   const flowSteps =
     tab === "progress"
       ? [
-          { label: "上传依据", helper: "上传方案、记录或数据", state: uploadedEvidence.length > 0 ? "done" as const : "current" as const },
-          { label: "AI 判断", helper: "识别当前节点和建议进度", state: aiAssessment ? "done" as const : "todo" as const },
+          { label: "填写依据", helper: "进展说明 + 附件均可", state: note.trim() || noteAttachments.length > 0 ? "done" as const : "current" as const },
+          { label: "AI 判断", helper: "综合文本与附件给出建议", state: aiAssessment ? "done" as const : "todo" as const },
           { label: "人工确认", helper: "采用 AI 或手动重设", state: aiAssessment ? "current" as const : "todo" as const },
         ]
       : tab === "handoff"
@@ -651,11 +644,6 @@ function TaskOperationDrawer({
           ];
 
   const submitProgress = async () => {
-    // Validation: attachments require text
-    if (noteAttachments.length > 0 && !note.trim()) {
-      toast.error("已选择附件，进展说明文本必填");
-      return;
-    }
     const oversized = noteAttachments.find((file) => file.size > NOTE_ATTACHMENT_MAX_FILE_BYTES);
     if (oversized) {
       toast.error(`${oversized.name} 超过单文件 25MB 限制`);
@@ -667,13 +655,16 @@ function TaskOperationDrawer({
       return;
     }
     let assessmentForSave = aiAssessment;
-    const progressToSave = clampProgressValue(draftProgress);
-    if (note.trim()) {
+    let progressToSave = clampProgressValue(draftProgress);
+    const hasNote = note.trim().length > 0;
+    const hasFiles = noteAttachments.length > 0;
+    if (hasNote || hasFiles) {
       setAiLoading(true);
       setReceipt(null);
       try {
         const result: RdAiProgressAssessment = await assessRdTaskProgress({
-          text: note.trim(),
+          text: hasNote ? note.trim() : undefined,
+          files: hasFiles ? noteAttachments : undefined,
           task: {
             task_id: task.task_id,
             title: task.title,
@@ -691,11 +682,14 @@ function TaskOperationDrawer({
           recommendation: result.recommendation,
         };
         setAiAssessment(assessmentForSave);
+        // AI 判断完直接采用结果替换滑块进度；人工觉得不对，可在确认框取消后重新拖动滑块再保存
+        progressToSave = clampProgressValue(result.progress);
+        setDraftProgress(progressToSave);
         recordAudit({
           actor: WORKSPACE_AUDIT_ACTOR,
           action: "ai.parse_triggered",
           resource: { type: "task", id: task.task_id, name: task.title },
-          comment: "AI 根据进展说明文本判断当前任务进度",
+          comment: "AI 综合进展说明与附件判断当前任务进度",
           metadata: {
             confidence: assessmentForSave.confidence,
             stage: assessmentForSave.stage,
@@ -703,6 +697,7 @@ function TaskOperationDrawer({
             model: result.model,
             source: result.source,
             note_attachment_count: noteAttachments.length,
+            has_note_text: hasNote,
           },
           source: "ai",
         });
@@ -715,7 +710,7 @@ function TaskOperationDrawer({
       }
     }
     const source = assessmentForSave && assessmentForSave.progress === progressToSave ? "AI 判断" : "人工设置";
-    const evidenceText = uploadedEvidence.length > 0 ? `，依据 ${uploadedEvidence.length} 个上传文件` : "";
+    const evidenceText = hasFiles ? `，依据 ${noteAttachments.length} 个上传文件` : "";
     const message = `${task.task_id} 已通过${source}更新到 ${progressToSave}%${evidenceText}`;
     onRequestConfirm({
       title: "确认保存进度",
@@ -724,9 +719,9 @@ function TaskOperationDrawer({
       details: [
         `最终写入进度：${progressToSave}%（以本次确认值为准，不做累加）`,
         `进度来源：${source}`,
-        uploadedEvidence.length > 0 ? `上传依据：${uploadedEvidence.length} 个文件` : "上传依据：无，按人工判断保存",
+        hasFiles ? `上传附件：${noteAttachments.length} 个（已与文本一起送 AI）` : "上传附件：无",
         assessmentForSave ? `AI 判断：${assessmentForSave.stage} / 置信度 ${assessmentForSave.confidence}%` : "AI 判断：未触发",
-        note ? `已填写进展说明${noteAttachments.length > 0 ? `（含 ${noteAttachments.length} 个附件）` : ""}` : "未填写进展说明",
+        hasNote ? "已填写进展说明" : "未填写进展说明",
       ],
       onConfirm: async () => {
         setSavingNote(true);
@@ -748,7 +743,6 @@ function TaskOperationDrawer({
             comment: note || "更新任务进度",
             metadata: {
               source,
-              evidence_count: uploadedEvidence.length,
               note_attachment_count: noteAttachments.length,
             },
             source: "web",
@@ -757,7 +751,6 @@ function TaskOperationDrawer({
           onLog(message);
           // 重置所有提交相关状态，避免重开对话框还看到旧附件 / 说明 / AI 判断残影
           setNoteAttachments([]);
-          setUploadedEvidence([]);
           setAiAssessment(null);
           setNote("");
           setDraftProgress(progressToSave);
@@ -771,27 +764,15 @@ function TaskOperationDrawer({
     });
   };
 
-  const handleEvidenceUpload = async (files: FileList | null) => {
-    const fileList = Array.from(files ?? []);
-    if (fileList.length === 0) return;
-
-    const evidenceMeta: UploadedEvidence[] = fileList.map((file) => ({
-      name: file.name,
-      size: file.size,
-      type: file.type || "unknown",
-    }));
-    const merged = [...evidenceMeta, ...uploadedEvidence].slice(0, 5);
-    setUploadedEvidence(merged);
-    setReceipt(null);
-
-    // Send the most recent file to AI for analysis. If user uploads multiple, we
-    // analyze the first one (the dialog is single-task scoped anyway).
-    const firstFile = fileList[0];
+  // 综合文本与附件触发一次 AI 判断；附件变更和保存时复用
+  const runProgressAiAssessment = async (filesForAi: File[], textForAi: string): Promise<void> => {
+    if (filesForAi.length === 0 && !textForAi.trim()) return;
     setAiLoading(true);
-    setAiAssessment(null);
+    setReceipt(null);
     try {
       const result: RdAiProgressAssessment = await assessRdTaskProgress({
-        file: firstFile,
+        files: filesForAi.length > 0 ? filesForAi : undefined,
+        text: textForAi.trim() ? textForAi.trim() : undefined,
         task: {
           task_id: task.task_id,
           title: task.title,
@@ -809,43 +790,27 @@ function TaskOperationDrawer({
         recommendation: result.recommendation,
       };
       setAiAssessment(assessment);
-      setNote((current) => current || `AI 识别：${assessment.stage}。${assessment.recommendation}`);
-
-      recordAudit({
-        actor: WORKSPACE_AUDIT_ACTOR,
-        action: "task.evidence_uploaded",
-        resource: { type: "task", id: task.task_id, name: task.title },
-        comment: "上传任务进度依据并触发 AI 判断",
-        metadata: {
-          evidence_count: fileList.length,
-          filenames: fileList.map((file) => file.name),
-          suggested_progress: assessment.progress,
-          ai_provider: result.provider,
-          ai_model: result.model,
-          ai_source: result.source,
-        },
-        source: "web",
-      });
+      // AI 判断完直接采用结果替换滑块进度；人工觉得不对可重新拖动滑块
+      setDraftProgress(clampProgressValue(assessment.progress));
       recordAudit({
         actor: WORKSPACE_AUDIT_ACTOR,
         action: "ai.parse_triggered",
         resource: { type: "task", id: task.task_id, name: task.title },
-        comment: "AI 根据上传依据判断当前任务进度",
+        comment: "AI 综合进展说明与附件判断当前任务进度",
         metadata: {
           confidence: assessment.confidence,
           stage: assessment.stage,
           provider: result.provider,
           model: result.model,
+          source: result.source,
+          file_count: filesForAi.length,
+          has_note_text: textForAi.trim().length > 0,
         },
         source: "ai",
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "AI 进度判断失败";
       toast.error(`AI 解析失败：${message}`);
-      // Fallback to the local filename-based heuristic so the user still gets some feedback
-      const fallback = buildProgressAssessment(task, merged);
-      setAiAssessment(fallback);
-      setNote((current) => current || `本地推断：${fallback.stage}。${fallback.recommendation}`);
     } finally {
       setAiLoading(false);
     }
@@ -1080,61 +1045,18 @@ function TaskOperationDrawer({
 
         {tab === "progress" && (
           <div className="space-y-4 rounded-xl border border-slate-200 p-4">
-            <div className="rounded-xl border border-dashed border-blue-200 bg-blue-50/60 px-4 py-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                    <Sparkles className="h-4 w-4 text-blue-600" />
-                    上传依据，AI 判断当前进度
-                  </div>
-                  <p className="mt-1 text-xs text-slate-500">
-                    支持方案、测试记录、实验数据、评审纪要等文件；AI 只给建议，最终进度由人工确认。
-                  </p>
-                </div>
-                <label
-                  className={cn(
-                    "inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.18)] transition-colors",
-                    aiLoading
-                      ? "cursor-not-allowed bg-blue-400"
-                      : "cursor-pointer bg-blue-600 hover:bg-blue-700",
-                  )}
-                >
-                  {aiLoading ? (
-                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <UploadCloud className="h-3.5 w-3.5" />
-                  )}
-                  {aiLoading ? "AI 解析中…" : "上传文件"}
-                  <Input
-                    type="file"
-                    multiple
-                    className="sr-only"
-                    disabled={aiLoading}
-                    accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.png,.jpg,.jpeg"
-                    onChange={(event) => {
-                      handleEvidenceUpload(event.target.files);
-                      event.target.value = "";
-                    }}
-                  />
-                </label>
+            <div className="rounded-xl border border-dashed border-blue-200 bg-blue-50/60 px-4 py-3 text-xs text-slate-600">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                <Sparkles className="h-4 w-4 text-blue-600" />
+                AI 综合判断当前进度
               </div>
-
-              {uploadedEvidence.length > 0 && (
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  {uploadedEvidence.map((file) => (
-                    <div key={`${file.name}-${file.size}`} className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-xs text-slate-600 ring-1 ring-blue-100">
-                      <FileText className="h-3.5 w-3.5 shrink-0 text-blue-500" />
-                      <span className="min-w-0 flex-1 truncate">{file.name}</span>
-                      <span className="shrink-0 text-slate-400">{formatFileSize(file.size)}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
+              <p className="mt-1">
+                在下方填写进展说明并/或上传附件（方案、测试记录、实验数据、评审纪要等），AI 会一起读取后给出建议；最终进度由人工确认。
+              </p>
               {aiLoading && (
-                <div className="mt-3 flex items-center gap-2 rounded-lg bg-white/70 px-3 py-2 text-xs text-blue-700 ring-1 ring-blue-100">
+                <div className="mt-2 flex items-center gap-2 rounded-lg bg-white/70 px-3 py-2 text-xs text-blue-700 ring-1 ring-blue-100">
                   <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                  AI 正在阅读文件并判断当前任务阶段…
+                  AI 正在阅读依据并判断当前任务阶段…
                 </div>
               )}
             </div>
@@ -1148,25 +1070,28 @@ function TaskOperationDrawer({
                       AI 建议进度 {aiAssessment.progress}% / 置信度 {aiAssessment.confidence}%
                     </p>
                   </div>
-                  <ActionButton
-                    variant="primary"
-                    onClick={() => {
-                      setDraftProgress(clampProgressValue(aiAssessment.progress));
-                      setReceipt(null);
-                      recordAudit({
-                        actor: WORKSPACE_AUDIT_ACTOR,
-                        action: "ai.suggestion_accepted",
-                        resource: { type: "task", id: task.task_id, name: task.title },
-                        changes: [{ field: "draft_progress", before: draftProgress, after: aiAssessment.progress }],
-                        comment: "采纳 AI 进度建议",
-                        metadata: { confidence: aiAssessment.confidence, stage: aiAssessment.stage },
-                        source: "web",
-                      });
-                    }}
-                  >
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    采用 AI 进度
-                  </ActionButton>
+                  {draftProgress !== clampProgressValue(aiAssessment.progress) && (
+                    <ActionButton
+                      variant="ghost"
+                      onClick={() => {
+                        const before = draftProgress;
+                        setDraftProgress(clampProgressValue(aiAssessment.progress));
+                        setReceipt(null);
+                        recordAudit({
+                          actor: WORKSPACE_AUDIT_ACTOR,
+                          action: "ai.suggestion_accepted",
+                          resource: { type: "task", id: task.task_id, name: task.title },
+                          changes: [{ field: "draft_progress", before, after: aiAssessment.progress }],
+                          comment: "恢复 AI 进度建议",
+                          metadata: { confidence: aiAssessment.confidence, stage: aiAssessment.stage },
+                          source: "web",
+                        });
+                      }}
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      恢复 AI 进度
+                    </ActionButton>
+                  )}
                 </div>
                 <ul className="mt-3 space-y-1.5">
                   {aiAssessment.basis.map((item) => (
@@ -1184,7 +1109,21 @@ function TaskOperationDrawer({
 
             <div>
               <div className="mb-2 flex items-center justify-between text-sm">
-                <span className="font-semibold text-slate-900">人工确认进度</span>
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-slate-900">人工确认进度</span>
+                  {aiAssessment && (
+                    draftProgress === clampProgressValue(aiAssessment.progress) ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
+                        <Check className="h-3 w-3" />
+                        已采用 AI 建议
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                        已手动调整
+                      </span>
+                    )
+                  )}
+                </div>
                 <span className="font-semibold tabular-nums text-blue-700">{draftProgress}%</span>
               </div>
               <Input
@@ -1209,35 +1148,25 @@ function TaskOperationDrawer({
             </div>
             <label className="block">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-semibold text-slate-900">
-                  进展说明
-                  {noteAttachments.length > 0 && (
-                    <span className="ml-1 text-xs font-normal text-rose-500">（已选附件，文本必填）</span>
-                  )}
-                </span>
-                <span className="text-[10px] text-slate-400">仅文本会被 AI 分析；附件用于留档展示</span>
+                <span className="text-sm font-semibold text-slate-900">进展说明</span>
+                <span className="text-[10px] text-slate-400">文本与附件均会送 AI 分析</span>
               </div>
               <Textarea
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
                 rows={4}
                 placeholder="说明本次进度变化、上传文件依据、产出内容、仍需支持的事项"
-                className={cn(
-                  "mt-2 w-full resize-none rounded-xl border px-3 py-2 text-sm outline-none transition-colors focus:ring-2",
-                  noteAttachments.length > 0 && !note.trim()
-                    ? "border-rose-300 focus:border-rose-400 focus:ring-rose-100"
-                    : "border-slate-200 focus:border-blue-300 focus:ring-blue-100",
-                )}
+                className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none transition-colors focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
               />
             </label>
 
             <div className="rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold text-slate-700">附件（可选）</span>
+                <span className="text-xs font-semibold text-slate-700">附件（AI 判断依据 + 留档）</span>
                 <label
                   className={cn(
                     "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-                    savingNote
+                    savingNote || aiLoading
                       ? "cursor-not-allowed bg-slate-200 text-slate-500"
                       : "cursor-pointer border border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:text-blue-700",
                   )}
@@ -1247,7 +1176,7 @@ function TaskOperationDrawer({
                   <Input
                     type="file"
                     multiple
-                    disabled={savingNote}
+                    disabled={savingNote || aiLoading}
                     className="sr-only"
                     accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.zip,.rar,.png,.jpg,.jpeg,.webp,.bmp"
                     onChange={(event) => {
@@ -1268,12 +1197,14 @@ function TaskOperationDrawer({
                       }
                       setNoteAttachments(merged);
                       event.target.value = "";
+                      // 附件变更后立即触发 AI 判断（用当前所有附件 + 文本）
+                      void runProgressAiAssessment(merged, note);
                     }}
                   />
                 </label>
               </div>
               {noteAttachments.length === 0 ? (
-                <p className="mt-2 text-[11px] text-slate-400">最多 5 个，单文件 25MB 以内，总计不超过 50MB。</p>
+                <p className="mt-2 text-[11px] text-slate-400">最多 5 个，单文件 25MB 以内，总计不超过 50MB。上传后 AI 会自动读取并给出进度建议。</p>
               ) : (
                 <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
                   {noteAttachments.map((file, idx) => (
@@ -1286,7 +1217,16 @@ function TaskOperationDrawer({
                       <span className="shrink-0 text-slate-400">{formatFileSize(file.size)}</span>
                       <button
                         type="button"
-                        onClick={() => setNoteAttachments((prev) => prev.filter((_, i) => i !== idx))}
+                        onClick={() => {
+                          const next = noteAttachments.filter((_, i) => i !== idx);
+                          setNoteAttachments(next);
+                          // 附件减少后重新触发一次 AI（如果还有剩余依据）
+                          if (next.length > 0 || note.trim()) {
+                            void runProgressAiAssessment(next, note);
+                          } else {
+                            setAiAssessment(null);
+                          }
+                        }}
                         className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
                         aria-label="移除附件"
                       >
@@ -1863,50 +1803,6 @@ function formatFileSize(size: number) {
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function buildProgressAssessment(_task: WorkspaceTask, evidence: UploadedEvidence[]): ProgressAssessment {
-  const names = evidence.map((file) => file.name.toLowerCase()).join(" ");
-  const hasReview = /评审|审核|review|submit|提交|final/.test(names);
-  const hasTest = /测试|试验|实验|数据|记录|test|report|log/.test(names);
-  const hasPlan = /方案|计划|说明|ecn|plan|spec|需求/.test(names);
-
-  if (hasReview) {
-    return {
-      progress: 88,
-      stage: "结果已形成，待审核关闭",
-      confidence: evidence.length > 1 ? 92 : 88,
-      basis: ["文件名包含评审/提交类线索", "可作为提交审核前的完成依据", "建议同步风险和交付物清单"],
-      recommendation: "可采用 AI 进度，并进入“提交结果”流程完成审核。",
-    };
-  }
-
-  if (hasTest) {
-    return {
-      progress: 68,
-      stage: "验证数据已产出，处于测试收敛阶段",
-      confidence: evidence.length > 1 ? 86 : 82,
-      basis: ["文件名包含测试、实验、记录或数据线索", "说明任务已从方案阶段进入验证阶段", "仍需要补充结论或异常说明"],
-      recommendation: "建议采用 AI 进度后补充进展说明，再视情况提交评审。",
-    };
-  }
-
-  if (hasPlan) {
-    return {
-      progress: 52,
-      stage: "方案资料已形成，待验证推进",
-      confidence: evidence.length > 1 ? 82 : 78,
-      basis: ["文件名包含方案、计划、ECN 或规格说明线索", "说明基础资料已经具备", "下一步应进入验证或跨部门确认"],
-      recommendation: "建议将进度调整到方案完成节点，并说明下一步验证计划。",
-    };
-  }
-
-  return {
-    progress: 45,
-    stage: "资料已上传，需人工补充判断",
-    confidence: evidence.length > 1 ? 76 : 70,
-    basis: ["文件已上传但名称未体现明确阶段", "AI 只能判断为已有阶段性输入", "需要人工补充进展说明降低误判"],
-    recommendation: "建议先人工确认真实节点，再保存进度。",
-  };
-}
 
 const WORKSPACE_PAGE_SIZE = 8;
 const NOTIF_PAGE_SIZE = 5;
@@ -2380,19 +2276,19 @@ export function RDMyWorkspacePage() {
                     <option value="7d">7 天内</option>
                     <option value="no_due">无截止日</option>
                   </NativeSelect>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setTaskKeyword("");
-                      setTaskPriorityFilter("all");
-                      setTaskStatusFilter("all");
-                      setTaskDueFilter("all");
-                    }}
-                    disabled={!taskFiltersActive}
-                    className="h-8 cursor-pointer rounded-[8px] border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    清空
-                  </button>
+                  {/*<button*/}
+                  {/*  type="button"*/}
+                  {/*  onClick={() => {*/}
+                  {/*    setTaskKeyword("");*/}
+                  {/*    setTaskPriorityFilter("all");*/}
+                  {/*    setTaskStatusFilter("all");*/}
+                  {/*    setTaskDueFilter("all");*/}
+                  {/*  }}*/}
+                  {/*  disabled={!taskFiltersActive}*/}
+                  {/*  className="h-8 cursor-pointer rounded-[8px] border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"*/}
+                  {/*>*/}
+                  {/*  清空*/}
+                  {/*</button>*/}
                   <span className="whitespace-nowrap pl-1 text-[11px] text-slate-400">
                     {loading ? "加载中…" : `${filteredAllTasks.length} / ${allTasks.length} 个`}
                   </span>

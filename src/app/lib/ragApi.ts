@@ -21,6 +21,8 @@ export type RagCitation = {
   title?: string;
   excerpt: string;
   url?: string;
+  /** 已签名的直接下载链接（仅在源具备可下载文件时存在，如知识库 OSS 文件） */
+  downloadUrl?: string;
   similarity: number;
 };
 

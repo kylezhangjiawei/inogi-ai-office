@@ -4,9 +4,10 @@ import {
   Controller,
   Post,
   UploadedFile,
+  UploadedFiles,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import {
@@ -175,9 +176,9 @@ export class RdAiController {
 
   @Post('assess-progress')
   @Permissions('page:rd-my-workspace', 'rd-task:edit', 'rd-task:create', 'page:rd-director-dashboard')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FilesInterceptor('files', 5))
   async assessProgress(
-    @UploadedFile() file: { originalname: string; buffer: Buffer; mimetype?: string } | undefined,
+    @UploadedFiles() files: Array<{ originalname: string; buffer: Buffer; mimetype?: string }> | undefined,
     @Body()
     body: {
       text?: string;
@@ -200,7 +201,7 @@ export class RdAiController {
         : Number(currentProgressRaw) || 0;
 
     return this.rdAiService.assessProgress({
-      file,
+      files: files ?? [],
       text: body.text,
       task: {
         task_id: (body.task_id ?? '').toString(),
