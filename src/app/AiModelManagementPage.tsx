@@ -311,7 +311,7 @@ export function AiModelManagementPage() {
       <section className="material-card p-6 md:p-8">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <span className="material-chip bg-blue-50 text-blue-700">AI Model Management</span>
+            <span className="material-chip bg-indigo-50 text-indigo-700">AI Model Management</span>
             <h2 className="mt-3 text-[2rem] font-bold tracking-tight text-slate-900">AI 模型管理</h2>
             <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
               维护模型服务商、Base URL、运行状态、延迟和自动统计信息，支持按不同模型独立切换网关或代理地址。
@@ -461,7 +461,7 @@ export function AiModelManagementPage() {
                             disabled={rowTestingId === row.id}
                             title="测试连通性"
                           >
-                            <Wifi className={`h-3.5 w-3.5 ${rowTestingId === row.id ? "animate-pulse text-blue-500" : ""}`} />
+                            <Wifi className={`h-3.5 w-3.5 ${rowTestingId === row.id ? "animate-pulse text-indigo-500" : ""}`} />
                           </button>
                           <button className="material-button-secondary !px-3 !py-2" onClick={() => openEdit(row)} title="编辑">
                             <Pencil className="h-3.5 w-3.5" />

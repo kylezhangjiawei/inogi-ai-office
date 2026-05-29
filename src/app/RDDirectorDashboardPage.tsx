@@ -372,7 +372,7 @@ function MiniPagination({
             className={cn(
               "h-7 min-w-7 cursor-pointer rounded-md px-1.5 text-[11px] font-semibold tabular-nums transition-all duration-150 active:scale-90",
               active
-                ? "bg-blue-50 text-blue-700 shadow-[0_6px_14px_rgba(37,99,235,0.08)] ring-1 ring-blue-200"
+                ? "bg-indigo-50 text-indigo-700 shadow-[0_6px_14px_rgba(79,70,229,0.08)] ring-1 ring-indigo-200"
                 : "text-slate-500 hover:bg-slate-100 hover:text-slate-700",
             )}
             aria-current={active ? "page" : undefined}
@@ -452,7 +452,7 @@ function PersonCard({
       transition={DIRECTOR_FAST_TRANSITION}
       className={cn(
         "cursor-pointer rounded-xl border p-3 transition-all hover:shadow-[0_14px_28px_rgba(15,23,42,0.08)]",
-        selected ? "border-blue-300 bg-blue-50 shadow-[0_14px_32px_rgba(37,99,235,0.12)]" : loadBg(person.task_count, person.max_tasks),
+        selected ? "border-indigo-300 bg-indigo-50 shadow-[0_14px_32px_rgba(79,70,229,0.12)]" : loadBg(person.task_count, person.max_tasks),
         person.on_leave && "opacity-60",
       )}
     >
@@ -675,7 +675,7 @@ function TaskDetailDrawer({
             {canEditTask && !isEditing && (
               <button
                 onClick={() => setIsEditing(true)}
-                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
+                className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
                 aria-label="编辑任务"
                 title="编辑任务"
               >
@@ -734,7 +734,7 @@ function TaskDetailDrawer({
                 type="text"
                 value={editForm.title}
                 onChange={(e) => setEditForm((f) => ({ ...f, title: e.target.value }))}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -743,7 +743,7 @@ function TaskDetailDrawer({
                 <NativeSelect
                   value={editForm.status}
                   onChange={(e) => setEditForm((f) => ({ ...f, status: e.target.value as TaskStatus }))}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-400"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400"
                 >
                   {(Object.keys(TASK_STATUS_CONFIG) as TaskStatus[]).map((s) => (
                     <option key={s} value={s}>{TASK_STATUS_CONFIG[s].label}</option>
@@ -755,7 +755,7 @@ function TaskDetailDrawer({
                 <NativeSelect
                   value={editForm.priority}
                   onChange={(e) => setEditForm((f) => ({ ...f, priority: e.target.value as Priority }))}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-400"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400"
                 >
                   <option value="high">高</option>
                   <option value="medium">中</option>
@@ -770,7 +770,7 @@ function TaskDetailDrawer({
                   max={100}
                   value={editForm.progress}
                   onChange={(e) => setEditForm((f) => ({ ...f, progress: Number(e.target.value) }))}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-400"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400"
                 />
               </div>
               <div>
@@ -779,7 +779,7 @@ function TaskDetailDrawer({
                   type="date"
                   value={editForm.due_date}
                   onChange={(e) => setEditForm((f) => ({ ...f, due_date: e.target.value }))}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-400"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400"
                 />
               </div>
             </div>
@@ -789,7 +789,7 @@ function TaskDetailDrawer({
                 type="text"
                 value={editForm.owner}
                 onChange={(e) => setEditForm((f) => ({ ...f, owner: e.target.value }))}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-400"
+                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400"
               />
             </div>
             <div>
@@ -798,7 +798,7 @@ function TaskDetailDrawer({
                 value={editForm.description}
                 onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
                 rows={3}
-                className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100"
+                className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
               />
             </div>
             <div className="flex gap-2 pt-1">
@@ -812,7 +812,7 @@ function TaskDetailDrawer({
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-blue-600 py-2 text-sm font-semibold text-white shadow-[0_6px_14px_rgba(37,99,235,0.18)] transition-colors hover:bg-blue-700 disabled:opacity-50"
+                className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-indigo-600 py-2 text-sm font-semibold text-white shadow-[0_6px_14px_rgba(79,70,229,0.18)] transition-colors hover:bg-indigo-700 disabled:opacity-50"
               >
                 {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                 保存
@@ -851,7 +851,7 @@ function TaskDetailDrawer({
                 type="button"
                 onClick={() => task.owner !== "待指派" && task.owner !== "外部机构" && onOpenPerson?.(task.owner)}
                 disabled={task.owner === "待指派" || task.owner === "外部机构"}
-                className="mt-1 flex items-center gap-2 rounded-md py-0.5 text-sm font-medium text-slate-800 transition-colors enabled:cursor-pointer enabled:hover:text-blue-600 disabled:cursor-default"
+                className="mt-1 flex items-center gap-2 rounded-md py-0.5 text-sm font-medium text-slate-800 transition-colors enabled:cursor-pointer enabled:hover:text-indigo-600 disabled:cursor-default"
               >
                 <MiniAvatar name={task.owner} size="sm" />
                 {task.owner}
@@ -899,7 +899,7 @@ function TaskDetailDrawer({
                     key={c}
                     type="button"
                     onClick={() => onOpenPerson?.(c)}
-                    className="group inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 transition-all duration-150 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                    className="group inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 transition-all duration-150 hover:-translate-y-0.5 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
                   >
                     <MiniAvatar name={c} size="sm" />
                     {c}
@@ -957,7 +957,7 @@ function TaskDetailDrawer({
                       <span className="tabular-nums">{new Date(note.created_at).toLocaleString("zh-CN")}</span>
                     </div>
                     {typeof note.progress === "number" && (
-                      <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                      <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">
                         进度更新至 {note.progress}%
                       </div>
                     )}
@@ -986,7 +986,7 @@ function TaskDetailDrawer({
                               download={att.name}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs text-slate-700 transition-colors hover:border-blue-300 hover:bg-blue-50/40 hover:text-blue-700"
+                              className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs text-slate-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50/40 hover:text-indigo-700"
                             >
                               <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                               <span className="min-w-0 flex-1 truncate">{att.name}</span>
@@ -1036,7 +1036,7 @@ function TaskDetailDrawer({
               <button
                 disabled={saving}
                 onClick={() => onOpenReassign?.(task)}
-                className="flex-1 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 transition-all duration-150 hover:bg-blue-100 active:scale-[0.98] disabled:opacity-50"
+                className="flex-1 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700 transition-all duration-150 hover:bg-indigo-100 active:scale-[0.98] disabled:opacity-50"
               >
                 {task.status === "pending_assign" || task.owner === "待指派" ? "指派负责人" : "转派任务"}
               </button>
@@ -1093,7 +1093,7 @@ function PersonDetailDrawer({
         className="flex h-full w-full max-w-[620px] flex-col overflow-hidden border-l border-slate-100 bg-white shadow-[-12px_0_40px_rgba(15,23,42,0.12)] animate-in slide-in-from-right duration-300 sm:w-[min(620px,92vw)]"
       >
         {/* Header */}
-        <header className="relative overflow-hidden border-b border-slate-100 bg-gradient-to-br from-slate-50 via-white to-blue-50/30 px-6 py-5">
+        <header className="relative overflow-hidden border-b border-slate-100 bg-white px-6 py-5">
           <button
             onClick={onClose}
             className="absolute right-4 top-4 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
@@ -1289,7 +1289,7 @@ function PersonDetailDrawer({
               className={cn(
                 "flex-1 rounded-md px-3 py-2 text-sm font-semibold transition-all duration-150 active:scale-[0.98]",
                 canReassignPersonTasks
-                  ? "bg-blue-600 text-white shadow-[0_8px_18px_rgba(37,99,235,0.2)] hover:bg-blue-700"
+                  ? "bg-indigo-600 text-white shadow-[0_8px_18px_rgba(79,70,229,0.2)] hover:bg-indigo-700"
                   : "cursor-not-allowed bg-slate-100 text-slate-400 shadow-none",
               )}
             >
@@ -1390,7 +1390,7 @@ function CategoryDetailDrawer({
         className="flex h-full w-full max-w-[620px] flex-col overflow-hidden border-l border-slate-100 bg-white shadow-[-12px_0_40px_rgba(15,23,42,0.12)] animate-in slide-in-from-right duration-300 sm:w-[min(620px,92vw)]"
       >
         {/* Header */}
-        <header className="relative overflow-hidden border-b border-slate-100 bg-gradient-to-br from-slate-50 via-white to-blue-50/30 px-6 py-5">
+        <header className="relative overflow-hidden border-b border-slate-100 bg-white px-6 py-5">
           <button
             onClick={onClose}
             className="absolute right-4 top-4 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
@@ -1552,7 +1552,7 @@ function CategoryDetailDrawer({
           <button
             type="button"
             onClick={() => onViewFullList(category)}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.20)] transition-all duration-150 hover:bg-blue-700 active:scale-[0.98]"
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-all duration-150 hover:bg-indigo-700 active:scale-[0.98]"
           >
             <ListChecks className="h-4 w-4" />
             查看完整清单
@@ -1728,7 +1728,7 @@ function BatchReassignModal({
                         className={cn(
                           "rounded-lg border px-3 py-2 text-left text-sm transition-colors",
                           isNoopTarget && "cursor-not-allowed opacity-45",
-                          targetPerson?.id === p.id ? "border-blue-300 bg-blue-50" : "border-slate-200 hover:bg-slate-50",
+                          targetPerson?.id === p.id ? "border-indigo-300 bg-indigo-50" : "border-slate-200 hover:bg-slate-50",
                         )}
                         title={isNoopTarget ? "不能转派给当前负责人本人" : undefined}
                       >
@@ -1756,7 +1756,7 @@ function BatchReassignModal({
                 <button
                   disabled={selectedTasks.size === 0 || !targetPerson || targetIsCurrentOwner || saving}
                   onClick={confirmReassign}
-                  className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.20)] transition-all hover:bg-blue-700 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none"
+                  className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-all hover:bg-indigo-700 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none"
                 >
                   {saving ? "处理中..." : selectedHasPendingAssign ? "确认指派" : "确认转派"}
                   <ArrowRight className="h-3.5 w-3.5" />
@@ -1836,7 +1836,7 @@ function CategoryEditorModal({
             <Input
               value={label}
               onChange={(event) => setLabel(event.target.value)}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
               placeholder="例如：分子筛系统"
             />
           </div>
@@ -1846,7 +1846,7 @@ function CategoryEditorModal({
               value={childrenText}
               onChange={(event) => setChildrenText(event.target.value)}
               rows={8}
-              className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-800 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-800 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
               placeholder="每行一个子项，也可以用逗号分隔"
             />
           </div>
@@ -1857,7 +1857,7 @@ function CategoryEditorModal({
             <button
               onClick={submit}
               disabled={saving}
-              className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.20)] transition-all hover:bg-blue-700 active:scale-[0.98] disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-all hover:bg-indigo-700 active:scale-[0.98] disabled:opacity-50"
             >
               {saving ? "保存中..." : "保存分类"}
               <ArrowRight className="h-3.5 w-3.5" />
@@ -2041,7 +2041,7 @@ function CreateTaskModal({
               value={form.title}
               onChange={(e) => setField("title", e.target.value)}
               placeholder="输入任务标题"
-              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100"
+              className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
             />
           </div>
 
@@ -2055,7 +2055,7 @@ function CreateTaskModal({
                   const nextCategory = categories.find((c) => c.id === categoryId);
                   setForm((f) => ({ ...f, categoryId, subProjectId: nextCategory?.children[0]?.id ?? "" }));
                 }}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
               >
                 {categories.map((c) => (
                   <option key={c.id} value={c.id}>{c.label}</option>
@@ -2068,7 +2068,7 @@ function CreateTaskModal({
                 value={form.subProjectId}
                 onChange={(e) => setField("subProjectId", e.target.value)}
                 disabled={subProjects.length === 0}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 disabled:opacity-50"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 disabled:opacity-50"
               >
                 <option value="" disabled>请选择子项目</option>
                 {subProjects.map((s) => (
@@ -2081,7 +2081,7 @@ function CreateTaskModal({
               <NativeSelect
                 value={form.priority}
                 onChange={(e) => setField("priority", e.target.value as Priority)}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
               >
                 <option value="high">高</option>
                 <option value="medium">中</option>
@@ -2093,7 +2093,7 @@ function CreateTaskModal({
               <NativeSelect
                 value={form.status}
                 onChange={(e) => setField("status", e.target.value as TaskStatus)}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
               >
                 {(Object.keys(TASK_STATUS_CONFIG) as TaskStatus[]).map((s) => (
                   <option key={s} value={s}>{TASK_STATUS_CONFIG[s].label}</option>
@@ -2105,7 +2105,7 @@ function CreateTaskModal({
               <NativeSelect
                 value={form.ownerKey || "待指派"}
                 onChange={(e) => setField("ownerKey", e.target.value === "待指派" ? "" : e.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
               >
                 <option value="待指派">待指派</option>
                 {people.map((person) => (
@@ -2121,7 +2121,7 @@ function CreateTaskModal({
                 type="date"
                 value={form.due_date}
                 onChange={(e) => setField("due_date", e.target.value)}
-                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400"
+                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
               />
             </div>
           </div>
@@ -2133,7 +2133,7 @@ function CreateTaskModal({
               onChange={(e) => setField("description", e.target.value)}
               rows={3}
               placeholder="可选"
-              className="w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-400 focus:ring-1 focus:ring-blue-100"
+              className="w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
             />
           </div>
         </div>
@@ -2149,7 +2149,7 @@ function CreateTaskModal({
           <button
             onClick={handleCreate}
             disabled={saving}
-            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-blue-600 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.20)] transition-colors hover:bg-blue-700 disabled:opacity-50"
+            className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-colors hover:bg-indigo-700 disabled:opacity-50"
           >
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             创建任务
@@ -2359,7 +2359,7 @@ function CreateTaskModalV2({
 
         <div className="flex gap-3 border-t border-slate-100 px-6 py-4">
           <Button type="button" variant="outline" onClick={onClose} disabled={saving} className="flex-1 rounded-md">取消</Button>
-          <Button type="button" onClick={handleCreate} disabled={saving} className="flex-1 rounded-md bg-blue-600 text-white hover:bg-blue-700">
+          <Button type="button" onClick={handleCreate} disabled={saving} className="flex-1 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             创建任务
           </Button>
@@ -2532,7 +2532,7 @@ function PersonEditModal({
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
               <Pencil className="h-4 w-4" />
             </div>
             <h3 className="text-base font-semibold text-slate-900">编辑研发成员信息</h3>
@@ -2549,7 +2549,7 @@ function PersonEditModal({
               autoFocus
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
-              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             />
           </label>
           <label className="block">
@@ -2557,7 +2557,7 @@ function PersonEditModal({
             <Input
               value={form.position}
               onChange={(e) => setForm({ ...form, position: e.target.value })}
-              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             />
           </label>
           <label className="block">
@@ -2565,7 +2565,7 @@ function PersonEditModal({
             <Input
               value={form.department}
               onChange={(e) => setForm({ ...form, department: e.target.value })}
-              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             />
           </label>
           <label className="block">
@@ -2574,7 +2574,7 @@ function PersonEditModal({
               type="email"
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
-              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             />
           </label>
           <label className="block">
@@ -2582,7 +2582,7 @@ function PersonEditModal({
             <Input
               value={form.phone}
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
-              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             />
           </label>
           <label className="block">
@@ -2593,7 +2593,7 @@ function PersonEditModal({
               max={50}
               value={form.max_tasks}
               onChange={(e) => setForm({ ...form, max_tasks: Number(e.target.value) || 1 })}
-              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             />
           </label>
           <label className="col-span-2 flex items-center gap-2 text-sm text-slate-700">
@@ -2620,7 +2620,7 @@ function PersonEditModal({
             type="button"
             disabled={saving}
             onClick={handleSave}
-            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
           >
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             保存
@@ -2702,7 +2702,7 @@ function SendMessageModal({
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
               placeholder="例：本周阻塞跟进"
-              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             />
           </label>
           <label className="block">
@@ -2713,7 +2713,7 @@ function SendMessageModal({
               value={body}
               onChange={(e) => setBody(e.target.value)}
               placeholder="写下要发送的内容…"
-              className="w-full resize-none rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              className="w-full resize-none rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             />
           </label>
           <p className="text-[11px] text-slate-400">
@@ -2734,7 +2734,7 @@ function SendMessageModal({
             type="button"
             disabled={sending}
             onClick={handleSend}
-            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
           >
             {sending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             发送
@@ -3257,7 +3257,7 @@ export function RDDirectorDashboardPage() {
                   setCategoryReassignTasks(null);
                   setShowReassign(true);
                 }}
-                className="flex items-center gap-2 rounded-xl border border-blue-100 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.04)] transition-all duration-150 hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/60 hover:text-blue-700 hover:shadow-[0_12px_24px_rgba(37,99,235,0.08)] active:translate-y-0 active:scale-[0.98]"
+                className="flex items-center gap-2 rounded-xl border border-indigo-100 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.04)] transition-all duration-150 hover:-translate-y-0.5 hover:border-indigo-200 hover:bg-indigo-50/60 hover:text-indigo-700 hover:shadow-[0_12px_24px_rgba(79,70,229,0.08)] active:translate-y-0 active:scale-[0.98]"
               >
                 <Users className="h-4 w-4" />
                 批量转派
@@ -3285,7 +3285,7 @@ export function RDDirectorDashboardPage() {
             {canDirectProject && (
               <button
                 onClick={() => setShowProposalDialog(true)}
-                className="group flex items-center gap-2 rounded-xl bg-gradient-to-br from-violet-600 to-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(99,102,241,0.28)] transition-all duration-150 hover:-translate-y-0.5 hover:from-violet-700 hover:to-blue-700 hover:shadow-[0_14px_28px_rgba(99,102,241,0.32)] active:translate-y-0 active:scale-[0.98]"
+                className="group flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(79,70,229,0.28)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-[0_14px_28px_rgba(79,70,229,0.32)] active:translate-y-0 active:scale-[0.98]"
                 title="拥有直接立项权限时可绕过审核流程"
               >
                 <Sparkles className="h-4 w-4 transition-transform group-hover:rotate-12" />
@@ -3296,7 +3296,7 @@ export function RDDirectorDashboardPage() {
             {canManagePeople && (
               <button
                 onClick={() => navigate("/rd-people-management")}
-                className="group flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(37,99,235,0.24)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-blue-700 hover:shadow-[0_14px_28px_rgba(37,99,235,0.28)] active:translate-y-0 active:scale-[0.98]"
+                className="group flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(79,70,229,0.24)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-[0_14px_28px_rgba(79,70,229,0.28)] active:translate-y-0 active:scale-[0.98]"
               >
                 <UserCog className="h-4 w-4" />
                 人员管理
@@ -3339,7 +3339,7 @@ export function RDDirectorDashboardPage() {
                 <div className={cn("text-2xl font-bold tabular-nums", kpi.color)}>{kpi.value}</div>
                 <div className="mt-1 flex items-center gap-1.5 text-sm font-medium text-slate-700">
                   {kpi.label}
-                  {active && <span className="text-[10px] font-semibold text-blue-600">· 已筛选</span>}
+                  {active && <span className="text-[10px] font-semibold text-indigo-600">· 已筛选</span>}
                 </div>
                 <div className="text-xs text-slate-400">{kpi.sub}</div>
               </motion.button>
@@ -3382,7 +3382,7 @@ export function RDDirectorDashboardPage() {
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div>
                   <h2 className="flex items-center gap-2 text-sm font-bold text-slate-800">
-                    <ListChecks className="h-4 w-4 text-blue-500" />
+                    <ListChecks className="h-4 w-4 text-indigo-500" />
                     任务列表
                     <span className="rounded-full bg-slate-100 px-1.5 text-xs font-medium text-slate-600">
                       {filteredTasks.length}
@@ -3391,7 +3391,7 @@ export function RDDirectorDashboardPage() {
                       <button
                         type="button"
                         onClick={() => setKpiFilter("all")}
-                        className="ml-1 inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-100"
+                        className="ml-1 inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 hover:bg-indigo-100"
                       >
                         {kpiFilter === "completed" ? "已完成" : kpiFilter === "in_progress" ? "进行中" : kpiFilter === "pending_review" ? "待审核" : "阻塞"}
                         <X className="h-3 w-3" />
@@ -3435,14 +3435,14 @@ export function RDDirectorDashboardPage() {
                 <label className="relative block">
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                   <Input
-                    className="h-9 w-full rounded-[8px] border border-slate-200 bg-white pl-8 pr-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+                    className="h-9 w-full rounded-[8px] border border-slate-200 bg-white pl-8 pr-3 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
                     placeholder="搜索任务、编号、负责人、系统"
                     value={taskKeyword}
                     onChange={(event) => setTaskKeyword(event.target.value)}
                   />
                 </label>
                 <NativeSelect
-                  className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+                  className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
                   value={taskPriorityFilter}
                   onChange={(event) => setTaskPriorityFilter(event.target.value as Priority | "all")}
                 >
@@ -3452,7 +3452,7 @@ export function RDDirectorDashboardPage() {
                   <option value="low">低优先级</option>
                 </NativeSelect>
                 <NativeSelect
-                  className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+                  className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
                   value={taskStatusFilter}
                   onChange={(event) => setTaskStatusFilter(event.target.value as TaskStatus | "all")}
                 >
@@ -3462,7 +3462,7 @@ export function RDDirectorDashboardPage() {
                   ))}
                 </NativeSelect>
                 <NativeSelect
-                  className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+                  className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
                   value={taskDueFilter}
                   onChange={(event) => setTaskDueFilter(event.target.value as DirectorDueFilter)}
                 >
@@ -3482,7 +3482,7 @@ export function RDDirectorDashboardPage() {
                     setTaskDueFilter("all");
                     setKpiFilter("all");
                   }}
-                  className="h-9 cursor-pointer rounded-[8px] border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                  className="h-9 cursor-pointer rounded-[8px] border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
                 >
                   清空
                 </button>
@@ -3536,7 +3536,7 @@ export function RDDirectorDashboardPage() {
                                   <button
                                     type="button"
                                     onClick={(e) => { e.stopPropagation(); openPersonByName(task.owner); }}
-                                    className="hover:text-blue-600 hover:underline"
+                                    className="hover:text-indigo-600 hover:underline"
                                   >
                                     {task.owner}
                                   </button>
@@ -3556,7 +3556,7 @@ export function RDDirectorDashboardPage() {
                               <td className="px-3 py-3">
                                 <div className="flex min-w-[110px] items-center gap-2">
                                   <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
-                                    <div className="h-full rounded-full bg-blue-400" style={{ width: `${Math.max(0, Math.min(100, task.progress))}%` }} />
+                                    <div className="h-full rounded-full bg-indigo-400" style={{ width: `${Math.max(0, Math.min(100, task.progress))}%` }} />
                                   </div>
                                   <span className="w-9 text-right text-xs tabular-nums text-slate-500">{task.progress}%</span>
                                 </div>
@@ -3585,8 +3585,8 @@ export function RDDirectorDashboardPage() {
                                     className={cn(
                                       "inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition-all active:scale-95",
                                       isPendingAssign
-                                        ? "bg-blue-600 text-white shadow-[0_8px_16px_rgba(37,99,235,0.18)] hover:bg-blue-700"
-                                        : "border border-slate-200 bg-white text-slate-600 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700",
+                                        ? "bg-indigo-600 text-white shadow-[0_8px_16px_rgba(79,70,229,0.18)] hover:bg-indigo-700"
+                                        : "border border-slate-200 bg-white text-slate-600 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700",
                                     )}
                                   >
                                     <UserCog className="h-3.5 w-3.5" />
@@ -3650,7 +3650,7 @@ export function RDDirectorDashboardPage() {
                         key={category.id}
                         type="button"
                         onClick={() => setSelectedCategory(category)}
-                        className="group rounded-xl border border-slate-100 bg-white p-3 text-left transition-all hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_12px_24px_rgba(15,23,42,0.07)]"
+                        className="group rounded-xl border border-slate-100 bg-white p-3 text-left transition-all hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_12px_24px_rgba(15,23,42,0.07)]"
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
@@ -3741,7 +3741,7 @@ export function RDDirectorDashboardPage() {
                         <TabsTrigger
                           key={p.id}
                           value={p.id}
-                          className="relative flex shrink-0 items-center gap-1.5 rounded-none rounded-t-lg border-x border-t border-transparent px-3 pb-3 pt-2 text-xs font-semibold text-slate-500 transition-none data-[state=active]:border-slate-200 data-[state=active]:bg-white data-[state=active]:text-blue-600"
+                          className="relative flex shrink-0 items-center gap-1.5 rounded-none rounded-t-lg border-x border-t border-transparent px-3 pb-3 pt-2 text-xs font-semibold text-slate-500 transition-none data-[state=active]:border-slate-200 data-[state=active]:bg-white data-[state=active]:text-indigo-600"
                         >
                           <span className={cn("h-2 w-2 shrink-0 rounded-full", dotColor)} />
                           {p.name}
@@ -3829,7 +3829,7 @@ export function RDDirectorDashboardPage() {
                               key={p.id}
                               type="button"
                               onClick={() => setPersonTabId(p.id)}
-                              className="rounded-xl border border-slate-100 bg-white p-2.5 text-left transition-all hover:border-blue-200 hover:shadow-sm active:scale-[0.98]"
+                              className="rounded-xl border border-slate-100 bg-white p-2.5 text-left transition-all hover:border-indigo-200 hover:shadow-sm active:scale-[0.98]"
                             >
                               <div className="flex items-center justify-between gap-1">
                                 <span className="truncate text-xs font-semibold text-slate-700">{p.name}</span>
@@ -3948,7 +3948,7 @@ export function RDDirectorDashboardPage() {
                               <div
                                 key={task.task_id}
                                 onClick={() => openTask(task.task_id, person.name)}
-                                className="group cursor-pointer rounded-xl border border-slate-100 bg-white px-4 py-3.5 transition-all duration-150 hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_8px_20px_rgba(37,99,235,0.07)] active:translate-y-0"
+                                className="group cursor-pointer rounded-xl border border-slate-100 bg-white px-4 py-3.5 transition-all duration-150 hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_8px_20px_rgba(79,70,229,0.07)] active:translate-y-0"
                               >
                                 {/* Top row: id + badges + due date */}
                                 <div className="flex flex-wrap items-center gap-1.5">
@@ -4048,7 +4048,7 @@ export function RDDirectorDashboardPage() {
                     type="button"
                     onClick={loadDailyReports}
                     disabled={dailyReportsLoading}
-                    className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-all hover:border-blue-200 hover:text-blue-600 disabled:opacity-50"
+                    className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-all hover:border-indigo-200 hover:text-indigo-600 disabled:opacity-50"
                   >
                     {dailyReportsLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
                     刷新
@@ -4217,7 +4217,7 @@ export function RDDirectorDashboardPage() {
                                     <li key={ref.note_id} className="rounded-md bg-white px-2.5 py-1.5 text-[11px] text-slate-600 ring-1 ring-violet-100">
                                       <span className="font-mono text-slate-400">{ref.task_id}</span>
                                       <span className="mx-1.5 text-slate-300">·</span>
-                                      {ref.progress != null && <span className="mr-1.5 rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">进度 {ref.progress}%</span>}
+                                      {ref.progress != null && <span className="mr-1.5 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">进度 {ref.progress}%</span>}
                                       <span className="text-slate-700">{ref.excerpt || "—"}</span>
                                       {ref.attachments_count > 0 && (
                                         <span className="ml-1.5 text-[10px] text-violet-600">+{ref.attachments_count} 附件</span>

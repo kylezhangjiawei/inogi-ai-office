@@ -348,10 +348,10 @@ export function RouteManagementPage() {
       {/* ── Header ───────────────────────────────────────────────────── */}
       <section className="material-card overflow-hidden">
         {/* top accent line */}
-        <div className="h-0.5 bg-linear-to-r from-primary via-blue-400 to-sky-300" />
+        <div className="h-0.5 bg-primary" />
         <div className="flex flex-col gap-5 p-6 xl:flex-row xl:items-center xl:justify-between md:p-8">
           <div>
-            <span className="material-chip bg-blue-50 text-blue-700 text-xs tracking-wide">Route Permission Catalog</span>
+            <span className="material-chip bg-indigo-50 text-indigo-700 text-xs tracking-wide">Route Permission Catalog</span>
             <h2 className="mt-3 text-2xl font-bold tracking-tight text-slate-950">页面路由管理</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
               维护页面访问权限和按钮操作权限。角色权限矩阵会实时从这里读取。
@@ -470,20 +470,20 @@ export function RouteManagementPage() {
                   <button
                     type="button"
                     onClick={() => toggleRoot(root.label)}
-                    className="group flex w-full cursor-pointer items-center gap-3 px-5 py-3.5 text-left transition-colors duration-150 hover:bg-blue-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-200"
+                    className="group flex w-full cursor-pointer items-center gap-3 px-5 py-3.5 text-left transition-colors duration-150 hover:bg-indigo-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-200"
                   >
                     <ChevronRight
                       className={cn(
                         "h-4 w-4 shrink-0 text-slate-400 transition-transform duration-250 ease-out",
-                        isRootExpanded && "rotate-90 text-blue-500",
+                        isRootExpanded && "rotate-90 text-indigo-500",
                       )}
                     />
                     <span
                       className={cn(
                         "flex h-7 w-7 shrink-0 items-center justify-center rounded-lg transition-colors duration-150",
                         isRootExpanded
-                          ? "bg-blue-100 text-blue-600 ring-1 ring-blue-200"
-                          : "bg-slate-100 text-slate-500 ring-1 ring-slate-200 group-hover:bg-blue-50 group-hover:text-blue-500",
+                          ? "bg-indigo-100 text-indigo-600 ring-1 ring-indigo-200"
+                          : "bg-slate-100 text-slate-500 ring-1 ring-slate-200 group-hover:bg-indigo-50 group-hover:text-indigo-500",
                       )}
                     >
                       {isRootExpanded ? <FolderOpen className="h-3.5 w-3.5" /> : <Folder className="h-3.5 w-3.5" />}
@@ -528,17 +528,17 @@ export function RouteManagementPage() {
                             <button
                               type="button"
                               onClick={() => toggleBranch(branch.key)}
-                              className="group/branch flex w-full cursor-pointer items-center gap-2 px-5 py-2.5 pl-14 text-left transition-colors duration-150 hover:bg-blue-50/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-200"
+                              className="group/branch flex w-full cursor-pointer items-center gap-2 px-5 py-2.5 pl-14 text-left transition-colors duration-150 hover:bg-indigo-50/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-200"
                             >
                               <ChevronRight
                                 className={cn(
                                   "h-3.5 w-3.5 shrink-0 text-slate-300 transition-transform duration-200 ease-out group-hover/branch:text-slate-400",
-                                  isBranchExpanded && "rotate-90 text-blue-400! group-hover/branch:text-blue-400!",
+                                  isBranchExpanded && "rotate-90 text-indigo-400! group-hover/branch:text-indigo-400!",
                                 )}
                               />
                               <span className={cn(
                                 "flex-1 text-xs font-semibold tracking-wide transition-colors duration-150",
-                                isBranchExpanded ? "text-blue-600" : "text-slate-600",
+                                isBranchExpanded ? "text-indigo-600" : "text-slate-600",
                               )}>
                                 {branch.label}
                               </span>
@@ -562,7 +562,7 @@ export function RouteManagementPage() {
                                   >
                                     {/* Type badge */}
                                     {item.type === "page" ? (
-                                      <Badge className="mt-0.5 shrink-0 bg-blue-50 text-blue-600 border-blue-100 text-[11px] px-1.5 py-0 h-5 font-medium gap-1 hover:bg-blue-50">
+                                      <Badge className="mt-0.5 shrink-0 bg-indigo-50 text-indigo-600 border-indigo-100 text-[11px] px-1.5 py-0 h-5 font-medium gap-1 hover:bg-indigo-50">
                                         <FileText className="h-2.5 w-2.5" />
                                         页面
                                       </Badge>
@@ -579,7 +579,7 @@ export function RouteManagementPage() {
                                         <span className="text-sm font-medium text-slate-800">{item.label}</span>
                                         <span className="font-mono text-[11px] text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{item.code}</span>
                                         {item.routePath && (
-                                          <span className="font-mono text-[11px] text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">{item.routePath}</span>
+                                          <span className="font-mono text-[11px] text-indigo-500 bg-indigo-50 px-1.5 py-0.5 rounded">{item.routePath}</span>
                                         )}
                                       </div>
                                       <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -636,7 +636,7 @@ export function RouteManagementPage() {
                                           <Button
                                             variant="ghost"
                                             size="icon"
-                                            className="h-7 w-7 text-slate-500 hover:text-blue-600 hover:bg-blue-50"
+                                            className="h-7 w-7 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50"
                                             onClick={() => openEdit(item)}
                                           >
                                             <Edit3 className="h-3.5 w-3.5" />

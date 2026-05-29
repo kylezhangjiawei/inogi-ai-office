@@ -349,7 +349,7 @@ function PersonFormModal({
                   user_status: user?.status ?? current.user_status ?? null,
                 }));
               }}
-              className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             >
               <option value="">未绑定，按姓名兼容匹配</option>
               {users.map((user) => (
@@ -371,7 +371,7 @@ function PersonFormModal({
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                 className={cn(
-                  "w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100",
+                  "w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100",
                   errors.name ? "border-red-300" : "border-slate-200",
                 )}
                 placeholder="例: 王磊"
@@ -383,7 +383,7 @@ function PersonFormModal({
                 value={form.position}
                 onChange={(e) => setForm((f) => ({ ...f, position: e.target.value }))}
                 className={cn(
-                  "w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100",
+                  "w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100",
                   errors.position ? "border-red-300" : "border-slate-200",
                 )}
                 placeholder="硬件测试工程师"
@@ -404,13 +404,13 @@ function PersonFormModal({
                       if (e.key === "Enter") { e.preventDefault(); void handleCreateDepartment(); }
                       else if (e.key === "Escape") { setCreatingDept(false); setNewDeptName(""); }
                     }}
-                    className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                    className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
                   />
                   <button
                     type="button"
                     disabled={savingNewDept || !newDeptName.trim()}
                     onClick={() => void handleCreateDepartment()}
-                    className="shrink-0 rounded-md bg-blue-600 px-2 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-60"
+                    className="shrink-0 rounded-md bg-indigo-600 px-2 py-2 text-xs font-semibold text-white transition-colors hover:bg-indigo-700 disabled:opacity-60"
                   >
                     {savingNewDept ? "..." : "保存"}
                   </button>
@@ -434,7 +434,7 @@ function PersonFormModal({
                       }
                       setForm((f) => ({ ...f, department: v }));
                     }}
-                    className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                    className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
                   >
                     {!form.department && <option value="">未指定</option>}
                     {departments.map((d) => (
@@ -455,7 +455,7 @@ function PersonFormModal({
                 onChange={(e) =>
                   setForm((f) => ({ ...f, status: e.target.value as PersonStatus }))
                 }
-                className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
               >
                 <option value="active">在岗</option>
                 <option value="on_leave">请假中</option>
@@ -469,7 +469,7 @@ function PersonFormModal({
               type="email"
               value={form.email ?? ""}
               onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-              className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
               placeholder="user@inogi.com"
             />
           </Field>
@@ -479,7 +479,7 @@ function PersonFormModal({
               <Input
                 value={form.phone ?? ""}
                 onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
                 placeholder="13800000000"
               />
             </Field>
@@ -495,7 +495,7 @@ function PersonFormModal({
                     max_tasks: Math.max(1, Number(e.target.value) || 1),
                   }))
                 }
-                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
               />
             </Field>
           </div>
@@ -545,7 +545,7 @@ function PersonFormModal({
             </Button>
             <Button
               type="submit"
-              className="h-9 gap-1.5 rounded-md bg-blue-600 px-4 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.2)] hover:bg-blue-700"
+              className="h-9 gap-1.5 rounded-md bg-indigo-600 px-4 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.2)] hover:bg-indigo-700"
             >
               {isEdit ? "保存修改" : "创建成员"}
               <ArrowRight className="h-3.5 w-3.5" />
@@ -804,7 +804,7 @@ export function RDPeopleManagementPage({
           <button
             type="button"
             onClick={() => setCreating(true)}
-            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.2)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-blue-700 hover:shadow-[0_12px_24px_rgba(37,99,235,0.22)] active:scale-[0.98]"
+            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.2)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-[0_12px_24px_rgba(79,70,229,0.22)] active:scale-[0.98]"
           >
             <Plus className="h-3.5 w-3.5" />
             新增成员
@@ -855,7 +855,7 @@ export function RDPeopleManagementPage({
 
           {/* Filters */}
           <section className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-100 bg-white px-4 py-3">
-            <div className="flex min-w-[260px] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 transition-all focus-within:border-blue-300 focus-within:ring-2 focus-within:ring-blue-100">
+            <div className="flex min-w-[260px] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 transition-all focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100">
               <Search className="h-3.5 w-3.5 text-slate-400" />
               <Input
                 value={keyword}
@@ -893,7 +893,7 @@ export function RDPeopleManagementPage({
                   className={cn(
                     "rounded border border-transparent px-2.5 py-1 text-xs font-medium transition-all duration-150 active:scale-95",
                     statusFilter === s
-                      ? "border-blue-200 bg-blue-50 text-blue-700 shadow-[0_6px_14px_rgba(37,99,235,0.08)] ring-1 ring-blue-100"
+                      ? "border-indigo-200 bg-indigo-50 text-indigo-700 shadow-[0_6px_14px_rgba(79,70,229,0.08)] ring-1 ring-indigo-100"
                       : "text-slate-500 hover:bg-slate-100 hover:text-slate-700",
                   )}
                 >
@@ -908,7 +908,7 @@ export function RDPeopleManagementPage({
                 setDeptFilter(e.target.value);
                 setPage(1);
               }}
-              className="cursor-pointer rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              className="cursor-pointer rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             >
               <option value="all">全部组</option>
               {DEPARTMENTS.map((d) => (
@@ -967,7 +967,7 @@ export function RDPeopleManagementPage({
                           <button
                             type="button"
                             onClick={() => setCreating(true)}
-                            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition-all hover:bg-blue-700 active:scale-[0.98]"
+                            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition-all hover:bg-indigo-700 active:scale-[0.98]"
                           >
                             <Plus className="h-3.5 w-3.5" />
                             新增成员
@@ -981,7 +981,7 @@ export function RDPeopleManagementPage({
                               setDeptFilter("all");
                               setPage(1);
                             }}
-                            className="text-xs font-medium text-blue-600 hover:underline"
+                            className="text-xs font-medium text-indigo-600 hover:underline"
                           >
                             重置筛选
                           </button>
@@ -1079,7 +1079,7 @@ export function RDPeopleManagementPage({
                               <button
                                 type="button"
                                 onClick={() => setEditing(p)}
-                                className="rounded-md p-1.5 text-slate-400 transition-all duration-150 hover:bg-blue-50 hover:text-blue-600 active:scale-90"
+                                className="rounded-md p-1.5 text-slate-400 transition-all duration-150 hover:bg-indigo-50 hover:text-indigo-600 active:scale-90"
                                 aria-label={`编辑 ${p.name}`}
                                 title="编辑"
                               >
@@ -1117,7 +1117,7 @@ export function RDPeopleManagementPage({
                     type="button"
                     onClick={() => setPage((current) => Math.max(1, current - 1))}
                     disabled={safePage === 1}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-all duration-150 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-500"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-all duration-150 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-500"
                     aria-label="上一页"
                   >
                     <ChevronLeft className="h-4 w-4" />
@@ -1132,8 +1132,8 @@ export function RDPeopleManagementPage({
                         className={cn(
                           "h-8 min-w-8 rounded-md border px-2 text-xs font-semibold tabular-nums transition-all duration-150 active:scale-95",
                           safePage === pageNumber
-                            ? "border-blue-200 bg-blue-50 text-blue-700 shadow-[0_6px_14px_rgba(37,99,235,0.1)] ring-1 ring-blue-100"
-                            : "border-slate-200 bg-white text-slate-500 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600",
+                            ? "border-indigo-200 bg-indigo-50 text-indigo-700 shadow-[0_6px_14px_rgba(79,70,229,0.1)] ring-1 ring-indigo-100"
+                            : "border-slate-200 bg-white text-slate-500 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600",
                         )}
                       >
                         {pageNumber}
@@ -1144,7 +1144,7 @@ export function RDPeopleManagementPage({
                     type="button"
                     onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
                     disabled={safePage === totalPages}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-all duration-150 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-500"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-all duration-150 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:border-slate-200 disabled:hover:bg-white disabled:hover:text-slate-500"
                     aria-label="下一页"
                   >
                     <ChevronRight className="h-4 w-4" />

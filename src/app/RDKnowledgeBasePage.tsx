@@ -361,9 +361,9 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
   return (
     <div
       ref={ref}
-      className="group relative overflow-hidden bg-white rounded-lg border border-slate-200/80 shadow-[0_1px_2px_rgba(15,23,42,0.04)] p-4 flex flex-col gap-3 transition-shadow duration-200 hover:shadow-[0_6px_20px_rgba(30,64,175,0.08)] hover:border-blue-200/80 [content-visibility:auto] [contain-intrinsic-size:260px]"
+      className="group relative overflow-hidden bg-white rounded-lg border border-slate-200/70 shadow-[0_1px_2px_rgba(15,23,42,0.04)] p-4 flex flex-col gap-3 transition-shadow duration-200 hover:shadow-[0_10px_22px_-8px_rgba(79,70,229,0.18)] hover:border-indigo-200/80 [content-visibility:auto] [contain-intrinsic-size:260px]"
     >
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-blue-600 via-blue-400 to-cyan-400 opacity-60 transition-opacity duration-200 group-hover:opacity-100" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-indigo-600 opacity-60 transition-opacity duration-200 group-hover:opacity-100" />
 
       {/* Icon + title + description */}
       <div className="flex items-start gap-3">
@@ -421,7 +421,7 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
       {/* Uploader + stats */}
       <div className="flex items-center gap-2 mt-auto pt-2 border-t border-slate-100">
         <div className="flex items-center gap-1.5 min-w-0 flex-1">
-          <div className="h-5 w-5 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center text-white text-[9px] font-bold shrink-0 shadow-sm">
+          <div className="h-5 w-5 rounded-full bg-indigo-600 flex items-center justify-center text-white text-[9px] font-bold shrink-0 shadow-sm">
             {(entry.created_by_name ?? '?').charAt(0).toUpperCase()}
           </div>
           <span className="text-[11px] text-slate-600 font-medium truncate">{entry.created_by_name ?? '未知'}</span>
@@ -444,7 +444,7 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
                 variant="outline"
                 size="sm"
                 onClick={() => onPreview(entry)}
-                className="h-8 flex-1 min-w-[88px] rounded-lg border-blue-100 bg-blue-50/70 px-2.5 text-xs font-semibold text-blue-700 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)] hover:border-blue-200 hover:bg-blue-100"
+                className="h-8 flex-1 min-w-[88px] rounded-lg border-indigo-100 bg-indigo-50/70 px-2.5 text-xs font-semibold text-indigo-700 hover:border-indigo-200 hover:bg-indigo-100"
               >
                 <Eye className="w-3.5 h-3.5" />
                 预览
@@ -457,10 +457,10 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
                 size="sm"
                 onClick={() => void downloadKbEntry(entry)}
                 className={cn(
-                  "h-8 flex-1 min-w-[88px] rounded-lg px-2.5 text-xs font-semibold shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]",
+                  "h-8 flex-1 min-w-[88px] rounded-lg px-2.5 text-xs font-semibold",
                   isPreviewable
-                    ? "border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
-                    : "border-blue-100 bg-blue-50/70 text-blue-700 hover:border-blue-200 hover:bg-blue-100",
+                    ? "border-slate-200 bg-white text-slate-700 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                    : "border-indigo-100 bg-indigo-50/70 text-indigo-700 hover:border-indigo-200 hover:bg-indigo-100",
                 )}
               >
                 <ArrowDownToLine className="w-3.5 h-3.5" />
@@ -479,7 +479,7 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
                 variant="ghost"
                 size="sm"
                 onClick={() => onEdit(entry)}
-                className="h-7 px-2 text-xs font-medium text-slate-500 hover:text-blue-700 hover:bg-blue-50 rounded-md gap-1"
+                className="h-7 px-2 text-xs font-medium text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-md gap-1"
               >
                 <Edit3 className="w-3.5 h-3.5" />
                 编辑
@@ -491,7 +491,7 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
                 variant="ghost"
                 size="sm"
                 onClick={() => onMove(entry)}
-                className="h-7 px-2 text-xs font-medium text-slate-500 hover:text-blue-700 hover:bg-blue-50 rounded-md gap-1"
+                className="h-7 px-2 text-xs font-medium text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-md gap-1"
               >
                 <MoveRight className="w-3.5 h-3.5" />
                 移动
@@ -587,7 +587,7 @@ function EditEntryDialog({
       <DialogContent className="max-w-lg rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden">
         <DialogHeader className="border-b border-slate-100 px-5 py-4 text-left">
           <DialogTitle className="flex items-center gap-2 text-base font-semibold text-slate-950">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
               <Edit3 className="h-4 w-4" />
             </span>
             编辑文件信息
@@ -634,7 +634,7 @@ function EditEntryDialog({
               <NativeSelect
                 value={categoryId}
                 onChange={(e) => setCategoryId(e.target.value)}
-                className="w-full h-9 cursor-pointer rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                className="w-full h-9 cursor-pointer rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
               >
                 <option value="">请选择</option>
                 {flatCats.map((c) => (
@@ -683,7 +683,7 @@ function EditEntryDialog({
             type="button"
             onClick={() => void handleSave()}
             disabled={saving || !title.trim() || !categoryId}
-            className="h-9 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+            className="h-9 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
           >
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             保存修改
@@ -823,7 +823,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
               variant="ghost"
               size="icon"
               onClick={() => onCreate(null)}
-              className="h-6 w-6 rounded-md text-slate-400 hover:bg-blue-50 hover:text-blue-700"
+              className="h-6 w-6 rounded-md text-slate-400 hover:bg-indigo-50 hover:text-indigo-700"
               title="新增一级类目"
             >
               <Plus className="h-3.5 w-3.5" />
@@ -838,9 +838,9 @@ const CategorySidebar = React.memo(function CategorySidebar({
         size="sm"
         onClick={() => onSelect(null)}
         className={cn(
-          'h-auto min-w-max lg:min-w-0 justify-between w-full px-3 py-2 rounded-md text-sm font-medium outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-blue-300',
+          'h-auto min-w-max lg:min-w-0 justify-between w-full px-3 py-2 rounded-md text-sm font-medium outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-indigo-300',
           selectedCatId === null
-            ? 'bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(37,99,235,0.16)]'
+            ? 'bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(79,70,229,0.16)]'
             : 'text-slate-600 hover:bg-slate-50',
         )}
       >
@@ -863,7 +863,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
               className={cn(
                 'flex min-w-max items-center rounded-md transition-colors duration-200 lg:min-w-0',
                 isSelected
-                  ? 'bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(37,99,235,0.16)]'
+                  ? 'bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(79,70,229,0.16)]'
                   : 'text-slate-600 hover:bg-slate-50',
               )}
             >
@@ -876,7 +876,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
                   if (hasChildren) toggleExpand(cat.id);
                 }}
                 className={cn(
-                  'h-auto min-w-0 flex-1 justify-between px-3 py-2 text-sm font-medium text-current hover:bg-transparent hover:text-current focus-visible:ring-2 focus-visible:ring-blue-300',
+                  'h-auto min-w-0 flex-1 justify-between px-3 py-2 text-sm font-medium text-current hover:bg-transparent hover:text-current focus-visible:ring-2 focus-visible:ring-indigo-300',
                   canManage ? 'rounded-r-none pr-1' : 'rounded-md',
                 )}
               >
@@ -910,7 +910,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
                       className={cn(
                         'group/category flex w-full items-center rounded-md transition-colors duration-200',
                         isChildSelected
-                          ? 'bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(37,99,235,0.16)]'
+                          ? 'bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(79,70,229,0.16)]'
                           : 'text-slate-500 hover:bg-slate-50',
                       )}
                     >
@@ -920,7 +920,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
                         size="sm"
                         onClick={() => onSelect(child.id)}
                         className={cn(
-                          'h-auto min-w-0 flex-1 justify-between px-2 py-1.5 text-xs font-medium text-current hover:bg-transparent hover:text-current focus-visible:ring-2 focus-visible:ring-blue-300',
+                          'h-auto min-w-0 flex-1 justify-between px-2 py-1.5 text-xs font-medium text-current hover:bg-transparent hover:text-current focus-visible:ring-2 focus-visible:ring-indigo-300',
                           canManage ? 'rounded-r-none pr-1' : 'rounded-md',
                         )}
                       >
@@ -1002,7 +1002,7 @@ function CategoryFormDialog({
       <DialogContent className="max-w-md rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden">
         <DialogHeader className="border-b border-slate-100 px-5 py-4 text-left">
           <DialogTitle className="flex items-center gap-2 text-base font-semibold text-slate-950">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
               {isEdit ? <Edit3 className="h-4 w-4" /> : <FolderPlus className="h-4 w-4" />}
             </span>
             {isEdit ? '编辑知识库类目' : '新增知识库类目'}
@@ -1029,7 +1029,7 @@ function CategoryFormDialog({
               onChange={(event) => setLabel(event.target.value)}
               maxLength={40}
               placeholder="例如：硬件研发"
-              className="h-10 rounded-lg border-slate-200 bg-white text-sm focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              className="h-10 rounded-lg border-slate-200 bg-white text-sm focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             />
           </div>
 
@@ -1048,7 +1048,7 @@ function CategoryFormDialog({
                     className={cn(
                       "h-10 rounded-lg px-2 text-xs",
                       selected
-                        ? "bg-blue-600 text-white hover:bg-blue-700"
+                        ? "bg-indigo-600 text-white hover:bg-indigo-700"
                         : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
                     )}
                   >
@@ -1074,7 +1074,7 @@ function CategoryFormDialog({
                     onClick={() => setColor(value)}
                     className={cn(
                       "h-8 w-8 rounded-lg border-slate-200 bg-white p-1 hover:bg-slate-50",
-                      selected && "border-blue-300 ring-2 ring-blue-100",
+                      selected && "border-indigo-300 ring-2 ring-indigo-100",
                     )}
                     title={value}
                   >
@@ -1106,7 +1106,7 @@ function CategoryFormDialog({
               color,
             })}
             disabled={saving || !trimmedLabel}
-            className="h-9 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+            className="h-9 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
           >
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             {isEdit ? '保存修改' : '创建类目'}
@@ -1194,7 +1194,7 @@ function MoveEntryDialog({
       <DialogContent className="max-w-md rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden">
         <DialogHeader className="border-b border-slate-100 px-5 py-4 text-left">
           <DialogTitle className="flex items-center gap-2 text-base font-semibold text-slate-950">
-            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+            <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
               <MoveRight className="h-4 w-4" />
             </span>
             移动文件类目
@@ -1225,7 +1225,7 @@ function MoveEntryDialog({
                   className={cn(
                     "h-8 justify-start rounded-md px-2 text-xs",
                     targetId === category.id
-                      ? "bg-blue-600 text-white hover:bg-blue-700"
+                      ? "bg-indigo-600 text-white hover:bg-indigo-700"
                       : "text-slate-600 hover:bg-slate-50",
                   )}
                 >
@@ -1253,7 +1253,7 @@ function MoveEntryDialog({
             type="button"
             onClick={() => onConfirm(targetId)}
             disabled={loading || !targetId || targetId === entry.category_id}
-            className="h-9 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+            className="h-9 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
           >
             {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
             确认移动
@@ -1429,7 +1429,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
               variant="outline"
               size="sm"
               onClick={() => void downloadKbEntry(entry)}
-              className="h-8 shrink-0 gap-1.5 rounded-lg border-blue-200 bg-blue-50/70 px-3 text-xs font-semibold text-blue-700 hover:border-blue-300 hover:bg-blue-100"
+              className="h-8 shrink-0 gap-1.5 rounded-lg border-indigo-200 bg-indigo-50/70 px-3 text-xs font-semibold text-indigo-700 hover:border-indigo-300 hover:bg-indigo-100"
             >
               <ArrowDownToLine className="h-3.5 w-3.5" />
               <span className="hidden sm:inline">{entry.external_url ? '打开链接' : '下载'}</span>
@@ -1459,7 +1459,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
         )}>
           {loading && (
             <div className="flex flex-col items-center gap-3 py-14 text-slate-400">
-              <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
+              <Loader2 className="w-8 h-8 animate-spin text-indigo-400" />
               <p className="text-sm font-medium">正在加载文件…</p>
             </div>
           )}
@@ -1532,7 +1532,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
                 <Button
                   type="button"
                   onClick={() => void downloadKbEntry(entry)}
-                  className="h-9 px-6 text-sm font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-xl shadow-[0_6px_18px_rgba(37,99,235,0.28)] gap-2"
+                  className="h-9 px-6 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-[0_6px_18px_rgba(79,70,229,0.28)] gap-2"
                 >
                   <ArrowDownToLine className="w-4 h-4" />
                   {entry.external_url ? '打开链接' : '下载文件'}
@@ -1547,7 +1547,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
           {/* Uploader */}
           <div className="flex items-center gap-1.5 shrink-0">
             <Avatar className="h-5 w-5 shrink-0">
-              <AvatarFallback className="bg-linear-to-br from-blue-500 to-cyan-500 text-white text-[9px] font-bold">
+              <AvatarFallback className="bg-indigo-600 text-white text-[9px] font-bold">
                 {(entry.created_by_name ?? '?').charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>
@@ -1765,8 +1765,8 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded }: Up
       onDrop={handleDrop}
     >
         {/* Dialog header */}
-        <DialogHeader className="relative overflow-hidden border-b border-blue-100 bg-[linear-gradient(135deg,#ffffff_0%,#eff6ff_52%,#ecfeff_100%)] px-6 py-4 pr-12 text-left">
-          <div className="absolute inset-0 opacity-45 bg-[linear-gradient(rgba(30,64,175,0.045)_1px,transparent_1px),linear-gradient(90deg,rgba(30,64,175,0.04)_1px,transparent_1px)] bg-[size:28px_28px]" />
+        <DialogHeader className="relative overflow-hidden border-b border-slate-100 bg-white px-6 py-4 pr-12 text-left">
+          <div className="absolute inset-0 bg-slate-50/60" />
           <DialogTitle className="relative text-base font-semibold text-slate-950">上传知识库文件</DialogTitle>
           <DialogDescription className="sr-only">
             选择文件、分类和访问权限后上传到研发知识库。
@@ -1776,7 +1776,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded }: Up
             variant="ghost"
             size="icon"
             onClick={onClose}
-            className="relative h-8 w-8 rounded-md text-slate-400 hover:text-slate-700 hover:bg-white focus-visible:ring-2 focus-visible:ring-blue-200"
+            className="absolute right-4 top-1/2 h-8 w-8 -translate-y-1/2 rounded-md text-slate-400 hover:text-slate-700 hover:bg-white focus-visible:ring-2 focus-visible:ring-indigo-200"
           >
             <X className="w-4 h-4" />
           </Button>
@@ -1807,12 +1807,12 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded }: Up
             className={cn(
               'relative min-h-[184px] overflow-hidden border border-dashed rounded-lg p-6 flex flex-col items-center justify-center gap-3 cursor-pointer outline-none transition-all duration-200',
               dragging
-                ? 'border-blue-400 bg-blue-50 ring-4 ring-blue-100 shadow-[0_16px_36px_rgba(37,99,235,0.12)]'
-                : 'border-slate-300 bg-white hover:border-blue-300 hover:bg-blue-50/50',
+                ? 'border-indigo-400 bg-indigo-50 ring-4 ring-indigo-100 shadow-[0_16px_36px_rgba(79,70,229,0.12)]'
+                : 'border-slate-300 bg-white hover:border-indigo-300 hover:bg-indigo-50/50',
             )}
           >
-            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(14,165,233,0.08)_1px,transparent_1px),linear-gradient(90deg,rgba(14,165,233,0.08)_1px,transparent_1px)] bg-[size:24px_24px]" />
-            <span className="relative flex h-14 w-14 items-center justify-center rounded-xl border border-blue-100 bg-blue-50 text-blue-600 shadow-[0_12px_24px_rgba(37,99,235,0.12)]">
+            <div className="pointer-events-none absolute inset-0 bg-slate-50/40" />
+            <span className="relative flex h-14 w-14 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 text-indigo-600 shadow-[0_12px_24px_rgba(79,70,229,0.12)]">
               <Upload className="w-7 h-7" />
             </span>
             <p className="relative text-sm font-semibold text-slate-800 text-center">
@@ -1904,7 +1904,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded }: Up
               value={categoryId}
               onValueChange={(v) => { setCategoryId(v); setCategorySource('manual'); }}
               placeholder="请选择分类"
-              className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 outline-none transition-shadow focus:ring-2 focus:ring-blue-200"
+              className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 outline-none transition-shadow focus:ring-2 focus:ring-indigo-200"
             >
               <option value="">请选择分类</option>
               {flatCats.map((cat) => (
@@ -1973,7 +1973,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded }: Up
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
               placeholder="对文件的简要说明..."
-              className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 outline-none transition-shadow focus:ring-2 focus:ring-blue-200 resize-none"
+              className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 outline-none transition-shadow focus:ring-2 focus:ring-indigo-200 resize-none"
             />
           </div>
 
@@ -1985,7 +1985,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded }: Up
               value={tags}
               onChange={(e) => setTags(e.target.value)}
               placeholder="例如：API设计, 架构图"
-              className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 outline-none transition-shadow focus:ring-2 focus:ring-blue-200"
+              className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 outline-none transition-shadow focus:ring-2 focus:ring-indigo-200"
             />
           </div>
         </div>
@@ -1997,7 +1997,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded }: Up
             variant="ghost"
             onClick={onClose}
             disabled={uploading}
-            className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-blue-200"
+            className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-indigo-200"
           >
             取消
           </Button>
@@ -2005,7 +2005,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded }: Up
             type="button"
             onClick={handleUpload}
             disabled={uploading || selectedFiles.length === 0}
-            className="flex items-center gap-2 px-5 py-2 text-sm font-semibold bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg outline-none transition-colors duration-200 shadow-[0_8px_18px_rgba(37,99,235,0.20)] focus-visible:ring-2 focus-visible:ring-blue-200 focus-visible:ring-offset-2"
+            className="flex items-center gap-2 px-5 py-2 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-lg outline-none transition-colors duration-200 shadow-[0_8px_18px_rgba(79,70,229,0.20)] focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
           >
             {uploading && <Loader2 className="w-4 h-4 animate-spin" />}
             <Upload className="w-4 h-4" />
@@ -2506,11 +2506,11 @@ export function RDKnowledgeBasePage() {
       onDrop={handlePageDrop}
     >
       {pageDragActive && canUpload && !showUpload && (
-        <div className="pointer-events-none fixed inset-4 z-40 flex items-center justify-center rounded-2xl border border-blue-200 bg-white/88 shadow-[0_28px_80px_rgba(30,64,175,0.18)] backdrop-blur-sm">
-          <div className="absolute inset-0 rounded-2xl bg-[linear-gradient(rgba(30,64,175,0.06)_1px,transparent_1px),linear-gradient(90deg,rgba(30,64,175,0.05)_1px,transparent_1px)] bg-[size:28px_28px]" />
-          <div className="relative flex items-center gap-4 rounded-xl border border-blue-100 bg-white/95 px-6 py-5 text-slate-900 shadow-[0_16px_36px_rgba(30,64,175,0.12)]">
-            <span className="flex h-12 w-12 items-center justify-center rounded-lg border border-blue-100 bg-blue-50">
-              <Upload className="h-6 w-6 text-blue-600" />
+        <div className="pointer-events-none fixed inset-4 z-40 flex items-center justify-center rounded-2xl border border-indigo-200 bg-white/88 shadow-[0_28px_80px_rgba(79,70,229,0.18)] backdrop-blur-sm">
+          <div className="absolute inset-0 rounded-2xl bg-slate-50/40" />
+          <div className="relative flex items-center gap-4 rounded-xl border border-indigo-100 bg-white/95 px-6 py-5 text-slate-900 shadow-[0_16px_36px_rgba(79,70,229,0.12)]">
+            <span className="flex h-12 w-12 items-center justify-center rounded-lg border border-indigo-100 bg-indigo-50">
+              <Upload className="h-6 w-6 text-indigo-600" />
             </span>
             <div>
               <p className="text-sm font-semibold text-slate-950">释放文件，进入上传队列</p>
@@ -2521,11 +2521,11 @@ export function RDKnowledgeBasePage() {
       )}
       {/* Page header */}
       <div className="relative mx-4 mt-5 overflow-hidden rounded-2xl border border-slate-200/80 bg-white px-4 py-4 shadow-[0_16px_34px_rgba(15,23,42,0.06)] sm:mx-6">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-400/45 to-transparent" />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-indigo-400/45 to-transparent" />
         <div className="relative z-10 mb-4 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">
             <h1 className="flex items-center gap-3 text-xl font-semibold text-slate-950">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white shadow-[0_10px_22px_rgba(37,99,235,0.22)]">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-[0_10px_22px_rgba(79,70,229,0.22)]">
                 <BookOpen className="w-4 h-4" />
               </span>
               <span className="truncate">研发知识库</span>
@@ -2541,13 +2541,13 @@ export function RDKnowledgeBasePage() {
                 <span className="text-slate-400">共</span><strong className="font-semibold tabular-nums text-slate-800">{entries.length}</strong><span className="text-slate-400">条</span>
               </span>
               <span className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 bg-slate-50/80 px-3 font-medium">
-                <span className="text-slate-400">文档</span><strong className="font-semibold tabular-nums text-blue-700">{docCount}</strong>
+                <span className="text-slate-400">文档</span><strong className="font-semibold tabular-nums text-indigo-700">{docCount}</strong>
               </span>
               <span className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 bg-slate-50/80 px-3 font-medium">
-                <span className="text-slate-400">PDF</span><strong className="font-semibold tabular-nums text-blue-700">{pdfCount}</strong>
+                <span className="text-slate-400">PDF</span><strong className="font-semibold tabular-nums text-indigo-700">{pdfCount}</strong>
               </span>
               <span className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 bg-slate-50/80 px-3 font-medium">
-                <span className="text-slate-400">图片</span><strong className="font-semibold tabular-nums text-blue-700">{imageCount}</strong>
+                <span className="text-slate-400">图片</span><strong className="font-semibold tabular-nums text-indigo-700">{imageCount}</strong>
               </span>
             </div>
             <Button
@@ -2556,7 +2556,7 @@ export function RDKnowledgeBasePage() {
               size="icon"
               onClick={handleRefresh}
               disabled={loading}
-              className="h-9 w-9 rounded-lg border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-60"
+              className="h-9 w-9 rounded-lg border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-60"
               title="刷新（保留当前筛选条件）"
             >
               <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
@@ -2578,7 +2578,7 @@ export function RDKnowledgeBasePage() {
               <Button
                 type="button"
                 onClick={() => openUploadDialog()}
-                className="h-9 gap-2 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(37,99,235,0.20)] transition-all duration-200 hover:bg-blue-700 focus-visible:ring-2 focus-visible:ring-blue-200 focus-visible:ring-offset-2"
+                className="h-9 gap-2 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(79,70,229,0.20)] transition-all duration-200 hover:bg-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
               >
                 <Plus className="w-4 h-4" />
                 上传文件
@@ -2596,7 +2596,7 @@ export function RDKnowledgeBasePage() {
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               placeholder="搜索标题、描述、标签.."
-              className="h-11 w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-9 text-sm text-slate-800 outline-none transition-shadow placeholder-slate-400 focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              className="h-11 w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-9 text-sm text-slate-800 outline-none transition-shadow placeholder-slate-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             />
             {keyword && (
               <Button
@@ -2604,7 +2604,7 @@ export function RDKnowledgeBasePage() {
                 variant="ghost"
                 size="icon"
                 onClick={() => setKeyword('')}
-                className="absolute right-2 top-1/2 h-6 w-6 -translate-y-1/2 rounded-md text-slate-400 hover:text-slate-700 focus-visible:ring-2 focus-visible:ring-blue-200"
+                className="absolute right-2 top-1/2 h-6 w-6 -translate-y-1/2 rounded-md text-slate-400 hover:text-slate-700 focus-visible:ring-2 focus-visible:ring-indigo-200"
               >
                 <X className="w-3.5 h-3.5" />
               </Button>
@@ -2615,7 +2615,7 @@ export function RDKnowledgeBasePage() {
             <NativeSelect
               value={fileTypeFilter}
               onValueChange={handleFileTypeFilterChange}
-              className="h-full w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition-shadow focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              className="h-full w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition-shadow focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             >
               {FILE_TYPE_FILTER_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>
@@ -2689,8 +2689,8 @@ export function RDKnowledgeBasePage() {
                   ? `筛选结果 ${entries.length} 条`
                   : `共 ${entries.length} 条记录`}
             </span>
-            <span className="hidden sm:flex items-center gap-1.5 font-mono text-[11px] text-blue-700">
-              <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+            <span className="hidden sm:flex items-center gap-1.5 font-mono text-[11px] text-indigo-700">
+              <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />
               KB_INDEX
             </span>
           </div>
@@ -2723,7 +2723,7 @@ export function RDKnowledgeBasePage() {
                     type="button"
                     variant="secondary"
                     onClick={() => openUploadDialog()}
-                    className="mt-2 flex items-center gap-2 px-4 py-2 bg-blue-50 hover:bg-blue-100 text-blue-600 text-sm font-medium rounded-lg transition-colors"
+                    className="mt-2 flex items-center gap-2 px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 text-sm font-medium rounded-lg transition-colors"
                   >
                     <Upload className="w-4 h-4" />
                     上传文件

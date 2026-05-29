@@ -123,7 +123,7 @@ export function QATraceability() {
                 <div className="space-y-4">
                   {processSteps.map((step) => (
                     <div key={step.title} className="flex items-start gap-3 rounded-[22px] border border-slate-100 bg-slate-50/70 p-4">
-                      <div className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-full bg-blue-600 text-white">
+                      <div className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-full bg-indigo-600 text-white">
                         <CheckCircle2 className="h-4 w-4" />
                       </div>
                       <div>

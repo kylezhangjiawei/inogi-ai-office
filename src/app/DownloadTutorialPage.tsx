@@ -302,7 +302,7 @@ function TutorialVisual({ step, platform }: { step: TutorialStep; platform: Plat
     const Icon = platform.icon;
     return (
       <div className="flex justify-center lg:justify-end">
-        <div className="flex h-64 w-64 items-center justify-center rounded-full bg-[linear-gradient(135deg,#ec62b9_0%,#8a6cf6_100%)] shadow-[0_18px_34px_rgba(99,102,241,0.22)]">
+        <div className="flex h-64 w-64 items-center justify-center rounded-full bg-indigo-600 shadow-[0_10px_22px_-8px_rgba(79,70,229,0.18)]">
           <Icon className="h-28 w-28 text-white" strokeWidth={1.5} />
         </div>
       </div>
@@ -312,7 +312,7 @@ function TutorialVisual({ step, platform }: { step: TutorialStep; platform: Plat
   if (type === "download-list") {
     return (
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="rounded border border-slate-200 bg-white p-4 text-xs text-blue-700 shadow-sm">
+        <div className="rounded border border-slate-200 bg-white p-4 text-xs text-indigo-700 shadow-sm">
           {["Clash.Verge_1.7.3_x64-setup.exe", "Clash.Verge_1.7.3_x64.dmg", "Clash.Verge_1.7.3_arm64.dmg", "Clash.Verge_1.7.3_portable.zip"].map((item) => (
             <div key={item} className="break-all border-b border-slate-100 py-2 underline">
               {item}
@@ -324,7 +324,7 @@ function TutorialVisual({ step, platform }: { step: TutorialStep; platform: Plat
           <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2 text-xs">
             {["Clash Verge 1.7.2 arm64.dmg", "Clash Verge 1.7.2 x64-setup.exe", "Clash Verge 1.7.2 x64.dmg"].map((item) => (
               <React.Fragment key={item}>
-                <span className="min-w-0 truncate text-blue-700 underline">{item}</span>
+                <span className="min-w-0 truncate text-indigo-700 underline">{item}</span>
                 <span>2024-07-03</span>
                 <span>35M</span>
               </React.Fragment>
@@ -341,7 +341,7 @@ function TutorialVisual({ step, platform }: { step: TutorialStep; platform: Plat
     <div className="flex justify-center lg:justify-end">
       <div
         className={cn(
-          "w-full max-w-[360px] rounded border p-5 shadow-[0_18px_28px_rgba(15,23,42,0.12)]",
+          "w-full max-w-[360px] rounded border p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]",
           dark ? "border-slate-800 bg-[#171923] text-slate-100" : "border-slate-200 bg-white text-slate-800",
           type.startsWith("phone") ? "max-w-[280px]" : "",
         )}
@@ -406,7 +406,7 @@ function TutorialVisual({ step, platform }: { step: TutorialStep; platform: Plat
           </div>
         ) : type === "mac-about" ? (
           <div className="flex items-center gap-5 rounded bg-black p-5 text-white">
-            <div className="flex h-24 w-24 items-center justify-center rounded-3xl bg-[linear-gradient(135deg,#ec62b9,#8a6cf6)]">
+            <div className="flex h-24 w-24 items-center justify-center rounded-3xl bg-indigo-600">
               <Laptop className="h-12 w-12" />
             </div>
             <div>
@@ -447,7 +447,7 @@ function TutorialActionButton({ action }: { action: TutorialAction }) {
       onClick={handleClick}
       className={cn(
         "inline-flex items-center gap-2 rounded-full px-5 py-3 text-sm font-semibold shadow-[0_10px_18px_rgba(15,23,42,0.14)] transition hover:-translate-y-0.5 cursor-pointer",
-        action.tone === "secondary" ? "bg-white text-slate-700" : "bg-[#183564] text-white",
+        action.tone === "secondary" ? "bg-white text-slate-700" : "bg-indigo-600 hover:bg-indigo-700 text-white",
       )}
     >
       <Download className="h-4 w-4" />
@@ -471,7 +471,7 @@ function TutorialBody({ body }: { body: TutorialStep["body"] }) {
 export function DownloadTutorialPage() {
   return (
     <div className="mx-auto max-w-[1680px] space-y-5 sm:space-y-7">
-      <section className="rounded-sm border border-blue-100 bg-white px-4 py-4 shadow-[0_10px_22px_rgba(15,23,42,0.06)] sm:px-5 sm:py-5">
+      <section className="rounded-sm border border-slate-200/70 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)] sm:px-5 sm:py-5">
         <h2 className="text-xl font-bold tracking-tight text-[#222a52]">下载和教程</h2>
       </section>
 

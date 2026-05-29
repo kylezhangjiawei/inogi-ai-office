@@ -119,7 +119,7 @@ const RD_POC_BOM_CATEGORY_TREE = [
 
 const DEFAULT_TASK_TYPE_FOR_CATEGORY = "研发任务";
 const REVIEW_SELECT_TRIGGER_CLASS =
-  "h-11 rounded-md border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-none outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 data-[placeholder]:text-slate-400";
+  "h-11 rounded-md border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-none outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 data-[placeholder]:text-slate-400";
 
 type OwnerOption = {
   value: string;
@@ -877,12 +877,12 @@ function StepInput({
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="例：电磁阀工艺升级 v2.1"
-          className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+          className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
         />
       </div>
 
       {/* Banner: explain the either-or rule */}
-      <div className="flex items-start gap-2 rounded-md border border-blue-100 bg-blue-50/50 px-3 py-2 text-[11px] text-blue-700">
+      <div className="flex items-start gap-2 rounded-md border border-indigo-100 bg-indigo-50/50 px-3 py-2 text-[11px] text-indigo-700">
         <Sparkles className="mt-0.5 h-3 w-3 shrink-0" />
         <span>
           <span className="font-semibold">立项描述</span> 与 <span className="font-semibold">附件</span> 二选其一即可，提供任一项 AI 都能开始解析；同时提供则 AI 会综合两者。
@@ -895,7 +895,7 @@ function StepInput({
           <label className="text-xs font-medium text-slate-700">
             立项描述
             {hasDescription && (
-              <span className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] font-semibold text-blue-600">
+              <span className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] font-semibold text-indigo-600">
                 <CheckCircle2 className="h-3 w-3" />
                 已填写
               </span>
@@ -910,7 +910,7 @@ function StepInput({
           onChange={(e) => setDescription(e.target.value)}
           rows={5}
           placeholder="粘贴会议纪要、邮件正文，或直接描述立项目标、范围与关键节点。"
-          className="w-full resize-none rounded-md border border-slate-200 bg-slate-50/40 px-3 py-2.5 text-sm leading-relaxed outline-none transition-all focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100"
+          className="w-full resize-none rounded-md border border-slate-200 bg-slate-50/40 px-3 py-2.5 text-sm leading-relaxed outline-none transition-all focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-100"
         />
       </div>
 
@@ -929,7 +929,7 @@ function StepInput({
           <label className="text-xs font-medium text-slate-700">
             上传附件
             {hasFiles && (
-              <span className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] font-semibold text-blue-600">
+              <span className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] font-semibold text-indigo-600">
                 <CheckCircle2 className="h-3 w-3" />
                 已选 {files.length} 个
               </span>
@@ -943,8 +943,8 @@ function StepInput({
           className={cn(
             "flex cursor-pointer items-center justify-center gap-2 rounded-md border border-dashed px-4 py-3 text-sm transition-all",
             dragActive
-              ? "border-blue-400 bg-blue-50 text-blue-700 ring-2 ring-blue-100"
-              : "border-slate-300 bg-slate-50/40 text-slate-500 hover:border-blue-300 hover:bg-blue-50/30 hover:text-blue-600",
+              ? "border-indigo-400 bg-indigo-50 text-indigo-700 ring-2 ring-indigo-100"
+              : "border-slate-300 bg-slate-50/40 text-slate-500 hover:border-indigo-300 hover:bg-indigo-50/30 hover:text-indigo-600",
           )}
           onDragEnter={handleFileDrag}
           onDragOver={handleFileDrag}
@@ -1011,7 +1011,7 @@ function StepInput({
             type="button"
             disabled={!canSubmit}
             onClick={onNext}
-            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.22)] transition-all hover:bg-blue-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.22)] transition-all hover:bg-indigo-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Sparkles className="h-3.5 w-3.5" />
             AI 解析
@@ -1029,8 +1029,8 @@ function StepProcessing({ progress, label }: { progress: number; label: string }
   return (
     <div className="flex min-h-[320px] flex-col items-center justify-center gap-5 px-6 py-10">
       <div className="relative flex h-16 w-16 items-center justify-center">
-        <span className="absolute inset-0 animate-ping rounded-full bg-blue-200/60" />
-        <span className="relative inline-flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-violet-500 text-white shadow-[0_12px_32px_rgba(37,99,235,0.3)]">
+        <span className="absolute inset-0 animate-ping rounded-full bg-indigo-200/60" />
+        <span className="relative inline-flex h-16 w-16 items-center justify-center rounded-full bg-indigo-600 text-white shadow-[0_12px_32px_rgba(79,70,229,0.3)]">
           <Sparkles className="h-7 w-7" />
         </span>
       </div>
@@ -1041,7 +1041,7 @@ function StepProcessing({ progress, label }: { progress: number; label: string }
       <div className="w-full max-w-xs">
         <div className="h-1 overflow-hidden rounded-full bg-slate-100">
           <div
-            className="h-full rounded-full bg-gradient-to-r from-blue-500 to-violet-500 transition-all duration-300"
+            className="h-full rounded-full bg-indigo-600 transition-all duration-300"
             style={{ width: `${progress}%` }}
           />
         </div>
@@ -1174,17 +1174,17 @@ function TaskEditRow({
               value={task.description ?? ""}
               onChange={(e) => onChange({ ...task, description: e.target.value })}
               rows={2}
-              className="w-full resize-none rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-blue-300 focus:ring-1 focus:ring-blue-100"
+              className="w-full resize-none rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-1 focus:ring-indigo-100"
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-[11px] font-medium text-slate-500">
-                主责人{ownerLocked && <span className="ml-1 text-[10px] text-blue-500">· 已锁定为本人</span>}
+                主责人{ownerLocked && <span className="ml-1 text-[10px] text-indigo-500">· 已锁定为本人</span>}
               </label>
               {ownerLocked ? (
                 <div
-                  className="flex h-9 w-full items-center gap-2 rounded-md border border-blue-200 bg-blue-50/60 px-3 text-sm text-blue-700"
+                  className="flex h-9 w-full items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50/60 px-3 text-sm text-indigo-700"
                   title="个人工作台立项：所有任务强制绑定到当前账号"
                 >
                   <MiniAvatar name={task.owner} size="xs" />
@@ -1391,16 +1391,16 @@ function TaskEditRow({
                       onChange({ ...task, estimated_days: task.ai_estimated_days ?? 5 });
                     }
                   }}
-                  className="h-11 w-full rounded border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                  className="h-11 w-full rounded border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
                 />
                 <span className="shrink-0 text-xs text-slate-400">天</span>
               </div>
             </div>
           </div>
-          <div className="rounded border border-blue-100 bg-blue-50/40 px-2.5 py-2 text-[11px] leading-relaxed text-blue-700">
+          <div className="rounded border border-indigo-100 bg-indigo-50/40 px-2.5 py-2 text-[11px] leading-relaxed text-indigo-700">
             <span className="font-semibold">AI 推荐理由：</span>
             {task.owner_reason}
-            <div className="mt-0.5 text-blue-600/80">工期依据：{task.duration_basis}</div>
+            <div className="mt-0.5 text-indigo-600/80">工期依据：{task.duration_basis}</div>
           </div>
         </div>
       )}
@@ -1748,7 +1748,7 @@ function StepReview({
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             />
           </div>
 
@@ -1760,7 +1760,7 @@ function StepReview({
             <NativeSelect
               value={parentProjectId}
               onChange={(e) => setParentProjectId(e.target.value as string | "new")}
-              className="w-full cursor-pointer rounded border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              className="w-full cursor-pointer rounded border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             >
               <option value="new">+ 创建新项目节点</option>
               {categoriesToOptions(categories).map((p) => (
@@ -1774,7 +1774,7 @@ function StepReview({
                 value={newProjectName}
                 onChange={(e) => setNewProjectName(e.target.value)}
                 placeholder="新项目名称（例：电磁阀工艺升级 v2.1）"
-                className="mt-2 w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                className="mt-2 w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
               />
             )}
             <p className="mt-1 text-[11px] text-slate-400">
@@ -1987,7 +1987,7 @@ function StepReview({
               disabled={tasks.length === 0 || quickSubmitDisabled || submitting}
               onClick={onQuickSubmit}
               title="跳过审核流程预览，直接按 AI 建议立项"
-              className="inline-flex items-center gap-1.5 rounded-md bg-gradient-to-br from-blue-600 via-blue-500 to-cyan-500 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(37,99,235,0.24)] transition-all hover:from-blue-700 hover:via-blue-600 hover:to-cyan-600 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+              className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(79,70,229,0.24)] transition-all hover:bg-indigo-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
             >
               {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               {quickSubmitLabel}
@@ -2067,7 +2067,7 @@ function StepSubmit({
     <div className="flex max-h-[70vh] flex-col">
       <div className="space-y-5 overflow-auto px-6 py-5">
         {/* Summary */}
-        <section className="rounded-xl border border-slate-100 bg-gradient-to-br from-slate-50 via-white to-blue-50/20 p-4">
+        <section className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
           <div className="mb-2 text-xs font-medium text-slate-500">立项摘要</div>
           <h3 className="text-base font-semibold text-slate-900">{title || "未命名立项"}</h3>
           <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
@@ -2122,7 +2122,7 @@ function StepSubmit({
                     <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5">
                       <div className="mb-2 flex items-center justify-between gap-2">
                         <div className="flex items-center gap-2">
-                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-violet-500 text-[10px] font-bold text-white">
+                          <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white">
                             {idx + 1}
                           </span>
                           <span className="text-xs font-semibold text-slate-800">{node.label}</span>
@@ -2199,7 +2199,7 @@ function StepSubmit({
             onChange={(e) => setComment(e.target.value)}
             rows={3}
             placeholder="例：本立项已与研发主管口头对齐，关键节点请尽快推进。"
-            className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+            className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
           />
         </section>
 
@@ -2238,7 +2238,7 @@ function StepSubmit({
               type="button"
               onClick={onSubmit}
               disabled={submitting}
-              className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.22)] transition-all hover:bg-blue-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+              className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.22)] transition-all hover:bg-indigo-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
             >
               {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
               提交审核
@@ -2249,7 +2249,7 @@ function StepSubmit({
               type="button"
               onClick={onDirectDispatch}
               disabled={submitting}
-              className="inline-flex items-center gap-1.5 rounded-md bg-gradient-to-br from-emerald-500 to-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(5,150,105,0.25)] transition-all hover:from-emerald-600 hover:to-emerald-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
+              className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(5,150,105,0.25)] transition-all hover:bg-emerald-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
             >
               {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               {directOnly ? "立项并分配" : "直接立项并分配"}
@@ -2596,6 +2596,9 @@ export function RDProjectProposalDialog({
         description: task.description,
         category_path: task.category_path,
         ...(collaborators.length > 0 ? { collaborators } : {}),
+        // 标记为"立项"审核类型：管理员审批通过后任务进入 in_progress 而非 completed，
+        // 避免发起人任务列表里这条数据被"已完成"过滤掉而消失。
+        ...(status === "pending_review" ? { pending_review_type: "proposal" } : {}),
       });
     }
 
@@ -2743,7 +2746,7 @@ export function RDProjectProposalDialog({
         {/* Header */}
         <header className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div className="flex items-center gap-3">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-violet-500 text-white shadow-[0_8px_18px_rgba(37,99,235,0.25)]">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-[0_8px_18px_rgba(79,70,229,0.25)]">
               <Sparkles className="h-4 w-4" />
             </span>
             <div>
@@ -2770,7 +2773,7 @@ export function RDProjectProposalDialog({
               key={s}
               className={cn(
                 "flex-1 transition-all duration-300",
-                s <= step ? "bg-gradient-to-r from-blue-500 to-violet-500" : "bg-transparent",
+                s <= step ? "bg-indigo-600" : "bg-transparent",
               )}
             />
           ))}

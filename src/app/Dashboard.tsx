@@ -29,9 +29,9 @@ const statCards = [
 ];
 
 const heroMetrics = [
-  { label: "今日新增", value: "24", helper: "较昨日提升", icon: Activity, accent: "from-blue-500 to-cyan-500" },
-  { label: "已完成", value: "156", helper: "本周累计", icon: CheckCircle2, accent: "from-sky-500 to-blue-600" },
-  { label: "响应率", value: "98%", helper: "SLA 达成", icon: TrendingUp, accent: "from-emerald-500 to-teal-500" },
+  { label: "今日新增", value: "24", helper: "较昨日提升", icon: Activity },
+  { label: "已完成", value: "156", helper: "本周累计", icon: CheckCircle2 },
+  { label: "响应率", value: "98%", helper: "SLA 达成", icon: TrendingUp },
 ];
 
 const barData = [
@@ -51,8 +51,8 @@ const quickActions = [
 ];
 
 const workspacePulse = [
-  { title: "售后与研发联动", helper: "3 个问题已同步进入紧急队列", tone: "bg-blue-50 text-blue-700" },
-  { title: "对外资料版本", helper: "OC-10 英文 IFU 等待法规确认", tone: "bg-cyan-50 text-cyan-700" },
+  { title: "售后与研发联动", helper: "3 个问题已同步进入紧急队列", tone: "bg-indigo-50 text-indigo-700" },
+  { title: "对外资料版本", helper: "OC-10 英文 IFU 等待法规确认", tone: "bg-indigo-50 text-indigo-700" },
   { title: "质量闭环", helper: "2 条检验放行记录缺主管签批", tone: "bg-amber-50 text-amber-700" },
 ];
 
@@ -234,14 +234,14 @@ export function Dashboard() {
       <section className="grid grid-cols-12 gap-6">
         <div className="col-span-12 xl:col-span-8">
           <div className="material-card material-glow relative overflow-hidden p-7 md:p-8">
-            <div className="absolute inset-y-0 right-0 hidden w-[42%] bg-[radial-gradient(circle_at_center,rgba(66,165,245,0.24),transparent_64%)] xl:block" />
+            <div className="absolute inset-y-0 right-0 hidden w-[42%] bg-[radial-gradient(circle_at_center,rgba(79,70,229,0.08),transparent_64%)] xl:block" />
             <div className="absolute -right-14 top-8 hidden h-40 w-40 rounded-full border border-white/60 bg-white/20 xl:block" />
             <div className="absolute right-20 top-16 hidden h-24 w-24 rounded-full border border-white/50 bg-white/10 xl:block" />
 
             <div className="relative z-10 flex flex-col gap-8">
               <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
                 <div className="max-w-2xl space-y-4">
-                  <span className="material-chip bg-blue-50 text-blue-700">Workspace Overview</span>
+                  <span className="material-chip bg-indigo-50 text-indigo-700">Workspace Overview</span>
                   <div>
                     <h2 className="text-[2rem] font-bold tracking-tight text-slate-900 md:text-[2.35rem]">智能办公总览</h2>
                     <p className="mt-3 text-sm leading-7 text-slate-600 md:text-base">
@@ -267,7 +267,7 @@ export function Dashboard() {
                 {heroMetrics.map((item) => (
                   <div
                     key={item.label}
-                    className="rounded-[26px] border border-white/75 bg-[linear-gradient(180deg,rgba(255,255,255,0.98),rgba(242,247,255,0.9))] p-5 shadow-[0_16px_28px_rgba(15,23,42,0.08)]"
+                    className="rounded-[26px] border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_24px_-14px_rgba(15,23,42,0.12)]"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="space-y-2">
@@ -275,12 +275,7 @@ export function Dashboard() {
                         <div className="text-[2rem] font-bold leading-none tracking-tight text-slate-900">{item.value}</div>
                         <div className="text-xs font-medium text-slate-500">{item.helper}</div>
                       </div>
-                      <div
-                        className={cn(
-                          "flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br text-white shadow-sm",
-                          item.accent,
-                        )}
-                      >
+                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm">
                         <item.icon className="h-5 w-5" />
                       </div>
                     </div>
@@ -303,9 +298,9 @@ export function Dashboard() {
 
             <div className="space-y-4">
               {[
-                { label: "工单处理效率", value: "92%", width: "w-[92%]", color: "bg-blue-500" },
-                { label: "资料更新完成度", value: "76%", width: "w-[76%]", color: "bg-cyan-500" },
-                { label: "跨部门响应率", value: "88%", width: "w-[88%]", color: "bg-emerald-500" },
+                { label: "工单处理效率", value: "92%", width: "w-[92%]", color: "bg-indigo-500" },
+                { label: "资料更新完成度", value: "76%", width: "w-[76%]", color: "bg-indigo-500" },
+                { label: "跨部门响应率", value: "88%", width: "w-[88%]", color: "bg-indigo-500" },
               ].map((item) => (
                 <div key={item.label} className="rounded-[20px] border border-slate-100 bg-slate-50/70 p-4">
                   <div className="mb-2 flex items-center justify-between text-sm">
@@ -403,7 +398,7 @@ export function Dashboard() {
               </button>
             </div>
 
-            <div className="rounded-[24px] bg-[linear-gradient(180deg,#ffffff_0%,#f7faff_100%)] p-4">
+            <div className="rounded-[24px] bg-slate-50/60 p-4">
               <div className="h-[300px]">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={barData} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
@@ -418,7 +413,7 @@ export function Dashboard() {
                       tick={{ fill: "#5f6b7a", fontSize: 13 }}
                     />
                     <Tooltip
-                      cursor={{ fill: "rgba(25, 118, 210, 0.06)" }}
+                      cursor={{ fill: "rgba(79, 70, 229, 0.06)" }}
                       contentStyle={{
                         borderRadius: 16,
                         border: "1px solid #d8e2ee",
@@ -427,7 +422,7 @@ export function Dashboard() {
                     />
                     <Bar dataKey="value" radius={[0, 10, 10, 0]} barSize={22}>
                       {barData.map((_, index) => (
-                        <Cell key={index} fill={["#bbdefb", "#64b5f6", "#1e88e5", "#1565c0"][index]} />
+                        <Cell key={index} fill={["#c7d2fe", "#a5b4fc", "#6366f1", "#4f46e5"][index]} />
                       ))}
                     </Bar>
                   </BarChart>
@@ -448,18 +443,13 @@ export function Dashboard() {
             </div>
 
             <div className="grid grid-cols-2 gap-4">
-              {quickActions.map((action, index) => (
+              {quickActions.map((action) => (
                 <Link
                   key={action.title}
                   to={action.path}
-                  className={cn(
-                    "group rounded-[24px] border border-slate-200 p-4 transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_16px_24px_rgba(25,118,210,0.12)]",
-                    index === 0
-                      ? "bg-[linear-gradient(135deg,#eaf3ff_0%,#ffffff_52%,#eef9f8_100%)]"
-                      : "bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)]",
-                  )}
+                  className="group rounded-[24px] border border-slate-200 bg-white p-4 transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_10px_22px_-8px_rgba(79,70,229,0.18)]"
                 >
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-50 text-primary transition group-hover:bg-blue-100">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-primary transition group-hover:bg-indigo-100">
                     <action.icon className="h-5 w-5" />
                   </div>
                   <div className="mt-4 text-sm font-semibold leading-6 text-slate-800">{action.title}</div>
@@ -489,7 +479,7 @@ export function Dashboard() {
                     onClick={() => setSelectedFeedId(item.id)}
                     className={cn(
                       "w-full rounded-[22px] border p-4 text-left transition",
-                      selectedFeedId === item.id ? "border-blue-200 bg-blue-50/50" : "border-slate-100 bg-slate-50/70 hover:border-slate-200",
+                      selectedFeedId === item.id ? "border-indigo-200 bg-indigo-50/50" : "border-slate-100 bg-slate-50/70 hover:border-slate-200",
                     )}
                   >
                     <div className="flex items-center justify-between gap-3">
@@ -500,7 +490,7 @@ export function Dashboard() {
                   </button>
                 ))}
               </div>
-              <div className="rounded-[24px] bg-[linear-gradient(180deg,#f8fbff_0%,#ffffff_100%)] p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.7)]">
+              <div className="rounded-[24px] border border-slate-100 bg-slate-50/60 p-5">
                 <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Event Detail</div>
                 <div className="mt-3 text-lg font-semibold text-slate-900">{selectedFeed.title}</div>
                 <div className="mt-3 text-sm leading-6 text-slate-600">{selectedFeed.helper}</div>
@@ -525,14 +515,14 @@ export function Dashboard() {
                 <h3 className="text-slate-900">模块聚焦</h3>
                 <p className="mt-1 text-sm text-slate-500">让首页不只是总览，也能承担导航和引导角色。</p>
               </div>
-              <span className="material-chip bg-blue-50 text-blue-700">Featured</span>
+              <span className="material-chip bg-indigo-50 text-indigo-700">Featured</span>
             </div>
             <div className="space-y-4">
               {moduleSpotlights.map((item) => (
                 <Link
                   key={item.title}
                   to={item.path}
-                  className="block rounded-[24px] border border-slate-100 bg-[linear-gradient(180deg,#ffffff_0%,#f8fbff_100%)] p-5 transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-[0_16px_28px_rgba(25,118,210,0.12)]"
+                  className="block rounded-[24px] border border-slate-100 bg-white p-5 transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_10px_22px_-8px_rgba(79,70,229,0.18)]"
                 >
                   <div className="flex items-center justify-between gap-3">
                     <div className="text-base font-semibold text-slate-900">{item.title}</div>
@@ -569,7 +559,7 @@ export function Dashboard() {
                 className={cn(
                   "rounded-full border px-4 py-2 text-sm font-semibold transition",
                   statusFilter === item
-                    ? "border-blue-200 bg-blue-50 text-primary"
+                    ? "border-indigo-200 bg-indigo-50 text-indigo-700"
                     : "border-slate-200 bg-white text-slate-500 hover:border-slate-300",
                 )}
               >
@@ -592,7 +582,7 @@ export function Dashboard() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {pagedTodos.map((item) => (
-                <tr key={item.id} className="transition hover:bg-blue-50/35">
+                <tr key={item.id} className="transition hover:bg-indigo-50/40">
                   <td className="px-6 py-4 text-sm font-semibold text-slate-800">{item.name}</td>
                   <td className="px-6 py-4 text-sm text-slate-500">{item.module}</td>
                   <td className="px-6 py-4 text-sm text-slate-700">{item.user}</td>
@@ -698,7 +688,7 @@ export function Dashboard() {
                 "生成跨模块周报摘要",
                 "同步高优先级事项到邮件摘要",
               ].map((item) => (
-                <button key={item} type="button" className="material-panel w-full text-left text-sm text-slate-700 transition hover:border-blue-200" onClick={() => toast.success(`${item} 已触发`)}>
+                <button key={item} type="button" className="material-panel w-full text-left text-sm text-slate-700 transition hover:border-indigo-200" onClick={() => toast.success(`${item} 已触发`)}>
                   {item}
                 </button>
               ))}

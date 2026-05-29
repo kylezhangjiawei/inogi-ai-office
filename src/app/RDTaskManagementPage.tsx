@@ -198,7 +198,7 @@ function getTheme(id: string): CategoryTheme {
 
 const STATUS_CONFIG: Record<TaskStatus, { label: string; dot: string; text: string; bg: string }> = {
   draft: { label: "草稿", dot: "bg-slate-400", text: "text-slate-600", bg: "bg-slate-100" },
-  in_progress: { label: "进行中", dot: "bg-blue-500", text: "text-blue-700", bg: "bg-blue-50" },
+  in_progress: { label: "进行中", dot: "bg-indigo-500", text: "text-indigo-700", bg: "bg-indigo-50" },
   paused_leave: { label: "暂停·请假", dot: "bg-amber-500", text: "text-amber-700", bg: "bg-amber-50" },
   paused_blocked: { label: "暂停·阻塞", dot: "bg-red-500", text: "text-red-700", bg: "bg-red-50" },
   completed: { label: "已完成", dot: "bg-emerald-500", text: "text-emerald-700", bg: "bg-emerald-50" },
@@ -271,7 +271,7 @@ const RELATIVE_UPDATE_TONE: Record<
   { bg: string; text: string; border: string; dot: string }
 > = {
   fresh: { bg: "bg-emerald-50", text: "text-emerald-700", border: "border-emerald-200", dot: "bg-emerald-500" },
-  recent: { bg: "bg-blue-50", text: "text-blue-700", border: "border-blue-200", dot: "bg-blue-500" },
+  recent: { bg: "bg-indigo-50", text: "text-indigo-700", border: "border-indigo-200", dot: "bg-indigo-500" },
   aging: { bg: "bg-amber-50", text: "text-amber-700", border: "border-amber-200", dot: "bg-amber-500" },
   stale: { bg: "bg-slate-100", text: "text-slate-600", border: "border-slate-200", dot: "bg-slate-400" },
 };
@@ -441,7 +441,7 @@ function ProgressBar({ value, tone = "neutral" }: { value: number; tone?: "neutr
       <div
         className={cn(
           "h-full rounded-full transition-all",
-          tone === "muted" ? "bg-slate-300" : value === 100 ? "bg-emerald-500" : "bg-blue-500",
+          tone === "muted" ? "bg-slate-300" : value === 100 ? "bg-emerald-500" : "bg-indigo-500",
         )}
         style={{ width: `${value}%` }}
       />
@@ -605,7 +605,7 @@ function taskAccentClass(task: Task) {
   if (task.final_priority === "high") return "bg-red-500";
   if (task.status === "completed") return "bg-emerald-400";
   if (task.status === "paused_leave") return "bg-amber-400";
-  return "bg-blue-500";
+  return "bg-indigo-500";
 }
 
 // ─── Dual-signal: category frame + priority bar ──────────────────────────────
@@ -823,7 +823,7 @@ function TaskItem({
           className={cn(
             "relative border-l-2 border-slate-300",
             depth === 0
-              ? "mb-2 ml-4 mt-1.5 rounded-[8px] border border-slate-300 bg-slate-100/80 shadow-[inset_3px_0_0_rgba(30,64,175,0.18)]"
+              ? "mb-2 ml-4 mt-1.5 rounded-[8px] border border-slate-300 bg-slate-100/80 shadow-[inset_3px_0_0_rgba(79,70,229,0.18)]"
               : "ml-4 bg-slate-100/70 py-1.5",
           )}
           style={{ marginLeft: depth === 0 ? 18 : 22 }}
@@ -1640,7 +1640,7 @@ function CategorySidebar({
               <button
                 type="button"
                 onClick={() => onRequestEditor({ mode: "add-system" })}
-                className="inline-flex h-7 items-center gap-1 rounded-md border border-blue-100 bg-blue-50 px-2 text-xs font-semibold text-blue-700 transition-colors hover:bg-blue-100"
+                className="inline-flex h-7 items-center gap-1 rounded-md border border-indigo-100 bg-indigo-50 px-2 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100"
                 title="新增一级系统"
               >
                 <Plus className="h-3 w-3" />
@@ -1661,8 +1661,8 @@ function CategorySidebar({
                 onSelect(null);
               }}
               className={cn(
-                "flex h-10 w-full cursor-pointer items-center gap-2 rounded-[8px] px-2.5 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 active:scale-[0.99]",
-                selectedId === null ? "bg-white text-blue-700 shadow-[0_8px_20px_rgba(37,99,235,0.08)] ring-1 ring-blue-100" : "text-slate-600 hover:bg-white/80 hover:text-slate-900 hover:shadow-[0_8px_18px_rgba(15,23,42,0.04)]",
+                "flex h-10 w-full cursor-pointer items-center gap-2 rounded-[8px] px-2.5 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 active:scale-[0.99]",
+                selectedId === null ? "bg-white text-indigo-700 shadow-[0_8px_20px_rgba(79,70,229,0.08)] ring-1 ring-indigo-100" : "text-slate-600 hover:bg-white/80 hover:text-slate-900 hover:shadow-[0_8px_18px_rgba(15,23,42,0.04)]",
               )}
               aria-label="全部系统"
             >
@@ -1724,7 +1724,7 @@ function CategorySidebar({
                 >
                   <span
                     className={cn(
-                      "h-5 w-1 shrink-0 rounded-full bg-blue-600 transition-all duration-300 ease-out",
+                      "h-5 w-1 shrink-0 rounded-full bg-indigo-600 transition-all duration-300 ease-out",
                       activeWithin ? "scale-y-100 opacity-100" : "scale-y-0 opacity-0",
                     )}
                   />
@@ -1737,7 +1737,7 @@ function CategorySidebar({
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "add-sub", category: cat }); }}
-                      className="rounded p-1 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
+                      className="rounded p-1 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600"
                       title="新增子项"
                     >
                       <FolderPlus className="h-3.5 w-3.5" />
@@ -1803,7 +1803,7 @@ function CategorySidebar({
                           className={cn(
                             "group/sub flex h-8 w-full items-center gap-1 rounded-md pr-1 transition-all duration-200",
                             selected
-                              ? "bg-blue-50 shadow-[0_6px_14px_rgba(37,99,235,0.08)]"
+                              ? "bg-indigo-50 shadow-[0_6px_14px_rgba(79,70,229,0.08)]"
                               : "hover:bg-slate-50",
                           )}
                         >
@@ -1815,7 +1815,7 @@ function CategorySidebar({
                             }}
                             className={cn(
                               "flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded-md px-2 text-left transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.99]",
-                              selected ? "text-blue-800" : "text-slate-600 hover:translate-x-0.5 hover:text-slate-900",
+                              selected ? "text-indigo-800" : "text-slate-600 hover:translate-x-0.5 hover:text-slate-900",
                             )}
                           >
                             <span
@@ -1846,7 +1846,7 @@ function CategorySidebar({
                                 <button
                                   type="button"
                                   onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "move-tasks", fromCategory: cat, fromSub: sub }); }}
-                                  className="rounded p-1 text-slate-400 hover:bg-blue-50 hover:text-blue-600"
+                                  className="rounded p-1 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600"
                                   title="移动任务"
                                 >
                                   <ArrowRight className="h-3 w-3" />
@@ -1963,7 +1963,7 @@ function SystemTreeEditorDialog({
           <div className="flex items-center gap-2.5">
             <div className={cn(
               "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
-              isDelete ? "bg-red-100 text-red-600" : "bg-blue-100 text-blue-600",
+              isDelete ? "bg-red-100 text-red-600" : "bg-indigo-100 text-indigo-600",
             )}>
               {isDelete ? <Trash2 className="h-4 w-4" /> : isEdit ? <Pencil className="h-4 w-4" /> : <FolderPlus className="h-4 w-4" />}
             </div>
@@ -2005,7 +2005,7 @@ function SystemTreeEditorDialog({
                 onKeyDown={(e) => { if (e.key === "Enter") handleConfirm(); }}
                 placeholder={isAdd ? (request.mode === "add-system" ? "例：新型动力系统" : "例：主控板") : "新名称"}
                 disabled={saving}
-                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-50"
+                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50"
               />
               {request.mode === "add-system" && (
                 <p className="mt-1.5 text-[11px] text-slate-400">将作为研发系统树的一级节点；可在保存后添加子项。</p>
@@ -2029,7 +2029,7 @@ function SystemTreeEditorDialog({
             onClick={handleConfirm}
             className={cn(
               "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors disabled:opacity-60",
-              isDelete ? "bg-red-600 hover:bg-red-700" : "bg-blue-600 hover:bg-blue-700",
+              isDelete ? "bg-red-600 hover:bg-red-700" : "bg-indigo-600 hover:bg-indigo-700",
             )}
           >
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
@@ -2155,7 +2155,7 @@ function SystemHealthGrid({
               onClick={() => onSelect(cat.id)}
               className={cn(
                 "cursor-pointer rounded-[8px] px-3 py-3 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.99]",
-                selected ? "bg-blue-50 shadow-[0_8px_18px_rgba(37,99,235,0.08)] ring-1 ring-blue-200" : "bg-slate-50 hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_12px_24px_rgba(15,23,42,0.06)]",
+                selected ? "bg-indigo-50 shadow-[0_8px_18px_rgba(79,70,229,0.08)] ring-1 ring-indigo-200" : "bg-slate-50 hover:-translate-y-0.5 hover:bg-white hover:shadow-[0_12px_24px_rgba(15,23,42,0.06)]",
               )}
             >
               <div className="flex items-center gap-2">
@@ -2206,7 +2206,7 @@ function SelectedScopePanel({
         </div>
         <div className="flex items-center gap-3 text-sm">
           <span className="font-semibold text-slate-700">{selectedStat.total} 项</span>
-          <span className="font-semibold text-blue-700">{selectedStat.progress}%</span>
+          <span className="font-semibold text-indigo-700">{selectedStat.progress}%</span>
         </div>
       </div>
 
@@ -2557,7 +2557,7 @@ function AiCreatePanel({
       <div className="w-full max-w-2xl rounded-[8px] border border-white bg-white shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-blue-500" />
+            <Sparkles className="h-4 w-4 text-indigo-500" />
             <span className="font-semibold text-slate-800">AI 任务解析 · 新建任务</span>
           </div>
           <button type="button" onClick={onClose} className="cursor-pointer rounded-lg p-1.5 hover:bg-slate-100">
@@ -2590,7 +2590,7 @@ function AiCreatePanel({
               </div>
               <label className="text-sm font-medium text-slate-700">粘贴会议纪要、邮件正文或需求描述</label>
               <Textarea
-                className="w-full resize-none rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+                className="w-full resize-none rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
                 rows={5}
                 placeholder="例：电磁阀耐压测试需要在本月底前完成，由王磊负责，陈静配合质检……"
                 value={text}
@@ -2601,8 +2601,8 @@ function AiCreatePanel({
                   className={cn(
                     "flex cursor-pointer items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-sm transition-colors",
                     fileDropActive
-                      ? "border-blue-400 bg-blue-50 text-blue-700"
-                      : "border-slate-200 text-slate-500 hover:border-blue-300 hover:text-blue-500",
+                      ? "border-indigo-400 bg-indigo-50 text-indigo-700"
+                      : "border-slate-200 text-slate-500 hover:border-indigo-300 hover:text-indigo-500",
                   )}
                   onDragEnter={handleFileDrag}
                   onDragOver={handleFileDrag}
@@ -2630,7 +2630,7 @@ function AiCreatePanel({
                   type="button"
                   onClick={handleProcess}
                   disabled={(!text.trim() && selectedFiles.length === 0) || aiState === "processing"}
-                  className="flex cursor-pointer items-center gap-2 rounded-[8px] bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex cursor-pointer items-center gap-2 rounded-[8px] bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {aiState === "processing" ? (
                     <>
@@ -2660,12 +2660,12 @@ function AiCreatePanel({
 
           {aiState === "review" && draft && (
             <div className="space-y-4">
-              <div className="rounded-[8px] border border-blue-100 bg-blue-50/50 px-4 py-3">
-                <p className="flex items-center gap-1.5 text-xs text-blue-600">
+              <div className="rounded-[8px] border border-indigo-100 bg-indigo-50/50 px-4 py-3">
+                <p className="flex items-center gap-1.5 text-xs text-indigo-600">
                   <Pencil className="h-3 w-3" />
                   AI 已解析完成。所有字段均可就地编辑，修改后字段会高亮标记。
                 </p>
-                <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-blue-700">
+                <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-indigo-700">
                   <span>模型：{describeRdAiModel(aiSettings, activeScene?.model_id)}</span>
                   <span>Prompt：{activeScene?.prompt_version || "未指定"}</span>
                   <span>阈值：{activeScene?.confidence_threshold ?? 0.8}</span>
@@ -2673,7 +2673,7 @@ function AiCreatePanel({
                 </div>
               </div>
 
-              {aiSummary && <p className="-mt-2 text-xs text-blue-700">{aiSummary}</p>}
+              {aiSummary && <p className="-mt-2 text-xs text-indigo-700">{aiSummary}</p>}
 
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2 space-y-1">
@@ -2688,7 +2688,7 @@ function AiCreatePanel({
                   </label>
                   <Input
                     className={cn(
-                      "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100",
+                      "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100",
                       modifiedFields.has("title") ? "border-amber-300 bg-amber-50" : "border-slate-200",
                     )}
                     value={draft.title}
@@ -2700,7 +2700,7 @@ function AiCreatePanel({
                   <label className="text-xs font-medium text-slate-500">主责人</label>
                   <Input
                     className={cn(
-                      "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100",
+                      "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100",
                       modifiedFields.has("primary_owner") ? "border-amber-300 bg-amber-50" : "border-slate-200",
                     )}
                     value={draft.primary_owner}
@@ -2715,7 +2715,7 @@ function AiCreatePanel({
                   </label>
                   <NativeSelect
                     className={cn(
-                      "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100",
+                      "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100",
                       modifiedFields.has("final_priority") ? "border-amber-300 bg-amber-50" : "border-slate-200",
                     )}
                     value={draft.final_priority}
@@ -2731,7 +2731,7 @@ function AiCreatePanel({
                   <label className="text-xs font-medium text-slate-500">分类路径</label>
                   <Input
                     className={cn(
-                      "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100",
+                      "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100",
                       modifiedFields.has("category_path") ? "border-amber-300 bg-amber-50" : "border-slate-200",
                     )}
                     value={draft.category_path}
@@ -2743,7 +2743,7 @@ function AiCreatePanel({
                   <label className="text-xs font-medium text-slate-500">预估工期（天）</label>
                   <Input
                     type="number"
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100"
                     value={draft.final_duration ?? ""}
                     onChange={(e) => patchDraft("final_duration", Number(e.target.value))}
                   />
@@ -2753,7 +2753,7 @@ function AiCreatePanel({
                   <label className="text-xs font-medium text-slate-500">起始日期</label>
                   <Input
                     type="date"
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100"
                     value={draft.start_date ?? ""}
                     onChange={(e) => patchDraft("start_date", e.target.value)}
                   />
@@ -2763,7 +2763,7 @@ function AiCreatePanel({
                   <label className="text-xs font-medium text-slate-500">截止日期</label>
                   <Input
                     type="date"
-                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
+                    className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100"
                     value={draft.due_date ?? ""}
                     onChange={(e) => patchDraft("due_date", e.target.value)}
                   />
@@ -2772,7 +2772,7 @@ function AiCreatePanel({
                 <div className="col-span-2 space-y-1">
                   <label className="text-xs font-medium text-slate-500">任务描述</label>
                   <Textarea
-                    className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-100"
+                    className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100"
                     rows={3}
                     value={draft.description ?? ""}
                     onChange={(e) => patchDraft("description", e.target.value)}
@@ -2799,7 +2799,7 @@ function AiCreatePanel({
                   <button type="button" onClick={onClose} className="cursor-pointer rounded-[8px] border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
                     取消
                   </button>
-                  <button type="button" onClick={handleCreate} className="flex cursor-pointer items-center gap-2 rounded-[8px] bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+                  <button type="button" onClick={handleCreate} className="flex cursor-pointer items-center gap-2 rounded-[8px] bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
                     确认创建
                     <ArrowRight className="h-3.5 w-3.5" />
                   </button>
@@ -2871,7 +2871,7 @@ function TaskLifecycleTimeline({ task }: { task: Task }) {
           <h3 className="text-sm font-semibold text-slate-900">任务时间轴</h3>
           <p className="mt-0.5 text-xs text-slate-500">当前节点已高亮显示</p>
         </div>
-        <span className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+        <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">
           {steps[currentIndex].label}
         </span>
       </div>
@@ -2907,7 +2907,7 @@ function TaskLifecycleTimeline({ task }: { task: Task }) {
                 className={cn(
                   "relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-white transition-all",
                   state === "done" && "border-emerald-200 bg-emerald-50 text-emerald-600",
-                  state === "current" && "border-blue-200 bg-blue-50 text-blue-700 shadow-[0_0_0_4px_rgba(59,130,246,0.10)]",
+                  state === "current" && "border-indigo-200 bg-indigo-50 text-indigo-700 shadow-[0_0_0_4px_rgba(59,130,246,0.10)]",
                   state === "attention" && "border-amber-200 bg-amber-50 text-amber-700 shadow-[0_0_0_4px_rgba(245,158,11,0.10)]",
                   state === "todo" && "border-slate-200 text-slate-300",
                 )}
@@ -2919,7 +2919,7 @@ function TaskLifecycleTimeline({ task }: { task: Task }) {
                   className={cn(
                     "text-sm font-semibold",
                     state === "done" && "text-emerald-700",
-                    state === "current" && "text-blue-800",
+                    state === "current" && "text-indigo-800",
                     state === "attention" && "text-amber-800",
                     state === "todo" && "text-slate-400",
                   )}
@@ -2969,7 +2969,7 @@ function SubmitConfirmDialog({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
             <Send className="h-4 w-4" />
           </div>
           <h3 className="text-base font-semibold text-slate-900">提交任务审核</h3>
@@ -2993,7 +2993,7 @@ function SubmitConfirmDialog({
             type="button"
             disabled={submitting}
             onClick={onConfirm}
-            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-60"
           >
             {submitting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
             确认提交
@@ -3250,8 +3250,8 @@ function AddCollaboratorsDialog({
         className="flex w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center gap-3 border-b border-blue-100 bg-blue-50/60 px-6 py-4">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+        <div className="flex items-center gap-3 border-b border-indigo-100 bg-indigo-50/60 px-6 py-4">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
             <UserPlus className="h-4 w-4" />
           </div>
           <div className="min-w-0 flex-1">
@@ -3261,7 +3261,7 @@ function AddCollaboratorsDialog({
         </div>
         <div className="space-y-3 px-6 py-4">
           <p className="text-xs leading-relaxed text-slate-500">
-            管理员直接添加将<span className="font-semibold text-blue-700">立即生效</span>，不需要走审核流程。
+            管理员直接添加将<span className="font-semibold text-indigo-700">立即生效</span>，不需要走审核流程。
             已选 <span className="font-semibold text-slate-700 tabular-nums">{selected.size}</span> / {candidates.length} 人
           </p>
           <div className="max-h-72 overflow-y-auto rounded-md border border-slate-200">
@@ -3278,13 +3278,13 @@ function AddCollaboratorsDialog({
                         onClick={() => toggle(p.id)}
                         className={cn(
                           "flex w-full items-center gap-3 px-3 py-2 text-left text-sm transition-colors",
-                          isSelected ? "bg-blue-50 text-blue-800" : "hover:bg-slate-50 text-slate-700",
+                          isSelected ? "bg-indigo-50 text-indigo-800" : "hover:bg-slate-50 text-slate-700",
                         )}
                       >
                         <span
                           className={cn(
                             "flex h-4 w-4 shrink-0 items-center justify-center rounded border",
-                            isSelected ? "border-blue-500 bg-blue-500 text-white" : "border-slate-300 bg-white",
+                            isSelected ? "border-indigo-500 bg-indigo-500 text-white" : "border-slate-300 bg-white",
                           )}
                         >
                           {isSelected && <Check className="h-3 w-3" />}
@@ -3313,7 +3313,7 @@ function AddCollaboratorsDialog({
             type="button"
             disabled={saving || selected.size === 0}
             onClick={handleConfirm}
-            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-60"
           >
             {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <UserPlus className="h-3 w-3" />}
             确认添加 {selected.size > 0 ? `(${selected.size})` : ""}
@@ -3383,7 +3383,9 @@ function ApprovalActionDialog({
         <div className="space-y-4 px-6 py-5">
           <p className="text-sm text-slate-700">
             {isApprove
-              ? <>确认通过「<span className="font-semibold text-slate-900">{task.title}</span>」的审核？任务将标记为已完成，进度设为 100%。</>
+              ? task.pending_review_type === "proposal"
+                ? <>确认通过「<span className="font-semibold text-slate-900">{task.title}</span>」的立项审核？通过后任务将正式立项并进入进行中状态。</>
+                : <>确认通过「<span className="font-semibold text-slate-900">{task.title}</span>」的审核？任务将标记为已完成，进度设为 100%。</>
               : <>将「<span className="font-semibold text-slate-900">{task.title}</span>」打回给负责人重新修改。</>
             }
           </p>
@@ -3396,7 +3398,7 @@ function ApprovalActionDialog({
                   onChange={(e) => setReason(e.target.value)}
                   rows={3}
                   placeholder="请说明需要修改的原因…"
-                  className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                  className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
                   autoFocus
                 />
               </div>
@@ -3408,7 +3410,7 @@ function ApprovalActionDialog({
                   max={99}
                   value={rollbackProgress}
                   onChange={(e) => setRollbackProgress(Math.min(99, Math.max(0, Number(e.target.value))))}
-                  className="w-24 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                  className="w-24 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
                 />
                 <span className="ml-2 text-xs text-slate-400">当前进度 {task.progress}%</span>
               </div>
@@ -4130,22 +4132,42 @@ function TaskDetailDrawer({
         return;
       }
       if (isApprove) {
-        await updateRdTask(task.task_id, { status: "completed", progress: 100 });
-        recordAudit({
-          actor: RD_ADMIN_AUDIT_ACTOR,
-          action: "task.updated",
-          resource: { type: "task", id: task.task_id, name: task.title },
-          changes: [
-            { field: "status", before: task.status, after: "completed" },
-            { field: "progress", before: String(task.progress), after: "100" },
-          ],
-          comment: "审核通过，任务标记为已完成",
-          source: "web",
-        });
-        toast.success("审核通过，任务已完成");
-        setShowApprovalDialog(null);
-        onTaskCompleted?.(task);
-        onClose();
+        // 个人立项审核通过：任务正式立项并进入进行中，必须保留在发起人列表，
+        // 不能标记为已完成（否则会被工作台过滤而从发起人任务列表消失）。
+        const isProposalReview = task.pending_review_type === "proposal";
+        if (isProposalReview) {
+          await updateRdTask(task.task_id, { status: "in_progress", pending_review_type: null });
+          recordAudit({
+            actor: RD_ADMIN_AUDIT_ACTOR,
+            action: "task.updated",
+            resource: { type: "task", id: task.task_id, name: task.title },
+            changes: [
+              { field: "status", before: task.status, after: "in_progress" },
+            ],
+            comment: "立项审核通过，任务进入进行中",
+            source: "web",
+          });
+          toast.success("立项审核通过，任务已进入进行中");
+          setShowApprovalDialog(null);
+          onClose();
+        } else {
+          await updateRdTask(task.task_id, { status: "completed", progress: 100 });
+          recordAudit({
+            actor: RD_ADMIN_AUDIT_ACTOR,
+            action: "task.updated",
+            resource: { type: "task", id: task.task_id, name: task.title },
+            changes: [
+              { field: "status", before: task.status, after: "completed" },
+              { field: "progress", before: String(task.progress), after: "100" },
+            ],
+            comment: "审核通过，任务标记为已完成",
+            source: "web",
+          });
+          toast.success("审核通过，任务已完成");
+          setShowApprovalDialog(null);
+          onTaskCompleted?.(task);
+          onClose();
+        }
       } else {
         const rp = rollbackProgress ?? task.progress;
         await updateRdTask(task.task_id, { status: "in_progress", progress: rp });
@@ -4222,7 +4244,7 @@ function TaskDetailDrawer({
                 type="button"
                 onClick={() => onOpenPerson?.(task.primary_owner)}
                 disabled={/已离职|待指派|外部机构/.test(task.primary_owner)}
-                className="flex items-center gap-2 rounded-md py-0.5 font-medium text-slate-700 transition-colors enabled:cursor-pointer enabled:hover:text-blue-600 disabled:cursor-default"
+                className="flex items-center gap-2 rounded-md py-0.5 font-medium text-slate-700 transition-colors enabled:cursor-pointer enabled:hover:text-indigo-600 disabled:cursor-default"
               >
                 <OwnerAvatar name={task.primary_owner} />
                 {task.primary_owner}
@@ -4240,7 +4262,7 @@ function TaskDetailDrawer({
                   <button
                     type="button"
                     onClick={() => setShowAddCollaboratorsDialog(true)}
-                    className="inline-flex items-center gap-1 rounded-md border border-blue-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-blue-700 transition-colors hover:border-blue-300 hover:bg-blue-50"
+                    className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50"
                     title="管理员直接添加协作人，不走审核流程"
                   >
                     <UserPlus className="h-3 w-3" />
@@ -4268,7 +4290,7 @@ function TaskDetailDrawer({
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-slate-100">
                 <div
-                    className={cn("h-full rounded-full", task.progress === 100 ? "bg-emerald-500" : "bg-blue-500")}
+                    className={cn("h-full rounded-full", task.progress === 100 ? "bg-emerald-500" : "bg-indigo-500")}
                     style={{ width: `${task.progress}%` }}
                 />
               </div>
@@ -4280,7 +4302,7 @@ function TaskDetailDrawer({
                   <button
                     type="button"
                     onClick={onMoveTask}
-                    className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-blue-500 hover:bg-blue-50 hover:text-blue-700"
+                    className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-indigo-500 hover:bg-indigo-50 hover:text-indigo-700"
                   >
                     <ArrowRight className="h-2.5 w-2.5" />
                     移动到其他类目
@@ -4309,7 +4331,7 @@ function TaskDetailDrawer({
                       type="button"
                       onClick={saveDescription}
                       disabled={savingDesc}
-                      className="flex cursor-pointer items-center gap-1 rounded bg-blue-600 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                      className="flex cursor-pointer items-center gap-1 rounded bg-indigo-600 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
                     >
                       {savingDesc ? <RefreshCw className="h-2.5 w-2.5 animate-spin" /> : <CheckCircle2 className="h-2.5 w-2.5" />}
                       保存
@@ -4333,7 +4355,7 @@ function TaskDetailDrawer({
                 onChange={(e) => setDescDraft(e.target.value)}
                 rows={4}
                 placeholder="描述这个任务具体要做什么、目标和预期输出…"
-                className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
                 autoFocus
               />
             ) : task.description ? (
@@ -4344,7 +4366,7 @@ function TaskDetailDrawer({
                 onClick={() => !task.archived && setEditingDesc(true)}
                 className={cn(
                   "w-full rounded-lg border border-dashed border-slate-200 py-3 text-center text-xs text-slate-400",
-                  !task.archived && "cursor-pointer hover:border-blue-300 hover:text-blue-500",
+                  !task.archived && "cursor-pointer hover:border-indigo-300 hover:text-indigo-500",
                 )}
               >
                 暂无描述，点击添加
@@ -4403,13 +4425,13 @@ function TaskDetailDrawer({
           )}
 
           {task.pending_review_type === "collaboration" && (
-            <div className="rounded-[8px] border border-blue-100 bg-blue-50 px-4 py-3 text-sm text-blue-700">
+            <div className="rounded-[8px] border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-700">
               <div className="font-semibold">协同人变更待审核</div>
               <div className="mt-1">
                 拟协同人：{(task.pending_collaborators ?? []).map((item) => item.name).join("、") || "未选择"}
               </div>
               {task.pending_collaboration_reason && (
-                <div className="mt-1 text-blue-600">说明：{task.pending_collaboration_reason}</div>
+                <div className="mt-1 text-indigo-600">说明：{task.pending_collaboration_reason}</div>
               )}
             </div>
           )}
@@ -4425,7 +4447,7 @@ function TaskDetailDrawer({
                   <button
                     type="button"
                     onClick={() => setShowSubmitConfirm(true)}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-700"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700"
                   >
                     <Send className="h-3.5 w-3.5" />
                     提交审核
@@ -4607,7 +4629,7 @@ function KpiStrip({
   }[] = [
     { label: "活跃任务", value: totalActive, tone: "text-slate-900", iconTone: "text-slate-400", Icon: Target },
     { label: "完成率", value: `${rate}%`, tone: "text-slate-900", iconTone: "text-slate-400", Icon: Gauge },
-    { label: "进行中", value: inProgress, tone: "text-blue-600", iconTone: "text-blue-400", Icon: CircleDot },
+    { label: "进行中", value: inProgress, tone: "text-indigo-600", iconTone: "text-indigo-400", Icon: CircleDot },
     { label: "已完成", value: done, tone: "text-emerald-600", iconTone: "text-emerald-400", Icon: CheckCircle2 },
     {
       label: "阻塞/待派",
@@ -4630,11 +4652,11 @@ function KpiStrip({
       initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={RD_PANEL_TRANSITION}
-      className="overflow-hidden rounded-xl border border-blue-100/80 bg-[linear-gradient(135deg,#ffffff_0%,#f8fbff_58%,#eff6ff_100%)] shadow-[0_12px_30px_rgba(30,64,175,0.06)]"
+      className="overflow-hidden rounded-xl border border-indigo-100/80 bg-[linear-gradient(135deg,#ffffff_0%,#f8fbff_58%,#eff6ff_100%)] shadow-[0_12px_30px_rgba(79,70,229,0.06)]"
     >
       <div className="grid items-center gap-3 px-4 py-3 lg:grid-cols-[auto_minmax(0,1fr)]">
         <div className="flex min-w-[150px] items-center gap-3">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-blue-600 ring-1 ring-blue-100 shadow-[0_8px_18px_rgba(30,64,175,0.08)]">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-white text-indigo-600 ring-1 ring-indigo-100 shadow-[0_8px_18px_rgba(79,70,229,0.08)]">
             <Gauge className="h-4.5 w-4.5" />
           </span>
           <div>
@@ -4658,9 +4680,9 @@ function KpiStrip({
               transition={shouldReduceMotion ? { duration: 0 } : { ...RD_LIST_TRANSITION, delay: idx * 0.025 }}
               whileHover={shouldReduceMotion ? undefined : { y: -1 }}
               whileTap={shouldReduceMotion ? undefined : { scale: 0.99 }}
-              className="group flex min-w-0 items-center gap-2 rounded-lg border border-slate-100 bg-white/82 px-3 py-2 shadow-[0_6px_16px_rgba(30,64,175,0.045)] transition-all duration-200 hover:border-blue-200 hover:bg-white hover:shadow-[0_10px_20px_rgba(30,64,175,0.08)]"
+              className="group flex min-w-0 items-center gap-2 rounded-lg border border-slate-100 bg-white/82 px-3 py-2 shadow-[0_6px_16px_rgba(79,70,229,0.045)] transition-all duration-200 hover:border-indigo-200 hover:bg-white hover:shadow-[0_10px_20px_rgba(79,70,229,0.08)]"
             >
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-slate-50 to-blue-50 ring-1 ring-slate-100 transition-all duration-200 group-hover:ring-blue-100">
+              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-slate-50 to-indigo-50 ring-1 ring-slate-100 transition-all duration-200 group-hover:ring-indigo-100">
                 <it.Icon
                   className={cn(
                     "h-3.5 w-3.5 transition-transform duration-200 group-hover:scale-110",
@@ -4777,16 +4799,16 @@ function RiskHotspot({
               className={cn(
                 "flex shrink-0 items-center gap-2 rounded-md border px-2.5 py-1 text-xs transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300",
                 active
-                  ? "border-blue-200 bg-blue-50 text-blue-700 shadow-[0_8px_18px_rgba(37,99,235,0.10)] ring-1 ring-blue-100"
+                  ? "border-indigo-200 bg-indigo-50 text-indigo-700 shadow-[0_8px_18px_rgba(79,70,229,0.10)] ring-1 ring-indigo-100"
                   : disabled
                     ? "cursor-not-allowed border-slate-100 text-slate-400"
                     : "cursor-pointer border-slate-200 bg-slate-50 shadow-[0_4px_10px_rgba(15,23,42,0.025)] hover:bg-white hover:shadow-[0_8px_16px_rgba(15,23,42,0.05)]",
               )}
             >
               {b.type !== "all" && <span className={cn("h-1.5 w-1.5 rounded-full", RISK_DOT_COLOR[b.type])} />}
-              {b.type === "all" && <span className={cn("h-1.5 w-1.5 rounded-full", active ? "bg-blue-500" : "bg-slate-400")} />}
-              <span className={cn("font-medium", active ? "text-blue-700" : disabled ? "text-slate-400" : "text-slate-700")}>{b.label}</span>
-              <span className={cn("tabular-nums", active ? "font-semibold text-blue-700" : disabled ? "text-slate-400" : "font-semibold text-slate-900")}>
+              {b.type === "all" && <span className={cn("h-1.5 w-1.5 rounded-full", active ? "bg-indigo-500" : "bg-slate-400")} />}
+              <span className={cn("font-medium", active ? "text-indigo-700" : disabled ? "text-slate-400" : "text-slate-700")}>{b.label}</span>
+              <span className={cn("tabular-nums", active ? "font-semibold text-indigo-700" : disabled ? "text-slate-400" : "font-semibold text-slate-900")}>
                 {b.count}
               </span>
             </motion.button>
@@ -4871,7 +4893,7 @@ function RiskHotspot({
                   className={cn(
                     "h-7 min-w-7 cursor-pointer rounded-md px-1.5 text-[11px] font-semibold tabular-nums transition-all duration-150 active:scale-90",
                     active
-                      ? "bg-blue-50 text-blue-700 shadow-[0_6px_14px_rgba(37,99,235,0.08)] ring-1 ring-blue-200"
+                      ? "bg-indigo-50 text-indigo-700 shadow-[0_6px_14px_rgba(79,70,229,0.08)] ring-1 ring-indigo-200"
                       : "text-slate-500 hover:bg-slate-100 hover:text-slate-700",
                   )}
                   aria-current={active ? "page" : undefined}
@@ -5045,7 +5067,7 @@ function PersonLoadPanel({
                   className={cn(
                     "h-7 min-w-7 cursor-pointer rounded-md px-1.5 text-[11px] font-semibold tabular-nums transition-all duration-150 active:scale-90",
                     active
-                      ? "bg-blue-50 text-blue-700 shadow-[0_6px_14px_rgba(37,99,235,0.08)] ring-1 ring-blue-200"
+                      ? "bg-indigo-50 text-indigo-700 shadow-[0_6px_14px_rgba(79,70,229,0.08)] ring-1 ring-indigo-200"
                       : "text-slate-500 hover:bg-slate-100 hover:text-slate-700",
                   )}
                   aria-current={active ? "page" : undefined}
@@ -5127,7 +5149,7 @@ function PersonDetailDrawer({
                 <div className="mt-0.5 text-[11px] text-slate-500">当前负载</div>
               </div>
               <div>
-                <div className="text-2xl font-semibold tabular-nums text-blue-600">{maxTasks}</div>
+                <div className="text-2xl font-semibold tabular-nums text-indigo-600">{maxTasks}</div>
                 <div className="mt-0.5 text-[11px] text-slate-500">容量上限</div>
               </div>
               <div>
@@ -5168,7 +5190,7 @@ function PersonDetailDrawer({
                     <button
                       type="button"
                       onClick={() => onOpenTask(task)}
-                      className="flex w-full items-center gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2 text-left transition-all hover:border-blue-100 hover:bg-blue-50/40"
+                      className="flex w-full items-center gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2 text-left transition-all hover:border-indigo-100 hover:bg-indigo-50/40"
                     >
                       <span className={cn("h-2 w-2 shrink-0 rounded-full", taskAccentClass(task))} />
                       <div className="min-w-0 flex-1">
@@ -5319,7 +5341,7 @@ function SystemHealthCard({
         </span>
         {stat.inProgress > 0 && (
           <span className="text-slate-500">
-            <span className="font-semibold tabular-nums text-blue-600">{stat.inProgress}</span> 进行中
+            <span className="font-semibold tabular-nums text-indigo-600">{stat.inProgress}</span> 进行中
           </span>
         )}
         {stat.total === 0 && <span className="text-slate-400">无活跃</span>}
@@ -5345,14 +5367,14 @@ const PRODUCT_STATUS_LABEL: Record<RdProductStatus, string> = {
 
 const PRODUCT_STATUS_STYLE: Record<RdProductStatus, string> = {
   active: "bg-emerald-50 text-emerald-700 border-emerald-100",
-  developing: "bg-blue-50 text-blue-700 border-blue-100",
+  developing: "bg-indigo-50 text-indigo-700 border-indigo-100",
   paused: "bg-amber-50 text-amber-700 border-amber-100",
   archived: "bg-slate-100 text-slate-500 border-slate-200",
 };
 
 const PRODUCT_STATUS_DOT: Record<RdProductStatus, string> = {
   active: "bg-emerald-500",
-  developing: "bg-blue-500",
+  developing: "bg-indigo-500",
   paused: "bg-amber-500",
   archived: "bg-slate-400",
 };
@@ -5420,7 +5442,7 @@ function SystemPanorama({
       initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={RD_PANEL_TRANSITION}
-      className="rounded-xl border border-slate-200/80 bg-white p-6 shadow-[0_22px_55px_rgba(15,23,42,0.06)]"
+      className="rounded-xl border border-slate-200/70 bg-white p-6 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]"
     >
       {/* Header */}
       <header className="mb-4 flex flex-wrap items-center justify-between gap-4">
@@ -5454,7 +5476,7 @@ function SystemPanorama({
             <button
               type="button"
               onClick={onManageProducts}
-              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-all hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 active:scale-[0.97]"
+              className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-all hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 active:scale-[0.97]"
             >
               <Settings2 className="h-3.5 w-3.5" />
               管理产品
@@ -5486,7 +5508,7 @@ function SystemPanorama({
                   className={cn(
                     "flex shrink-0 items-center gap-2 rounded-t-lg px-3 py-2 text-xs font-semibold transition-all",
                     isActive
-                      ? "border-b-2 border-blue-500 text-blue-700"
+                      ? "border-b-2 border-indigo-500 text-indigo-700"
                       : "text-slate-500 hover:bg-slate-50 hover:text-slate-700",
                   )}
                 >
@@ -5578,7 +5600,7 @@ function SystemDetailHero({
       key: "in_progress",
       label: "进行中",
       count: allTasks.filter((t) => t.status === "in_progress").length,
-      color: "bg-blue-400",
+      color: "bg-indigo-400",
     },
     {
       key: "paused_blocked",
@@ -5712,7 +5734,7 @@ function UpcomingMilestonesSection({
     { key: "overdue", label: "已逾期", range: [-Infinity, -1], tone: "text-red-600", dot: "bg-red-500" },
     { key: "today", label: "今日", range: [0, 0], tone: "text-orange-600", dot: "bg-orange-500" },
     { key: "next-3", label: "3 天内", range: [1, 3], tone: "text-amber-600", dot: "bg-amber-500" },
-    { key: "this-week", label: "本周", range: [4, 7], tone: "text-blue-600", dot: "bg-blue-500" },
+    { key: "this-week", label: "本周", range: [4, 7], tone: "text-indigo-600", dot: "bg-indigo-500" },
     { key: "next-week", label: "下周", range: [8, 14], tone: "text-slate-600", dot: "bg-slate-400" },
     { key: "later", label: "15-30 天", range: [15, 30], tone: "text-slate-500", dot: "bg-slate-300" },
   ];
@@ -5733,7 +5755,7 @@ function UpcomingMilestonesSection({
   const activeWindowLabel = windowFilter === "all" ? "全部窗口" : activeBucket?.label ?? "全部窗口";
 
   return (
-    <section className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.04)]">
+    <section className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
         <div>
           <h3 className="text-sm font-semibold text-slate-900">里程碑预报</h3>
@@ -5764,14 +5786,14 @@ function UpcomingMilestonesSection({
               type="button"
               onClick={() => setWindowFilter("all")}
               className={cn(
-                "flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 active:scale-[0.99]",
+                "flex cursor-pointer items-center justify-between rounded-lg border px-3 py-2 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 active:scale-[0.99]",
                 windowFilter === "all"
-                  ? "border-blue-200 bg-blue-50 text-blue-700 shadow-[0_8px_18px_rgba(37,99,235,0.10)]"
-                  : "border-slate-200 bg-white hover:border-blue-100 hover:bg-white hover:shadow-[0_6px_14px_rgba(15,23,42,0.035)]",
+                  ? "border-indigo-200 bg-indigo-50 text-indigo-700 shadow-[0_8px_18px_rgba(79,70,229,0.10)]"
+                  : "border-slate-200 bg-white hover:border-indigo-100 hover:bg-white hover:shadow-[0_6px_14px_rgba(15,23,42,0.035)]",
               )}
             >
               <span className="flex min-w-0 items-center gap-2">
-                <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", windowFilter === "all" ? "bg-blue-500" : "bg-slate-400")} />
+                <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", windowFilter === "all" ? "bg-indigo-500" : "bg-slate-400")} />
                 <span className="truncate text-xs font-semibold">全部窗口</span>
               </span>
               <span className="text-xs font-semibold tabular-nums">{upcoming.length}</span>
@@ -5788,19 +5810,19 @@ function UpcomingMilestonesSection({
                   }}
                   disabled={!active}
                   className={cn(
-                    "flex items-center justify-between rounded-lg border px-3 py-2 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 active:scale-[0.99]",
+                    "flex items-center justify-between rounded-lg border px-3 py-2 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 active:scale-[0.99]",
                     selected
-                      ? "border-blue-200 bg-blue-50 shadow-[0_8px_18px_rgba(37,99,235,0.10)]"
+                      ? "border-indigo-200 bg-indigo-50 shadow-[0_8px_18px_rgba(79,70,229,0.10)]"
                       : active
-                        ? "cursor-pointer border-slate-200 bg-white hover:border-blue-100 hover:bg-white hover:shadow-[0_6px_14px_rgba(15,23,42,0.035)]"
+                        ? "cursor-pointer border-slate-200 bg-white hover:border-indigo-100 hover:bg-white hover:shadow-[0_6px_14px_rgba(15,23,42,0.035)]"
                         : "cursor-not-allowed border-slate-100 bg-white/55",
                   )}
                 >
                   <span className="flex min-w-0 items-center gap-2">
                     <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", b.dot, !active && "opacity-30")} />
-                    <span className={cn("truncate text-xs font-medium", selected ? "text-blue-700" : active ? b.tone : "text-slate-400")}>{b.label}</span>
+                    <span className={cn("truncate text-xs font-medium", selected ? "text-indigo-700" : active ? b.tone : "text-slate-400")}>{b.label}</span>
                   </span>
-                  <span className={cn("text-xs font-semibold tabular-nums", selected ? "text-blue-700" : active ? "text-slate-900" : "text-slate-300")}>
+                  <span className={cn("text-xs font-semibold tabular-nums", selected ? "text-indigo-700" : active ? "text-slate-900" : "text-slate-300")}>
                     {b.items.length}
                   </span>
                 </button>
@@ -5828,13 +5850,13 @@ function UpcomingMilestonesSection({
                 grouped.find((b) => dleft >= b.range[0] && dleft <= b.range[1]) ?? grouped[grouped.length - 1];
               const path = splitCategoryPath(task.category_path).slice(0, 2).join(" / ");
               const progressTone =
-                task.progress >= 80 ? "bg-emerald-500" : task.progress >= 50 ? "bg-blue-500" : task.progress > 0 ? "bg-amber-500" : "bg-slate-300";
+                task.progress >= 80 ? "bg-emerald-500" : task.progress >= 50 ? "bg-indigo-500" : task.progress > 0 ? "bg-amber-500" : "bg-slate-300";
               return (
                 <button
                   key={task.task_id}
                   type="button"
                   onClick={() => onOpen(task)}
-                  className="group flex min-w-0 cursor-pointer items-start gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2.5 text-left transition-all hover:border-blue-100 hover:bg-blue-50/30 hover:shadow-[0_8px_18px_rgba(15,23,42,0.05)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200 active:scale-[0.995]"
+                  className="group flex min-w-0 cursor-pointer items-start gap-3 rounded-lg border border-slate-100 bg-white px-3 py-2.5 text-left transition-all hover:border-indigo-100 hover:bg-indigo-50/30 hover:shadow-[0_8px_18px_rgba(15,23,42,0.05)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 active:scale-[0.995]"
                 >
                   <span className={cn("mt-0.5 w-14 shrink-0 text-xs font-semibold tabular-nums", bucket?.tone ?? "text-slate-500")}>
                     {dayLabel}
@@ -5889,7 +5911,7 @@ function UpcomingMilestonesSection({
                       onClick={() => setPage(nextPage)}
                       className={cn(
                         "h-7 min-w-7 cursor-pointer rounded-md px-1.5 text-[11px] font-semibold tabular-nums transition-all active:scale-90",
-                        current ? "bg-blue-50 text-blue-700 ring-1 ring-blue-200" : "text-slate-500 hover:bg-white hover:text-slate-700",
+                        current ? "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200" : "text-slate-500 hover:bg-white hover:text-slate-700",
                       )}
                       aria-current={current ? "page" : undefined}
                     >
@@ -5959,14 +5981,14 @@ function TasksByPartSection({
         <label className="relative block">
           <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
           <Input
-            className="h-9 w-full rounded-[8px] border border-slate-200 bg-slate-50 pl-8 pr-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-50"
+            className="h-9 w-full rounded-[8px] border border-slate-200 bg-slate-50 pl-8 pr-3 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-50"
             placeholder="搜索任务、编号、负责人、路径"
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
           />
         </label>
         <NativeSelect
-          className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+          className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
           value={statusFilter}
           onChange={(event) => setStatusFilter(event.target.value as TaskStatus | "all")}
         >
@@ -5976,7 +5998,7 @@ function TasksByPartSection({
           ))}
         </NativeSelect>
         <NativeSelect
-          className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+          className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
           value={priorityFilter}
           onChange={(event) => setPriorityFilter(event.target.value as Priority | "all")}
         >
@@ -5986,7 +6008,7 @@ function TasksByPartSection({
           <option value="low">低</option>
         </NativeSelect>
         <NativeSelect
-          className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+          className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
           value={dueFilter}
           onChange={(event) => setDueFilter(event.target.value as TaskDueFilter)}
         >
@@ -6006,7 +6028,7 @@ function TasksByPartSection({
             setDueFilter("all");
           }}
           disabled={!filtersActive}
-          className="h-9 cursor-pointer rounded-[8px] border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+          className="h-9 cursor-pointer rounded-[8px] border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
         >
           清空
         </button>
@@ -6263,7 +6285,7 @@ function PersonFormModal({
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
                 className={cn(
-                  "w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100",
+                  "w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100",
                   errors.name ? "border-red-300" : "border-slate-200",
                 )}
                 placeholder="例: 王磊"
@@ -6275,7 +6297,7 @@ function PersonFormModal({
                 value={form.position}
                 onChange={(e) => setForm((f) => ({ ...f, position: e.target.value }))}
                 className={cn(
-                  "w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100",
+                  "w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100",
                   errors.position ? "border-red-300" : "border-slate-200",
                 )}
                 placeholder="硬件测试工程师"
@@ -6288,7 +6310,7 @@ function PersonFormModal({
               <NativeSelect
                 value={form.department}
                 onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))}
-                className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
               >
                 {DEPARTMENTS.map((d) => (
                   <option key={d} value={d}>
@@ -6301,7 +6323,7 @@ function PersonFormModal({
               <NativeSelect
                 value={form.status}
                 onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as PersonStatus }))}
-                className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
               >
                 <option value="active">在岗</option>
                 <option value="on_leave">请假中</option>
@@ -6315,7 +6337,7 @@ function PersonFormModal({
               type="email"
               value={form.email ?? ""}
               onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))}
-              className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
               placeholder="user@inogi.com"
             />
           </Field>
@@ -6325,7 +6347,7 @@ function PersonFormModal({
               <Input
                 value={form.phone ?? ""}
                 onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
-                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
                 placeholder="13800000000"
               />
             </Field>
@@ -6336,7 +6358,7 @@ function PersonFormModal({
                 max={20}
                 value={form.max_tasks}
                 onChange={(e) => setForm((f) => ({ ...f, max_tasks: Math.max(1, Number(e.target.value) || 1) }))}
-                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
               />
             </Field>
           </div>
@@ -6585,7 +6607,7 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
 
           {/* Filters */}
           <section className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-100 bg-white px-4 py-3">
-            <div className="flex min-w-[260px] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 transition-all focus-within:border-blue-300 focus-within:ring-2 focus-within:ring-blue-100">
+            <div className="flex min-w-[260px] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 transition-all focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100">
               <Search className="h-3.5 w-3.5 text-slate-400" />
               <Input
                 value={keyword}
@@ -6626,7 +6648,7 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
             <NativeSelect
               value={deptFilter}
               onChange={(e) => setDeptFilter(e.target.value)}
-              className="cursor-pointer rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              className="cursor-pointer rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             >
               <option value="all">全部部门</option>
               {DEPARTMENTS.map((d) => (
@@ -6667,7 +6689,7 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
                           setStatusFilter("all");
                           setDeptFilter("all");
                         }}
-                        className="mt-3 text-xs font-medium text-blue-600 hover:underline"
+                        className="mt-3 text-xs font-medium text-indigo-600 hover:underline"
                       >
                         重置筛选
                       </button>
@@ -6720,7 +6742,7 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
                             <button
                               type="button"
                               onClick={() => setEditing(p)}
-                              className="rounded-md p-1.5 text-slate-400 transition-all duration-150 hover:bg-blue-50 hover:text-blue-600 active:scale-90"
+                              className="rounded-md p-1.5 text-slate-400 transition-all duration-150 hover:bg-indigo-50 hover:text-indigo-600 active:scale-90"
                               aria-label={`编辑 ${p.name}`}
                               title="编辑"
                             >
@@ -6908,14 +6930,14 @@ function TaskAttachmentStrip({
   if (attachments.length === 0) return null;
 
   return (
-    <div className="border-b border-blue-100 bg-gradient-to-r from-blue-50/90 via-cyan-50/70 to-white px-4 py-3">
+    <div className="border-b border-indigo-100 bg-indigo-50/50 px-4 py-3">
       <div className="flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold text-blue-700">
-          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-white text-blue-600 ring-1 ring-blue-100">
+        <div className="flex min-w-0 items-center gap-1.5 text-[11px] font-semibold text-indigo-700">
+          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-white text-indigo-600 ring-1 ring-indigo-100">
             <Paperclip className="h-3 w-3" />
           </span>
           <span className="truncate">附件</span>
-          <span className="rounded-full bg-white px-1.5 py-0.5 tabular-nums text-blue-700 ring-1 ring-blue-200 shadow-[0_4px_12px_rgba(30,64,175,0.06)]">
+          <span className="rounded-full bg-white px-1.5 py-0.5 tabular-nums text-indigo-700 ring-1 ring-indigo-200 shadow-[0_4px_12px_rgba(79,70,229,0.06)]">
             {attachments.length}
           </span>
         </div>
@@ -6923,7 +6945,7 @@ function TaskAttachmentStrip({
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onOpenGallery(0); }}
-            className="shrink-0 rounded-md border border-blue-200 bg-white px-2 py-1 text-[10px] font-semibold text-blue-700 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-800"
+            className="shrink-0 rounded-md border border-indigo-200 bg-white px-2 py-1 text-[10px] font-semibold text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-800"
           >
             <ImageIcon className="mr-1 inline h-3 w-3 align-[-2px]" />
             查看图片
@@ -6936,7 +6958,7 @@ function TaskAttachmentStrip({
           <button
             key={img.id}
             type="button"
-            className="group/att relative h-16 w-20 shrink-0 cursor-pointer overflow-hidden rounded-lg border border-blue-100 bg-white shadow-[0_8px_18px_rgba(30,64,175,0.08)] transition-all hover:border-blue-300 hover:shadow-[0_12px_24px_rgba(30,64,175,0.14)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
+            className="group/att relative h-16 w-20 shrink-0 cursor-pointer overflow-hidden rounded-lg border border-indigo-100 bg-white shadow-[0_8px_18px_rgba(79,70,229,0.08)] transition-all hover:border-indigo-300 hover:shadow-[0_12px_24px_rgba(79,70,229,0.14)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
             onClick={(e) => { e.stopPropagation(); onOpenGallery(imageIndex); }}
             title={img.name}
           >
@@ -6952,10 +6974,10 @@ function TaskAttachmentStrip({
         {visibleFiles.map((file) => (
           <div
             key={file.id}
-            className="flex h-16 w-28 shrink-0 items-center gap-2 rounded-lg border border-blue-100 bg-white/90 px-2 shadow-[0_8px_18px_rgba(30,64,175,0.07)]"
+            className="flex h-16 w-28 shrink-0 items-center gap-2 rounded-lg border border-indigo-100 bg-white/90 px-2 shadow-[0_8px_18px_rgba(79,70,229,0.07)]"
             title={file.name}
           >
-            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-gradient-to-br from-blue-50 to-cyan-50 text-blue-600 ring-1 ring-blue-100">
+            <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
               <FileText className="h-4 w-4" />
             </span>
             <span className="line-clamp-2 min-w-0 text-[10px] font-medium leading-snug text-slate-600">
@@ -6965,7 +6987,7 @@ function TaskAttachmentStrip({
         ))}
 
         {extraCount > 0 && (
-          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-dashed border-blue-200 bg-white/70 text-xs font-bold tabular-nums text-blue-600">
+          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-dashed border-indigo-200 bg-white/70 text-xs font-bold tabular-nums text-indigo-600">
             +{extraCount}
           </div>
         )}
@@ -7305,8 +7327,8 @@ function PersonTaskCockpit({
         tabIndex={0}
         onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectTask(task); } }}
         className={cn(
-          "group relative cursor-pointer overflow-hidden rounded-xl border bg-white/92 shadow-[0_10px_24px_rgba(30,64,175,0.06),inset_0_1px_0_rgba(255,255,255,0.9)] transition-all duration-200 hover:bg-white hover:shadow-[0_16px_32px_rgba(30,64,175,0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200",
-          isRisk ? "border-red-200/80 hover:border-red-300" : "border-blue-100/80 hover:border-blue-300",
+          "group relative cursor-pointer overflow-hidden rounded-xl border bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all duration-200 hover:shadow-[0_10px_22px_-8px_rgba(79,70,229,0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200",
+          isRisk ? "border-red-200/80 hover:border-red-300" : "border-indigo-100/80 hover:border-indigo-300",
         )}
       >
         {hasLoadedAttachments && (
@@ -7413,7 +7435,7 @@ function PersonTaskCockpit({
                 <button
                   type="button"
                   onClick={(e) => { e.stopPropagation(); onReassignTask(task); }}
-                  className="ml-auto inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+                  className="ml-auto inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
                 >
                   <UserCog className="h-3 w-3" />
                   转派
@@ -7432,7 +7454,7 @@ function PersonTaskCockpit({
 
           {/* ─── 最新进度（如有） ─── */}
           {task.latest_progress_summary?.text && (
-            <p className="line-clamp-2 rounded-md bg-blue-50/60 px-2.5 py-1.5 text-xs leading-relaxed text-blue-800/90">
+            <p className="line-clamp-2 rounded-md bg-indigo-50/60 px-2.5 py-1.5 text-xs leading-relaxed text-indigo-800/90">
               {task.latest_progress_summary.text}
             </p>
           )}
@@ -7514,12 +7536,12 @@ function PersonTaskCockpit({
         initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={RD_PANEL_TRANSITION}
-        className="overflow-hidden rounded-2xl border border-blue-100/80 bg-white shadow-[0_24px_60px_rgba(30,64,175,0.10)]"
+        className="overflow-hidden rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]"
       >
         <Tabs value={activeTab} onValueChange={handleTabChange} className="gap-0">
 
           {/* ── INS Stories-style 人员导航栏 (with visible horizontal scrollbar) ── */}
-          <TabsList className="flex h-auto w-full justify-start gap-0 overflow-x-auto rounded-none border-b border-blue-100 bg-gradient-to-r from-white via-blue-50/40 to-cyan-50/40 px-4 pt-4 pb-2 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/70 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400">
+          <TabsList className="flex h-auto w-full justify-start gap-0 overflow-x-auto rounded-none border-b border-indigo-100 bg-slate-50/50 px-4 pt-4 pb-2 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/70 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400">
 
             {/* 全部 — 所有活跃任务入口 */}
             <TabsTrigger
@@ -7531,9 +7553,9 @@ function PersonTaskCockpit({
                   className="flex h-[54px] w-[54px] items-center justify-center rounded-full p-[2.5px] transition-all duration-200"
                   style={{
                     background: activeTab === "all"
-                      ? "linear-gradient(135deg,#2563eb,#06b6d4)"
+                      ? "linear-gradient(135deg,#4f46e5,#6366f1)"
                       : risks.length > 0
-                        ? "linear-gradient(135deg,#93c5fd,#f87171)"
+                        ? "linear-gradient(135deg,#a5b4fc,#f87171)"
                         : "linear-gradient(135deg,#cbd5e1,#94a3b8)",
                   }}
                 >
@@ -7541,14 +7563,14 @@ function PersonTaskCockpit({
                     "flex h-full w-full items-center justify-center rounded-full bg-white transition-all",
                     activeTab === "all" ? "p-[2px]" : "p-0",
                   )}>
-                    <div className="flex h-full w-full items-center justify-center rounded-full bg-gradient-to-br from-blue-50 to-cyan-50">
-                      <ListChecks className={cn("h-5 w-5 transition-colors", activeTab === "all" ? "text-blue-600" : "text-slate-500")} />
+                    <div className="flex h-full w-full items-center justify-center rounded-full bg-indigo-50">
+                      <ListChecks className={cn("h-5 w-5 transition-colors", activeTab === "all" ? "text-indigo-600" : "text-slate-500")} />
                     </div>
                   </div>
                 </div>
                 {/* Total tasks badge */}
                 {allActiveTasks.length > 0 && (
-                  <span className="absolute -bottom-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 px-0.5 text-[9px] font-black text-white">
+                  <span className="absolute -bottom-0.5 -right-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-indigo-500 px-0.5 text-[9px] font-black text-white">
                     {allActiveTasks.length > 99 ? "99+" : allActiveTasks.length}
                   </span>
                 )}
@@ -7562,7 +7584,7 @@ function PersonTaskCockpit({
                   </span>
                 )}
               </div>
-              <span className={cn("text-[10px] font-semibold leading-none", activeTab === "all" ? "text-blue-800" : "text-slate-500")}>
+              <span className={cn("text-[10px] font-semibold leading-none", activeTab === "all" ? "text-indigo-800" : "text-slate-500")}>
                 全部
               </span>
             </TabsTrigger>
@@ -7609,7 +7631,7 @@ function PersonTaskCockpit({
                       </span>
                     )}
                   </div>
-                  <span className={cn("max-w-[56px] truncate text-[10px] font-semibold leading-none", isActive ? "text-blue-800" : "text-slate-500")}>
+                  <span className={cn("max-w-[56px] truncate text-[10px] font-semibold leading-none", isActive ? "text-indigo-800" : "text-slate-500")}>
                     {p.name}
                   </span>
                   {isActive && (
@@ -7627,9 +7649,9 @@ function PersonTaskCockpit({
 
           {/* ── 当前 KPI 筛选条 ── */}
           {kpiFilter !== "all" && (
-            <div className="flex items-center justify-between gap-3 border-b border-blue-100 bg-gradient-to-r from-blue-50/80 via-white to-cyan-50/60 px-4 py-2 text-xs">
+            <div className="flex items-center justify-between gap-3 border-b border-indigo-100 bg-indigo-50/40 px-4 py-2 text-xs">
               <div className="flex min-w-0 items-center gap-2">
-                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-blue-700 ring-1 ring-blue-200 shadow-[0_4px_10px_rgba(30,64,175,0.06)]">
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-indigo-700 ring-1 ring-indigo-200 shadow-[0_4px_10px_rgba(79,70,229,0.06)]">
                   <ListChecks className="h-3 w-3" />
                   当前筛选：
                   <span className="ml-0.5">{KPI_FILTER_LABEL[kpiFilter]}</span>
@@ -7675,7 +7697,7 @@ function PersonTaskCockpit({
                   <button
                     type="button"
                     onClick={onClearKpiFilter}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                    className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
                   >
                     <X className="h-3 w-3" />
                     清除筛选
@@ -7686,7 +7708,7 @@ function PersonTaskCockpit({
           )}
 
           {/* ── Animated tab content area ── */}
-          <div className="relative overflow-hidden bg-[linear-gradient(180deg,#f8fbff_0%,#f4f8ff_48%,#eef6ff_100%)]">
+          <div className="relative overflow-hidden bg-slate-50/40">
             <AnimatePresence mode="wait" custom={direction}>
               <motion.div
                 key={activeTab}
@@ -7703,7 +7725,7 @@ function PersonTaskCockpit({
                   const visibleCount = visibleCounts["all"] ?? TASK_PAGE_SIZE;
                   const shownTasks = allActiveTasks.slice(0, visibleCount);
                   const hasMore = visibleCount < allActiveTasks.length;
-                  const allGrad = { from: "#3b82f6", to: "#06b6d4" };
+                  const allGrad = { from: "#4f46e5", to: "#6366f1" };
 
                   return (
                     <div>
@@ -7714,7 +7736,7 @@ function PersonTaskCockpit({
                             animate={{ opacity: 1, height: "auto" }}
                             exit={{ opacity: 0, height: 0 }}
                             transition={RD_FAST_TRANSITION}
-                            className="flex items-center gap-2 border-b border-blue-100 bg-blue-50 px-4 py-2 text-[11px] text-blue-600"
+                            className="flex items-center gap-2 border-b border-indigo-100 bg-indigo-50 px-4 py-2 text-[11px] text-indigo-600"
                           >
                             <Loader2 className="h-3 w-3 animate-spin shrink-0" />
                             正在加载任务附件图片…
@@ -7729,7 +7751,7 @@ function PersonTaskCockpit({
                             <button
                               type="button"
                               onClick={onClearKpiFilter}
-                              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
                             >
                               <X className="h-3 w-3" />
                               清除筛选
@@ -7792,7 +7814,7 @@ function PersonTaskCockpit({
                             animate={{ opacity: 1, height: "auto" }}
                             exit={{ opacity: 0, height: 0 }}
                             transition={RD_FAST_TRANSITION}
-                            className="flex items-center gap-2 border-b border-blue-100 bg-blue-50 px-4 py-2 text-[11px] text-blue-600"
+                            className="flex items-center gap-2 border-b border-indigo-100 bg-indigo-50 px-4 py-2 text-[11px] text-indigo-600"
                           >
                             <Loader2 className="h-3 w-3 animate-spin shrink-0" />
                             正在加载任务附件图片…
@@ -7808,7 +7830,7 @@ function PersonTaskCockpit({
                             <button
                               type="button"
                               onClick={onClearKpiFilter}
-                              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700"
+                              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
                             >
                               <X className="h-3 w-3" />
                               清除筛选
@@ -7996,7 +8018,7 @@ function TaskReassignModal({
                         type="checkbox"
                         checked={selectedTasks.has(t.task_id)}
                         onChange={() => toggleTask(t.task_id)}
-                        className="h-4 w-4 rounded border-slate-300 accent-blue-600"
+                        className="h-4 w-4 rounded border-slate-300 accent-indigo-600"
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
@@ -8030,7 +8052,7 @@ function TaskReassignModal({
                         className={cn(
                           "rounded-lg border px-3 py-2 text-left text-sm transition-colors",
                           isNoop && "cursor-not-allowed opacity-45",
-                          targetPerson?.id === p.id ? "border-blue-300 bg-blue-50" : "border-slate-200 hover:bg-slate-50",
+                          targetPerson?.id === p.id ? "border-indigo-300 bg-indigo-50" : "border-slate-200 hover:bg-slate-50",
                         )}
                       >
                         <div className="font-medium text-slate-800">{p.name}</div>
@@ -8051,7 +8073,7 @@ function TaskReassignModal({
                   type="button"
                   disabled={selectedTasks.size === 0 || !targetPerson || targetIsCurrentOwner || saving}
                   onClick={handleConfirm}
-                  className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.20)] transition-all hover:bg-blue-700 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none"
+                  className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-all hover:bg-indigo-700 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none"
                 >
                   {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
                   {saving ? "处理中..." : hasPendingAssign ? "确认指派" : "确认转派"}
@@ -8346,7 +8368,7 @@ function ProductManageDialog({
                           <button
                             type="button"
                             onClick={() => openEdit(prod)}
-                            className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
+                            className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
                           >
                             <Pencil className="h-3.5 w-3.5" />
                           </button>
@@ -8367,7 +8389,7 @@ function ProductManageDialog({
                   <button
                     type="button"
                     onClick={openNew}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 py-2.5 text-sm font-semibold text-slate-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 py-2.5 text-sm font-semibold text-slate-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
                   >
                     <Plus className="h-4 w-4" />
                     新增产品
@@ -8431,7 +8453,7 @@ function ProductManageDialog({
                     type="button"
                     onClick={handleSaveForm}
                     disabled={!form.name.trim() || saving}
-                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-blue-600 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(37,99,235,0.20)] transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+                    className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                     保存
@@ -8517,26 +8539,25 @@ function ExecutiveOverview({
       style={{ background: "transparent" }}
     >
       <div className="mx-auto max-w-[1400px] space-y-6 rd-stagger-children">
-        <section className="relative overflow-hidden rounded-2xl border border-blue-100/80 bg-[linear-gradient(135deg,#ffffff_0%,#eff6ff_48%,#ecfeff_100%)] px-4 py-3 shadow-[0_18px_42px_rgba(30,64,175,0.08)]">
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-blue-400/55 to-transparent" />
-          <div className="grid gap-3 lg:grid-cols-[minmax(280px,1fr)_auto]">
-            <div className="order-1 flex min-w-0 items-center gap-3 rounded-xl border border-white/70 bg-white/55 px-3 py-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.85)]">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-cyan-500 text-white shadow-[0_12px_26px_rgba(37,99,235,0.24)]">
+        <section className="rounded-2xl border border-slate-200/70 bg-white px-5 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]">
+          <div className="grid gap-4 lg:grid-cols-[minmax(280px,1fr)_auto]">
+            <div className="order-1 flex min-w-0 items-center gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-[0_6px_16px_-4px_rgba(79,70,229,0.45)]">
                 <Sparkles className="h-5 w-5" />
               </span>
               <div className="min-w-0">
-                <h2 className="truncate text-base font-bold text-slate-950">研发执行提示</h2>
-                <p className="mt-0.5 truncate text-xs font-medium text-blue-700/70">
+                <h2 className="truncate text-base font-bold text-slate-900">研发执行提示</h2>
+                <p className="mt-0.5 truncate text-xs font-medium text-slate-500">
                   优先处理阻塞、逾期和待指派任务；新增需求建议先走 AI 立项拆解。
                 </p>
               </div>
             </div>
 
-            <div className="order-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:col-span-2 lg:grid-cols-6">
+            <div className="order-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:col-span-2 lg:grid-cols-6">
               {([
-                { label: "活跃", value: totalActive, Icon: Target, tone: "text-blue-700", bg: "from-blue-50 to-white", filterKey: null, activeRing: "ring-blue-300" },
+                { label: "活跃", value: totalActive, Icon: Target, tone: "text-indigo-700", bg: "from-indigo-50 to-white", filterKey: null, activeRing: "ring-indigo-300" },
                 { label: "完成率", value: `${rate}%`, Icon: Gauge, tone: "text-slate-900", bg: "from-slate-50 to-white", filterKey: null, activeRing: "ring-slate-300" },
-                { label: "进行中", value: inProgress, Icon: CircleDot, tone: "text-blue-600", bg: "from-blue-50 to-white", filterKey: "in_progress" as KpiFilter, activeRing: "ring-blue-400" },
+                { label: "进行中", value: inProgress, Icon: CircleDot, tone: "text-indigo-600", bg: "from-indigo-50 to-white", filterKey: "in_progress" as KpiFilter, activeRing: "ring-indigo-400" },
                 { label: "完成", value: done, Icon: CheckCircle2, tone: "text-emerald-700", bg: "from-emerald-50 to-white", filterKey: "completed" as KpiFilter, activeRing: "ring-emerald-400" },
                 { label: "阻塞/待派", value: blocked, Icon: Users, tone: blocked > 0 ? "text-amber-700" : "text-slate-400", bg: blocked > 0 ? "from-amber-50 to-white" : "from-slate-50 to-white", filterKey: "blocked" as KpiFilter, activeRing: "ring-amber-400" },
                 { label: "风险", value: risks.length, Icon: AlertTriangle, tone: risks.length > 0 ? "text-red-700" : "text-slate-400", bg: risks.length > 0 ? "from-red-50 to-white" : "from-slate-50 to-white", filterKey: "risk" as KpiFilter, activeRing: "ring-red-400" },
@@ -8556,23 +8577,22 @@ function ExecutiveOverview({
                         }
                       : {})}
                     className={cn(
-                      "flex min-w-0 items-center gap-2 rounded-xl border bg-gradient-to-br px-2.5 py-2 shadow-[0_6px_16px_rgba(30,64,175,0.045)] ring-1 transition-all",
-                      item.bg,
+                      "flex min-w-0 items-center gap-2.5 rounded-xl border bg-white px-3 py-2.5 transition-all",
                       active
-                        ? cn("border-transparent ring-2 ring-offset-1 shadow-[0_10px_24px_rgba(30,64,175,0.12)]", item.activeRing)
-                        : "border-white/80 ring-blue-100/70",
-                      clickable && !active && "cursor-pointer hover:-translate-y-0.5 hover:shadow-[0_10px_22px_rgba(30,64,175,0.10)] hover:ring-blue-200",
+                        ? cn("border-transparent ring-2 ring-offset-1 shadow-[0_10px_24px_-10px_rgba(79,70,229,0.30)]", item.activeRing)
+                        : "border-slate-200/70 shadow-[0_1px_2px_rgba(15,23,42,0.04)]",
+                      clickable && !active && "cursor-pointer hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_8px_18px_-8px_rgba(79,70,229,0.25)]",
                       clickable && "text-left",
                     )}
                   >
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/80 ring-1 ring-slate-100">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-50 ring-1 ring-slate-100">
                       <item.Icon className={cn("h-3.5 w-3.5", item.tone)} />
                     </span>
                     <div className="min-w-0">
                       <div className={cn("text-base font-bold leading-none tabular-nums", item.tone)}>{item.value}</div>
                       <div className="mt-0.5 flex items-center gap-1 truncate text-[10px] font-semibold text-slate-500">
                         <span className="truncate">{item.label}</span>
-                        {active && <span className="shrink-0 rounded-sm bg-blue-100 px-1 py-px text-[9px] font-bold leading-none text-blue-700">筛选中</span>}
+                        {active && <span className="shrink-0 rounded-sm bg-indigo-100 px-1 py-px text-[9px] font-bold leading-none text-indigo-700">筛选中</span>}
                       </div>
                     </div>
                   </Wrapper>
@@ -8586,7 +8606,7 @@ function ExecutiveOverview({
                   <button
                     type="button"
                     onClick={onAiProject}
-                    className="group flex flex-none items-center gap-2 rounded-xl bg-gradient-to-br from-blue-600 via-blue-500 to-cyan-500 px-2.5 py-2 text-left text-xs font-semibold text-white shadow-[0_12px_24px_rgba(37,99,235,0.24)] transition-all hover:-translate-y-0.5 hover:shadow-[0_16px_30px_rgba(37,99,235,0.30)] active:translate-y-0 active:scale-[0.98]"
+                    className="group flex flex-none items-center gap-2 rounded-xl bg-indigo-600 px-2.5 py-2 text-left text-xs font-semibold text-white shadow-[0_8px_18px_-6px_rgba(79,70,229,0.45)] transition-all hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-[0_12px_22px_-6px_rgba(79,70,229,0.50)] active:translate-y-0 active:scale-[0.98]"
                   >
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/18">
                       <Sparkles className="h-4 w-4 transition-transform group-hover:rotate-12" />
@@ -8610,9 +8630,9 @@ function ExecutiveOverview({
                   <button
                     type="button"
                     onClick={onReassign}
-                    className="group flex flex-none items-center gap-2 rounded-xl border border-blue-100 bg-white/90 px-2.5 py-2 text-left text-xs font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 active:translate-y-0 active:scale-[0.98]"
+                    className="group flex flex-none items-center gap-2 rounded-xl border border-indigo-100 bg-white/90 px-2.5 py-2 text-left text-xs font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.05)] transition-all hover:-translate-y-0.5 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 active:translate-y-0 active:scale-[0.98]"
                   >
-                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 ring-1 ring-blue-100">
+                    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
                       <UserCog className="h-4 w-4" />
                     </span>
                     <span className="min-w-0">批量转派</span>
@@ -8648,7 +8668,7 @@ function ExecutiveOverview({
         </section>
 
         {loading || catStats.length === 0 ? (
-          <section className="rounded-xl border border-dashed border-slate-200 bg-white px-6 py-16 text-center shadow-[0_18px_45px_rgba(15,23,42,0.04)]">
+          <section className="rounded-xl border border-dashed border-slate-200 bg-white px-6 py-16 text-center shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]">
             <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-lg bg-slate-900 text-white">
               <LayoutGrid className="h-5 w-5" />
             </span>
@@ -8669,7 +8689,7 @@ function ExecutiveOverview({
               <button
                 type="button"
                 onClick={onRefresh}
-                className="mt-5 inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-all hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 active:scale-[0.98]"
+                className="mt-5 inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-all hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 active:scale-[0.98]"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
                 重新读取
@@ -8778,7 +8798,7 @@ function MoveTaskDialog({
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
               <ArrowRight className="h-4 w-4" />
             </div>
             <div>
@@ -8842,7 +8862,7 @@ function MoveTaskDialog({
             type="button"
             disabled={saving || !targetSubId}
             onClick={handleConfirm}
-            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-60"
           >
             {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
             确认移动
@@ -8942,7 +8962,7 @@ function MoveTasksDialog({
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div className="flex items-center gap-2.5">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-blue-100 text-blue-600">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
               <ArrowRight className="h-4 w-4" />
             </div>
             <div>
@@ -8959,7 +8979,7 @@ function MoveTasksDialog({
           <div>
             <div className="mb-2 flex items-center justify-between text-sm font-medium text-slate-700">
               <span>选择任务 ({selectedIds.size}/{fromSub.tasks.length})</span>
-              <button type="button" onClick={toggleAll} className="text-xs text-blue-600 hover:underline">
+              <button type="button" onClick={toggleAll} className="text-xs text-indigo-600 hover:underline">
                 {selectedIds.size === fromSub.tasks.length ? "取消全选" : "全选"}
               </button>
             </div>
@@ -8972,7 +8992,7 @@ function MoveTasksDialog({
                     type="checkbox"
                     checked={selectedIds.has(t.task_id)}
                     onChange={() => toggleTask(t.task_id)}
-                    className="h-4 w-4 rounded border-slate-300 accent-blue-600"
+                    className="h-4 w-4 rounded border-slate-300 accent-indigo-600"
                   />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm text-slate-800">{t.title}</div>
@@ -9029,7 +9049,7 @@ function MoveTasksDialog({
             type="button"
             disabled={saving || selectedIds.size === 0 || !targetSubId}
             onClick={handleConfirm}
-            className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-60"
           >
             {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
             确认移动

@@ -416,7 +416,7 @@ const statusColors: Record<Tone, string> = {
 };
 
 const chartColors = ["#1e40af", "#0891b2", "#f59e0b", "#e11d48", "#7c3aed"];
-const selectTriggerClass = "h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm outline-none transition focus-visible:border-blue-300 focus-visible:ring-2 focus-visible:ring-blue-100";
+const selectTriggerClass = "h-10 rounded-xl border border-slate-200 bg-white px-3 text-sm font-medium text-slate-700 shadow-sm outline-none transition focus-visible:border-indigo-300 focus-visible:ring-2 focus-visible:ring-indigo-100";
 const OPS_TABLE_PAGE_SIZE = 8;
 
 function SelectControl({
@@ -552,10 +552,10 @@ function Hero({ section }: { section: OpsSection }) {
   const meta = sectionMeta[section];
   return (
     <section className="material-card relative overflow-hidden p-6 md:p-8">
-      <div className="absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,#1e40af,#0891b2,#10b981,#f59e0b,#e11d48)]" />
+      <div className="absolute inset-x-0 top-0 h-1 bg-primary" />
       <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
         <div className="max-w-3xl">
-          <span className="material-chip border border-blue-100 bg-blue-50 text-blue-700">{meta.eyebrow}</span>
+          <span className="material-chip border border-indigo-100 bg-indigo-50 text-indigo-700">{meta.eyebrow}</span>
           <h2 className="mt-4 text-2xl font-bold tracking-tight text-slate-950 md:text-3xl">{meta.title}</h2>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">{meta.description}</p>
         </div>
@@ -692,7 +692,7 @@ function OverviewPage({ data }: { data: OpsCenterSectionData | null }) {
               <Link
                 key={item.id}
                 to="/ops-center/api-errors"
-                className="block rounded border border-slate-200 bg-white p-4 transition-colors hover:border-blue-200 hover:bg-blue-50/35"
+                className="block rounded border border-slate-200 bg-white p-4 transition-colors hover:border-indigo-200 hover:bg-indigo-50/35"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0">
@@ -1187,8 +1187,8 @@ function ApiLogsPage({ data }: { data: OpsCenterSectionData | null }) {
                 <TableRow
                   key={row.id}
                   className={cn(
-                    "cursor-pointer align-top transition hover:bg-blue-50/40",
-                    selected.id === row.id && "bg-blue-50/70 ring-1 ring-inset ring-blue-200",
+                    "cursor-pointer align-top transition hover:bg-indigo-50/40",
+                    selected.id === row.id && "bg-indigo-50/70 ring-1 ring-inset ring-indigo-200",
                   )}
                   onClick={() => setSelectedLogId(row.id)}
                 >
@@ -1299,8 +1299,8 @@ function ErrorsPage({ data }: { data: OpsCenterSectionData | null }) {
             <div
               key={item.id}
               className={cn(
-                "cursor-pointer rounded border bg-white p-5 transition hover:border-blue-200 hover:bg-blue-50/30",
-                selectedIssue?.id === item.id ? "border-blue-300 bg-blue-50/40 ring-1 ring-blue-200" : "border-slate-200",
+                "cursor-pointer rounded border bg-white p-5 transition hover:border-indigo-200 hover:bg-indigo-50/30",
+                selectedIssue?.id === item.id ? "border-indigo-300 bg-indigo-50/40 ring-1 ring-indigo-200" : "border-slate-200",
               )}
               onClick={() => setSelectedIssueId(item.id)}
             >
@@ -1546,7 +1546,7 @@ function AuditLogsPage({ data }: { data: OpsCenterSectionData | null }) {
         <MiniMetric label="今日审计事件" value={String(todayEvents)} />
         <MiniMetric label="高风险操作" value={String(highRiskCount)} />
         <MiniMetric label="涉及用户" value={String(userCount)} />
-        <div className="rounded border border-blue-200 bg-blue-50 p-4 text-sm leading-6 text-blue-800">
+        <div className="rounded border border-indigo-200 bg-indigo-50 p-4 text-sm leading-6 text-indigo-800">
           建议将修改 AI Key、角色权限、停用用户、删除数据等操作保持 90 天以上审计保留。
         </div>
       </DetailPanel>
@@ -1662,7 +1662,7 @@ export function OpsCenterPage({ section }: OpsCenterPageProps) {
         </div>
       ) : null}
       <div className="relative">
-        <div className="pointer-events-none absolute -left-3 top-6 h-20 w-1 rounded-full bg-[linear-gradient(180deg,#1e40af,#0891b2,#10b981)]" />
+        <div className="pointer-events-none absolute -left-3 top-6 h-20 w-1 rounded-full bg-primary" />
         <SectionContent section={section} data={data} />
       </div>
     </div>

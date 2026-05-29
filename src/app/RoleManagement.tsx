@@ -179,7 +179,7 @@ function PermissionMatrix({
             <button
               type="button"
               onClick={() => toggleGroup(group.label)}
-              className="group/grp flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-200"
+              className="group/grp flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-200"
             >
               <Checkbox
                 checked={allSelected ? true : selectedCount > 0 ? "indeterminate" : false}
@@ -439,10 +439,10 @@ export function RoleManagement() {
     <div className="mx-auto max-w-7xl space-y-5 animate-rd-fade-in">
       {/* ── Header ──────────────────────────────────────────────────── */}
       <section className="material-card overflow-hidden">
-        <div className="h-0.5 bg-linear-to-r from-primary via-blue-400 to-sky-300" />
+        <div className="h-0.5 bg-indigo-600" />
         <div className="flex flex-col gap-4 p-6 lg:flex-row lg:items-center lg:justify-between md:p-8">
           <div className="min-w-0">
-            <span className="material-chip bg-blue-50 text-blue-700 text-xs tracking-wide">
+            <span className="material-chip bg-indigo-50 text-indigo-700 text-xs tracking-wide">
               Permission Matrix
             </span>
             <h2 className="mt-3 text-2xl font-bold tracking-tight text-slate-950 sm:text-[1.75rem]">
@@ -510,13 +510,13 @@ export function RoleManagement() {
                     className={cn(
                       "group/role relative flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-all duration-200",
                       isActive
-                        ? "border-blue-300 bg-linear-to-br from-blue-50 to-sky-50/50 shadow-sm"
+                        ? "border-indigo-200 bg-indigo-50 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
                         : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60",
                     )}
                   >
                     {/* Left active accent */}
                     {isActive && (
-                      <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-r bg-linear-to-b from-blue-500 to-sky-400" />
+                      <span className="absolute left-0 top-2 bottom-2 w-0.5 rounded-r bg-indigo-600" />
                     )}
 
                     {/* Role icon */}
@@ -526,7 +526,7 @@ export function RoleManagement() {
                         isSuper
                           ? "bg-linear-to-br from-amber-100 to-orange-100 text-amber-600 ring-1 ring-amber-200"
                           : isActive
-                            ? "bg-blue-100 text-blue-600 ring-1 ring-blue-200"
+                            ? "bg-indigo-100 text-indigo-600 ring-1 ring-indigo-200"
                             : "bg-slate-100 text-slate-500 ring-1 ring-slate-200 group-hover/role:bg-slate-200",
                       )}
                     >
@@ -538,7 +538,7 @@ export function RoleManagement() {
                         <span
                           className={cn(
                             "truncate text-sm font-semibold",
-                            isActive ? "text-blue-700" : "text-slate-800",
+                            isActive ? "text-indigo-700" : "text-slate-800",
                           )}
                         >
                           {role.name}
@@ -576,7 +576,7 @@ export function RoleManagement() {
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-6 w-6 text-slate-500 hover:text-blue-600 hover:bg-blue-50"
+                                className="h-6 w-6 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   openEdit(role);
@@ -632,7 +632,7 @@ export function RoleManagement() {
                         "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
                         isWildcard
                           ? "bg-linear-to-br from-amber-100 to-orange-100 text-amber-600 ring-1 ring-amber-200"
-                          : "bg-blue-100 text-blue-600 ring-1 ring-blue-200",
+                          : "bg-indigo-100 text-indigo-600 ring-1 ring-indigo-200",
                       )}
                     >
                       {isWildcard ? <Crown className="h-4 w-4" /> : <User className="h-4 w-4" />}
@@ -695,9 +695,9 @@ export function RoleManagement() {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {dialogMode === "edit" ? (
-                <><Pencil className="h-4 w-4 text-blue-500" />编辑角色</>
+                <><Pencil className="h-4 w-4 text-indigo-500" />编辑角色</>
               ) : (
-                <><Plus className="h-4 w-4 text-blue-500" />新建角色</>
+                <><Plus className="h-4 w-4 text-indigo-500" />新建角色</>
               )}
             </DialogTitle>
           </DialogHeader>

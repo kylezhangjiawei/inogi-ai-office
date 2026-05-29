@@ -19,7 +19,7 @@ function getMsgSummary(msg: RdMessage): string {
   try {
     const b = JSON.parse(msg.body) as Record<string, unknown>;
     if (b.type === "review_request") {
-      const reviewType = b.review_type === "collaboration" ? "协作申请" : "成果提交";
+      const reviewType = b.review_type === "collaboration" ? "协作申请" : b.review_type === "proposal" ? "立项申请" : "成果提交";
       return `【${reviewType}】${String(b.submitter_name ?? "")} 提交了任务「${String(b.task_title ?? "")}」`;
     }
     if (b.type === "review_result") {
@@ -104,9 +104,9 @@ export function Header() {
   );
   return (
     <header className="relative z-40 border-b border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.82),rgba(255,255,255,0.72))] px-6 py-4 backdrop-blur-xl">
-      <div className="flex flex-col gap-4 min-[1680px]:flex-row min-[1680px]:items-center min-[1680px]:justify-between">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-center">
         <div className="flex min-w-0 items-start gap-4">
-          <div className="hidden h-14 w-1 rounded-full bg-[linear-gradient(180deg,#42a5f5_0%,#1976d2_100%)] min-[1680px]:block" />
+          <div className="hidden h-14 w-1 rounded-full bg-[linear-gradient(180deg,#42a5f5_0%,#1976d2_100%)] xl:block" />
           <div className="min-w-0 space-y-2">
             <div className="flex min-w-0 items-center gap-2 text-sm text-slate-500">
               <span>{breadcrumb[0]}</span>
@@ -119,13 +119,13 @@ export function Header() {
           </div>
         </div>
 
-        <div className="flex min-w-0 flex-col gap-3 xl:flex-row xl:items-center">
-          <div className="relative min-w-0 flex-1 xl:w-[340px]">
+        <div className="flex min-w-0 flex-col gap-3 xl:flex-1 xl:flex-row xl:items-center xl:justify-end">
+          <div className="relative min-w-0 flex-1 xl:max-w-[340px]">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
             <input type="text" placeholder="搜索工单、文档、人员、项目..." className="material-input pl-11 pr-4" />
           </div>
 
-          <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <div className="flex min-w-0 flex-wrap items-center gap-3 xl:shrink-0 xl:flex-nowrap">
             <div className="rounded-[20px] bg-white/85 px-4 py-2 text-right">
               <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-400">Today</div>
               <div className="text-sm font-semibold text-slate-700">{today}</div>

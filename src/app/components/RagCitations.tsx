@@ -79,7 +79,7 @@ export function RagCitations({
                     title={clickable ? "点击查看原文" : undefined}
                     className={cn(
                       "min-w-0 flex-1 truncate text-left text-[11px] font-semibold text-slate-800",
-                      clickable && "cursor-pointer hover:text-blue-700",
+                      clickable && "cursor-pointer hover:text-indigo-700",
                     )}
                   >
                     {c.title}
@@ -105,7 +105,7 @@ export function RagCitations({
                     target="_blank"
                     rel="noopener noreferrer"
                     title="下载原文件"
-                    className="shrink-0 rounded p-0.5 text-blue-500 hover:bg-blue-50 hover:text-blue-700"
+                    className="shrink-0 rounded p-0.5 text-indigo-500 hover:bg-indigo-50 hover:text-indigo-700"
                     onClick={(e) => e.stopPropagation()}
                   >
                     <Download className="h-3 w-3" />

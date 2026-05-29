@@ -262,9 +262,9 @@ function ActionButton({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        "inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200",
+        "inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200",
         disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
-        variant === "primary" && "bg-blue-600 text-white shadow-[0_8px_18px_rgba(37,99,235,0.20)] hover:bg-blue-700",
+        variant === "primary" && "bg-indigo-600 text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] hover:bg-indigo-700",
         variant === "secondary" && "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900",
         variant === "ghost" && "text-slate-500 hover:bg-slate-100 hover:text-slate-800",
         variant === "danger" && "border border-red-100 bg-red-50 text-red-600 hover:bg-red-100",
@@ -322,7 +322,7 @@ function ConfirmActionModal({
           <span
             className={cn(
               "mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
-              isDanger ? "bg-red-50 text-red-600" : "bg-blue-50 text-blue-600",
+              isDanger ? "bg-red-50 text-red-600" : "bg-indigo-50 text-indigo-600",
             )}
           >
             <Icon className="h-5 w-5" />
@@ -368,7 +368,7 @@ function ConfirmActionModal({
               "inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white transition-all duration-150 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:opacity-60",
               isDanger
                 ? "bg-red-600 hover:bg-red-700 focus-visible:ring-red-200"
-                : "bg-blue-600 hover:bg-blue-700 focus-visible:ring-blue-200",
+                : "bg-indigo-600 hover:bg-indigo-700 focus-visible:ring-indigo-200",
             )}
           >
             {confirming ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
@@ -514,7 +514,7 @@ function DrawerShell({
       >
         <header className="flex items-start justify-between gap-4 border-b border-slate-200 px-6 py-4">
           <div className="flex min-w-0 items-start gap-3">
-            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
+            <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
               <Icon className="h-4 w-4" />
             </span>
             <div className="min-w-0">
@@ -935,7 +935,7 @@ function TaskOperationDrawer({
               className={cn(
                 "flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-all",
                 tab === item.key
-                  ? "border-blue-200 bg-blue-50 text-blue-700 shadow-[0_8px_18px_rgba(37,99,235,0.08)]"
+                  ? "border-indigo-200 bg-indigo-50 text-indigo-700 shadow-[0_8px_18px_rgba(79,70,229,0.08)]"
                   : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800",
               )}
             >
@@ -974,7 +974,7 @@ function TaskOperationDrawer({
             <div className="rounded-xl border border-slate-200 p-4">
               <div className="mb-2 text-sm font-semibold text-slate-900">任务说明</div>
               <p className="text-sm leading-6 text-slate-600">{task.description}</p>
-              <div className="mt-3 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-700">{task.next_action}</div>
+              <div className="mt-3 rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-700">{task.next_action}</div>
             </div>
 
             <div className="grid gap-4 sm:grid-cols-2">
@@ -1045,16 +1045,16 @@ function TaskOperationDrawer({
 
         {tab === "progress" && (
           <div className="space-y-4 rounded-xl border border-slate-200 p-4">
-            <div className="rounded-xl border border-dashed border-blue-200 bg-blue-50/60 px-4 py-3 text-xs text-slate-600">
+            <div className="rounded-xl border border-dashed border-indigo-200 bg-indigo-50/60 px-4 py-3 text-xs text-slate-600">
               <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
-                <Sparkles className="h-4 w-4 text-blue-600" />
+                <Sparkles className="h-4 w-4 text-indigo-600" />
                 AI 综合判断当前进度
               </div>
               <p className="mt-1">
                 在下方填写进展说明并/或上传附件（方案、测试记录、实验数据、评审纪要等），AI 会一起读取后给出建议；最终进度由人工确认。
               </p>
               {aiLoading && (
-                <div className="mt-2 flex items-center gap-2 rounded-lg bg-white/70 px-3 py-2 text-xs text-blue-700 ring-1 ring-blue-100">
+                <div className="mt-2 flex items-center gap-2 rounded-lg bg-white/70 px-3 py-2 text-xs text-indigo-700 ring-1 ring-indigo-100">
                   <RefreshCw className="h-3.5 w-3.5 animate-spin" />
                   AI 正在阅读依据并判断当前任务阶段…
                 </div>
@@ -1124,7 +1124,7 @@ function TaskOperationDrawer({
                     )
                   )}
                 </div>
-                <span className="font-semibold tabular-nums text-blue-700">{draftProgress}%</span>
+                <span className="font-semibold tabular-nums text-indigo-700">{draftProgress}%</span>
               </div>
               <Input
                 type="range"
@@ -1136,7 +1136,7 @@ function TaskOperationDrawer({
                   setDraftProgress(clampProgressValue(Number(event.target.value)));
                   setReceipt(null);
                 }}
-                className="w-full accent-blue-600"
+                className="w-full accent-indigo-600"
               />
               <div className="mt-1 flex justify-between text-[10px] text-slate-400">
                 <span>未开始</span>
@@ -1156,7 +1156,7 @@ function TaskOperationDrawer({
                 onChange={(event) => setNote(event.target.value)}
                 rows={4}
                 placeholder="说明本次进度变化、上传文件依据、产出内容、仍需支持的事项"
-                className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none transition-colors focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none transition-colors focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
               />
             </label>
 
@@ -1168,7 +1168,7 @@ function TaskOperationDrawer({
                     "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
                     savingNote || aiLoading
                       ? "cursor-not-allowed bg-slate-200 text-slate-500"
-                      : "cursor-pointer border border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:text-blue-700",
+                      : "cursor-pointer border border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:text-indigo-700",
                   )}
                 >
                   <UploadCloud className="h-3.5 w-3.5" />
@@ -1212,7 +1212,7 @@ function TaskOperationDrawer({
                       key={`${file.name}-${file.size}-${idx}`}
                       className="flex items-center gap-2 rounded-md bg-white px-2.5 py-1.5 text-xs text-slate-700 ring-1 ring-slate-200"
                     >
-                      <FileText className="h-3.5 w-3.5 shrink-0 text-blue-500" />
+                      <FileText className="h-3.5 w-3.5 shrink-0 text-indigo-500" />
                       <span className="min-w-0 flex-1 truncate">{file.name}</span>
                       <span className="shrink-0 text-slate-400">{formatFileSize(file.size)}</span>
                       <button
@@ -1275,7 +1275,7 @@ function TaskOperationDrawer({
                           key={value}
                           className={cn(
                             "flex cursor-pointer items-start gap-2 rounded-lg border px-3 py-2 transition-colors",
-                            checked ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-white text-slate-700 hover:border-blue-100 hover:bg-blue-50/50",
+                            checked ? "border-indigo-200 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-700 hover:border-indigo-100 hover:bg-indigo-50/50",
                           )}
                         >
                           <Checkbox
@@ -1288,7 +1288,7 @@ function TaskOperationDrawer({
                                 return copy;
                               });
                             }}
-                            className="mt-0.5 rounded border-slate-300 text-blue-600"
+                            className="mt-0.5 rounded border-slate-300 text-indigo-600"
                           />
                           <span className="min-w-0">
                             <span className="block truncate text-sm font-semibold">{person.name}</span>
@@ -1310,7 +1310,7 @@ function TaskOperationDrawer({
                 onChange={(event) => setHandoffReason(event.target.value)}
                 rows={4}
                 placeholder="说明为什么需要协同、当前进展、未解决风险和期望协同人下一步动作"
-                className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
               />
             </label>
             <div className={cn(
@@ -1355,7 +1355,7 @@ function TaskOperationDrawer({
               <div className="grid gap-2 sm:grid-cols-2">
                 {["交付物已上传", "风险已说明", "测试记录已补齐", "关联人员已同步"].map((item) => (
                   <label key={item} className="flex items-center gap-2 rounded-lg border border-slate-200 px-3 py-2 text-sm text-slate-600">
-                    <Checkbox className="rounded border-slate-300 text-blue-600" />
+                    <Checkbox className="rounded border-slate-300 text-indigo-600" />
                     {item}
                   </label>
                 ))}
@@ -1366,7 +1366,7 @@ function TaskOperationDrawer({
               <Textarea
                 rows={4}
                 placeholder="补充本次提交的结论、已知风险和需要审核人关注的重点"
-                className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
               />
             </label>
             <div className="flex items-center justify-end gap-2">
@@ -1453,7 +1453,7 @@ function AISuggestionDrawer({
           <Textarea
             rows={3}
             placeholder="例如：拆得更细、责任人改为赵强、截止日期顺延到下周三"
-            className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+            className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
           />
         </label>
 
@@ -1575,7 +1575,7 @@ function NotificationDrawer({
                 <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">待审核</span>
               )}
               <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500 ring-1 ring-slate-200">
-                {reviewType === "result" ? "成果审核" : "协作变更审核"}
+                {reviewType === "collaboration" ? "协作变更审核" : reviewType === "proposal" ? "立项审核" : "成果审核"}
               </span>
             </div>
             <div>
@@ -1602,7 +1602,7 @@ function NotificationDrawer({
           <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
-                <Clock className="h-4 w-4 text-blue-500" />
+                <Clock className="h-4 w-4 text-indigo-500" />
                 进度时间线
                 <span className="text-xs font-normal text-slate-400">（审核参考依据）</span>
               </div>
@@ -1675,12 +1675,12 @@ function NotificationDrawer({
 
         {/* ── Sender info (non-review messages) ── */}
         {notification.type === "message" && !isReviewRequest && !isReviewResult && (
-          <div className="rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3">
-            <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-blue-700">
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3">
+            <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-indigo-700">
               <MessageSquare className="h-3.5 w-3.5" />
               <span className="font-semibold">{notification.sender_name ?? "未知发件人"}</span>
-              {notification.sender_role && <span className="text-blue-500">· {notification.sender_role}</span>}
-              <span className="ml-auto text-blue-400">{notification.time}</span>
+              {notification.sender_role && <span className="text-indigo-500">· {notification.sender_role}</span>}
+              <span className="ml-auto text-indigo-400">{notification.time}</span>
             </div>
             <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{notification.message}</p>
           </div>
@@ -1688,12 +1688,12 @@ function NotificationDrawer({
 
         {/* ── System suggestion (non-message notifications) ── */}
         {notification.type !== "message" && (
-          <div className="rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
-            <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-blue-800">
+          <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3">
+            <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-indigo-800">
               <ShieldCheck className="h-4 w-4" />
               系统建议
             </div>
-            <p className="text-sm leading-6 text-blue-700">
+            <p className="text-sm leading-6 text-indigo-700">
               {notification.type === "due_soon" && "建议先确认是否需要顺延；如果仍由你处理，请更新下一步动作和风险说明。"}
               {notification.type === "blocked" && "建议补充协作反馈，并把上游阻塞同步给主责人和上级。"}
               {notification.type === "pending_ai" && "建议进入 AI 建议审核，确认后再写入任务池，避免自动生成不准确任务。"}
@@ -1843,17 +1843,26 @@ function WorkspaceTaskCard({
   const pCfg = WS_PRIORITY_CONFIG[task.priority] ?? WS_PRIORITY_CONFIG.medium!;
   const days = workspaceDaysUntil(task.due_date);
   const isOverdue = days !== null && days < 0;
+  // 待审核任务默认置灰且不可点击：等待管理员审核期间不允许成员进入操作详情。
+  const isPendingReview = task.status === "pending_review";
 
   return (
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2 }}
-      onClick={() => onOpen(task, "detail")}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(task, "detail"); } }}
-      className="group relative cursor-pointer overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_1px_4px_rgba(15,23,42,0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-slate-200 hover:shadow-[0_8px_24px_rgba(15,23,42,0.09)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
+      onClick={isPendingReview ? undefined : () => onOpen(task, "detail")}
+      role={isPendingReview ? undefined : "button"}
+      tabIndex={isPendingReview ? undefined : 0}
+      aria-disabled={isPendingReview || undefined}
+      title={isPendingReview ? "待审核任务，管理员审核通过后方可操作" : undefined}
+      onKeyDown={isPendingReview ? undefined : (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(task, "detail"); } }}
+      className={cn(
+        "group relative overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_1px_4px_rgba(15,23,42,0.04)] transition-all duration-200 focus-visible:outline-none",
+        isPendingReview
+          ? "cursor-not-allowed opacity-60 grayscale-[0.35]"
+          : "cursor-pointer hover:-translate-y-0.5 hover:border-slate-200 hover:shadow-[0_8px_24px_rgba(15,23,42,0.09)] focus-visible:ring-2 focus-visible:ring-slate-300",
+      )}
     >
       {/* Left gradient stripe */}
       <div
@@ -1925,7 +1934,9 @@ function WorkspaceTaskCard({
           </div>
         </div>
 
-        <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 opacity-0 transition-all duration-150 group-hover:translate-x-0.5 group-hover:opacity-100" />
+        {!isPendingReview && (
+          <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 opacity-0 transition-all duration-150 group-hover:translate-x-0.5 group-hover:opacity-100" />
+        )}
       </div>
     </motion.div>
   );
@@ -2117,7 +2128,7 @@ export function RDMyWorkspacePage() {
     const taskTitle = String(body.task_title ?? "").trim() || notification.title;
     const reviewType = String(body.review_type ?? "result");
     const submitterName = String(body.submitter_name ?? "").trim();
-    const reviewTypeLabel = reviewType === "collaboration" ? "协作变更审核" : "成果审核";
+    const reviewTypeLabel = reviewType === "collaboration" ? "协作变更审核" : reviewType === "proposal" ? "立项审核" : "成果审核";
     if (!taskId) {
       toast.error("通知内容缺少任务 ID，无法审核");
       return;
@@ -2133,6 +2144,8 @@ export function RDMyWorkspacePage() {
         submitterName ? `提交人：${submitterName}` : "提交人：未识别",
         reviewType === "collaboration"
           ? "通过后协作人变更会立即生效，任务回到进行中。"
+          : reviewType === "proposal"
+          ? "通过后任务将正式立项并进入进行中状态，同时通知发起人。"
           : "通过后任务会进入审核通过状态，并通知对应申请人员。",
       ],
       onConfirm: async () => {
@@ -2174,7 +2187,7 @@ export function RDMyWorkspacePage() {
               <h1 className="text-base font-semibold text-slate-950 shrink-0">个人工作台</h1>
               <span className="text-xs text-slate-400 shrink-0">今日 {TODAY_LABEL}</span>
               {/* Stat chips — always shown */}
-              <span className="rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-semibold text-blue-700">
+              <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700">
                 主责 {myTasks.length}
               </span>
               <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">
@@ -2211,7 +2224,7 @@ export function RDMyWorkspacePage() {
               <button
                 type="button"
                 onClick={() => setShowProposalDialog(true)}
-                className="group inline-flex shrink-0 items-center gap-1.5 rounded-md bg-gradient-to-br from-blue-600 to-violet-600 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(99,102,241,0.25)] transition-all hover:-translate-y-0.5 hover:from-blue-700 hover:to-violet-700 hover:shadow-[0_12px_24px_rgba(99,102,241,0.32)] active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+                className="group inline-flex shrink-0 items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-all hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-[0_12px_24px_rgba(79,70,229,0.26)] active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
                 title="AI 立项 · 上传文档或写描述，自动拆任务"
               >
                 <Sparkles className="h-3.5 w-3.5 transition-transform group-hover:rotate-12" />
@@ -2233,7 +2246,7 @@ export function RDMyWorkspacePage() {
                 <label className="relative block min-w-0 flex-1">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                   <Input
-                    className="h-8 w-full rounded-[8px] border border-slate-200 bg-slate-50 pl-8 pr-3 text-xs text-slate-700 outline-none transition focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-50"
+                    className="h-8 w-full rounded-[8px] border border-slate-200 bg-slate-50 pl-8 pr-3 text-xs text-slate-700 outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-50"
                     placeholder="搜索任务、负责人…"
                     value={taskKeyword}
                     onChange={(event) => setTaskKeyword(event.target.value)}
@@ -2243,7 +2256,7 @@ export function RDMyWorkspacePage() {
                 {/* Selects + 清空 + count — always one row, never wrap */}
                 <div className="flex shrink-0 items-center gap-1.5">
                   <NativeSelect
-                    className="h-8 rounded-[8px] border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+                    className="h-8 rounded-[8px] border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
                     value={taskPriorityFilter}
                     onChange={(event) => setTaskPriorityFilter(event.target.value as Priority | "all")}
                   >
@@ -2253,7 +2266,7 @@ export function RDMyWorkspacePage() {
                     <option value="low">低</option>
                   </NativeSelect>
                   <NativeSelect
-                    className="h-8 rounded-[8px] border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+                    className="h-8 rounded-[8px] border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
                     value={taskStatusFilter}
                     onChange={(event) => setTaskStatusFilter(event.target.value as TaskStatus | "all")}
                   >
@@ -2265,7 +2278,7 @@ export function RDMyWorkspacePage() {
                     <option value="completed">已完成</option>
                   </NativeSelect>
                   <NativeSelect
-                    className="h-8 rounded-[8px] border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
+                    className="h-8 rounded-[8px] border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
                     value={taskDueFilter}
                     onChange={(event) => setTaskDueFilter(event.target.value as WorkspaceDueFilter)}
                   >
@@ -2464,7 +2477,7 @@ export function RDMyWorkspacePage() {
               <SectionCard title="待审核 AI 建议" icon={Sparkles} count={visibleSuggestions.length} helper="确认后才写入任务池">
                 <div className="space-y-3">
                   {visibleSuggestions.map((suggestion) => (
-                    <article key={suggestion.id} className="rounded-xl border border-violet-100 bg-gradient-to-br from-violet-50 to-blue-50 p-3">
+                    <article key={suggestion.id} className="rounded-xl border border-violet-100 bg-violet-50/60 p-3">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <h3 className="text-xs font-semibold text-slate-900">{suggestion.title}</h3>

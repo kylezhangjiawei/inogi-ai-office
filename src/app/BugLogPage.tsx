@@ -183,7 +183,7 @@ export function BugLogPage() {
     <div className="mx-auto max-w-[1600px] space-y-5 px-3 py-4 sm:p-5 lg:space-y-6 lg:p-6">
       {/* Header */}
       <div className="flex min-w-0 items-start gap-3">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600 text-white">
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-600 text-white">
           <Bug className="h-5 w-5" />
         </div>
         <div className="min-w-0">
@@ -228,7 +228,7 @@ export function BugLogPage() {
                 className={cn(
                   "w-full rounded-xl border p-4 text-left transition-colors",
                   selectedLogId === log.id
-                    ? "border-blue-200 bg-blue-50"
+                    ? "border-indigo-200 bg-indigo-50"
                     : "border-slate-100 bg-slate-50 hover:border-slate-200 hover:bg-slate-100",
                 )}
               >
@@ -258,11 +258,11 @@ export function BugLogPage() {
             type="button"
             onClick={handleUpload}
             disabled={isUploading}
-            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-blue-200 bg-blue-50 px-4 py-3 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-100 disabled:opacity-60"
+            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-indigo-200 bg-indigo-50 px-4 py-3 text-sm font-medium text-indigo-600 transition-colors hover:bg-indigo-100 disabled:opacity-60"
           >
             {isUploading ? (
               <>
-                <div className="h-4 w-4 animate-spin rounded-full border-2 border-blue-400 border-t-transparent" />
+                <div className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-400 border-t-transparent" />
                 上传中…
               </>
             ) : (
@@ -278,7 +278,7 @@ export function BugLogPage() {
         <div className="min-w-0 rounded-xl border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
           <div className="mb-4">
             <div className="flex items-center gap-2">
-              <Bug className="h-4 w-4 text-blue-600" />
+              <Bug className="h-4 w-4 text-indigo-600" />
               <h2 className="font-semibold text-slate-800">AI 异常分析</h2>
             </div>
             {analysis && (
@@ -327,12 +327,12 @@ export function BugLogPage() {
               </div>
 
               {/* AI Root Cause Card */}
-              <div className="rounded-xl border border-blue-100 bg-gradient-to-br from-blue-50 to-slate-50 p-5">
+              <div className="rounded-xl border border-slate-100 bg-slate-50/60 p-5">
                 <div className="mb-3 flex items-center gap-2">
-                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-600 text-white">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600 text-white">
                     <Bug className="h-3 w-3" />
                   </div>
-                  <span className="text-sm font-semibold text-blue-800">AI 根因分析</span>
+                  <span className="text-sm font-semibold text-indigo-800">AI 根因分析</span>
                 </div>
                 <p className="text-sm leading-7 text-slate-700">{analysis.aiRootCause}</p>
                 {analysis.responsibility.length > 0 && (
@@ -384,9 +384,9 @@ export function BugLogPage() {
 
           {/* Inline Add Form */}
           {showAddVersion && (
-            <div className="mb-4 rounded-xl border border-blue-100 bg-blue-50 p-4">
+            <div className="mb-4 rounded-xl border border-indigo-100 bg-indigo-50 p-4">
               <div className="mb-3 flex items-center justify-between">
-                <span className="text-xs font-semibold text-blue-700">新增版本记录</span>
+                <span className="text-xs font-semibold text-indigo-700">新增版本记录</span>
                 <button type="button" onClick={() => setShowAddVersion(false)}>
                   <X className="h-4 w-4 text-slate-400 hover:text-slate-600" />
                 </button>
@@ -397,33 +397,33 @@ export function BugLogPage() {
                     type="date"
                     value={newVersion.date}
                     onChange={(e) => setNewVersion((v) => ({ ...v, date: e.target.value }))}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:border-blue-400 focus:outline-none"
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none"
                     placeholder="发版日期"
                   />
                   <input
                     value={newVersion.version}
                     onChange={(e) => setNewVersion((v) => ({ ...v, version: e.target.value }))}
-                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:border-blue-400 focus:outline-none"
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none"
                     placeholder="版本号 (如 v2.5.0)"
                   />
                 </div>
                 <input
                   value={newVersion.module}
                   onChange={(e) => setNewVersion((v) => ({ ...v, module: e.target.value }))}
-                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:border-blue-400 focus:outline-none"
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none"
                   placeholder="变更模块"
                 />
                 <textarea
                   value={newVersion.summary}
                   onChange={(e) => setNewVersion((v) => ({ ...v, summary: e.target.value }))}
                   rows={2}
-                  className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:border-blue-400 focus:outline-none"
+                  className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 focus:border-indigo-400 focus:outline-none"
                   placeholder="变更内容摘要"
                 />
                 <button
                   type="button"
                   onClick={handleAddVersion}
-                  className="w-full rounded-lg bg-blue-600 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+                  className="w-full rounded-lg bg-indigo-600 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
                 >
                   确认新增
                 </button>

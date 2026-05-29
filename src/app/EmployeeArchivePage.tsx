@@ -271,7 +271,7 @@ export function EmployeeArchivePage() {
                   className={cn(
                     "rounded-lg px-2.5 py-1 text-xs font-medium transition-colors",
                     deptFilter === d
-                      ? "bg-blue-600 text-white"
+                      ? "bg-indigo-600 text-white"
                       : "bg-gray-100 text-gray-600 hover:bg-gray-200",
                   )}
                 >

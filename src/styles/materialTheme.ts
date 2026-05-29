@@ -6,9 +6,9 @@ export const materialTheme = createTheme({
   palette: {
     mode: "light",
     primary: {
-      main: "#1976d2",
-      light: "#42a5f5",
-      dark: "#0d47a1",
+      main: "#4f46e5",
+      light: "#6366f1",
+      dark: "#4338ca",
       contrastText: "#ffffff",
     },
     secondary: {

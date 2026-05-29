@@ -221,7 +221,7 @@ export function ExternalDocsPage() {
     <div className="flex min-h-full min-w-0 flex-col bg-gray-50 lg:h-full">
       <div className="border-b border-gray-200 bg-white px-4 py-4 sm:px-6">
         <div className="flex min-w-0 items-center gap-2">
-          <Package className="h-5 w-5 text-blue-600" />
+          <Package className="h-5 w-5 text-indigo-600" />
           <h1 className="truncate text-lg font-semibold text-gray-900">对外资料版本管理 & AI推荐发包</h1>
         </div>
       </div>
@@ -233,7 +233,7 @@ export function ExternalDocsPage() {
             <span className="text-sm font-medium text-gray-700">文件索引（{docs.length}）</span>
             <button
               onClick={() => toast.info("上传新版本功能（模拟）")}
-              className="flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+              className="flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
             >
               <Plus className="h-3.5 w-3.5" />
               上传新版本
@@ -437,7 +437,7 @@ export function ExternalDocsPage() {
 
           <div className="border-b border-gray-100 px-4 py-3">
             <div className="flex items-center gap-2">
-              <Languages className="h-4 w-4 text-blue-600" />
+              <Languages className="h-4 w-4 text-indigo-600" />
               <span className="text-sm font-medium text-gray-700">外发消息生成器</span>
             </div>
           </div>
@@ -453,7 +453,7 @@ export function ExternalDocsPage() {
                   className={cn(
                     "flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
                     lang === l
-                      ? "bg-blue-600 text-white"
+                      ? "bg-indigo-600 text-white"
                       : "bg-gray-100 text-gray-600 hover:bg-gray-200",
                   )}
                 >
@@ -472,15 +472,15 @@ export function ExternalDocsPage() {
             <textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              className="h-64 w-full resize-none rounded-xl border border-gray-200 p-3 text-sm leading-relaxed text-gray-700 focus:border-blue-400 focus:outline-none"
+              className="h-64 w-full resize-none rounded-xl border border-gray-200 p-3 text-sm leading-relaxed text-gray-700 focus:border-indigo-400 focus:outline-none"
             />
 
-            <div className="mt-3 rounded-xl bg-blue-50 p-3">
-              <p className="text-xs font-medium text-blue-700 mb-1">包含文件：</p>
+            <div className="mt-3 rounded-xl bg-indigo-50 p-3">
+              <p className="text-xs font-medium text-indigo-700 mb-1">包含文件：</p>
               {(packageIds.length > 0 ? packageIds : recommendedIds).map((id) => {
                 const doc = docs.find((d) => d.id === id);
                 return doc ? (
-                  <p key={id} className="text-xs text-blue-600">
+                  <p key={id} className="text-xs text-indigo-600">
                     · {doc.name} · {doc.version}
                   </p>
                 ) : null;
@@ -499,7 +499,7 @@ export function ExternalDocsPage() {
             </button>
             <button
               onClick={handleSend}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-blue-600 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-indigo-600 py-2 text-sm font-medium text-white hover:bg-indigo-700"
             >
               <Send className="h-4 w-4" />
               发送

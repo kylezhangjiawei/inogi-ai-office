@@ -610,13 +610,13 @@ export function MateChatBubble() {
         onClick={() => { if (!movedRef.current) setOpen(true); movedRef.current = false; }}
         style={{ left: bubblePos.x, top: bubblePos.y }}
         className={cn(
-          "fixed z-50 flex items-center gap-3 rounded-full border border-white/70 bg-[radial-gradient(circle_at_30%_30%,rgba(255,255,255,0.32),transparent_42%),linear-gradient(135deg,#2f80ed_0%,#2563eb_45%,#0f9fb3_100%)] px-4 py-3 text-white shadow-[0_18px_38px_rgba(37,99,235,0.28)] transition-all duration-200 cursor-grab hover:-translate-y-1 hover:scale-[1.02] will-change-[left,top]",
+          "fixed z-50 flex items-center gap-3 rounded-full border border-white/70 bg-indigo-600 px-4 py-3 text-white shadow-[0_18px_38px_rgba(79,70,229,0.28)] transition-all duration-200 cursor-grab hover:-translate-y-1 hover:scale-[1.02] will-change-[left,top]",
           bubbleReady ? "opacity-100" : "opacity-0",
         )}
       >
         <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-white/14">
           <img src={AI_AVATAR} alt="MateChat" className="h-7 w-7 object-contain" />
-          <span className="absolute inset-[-5px] rounded-full border border-sky-300/30 animate-pulse" />
+          <span className="absolute inset-[-5px] rounded-full border border-indigo-300/30 animate-pulse" />
         </span>
         <span className="hidden sm:block">
           <span className="block text-xs font-semibold uppercase tracking-[0.22em] text-white/72">AI Assistant</span>
@@ -648,7 +648,7 @@ export function MateChatBubble() {
             aria-label="MateChat"
           >
             {/* 左侧会话列表 */}
-            <section className="flex max-h-[38vh] min-w-0 flex-col border-b border-slate-200/70 bg-[linear-gradient(180deg,#f6f9ff_0%,#eef5fd_100%)] md:max-h-none md:w-[30%] md:min-w-[240px] md:border-b-0 md:border-r">
+            <section className="flex max-h-[38vh] min-w-0 flex-col border-b border-slate-200/70 bg-slate-50/60 md:max-h-none md:w-[30%] md:min-w-[240px] md:border-b-0 md:border-r">
               <div className="border-b border-slate-200/70 px-5 py-5">
                 <div className="mb-4 flex items-center justify-between">
                   <div>
@@ -693,13 +693,13 @@ export function MateChatBubble() {
                         className={cn(
                           "w-full rounded-[24px] border p-4 text-left transition",
                           isActive
-                            ? "border-blue-100 bg-[linear-gradient(135deg,#edf4ff_0%,#e8f4ff_72%,#eefaf8_100%)] shadow-[0_16px_30px_rgba(25,118,210,0.12)]"
+                            ? "border-indigo-100 bg-indigo-50 shadow-[0_8px_18px_rgba(79,70,229,0.12)]"
                             : "border-slate-200/80 bg-white/82 hover:border-slate-300 hover:bg-white",
                         )}
                       >
                         <div className="mb-2 flex items-center justify-between gap-3">
                           <div className="truncate text-sm font-semibold text-slate-900">{conv.title}</div>
-                          {conv.pinned && <Pin className="h-3.5 w-3.5 flex-shrink-0 text-blue-600" />}
+                          {conv.pinned && <Pin className="h-3.5 w-3.5 flex-shrink-0 text-indigo-600" />}
                         </div>
                         {conv.summary && (
                           <div className="line-clamp-2 text-xs leading-5 text-slate-500">{conv.summary}</div>
@@ -813,7 +813,7 @@ export function MateChatBubble() {
               )}
 
               {/* 消息列表 */}
-              <div className="material-scrollbar flex-1 overflow-y-auto bg-[linear-gradient(180deg,#fbfdff_0%,#f4f8fd_100%)] px-6 py-6">
+              <div className="material-scrollbar flex-1 overflow-y-auto bg-slate-50/60 px-6 py-6">
                 {!activeId ? (
                   <div className="flex h-full items-center justify-center text-sm text-slate-400">
                     选择或新建一个对话开始聊天
@@ -847,7 +847,7 @@ export function MateChatBubble() {
                               <div
                                 className={cn(
                                   "rounded-[24px] px-4 py-3 text-sm leading-7 shadow-sm",
-                                  isUser ? "rounded-tr-md bg-[#f0f4ff] text-slate-800" : "rounded-tl-md bg-[#f5f5fb] text-slate-800",
+                                  isUser ? "rounded-tr-md bg-indigo-50 text-slate-800" : "rounded-tl-md bg-[#f5f5fb] text-slate-800",
                                   isStreaming && !msg.content && "py-4",
                                 )}
                                 style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
@@ -885,7 +885,7 @@ export function MateChatBubble() {
                                   </span>
                                 )}
                                 {!isUser && !isStreaming && msgSources[msg.id] === "ai" && (
-                                  <span className="flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-600">
+                                  <span className="flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-600">
                                     <Globe className="h-2.5 w-2.5" />
                                     通用知识
                                   </span>
@@ -909,7 +909,7 @@ export function MateChatBubble() {
                                       className={cn(
                                         "inline-flex items-center gap-1 rounded-full border px-2 py-1 text-xs transition",
                                         active
-                                          ? "border-blue-200 bg-blue-50 text-blue-700"
+                                          ? "border-indigo-200 bg-indigo-50 text-indigo-700"
                                           : "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-700",
                                       )}
                                     >
@@ -946,14 +946,14 @@ export function MateChatBubble() {
                       type="button"
                       onClick={() => void handleSend(p)}
                       disabled={sending || !activeId}
-                      className="rounded-full border border-sky-100 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-700 transition hover:bg-sky-100 disabled:opacity-40"
+                      className="rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1.5 text-xs font-medium text-indigo-700 transition hover:bg-indigo-100 disabled:opacity-40"
                     >
                       {p}
                     </button>
                   ))}
                 </div>
 
-                <div className="rounded-[28px] border border-slate-200 bg-slate-50/92 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.75)]">
+                <div className="rounded-[28px] border border-slate-200 bg-slate-50/92 p-3">
                   <textarea
                     rows={3}
                     value={draft}
@@ -976,7 +976,7 @@ export function MateChatBubble() {
                         onClick={() => setShowModelMenu((v) => !v)}
                         className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
                       >
-                        <Sparkles className="h-3.5 w-3.5 text-blue-500" />
+                        <Sparkles className="h-3.5 w-3.5 text-indigo-500" />
                         {currentModel
                           ? `${currentModel.label}${currentModel.model ? ` · ${currentModel.model}` : ""}`
                           : models.length === 0 ? "未配置模型" : "选择模型"}
@@ -1018,11 +1018,11 @@ export function MateChatBubble() {
                               onClick={() => { setSelectedModel(m.id); setShowModelMenu(false); }}
                               className={cn(
                                 "flex w-full flex-col px-4 py-2.5 text-left text-xs transition hover:bg-slate-50",
-                                m.id === selectedModel ? "font-semibold text-blue-600" : "text-slate-700",
+                                m.id === selectedModel ? "font-semibold text-indigo-600" : "text-slate-700",
                               )}
                             >
                               <span>{m.label}</span>
-                              <span className={cn("mt-0.5 text-[10px]", m.id === selectedModel ? "text-blue-400" : "text-slate-400")}>
+                              <span className={cn("mt-0.5 text-[10px]", m.id === selectedModel ? "text-indigo-400" : "text-slate-400")}>
                                 {m.model}{m.provider ? ` · ${m.provider}` : ""}
                               </span>
                             </button>

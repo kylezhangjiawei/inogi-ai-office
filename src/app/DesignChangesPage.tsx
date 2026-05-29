@@ -76,7 +76,7 @@ export function DesignChangesPage() {
       <section className="material-card p-4 sm:p-6 md:p-8">
         <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
-            <span className="material-chip bg-blue-50 text-blue-700">DHF Workspace</span>
+            <span className="material-chip bg-indigo-50 text-indigo-700">DHF Workspace</span>
             <h2 className="mt-3 text-2xl font-bold tracking-tight text-slate-900 sm:text-[2rem]">设计开发变更</h2>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">把 ECO 申请、影响评估、DHF 版本和流转动作放在一页里，方便研发、质量和注册一起跟踪。</p>
           </div>
@@ -133,7 +133,7 @@ export function DesignChangesPage() {
                   onClick={() => setStatus(item)}
                   className={cn(
                     "rounded-full border px-4 py-2 text-sm font-semibold transition",
-                    status === item ? "border-blue-200 bg-blue-50 text-primary" : "border-slate-200 bg-white text-slate-500",
+                    status === item ? "border-indigo-200 bg-indigo-50 text-primary" : "border-slate-200 bg-white text-slate-500",
                   )}
                 >
                   {item}
@@ -143,7 +143,7 @@ export function DesignChangesPage() {
           </div>
 
           {selectedCount > 0 ? (
-            <div className="mb-4 rounded-[22px] border border-blue-100 bg-blue-50/60 p-4 text-sm text-slate-700">
+            <div className="mb-4 rounded-[22px] border border-indigo-100 bg-indigo-50/60 p-4 text-sm text-slate-700">
               已选 {selectedCount} 条，可批量发起评审或同步 DHF。
             </div>
           ) : null}
@@ -321,7 +321,7 @@ export function DesignChangesPage() {
         <DialogContent dividers>
           <div className="space-y-3 text-sm text-slate-600">
             <p>已选择 {selectedCount || 1} 条变更单，准备同步给研发、质量和注册进行会签。</p>
-            <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-4 text-slate-700">会签预计在 2 个工作日内完成，完成后将自动回写 DHF 版本记录。</div>
+            <div className="rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4 text-slate-700">会签预计在 2 个工作日内完成，完成后将自动回写 DHF 版本记录。</div>
           </div>
         </DialogContent>
         <DialogActions>

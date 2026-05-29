@@ -156,7 +156,7 @@ export function MeetingMinutes() {
 
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
         <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="material-card overflow-hidden">
-          <div className="flex items-center justify-between border-b border-slate-100 bg-gradient-to-r from-blue-50/40 to-transparent px-6 py-4">
+          <div className="flex items-center justify-between border-b border-slate-100 bg-gradient-to-r from-slate-50/80 to-transparent px-6 py-4">
             <div className="flex items-center gap-3">
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-primary">
                 <Sparkles className="h-4 w-4" />

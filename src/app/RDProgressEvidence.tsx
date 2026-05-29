@@ -44,7 +44,7 @@ export function ProgressAttachmentGrid({
                 type="button"
                 onClick={() => setPreview(att)}
                 title={`${att.name} · ${formatRdFileSize(att.size)}`}
-                className="group block cursor-pointer overflow-hidden rounded-[8px] border border-slate-200 bg-slate-50 text-left transition hover:border-blue-200 hover:shadow-[0_8px_18px_rgba(37,99,235,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+                className="group block cursor-pointer overflow-hidden rounded-[8px] border border-slate-200 bg-slate-50 text-left transition hover:border-indigo-200 hover:shadow-[0_8px_18px_rgba(79,70,229,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
               >
                 <div className={cn("relative bg-slate-100", compact ? "h-20" : "h-32")}>
                   <img

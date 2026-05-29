@@ -1323,7 +1323,8 @@ export class ResearchDevelopmentService {
         pending_collaborators: patch.pending_collaborators ?? task.pending_collaborators ?? [],
         current_progress: typeof task.progress === 'number' ? task.progress : 0,
       });
-      const typeLabel = reviewType === 'collaboration' ? '协作变更' : '结果';
+      const typeLabel =
+        reviewType === 'collaboration' ? '协作变更' : reviewType === 'proposal' ? '立项' : '结果';
       const subject = `[待审核] 「${task.title}」申请${typeLabel}审核`;
       for (const admin of admins) {
         await this.createMessage({

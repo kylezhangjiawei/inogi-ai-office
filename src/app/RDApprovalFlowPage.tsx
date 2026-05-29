@@ -101,7 +101,7 @@ function ApprovalNodeCard({
   return (
     <div className="relative rounded-xl border border-slate-200 bg-white shadow-[0_4px_14px_rgba(15,23,42,0.04)] transition-all hover:shadow-[0_8px_22px_rgba(15,23,42,0.06)]">
       {/* Level badge (left edge) */}
-      <div className="absolute -left-3 top-4 flex h-6 w-6 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-violet-500 text-[11px] font-bold text-white shadow-[0_4px_10px_rgba(99,102,241,0.3)]">
+      <div className="absolute -left-3 top-4 flex h-6 w-6 items-center justify-center rounded-full bg-indigo-600 text-[11px] font-bold text-white shadow-[0_4px_10px_rgba(79,70,229,0.3)]">
         {node.level}
       </div>
 
@@ -655,7 +655,7 @@ export function RDApprovalFlowPage() {
         <header className="flex items-end justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-violet-500 text-white shadow-[0_8px_18px_rgba(99,102,241,0.25)]">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-[0_8px_18px_rgba(79,70,229,0.25)]">
                 <GitBranch className="h-4 w-4" />
               </span>
               <h1 className="text-xl font-semibold tracking-tight text-slate-900">

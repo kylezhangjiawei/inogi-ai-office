@@ -208,7 +208,7 @@ export function CustomsAI() {
                   }}
                   className={cn(
                     "rounded-full px-4 py-2 text-sm font-medium transition",
-                    activeDoc === type ? "bg-blue-600 text-white shadow-[0_10px_24px_rgba(25,118,210,0.28)]" : "bg-slate-100 text-slate-600",
+                    activeDoc === type ? "bg-indigo-600 text-white shadow-[0_10px_24px_rgba(79,70,229,0.28)]" : "bg-slate-100 text-slate-600",
                   )}
                 >
                   {type}

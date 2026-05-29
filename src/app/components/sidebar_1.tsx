@@ -47,7 +47,7 @@ export function Sidebar() {
           </div>
         </div>
 
-        <div className="rounded-[24px] bg-[linear-gradient(145deg,#e7f2ff_0%,#f9fbff_55%,#e8f8f5_100%)] px-4 py-4">
+        <div className="rounded-[24px] bg-[linear-gradient(145deg,#eef2ff_0%,#f9fbff_55%,#f3f0ff_100%)] px-4 py-4">
           <div className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">当前用户</div>
           <div className="flex items-end justify-between gap-3">
             <div className="truncate text-sm font-bold tracking-tight text-slate-900">{user?.name ?? "—"}</div>
@@ -57,7 +57,7 @@ export function Sidebar() {
         </div>
       </div>
 
-      <nav className="material-scrollbar flex-1 space-y-4 overflow-y-auto pr-1">
+      <nav className="material-scrollbar -mx-1 flex-1 space-y-4 overflow-y-auto px-1">
         {visibleGroups.map((group) => (
           <div key={group.label}>
             <div className="mb-2 px-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{group.label}</div>
@@ -71,7 +71,7 @@ export function Sidebar() {
                     cn(
                       "material-nav-item justify-between border",
                       isActive
-                        ? "border-blue-100 bg-[linear-gradient(135deg,#edf4ff_0%,#e1efff_72%,#eefaf8_100%)] text-primary shadow-[0_14px_28px_rgba(25,118,210,0.14)]"
+                        ? "border-indigo-100 bg-[linear-gradient(135deg,#eef2ff_0%,#e0e7ff_72%,#f3f0ff_100%)] text-primary shadow-[0_10px_18px_-8px_rgba(79,70,229,0.22)]"
                         : "border-transparent text-slate-600 hover:border-slate-200 hover:bg-white/85",
                     )
                   }
@@ -81,7 +81,7 @@ export function Sidebar() {
                       <div
                         className={cn(
                           "flex h-10 w-10 items-center justify-center rounded-2xl transition-colors",
-                          isActive ? "bg-white text-primary shadow-[0_8px_18px_rgba(25,118,210,0.12)]" : "bg-slate-100/80 text-slate-500",
+                          isActive ? "bg-white text-primary shadow-[0_6px_12px_-4px_rgba(79,70,229,0.16)]" : "bg-slate-100/80 text-slate-500",
                         )}
                       >
                         <item.icon className="h-5 w-5" />

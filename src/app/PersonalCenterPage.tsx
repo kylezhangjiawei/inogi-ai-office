@@ -187,7 +187,7 @@ export function PersonalCenterPage() {
     "h-12 w-full rounded-[8px] border border-border bg-surface-container-lowest px-3.5 text-sm font-semibold text-on-surface outline-none transition placeholder:text-on-surface-variant/70 hover:border-primary/25 focus:border-primary/40 focus:ring-4 focus:ring-primary/10 disabled:cursor-not-allowed disabled:bg-surface-container disabled:text-on-surface-variant/60 disabled:hover:border-border";
 
   const primaryButtonClass =
-    "inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-[8px] bg-primary px-5 text-sm font-bold text-primary-foreground transition hover:-translate-y-0.5 hover:bg-blue-800 hover:shadow-[0_10px_22px_rgba(30,64,175,0.24)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/15 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0 disabled:hover:shadow-none";
+    "inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-[8px] bg-primary px-5 text-sm font-bold text-primary-foreground transition hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-[0_10px_22px_rgba(79,70,229,0.24)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/15 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:translate-y-0 disabled:hover:shadow-none";
 
   return (
     <motion.div
@@ -198,9 +198,9 @@ export function PersonalCenterPage() {
       className="space-y-5"
     >
       {/* ── Hero ─────────────────────────────────────────────── */}
-      <section className="relative overflow-hidden rounded-[8px] border border-border bg-[linear-gradient(135deg,var(--surface-container-lowest)_0%,var(--surface-container-low)_54%,var(--primary-container)_100%)] shadow-[0_24px_64px_rgba(30,64,175,0.1)]">
+      <section className="relative overflow-hidden rounded-[8px] border border-border bg-[linear-gradient(135deg,var(--surface-container-lowest)_0%,var(--surface-container-low)_54%,var(--primary-container)_100%)] shadow-[0_24px_64px_rgba(79,70,229,0.1)]">
         {/* grid bg */}
-        <div className="absolute inset-0 bg-[linear-gradient(rgba(30,64,175,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(30,64,175,0.04)_1px,transparent_1px)] bg-[size:42px_42px] [mask-image:linear-gradient(90deg,black,transparent_80%)]" />
+        <div className="absolute inset-0 bg-[linear-gradient(rgba(79,70,229,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(79,70,229,0.04)_1px,transparent_1px)] bg-[size:42px_42px] [mask-image:linear-gradient(90deg,black,transparent_80%)]" />
         {/* shimmer */}
         <motion.div
           aria-hidden="true"
@@ -229,7 +229,7 @@ export function PersonalCenterPage() {
                 className="relative w-fit shrink-0"
               >
                 <div className="absolute -inset-1 rounded-[10px] bg-[linear-gradient(135deg,var(--primary),var(--chart-2),var(--chart-4))] opacity-65 blur-[2px]" />
-                <div className="relative flex h-[110px] w-[110px] items-center justify-center overflow-hidden rounded-[9px] border border-white/80 bg-white/90 text-4xl font-black text-primary shadow-[0_20px_48px_rgba(30,64,175,0.16)]">
+                <div className="relative flex h-[110px] w-[110px] items-center justify-center overflow-hidden rounded-[9px] border border-white/80 bg-white/90 text-4xl font-black text-primary shadow-[0_20px_48px_rgba(79,70,229,0.16)]">
                   {avatar ? <img src={avatar} alt="当前头像" className="h-full w-full object-cover" /> : initials(user?.name)}
                   {/* 上传中遮罩：暗化头像 + 居中 spinner + 文案 */}
                   {(uploadingAvatar || resettingAvatar) && (
@@ -246,7 +246,7 @@ export function PersonalCenterPage() {
                   whileTap={shouldReduceMotion || uploadingAvatar ? undefined : { scale: 0.93 }}
                   onClick={() => fileInputRef.current?.click()}
                   disabled={uploadingAvatar || resettingAvatar}
-                  className="absolute -bottom-3 -right-3 flex h-10 w-10 cursor-pointer items-center justify-center rounded-[8px] border border-primary/20 bg-primary text-primary-foreground shadow-[0_10px_24px_rgba(30,64,175,0.28)] transition hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="absolute -bottom-3 -right-3 flex h-10 w-10 cursor-pointer items-center justify-center rounded-[8px] border border-primary/20 bg-primary text-primary-foreground shadow-[0_10px_24px_rgba(79,70,229,0.28)] transition hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
                   aria-label="上传头像"
                   title={uploadingAvatar ? "上传中，请稍候" : "选择图片上传头像"}
                 >
@@ -309,7 +309,7 @@ export function PersonalCenterPage() {
           {/* right: policy */}
           <aside className="flex flex-col gap-3 border-t border-border bg-white/48 p-6 backdrop-blur-2xl xl:border-l xl:border-t-0">
             {/* policy card */}
-            <div className="rounded-[8px] border border-border/80 bg-white/86 p-5 shadow-[0_10px_24px_rgba(30,64,175,0.07),inset_0_1px_0_rgba(255,255,255,0.8)]">
+            <div className="rounded-[8px] border border-border/80 bg-white/86 p-5 shadow-[0_10px_24px_rgba(79,70,229,0.07)]">
               <div className="flex items-start gap-3">
                 <div
                   className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-[8px] border ${
@@ -390,11 +390,11 @@ export function PersonalCenterPage() {
           initial={shouldReduceMotion ? false : { opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.08, duration: 0.28 }}
-          className="flex flex-col overflow-hidden rounded-[8px] border border-border bg-surface-container-lowest shadow-[0_14px_38px_rgba(30,64,175,0.065)]"
+          className="flex flex-col overflow-hidden rounded-[8px] border border-border bg-surface-container-lowest shadow-[0_14px_38px_rgba(79,70,229,0.065)]"
         >
           {/* header */}
           <div className="flex items-center gap-3.5 border-b border-border bg-[linear-gradient(180deg,var(--surface-container-lowest),var(--primary-container)/40%)] px-6 py-4">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(30,64,175,0.2)]">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(79,70,229,0.2)]">
               <AtSign className="h-4 w-4" />
             </div>
             <div>
@@ -460,11 +460,11 @@ export function PersonalCenterPage() {
           initial={shouldReduceMotion ? false : { opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.14, duration: 0.28 }}
-          className="flex flex-col overflow-hidden rounded-[8px] border border-border bg-surface-container-lowest shadow-[0_14px_38px_rgba(30,64,175,0.065)]"
+          className="flex flex-col overflow-hidden rounded-[8px] border border-border bg-surface-container-lowest shadow-[0_14px_38px_rgba(79,70,229,0.065)]"
         >
           {/* header */}
           <div className="flex items-center gap-3.5 border-b border-border bg-[linear-gradient(180deg,var(--surface-container-lowest),var(--primary-container)/40%)] px-6 py-4">
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(30,64,175,0.2)]">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(79,70,229,0.2)]">
               <LockKeyhole className="h-4 w-4" />
             </div>
             <div>

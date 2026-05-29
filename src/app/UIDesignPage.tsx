@@ -1298,16 +1298,16 @@ export function UIDesignPage() {
 
   return (
     <div className="relative flex min-h-screen w-full flex-col overflow-y-auto bg-background text-on-surface xl:h-full xl:min-h-[760px] xl:overflow-hidden">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_78%_0%,rgba(30,64,175,0.13),transparent_30rem),linear-gradient(180deg,var(--surface-container-lowest)_0%,var(--surface-container-low)_44%,var(--surface-container)_100%)]" />
+      <div className="pointer-events-none absolute inset-0 bg-slate-50/60" />
       <div className="pointer-events-none absolute inset-0 opacity-75 [background-image:linear-gradient(rgba(15,23,42,0.034)_1px,transparent_1px),linear-gradient(90deg,rgba(15,23,42,0.034)_1px,transparent_1px)] [background-size:40px_40px] [mask-image:linear-gradient(180deg,black,transparent_74%)]" />
 
-      <section className="relative z-10 shrink-0 overflow-hidden border-b border-border bg-[linear-gradient(135deg,var(--surface-container-lowest)_0%,var(--surface-container-low)_58%,rgba(219,234,254,0.64)_100%)] px-3 py-3 text-on-surface shadow-[0_18px_50px_rgba(15,23,42,0.05)] sm:px-4 lg:px-5">
+      <section className="relative z-10 shrink-0 overflow-hidden border-b border-slate-200/70 bg-white px-3 py-3 text-on-surface shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:px-4 lg:px-5">
         <div className="pointer-events-none absolute inset-y-3 left-0 w-1 rounded-r-full bg-primary" />
-        <div className="pointer-events-none absolute inset-0 opacity-60 [background-image:linear-gradient(rgba(30,64,175,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(30,64,175,0.04)_1px,transparent_1px)] [background-size:40px_40px] [mask-image:linear-gradient(90deg,black,transparent_72%)]" />
+        <div className="pointer-events-none absolute inset-0 opacity-60 [background-image:linear-gradient(rgba(79,70,229,0.05)_1px,transparent_1px),linear-gradient(90deg,rgba(79,70,229,0.04)_1px,transparent_1px)] [background-size:40px_40px] [mask-image:linear-gradient(90deg,black,transparent_72%)]" />
         <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-[linear-gradient(90deg,transparent,var(--primary),transparent)]" />
         <div className="relative grid gap-3 min-[1440px]:grid-cols-[minmax(300px,0.72fr)_minmax(0,1.28fr)] min-[1440px]:items-center 2xl:grid-cols-[minmax(340px,0.8fr)_minmax(0,1.2fr)]">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border border-primary/15 bg-primary-container text-on-primary-container shadow-[0_10px_22px_rgba(30,64,175,0.14)]">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[10px] border border-primary/15 bg-primary-container text-on-primary-container shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
               <Wand2 className="h-4 w-4" />
             </div>
             <div className="min-w-0 xl:flex xl:items-center xl:gap-4">
@@ -1372,7 +1372,7 @@ export function UIDesignPage() {
                 刷新
               </button>
               <button
-                className="inline-flex h-8 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-[8px] bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-[0_12px_24px_rgba(30,64,175,0.22)] transition hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-8 shrink-0 cursor-pointer items-center justify-center gap-2 rounded-[8px] bg-indigo-600 px-3 text-xs font-semibold text-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:bg-indigo-700 hover:shadow-[0_10px_22px_-8px_rgba(79,70,229,0.18)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
                 type="button"
                 disabled={generating || referenceImageBusy}
                 onClick={() => void handleGenerate()}
@@ -1388,7 +1388,7 @@ export function UIDesignPage() {
 
       <main className="relative z-10 grid flex-1 items-start gap-4 overflow-visible p-3 sm:p-4 lg:p-4 xl:min-h-0 xl:items-stretch xl:overflow-hidden min-[1280px]:grid-cols-[280px_minmax(0,1fr)] min-[1440px]:grid-cols-[280px_minmax(0,1fr)_260px] min-[1536px]:grid-cols-[300px_minmax(0,1fr)_280px] 2xl:p-5">
         <aside className={cn("relative flex flex-col overflow-hidden rounded-[10px] p-4 xl:min-h-0 2xl:p-5", glassCard)}>
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,var(--primary),var(--chart-2),var(--primary))]" />
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-primary" />
           <div className="mb-5 flex items-start justify-between gap-4">
             <div>
               <div className="text-base font-semibold tracking-tight text-slate-950">创建图像</div>
@@ -1424,7 +1424,7 @@ export function UIDesignPage() {
             <section>
               <div className="mb-2 flex items-center justify-between">
                 <label className="text-xs font-semibold text-slate-700">图像提示词</label>
-                <button className="inline-flex cursor-pointer items-center gap-1 rounded-[8px] border border-primary/15 bg-primary-container px-2.5 py-1 text-[11px] font-semibold text-on-primary-container transition hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={openPromptOptimizer}>
+                <button className="inline-flex cursor-pointer items-center gap-1 rounded-[8px] border border-primary/15 bg-primary-container px-2.5 py-1 text-[11px] font-semibold text-on-primary-container transition hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30" type="button" onClick={openPromptOptimizer}>
                   <Wand2 className="h-3 w-3" />
                   优化提示词
                 </button>
@@ -1536,7 +1536,7 @@ export function UIDesignPage() {
 
           <div className="shrink-0 border-t border-slate-100 pt-4">
             <button
-              className="flex h-[52px] w-full cursor-pointer items-center justify-center gap-2 rounded-[8px] bg-primary text-primary-foreground shadow-[0_16px_34px_rgba(30,64,175,0.24)] transition hover:bg-blue-800 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-70"
+              className="flex h-[52px] w-full cursor-pointer items-center justify-center gap-2 rounded-[8px] bg-indigo-600 text-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(79,70,229,0.30)] transition hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-100 disabled:cursor-not-allowed disabled:opacity-70"
               type="button"
               disabled={generating || referenceImageBusy}
               onClick={() => void handleGenerate()}
@@ -1558,7 +1558,7 @@ export function UIDesignPage() {
                   onClick={() => { setGalleryLoading(true); setActiveTab(tab); }}
                   className={cn(
                     "flex-1 cursor-pointer rounded-[6px] px-4 py-2 text-sm font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 sm:flex-none",
-                    activeTab === tab ? "bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(30,64,175,0.2)]" : "text-slate-500 hover:bg-surface-container-low hover:text-slate-900",
+                    activeTab === tab ? "bg-primary text-primary-foreground shadow-[0_8px_18px_-6px_rgba(79,70,229,0.20)]" : "text-slate-500 hover:bg-surface-container-low hover:text-slate-900",
                   )}
                 >
                   {tab}
@@ -1658,7 +1658,7 @@ export function UIDesignPage() {
           {/*</section>*/}
 
           <section className={cn("relative overflow-hidden rounded-[10px] p-5", glassCard)}>
-            <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,var(--primary),var(--chart-2),var(--primary))]" />
+            <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-primary" />
             <div className="mb-4 flex items-center gap-2">
               <Settings2 className="h-4 w-4 text-primary" />
               <h2 className="text-sm font-semibold text-slate-950">生成设置</h2>
@@ -1778,11 +1778,11 @@ export function UIDesignPage() {
             <div className="flex shrink-0 flex-col gap-3 border-b border-slate-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
               <div className="min-w-0">
                 <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
-                  <MessageSquare className="h-4 w-4 text-blue-500" />
+                  <MessageSquare className="h-4 w-4 text-indigo-500" />
                   AI 提示词优化
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] font-semibold">
-                  <span className="rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-blue-700">
+                  <span className="rounded-full border border-indigo-100 bg-indigo-50 px-2.5 py-1 text-indigo-700">
                     自动回填
                   </span>
                   <span className="rounded-full border border-emerald-100 bg-emerald-50 px-2.5 py-1 text-emerald-700">
@@ -1797,7 +1797,7 @@ export function UIDesignPage() {
                 {latestOptimizedPrompt ? (
                   <button
                     type="button"
-                    className="h-9 cursor-pointer rounded-[14px] border border-blue-200 bg-blue-50 px-3 text-xs font-semibold text-blue-700 transition hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+                    className="h-9 cursor-pointer rounded-[14px] border border-indigo-200 bg-indigo-50 px-3 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
                     onClick={() => {
                       setPrompt(latestOptimizedPrompt);
                       toast.success("已应用最新优化提示词");
@@ -1807,7 +1807,7 @@ export function UIDesignPage() {
                   </button>
                 ) : null}
                 <button
-                  className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-[14px] border border-slate-200 bg-slate-50 text-slate-500 transition hover:border-blue-200 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+                  className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-[14px] border border-slate-200 bg-slate-50 text-slate-500 transition hover:border-indigo-200 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
                   type="button"
                   onClick={() => setPromptOptimizerOpen(false)}
                   aria-label="关闭提示词优化"
@@ -1829,7 +1829,7 @@ export function UIDesignPage() {
                     </div>
                     <button
                       type="button"
-                      className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-[14px] bg-blue-600 text-white transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-[14px] bg-indigo-600 text-white transition hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-60"
                       onClick={() => void createPromptChatSession()}
                       disabled={promptChatSessionsLoading || promptChatLoading}
                       aria-label="新建提示词优化对话"
@@ -1841,7 +1841,7 @@ export function UIDesignPage() {
                 <div className="material-scrollbar min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
                   {promptChatSessionsLoading && promptChatSessions.length === 0 ? (
                     <div className="flex h-24 items-center justify-center text-xs font-semibold text-slate-500">
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin text-blue-500 motion-reduce:animate-none" />
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin text-indigo-500 motion-reduce:animate-none" />
                       加载会话...
                     </div>
                   ) : promptChatSessions.length > 0 ? (
@@ -1852,10 +1852,10 @@ export function UIDesignPage() {
                           key={session.id}
                           type="button"
                           className={cn(
-                            "w-full cursor-pointer rounded-[16px] border px-3 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300",
+                            "w-full cursor-pointer rounded-[16px] border px-3 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300",
                             active
-                              ? "border-blue-200 bg-blue-50 text-blue-900"
-                              : "border-slate-200 bg-slate-50/70 text-slate-700 hover:border-blue-100 hover:bg-white",
+                              ? "border-indigo-200 bg-indigo-50 text-indigo-900"
+                              : "border-slate-200 bg-slate-50/70 text-slate-700 hover:border-indigo-100 hover:bg-white",
                           )}
                           onClick={() => void openPromptChatSession(session.id)}
                           disabled={promptChatLoading}
@@ -1881,7 +1881,7 @@ export function UIDesignPage() {
                   )}
                 </div>
               </aside>
-              <div className="flex min-h-0 flex-col bg-[linear-gradient(180deg,#fbfdff_0%,#f5f8fd_100%)]">
+              <div className="flex min-h-0 flex-col bg-slate-50/60">
                 <div className="material-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto p-5">
                   {promptChatMessages.length > 0 ? (
                     promptChatMessages.map((message) => {
@@ -1892,7 +1892,7 @@ export function UIDesignPage() {
                           className={cn(
                             "max-w-[86%] rounded-[18px] px-4 py-3 text-sm leading-6 shadow-sm",
                             isUser
-                              ? "ml-auto bg-blue-600 text-white"
+                              ? "ml-auto bg-indigo-600 text-white"
                               : "mr-auto border border-slate-200 bg-white text-slate-700",
                           )}
                         >
@@ -1914,7 +1914,7 @@ export function UIDesignPage() {
                           <button
                             key={item}
                             type="button"
-                            className="cursor-pointer rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+                            className="cursor-pointer rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
                             onClick={() => setPromptChatInput(item)}
                           >
                             {item}
@@ -1925,7 +1925,7 @@ export function UIDesignPage() {
                   )}
                   {promptChatLoading ? (
                     <div className="mr-auto inline-flex items-center gap-2 rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-xs font-semibold text-slate-500 shadow-sm">
-                      <Loader2 className="h-4 w-4 animate-spin text-blue-500 motion-reduce:animate-none" />
+                      <Loader2 className="h-4 w-4 animate-spin text-indigo-500 motion-reduce:animate-none" />
                       正在优化提示词...
                     </div>
                   ) : null}
@@ -1937,7 +1937,7 @@ export function UIDesignPage() {
                   </label>
                   <textarea
                     id="prompt-optimizer-input"
-                    className="h-24 w-full resize-none rounded-[16px] border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                    className="h-24 w-full resize-none rounded-[16px] border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-700 outline-none focus:border-indigo-300 focus:ring-4 focus:ring-indigo-100"
                     value={promptChatInput}
                     onChange={(event) => setPromptChatInput(event.target.value)}
                     maxLength={8000}
@@ -1947,7 +1947,7 @@ export function UIDesignPage() {
                     <div className="text-[11px] text-slate-400">{promptChatInput.length.toLocaleString("zh-CN")} / 8,000</div>
                     <button
                       type="button"
-                      className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-[16px] bg-blue-600 px-4 text-sm font-semibold text-white transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-60"
+                      className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-[16px] bg-indigo-600 px-4 text-sm font-semibold text-white transition hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-60"
                       disabled={promptChatLoading || !promptChatInput.trim()}
                       onClick={() => void handlePromptChatSend()}
                     >
@@ -2011,13 +2011,13 @@ export function UIDesignPage() {
                       <span className="text-xs font-semibold text-slate-700">当前回填提示词</span>
                       <button
                         type="button"
-                        className="cursor-pointer rounded-full bg-blue-50 px-2.5 py-1 text-[11px] font-semibold text-blue-700 transition hover:bg-blue-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+                        className="cursor-pointer rounded-full bg-indigo-50 px-2.5 py-1 text-[11px] font-semibold text-indigo-700 transition hover:bg-indigo-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
                         onClick={() => void handleCopyPrompt()}
                       >
                         复制
                       </button>
                     </div>
-                    <div className="material-scrollbar max-h-[260px] overflow-y-auto rounded-[16px] border border-blue-100 bg-blue-50/70 p-3 text-xs leading-6 text-slate-700">
+                    <div className="material-scrollbar max-h-[260px] overflow-y-auto rounded-[16px] border border-indigo-100 bg-indigo-50/70 p-3 text-xs leading-6 text-slate-700">
                       {prompt.trim() || "AI 会根据你的优化要求创建一版完整提示词。"}
                     </div>
                   </div>
@@ -2073,10 +2073,10 @@ export function UIDesignPage() {
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-2">
-                <button className="h-9 cursor-pointer rounded-[14px] border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300" type="button" onClick={() => handleReuse(editingItem)}>
+                <button className="h-9 cursor-pointer rounded-[14px] border border-slate-200 bg-slate-50 px-3 text-xs font-semibold text-slate-600 transition hover:border-indigo-200 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300" type="button" onClick={() => handleReuse(editingItem)}>
                   复用提示词
                 </button>
-                <button className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-[14px] border border-slate-200 bg-slate-50 text-slate-500 transition hover:border-blue-200 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300" type="button" onClick={() => setEditingItem(null)} aria-label="关闭图片修改">
+                <button className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-[14px] border border-slate-200 bg-slate-50 text-slate-500 transition hover:border-indigo-200 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300" type="button" onClick={() => setEditingItem(null)} aria-label="关闭图片修改">
                   <X className="h-4 w-4" />
                 </button>
               </div>
@@ -2088,7 +2088,7 @@ export function UIDesignPage() {
               <aside className="flex min-h-0 max-h-[46vh] flex-col border-t border-slate-200/70 bg-white md:max-h-none md:border-l md:border-t-0">
                 <div className="shrink-0 border-b border-slate-200/70 p-4">
                   <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
-                    <MessageSquare className="h-4 w-4 text-blue-500" />
+                    <MessageSquare className="h-4 w-4 text-indigo-500" />
                     AI 修改对话
                   </div>
                   <div className="mt-2 grid grid-cols-2 gap-2 text-[11px]">
@@ -2137,7 +2137,7 @@ export function UIDesignPage() {
                 </div>
                 <div className="shrink-0 border-t border-slate-200/70 p-4">
                   <textarea
-                    className="h-24 w-full resize-none rounded-[16px] border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-700 outline-none focus:border-blue-300 focus:ring-4 focus:ring-blue-100"
+                    className="h-24 w-full resize-none rounded-[16px] border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-700 outline-none focus:border-indigo-300 focus:ring-4 focus:ring-indigo-100"
                     value={editInstruction}
                     onChange={(event) => setEditInstruction(event.target.value)}
                     maxLength={MAX_PROMPT_LENGTH}
@@ -2145,7 +2145,7 @@ export function UIDesignPage() {
                   />
                   <button
                     type="button"
-                    className="mt-3 flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-[16px] bg-blue-600 text-sm font-semibold text-white transition hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-200 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="mt-3 flex h-10 w-full cursor-pointer items-center justify-center gap-2 rounded-[16px] bg-indigo-600 text-sm font-semibold text-white transition hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-60"
                     disabled={editingImage || !editInstruction.trim()}
                     onClick={() => void handleEditImage()}
                   >

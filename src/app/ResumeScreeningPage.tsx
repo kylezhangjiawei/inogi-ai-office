@@ -222,7 +222,7 @@ function isSyncMailLoading(status?: string | null) {
 function getSyncMailStatusMeta(status?: string | null) {
   if (isSyncMailLoading(status)) {
     return {
-      className: "border-blue-200 bg-blue-50 text-blue-700",
+      className: "border-indigo-200 bg-indigo-50 text-indigo-700",
       icon: <Loader2 className="h-3.5 w-3.5 animate-spin" />,
     };
   }
@@ -1732,7 +1732,7 @@ export function ResumeScreeningPage() {
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <div className="resume-screening-hero-copy flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center lg:gap-3">
             <div className="flex shrink-0 flex-wrap items-center gap-3">
-              <div className="material-neu-chip inline-flex items-center gap-2 rounded-[4px] px-3 py-1 text-xs font-semibold text-blue-800">
+              <div className="material-neu-chip inline-flex items-center gap-2 rounded-[4px] px-3 py-1 text-xs font-semibold text-indigo-800">
                 <Mail className="h-3.5 w-3.5" />
                 企业邮箱简历初筛
               </div>
@@ -1931,8 +1931,8 @@ export function ResumeScreeningPage() {
                         className={cn(
                           "w-full cursor-pointer rounded-lg px-4 py-4 text-left transition",
                           active
-                            ? "material-neu-inset text-blue-900"
-                            : "material-neu-button hover:text-blue-700",
+                            ? "material-neu-inset text-indigo-900"
+                            : "material-neu-button hover:text-indigo-700",
                         )}
                       >
                         <OverflowTooltipText text={jobRule.name} className="text-base font-semibold leading-6 text-slate-900" />
@@ -2161,7 +2161,7 @@ export function ResumeScreeningPage() {
                   <div className="text-base font-semibold text-slate-900">邮件同步结果</div>
                   <div className="mt-1 text-sm text-slate-500">{lastSyncResult.message}</div>
                   {hasPendingSyncMail ? (
-                    <div className="mt-2 inline-flex items-center gap-2 rounded-[4px] border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+                    <div className="mt-2 inline-flex items-center gap-2 rounded-[4px] border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       已入队 {lastSyncResult.queued_for_ai} 封，后台正在逐条筛选，候选人列表会自动刷新。
                     </div>
@@ -2239,7 +2239,7 @@ export function ResumeScreeningPage() {
                   <div className="text-base font-semibold text-slate-900">简历文件夹上传结果</div>
                   <div className="mt-1 text-sm text-slate-500">{lastUploadResult.message}</div>
                   {hasPendingUploadFile ? (
-                    <div className="mt-2 inline-flex items-center gap-2 rounded-[4px] border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+                    <div className="mt-2 inline-flex items-center gap-2 rounded-[4px] border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       已入队 {lastUploadResult.queued_for_ai ?? 0} 份，后台正在逐条筛选，候选人列表会自动刷新。
                     </div>
@@ -2406,11 +2406,11 @@ export function ResumeScreeningPage() {
             />
           </div>
 
-          <div className="material-neu-card mx-5 mt-6 rounded-[var(--m3-shape-large)] border-l-4 border-l-blue-700 p-4">
+          <div className="material-neu-card mx-5 mt-6 rounded-[var(--m3-shape-large)] border-l-4 border-l-indigo-700 p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <div className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
-                  <Sparkles className="h-4 w-4 text-blue-700" />
+                  <Sparkles className="h-4 w-4 text-indigo-700" />
                   AI 迭代筛选
                 </div>
                 <div className="mt-1 text-xs leading-5 text-slate-600">
@@ -2443,7 +2443,7 @@ export function ResumeScreeningPage() {
             </div>
 
             {selectedFilterSession ? (
-              <div className="material-neu-inset mt-3 rounded-[var(--m3-shape-medium)] px-3 py-2 text-xs leading-5 text-blue-900">
+              <div className="material-neu-inset mt-3 rounded-[var(--m3-shape-medium)] px-3 py-2 text-xs leading-5 text-indigo-900">
                 {selectedFilterSession.filter_summary || selectedFilterSession.instruction}
               </div>
             ) : null}
@@ -2470,7 +2470,7 @@ export function ResumeScreeningPage() {
                     type="button"
                     onClick={() => void handleIterateCandidateFilter()}
                     disabled={!filterInstruction.trim() || filterRunning}
-                    className="inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-[var(--m3-shape-small)] bg-blue-600 px-4 text-sm font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-[var(--m3-shape-small)] bg-indigo-600 px-4 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {filterRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                     {filterRunning ? "分析中" : "发送给 AI"}
@@ -2486,7 +2486,7 @@ export function ResumeScreeningPage() {
                         key={`${message.role}-${index}`}
                         className={cn(
                           "rounded-[var(--m3-shape-small)] px-3 py-2 text-xs leading-5",
-                          message.role === "user" ? "bg-slate-100 text-slate-700" : "bg-blue-50 text-blue-900",
+                          message.role === "user" ? "bg-slate-100 text-slate-700" : "bg-indigo-50 text-indigo-900",
                         )}
                       >
                         <span className="mr-1 font-semibold">{message.role === "user" ? "我" : "AI"}：</span>
@@ -2494,7 +2494,7 @@ export function ResumeScreeningPage() {
                       </div>
                     ))}
                     {filterRunning ? (
-                      <div className="inline-flex items-center gap-2 rounded-[var(--m3-shape-small)] bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                      <div className="inline-flex items-center gap-2 rounded-[var(--m3-shape-small)] bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         AI 正在分析筛选意图
                       </div>
@@ -2581,20 +2581,20 @@ export function ResumeScreeningPage() {
                           outline: "none",
                           transition: "background 180ms ease, box-shadow 180ms ease",
                           boxShadow: selected
-                            ? "inset 3px 0 0 #1976d2, inset 4px 4px 10px rgba(25,118,210,0.1), inset -4px -4px 10px rgba(255,255,255,0.82)"
+                            ? "inset 3px 0 0 #4f46e5, inset 4px 4px 10px rgba(79,70,229,0.1), inset -4px -4px 10px rgba(255,255,255,0.82)"
                             : "none",
                           "&:hover": {
                             background: selected
-                              ? "linear-gradient(145deg, rgba(216,234,253,0.96), rgba(255,255,255,0.98))"
+                              ? "linear-gradient(145deg, rgba(224,231,255,0.96), rgba(255,255,255,0.98))"
                               : "linear-gradient(145deg, rgba(255,255,255,0.9), rgba(244,248,253,0.86))",
                             boxShadow: selected
-                              ? "inset 3px 0 0 #1976d2, inset 4px 4px 10px rgba(25,118,210,0.1), inset -4px -4px 10px rgba(255,255,255,0.82)"
+                              ? "inset 3px 0 0 #4f46e5, inset 4px 4px 10px rgba(79,70,229,0.1), inset -4px -4px 10px rgba(255,255,255,0.82)"
                               : "inset 0 0 0 1px rgba(255,255,255,0.78)",
                           },
                           "&:focus-visible": {
                             boxShadow: selected
-                              ? "inset 3px 0 0 #1976d2, 0 0 0 3px rgba(25,118,210,0.2)"
-                              : "0 0 0 3px rgba(25,118,210,0.2)",
+                              ? "inset 3px 0 0 #4f46e5, 0 0 0 3px rgba(79,70,229,0.2)"
+                              : "0 0 0 3px rgba(79,70,229,0.2)",
                           },
                           "&:last-of-type .MuiTableCell-root": {
                             borderBottom: 0,
@@ -2748,7 +2748,7 @@ export function ResumeScreeningPage() {
                 <div className="material-neu-card rounded-lg px-5 py-5">
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div className="flex items-start gap-4">
-                      <div className="material-neu-icon-surface flex h-18 w-18 shrink-0 items-center justify-center overflow-hidden rounded-lg text-2xl font-semibold text-sky-700">
+                      <div className="material-neu-icon-surface flex h-18 w-18 shrink-0 items-center justify-center overflow-hidden rounded-lg text-2xl font-semibold text-indigo-700">
                         {selectedCandidate.parsed_candidate_profile.avatar_url ? (
                           <ImageWithFallback
                             src={selectedCandidate.parsed_candidate_profile.avatar_url}
@@ -2756,7 +2756,7 @@ export function ResumeScreeningPage() {
                             className="h-full w-full object-cover"
                           />
                         ) : (
-                          <User className="h-8 w-8 text-sky-500" />
+                          <User className="h-8 w-8 text-indigo-500" />
                         )}
                       </div>
                       <div>
@@ -2807,7 +2807,7 @@ export function ResumeScreeningPage() {
                   <div className="mt-4 flex flex-wrap gap-2">
                     {activeScreeningTags.length ? (
                       activeScreeningTags.map((tag) => (
-                        <span key={tag} className="inline-flex rounded-[4px] bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                        <span key={tag} className="inline-flex rounded-[4px] bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">
                           {tag}
                         </span>
                       ))
@@ -2825,7 +2825,7 @@ export function ResumeScreeningPage() {
                             <div className="text-sm font-semibold text-slate-900">{item.score}</div>
                           </div>
                           <div className="mt-2 h-2 overflow-hidden rounded-[4px] bg-white shadow-[inset_2px_2px_5px_rgba(148,163,184,0.22)]">
-                            <div className="h-full rounded-[4px] bg-[linear-gradient(90deg,#1976d2,#26a69a)]" style={{ width: `${Math.max(0, Math.min(100, item.score))}%` }} />
+                            <div className="h-full rounded-[4px] bg-indigo-500" style={{ width: `${Math.max(0, Math.min(100, item.score))}%` }} />
                           </div>
                           <div className="mt-2 text-xs leading-5 text-slate-500">
                             {item.valueLabel ? `${item.valueLabel}：` : ""}{item.reason || "暂无说明"}
@@ -2998,7 +2998,7 @@ export function ResumeScreeningPage() {
 
           <div className="material-scrollbar flex-1 overflow-y-auto bg-[linear-gradient(180deg,#fbfdff_0%,#f4f8fd_100%)] px-6 py-6">
             {selectedFilterSession ? (
-              <div className="material-neu-inset mb-5 rounded-[var(--m3-shape-medium)] px-4 py-3 text-sm leading-6 text-blue-900">
+              <div className="material-neu-inset mb-5 rounded-[var(--m3-shape-medium)] px-4 py-3 text-sm leading-6 text-indigo-900">
                 {selectedFilterSession.filter_summary || selectedFilterSession.instruction}
               </div>
             ) : null}
@@ -3025,7 +3025,7 @@ export function ResumeScreeningPage() {
                 {filterRunning ? (
                   <div className="flex justify-start">
                     <div className="material-neu-card inline-flex items-center gap-2 rounded-xl rounded-tl-md px-4 py-3 text-sm text-slate-600">
-                      <Loader2 className="h-4 w-4 animate-spin text-blue-600" />
+                      <Loader2 className="h-4 w-4 animate-spin text-indigo-600" />
                       AI 正在分析本轮筛选意图
                     </div>
                   </div>
@@ -3132,7 +3132,7 @@ export function ResumeScreeningPage() {
                             ) : null}
                           </div>
                           {!isUser && message.ai_update ? (
-                            <div className="mt-2 rounded-lg border border-blue-100 bg-white px-3 py-3 text-left shadow-sm">
+                            <div className="mt-2 rounded-lg border border-indigo-100 bg-white px-3 py-3 text-left shadow-sm">
                               <div className="flex flex-wrap items-center justify-between gap-2">
                                 <div>
                                   <div className="text-xs font-semibold text-slate-700">可应用到详情的 AI 建议</div>
@@ -3145,7 +3145,7 @@ export function ResumeScreeningPage() {
                                     type="button"
                                     onClick={() => void handleApplyCandidateAiUpdate(candidateAiTarget.id, index, message.ai_update as CandidateAiUpdateSuggestion)}
                                     disabled={candidateAiApplyingKey === `${candidateAiTarget.id}:${index}`}
-                                    className="inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-[4px] bg-blue-600 px-3 text-xs font-semibold text-white transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                    className="inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-[4px] bg-indigo-600 px-3 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
                                   >
                                     {candidateAiApplyingKey === `${candidateAiTarget.id}:${index}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
                                     应用到详情

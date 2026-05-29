@@ -452,7 +452,7 @@ export function DictionaryList() {
                   className={cn(
                     "group mx-2 flex cursor-pointer items-center justify-between rounded-2xl border px-3 py-2.5 text-sm transition-colors",
                     activeTypeId === type.id
-                      ? "border-blue-100 bg-[linear-gradient(135deg,#edf4ff_0%,#e1efff_72%,#eefaf8_100%)] font-semibold text-primary shadow-[0_14px_28px_rgba(25,118,210,0.14)]"
+                      ? "border-indigo-100 bg-indigo-50 font-semibold text-primary shadow-[0_8px_18px_rgba(79,70,229,0.14)]"
                       : "border-transparent text-slate-600 hover:border-slate-200 hover:bg-white/85",
                   )}
                   onClick={() => setActiveTypeId(type.id)}

@@ -427,6 +427,11 @@ export function createRdTask(payload: {
   due_date?: string;
   description?: string;
   category_path?: string;
+  /**
+   * 待审核任务的审核类型。个人立项提交时传 "proposal"，使管理员审批通过后
+   * 任务进入 in_progress（保留在发起人任务列表），而非默认的 result→completed（会被工作台过滤掉）。
+   */
+  pending_review_type?: "collaboration" | "result" | "proposal" | string | null;
 }) {
   return requestJson<RdTask>("/task-categories/tasks", {
     method: "POST",

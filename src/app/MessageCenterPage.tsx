@@ -24,7 +24,7 @@ import { fetchRdMessages, patchRdMessage, updateRdTask, type RdMessage } from ".
 
 type ReviewRequestBody = {
   type: "review_request";
-  review_type: "result" | "collaboration";
+  review_type: "result" | "collaboration" | "proposal";
   task_id: string;
   task_title: string;
   submitter_name: string;
@@ -136,13 +136,13 @@ function ApproveDialog({
 }: {
   taskTitle: string;
   taskId: string;
-  reviewType: "result" | "collaboration";
+  reviewType: "result" | "collaboration" | "proposal";
   submitterName: string;
   submitting: boolean;
   onConfirm: () => void;
   onClose: () => void;
 }) {
-  const reviewTypeLabel = reviewType === "collaboration" ? "协作变更审核" : "成果审核";
+  const reviewTypeLabel = reviewType === "collaboration" ? "协作变更审核" : reviewType === "proposal" ? "立项审核" : "成果审核";
 
   return (
     <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={submitting ? undefined : onClose}>
@@ -183,6 +183,8 @@ function ApproveDialog({
             <div>
               {reviewType === "collaboration"
                 ? "通过后协作变更会立即生效，并通知申请人员。"
+                : reviewType === "proposal"
+                ? "通过后任务将正式立项并进入进行中状态，同时通知发起人。"
                 : "通过后任务会进入审核通过状态，并通知对应申请人员。"}
             </div>
           </div>
@@ -249,7 +251,7 @@ function MessageCard({
 
   if (body.type === "review_request") {
     const rb = body;
-    const reviewTypeLabel = rb.review_type === "collaboration" ? "协作申请" : "成果提交";
+    const reviewTypeLabel = rb.review_type === "collaboration" ? "协作申请" : rb.review_type === "proposal" ? "立项申请" : "成果提交";
     const isHandled = msg.handled === true;
 
     return (
@@ -271,7 +273,7 @@ function MessageCard({
               {msg.read ? "已读" : "未读"}
             </span>
             <span className="material-chip bg-blue-100 text-blue-700">审核申请</span>
-            <span className={cn("material-chip", rb.review_type === "collaboration" ? "bg-purple-50 text-purple-700" : "bg-amber-50 text-amber-700")}>
+            <span className={cn("material-chip", rb.review_type === "collaboration" ? "bg-purple-50 text-purple-700" : rb.review_type === "proposal" ? "bg-indigo-50 text-indigo-700" : "bg-amber-50 text-amber-700")}>
               {reviewTypeLabel}
             </span>
             {!msg.read && !isHandled && (
