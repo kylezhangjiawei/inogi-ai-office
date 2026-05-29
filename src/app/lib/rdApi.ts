@@ -87,10 +87,14 @@ export type RdTask = {
   primary_owner: string;
   primary_owner_user_id?: string | null;
   collaborators: RdCollaborator[];
-  pending_review_type?: "collaboration" | "result" | string | null;
+  pending_review_type?: "collaboration" | "result" | "proposal" | "due_date" | string | null;
   pending_collaborators?: RdCollaborator[];
   pending_collaboration_reason?: string | null;
   pending_collaboration_requested_at?: string | null;
+  /** 待审核的截止日期变更：申请值 + 原因 + 提交时间。审核通过后才写入 due_date。 */
+  pending_due_date?: string | null;
+  pending_due_date_reason?: string | null;
+  pending_due_date_requested_at?: string | null;
   status: RdTaskStatus;
   progress: number;
   ai_priority: RdPriority;
@@ -162,9 +166,12 @@ export type RdWorkspaceTask = {
   owner: string;
   owner_user_id?: string | null;
   collaborators?: RdCollaborator[];
-  pending_review_type?: "collaboration" | "result" | string | null;
+  pending_review_type?: "collaboration" | "result" | "proposal" | "due_date" | string | null;
   pending_collaborators?: RdCollaborator[];
   pending_collaboration_reason?: string | null;
+  pending_due_date?: string | null;
+  pending_due_date_reason?: string | null;
+  pending_due_date_requested_at?: string | null;
   collab_role?: string;
   on_leave?: boolean;
   ai_pending?: boolean;

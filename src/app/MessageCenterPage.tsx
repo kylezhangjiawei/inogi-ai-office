@@ -24,7 +24,7 @@ import { fetchRdMessages, patchRdMessage, updateRdTask, type RdMessage } from ".
 
 type ReviewRequestBody = {
   type: "review_request";
-  review_type: "result" | "collaboration" | "proposal";
+  review_type: "result" | "collaboration" | "proposal" | "due_date";
   task_id: string;
   task_title: string;
   submitter_name: string;
@@ -32,6 +32,8 @@ type ReviewRequestBody = {
   note?: string;
   pending_collaborators?: Array<{ name: string; role?: string }>;
   current_progress?: number;
+  pending_due_date?: string;
+  current_due_date?: string;
 };
 
 type ReviewResultBody = {
@@ -130,19 +132,30 @@ function ApproveDialog({
   taskId,
   reviewType,
   submitterName,
+  pendingDueDate,
+  currentDueDate,
   submitting,
   onConfirm,
   onClose,
 }: {
   taskTitle: string;
   taskId: string;
-  reviewType: "result" | "collaboration" | "proposal";
+  reviewType: "result" | "collaboration" | "proposal" | "due_date";
   submitterName: string;
+  pendingDueDate?: string;
+  currentDueDate?: string;
   submitting: boolean;
   onConfirm: () => void;
   onClose: () => void;
 }) {
-  const reviewTypeLabel = reviewType === "collaboration" ? "协作变更审核" : reviewType === "proposal" ? "立项审核" : "成果审核";
+  const reviewTypeLabel =
+    reviewType === "collaboration"
+      ? "协作变更审核"
+      : reviewType === "proposal"
+      ? "立项审核"
+      : reviewType === "due_date"
+      ? "截止日期变更审核"
+      : "成果审核";
 
   return (
     <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={submitting ? undefined : onClose}>
@@ -180,11 +193,16 @@ function ApproveDialog({
           <div className="rounded-xl bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-600">
             <div>任务编号：{taskId}</div>
             <div>提交人：{submitterName || "未识别"}</div>
+            {reviewType === "due_date" && pendingDueDate && (
+              <div>截止日期：{currentDueDate || "未设置"} → {pendingDueDate}</div>
+            )}
             <div>
               {reviewType === "collaboration"
                 ? "通过后协作变更会立即生效，并通知申请人员。"
                 : reviewType === "proposal"
                 ? "通过后任务将正式立项并进入进行中状态，同时通知发起人。"
+                : reviewType === "due_date"
+                ? "通过后任务的截止日期将更新为申请值，并回到进行中状态。"
                 : "通过后任务会进入审核通过状态，并通知对应申请人员。"}
             </div>
           </div>
@@ -251,7 +269,7 @@ function MessageCard({
 
   if (body.type === "review_request") {
     const rb = body;
-    const reviewTypeLabel = rb.review_type === "collaboration" ? "协作申请" : rb.review_type === "proposal" ? "立项申请" : "成果提交";
+    const reviewTypeLabel = rb.review_type === "collaboration" ? "协作申请" : rb.review_type === "proposal" ? "立项申请" : rb.review_type === "due_date" ? "截止日期变更" : "成果提交";
     const isHandled = msg.handled === true;
 
     return (
@@ -273,7 +291,7 @@ function MessageCard({
               {msg.read ? "已读" : "未读"}
             </span>
             <span className="material-chip bg-blue-100 text-blue-700">审核申请</span>
-            <span className={cn("material-chip", rb.review_type === "collaboration" ? "bg-purple-50 text-purple-700" : rb.review_type === "proposal" ? "bg-indigo-50 text-indigo-700" : "bg-amber-50 text-amber-700")}>
+            <span className={cn("material-chip", rb.review_type === "collaboration" ? "bg-purple-50 text-purple-700" : rb.review_type === "proposal" ? "bg-indigo-50 text-indigo-700" : rb.review_type === "due_date" ? "bg-sky-50 text-sky-700" : "bg-amber-50 text-amber-700")}>
               {reviewTypeLabel}
             </span>
             {!msg.read && !isHandled && (
@@ -294,6 +312,9 @@ function MessageCard({
           <span className="text-slate-500">提交人：</span>{rb.submitter_name}
           {rb.review_type === "result" && typeof rb.current_progress === "number" && (
             <span className="ml-3 text-slate-500">完成度：<span className="font-medium text-slate-700">{rb.current_progress}%</span></span>
+          )}
+          {rb.review_type === "due_date" && rb.pending_due_date && (
+            <span className="ml-3 text-slate-500">截止日期：<span className="font-medium text-slate-700">{rb.current_due_date || "未设置"} → {rb.pending_due_date}</span></span>
           )}
         </div>
 
@@ -716,6 +737,8 @@ export function MessageCenterPage() {
           taskId={approveTarget.body.task_id}
           reviewType={approveTarget.body.review_type}
           submitterName={approveTarget.body.submitter_name}
+          pendingDueDate={approveTarget.body.pending_due_date}
+          currentDueDate={approveTarget.body.current_due_date}
           submitting={approving === approveTarget.msg.id}
           onConfirm={handleApproveConfirm}
           onClose={() => {

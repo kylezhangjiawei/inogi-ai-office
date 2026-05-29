@@ -125,9 +125,11 @@ type TaskDetail = {
   blocked_days?: number;
   attachments?: number;
   collaborators?: string[];
-  pending_review_type?: "collaboration" | "result" | string | null;
+  pending_review_type?: "collaboration" | "result" | "proposal" | "due_date" | string | null;
   pending_collaborators?: RdCollaborator[];
   pending_collaboration_reason?: string | null;
+  pending_due_date?: string | null;
+  pending_due_date_reason?: string | null;
   recent_activities?: { date: string; action: string; actor?: string }[];
 };
 
@@ -183,6 +185,8 @@ function rdTaskToDetail(task: RdTask, blocked?: BlockedTask): TaskDetail {
     pending_review_type: task.pending_review_type,
     pending_collaborators: task.pending_collaborators,
     pending_collaboration_reason: task.pending_collaboration_reason,
+    pending_due_date: task.pending_due_date,
+    pending_due_date_reason: task.pending_due_date_reason,
     recent_activities: [],
   };
 }
@@ -3081,18 +3085,30 @@ export function RDDirectorDashboardPage() {
       }
       const approved = decision === "approved";
       const isCollaborationReview = task.pending_review_type === "collaboration";
-      const nextStatus: TaskStatus = isCollaborationReview ? "in_progress" : approved ? "in_progress" : "on_hold";
+      const isDueDateReview = task.pending_review_type === "due_date";
+      // 协作 / 截止日期变更：无论通过或驳回，任务都回到进行中（驳回不挂起）。
+      const nextStatus: TaskStatus = isCollaborationReview || isDueDateReview ? "in_progress" : approved ? "in_progress" : "on_hold";
+      // 截止日期变更走与通知中心一致的 _review_action 路径：后端据 pending_review_type 派生状态、
+      // 通过时写入申请日期、清空 pending 字段，并标记待审核通知为已处理 + 通知提交人，
+      // 避免重复审核把任务误判为已完成。其余类型沿用既有显式 patch。
+      const reviewPatch = isCollaborationReview
+        ? {
+            status: nextStatus,
+            collaborators: approved ? task.pending_collaborators ?? [] : undefined,
+            pending_review_type: null,
+            pending_collaborators: [],
+            pending_collaboration_reason: null,
+            pending_collaboration_requested_at: null,
+          }
+        : isDueDateReview
+        ? {
+            _review_action: approved ? "approve" : "reject",
+            _reviewer_name: DIRECTOR_AUDIT_ACTOR.name,
+            ...(approved ? {} : { _reject_reason: "主管驳回截止日期变更" }),
+          }
+        : { status: nextStatus };
       try {
-        await updateRdTask(task.task_id, isCollaborationReview
-          ? {
-              status: nextStatus,
-              collaborators: approved ? task.pending_collaborators ?? [] : undefined,
-              pending_review_type: null,
-              pending_collaborators: [],
-              pending_collaboration_reason: null,
-              pending_collaboration_requested_at: null,
-            }
-          : { status: nextStatus });
+        await updateRdTask(task.task_id, reviewPatch as Parameters<typeof updateRdTask>[1]);
         await recomputeRdDirectorDashboard().catch(() => {});
         recordAudit({
           actor: DIRECTOR_AUDIT_ACTOR,
@@ -3107,14 +3123,29 @@ export function RDDirectorDashboardPage() {
                   after: approved ? (task.pending_collaborators ?? []).map((item) => item.name).join("、") : task.collaborators?.join("、") ?? "",
                 }]
               : []),
+            ...(isDueDateReview && approved
+              ? [{
+                  field: "due_date",
+                  before: task.due_date ?? "",
+                  after: task.pending_due_date ?? task.due_date ?? "",
+                }]
+              : []),
           ],
           comment: isCollaborationReview
             ? approved ? "主管审核通过，协同人变更已生效" : "主管驳回协同人变更"
+            : isDueDateReview
+            ? approved ? "主管审核通过，截止日期变更已生效" : "主管驳回截止日期变更，保持原日期"
             : approved ? "主管审核通过，任务进入执行" : "主管驳回审核，任务挂起待调整",
           metadata: { task_id: task.task_id, category_path: task.category_path, pending_review_type: task.pending_review_type },
           source: "web",
         });
-        toast.success(isCollaborationReview ? (approved ? "协作变更已生效" : "协作变更已驳回") : approved ? "审核已通过" : "审核已驳回");
+        toast.success(
+          isCollaborationReview
+            ? approved ? "协作变更已生效" : "协作变更已驳回"
+            : isDueDateReview
+            ? approved ? "截止日期变更已生效" : "截止日期变更已驳回"
+            : approved ? "审核已通过" : "审核已驳回",
+        );
         setSelectedTask(null);
         reloadAll();
       } catch (err) {

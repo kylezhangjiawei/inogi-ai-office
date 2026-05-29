@@ -1165,6 +1165,20 @@ export class ResearchDevelopmentService {
               }
             }
 
+            // 截止日期变更审核：通过 → 把申请值写入 due_date；驳回 → 不改 due_date。
+            // 两种情况都清空 pending_due_date* 字段，状态走上面的派生逻辑（非 result → in_progress）。
+            if (reviewType === 'due_date') {
+              if (_review_action === 'approve') {
+                const pendingDue = (t as JsonRecord).pending_due_date;
+                if (typeof pendingDue === 'string' && pendingDue.trim()) {
+                  actionPatch.due_date = pendingDue.trim();
+                }
+              }
+              actionPatch.pending_due_date = null;
+              actionPatch.pending_due_date_reason = null;
+              actionPatch.pending_due_date_requested_at = null;
+            }
+
             resolvedPatch = actionPatch;
           }
 
@@ -1319,12 +1333,27 @@ export class ResearchDevelopmentService {
         task_title: String(task.title ?? ''),
         submitter_name: String(task.primary_owner ?? ''),
         submitter_user_id: String(task.primary_owner_user_id ?? ''),
-        note: String(patch.pending_collaboration_reason ?? task.pending_collaboration_reason ?? ''),
+        note: String(
+          patch.pending_collaboration_reason ??
+            patch.pending_due_date_reason ??
+            task.pending_collaboration_reason ??
+            task.pending_due_date_reason ??
+            '',
+        ),
         pending_collaborators: patch.pending_collaborators ?? task.pending_collaborators ?? [],
+        // 截止日期变更审核：把申请的新日期 + 任务当前日期带给审核人查看。
+        pending_due_date: String(patch.pending_due_date ?? task.pending_due_date ?? ''),
+        current_due_date: String(task.due_date ?? ''),
         current_progress: typeof task.progress === 'number' ? task.progress : 0,
       });
       const typeLabel =
-        reviewType === 'collaboration' ? '协作变更' : reviewType === 'proposal' ? '立项' : '结果';
+        reviewType === 'collaboration'
+          ? '协作变更'
+          : reviewType === 'proposal'
+            ? '立项'
+            : reviewType === 'due_date'
+              ? '截止日期'
+              : '结果';
       const subject = `[待审核] 「${task.title}」申请${typeLabel}审核`;
       for (const admin of admins) {
         await this.createMessage({
@@ -1353,6 +1382,7 @@ export class ResearchDevelopmentService {
       if (!submitterId && !submitterName) return;
       const isApproved = action === 'approve';
       const isCollaboration = reviewType === 'collaboration';
+      const isDueDate = reviewType === 'due_date';
       const taskTitle = String(task.title ?? '');
       const body = JSON.stringify({
         type: 'review_result',
@@ -1365,7 +1395,9 @@ export class ResearchDevelopmentService {
       });
       const subject = isCollaboration
         ? `[审核结果] 「${taskTitle}」协作申请${isApproved ? '已通过' : '被打回'}`
-        : `[审核结果] 「${taskTitle}」${isApproved ? '已通过审核' : '被打回，请修改后重新提交'}`;
+        : isDueDate
+          ? `[审核结果] 「${taskTitle}」截止日期变更${isApproved ? '已通过' : '被驳回'}`
+          : `[审核结果] 「${taskTitle}」${isApproved ? '已通过审核' : '被打回，请修改后重新提交'}`;
       await this.createMessage({
         sender: { id: null, name: '系统通知', role: 'system' },
         recipient_id: submitterId || null,
@@ -2876,7 +2908,14 @@ export class ResearchDevelopmentService {
       if (msgType === 'review_request') {
         const submitterName = String(parsedBody!['submitter_name'] ?? senderName);
         const reviewType = String(parsedBody!['review_type'] ?? 'result');
-        const reviewLabel = reviewType === 'collaboration' ? '协作变更' : '结果';
+        const reviewLabel =
+          reviewType === 'collaboration'
+            ? '协作变更'
+            : reviewType === 'proposal'
+              ? '立项'
+              : reviewType === 'due_date'
+                ? '截止日期'
+                : '结果';
         defaultTitle = `系统通知：【待审核】「${taskTitle}」申请${reviewLabel}审核`;
         displayMessage = `${submitterName} 提交了任务「${taskTitle}」的${reviewLabel}审核，请处理。`;
       } else if (msgType === 'review_result') {
@@ -2893,6 +2932,14 @@ export class ResearchDevelopmentService {
           displayMessage = isApproved
             ? `${reviewerName} 已批准任务「${taskTitle}」的协作申请，协作人已生效。`
             : `${reviewerName} 打回了任务「${taskTitle}」的协作申请。${reason ? `原因：${reason}` : ''}`;
+        } else if (reviewType === 'due_date') {
+          displayMessage = isApproved
+            ? `${reviewerName} 已批准任务「${taskTitle}」的截止日期变更，新的截止日期已生效，任务回到进行中。`
+            : `${reviewerName} 驳回了任务「${taskTitle}」的截止日期变更。${reason ? `原因：${reason}` : ''}`;
+        } else if (reviewType === 'proposal') {
+          displayMessage = isApproved
+            ? `${reviewerName} 已通过任务「${taskTitle}」的立项申请，任务进入进行中。`
+            : `${reviewerName} 打回了任务「${taskTitle}」的立项申请。${reason ? `原因：${reason}` : ''}`;
         } else {
           displayMessage = isApproved
             ? `${reviewerName} 已批准任务「${taskTitle}」，任务已完成。`

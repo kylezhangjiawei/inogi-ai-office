@@ -19,7 +19,7 @@ function getMsgSummary(msg: RdMessage): string {
   try {
     const b = JSON.parse(msg.body) as Record<string, unknown>;
     if (b.type === "review_request") {
-      const reviewType = b.review_type === "collaboration" ? "协作申请" : b.review_type === "proposal" ? "立项申请" : "成果提交";
+      const reviewType = b.review_type === "collaboration" ? "协作申请" : b.review_type === "proposal" ? "立项申请" : b.review_type === "due_date" ? "截止日期变更" : "成果提交";
       return `【${reviewType}】${String(b.submitter_name ?? "")} 提交了任务「${String(b.task_title ?? "")}」`;
     }
     if (b.type === "review_result") {

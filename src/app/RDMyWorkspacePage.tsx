@@ -110,6 +110,19 @@ function clampProgressValue(value: number): number {
   return Math.max(0, Math.min(100, Math.round(numeric)));
 }
 
+/** 把任意日期字符串归一化为 <input type="date"> 需要的 YYYY-MM-DD 格式；解析失败返回空串。 */
+function toDateInputValue(value?: string | null): string {
+  if (!value) return "";
+  const trimmed = value.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const y = parsed.getFullYear();
+  const m = String(parsed.getMonth() + 1).padStart(2, "0");
+  const d = String(parsed.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 function workspaceTaskMatches(
   task: WorkspaceTask,
   keyword: string,
@@ -553,7 +566,7 @@ function TaskOperationDrawer({
   onProgressSave: (taskId: string, progress: number) => void | Promise<void>;
   onLog: (message: string) => void;
   onRequestConfirm: (config: ConfirmDialogConfig) => void;
-  onSubmittedForReview: (taskId: string) => void | Promise<void>;
+  onSubmittedForReview: (taskId: string, options?: { progress?: number }) => void | Promise<void>;
   onCollaborationChanged: (taskId: string, collaborators: RdCollaborator[], status?: TaskStatus) => void | Promise<void>;
 }) {
   const WORKSPACE_AUDIT_ACTOR = useAuditActor("研发成员");
@@ -577,8 +590,12 @@ function TaskOperationDrawer({
     () => new Set((task.pending_review_type === "collaboration" ? task.pending_collaborators : task.collaborators ?? []).map(collaboratorOptionValue)),
   );
   const [receipt, setReceipt] = useState<string | null>(null);
+  const [editingDueDate, setEditingDueDate] = useState(false);
+  const [draftDueDate, setDraftDueDate] = useState(() => toDateInputValue(task.due_date));
+  const [dueDateReason, setDueDateReason] = useState("");
   const taskLogs = useAuditLogs({ resourceType: "task", resourceId: task.task_id });
   const canApplyCollaborationDirectly = canDirectProject || canReviewProjectL1 || canReviewProjectL2 || canReassignTask || canManagePeople;
+  const dueDateChangePending = task.status === "pending_review" && task.pending_review_type === "due_date";
 
   useEffect(() => {
     let cancelled = false;
@@ -909,6 +926,58 @@ function TaskOperationDrawer({
         toast.success(`${task.task_id} 已提交结果审核`);
         onLog(`${task.task_id} 已提交结果审核`);
         window.dispatchEvent(new CustomEvent('rd:review-submitted'));
+        await onSubmittedForReview(task.task_id, { progress: 100 });
+        onClose();
+      },
+    });
+  };
+
+  // 截止日期变更：仅走审核流程（不直接生效），审核通过后管理员侧才写入 due_date。
+  const submitDueDateChange = () => {
+    const next = draftDueDate.trim();
+    const current = toDateInputValue(task.due_date);
+    if (!next) {
+      toast.error("请选择新的截止日期");
+      return;
+    }
+    if (next === current) {
+      toast.error("新的截止日期与当前一致，无需提交");
+      return;
+    }
+    if (!dueDateReason.trim()) {
+      toast.error("请填写修改原因，便于管理员审核");
+      return;
+    }
+    onRequestConfirm({
+      title: "确认提交截止日期变更审核",
+      message: `将把 ${task.task_id} 的截止日期变更提交给管理员审核。`,
+      confirmLabel: "提交审核",
+      details: [
+        `当前截止日期：${current || "未设置"}`,
+        `申请变更为：${next}`,
+        "审核通过后截止日期才会更新，任务回到进行中",
+        `修改原因：${dueDateReason.trim()}`,
+      ],
+      onConfirm: async () => {
+        await updateRdTask(task.task_id, {
+          status: "pending_review",
+          pending_review_type: "due_date",
+          pending_due_date: next,
+          pending_due_date_reason: dueDateReason.trim(),
+          pending_due_date_requested_at: new Date().toISOString(),
+        });
+        recordAudit({
+          actor: WORKSPACE_AUDIT_ACTOR,
+          action: "task.due_date_requested",
+          resource: { type: "task", id: task.task_id, name: task.title },
+          changes: [{ field: "due_date", before: current || "未设置", after: next }],
+          comment: dueDateReason.trim(),
+          metadata: { current_due_date: current, pending_due_date: next },
+          source: "web",
+        });
+        toast.success(`${task.task_id} 已提交截止日期变更审核`);
+        onLog(`${task.task_id} 已提交截止日期变更审核`);
+        window.dispatchEvent(new CustomEvent('rd:review-submitted'));
         await onSubmittedForReview(task.task_id);
         onClose();
       },
@@ -966,10 +1035,84 @@ function TaskOperationDrawer({
                 <div className="mt-1"><PriorityBadge priority={task.priority} /></div>
               </div>
               <div className="rounded-xl bg-slate-50 px-4 py-3">
-                <div className="text-xs text-slate-400">截止日期</div>
+                <div className="flex items-center justify-between">
+                  <div className="text-xs text-slate-400">截止日期</div>
+                  {dueDateChangePending ? (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">变更审核中</span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setDraftDueDate(toDateInputValue(task.due_date));
+                        setDueDateReason("");
+                        setEditingDueDate((prev) => !prev);
+                      }}
+                      className="cursor-pointer text-[11px] font-semibold text-indigo-600 transition-colors hover:text-indigo-700"
+                    >
+                      {editingDueDate ? "取消" : "修改"}
+                    </button>
+                  )}
+                </div>
                 <div className="mt-1 text-sm font-semibold text-slate-800">{task.due_date}</div>
               </div>
             </div>
+
+            {editingDueDate && !dueDateChangePending && (
+              <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4">
+                <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+                  <CalendarClock className="h-4 w-4 text-indigo-600" />
+                  修改截止日期
+                </div>
+                <p className="mt-1 text-xs leading-5 text-slate-500">
+                  提交后任务进入待审核状态，管理员审核通过后截止日期才会更新；审核期间任务不可继续操作。
+                </p>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label className="text-xs font-medium text-slate-500">新的截止日期</label>
+                    <Input
+                      type="date"
+                      value={draftDueDate}
+                      onChange={(event) => setDraftDueDate(event.target.value)}
+                      className="mt-1"
+                    />
+                  </div>
+                  <div className="rounded-lg bg-white px-3 py-2 ring-1 ring-slate-200">
+                    <div className="text-xs text-slate-400">当前截止日期</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-700">{task.due_date || "未设置"}</div>
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <label className="text-xs font-medium text-slate-500">修改原因</label>
+                  <Textarea
+                    value={dueDateReason}
+                    onChange={(event) => setDueDateReason(event.target.value)}
+                    rows={3}
+                    placeholder="请说明调整截止日期的原因，便于管理员审核"
+                    className="mt-1"
+                  />
+                </div>
+                <div className="mt-3 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingDueDate(false);
+                      setDueDateReason("");
+                      setDraftDueDate(toDateInputValue(task.due_date));
+                    }}
+                    className="cursor-pointer rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    onClick={submitDueDateChange}
+                    className="cursor-pointer rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-indigo-700"
+                  >
+                    提交审核
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="rounded-xl border border-slate-200 p-4">
               <div className="mb-2 text-sm font-semibold text-slate-900">任务说明</div>
@@ -1514,6 +1657,8 @@ function NotificationDrawer({
   const reviewTaskTitle = isReviewRequest ? String(parsedBody!.task_title ?? "") : "";
   const reviewSubmitterName = isReviewRequest ? String(parsedBody!.submitter_name ?? "") : "";
   const reviewNote = isReviewRequest ? String(parsedBody!.note ?? "") : "";
+  const reviewPendingDueDate = isReviewRequest ? String(parsedBody!.pending_due_date ?? "") : "";
+  const reviewCurrentDueDate = isReviewRequest ? String(parsedBody!.current_due_date ?? "") : "";
 
   // 拉取审核任务的进度记录，作为审核参考依据
   useEffect(() => {
@@ -1575,7 +1720,7 @@ function NotificationDrawer({
                 <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">待审核</span>
               )}
               <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500 ring-1 ring-slate-200">
-                {reviewType === "collaboration" ? "协作变更审核" : reviewType === "proposal" ? "立项审核" : "成果审核"}
+                {reviewType === "collaboration" ? "协作变更审核" : reviewType === "proposal" ? "立项审核" : reviewType === "due_date" ? "截止日期变更审核" : "成果审核"}
               </span>
             </div>
             <div>
@@ -1583,9 +1728,17 @@ function NotificationDrawer({
               <div className="text-sm font-semibold text-slate-800">{reviewTaskTitle}</div>
             </div>
             <div className="text-sm text-slate-500">提交人：<span className="font-medium text-slate-700">{reviewSubmitterName}</span></div>
+            {reviewType === "due_date" && reviewPendingDueDate && (
+              <div className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm ring-1 ring-slate-200">
+                <CalendarClock className="h-4 w-4 shrink-0 text-indigo-500" />
+                <span className="text-slate-500">{reviewCurrentDueDate || "未设置"}</span>
+                <ArrowRight className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                <span className="font-semibold text-indigo-700">{reviewPendingDueDate}</span>
+              </div>
+            )}
             {reviewNote && (
               <div className="rounded-lg bg-white px-3 py-2 text-sm text-slate-700 ring-1 ring-slate-200">
-                <span className="font-medium text-slate-500">备注：</span>{reviewNote}
+                <span className="font-medium text-slate-500">{reviewType === "due_date" ? "修改原因：" : "备注："}</span>{reviewNote}
               </div>
             )}
             {isHandled && (
@@ -1771,10 +1924,17 @@ function updateTaskProgressList(tasks: WorkspaceTask[], taskId: string, progress
   );
 }
 
-function markTaskSubmittedForReviewList(tasks: WorkspaceTask[], taskId: string) {
+function markTaskSubmittedForReviewList(tasks: WorkspaceTask[], taskId: string, progress?: number) {
   return tasks.map((task) =>
     task.task_id === taskId
-      ? { ...task, status: "pending_review", status_label: "待审核", next_action: "等待上级审核", progress: 100 }
+      ? {
+          ...task,
+          status: "pending_review" as TaskStatus,
+          status_label: "待审核",
+          next_action: "等待上级审核",
+          // 仅成果审核会把进度置满；截止日期等其它审核保持原进度，避免误显示 100%。
+          ...(typeof progress === "number" ? { progress } : {}),
+        }
       : task,
   );
 }
@@ -2128,7 +2288,16 @@ export function RDMyWorkspacePage() {
     const taskTitle = String(body.task_title ?? "").trim() || notification.title;
     const reviewType = String(body.review_type ?? "result");
     const submitterName = String(body.submitter_name ?? "").trim();
-    const reviewTypeLabel = reviewType === "collaboration" ? "协作变更审核" : reviewType === "proposal" ? "立项审核" : "成果审核";
+    const pendingDueDate = String(body.pending_due_date ?? "").trim();
+    const currentDueDate = String(body.current_due_date ?? "").trim();
+    const reviewTypeLabel =
+      reviewType === "collaboration"
+        ? "协作变更审核"
+        : reviewType === "proposal"
+        ? "立项审核"
+        : reviewType === "due_date"
+        ? "截止日期变更审核"
+        : "成果审核";
     if (!taskId) {
       toast.error("通知内容缺少任务 ID，无法审核");
       return;
@@ -2142,10 +2311,15 @@ export function RDMyWorkspacePage() {
       details: [
         `任务编号：${taskId}`,
         submitterName ? `提交人：${submitterName}` : "提交人：未识别",
+        ...(reviewType === "due_date" && pendingDueDate
+          ? [`截止日期：${currentDueDate || "未设置"} → ${pendingDueDate}`]
+          : []),
         reviewType === "collaboration"
           ? "通过后协作人变更会立即生效，任务回到进行中。"
           : reviewType === "proposal"
           ? "通过后任务将正式立项并进入进行中状态，同时通知发起人。"
+          : reviewType === "due_date"
+          ? "通过后任务的截止日期将更新为申请值，并回到进行中状态。"
           : "通过后任务会进入审核通过状态，并通知对应申请人员。",
       ],
       onConfirm: async () => {
@@ -2570,11 +2744,11 @@ export function RDMyWorkspacePage() {
           }}
           onLog={() => {}}
           onRequestConfirm={setConfirmDialog}
-          onSubmittedForReview={async (taskId) => {
+          onSubmittedForReview={async (taskId, options) => {
             setWorkspace((prev) => ({
               ...prev,
-              myTasks: markTaskSubmittedForReviewList(prev.myTasks, taskId),
-              collabTasks: markTaskSubmittedForReviewList(prev.collabTasks, taskId),
+              myTasks: markTaskSubmittedForReviewList(prev.myTasks, taskId, options?.progress),
+              collabTasks: markTaskSubmittedForReviewList(prev.collabTasks, taskId, options?.progress),
             }));
             setActivePanel(null);
             await loadWorkspace({ silent: true });

@@ -3385,6 +3385,10 @@ function ApprovalActionDialog({
             {isApprove
               ? task.pending_review_type === "proposal"
                 ? <>确认通过「<span className="font-semibold text-slate-900">{task.title}</span>」的立项审核？通过后任务将正式立项并进入进行中状态。</>
+                : task.pending_review_type === "collaboration"
+                ? <>确认通过「<span className="font-semibold text-slate-900">{task.title}</span>」的协作变更审核？通过后协同人变更将生效，任务回到进行中。</>
+                : task.pending_review_type === "due_date"
+                ? <>确认通过「<span className="font-semibold text-slate-900">{task.title}</span>」的截止日期变更审核？通过后任务的截止日期将更新为申请值，并回到进行中。</>
                 : <>确认通过「<span className="font-semibold text-slate-900">{task.title}</span>」的审核？任务将标记为已完成，进度设为 100%。</>
               : <>将「<span className="font-semibold text-slate-900">{task.title}</span>」打回给负责人重新修改。</>
             }
@@ -4131,6 +4135,35 @@ function TaskDetailDrawer({
         onClose();
         return;
       }
+      const isDueDateReview = task.pending_review_type === "due_date";
+      if (isDueDateReview) {
+        // 走与通知中心 / 消息中心一致的 _review_action 审核路径：后端据 pending_review_type
+        // 派生状态（截止日期变更 → 进行中）、通过时写入申请日期、清空 pending 字段，
+        // 同时把待审核通知标记为已处理并通知提交人，避免其他管理员重复审核导致任务被误判为已完成。
+        const requestedDue = task.pending_due_date ?? null;
+        await updateRdTask(task.task_id, {
+          _review_action: isApprove ? "approve" : "reject",
+          _reviewer_name: RD_ADMIN_AUDIT_ACTOR.name,
+          ...(isApprove ? {} : { _reject_reason: reason ?? "" }),
+        } as Parameters<typeof updateRdTask>[1]);
+        recordAudit({
+          actor: RD_ADMIN_AUDIT_ACTOR,
+          action: "task.updated",
+          resource: { type: "task", id: task.task_id, name: task.title },
+          changes: [
+            { field: "status", before: task.status, after: "in_progress" },
+            ...(isApprove && requestedDue
+              ? [{ field: "due_date", before: task.due_date ?? "", after: requestedDue }]
+              : []),
+          ],
+          comment: isApprove ? "截止日期变更审核通过" : `截止日期变更打回：${reason ?? ""}`,
+          source: "web",
+        });
+        toast.success(isApprove ? "截止日期变更已生效" : "截止日期变更已打回");
+        setShowApprovalDialog(null);
+        onClose();
+        return;
+      }
       if (isApprove) {
         // 个人立项审核通过：任务正式立项并进入进行中，必须保留在发起人列表，
         // 不能标记为已完成（否则会被工作台过滤而从发起人任务列表消失）。
@@ -4432,6 +4465,18 @@ function TaskDetailDrawer({
               </div>
               {task.pending_collaboration_reason && (
                 <div className="mt-1 text-indigo-600">说明：{task.pending_collaboration_reason}</div>
+              )}
+            </div>
+          )}
+
+          {task.pending_review_type === "due_date" && (
+            <div className="rounded-[8px] border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-700">
+              <div className="font-semibold">截止日期变更待审核</div>
+              <div className="mt-1">
+                {task.due_date || "未设置"} → <span className="font-semibold">{task.pending_due_date || "未填写"}</span>
+              </div>
+              {task.pending_due_date_reason && (
+                <div className="mt-1 text-sky-600">说明：{task.pending_due_date_reason}</div>
               )}
             </div>
           )}
