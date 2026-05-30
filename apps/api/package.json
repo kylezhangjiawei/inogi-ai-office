@@ -26,6 +26,7 @@
     "argon2": "^0.44.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "express": "^5.2.1",
     "imapflow": "^1.0.181",
     "mailparser": "^3.7.2",
     "mammoth": "^1.12.0",
