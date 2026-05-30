@@ -20,6 +20,8 @@ set -Eeuo pipefail
 REPO_DIR="${REPO_DIR:-/opt/inogi-ai-office-system}"
 BRANCH="${DEPLOY_BRANCH:-main}"
 PM2_APP_NAME="${PM2_APP_NAME:-inogi-api}"
+# nginx 实际服务的前端目录（root 指向这里）。构建产物在 dist/，部署时同步到此目录。
+WEB_ROOT="${WEB_ROOT:-/usr/share/nginx/html/weoxy-test}"
 NPM_REGISTRY="${NPM_REGISTRY:-https://registry.npmmirror.com}"
 PRISMA_MIRROR="${PRISMA_ENGINES_MIRROR:-https://registry.npmmirror.com/-/binary/prisma}"
 
@@ -224,7 +226,21 @@ fi
 log "数据库迁移 prisma migrate deploy ..."
 ( cd apps/api && retry npx --no-install prisma migrate deploy )
 
-# ----------------- 8. 重启后端（注入运行期版本号）-----------------
+# ----------------- 8. 发布前端到 nginx 目录 -----------------
+# nginx 的 root 指向 WEB_ROOT，构建产物却在 dist/；这里把 dist 同步过去，
+# 前端改动才真正上线。放在重启前，使前后端版本尽量同时生效（减少版本提示误弹）。
+if [ -d "$WEB_ROOT" ]; then
+  log "发布前端 dist → $WEB_ROOT ..."
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete-after "$REPO_DIR/dist/" "$WEB_ROOT/"
+  else
+    cp -a "$REPO_DIR/dist/." "$WEB_ROOT/"
+  fi
+else
+  log "⚠️  前端发布目录不存在：$WEB_ROOT，跳过发布（请确认 nginx root 或设 WEB_ROOT）"
+fi
+
+# ----------------- 9. 重启后端（注入运行期版本号）-----------------
 log "重启后端 pm2: $PM2_APP_NAME ..."
 if command -v pm2 >/dev/null 2>&1; then
   if pm2 describe "$PM2_APP_NAME" >/dev/null 2>&1; then
@@ -241,7 +257,7 @@ else
   die "未找到 pm2，请先安装：npm i -g pm2"
 fi
 
-# ---------------------------- 9. nginx ----------------------------
+# ---------------------------- 10. nginx ----------------------------
 if command -v nginx >/dev/null 2>&1; then
   log "重载 nginx ..."
   if nginx -t >/dev/null 2>&1; then
