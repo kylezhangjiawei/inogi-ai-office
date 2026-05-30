@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+#
+# 裸仓库 post-receive 钩子 —— 收到 push 后把代码检出到工作目录并触发部署。
+#
+# 安装到服务器裸仓库（见 deploy/git-hooks/README.md）：
+#   cp deploy/git-hooks/post-receive /opt/git/inogi-ai-office.git/hooks/post-receive
+#   chmod +x /opt/git/inogi-ai-office.git/hooks/post-receive
+#
+# 可用环境变量覆盖默认路径：DEPLOY_WORK_TREE / DEPLOY_BARE_DIR / DEPLOY_BRANCH
+set -Eeuo pipefail
+
+WORK_TREE="${DEPLOY_WORK_TREE:-/opt/inogi-ai-office-system}"
+BARE_DIR="${DEPLOY_BARE_DIR:-/opt/git/inogi-ai-office.git}"
+TARGET_BRANCH="${DEPLOY_BRANCH:-main}"
+
+while read -r _oldrev newrev refname; do
+  branch="${refname#refs/heads/}"
+  if [ "$branch" != "$TARGET_BRANCH" ]; then
+    echo "[hook] 跳过分支 $branch（只部署 $TARGET_BRANCH）"
+    continue
+  fi
+
+  echo "[hook] 收到 $branch 推送 $newrev，检出到 $WORK_TREE ..."
+  mkdir -p "$WORK_TREE"
+  # 用裸仓库作为 git-dir，把代码检出到工作目录；只覆盖被跟踪文件，
+  # node_modules / apps/api/.env / dist 等未跟踪文件不受影响。
+  git --work-tree="$WORK_TREE" --git-dir="$BARE_DIR" checkout -f "$branch"
+
+  # 清理 git 钩子注入的 GIT_* 环境，避免污染部署脚本里的 git / 构建。
+  unset GIT_DIR GIT_WORK_TREE GIT_QUARANTINE_PATH GIT_INDEX_FILE GIT_PREFIX GIT_PUSH_CERT_STATUS 2>/dev/null || true
+
+  # 让 node / pnpm / pm2 进入 PATH（git 钩子默认环境很精简）。
+  # nvm 用户：自动加载；非 nvm（系统级 node）通常已在 /usr/bin，无需处理。
+  export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+  if [ -s "$NVM_DIR/nvm.sh" ]; then
+    # nvm.sh 在 set -e/-u 下会因引用未定义变量而中断，故临时关闭、加载后再恢复
+    set +eu
+    # shellcheck disable=SC1090,SC1091
+    . "$NVM_DIR/nvm.sh" >/dev/null 2>&1
+    set -eu
+  fi
+  # 你的 node/npm/pm2/git/pg_dump 都在 /usr/bin（系统级安装，非 nvm）。
+  # 显式补上常见 bin 目录，确保 git 钩子的精简环境下也能找到它们。
+  export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/bin:$PATH"
+
+  echo "[hook] 触发部署 scripts/deploy.sh ..."
+  DEPLOY_SKIP_GIT=1 DEPLOY_GIT_SHA="$newrev" REPO_DIR="$WORK_TREE" \
+    bash "$WORK_TREE/scripts/deploy.sh"
+
+  echo "[hook] ✅ 部署结束。"
+done

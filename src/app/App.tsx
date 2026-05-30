@@ -67,6 +67,8 @@ type RuntimeHealthResponse = {
 const FRONTEND_RELEASE = (import.meta.env.VITE_APP_VERSION as string | undefined) ?? "dev";
 const FRONTEND_GIT_SHA = (import.meta.env.VITE_GIT_SHA as string | undefined) ?? "unknown";
 const RUNTIME_VERSION_NOTICE_KEY = "inogi-runtime-version-warning";
+const NEW_VERSION_TOAST_ID = "inogi-new-version-available";
+const RUNTIME_VERSION_POLL_MS = 60_000;
 
 function RuntimeVersionGuard() {
   useEffect(() => {
@@ -108,29 +110,53 @@ function RuntimeVersionGuard() {
         const sameRelease = backendRelease === FRONTEND_RELEASE;
         const sameCommit = backendGitSha === FRONTEND_GIT_SHA;
         if (sameRelease && sameCommit) {
+          // 已是最新：清掉残留的提示与去重标记。
           sessionStorage.removeItem(RUNTIME_VERSION_NOTICE_KEY);
+          toast.dismiss(NEW_VERSION_TOAST_ID);
           return;
         }
 
-        const noticeKey = `${FRONTEND_RELEASE}:${FRONTEND_GIT_SHA}:${backendRelease}:${backendGitSha}`;
+        // 当前页面加载的前端版本与服务端已部署版本不一致 —— 原子部署下即「有新版本」。
+        // 同一个目标版本只提示一次，避免轮询反复打扰。
+        const noticeKey = `${backendRelease}:${backendGitSha}`;
         if (sessionStorage.getItem(RUNTIME_VERSION_NOTICE_KEY) === noticeKey) {
           return;
         }
-
         sessionStorage.setItem(RUNTIME_VERSION_NOTICE_KEY, noticeKey);
-        toast.error(
-          `前后端版本不一致：前端 ${FRONTEND_RELEASE} (${FRONTEND_GIT_SHA.slice(0, 7)})，后端 ${backendRelease} (${backendGitSha.slice(0, 7)})。请确认 API 已部署到同一版本。`,
-          { duration: 12000 },
-        );
+
+        toast.info("发现新版本，点击刷新即可升级到最新功能", {
+          id: NEW_VERSION_TOAST_ID,
+          duration: Infinity,
+          action: {
+            label: "刷新",
+            onClick: () => window.location.reload(),
+          },
+        });
       } catch {
-        // Ignore version probe failures; this check should never block the app.
+        // 版本探测失败不应影响应用本身。
       }
     }
 
     void checkRuntimeVersion();
 
+    // 长时间开着的页面：定时轮询 + 切回标签页/窗口聚焦时再查，确保能及时发现新版本。
+    const intervalId = window.setInterval(() => {
+      void checkRuntimeVersion();
+    }, RUNTIME_VERSION_POLL_MS);
+
+    const handleForeground = () => {
+      if (document.visibilityState === "visible") {
+        void checkRuntimeVersion();
+      }
+    };
+    document.addEventListener("visibilitychange", handleForeground);
+    window.addEventListener("focus", handleForeground);
+
     return () => {
       cancelled = true;
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleForeground);
+      window.removeEventListener("focus", handleForeground);
     };
   }, []);
 
