@@ -5,6 +5,7 @@ import {
   ArrowRight,
   Bell,
   CalendarClock,
+  CalendarDays,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -26,9 +27,12 @@ import {
   Users,
   X,
 } from "lucide-react";
+import { Button } from "./components/ui/button";
+import { Calendar } from "./components/ui/calendar";
 import { Checkbox } from "./components/ui/checkbox";
 import { Input } from "./components/ui/input";
 import { NativeSelect } from "./components/ui/native-select";
+import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover";
 import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
 import { usePermission } from "./hooks/usePermission";
@@ -120,6 +124,21 @@ function toDateInputValue(value?: string | null): string {
   const y = parsed.getFullYear();
   const m = String(parsed.getMonth() + 1).padStart(2, "0");
   const d = String(parsed.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/** YYYY-MM-DD 字符串 → 本地 Date（按本地时区零点，避免 UTC 解析差一天）；非法返回 undefined。 */
+function parseDateInputValue(value: string): Date | undefined {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value.trim());
+  if (!m) return undefined;
+  return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+
+/** 本地 Date → YYYY-MM-DD 字符串（与 toDateInputValue 输出一致，供后续审核流程沿用）。 */
+function formatDateInputValue(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
 }
 
@@ -1069,12 +1088,29 @@ function TaskOperationDrawer({
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   <div>
                     <label className="text-xs font-medium text-slate-500">新的截止日期</label>
-                    <Input
-                      type="date"
-                      value={draftDueDate}
-                      onChange={(event) => setDraftDueDate(event.target.value)}
-                      className="mt-1"
-                    />
+                    <Popover>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          className={cn(
+                            "mt-1 w-full justify-start text-left font-normal",
+                            !draftDueDate && "text-muted-foreground",
+                          )}
+                        >
+                          <CalendarDays className="mr-2 h-4 w-4" />
+                          {draftDueDate || "选择日期"}
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-auto p-0" align="start">
+                        <Calendar
+                          mode="single"
+                          selected={parseDateInputValue(draftDueDate)}
+                          onSelect={(date) => setDraftDueDate(date ? formatDateInputValue(date) : "")}
+                          initialFocus
+                        />
+                      </PopoverContent>
+                    </Popover>
                   </div>
                   <div className="rounded-lg bg-white px-3 py-2 ring-1 ring-slate-200">
                     <div className="text-xs text-slate-400">当前截止日期</div>
