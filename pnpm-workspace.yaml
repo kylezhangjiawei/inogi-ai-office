@@ -1,3 +1,15 @@
 packages:
   - '.'
   - 'apps/*'
+
+# pnpm v10 默认屏蔽依赖的构建脚本（含原生模块的安装脚本）。
+# 这里显式允许这些包运行构建/安装脚本，否则 argon2（登录密码哈希）、
+# prisma 引擎、tailwind oxide 等原生依赖可能装不全、运行时报错。
+onlyBuiltDependencies:
+  - '@nestjs/core'
+  - '@prisma/client'
+  - '@prisma/engines'
+  - '@tailwindcss/oxide'
+  - argon2
+  - esbuild
+  - prisma

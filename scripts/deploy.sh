@@ -138,7 +138,8 @@ fi
 CACHE_DIR="$REPO_DIR/.deploy-cache"
 mkdir -p "$CACHE_DIR"
 lock_hash() {
-  cat pnpm-lock.yaml package-lock.json apps/api/package-lock.json 2>/dev/null \
+  # 含 pnpm-workspace.yaml：onlyBuiltDependencies 等改动也应触发重新安装
+  cat pnpm-workspace.yaml pnpm-lock.yaml package-lock.json apps/api/package-lock.json 2>/dev/null \
     | sha256sum | awk '{print $1}'
 }
 NEW_HASH="$(lock_hash)"
