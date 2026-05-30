@@ -156,6 +156,29 @@ install_deps() {
   fi
 }
 
+# argon2 是原生模块：它的预编译二进制要求的 glibc 版本可能高于本机
+# （会导致 ERR_DLOPEN_FAILED → 后端启动即崩溃 → 全站 502）。
+# 这里检测能否加载，不能就在本机从源码编译，匹配本机 glibc。幂等：能加载就直接跳过。
+# 前置（一次性）：服务器需有 gcc/gcc-c++/make、Python ≥3.8、node-gyp。
+ensure_native_argon2() {
+  local dir py
+  dir="$(find node_modules/.pnpm -type d -path '*/argon2@*/node_modules/argon2' 2>/dev/null | head -1)"
+  [ -n "$dir" ] || return 0
+  if ( cd "$dir" && node -e "require('.')" ) >/dev/null 2>&1; then
+    log "argon2 原生模块加载正常。"
+    return 0
+  fi
+  log "argon2 预编译与本机不兼容，改为从源码编译 ..."
+  py="$(command -v python3.11 || command -v python3.9 || command -v python3.8 || command -v python3 || true)"
+  [ -n "$py" ] || die "未找到 Python（node-gyp 需 ≥3.8）；请先 dnf install -y python3.11。"
+  command -v node-gyp >/dev/null 2>&1 || npm install -g node-gyp --registry="$NPM_REGISTRY" >/dev/null 2>&1 || true
+  ( cd "$dir" && rm -rf prebuilds build && node-gyp rebuild --python "$py" ) \
+    || die "argon2 源码编译失败；请检查 gcc/gcc-c++/make 与 Python ≥3.8。"
+  ( cd "$dir" && node -e "require('.')" ) >/dev/null 2>&1 \
+    || die "argon2 编译后仍无法加载。"
+  log "argon2 已从源码编译并可正常加载。"
+}
+
 if [ "$NEW_HASH" = "$OLD_HASH" ] && [ -d node_modules ]; then
   log "依赖 lockfile 未变化，跳过安装。"
 else
@@ -163,6 +186,9 @@ else
   install_deps
   echo "$NEW_HASH" > "$CACHE_DIR/lock.sha"
 fi
+
+# 2.5 确保 argon2 原生模块在本机可加载（否则后端崩溃 → 502）。即使跳过安装也校验。
+ensure_native_argon2
 
 # ----------------- 3. 构建前端（注入版本，痛点3关键）-----------------
 log "构建前端 ..."
