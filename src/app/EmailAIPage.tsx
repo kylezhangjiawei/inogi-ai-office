@@ -161,8 +161,8 @@ export function EmailAIPage() {
   };
 
   return (
-    <div className="flex h-full min-h-0 gap-4 bg-slate-50 p-4">
-      <aside className="flex w-[360px] flex-shrink-0 flex-col gap-4">
+    <div className="flex min-h-full min-w-0 flex-col gap-4 bg-slate-50 p-3 lg:h-full lg:min-h-0 lg:flex-row lg:p-4">
+      <aside className="flex min-w-0 flex-col gap-4 lg:w-[320px] lg:flex-shrink-0 xl:w-[360px]">
         <section className="material-card p-5">
           <div className="flex items-center gap-2">
             <Bot className="h-4 w-4 text-blue-500" />
@@ -283,8 +283,8 @@ export function EmailAIPage() {
         </section>
       </aside>
 
-      <main className="grid min-w-0 flex-1 grid-cols-12 gap-4">
-        <section className="col-span-12 xl:col-span-8">
+      <main className="grid min-w-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-12">
+        <section className="min-w-0 xl:col-span-8">
           <div className="material-card flex h-full flex-col p-6">
             <div className="flex items-center justify-between gap-3">
               <div>
@@ -348,7 +348,7 @@ export function EmailAIPage() {
           </div>
         </section>
 
-        <section className="col-span-12 xl:col-span-4">
+        <section className="min-w-0 xl:col-span-4">
           <div className="material-card h-full p-6">
             <div className="flex items-center justify-between gap-3">
               <div>

@@ -37,19 +37,63 @@ model Role {
 }
 
 model User {
-  id            String         @id @default(cuid())
+  id            String             @id @default(cuid())
   name          String
-  username      String?        @unique
-  email         String         @unique
+  username      String?            @unique
+  email         String             @unique
   passwordHash  String?
   department    String?
-  status        UserStatus     @default(ACTIVE)
+  status        UserStatus         @default(ACTIVE)
   roleId        String?
-  role          Role?          @relation(fields: [roleId], references: [id])
-  refreshTokens RefreshToken[]
-  auditLogs     AuditLog[]
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  role          Role?              @relation(fields: [roleId], references: [id])
+  /// OSS 对象 key（如 "avatars/{userId}/{timestamp}.png"）。
+  /// 每次 getCurrentUser 用 getSignedUrl 生成 30 天签名 URL 返回给前端。
+  avatarObjectKey String?           @db.VarChar(500)
+  refreshTokens   RefreshToken[]
+  auditLogs       AuditLog[]
+  conversations   ChatConversation[]
+  generatedImages GeneratedImage[]
+  imageEditMessages ImageEditMessage[]
+  imagePromptChatSessions ImagePromptChatSession[]
+  imagePromptChatMessages ImagePromptChatMessage[]
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+}
+
+model Department {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  name        String   @unique
+  category    String
+  manager     String   @default("")
+  description String   @default("")
+  sortOrder   Int      @default(0)
+  enabled     Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model ChatConversation {
+  id        String        @id @default(cuid())
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String        @default("新对话")
+  summary   String        @default("")
+  pinned    Boolean       @default(false)
+  messages  ChatMessage[]
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+}
+
+model ChatMessage {
+  id             String           @id @default(cuid())
+  conversationId String
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String
+  content        String
+  model          String?
+  reaction       String?
+  createdAt      DateTime         @default(now())
 }
 
 model RefreshToken {
@@ -73,6 +117,29 @@ model AuditLog {
   createdAt  DateTime @default(now())
 }
 
+model ApiRequestLog {
+  id           String   @id @default(cuid())
+  requestId    String   @unique
+  userId       String?
+  method       String
+  path         String
+  statusCode   Int
+  durationMs   Int
+  ip           String?
+  userAgent    String?
+  errorName    String?
+  errorMessage String?
+  errorStack   String?
+  requestMeta  Json     @default("{}")
+  responseMeta Json     @default("{}")
+  createdAt    DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([statusCode, createdAt])
+  @@index([path, createdAt])
+  @@index([userId, createdAt])
+}
+
 model SystemSetting {
   id          String   @id @default(cuid())
   category    String
@@ -81,6 +148,25 @@ model SystemSetting {
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model PermissionCatalogItem {
+  id          String   @id @default(cuid())
+  code        String   @unique
+  label       String
+  description String   @default("")
+  groupLabel  String
+  type        String   @default("page") // page | action
+  routePath   String   @default("")
+  enabled     Boolean  @default(true)
+  /// When true the page is accessible but hidden from the sidebar navigation.
+  navHidden   Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([groupLabel, sortOrder])
+  @@index([type, enabled])
 }
 
 model RuntimeState {
@@ -165,6 +251,98 @@ model IntegrationConfig {
   updatedAt         DateTime @updatedAt
 }
 
+model GeneratedImage {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  prompt        String
+  revisedPrompt String   @default("")
+  style         String   @default("vivid")
+  size          String   @default("1024x1024")
+  quality       String   @default("standard")
+  imageData     String   // base64 data URL (保留用于编辑操作)
+  imageUrl      String   @default("")  // OSS 公网 URL，列表接口优先使用此字段
+  model         String   @default("dall-e-3")
+  isFavorite    Boolean  @default(false)
+  requestId          String?
+  parentImageId      String?
+  rootImageId        String?
+  editInstruction    String   @default("")
+  editDepth          Int      @default(0)
+  upstreamCallCount  Int      @default(0)
+  upstreamRetryCount Int      @default(0)
+  upstreamErrorCount Int      @default(0)
+  inputTokens        Int      @default(0)
+  inputTextTokens    Int      @default(0)
+  inputImageTokens   Int      @default(0)
+  outputTokens       Int      @default(0)
+  totalTokens        Int      @default(0)
+  estimatedCostUsd   Float    @default(0)
+  cumulativeEstimatedCostUsd Float @default(0)
+  usageDetails       Json     @default("{}")
+  createdAt     DateTime @default(now())
+
+  @@index([userId, rootImageId, createdAt])
+  @@index([parentImageId])
+}
+
+model ImageEditMessage {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rootImageId   String
+  sourceImageId String?
+  resultImageId String?
+  role          String
+  content       String
+  model         String?
+  requestId     String?
+  inputTokens     Int   @default(0)
+  inputTextTokens Int   @default(0)
+  inputImageTokens Int  @default(0)
+  outputTokens    Int   @default(0)
+  totalTokens     Int   @default(0)
+  estimatedCostUsd Float @default(0)
+  cumulativeEstimatedCostUsd Float @default(0)
+  meta          Json     @default("{}")
+  createdAt     DateTime @default(now())
+
+  @@index([userId, rootImageId, createdAt])
+  @@index([sourceImageId])
+  @@index([resultImageId])
+}
+
+model ImagePromptChatSession {
+  id            String                   @id @default(cuid())
+  userId        String
+  user          User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title         String                   @default("新提示词对话")
+  sourcePrompt  String                   @default("")
+  currentPrompt String                   @default("")
+  model         String?
+  messages      ImagePromptChatMessage[]
+  createdAt     DateTime                 @default(now())
+  updatedAt     DateTime                 @updatedAt
+
+  @@index([userId, updatedAt])
+}
+
+model ImagePromptChatMessage {
+  id              String                 @id @default(cuid())
+  userId          String
+  user            User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionId       String
+  session         ImagePromptChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  role            String
+  content         String
+  optimizedPrompt String                 @default("")
+  model           String?
+  requestId       String?
+  createdAt       DateTime               @default(now())
+
+  @@index([userId, sessionId, createdAt])
+}
+
 model EmailIngestionLog {
   id           String    @id @default(cuid())
   mailbox      String
@@ -181,3 +359,62 @@ model EmailIngestionLog {
   errorMessage String?
   createdAt    DateTime  @default(now())
 }
+
+model FileAsset {
+  id           String    @id @default(cuid())
+  bucket       String
+  objectKey    String    @unique
+  fileName     String
+  mimeType     String
+  fileSize     Int
+  fileHash     String?
+  businessType String
+  businessId   String?
+  uploadedBy   String?
+  status       String    @default("active")
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
+
+  @@index([businessType, businessId])
+  @@index([uploadedBy])
+}
+
+/// 知识库向量片段。每个 chunk 是某个原始资源（KB 文档 / 任务 / 立项 / 聊天 ...）切块后的语义索引单元。
+/// 注：embedding 用 Float[]（Postgres double precision array）而非 pgvector，
+///     由 Node.js 在查询时计算余弦相似度。适合 ≤10k chunks 的规模；
+///     超规模再切到 pgvector 即可（schema 转换简单：JS 数组 → vector(N)）。
+model KnowledgeChunk {
+  id              String   @id @default(cuid())
+  /// 数据源类型：'kb' | 'rd_task' | 'rd_progress_note' | 'rd_proposal' | 'rd_daily_report' | 'chat_group' | 'chat_private' | 'audit_log' | 'candidate' | 'image' | 'file_asset'
+  sourceType      String
+  /// 原始资源 id（KB entry id / task id / chat message id ...）
+  sourceId        String
+  /// 同一资源被切成多块时的序号（0-based）
+  chunkIndex      Int      @default(0)
+  /// chunk 原文（用于回展 + LLM 注入）
+  content         String
+  /// 向量（通义 text-embedding-v3/v4 默认 1024 维），存为 Postgres float8[] 数组
+  embedding       Float[]
+  /// 权限元数据（参与权限预过滤）：
+  ///  - permission_level: number   (KB 分值制)
+  ///  - visible_user_ids: string[] (私聊参与者；空数组表示对所有人开放权限层)
+  ///  - visible_role_ids: string[] (按角色限制)
+  ///  - department_ids: string[]   (按部门限制)
+  ///  - category_id: string        (KB 分类)
+  ///  - author_id / author_name: string
+  ///  - title / file_name / tags 等业务字段（展示用）
+  ///  - ai_classification: 'work_knowledge'|'work_chat'|'personal'|'sensitive'（聊天专用）
+  metadata        Json     @default("{}")
+  /// 软删除标记：用于"作者撤回"
+  archived        Boolean  @default(false)
+  /// 索引时使用的 embedding 模型，方便后续灰度迁移
+  embeddingModel  String   @default("text-embedding-v3")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([sourceType, sourceId, chunkIndex])
+  @@index([sourceType, sourceId])
+  @@index([archived])
+}
+

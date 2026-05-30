@@ -50,23 +50,23 @@ export function CustomsDocs() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      <section className="material-card p-6 md:p-8">
+      <section className="material-card p-4 sm:p-6 md:p-8">
         <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-          <div className="space-y-3">
+          <div className="min-w-0 space-y-3">
             <span className="material-chip bg-blue-50 text-blue-700">Customs Workflow</span>
             <div>
-              <h2 className="text-[2rem] font-bold tracking-tight text-slate-900">报关单证自动处理</h2>
+              <h2 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[2rem]">报关单证自动处理</h2>
               <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
                 这页补齐了报关单证明细处理能力，包含字段抽取、异常校验、人工补录和模板导出。
               </p>
             </div>
           </div>
-          <div className="flex gap-3">
-            <button type="button" onClick={() => setUploadedCount((count) => count + 1)} className="material-button-secondary">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:gap-3">
+            <button type="button" onClick={() => setUploadedCount((count) => count + 1)} className="material-button-secondary justify-center">
               <Upload className="h-4 w-4" />
               上传单证
             </button>
-            <button type="button" onClick={() => toast.success("已生成 CI / PL 模板草稿")} className="material-button-primary">
+            <button type="button" onClick={() => toast.success("已生成 CI / PL 模板草稿")} className="material-button-primary justify-center">
               <Download className="h-4 w-4" />
               导出模板
             </button>
@@ -74,16 +74,16 @@ export function CustomsDocs() {
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-3">
-        <div className="material-card-flat p-5">
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="material-card-flat min-w-0 p-4 sm:p-5">
           <div className="text-sm font-medium text-slate-500">已上传单证</div>
           <div className="mt-3 text-4xl font-bold tracking-tight text-slate-900">{uploadedCount}</div>
         </div>
-        <div className="material-card-flat p-5">
+        <div className="material-card-flat min-w-0 p-4 sm:p-5">
           <div className="text-sm font-medium text-slate-500">待人工复核</div>
           <div className="mt-3 text-4xl font-bold tracking-tight text-slate-900">{warningCount}</div>
         </div>
-        <div className="material-card-flat p-5">
+        <div className="material-card-flat min-w-0 p-4 sm:p-5">
           <div className="text-sm font-medium text-slate-500">模板状态</div>
           <div className="mt-3 text-4xl font-bold tracking-tight text-slate-900">就绪</div>
         </div>
@@ -91,9 +91,9 @@ export function CustomsDocs() {
 
       <section className="grid grid-cols-12 gap-6">
         <div className="col-span-12 xl:col-span-7">
-          <div className="material-card p-6">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
+          <div className="material-card min-w-0 p-4 sm:p-6">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
                 <h3 className="text-slate-900">字段抽取结果</h3>
                 <p className="mt-1 text-sm text-slate-500">支持搜索字段、人工补录和异常标记。</p>
               </div>
@@ -105,13 +105,13 @@ export function CustomsDocs() {
             </div>
             <div className="space-y-3">
               {filteredFields.map((field) => (
-                <div key={field.label} className="flex items-center gap-4 rounded-[22px] border border-slate-100 bg-slate-50/70 px-4 py-3">
-                  <div className="w-24 text-sm font-semibold text-slate-500">{field.label}</div>
-                  <div className="flex-1">
+                <div key={field.label} className="flex flex-col gap-3 rounded-[22px] border border-slate-100 bg-slate-50/70 px-4 py-3 sm:flex-row sm:items-center sm:gap-4">
+                  <div className="w-full text-sm font-semibold text-slate-500 sm:w-24">{field.label}</div>
+                  <div className="min-w-0 flex-1">
                     {field.status === "missing" ? (
                       <input value={hsCode} onChange={(e) => setHsCode(e.target.value)} className="material-input" placeholder="补录 HS Code" />
                     ) : (
-                      <div className="text-sm font-medium text-slate-800">{field.value}</div>
+                      <div className="break-words text-sm font-medium text-slate-800">{field.value}</div>
                     )}
                   </div>
                   <span className={cn("material-chip", statusTone(field.status))}>
@@ -124,9 +124,9 @@ export function CustomsDocs() {
         </div>
 
         <div className="col-span-12 xl:col-span-5">
-          <div className="material-card p-6">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
+          <div className="material-card min-w-0 p-4 sm:p-6">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
                 <h3 className="text-slate-900">一致性校验</h3>
                 <p className="mt-1 text-sm text-slate-500">重点关注差异项和缺失项。</p>
               </div>
@@ -144,11 +144,11 @@ export function CustomsDocs() {
               ))}
             </div>
             <div className="mt-4 grid gap-3 md:grid-cols-2">
-              <button type="button" onClick={() => toast.success("已生成校验摘要")} className="material-button-secondary">
+              <button type="button" onClick={() => toast.success("已生成校验摘要")} className="material-button-secondary justify-center">
                 <FileSpreadsheet className="h-4 w-4" />
                 导出校验表
               </button>
-              <button type="button" onClick={() => toast.success("已同步回报关 AI 主流程")} className="material-button-primary">
+              <button type="button" onClick={() => toast.success("已同步回报关 AI 主流程")} className="material-button-primary justify-center">
                 返回主流程
               </button>
             </div>

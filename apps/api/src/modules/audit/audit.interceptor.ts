@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { Request } from 'express';
 import { Observable, tap } from 'rxjs';
+import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 
@@ -32,7 +33,7 @@ export class AuditInterceptor implements NestInterceptor {
             action: req.method,
             resource,
             resourceId,
-            meta: (req.body as object) ?? {},
+            meta: this.sanitizeMeta(req.body, resource),
             ip,
           },
         });
@@ -45,5 +46,25 @@ export class AuditInterceptor implements NestInterceptor {
     const resource = parts[0] ?? path;
     const resourceId = parts[1] && !/^\d+$/.test(parts[1]) === false ? parts[1] : (parts[1] ?? null);
     return [resource, resourceId];
+  }
+
+  private sanitizeMeta(body: unknown, resource: string): Prisma.InputJsonValue {
+    if (!body || typeof body !== 'object') return {};
+
+    const meta = { ...(body as Record<string, unknown>) };
+    const referenceImageData = meta.reference_image_data;
+    if (typeof referenceImageData === 'string') {
+      meta.reference_image_data = '[omitted base64 image]';
+      meta.reference_image_data_chars = referenceImageData.length;
+    }
+
+    const prompt = meta.prompt;
+    if (resource === 'image-generation' && typeof prompt === 'string') {
+      meta.prompt_length = prompt.length;
+      meta.prompt_preview = prompt.slice(0, 120);
+      delete meta.prompt;
+    }
+
+    return meta as Prisma.InputJsonValue;
   }
 }

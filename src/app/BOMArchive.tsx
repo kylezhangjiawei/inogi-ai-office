@@ -135,23 +135,23 @@ export function BOMArchive() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      <section className="material-card p-6 md:p-8">
+      <section className="material-card p-4 sm:p-6 md:p-8">
         <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-          <div className="space-y-3">
+          <div className="min-w-0 space-y-3">
             <span className="material-chip bg-blue-50 text-blue-700">Archive Workflow</span>
             <div>
-              <h2 className="text-[2rem] font-bold tracking-tight text-slate-900">BOM 确认存档</h2>
+              <h2 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[2rem]">BOM 确认存档</h2>
               <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
                 这一页已经从通用模块升级为独立流程页，覆盖 BOM 版本确认、差异说明、不可变更审计链和下游通知留痕，方便继续流转到设计变更和质量文件管理。
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap gap-3">
-            <Link to="/design-changes" className="material-button-secondary">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:gap-3">
+            <Link to="/design-changes" className="material-button-secondary w-full justify-center sm:w-auto">
               去设计变更
               <ArrowRight className="h-4 w-4" />
             </Link>
-            <Link to="/quality-dms" className="material-button-secondary">
+            <Link to="/quality-dms" className="material-button-secondary w-full justify-center sm:w-auto">
               去质量 DMS
               <ArrowRight className="h-4 w-4" />
             </Link>
@@ -159,18 +159,18 @@ export function BOMArchive() {
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-3">
-        <div className="material-card-flat p-5">
+      <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="material-card-flat min-w-0 p-4 sm:p-5">
           <div className="text-sm font-medium text-slate-500">已归档记录</div>
           <div className="mt-3 text-4xl font-bold tracking-tight text-slate-900">32</div>
           <div className="mt-2 text-sm text-slate-500">保留确认人与时间戳，不允许删除原始记录</div>
         </div>
-        <div className="material-card-flat p-5">
+        <div className="material-card-flat min-w-0 p-4 sm:p-5">
           <div className="text-sm font-medium text-slate-500">待补充说明</div>
           <div className="mt-3 text-4xl font-bold tracking-tight text-slate-900">{pendingReasons}</div>
           <div className="mt-2 text-sm text-slate-500">当前选中版本仍有变更原因需要补录</div>
         </div>
-        <div className="material-card-flat p-5">
+        <div className="material-card-flat min-w-0 p-4 sm:p-5">
           <div className="text-sm font-medium text-slate-500">待确认通知</div>
           <div className="mt-3 text-4xl font-bold tracking-tight text-slate-900">{pendingNotices}</div>
           <div className="mt-2 text-sm text-slate-500">采购、生产、法规等部门需确认收到变更</div>
@@ -179,9 +179,9 @@ export function BOMArchive() {
 
       <section className="grid grid-cols-12 gap-6">
         <div className="col-span-12 xl:col-span-4">
-          <div className="material-card h-full p-6">
-            <div className="mb-5 flex items-center justify-between">
-              <div>
+          <div className="material-card h-full min-w-0 p-4 sm:p-6">
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
                 <h3 className="text-slate-900">归档记录列表</h3>
                 <p className="mt-1 text-sm text-slate-500">按版本、型号和状态筛选已确认或待处理记录。</p>
               </div>
@@ -199,7 +199,7 @@ export function BOMArchive() {
                   )}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <div>
+                    <div className="min-w-0">
                       <div className="text-sm font-semibold text-slate-800">{record.version}</div>
                       <div className="mt-1 text-sm text-slate-500">{record.model} / {record.owner}</div>
                     </div>
@@ -214,9 +214,9 @@ export function BOMArchive() {
         </div>
 
         <div className="col-span-12 xl:col-span-5">
-          <div className="material-card h-full space-y-5 p-6">
-            <div className="flex items-center justify-between">
-              <div>
+          <div className="material-card h-full min-w-0 space-y-5 p-4 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
                 <h3 className="text-slate-900">差异确认清单</h3>
                 <p className="mt-1 text-sm text-slate-500">展示当前 BOM 版本中变更过的物料及其影响说明。</p>
               </div>
@@ -239,8 +239,8 @@ export function BOMArchive() {
             <div className="space-y-3">
               {selected.changes.map((item) => (
                 <div key={item.part} className="rounded-[22px] border border-slate-100 bg-slate-50/70 p-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
                       <div className="text-sm font-semibold text-slate-800">{item.part}</div>
                       <div className="mt-2 text-sm text-slate-500">变更前：{item.before}</div>
                       <div className="mt-1 text-sm text-slate-500">变更后：{item.after}</div>
@@ -255,7 +255,7 @@ export function BOMArchive() {
         </div>
 
         <div className="col-span-12 xl:col-span-3">
-          <div className="material-card h-full space-y-4 p-6">
+          <div className="material-card h-full min-w-0 space-y-4 p-4 sm:p-6">
             <div>
               <h3 className="text-slate-900">流程提醒</h3>
               <p className="mt-1 text-sm text-slate-500">帮助确认当前版本是否还能继续流转。</p>
@@ -311,7 +311,7 @@ export function BOMArchive() {
 
       <section className="grid grid-cols-12 gap-6">
         <div className="col-span-12 xl:col-span-6">
-          <div className="material-card h-full p-6">
+          <div className="material-card h-full min-w-0 p-4 sm:p-6">
             <div className="mb-5">
               <h3 className="text-slate-900">审计留痕链</h3>
               <p className="mt-1 text-sm text-slate-500">每一次确认、补录和通知都保留时间戳，满足可追溯要求。</p>
@@ -340,17 +340,17 @@ export function BOMArchive() {
         </div>
 
         <div className="col-span-12 xl:col-span-6">
-          <div className="material-card h-full p-6">
-            <div className="mb-5 flex items-center justify-between">
-              <div>
+          <div className="material-card h-full min-w-0 p-4 sm:p-6">
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
                 <h3 className="text-slate-900">通知记录</h3>
                 <p className="mt-1 text-sm text-slate-500">记录系统向采购、生产、质量和法规发送的变更通知。</p>
               </div>
               <BellRing className="h-5 w-5 text-primary" />
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-left">
+            <div className="material-scrollbar overflow-x-auto">
+              <table className="min-w-[560px] text-left">
                 <thead className="bg-slate-50">
                   <tr>
                     {["通知对象", "渠道", "时间", "结果"].map((column) => (

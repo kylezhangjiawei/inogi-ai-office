@@ -218,29 +218,29 @@ export function ExternalDocsPage() {
   };
 
   return (
-    <div className="flex h-full min-h-screen flex-col bg-gray-50">
-      <div className="border-b border-gray-200 bg-white px-6 py-4">
-        <div className="flex items-center gap-2">
-          <Package className="h-5 w-5 text-blue-600" />
-          <h1 className="text-lg font-semibold text-gray-900">对外资料版本管理 & AI推荐发包</h1>
+    <div className="flex min-h-full min-w-0 flex-col bg-gray-50 lg:h-full">
+      <div className="border-b border-gray-200 bg-white px-4 py-4 sm:px-6">
+        <div className="flex min-w-0 items-center gap-2">
+          <Package className="h-5 w-5 text-indigo-600" />
+          <h1 className="truncate text-lg font-semibold text-gray-900">对外资料版本管理 & AI推荐发包</h1>
         </div>
       </div>
 
-      <div className="flex flex-1 gap-0 overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-visible p-3 lg:flex-row lg:gap-0 lg:overflow-hidden lg:p-0">
         {/* Left: File Index */}
-        <div className="flex w-[35%] flex-col border-r border-gray-200 bg-white">
-          <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+        <div className="flex min-w-0 flex-col border border-gray-200 bg-white lg:w-[35%] lg:border-y-0 lg:border-l-0 lg:border-r">
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-100 px-4 py-3">
             <span className="text-sm font-medium text-gray-700">文件索引（{docs.length}）</span>
             <button
               onClick={() => toast.info("上传新版本功能（模拟）")}
-              className="flex items-center gap-1 rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+              className="flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700"
             >
               <Plus className="h-3.5 w-3.5" />
               上传新版本
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto">
-            <table className="w-full text-xs">
+          <div className="flex-1 overflow-x-auto overflow-y-auto">
+            <table className="min-w-[520px] text-xs lg:w-full">
               <thead className="sticky top-0 bg-gray-50 text-gray-500">
                 <tr>
                   <th className="px-3 py-2 text-left font-medium">文件名</th>
@@ -297,7 +297,7 @@ export function ExternalDocsPage() {
         </div>
 
         {/* Center: AI Recommendation Panel */}
-        <div className="flex w-[35%] flex-col border-r border-gray-200 bg-white">
+        <div className="flex min-w-0 flex-col border border-gray-200 bg-white lg:w-[35%] lg:border-y-0 lg:border-l-0 lg:border-r">
           <div className="border-b border-gray-100 px-4 py-3">
             <div className="flex items-center gap-2">
               <Sparkles className="h-4 w-4 text-purple-600" />
@@ -309,7 +309,7 @@ export function ExternalDocsPage() {
           <div className="border-b border-gray-100 px-4 py-3 space-y-2">
             <div>
               <label className="mb-1 block text-xs text-gray-500">客户阶段</label>
-              <div className="flex gap-1.5">
+              <div className="flex flex-wrap gap-1.5">
                 {(["L1", "L2", "L3"] as const).map((s) => (
                   <button
                     key={s}
@@ -328,12 +328,12 @@ export function ExternalDocsPage() {
             </div>
             <div>
               <label className="mb-1 block text-xs text-gray-500">自由查询（可选）</label>
-              <div className="flex gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
                 <input
                   value={customQuery}
                   onChange={(e) => setCustomQuery(e.target.value)}
                   placeholder="如：欧洲客户需要哪些合规文件…"
-                  className="flex-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs placeholder-gray-400 focus:border-purple-400 focus:outline-none"
+                  className="min-w-0 flex-1 rounded-lg border border-gray-200 px-3 py-1.5 text-xs placeholder-gray-400 focus:border-purple-400 focus:outline-none"
                 />
                 <button
                   onClick={handleAiRecommend}
@@ -424,7 +424,7 @@ export function ExternalDocsPage() {
         </div>
 
         {/* Right: Message Generator */}
-        <div className="flex w-[30%] flex-col bg-white">
+        <div className="flex min-w-0 flex-col border border-gray-200 bg-white lg:w-[30%] lg:border-0">
           {/* New version banner */}
           {hasNewVersion && (
             <div className="flex items-center gap-2 bg-orange-50 px-4 py-2 border-b border-orange-200">
@@ -437,7 +437,7 @@ export function ExternalDocsPage() {
 
           <div className="border-b border-gray-100 px-4 py-3">
             <div className="flex items-center gap-2">
-              <Languages className="h-4 w-4 text-blue-600" />
+              <Languages className="h-4 w-4 text-indigo-600" />
               <span className="text-sm font-medium text-gray-700">外发消息生成器</span>
             </div>
           </div>
@@ -445,7 +445,7 @@ export function ExternalDocsPage() {
           {/* Language switch */}
           <div className="border-b border-gray-100 px-4 py-3">
             <label className="mb-1.5 block text-xs text-gray-500">发送语言</label>
-            <div className="flex gap-1.5">
+            <div className="flex flex-wrap gap-1.5">
               {(["中文", "English", "Español"] as Lang[]).map((l) => (
                 <button
                   key={l}
@@ -453,7 +453,7 @@ export function ExternalDocsPage() {
                   className={cn(
                     "flex items-center gap-1 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors",
                     lang === l
-                      ? "bg-blue-600 text-white"
+                      ? "bg-indigo-600 text-white"
                       : "bg-gray-100 text-gray-600 hover:bg-gray-200",
                   )}
                 >
@@ -472,15 +472,15 @@ export function ExternalDocsPage() {
             <textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              className="h-64 w-full resize-none rounded-xl border border-gray-200 p-3 text-sm leading-relaxed text-gray-700 focus:border-blue-400 focus:outline-none"
+              className="h-64 w-full resize-none rounded-xl border border-gray-200 p-3 text-sm leading-relaxed text-gray-700 focus:border-indigo-400 focus:outline-none"
             />
 
-            <div className="mt-3 rounded-xl bg-blue-50 p-3">
-              <p className="text-xs font-medium text-blue-700 mb-1">包含文件：</p>
+            <div className="mt-3 rounded-xl bg-indigo-50 p-3">
+              <p className="text-xs font-medium text-indigo-700 mb-1">包含文件：</p>
               {(packageIds.length > 0 ? packageIds : recommendedIds).map((id) => {
                 const doc = docs.find((d) => d.id === id);
                 return doc ? (
-                  <p key={id} className="text-xs text-blue-600">
+                  <p key={id} className="text-xs text-indigo-600">
                     · {doc.name} · {doc.version}
                   </p>
                 ) : null;
@@ -499,7 +499,7 @@ export function ExternalDocsPage() {
             </button>
             <button
               onClick={handleSend}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-blue-600 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-indigo-600 py-2 text-sm font-medium text-white hover:bg-indigo-700"
             >
               <Send className="h-4 w-4" />
               发送

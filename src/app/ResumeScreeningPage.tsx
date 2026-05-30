@@ -1,4 +1,4 @@
-﻿import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
   Bot,
@@ -9,7 +9,9 @@ import {
   Database,
   Loader2,
   Mail,
+  MessageSquarePlus,
   RefreshCw,
+  Send,
   Search,
   ShieldCheck,
   Sparkles,
@@ -19,6 +21,15 @@ import {
   UserRoundSearch,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  Table as MuiTable,
+  TableBody as MuiTableBody,
+  TableCell as MuiTableCell,
+  TableContainer as MuiTableContainer,
+  TableHead as MuiTableHead,
+  TablePagination as MuiTablePagination,
+  TableRow as MuiTableRow,
+} from "@mui/material";
 
 import { MaterialInput, MaterialSelect, MaterialTextarea } from "./components/MaterialFields";
 import {
@@ -36,8 +47,13 @@ import {
 } from "./components/ui/tooltip";
 import { cn } from "./components/ui/utils";
 import { ImageWithFallback } from "./components/figma/ImageWithFallback";
+import { formatAiModelConfigLabel, getAiModelUsage } from "./lib/aiModelOptions";
 import {
   type CandidateDetail,
+  type CandidateAiChatMessage,
+  type CandidateAiUpdateSuggestion,
+  type CandidateFilterSessionMessage,
+  type CandidateFilterSessionVersion,
   type CandidateListItem,
   type Decision,
   type HealthResponse,
@@ -46,6 +62,7 @@ import {
   type MailSyncRunResult,
   type MailSyncSchedule,
   type OpenAiConfigItem,
+  type PaginationMeta,
   type ResumeUploadRunResult,
   type ResumeUploadStatusItem,
   recruitmentApi,
@@ -92,9 +109,9 @@ const defaultScheduleForm: ScheduleFormState = {
 };
 
 const decisionMeta: Record<Decision, { label: string; classes: string }> = {
-  recommend: { label: "推荐", classes: "bg-emerald-100 text-emerald-700" },
-  hold: { label: "待定", classes: "bg-amber-100 text-amber-700" },
-  reject: { label: "淘汰", classes: "bg-rose-100 text-rose-700" },
+  recommend: { label: "推荐", classes: "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200" },
+  hold: { label: "待定", classes: "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200" },
+  reject: { label: "淘汰", classes: "bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-200" },
 };
 
 const decisionOptions = [
@@ -104,15 +121,96 @@ const decisionOptions = [
   { label: "淘汰", value: "reject" },
 ];
 
+const screeningDimensionLabels: Record<string, string> = {
+  job_match: "岗位匹配",
+  experience: "经验匹配",
+  skills: "技能匹配",
+  stability: "稳定性",
+  location: "地域匹配",
+  education: "学历匹配",
+  salary: "薪资风险",
+};
+
+const MATECHAT_AVATAR = "https://matechat.gitcode.com/logo.svg";
+
+const candidateProfilePatchLabels: Record<string, string> = {
+  name: "姓名",
+  gender: "性别",
+  birth_or_age: "年龄",
+  education: "学历",
+  status: "状态",
+  city: "城市",
+  hukou: "户口",
+  target_job: "求职岗位",
+  target_city: "目标城市",
+  salary_expectation: "薪资期望",
+  recent_company: "最近公司",
+  recent_title: "最近职位",
+  years_experience: "工作年限",
+  work_summary: "工作摘要",
+  email: "邮箱",
+  phone: "电话",
+  language_skills: "语言能力",
+};
+
+const candidateScreeningPatchLabels: Record<string, string> = {
+  ai_job: "AI 岗位",
+  score: "分数",
+  decision: "结论",
+  tags: "标签",
+  dimensions: "多维评分",
+  matched_points: "命中点",
+  risks: "风险",
+  summary: "摘要",
+  next_step: "下一步",
+};
+
+const muiTableHeaderCellSx = {
+  height: 48,
+  px: 2,
+  py: 0,
+  background: "linear-gradient(180deg, rgba(239,246,255,0.98) 0%, rgba(219,234,254,0.96) 100%)",
+  borderBottom: "1px solid rgba(147, 197, 253, 0.64)",
+  color: "#1e3a8a",
+  fontFamily: "inherit",
+  fontSize: 12,
+  fontWeight: 700,
+  lineHeight: 1.4,
+  whiteSpace: "nowrap",
+  boxShadow: "inset 0 -1px 0 rgba(255,255,255,0.72)",
+};
+
+const muiTableBodyCellSx = {
+  height: 62,
+  px: 2,
+  py: 1.25,
+  borderBottom: "1px solid rgba(203, 213, 225, 0.68)",
+  color: "var(--on-surface)",
+  fontFamily: "inherit",
+  fontSize: 14,
+  whiteSpace: "nowrap",
+};
+
+const defaultCandidatePagination: PaginationMeta = {
+  page: 1,
+  page_size: 10,
+  total: 0,
+  total_pages: 0,
+  has_next: false,
+  has_previous: false,
+};
+
 type SyncMailPreview = NonNullable<MailSyncRunResult["mail_previews"]>[number];
 type UploadFilePreview = NonNullable<ResumeUploadRunResult["file_previews"]>[number];
 type CandidateLoadOptions = {
   silent?: boolean;
   jobRuleId?: string;
+  screeningVersion?: string;
 };
 
 type CandidateDetailLoadOptions = {
   silent?: boolean;
+  screeningVersion?: string;
 };
 
 function isSyncMailLoading(status?: string | null) {
@@ -124,7 +222,7 @@ function isSyncMailLoading(status?: string | null) {
 function getSyncMailStatusMeta(status?: string | null) {
   if (isSyncMailLoading(status)) {
     return {
-      className: "border-blue-200 bg-blue-50 text-blue-700",
+      className: "border-indigo-200 bg-indigo-50 text-indigo-700",
       icon: <Loader2 className="h-3.5 w-3.5 animate-spin" />,
     };
   }
@@ -166,10 +264,10 @@ function formatDate(value?: string | null) {
 }
 
 function scoreTone(score?: number | null) {
-  if (typeof score !== "number") return "bg-slate-200 text-slate-500";
-  if (score >= 80) return "bg-emerald-500 text-white";
-  if (score >= 60) return "bg-amber-400 text-slate-900";
-  return "bg-rose-500 text-white";
+  if (typeof score !== "number") return "bg-slate-100 text-slate-500 ring-1 ring-inset ring-slate-200";
+  if (score >= 80) return "bg-emerald-50 text-emerald-700 ring-1 ring-inset ring-emerald-200";
+  if (score >= 60) return "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-200";
+  return "bg-rose-50 text-rose-700 ring-1 ring-inset ring-rose-200";
 }
 
 function parseAgeFromBirthOrAge(value?: string | null): number | null {
@@ -237,10 +335,10 @@ function buildCandidateCardTitle(candidate: CandidateListItem) {
   const appliedJobTitle = extractAppliedJobTitle(candidate.source_subject);
   const name = candidate.name?.trim() || "未命名候选人";
   if (appliedJobTitle) {
-    return `${appliedJobTitle} - ${name}`;
+    return `${name}`;
   }
   if (candidate.job_rule_name) {
-    return `${candidate.job_rule_name} - ${name}`;
+    return `${name}`;
   }
   return name;
 }
@@ -293,9 +391,9 @@ function mapScreeningStatusToMailStatus(status?: string | null, errorMessage?: s
         error_message: errorMessage ?? undefined,
       };
     }
-    if (message.includes("已上传处理") || message.includes("已同步") || message.includes("无需重复")) {
+    if (message.includes("已处理过") || message.includes("已同步") || message.includes("无需重复")) {
       return {
-        status: "已存在",
+        status: "已处理",
         error_message: errorMessage ?? undefined,
       };
     }
@@ -351,6 +449,55 @@ function toCandidateScreeningStatus(status?: string | null) {
   return status?.trim().toLowerCase() || null;
 }
 
+function buildScreeningTags(screening?: CandidateDetail["active_screening"] | null) {
+  const fromTags = screening?.tags?.map((item) => item.trim()).filter(Boolean) ?? [];
+  const fallback = [...(screening?.matched_points ?? []), ...(screening?.risks ?? [])]
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 8);
+  const source = fromTags.length ? fromTags : fallback;
+  return Array.from(new Set(source)).slice(0, 12);
+}
+
+function getDimensionEntries(screening?: CandidateDetail["active_screening"] | null) {
+  const dimensions = screening?.dimensions ?? {};
+  return Object.entries(dimensions)
+    .filter(([, value]) => value && (value.label || value.reason || typeof value.score === "number"))
+    .map(([key, value]) => ({
+      key,
+      label: screeningDimensionLabels[key] ?? key,
+      score: value.score,
+      valueLabel: value.label,
+      reason: value.reason,
+    }));
+}
+
+function normalizeAiChatText(value: string) {
+  return value.replace(/\\n/g, "\n").trim();
+}
+
+function getPatchKeys(value?: Record<string, unknown>) {
+  if (!value) return [];
+  return Object.entries(value)
+    .filter(([, item]) => {
+      if (Array.isArray(item)) return item.length > 0;
+      if (item && typeof item === "object") return Object.keys(item).length > 0;
+      return item !== undefined && item !== null && String(item).trim() !== "";
+    })
+    .map(([key]) => key);
+}
+
+function hasCandidateAiUpdateSuggestion(update?: CandidateAiUpdateSuggestion) {
+  return Boolean(getPatchKeys(update?.profile_patch).length || getPatchKeys(update?.screening_patch).length);
+}
+
+function formatPatchValue(value: unknown) {
+  if (Array.isArray(value)) return value.join("、");
+  if (typeof value === "boolean") return value ? "是" : "否";
+  if (value && typeof value === "object") return Object.keys(value).join("、");
+  return String(value ?? "");
+}
+
 function FieldRow({
   label,
   value,
@@ -363,8 +510,8 @@ function FieldRow({
   valueClassName?: string;
 }) {
   return (
-    <div className={cn("grid gap-2 rounded-[20px] border border-slate-200 bg-white/80 px-4 py-3 sm:grid-cols-[112px_1fr]", className)}>
-      <div className="text-sm font-medium text-slate-500">{label}</div>
+    <div className={cn("material-neu-inset grid gap-2 rounded-lg px-4 py-3 sm:grid-cols-[60px_1fr]", className)}>
+      <div className="text-sm font-medium text-slate-600">{label}</div>
       <div className={cn("min-w-0 text-sm text-slate-800", valueClassName)}>{value?.trim() ? value : "-"}</div>
     </div>
   );
@@ -427,10 +574,10 @@ function TooltipIconButton({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border transition disabled:cursor-not-allowed disabled:opacity-60",
+        "inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-[4px] border transition disabled:cursor-not-allowed disabled:opacity-60",
         tone === "danger" && "border-rose-200 bg-rose-50 text-rose-600 hover:bg-rose-100",
         tone === "success" && "border-emerald-200 bg-emerald-50 text-emerald-600 hover:bg-emerald-100",
-        tone === "default" && "border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:bg-slate-50",
+        tone === "default" && "material-neu-button",
       )}
     >
       {children}
@@ -440,9 +587,9 @@ function TooltipIconButton({
 
 function StatPill({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-[22px] border border-slate-200 bg-white/85 px-4 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
-      <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{label}</div>
-      <div className="mt-3 text-3xl font-semibold tracking-tight text-slate-900">{value}</div>
+    <div className="material-neu-stat rounded-[var(--m3-shape-large)] px-3 py-2.5">
+      <div className="text-xs font-semibold text-slate-500">{label}</div>
+      <div className="mt-1 text-xl font-semibold leading-none tracking-tight text-slate-950">{value}</div>
     </div>
   );
 }
@@ -472,6 +619,8 @@ export function ResumeScreeningPage() {
   const [lastSyncResult, setLastSyncResult] = useState<MailSyncRunResult | null>(null);
   const [uploadingFolder, setUploadingFolder] = useState(false);
   const [lastUploadResult, setLastUploadResult] = useState<ResumeUploadRunResult | null>(null);
+  const [showJobRuleManager, setShowJobRuleManager] = useState(false);
+  const [showSyncSettings, setShowSyncSettings] = useState(false);
 
   const [decisionFilter, setDecisionFilter] = useState<Decision | "">("");
   const [jobRuleFilter, setJobRuleFilter] = useState("");
@@ -480,13 +629,28 @@ export function ResumeScreeningPage() {
   const [maxAgeFilter, setMaxAgeFilter] = useState("");
   const [candidateKeyword, setCandidateKeyword] = useState("");
   const [candidates, setCandidates] = useState<CandidateListItem[]>([]);
+  const [candidatePage, setCandidatePage] = useState(0);
+  const [candidateRowsPerPage, setCandidateRowsPerPage] = useState(10);
+  const [candidatePagination, setCandidatePagination] = useState<PaginationMeta>(defaultCandidatePagination);
   const [loadingCandidates, setLoadingCandidates] = useState(false);
+  const [filterSessions, setFilterSessions] = useState<CandidateFilterSessionVersion[]>([]);
+  const [selectedFilterVersion, setSelectedFilterVersion] = useState("");
+  const [filterConversation, setFilterConversation] = useState<CandidateFilterSessionMessage[]>([]);
+  const [filterInstruction, setFilterInstruction] = useState("");
+  const [filterRunning, setFilterRunning] = useState(false);
+  const [showFilterDialog, setShowFilterDialog] = useState(false);
   const [selectedCandidateId, setSelectedCandidateId] = useState<string>("");
   const [selectedCandidate, setSelectedCandidate] = useState<CandidateDetail | null>(null);
   const [interviewQaExpanded, setInterviewQaExpanded] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
+  const [candidateAiQuestion, setCandidateAiQuestion] = useState("");
+  const [candidateAiMessagesById, setCandidateAiMessagesById] = useState<Record<string, CandidateAiChatMessage[]>>({});
+  const [candidateAiLoadingId, setCandidateAiLoadingId] = useState<string | null>(null);
+  const [candidateAiApplyingKey, setCandidateAiApplyingKey] = useState<string | null>(null);
+  const [candidateAiDialogId, setCandidateAiDialogId] = useState<string | null>(null);
   const deferredCandidateKeyword = useDeferredValue(candidateKeyword);
   const selectedCandidateIdRef = useRef(selectedCandidateId);
+  const lastCandidateFilterKeyRef = useRef("");
   const uploadFolderInputRef = useRef<HTMLInputElement | null>(null);
   const scheduleExecutionRef = useRef<Pick<ScheduleFormState, "last_run_at" | "last_run_result">>({
     last_run_at: defaultScheduleForm.last_run_at ?? null,
@@ -512,26 +676,19 @@ export function ResumeScreeningPage() {
       : "-";
 
     return {
-      total: candidates.length,
+      total: candidatePagination.total,
       recommend,
       hold,
       reject,
       average,
     };
-  }, [candidates]);
+  }, [candidatePagination.total, candidates]);
 
-  const filteredCandidates = useMemo(() => {
-    const minAge = minAgeFilter.trim() ? Number(minAgeFilter) : null;
-    const maxAge = maxAgeFilter.trim() ? Number(maxAgeFilter) : null;
-    if (minAge === null && maxAge === null) return candidates;
-    return candidates.filter((c) => {
-      const age = parseAgeFromBirthOrAge(c.birth_or_age);
-      if (age === null) return true;
-      if (minAge !== null && age < minAge) return false;
-      if (maxAge !== null && age > maxAge) return false;
-      return true;
-    });
-  }, [candidates, minAgeFilter, maxAgeFilter]);
+  const filteredCandidates = candidates;
+  const selectedFilterSession = useMemo(
+    () => filterSessions.find((item) => item.version_id === selectedFilterVersion) ?? null,
+    [filterSessions, selectedFilterVersion],
+  );
 
   const selectedMailConfig = useMemo(
     () => mailConfigs.find((item) => item.id === selectedMailConfigId) ?? null,
@@ -581,6 +738,19 @@ export function ResumeScreeningPage() {
   const hasPendingBackgroundAnalysis = hasPendingSyncMail || hasPendingUploadFile;
   const clearCandidatesDisabled =
     clearingCandidates || loadingCandidates || runningSync || uploadingFolder || hasPendingBackgroundAnalysis;
+  const candidateFilterKey = useMemo(
+    () =>
+      JSON.stringify({
+        keyword: deferredCandidateKeyword,
+        decision: decisionFilter,
+        jobRuleId: jobRuleFilter,
+        minScore: minScoreFilter,
+        minAge: minAgeFilter,
+        maxAge: maxAgeFilter,
+        screeningVersion: selectedFilterVersion,
+      }),
+    [decisionFilter, deferredCandidateKeyword, jobRuleFilter, maxAgeFilter, minAgeFilter, minScoreFilter, selectedFilterVersion],
+  );
 
   useEffect(() => {
     void loadBootstrap();
@@ -596,8 +766,38 @@ export function ResumeScreeningPage() {
   }, []);
 
   useEffect(() => {
+    const filtersChanged = lastCandidateFilterKeyRef.current !== candidateFilterKey;
+    lastCandidateFilterKeyRef.current = candidateFilterKey;
+    if (filtersChanged && candidatePage !== 0) {
+      setCandidatePage(0);
+      return;
+    }
     void loadCandidates();
-  }, [decisionFilter, jobRuleFilter, minScoreFilter, deferredCandidateKeyword]);
+  }, [candidateFilterKey, candidatePage, candidateRowsPerPage]);
+
+  useEffect(() => {
+    setSelectedFilterVersion("");
+    setFilterConversation([]);
+    void loadCandidateFilterSessions(jobRuleFilter);
+  }, [jobRuleFilter]);
+
+  useEffect(() => {
+    if (!selectedFilterVersion) {
+      return;
+    }
+    const targetSession = filterSessions.find((item) => item.version_id === selectedFilterVersion);
+    if (!targetSession) {
+      return;
+    }
+    const orderedSessions = [...filterSessions]
+      .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at))
+      .filter((session) => Date.parse(session.created_at) <= Date.parse(targetSession.created_at));
+    const reconstructed = orderedSessions.flatMap<CandidateFilterSessionMessage>((session) => [
+      { role: "user", content: session.instruction || session.filter_summary },
+      { role: "assistant", content: session.answer || session.filter_summary },
+    ]).filter((message) => message.content.trim());
+    setFilterConversation(reconstructed.slice(-12));
+  }, [filterSessions, selectedFilterVersion]);
 
   useEffect(() => {
     if (!openAiConfigs.length) return;
@@ -617,12 +817,13 @@ export function ResumeScreeningPage() {
 
   useEffect(() => {
     setInterviewQaExpanded(false);
+    setCandidateAiQuestion("");
     if (!selectedCandidateId) {
       setSelectedCandidate(null);
       return;
     }
     void loadCandidateDetail(selectedCandidateId);
-  }, [selectedCandidateId]);
+  }, [selectedCandidateId, selectedFilterVersion]);
 
   useEffect(() => {
     if (!hasPendingBackgroundAnalysis) return;
@@ -873,6 +1074,7 @@ export function ResumeScreeningPage() {
       loadOpenAiConfigs(),
       loadSchedule(),
       loadCandidates(),
+      loadCandidateFilterSessions(),
     ]);
   }
 
@@ -881,7 +1083,7 @@ export function ResumeScreeningPage() {
       const next = await recruitmentApi.getHealth();
       setHealth(next);
     } catch (error) {
-      toast.error(getErrorMessage(error, "读取环境状态失败"));
+      toast.error(getErrorMessage(error, "读取健康状态失败"));
     }
   }
 
@@ -923,7 +1125,14 @@ export function ResumeScreeningPage() {
   async function loadOpenAiConfigs() {
     setLoadingOpenAiConfigs(true);
     try {
-      const next = await recruitmentApi.listOpenAiConfigs();
+      const raw = await recruitmentApi.listOpenAiConfigs();
+      // Defensive: filter out image-only models (backend should already exclude them)
+      const next = raw.filter((c) => {
+        if (c.usage_kind === 'image') return false;
+        if (c.usage_kind && c.usage_kind !== 'auto') return true;
+        const n = (c.model ?? '').toLowerCase();
+        return !(n.includes('gpt-image') || n.includes('image-to-image') || n === 'dall-e-2' || n.startsWith('dall-e-'));
+      });
       setOpenAiConfigs(next);
       setSelectedOpenAiConfigId((current) => {
         if (current && next.some((item) => item.id === current)) return current;
@@ -959,19 +1168,48 @@ export function ResumeScreeningPage() {
     }
   }
 
+  async function loadCandidateFilterSessions(jobRuleId = jobRuleFilter) {
+    try {
+      const next = await recruitmentApi.listCandidateFilterSessions(jobRuleId || undefined);
+      setFilterSessions(next);
+      setSelectedFilterVersion((current) => {
+        if (!current || next.some((item) => item.version_id === current)) {
+          return current;
+        }
+        return "";
+      });
+    } catch (error) {
+      toast.error(getErrorMessage(error, "读取 AI 迭代筛选记录失败"));
+    }
+  }
+
   async function loadCandidates(options: CandidateLoadOptions = {}) {
     if (!options.silent) {
       setLoadingCandidates(true);
     }
     try {
       const minScore = minScoreFilter.trim() ? Number(minScoreFilter) : undefined;
-      const next = await recruitmentApi.listCandidates({
+      const minAge = minAgeFilter.trim() ? Number(minAgeFilter) : undefined;
+      const maxAge = maxAgeFilter.trim() ? Number(maxAgeFilter) : undefined;
+      const response = await recruitmentApi.listCandidates({
         keyword: deferredCandidateKeyword,
         decision: decisionFilter,
         jobRuleId: typeof options.jobRuleId === "string" ? options.jobRuleId : jobRuleFilter,
         minScore: typeof minScore === "number" && Number.isFinite(minScore) ? minScore : undefined,
+        minAge: typeof minAge === "number" && Number.isFinite(minAge) ? minAge : undefined,
+        maxAge: typeof maxAge === "number" && Number.isFinite(maxAge) ? maxAge : undefined,
+        screeningVersion:
+          typeof options.screeningVersion === "string" ? options.screeningVersion || undefined : selectedFilterVersion || undefined,
+        page: candidatePage + 1,
+        pageSize: candidateRowsPerPage,
       });
+      const next = response.items;
       setCandidates(next);
+      setCandidatePagination(response.pagination);
+      const normalizedPage = Math.max(0, response.pagination.page - 1);
+      if (normalizedPage !== candidatePage) {
+        setCandidatePage(normalizedPage);
+      }
       setSelectedCandidateId((current) => {
         if (current && next.some((item) => item.id === current)) return current;
         return next[0]?.id ?? "";
@@ -980,6 +1218,7 @@ export function ResumeScreeningPage() {
       if (!options.silent) {
         toast.error(getErrorMessage(error, "读取候选人列表失败"));
         setCandidates([]);
+        setCandidatePagination(defaultCandidatePagination);
         setSelectedCandidateId("");
       }
     } finally {
@@ -994,7 +1233,10 @@ export function ResumeScreeningPage() {
       setLoadingDetail(true);
     }
     try {
-      const next = await recruitmentApi.getCandidateDetail(candidateId);
+      const next = await recruitmentApi.getCandidateDetail(candidateId, {
+        screeningVersion:
+          typeof options.screeningVersion === "string" ? options.screeningVersion || undefined : selectedFilterVersion || undefined,
+      });
       const detailActiveScreening = next.active_screening ?? next.screenings?.[0] ?? null;
       const detailScreeningStatus = toCandidateScreeningStatus(detailActiveScreening?.status);
 
@@ -1091,7 +1333,7 @@ export function ResumeScreeningPage() {
 
   async function handleSaveRule() {
     if (!ruleForm.jd_text.trim()) {
-      toast.error("请先填写完整岗位描述");
+      toast.error("请先填写完整岗位规则");
       return;
     }
 
@@ -1184,6 +1426,8 @@ export function ResumeScreeningPage() {
     try {
       const result = await recruitmentApi.clearCandidates();
       setCandidates([]);
+      setCandidatePage(0);
+      setCandidatePagination(defaultCandidatePagination);
       setSelectedCandidateId("");
       setSelectedCandidate(null);
       setInterviewQaExpanded(false);
@@ -1255,7 +1499,18 @@ export function ResumeScreeningPage() {
         limit: Number(scheduleForm.limit || 20),
       });
       setLastSyncResult(result);
-      await Promise.all([loadCandidates(), loadSchedule()]);
+      await loadCandidates();
+      // 只刷新执行时间戳，不覆盖用户在表单里选择的邮箱、AI 模型、回溯小时、抓取上限
+      try {
+        const latestSchedule = await recruitmentApi.getMailSyncSchedule();
+        setScheduleForm((current) => ({
+          ...current,
+          last_run_at: latestSchedule.last_run_at ?? null,
+          last_run_result: latestSchedule.last_run_result ?? null,
+        }));
+      } catch {
+        // 非关键，忽略
+      }
       toast.success(result.message || "同步执行完成");
     } catch (error) {
       toast.error(getErrorMessage(error, "执行同步失败"));
@@ -1302,35 +1557,204 @@ export function ResumeScreeningPage() {
     }
   }
 
+  async function handleIterateCandidateFilter() {
+    const instruction = filterInstruction.trim();
+    const jobRuleId = jobRuleFilter;
+    if (!instruction) {
+      toast.error("请输入本轮筛选希望 AI 关注的条件");
+      return;
+    }
+    if (filterRunning) {
+      return;
+    }
+
+    const nextConversation: CandidateFilterSessionMessage[] = [
+      ...filterConversation,
+      { role: "user", content: instruction },
+    ].slice(-12);
+    setFilterConversation(nextConversation);
+    setFilterInstruction("");
+    setFilterRunning(true);
+    try {
+      const response = await recruitmentApi.iterateCandidateFilter({
+        job_rule_id: jobRuleId || undefined,
+        instruction,
+        base_version: selectedFilterVersion || undefined,
+        history: filterConversation,
+        limit: 80,
+      });
+      const assistantMessage = response.answer || response.filter_summary || "已完成本轮候选人二次筛选。";
+      setFilterConversation((current) => [...current, { role: "assistant", content: assistantMessage }].slice(-12));
+      if (response.action !== "filter" || !response.version_id) {
+        toast.message("AI 需要先确认筛选条件");
+        return;
+      }
+      setSelectedFilterVersion(response.version_id);
+      setCandidatePage(0);
+      await loadCandidateFilterSessions(jobRuleId);
+      await loadCandidates({ jobRuleId, screeningVersion: response.version_id });
+      if (selectedCandidateIdRef.current) {
+        await loadCandidateDetail(selectedCandidateIdRef.current, { silent: true, screeningVersion: response.version_id });
+      }
+      toast.success(`已生成新筛选版本：推荐 ${response.recommend_count} 人，待定 ${response.hold_count} 人，淘汰 ${response.reject_count} 人`);
+    } catch (error) {
+      setFilterConversation(filterConversation);
+      toast.error(getErrorMessage(error, "AI 二次筛选失败"));
+    } finally {
+      setFilterRunning(false);
+    }
+  }
+
+  async function handleAskCandidateAi() {
+    const question = candidateAiQuestion.trim();
+    const target = candidateAiTarget;
+    if (!target || !question || candidateAiLoadingId === target.id) {
+      return;
+    }
+
+    const candidateId = target.id;
+    const currentMessages = candidateAiMessagesById[candidateId] ?? [];
+    const nextMessages: CandidateAiChatMessage[] = [...currentMessages, { role: "user", content: question }];
+    setCandidateAiMessagesById((current) => ({
+      ...current,
+      [candidateId]: nextMessages,
+    }));
+    setCandidateAiQuestion("");
+    setCandidateAiLoadingId(candidateId);
+    try {
+      const response = await recruitmentApi.askCandidateAi(candidateId, {
+        question,
+        history: currentMessages,
+      });
+      const suffix = [
+        response.recommended_action ? `建议动作：${response.recommended_action}` : "",
+        response.suggested_tags?.length ? `补充标签：${response.suggested_tags.join("、")}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n");
+      const fullAnswer = normalizeAiChatText(suffix ? `${response.answer}\n\n${suffix}` : response.answer);
+      const assistantIndex = nextMessages.length;
+      const aiUpdate: CandidateAiUpdateSuggestion = {
+        profile_patch: response.profile_patch,
+        screening_patch: response.screening_patch,
+        update_reason: response.update_reason,
+        source_answer: fullAnswer,
+      };
+      setCandidateAiMessagesById((current) => ({
+        ...current,
+        [candidateId]: [
+          ...(current[candidateId] ?? nextMessages),
+          {
+            role: "assistant",
+            content: "",
+            ai_update: hasCandidateAiUpdateSuggestion(aiUpdate) ? aiUpdate : undefined,
+          },
+        ],
+      }));
+
+      let cursor = 0;
+      const timer = window.setInterval(() => {
+        cursor += Math.max(1, Math.ceil(fullAnswer.length / 80));
+        const nextContent = fullAnswer.slice(0, cursor);
+        setCandidateAiMessagesById((current) => {
+          const messages = current[candidateId] ?? [];
+          return {
+            ...current,
+            [candidateId]: messages.map((message, index) =>
+              index === assistantIndex ? { ...message, content: nextContent } : message,
+            ),
+          };
+        });
+        if (cursor >= fullAnswer.length) {
+          window.clearInterval(timer);
+        }
+      }, 24);
+    } catch (error) {
+      setCandidateAiMessagesById((current) => ({
+        ...current,
+        [candidateId]: currentMessages,
+      }));
+      toast.error(getErrorMessage(error, "AI 追问失败"));
+    } finally {
+      setCandidateAiLoadingId((current) => (current === candidateId ? null : current));
+    }
+  }
+
+  async function handleApplyCandidateAiUpdate(candidateId: string, messageIndex: number, update: CandidateAiUpdateSuggestion) {
+    if (!hasCandidateAiUpdateSuggestion(update)) {
+      toast.error("当前 AI 回复没有可应用的结构化建议。");
+      return;
+    }
+
+    const applyingKey = `${candidateId}:${messageIndex}`;
+    setCandidateAiApplyingKey(applyingKey);
+    try {
+      const nextDetail = await recruitmentApi.applyCandidateAiUpdate(candidateId, update);
+      setSelectedCandidate(nextDetail);
+      setSelectedCandidateId(candidateId);
+      await loadCandidates({ silent: true });
+      setCandidateAiMessagesById((current) => ({
+        ...current,
+        [candidateId]: (current[candidateId] ?? []).map((message, index) =>
+          index === messageIndex
+            ? {
+                ...message,
+                ai_update: {
+                  ...message.ai_update,
+                  profile_patch: undefined,
+                  screening_patch: undefined,
+                  update_reason: update.update_reason ? `${update.update_reason}（已应用）` : "已应用到候选人详情",
+                },
+              }
+            : message,
+        ),
+      }));
+      toast.success("AI 建议已应用到候选人详情");
+    } catch (error) {
+      toast.error(getErrorMessage(error, "应用 AI 建议失败"));
+    } finally {
+      setCandidateAiApplyingKey((current) => (current === applyingKey ? null : current));
+    }
+  }
+
   const activeScreening = selectedCandidate?.active_screening ?? selectedCandidate?.screenings?.[0];
+  const activeScreeningTags = buildScreeningTags(activeScreening ?? null);
+  const activeDimensionEntries = getDimensionEntries(activeScreening ?? null);
+  const candidateAiTarget =
+    (candidateAiDialogId ? candidates.find((candidate) => candidate.id === candidateAiDialogId) : null) ??
+    selectedCandidate;
+  const candidateAiMessages = candidateAiTarget ? candidateAiMessagesById[candidateAiTarget.id] ?? [] : [];
+  const candidateAiLoading = Boolean(candidateAiTarget && candidateAiLoadingId === candidateAiTarget.id);
 
   return (
-    <div className="mx-auto flex max-w-[1680px] flex-col gap-6 px-6 py-6">
-      <section className="material-panel rounded-[32px] px-8 py-8">
-        <div className="grid gap-6 xl:grid-cols-[1.5fr_0.95fr]">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-600">
-              <Mail className="h-3.5 w-3.5" />
-              企业邮箱简历初筛
+    <div className="resume-screening-surface mx-auto flex max-w-[1720px] flex-col gap-5 px-3 py-4 sm:px-5 sm:py-6" style={{background: 'transparent'}}>
+      <section className="resume-screening-hero material-panel material-neu-panel rounded-[var(--m3-shape-extra-large)] px-4 py-3 sm:px-5">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="resume-screening-hero-copy flex min-w-0 flex-col gap-2 lg:flex-row lg:items-center lg:gap-3">
+            <div className="flex shrink-0 flex-wrap items-center gap-3">
+              <div className="material-neu-chip inline-flex items-center gap-2 rounded-[4px] px-3 py-1 text-xs font-semibold text-indigo-800">
+                <Mail className="h-3.5 w-3.5" />
+                企业邮箱简历初筛
+              </div>
             </div>
-            <h1 className="mt-5 text-4xl font-semibold tracking-tight text-slate-900">邮件收件、AI 初筛、结果复核</h1>
-            <p className="mt-3 max-w-3xl text-base leading-8 text-slate-500">
-              先配置岗位规则，再同步邮箱，最后在下方候选人列表中查看摘要、得分与筛选记录。
-            </p>
-            <div className="mt-5 flex flex-wrap gap-3 text-sm text-slate-500">
-              <span className="rounded-full border border-slate-200 bg-white px-4 py-2">
+            <h1 className="text-xl font-semibold leading-tight tracking-tight text-slate-950 sm:text-2xl">
+              简历筛选工作台
+            </h1>
+            <div className="flex min-w-0 flex-wrap gap-2 text-xs font-medium text-slate-600">
+              <span className="material-neu-chip rounded-[4px] px-3 py-1.5">
                 数据源：{health?.mail_configured ? "企业邮箱已连接" : "等待邮箱配置"}
               </span>
-              <span className="rounded-full border border-slate-200 bg-white px-4 py-2">
+              <span className="material-neu-chip rounded-[4px] px-3 py-1.5">
                 AI：{health?.openai_configured ? `${connectedAiLabel} 已连接` : "等待 AI 配置"}
               </span>
-              <span className="rounded-full border border-slate-200 bg-white px-4 py-2">
+              <span className="material-neu-chip rounded-[4px] px-3 py-1.5">
                 数据库：{health?.ok ? "正常" : "待检查"}
               </span>
             </div>
           </div>
-          <div className="grid gap-4 sm:grid-cols-2">
-            <StatPill label="候选人总数" value={stats.total} />
+
+          <div className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-4 xl:min-w-[440px]">
+            <StatPill label="候选人" value={stats.total} />
             <StatPill label="推荐" value={stats.recommend} />
             <StatPill label="待定" value={stats.hold} />
             <StatPill label="平均分" value={stats.average} />
@@ -1338,32 +1762,155 @@ export function ResumeScreeningPage() {
         </div>
       </section>
 
-      <div className="grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
-        <section className="material-panel rounded-[32px] px-8 py-8">
+      <input
+        ref={uploadFolderInputRef}
+        type="file"
+        multiple
+        accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        className="hidden"
+        onChange={(event) => void handleUploadResumeFolder(event)}
+      />
+
+      <section className="material-panel material-neu-panel-soft rounded-[var(--m3-shape-extra-large)] px-4 py-4 sm:px-5">
+        <div className="grid gap-4 xl:grid-cols-[minmax(280px,0.8fr)_minmax(0,1.6fr)] xl:items-end">
+          <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+            <MaterialSelect
+              label="当前岗位"
+              value={selectedJobRuleId}
+              onValueChange={(value) => {
+                const matched = jobRules.find((item) => item.id === value);
+                if (matched) {
+                  hydrateRule(matched);
+                } else {
+                  resetRuleForm();
+                }
+              }}
+              options={[{ label: "全部岗位 / 自动匹配", value: "" }, ...jobRules.map((item) => ({ label: item.name, value: item.id }))]}
+              placeholder={loadingRules ? "正在加载岗位..." : "全部岗位 / 自动匹配"}
+            />
+            <button
+              type="button"
+              onClick={() => setShowJobRuleManager(true)}
+              className="material-neu-button inline-flex h-12 cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-slate-800 transition"
+            >
+              <Database className="h-4 w-4" />
+              管理规则
+            </button>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3 xl:items-end 2xl:grid-cols-[minmax(160px,1fr)_minmax(180px,1fr)_96px_96px_auto_auto_auto]">
+            <MaterialSelect
+              label="企业邮箱"
+              value={selectedMailConfigId}
+              onValueChange={setSelectedMailConfigId}
+              options={mailConfigs.map((item) => ({
+                label: `${item.email}${item.enabled ? "（默认启用）" : ""}`,
+                value: item.id,
+              }))}
+              placeholder={loadingMailConfigs ? "加载中..." : "选择邮箱"}
+            />
+            <MaterialSelect
+              label="AI 模型"
+              value={selectedOpenAiConfigId}
+              onValueChange={setSelectedOpenAiConfigId}
+              options={openAiConfigs.map((item) => ({
+                label: formatAiModelConfigLabel(item),
+                value: item.id,
+                description: getAiModelUsage(item.model).description,
+              }))}
+              placeholder={loadingOpenAiConfigs ? "加载中..." : "选择 AI"}
+            />
+            <MaterialInput
+              label="回溯"
+              type="number"
+              min={1}
+              value={String(scheduleForm.since_hours)}
+              onChange={(event) => {
+                const value = Number(event.target.value);
+                setScheduleForm((current) => ({
+                  ...current,
+                  since_hours: Number.isFinite(value) && value > 0 ? value : 0,
+                }));
+              }}
+            />
+            <MaterialInput
+              label="上限"
+              type="number"
+              min={1}
+              value={String(scheduleForm.limit)}
+              onChange={(event) => {
+                const value = Number(event.target.value);
+                setScheduleForm((current) => ({
+                  ...current,
+                  limit: Number.isFinite(value) && value > 0 ? value : 0,
+                }));
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => void handleRunSync()}
+              disabled={runningSync}
+              className="material-neu-primary inline-flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-white transition disabled:opacity-60"
+            >
+              {runningSync ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              同步
+            </button>
+            <button
+              type="button"
+              onClick={() => uploadFolderInputRef.current?.click()}
+              disabled={uploadingFolder}
+              className="material-neu-button inline-flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-slate-800 transition disabled:opacity-60"
+            >
+              {uploadingFolder ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              上传
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowSyncSettings(true)}
+              className="material-neu-button inline-flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-slate-800 transition"
+            >
+              <Clock3 className="h-4 w-4" />
+              设置
+            </button>
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-500">
+          <span>近 {scheduleForm.since_hours || 72} 小时，最多抓取 {scheduleForm.limit || 20} 封。</span>
+          {lastSyncResult ? (
+            <span>最近同步：匹配 {lastSyncResult.matched_count ?? 0}，入队 {lastSyncResult.queued_for_ai ?? 0}，失败 {lastSyncResult.failed}。</span>
+          ) : null}
+          {lastUploadResult ? (
+            <span>最近上传：入队 {lastUploadResult.queued_for_ai ?? 0}，失败 {lastUploadResult.failed}。</span>
+          ) : null}
+        </div>
+      </section>
+
+      <Dialog open={showJobRuleManager} onOpenChange={setShowJobRuleManager}>
+        <DialogContent className="resume-screening-surface material-neu-panel max-h-[90vh] w-[calc(100vw-32px)] max-w-[1180px] overflow-y-auto rounded-[var(--m3-shape-extra-large)] p-6">
           <div className="flex items-center justify-between gap-4">
             <div>
               <h2 className="text-2xl font-semibold tracking-tight text-slate-900">岗位规则</h2>
-              <p className="mt-2 text-base text-slate-400">左侧选择规则，右侧编辑当前岗位 JD 与启用状态。</p>
+              <p className="mt-2 text-base text-slate-400">在左侧选择规则，也可编辑当前岗位 JD 和启用状态。</p>
             </div>
-            <div className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500">
+            <div className="material-neu-chip rounded-[4px] px-4 py-2 text-sm text-slate-500">
               共 {jobRules.length} 条规则
             </div>
           </div>
 
           <div className="mt-7 grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-            <div className="rounded-[28px] border border-slate-200 bg-[rgba(248,250,252,0.62)] p-4">
+            <div className="material-neu-inset rounded-xl p-4">
               <div className="flex items-center gap-2 text-sm font-semibold text-slate-400">
                 <Database className="h-4 w-4" />
                 规则列表
               </div>
               <div className="material-scrollbar mt-4 max-h-[520px] space-y-3 overflow-y-auto">
                 {loadingRules && !jobRules.length ? (
-                  <div className="rounded-[24px] border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
+                  <div className="rounded-xl border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
                     <Loader2 className="mx-auto mb-2 h-4 w-4 animate-spin" />
                     正在加载规则...
                   </div>
                 ) : jobRules.length === 0 ? (
-                  <div className="rounded-[24px] border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
+                  <div className="rounded-xl border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
                     暂无岗位规则
                   </div>
                 ) : (
@@ -1382,10 +1929,10 @@ export function ResumeScreeningPage() {
                           }
                         }}
                         className={cn(
-                          "w-full cursor-pointer rounded-[22px] border px-4 py-4 text-left transition",
+                          "w-full cursor-pointer rounded-lg px-4 py-4 text-left transition",
                           active
-                            ? "border-cyan-300 bg-cyan-50"
-                            : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
+                            ? "material-neu-inset text-indigo-900"
+                            : "material-neu-button hover:text-indigo-700",
                         )}
                       >
                         <OverflowTooltipText text={jobRule.name} className="text-base font-semibold leading-6 text-slate-900" />
@@ -1418,8 +1965,8 @@ export function ResumeScreeningPage() {
                                 setDeleteConfirm({
                                   kind: "job-rule",
                                   id: jobRule.id,
-                                  title: "确认删除岗位规则？",
-                                  description: `删除后将移除这条规则“${jobRule.name}”，此操作不可撤销。`,
+                                  title: "确认删除岗位规则",
+                                  description: `删除将移除规则“${jobRule.name}”，该操作不可撤销。`,
                                 });
                               }}
                             >
@@ -1439,19 +1986,20 @@ export function ResumeScreeningPage() {
             </div>
 
             <div className="space-y-5">
-              <div className="rounded-[24px] border border-slate-200 bg-slate-50/80 px-5 py-4">
+              <div className="material-neu-inset rounded-xl px-5 py-4">
                 <div className="text-sm font-semibold text-slate-500">系统识别岗位名称</div>
                 <div className="mt-2 text-sm font-semibold text-slate-900">
-                  {derivedRuleName || "等待从下方岗位描述中识别"}
+                  {derivedRuleName || "等待输入岗位描述后识别"}
                 </div>
                 <p className="mt-2 text-sm leading-6 text-slate-400">
-                  直接粘贴完整岗位描述即可，系统会自动拆分岗位名称和岗位职责。                </p>
+                  直接粘贴完整岗位描述即可，系统会自动识别岗位名称和岗位职责
+                </p>
               </div>
               <MaterialTextarea
                 label="岗位描述"
                 value={ruleForm.jd_text}
                 onChange={(event) => setRuleForm((current) => ({ ...current, jd_text: event.target.value }))}
-                placeholder={"例如：\n岗位名称：测试工程师\n岗位职责：\n1. 负责测试计划与执行\n2. 跟进缺陷闭环"}
+                placeholder={"例如：\n岗位名称：测试工程师\n岗位职责\n1. 负责测试计划与执行\n2. 推动缺陷闭环"}
                 className="h-[320px] min-h-[320px] resize-none overflow-y-auto"
               />
               <div className="flex flex-wrap items-center gap-3">
@@ -1459,12 +2007,12 @@ export function ResumeScreeningPage() {
                   type="button"
                   onClick={() => void handleSaveRule()}
                   disabled={savingRule}
-                  className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-full bg-slate-900 px-6 text-base font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+                  className="material-neu-primary inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-[4px] px-6 text-base font-semibold text-white transition disabled:opacity-60"
                 >
                   {savingRule ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
                   {ruleForm.id ? "保存规则" : "新建规则"}
                 </button>
-                <label className="inline-flex h-11 min-w-[96px] items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-600">
+                <label className="material-neu-button inline-flex h-11 min-w-[96px] items-center justify-center gap-2 rounded-[4px] px-4 text-sm font-semibold text-slate-600">
                   <input
                     type="checkbox"
                     className="h-4 w-4"
@@ -1476,34 +2024,29 @@ export function ResumeScreeningPage() {
                 <button
                   type="button"
                   onClick={resetRuleForm}
-                  className="inline-flex h-11 cursor-pointer items-center justify-center rounded-full border border-slate-200 px-4 text-sm font-medium text-slate-500 transition hover:border-slate-300 hover:bg-slate-50"
+                  className="material-neu-button inline-flex h-11 cursor-pointer items-center justify-center rounded-[4px] px-4 text-sm font-medium text-slate-500 transition"
                 >
-                  清空内容
+                  重置
                 </button>
               </div>
             </div>
           </div>
-        </section>
+        </DialogContent>
+      </Dialog>
 
-        <section className="material-panel relative rounded-[32px] px-8 py-8">
-          <input
-            ref={uploadFolderInputRef}
-            type="file"
-            multiple
-            accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-            className="hidden"
-            onChange={(event) => void handleUploadResumeFolder(event)}
-          />
+      <Dialog open={showSyncSettings} onOpenChange={setShowSyncSettings}>
+        <DialogContent className="resume-screening-surface material-neu-panel max-h-[90vh] w-[calc(100vw-32px)] max-w-[1180px] overflow-y-auto rounded-[var(--m3-shape-extra-large)] p-6">
           <div className="flex flex-col gap-4 pr-0 sm:pr-32">
             <div className="max-w-[560px]">
               <h2 className="text-2xl font-semibold tracking-tight text-slate-900">同步控制</h2>
               <p className="mt-2 text-base leading-7 text-slate-400">
-                检查环境后可手动同步，也可以启用每天定点轮询自动拉取邮箱简历。              </p>
+                检查环境、手动同步，也可配置每天定时轮询自动抓取简历邮件。
+              </p>
             </div>
             <button
               type="button"
               onClick={() => void Promise.all([loadHealth(), loadMailConfigs(), loadOpenAiConfigs(), loadSchedule(), loadCandidates()])}
-              className="inline-flex h-10 w-fit cursor-pointer items-center gap-2 self-start rounded-full border border-slate-200 bg-white px-4 text-sm font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50 sm:absolute sm:right-8 sm:top-8"
+              className="material-neu-button inline-flex h-10 w-fit cursor-pointer items-center gap-2 self-start rounded-[4px] px-4 text-sm font-medium text-slate-600 transition sm:absolute sm:right-8 sm:top-8"
             >
               <RefreshCw className="h-4 w-4" />
               刷新
@@ -1511,16 +2054,12 @@ export function ResumeScreeningPage() {
           </div>
 
           <div className="mt-6">
-            <div className="mb-5 rounded-[24px] border border-amber-200 bg-amber-50/80 px-5 py-4 text-sm leading-6 text-amber-800">
-              <div className="flex items-center gap-2 font-semibold">
-                <AlertCircle className="h-4 w-4" />
-                文件夹上传提示              </div>
-              <div className="mt-2">
-                当前第一版仅支持文件夹中的<span className="font-semibold">PDF / DOCX</span> 简历文件，系统会优先将文件直接交给 AI
-                文档能力读取；扫描版 PDF、图片简历和 DOC 暂不保证效果，建议优先上传可复制文字的 PDF 或 DOCX。
-              </div>
+            <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50/80 px-4 py-2.5 text-xs leading-5 text-amber-800">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <span className="font-semibold">上传提示</span>
+              <span>支持 PDF / DOCX，扫描 PDF、图片版或旧 DOC 暂不保证解析效果。</span>
             </div>
-            <div className="rounded-[26px] border border-slate-200 bg-slate-50/85 p-5">
+            <div className="material-neu-inset rounded-lg p-5">
               <div className="text-sm font-semibold text-slate-400">同步参数</div>
               <div className="mt-4 grid gap-4 xl:grid-cols-4 sm:grid-cols-2">
                 <MaterialSelect
@@ -1528,10 +2067,10 @@ export function ResumeScreeningPage() {
                   value={selectedMailConfigId}
                   onValueChange={setSelectedMailConfigId}
                   options={mailConfigs.map((item) => ({
-                    label: `${item.email}${item.enabled ? "（已启用）" : ""}`,
+                    label: `${item.email}${item.enabled ? "（默认启用）" : ""}`,
                     value: item.id,
                   }))}
-                  placeholder={loadingMailConfigs ? "正在加载企业邮箱配置..." : "暂无企业邮箱配置"}
+                  placeholder={loadingMailConfigs ? "正在加载企业邮箱配置..." : "选择企业邮箱配置"}
                 />
                 <MaterialSelect
                   label="AI 模型"
@@ -1539,10 +2078,11 @@ export function ResumeScreeningPage() {
                   onValueChange={setSelectedOpenAiConfigId}
                   className="h-12"
                   options={openAiConfigs.map((item) => ({
-                    label: `${item.name} / ${item.model}`,
+                    label: formatAiModelConfigLabel(item),
                     value: item.id,
+                    description: getAiModelUsage(item.model).description,
                   }))}
-                  placeholder={loadingOpenAiConfigs ? "正在加载 AI 配置..." : "暂无 AI 配置"}
+                  placeholder={loadingOpenAiConfigs ? "正在加载 AI 配置..." : "选择 AI 配置"}
                 />
                 <MaterialInput
                   label="回溯小时"
@@ -1575,60 +2115,12 @@ export function ResumeScreeningPage() {
               </div>
               <div className="mt-4  ">
                 <div className="text-xs leading-6 text-slate-500">
-                  当前计划默认按{scheduleForm.since_hours || 72} 小时窗口回溯，单次最多抓取{scheduleForm.limit || 20} 份简历。                </div>
+                  当前计划默认按{scheduleForm.since_hours || 72} 小时内回溯，单次最多抓取{scheduleForm.limit || 20} 封简历。
+                </div>
               </div>
             </div>
           </div>
 
-          {/*<div className="mt-5 rounded-[28px] border border-slate-200 bg-[linear-gradient(180deg,rgba(248,250,252,0.95),rgba(241,245,249,0.75))] p-5">*/}
-          {/*  <div className="flex flex-wrap items-start justify-between gap-4">*/}
-          {/*    <div className="max-w-full">*/}
-          {/*      <div className="flex items-center gap-2 text-base font-semibold text-slate-800">*/}
-          {/*        <Clock3 className="h-4 w-4 text-slate-500" />*/}
-          {/*        启用定点轮询获取邮箱简历*/}
-          {/*      </div>*/}
-          {/*      <div className="mt-2 text-sm  text-slate-500">*/}
-          {/*        到点后会自动拉取邮箱简历，并按当前启用规则执行筛选。若左侧已选中规则，则优先使用该规则。*/}
-          {/*      </div>*/}
-          {/*    </div>*/}
-          {/*    <div className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-500">*/}
-          {/*      {scheduleForm.enabled ? "轮询已启用" : "轮询未启用"}*/}
-          {/*    </div>*/}
-          {/*  </div>*/}
-
-          {/*  <div className="mt-5 rounded-[22px] border border-slate-200 bg-white p-4">*/}
-          {/*    <div className="text-sm font-semibold text-slate-400">执行控制</div>*/}
-          {/*    <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(220px,1.15fr)_minmax(180px,0.85fr)_minmax(180px,0.85fr)] lg:items-end">*/}
-          {/*      <label className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-4 text-sm font-semibold text-slate-700">*/}
-          {/*        <input*/}
-          {/*          type="checkbox"*/}
-          {/*          className="h-4 w-4 shrink-0"*/}
-          {/*          checked={scheduleForm.enabled}*/}
-          {/*          onChange={(event) => setScheduleForm((current) => ({ ...current, enabled: event.target.checked }))}*/}
-          {/*        />*/}
-          {/*        <span className="whitespace-nowrap">启用轮询</span>*/}
-          {/*      </label>*/}
-          {/*      <input*/}
-          {/*        type="time"*/}
-          {/*        value={scheduleForm.run_at}*/}
-          {/*        onChange={(event) => setScheduleForm((current) => ({ ...current, run_at: event.target.value }))}*/}
-          {/*        className="material-input h-11 w-full min-w-0"*/}
-          {/*      />*/}
-          {/*      <button*/}
-          {/*        type="button"*/}
-          {/*        onClick={() => void handleSaveSchedule()}*/}
-          {/*        disabled={savingSchedule}*/}
-          {/*        className="inline-flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-60"*/}
-          {/*      >*/}
-          {/*        {savingSchedule ? <Loader2 className="h-4 w-4 animate-spin" /> : <Clock3 className="h-4 w-4" />}*/}
-          {/*        保存计划*/}
-          {/*      </button>*/}
-          {/*    </div>*/}
-          {/*    <div className="mt-4 text-xs leading-6 text-slate-500">*/}
-          {/*      最近执行：{scheduleForm.last_run_at ? `${formatDate(scheduleForm.last_run_at)} / ${scheduleForm.last_run_result || "已完成"}` : "暂无记录"}*/}
-          {/*    </div>*/}
-          {/*  </div>*/}
-          {/*</div>*/}
 
           <div className="mt-5 flex flex-col gap-3">
             <div className="flex flex-wrap gap-3 justify-between">
@@ -1636,16 +2128,16 @@ export function ResumeScreeningPage() {
               type="button"
               onClick={() => void handleRunSync()}
               disabled={runningSync}
-              className="inline-flex cursor-pointer h-13 min-w-[280px] items-center justify-center gap-3 rounded-[24px] bg-[linear-gradient(90deg,#5477e8,#5ac3a6)] px-7 text-l font-semibold text-white shadow-[0_16px_28px_rgba(84,119,232,0.22)] transition hover:translate-y-[-1px] disabled:opacity-60"
+              className="material-neu-primary inline-flex h-13 min-w-[280px] cursor-pointer items-center justify-center gap-3 rounded-xl px-7 text-l font-semibold text-white transition disabled:opacity-60"
             >
               {runningSync ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
-              运行一次同步
+              执行一次同步
             </button>
             <button
               type="button"
               onClick={() => uploadFolderInputRef.current?.click()}
               disabled={uploadingFolder}
-              className="inline-flex h-13 min-w-[280px] cursor-pointer items-center justify-center gap-3 rounded-[24px] border border-slate-200 bg-white px-7 text-l font-semibold text-slate-700 shadow-[0_10px_22px_rgba(15,23,42,0.08)] transition hover:border-slate-300 hover:bg-slate-50 disabled:opacity-60"
+              className="material-neu-button inline-flex h-13 min-w-[280px] cursor-pointer items-center justify-center gap-3 rounded-xl px-7 text-l font-semibold text-slate-700 transition disabled:opacity-60"
             >
               {uploadingFolder ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}
               上传简历文件夹
@@ -1653,35 +2145,37 @@ export function ResumeScreeningPage() {
             </div>
 
             <div className="px-1 py-1 text-sm leading-6 text-slate-600">
-              手动同步会立即执行；若已开启轮询，后续会继续按计划自动运行。              {lastSyncResult ? (
+              手动同步会立即执行；若已开启轮询，后续会继续按计划自动运行。
+              {lastSyncResult ? (
                 <span className="ml-2 text-slate-500">
-                  本次结果：检查{lastSyncResult.scanned_count ?? 0}，匹配{lastSyncResult.matched_count ?? 0}，入队{lastSyncResult.queued_for_ai ?? 0}，处理{lastSyncResult.processed}，新增{lastSyncResult.created_candidates}，跳过{lastSyncResult.skipped}，失败{lastSyncResult.failed}。                </span>
+                  本次结果：检查{lastSyncResult.scanned_count ?? 0}，匹配{lastSyncResult.matched_count ?? 0}，入队{lastSyncResult.queued_for_ai ?? 0}，处理{lastSyncResult.processed}，新增{lastSyncResult.created_candidates}，跳过{lastSyncResult.skipped}，失败{lastSyncResult.failed}。
+                </span>
               ) : null}
             </div>
           </div>
 
           {lastSyncResult ? (
-            <div className="mt-5 rounded-[26px] border border-slate-200 bg-white/80 px-5 py-5">
+            <div className="material-neu-card mt-5 rounded-lg px-5 py-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <div className="text-base font-semibold text-slate-900">本次同步回显</div>
+                  <div className="text-base font-semibold text-slate-900">邮件同步结果</div>
                   <div className="mt-1 text-sm text-slate-500">{lastSyncResult.message}</div>
                   {hasPendingSyncMail ? (
-                    <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+                    <div className="mt-2 inline-flex items-center gap-2 rounded-[4px] border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       已入队 {lastSyncResult.queued_for_ai} 封，后台正在逐条筛选，候选人列表会自动刷新。
                     </div>
                   ) : lastSyncResult.mail_previews?.length ? (
-                    <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                    <div className="mt-2 inline-flex items-center gap-2 rounded-[4px] border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
                       <CheckCircle2 className="h-3.5 w-3.5" />
-                      本次入队邮件状态已完成刷新。
+                      正在获取邮件状态，请稍后刷新。
                     </div>
                   ) : null}
                   {lastSyncResult.actual_screening_model ? (
                     <div className="mt-1 text-xs text-slate-400">实际筛选模型：{lastSyncResult.actual_screening_model}</div>
                   ) : null}
                 </div>
-                <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-500">
+                <div className="rounded-[4px] border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-500">
                   {lastSyncResult.mail_previews?.length ?? 0} 封邮件
                 </div>
               </div>
@@ -1691,7 +2185,7 @@ export function ResumeScreeningPage() {
                   lastSyncResult.mail_previews.map((mail: SyncMailPreview, index) => {
                     const statusMeta = getSyncMailStatusMeta(mail.status);
                     return (
-                    <div key={mail.unique_key || `${mail.received_at}-${index}`} className="rounded-[20px] border border-slate-200 bg-slate-50/80 px-4 py-4">
+                    <div key={mail.unique_key || `${mail.received_at}-${index}`} className="material-neu-inset rounded-lg px-4 py-4">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0 flex-1">
                           <div className="text-sm font-semibold text-slate-900">{mail.subject || "无主题邮件"}</div>
@@ -1700,7 +2194,7 @@ export function ResumeScreeningPage() {
                           </div>
                         </div>
                         <div className="shrink-0 text-center">
-                          <div className={cn("inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium", statusMeta.className)}>
+                          <div className={cn("inline-flex items-center gap-1.5 rounded-[4px] border px-3 py-1 text-xs font-medium", statusMeta.className)}>
                             {statusMeta.icon}
                             {mail.status}
                           </div>
@@ -1713,9 +2207,9 @@ export function ResumeScreeningPage() {
                       {mail.preview ? (
                         <details className="mt-3">
                           <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-600">
-                            查看邮件捕获内容（{mail.preview.length} 字符）
+                            查看邮件正文预览（{mail.preview.length} 字符）
                           </summary>
-                          <pre className="mt-2 max-h-52 overflow-auto rounded-[12px] border border-slate-200 bg-slate-100 p-3 text-xs text-slate-700 whitespace-pre-wrap break-all">
+                          <pre className="mt-2 max-h-52 overflow-auto rounded-md border border-slate-200 bg-slate-100 p-3 text-xs text-slate-700 whitespace-pre-wrap break-all">
                             {mail.preview}
                           </pre>
                         </details>
@@ -1723,15 +2217,15 @@ export function ResumeScreeningPage() {
                         <div className="mt-3 text-xs text-slate-400">邮件正文为空</div>
                       )}
                       {mail.error_message ? (
-                        <div className="mt-3 rounded-[16px] border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">
+                        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">
                           {mail.error_message}
                         </div>
                       ) : null}
                     </div>
                   )})
                 ) : (
-                  <div className="rounded-[20px] border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-400">
-                    本次没有可回显的邮件内容。
+                  <div className="rounded-lg border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-400">
+                    本次没有可回溯的邮件摘要。
                   </div>
                 )}
               </div>
@@ -1739,20 +2233,20 @@ export function ResumeScreeningPage() {
           ) : null}
 
           {lastUploadResult ? (
-            <div className="mt-5 rounded-[26px] border border-slate-200 bg-white/80 px-5 py-5">
+            <div className="material-neu-card mt-5 rounded-lg px-5 py-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <div className="text-base font-semibold text-slate-900">本次文件夹上传回显</div>
+                  <div className="text-base font-semibold text-slate-900">简历文件夹上传结果</div>
                   <div className="mt-1 text-sm text-slate-500">{lastUploadResult.message}</div>
                   {hasPendingUploadFile ? (
-                    <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-medium text-blue-700">
+                    <div className="mt-2 inline-flex items-center gap-2 rounded-[4px] border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
                       已入队 {lastUploadResult.queued_for_ai ?? 0} 份，后台正在逐条筛选，候选人列表会自动刷新。
                     </div>
                   ) : visibleUploadPreviews.length ? (
-                    <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
+                    <div className="mt-2 inline-flex items-center gap-2 rounded-[4px] border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
                       <CheckCircle2 className="h-3.5 w-3.5" />
-                      本次上传文件状态已完成刷新。
+                      正在获取上传文件状态，请稍后刷新。
                     </div>
                   ) : null}
                   {lastUploadResult.actual_extract_model || lastUploadResult.actual_screening_model ? (
@@ -1761,13 +2255,13 @@ export function ResumeScreeningPage() {
                         <div>实际文件读取模型：{lastUploadResult.actual_extract_model}</div>
                       ) : null}
                       {lastUploadResult.actual_screening_model ? (
-                        <div>实际筛选评分模型：{lastUploadResult.actual_screening_model}</div>
+                        <div>实际筛选判断模型：{lastUploadResult.actual_screening_model}</div>
                       ) : null}
                     </div>
                   ) : null}
                 </div>
-                <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-500">
-                  {visibleUploadPreviews.length} 份文件
+                <div className="rounded-[4px] border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-500">
+                  {visibleUploadPreviews.length} 个文件
                 </div>
               </div>
 
@@ -1776,14 +2270,14 @@ export function ResumeScreeningPage() {
                   visibleUploadPreviews.map((file: UploadFilePreview, index) => {
                     const statusMeta = getSyncMailStatusMeta(file.status);
                     return (
-                      <div key={file.unique_key || `${file.file_name}-${index}`} className="rounded-[20px] border border-slate-200 bg-slate-50/80 px-4 py-4">
+                      <div key={file.unique_key || `${file.file_name}-${index}`} className="material-neu-inset rounded-lg px-4 py-4">
                         <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
                             <div className="text-sm font-semibold text-slate-900">{file.file_name || "未命名文件"}</div>
                             <div className="mt-1 text-xs text-slate-500">{file.file_type}</div>
                           </div>
                           <div className="shrink-0 text-center">
-                            <div className={cn("inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium", statusMeta.className)}>
+                            <div className={cn("inline-flex items-center gap-1.5 rounded-[4px] border px-3 py-1 text-xs font-medium", statusMeta.className)}>
                               {statusMeta.icon}
                               {file.status}
                             </div>
@@ -1798,7 +2292,7 @@ export function ResumeScreeningPage() {
                             <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-600">
                               查看解析文本预览（{file.preview.length} 字符）
                             </summary>
-                            <pre className="mt-2 max-h-52 overflow-auto rounded-[12px] border border-slate-200 bg-slate-100 p-3 text-xs text-slate-700 whitespace-pre-wrap break-all">
+                            <pre className="mt-2 max-h-52 overflow-auto rounded-md border border-slate-200 bg-slate-100 p-3 text-xs text-slate-700 whitespace-pre-wrap break-all">
                               {file.preview}
                             </pre>
                           </details>
@@ -1806,7 +2300,7 @@ export function ResumeScreeningPage() {
                           <div className="mt-3 text-xs text-slate-400">当前没有可展示的文本预览</div>
                         )}
                         {file.error_message ? (
-                          <div className="mt-3 rounded-[16px] border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">
+                          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">
                             {file.error_message}
                           </div>
                         ) : null}
@@ -1814,48 +2308,48 @@ export function ResumeScreeningPage() {
                     );
                   })
                 ) : (
-                  <div className="rounded-[20px] border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-400">
-                    本次没有需要展示的上传结果。
+                  <div className="rounded-lg border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-400">
+                    本次没有需要展示的上传摘要。
                   </div>
                 )}
               </div>
             </div>
           ) : null}
-        </section>
-      </div>
+        </DialogContent>
+      </Dialog>
 
-      <div className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-        <section className="material-panel rounded-[32px] px-8 py-8">
-          <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(400px,0.85fr)]">
+        <section className="material-panel material-neu-panel overflow-hidden !px-0 !py-6">
+          <div className="flex flex-wrap items-start justify-between gap-4 px-5">
             <div>
-              <h2 className="text-2xl font-semibold tracking-tight text-slate-900">候选人列表</h2>
-              <p className="mt-2 text-base text-slate-400">按筛选结论、岗位和分数查看候选人摘要。</p>
+              <h2 className="text-2xl font-semibold tracking-tight text-slate-950">候选人列表</h2>
+              <p className="mt-2 text-base text-slate-500">按筛选结论、岗位和分数查看候选人摘要。</p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={() =>
-                  setDeleteConfirm({
-                    kind: "candidate-data",
-                    title: "确认清空候选人测试数据？",
-                    description: "会同时清空候选人列表、筛选历史和对应的导入打点记录。后台仍在筛选时不可执行。",
-                    confirmLabel: "确认清空",
-                  })
-                }
-                disabled={clearCandidatesDisabled}
-                className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-full border border-rose-200 bg-rose-50 px-4 text-sm font-medium text-rose-600 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {clearingCandidates ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                清空候选人数据
-              </button>
-              <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500">
+              {/*<button*/}
+              {/*  type="button"*/}
+              {/*  onClick={() =>*/}
+              {/*    setDeleteConfirm({*/}
+              {/*      kind: "candidate-data",*/}
+              {/*      title: "确认清空候选人数据？",*/}
+              {/*      description: "会同时清空候选人列表、筛选历史和对应的导入打点记录。后台仍在筛选时不可执行。",*/}
+              {/*      confirmLabel: "确认清空",*/}
+              {/*    })*/}
+              {/*  }*/}
+              {/*  disabled={clearCandidatesDisabled}*/}
+              {/*  className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-[4px] border border-rose-200 bg-rose-50 px-4 text-sm font-medium text-rose-600 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"*/}
+              {/*>*/}
+              {/*  {clearingCandidates ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}*/}
+              {/*  清空候选人数据*/}
+              {/*</button>*/}
+              <div className="material-neu-chip inline-flex items-center gap-2 rounded-[4px] px-4 py-2 text-sm font-medium text-slate-700">
                 <Search className="h-4 w-4" />
-                共 {filteredCandidates.length} 人
+                共 {candidatePagination.total} 人
               </div>
             </div>
           </div>
 
-          <div className="mt-6 grid gap-3 xl:grid-cols-[1.3fr_1fr_1fr]">
+          <div className="mt-6 grid gap-3 px-5 md:grid-cols-3">
             <MaterialInput
               label="关键词搜索"
               value={candidateKeyword}
@@ -1880,7 +2374,7 @@ export function ResumeScreeningPage() {
               className="h-13"
             />
           </div>
-          <div className="mt-6 grid gap-3 xl:grid-cols-[1.3fr_1fr_1fr]">
+          <div className="mt-4 grid gap-3 px-5 md:grid-cols-3">
             <MaterialInput
                 label="最低分"
                 type="number"
@@ -1912,89 +2406,328 @@ export function ResumeScreeningPage() {
             />
           </div>
 
-          <div className="material-scrollbar mt-6 max-h-[920px] space-y-4 overflow-y-auto pr-2">
-            {loadingCandidates ? (
-              <div className="rounded-[24px] border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
-                <Loader2 className="mx-auto mb-2 h-4 w-4 animate-spin" />
-                正在加载候选人...
+          <div className="material-neu-card mx-5 mt-6 rounded-[var(--m3-shape-large)] border-l-4 border-l-indigo-700 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="inline-flex items-center gap-2 text-sm font-semibold text-slate-900">
+                  <Sparkles className="h-4 w-4 text-indigo-700" />
+                  AI 迭代筛选
+                </div>
+                <div className="mt-1 text-xs leading-5 text-slate-600">
+                  AI 会先分析筛选意图；条件不明确时会追问，明确后才生成新的列表评分版本。
+                </div>
               </div>
-            ) : filteredCandidates.length === 0 ? (
-              <div className="rounded-[24px] border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
-                暂无候选人
-              </div>
-            ) : (
-              filteredCandidates.map((candidate) => (
+              <div className="flex w-full flex-wrap items-end gap-3 sm:w-auto sm:min-w-[260px]">
+                <MaterialSelect
+                  value={selectedFilterVersion}
+                  onValueChange={setSelectedFilterVersion}
+                  options={[
+                    { label: "初筛结果 / 当前最新", value: "" },
+                    ...filterSessions.map((session) => ({
+                      label: `${session.label} · ${session.recommend_count}/${session.total_count} 推荐`,
+                      value: session.version_id,
+                    })),
+                  ]}
+                  placeholder="选择筛选版本"
+                  className="h-10"
+                />
                 <button
-                  key={candidate.id}
                   type="button"
-                  onClick={() => setSelectedCandidateId(candidate.id)}
-                  className={cn(
-                    "w-full cursor-pointer rounded-[24px] border px-5 py-5 text-left transition",
-                    selectedCandidateId === candidate.id
-                      ? "border-cyan-300 bg-cyan-50 shadow-[0_12px_30px_rgba(34,211,238,0.12)]"
-                      : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
-                  )}
+                  onClick={() => setShowFilterDialog(true)}
+                  className="material-neu-primary inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-[var(--m3-shape-small)] px-4 text-sm font-semibold text-white transition"
                 >
-                  <div className="flex items-start gap-4">
-                    <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-[18px] bg-[linear-gradient(135deg,#dbeafe_0%,#bfdbfe_45%,#e0f2fe_100%)] text-3xl font-semibold text-sky-700 shadow-inner">
-                      {candidate.avatar_url ? (
-                        <ImageWithFallback
-                          src={candidate.avatar_url}
-                          alt={candidate.name || "候选人头像"}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <User className="h-9 w-9 text-sky-500" />
-                      )}
-                    </div>
+                  <Sparkles className="h-4 w-4" />
+                  AI 二次筛选
+                </button>
+              </div>
+            </div>
 
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-start justify-between gap-4">
-                        <div className="text-lg font-semibold text-slate-900">{buildCandidateCardTitle(candidate)}</div>
-                        {candidate.decision ? (
-                          <span className={cn("inline-flex rounded-full px-3 py-1 text-xs font-semibold", decisionMeta[candidate.decision].classes)}>
-                            {decisionMeta[candidate.decision].label}
-                          </span>
-                        ) : candidate.screening_status ? (
-                          <span className="inline-flex rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
-                            {mapScreeningStatusToMailStatus(candidate.screening_status)?.status || "待处理"}
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="mt-3 space-y-2 text-sm text-slate-500">
-                        <div className="grid gap-2 md:grid-cols-2">
-                          {buildCandidateJobLabels(candidate).map((label) => (
-                            <div key={label}>{label}</div>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
+            {selectedFilterSession ? (
+              <div className="material-neu-inset mt-3 rounded-[var(--m3-shape-medium)] px-3 py-2 text-xs leading-5 text-indigo-900">
+                {selectedFilterSession.filter_summary || selectedFilterSession.instruction}
+              </div>
+            ) : null}
 
-                    <div className="flex shrink-0 flex-col items-end gap-3">
+            <div className="hidden">
+              <div className="rounded-[var(--m3-shape-medium)] border border-slate-200 bg-slate-50/70 p-3">
+                <textarea
+                  rows={3}
+                  value={filterInstruction}
+                  onChange={(event) => setFilterInstruction(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                      event.preventDefault();
+                      void handleIterateCandidateFilter();
+                    }
+                  }}
+                  disabled={filterRunning}
+                  className="material-scrollbar min-h-[76px] w-full resize-none bg-transparent text-sm leading-6 text-slate-700 outline-none placeholder:text-slate-400 disabled:opacity-60"
+                  placeholder="例如：优先保留机械制图经验明确、会 SolidWorks、南京周边、薪资不超过 10k 的候选人；对道路工程背景降权。"
+                />
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-xs text-slate-400">Ctrl/Command + Enter 发送，AI 会先分析，明确后生成版本。</div>
+                  <button
+                    type="button"
+                    onClick={() => void handleIterateCandidateFilter()}
+                    disabled={!filterInstruction.trim() || filterRunning}
+                    className="inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-[var(--m3-shape-small)] bg-indigo-600 px-4 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {filterRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    {filterRunning ? "分析中" : "发送给 AI"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="material-scrollbar max-h-[156px] overflow-y-auto rounded-[var(--m3-shape-medium)] border border-slate-200 bg-white px-3 py-3">
+                {filterConversation.length ? (
+                  <div className="space-y-2">
+                    {filterConversation.slice(-6).map((message, index) => (
                       <div
+                        key={`${message.role}-${index}`}
                         className={cn(
-                          "inline-flex min-w-[58px] items-center justify-center rounded-full px-3 py-1.5 text-sm font-semibold",
-                          scoreTone(candidate.score),
+                          "rounded-[var(--m3-shape-small)] px-3 py-2 text-xs leading-5",
+                          message.role === "user" ? "bg-slate-100 text-slate-700" : "bg-indigo-50 text-indigo-900",
                         )}
                       >
-                        {typeof candidate.score === "number" ? candidate.score : "-"}
+                        <span className="mr-1 font-semibold">{message.role === "user" ? "我" : "AI"}：</span>
+                        {message.content}
                       </div>
-                      <div className="text-xs text-slate-400">{formatDate(candidate.received_at)}</div>
-                    </div>
+                    ))}
+                    {filterRunning ? (
+                      <div className="inline-flex items-center gap-2 rounded-[var(--m3-shape-small)] bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        AI 正在分析筛选意图
+                      </div>
+                    ) : null}
                   </div>
-                </button>
-              ))
-            )}
+                ) : (
+                  <div className="flex h-full min-h-[116px] items-center justify-center text-center text-xs leading-5 text-slate-400">
+                    暂无二次筛选沟通记录
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="material-data-table mx-3 mt-6 overflow-hidden rounded-[var(--m3-shape-large)] sm:mx-5">
+            <MuiTableContainer
+              className="material-scrollbar"
+              sx={{
+                maxHeight: 868,
+                overflow: "auto",
+                scrollbarGutter: "auto",
+              }}
+            >
+              {loadingCandidates ? (
+                <div className="px-4 py-12 text-center text-sm text-slate-400">
+                  <Loader2 className="mx-auto mb-2 h-4 w-4 animate-spin" />
+                  正在加载候选人...
+                </div>
+              ) : filteredCandidates.length === 0 ? (
+                <div className="px-4 py-12 text-center text-sm text-slate-400">
+                  暂无候选人
+                </div>
+              ) : (
+                <MuiTable
+                  stickyHeader
+                  sx={{
+                    minWidth: 1040,
+                    tableLayout: "fixed",
+                    "& .MuiTableCell-root": {
+                      boxSizing: "border-box",
+                    },
+                  }}
+                >
+                <MuiTableHead>
+                  <MuiTableRow>
+                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 160, pl: 2.5 }}>候选人</MuiTableCell>
+                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 240 }}>岗位</MuiTableCell>
+                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 90 }}>分数</MuiTableCell>
+                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 96 }}>结论</MuiTableCell>
+                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 140 }}>城市</MuiTableCell>
+                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 72 }}>年龄</MuiTableCell>
+                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 96 }}>学历</MuiTableCell>
+                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 112 }}>状态</MuiTableCell>
+                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 150 }}>收件时间</MuiTableCell>
+                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 120, pr: 2.5 }}>操作</MuiTableCell>
+                  </MuiTableRow>
+                </MuiTableHead>
+                <MuiTableBody>
+                  {filteredCandidates.map((candidate) => {
+                    const candidateTitle = buildCandidateCardTitle(candidate);
+                    const jobLabels = buildCandidateJobLabels(candidate).join(" / ");
+                    const screeningStatus = candidate.screening_status ?? candidate.active_screening_status;
+                    const mappedStatus = mapScreeningStatusToMailStatus(screeningStatus, candidate.screening_error_message);
+                    const age = parseAgeFromBirthOrAge(candidate.birth_or_age);
+                    const selected = selectedCandidateId === candidate.id;
+
+                    return (
+                      <MuiTableRow
+                        key={candidate.id}
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => setSelectedCandidateId(candidate.id)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            setSelectedCandidateId(candidate.id);
+                          }
+                        }}
+                        className="cursor-pointer transition-colors"
+                        sx={{
+                          background: selected
+                            ? "linear-gradient(145deg, rgba(216,234,253,0.92), rgba(246,250,255,0.96))"
+                            : "rgba(255,255,255,0.72)",
+                          outline: "none",
+                          transition: "background 180ms ease, box-shadow 180ms ease",
+                          boxShadow: selected
+                            ? "inset 3px 0 0 #4f46e5, inset 4px 4px 10px rgba(79,70,229,0.1), inset -4px -4px 10px rgba(255,255,255,0.82)"
+                            : "none",
+                          "&:hover": {
+                            background: selected
+                              ? "linear-gradient(145deg, rgba(224,231,255,0.96), rgba(255,255,255,0.98))"
+                              : "linear-gradient(145deg, rgba(255,255,255,0.9), rgba(244,248,253,0.86))",
+                            boxShadow: selected
+                              ? "inset 3px 0 0 #4f46e5, inset 4px 4px 10px rgba(79,70,229,0.1), inset -4px -4px 10px rgba(255,255,255,0.82)"
+                              : "inset 0 0 0 1px rgba(255,255,255,0.78)",
+                          },
+                          "&:focus-visible": {
+                            boxShadow: selected
+                              ? "inset 3px 0 0 #4f46e5, 0 0 0 3px rgba(79,70,229,0.2)"
+                              : "0 0 0 3px rgba(79,70,229,0.2)",
+                          },
+                          "&:last-of-type .MuiTableCell-root": {
+                            borderBottom: 0,
+                          },
+                        }}
+                      >
+                        <MuiTableCell sx={{ ...muiTableBodyCellSx, pl: 2.5 }}>
+                          <div className="flex min-w-[180px] items-center gap-3">
+                            <div className="material-table-avatar flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-[4px] text-sm font-semibold">
+                              {candidate.avatar_url ? (
+                                <ImageWithFallback
+                                  src={candidate.avatar_url}
+                                  alt={candidate.name || "候选人头像"}
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                (candidate.name || "?").slice(0, 1)
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <OverflowTooltipText text={candidateTitle} maxChars={16} className="font-semibold text-slate-900" />
+                              {/*<OverflowTooltipText text={candidate.email || candidate.phone || candidate.source_sender_email} maxChars={20} className="mt-0.5 text-xs text-slate-400" />*/}
+                            </div>
+                          </div>
+                        </MuiTableCell>
+                        <MuiTableCell sx={muiTableBodyCellSx}>
+                          <OverflowTooltipText text={jobLabels} maxChars={18} className="max-w-[180px] text-slate-600" />
+                        </MuiTableCell>
+                        <MuiTableCell sx={muiTableBodyCellSx}>
+                          <span
+                            className={cn(
+                              "inline-flex min-w-[48px] items-center justify-center rounded-[4px] px-3 py-1 text-xs font-semibold",
+                              scoreTone(candidate.score),
+                            )}
+                          >
+                            {typeof candidate.score === "number" ? candidate.score : "-"}
+                          </span>
+                        </MuiTableCell>
+                        <MuiTableCell sx={muiTableBodyCellSx}>
+                          {candidate.decision ? (
+                            <span className={cn("inline-flex min-w-[56px] justify-center rounded-[4px] px-3 py-1 text-xs font-semibold whitespace-nowrap", decisionMeta[candidate.decision].classes)}>
+                              {decisionMeta[candidate.decision].label}
+                            </span>
+                          ) : (
+                            <span className="text-xs text-slate-400">-</span>
+                          )}
+                        </MuiTableCell>
+                        <MuiTableCell sx={{ ...muiTableBodyCellSx, color: "#475569" }}>
+                          <OverflowTooltipText text={candidate.city || "-"} maxChars={8} className="max-w-[100px] text-slate-600" />
+                        </MuiTableCell>
+                        <MuiTableCell sx={{ ...muiTableBodyCellSx, color: "#475569" }}>{age ?? candidate.birth_or_age ?? "-"}</MuiTableCell>
+                        <MuiTableCell sx={muiTableBodyCellSx}>
+                          <OverflowTooltipText text={candidate.education || "-"} maxChars={10} className="max-w-[120px] text-slate-600" />
+                        </MuiTableCell>
+                        <MuiTableCell sx={muiTableBodyCellSx}>
+                          <span className="inline-flex min-w-[64px] justify-center rounded-[4px] bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 whitespace-nowrap">
+                            {mappedStatus?.status || "待处理"}
+                          </span>
+                        </MuiTableCell>
+                        <MuiTableCell sx={{ ...muiTableBodyCellSx, color: "#94a3b8", fontSize: 12 }}>{formatDate(candidate.received_at)}</MuiTableCell>
+                        <MuiTableCell sx={{ ...muiTableBodyCellSx, pr: 2.5 }}>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setSelectedCandidateId(candidate.id);
+                              setCandidateAiDialogId(candidate.id);
+                              setCandidateAiQuestion("");
+                            }}
+                            className="material-table-button inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-[4px] px-3 text-xs font-semibold transition"
+                          >
+                            <MessageSquarePlus className="h-3.5 w-3.5" />
+                            AI 讨论
+                          </button>
+                        </MuiTableCell>
+                      </MuiTableRow>
+                    );
+                  })}
+                </MuiTableBody>
+                </MuiTable>
+              )}
+            </MuiTableContainer>
+            {candidatePagination.total > 0 ? (
+              <div className="flex justify-end overflow-x-auto border-t border-white/70 bg-white/58 px-3">
+                <MuiTablePagination
+                  component="div"
+                  count={candidatePagination.total}
+                  page={candidatePage}
+                  rowsPerPage={candidateRowsPerPage}
+                  rowsPerPageOptions={[10, 20, 50, 100]}
+                  onPageChange={(_, nextPage) => setCandidatePage(nextPage)}
+                  onRowsPerPageChange={(event) => {
+                    setCandidateRowsPerPage(Number(event.target.value));
+                    setCandidatePage(0);
+                  }}
+                  labelRowsPerPage="每页"
+                  labelDisplayedRows={({ from, to, count }) => `${from}-${to} / 共 ${count} 人`}
+                  sx={{
+                    border: 0,
+                    color: "var(--on-surface-variant)",
+                    fontFamily: "inherit",
+                    "& .MuiTablePagination-toolbar": {
+                      minHeight: 52,
+                      px: 0,
+                      flexWrap: "wrap",
+                      justifyContent: "flex-end",
+                      rowGap: 1,
+                    },
+                    "& .MuiTablePagination-selectLabel, & .MuiTablePagination-displayedRows": {
+                      m: 0,
+                      fontFamily: "inherit",
+                      fontSize: 13,
+                    },
+                    "& .MuiTablePagination-select": {
+                      fontFamily: "inherit",
+                    },
+                    "& .MuiIconButton-root": {
+                      color: "var(--on-surface-variant)",
+                    },
+                  }}
+                />
+              </div>
+            ) : null}
           </div>
         </section>
 
-        <section className="material-panel rounded-[32px] px-8 py-8">
+        <section className="material-panel material-neu-panel rounded-[var(--m3-shape-extra-large)] px-5 py-6 xl:sticky xl:top-5 xl:self-start">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <h2 className="text-2xl font-semibold tracking-tight text-slate-900">候选人详情</h2>
-              <p className="mt-2 text-base text-slate-400">查看解析画像、筛选结论、命中点和风险说明。</p>
+              <h2 className="text-2xl font-semibold tracking-tight text-slate-950">候选人详情</h2>
+              <p className="mt-2 text-base text-slate-500">查看解析画像、筛选结论、命中点和风险说明。</p>
             </div>
-            <div className="rounded-full border border-slate-200 bg-white px-4 py-2 text-sm text-slate-500">
+            <div className="material-neu-chip rounded-[4px] px-4 py-2 text-sm font-medium text-slate-700">
               <UserRoundSearch className="mr-2 inline h-4 w-4" />
               详情面板
             </div>
@@ -2002,20 +2735,20 @@ export function ResumeScreeningPage() {
 
           <div className="material-scrollbar mt-6 max-h-[920px] space-y-4 overflow-y-auto pr-2">
             {loadingDetail ? (
-              <div className="rounded-[24px] border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
+              <div className="rounded-xl border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
                 <Loader2 className="mx-auto mb-2 h-4 w-4 animate-spin" />
                 正在加载候选人详情...
               </div>
             ) : !selectedCandidate ? (
-              <div className="rounded-[24px] border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
+              <div className="rounded-xl border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
                 请选择左侧候选人查看详情
               </div>
             ) : (
               <>
-                <div className="rounded-[26px] border border-slate-200 bg-white px-5 py-5">
+                <div className="material-neu-card rounded-lg px-5 py-5">
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div className="flex items-start gap-4">
-                      <div className="flex h-18 w-18 shrink-0 items-center justify-center overflow-hidden rounded-[18px] bg-[linear-gradient(135deg,#dbeafe_0%,#bfdbfe_45%,#e0f2fe_100%)] text-2xl font-semibold text-sky-700 shadow-inner">
+                      <div className="material-neu-icon-surface flex h-18 w-18 shrink-0 items-center justify-center overflow-hidden rounded-lg text-2xl font-semibold text-indigo-700">
                         {selectedCandidate.parsed_candidate_profile.avatar_url ? (
                           <ImageWithFallback
                             src={selectedCandidate.parsed_candidate_profile.avatar_url}
@@ -2023,7 +2756,7 @@ export function ResumeScreeningPage() {
                             className="h-full w-full object-cover"
                           />
                         ) : (
-                          <User className="h-8 w-8 text-sky-500" />
+                          <User className="h-8 w-8 text-indigo-500" />
                         )}
                       </div>
                       <div>
@@ -2037,7 +2770,7 @@ export function ResumeScreeningPage() {
                       </div>
                     </div>
                     {activeScreening?.decision ? (
-                      <span className={cn("inline-flex rounded-full px-3 py-1 text-xs font-semibold", decisionMeta[activeScreening.decision].classes)}>
+                      <span className={cn("inline-flex rounded-[4px] px-3 py-1 text-xs font-semibold", decisionMeta[activeScreening.decision].classes)}>
                         {decisionMeta[activeScreening.decision].label}
                       </span>
                     ) : null}
@@ -2053,22 +2786,69 @@ export function ResumeScreeningPage() {
                   </div>
                 </div>
 
-                <div className="rounded-[26px] border border-slate-200 bg-white px-5 py-5">
+                <div className="material-neu-card rounded-lg px-5 py-5">
                   <div className="text-sm font-semibold text-slate-500">候选人摘要</div>
                   <div className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-700">
                     {selectedCandidate.parsed_candidate_profile.work_summary?.trim() || activeScreening?.summary?.trim() || "暂无摘要"}
                   </div>
                 </div>
 
-                <div className="rounded-[26px] border border-slate-200 bg-white px-5 py-5">
+                <div className="material-neu-card rounded-lg px-5 py-5">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-slate-500">标签化画像</div>
+                      <div className="mt-1 text-xs text-slate-400">从 AI 初筛中提取的筛选结论、能力短板和匹配标签。</div>
+                    </div>
+                    <div className="material-neu-chip rounded-[4px] px-3 py-1 text-xs font-medium text-slate-500">
+                      {activeScreeningTags.length} 个标签
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {activeScreeningTags.length ? (
+                      activeScreeningTags.map((tag) => (
+                        <span key={tag} className="inline-flex rounded-[4px] bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">
+                          {tag}
+                        </span>
+                      ))
+                    ) : (
+                      <span className="text-sm text-slate-400">暂无标签，后续筛选结果会自动生成。</span>
+                    )}
+                  </div>
+
+                  <div className="mt-5 grid gap-3 md:grid-cols-2">
+                    {activeDimensionEntries.length ? (
+                      activeDimensionEntries.map((item) => (
+                        <div key={item.key} className="material-neu-inset rounded-lg px-4 py-3">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="text-sm font-semibold text-slate-700">{item.label}</div>
+                            <div className="text-sm font-semibold text-slate-900">{item.score}</div>
+                          </div>
+                          <div className="mt-2 h-2 overflow-hidden rounded-[4px] bg-white shadow-[inset_2px_2px_5px_rgba(148,163,184,0.22)]">
+                            <div className="h-full rounded-[4px] bg-indigo-500" style={{ width: `${Math.max(0, Math.min(100, item.score))}%` }} />
+                          </div>
+                          <div className="mt-2 text-xs leading-5 text-slate-500">
+                            {item.valueLabel ? `${item.valueLabel}：` : ""}{item.reason || "暂无说明"}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-400 md:col-span-2">
+                        暂无维度评分，后续筛选结果会自动生成。
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="material-neu-card rounded-lg px-5 py-5">
                   <button
                     type="button"
                     onClick={() => setInterviewQaExpanded((current) => !current)}
                     className="flex w-full flex-wrap items-center justify-between gap-3 text-left"
                   >
                     <div>
-                      <div className="text-sm font-semibold text-slate-500">问答区域</div>
-                      <div className="mt-1 text-xs text-slate-400">结合当前 JD 与候选人简历自动生成 5 个面试问答。</div>
+                      <div className="text-sm font-semibold text-slate-500">追问准备</div>
+                      <div className="mt-1 text-xs text-slate-400">结合当前 JD 和候选人简历自动生成 5 条面试问答</div>
                     </div>
                     <div className="inline-flex items-center gap-2 text-xs font-medium text-slate-500">
                       {interviewQaExpanded ? "收起" : "展开"}
@@ -2079,30 +2859,30 @@ export function ResumeScreeningPage() {
                     {selectedCandidate.interview_qa?.length ? (
                       <div className="space-y-3">
                         {selectedCandidate.interview_qa.map((item, index) => (
-                          <div key={`${item.question}-${index}`} className="rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-4">
+                          <div key={`${item.question}-${index}`} className="material-neu-inset rounded-lg px-4 py-4">
                             <div className="text-sm font-semibold text-slate-900">
                               Q{index + 1}. {item.question}
                             </div>
-                            <div className="mt-3 rounded-[16px] bg-white px-4 py-3 text-sm leading-7 text-slate-700">
-                              <span className="mr-2 font-semibold text-slate-500">参考答案</span>
+                            <div className="mt-3 rounded-lg bg-white/80 px-4 py-3 text-sm leading-7 text-slate-700 shadow-[inset_2px_2px_6px_rgba(148,163,184,0.12)]">
+                              <span className="mr-2 font-semibold text-slate-500">参考答</span>
                               {item.answer}
                             </div>
                           </div>
                         ))}
                       </div>
                     ) : (
-                      <div className="text-sm text-slate-400">暂无问答内容</div>
+                      <div className="text-sm text-slate-400">暂无问答建议</div>
                     )}
                   </div>
                 </div>
 
                 <div className="grid gap-4 lg:grid-cols-2">
-                  <div className="rounded-[26px] border border-slate-200 bg-white px-5 py-5">
+                  <div className="material-neu-card rounded-lg px-5 py-5">
                     <div className="text-sm font-semibold text-slate-500">命中点</div>
                     <div className="mt-4 flex flex-wrap gap-2">
                       {activeScreening?.matched_points?.length ? (
                         activeScreening.matched_points.map((item) => (
-                          <span key={item} className="inline-flex rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+                          <span key={item} className="inline-flex rounded-[4px] bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
                             {item}
                           </span>
                         ))
@@ -2112,12 +2892,12 @@ export function ResumeScreeningPage() {
                     </div>
                   </div>
 
-                  <div className="rounded-[26px] border border-slate-200 bg-white px-5 py-5">
+                  <div className="material-neu-card rounded-lg px-5 py-5">
                     <div className="text-sm font-semibold text-slate-500">风险提示</div>
                     <div className="mt-4 flex flex-wrap gap-2">
                       {activeScreening?.risks?.length ? (
                         activeScreening.risks.map((item) => (
-                          <span key={item} className="inline-flex rounded-full bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
+                          <span key={item} className="inline-flex rounded-[4px] bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
                             {item}
                           </span>
                         ))
@@ -2128,7 +2908,7 @@ export function ResumeScreeningPage() {
                   </div>
                 </div>
 
-                <div className="rounded-[26px] border border-slate-200 bg-white px-5 py-5">
+                <div className="material-neu-card rounded-lg px-5 py-5">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="text-sm font-semibold text-slate-500">筛选历史</div>
                     <div className="text-xs text-slate-400">
@@ -2139,11 +2919,11 @@ export function ResumeScreeningPage() {
                   <div className="mt-4 space-y-3">
                     {selectedCandidate.screenings.length ? (
                       selectedCandidate.screenings.map((item) => (
-                        <div key={item.id} className="rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-4">
+                        <div key={item.id} className="material-neu-inset rounded-lg px-4 py-4">
                           <div className="flex flex-wrap items-center justify-between gap-3">
                             <div className="flex flex-wrap items-center gap-2">
                               {item.decision ? (
-                                <span className={cn("inline-flex rounded-full px-3 py-1 text-xs font-semibold", decisionMeta[item.decision].classes)}>
+                                <span className={cn("inline-flex rounded-[4px] px-3 py-1 text-xs font-semibold", decisionMeta[item.decision].classes)}>
                                   {decisionMeta[item.decision].label}
                                 </span>
                               ) : null}
@@ -2151,27 +2931,27 @@ export function ResumeScreeningPage() {
                               <span className="text-xs text-slate-400">{formatDate(item.created_at)}</span>
                             </div>
                             <div className="text-xs text-slate-500">
-                              分数：{typeof item.score === "number" ? item.score : "-"} / 用时：{item.duration_ms ?? "-"} ms
+                              分数：{typeof item.score === "number" ? item.score : "-"} / 耗时：{item.duration_ms ?? "-"} ms
                             </div>
                           </div>
                           <div className="mt-3 text-sm leading-7 text-slate-600">{item.summary?.trim() || "暂无摘要"}</div>
                           {item.error_message ? (
-                            <div className="mt-3 rounded-[16px] border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-600">
+                            <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-600">
                               错误：{item.error_message}
                             </div>
                           ) : null}
                           {item.request_payload ? (
                             <details className="mt-3">
-                              <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-600">查看 AI 入参</summary>
-                              <pre className="mt-2 max-h-60 overflow-auto rounded-[12px] border border-slate-200 bg-slate-100 p-3 text-xs text-slate-700 whitespace-pre-wrap break-all">
+                              <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-600">查看 AI 请求</summary>
+                              <pre className="mt-2 max-h-60 overflow-auto rounded-md border border-slate-200 bg-slate-100 p-3 text-xs text-slate-700 whitespace-pre-wrap break-all">
                                 {JSON.stringify(item.request_payload, null, 2)}
                               </pre>
                             </details>
                           ) : null}
                           {item.response_payload ? (
                             <details className="mt-2">
-                              <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-600">查看 AI 原始输出</summary>
-                              <pre className="mt-2 max-h-60 overflow-auto rounded-[12px] border border-slate-200 bg-slate-100 p-3 text-xs text-slate-700 whitespace-pre-wrap break-all">
+                              <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-600">查看 AI 原始响应</summary>
+                              <pre className="mt-2 max-h-60 overflow-auto rounded-md border border-slate-200 bg-slate-100 p-3 text-xs text-slate-700 whitespace-pre-wrap break-all">
                                 {JSON.stringify(item.response_payload, null, 2)}
                               </pre>
                             </details>
@@ -2189,8 +2969,292 @@ export function ResumeScreeningPage() {
         </section>
       </div>
 
+      <Dialog open={showFilterDialog} onOpenChange={setShowFilterDialog}>
+        <DialogContent className="resume-screening-surface material-neu-panel flex h-[78vh] w-[calc(100vw-32px)] max-w-[900px] grid-rows-none flex-col overflow-hidden rounded-[var(--m3-shape-extra-large)] p-0">
+          <div className="flex items-start justify-between gap-4 border-b border-slate-200/80 px-6 py-5">
+            <div className="min-w-0">
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Candidate Pool MateChat</div>
+              <DialogTitle className="mt-1 text-xl text-slate-900">AI 迭代筛选</DialogTitle>
+              <DialogDescription className="mt-1 text-sm text-slate-500">
+                AI 会先分析筛选意图；条件不明确时会追问，明确后才生成新的评分版本。
+              </DialogDescription>
+            </div>
+            <div className="mr-8 min-w-[260px]">
+              <MaterialSelect
+                value={selectedFilterVersion}
+                onValueChange={setSelectedFilterVersion}
+                options={[
+                  { label: "初筛结果 / 当前最新", value: "" },
+                  ...filterSessions.map((session) => ({
+                    label: `${session.label} · ${session.recommend_count}/${session.total_count} 推荐`,
+                    value: session.version_id,
+                  })),
+                ]}
+                placeholder="选择筛选版本"
+                className="h-10"
+              />
+            </div>
+          </div>
+
+          <div className="material-scrollbar flex-1 overflow-y-auto bg-[linear-gradient(180deg,#fbfdff_0%,#f4f8fd_100%)] px-6 py-6">
+            {selectedFilterSession ? (
+              <div className="material-neu-inset mb-5 rounded-[var(--m3-shape-medium)] px-4 py-3 text-sm leading-6 text-indigo-900">
+                {selectedFilterSession.filter_summary || selectedFilterSession.instruction}
+              </div>
+            ) : null}
+
+            {filterConversation.length || filterRunning ? (
+              <div className="space-y-4">
+                {filterConversation.map((message, index) => {
+                  const isUser = message.role === "user";
+                  return (
+                    <div key={`${message.role}-${index}`} className={cn("flex", isUser ? "justify-end" : "justify-start")}>
+                      <div
+                        className={cn(
+                          "max-w-[82%] rounded-xl px-4 py-3 text-sm leading-7 whitespace-pre-wrap",
+                          isUser
+                            ? "material-neu-inset rounded-tr-md text-slate-800"
+                            : "material-neu-card rounded-tl-md text-slate-800",
+                        )}
+                      >
+                        {message.content}
+                      </div>
+                    </div>
+                  );
+                })}
+                {filterRunning ? (
+                  <div className="flex justify-start">
+                    <div className="material-neu-card inline-flex items-center gap-2 rounded-xl rounded-tl-md px-4 py-3 text-sm text-slate-600">
+                      <Loader2 className="h-4 w-4 animate-spin text-indigo-600" />
+                      AI 正在分析本轮筛选意图
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="flex h-full items-center justify-center px-8 text-center text-sm leading-7 text-slate-400">
+                输入新的筛选偏好，AI 会先判断是否足够明确；不明确会继续追问，明确后才会生成新的候选人列表版本。
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-slate-200/80 bg-white/72 px-6 py-4">
+            <div className="material-neu-inset rounded-xl p-3">
+              <textarea
+                rows={3}
+                value={filterInstruction}
+                onChange={(event) => setFilterInstruction(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+                    event.preventDefault();
+                    void handleIterateCandidateFilter();
+                  }
+                }}
+                disabled={filterRunning}
+                className="material-scrollbar min-h-[72px] w-full resize-none bg-transparent text-sm leading-7 text-slate-700 outline-none placeholder:text-slate-400 disabled:opacity-50"
+                placeholder="例如：优先保留机械制图经验明确、会 SolidWorks、南京周边、薪资不超过 10k 的候选人；对道路工程背景降权。"
+              />
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <div className="text-xs text-slate-400">Ctrl/Command + Enter 发送，AI 会先分析，明确后生成版本。</div>
+                <button
+                  type="button"
+                  onClick={() => void handleIterateCandidateFilter()}
+                  disabled={!filterInstruction.trim() || filterRunning}
+                  className="material-neu-primary inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-[var(--m3-shape-small)] px-5 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {filterRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  {filterRunning ? "分析中" : "发送给 AI"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(candidateAiDialogId)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setCandidateAiDialogId(null);
+            setCandidateAiQuestion("");
+          }
+        }}
+      >
+        <DialogContent className="resume-screening-surface material-neu-panel flex h-[82vh] w-[calc(100vw-32px)] max-w-[980px] grid-rows-none flex-col overflow-hidden rounded-[var(--m3-shape-extra-large)] p-0">
+          <div className="flex items-center justify-between border-b border-slate-200/80 px-6 py-5">
+            <div className="min-w-0">
+              <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Candidate MateChat</div>
+              <DialogTitle className="mt-1 truncate text-xl text-slate-900">
+                {candidateAiTarget ? `${candidateAiTarget.name || "未命名候选人"} · AI 讨论` : "候选人 AI 讨论"}
+              </DialogTitle>
+              <DialogDescription className="mt-1 truncate text-sm text-slate-500">
+                {candidateAiTarget
+                  ? `${candidateAiTarget.job_rule_name || candidateAiTarget.target_job || "未匹配岗位"} / ${candidateAiTarget.city || "城市未知"}`
+                  : "基于候选人简历、JD 和筛选结果回答"}
+              </DialogDescription>
+            </div>
+            <div className="material-neu-chip mr-8 flex shrink-0 items-center gap-2 rounded-[4px] px-3 py-1.5 text-xs font-medium text-slate-500">
+              <Bot className="h-3.5 w-3.5" />
+               独立候选人上下文
+            </div>
+          </div>
+
+          <div className="material-scrollbar flex-1 overflow-y-auto bg-[linear-gradient(180deg,#fbfdff_0%,#f4f8fd_100%)] px-6 py-6">
+            {candidateAiMessages.length || candidateAiLoading ? (
+              <div className="space-y-5">
+                {candidateAiMessages.map((message, index) => {
+                  const isUser = message.role === "user";
+                  return (
+                    <div key={`${message.role}-${index}`} className={cn("flex", isUser ? "justify-end" : "justify-start")}>
+                      <div className={cn("flex max-w-[84%] gap-3", isUser ? "flex-row-reverse" : "flex-row")}>
+                        <div
+                          className={cn(
+                            "mt-1 flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-[4px] shadow-sm",
+                            isUser
+                              ? "bg-[linear-gradient(135deg,#f59e90_0%,#f6c56b_58%,#a3c94c_100%)] text-sm font-semibold text-white"
+                              : "bg-white",
+                          )}
+                        >
+                          {isUser ? candidateAiTarget?.name?.slice(0, 1) || "U" : <img src={MATECHAT_AVATAR} alt="MateChat" className="h-8 w-8 object-contain" />}
+                        </div>
+                        <div className={isUser ? "text-right" : ""}>
+                          <div
+                            className={cn(
+                              "rounded-xl px-4 py-3 text-sm leading-7 whitespace-pre-wrap",
+                              isUser
+                                ? "material-neu-inset rounded-tr-md text-slate-800"
+                                : "material-neu-card rounded-tl-md text-slate-800",
+                            )}
+                          >
+                            {normalizeAiChatText(message.content)}
+                            {!isUser && candidateAiLoading && index === candidateAiMessages.length - 1 && !message.content ? (
+                              <span className="ml-1 inline-block h-4 w-0.5 animate-pulse bg-slate-500 align-middle" />
+                            ) : null}
+                          </div>
+                          {!isUser && message.ai_update ? (
+                            <div className="mt-2 rounded-lg border border-indigo-100 bg-white px-3 py-3 text-left shadow-sm">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div>
+                                  <div className="text-xs font-semibold text-slate-700">可应用到详情的 AI 建议</div>
+                                  <div className="mt-1 text-xs text-slate-400">
+                                    {message.ai_update.update_reason || "AI 认为该回复包含可同步到候选人详情的结构化修正。"}
+                                  </div>
+                                </div>
+                                {hasCandidateAiUpdateSuggestion(message.ai_update) && candidateAiTarget ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleApplyCandidateAiUpdate(candidateAiTarget.id, index, message.ai_update as CandidateAiUpdateSuggestion)}
+                                    disabled={candidateAiApplyingKey === `${candidateAiTarget.id}:${index}`}
+                                    className="inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-[4px] bg-indigo-600 px-3 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    {candidateAiApplyingKey === `${candidateAiTarget.id}:${index}` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                                    应用到详情
+                                  </button>
+                                ) : (
+                                  <span className="rounded-[4px] bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-inset ring-emerald-200">
+                                    已应用
+                                  </span>
+                                )}
+                              </div>
+
+                              {hasCandidateAiUpdateSuggestion(message.ai_update) ? (
+                                <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
+                                  {getPatchKeys(message.ai_update.profile_patch).length ? (
+                                    <div className="rounded-lg bg-slate-50 px-3 py-2">
+                                      <div className="font-semibold text-slate-700">候选人画像</div>
+                                      <div className="mt-1 space-y-1">
+                                        {getPatchKeys(message.ai_update.profile_patch).slice(0, 6).map((key) => (
+                                          <div key={key} className="truncate">
+                                            {candidateProfilePatchLabels[key] ?? key}：{formatPatchValue((message.ai_update?.profile_patch as Record<string, unknown> | undefined)?.[key])}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                  {getPatchKeys(message.ai_update.screening_patch).length ? (
+                                    <div className="rounded-lg bg-slate-50 px-3 py-2">
+                                      <div className="font-semibold text-slate-700">筛选结果</div>
+                                      <div className="mt-1 space-y-1">
+                                        {getPatchKeys(message.ai_update.screening_patch).slice(0, 6).map((key) => (
+                                          <div key={key} className="truncate">
+                                            {candidateScreeningPatchLabels[key] ?? key}：{formatPatchValue((message.ai_update?.screening_patch as Record<string, unknown> | undefined)?.[key])}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ) : null}
+                            </div>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {candidateAiLoading ? (
+                  <div className="flex justify-start">
+                    <div className="flex max-w-[84%] gap-3">
+                      <div className="mt-1 flex h-10 w-10 shrink-0 items-center justify-center rounded-[4px] bg-white shadow-sm">
+                        <img src={MATECHAT_AVATAR} alt="MateChat" className="h-8 w-8 object-contain" />
+                      </div>
+                      <div className="rounded-xl rounded-tl-md bg-[#f5f5fb] px-4 py-4 shadow-sm">
+                        <span className="flex items-center gap-1.5">
+                          {[0, 1, 2].map((item) => (
+                            <span
+                              key={item}
+                              className="h-2 w-2 animate-bounce rounded-[4px] bg-slate-400"
+                              style={{ animationDelay: `${item * 160}ms`, animationDuration: "0.72s" }}
+                            />
+                          ))}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="flex h-full items-center justify-center px-8 text-center text-sm leading-7 text-slate-400">
+                开启一段独立于 MateChat 的候选人对话。可以追问“为什么评分偏低？如果忽略地域限制，是否建议进入面试？请给出电话初筛重点”。
+              </div>
+            )}
+          </div>
+
+          <div className="border-t border-slate-200/80 bg-white/72 px-6 py-4">
+            <div className="material-neu-inset rounded-xl p-3">
+              <textarea
+                rows={3}
+                value={candidateAiQuestion}
+                onChange={(event) => setCandidateAiQuestion(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !event.shiftKey) {
+                    event.preventDefault();
+                    void handleAskCandidateAi();
+                  }
+                }}
+                disabled={!candidateAiTarget || candidateAiLoading}
+                className="material-scrollbar min-h-[72px] w-full resize-none bg-transparent text-sm leading-7 text-slate-700 outline-none placeholder:text-slate-400 disabled:opacity-50"
+                placeholder={candidateAiTarget ? "输入问题，Enter 发送，Shift+Enter 换行" : "请先选择候选人"}
+              />
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <div className="text-xs text-slate-400">回复会基于当前候选人的简历、JD、标签和筛选记录。</div>
+                <button
+                  type="button"
+                  onClick={() => void handleAskCandidateAi()}
+                  disabled={!candidateAiQuestion.trim() || candidateAiLoading || !candidateAiTarget}
+                  className="material-neu-primary inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {candidateAiLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  {candidateAiLoading ? "分析中" : "发送"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={Boolean(deleteConfirm)} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
-        <DialogContent className="max-w-[460px] rounded-[28px] border-slate-200 bg-white p-6">
+        <DialogContent className="resume-screening-surface material-neu-panel w-[calc(100vw-32px)] max-w-[460px] rounded-[var(--m3-shape-extra-large)] p-6">
           <DialogHeader>
               <DialogTitle>{deleteConfirm?.title || "确认删除？"}</DialogTitle>
               <DialogDescription>{deleteConfirm?.description || "该操作不可撤销。"}</DialogDescription>
@@ -2199,7 +3263,7 @@ export function ResumeScreeningPage() {
             <button
               type="button"
               onClick={() => setDeleteConfirm(null)}
-              className="inline-flex h-11 cursor-pointer items-center justify-center rounded-full border border-slate-200 px-4 text-sm font-medium text-slate-500 transition hover:border-slate-300 hover:bg-slate-50"
+              className="material-neu-button inline-flex h-11 cursor-pointer items-center justify-center rounded-[4px] px-4 text-sm font-medium text-slate-500 transition"
             >
               取消
             </button>
@@ -2207,7 +3271,7 @@ export function ResumeScreeningPage() {
               type="button"
               onClick={() => void confirmDelete()}
               disabled={Boolean(deletingJobRuleId) || clearingCandidates}
-              className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-full bg-rose-600 px-6 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:opacity-60"
+              className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-[4px] bg-rose-600 px-6 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:opacity-60"
             >
               {deletingJobRuleId || clearingCandidates ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
               {deleteConfirm?.confirmLabel || "确认删除"}

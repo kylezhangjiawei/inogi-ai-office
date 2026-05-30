@@ -1,0 +1,20 @@
+[api] [31m[Nest] 46768  - [39m2026/05/15 17:56:20 [31m  ERROR[39m [38;5;3m[NestApplication] [39m[31mError: listen EADDRINUSE: address already in use :::3000[39m[38;5;3m +1ms[39m
+[api] node:net:1940
+[api]     const ex = new UVExceptionWithHostPort(err, 'listen', address, port);
+[api]                ^
+[api] Error: listen EADDRINUSE: address already in use :::3000
+[api]     at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+[api]     at listenInCluster (node:net:1997:12)
+[api]     at Server.listen (node:net:2102:7)
+[api]     at ExpressAdapter.listen (E:\workCoding\INOGI AI Office System\apps\api\node_modules\@nestjs\platform-express\adapters\express-adapter.js:115:32)
+[api]     at E:\workCoding\INOGI AI Office System\apps\api\node_modules\@nestjs\core\nest-application.js:188:30
+[api]     at new Promise (<anonymous>)
+[api]     at NestApplication.listen (E:\workCoding\INOGI AI Office System\apps\api\node_modules\@nestjs\core\nest-application.js:178:16)
+[api]     at async bootstrap (E:\workCoding\INOGI AI Office System\apps\api\src\main.ts:35:3) {
+[api]   code: 'EADDRINUSE',
+[api]   errno: -4091,
+[api]   syscall: 'listen',
+[api]   address: '::',
+[api]   port: 3000
+[api] }
+[api] Node.js v22.22.1

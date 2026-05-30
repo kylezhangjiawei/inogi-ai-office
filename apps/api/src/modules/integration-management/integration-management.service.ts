@@ -13,6 +13,11 @@ type MailboxMetadata = {
   operator_name: string;
 };
 
+/** 模型用途类型：text=纯文本, multimodal=图文理解, image=图片生成, auto=根据模型名称自动推断 */
+type AiModelUsageKind = 'text' | 'multimodal' | 'image' | 'auto';
+
+const VALID_USAGE_KINDS: readonly string[] = ['text', 'multimodal', 'image', 'auto'];
+
 type AiModelMetadata = {
   operator_name: string;
   base_url: string;
@@ -22,11 +27,19 @@ type AiModelMetadata = {
   last_latency_ms: number | null;
   today_requests: number;
   today_tokens: number;
-  today_estimated_cost: number;
-  current_balance_or_quota: string;
+  total_tokens: number;
+  daily_token_usage: AiModelDailyTokenUsage[];
   is_default_enabled: boolean;
   today_usage_date: string;
   last_error_message: string | null;
+  /** 显式用途类型；不设置时前端按模型名称自动推断 */
+  usage_kind: AiModelUsageKind;
+};
+
+type AiModelDailyTokenUsage = {
+  date: string;
+  requests: number;
+  tokens: number;
 };
 
 const DEFAULT_PAGE = 1;
@@ -201,13 +214,18 @@ export class IntegrationManagementService {
     const name = payload.name?.trim();
     const provider = payload.provider?.trim();
     const model = payload.model?.trim();
-    const currentStatus = payload.current_status?.trim();
 
-    if (!name || !provider || !model || !currentStatus) {
-      throw new BadRequestException('模型名称、服务商、模型标识和当前状态不能为空');
+    if (!name || !provider || !model) {
+      throw new BadRequestException('模型名称、服务商、模型标识不能为空');
     }
 
     const operatorName = await this.resolveOperatorName(userId);
+
+    // 若本次保存把这条设为默认，先把其它模型的 is_default_enabled 清零
+    // 保证全表至多一条默认模型，避免前端"默认模型不确定"的问题
+    if (payload.is_default_enabled) {
+      await this.clearOtherDefaultModels(payload.id);
+    }
 
     if (payload.id) {
       const existing = await this.prisma.integrationConfig.findFirst({
@@ -287,13 +305,31 @@ export class IntegrationManagementService {
       throw new BadRequestException('请先填写 API Key，或在已保存模型上进行连通性测试');
     }
 
+    const provider = payload.provider?.trim() || existing?.provider || 'openai';
+    const useImageModelTest = this.shouldUseImageModelConnectionTest(provider, model);
+    const useEmbeddingModelTest = this.shouldUseEmbeddingConnectionTest(model);
+
     try {
-      const result = await this.openAiScreeningService.testConnection(
-        apiKey,
-        model,
-        baseUrl || undefined,
-        payload.provider?.trim() || existing?.provider || 'openai',
-      );
+      const result = useImageModelTest
+        ? await this.openAiScreeningService.testImageConnection(
+            apiKey,
+            model,
+            baseUrl || undefined,
+            provider,
+          )
+        : useEmbeddingModelTest
+          ? await this.openAiScreeningService.testEmbeddingConnection(
+              apiKey,
+              model,
+              baseUrl || undefined,
+              provider,
+            )
+          : await this.openAiScreeningService.testConnection(
+              apiKey,
+              model,
+              baseUrl || undefined,
+              provider,
+            );
 
       if (existing) {
         const runtimeMetadata = this.mergeAiRuntimeMetadata(existingMetadata, {
@@ -358,6 +394,19 @@ export class IntegrationManagementService {
     return { id: modelId };
   }
 
+  private shouldUseImageModelConnectionTest(provider: string, model: string) {
+    const normalizedProvider = provider.trim().toLowerCase();
+    const normalizedModel = model.trim().toLowerCase();
+    const isOpenAiProvider = !normalizedProvider || normalizedProvider.includes('openai');
+    return isOpenAiProvider && (normalizedModel.startsWith('gpt-image-') || normalizedModel.startsWith('dall-e-'));
+  }
+
+  /** 模型名含 embedding/embed 的走 embeddings.create 测试，避免 chat 接口 400 */
+  private shouldUseEmbeddingConnectionTest(model: string) {
+    const normalizedModel = model.trim().toLowerCase();
+    return /(^|[\-_/])embed(ding)?(s)?($|[\-_/])/.test(normalizedModel) || normalizedModel.includes('embedding');
+  }
+
   private async resolveOperatorName(userId?: string) {
     if (!userId) return '系统';
 
@@ -391,15 +440,24 @@ export class IntegrationManagementService {
         last_latency_ms: null,
         today_requests: 0,
         today_tokens: 0,
-        today_estimated_cost: 0,
-        current_balance_or_quota: '',
+        total_tokens: 0,
+        daily_token_usage: [],
         is_default_enabled: false,
         today_usage_date: '',
         last_error_message: null,
+        usage_kind: 'auto' as AiModelUsageKind,
       };
     }
 
     const parsed = value as Record<string, unknown>;
+    const dailyTokenUsage = this.parseDailyTokenUsage(parsed.daily_token_usage);
+    const todayTokens = typeof parsed.today_tokens === 'number' ? parsed.today_tokens : 0;
+    const totalTokens =
+      typeof parsed.total_tokens === 'number'
+        ? parsed.total_tokens
+        : Math.max(todayTokens, dailyTokenUsage.reduce((sum, item) => sum + item.tokens, 0));
+
+    const rawUsageKind = typeof parsed.usage_kind === 'string' ? parsed.usage_kind : 'auto';
     return {
       operator_name: typeof parsed.operator_name === 'string' ? parsed.operator_name : '系统',
       base_url: typeof parsed.base_url === 'string' ? parsed.base_url : '',
@@ -408,14 +466,46 @@ export class IntegrationManagementService {
       last_failure_at: typeof parsed.last_failure_at === 'string' ? parsed.last_failure_at : null,
       last_latency_ms: typeof parsed.last_latency_ms === 'number' ? parsed.last_latency_ms : null,
       today_requests: typeof parsed.today_requests === 'number' ? parsed.today_requests : 0,
-      today_tokens: typeof parsed.today_tokens === 'number' ? parsed.today_tokens : 0,
-      today_estimated_cost: typeof parsed.today_estimated_cost === 'number' ? parsed.today_estimated_cost : 0,
-      current_balance_or_quota:
-        typeof parsed.current_balance_or_quota === 'string' ? parsed.current_balance_or_quota : '',
+      today_tokens: todayTokens,
+      total_tokens: totalTokens,
+      daily_token_usage: dailyTokenUsage,
       is_default_enabled: typeof parsed.is_default_enabled === 'boolean' ? parsed.is_default_enabled : false,
       today_usage_date: typeof parsed.today_usage_date === 'string' ? parsed.today_usage_date : '',
       last_error_message: typeof parsed.last_error_message === 'string' ? parsed.last_error_message : null,
+      usage_kind: (VALID_USAGE_KINDS.includes(rawUsageKind) ? rawUsageKind : 'auto') as AiModelUsageKind,
     };
+  }
+
+  /**
+   * 把除 excludeId 之外的所有 openai 类型模型的 is_default_enabled 清零，
+   * 保证全表至多一条"默认模型"。
+   */
+  private async clearOtherDefaultModels(excludeId?: string): Promise<void> {
+    const candidates = await this.prisma.integrationConfig.findMany({
+      where: {
+        kind: 'openai',
+        ...(excludeId ? { NOT: { id: excludeId } } : {}),
+      },
+    });
+    await Promise.all(
+      candidates
+        .filter((cfg) => {
+          const meta = this.parseAiModelMetadata(cfg.metadata);
+          return meta.is_default_enabled;
+        })
+        .map((cfg) => {
+          const meta = this.parseAiModelMetadata(cfg.metadata);
+          return this.prisma.integrationConfig.update({
+            where: { id: cfg.id },
+            data: {
+              metadata: {
+                ...meta,
+                is_default_enabled: false,
+              } as Prisma.InputJsonValue,
+            },
+          });
+        }),
+    );
   }
 
   private toAiModelMetadata(
@@ -423,41 +513,29 @@ export class IntegrationManagementService {
     operatorName: string,
     base?: AiModelMetadata,
   ): AiModelMetadata {
+    // 运行时字段（current_status / last_success_at / last_failure_at / last_latency_ms /
+    // today_requests / today_tokens / total_tokens / daily_token_usage / today_usage_date /
+    // last_error_message）只能由"测试连通性"和"实际使用"路径写入，不允许通过保存表单覆盖。
+    // 否则会出现：测试成功 → 用户保存 → 把刚刚刷新的"运行正常"又覆盖回旧的"连接异常"。
     return {
       operator_name: operatorName,
       base_url: typeof payload.base_url === 'string' ? payload.base_url.trim() : base?.base_url ?? '',
-      current_status: payload.current_status?.trim() || base?.current_status || '未配置',
-      last_success_at:
-        typeof payload.last_success_at === 'string'
-          ? payload.last_success_at.trim() || null
-          : base?.last_success_at ?? null,
-      last_failure_at:
-        typeof payload.last_failure_at === 'string'
-          ? payload.last_failure_at.trim() || null
-          : base?.last_failure_at ?? null,
-      last_latency_ms:
-        typeof payload.last_latency_ms === 'number'
-          ? payload.last_latency_ms
-          : base?.last_latency_ms ?? null,
-      today_requests:
-        typeof payload.today_requests === 'number'
-          ? payload.today_requests
-          : base?.today_requests ?? 0,
-      today_tokens:
-        typeof payload.today_tokens === 'number'
-          ? payload.today_tokens
-          : base?.today_tokens ?? 0,
-      today_estimated_cost:
-        typeof payload.today_estimated_cost === 'number'
-          ? payload.today_estimated_cost
-          : base?.today_estimated_cost ?? 0,
-      current_balance_or_quota:
-        typeof payload.current_balance_or_quota === 'string'
-          ? payload.current_balance_or_quota.trim()
-          : base?.current_balance_or_quota ?? '',
+      current_status: base?.current_status ?? '未配置',
+      last_success_at: base?.last_success_at ?? null,
+      last_failure_at: base?.last_failure_at ?? null,
+      last_latency_ms: base?.last_latency_ms ?? null,
+      today_requests: base?.today_requests ?? 0,
+      today_tokens: base?.today_tokens ?? 0,
+      total_tokens: base?.total_tokens ?? 0,
+      daily_token_usage: base?.daily_token_usage ?? [],
       is_default_enabled: Boolean(payload.is_default_enabled),
       today_usage_date: base?.today_usage_date ?? '',
       last_error_message: base?.last_error_message ?? null,
+      usage_kind: (
+        VALID_USAGE_KINDS.includes(payload.usage_kind ?? '')
+          ? payload.usage_kind
+          : (base?.usage_kind ?? 'auto')
+      ) as AiModelUsageKind,
     };
   }
 
@@ -478,6 +556,9 @@ export class IntegrationManagementService {
     const resetUsage = base.today_usage_date !== today;
     const todayRequests = resetUsage ? 0 : base.today_requests;
     const todayTokens = resetUsage ? 0 : base.today_tokens;
+    const addedTokens = Math.max(0, patch.total_tokens ?? 0);
+    const nextTodayRequests = todayRequests + 1;
+    const nextTodayTokens = todayTokens + addedTokens;
 
     return {
       ...base,
@@ -489,8 +570,14 @@ export class IntegrationManagementService {
         typeof patch.last_latency_ms === 'number' || patch.last_latency_ms === null
           ? patch.last_latency_ms
           : base.last_latency_ms,
-      today_requests: todayRequests + 1,
-      today_tokens: todayTokens + Math.max(0, patch.total_tokens ?? 0),
+      today_requests: nextTodayRequests,
+      today_tokens: nextTodayTokens,
+      total_tokens: base.total_tokens + addedTokens,
+      daily_token_usage: this.upsertDailyTokenUsage(base.daily_token_usage, {
+        date: today,
+        requests: nextTodayRequests,
+        tokens: nextTodayTokens,
+      }),
       today_usage_date: today,
       last_error_message: patch.clear_error ? null : patch.last_error_message ?? base.last_error_message,
     };
@@ -523,10 +610,11 @@ export class IntegrationManagementService {
       last_latency_ms: metadata.last_latency_ms,
       today_requests: metadata.today_requests,
       today_tokens: metadata.today_tokens,
-      today_estimated_cost: metadata.today_estimated_cost,
-      current_balance_or_quota: metadata.current_balance_or_quota,
+      total_tokens: metadata.total_tokens,
+      daily_token_usage: metadata.daily_token_usage,
       enabled: config.isActive,
       is_default_enabled: metadata.is_default_enabled,
+      usage_kind: metadata.usage_kind,
       created_at: config.createdAt.toISOString(),
       updated_at: config.updatedAt.toISOString(),
       operator_name: metadata.operator_name,
@@ -572,6 +660,41 @@ export class IntegrationManagementService {
       day: '2-digit',
     });
     return formatter.format(new Date());
+  }
+
+  private parseDailyTokenUsage(value: unknown): AiModelDailyTokenUsage[] {
+    if (!Array.isArray(value)) {
+      return [];
+    }
+
+    return value
+      .map((item) => {
+        if (!item || typeof item !== 'object' || Array.isArray(item)) {
+          return null;
+        }
+
+        const record = item as Record<string, unknown>;
+        const date = typeof record.date === 'string' ? record.date.trim() : '';
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+          return null;
+        }
+
+        return {
+          date,
+          requests: typeof record.requests === 'number' ? Math.max(0, Math.floor(record.requests)) : 0,
+          tokens: typeof record.tokens === 'number' ? Math.max(0, Math.floor(record.tokens)) : 0,
+        };
+      })
+      .filter((item): item is AiModelDailyTokenUsage => Boolean(item))
+      .sort((left, right) => left.date.localeCompare(right.date));
+  }
+
+  private upsertDailyTokenUsage(
+    current: AiModelDailyTokenUsage[],
+    next: AiModelDailyTokenUsage,
+  ): AiModelDailyTokenUsage[] {
+    const withoutToday = current.filter((item) => item.date !== next.date);
+    return [...withoutToday, next].sort((left, right) => left.date.localeCompare(right.date)).slice(-366);
   }
 
   private getSourceErrorMessage(error: unknown) {

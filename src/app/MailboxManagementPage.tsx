@@ -258,18 +258,18 @@ export function MailboxManagementPage() {
           </TableBody>
         </Table>
 
-        <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4">
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
           <div className="text-sm text-slate-500">
             共 {total} 条，当前第 {page} / {totalPages} 页
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button className="material-button-secondary !px-3 !py-2" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1 || loading}>
               上一页
             </button>
             <button className="material-button-secondary !px-3 !py-2" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page === totalPages || loading}>
               下一页
             </button>
-            <span className="flex items-center gap-1.5 text-sm text-slate-500">
+            <span className="flex flex-wrap items-center gap-1.5 text-sm text-slate-500">
               跳转
               <input
                 className="material-input w-14 text-center"

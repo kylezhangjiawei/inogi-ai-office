@@ -124,15 +124,15 @@ export function QuickCapturePage() {
   const today = new Date().toISOString().split("T")[0];
 
   return (
-    <div className="flex flex-col gap-4 p-4 bg-gray-50 min-h-full">
+    <div className="flex min-h-full min-w-0 flex-col gap-4 bg-gray-50 p-3 sm:p-4">
       {/* Input Section */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
+      <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5">
         <div className="flex items-center gap-2 mb-3">
           <Sparkles className="w-4 h-4 text-orange-500" />
           <h2 className="font-semibold text-gray-800 text-sm">随手记 · AI 解析分流</h2>
         </div>
-        <div className="flex gap-3">
-          <div className="flex-1 relative">
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <div className="relative flex-1">
             <textarea
               className="w-full h-28 border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-700 resize-none focus:outline-none focus:ring-1 focus:ring-orange-400 placeholder:text-gray-300 leading-relaxed"
               placeholder="输入文字或点击麦克风语音输入…"
@@ -140,7 +140,7 @@ export function QuickCapturePage() {
               onChange={(e) => setInputText(e.target.value)}
             />
           </div>
-          <div className="flex flex-col gap-2">
+          <div className="flex gap-2 sm:flex-col">
             <button
               onClick={handleMic}
               className={cn(
@@ -153,7 +153,7 @@ export function QuickCapturePage() {
             <button
               onClick={handleParse}
               disabled={isParsing}
-              className="flex-1 flex flex-col items-center justify-center gap-1 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-300 text-white rounded-xl px-3 transition-colors min-h-[56px]"
+              className="flex min-h-[56px] flex-1 flex-col items-center justify-center gap-1 rounded-xl bg-orange-500 px-3 text-white transition-colors hover:bg-orange-600 disabled:bg-orange-300"
             >
               {isParsing ? (
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -170,19 +170,19 @@ export function QuickCapturePage() {
 
       {/* Classified Items */}
       {groupedItems && (
-        <div className="grid grid-cols-5 gap-3">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 min-[1800px]:grid-cols-5">
           {(Object.keys(categoryConfig) as ItemCategory[]).map((cat) => {
             const cfg = categoryConfig[cat];
             const items = groupedItems[cat];
             return (
-              <div key={cat} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                <div className={cn("px-3 py-2 flex items-center justify-between", cfg.headerBg)}>
+              <div key={cat} className="overflow-hidden rounded-xl border border-gray-100 bg-white shadow-sm">
+                <div className={cn("flex items-center justify-between px-3 py-2", cfg.headerBg)}>
                   <span className={cn("text-xs font-semibold", cfg.color)}>{cat}</span>
                   <span className={cn("text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center", cfg.bg, cfg.color)}>
                     {items.length}
                   </span>
                 </div>
-                <div className="p-2 space-y-1.5 min-h-[80px]">
+                <div className="min-h-[80px] space-y-1.5 p-2">
                   {items.map((item) => (
                     <div key={item.id} className={cn("rounded-lg p-2.5 text-xs text-gray-700 leading-relaxed", cfg.bg)}>
                       {item.text}
@@ -200,20 +200,20 @@ export function QuickCapturePage() {
 
       {/* Task Assignment Panel */}
       {groupedItems && groupedItems["需分配任务"].length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-          <div className="flex items-center gap-2 mb-4">
+        <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5">
+          <div className="mb-4 flex items-center gap-2">
             <User className="w-4 h-4 text-orange-500" />
             <h3 className="font-semibold text-gray-800 text-sm">任务分配</h3>
           </div>
           <div className="space-y-3">
             {groupedItems["需分配任务"].map((item) => (
-              <div key={item.id} className="border border-orange-100 bg-orange-50/40 rounded-xl p-4">
-                <p className="text-sm text-gray-700 mb-3">{item.text}</p>
-                <div className="flex items-end gap-3 flex-wrap">
-                  <div>
-                    <label className="text-xs text-gray-400 block mb-1">负责人</label>
+              <div key={item.id} className="rounded-xl border border-orange-100 bg-orange-50/40 p-4">
+                <p className="mb-3 text-sm text-gray-700">{item.text}</p>
+                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                  <div className="min-w-0 sm:min-w-[140px]">
+                    <label className="mb-1 block text-xs text-gray-400">负责人</label>
                     <select
-                      className="text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-orange-400 bg-white"
+                      className="w-full rounded-lg border border-gray-200 bg-white px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-orange-400"
                       value={taskForm[item.id]?.assignee ?? ""}
                       onChange={(e) => setTaskForm((p) => ({ ...p, [item.id]: { ...p[item.id], assignee: e.target.value } }))}
                     >
@@ -221,16 +221,16 @@ export function QuickCapturePage() {
                       {teamMembers.map((m) => <option key={m} value={m}>{m}</option>)}
                     </select>
                   </div>
-                  <div>
-                    <label className="text-xs text-gray-400 block mb-1">截止日期</label>
+                  <div className="min-w-0 sm:min-w-[150px]">
+                    <label className="mb-1 block text-xs text-gray-400">截止日期</label>
                     <input type="date" min={today}
-                      className="text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-orange-400"
+                      className="w-full rounded-lg border border-gray-200 px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-orange-400"
                       value={taskForm[item.id]?.deadline ?? ""}
                       onChange={(e) => setTaskForm((p) => ({ ...p, [item.id]: { ...p[item.id], deadline: e.target.value } }))}
                     />
                   </div>
                   <div>
-                    <label className="text-xs text-gray-400 block mb-1">优先级</label>
+                    <label className="mb-1 block text-xs text-gray-400">优先级</label>
                     <div className="flex gap-1">
                       {(["高", "普通"] as Priority[]).map((pr) => (
                         <button key={pr} onClick={() => setTaskForm((p) => ({ ...p, [item.id]: { ...p[item.id], priority: pr } }))}
@@ -245,7 +245,7 @@ export function QuickCapturePage() {
                     </div>
                   </div>
                   <button onClick={() => handleAssign(item)}
-                    className="flex items-center gap-1.5 text-sm bg-orange-500 hover:bg-orange-600 text-white px-3.5 py-1.5 rounded-lg font-medium transition-colors">
+                    className="flex items-center justify-center gap-1.5 rounded-lg bg-orange-500 px-3.5 py-1.5 text-sm font-medium text-white transition-colors hover:bg-orange-600">
                     <Bell className="w-3.5 h-3.5" /> 推送通知
                   </button>
                 </div>
@@ -256,8 +256,8 @@ export function QuickCapturePage() {
       )}
 
       {/* Active Task Board */}
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-5">
-        <div className="flex items-center justify-between mb-4">
+      <div className="rounded-xl border border-gray-100 bg-white p-4 shadow-sm sm:p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-orange-500" />
             <h3 className="font-semibold text-gray-800 text-sm">任务追踪台账</h3>
@@ -268,12 +268,12 @@ export function QuickCapturePage() {
           {tasks.map((task) => {
             const overdue = task.status !== "已完成" && task.deadline < today;
             return (
-              <div key={task.id} className={cn("flex items-center gap-4 p-3 rounded-xl border",
+              <div key={task.id} className={cn("flex flex-col gap-3 rounded-xl border p-3 sm:flex-row sm:items-center sm:gap-4",
                 overdue ? "border-red-100 bg-red-50/30" : "border-gray-100 hover:bg-gray-50"
               )}>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm text-gray-800 truncate">{task.content}</div>
-                  <div className="flex items-center gap-3 mt-1 text-xs text-gray-400">
+                  <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-400">
                     <span className="flex items-center gap-1"><User className="w-3 h-3" />{task.assignee}</span>
                     <span className={cn("flex items-center gap-1", overdue && "text-red-500 font-medium")}>
                       <Calendar className="w-3 h-3" />{task.deadline}
@@ -281,7 +281,7 @@ export function QuickCapturePage() {
                     </span>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="flex flex-shrink-0 items-center gap-2">
                   <span className={cn("text-xs px-1.5 py-0.5 rounded-full font-medium",
                     task.priority === "高" ? "bg-red-50 text-red-600" : "bg-gray-100 text-gray-500"
                   )}>

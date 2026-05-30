@@ -125,9 +125,9 @@ function ClauseAccordion({ clauses }: { clauses: Clause[] }) {
           <button
             type="button"
             onClick={() => setOpenId(openId === c.id ? null : c.id)}
-            className="flex w-full items-center justify-between px-4 py-2.5 text-left"
+            className="flex w-full flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-left"
           >
-            <span className="text-sm font-medium text-slate-700">{c.title}</span>
+            <span className="min-w-0 text-sm font-medium text-slate-700">{c.title}</span>
             <div className="flex items-center gap-2">
               <span className="text-xs text-slate-400">{c.extracted}</span>
               {openId === c.id ? (
@@ -185,22 +185,22 @@ export function ContractReviewPage() {
   }).slice(0, 3);
 
   return (
-    <div className="mx-auto max-w-[1600px] space-y-6 p-6">
+    <div className="mx-auto max-w-[1600px] space-y-5 px-3 py-4 sm:p-5 lg:space-y-6 lg:p-6">
       {/* Header */}
-      <div className="flex items-center gap-3">
+      <div className="flex min-w-0 items-start gap-3">
         <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-600 text-white">
           <Scale className="h-5 w-5" />
         </div>
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">合同 AI 审查</h1>
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">合同 AI 审查</h1>
           <p className="text-sm text-slate-500">风险扫描 · 条款提取 · 修改建议</p>
         </div>
       </div>
 
       {/* Three-column layout */}
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-[30%_35%_35%]">
+      <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[30%_35%_35%]">
         {/* Left: Upload + Clause Extraction */}
-        <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+        <div className="min-w-0 rounded-xl border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
           <h2 className="mb-4 font-semibold text-slate-800">合同上传 · 类型识别</h2>
 
           {/* Upload Area */}
@@ -230,13 +230,13 @@ export function ContractReviewPage() {
             </div>
           ) : (
             <div className="mb-5 rounded-xl border border-violet-100 bg-violet-50 p-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-center gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-violet-600 text-white">
                     <FileText className="h-5 w-5" />
                   </div>
-                  <div>
-                    <div className="text-sm font-semibold text-slate-800">{contractInfo.name}</div>
+                  <div className="min-w-0">
+                    <div className="break-words text-sm font-semibold text-slate-800">{contractInfo.name}</div>
                     <div className="mt-0.5 text-xs text-slate-500">{contractInfo.party}</div>
                   </div>
                 </div>
@@ -259,8 +259,8 @@ export function ContractReviewPage() {
             ) : (
               <div className="space-y-1.5">
                 {mockClauses.map((c) => (
-                  <div key={c.id} className="flex items-center justify-between rounded-lg border border-dashed border-slate-100 bg-slate-50 px-4 py-2.5">
-                    <span className="text-sm text-slate-400">{c.title}</span>
+                  <div key={c.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-dashed border-slate-100 bg-slate-50 px-4 py-2.5">
+                    <span className="min-w-0 text-sm text-slate-400">{c.title}</span>
                     <span className="text-xs text-slate-300">待提取</span>
                   </div>
                 ))}
@@ -270,7 +270,7 @@ export function ContractReviewPage() {
         </div>
 
         {/* Center: Risk Scan */}
-        <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+        <div className="min-w-0 rounded-xl border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
           <div className="mb-4">
             <div className="flex items-center gap-2">
               <ShieldAlert className="h-4 w-4 text-rose-500" />
@@ -326,7 +326,7 @@ export function ContractReviewPage() {
                   )}
                 >
                   <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1">
+                    <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className={cn("rounded-full border px-2 py-0.5 text-xs font-bold", riskBadge[risk.level])}>
                           {risk.level}风险
@@ -366,7 +366,7 @@ export function ContractReviewPage() {
         </div>
 
         {/* Right: Modification Suggestions */}
-        <div className="rounded-xl border border-slate-100 bg-white p-5 shadow-sm">
+        <div className="min-w-0 rounded-xl border border-slate-100 bg-white p-4 shadow-sm sm:p-5">
           <div className="mb-4">
             <h2 className="font-semibold text-slate-800">修改建议</h2>
 
@@ -396,8 +396,8 @@ export function ContractReviewPage() {
                 .filter((r) => r.level === "高" || r.level === "中")
                 .map((risk) => (
                   <div key={risk.id} className="rounded-xl border border-slate-100 bg-white p-4 shadow-sm">
-                    <div className="mb-3 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
                         <span className={cn("rounded-full border px-2 py-0.5 text-xs font-bold", riskBadge[risk.level])}>
                           {risk.level}
                         </span>
@@ -412,7 +412,7 @@ export function ContractReviewPage() {
                     </div>
 
                     {/* Side-by-side comparison */}
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
                       <div>
                         <div className="mb-1 text-xs font-semibold text-rose-500">原文</div>
                         <div className="rounded-lg border border-rose-100 bg-rose-50 p-2.5 text-xs leading-5 text-slate-700">
@@ -458,9 +458,9 @@ export function ContractReviewPage() {
         <button
           type="button"
           onClick={() => setSummaryOpen((v) => !v)}
-          className="flex w-full items-center justify-between px-6 py-4"
+          className="flex w-full flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6"
         >
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
             <FileText className="h-4 w-4 text-slate-500" />
             <span className="font-semibold text-slate-800">执行摘要</span>
             {uploaded && (
@@ -477,7 +477,7 @@ export function ContractReviewPage() {
         </button>
 
         {summaryOpen && (
-          <div className="border-t border-slate-100 px-6 pb-6 pt-5">
+          <div className="border-t border-slate-100 px-4 pb-5 pt-5 sm:px-6 sm:pb-6">
             {uploaded ? (
               <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
                 {/* Contract Info */}
@@ -491,9 +491,9 @@ export function ContractReviewPage() {
                       ["签署日期", contractInfo.date],
                       ["合同期限", contractInfo.duration],
                     ].map(([label, value]) => (
-                      <div key={label} className="flex items-start justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
+                      <div key={label} className="flex flex-wrap items-start justify-between gap-3 rounded-lg bg-slate-50 px-3 py-2">
                         <span className="text-xs text-slate-500">{label}</span>
-                        <span className="text-right text-xs font-medium text-slate-800">{value}</span>
+                        <span className="min-w-0 break-words text-right text-xs font-medium text-slate-800">{value}</span>
                       </div>
                     ))}
                   </div>

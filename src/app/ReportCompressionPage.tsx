@@ -106,8 +106,8 @@ export function ReportCompressionPage() {
   };
 
   return (
-    <div className="flex h-full min-h-0 gap-4 bg-slate-50 p-4">
-      <aside className="flex w-[360px] flex-shrink-0 flex-col gap-4">
+    <div className="flex min-h-full min-w-0 flex-col gap-4 bg-slate-50 p-3 lg:h-full lg:min-h-0 lg:flex-row lg:p-4">
+      <aside className="flex min-w-0 flex-col gap-4 lg:w-[320px] lg:flex-shrink-0 xl:w-[360px]">
         <section className="material-card p-5">
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-orange-500" />
@@ -164,7 +164,7 @@ export function ReportCompressionPage() {
             <button onClick={() => setPasteText(demoContent)} className="material-button-secondary">
               填入示例
             </button>
-            <button onClick={handleGenerate} disabled={isGenerating} className="material-button-primary ml-auto">
+            <button onClick={handleGenerate} disabled={isGenerating} className="material-button-primary sm:ml-auto">
               {isGenerating ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
               开始压缩
             </button>
@@ -202,8 +202,8 @@ export function ReportCompressionPage() {
         </section>
       </aside>
 
-      <main className="grid min-w-0 flex-1 grid-cols-12 gap-4">
-        <section className="col-span-12 xl:col-span-8">
+      <main className="grid min-w-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-12">
+        <section className="min-w-0 xl:col-span-8">
           <div className="material-card p-6">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
@@ -272,7 +272,7 @@ export function ReportCompressionPage() {
           </div>
         </section>
 
-        <section className="col-span-12 xl:col-span-4">
+        <section className="min-w-0 xl:col-span-4">
           <div className="material-card h-full p-6">
             <div className="flex items-center gap-2">
               <FileText className="h-4 w-4 text-orange-500" />

@@ -17,6 +17,10 @@ export class RolesGuard implements CanActivate {
     const { user } = context.switchToHttp().getRequest<{ user: { permissions: string[] } }>();
     if (!user) return false;
 
-    return required.every((p) => user.permissions.includes(p));
+    // Wildcard grants full access
+    if (user.permissions.includes('*')) return true;
+
+    // User must have at least one of the required permissions (OR logic)
+    return required.some((p) => user.permissions.includes(p));
   }
 }

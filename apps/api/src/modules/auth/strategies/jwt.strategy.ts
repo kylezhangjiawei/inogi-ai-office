@@ -30,6 +30,6 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (!user || user.status === 'DISABLED') {
       throw new UnauthorizedException();
     }
-    return { id: user.id, email: user.email, roleId: user.roleId, permissions: payload.permissions };
+    return { id: user.id, name: user.name, email: user.email, roleId: user.roleId, permissions: payload.permissions };
   }
 }

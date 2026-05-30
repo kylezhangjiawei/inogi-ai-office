@@ -38,9 +38,15 @@ export interface AiModelItem {
   last_latency_ms?: number | null;
   today_requests: number;
   today_tokens: number;
-  today_estimated_cost: number;
-  current_balance_or_quota: string;
+  total_tokens: number;
+  daily_token_usage: Array<{
+    date: string;
+    requests: number;
+    tokens: number;
+  }>;
   is_default_enabled: boolean;
+  /** 显式用途类型：text | multimodal | image | auto（auto 表示按模型名称自动推断） */
+  usage_kind: string;
   created_at: string;
   updated_at: string;
   operator_name: string;
@@ -62,9 +68,9 @@ export interface SaveAiModelPayload {
   last_latency_ms?: number;
   today_requests?: number;
   today_tokens?: number;
-  today_estimated_cost?: number;
-  current_balance_or_quota?: string;
   is_default_enabled: boolean;
+  /** 显式用途类型：text | multimodal | image | auto */
+  usage_kind?: string;
 }
 
 export interface TestAiModelConnectionPayload {
@@ -256,8 +262,6 @@ export const integrationManagementApi = {
         last_latency_ms: payload.last_latency_ms,
         today_requests: payload.today_requests,
         today_tokens: payload.today_tokens,
-        today_estimated_cost: payload.today_estimated_cost,
-        current_balance_or_quota: payload.current_balance_or_quota,
         is_default_enabled: payload.is_default_enabled,
         ...secretPayload,
     });

@@ -161,23 +161,23 @@ export function RegistrationProjects() {
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
-      <section className="material-card p-6 md:p-8">
+      <section className="material-card p-4 sm:p-6 md:p-8">
         <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-          <div className="space-y-3">
+          <div className="min-w-0 space-y-3">
             <span className="material-chip bg-blue-50 text-blue-700">Milestone Dashboard</span>
             <div>
-              <h2 className="text-[2rem] font-bold tracking-tight text-slate-900">注册项目里程碑</h2>
+              <h2 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-[2rem]">注册项目里程碑</h2>
               <p className="mt-3 max-w-3xl text-sm leading-7 text-slate-600">
                 这页已经从通用占位升级成独立业务页面，包含项目卡片、里程碑步骤、资料缺口检查和提醒日志，符合你文档里“注册项目看板”的流程要求。
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap gap-3">
-            <div className="material-button-secondary">
+          <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:gap-3">
+            <div className="material-button-secondary w-full justify-center sm:w-auto">
               <FolderOpen className="h-4 w-4" />
               项目总数 {projects.length}
             </div>
-            <div className="material-button-secondary">
+            <div className="material-button-secondary w-full justify-center sm:w-auto">
               <CalendarClock className="h-4 w-4" />
               本周待跟进 2 项
             </div>
@@ -270,9 +270,9 @@ export function RegistrationProjects() {
 
       <section className="grid grid-cols-12 gap-6">
         <div className="col-span-12 xl:col-span-5">
-          <div className="material-card h-full p-6">
-            <div className="mb-5 flex items-center justify-between">
-              <div>
+          <div className="material-card h-full min-w-0 p-4 sm:p-6">
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
                 <h3 className="text-slate-900">里程碑时间线</h3>
                 <p className="mt-1 text-sm text-slate-500">展示当前项目从资料提交到获批归档的完整阶段。</p>
               </div>
@@ -303,7 +303,7 @@ export function RegistrationProjects() {
         </div>
 
         <div className="col-span-12 xl:col-span-4">
-          <div className="material-card h-full p-6">
+          <div className="material-card h-full min-w-0 p-4 sm:p-6">
             <div className="mb-5">
               <h3 className="text-slate-900">资料缺口检查</h3>
               <p className="mt-1 text-sm text-slate-500">自动生成所选市场需要的核心资料，并标记已有、缺失和待更新状态。</p>
@@ -311,12 +311,12 @@ export function RegistrationProjects() {
 
             <div className="space-y-3">
               {selected.docs.map((item) => (
-                <div key={item.name} className="flex items-center justify-between rounded-[20px] border border-slate-100 bg-slate-50/70 px-4 py-4">
-                  <div className="flex items-center gap-3">
+                <div key={item.name} className="flex flex-wrap items-center justify-between gap-3 rounded-[20px] border border-slate-100 bg-slate-50/70 px-4 py-4">
+                  <div className="flex min-w-0 items-center gap-3">
                     <div className={cn("flex h-10 w-10 items-center justify-center rounded-2xl", item.status === "已有" ? "bg-emerald-50 text-emerald-600" : item.status === "缺失" ? "bg-red-50 text-red-600" : "bg-amber-50 text-amber-600")}>
                       {item.status === "已有" ? <ShieldCheck className="h-5 w-5" /> : <FileWarning className="h-5 w-5" />}
                     </div>
-                    <div className="text-sm font-medium text-slate-700">{item.name}</div>
+                    <div className="min-w-0 text-sm font-medium text-slate-700">{item.name}</div>
                   </div>
                   <span className={cn("material-chip", docTone(item.status))}>{item.status}</span>
                 </div>
@@ -326,7 +326,7 @@ export function RegistrationProjects() {
         </div>
 
         <div className="col-span-12 xl:col-span-3">
-          <div className="material-card h-full p-6">
+          <div className="material-card h-full min-w-0 p-4 sm:p-6">
             <div className="mb-5 flex items-center gap-2">
               <BellRing className="h-5 w-5 text-primary" />
               <div>
@@ -353,7 +353,7 @@ export function RegistrationProjects() {
         </div>
       </section>
 
-      <section className="flex items-center justify-between">
+      <section className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="text-sm text-slate-500">切换分页后会保留市场筛选条件。</div>
         <div className="flex gap-2">
           <button
@@ -377,9 +377,9 @@ export function RegistrationProjects() {
 
       <section className="grid grid-cols-12 gap-6">
         <div className="col-span-12 xl:col-span-7">
-          <div className="material-card p-6">
-            <div className="flex items-center justify-between">
-              <div>
+          <div className="material-card min-w-0 p-4 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
                 <h3 className="text-slate-900">项目风险与缺口</h3>
                 <p className="mt-1 text-sm text-slate-500">把当前项目最需要补齐的内容直接聚合出来。</p>
               </div>
@@ -413,7 +413,7 @@ export function RegistrationProjects() {
         </div>
 
         <div className="col-span-12 xl:col-span-5">
-          <div className="material-card p-6">
+          <div className="material-card min-w-0 p-4 sm:p-6">
             <h3 className="text-slate-900">协作建议</h3>
             <div className="mt-4 space-y-3">
               {[
@@ -432,9 +432,9 @@ export function RegistrationProjects() {
 
       {activeReminder ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/28 px-4">
-          <div className="material-card w-full max-w-xl p-6">
-            <div className="flex items-center justify-between">
-              <div>
+          <div className="material-card w-full max-w-xl p-4 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
                 <h3 className="text-slate-900">提醒详情</h3>
                 <p className="mt-1 text-sm text-slate-500">把列表提醒改成可点击的详情弹窗。</p>
               </div>

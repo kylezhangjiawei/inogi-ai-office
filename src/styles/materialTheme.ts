@@ -1,12 +1,14 @@
 import { createTheme } from "@mui/material/styles";
 
+const APP_FONT_FAMILY = '"Google Sans Flex", "Google Sans", "Noto Sans SC", "Microsoft YaHei", sans-serif';
+
 export const materialTheme = createTheme({
   palette: {
     mode: "light",
     primary: {
-      main: "#1976d2",
-      light: "#42a5f5",
-      dark: "#0d47a1",
+      main: "#4f46e5",
+      light: "#6366f1",
+      dark: "#4338ca",
       contrastText: "#ffffff",
     },
     secondary: {
@@ -35,7 +37,7 @@ export const materialTheme = createTheme({
     borderRadius: 16,
   },
   typography: {
-    fontFamily: '"Roboto", "Noto Sans SC", "Microsoft YaHei", sans-serif',
+    fontFamily: APP_FONT_FAMILY,
     h1: {
       fontSize: "2rem",
       fontWeight: 700,

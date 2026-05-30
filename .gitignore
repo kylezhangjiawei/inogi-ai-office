@@ -1,9 +1,13 @@
 node_modules/
 dist/
 .env
+.env.*
 .env.local
+!.env.example
+!*.env.example
 *.local
 __pycache__/
 *.pyc
 .idea/
 .claude/
+tmp/*.log

@@ -187,9 +187,9 @@ export function EBPRPage() {
   };
 
   return (
-    <div className="flex h-full gap-0 bg-gray-50 min-h-0 overflow-hidden">
+    <div className="flex min-h-full min-w-0 flex-col gap-3 bg-gray-50 p-3 lg:h-full lg:min-h-0 lg:flex-row lg:gap-0 lg:overflow-hidden lg:p-0">
       {/* Left: Batch List */}
-      <div className="w-56 flex-shrink-0 bg-white border-r border-gray-100 flex flex-col">
+      <div className="flex min-w-0 flex-col border border-gray-100 bg-white lg:w-56 lg:flex-shrink-0 lg:border-y-0 lg:border-l-0 lg:border-r">
         <div className="px-4 pt-4 pb-3 border-b border-gray-100 flex items-center justify-between">
           <h3 className="font-semibold text-gray-800 text-sm">批次列表</h3>
           <button onClick={handleAddBatch} className="flex items-center gap-1 text-xs text-teal-600 hover:text-teal-700 font-medium">
@@ -212,23 +212,23 @@ export function EBPRPage() {
       </div>
 
       {/* Center: Process Steps */}
-      <div className="flex-1 min-w-0 flex flex-col overflow-y-auto">
-        <div className="px-6 pt-5 pb-3 border-b border-gray-100 bg-white flex items-center gap-3">
-          <div>
+      <div className="flex min-w-0 flex-1 flex-col overflow-y-auto border border-gray-100 bg-white lg:border-0">
+        <div className="flex flex-wrap items-center gap-3 border-b border-gray-100 bg-white px-4 pb-3 pt-5 sm:px-6">
+          <div className="min-w-0">
             <div className="font-semibold text-gray-800">{selectedBatch.id}</div>
-            <div className="text-sm text-gray-500">{selectedBatch.product} · {selectedBatch.productionDate} · {selectedBatch.operator}</div>
+            <div className="truncate text-sm text-gray-500">{selectedBatch.product} · {selectedBatch.productionDate} · {selectedBatch.operator}</div>
           </div>
-          <span className={cn("ml-auto text-sm px-2.5 py-1 rounded-full font-medium", batchStatusColor[selectedBatch.status])}>{selectedBatch.status}</span>
+          <span className={cn("ml-auto shrink-0 rounded-full px-2.5 py-1 text-sm font-medium", batchStatusColor[selectedBatch.status])}>{selectedBatch.status}</span>
         </div>
 
-        <div className="p-5 space-y-3">
+        <div className="space-y-3 p-4 sm:p-5">
           {selectedBatch.steps.map((step, idx) => (
             <div key={step.id} className={cn("bg-white rounded-xl border overflow-hidden",
               step.status === "进行中" ? "border-teal-200 shadow-sm" : "border-gray-100"
             )}>
               <button
                 onClick={() => setExpandedStep(expandedStep === step.id ? null : step.id)}
-                className="w-full flex items-center gap-3 px-5 py-3.5 text-left hover:bg-gray-50 transition-colors"
+                className="flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors hover:bg-gray-50 sm:px-5"
               >
                 <div className={cn("w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0",
                   step.status === "已完成" ? "bg-green-100 text-green-700" :
@@ -236,8 +236,8 @@ export function EBPRPage() {
                 )}>
                   {step.status === "已完成" ? <CheckCircle2 className="w-4 h-4" /> : idx + 1}
                 </div>
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
                     <span className="text-sm font-medium text-gray-800">{step.name}</span>
                     {step.locked && <Lock className="w-3 h-3 text-gray-400" />}
                     {step.status === "进行中" && <span className="text-xs bg-teal-50 text-teal-600 px-1.5 py-0.5 rounded-full font-medium">当前工序</span>}
@@ -252,7 +252,7 @@ export function EBPRPage() {
                   {step.locked ? (
                     // Locked view
                     <div className="mt-3 space-y-3">
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         {step.params.map((p) => (
                           <div key={p.key} className="bg-gray-50 rounded-lg p-2.5">
                             <div className="text-xs text-gray-400">{p.key}</div>
@@ -282,7 +282,7 @@ export function EBPRPage() {
                   ) : step.status === "进行中" ? (
                     // Active editable form
                     <div className="mt-3 space-y-3">
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                         {["操作人", "操作日期", "设备编号", "物料批次"].map((label) => (
                           <div key={label}>
                             <label className="text-xs text-gray-400 block mb-1">{label}</label>
@@ -325,7 +325,7 @@ export function EBPRPage() {
       </div>
 
       {/* Right: Audit Trail */}
-      <div className="w-64 flex-shrink-0 bg-white border-l border-gray-100 flex flex-col">
+      <div className="flex min-w-0 flex-col border border-gray-100 bg-white lg:w-64 lg:flex-shrink-0 lg:border-y-0 lg:border-r-0 lg:border-l">
         <div className="px-4 pt-4 pb-3 border-b border-gray-100">
           <div className="flex items-center gap-2">
             <ShieldCheck className="w-4 h-4 text-teal-500" />

@@ -143,9 +143,9 @@ export function RAKnowledgePage() {
   const resetFilters = () => { setFrameworks([]); setRegTypes([]); setCategories([]); };
 
   return (
-    <div className="flex h-full gap-0 bg-gray-50 min-h-0 overflow-hidden">
+    <div className="flex min-h-full min-w-0 flex-col gap-3 bg-gray-50 p-3 lg:h-full lg:min-h-0 lg:flex-row lg:gap-0 lg:overflow-hidden lg:p-0">
       {/* Left: Filter Sidebar */}
-      <div className="w-52 flex-shrink-0 bg-white border-r border-gray-100 flex flex-col overflow-y-auto">
+      <div className="flex max-h-[45vh] min-w-0 flex-col overflow-y-auto border border-gray-100 bg-white lg:max-h-none lg:w-52 lg:flex-shrink-0 lg:border-y-0 lg:border-l-0 lg:border-r">
         <div className="px-4 pt-4 pb-3 border-b border-gray-100 flex items-center justify-between">
           <div className="flex items-center gap-1.5">
             <Filter className="w-4 h-4 text-gray-500" />
@@ -212,7 +212,7 @@ export function RAKnowledgePage() {
       </div>
 
       {/* Center: Search + Document List */}
-      <div className="w-80 flex-shrink-0 bg-white border-r border-gray-100 flex flex-col">
+      <div className="flex min-w-0 flex-col border border-gray-100 bg-white lg:w-80 lg:flex-shrink-0 lg:border-y-0 lg:border-l-0 lg:border-r">
         <div className="px-4 pt-4 pb-3 border-b border-gray-100 space-y-2">
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
@@ -261,10 +261,10 @@ export function RAKnowledgePage() {
       </div>
 
       {/* Right: Document Detail */}
-      <div className="flex-1 min-w-0 flex flex-col bg-white overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden border border-gray-100 bg-white lg:border-0">
         {selected ? (
           <>
-            <div className="px-6 pt-5 pb-4 border-b border-gray-100">
+            <div className="border-b border-gray-100 px-4 pb-4 pt-5 sm:px-6">
               <div className="flex items-start justify-between gap-4 mb-2">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className={cn("text-xs px-2 py-0.5 rounded-full font-medium", frameworkColors[selected.framework])}>{selected.framework}</span>
@@ -276,11 +276,11 @@ export function RAKnowledgePage() {
                 <span className="text-xs text-gray-400 flex-shrink-0">{selected.version} · {selected.date}</span>
               </div>
               <h2 className="font-semibold text-gray-800 text-base leading-snug">{selected.title}</h2>
-              <div className="flex items-center gap-2 mt-2">
+              <div className="mt-2 flex min-w-0 flex-wrap items-center gap-2">
                 <BookOpen className="w-3.5 h-3.5 text-gray-400" />
                 <span className="text-xs text-gray-500">{selected.authority}</span>
                 <span className="text-gray-200">·</span>
-                <div className="flex gap-1">
+                <div className="flex min-w-0 flex-wrap gap-1">
                   {selected.category.map((c) => (
                     <span key={c} className="text-xs bg-gray-50 text-gray-500 px-1.5 py-0.5 rounded">{c}</span>
                   ))}
@@ -289,7 +289,7 @@ export function RAKnowledgePage() {
             </div>
 
             {/* Tabs */}
-            <div className="flex gap-4 px-6 pt-3 border-b border-gray-100">
+            <div className="flex gap-4 overflow-x-auto border-b border-gray-100 px-4 pt-3 sm:px-6">
               {(["clauses", "history"] as const).map((tab) => (
                 <button key={tab} onClick={() => setVersionTab(tab)}
                   className={cn("text-sm pb-2.5 font-medium border-b-2 transition-colors",
@@ -300,7 +300,7 @@ export function RAKnowledgePage() {
               ))}
             </div>
 
-            <div className="flex-1 overflow-y-auto p-6">
+            <div className="flex-1 overflow-y-auto p-4 sm:p-6">
               {versionTab === "clauses" ? (
                 <div className="space-y-3">
                   {selected.clauses.map((clause) => (
@@ -309,11 +309,11 @@ export function RAKnowledgePage() {
                         onClick={() => setExpandedClauses((prev) => ({ ...prev, [clause.id]: !prev[clause.id] }))}
                         className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors text-left"
                       >
-                        <div className="flex items-center gap-3">
+                        <div className="flex min-w-0 items-center gap-3">
                           <span className="text-xs font-mono font-semibold text-purple-600 bg-purple-50 px-2 py-0.5 rounded">{clause.num}</span>
-                          <span className="text-sm text-gray-700 font-medium truncate">{clause.text.slice(0, 40)}...</span>
+                          <span className="truncate text-sm font-medium text-gray-700">{clause.text.slice(0, 40)}...</span>
                         </div>
-                        <div className="flex items-center gap-2 flex-shrink-0">
+                        <div className="flex flex-shrink-0 flex-wrap items-center justify-end gap-2">
                           {clause.tags.map((t) => (
                             <span key={t} className={cn("text-xs px-1.5 py-0.5 rounded-full font-medium", tagColors[t] ?? "bg-gray-50 text-gray-500")}>{t}</span>
                           ))}

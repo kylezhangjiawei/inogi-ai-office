@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 
+import { OssModule } from '../oss/oss.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
@@ -17,6 +18,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
         signOptions: { expiresIn: '15m' },
       }),
     }),
+    OssModule,
   ],
   controllers: [AuthController],
   providers: [AuthService, JwtStrategy],

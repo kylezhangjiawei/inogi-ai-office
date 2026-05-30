@@ -230,27 +230,27 @@ export function QualityDMSPage() {
   const categoryCount = (cat: string) => docs.filter((d) => d.category === cat).length;
 
   return (
-    <div className="flex h-full min-h-screen flex-col bg-gray-50">
-      <div className="border-b border-gray-200 bg-white px-6 py-4">
+    <div className="flex min-h-full min-w-0 flex-col bg-gray-50 lg:h-full">
+      <div className="border-b border-gray-200 bg-white px-4 py-4 sm:px-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Shield className="h-5 w-5 text-blue-600" />
-            <h1 className="text-lg font-semibold text-gray-900">质量文件管理系统（DMS）</h1>
+          <div className="flex min-w-0 items-center gap-2">
+            <Shield className="h-5 w-5 text-indigo-600" />
+            <h1 className="truncate text-lg font-semibold text-gray-900">质量文件管理系统（DMS）</h1>
           </div>
-          <Link to="/qa-traceability" className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 transition hover:bg-blue-100">
+          <Link to="/qa-traceability" className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-sm font-medium text-indigo-700 transition hover:bg-indigo-100">
             去全链路追溯
           </Link>
         </div>
       </div>
 
-      <div className="flex flex-1 gap-0 overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col gap-3 overflow-visible p-3 lg:flex-row lg:gap-0 lg:overflow-hidden lg:p-0">
         {/* Left: Category Tree */}
-        <div className="flex w-[20%] flex-col border-r border-gray-200 bg-white">
+        <div className="flex min-w-0 flex-col border border-gray-200 bg-white lg:w-[20%] lg:border-y-0 lg:border-l-0 lg:border-r">
           <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
             <span className="text-sm font-medium text-gray-700">文件类别</span>
             <button
               onClick={() => toast.info("新建文件（模拟）")}
-              className="flex items-center gap-1 rounded-lg bg-blue-600 px-2 py-1 text-xs font-medium text-white hover:bg-blue-700"
+              className="flex items-center gap-1 rounded-lg bg-indigo-600 px-2 py-1 text-xs font-medium text-white hover:bg-indigo-700"
             >
               <Plus className="h-3 w-3" />
               新建
@@ -262,7 +262,7 @@ export function QualityDMSPage() {
               className={cn(
                 "flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors",
                 !selectedCategory
-                  ? "bg-blue-50 text-blue-700 font-medium"
+                  ? "bg-indigo-50 text-indigo-700 font-medium"
                   : "text-gray-600 hover:bg-gray-50",
               )}
             >
@@ -281,7 +281,7 @@ export function QualityDMSPage() {
                 className={cn(
                   "flex w-full items-center justify-between rounded-lg px-3 py-2 text-sm transition-colors",
                   selectedCategory === cat
-                    ? "bg-blue-50 text-blue-700 font-medium"
+                    ? "bg-indigo-50 text-indigo-700 font-medium"
                     : "text-gray-600 hover:bg-gray-50",
                 )}
               >
@@ -298,14 +298,14 @@ export function QualityDMSPage() {
         </div>
 
         {/* Center: Document List */}
-        <div className="flex w-[45%] flex-col border-r border-gray-200 bg-white">
+        <div className="flex min-w-0 flex-col border border-gray-200 bg-white lg:w-[45%] lg:border-y-0 lg:border-l-0 lg:border-r">
           <div className="border-b border-gray-100 px-4 py-3">
             <span className="text-sm font-medium text-gray-700">
               {selectedCategory ?? "全部文件"}（{filteredDocs.length}）
             </span>
           </div>
-          <div className="flex-1 overflow-y-auto">
-            <table className="w-full text-xs">
+          <div className="flex-1 overflow-x-auto overflow-y-auto">
+            <table className="min-w-[720px] text-xs lg:w-full">
               <thead className="sticky top-0 bg-gray-50 text-gray-500">
                 <tr>
                   <th className="px-3 py-2 text-left font-medium">文件编号</th>
@@ -326,7 +326,7 @@ export function QualityDMSPage() {
                       className={cn(
                         "cursor-pointer transition-colors",
                         isVoid ? "opacity-50" : "",
-                        selectedId === doc.id ? "bg-blue-50" : "hover:bg-gray-50",
+                        selectedId === doc.id ? "bg-indigo-50" : "hover:bg-gray-50",
                       )}
                     >
                       <td className="px-3 py-2.5 font-mono text-gray-600">{doc.code}</td>
@@ -364,7 +364,7 @@ export function QualityDMSPage() {
         </div>
 
         {/* Right: Approval Panel */}
-        <div className="flex w-[35%] flex-col bg-white">
+        <div className="flex min-w-0 flex-col border border-gray-200 bg-white lg:w-[35%] lg:border-0">
           {selected && (
             <>
               {/* Header */}
@@ -393,7 +393,7 @@ export function QualityDMSPage() {
                     className={cn(
                       "flex-1 py-2 text-xs font-medium transition-colors",
                       activeTab === tab.key
-                        ? "border-b-2 border-blue-600 text-blue-600"
+                        ? "border-b-2 border-indigo-600 text-indigo-600"
                         : "text-gray-500 hover:text-gray-700",
                     )}
                   >
@@ -420,7 +420,7 @@ export function QualityDMSPage() {
                                   isDone
                                     ? "bg-green-500 text-white"
                                     : isActive
-                                      ? "bg-blue-600 text-white ring-2 ring-blue-200"
+                                      ? "bg-indigo-600 text-white ring-2 ring-indigo-200"
                                       : "bg-gray-200 text-gray-400",
                                 )}
                               >
@@ -429,7 +429,7 @@ export function QualityDMSPage() {
                               <span
                                 className={cn(
                                   "mt-1 text-xs",
-                                  isActive ? "font-semibold text-blue-600" : isDone ? "text-green-600" : "text-gray-400",
+                                  isActive ? "font-semibold text-indigo-600" : isDone ? "text-green-600" : "text-gray-400",
                                 )}
                               >
                                 {step}
@@ -450,11 +450,11 @@ export function QualityDMSPage() {
                   </div>
 
                   {/* Current step info */}
-                  <div className="mb-4 rounded-xl bg-blue-50 p-3">
-                    <p className="text-xs font-medium text-blue-700">
+                  <div className="mb-4 rounded-xl bg-indigo-50 p-3">
+                    <p className="text-xs font-medium text-indigo-700">
                       当前步骤：{selected.currentStep}
                     </p>
-                    <p className="mt-0.5 text-xs text-blue-500">
+                    <p className="mt-0.5 text-xs text-indigo-500">
                       审批人：{selected.approver}
                     </p>
                   </div>
@@ -510,7 +510,7 @@ export function QualityDMSPage() {
                           <div className="flex gap-2">
                             <button
                               onClick={() => handleAction("approve")}
-                              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-blue-600 py-2.5 text-sm font-medium text-white hover:bg-blue-700"
+                              className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-indigo-600 py-2.5 text-sm font-medium text-white hover:bg-indigo-700"
                             >
                               <CheckCircle2 className="h-4 w-4" />
                               批准
@@ -566,7 +566,7 @@ export function QualityDMSPage() {
                           className="rounded-xl border border-gray-100 bg-gray-50 p-3"
                         >
                           <div className="flex items-center justify-between">
-                            <span className="rounded bg-blue-100 px-2 py-0.5 font-mono text-xs font-semibold text-blue-700">
+                            <span className="rounded bg-indigo-100 px-2 py-0.5 font-mono text-xs font-semibold text-indigo-700">
                               {h.version}
                             </span>
                             <span className="text-xs text-gray-400">{h.date}</span>

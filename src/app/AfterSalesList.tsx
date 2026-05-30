@@ -199,7 +199,7 @@ export function AfterSalesList() {
                 setSearch(event.target.value);
                 setPage(1);
               }}
-              className="pl-9 pr-4 py-2 bg-gray-50 border border-transparent rounded-xl text-xs font-medium outline-none focus:bg-white focus:border-blue-200 transition-all w-52"
+              className="w-full rounded-xl border border-transparent bg-gray-50 py-2 pl-9 pr-4 text-xs font-medium outline-none transition-all focus:border-blue-200 focus:bg-white sm:w-52"
             />
           </div>
           <button className="p-2 rounded-xl border border-gray-100 text-gray-400 hover:bg-gray-50 transition-colors" onClick={() => setShowFilterDialog(true)}>
@@ -208,7 +208,7 @@ export function AfterSalesList() {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
+          <table className="min-w-[980px] text-left">
             <thead>
               <tr className="bg-gray-50/60">
                 {["工单编号", "客户", "产品/SN", "问题类型", "优先级", "负责人", "状态", "更新时间", "操作"].map((header) => (
@@ -278,7 +278,7 @@ export function AfterSalesList() {
           ) : null}
         </div>
 
-        <div className="flex items-center justify-between border-t border-gray-50 px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-50 px-5 py-4">
           <div className="text-xs font-medium text-gray-400">第 {page} / {totalPages} 页</div>
           <div className="flex items-center gap-2">
             <button className="rounded-lg border border-gray-100 px-3 py-1.5 text-xs font-bold text-gray-500 hover:bg-gray-50 disabled:opacity-40" onClick={() => setPage((prev) => Math.max(1, prev - 1))} disabled={page === 1}>

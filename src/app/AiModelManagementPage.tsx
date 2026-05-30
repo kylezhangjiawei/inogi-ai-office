@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useDeferredValue, useEffect, useState } from "react";
 import { Pencil, Plus, Search, Trash2, Wifi } from "lucide-react";
 import { Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
 import { toast } from "sonner";
@@ -7,6 +7,7 @@ import { Switch } from "./components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./components/ui/table";
 import { AiModelItem, integrationManagementApi } from "./lib/integrationManagementApi";
 import { cn } from "./components/ui/utils";
+import { getAiModelUsage } from "./lib/aiModelOptions";
 
 const PAGE_SIZE = 8;
 
@@ -32,6 +33,12 @@ const statusToneMap: Record<string, string> = {
   未配置: "bg-slate-100 text-slate-600",
 };
 
+const usageToneMap = {
+  text: "bg-sky-50 text-sky-700",
+  multimodal: "bg-violet-50 text-violet-700",
+  image: "bg-amber-50 text-amber-700",
+};
+
 export function AiModelManagementPage() {
   const [rows, setRows] = useState<AiModelItem[]>([]);
   const [total, setTotal] = useState(0);
@@ -43,6 +50,8 @@ export function AiModelManagementPage() {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [testingConnection, setTestingConnection] = useState(false);
+  // 行内"测试连通性"按钮的 loading 标记（每行独立）
+  const [rowTestingId, setRowTestingId] = useState<string | null>(null);
   const [dialogMode, setDialogMode] = useState<DialogMode>(null);
   const [selectedRow, setSelectedRow] = useState<AiModelItem | null>(null);
 
@@ -51,17 +60,20 @@ export function AiModelManagementPage() {
   const [model, setModel] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
+  const [usageKind, setUsageKind] = useState("auto");
   const [enabled, setEnabled] = useState(true);
   const [isDefaultEnabled, setIsDefaultEnabled] = useState(true);
   const [dialogError, setDialogError] = useState("");
+  const deferredKeyword = useDeferredValue(keyword);
+  const normalizedKeyword = deferredKeyword.trim();
 
-  async function loadRows(targetPage = page) {
+  const loadRows = useCallback(async (targetPage = page) => {
     setLoading(true);
     try {
       const response = await integrationManagementApi.listAiModels({
         page: targetPage,
         pageSize: PAGE_SIZE,
-        keyword,
+        keyword: normalizedKeyword,
       });
       setRows(response.items);
       setTotal(response.total);
@@ -74,15 +86,15 @@ export function AiModelManagementPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, [normalizedKeyword, page]);
 
   useEffect(() => {
     setPage(1);
-  }, [keyword]);
+  }, [normalizedKeyword]);
 
   useEffect(() => {
     void loadRows();
-  }, [page, keyword]);
+  }, [loadRows]);
 
   function resetForm() {
     setName("");
@@ -90,6 +102,7 @@ export function AiModelManagementPage() {
     setModel("");
     setBaseUrl("");
     setApiKey("");
+    setUsageKind("auto");
     setEnabled(true);
     setIsDefaultEnabled(true);
     setDialogError("");
@@ -107,6 +120,24 @@ export function AiModelManagementPage() {
     setDialogMode("create");
   }
 
+  /**
+   * 快捷新增 Embedding 模型（RAG 向量检索专用）。
+   * 预填通义 text-embedding-v3，用户只需填 name + API Key 即可保存。
+   */
+  function openCreateEmbedding() {
+    setSelectedRow(null);
+    setName("通义 Embedding");
+    setProvider("Qwen");
+    setModel("text-embedding-v3");
+    setBaseUrl("https://dashscope.aliyuncs.com/compatible-mode/v1");
+    setApiKey("");
+    setUsageKind("auto");
+    setEnabled(true);
+    setIsDefaultEnabled(false);
+    setDialogError("");
+    setDialogMode("create");
+  }
+
   function openEdit(row: AiModelItem) {
     setSelectedRow(row);
     setName(row.name);
@@ -114,6 +145,7 @@ export function AiModelManagementPage() {
     setModel(row.model);
     setBaseUrl(row.base_url || "");
     setApiKey("");
+    setUsageKind(row.usage_kind || "auto");
     setEnabled(row.enabled);
     setIsDefaultEnabled(row.is_default_enabled);
     setDialogMode("edit");
@@ -143,6 +175,7 @@ export function AiModelManagementPage() {
         enabled,
         current_status: selectedRow?.current_status ?? "未配置",
         is_default_enabled: isDefaultEnabled,
+        usage_kind: usageKind,
       });
       toast.success(dialogMode === "edit" ? "AI 模型已更新" : "AI 模型已新增");
       closeDialog();
@@ -192,6 +225,35 @@ export function AiModelManagementPage() {
       toast.error(message);
     } finally {
       setTestingConnection(false);
+    }
+  }
+
+  /**
+   * 列表操作栏的"测试连通性"——直接用 row 数据测试，不弹编辑对话框。
+   * API Key 走已保存的密文，base_url / provider / model 都从 row 取。
+   */
+  async function handleTestRowConnection(row: AiModelItem) {
+    if (rowTestingId) return;
+    setRowTestingId(row.id);
+    try {
+      const result = await integrationManagementApi.testAiModelConnection({
+        id: row.id,
+        provider: row.provider,
+        model: row.model,
+        base_url: row.base_url || undefined,
+      });
+      if (result.success) {
+        toast.success(
+          `${row.name} 连通性正常${typeof result.duration_ms === "number" ? `，耗时 ${result.duration_ms} ms` : ""}`,
+        );
+      } else {
+        toast.error(`${row.name} 测试失败：${result.message}`);
+      }
+      await loadRows(page);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "AI 连通性测试失败");
+    } finally {
+      setRowTestingId(null);
     }
   }
 
@@ -249,16 +311,27 @@ export function AiModelManagementPage() {
       <section className="material-card p-6 md:p-8">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <span className="material-chip bg-blue-50 text-blue-700">AI Model Management</span>
+            <span className="material-chip bg-indigo-50 text-indigo-700">AI Model Management</span>
             <h2 className="mt-3 text-[2rem] font-bold tracking-tight text-slate-900">AI 模型管理</h2>
             <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
               维护模型服务商、Base URL、运行状态、延迟和自动统计信息，支持按不同模型独立切换网关或代理地址。
             </p>
           </div>
-          <button className="material-button-primary w-fit" onClick={openCreate}>
-            <Plus className="h-4 w-4" />
-            新增模型
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="material-button-secondary w-fit"
+              onClick={openCreateEmbedding}
+              title="一键新增 Embedding 模型，用于知识库 RAG 向量检索"
+            >
+              <Plus className="h-4 w-4" />
+              新增 Embedding
+            </button>
+            <button className="material-button-primary w-fit" onClick={openCreate}>
+              <Plus className="h-4 w-4" />
+              新增模型
+            </button>
+          </div>
         </div>
       </section>
 
@@ -276,32 +349,33 @@ export function AiModelManagementPage() {
           <div className="text-sm text-slate-500">共 {total} 个模型配置</div>
         </div>
 
-        <Table className="min-w-[1440px] text-left">
-          <TableHeader className="bg-slate-50">
-            <TableRow>
-              {[
-                "模型名称",
-                "服务商",
-                "启用",
-                "当前状态",
-                "最近成功时间",
-                "最近失败时间",
-                "最近延迟",
-                "今日请求数",
-                "今日 Token",
-                "今日预估费用",
-                "当前余额/额度",
-                "默认启用",
-                "操作人",
-                "操作",
-              ].map((title) => (
-                <TableHead key={title} className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                  {title}
-                </TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody className="divide-y divide-slate-100">
+        <div className="material-scrollbar overflow-x-auto">
+          <Table className="min-w-[1480px] text-left">
+            <TableHeader className="bg-slate-50">
+              <TableRow>
+                {[
+                  "模型名称",
+                  "服务商",
+                  "适用场景",
+                  "启用",
+                  "当前状态",
+                  "最近成功时间",
+                  "最近失败时间",
+                  "最近延迟",
+                  "今日请求数",
+                  "今日 Token",
+                  "Token 总使用量",
+                  "默认启用",
+                  "操作人",
+                  "操作",
+                ].map((title) => (
+                  <TableHead key={title} className="px-4 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                    {title}
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody className="divide-y divide-slate-100">
             {loading ? (
               <TableRow>
                 <TableCell colSpan={14} className="px-4 py-8 text-center text-sm text-slate-400">
@@ -315,80 +389,112 @@ export function AiModelManagementPage() {
                 </TableCell>
               </TableRow>
             ) : (
-              rows.map((row) => (
-                <TableRow key={row.id} className="hover:bg-slate-50/70">
-                  <TableCell className="px-4 py-3 text-sm font-medium text-slate-800">
-                    <div>{row.name}</div>
-                    <div className="mt-1 text-xs text-slate-400">{row.model}</div>
-                    <div
-                      className="mt-1 max-w-[280px] truncate text-xs text-slate-400"
-                      title={row.base_url || "未配置 Base URL，默认走官方地址"}
-                    >
-                      {row.base_url || "默认官方地址"}
-                    </div>
-                  </TableCell>
-                  <TableCell className="px-4 py-3 text-sm text-slate-700">{row.provider}</TableCell>
-                  <TableCell className="px-4 py-3 text-sm text-slate-700">
-                    <div className="flex items-center gap-2">
-                      <Switch checked={row.enabled} onCheckedChange={(checked) => void handleToggleEnabled(row, checked)} />
-                      <span>{row.enabled ? "启用" : "停用"}</span>
-                    </div>
-                  </TableCell>
-                  <TableCell className="px-4 py-3 text-sm">
-                    <div className="space-y-2">
-                      <span className={cn("material-chip", statusToneMap[row.current_status] ?? "bg-slate-100 text-slate-600")}>
-                        {row.current_status}
-                      </span>
-                      {row.last_error_message ? (
-                        <div className="max-w-[220px] truncate text-xs text-rose-500" title={row.last_error_message}>
-                          {row.last_error_message}
+              rows.map((row) => {
+                  // 优先使用管理员显式设置的用途类型，回退到模型名称推断
+                  const explicitKind = row.usage_kind && row.usage_kind !== "auto" ? row.usage_kind : null;
+                  const usage = explicitKind
+                    ? { kind: explicitKind as "text" | "multimodal" | "image",
+                        label: explicitKind === "image" ? "图片" : explicitKind === "multimodal" ? "文本/图片" : "文本",
+                        description: explicitKind === "image" ? "适合图片生成、参考图生图或图片编辑任务。"
+                          : explicitKind === "multimodal" ? "适合文本任务，也适合带图片输入的理解、分析和问答。"
+                          : "适合文本对话、摘要、筛选和结构化提取任务。",
+                      }
+                    : getAiModelUsage(row.model);
+                  return (
+                    <TableRow key={row.id} className="hover:bg-slate-50/70">
+                      <TableCell className="px-4 py-3 text-sm font-medium text-slate-800">
+                        <div>{row.name}</div>
+                        <div className="mt-1 text-xs text-slate-400">{row.model}</div>
+                        <div
+                          className="mt-1 max-w-[280px] truncate text-xs text-slate-400"
+                          title={row.base_url || "未配置 Base URL，默认走官方地址"}
+                        >
+                          {row.base_url || "默认官方地址"}
                         </div>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                  <TableCell className="px-4 py-3 text-sm text-slate-500">{formatDate(row.last_success_at)}</TableCell>
-                  <TableCell className="px-4 py-3 text-sm text-slate-500">{formatDate(row.last_failure_at)}</TableCell>
-                  <TableCell className="px-4 py-3 text-sm text-slate-700">
-                    {typeof row.last_latency_ms === "number" ? `${row.last_latency_ms} ms` : "-"}
-                  </TableCell>
-                  <TableCell className="px-4 py-3 text-sm text-slate-700">{row.today_requests}</TableCell>
-                  <TableCell className="px-4 py-3 text-sm text-slate-700">{row.today_tokens}</TableCell>
-                  <TableCell className="px-4 py-3 text-sm text-slate-700">{row.today_estimated_cost.toFixed(4)}</TableCell>
-                  <TableCell className="px-4 py-3 text-sm text-slate-700">{row.current_balance_or_quota || "-"}</TableCell>
-                  <TableCell className="px-4 py-3 text-sm text-slate-700">{row.is_default_enabled ? "是" : "否"}</TableCell>
-                  <TableCell className="px-4 py-3 text-sm text-slate-700">{row.operator_name}</TableCell>
-                  <TableCell className="px-4 py-3 text-sm">
-                    <div className="flex gap-2">
-                      <button className="material-button-secondary !px-3 !py-2" onClick={() => openEdit(row)} title="编辑">
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                      <button
-                        className="material-button-secondary !px-3 !py-2 text-red-500 hover:border-red-200 hover:bg-red-50"
-                        onClick={() => openDelete(row)}
-                        title="删除"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))
+                      </TableCell>
+                      <TableCell className="px-4 py-3 text-sm text-slate-700">{row.provider}</TableCell>
+                      <TableCell className="px-4 py-3 text-sm w-[220px] max-w-[220px]">
+                        <div className="space-y-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className={cn("material-chip shrink-0", usageToneMap[usage.kind])}>{usage.label}</span>
+                            {explicitKind
+                              ? <span className="text-[10px] text-emerald-600 font-medium shrink-0">手动</span>
+                              : <span className="text-[10px] text-slate-400 shrink-0">自动</span>
+                            }
+                          </div>
+                          <div className="w-[188px] text-xs leading-5 text-slate-400 whitespace-normal">{usage.description}</div>
+                        </div>
+                      </TableCell>
+                      <TableCell className="px-4 py-3 text-sm w-[100px] min-w-[100px]">
+                        <div className="flex items-center gap-2 whitespace-nowrap">
+                          <Switch checked={row.enabled} onCheckedChange={(checked) => void handleToggleEnabled(row, checked)} />
+                          <span>{row.enabled ? "启用" : "停用"}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="px-4 py-3 text-sm">
+                        <div className="space-y-2">
+                          <span className={cn("material-chip", statusToneMap[row.current_status] ?? "bg-slate-100 text-slate-600")}>
+                            {row.current_status}
+                          </span>
+                          {row.last_error_message ? (
+                            <div className="max-w-[220px] truncate text-xs text-rose-500" title={row.last_error_message}>
+                              {row.last_error_message}
+                            </div>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell className="px-4 py-3 text-sm text-slate-500">{formatDate(row.last_success_at)}</TableCell>
+                      <TableCell className="px-4 py-3 text-sm text-slate-500">{formatDate(row.last_failure_at)}</TableCell>
+                      <TableCell className="px-4 py-3 text-sm text-slate-700">
+                        {typeof row.last_latency_ms === "number" ? `${row.last_latency_ms} ms` : "-"}
+                      </TableCell>
+                      <TableCell className="px-4 py-3 text-sm text-slate-700">{row.today_requests}</TableCell>
+                      <TableCell className="px-4 py-3 text-sm text-slate-700">{row.today_tokens}</TableCell>
+                      <TableCell className="px-4 py-3 text-sm text-slate-700">{row.total_tokens ?? row.today_tokens ?? 0}</TableCell>
+                      <TableCell className="px-4 py-3 text-sm text-slate-700">{row.is_default_enabled ? "是" : "否"}</TableCell>
+                      <TableCell className="px-4 py-3 text-sm text-slate-700">{row.operator_name}</TableCell>
+                      <TableCell className="px-4 py-3 text-sm">
+                        <div className="flex gap-2">
+                          <button
+                            className="material-button-secondary !px-3 !py-2 disabled:cursor-not-allowed disabled:opacity-50"
+                            onClick={() => void handleTestRowConnection(row)}
+                            disabled={rowTestingId === row.id}
+                            title="测试连通性"
+                          >
+                            <Wifi className={`h-3.5 w-3.5 ${rowTestingId === row.id ? "animate-pulse text-indigo-500" : ""}`} />
+                          </button>
+                          <button className="material-button-secondary !px-3 !py-2" onClick={() => openEdit(row)} title="编辑">
+                            <Pencil className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            className="material-button-secondary !px-3 !py-2 text-red-500 hover:border-red-200 hover:bg-red-50"
+                            onClick={() => openDelete(row)}
+                            title="删除"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })
             )}
-          </TableBody>
-        </Table>
+            </TableBody>
+          </Table>
+        </div>
 
-        <div className="mt-5 flex items-center justify-between border-t border-slate-100 pt-4">
+        <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
           <div className="text-sm text-slate-500">
             共 {total} 条，当前第 {page} / {totalPages} 页
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button className="material-button-secondary !px-3 !py-2" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1 || loading}>
               上一页
             </button>
             <button className="material-button-secondary !px-3 !py-2" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page === totalPages || loading}>
               下一页
             </button>
-            <span className="flex items-center gap-1.5 text-sm text-slate-500">
+            <span className="flex flex-wrap items-center gap-1.5 text-sm text-slate-500">
               跳转
               <input
                 className="material-input w-14 text-center"
@@ -444,6 +550,24 @@ export function AiModelManagementPage() {
                 不填写时默认走后端环境中的官方地址；如果浏览器能通、服务端不能通，优先在这里配置代理或网关地址。
               </p>
             </div>
+            <div className="md:col-span-2">
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                用途类型
+              </label>
+              <select
+                className="material-input w-full"
+                value={usageKind}
+                onChange={(event) => setUsageKind(event.target.value)}
+              >
+                <option value="auto">自动识别（根据模型名称推断）</option>
+                <option value="text">文本 — 纯文字对话、摘要、提取</option>
+                <option value="multimodal">文本/图片 — 多模态理解（可接收图片输入）</option>
+                <option value="image">图片生成 — 文生图、参考图生图</option>
+              </select>
+              <p className="mt-1.5 text-xs leading-5 text-slate-400">
+                手动指定后，系统将精准分配此模型到对应场景（对话、图片生成等），避免模型出现在不兼容的选择列表中。
+              </p>
+            </div>
             <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
               <Switch checked={enabled} onCheckedChange={setEnabled} />
               <span className="text-sm text-slate-700">{enabled ? "已启用" : "已停用"}</span>
@@ -455,7 +579,7 @@ export function AiModelManagementPage() {
               </label>
             </div>
             <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-3 text-sm leading-6 text-slate-500 md:col-span-2">
-              当前状态、最近成功时间、最近失败时间、最近延迟、今日请求数、今日 Token、今日预估费用、当前余额/额度都由系统自动获取或自动计算。
+              当前状态、最近成功时间、最近失败时间、最近延迟、今日请求数、今日 Token 和 Token 总使用量都由系统自动获取或自动计算。
             </div>
             {dialogError ? (
               <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm leading-6 text-rose-700 md:col-span-2">

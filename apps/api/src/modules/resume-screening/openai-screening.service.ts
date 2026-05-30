@@ -6,6 +6,7 @@ import { InterviewQaItem, ScreeningResult, CandidateProfile } from './resume-scr
 
 const SCREENING_SCHEMA_DESC =
   '{"ai_job": string, "score": integer 0-100, "decision": "recommend"|"hold"|"reject", ' +
+  '"tags": [string, ...], "dimensions": {"job_match": {"score": integer 0-100, "label": string, "reason": string}, "experience": {"score": integer 0-100, "label": string, "reason": string}, "skills": {"score": integer 0-100, "label": string, "reason": string}, "stability": {"score": integer 0-100, "label": string, "reason": string}, "location": {"score": integer 0-100, "label": string, "reason": string}, "education": {"score": integer 0-100, "label": string, "reason": string}, "salary": {"score": integer 0-100, "label": string, "reason": string}}, ' +
   '"matched_points": [string, ...], "risks": [string, ...], "summary": string, "next_step": boolean, ' +
   '"interview_qa": [{"question": string, "answer": string}, {"question": string, "answer": string}, {"question": string, "answer": string}, {"question": string, "answer": string}, {"question": string, "answer": string}]}';
 
@@ -28,6 +29,7 @@ const DIRECT_FILE_SCREENING_SCHEMA_DESC =
   '"candidate_recent_title": string, "candidate_years_experience": string, ' +
   '"candidate_work_summary": string, "candidate_resume_excerpt": string, "candidate_email": string, "candidate_phone": string, ' +
   '"ai_job": string, "score": integer 0-100, "decision": "recommend"|"hold"|"reject", ' +
+  '"tags": [string, ...], "dimensions": {"job_match": {"score": integer 0-100, "label": string, "reason": string}, "experience": {"score": integer 0-100, "label": string, "reason": string}, "skills": {"score": integer 0-100, "label": string, "reason": string}, "stability": {"score": integer 0-100, "label": string, "reason": string}, "location": {"score": integer 0-100, "label": string, "reason": string}, "education": {"score": integer 0-100, "label": string, "reason": string}, "salary": {"score": integer 0-100, "label": string, "reason": string}}, ' +
   '"matched_points": [string, ...], "risks": [string, ...], "summary": string, "next_step": boolean, ' +
   '"interview_qa": [{"question": string, "answer": string}, {"question": string, "answer": string}, ' +
   '{"question": string, "answer": string}, {"question": string, "answer": string}, {"question": string, "answer": string}]}';
@@ -39,6 +41,37 @@ const JOB_RULE_SCHEMA_DESC =
 
 const INTERVIEW_QA_SCHEMA_DESC =
   '{"interview_qa": [{"question": string, "answer": string}, {"question": string, "answer": string}, {"question": string, "answer": string}, {"question": string, "answer": string}, {"question": string, "answer": string}]}';
+
+const CANDIDATE_DISCUSSION_SCHEMA_DESC =
+  '{"answer": string, "suggested_tags": [string, ...], "recommended_action": string, "confidence": "high"|"medium"|"low", "profile_patch"?: {"name"?: string, "birth_or_age"?: string, "city"?: string, "education"?: string, "status"?: string, "target_job"?: string, "target_city"?: string, "salary_expectation"?: string, "recent_company"?: string, "recent_title"?: string, "years_experience"?: string, "work_summary"?: string, "email"?: string, "phone"?: string}, "screening_patch"?: {"score"?: number, "decision"?: "recommend"|"hold"|"reject", "tags"?: [string, ...], "matched_points"?: [string, ...], "risks"?: [string, ...], "summary"?: string, "next_step"?: boolean, "dimensions"?: object}, "update_reason"?: string}';
+
+const CANDIDATE_FILTER_ITERATION_SCHEMA_DESC =
+  '{"action": "filter"|"clarify", "answer": string, "clarification_question"?: string, "filter_summary": string, "criteria": [string, ...], "candidate_updates": [{"candidate_id": string, "ai_job"?: string, "score": integer 0-100, "decision": "recommend"|"hold"|"reject", "tags": [string, ...], "dimensions"?: object, "matched_points": [string, ...], "risks": [string, ...], "summary": string, "next_step": boolean, "change_reason": string}]}';
+
+type CandidateFilterMessage = { role: 'user' | 'assistant'; content: string };
+
+type CandidateFilterSnapshot = {
+  candidate_id: string;
+  job_rule_id?: string | null;
+  job_rule_name?: string | null;
+  name: string;
+  city?: string | null;
+  education?: string | null;
+  age_or_birth?: string | null;
+  target_job?: string | null;
+  ai_job?: string | null;
+  salary_expectation?: string | null;
+  years_experience?: string | null;
+  recent_company?: string | null;
+  recent_title?: string | null;
+  current_score?: number | null;
+  current_decision?: string | null;
+  current_summary?: string | null;
+  current_tags?: string[];
+  current_matched_points?: string[];
+  current_risks?: string[];
+  resume_excerpt?: string;
+};
 
 @Injectable()
 export class OpenAiScreeningService {
@@ -92,33 +125,30 @@ export class OpenAiScreeningService {
     };
 
     const startedAt = Date.now();
-    const extractParams: OpenAI.ChatCompletionCreateParamsNonStreaming = {
-      model,
-      messages: [
-        {
-          role: 'system',
+    const { content: rawOutput, usage } = await this.callCompletionApi(
+      client,
+      {
+        model,
+        messages: [
+          {
+            role: 'system',
             content: `You extract structured recruitment information. Infer the job title conservatively, keep jd_text faithful to the source, and return strict JSON only matching this schema: ${JOB_RULE_SCHEMA_DESC}. If the source text is Chinese, keep the extracted name and jd_text in Simplified Chinese.`,
-        },
-        {
-          role: 'user',
-          content: JSON.stringify(payload),
-        },
-      ],
-      response_format: { type: 'json_object' },
-    };
-    // Disable thinking mode for Qwen3 models — structured JSON tasks don't benefit from reasoning overhead
-    (extractParams as unknown as Record<string, unknown>)['enable_thinking'] = false;
-    const response = await client.chat.completions.create(extractParams);
+          },
+          { role: 'user', content: JSON.stringify(payload) },
+        ],
+        jsonMode: true,
+      },
+      provider,
+    );
 
-    const rawOutput = response.choices[0].message.content ?? '{}';
-    const parsed = JSON.parse(rawOutput) as { name: string; jd_text: string };
+    const parsed = JSON.parse(rawOutput || '{}') as { name: string; jd_text: string };
     return {
       result: parsed,
       requestPayload: payload,
       responsePayload: { raw_output: rawOutput },
       modelName: model,
       durationMs: Date.now() - startedAt,
-      usage: this.extractUsage(response),
+      usage,
     };
   }
 
@@ -143,7 +173,7 @@ export class OpenAiScreeningService {
       raw_email_excerpt: profile.raw_text.slice(0, 5000),
       job_description: jdText,
       task:
-        'Evaluate the candidate against the job description. If candidate_profile fields are empty or missing, extract them from raw_email_excerpt. Return strict JSON only. Also infer the most appropriate target job title for this candidate under this JD and place it in ai_job. Generate exactly 5 interview questions tailored to this JD and resume, and provide a concise reference answer for each one based on the candidate background and likely best response strategy. If the resume or JD is Chinese, all text fields in the JSON must be written in Simplified Chinese.',
+        'Evaluate the candidate against the job description. If candidate_profile fields are empty or missing, extract them from raw_email_excerpt. Return strict JSON only. Also infer the most appropriate target job title for this candidate under this JD and place it in ai_job. Provide 6-10 concise tags and dimension scores for job_match, experience, skills, stability, location, education, and salary. Generate exactly 5 interview questions tailored to this JD and resume, and provide a concise reference answer for each one based on the candidate background and likely best response strategy. If the resume or JD is Chinese, all text fields in the JSON must be written in Simplified Chinese.',
     };
 
     const baseUrl = this.resolveBaseUrl(provider, overrideBaseUrl);
@@ -153,40 +183,38 @@ export class OpenAiScreeningService {
     this.logger.debug(`[evaluateCandidate] request_payload=${JSON.stringify(payload).slice(0, 500)}`);
 
     const startedAt = Date.now();
-    let response: Awaited<ReturnType<typeof client.chat.completions.create>>;
+    let rawOutput: string;
+    let usage: ReturnType<typeof this.extractUsage>;
     try {
-      const screenParams: OpenAI.ChatCompletionCreateParamsNonStreaming = {
-        model,
-        messages: [
-          {
-            role: 'system',
-            content: `You are a conservative enterprise recruiting screener. First extract any missing candidate details (name, gender, education, experience, skills, etc.) from raw_email_excerpt if candidate_profile fields are empty. Then score the candidate strictly against the provided job description. Infer ai_job conservatively from the JD and candidate profile. Also generate exactly 5 interview questions tailored to this JD and candidate, and provide a concise reference answer for each one. Return strict JSON only matching this schema: ${SCREENING_SCHEMA_DESC}. When the source material is Chinese, every text field in the JSON must be in Simplified Chinese.`,
-          },
-          {
-            role: 'user',
-            content: JSON.stringify(payload),
-          },
-        ],
-        response_format: { type: 'json_object' },
-      };
-      // Disable thinking mode for Qwen3 models — structured JSON tasks don't benefit from reasoning overhead
-      (screenParams as unknown as Record<string, unknown>)['enable_thinking'] = false;
-      response = await client.chat.completions.create(screenParams);
+      ({ content: rawOutput, usage } = await this.callCompletionApi(
+        client,
+        {
+          model,
+          messages: [
+            {
+              role: 'system',
+              content: `You are a conservative enterprise recruiting screener. First extract any missing candidate details (name, gender, education, experience, skills, etc.) from raw_email_excerpt if candidate_profile fields are empty. Then score the candidate strictly against the provided job description. Infer ai_job conservatively from the JD and candidate profile. Produce 6-10 short tags that HR can filter by, and score dimensions for job_match, experience, skills, stability, location, education, and salary with a short reason. Also generate exactly 5 interview questions tailored to this JD and candidate, and provide a concise reference answer for each one. Return strict JSON only matching this schema: ${SCREENING_SCHEMA_DESC}. When the source material is Chinese, every text field in the JSON must be in Simplified Chinese.`,
+            },
+            { role: 'user', content: JSON.stringify(payload) },
+          ],
+          jsonMode: true,
+        },
+        provider,
+      ));
     } catch (err) {
       this.logger.error(`[evaluateCandidate] API call failed: ${err instanceof Error ? err.message : String(err)}`);
       throw err;
     }
 
-    const rawOutput = response.choices[0].message.content ?? '{}';
     this.logger.log(`[evaluateCandidate] done in ${Date.now() - startedAt}ms, raw=${rawOutput.slice(0, 200)}`);
-    const parsed = JSON.parse(rawOutput) as ScreeningResult;
+    const parsed = JSON.parse(rawOutput || '{}') as ScreeningResult;
     return {
       result: parsed,
       requestPayload: payload,
       responsePayload: { raw_output: rawOutput, structured_output: parsed },
       modelName: model,
       durationMs: Date.now() - startedAt,
-      usage: this.extractUsage(response),
+      usage,
     };
   }
 
@@ -214,24 +242,22 @@ export class OpenAiScreeningService {
     };
 
     const startedAt = Date.now();
-    const qaParams: OpenAI.ChatCompletionCreateParamsNonStreaming = {
-      model,
-      messages: [
-        {
-          role: 'system',
-          content: `You are an enterprise recruiting interviewer assistant. Based on the JD and candidate resume, generate exactly 5 interview questions and concise reference answers. Questions should probe fit, experience, risks, and job-specific ability. Answers must be realistic, resume-grounded, and in Simplified Chinese when the source text is Chinese. Return strict JSON only matching this schema: ${INTERVIEW_QA_SCHEMA_DESC}.`,
-        },
-        {
-          role: 'user',
-          content: JSON.stringify(payload),
-        },
-      ],
-      response_format: { type: 'json_object' },
-    };
-    (qaParams as unknown as Record<string, unknown>)['enable_thinking'] = false;
-    const response = await client.chat.completions.create(qaParams);
-    const rawOutput = response.choices[0].message.content ?? '{}';
-    const parsed = JSON.parse(rawOutput) as { interview_qa?: InterviewQaItem[] };
+    const { content: rawOutput, usage } = await this.callCompletionApi(
+      client,
+      {
+        model,
+        messages: [
+          {
+            role: 'system',
+            content: `You are an enterprise recruiting interviewer assistant. Based on the JD and candidate resume, generate exactly 5 interview questions and concise reference answers. Questions should probe fit, experience, risks, and job-specific ability. Answers must be realistic, resume-grounded, and in Simplified Chinese when the source text is Chinese. Return strict JSON only matching this schema: ${INTERVIEW_QA_SCHEMA_DESC}.`,
+          },
+          { role: 'user', content: JSON.stringify(payload) },
+        ],
+        jsonMode: true,
+      },
+      provider,
+    );
+    const parsed = JSON.parse(rawOutput || '{}') as { interview_qa?: InterviewQaItem[] };
 
     return {
       result: {
@@ -241,7 +267,168 @@ export class OpenAiScreeningService {
       responsePayload: { raw_output: rawOutput, structured_output: parsed },
       modelName: model,
       durationMs: Date.now() - startedAt,
-      usage: this.extractUsage(response),
+      usage,
+    };
+  }
+
+  async discussCandidate(
+    profile: CandidateProfile,
+    jdText: string,
+    screeningContext: unknown,
+    question: string,
+    history: Array<{ role: 'user' | 'assistant'; content: string }> = [],
+    overrideApiKey?: string,
+    overrideModel?: string,
+    overrideBaseUrl?: string,
+    provider?: string,
+  ) {
+    const apiKey = this.resolveApiKey(provider, overrideApiKey);
+    if (!apiKey) {
+      throw new Error(this.isQwenProvider(provider) ? 'DASHSCOPE_API_KEY is not configured.' : 'OPENAI_API_KEY is not configured.');
+    }
+
+    const model = overrideModel ?? this.envModel;
+    const client = this.createClient(apiKey, overrideBaseUrl, provider);
+    const payload = {
+      candidate_profile: profile,
+      raw_resume_excerpt: profile.raw_text.slice(0, 6000),
+      job_description: jdText.slice(0, 12000),
+      screening_context: screeningContext,
+      conversation_history: history.slice(-8),
+      question,
+      task:
+        'Answer the recruiter question about this candidate. Stay grounded in the resume, JD, and screening context. If the answer creates a concrete correction or reconsideration that should update the candidate detail, include only those changed fields in profile_patch and/or screening_patch. Do not include patches for speculation or unchanged data. Return strict JSON only.',
+    };
+
+    const startedAt = Date.now();
+    const { content: rawOutput, usage } = await this.callCompletionApi(
+      client,
+      {
+        model,
+        messages: [
+          {
+            role: 'system',
+            content: `You are an enterprise recruiting copilot. Discuss one candidate with the recruiter using only the provided resume, JD, screening result, tags, dimensions, and conversation history. Be concise, practical, and explicit about uncertainty. Return strict JSON matching this schema: ${CANDIDATE_DISCUSSION_SCHEMA_DESC}. Use Simplified Chinese when the recruiter question or source material is Chinese.`,
+          },
+          { role: 'user', content: JSON.stringify(payload) },
+        ],
+        jsonMode: true,
+      },
+      provider,
+    );
+    const parsed = this.parseJsonObject<{
+      answer?: string;
+      suggested_tags?: string[];
+      recommended_action?: string;
+      confidence?: 'high' | 'medium' | 'low';
+      profile_patch?: Record<string, unknown>;
+      screening_patch?: Record<string, unknown>;
+      update_reason?: string;
+    }>(rawOutput || '{}');
+
+    return {
+      result: {
+        answer: parsed.answer?.trim() || '暂时无法基于当前材料给出进一步判断。',
+        suggested_tags: Array.isArray(parsed.suggested_tags) ? parsed.suggested_tags.filter((item) => typeof item === 'string') : [],
+        recommended_action: parsed.recommended_action?.trim() || '',
+        confidence: parsed.confidence ?? 'medium',
+        profile_patch: parsed.profile_patch && typeof parsed.profile_patch === 'object' ? parsed.profile_patch : {},
+        screening_patch: parsed.screening_patch && typeof parsed.screening_patch === 'object' ? parsed.screening_patch : {},
+        update_reason: parsed.update_reason?.trim() || '',
+      },
+      requestPayload: payload,
+      responsePayload: { raw_output: rawOutput, structured_output: parsed },
+      modelName: model,
+      durationMs: Date.now() - startedAt,
+      usage,
+    };
+  }
+
+  async iterateCandidateFilter(
+    jobContext: unknown,
+    candidates: CandidateFilterSnapshot[],
+    instruction: string,
+    history: CandidateFilterMessage[] = [],
+    overrideApiKey?: string,
+    overrideModel?: string,
+    overrideBaseUrl?: string,
+    provider?: string,
+  ) {
+    const apiKey = this.resolveApiKey(provider, overrideApiKey);
+    if (!apiKey) {
+      throw new Error(this.isQwenProvider(provider) ? 'DASHSCOPE_API_KEY is not configured.' : 'OPENAI_API_KEY is not configured.');
+    }
+
+    const model = overrideModel ?? this.envModel;
+    const client = this.createClient(apiKey, overrideBaseUrl, provider);
+    const payload = {
+      job_context: jobContext,
+      candidates,
+      conversation_history: history.slice(-10),
+      recruiter_instruction: instruction,
+      task:
+        'Analyze the recruiter instruction first. If the instruction is not specific enough to change screening criteria, set action to clarify, provide one concise clarification question in answer/clarification_question, and leave candidate_updates empty. Only when the instruction contains enough concrete filtering or scoring criteria, set action to filter and re-evaluate the full candidate list. When filtering, return one candidate_updates item for every candidate_id provided. Do not drop candidates; mark filtered-out candidates as reject with clear reasons. Keep the output grounded in the resume/JD/current screening data. Return strict JSON only.',
+    };
+
+    const startedAt = Date.now();
+    const { content: rawOutput, usage } = await this.callCompletionApi(
+      client,
+      {
+        model,
+        messages: [
+          {
+            role: 'system',
+            content:
+              `You are an enterprise recruiting list-level filtering copilot. ` +
+              `You help the recruiter iteratively clean a candidate pool after an initial JD screening. ` +
+              `Do not treat every user message as a filtering command. First decide whether the recruiter has provided clear, actionable filtering criteria. ` +
+              `If criteria are ambiguous, incomplete, or merely express dissatisfaction, ask a clarification question and do not score candidates. ` +
+              `If criteria are clear, apply the latest instruction as a new filter/scoring lens across every provided candidate. ` +
+              `Return strict JSON matching this schema: ${CANDIDATE_FILTER_ITERATION_SCHEMA_DESC}. ` +
+              `Use Simplified Chinese for answer, summary, tags, risks, criteria, and change_reason.`,
+          },
+          { role: 'user', content: JSON.stringify(payload) },
+        ],
+        jsonMode: true,
+      },
+      provider,
+    );
+
+    const parsed = this.parseJsonObject<{
+      action?: string;
+      answer?: string;
+      clarification_question?: string;
+      filter_summary?: string;
+      criteria?: unknown[];
+      candidate_updates?: unknown[];
+    }>(rawOutput || '{}');
+
+    const candidateUpdates = Array.isArray(parsed.candidate_updates)
+      ? parsed.candidate_updates.filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
+      : [];
+
+    return {
+      result: {
+        action:
+          parsed.action === 'filter' || (parsed.action !== 'clarify' && candidateUpdates.length)
+            ? 'filter'
+            : 'clarify',
+        answer:
+          parsed.answer?.trim() ||
+          parsed.clarification_question?.trim() ||
+          '请再补充本轮筛选希望关注的具体条件，例如技能、地域、薪资、经验年限或需要放宽/收紧的规则。',
+        clarification_question: parsed.clarification_question?.trim() || '',
+        filter_summary: parsed.filter_summary?.trim() || '',
+        criteria: Array.isArray(parsed.criteria)
+          ? parsed.criteria.map((item) => (typeof item === 'string' ? item.trim() : '')).filter(Boolean).slice(0, 12)
+          : [],
+        candidate_updates: candidateUpdates,
+      },
+      requestPayload: payload,
+      responsePayload: { raw_output: rawOutput, structured_output: parsed },
+      modelName: model,
+      durationMs: Date.now() - startedAt,
+      usage,
     };
   }
 
@@ -273,7 +460,7 @@ export class OpenAiScreeningService {
         'If relevant, extract the candidate profile fields and perform a full evaluation. ' +
         'If not relevant, set is_relevant to false and leave evaluation fields empty. ' +
         'Return strict JSON only. When source text is Chinese, use Simplified Chinese for all text fields. ' +
-        'Generate exactly 5 interview questions only when is_relevant is true.',
+        'Generate 6-10 tags, dimension scores, and exactly 5 interview questions only when is_relevant is true.',
     };
 
     const baseUrl = this.resolveBaseUrl(provider, overrideBaseUrl);
@@ -282,40 +469,38 @@ export class OpenAiScreeningService {
     );
 
     const startedAt = Date.now();
-    const screenParams: OpenAI.ChatCompletionCreateParamsNonStreaming = {
-      model,
-      messages: [
-        {
-          role: 'system',
-          content:
-            `You are a professional HR recruiter. Analyze the resume and determine: ` +
-            `1) Is the candidate relevant for the job position "${jobRuleName}"? ` +
-            `2) If relevant, extract candidate details and evaluate against the job description. ` +
-            `Set is_relevant to true only if the resume clearly relates to "${jobRuleName}". ` +
-            `Return strict JSON only matching this schema: ${DIRECT_FILE_SCREENING_SCHEMA_DESC}. ` +
-            `When the source material is Chinese, every text field must be in Simplified Chinese.`,
-        },
-        {
-          role: 'user',
-          content: JSON.stringify(payload),
-        },
-      ],
-      response_format: { type: 'json_object' },
-    };
-    (screenParams as unknown as Record<string, unknown>)['enable_thinking'] = false;
-
-    let response: Awaited<ReturnType<typeof client.chat.completions.create>>;
+    let rawOutput: string;
+    let usage: ReturnType<typeof this.extractUsage>;
     try {
-      response = await client.chat.completions.create(screenParams);
+      ({ content: rawOutput, usage } = await this.callCompletionApi(
+        client,
+        {
+          model,
+          messages: [
+            {
+              role: 'system',
+              content:
+                `You are a professional HR recruiter. Analyze the resume and determine: ` +
+                `1) Is the candidate relevant for the job position "${jobRuleName}"? ` +
+                `2) If relevant, extract candidate details and evaluate against the job description. ` +
+                `Set is_relevant to true only if the resume clearly relates to "${jobRuleName}". ` +
+                `Return strict JSON only matching this schema: ${DIRECT_FILE_SCREENING_SCHEMA_DESC}. ` +
+                `When the source material is Chinese, every text field must be in Simplified Chinese.`,
+            },
+            { role: 'user', content: JSON.stringify(payload) },
+          ],
+          jsonMode: true,
+        },
+        provider,
+      ));
     } catch (err) {
       this.logger.error(`[screenResumeFromText] API call failed: ${err instanceof Error ? err.message : String(err)}`);
       throw err;
     }
 
-    const rawOutput = response.choices[0].message.content ?? '{}';
-    this.logger.log(`[screenResumeFromText] done in ${Date.now() - startedAt}ms, is_relevant=${rawOutput.slice(0, 80)}`);
+    this.logger.log(`[screenResumeFromText] done in ${Date.now() - startedAt}ms, is_relevant=${rawOutput!.slice(0, 80)}`);
 
-    const parsed = JSON.parse(rawOutput) as {
+    const parsed = JSON.parse(rawOutput! || '{}') as {
       is_relevant?: boolean;
       relevance_reason?: string;
       candidate_name?: string;
@@ -337,6 +522,8 @@ export class OpenAiScreeningService {
       ai_job?: string;
       score?: number;
       decision?: string;
+      tags?: string[];
+      dimensions?: ScreeningResult['dimensions'];
       matched_points?: string[];
       risks?: string[];
       summary?: string;
@@ -368,11 +555,16 @@ export class OpenAiScreeningService {
       language_skills: [],
     };
 
-    const screeningResult: ScreeningResult = {
-      ai_job: parsed.ai_job ?? '',
-      score: typeof parsed.score === 'number' ? parsed.score : 0,
-      decision: (parsed.decision as ScreeningResult['decision']) ?? 'hold',
-      matched_points: Array.isArray(parsed.matched_points) ? parsed.matched_points : [],
+      const screeningResult: ScreeningResult = {
+        ai_job: parsed.ai_job ?? '',
+        score: typeof parsed.score === 'number' ? parsed.score : 0,
+        decision: (parsed.decision as ScreeningResult['decision']) ?? 'hold',
+        tags: Array.isArray(parsed.tags) ? parsed.tags.filter((item): item is string => typeof item === 'string') : [],
+        dimensions:
+          parsed.dimensions && typeof parsed.dimensions === 'object' && !Array.isArray(parsed.dimensions)
+            ? (parsed.dimensions as ScreeningResult['dimensions'])
+            : {},
+        matched_points: Array.isArray(parsed.matched_points) ? parsed.matched_points : [],
       risks: Array.isArray(parsed.risks) ? parsed.risks : [],
       summary: parsed.summary ?? '',
       next_step: Boolean(parsed.next_step),
@@ -385,10 +577,10 @@ export class OpenAiScreeningService {
       candidate_profile: candidateProfile,
       screening_result: screeningResult,
       requestPayload: payload,
-      responsePayload: { raw_output: rawOutput, structured_output: parsed },
+      responsePayload: { raw_output: rawOutput!, structured_output: parsed },
       modelName: model,
       durationMs: Date.now() - startedAt,
-      usage: this.extractUsage(response),
+      usage: usage!,
     };
   }
 
@@ -521,26 +713,146 @@ export class OpenAiScreeningService {
     const client = this.createClient(apiKey, overrideBaseUrl, provider);
     const startedAt = Date.now();
 
-    const testParams: OpenAI.ChatCompletionCreateParamsNonStreaming = {
-      model,
-      messages: [{ role: 'user', content: 'Reply with exactly OK.' }],
-      max_tokens: 16,
-    };
-    (testParams as unknown as Record<string, unknown>)['enable_thinking'] = false;
-    const response = await client.chat.completions.create(testParams);
+    const { content, usage } = await this.callCompletionApi(
+      client,
+      {
+        model,
+        messages: [{ role: 'user', content: 'Reply with exactly OK.' }],
+        maxTokens: 16,
+      },
+      provider,
+    );
 
     return {
       modelName: model,
       baseUrl: this.resolveBaseUrl(provider, overrideBaseUrl),
       durationMs: Date.now() - startedAt,
-      outputText: response.choices[0].message.content ?? '',
+      outputText: content,
+      usage,
+    };
+  }
+
+  /**
+   * Embedding 模型连通性测试：调一次 embeddings.create，校验向量长度。
+   * 用于 text-embedding-v3 / text-embedding-3-* 等模型。
+   */
+  async testEmbeddingConnection(
+    overrideApiKey?: string,
+    overrideModel?: string,
+    overrideBaseUrl?: string,
+    provider?: string,
+  ) {
+    const apiKey = this.resolveApiKey(provider, overrideApiKey);
+    if (!apiKey) {
+      throw new Error('Embedding API Key 未配置');
+    }
+
+    const model = overrideModel ?? 'text-embedding-v3';
+    const client = this.createClient(apiKey, overrideBaseUrl, provider);
+    const startedAt = Date.now();
+    const resp = await client.embeddings.create({ model, input: '连通性测试' });
+    const vec = resp.data?.[0]?.embedding;
+    if (!Array.isArray(vec) || vec.length === 0) {
+      throw new Error('Embedding API 未返回向量');
+    }
+
+    return {
+      modelName: model,
+      baseUrl: this.resolveBaseUrl(provider, overrideBaseUrl),
+      durationMs: Date.now() - startedAt,
+      outputText: `Embedding OK · ${vec.length} 维`,
+      usage: {
+        promptTokens: typeof resp.usage?.prompt_tokens === 'number' ? resp.usage.prompt_tokens : 0,
+        completionTokens: 0,
+        totalTokens: typeof resp.usage?.total_tokens === 'number' ? resp.usage.total_tokens : 0,
+      },
+    };
+  }
+
+  async testImageConnection(
+    overrideApiKey?: string,
+    overrideModel?: string,
+    overrideBaseUrl?: string,
+    provider?: string,
+  ) {
+    const apiKey = this.resolveApiKey(provider, overrideApiKey);
+    if (!apiKey) {
+      throw new Error('OPENAI_API_KEY is not configured.');
+    }
+
+    const model = overrideModel ?? 'gpt-image-1';
+    const client = this.createClient(apiKey, overrideBaseUrl, provider);
+    const startedAt = Date.now();
+    const response = await client.images.generate({
+      model,
+      prompt: 'Connection test image: a simple blue dot on a white background.',
+    } as OpenAI.Images.ImageGenerateParamsNonStreaming);
+    const image = response.data?.[0];
+    if (!image?.b64_json && !image?.url) {
+      throw new Error('Images API did not return image data.');
+    }
+
+    return {
+      modelName: model,
+      baseUrl: this.resolveBaseUrl(provider, overrideBaseUrl),
+      durationMs: Date.now() - startedAt,
+      outputText: `Images API OK (${image.b64_json ? 'base64' : 'url'})`,
       usage: this.extractUsage(response),
+    };
+  }
+
+  /**
+   * Unified completion call.
+   * - Responses API: OpenAI models + Qwen text models (e.g. qwen3.6-plus)
+   * - Chat Completions API: Qwen doc models (e.g. qwen-doc-turbo) that don't support Responses API
+   */
+  private async callCompletionApi(
+    client: OpenAI,
+    params: {
+      model: string;
+      messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
+      jsonMode?: boolean;
+      maxTokens?: number;
+    },
+    provider?: string,
+  ): Promise<{ content: string; usage: ReturnType<typeof this.extractUsage> }> {
+    // qwen-doc-turbo and similar doc models only support Chat Completions
+    if (this.isQwenProvider(provider) && this.isDocModel(params.model)) {
+      const chatParams: OpenAI.ChatCompletionCreateParamsNonStreaming = {
+        model: params.model,
+        messages: params.messages,
+        ...(params.jsonMode ? { response_format: { type: 'json_object' } } : {}),
+        ...(params.maxTokens ? { max_completion_tokens: params.maxTokens } : {}),
+      };
+      const response = await client.chat.completions.create(chatParams);
+      return {
+        content: response.choices[0].message.content ?? '',
+        usage: this.extractUsage(response),
+      };
+    }
+
+    // OpenAI + Qwen text models (qwen3.6-plus, etc.) → Responses API
+    const responseParams: Record<string, unknown> = {
+      model: params.model,
+      input: params.messages,
+      ...(params.jsonMode ? { text: { format: { type: 'json_object' } } } : {}),
+      ...(params.maxTokens ? { max_output_tokens: params.maxTokens } : {}),
+      // Disable thinking mode for Qwen3 models on structured JSON tasks
+      ...(this.isQwenProvider(provider) ? { enable_thinking: false } : {}),
+    };
+    const response = await (client.responses as unknown as {
+      create: (p: Record<string, unknown>) => Promise<{ output_text: string; usage: unknown }>;
+    }).create(responseParams);
+    return {
+      content: response.output_text ?? '',
+      usage: this.extractUsage(response as Parameters<typeof this.extractUsage>[0]),
     };
   }
 
   private createClient(apiKey: string, overrideBaseUrl?: string, provider?: string) {
     const baseURL = this.resolveBaseUrl(provider, overrideBaseUrl);
-    const fetch = this.buildProxyFetch();
+    // 代理仅对 OpenAI 生效，Qwen/阿里云等国内服务不走代理
+    const fetch = this.isQwenProvider(provider) ? undefined : this.buildProxyFetch();
 
     return new OpenAI({
       apiKey,
@@ -627,6 +939,10 @@ export class OpenAiScreeningService {
   private normalizeBaseUrl(value?: string | null) {
     const trimmed = value?.trim();
     return trimmed ? trimmed.replace(/\/$/, '') : null;
+  }
+
+  private isDocModel(model: string) {
+    return /doc/i.test(model);
   }
 
   private isQwenProvider(provider?: string | null) {

@@ -2,7 +2,10 @@ import { Body, Controller, Delete, Get, Param, Post, Query, UploadedFiles, UseIn
 import { FilesInterceptor } from '@nestjs/platform-express';
 
 import { Public } from '../auth/decorators/public.decorator';
+import { ApplyCandidateAiUpdateDto } from './dto/apply-candidate-ai-update.dto';
 import { CreateJobRuleDto } from './dto/create-job-rule.dto';
+import { AskCandidateAiDto } from './dto/ask-candidate-ai.dto';
+import { IterateCandidateFilterDto } from './dto/iterate-candidate-filter.dto';
 import { ListCandidatesQueryDto } from './dto/list-candidates-query.dto';
 import { RunMailSyncDto } from './dto/run-mail-sync.dto';
 import { ResumeUploadStatusQueryDto } from './dto/resume-upload-status-query.dto';
@@ -110,13 +113,33 @@ export class ResumeScreeningController {
     return this.resumeScreeningService.listCandidates(query);
   }
 
+  @Get('candidate-filter-sessions')
+  listCandidateFilterSessions(@Query('job_rule_id') jobRuleId?: string) {
+    return this.resumeScreeningService.listCandidateFilterSessions(jobRuleId);
+  }
+
+  @Post('candidate-filter-sessions/iterate')
+  iterateCandidateFilter(@Body() payload: IterateCandidateFilterDto) {
+    return this.resumeScreeningService.iterateCandidateFilter(payload);
+  }
+
   @Delete('candidates')
   clearCandidates() {
     return this.resumeScreeningService.clearCandidates();
   }
 
   @Get('candidates/:candidateId')
-  getCandidateDetail(@Param('candidateId') candidateId: string) {
-    return this.resumeScreeningService.getCandidateDetail(candidateId);
+  getCandidateDetail(@Param('candidateId') candidateId: string, @Query('screening_version') screeningVersion?: string) {
+    return this.resumeScreeningService.getCandidateDetail(candidateId, screeningVersion);
+  }
+
+  @Post('candidates/:candidateId/ai-chat')
+  askCandidateAi(@Param('candidateId') candidateId: string, @Body() payload: AskCandidateAiDto) {
+    return this.resumeScreeningService.askCandidateAi(candidateId, payload);
+  }
+
+  @Post('candidates/:candidateId/apply-ai-update')
+  applyCandidateAiUpdate(@Param('candidateId') candidateId: string, @Body() payload: ApplyCandidateAiUpdateDto) {
+    return this.resumeScreeningService.applyCandidateAiUpdate(candidateId, payload);
   }
 }
