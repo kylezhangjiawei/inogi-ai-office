@@ -50,6 +50,13 @@ export type AuditAction =
   | "proposal.recalled"
   | "proposal.escalated"
   | "proposal.resubmitted"
+  // Review actions (result / collaboration / due_date) — 各类型独立，避免一律记成"立项"
+  | "result.approved"
+  | "result.rejected"
+  | "collaboration.approved"
+  | "collaboration.rejected"
+  | "due_date.approved"
+  | "due_date.rejected"
   // Approval flow config
   | "flow.saved"
   | "flow.node_added"
@@ -176,6 +183,13 @@ export const AUDIT_ACTION_META: Record<AuditAction, AuditActionMeta> = {
   "proposal.recalled": { category: "proposal", label: "撤回立项", verb: "撤回了立项", tone: "amber" },
   "proposal.escalated": { category: "proposal", label: "升级审批", verb: "升级了审批", tone: "amber" },
   "proposal.resubmitted": { category: "proposal", label: "重提立项", verb: "重新提交了立项", tone: "blue" },
+  // Review actions — 成果 / 协作变更 / 截止日期变更，各自独立文案
+  "result.approved": { category: "task", label: "成果通过", verb: "验收通过了成果", tone: "emerald" },
+  "result.rejected": { category: "task", label: "成果驳回", verb: "驳回了成果", tone: "red" },
+  "collaboration.approved": { category: "task", label: "协作通过", verb: "通过了协作变更", tone: "violet" },
+  "collaboration.rejected": { category: "task", label: "协作驳回", verb: "驳回了协作变更", tone: "red" },
+  "due_date.approved": { category: "task", label: "截止变更通过", verb: "通过了截止日期变更", tone: "amber" },
+  "due_date.rejected": { category: "task", label: "截止变更驳回", verb: "驳回了截止日期变更", tone: "red" },
   // Flow
   "flow.saved": { category: "approval_flow", label: "保存配置", verb: "保存了审批流配置", tone: "blue" },
   "flow.node_added": { category: "approval_flow", label: "新增节点", verb: "新增了审批节点", tone: "emerald" },

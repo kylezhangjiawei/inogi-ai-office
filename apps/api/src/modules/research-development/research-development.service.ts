@@ -54,6 +54,33 @@ const PROGRESS_NOTE_MAX_FILES = 5;
 const PROGRESS_NOTE_MAX_FILE_BYTES = 25 * 1024 * 1024;
 const PROGRESS_NOTE_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
 
+// ─── 审核类型「单一事实源」───────────────────────────────────────────────
+// 四种审核类型的标签、通过后目标状态、审计动作集中在此定义，前后端各处只引用、
+// 不再各写各的，避免不同类型的文案/流程互相污染（立项被记成成果、成果被当协作等）。
+type ReviewType = 'proposal' | 'result' | 'collaboration' | 'due_date';
+const REVIEW_TYPES: ReviewType[] = ['proposal', 'result', 'collaboration', 'due_date'];
+/** 中文标签，用于通知标题、留痕、类型 badge 等所有展示处。 */
+const REVIEW_TYPE_LABEL: Record<ReviewType, string> = {
+  proposal: '立项',
+  result: '成果',
+  collaboration: '协作变更',
+  due_date: '截止日期变更',
+};
+/** 审核「通过」后的目标状态：只有"成果"通过=已完成，其余三种=进行中。这是唯一裁决处。 */
+const REVIEW_APPROVE_STATUS: Record<ReviewType, 'in_progress' | 'completed'> = {
+  proposal: 'in_progress',
+  result: 'completed',
+  collaboration: 'in_progress',
+  due_date: 'in_progress',
+};
+function isKnownReviewType(value: string): value is ReviewType {
+  return (REVIEW_TYPES as string[]).includes(value);
+}
+/** 取审核类型中文标签；未知类型回退原值（仅用于展示，不参与裁决）。 */
+function reviewTypeLabel(value: string): string {
+  return REVIEW_TYPE_LABEL[value as ReviewType] ?? value;
+}
+
 const RD_POC_BOM_CATEGORIES = [
   { id: 'cat-power', label: '电源部分', parts: ['电池', '电池PCB'] },
   { id: 'cat-base', label: '底部结构', parts: ['底座', '底座减震器', '底座进气隔板', '底座过滤棉'] },
@@ -1144,15 +1171,22 @@ export class ResearchDevelopmentService {
 
           // Resolve review actions now that we have the original task.
           if (_review_action) {
-            const reviewType = String((t as JsonRecord).pending_review_type ?? 'result');
+            const reviewType = String((t as JsonRecord).pending_review_type ?? '');
+            // 守卫：审核动作只对"处于待审核且类型已知"的任务生效，否则直接拒绝——
+            // 杜绝"未知/缺失类型被兜底成已完成"，以及对已处理任务的重复审核。
+            if (!isKnownReviewType(reviewType)) {
+              throw new BadRequestException('该任务没有待处理的审核（审核类型缺失或未知），无法审核');
+            }
+            if (String((t as JsonRecord).status ?? '') !== 'pending_review') {
+              throw new BadRequestException('该任务当前不是待审核状态，可能已被处理，请勿重复审核');
+            }
+
             const actionPatch: JsonRecord = { ...persistPatch };
 
-            if (!Object.prototype.hasOwnProperty.call(persistPatch, 'status')) {
-              actionPatch.status =
-                _review_action === 'approve'
-                  ? reviewType === 'result' ? 'completed' : 'in_progress'
-                  : 'in_progress';
-            }
+            // 状态由后端按审核类型唯一裁决，忽略前端传入的 status：
+            // 通过 → 成果=已完成，立项/协作/截止日期=进行中；驳回 → 一律回进行中。
+            actionPatch.status =
+              _review_action === 'approve' ? REVIEW_APPROVE_STATUS[reviewType] : 'in_progress';
 
             actionPatch.pending_review_type = null;
 
@@ -1333,12 +1367,13 @@ export class ResearchDevelopmentService {
         task_title: String(task.title ?? ''),
         submitter_name: String(task.primary_owner ?? ''),
         submitter_user_id: String(task.primary_owner_user_id ?? ''),
+        // 理由按审核类型取本类型的字段，避免协作/截止日期理由互相串味
         note: String(
-          patch.pending_collaboration_reason ??
-            patch.pending_due_date_reason ??
-            task.pending_collaboration_reason ??
-            task.pending_due_date_reason ??
-            '',
+          reviewType === 'collaboration'
+            ? (patch.pending_collaboration_reason ?? task.pending_collaboration_reason ?? '')
+            : reviewType === 'due_date'
+              ? (patch.pending_due_date_reason ?? task.pending_due_date_reason ?? '')
+              : '',
         ),
         pending_collaborators: patch.pending_collaborators ?? task.pending_collaborators ?? [],
         // 截止日期变更审核：把申请的新日期 + 任务当前日期带给审核人查看。
@@ -1346,15 +1381,8 @@ export class ResearchDevelopmentService {
         current_due_date: String(task.due_date ?? ''),
         current_progress: typeof task.progress === 'number' ? task.progress : 0,
       });
-      const typeLabel =
-        reviewType === 'collaboration'
-          ? '协作变更'
-          : reviewType === 'proposal'
-            ? '立项'
-            : reviewType === 'due_date'
-              ? '截止日期'
-              : '结果';
-      const subject = `[待审核] 「${task.title}」申请${typeLabel}审核`;
+      const typeLabel = reviewTypeLabel(reviewType);
+      const subject = `[待审核·${typeLabel}] 「${task.title}」申请${typeLabel}审核`;
       for (const admin of admins) {
         await this.createMessage({
           sender: { id: null, name: '系统通知', role: 'system' },
@@ -1381,8 +1409,7 @@ export class ResearchDevelopmentService {
       // Need at least one recipient identifier to deliver the message
       if (!submitterId && !submitterName) return;
       const isApproved = action === 'approve';
-      const isCollaboration = reviewType === 'collaboration';
-      const isDueDate = reviewType === 'due_date';
+      const typeLabel = reviewTypeLabel(reviewType);
       const taskTitle = String(task.title ?? '');
       const body = JSON.stringify({
         type: 'review_result',
@@ -1393,11 +1420,17 @@ export class ResearchDevelopmentService {
         reviewer_name: reviewerName,
         reason: rejectReason,
       });
-      const subject = isCollaboration
-        ? `[审核结果] 「${taskTitle}」协作申请${isApproved ? '已通过' : '被打回'}`
-        : isDueDate
-          ? `[审核结果] 「${taskTitle}」截止日期变更${isApproved ? '已通过' : '被驳回'}`
-          : `[审核结果] 「${taskTitle}」${isApproved ? '已通过审核' : '被打回，请修改后重新提交'}`;
+      // 各审核类型独立文案，互不复用，避免类型混淆
+      const subject =
+        reviewType === 'result'
+          ? `[审核结果·成果] 「${taskTitle}」成果验收${isApproved ? '已通过，任务完成' : '被驳回，请修改后重新提交'}`
+          : reviewType === 'proposal'
+            ? `[审核结果·立项] 「${taskTitle}」立项${isApproved ? '已通过，任务进入执行' : '被退回，请完善后重新提交'}`
+            : reviewType === 'collaboration'
+              ? `[审核结果·协作变更] 「${taskTitle}」协作变更${isApproved ? '已通过并生效' : '被驳回，保持原协作人'}`
+              : reviewType === 'due_date'
+                ? `[审核结果·截止日期变更] 「${taskTitle}」截止日期变更${isApproved ? '已通过并生效' : '被驳回，保持原日期'}`
+                : `[审核结果·${typeLabel}] 「${taskTitle}」${isApproved ? '已通过' : '被驳回'}`;
       await this.createMessage({
         sender: { id: null, name: '系统通知', role: 'system' },
         recipient_id: submitterId || null,
@@ -2908,15 +2941,8 @@ export class ResearchDevelopmentService {
       if (msgType === 'review_request') {
         const submitterName = String(parsedBody!['submitter_name'] ?? senderName);
         const reviewType = String(parsedBody!['review_type'] ?? 'result');
-        const reviewLabel =
-          reviewType === 'collaboration'
-            ? '协作变更'
-            : reviewType === 'proposal'
-              ? '立项'
-              : reviewType === 'due_date'
-                ? '截止日期'
-                : '结果';
-        defaultTitle = `系统通知：【待审核】「${taskTitle}」申请${reviewLabel}审核`;
+        const reviewLabel = reviewTypeLabel(reviewType);
+        defaultTitle = `系统通知：【待审核·${reviewLabel}】「${taskTitle}」申请${reviewLabel}审核`;
         displayMessage = `${submitterName} 提交了任务「${taskTitle}」的${reviewLabel}审核，请处理。`;
       } else if (msgType === 'review_result') {
         const result = String(parsedBody!['result'] ?? '');
@@ -2924,9 +2950,7 @@ export class ResearchDevelopmentService {
         const reviewType = String(parsedBody!['review_type'] ?? 'result');
         const isApproved = result === 'approved';
         const isCollaboration = reviewType === 'collaboration';
-        defaultTitle = isCollaboration
-          ? `协作审核：「${taskTitle}」${isApproved ? '已通过' : '被打回'}`
-          : `审核结果：「${taskTitle}」${isApproved ? '已通过审核 ✓' : '被打回，需修改'}`;
+        defaultTitle = `审核结果·${reviewTypeLabel(reviewType)}：「${taskTitle}」${isApproved ? '已通过' : '被驳回'}`;
         const reason = String(parsedBody!['reason'] ?? '');
         if (isCollaboration) {
           displayMessage = isApproved

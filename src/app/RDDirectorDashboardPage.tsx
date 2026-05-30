@@ -39,6 +39,7 @@ import { usePermission } from "./hooks/usePermission";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
 import { AuditTimeline } from "./RDAuditTimeline";
 import { recordAudit, useAuditActor, useAuditLogs } from "./lib/auditLog";
+import { getReviewTypeMeta } from "./lib/reviewTypes";
 import { PERMISSIONS } from "./lib/permissions";
 import {
   clearRdAllTaskData,
@@ -3084,68 +3085,48 @@ export function RDDirectorDashboardPage() {
         return;
       }
       const approved = decision === "approved";
-      const isCollaborationReview = task.pending_review_type === "collaboration";
-      const isDueDateReview = task.pending_review_type === "due_date";
-      // 协作 / 截止日期变更：无论通过或驳回，任务都回到进行中（驳回不挂起）。
-      const nextStatus: TaskStatus = isCollaborationReview || isDueDateReview ? "in_progress" : approved ? "in_progress" : "on_hold";
-      // 截止日期变更走与通知中心一致的 _review_action 路径：后端据 pending_review_type 派生状态、
-      // 通过时写入申请日期、清空 pending 字段，并标记待审核通知为已处理 + 通知提交人，
-      // 避免重复审核把任务误判为已完成。其余类型沿用既有显式 patch。
-      const reviewPatch = isCollaborationReview
-        ? {
-            status: nextStatus,
-            collaborators: approved ? task.pending_collaborators ?? [] : undefined,
-            pending_review_type: null,
-            pending_collaborators: [],
-            pending_collaboration_reason: null,
-            pending_collaboration_requested_at: null,
-          }
-        : isDueDateReview
-        ? {
-            _review_action: approved ? "approve" : "reject",
-            _reviewer_name: DIRECTOR_AUDIT_ACTOR.name,
-            ...(approved ? {} : { _reject_reason: "主管驳回截止日期变更" }),
-          }
-        : { status: nextStatus };
+      const meta = getReviewTypeMeta(task.pending_review_type);
+      if (!meta) {
+        toast.error("无法识别该任务的审核类型，请刷新后重试");
+        return;
+      }
+      // 自审（审核人＝提交人）：允许，但在留痕中标记，便于追溯。
+      const isSelfReview = !!DIRECTOR_AUDIT_ACTOR.id && DIRECTOR_AUDIT_ACTOR.id === task.owner_user_id;
       try {
-        await updateRdTask(task.task_id, reviewPatch as Parameters<typeof updateRdTask>[1]);
+        // 统一走后端 _review_action：通过/驳回后的状态、pending 落地与清空、待审核通知标记已处理、
+        // 通知提交人，全部由后端按 pending_review_type 唯一裁决；前端不再自行拼 status，避免类型错配。
+        await updateRdTask(task.task_id, {
+          _review_action: approved ? "approve" : "reject",
+          _reviewer_name: DIRECTOR_AUDIT_ACTOR.name,
+          ...(approved ? {} : { _reject_reason: `主管驳回${meta.label}` }),
+        } as Parameters<typeof updateRdTask>[1]);
         await recomputeRdDirectorDashboard().catch(() => {});
         recordAudit({
           actor: DIRECTOR_AUDIT_ACTOR,
-          action: approved ? "proposal.approved" : "proposal.rejected",
+          action: approved ? meta.approveAction : meta.rejectAction,
           resource: { type: "task", id: task.task_id, name: task.title },
           changes: [
-            { field: "status", before: task.status, after: nextStatus },
-            ...(isCollaborationReview
+            ...(meta.key === "due_date" && approved
+              ? [{ field: "due_date", before: task.due_date ?? "", after: task.pending_due_date ?? task.due_date ?? "" }]
+              : []),
+            ...(meta.key === "collaboration" && approved
               ? [{
                   field: "collaborators",
                   before: task.collaborators?.join("、") ?? "",
-                  after: approved ? (task.pending_collaborators ?? []).map((item) => item.name).join("、") : task.collaborators?.join("、") ?? "",
-                }]
-              : []),
-            ...(isDueDateReview && approved
-              ? [{
-                  field: "due_date",
-                  before: task.due_date ?? "",
-                  after: task.pending_due_date ?? task.due_date ?? "",
+                  after: (task.pending_collaborators ?? []).map((item) => item.name).join("、"),
                 }]
               : []),
           ],
-          comment: isCollaborationReview
-            ? approved ? "主管审核通过，协同人变更已生效" : "主管驳回协同人变更"
-            : isDueDateReview
-            ? approved ? "主管审核通过，截止日期变更已生效" : "主管驳回截止日期变更，保持原日期"
-            : approved ? "主管审核通过，任务进入执行" : "主管驳回审核，任务挂起待调整",
-          metadata: { task_id: task.task_id, category_path: task.category_path, pending_review_type: task.pending_review_type },
+          comment: `${approved ? "审核通过" : "驳回"}了${meta.label}${isSelfReview ? "（本人自审）" : ""}`,
+          metadata: {
+            task_id: task.task_id,
+            category_path: task.category_path,
+            pending_review_type: task.pending_review_type,
+            self_review: isSelfReview,
+          },
           source: "web",
         });
-        toast.success(
-          isCollaborationReview
-            ? approved ? "协作变更已生效" : "协作变更已驳回"
-            : isDueDateReview
-            ? approved ? "截止日期变更已生效" : "截止日期变更已驳回"
-            : approved ? "审核已通过" : "审核已驳回",
-        );
+        toast.success(`${meta.label}${approved ? "已通过" : "已驳回"}${isSelfReview ? "（自审）" : ""}`);
         setSelectedTask(null);
         reloadAll();
       } catch (err) {
@@ -3578,6 +3559,11 @@ export function RDDirectorDashboardPage() {
                                   <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
                                   {sCfg.label}
                                 </span>
+                                {task.status === "pending_review" && getReviewTypeMeta(task.pending_review_type) ? (
+                                  <span className={cn("mt-1 flex w-fit items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold", getReviewTypeMeta(task.pending_review_type)!.badgeClass)}>
+                                    {getReviewTypeMeta(task.pending_review_type)!.label}
+                                  </span>
+                                ) : null}
                               </td>
                               <td className="px-3 py-3">
                                 <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold", pCfg.bg, pCfg.text)}>

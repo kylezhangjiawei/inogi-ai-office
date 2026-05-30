@@ -905,10 +905,10 @@ function TaskOperationDrawer({
 
   const submitResult = () => {
     onRequestConfirm({
-      title: "确认提交审核",
-      message: `将把 ${task.task_id} 提交给上级审核。`,
+      title: "确认提交成果验收",
+      message: `将把 ${task.task_id} 提交上级进行成果验收。`,
       confirmLabel: "确认提交",
-      details: ["请确认交付物、风险说明和测试记录已补齐", "提交后会进入审核流转", "审核人会看到本次提交说明"],
+      details: ["请确认交付物、风险说明和测试记录已补齐", "进度将标记为 100%（待验收，非完成）", "验收通过后任务才标记完成；被驳回则退回继续"],
       onConfirm: async () => {
         await updateRdTask(task.task_id, { status: "pending_review", pending_review_type: "result", progress: 100 });
         recordAudit({
@@ -919,12 +919,12 @@ function TaskOperationDrawer({
             { field: "status", before: task.status, after: "pending_review" },
             { field: "progress", before: String(task.progress), after: "100" },
           ],
-          comment: "提交任务结果审核，进度自动置为 100%",
+          comment: "提交成果验收，进度标记为 100%（待验收，非完成）",
           metadata: { progress: 100 },
           source: "web",
         });
-        toast.success(`${task.task_id} 已提交结果审核`);
-        onLog(`${task.task_id} 已提交结果审核`);
+        toast.success(`${task.task_id} 已提交成果验收`);
+        onLog(`${task.task_id} 已提交成果验收`);
         window.dispatchEvent(new CustomEvent('rd:review-submitted'));
         await onSubmittedForReview(task.task_id, { progress: 100 });
         onClose();

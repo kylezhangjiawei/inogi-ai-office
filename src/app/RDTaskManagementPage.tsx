@@ -56,6 +56,7 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./comp
 import { usePermission } from "./hooks/usePermission";
 import { AuditTimeline } from "./RDAuditTimeline";
 import { AuditActor, AuditChange, recordAudit, useAuditActor, useAuditLogs } from "./lib/auditLog";
+import { getReviewTypeMeta } from "./lib/reviewTypes";
 import { PERMISSIONS, isSuperAdmin } from "./lib/permissions";
 import {
   backfillRdTaskCompletionScores,
@@ -4104,121 +4105,50 @@ function TaskDetailDrawer({
     setSubmitting(true);
     try {
       const isApprove = showApprovalDialog === "approve";
-      const isCollaborationReview = task.pending_review_type === "collaboration";
-      if (isCollaborationReview) {
-        const nextCollaborators = task.pending_collaborators ?? task.collaborators;
-        await updateRdTask(task.task_id, {
-          status: "in_progress",
-          collaborators: isApprove ? nextCollaborators : task.collaborators,
-          pending_review_type: null,
-          pending_collaborators: [],
-          pending_collaboration_reason: null,
-          pending_collaboration_requested_at: null,
-        });
-        recordAudit({
-          actor: RD_ADMIN_AUDIT_ACTOR,
-          action: "task.updated",
-          resource: { type: "task", id: task.task_id, name: task.title },
-          changes: [
-            { field: "status", before: task.status, after: "in_progress" },
-            {
-              field: "collaborators",
-              before: task.collaborators.map((item) => item.name).join("、"),
-              after: isApprove ? nextCollaborators.map((item) => item.name).join("、") : task.collaborators.map((item) => item.name).join("、"),
-            },
-          ],
-          comment: isApprove ? "协作变更审核通过" : `协作变更打回：${reason ?? ""}`,
-          source: "web",
-        });
-        toast.success(isApprove ? "协作变更已生效" : "协作变更已打回");
-        setShowApprovalDialog(null);
-        onClose();
+      const meta = getReviewTypeMeta(task.pending_review_type);
+      if (!meta) {
+        toast.error("无法识别该任务的审核类型，请刷新后重试");
         return;
       }
-      const isDueDateReview = task.pending_review_type === "due_date";
-      if (isDueDateReview) {
-        // 走与通知中心 / 消息中心一致的 _review_action 审核路径：后端据 pending_review_type
-        // 派生状态（截止日期变更 → 进行中）、通过时写入申请日期、清空 pending 字段，
-        // 同时把待审核通知标记为已处理并通知提交人，避免其他管理员重复审核导致任务被误判为已完成。
-        const requestedDue = task.pending_due_date ?? null;
-        await updateRdTask(task.task_id, {
-          _review_action: isApprove ? "approve" : "reject",
-          _reviewer_name: RD_ADMIN_AUDIT_ACTOR.name,
-          ...(isApprove ? {} : { _reject_reason: reason ?? "" }),
-        } as Parameters<typeof updateRdTask>[1]);
-        recordAudit({
-          actor: RD_ADMIN_AUDIT_ACTOR,
-          action: "task.updated",
-          resource: { type: "task", id: task.task_id, name: task.title },
-          changes: [
-            { field: "status", before: task.status, after: "in_progress" },
-            ...(isApprove && requestedDue
-              ? [{ field: "due_date", before: task.due_date ?? "", after: requestedDue }]
-              : []),
-          ],
-          comment: isApprove ? "截止日期变更审核通过" : `截止日期变更打回：${reason ?? ""}`,
-          source: "web",
-        });
-        toast.success(isApprove ? "截止日期变更已生效" : "截止日期变更已打回");
-        setShowApprovalDialog(null);
-        onClose();
-        return;
+      // 自审（审核人＝提交人）：允许，但在留痕中标记，便于追溯。
+      const isSelfReview = !!user?.id && task.primary_owner_user_id === user.id;
+      // 统一走后端 _review_action：通过/驳回后的状态、pending 落地与清空、待审核通知标记已处理、
+      // 通知提交人、成果通过触发 AI 复盘评分，全部由后端按 pending_review_type 唯一裁决。
+      // 前端不再自行拼 status / completed，杜绝"立项被误判完成"等类型错配。
+      await updateRdTask(task.task_id, {
+        _review_action: isApprove ? "approve" : "reject",
+        _reviewer_name: RD_ADMIN_AUDIT_ACTOR.name,
+        ...(isApprove ? {} : { _reject_reason: reason ?? `驳回${meta.label}` }),
+        // 驳回时若审核人调整了回退进度，一并带上（后端只裁决状态，progress 透传保留）
+        ...(!isApprove && typeof rollbackProgress === "number" ? { progress: rollbackProgress } : {}),
+      } as Parameters<typeof updateRdTask>[1]);
+      recordAudit({
+        actor: RD_ADMIN_AUDIT_ACTOR,
+        action: isApprove ? meta.approveAction : meta.rejectAction,
+        resource: { type: "task", id: task.task_id, name: task.title },
+        changes: [
+          ...(meta.key === "due_date" && isApprove
+            ? [{ field: "due_date", before: task.due_date ?? "", after: task.pending_due_date ?? task.due_date ?? "" }]
+            : []),
+          ...(meta.key === "collaboration" && isApprove
+            ? [{
+                field: "collaborators",
+                before: (task.collaborators ?? []).map((item) => item.name).join("、"),
+                after: (task.pending_collaborators ?? task.collaborators ?? []).map((item) => item.name).join("、"),
+              }]
+            : []),
+        ],
+        comment: `${isApprove ? "审核通过" : "驳回"}了${meta.label}${reason ? `：${reason}` : ""}${isSelfReview ? "（本人自审）" : ""}`,
+        metadata: { task_id: task.task_id, pending_review_type: task.pending_review_type, self_review: isSelfReview },
+        source: "web",
+      });
+      toast.success(`${meta.label}${isApprove ? "已通过" : "已驳回"}${isSelfReview ? "（自审）" : ""}`);
+      setShowApprovalDialog(null);
+      // 成果审核通过 → 任务进入已完成，通知父组件刷新完成态
+      if (isApprove && meta.key === "result") {
+        onTaskCompleted?.({ ...task, status: "completed", progress: 100 });
       }
-      if (isApprove) {
-        // 个人立项审核通过：任务正式立项并进入进行中，必须保留在发起人列表，
-        // 不能标记为已完成（否则会被工作台过滤而从发起人任务列表消失）。
-        const isProposalReview = task.pending_review_type === "proposal";
-        if (isProposalReview) {
-          await updateRdTask(task.task_id, { status: "in_progress", pending_review_type: null });
-          recordAudit({
-            actor: RD_ADMIN_AUDIT_ACTOR,
-            action: "task.updated",
-            resource: { type: "task", id: task.task_id, name: task.title },
-            changes: [
-              { field: "status", before: task.status, after: "in_progress" },
-            ],
-            comment: "立项审核通过，任务进入进行中",
-            source: "web",
-          });
-          toast.success("立项审核通过，任务已进入进行中");
-          setShowApprovalDialog(null);
-          onClose();
-        } else {
-          await updateRdTask(task.task_id, { status: "completed", progress: 100 });
-          recordAudit({
-            actor: RD_ADMIN_AUDIT_ACTOR,
-            action: "task.updated",
-            resource: { type: "task", id: task.task_id, name: task.title },
-            changes: [
-              { field: "status", before: task.status, after: "completed" },
-              { field: "progress", before: String(task.progress), after: "100" },
-            ],
-            comment: "审核通过，任务标记为已完成",
-            source: "web",
-          });
-          toast.success("审核通过，任务已完成");
-          setShowApprovalDialog(null);
-          onTaskCompleted?.(task);
-          onClose();
-        }
-      } else {
-        const rp = rollbackProgress ?? task.progress;
-        await updateRdTask(task.task_id, { status: "in_progress", progress: rp });
-        recordAudit({
-          actor: RD_ADMIN_AUDIT_ACTOR,
-          action: "task.updated",
-          resource: { type: "task", id: task.task_id, name: task.title },
-          changes: [
-            { field: "status", before: task.status, after: "in_progress" },
-            { field: "progress", before: String(task.progress), after: String(rp) },
-          ],
-          comment: `打回修改：${reason ?? ""}`,
-          source: "web",
-        });
-        toast.success("已打回，任务重新进入进行中");
-        setShowApprovalDialog(null);
-        onClose();
-      }
+      onClose();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "操作失败");
     } finally {
@@ -4456,6 +4386,15 @@ function TaskDetailDrawer({
               <div className="text-sm text-violet-700">规则未能自动匹配责任人，请组长手动指派。</div>
             </div>
           )}
+
+          {task.status === "pending_review" && getReviewTypeMeta(task.pending_review_type) ? (
+            <div className="flex items-center gap-2">
+              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${getReviewTypeMeta(task.pending_review_type)!.badgeClass}`}>
+                {getReviewTypeMeta(task.pending_review_type)!.label}审核
+              </span>
+              <span className="text-xs text-slate-400">该任务正在等待{getReviewTypeMeta(task.pending_review_type)!.label}审核</span>
+            </div>
+          ) : null}
 
           {task.pending_review_type === "collaboration" && (
             <div className="rounded-[8px] border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-700">
