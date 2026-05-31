@@ -57,6 +57,7 @@ import { usePermission } from "./hooks/usePermission";
 import { AuditTimeline } from "./RDAuditTimeline";
 import { AuditActor, AuditChange, recordAudit, useAuditActor, useAuditLogs } from "./lib/auditLog";
 import { getReviewTypeMeta } from "./lib/reviewTypes";
+import { taskOverdueDays, isTaskOverdue } from "./lib/taskDue";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -300,6 +301,11 @@ type Risk = {
 function getTaskRiskReason(task: Task): { type: Risk["type"]; reason: string } | null {
   if (task.archived || task.status === "completed") return null;
   const dleft = daysUntil(task.due_date);
+  // 待审核：申请者已提交，责任在审核侧；只有"逾期后才提交"才算其逾期（方案B）。按时提交不算风险。
+  if (task.status === "pending_review") {
+    const late = taskOverdueDays(task);
+    return late > 0 ? { type: "overdue", reason: `逾期提交 ${late} 天` } : null;
+  }
   if (dleft !== null && dleft < 0) return { type: "overdue", reason: `已逾期 ${-dleft} 天` };
   if (task.status === "paused_blocked") return { type: "blocked", reason: "阻塞中" };
   if (dleft !== null && dleft <= 2)
@@ -576,19 +582,28 @@ function RiskBanner({ risks, onOpen }: { risks: Risk[]; onOpen: (t: Task) => voi
 
 // ─── Task Row ─────────────────────────────────────────────────────────────────
 
-function DueDateChip({ dateStr }: { dateStr: string }) {
+function DueDateChip({ task }: { task: Task }) {
+  const dateStr = task.due_date;
+  if (!dateStr) return null;
   const dleft = daysUntil(dateStr);
   if (dleft === null) return null;
-  const tone =
-    dleft < 0
-      ? "bg-red-50 text-red-700 border-red-200"
+  const overdueDays = taskOverdueDays(task);
+  const isOverdue = overdueDays > 0;
+  // 过了截止日但不算逾期（如按时提交、正待审核的任务）→ 中性显示日期，不标红"逾期"（方案B）。
+  const tone = isOverdue
+    ? "bg-red-50 text-red-700 border-red-200"
+    : dleft < 0
+      ? "bg-slate-50 text-slate-600 border-slate-200"
       : dleft <= 2
         ? "bg-orange-50 text-orange-700 border-orange-200"
         : dleft <= 7
           ? "bg-amber-50 text-amber-800 border-amber-200"
           : "bg-slate-50 text-slate-600 border-slate-200";
-  const label =
-    dleft < 0 ? `逾期 ${-dleft}d` : dleft === 0 ? "今日" : dleft <= 7 ? `${dleft}天后` : dateStr.slice(5);
+  const label = isOverdue
+    ? `逾期 ${overdueDays}d`
+    : dleft < 0
+      ? dateStr.slice(5)
+      : dleft === 0 ? "今日" : dleft <= 7 ? `${dleft}天后` : dateStr.slice(5);
   return (
     <span className={cn("inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs font-semibold", tone)}>
       <TimerReset className="h-3 w-3" />
@@ -815,7 +830,7 @@ function TaskItem({
         <div className="w-16 shrink-0 text-right">
           {task.due_date ? (
             isHot || (dleft !== null && dleft < 0) ? (
-              <DueDateChip dateStr={task.due_date} />
+              <DueDateChip task={task} />
             ) : (
               <span className="text-xs font-medium text-slate-500">{task.due_date.slice(5)}</span>
             )
@@ -874,7 +889,7 @@ function taskDueMatches(task: Task, dueFilter: TaskDueFilter): boolean {
   const days = daysUntil(task.due_date);
   if (dueFilter === "no_due") return days === null;
   if (days === null) return false;
-  if (dueFilter === "overdue") return days < 0;
+  if (dueFilter === "overdue") return isTaskOverdue(task);
   if (dueFilter === "today") return days === 0;
   if (dueFilter === "3d") return days >= 0 && days <= 3;
   if (dueFilter === "7d") return days >= 0 && days <= 7;
@@ -1040,7 +1055,7 @@ function SubtaskRow({
         <div className="shrink-0 text-right">
           {task.due_date ? (
             isHot || (dleft !== null && dleft < 0) ? (
-              <DueDateChip dateStr={task.due_date} />
+              <DueDateChip task={task} />
             ) : (
               <span className="text-[11px] text-slate-500">{task.due_date.slice(5)}</span>
             )
@@ -1138,7 +1153,7 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
             </span>
             <span className="inline-flex items-center gap-1.5">
               <TimerReset className="h-3.5 w-3.5 text-slate-400" />
-              {task.due_date ? <DueDateChip dateStr={task.due_date} /> : <span className="font-medium text-slate-500">未设截止</span>}
+              {task.due_date ? <DueDateChip task={task} /> : <span className="font-medium text-slate-500">未设截止</span>}
             </span>
             {task.attachments > 0 && (
               <span className="inline-flex items-center gap-1 font-medium text-slate-500">
@@ -5708,6 +5723,8 @@ function UpcomingMilestonesSection({
   const allTasks = tasks ?? collectAllActiveTasks(scope);
   const upcoming = allTasks
     .filter((t) => t.due_date && t.status !== "completed")
+    // 按时提交、正待审核的任务不算"逾期/即将到期"，不进时间线（方案B）
+    .filter((t) => !(t.status === "pending_review" && !isTaskOverdue(t)))
     .map((t) => ({ task: t, dleft: daysUntil(t.due_date)! }))
     .filter((it) => it.dleft >= -7 && it.dleft <= 30) // include 1 week overdue too
     .sort((a, b) => a.dleft - b.dleft);

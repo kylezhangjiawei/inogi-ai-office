@@ -1239,7 +1239,19 @@ export class ResearchDevelopmentService {
             resolvedPatch = { ...resolvedPatch, collaborators: identityPatch.collaborators };
           }
 
-          const merged = { ...t, ...identityPatch, task_id: taskId, updated_at: new Date().toISOString() };
+          const nowIso = new Date().toISOString();
+          // 进入"待审核"的瞬间记录提交时间，供"逾期提交"判定（方案B）：
+          // 申请者按时提交则不算逾期；只有提交时间晚于截止日才算其逾期。仅在状态从非待审核切到待审核时记。
+          const enteringReview =
+            String((t as JsonRecord).status ?? '') !== 'pending_review' &&
+            String((identityPatch.status ?? (t as JsonRecord).status) ?? '') === 'pending_review';
+          const merged = {
+            ...t,
+            ...identityPatch,
+            task_id: taskId,
+            updated_at: nowIso,
+            ...(enteringReview ? { submitted_for_review_at: nowIso } : {}),
+          };
           return this.normalizeTaskIdentity(merged, identity.people, identity.users);
         }
         if (Array.isArray(t.subtasks)) {
@@ -1620,6 +1632,34 @@ export class ResearchDevelopmentService {
     all[idx] = { ...msg, ...patch };
     await this.writeValue('rd.messages', all);
     return all[idx];
+  }
+
+  /** 取用户在「人员管理」配置的知识库权限分值 kb_level（0-100，缺省 20）。 */
+  async getUserKbLevel(userId?: string | null): Promise<number> {
+    if (!userId) return 20;
+    const people = (await this.readArray('rd.people')).filter(isRecord);
+    const me = people.find((p) => cleanUserId(p.user_id ?? (p as JsonRecord).auth_user_id) === userId);
+    const raw = Number((me as JsonRecord | undefined)?.kb_level);
+    return Number.isFinite(raw) ? Math.max(0, Math.min(100, Math.round(raw))) : 20;
+  }
+
+  /**
+   * 解析知识库上传/入库应写入的权限分值（后端兜底，防止绕过前端置灰越权设置）：
+   * - KB 管理员（rd-kb:manage 或超管）：用其请求值（0-100，越界则交由下游默认）；
+   * - 研发成员：强制用其在「人员管理」配置的 kb_level，忽略前端传值。
+   */
+  async resolveKbPermissionLevel(
+    viewer: { userId?: string | null; permissions?: string[] },
+    requested?: number,
+  ): Promise<number | undefined> {
+    const perms = viewer.permissions ?? [];
+    const isKbManager = perms.includes('*') || perms.includes('rd-kb:manage');
+    if (isKbManager) {
+      return typeof requested === 'number' && Number.isFinite(requested) && requested >= 0 && requested <= 100
+        ? Math.round(requested)
+        : undefined;
+    }
+    return this.getUserKbLevel(viewer.userId);
   }
 
   async deleteTask(taskId: string) {
@@ -2802,6 +2842,7 @@ export class ResearchDevelopmentService {
       due_date: dueDate,
       status: cleanText(task.status) || 'in_progress',
       status_label: this.taskStatusLabel(task.status),
+      submitted_for_review_at: cleanText(task.submitted_for_review_at) || null,
       role,
       category_path: cleanText(task.category_path),
       owner: cleanText(task.primary_owner ?? task.owner),

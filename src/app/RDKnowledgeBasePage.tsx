@@ -70,7 +70,7 @@ import {
   moveKbEntry,
   uploadKbFiles,
   updateKbEntry,
-  fetchRdPeople,
+  fetchMyKbPermissionLevel,
   classifyKbFiles,
   recordKbView,
   repairKbFilenames,
@@ -1615,9 +1615,11 @@ interface UploadDialogProps {
   initialFiles?: File[];
   onClose: () => void;
   onUploaded: (entries: KbEntry[]) => void;
+  /** 是否允许手动调整权限分值：仅 KB 管理员/超管为 true；研发成员为 false（滑块置灰，锁定为其 kb_level）。 */
+  canSetPermissionLevel?: boolean;
 }
 
-function UploadDialog({ categories, initialFiles = [], onClose, onUploaded }: UploadDialogProps) {
+function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canSetPermissionLevel = false }: UploadDialogProps) {
   const { user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
@@ -1638,11 +1640,10 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded }: Up
   useEffect(() => {
     if (!user?.id) return;
     let cancelled = false;
-    fetchRdPeople()
-      .then((people) => {
+    fetchMyKbPermissionLevel()
+      .then((res) => {
         if (cancelled) return;
-        const me = people.find((p) => p.user_id === user.id);
-        const myKbLevel = typeof me?.kb_level === 'number' ? me.kb_level : null;
+        const myKbLevel = typeof res?.permission_level === 'number' ? res.permission_level : null;
         if (myKbLevel !== null && !permissionLevelTouched) {
           setPermissionLevel(Math.max(0, Math.min(100, Math.round(myKbLevel))));
         }
@@ -1937,7 +1938,9 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded }: Up
                 return (
                   <Slider
                     value={[permissionLevel]}
+                    disabled={!canSetPermissionLevel}
                     onValueChange={([v]) => {
+                      if (!canSetPermissionLevel) return;
                       setPermissionLevel(v ?? 0);
                       setPermissionLevelTouched(true);
                     }}
@@ -1947,6 +1950,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded }: Up
                     className={cn(
                       'w-full [&_[data-slot=slider-track]]:h-2 [&_[data-slot=slider-thumb]]:size-4',
                       cfg.sliderClass,
+                      !canSetPermissionLevel && 'cursor-not-allowed opacity-60',
                     )}
                   />
                 );
@@ -1960,8 +1964,10 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded }: Up
               <span>75</span>
               <span>100 · 绝密</span>
             </div>
-            <p className="text-[11px] text-slate-400 leading-relaxed">
-              仅用户知识库分值 ≥ 此值的成员方可查看。分值越高，访问限制越严格。
+            <p className="text-[11px] leading-relaxed text-slate-400">
+              {canSetPermissionLevel
+                ? "仅用户知识库分值 ≥ 此值的成员方可查看。分值越高，访问限制越严格。"
+                : "权限分值按你在「人员管理」中配置的等级自动设定，研发成员不可调整。"}
             </p>
           </div>
 
@@ -2764,6 +2770,7 @@ export function RDKnowledgeBasePage() {
           initialFiles={pendingUploadFiles}
           onClose={closeUploadDialog}
           onUploaded={handleUploaded}
+          canSetPermissionLevel={hasLegacyManage}
         />
       )}
 

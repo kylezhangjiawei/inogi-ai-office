@@ -40,6 +40,7 @@ import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
 import { AuditTimeline } from "./RDAuditTimeline";
 import { recordAudit, useAuditActor, useAuditLogs } from "./lib/auditLog";
 import { getReviewTypeMeta } from "./lib/reviewTypes";
+import { isTaskOverdue } from "./lib/taskDue";
 import { PERMISSIONS } from "./lib/permissions";
 import {
   clearRdAllTaskData,
@@ -127,6 +128,7 @@ type TaskDetail = {
   attachments?: number;
   collaborators?: string[];
   pending_review_type?: "collaboration" | "result" | "proposal" | "due_date" | string | null;
+  submitted_for_review_at?: string | null;
   pending_collaborators?: RdCollaborator[];
   pending_collaboration_reason?: string | null;
   pending_due_date?: string | null;
@@ -188,6 +190,7 @@ function rdTaskToDetail(task: RdTask, blocked?: BlockedTask): TaskDetail {
     pending_collaboration_reason: task.pending_collaboration_reason,
     pending_due_date: task.pending_due_date,
     pending_due_date_reason: task.pending_due_date_reason,
+    submitted_for_review_at: task.submitted_for_review_at,
     recent_activities: [],
   };
 }
@@ -301,12 +304,12 @@ function directorDaysUntil(dateStr?: string): number | null {
   return Math.round((target.getTime() - today.getTime()) / 86400000);
 }
 
-function directorDueMatches(task: { due_date?: string }, dueFilter: DirectorDueFilter) {
+function directorDueMatches(task: { due_date?: string; status?: string; submitted_for_review_at?: string | null }, dueFilter: DirectorDueFilter) {
   if (dueFilter === "all") return true;
   const days = directorDaysUntil(task.due_date);
   if (dueFilter === "no_due") return days === null;
+  if (dueFilter === "overdue") return isTaskOverdue(task);
   if (days === null) return false;
-  if (dueFilter === "overdue") return days < 0;
   if (dueFilter === "today") return days === 0;
   if (dueFilter === "3d") return days >= 0 && days <= 3;
   if (dueFilter === "7d") return days >= 0 && days <= 7;

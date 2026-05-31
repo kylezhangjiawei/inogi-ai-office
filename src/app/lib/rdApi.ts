@@ -88,6 +88,8 @@ export type RdTask = {
   primary_owner_user_id?: string | null;
   collaborators: RdCollaborator[];
   pending_review_type?: "collaboration" | "result" | "proposal" | "due_date" | string | null;
+  /** 进入"待审核"的时间戳（方案B 逾期判定）：与 due_date 比较，判断申请者是否逾期提交。 */
+  submitted_for_review_at?: string | null;
   pending_collaborators?: RdCollaborator[];
   pending_collaboration_reason?: string | null;
   pending_collaboration_requested_at?: string | null;
@@ -167,6 +169,8 @@ export type RdWorkspaceTask = {
   owner_user_id?: string | null;
   collaborators?: RdCollaborator[];
   pending_review_type?: "collaboration" | "result" | "proposal" | "due_date" | string | null;
+  /** 进入"待审核"的时间戳（方案B 逾期判定）。 */
+  submitted_for_review_at?: string | null;
   pending_collaborators?: RdCollaborator[];
   pending_collaboration_reason?: string | null;
   pending_due_date?: string | null;
@@ -492,6 +496,14 @@ export function saveRdDirectorDashboard(payload: RdDirectorDashboardPayload) {
 
 export function fetchRdPeople() {
   return requestJson<RdPersonLoad[]>("/people");
+}
+
+/**
+ * 取当前登录用户自己的知识库权限分值（kb_level）。
+ * 研发成员无权读取完整 /people 列表，故用此"只取自己"的端点作为上传弹窗默认值来源。
+ */
+export function fetchMyKbPermissionLevel() {
+  return requestJson<{ permission_level: number }>("/knowledge/my-permission-level");
 }
 
 export function fetchRdPeopleUserOptions() {

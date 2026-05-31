@@ -42,6 +42,7 @@ import { AuditTimeline } from "./RDAuditTimeline";
 import { ProgressNoteList } from "./RDProgressEvidence";
 import { AuditActor, recordAudit, useAuditActor, useAuditLogs } from "./lib/auditLog";
 import { PERMISSIONS } from "./lib/permissions";
+import { isTaskOverdue, taskOverdueDays } from "./lib/taskDue";
 import {
   assessRdTaskProgress,
   createRdTaskProgressNote,
@@ -153,7 +154,7 @@ function workspaceTaskMatches(
   if (status !== "all" && task.status !== status) return false;
   const days = workspaceDaysUntil(task.due_date);
   if (due === "no_due" && days !== null) return false;
-  if (due === "overdue" && (days === null || days >= 0)) return false;
+  if (due === "overdue" && !isTaskOverdue(task)) return false;
   if (due === "today" && days !== 0) return false;
   if (due === "3d" && (days === null || days < 0 || days > 3)) return false;
   if (due === "7d" && (days === null || days < 0 || days > 7)) return false;
@@ -690,61 +691,11 @@ function TaskOperationDrawer({
       toast.error("附件总大小不能超过 50MB");
       return;
     }
-    let assessmentForSave = aiAssessment;
-    let progressToSave = clampProgressValue(draftProgress);
+    // 纯保存：直接写入「人工确认进度」滑块的当前值，绝不再跑 AI 覆盖。AI 解析请点「AI 解析」按钮。
+    const assessmentForSave = aiAssessment;
+    const progressToSave = clampProgressValue(draftProgress);
     const hasNote = note.trim().length > 0;
     const hasFiles = noteAttachments.length > 0;
-    if (hasNote || hasFiles) {
-      setAiLoading(true);
-      setReceipt(null);
-      try {
-        const result: RdAiProgressAssessment = await assessRdTaskProgress({
-          text: hasNote ? note.trim() : undefined,
-          files: hasFiles ? noteAttachments : undefined,
-          task: {
-            task_id: task.task_id,
-            title: task.title,
-            description: task.description,
-            category_path: task.category_path,
-            current_progress: task.progress,
-            current_status: task.status_label,
-          },
-        });
-        assessmentForSave = {
-          progress: result.progress,
-          stage: result.stage,
-          confidence: result.confidence,
-          basis: result.basis,
-          recommendation: result.recommendation,
-        };
-        setAiAssessment(assessmentForSave);
-        // AI 判断完直接采用结果替换滑块进度；人工觉得不对，可在确认框取消后重新拖动滑块再保存
-        progressToSave = clampProgressValue(result.progress);
-        setDraftProgress(progressToSave);
-        recordAudit({
-          actor: WORKSPACE_AUDIT_ACTOR,
-          action: "ai.parse_triggered",
-          resource: { type: "task", id: task.task_id, name: task.title },
-          comment: "AI 综合进展说明与附件判断当前任务进度",
-          metadata: {
-            confidence: assessmentForSave.confidence,
-            stage: assessmentForSave.stage,
-            provider: result.provider,
-            model: result.model,
-            source: result.source,
-            note_attachment_count: noteAttachments.length,
-            has_note_text: hasNote,
-          },
-          source: "ai",
-        });
-      } catch (err) {
-        const message = err instanceof Error ? err.message : "AI 进度判断失败";
-        toast.error(`AI 解析失败：${message}`);
-        return;
-      } finally {
-        setAiLoading(false);
-      }
-    }
     const source = assessmentForSave && assessmentForSave.progress === progressToSave ? "AI 判断" : "人工设置";
     const evidenceText = hasFiles ? `，依据 ${noteAttachments.length} 个上传文件` : "";
     const message = `${task.task_id} 已通过${source}更新到 ${progressToSave}%${evidenceText}`;
@@ -801,14 +752,30 @@ function TaskOperationDrawer({
   };
 
   // 综合文本与附件触发一次 AI 判断；附件变更和保存时复用
-  const runProgressAiAssessment = async (filesForAi: File[], textForAi: string): Promise<void> => {
-    if (filesForAi.length === 0 && !textForAi.trim()) return;
+  // 「AI 解析」按钮：综合进展说明 + 附件跑一次 AI → 弹窗展示结果 → 人工确认后仅把进度
+  // 回显到进度条（不保存）；AI 分析本身记入操作留痕。是否采用、最终存多少，由人在进度条上拍板。
+  const aiParseProgress = async () => {
+    const hasNote = note.trim().length > 0;
+    const hasFiles = noteAttachments.length > 0;
+    if (!hasNote && !hasFiles) {
+      toast.error("请先填写进展说明或上传附件，再用 AI 解析");
+      return;
+    }
+    const oversized = noteAttachments.find((file) => file.size > NOTE_ATTACHMENT_MAX_FILE_BYTES);
+    if (oversized) {
+      toast.error(`${oversized.name} 超过单文件 25MB 限制`);
+      return;
+    }
+    if (noteAttachments.reduce((sum, file) => sum + file.size, 0) > NOTE_ATTACHMENT_MAX_TOTAL_BYTES) {
+      toast.error("附件总大小不能超过 50MB");
+      return;
+    }
     setAiLoading(true);
     setReceipt(null);
     try {
       const result: RdAiProgressAssessment = await assessRdTaskProgress({
-        files: filesForAi.length > 0 ? filesForAi : undefined,
-        text: textForAi.trim() ? textForAi.trim() : undefined,
+        files: hasFiles ? noteAttachments : undefined,
+        text: hasNote ? note.trim() : undefined,
         task: {
           task_id: task.task_id,
           title: task.title,
@@ -826,8 +793,7 @@ function TaskOperationDrawer({
         recommendation: result.recommendation,
       };
       setAiAssessment(assessment);
-      // AI 判断完直接采用结果替换滑块进度；人工觉得不对可重新拖动滑块
-      setDraftProgress(clampProgressValue(assessment.progress));
+      // AI 分析记入留痕（无论最终是否采用，AI 确实跑过）
       recordAudit({
         actor: WORKSPACE_AUDIT_ACTOR,
         action: "ai.parse_triggered",
@@ -839,10 +805,23 @@ function TaskOperationDrawer({
           provider: result.provider,
           model: result.model,
           source: result.source,
-          file_count: filesForAi.length,
-          has_note_text: textForAi.trim().length > 0,
+          note_attachment_count: noteAttachments.length,
+          has_note_text: hasNote,
         },
         source: "ai",
+      });
+      const aiProgress = clampProgressValue(assessment.progress);
+      onRequestConfirm({
+        title: "AI 解析结果",
+        message: `AI 判断当前进度为 ${aiProgress}%（阶段：${assessment.stage} · 置信度 ${assessment.confidence}%）。`,
+        confirmLabel: "回显到进度条",
+        details: [
+          assessment.recommendation ? `AI 建议：${assessment.recommendation}` : "",
+          "确认后只把该进度填入下方进度条，你可再手动微调；点「保存进度」才真正写入。",
+        ].filter(Boolean),
+        onConfirm: () => {
+          setDraftProgress(aiProgress);
+        },
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "AI 进度判断失败";
@@ -1376,14 +1355,12 @@ function TaskOperationDrawer({
                       }
                       setNoteAttachments(merged);
                       event.target.value = "";
-                      // 附件变更后立即触发 AI 判断（用当前所有附件 + 文本）
-                      void runProgressAiAssessment(merged, note);
                     }}
                   />
                 </label>
               </div>
               {noteAttachments.length === 0 ? (
-                <p className="mt-2 text-[11px] text-slate-400">最多 5 个，单文件 25MB 以内，总计不超过 50MB。上传后 AI 会自动读取并给出进度建议。</p>
+                <p className="mt-2 text-[11px] text-slate-400">最多 5 个，单文件 25MB 以内，总计不超过 50MB。填写说明 / 上传附件后，点「AI 解析」让 AI 给出进度建议。</p>
               ) : (
                 <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
                   {noteAttachments.map((file, idx) => (
@@ -1399,12 +1376,8 @@ function TaskOperationDrawer({
                         onClick={() => {
                           const next = noteAttachments.filter((_, i) => i !== idx);
                           setNoteAttachments(next);
-                          // 附件减少后重新触发一次 AI（如果还有剩余依据）
-                          if (next.length > 0 || note.trim()) {
-                            void runProgressAiAssessment(next, note);
-                          } else {
-                            setAiAssessment(null);
-                          }
+                          // 证据全部移除则清空 AI 建议；AI 解析改为显式点「AI 解析」按钮触发
+                          if (next.length === 0 && !note.trim()) setAiAssessment(null);
                         }}
                         className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
                         aria-label="移除附件"
@@ -1419,9 +1392,13 @@ function TaskOperationDrawer({
 
             <div className="flex items-center justify-end gap-2">
               <ActionButton onClick={onClose} disabled={savingNote}>取消</ActionButton>
+              <ActionButton onClick={aiParseProgress} disabled={savingNote || aiLoading}>
+                {aiLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                {aiLoading ? "AI 解析中…" : "AI 解析"}
+              </ActionButton>
               <ActionButton onClick={submitProgress} variant="primary" disabled={savingNote || aiLoading}>
-                {savingNote || aiLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-                {aiLoading ? "AI 判断中…" : savingNote ? "保存中…" : "保存进度"}
+                {savingNote ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                {savingNote ? "保存中…" : "保存进度"}
               </ActionButton>
             </div>
           </div>
@@ -2038,7 +2015,7 @@ function WorkspaceTaskCard({
   const sCfg = WS_STATUS_CONFIG[task.status] ?? WS_STATUS_CONFIG.draft!;
   const pCfg = WS_PRIORITY_CONFIG[task.priority] ?? WS_PRIORITY_CONFIG.medium!;
   const days = workspaceDaysUntil(task.due_date);
-  const isOverdue = days !== null && days < 0;
+  const isOverdue = isTaskOverdue(task);
   // 待审核任务默认置灰且不可点击：等待管理员审核期间不允许成员进入操作详情。
   const isPendingReview = task.status === "pending_review";
 
@@ -2105,7 +2082,7 @@ function WorkspaceTaskCard({
             {task.due_date && (
               <span className={cn("flex items-center gap-0.5", isOverdue && "text-red-400 font-semibold")}>
                 <CalendarClock className="h-2.5 w-2.5 shrink-0" />
-                {isOverdue ? `逾期 ${Math.abs(days!)} 天` : days === 0 ? "今天到期" : `止 ${task.due_date}`}
+                {isOverdue ? `逾期 ${taskOverdueDays(task)} 天` : days === 0 ? "今天到期" : `止 ${task.due_date}`}
               </span>
             )}
             {task.category_path && (
@@ -2255,7 +2232,7 @@ export function RDMyWorkspacePage() {
       allTasks.reduce(
         (stats, task) => {
           const days = workspaceDaysUntil(task.due_date);
-          if (days !== null && days < 0) stats.overdue += 1;
+          if (isTaskOverdue(task)) stats.overdue += 1;
           if (days === 0) stats.today += 1;
           return stats;
         },

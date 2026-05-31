@@ -406,6 +406,7 @@ export class ResearchDevelopmentController {
   // ── Knowledge Base ────────────────────────────────────────────────────────
 
   @Get('knowledge/categories')
+  @Permissions(...RD_READ_PERMISSIONS, 'page:rd-knowledge-base', 'rd-kb:upload')
   getKnowledgeCategories() {
     return this.rdService.getKnowledgeCategories();
   }
@@ -440,6 +441,7 @@ export class ResearchDevelopmentController {
   }
 
   @Get('knowledge/entries')
+  @Permissions(...RD_READ_PERMISSIONS, 'page:rd-knowledge-base', 'rd-kb:upload')
   getKnowledgeEntries(
     @Query('category_id') categoryId?: string,
     @Query('keyword') keyword?: string,
@@ -487,6 +489,17 @@ export class ResearchDevelopmentController {
   }
 
   /**
+   * 返回当前登录用户在「人员管理」中配置的知识库权限分值（kb_level）。
+   * 上传弹窗用它作为权限分值默认值：研发成员无权读取完整人员列表，
+   * 故单独暴露"只取自己"的轻量端点（门控与上传一致）。
+   */
+  @Get('knowledge/my-permission-level')
+  @Permissions('rd-kb:upload', 'rd-task:create')
+  async getMyKbPermissionLevel(@Request() req: AuthedRequest) {
+    return { permission_level: await this.rdService.getUserKbLevel(req.user?.id) };
+  }
+
+  /**
    * Step 2 of browser-direct-upload flow.
    * Called after the browser has already PUT files directly to OSS.
    * Creates KB entries pointing to the OSS object keys (no file transfer through server).
@@ -504,9 +517,11 @@ export class ResearchDevelopmentController {
     },
     @Request() req: AuthedRequest,
   ) {
-    const permissionLevel = (Number.isFinite(body.permission_level) && body.permission_level! >= 0 && body.permission_level! <= 100)
-      ? Math.round(body.permission_level!)
-      : undefined;
+    // 后端兜底：研发成员强制用其在「人员管理」配置的 kb_level，忽略前端传值（仅 KB 管理员采用请求值）
+    const permissionLevel = await this.rdService.resolveKbPermissionLevel(
+      { userId: req.user?.id, permissions: req.user?.permissions },
+      body.permission_level,
+    );
     return Promise.all((body.oss_files ?? []).map(async (f) => {
       const ext = f.filename.includes('.') ? f.filename.split('.').pop()!.toLowerCase() : '';
       // Generate a long-lived signed GET URL (30 days) for this object
@@ -543,13 +558,15 @@ export class ResearchDevelopmentController {
       permission_level?: string;
       external_url?: string;
     },
-    @Request() req: { user?: { id?: string; name?: string } },
+    @Request() req: AuthedRequest,
   ) {
     const uploadedFiles = files ?? [];
     const parsedPermissionLevel = body.permission_level ? Number(body.permission_level) : undefined;
-    const permissionLevel = (Number.isFinite(parsedPermissionLevel) && parsedPermissionLevel! >= 0 && parsedPermissionLevel! <= 100)
-      ? Math.round(parsedPermissionLevel!)
-      : undefined;
+    // 后端兜底：研发成员强制用其 kb_level，忽略前端传值
+    const permissionLevel = await this.rdService.resolveKbPermissionLevel(
+      { userId: req.user?.id, permissions: req.user?.permissions },
+      parsedPermissionLevel,
+    );
     if (uploadedFiles.length > 0) {
       // Multi-file upload: upload to OSS then create one entry per file
       return Promise.all(uploadedFiles.map(async (f) => {
@@ -599,6 +616,7 @@ export class ResearchDevelopmentController {
 
   /** Fetch a single KB entry including its data_url (needed for download of base64 files). */
   @Get('knowledge/entries/:id')
+  @Permissions(...RD_READ_PERMISSIONS, 'page:rd-knowledge-base', 'rd-kb:upload')
   async getKnowledgeEntry(@Param('id') id: string) {
     const entry = await this.rdService.getKnowledgeEntryById(id);
     if (!entry) throw new NotFoundException('条目不存在');
@@ -610,7 +628,14 @@ export class ResearchDevelopmentController {
   updateKnowledgeEntry(
     @Param('id') id: string,
     @Body() body: Partial<{ title: string; description: string; category_id: string; tags: string[]; visibility: string; permission_level: number; archived: boolean }>,
+    @Request() req: AuthedRequest,
   ) {
+    const perms = req.user?.permissions ?? [];
+    const isKbManager = perms.includes('*') || perms.includes('rd-kb:manage');
+    // 后端兜底：非 KB 管理员不得修改权限分值，剔除该字段以保持原值（防止经编辑接口绕过上传置灰）
+    if (!isKbManager && body.permission_level !== undefined) {
+      delete body.permission_level;
+    }
     return this.rdService.updateKnowledgeEntry(id, body);
   }
 
