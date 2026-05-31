@@ -57,6 +57,16 @@ import { usePermission } from "./hooks/usePermission";
 import { AuditTimeline } from "./RDAuditTimeline";
 import { AuditActor, AuditChange, recordAudit, useAuditActor, useAuditLogs } from "./lib/auditLog";
 import { getReviewTypeMeta } from "./lib/reviewTypes";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "./components/ui/alert-dialog";
 import { PERMISSIONS, isSuperAdmin } from "./lib/permissions";
 import {
   backfillRdTaskCompletionScores,
@@ -68,6 +78,7 @@ import {
   fetchRdTaskCompletionScoreDebug,
   fetchRdTaskProgressNotes,
   createRdTask,
+  deleteRdTask,
   extractRdTasksFromFile,
   extractRdTasksFromText,
   saveRdTaskCategories,
@@ -6988,6 +6999,8 @@ function PersonTaskCockpit({
   onSelectPerson,
   canReassign,
   onReassignTask,
+  canDelete,
+  onDeleteTask,
   kpiFilter = "all",
   onClearKpiFilter,
 }: {
@@ -6998,6 +7011,8 @@ function PersonTaskCockpit({
   onSelectPerson: (name: string) => void;
   canReassign?: boolean;
   onReassignTask?: (task: Task) => void;
+  canDelete?: boolean;
+  onDeleteTask?: (task: Task) => void;
   kpiFilter?: KpiFilter;
   onClearKpiFilter?: () => void;
 }) {
@@ -7415,15 +7430,30 @@ function PersonTaskCockpit({
                 </div>
               )}
 
-              {canReassign && onReassignTask && task.status !== "completed" && (
-                <button
-                  type="button"
-                  onClick={(e) => { e.stopPropagation(); onReassignTask(task); }}
-                  className="ml-auto inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
-                >
-                  <UserCog className="h-3 w-3" />
-                  转派
-                </button>
+              {((canReassign && onReassignTask && task.status !== "completed") || (canDelete && onDeleteTask)) && (
+                <div className="ml-auto flex items-center gap-2">
+                  {canReassign && onReassignTask && task.status !== "completed" && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onReassignTask(task); }}
+                      className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+                    >
+                      <UserCog className="h-3 w-3" />
+                      转派
+                    </button>
+                  )}
+                  {canDelete && onDeleteTask && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onDeleteTask(task); }}
+                      title="删除任务（不可恢复）"
+                      className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-500 transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-600"
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      删除
+                    </button>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -8474,6 +8504,8 @@ function ExecutiveOverview({
   canClearData,
   canDirectProject,
   onReassignTask,
+  canDelete,
+  onDeleteTask,
   onManageProducts,
   canManageProducts,
 }: {
@@ -8498,6 +8530,8 @@ function ExecutiveOverview({
   canClearData?: boolean;
   canDirectProject?: boolean;
   onReassignTask?: (t: Task) => void;
+  canDelete?: boolean;
+  onDeleteTask?: (t: Task) => void;
   onManageProducts?: () => void;
   canManageProducts?: boolean;
 }) {
@@ -8690,6 +8724,8 @@ function ExecutiveOverview({
               onSelectPerson={onSelectPerson}
               canReassign={canReassign}
               onReassignTask={onReassignTask}
+              canDelete={canDelete}
+              onDeleteTask={onDeleteTask}
               kpiFilter={kpiFilter}
               onClearKpiFilter={() => setKpiFilter("all")}
             />
@@ -9098,11 +9134,13 @@ export function RDTaskManagementPage() {
   const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
   const canReassignTasks = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
   const canClearData = usePermission(PERMISSIONS.RD_DATA_CLEAR);
+  const canDeleteTasks = usePermission(PERMISSIONS.RD_TASK_EDIT);
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
   const RD_ADMIN_AUDIT_ACTOR = useAuditActor("研发管理员");
   const [showCreate, setShowCreate] = useState(false);
   const [showReassign, setShowReassign] = useState(false);
   const [reassignTaskId, setReassignTaskId] = useState<string | null>(null);
+  const [deleteTaskTarget, setDeleteTaskTarget] = useState<Task | null>(null);
   const [showClearData, setShowClearData] = useState(false);
   const [showProposalDialog, setShowProposalDialog] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -9485,9 +9523,53 @@ export function RDTaskManagementPage() {
           canClearData={canClearData}
           canDirectProject={canDirectProject}
           onReassignTask={(task) => { setReassignTaskId(task.task_id); setShowReassign(true); }}
+          canDelete={canDeleteTasks}
+          onDeleteTask={(task) => setDeleteTaskTarget(task)}
           onManageProducts={canCreateTask ? () => setShowProductManage(true) : undefined}
           canManageProducts={canCreateTask}
         />
+        <AlertDialog open={!!deleteTaskTarget} onOpenChange={(open) => { if (!open) setDeleteTaskTarget(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>删除任务？</AlertDialogTitle>
+              <AlertDialogDescription>
+                确认删除「{deleteTaskTarget?.title}」？该操作不可恢复
+                {(deleteTaskTarget?.subtasks?.length ?? 0) > 0
+                  ? `，且会一并删除其 ${deleteTaskTarget?.subtasks?.length} 个子任务`
+                  : ""}
+                。
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>取消</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-red-600 text-white hover:bg-red-700 focus:ring-red-600"
+                onClick={async () => {
+                  const target = deleteTaskTarget;
+                  if (!target) return;
+                  try {
+                    await deleteRdTask(target.task_id);
+                    recordAudit({
+                      actor: RD_ADMIN_AUDIT_ACTOR,
+                      action: "task.edited",
+                      resource: { type: "task", id: target.task_id, name: target.title },
+                      comment: "从研发任务驾驶舱删除任务",
+                      source: "web",
+                    });
+                    toast.success("任务已删除");
+                    loadCategories();
+                  } catch (err) {
+                    toast.error(err instanceof Error ? err.message : "删除失败");
+                  } finally {
+                    setDeleteTaskTarget(null);
+                  }
+                }}
+              >
+                确认删除
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
         <AnimatePresence>
           {selectedTask && (
             <TaskDetailDrawer

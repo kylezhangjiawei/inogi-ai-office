@@ -1625,10 +1625,17 @@ export class ResearchDevelopmentService {
   async deleteTask(taskId: string) {
     const categories = await this.readNormalizedTaskCategories();
     let found = false;
+    // 记录被删除的全部 task_id（含子任务），用于连带清理其待审核通知
+    const removedTaskIds: string[] = [];
+    const collectIds = (t: JsonRecord): void => {
+      const id = cleanText(t.task_id);
+      if (id) removedTaskIds.push(id);
+      asArray(t.subtasks).forEach((s) => { if (isRecord(s)) collectIds(s); });
+    };
 
     function deleteFromTasks(tasks: unknown[]): unknown[] {
       const filtered = tasks.filter((t) => {
-        if (isRecord(t) && t.task_id === taskId) { found = true; return false; }
+        if (isRecord(t) && t.task_id === taskId) { found = true; collectIds(t); return false; }
         return true;
       });
       return filtered.map((t) => {
@@ -1650,6 +1657,15 @@ export class ResearchDevelopmentService {
 
     if (!found) throw new NotFoundException('任务不存在');
     await this.writeValue('rd.taskCategories', updated);
+    // 连带清理：删除任务（含子任务）后，把它们关联的"待审核"通知标记为已处理，
+    // 避免管理员收件箱残留指向已删任务的孤儿待审核卡片（清理立项脏数据时常见）。
+    for (const removedId of removedTaskIds) {
+      try {
+        await this.markReviewRequestMessagesHandled(removedId, '');
+      } catch {
+        // best-effort：任务已删除成功，通知清理失败不应阻断本次删除
+      }
+    }
     await this.recomputeDirectorDashboard();
     return { ok: true };
   }
