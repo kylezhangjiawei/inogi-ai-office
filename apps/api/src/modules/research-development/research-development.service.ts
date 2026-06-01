@@ -2538,14 +2538,28 @@ export class ResearchDevelopmentService {
     const updateTasks = (tasks: unknown[]): unknown[] =>
       tasks.map((task) => {
         if (!isRecord(task)) return task;
-        const progressAttachmentCount = attachmentCounts.get(String(task.task_id ?? '')) ?? 0;
+        const taskKey = String(task.task_id ?? '');
+        const progressAttachmentCount = attachmentCounts.get(taskKey) ?? 0;
         const existing = typeof task.attachments === 'number' ? task.attachments : 0;
-        const latestProgressSummary = this.normalizeLatestProgressSummary(latestNotes.get(String(task.task_id ?? '')));
-        const { latest_progress_summary: _latestProgressSummary, ...taskWithoutLatestSummary } = task;
+        const latestNote = latestNotes.get(taskKey);
+        const latestProgressSummary = this.normalizeLatestProgressSummary(latestNote);
+        // 「最后活动时间」= max(任务字段更新时间, 最新进度留痕时间)。进度留痕写入独立存储、
+        // 不刷新 task.updated_at；若列表仅按 updated_at 排序，会让刚写留痕的任务沉底，而卡片
+        // 又按留痕时间显示「N 分钟前」——两套口径打架就会出现逆序。这里统一派生一个口径供
+        // 排序与显示共用（派生值不入库、随读取实时计算，历史数据自动生效）。
+        const noteTime = latestNote && typeof latestNote.created_at === 'string' ? latestNote.created_at : '';
+        const updatedAt = typeof task.updated_at === 'string' ? task.updated_at : '';
+        const lastActivityAt = noteTime > updatedAt ? noteTime : updatedAt;
+        const {
+          latest_progress_summary: _latestProgressSummary,
+          last_activity_at: _lastActivityAt,
+          ...taskRest
+        } = task;
         return {
-          ...taskWithoutLatestSummary,
+          ...taskRest,
           attachments: Math.max(existing, progressAttachmentCount),
           ...(latestProgressSummary ? { latest_progress_summary: latestProgressSummary } : {}),
+          ...(lastActivityAt ? { last_activity_at: lastActivityAt } : {}),
           subtasks: Array.isArray(task.subtasks) ? updateTasks(task.subtasks) : task.subtasks,
         };
       });
@@ -3874,6 +3888,34 @@ export class ResearchDevelopmentService {
   async clearAuditLogs() {
     await this.writeValue('rd.auditLogs', []);
     return { ok: true };
+  }
+
+  /**
+   * 给某条操作留痕追加一条「备注」。备注内嵌在该留痕记录的 notes 数组里，
+   * 随留痕一起持久化、一起被 MAX_AUDIT_LOGS 滚动淘汰，做到「跟着留痕走」。
+   */
+  async addAuditLogNote(logId: string, payload: JsonRecord) {
+    const text = typeof payload.text === 'string' ? payload.text.trim() : '';
+    if (!text) throw new BadRequestException('备注内容不能为空');
+    if (text.length > 200) throw new BadRequestException('备注内容过长（上限 200 字符）');
+
+    const logs = await this.readArray('rd.auditLogs');
+    const idx = logs.findIndex((log) => isRecord(log) && log.id === logId);
+    if (idx === -1) throw new NotFoundException('操作留痕记录不存在');
+
+    const log = logs[idx] as JsonRecord;
+    const actor = isRecord(payload.actor) ? payload.actor : {};
+    const note: JsonRecord = {
+      id: `rd-log-note-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      text,
+      actor,
+      created_at: new Date().toISOString(),
+    };
+    const existing = Array.isArray(log.notes) ? log.notes : [];
+    const updated: JsonRecord = { ...log, notes: [...existing, note] };
+    logs[idx] = updated;
+    await this.writeValue('rd.auditLogs', logs);
+    return updated;
   }
 
   async getAiSettings() {

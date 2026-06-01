@@ -111,6 +111,8 @@ export type RdTask = {
   latest_progress_summary?: RdLatestProgressSummary | null;
   subtasks?: RdTask[];
   updated_at?: string;
+  /** 后端派生：max(updated_at, 最新进度留痕时间)。排序与「最近更新」显示共用此口径，避免逆序。 */
+  last_activity_at?: string;
 };
 
 export type RdSubProject = { id: string; label: string; tasks: RdTask[] };
@@ -589,6 +591,14 @@ export function createRdAuditLog<TLog>(payload: Omit<TLog, "id" | "timestamp"> |
 export function clearRdAuditLogs() {
   return requestJson<{ ok: true }>("/audit-logs", {
     method: "DELETE",
+  });
+}
+
+/** 给某条操作留痕追加一条备注（仅研发管理员）。返回更新后的留痕记录。 */
+export function addRdAuditLogNote<TLog>(logId: string, payload: { text: string; actor: unknown }) {
+  return requestJson<TLog>(`/audit-logs/${encodeURIComponent(logId)}/notes`, {
+    method: "POST",
+    body: JSON.stringify(payload),
   });
 }
 

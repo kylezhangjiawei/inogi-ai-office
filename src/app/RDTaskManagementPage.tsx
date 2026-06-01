@@ -55,7 +55,7 @@ import { useAuth } from "./auth";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./components/ui/tooltip";
 import { usePermission } from "./hooks/usePermission";
 import { AuditTimeline } from "./RDAuditTimeline";
-import { AuditActor, AuditChange, recordAudit, useAuditActor, useAuditLogs } from "./lib/auditLog";
+import { addAuditLogNote, AuditActor, AuditChange, recordAudit, useAuditActor, useAuditLogs } from "./lib/auditLog";
 import { getReviewTypeMeta } from "./lib/reviewTypes";
 import { taskOverdueDays, isTaskOverdue } from "./lib/taskDue";
 import {
@@ -108,7 +108,7 @@ import {
   type RdProductStatus,
   getAttachmentUrl,
 } from "./lib/rdApi";
-import { ProgressAttachmentGrid, ProgressNoteList } from "./RDProgressEvidence";
+import { ProgressAttachmentGrid } from "./RDProgressEvidence";
 import {
   computeTaskCompletionScore,
   getGradeTone,
@@ -3976,6 +3976,46 @@ function TaskDetailDrawer({
   const taskLogs = useAuditLogs({ resourceType: "task", resourceId: task.task_id });
   const [progressNotes, setProgressNotes] = useState<RdTaskProgressNote[]>([]);
   const [progressNotesLoading, setProgressNotesLoading] = useState(false);
+  // 进度留痕已并入操作留痕：把每条「更新了任务进度」的留痕附件挂到对应的操作记录下。
+  // 关联优先用 metadata.note_id（新数据精确）；老数据回退「同进度值 + 2 分钟内」启发式，并保证一条留痕只挂一处。
+  const logNoteMatches = useMemo(() => {
+    const map = new Map<string, RdTaskProgressNote>();
+    const used = new Set<string>();
+    const progressLogs = taskLogs.filter((log) => log.action === "task.progress_updated");
+    for (const log of progressLogs) {
+      const noteId = typeof log.metadata?.note_id === "string" ? log.metadata.note_id : "";
+      if (!noteId) continue;
+      const note = progressNotes.find((n) => n.id === noteId);
+      if (note && !used.has(note.id)) {
+        map.set(log.id, note);
+        used.add(note.id);
+      }
+    }
+    for (const log of progressLogs) {
+      if (map.has(log.id)) continue;
+      const after = log.changes?.find((c) => c.field === "progress")?.after;
+      const logTime = new Date(log.timestamp).getTime();
+      let best: RdTaskProgressNote | undefined;
+      let bestDelta = Infinity;
+      for (const note of progressNotes) {
+        if (used.has(note.id)) continue;
+        if (typeof after === "number" && typeof note.progress === "number" && note.progress !== after) continue;
+        const delta = Math.abs(new Date(note.created_at).getTime() - logTime);
+        if (delta > 120_000 || delta >= bestDelta) continue;
+        best = note;
+        bestDelta = delta;
+      }
+      if (best) {
+        map.set(log.id, best);
+        used.add(best.id);
+      }
+    }
+    return map;
+  }, [taskLogs, progressNotes]);
+  const taskAttachmentTotal = useMemo(
+    () => progressNotes.reduce((sum, note) => sum + note.attachments.length, 0),
+    [progressNotes],
+  );
   const canManageTaskFlow = canDirectProject || canReviewProjectL1 || canReviewProjectL2 || canManagePeople || canReassignTasks;
   const userIdentityKeys = new Set([
     normalizeIdentity(user?.name),
@@ -4389,27 +4429,28 @@ function TaskDetailDrawer({
 
           <div>
             <div className="mb-2 flex items-center justify-between">
-              <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">进度留痕附件</div>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
-                {progressNotesLoading ? "加载中" : `${progressNotes.reduce((sum, note) => sum + note.attachments.length, 0)} 个附件`}
-              </span>
-            </div>
-            <ProgressNoteList
-              notes={progressNotes}
-              loading={progressNotesLoading}
-              emptyText="暂无进度留痕附件"
-              compact
-            />
-          </div>
-
-          <div>
-            <div className="mb-2 flex items-center justify-between">
               <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">操作留痕</div>
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
-                {taskLogs.length} 条
+                {taskLogs.length} 条{taskAttachmentTotal > 0 ? ` · ${taskAttachmentTotal} 个附件` : ""}
               </span>
             </div>
-            <AuditTimeline logs={taskLogs} showResource={false} emptyText="暂无此任务的操作记录" />
+            {/* 固定高度 + 内部滚动：留痕较多时不再撑开面板、避免反复上下拉动 */}
+            <div className="max-h-80 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/40 px-2 py-2">
+              <AuditTimeline
+                logs={taskLogs}
+                showResource={false}
+                emptyText="暂无此任务的操作记录"
+                canAddNote={canManageTaskFlow}
+                onAddNote={async (logId, text) => {
+                  await addAuditLogNote(logId, { text, actor: RD_ADMIN_AUDIT_ACTOR });
+                }}
+                renderExtra={(log) => {
+                  const note = logNoteMatches.get(log.id);
+                  if (!note || note.attachments.length === 0) return null;
+                  return <ProgressAttachmentGrid attachments={note.attachments} compact />;
+                }}
+              />
+            </div>
           </div>
 
           {task.status === "paused_leave" && (
@@ -7177,11 +7218,13 @@ function PersonTaskCockpit({
   // ── Gallery lightbox ──
   const [galleryState, setGalleryState] = useState<{ images: RdTaskProgressAttachment[]; startIndex: number } | null>(null);
 
-  // ── Sort helper: newest updated first ──
+  // ── Sort helper: newest activity first ──
+  // 排序键用后端派生的 last_activity_at（= max(updated_at, 最新留痕时间)），与卡片「最近更新」
+  // 显示同一口径。进度留痕不刷新 updated_at，单用 updated_at 排序会让刚留痕的任务沉底、出现逆序。
   const sortByUpdatedDesc = useCallback((arr: Task[]): Task[] => {
     return arr.slice().sort((a, b) => {
-      const at = a.updated_at || "";
-      const bt = b.updated_at || "";
+      const at = a.last_activity_at || a.updated_at || "";
+      const bt = b.last_activity_at || b.updated_at || "";
       if (at === bt) return 0;
       return at < bt ? 1 : -1;
     });
@@ -7326,8 +7369,10 @@ function PersonTaskCockpit({
     const taskImages = taskAttachments.filter((a) => a.mime.startsWith("image/"));
     const hasLoadedAttachments = taskAttachments.length > 0;
     const isRisk = riskTaskIds.has(task.task_id);
-    // 最近更新时间：优先取最新进度留痕时间，没有则用 task.updated_at
-    const lastUpdateIso = task.latest_progress_summary?.created_at ?? task.updated_at ?? null;
+    // 最近更新时间：用后端派生的 last_activity_at（= max(updated_at, 最新留痕时间)），与列表排序同口径。
+    // 兜底依次回退到留痕时间 / updated_at，保证后端字段缺失时仍能显示。
+    const lastUpdateIso =
+      task.last_activity_at ?? task.latest_progress_summary?.created_at ?? task.updated_at ?? null;
     const relativeUpdate = formatRelativeUpdate(lastUpdateIso);
     const updateTone = relativeUpdate ? RELATIVE_UPDATE_TONE[relativeUpdate.tone] : null;
     // 已完成任务的质量评分：仅展示 AI 评分；未生成时显示"评分待生成"占位，不再用规则估算误导
@@ -9578,10 +9623,11 @@ export function RDTaskManagementPage() {
   };
   const allTasks = useMemo(() => {
     const tasks = flattenTasks(categories.flatMap((c) => c.children.flatMap((s) => s.tasks)));
-    // 按更新时间倒序排列，最新变更的任务排最前
+    // 按「最后活动时间」倒序，最新变更/留痕的任务排最前。last_activity_at = max(updated_at, 最新留痕时间)，
+    // 与卡片「最近更新」显示同口径——只用 updated_at 会让刚留痕的任务沉底、与显示打架出现逆序。
     return tasks.sort((a, b) => {
-      const ta = a.updated_at ?? "";
-      const tb = b.updated_at ?? "";
+      const ta = a.last_activity_at ?? a.updated_at ?? "";
+      const tb = b.last_activity_at ?? b.updated_at ?? "";
       if (tb > ta) return 1;
       if (tb < ta) return -1;
       return 0;

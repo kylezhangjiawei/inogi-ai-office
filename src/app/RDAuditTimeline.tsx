@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   ArrowRight,
   Bot,
@@ -7,12 +7,15 @@ import {
   FileText,
   GitBranch,
   History,
+  Loader2,
   Lock,
   MessageSquare,
   Paperclip,
   Plus,
   RefreshCw,
+  Send,
   Sparkles,
+  StickyNote,
   Trash2,
   TrendingUp,
   UserPlus,
@@ -121,6 +124,8 @@ const FIELD_LABELS: Record<string, string> = {
   // 操作上下文
   from: "原负责人",
   to: "新负责人",
+  reviewer: "审核人",
+  reason: "原因",
   task_count: "任务数",
   tasks_generated: "生成任务数",
   tasks_created: "创建任务数",
@@ -194,6 +199,10 @@ const LOG_SOURCE_LABELS: Record<string, string> = {
   system: "系统",
 };
 
+// 仅用于内部关联、不应作为文本展示给用户的 metadata 键。
+// note_id：把进度留痕挂到对应操作留痕上（见 logNoteMatches）；notification_id：内部消息 id。
+const HIDDEN_META_KEYS = new Set(["note_id", "notification_id"]);
+
 function labelForField(key: string): string {
   return FIELD_LABELS[key] ?? key;
 }
@@ -246,14 +255,43 @@ function AuditLogEntry({
   log,
   showResource = true,
   isLast = false,
+  renderExtra,
+  canAddNote = false,
+  onAddNote,
 }: {
   log: AuditLog;
   showResource?: boolean;
   isLast?: boolean;
+  renderExtra?: (log: AuditLog) => React.ReactNode;
+  /** 是否显示「备注」按钮（仅研发管理员）。 */
+  canAddNote?: boolean;
+  /** 提交一条备注。由调用方负责持久化并刷新留痕数据。 */
+  onAddNote?: (logId: string, text: string) => Promise<void>;
 }) {
   const meta = getAuditActionMeta(log.action);
   const tone = TONE_STYLES[meta.tone];
   const Icon = ACTION_ICONS[log.action as AuditAction] ?? History;
+  const extra = renderExtra?.(log);
+
+  const notes = log.notes ?? [];
+  const canAnnotate = canAddNote && Boolean(onAddNote);
+  const metaEntries = Object.entries(log.metadata ?? {}).filter(([k]) => !HIDDEN_META_KEYS.has(k));
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const submitNote = async () => {
+    const text = draft.trim();
+    if (!text || !onAddNote) return;
+    setSaving(true);
+    try {
+      await onAddNote(log.id, text);
+      setDraft("");
+      setAdding(false);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   return (
     <div className="group relative flex gap-3 rounded-lg px-1 pb-4 pt-0.5 transition-colors duration-150 hover:bg-slate-50/80">
@@ -323,10 +361,10 @@ function AuditLogEntry({
           </div>
         )}
 
-        {/* Metadata extras */}
-        {log.metadata && Object.keys(log.metadata).length > 0 && (
+        {/* Metadata extras（内部关联键如 note_id 不展示） */}
+        {metaEntries.length > 0 && (
           <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-slate-500">
-            {Object.entries(log.metadata).map(([k, v]) => (
+            {metaEntries.map(([k, v]) => (
               <span key={k}>
                 <span className="text-slate-400">{labelForField(k)}：</span>
                 <span className="font-medium text-slate-700">{labelForValue(k, v)}</span>
@@ -340,6 +378,89 @@ function AuditLogEntry({
           <div className="mt-1.5 rounded-md border border-slate-100 bg-white px-2.5 py-1.5 text-xs leading-relaxed text-slate-600">
             <MessageSquare className="mr-1 inline h-3 w-3 text-slate-400" />
             {log.comment}
+          </div>
+        )}
+
+        {/* Caller-supplied extra (e.g. inline progress-note attachments) */}
+        {extra ? <div className="mt-2">{extra}</div> : null}
+
+        {/* 备注（跟着留痕走）：所有人可见，仅研发管理员可追加 */}
+        {notes.length > 0 && (
+          <div className="mt-2 space-y-1.5">
+            {notes.map((note) => (
+              <div
+                key={note.id}
+                className="rounded-md border border-amber-100 bg-amber-50/70 px-2.5 py-1.5 text-xs leading-relaxed text-amber-900"
+              >
+                <div className="flex items-center gap-1.5">
+                  <StickyNote className="h-3 w-3 shrink-0 text-amber-500" />
+                  <span className="font-semibold text-amber-800">{note.actor?.name || "研发管理员"}</span>
+                  {note.actor?.role && <span className="text-[10px] text-amber-500">{note.actor.role}</span>}
+                  <span className="ml-auto text-[10px] tabular-nums text-amber-400" title={formatAbsolute(note.created_at)}>
+                    {formatRelative(note.created_at)}
+                  </span>
+                </div>
+                <div className="mt-0.5 whitespace-pre-wrap break-words pl-[18px]">{note.text}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {canAnnotate && (
+          <div className="mt-2">
+            {adding ? (
+              <div className="rounded-md border border-amber-200 bg-white p-2">
+                <textarea
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value.slice(0, 200))}
+                  rows={2}
+                  maxLength={200}
+                  autoFocus
+                  placeholder="填写备注（最多 200 字），仅研发管理员可添加…"
+                  className="w-full resize-none rounded border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none focus:border-amber-300 focus:ring-1 focus:ring-amber-200"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                      e.preventDefault();
+                      void submitNote();
+                    }
+                  }}
+                />
+                <div className="mt-1.5 flex items-center justify-end gap-1.5">
+                  <span className={cn("mr-auto text-[10px] tabular-nums", draft.length >= 200 ? "text-rose-500" : "text-slate-400")}>
+                    {draft.length}/200
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAdding(false);
+                      setDraft("");
+                    }}
+                    disabled={saving}
+                    className="rounded px-2 py-1 text-[11px] text-slate-500 hover:bg-slate-100 disabled:opacity-50"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void submitNote()}
+                    disabled={saving || !draft.trim()}
+                    className="inline-flex items-center gap-1 rounded bg-amber-500 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-amber-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
+                    提交备注
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setAdding(true)}
+                className="inline-flex items-center gap-1 rounded-md bg-amber-500 px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm transition-colors hover:bg-amber-600"
+              >
+                <StickyNote className="h-3 w-3" />
+                添加备注
+              </button>
+            )}
           </div>
         )}
 
@@ -369,11 +490,19 @@ export function AuditTimeline({
   showResource = true,
   emptyText = "暂无操作记录",
   className,
+  renderExtra,
+  canAddNote = false,
+  onAddNote,
 }: {
   logs: AuditLog[];
   showResource?: boolean;
   emptyText?: string;
   className?: string;
+  renderExtra?: (log: AuditLog) => React.ReactNode;
+  /** 是否显示每条留痕的「备注」按钮（仅研发管理员）。 */
+  canAddNote?: boolean;
+  /** 提交一条备注。由调用方负责持久化并刷新留痕数据。 */
+  onAddNote?: (logId: string, text: string) => Promise<void>;
 }) {
   if (logs.length === 0) {
     return (
@@ -392,6 +521,9 @@ export function AuditTimeline({
           log={log}
           showResource={showResource}
           isLast={idx === logs.length - 1}
+          renderExtra={renderExtra}
+          canAddNote={canAddNote}
+          onAddNote={onAddNote}
         />
       ))}
     </div>

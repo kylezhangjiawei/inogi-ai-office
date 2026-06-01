@@ -10,7 +10,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth";
-import { clearRdAuditLogs, createRdAuditLog, fetchRdAuditLogs } from "./rdApi";
+import { addRdAuditLogNote, clearRdAuditLogs, createRdAuditLog, fetchRdAuditLogs } from "./rdApi";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -129,6 +129,14 @@ export type AuditChange = {
   after?: unknown;
 };
 
+/** 研发管理员对某条留痕追加的「备注」，内嵌在该留痕记录里，跟着留痕走。 */
+export type AuditLogNote = {
+  id: string;
+  text: string;
+  actor: AuditActor;
+  created_at: string;
+};
+
 export type AuditLog = {
   id: string;
   timestamp: string;
@@ -138,6 +146,7 @@ export type AuditLog = {
   changes?: AuditChange[];
   comment?: string;
   metadata?: Record<string, unknown>;
+  notes?: AuditLogNote[];
   source: "web" | "api" | "ai" | "system";
 };
 
@@ -293,6 +302,24 @@ export function recordAudit(entry: Omit<AuditLog, "id" | "timestamp">): AuditLog
       // Keep optimistic local copy; the next successful API read will reconcile.
     });
   return full;
+}
+
+/**
+ * 给某条留痕追加一条备注。成功后把更新后的留痕写回本地缓存并广播 AUDIT_EVENT，
+ * 让所有 `useAuditLogs()` 立即刷新看到新备注。返回更新后的留痕（失败返回 null）。
+ */
+export async function addAuditLogNote(
+  logId: string,
+  note: { text: string; actor: AuditActor },
+): Promise<AuditLog | null> {
+  try {
+    const updated = await addRdAuditLogNote<AuditLog>(logId, note);
+    const current = loadRaw().map((log) => (log.id === updated.id ? updated : log));
+    saveRaw(current); // emit=true → 广播事件，触发各处 useAuditLogs 从本地刷新
+    return updated;
+  } catch {
+    return null;
+  }
 }
 
 /** Load all logs (newest first). */

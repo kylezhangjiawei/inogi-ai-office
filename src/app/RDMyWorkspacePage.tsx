@@ -713,13 +713,15 @@ function TaskOperationDrawer({
       onConfirm: async () => {
         setSavingNote(true);
         try {
+          let savedNoteId: string | undefined;
           if (note.trim() || noteAttachments.length > 0) {
-            await createRdTaskProgressNote({
+            const savedNote = await createRdTaskProgressNote({
               task_id: task.task_id,
               text: note.trim(),
               progress: progressToSave,
               files: noteAttachments,
             });
+            savedNoteId = savedNote?.id;
           }
           await onProgressSave(task.task_id, progressToSave);
           recordAudit({
@@ -731,6 +733,8 @@ function TaskOperationDrawer({
             metadata: {
               source,
               note_attachment_count: noteAttachments.length,
+              // 留痕 id 作为关联键，操作留痕据此精确挂出该次进度的附件缩略图。
+              ...(savedNoteId ? { note_id: savedNoteId } : {}),
             },
             source: "web",
           });

@@ -403,6 +403,13 @@ export class ResearchDevelopmentController {
     return this.rdService.clearAuditLogs();
   }
 
+  // 仅研发管理员（与前端 canManageTaskFlow 同口径）可给留痕追加备注
+  @Post('audit-logs/:id/notes')
+  @Permissions('rd-project:direct', 'rd-project:review-l1', 'rd-project:review-l2', 'rd-people:manage', 'rd-task:reassign')
+  addAuditLogNote(@Param('id') id: string, @Body() payload: Record<string, unknown>) {
+    return this.rdService.addAuditLogNote(id, payload);
+  }
+
   @Get('ai-settings')
   @Permissions(...RD_READ_PERMISSIONS, 'page:ai-model-management', 'rd-ai:configure')
   aiSettings() {
