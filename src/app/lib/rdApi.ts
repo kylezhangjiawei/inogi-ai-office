@@ -423,7 +423,35 @@ export function saveRdTaskCategories(payload: RdCategory[]) {
   });
 }
 
+export type RdMoveTasksResult = {
+  ok: true;
+  movedCount: number;
+  /** 主产品移动后的最新分类树（含进度计数），用于刷新驾驶舱。 */
+  categories: RdCategory[];
+  targetProductId: string;
+  targetCategoryLabel: string;
+  targetSubLabel: string;
+};
+
+/**
+ * 跨产品 / 跨系统移动任务（后端原子裁决）。
+ * 目标用 (产品 → 系统categoryId → 子项subId) 三段定位；主产品与其它产品共用同一套 15 个系统。
+ */
+export function moveRdTasks(input: {
+  taskIds: string[];
+  targetProductId: string;
+  targetCategoryId: string;
+  targetSubId: string;
+}) {
+  return requestJson<RdMoveTasksResult>("/task-categories/tasks/move", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
 export function createRdTask(payload: {
+  /** 立项目标产品。缺省/主产品 → 主库；其余 → 对应产品库（后端按此选择 store）。 */
+  product_id?: string;
   category_id?: string;
   sub_project_id?: string;
   title: string;
@@ -599,9 +627,13 @@ export type RdAiTaskDraft = {
   duration_basis?: string;
 };
 
+export type RdAiProductOption = { id: string; name: string };
+
 export type RdAiExtractResult = {
   tasks: RdAiTaskDraft[];
   suggested_category?: string;
+  /** AI 推断本次立项最匹配的产品 id（从传入的 products 中选）；不确定时省略，前端回退主产品。 */
+  suggested_product?: string;
   summary?: string;
   provider: "openai" | "qwen" | "local";
   model: string;
@@ -615,6 +647,7 @@ export function extractRdTasksFromText(payload: {
   peopleProfiles?: RdAiPersonContext[];
   categoryLabels?: string[];
   proposalTitle?: string;
+  products?: RdAiProductOption[];
 }) {
   return requestJson<RdAiExtractResult>("/ai/extract-tasks", {
     method: "POST",
@@ -629,6 +662,7 @@ export async function extractRdTasksFromFile(payload: {
   peopleProfiles?: RdAiPersonContext[];
   categoryLabels?: string[];
   proposalTitle?: string;
+  products?: RdAiProductOption[];
 }): Promise<RdAiExtractResult> {
   const form = new FormData();
   form.append("file", payload.file);
@@ -636,6 +670,7 @@ export async function extractRdTasksFromFile(payload: {
   if (payload.peopleProfiles) form.append("peopleProfiles", JSON.stringify(payload.peopleProfiles));
   if (payload.categoryLabels) form.append("categoryLabels", JSON.stringify(payload.categoryLabels));
   if (payload.proposalTitle) form.append("proposalTitle", payload.proposalTitle);
+  if (payload.products) form.append("products", JSON.stringify(payload.products));
 
   const response = await fetchWithTimeout(
     "/ai/extract-from-file",

@@ -40,10 +40,13 @@ import {
   fetchRdDirectorDashboard,
   extractRdTasksFromFile,
   extractRdTasksFromText,
+  fetchProductTaskCategories,
   fetchRdPeople,
+  fetchRdProducts,
   fetchRdTaskCategories,
   refineRdProposalTasks,
   recomputeRdDirectorDashboard,
+  saveProductTaskCategories,
   saveRdProposalDraft,
   saveRdTaskCategories,
   type RdAiPersonContext,
@@ -52,6 +55,7 @@ import {
   type RdAiTaskDraft,
   type RdCategory,
   type RdPersonLoad,
+  type RdProductDef,
 } from "./lib/rdApi";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -118,6 +122,9 @@ const RD_POC_BOM_CATEGORY_TREE = [
 ] as const;
 
 const DEFAULT_TASK_TYPE_FOR_CATEGORY = "研发任务";
+
+/** 主产品 id：立项默认归属此产品；其分类树存主库 rd.taskCategories，其它产品存 rd.productTaskCategories[pid]。 */
+const MAIN_PRODUCT_ID = "prod-portable-o2";
 const REVIEW_SELECT_TRIGGER_CLASS =
   "h-11 rounded-md border-slate-200 bg-white px-3 text-sm text-slate-700 shadow-none outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 data-[placeholder]:text-slate-400";
 
@@ -810,6 +817,10 @@ function StepInput({
   setDescription,
   files,
   setFiles,
+  products,
+  productId,
+  onProductChange,
+  catLoading,
   onNext,
   onClose,
 }: {
@@ -819,6 +830,10 @@ function StepInput({
   setDescription: (v: string) => void;
   files: File[];
   setFiles: (f: File[]) => void;
+  products: RdProductDef[];
+  productId: string;
+  onProductChange: (v: string) => void;
+  catLoading: boolean;
   onNext: () => void;
   onClose: () => void;
 }) {
@@ -880,6 +895,28 @@ function StepInput({
           className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
         />
       </div>
+
+      {/* 归属产品：整份立项归属同一个产品；AI 会按原文推断，用户可手动调整 */}
+      {products.length > 1 && (
+        <div>
+          <label className="mb-1.5 block text-xs font-medium text-slate-700">
+            归属产品
+            <span className="ml-1.5 text-[10px] font-normal text-slate-400">AI 会按原文推断，可手动调整</span>
+          </label>
+          <Select value={productId} onValueChange={onProductChange} disabled={catLoading}>
+            <SelectTrigger className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
+              <SelectValue placeholder="选择产品" />
+            </SelectTrigger>
+            <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
+              {products.map((p) => (
+                <SelectItem key={p.id} value={p.id} className="rounded-lg py-2 pl-3 pr-9 text-sm text-slate-700">
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      )}
 
       {/* Banner: explain the either-or rule */}
       <div className="flex items-start gap-2 rounded-md border border-indigo-100 bg-indigo-50/50 px-3 py-2 text-[11px] text-indigo-700">
@@ -1009,12 +1046,12 @@ function StepInput({
           </button>
           <button
             type="button"
-            disabled={!canSubmit}
+            disabled={!canSubmit || catLoading}
             onClick={onNext}
             className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.22)] transition-all hover:bg-indigo-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Sparkles className="h-3.5 w-3.5" />
-            AI 解析
+            {catLoading ? "加载分类中…" : "AI 解析"}
             <ArrowRight className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -1526,6 +1563,10 @@ function StepReview({
   auditActor,
   categories,
   peopleProfiles,
+  products,
+  productId,
+  onProductChange,
+  catLoading,
   onBack,
   onNext,
   onQuickSubmit,
@@ -1548,6 +1589,10 @@ function StepReview({
   auditActor: AuditActor;
   categories: RdCategory[];
   peopleProfiles: RdAiPersonContext[];
+  products: RdProductDef[];
+  productId: string;
+  onProductChange: (v: string) => void;
+  catLoading: boolean;
   /** 一键立项回调：null 表示当前账号无可用的提交途径 */
   onQuickSubmit?: () => void;
   /** 一键立项按钮文案 */
@@ -1752,6 +1797,27 @@ function StepReview({
             />
           </div>
 
+          {products.length > 1 && (
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-slate-700">
+                归属产品
+                <span className="ml-1.5 text-[10px] font-normal text-slate-400">由 AI 推断，可手动调整；切换会刷新下方项目节点</span>
+              </label>
+              <NativeSelect
+                value={productId}
+                onChange={(e) => onProductChange(e.target.value)}
+                disabled={catLoading}
+                className="w-full cursor-pointer rounded border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {products.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </NativeSelect>
+            </div>
+          )}
+
           <div>
             <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-slate-700">
               <FolderPlus className="h-3 w-3" />
@@ -1760,7 +1826,8 @@ function StepReview({
             <NativeSelect
               value={parentProjectId}
               onChange={(e) => setParentProjectId(e.target.value as string | "new")}
-              className="w-full cursor-pointer rounded border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              disabled={catLoading}
+              className="w-full cursor-pointer rounded border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <option value="new">+ 创建新项目节点</option>
               {categoriesToOptions(categories).map((p) => (
@@ -1974,7 +2041,7 @@ function StepReview({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            disabled={tasks.length === 0 || submitting}
+            disabled={tasks.length === 0 || submitting || catLoading}
             onClick={onNext}
             className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
           >
@@ -1984,7 +2051,7 @@ function StepReview({
           {onQuickSubmit && quickSubmitLabel && (
             <button
               type="button"
-              disabled={tasks.length === 0 || quickSubmitDisabled || submitting}
+              disabled={tasks.length === 0 || quickSubmitDisabled || submitting || catLoading}
               onClick={onQuickSubmit}
               title="跳过审核流程预览，直接按 AI 建议立项"
               className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(79,70,229,0.24)] transition-all hover:bg-indigo-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
@@ -2292,6 +2359,9 @@ export function RDProjectProposalDialog({
   const [aiLabel, setAiLabel] = useState("");
   const [proposalId, setProposalId] = useState(createProposalId);
   const [categories, setCategories] = useState<RdCategory[]>([]);
+  const [productId, setProductId] = useState(MAIN_PRODUCT_ID);
+  const [products, setProducts] = useState<RdProductDef[]>([]);
+  const [catLoading, setCatLoading] = useState(false);
   const [peopleNames, setPeopleNames] = useState<string[]>([]);
   const [peopleProfiles, setPeopleProfiles] = useState<RdAiPersonContext[]>([]);
   const [submitting, setSubmitting] = useState(false);
@@ -2314,7 +2384,7 @@ export function RDProjectProposalDialog({
 
   useEffect(() => {
     if (open) {
-      fetchRdTaskCategories().then(setCategories).catch(() => {});
+      fetchRdProducts().then(setProducts).catch(() => {});
       Promise.allSettled([fetchRdPeople(), fetchRdDirectorDashboard()])
         .then(([peopleResult, dashboardResult]) => {
           const people = peopleResult.status === "fulfilled" ? peopleResult.value : [];
@@ -2326,6 +2396,22 @@ export function RDProjectProposalDialog({
         .catch(() => {});
     }
   }, [open]);
+
+  // 分类树按所选产品加载（主产品走主库，其它产品走 productTaskCategories[pid]）。
+  // cancelled 守卫：快速切换产品时丢弃过期响应，避免旧产品的树覆盖新产品。
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setCatLoading(true);
+    const load = productId === MAIN_PRODUCT_ID
+      ? fetchRdTaskCategories()
+      : fetchProductTaskCategories(productId);
+    load
+      .then((cats) => { if (!cancelled) setCategories(cats); })
+      .catch(() => { if (!cancelled) setCategories([]); })
+      .finally(() => { if (!cancelled) setCatLoading(false); });
+    return () => { cancelled = true; };
+  }, [open, productId]);
 
   const STEP_LABELS: Record<Step, string> = {
     1: "描述内容",
@@ -2344,9 +2430,24 @@ export function RDProjectProposalDialog({
     setNewProjectName("");
     setComment("");
     setAiProgress(0);
+    setProductId(MAIN_PRODUCT_ID);
     setProposalId(createProposalId());
     setSubmitting(false);
   };
+
+  // 切换产品：重置父项目为"新建"，避免旧产品分类 id 在新产品树里失效（分类树由 [open, productId] effect 重载）。
+  // 同步置 catLoading=true：确保切换瞬间就禁用提交，杜绝"旧产品分类树写进新产品库"的竞态。
+  const handleProductChange = (nextProductId: string) => {
+    if (nextProductId === productId) return;
+    setCatLoading(true);
+    setProductId(nextProductId);
+    setParentProjectId("new");
+  };
+
+  const persistCategoriesForProduct = (cats: RdCategory[]) =>
+    productId === MAIN_PRODUCT_ID
+      ? saveRdTaskCategories(cats)
+      : saveProductTaskCategories(productId, cats);
 
   const handleClose = () => {
     onClose();
@@ -2417,7 +2518,9 @@ export function RDProjectProposalDialog({
 
     const categoryLabels = categories.map((c) => c.label);
 
-    const aiCall: Promise<{ tasks: RdAiTaskDraft[]; suggested_category?: string; summary?: string }> =
+    const productOptions = products.map((p) => ({ id: p.id, name: p.name }));
+
+    const aiCall: Promise<{ tasks: RdAiTaskDraft[]; suggested_category?: string; suggested_product?: string; summary?: string }> =
       files.length > 0
           ? extractRdTasksFromFile({
               file: files[0],
@@ -2425,6 +2528,7 @@ export function RDProjectProposalDialog({
               peopleProfiles,
               categoryLabels,
               proposalTitle: title || undefined,
+              products: productOptions,
             })
           : extractRdTasksFromText({
               text: description.trim(),
@@ -2432,6 +2536,7 @@ export function RDProjectProposalDialog({
               peopleProfiles,
               categoryLabels,
               proposalTitle: title || undefined,
+              products: productOptions,
             });
 
     aiCall
@@ -2444,8 +2549,19 @@ export function RDProjectProposalDialog({
         if (!title && drafted[0]) {
           setTitle(drafted[0].title.replace(/[（(].*$/, "").trim() || "AI 立项");
         }
-        // Try to match suggested_category against existing real categories
-        if (result.suggested_category) {
+        // AI 推断产品归属：仅当返回有效 id 且与当前不同时切换。切换后父项目强制走"新建"，
+        // 因为跨产品的旧分类 id 会失效（分类树由 [open, productId] effect 异步重载）。
+        const suggestedPid = result.suggested_product;
+        const productSwitched =
+          !!suggestedPid && suggestedPid !== productId && products.some((p) => p.id === suggestedPid);
+        if (productSwitched) {
+          setProductId(suggestedPid!);
+          setParentProjectId("new");
+          if (result.suggested_category) {
+            setNewProjectName((current) => current.trim() || result.suggested_category!.trim());
+          }
+        } else if (result.suggested_category) {
+          // 未切换产品：沿用原有"匹配现有分类 / 否则建新项目"逻辑，主产品路径零回归。
           const match = categories.find(
             (c) => c.label === result.suggested_category || c.label.includes(result.suggested_category!) || result.suggested_category!.includes(c.label),
           );
@@ -2519,7 +2635,7 @@ export function RDProjectProposalDialog({
   const ensurePersistentCategoryTree = async (): Promise<RdCategory[]> => {
     const result = ensureProposalCategoryTree(categories);
     if (result.changed) {
-      await saveRdTaskCategories(result.categories);
+      await persistCategoriesForProduct(result.categories);
       setCategories(result.categories);
     }
     return result.categories;
@@ -2529,17 +2645,37 @@ export function RDProjectProposalDialog({
     baseCategories: RdCategory[],
   ): Promise<{ target: { categoryId: string; subProjectId: string } | null; categories: RdCategory[] }> => {
     if (parentProjectId === "new") {
-      const catId = `rd-cat-${Date.now()}`;
-      const subId = `rd-sub-${Date.now()}`;
+      const tempCatId = `rd-cat-${Date.now()}`;
+      const tempSubId = `rd-sub-${Date.now()}`;
+      const label = newProjectName.trim() || title.trim() || "未命名立项";
       const newCat: RdCategory = {
-        id: catId,
-        label: newProjectName.trim() || title.trim() || "未命名立项",
-        children: [{ id: subId, label: "立项任务", tasks: [] }],
+        id: tempCatId,
+        label,
+        children: [{ id: tempSubId, label: "立项任务", tasks: [] }],
       };
-      const updated = [...baseCategories, newCat];
-      await saveRdTaskCategories(updated);
-      setCategories(updated);
-      return { target: { categoryId: catId, subProjectId: subId }, categories: updated };
+      await persistCategoriesForProduct([...baseCategories, newCat]);
+      // 后端 ensurePocBomTaskCategories 会把与 BOM 系统同名的新立项节点并入对应 BOM 分类，
+      // 并丢弃前端临时 id（如"外观结构"→cat-exterior）。若仍用临时 id 调 createTask 会 404。
+      // 故以后端归一化后的权威树为准重新定位：临时 id → 标签 → 兜底首个分类，保证 id 必然存在。
+      const persisted =
+        productId === MAIN_PRODUCT_ID
+          ? await fetchRdTaskCategories()
+          : await fetchProductTaskCategories(productId);
+      setCategories(persisted);
+      const resolvedCat =
+        persisted.find((c) => c.id === tempCatId) ??
+        persisted.find((c) => normalizeCategoryKey(c.label) === normalizeCategoryKey(label)) ??
+        persisted[0];
+      const resolvedChild =
+        resolvedCat?.children.find((ch) => ch.id === tempSubId) ?? resolvedCat?.children[0];
+      if (!resolvedCat || !resolvedChild) {
+        toast.error("无法创建立项分类，请重试");
+        return { target: null, categories: persisted };
+      }
+      return {
+        target: { categoryId: resolvedCat.id, subProjectId: resolvedChild.id },
+        categories: persisted,
+      };
     }
     const cat = baseCategories.find((c) => c.id === parentProjectId);
     const firstChild = cat?.children[0];
@@ -2585,6 +2721,7 @@ export function RDProjectProposalDialog({
         });
 
       await createRdTask({
+        product_id: productId,
         category_id: target.categoryId,
         sub_project_id: target.subProjectId,
         title: task.title,
@@ -2788,6 +2925,10 @@ export function RDProjectProposalDialog({
             setDescription={setDescription}
             files={files}
             setFiles={setFiles}
+            products={products}
+            productId={productId}
+            onProductChange={handleProductChange}
+            catLoading={catLoading}
             onNext={runAiParse}
             onClose={handleClose}
           />
@@ -2808,6 +2949,10 @@ export function RDProjectProposalDialog({
             auditActor={auditActor}
             categories={categories}
             peopleProfiles={peopleProfiles}
+            products={products}
+            productId={productId}
+            onProductChange={handleProductChange}
+            catLoading={catLoading}
             ownerLocked={ownerLocked}
             forcedOwnerName={forcedOwnerName}
             submitting={submitting}

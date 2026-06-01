@@ -574,8 +574,8 @@ function TaskDetailDrawer({
     return () => { cancelled = true; };
   }, [task.task_id]);
 
-  const sCfg = TASK_STATUS_CONFIG[isEditing ? editForm.status : task.status];
-  const pCfg = TASK_PRIORITY_CONFIG[isEditing ? editForm.priority : task.priority];
+  const sCfg = TASK_STATUS_CONFIG[isEditing ? editForm.status : task.status] ?? TASK_STATUS_CONFIG.in_progress;
+  const pCfg = TASK_PRIORITY_CONFIG[isEditing ? editForm.priority : task.priority] ?? TASK_PRIORITY_CONFIG.medium;
   const taskLogs = useAuditLogs({ resourceType: "task", resourceId: task.task_id });
   const canEditTask = usePermission(PERMISSIONS.RD_TASK_EDIT);
   const canReassignTask = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
@@ -1481,7 +1481,7 @@ function CategoryDetailDrawer({
             ) : (
               <ul className="space-y-1.5">
                 {relatedTasks.map((t) => {
-                  const sCfg = TASK_STATUS_CONFIG[t.status];
+                  const sCfg = TASK_STATUS_CONFIG[t.status] ?? TASK_STATUS_CONFIG.in_progress;
                   return (
                     <li key={t.task_id}>
                       <button
@@ -3960,8 +3960,8 @@ export function RDDirectorDashboardPage() {
                       ) : (
                         <div className="space-y-2.5">
                           {personTasks.map((task) => {
-                            const sCfg = TASK_STATUS_CONFIG[task.status];
-                            const pCfg = TASK_PRIORITY_CONFIG[task.priority ?? "medium"];
+                            const sCfg = TASK_STATUS_CONFIG[task.status] ?? TASK_STATUS_CONFIG.in_progress;
+                            const pCfg = TASK_PRIORITY_CONFIG[task.priority] ?? TASK_PRIORITY_CONFIG.medium;
                             const taskImages = (progressNoteMap[task.task_id] ?? [])
                               .flatMap((n) => n.attachments.filter((a) => a.mime.startsWith("image/")));
                             return (

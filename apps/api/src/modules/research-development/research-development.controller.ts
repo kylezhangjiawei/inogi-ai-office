@@ -65,6 +65,24 @@ export class ResearchDevelopmentController {
     return this.rdService.deleteTask(taskId);
   }
 
+  @Post('task-categories/tasks/move')
+  @Permissions('rd-task:edit')
+  moveTasks(
+    @Body()
+    payload: {
+      taskIds?: unknown;
+      targetProductId?: unknown;
+      targetCategoryId?: unknown;
+      targetSubId?: unknown;
+    },
+  ) {
+    return this.rdService.moveTasks(payload?.taskIds, {
+      productId: payload?.targetProductId,
+      categoryId: payload?.targetCategoryId,
+      subId: payload?.targetSubId,
+    });
+  }
+
   @Get('products')
   getProducts() {
     return this.rdService.getProducts();

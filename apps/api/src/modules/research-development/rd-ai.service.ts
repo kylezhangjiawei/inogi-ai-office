@@ -11,7 +11,7 @@ const TASK_EXTRACTION_SCHEMA_DESC =
   '"due_date_original"?: string（原文时间节点的原始短语，例如"今明完成"、"周三"、"会后同步"、"到货当日"；如果原文没写时间则省略）, ' +
   '"priority": "high"|"medium"|"low", "category_path": string, ' +
   '"estimated_days": integer（必填，根据任务复杂度估算，不确定时填5，禁止全部填1）, ' +
-  '"owner_reason": string}], "suggested_category"?: string, "summary"?: string}';
+  '"owner_reason": string}], "suggested_category"?: string, "suggested_product"?: string, "summary"?: string}';
 
 const QWEN_DOC_MODEL = 'qwen-doc-turbo';
 const DEFAULT_QWEN_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
@@ -45,6 +45,8 @@ export type RdAiUploadedFile = {
   mimetype?: string;
 };
 
+export type RdAiProductOption = { id: string; name: string };
+
 export type RdAiExtractInput = {
   text?: string;
   file?: RdAiUploadedFile;
@@ -52,6 +54,7 @@ export type RdAiExtractInput = {
   peopleProfiles?: RdAiPersonContext[];
   categoryLabels?: string[];
   proposalTitle?: string;
+  products?: RdAiProductOption[];
 };
 
 export type RdAiPersonContext = {
@@ -112,6 +115,7 @@ export type RdAiProposalRefineResult = {
 export type RdAiExtractResult = {
   tasks: RdAiTaskDraft[];
   suggested_category?: string;
+  suggested_product?: string;
   summary?: string;
   provider: 'openai' | 'qwen' | 'local';
   model: string;
@@ -824,7 +828,7 @@ export class RdAiService {
     textBody: string,
     input: RdAiExtractInput,
     reason: 'same_model' | 'fallback_model',
-  ): Promise<{ content: string; parsed: { tasks: RdAiTaskDraft[]; suggested_category?: string; summary?: string } }> {
+  ): Promise<{ content: string; parsed: { tasks: RdAiTaskDraft[]; suggested_category?: string; suggested_product?: string; summary?: string } }> {
     const response = await client.chat.completions.create({
       model,
       messages: this.buildEmptyResultRepairMessages(textBody, input, reason),
@@ -917,9 +921,16 @@ export class RdAiService {
   private buildUserMessage(textBody: string, input: RdAiExtractInput): string {
     const people = this.normalizePeopleContexts(input);
     const categories = this.normalizeCategoryLabels(input.categoryLabels ?? []);
+    const products = this.normalizeProductOptions(input.products ?? []);
     const lines: string[] = [];
     if (input.proposalTitle) {
       lines.push(`立项标题：${input.proposalTitle}`);
+    }
+    if (products.length > 0) {
+      lines.push('可选产品线（suggested_product 必须从下列 id 中选一个，整份立项归属同一个产品；只有原文明确提到某产品名/型号时才选非默认项，否则返回默认项）：');
+      products.forEach((p, index) => {
+        lines.push(`${index + 1}. id=${p.id}｜名称=${p.name}${index === 0 ? '（默认）' : ''}`);
+      });
     }
     lines.push(`当前系统已有一级分类：${categories.length > 0 ? categories.join('、') : '（无）'}`);
     lines.push('研发分类预设（AI 必须优先往最可能的大项和部件里归类）：');
@@ -951,6 +962,32 @@ export class RdAiService {
     }
     for (const system of RD_POC_BOM_CATEGORY_TREE) labels.add(system.label);
     return Array.from(labels);
+  }
+
+  private normalizeProductOptions(raw: RdAiProductOption[]): RdAiProductOption[] {
+    const byId = new Map<string, RdAiProductOption>();
+    for (const item of raw) {
+      const id = typeof item?.id === 'string' ? item.id.trim() : '';
+      const name = typeof item?.name === 'string' ? item.name.trim() : '';
+      if (id && name && !byId.has(id)) byId.set(id, { id, name });
+    }
+    return Array.from(byId.values());
+  }
+
+  /** 把模型返回的 suggested_product 校验回已知产品 id；无法匹配时返回 undefined（前端回退主产品）。 */
+  private normalizeSuggestedProduct(
+    raw: string,
+    products: RdAiProductOption[],
+  ): string | undefined {
+    const value = raw.trim();
+    if (!value || products.length === 0) return undefined;
+    const byId = products.find((p) => p.id === value);
+    if (byId) return byId.id;
+    const lower = value.toLowerCase();
+    const byName = products.find(
+      (p) => p.name.toLowerCase() === lower || p.name.includes(value) || value.includes(p.name),
+    );
+    return byName?.id;
   }
 
   private formatBomCategoryTreeForPrompt(): string[] {
@@ -1335,7 +1372,7 @@ export class RdAiService {
   private parseTasksPayload(
     rawJson: string,
     input: RdAiExtractInput,
-  ): { tasks: RdAiTaskDraft[]; suggested_category?: string; summary?: string } {
+  ): { tasks: RdAiTaskDraft[]; suggested_category?: string; suggested_product?: string; summary?: string } {
     let parsedPayload: unknown = {};
     try {
       parsedPayload = this.parseJsonLikePayload(rawJson);
@@ -1393,9 +1430,13 @@ export class RdAiService {
       typeof obj.suggested_category === 'string' ? obj.suggested_category.trim() : '',
       tasks,
     );
+    const suggested_product = this.normalizeSuggestedProduct(
+      typeof obj.suggested_product === 'string' ? obj.suggested_product : '',
+      this.normalizeProductOptions(input.products ?? []),
+    );
     const summary = typeof obj.summary === 'string' ? obj.summary.trim() || undefined : undefined;
 
-    return { tasks, suggested_category, summary };
+    return { tasks, suggested_category, suggested_product, summary };
   }
 
   private parseProposalRefinePayload(

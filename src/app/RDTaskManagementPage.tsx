@@ -83,11 +83,13 @@ import {
   extractRdTasksFromFile,
   extractRdTasksFromText,
   saveRdTaskCategories,
+  moveRdTasks,
   clearRdAllTaskData,
   updateRdTask,
   fetchRdProducts,
   saveRdProducts,
   fetchProductTaskCategories,
+  saveProductTaskCategories,
   type RdAiPersonContext,
   type RdAiSettingsPayload,
   type RdAiTaskDraft,
@@ -225,6 +227,14 @@ const PRIORITY_CONFIG: Record<Priority, { label: string; text: string; bg: strin
   high: { label: "高", text: "text-white", bg: "border-red-600 bg-red-600" },
   medium: { label: "中", text: "text-amber-700", bg: "border-amber-200 bg-amber-50" },
   low: { label: "低", text: "text-slate-500", bg: "border-slate-200 bg-slate-50" },
+};
+
+// 行内纯文字（无徽章背景）场景的优先级文字色：高优先不能复用 PRIORITY_CONFIG.high.text
+// 的 text-white —— 白字需配合红底徽章，单独用会在浅色卡片上隐形（优先级"消失"）。
+const PRIORITY_INLINE_TEXT: Record<Priority, string> = {
+  high: "text-red-600",
+  medium: "text-amber-700",
+  low: "text-slate-500",
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -2388,12 +2398,14 @@ function AiCreatePanel({
   peopleProfiles,
   personLoads,
   onCreated,
+  productId = MAIN_PRODUCT_ID,
 }: {
   onClose: () => void;
   categories: Category[];
   peopleProfiles: PersonProfile[];
   personLoads: PersonLoad[];
   onCreated: () => void;
+  productId?: string; // 立项目标产品（board 中为当前产品，overview 为主产品）
 }) {
   const RD_AUDIT_ACTOR = useAuditActor("研发成员");
   const [text, setText] = useState("");
@@ -2527,6 +2539,7 @@ function AiCreatePanel({
     let created: Task;
     try {
       created = await createRdTask({
+        product_id: productId,
         category_id: target.category.id,
         sub_project_id: target.child?.id,
         title: draft.title,
@@ -5401,13 +5414,15 @@ function SystemPanorama({
   onSelectSystem,
   onManageProducts,
   canManage,
+  reloadToken = 0,
 }: {
   mainCatStats: CatStat[];          // 便携式制氧机的全局 catStats
   mainRisks: Risk[];
   products: ProductDef[];
-  onSelectSystem: (catId: string) => void;
+  onSelectSystem: (catId: string, productId: string) => void; // 进入该产品的完整驾驶舱
   onManageProducts: () => void;
   canManage: boolean;
+  reloadToken?: number;             // 跨产品移动后 +1，强制刷新受影响产品的统计
 }) {
   const shouldReduceMotion = useReducedMotion();
   const [activeProdId, setActiveProdId] = useState(() => products[0]?.id ?? "");
@@ -5415,26 +5430,30 @@ function SystemPanorama({
   // 缓存其他产品的已加载分类数据 { productId → CatStat[] }
   const [productCatStatsCache, setProductCatStatsCache] = useState<Record<string, CatStat[]>>({});
   const [loadingProdId, setLoadingProdId] = useState<string | null>(null);
+  // 记录每个产品最近一次加载时的 reloadToken，token 变化即视为缓存失效
+  const loadedTokenRef = useRef<Record<string, number>>({});
 
   const activeProd = products.find((p) => p.id === activeProdId) ?? products[0] ?? null;
 
-  // 当切换到非主产品时，按需加载该产品的分类数据
+  // 当切换到非主产品（或移动后 token 变化）时，按需加载该产品的分类数据
   useEffect(() => {
     if (!activeProdId || activeProdId === MAIN_PRODUCT_ID) return;
-    if (productCatStatsCache[activeProdId]) return; // 已缓存
+    if (loadedTokenRef.current[activeProdId] === reloadToken) return; // 已按当前 token 缓存
     setLoadingProdId(activeProdId);
     fetchProductTaskCategories(activeProdId)
       .then((cats) => {
         const risks = computeRisks(cats);
         const stats = buildCatStats(cats, risks);
+        loadedTokenRef.current[activeProdId] = reloadToken;
         setProductCatStatsCache((prev) => ({ ...prev, [activeProdId]: stats }));
       })
       .catch(() => {
+        loadedTokenRef.current[activeProdId] = reloadToken;
         setProductCatStatsCache((prev) => ({ ...prev, [activeProdId]: [] }));
       })
       .finally(() => setLoadingProdId(null));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeProdId]);
+  }, [activeProdId, reloadToken]);
 
   // 当前产品对应的 catStats
   const activeCatStats: CatStat[] =
@@ -5541,7 +5560,7 @@ function SystemPanorama({
                 <SystemHealthCard
                   key={stat.cat.id}
                   stat={stat}
-                  onClick={activeProdId === MAIN_PRODUCT_ID ? () => onSelectSystem(stat.cat.id) : undefined}
+                  onClick={() => onSelectSystem(stat.cat.id, activeProdId)}
                 />
               ))}
             </div>
@@ -7300,7 +7319,8 @@ function PersonTaskCockpit({
   ) => {
     const { showOwner = false } = options;
     const sCfg = STATUS_CONFIG[task.status] ?? STATUS_CONFIG.draft;
-    const pCfg = PRIORITY_CONFIG[task.final_priority ?? task.ai_priority ?? "medium"];
+    const priorityKey: Priority = task.final_priority ?? task.ai_priority ?? "medium";
+    const pCfg = PRIORITY_CONFIG[priorityKey] ?? PRIORITY_CONFIG.medium;
     const taskNotes = notesMap[task.task_id] ?? [];
     const taskAttachments: RdTaskProgressAttachment[] = taskNotes.flatMap((n) => n.attachments);
     const taskImages = taskAttachments.filter((a) => a.mime.startsWith("image/"));
@@ -7506,7 +7526,7 @@ function PersonTaskCockpit({
               {sCfg.label}
             </span>
             <span className="text-slate-300">·</span>
-            <span className={cn("font-medium", pCfg.text)}>{pCfg.label}优先</span>
+            <span className={cn("font-medium", PRIORITY_INLINE_TEXT[priorityKey] ?? PRIORITY_INLINE_TEXT.medium)}>{pCfg.label}优先</span>
             {task.due_date && (
               <>
                 <span className="text-slate-300">·</span>
@@ -8525,13 +8545,14 @@ function ExecutiveOverview({
   onDeleteTask,
   onManageProducts,
   canManageProducts,
+  panoramaReloadToken,
 }: {
   catStats: CatStat[];
   products: ProductDef[];
   risks: Risk[];
   personLoads: PersonLoad[];
   allTasks: Task[];
-  onSelectSystem: (catId: string) => void;
+  onSelectSystem: (catId: string, productId: string) => void;
   onSelectTask: (t: Task) => void;
   onSelectPerson: (name: string) => void;
   onOpenPeople?: () => void;
@@ -8551,6 +8572,7 @@ function ExecutiveOverview({
   onDeleteTask?: (t: Task) => void;
   onManageProducts?: () => void;
   canManageProducts?: boolean;
+  panoramaReloadToken?: number;
 }) {
   const shouldReduceMotion = useReducedMotion();
   const totalActive = catStats.reduce((s, c) => s + c.total, 0);
@@ -8754,6 +8776,7 @@ function ExecutiveOverview({
               onSelectSystem={onSelectSystem}
               onManageProducts={onManageProducts ?? (() => {})}
               canManage={canManageProducts ?? false}
+              reloadToken={panoramaReloadToken}
             />
           </>
         )}
@@ -8762,24 +8785,65 @@ function ExecutiveOverview({
   );
 }
 
+// ─── 移动目标产品树（产品→系统→子项）─────────────────────────────────────────
+// 任务源始终是主产品(驾驶舱展示的便携式制氧机)；目标可切换到任意产品。
+// 主产品树用传入的 categories；其他产品按需经 fetchProductTaskCategories 懒加载并缓存。
+function useMoveTargetTree(mainCategories: Category[], _products: ProductDef[]) {
+  const [targetProductId, setTargetProductId] = useState<string>(MAIN_PRODUCT_ID);
+  const [treeCache, setTreeCache] = useState<Record<string, Category[]>>({});
+  const [loadingTree, setLoadingTree] = useState(false);
+
+  useEffect(() => {
+    if (targetProductId === MAIN_PRODUCT_ID) return;
+    if (treeCache[targetProductId]) return;
+    let cancelled = false;
+    setLoadingTree(true);
+    fetchProductTaskCategories(targetProductId)
+      .then((cats) => {
+        if (!cancelled) setTreeCache((prev) => ({ ...prev, [targetProductId]: cats }));
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTreeCache((prev) => ({ ...prev, [targetProductId]: [] }));
+          toast.error("目标产品分类加载失败，请重试");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingTree(false);
+      });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetProductId]);
+
+  const targetCategories =
+    targetProductId === MAIN_PRODUCT_ID ? mainCategories : (treeCache[targetProductId] ?? []);
+
+  return { targetProductId, setTargetProductId, targetCategories, loadingTree };
+}
+
 // ─── MoveTaskDialog (single task) ────────────────────────────────────────────
 function MoveTaskDialog({
   task,
   categories,
+  products,
   onConfirm,
   onClose,
 }: {
   task: Task;
   categories: Category[];
-  onConfirm: (targetCatId: string, targetSubId: string) => Promise<void>;
+  products: ProductDef[];
+  onConfirm: (targetProductId: string, targetCatId: string, targetSubId: string) => Promise<void>;
   onClose: () => void;
 }) {
   const shouldReduceMotion = useReducedMotion();
   const [targetCatId, setTargetCatId] = useState<string>("");
   const [targetSubId, setTargetSubId] = useState<string>("");
   const [saving, setSaving] = useState(false);
+  const { targetProductId, setTargetProductId, targetCategories, loadingTree } =
+    useMoveTargetTree(categories, products);
+  const isCrossProduct = targetProductId !== MAIN_PRODUCT_ID;
 
-  // Find which sub the task currently lives in
+  // Find which sub the task currently lives in (源始终是主产品)
   const currentSubId = useMemo(() => {
     for (const cat of categories) {
       for (const sub of cat.children) {
@@ -8791,14 +8855,18 @@ function MoveTaskDialog({
 
   const allTargetOptions = useMemo(() => {
     const opts: { cat: Category; sub: SubProject }[] = [];
-    for (const cat of categories) {
+    for (const cat of targetCategories) {
       for (const sub of cat.children) {
-        if (sub.id !== currentSubId) opts.push({ cat, sub });
+        // 仅在「目标=主产品(同源)」时排除任务当前所在子项；跨产品时全部可选
+        if (!isCrossProduct && sub.id === currentSubId) continue;
+        opts.push({ cat, sub });
       }
     }
     return opts;
-  }, [categories, currentSubId]);
+  }, [targetCategories, isCrossProduct, currentSubId]);
 
+  // 切换产品时清空系统/子项；切换系统时清空子项
+  useEffect(() => { setTargetCatId(""); setTargetSubId(""); }, [targetProductId]);
   useEffect(() => { setTargetSubId(""); }, [targetCatId]);
 
   const targetSubOptions = useMemo(
@@ -8808,9 +8876,11 @@ function MoveTaskDialog({
 
   const handleConfirm = async () => {
     if (!targetSubId) { toast.error("请选择目标子项"); return; }
+    const chosen = allTargetOptions.find((o) => o.sub.id === targetSubId);
+    if (!chosen) { toast.error("目标子项无效，请重新选择"); return; }
     setSaving(true);
     try {
-      await onConfirm(targetCatId, targetSubId);
+      await onConfirm(targetProductId, chosen.cat.id, targetSubId);
     } finally {
       setSaving(false);
     }
@@ -8855,6 +8925,18 @@ function MoveTaskDialog({
 
           <div>
             <label className="mb-2 block text-sm font-medium text-slate-700">目标位置</label>
+            <div className="mb-2">
+              <label className="mb-1 block text-xs text-slate-500">产品</label>
+              <NativeSelect
+                value={targetProductId}
+                onChange={(e) => setTargetProductId(e.target.value)}
+                className="w-full text-sm"
+              >
+                {products.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}{p.id === MAIN_PRODUCT_ID ? "（当前）" : ""}</option>
+                ))}
+              </NativeSelect>
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="mb-1 block text-xs text-slate-500">一级系统</label>
@@ -8862,9 +8944,10 @@ function MoveTaskDialog({
                   value={targetCatId}
                   onChange={(e) => setTargetCatId(e.target.value)}
                   className="w-full text-sm"
+                  disabled={loadingTree}
                 >
                   <option value="">全部系统</option>
-                  {categories.map((cat) => (
+                  {targetCategories.map((cat) => (
                     <option key={cat.id} value={cat.id}>{cat.label}</option>
                   ))}
                 </NativeSelect>
@@ -8875,14 +8958,20 @@ function MoveTaskDialog({
                   value={targetSubId}
                   onChange={(e) => setTargetSubId(e.target.value)}
                   className="w-full text-sm"
+                  disabled={loadingTree}
                 >
-                  <option value="">请选择子项</option>
+                  <option value="">{loadingTree ? "加载中…" : "请选择子项"}</option>
                   {targetSubOptions.map(({ cat, sub }) => (
                     <option key={sub.id} value={sub.id}>{cat.label} / {sub.label}</option>
                   ))}
                 </NativeSelect>
               </div>
             </div>
+            {isCrossProduct && (
+              <p className="mt-2 text-xs text-amber-600">
+                跨产品移动：任务将从当前产品移出，归入所选产品。
+              </p>
+            )}
           </div>
         </div>
 
@@ -8897,7 +8986,7 @@ function MoveTaskDialog({
           </button>
           <button
             type="button"
-            disabled={saving || !targetSubId}
+            disabled={saving || loadingTree || !targetSubId}
             onClick={handleConfirm}
             className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-60"
           >
@@ -8915,13 +9004,15 @@ function MoveTasksDialog({
   fromCategory,
   fromSub,
   categories,
+  products,
   onConfirm,
   onClose,
 }: {
   fromCategory: Category;
   fromSub: SubProject;
   categories: Category[];
-  onConfirm: (taskIds: string[], targetCatId: string, targetSubId: string) => Promise<void>;
+  products: ProductDef[];
+  onConfirm: (taskIds: string[], targetProductId: string, targetCatId: string, targetSubId: string) => Promise<void>;
   onClose: () => void;
 }) {
   const shouldReduceMotion = useReducedMotion();
@@ -8929,24 +9020,25 @@ function MoveTasksDialog({
   const [targetCatId, setTargetCatId] = useState<string>("");
   const [targetSubId, setTargetSubId] = useState<string>("");
   const [saving, setSaving] = useState(false);
+  const { targetProductId, setTargetProductId, targetCategories, loadingTree } =
+    useMoveTargetTree(categories, products);
+  const isCrossProduct = targetProductId !== MAIN_PRODUCT_ID;
 
-  // All subs except the source
+  // All subs except the source（跨产品时不排除任何子项）
   const allTargetOptions = useMemo(() => {
     const opts: { cat: Category; sub: SubProject }[] = [];
-    for (const cat of categories) {
+    for (const cat of targetCategories) {
       for (const sub of cat.children) {
-        if (sub.id !== fromSub.id) {
-          opts.push({ cat, sub });
-        }
+        if (!isCrossProduct && sub.id === fromSub.id) continue;
+        opts.push({ cat, sub });
       }
     }
     return opts;
-  }, [categories, fromSub.id]);
+  }, [targetCategories, isCrossProduct, fromSub.id]);
 
-  // When cat selection changes, reset sub
-  useEffect(() => {
-    setTargetSubId("");
-  }, [targetCatId]);
+  // 切换产品时清空系统/子项；切换系统时清空子项
+  useEffect(() => { setTargetCatId(""); setTargetSubId(""); }, [targetProductId]);
+  useEffect(() => { setTargetSubId(""); }, [targetCatId]);
 
   const targetSubOptions = useMemo(() => {
     if (!targetCatId) return allTargetOptions;
@@ -8972,9 +9064,11 @@ function MoveTasksDialog({
   const handleConfirm = async () => {
     if (selectedIds.size === 0) { toast.error("请选择要移动的任务"); return; }
     if (!targetSubId) { toast.error("请选择目标子项"); return; }
+    const chosen = allTargetOptions.find((o) => o.sub.id === targetSubId);
+    if (!chosen) { toast.error("目标子项无效，请重新选择"); return; }
     setSaving(true);
     try {
-      await onConfirm(Array.from(selectedIds), targetCatId, targetSubId);
+      await onConfirm(Array.from(selectedIds), targetProductId, chosen.cat.id, targetSubId);
     } finally {
       setSaving(false);
     }
@@ -9042,6 +9136,18 @@ function MoveTasksDialog({
 
           <div>
             <label className="mb-2 block text-sm font-medium text-slate-700">目标位置</label>
+            <div className="mb-2">
+              <label className="mb-1 block text-xs text-slate-500">产品</label>
+              <NativeSelect
+                value={targetProductId}
+                onChange={(e) => setTargetProductId(e.target.value)}
+                className="w-full text-sm"
+              >
+                {products.map((p) => (
+                  <option key={p.id} value={p.id}>{p.name}{p.id === MAIN_PRODUCT_ID ? "（当前）" : ""}</option>
+                ))}
+              </NativeSelect>
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="mb-1 block text-xs text-slate-500">一级系统</label>
@@ -9049,9 +9155,10 @@ function MoveTasksDialog({
                   value={targetCatId}
                   onChange={(e) => setTargetCatId(e.target.value)}
                   className="w-full text-sm"
+                  disabled={loadingTree}
                 >
                   <option value="">全部系统</option>
-                  {categories.map((cat) => (
+                  {targetCategories.map((cat) => (
                     <option key={cat.id} value={cat.id}>{cat.label}</option>
                   ))}
                 </NativeSelect>
@@ -9062,14 +9169,20 @@ function MoveTasksDialog({
                   value={targetSubId}
                   onChange={(e) => setTargetSubId(e.target.value)}
                   className="w-full text-sm"
+                  disabled={loadingTree}
                 >
-                  <option value="">请选择子项</option>
+                  <option value="">{loadingTree ? "加载中…" : "请选择子项"}</option>
                   {targetSubOptions.map(({ cat, sub }) => (
                     <option key={sub.id} value={sub.id}>{cat.label} / {sub.label}</option>
                   ))}
                 </NativeSelect>
               </div>
             </div>
+            {isCrossProduct && (
+              <p className="mt-2 text-xs text-amber-600">
+                跨产品移动：所选任务将从当前产品移出，归入所选产品。
+              </p>
+            )}
           </div>
         </div>
 
@@ -9084,7 +9197,7 @@ function MoveTasksDialog({
           </button>
           <button
             type="button"
-            disabled={saving || selectedIds.size === 0 || !targetSubId}
+            disabled={saving || loadingTree || selectedIds.size === 0 || !targetSubId}
             onClick={handleConfirm}
             className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-60"
           >
@@ -9170,17 +9283,27 @@ export function RDTaskManagementPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [products, setProducts] = useState<ProductDef[]>([]);
   const [showProductManage, setShowProductManage] = useState(false);
+  // 每次跨产品/跨系统移动后 +1，用于让子系统全景重新拉取受影响产品的统计
+  const [panoramaReloadToken, setPanoramaReloadToken] = useState(0);
   const [completedTaskNotice, setCompletedTaskNotice] = useState<Task | null>(null);
   // Page view mode:
   //   "overview" = leadership dashboard (landing)
   //   "board"    = detailed system work view
   //   "people"   = hidden people management page (drill-down only)
   const [mode, setMode] = useState<"overview" | "board" | "people">("overview");
+  // 当前驾驶舱正在操作的产品。overview 永远是主产品；进入某产品的 board 后切到该产品，
+  // 此时 `categories` 装载的是该产品的独立任务树，全板块（统计/树/增删改查）都作用于它。
+  const [boardProductId, setBoardProductId] = useState<string>(MAIN_PRODUCT_ID);
 
-  const loadCategories = () => {
+  // 按产品加载分类树到 `categories`：主产品走主库端点，其余走对应产品库端点。
+  const loadCategoriesFor = (productId: string) => {
     setLoading(true);
     setLoadError(null);
-    fetchRdTaskCategories()
+    const fetcher =
+      productId === MAIN_PRODUCT_ID
+        ? fetchRdTaskCategories()
+        : fetchProductTaskCategories(productId);
+    fetcher
       .then((nextCategories) => {
         setCategories(nextCategories);
         setSelectedCatId((current) => {
@@ -9195,6 +9318,9 @@ export function RDTaskManagementPage() {
       })
       .finally(() => setLoading(false));
   };
+  // 零参刷新当前 board 产品。所有既有 `loadCategories()` 调用点（任务变更/创建/删除后刷新）
+  // 因此自动作用于当前产品；即便被当作事件处理器(带 event 实参)调用也安全——这里忽略实参。
+  const loadCategories = () => loadCategoriesFor(boardProductId);
 
   useEffect(() => {
     loadCategories();
@@ -9293,8 +9419,16 @@ export function RDTaskManagementPage() {
     }
 
     try {
-      const saved = await saveRdTaskCategories(nextCategories);
+      // 系统树保存按当前 board 产品路由：主产品→主库；其余→对应产品库。
+      let saved: Category[];
+      if (boardProductId === MAIN_PRODUCT_ID) {
+        saved = await saveRdTaskCategories(nextCategories);
+      } else {
+        await saveProductTaskCategories(boardProductId, nextCategories);
+        saved = nextCategories;
+      }
       setCategories(saved);
+      setPanoramaReloadToken((n) => n + 1);
       recordAudit({
         actor: RD_ADMIN_AUDIT_ACTOR,
         action: auditAction,
@@ -9321,76 +9455,84 @@ export function RDTaskManagementPage() {
     }
   };
 
-  const handleMoveTasksConfirm = async (taskIds: string[], _targetCatId: string, targetSubId: string) => {
-    const nextCategories = categories.map((cat) => ({
-      ...cat,
-      children: cat.children.map((sub) => {
-        if (sub.id === moveTasks?.fromSub.id) {
-          return { ...sub, tasks: sub.tasks.filter((t) => !taskIds.includes(t.task_id)) };
-        }
-        if (sub.id === targetSubId) {
-          const tasksToMove = (moveTasks?.fromSub.tasks ?? []).filter((t) => taskIds.includes(t.task_id));
-          return { ...sub, tasks: [...sub.tasks, ...tasksToMove] };
-        }
-        return sub;
-      }),
-    }));
-    const saved = await saveRdTaskCategories(nextCategories);
-    setCategories(saved);
-    recordAudit({
-      actor: RD_ADMIN_AUDIT_ACTOR,
-      action: "task.updated",
-      resource: { type: "system", id: targetSubId, name: "移动任务" },
-      comment: `批量移动 ${taskIds.length} 个任务到目标子项`,
-      metadata: { taskIds, targetSubId, fromSubId: moveTasks?.fromSub.id },
-      source: "web",
-    });
-    toast.success(`已移动 ${taskIds.length} 个任务`);
-    setMoveTasks(null);
+  const handleMoveTasksConfirm = async (
+    taskIds: string[],
+    targetProductId: string,
+    targetCatId: string,
+    targetSubId: string,
+  ) => {
+    try {
+      const result = await moveRdTasks({ taskIds, targetProductId, targetCategoryId: targetCatId, targetSubId });
+      // 后端返回主产品最新树。当前在主产品 board 直接用它；在非主产品 board 则重拉该产品树
+      // （移入/移出都会改变当前产品树，必须重取而非套用主产品树）。
+      if (boardProductId === MAIN_PRODUCT_ID) {
+        setCategories(result.categories);
+      } else {
+        loadCategoriesFor(boardProductId);
+      }
+      setPanoramaReloadToken((n) => n + 1);
+      const crossProduct = targetProductId !== boardProductId;
+      const productLabel = products.find((p) => p.id === targetProductId)?.name ?? "";
+      const movedPath = `${result.targetCategoryLabel} / ${result.targetSubLabel}`;
+      recordAudit({
+        actor: RD_ADMIN_AUDIT_ACTOR,
+        action: "task.updated",
+        resource: { type: "system", id: targetSubId, name: "移动任务" },
+        comment: crossProduct
+          ? `批量跨产品移动 ${result.movedCount} 个任务 → ${productLabel} / ${movedPath}`
+          : `批量移动 ${result.movedCount} 个任务到目标子项`,
+        metadata: { taskIds, targetProductId, targetSubId, fromSubId: moveTasks?.fromSub.id },
+        source: "web",
+      });
+      toast.success(
+        crossProduct
+          ? `已移动 ${result.movedCount} 个任务到 ${productLabel} · ${movedPath}`
+          : `已移动 ${result.movedCount} 个任务`,
+      );
+      setMoveTasks(null);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "移动失败，请重试");
+    }
   };
 
-  const handleSingleMoveTaskConfirm = async (_targetCatId: string, targetSubId: string) => {
+  const handleSingleMoveTaskConfirm = async (
+    targetProductId: string,
+    targetCatId: string,
+    targetSubId: string,
+  ) => {
     const task = moveTaskTarget;
     if (!task) return;
-    // Find source sub
-    let fromSubId: string | null = null;
-    for (const cat of categories) {
-      for (const sub of cat.children) {
-        if (sub.tasks.some((t) => t.task_id === task.task_id)) { fromSubId = sub.id; break; }
-      }
-      if (fromSubId) break;
-    }
-    // Determine new category_path from target
-    let newPath = task.category_path;
-    for (const cat of categories) {
-      const sub = cat.children.find((s) => s.id === targetSubId);
-      if (sub) { newPath = `${cat.label} / ${sub.label}`; break; }
-    }
-    const nextCategories = categories.map((cat) => ({
-      ...cat,
-      children: cat.children.map((sub) => {
-        if (fromSubId && sub.id === fromSubId) {
-          return { ...sub, tasks: sub.tasks.filter((t) => t.task_id !== task.task_id) };
-        }
-        if (sub.id === targetSubId) {
-          return { ...sub, tasks: [...sub.tasks, { ...task, category_path: newPath }] };
-        }
-        return sub;
-      }),
-    }));
     try {
-      const saved = await saveRdTaskCategories(nextCategories);
-      setCategories(saved);
-      setSelectedTask((prev) => prev && prev.task_id === task.task_id ? { ...prev, category_path: newPath } : prev);
+      const result = await moveRdTasks({
+        taskIds: [task.task_id],
+        targetProductId,
+        targetCategoryId: targetCatId,
+        targetSubId,
+      });
+      if (boardProductId === MAIN_PRODUCT_ID) {
+        setCategories(result.categories);
+      } else {
+        loadCategoriesFor(boardProductId);
+      }
+      setPanoramaReloadToken((n) => n + 1);
+      const crossProduct = targetProductId !== boardProductId;
+      const productLabel = products.find((p) => p.id === targetProductId)?.name ?? "";
+      const movedPath = `${result.targetCategoryLabel} / ${result.targetSubLabel}`;
+      // 移出当前产品后，该任务已不在当前树中 → 关闭其详情抽屉；同产品内则同步路径
+      if (crossProduct) {
+        setSelectedTask((prev) => (prev && prev.task_id === task.task_id ? null : prev));
+      } else {
+        setSelectedTask((prev) => (prev && prev.task_id === task.task_id ? { ...prev, category_path: movedPath } : prev));
+      }
       recordAudit({
         actor: RD_ADMIN_AUDIT_ACTOR,
         action: "task.updated",
         resource: { type: "task", id: task.task_id, name: task.title },
-        changes: [{ field: "category_path", before: task.category_path, after: newPath }],
-        comment: `手动调整任务类目 → ${newPath}`,
+        changes: [{ field: "category_path", before: task.category_path, after: crossProduct ? `${productLabel} / ${movedPath}` : movedPath }],
+        comment: crossProduct ? `跨产品移动任务 → ${productLabel} / ${movedPath}` : `手动调整任务类目 → ${movedPath}`,
         source: "web",
       });
-      toast.success(`任务已移动到 ${newPath}`);
+      toast.success(crossProduct ? `任务已移动到 ${productLabel} · ${movedPath}` : `任务已移动到 ${movedPath}`);
       setMoveTaskTarget(null);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "移动失败，请重试");
@@ -9425,7 +9567,12 @@ export function RDTaskManagementPage() {
   const catStats = useMemo(() => buildCatStats(categories, risks), [categories, risks]);
   const personLoads = useMemo(() => computePersonLoads(categories), [categories]);
 
-  const enterBoard = (catId: string) => {
+  const enterBoard = (catId: string, productId: string = MAIN_PRODUCT_ID) => {
+    // 切换产品时把该产品的独立任务树装载进 `categories`；同产品（含主产品）无需重载。
+    if (productId !== boardProductId) {
+      setBoardProductId(productId);
+      loadCategoriesFor(productId);
+    }
     setSelectedCatId(catId);
     setMode("board");
   };
@@ -9482,6 +9629,10 @@ export function RDTaskManagementPage() {
     : null;
   const selectedSub = selectedCategory?.children.find((sub) => sub.id === selectedCatId) ?? null;
   const selectedLabel = selectedSub ? `${selectedCategory?.label} / ${selectedSub.label}` : selectedCategory?.label;
+  const boardProductName =
+    boardProductId === MAIN_PRODUCT_ID
+      ? null
+      : products.find((p) => p.id === boardProductId)?.name ?? null;
 
   // Visible risks (depend on selection)
   const visibleRisks = useMemo(() => {
@@ -9544,6 +9695,7 @@ export function RDTaskManagementPage() {
           onDeleteTask={(task) => setDeleteTaskTarget(task)}
           onManageProducts={canCreateTask ? () => setShowProductManage(true) : undefined}
           canManageProducts={canCreateTask}
+          panoramaReloadToken={panoramaReloadToken}
         />
         <AlertDialog open={!!deleteTaskTarget} onOpenChange={(open) => { if (!open) setDeleteTaskTarget(null); }}>
           <AlertDialogContent>
@@ -9649,6 +9801,7 @@ export function RDTaskManagementPage() {
               key={`move-task-${moveTaskTarget.task_id}`}
               task={moveTaskTarget}
               categories={categories}
+              products={products}
               onConfirm={handleSingleMoveTaskConfirm}
               onClose={() => setMoveTaskTarget(null)}
             />
@@ -9667,6 +9820,7 @@ export function RDTaskManagementPage() {
             categories={categories}
             peopleProfiles={peopleProfiles}
             personLoads={personLoads}
+            productId={MAIN_PRODUCT_ID}
             onCreated={loadCategories}
             onClose={() => setShowCreate(false)}
           />
@@ -9701,6 +9855,10 @@ export function RDTaskManagementPage() {
             onClick={() => {
               setMode("overview");
               setSelectedCatId(null);
+              if (boardProductId !== MAIN_PRODUCT_ID) {
+                setBoardProductId(MAIN_PRODUCT_ID);
+                loadCategoriesFor(MAIN_PRODUCT_ID);
+              }
             }}
             className="group flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.96]"
           >
@@ -9708,6 +9866,14 @@ export function RDTaskManagementPage() {
             返回总览
           </button>
           <span className="text-xs text-slate-300">·</span>
+          {boardProductName && (
+            <>
+              <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-600 ring-1 ring-inset ring-indigo-100">
+                {boardProductName}
+              </span>
+              <span className="text-xs text-slate-300">›</span>
+            </>
+          )}
           <span className="text-sm text-slate-500">详情视图</span>
           {selectedLabel && (
             <>
@@ -9841,6 +10007,7 @@ export function RDTaskManagementPage() {
         {showCreate && canCreateTask && (
           <AiCreatePanel
             categories={categories}
+            productId={boardProductId}
             onCreated={loadCategories}
             onClose={() => setShowCreate(false)}
           />
@@ -9859,6 +10026,7 @@ export function RDTaskManagementPage() {
               fromCategory={moveTasks.fromCat}
               fromSub={moveTasks.fromSub}
               categories={categories}
+              products={products}
               onConfirm={handleMoveTasksConfirm}
               onClose={() => setMoveTasks(null)}
             />
@@ -9912,6 +10080,7 @@ export function RDTaskManagementPage() {
               key={`move-task-${moveTaskTarget.task_id}`}
               task={moveTaskTarget}
               categories={categories}
+              products={products}
               onConfirm={handleSingleMoveTaskConfirm}
               onClose={() => setMoveTaskTarget(null)}
             />

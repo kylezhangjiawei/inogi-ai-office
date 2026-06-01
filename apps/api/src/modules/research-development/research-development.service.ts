@@ -50,6 +50,9 @@ type RdStoreKey =
 const CATEGORY = 'research-development';
 const MAX_AUDIT_LOGS = 1000;
 const DEFAULT_BOM_TASK_TYPE = '研发任务';
+// 主产品（便携式制氧机）：其任务分类树存于 rd.taskCategories；其余产品存于 rd.productTaskCategories[productId]。
+// 与前端 MAIN_PRODUCT_ID 保持一致，是跨产品移动任务时判断「写哪个 store」的唯一依据。
+const RD_MAIN_PRODUCT_ID = 'prod-portable-o2';
 const PROGRESS_NOTE_MAX_FILES = 5;
 const PROGRESS_NOTE_MAX_FILE_BYTES = 25 * 1024 * 1024;
 const PROGRESS_NOTE_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
@@ -1013,6 +1016,137 @@ export class ResearchDevelopmentService {
     return { ok: true };
   }
 
+  /**
+   * 跨产品 / 跨系统移动任务（原子）。
+   * 主产品(prod-portable-o2)的任务树存于 rd.taskCategories，其余产品存于 rd.productTaskCategories[productId]，
+   * 因此一次移动可能同时改动两个 store（出/入主产品）或仅改动其一。两个 store 的写入用单个
+   * prisma.$transaction 批量提交，避免「源已删、目标未写」的中间态。
+   *
+   * 仅移动顶层任务（与移动对话框一致）；任务的 category_path 第三段（任务类型）保持不变。
+   */
+  async moveTasks(
+    taskIds: unknown,
+    target: { productId: unknown; categoryId: unknown; subId: unknown },
+  ): Promise<{
+    ok: true;
+    movedCount: number;
+    categories: JsonRecord[];
+    targetProductId: string;
+    targetCategoryLabel: string;
+    targetSubLabel: string;
+  }> {
+    const ids = Array.from(
+      new Set(asArray(taskIds).map((v) => cleanText(v)).filter(Boolean)),
+    );
+    if (ids.length === 0) throw new BadRequestException('未提供要移动的任务');
+
+    const targetProductId = cleanText(target?.productId);
+    const targetCategoryId = cleanText(target?.categoryId);
+    const targetSubId = cleanText(target?.subId);
+    if (!targetProductId || !targetCategoryId || !targetSubId) {
+      throw new BadRequestException('移动目标不完整（缺少产品 / 系统 / 子项）');
+    }
+
+    // 校验目标产品存在，避免 typo 的 productId 在 store 里写出脏条目
+    const products = await this.getProducts();
+    const productExists = products.some((p) => cleanText(p.id) === targetProductId);
+    if (!productExists) throw new BadRequestException('目标产品不存在');
+
+    const mainTree = await this.readNormalizedTaskCategories();
+    const productStore = await this.readProductCategoryStore();
+
+    // 构建「productId → 规范化后的分类树」工作副本（主产品单列）。
+    const productTrees = new Map<string, JsonRecord[]>();
+    for (const [pid, raw] of Object.entries(productStore)) {
+      if (pid === RD_MAIN_PRODUCT_ID) continue;
+      productTrees.set(pid, ensurePocBomTaskCategories(asArray(raw)));
+    }
+    // 目标产品若尚未在 store（首次承接任务），按空 BOM 种入工作副本。
+    if (targetProductId !== RD_MAIN_PRODUCT_ID && !productTrees.has(targetProductId)) {
+      productTrees.set(targetProductId, ensurePocBomTaskCategories([]));
+    }
+
+    const targetTree = targetProductId === RD_MAIN_PRODUCT_ID ? mainTree : productTrees.get(targetProductId)!;
+    const targetCategory = targetTree.find(
+      (c): c is JsonRecord => isRecord(c) && cleanText(c.id) === targetCategoryId,
+    );
+    if (!targetCategory) throw new BadRequestException('目标系统不存在');
+    const targetChild = asArray(targetCategory.children)
+      .filter(isRecord)
+      .find((ch) => cleanText(ch.id) === targetSubId);
+    if (!targetChild) throw new BadRequestException('目标子项不存在');
+    const targetCatLabel = String(targetCategory.label ?? '');
+    const targetSubLabel = String(targetChild.label ?? '');
+
+    // 从所有树（主 + 各产品）的顶层任务中摘出待移动任务。
+    const idSet = new Set(ids);
+    const collected = new Map<string, JsonRecord>();
+    let mainDirty = false;
+    const dirtyProducts = new Set<string>();
+
+    const removeFromTree = (tree: JsonRecord[]): boolean => {
+      let changed = false;
+      for (const cat of tree) {
+        if (!isRecord(cat)) continue;
+        for (const child of asArray(cat.children)) {
+          if (!isRecord(child)) continue;
+          const tasks = asArray(child.tasks);
+          if (tasks.length === 0) continue;
+          const kept: unknown[] = [];
+          let childChanged = false;
+          for (const t of tasks) {
+            const tid = isRecord(t) ? cleanText(t.task_id) : '';
+            if (tid && idSet.has(tid) && !collected.has(tid)) {
+              collected.set(tid, t as JsonRecord);
+              childChanged = true;
+              changed = true;
+            } else {
+              kept.push(t);
+            }
+          }
+          if (childChanged) child.tasks = kept;
+        }
+      }
+      return changed;
+    };
+
+    if (removeFromTree(mainTree)) mainDirty = true;
+    for (const [pid, tree] of productTrees) {
+      if (removeFromTree(tree)) dirtyProducts.add(pid);
+    }
+
+    if (collected.size === 0) throw new NotFoundException('任务不存在');
+
+    // 写入目标子项（置顶，category_path 改写为目标系统/子项，任务类型段保留）。
+    const shaped = Array.from(collected.values()).map((t) =>
+      normalizeTaskShape(t, targetCatLabel, targetSubLabel),
+    );
+    targetChild.tasks = [...shaped, ...asArray(targetChild.tasks)];
+    if (targetProductId === RD_MAIN_PRODUCT_ID) mainDirty = true;
+    else dirtyProducts.add(targetProductId);
+
+    // 原子提交受影响的 store。
+    const writeOps: ReturnType<ResearchDevelopmentService['buildSettingUpsert']>[] = [];
+    if (mainDirty) writeOps.push(this.buildSettingUpsert('rd.taskCategories', mainTree));
+    if (dirtyProducts.size > 0) {
+      const nextStore: Record<string, unknown> = { ...productStore };
+      for (const pid of dirtyProducts) nextStore[pid] = productTrees.get(pid) ?? [];
+      writeOps.push(this.buildSettingUpsert('rd.productTaskCategories', nextStore));
+    }
+    if (writeOps.length > 0) await this.prisma.$transaction(writeOps);
+
+    await this.recomputeDirectorDashboard();
+
+    return {
+      ok: true,
+      movedCount: collected.size,
+      categories: await this.getTaskCategories(),
+      targetProductId,
+      targetCategoryLabel: targetCatLabel,
+      targetSubLabel,
+    };
+  }
+
   private async readProductCategoryStore(): Promise<Record<string, unknown>> {
     const raw = await this.readValue('rd.productTaskCategories');
     return isRecord(raw) ? (raw as Record<string, unknown>) : {};
@@ -1020,6 +1154,102 @@ export class ResearchDevelopmentService {
 
   private async saveProductCategoryStore(store: Record<string, unknown>) {
     await this.writeValue('rd.productTaskCategories', store);
+  }
+
+  // ── 跨 store 任务读写（主库 rd.taskCategories + 各产品库 rd.productTaskCategories[pid]）──
+
+  /** 读取指定产品的规范化分类树（主产品→主库；其余→对应产品库，首访自动 seed 空 BOM）。 */
+  private async readTaskCategoriesForProduct(productId: string): Promise<JsonRecord[]> {
+    const pid = cleanText(productId);
+    if (!pid || pid === RD_MAIN_PRODUCT_ID) return this.readNormalizedTaskCategories();
+    return this.getProductTaskCategories(pid);
+  }
+
+  /** 写回指定产品的分类树（主产品→主库；其余→对应产品库）。 */
+  private async writeTaskCategoriesForProduct(productId: string, categories: unknown[]): Promise<void> {
+    const pid = cleanText(productId);
+    if (!pid || pid === RD_MAIN_PRODUCT_ID) {
+      await this.writeValue('rd.taskCategories', categories);
+      return;
+    }
+    await this.saveProductTaskCategoriesForProduct(pid, categories);
+  }
+
+  /**
+   * 跨 store 按 task_id 定位并写回：先在主库尝试 transform，命中即写主库；否则遍历各产品库，
+   * 命中即仅写回那个产品库。transform 接收某个 store 的分类树、返回 { categories(改写后), found }，
+   * found 通常由调用方在闭包内置位（与各 mutator 现有写法一致）。主库优先 → 主产品行为不变。
+   * 用于 updateTask / deleteTask / 附件计数等「按 task_id 定位单个任务」的写操作。
+   */
+  private async mutateTaskAcrossStores(
+    transform: (categories: JsonRecord[]) => { categories: unknown[]; found: boolean },
+  ): Promise<{ found: boolean; productId: string | null }> {
+    const mainCats = await this.readNormalizedTaskCategories();
+    const mainResult = transform(mainCats);
+    if (mainResult.found) {
+      await this.writeValue('rd.taskCategories', mainResult.categories);
+      return { found: true, productId: RD_MAIN_PRODUCT_ID };
+    }
+    const store = await this.readProductCategoryStore();
+    for (const [pid, raw] of Object.entries(store)) {
+      if (pid === RD_MAIN_PRODUCT_ID) continue;
+      const cats = ensurePocBomTaskCategories(asArray(raw));
+      const result = transform(cats);
+      if (result.found) {
+        await this.saveProductCategoryStore({ ...store, [pid]: result.categories });
+        return { found: true, productId: pid };
+      }
+    }
+    return { found: false, productId: null };
+  }
+
+  /**
+   * 跨所有产品库的分类树合集（主库 + 各产品库简单拼接）。仅用于「全部/我的」这类把任务展平来用的
+   * 聚合视图（我的工作台、AI 评分按 task_id 定位、参与者收集等）。任务 task_id 全局唯一，展平后不重复。
+   * 注意：同一 BOM 一级系统 id 会在不同产品下重复出现，故不可用于「按系统 id 分组」——
+   * 那类场景见 recomputeDirectorDashboard 的按 id 合并。
+   */
+  private async readMergedTaskCategories(): Promise<JsonRecord[]> {
+    const [mainCats, store] = await Promise.all([
+      this.readNormalizedTaskCategories(),
+      this.readProductCategoryStore(),
+    ]);
+    const merged: JsonRecord[] = [...mainCats.filter(isRecord)];
+    for (const [pid, raw] of Object.entries(store)) {
+      if (pid === RD_MAIN_PRODUCT_ID) continue;
+      merged.push(...ensurePocBomTaskCategories(asArray(raw)).filter(isRecord));
+    }
+    return merged;
+  }
+
+  /**
+   * 对「所有 store」(主库 + 各产品库) 各自套用同一 transform 并按需写回（每库独立判断 changed）。
+   * 用于「人员改名/删除需波及其名下全部产品任务」这类按人批量改写。与 mutateTaskAcrossStores
+   * （按单个 task_id 命中即停）不同，这里要遍历并改写命中到的每一个库。
+   */
+  private async mutateAllStores(
+    transform: (categories: JsonRecord[]) => { categories: unknown[]; changed: boolean },
+  ): Promise<void> {
+    const ops: Array<Promise<unknown>> = [];
+    const mainCats = await this.readNormalizedTaskCategories();
+    const mainResult = transform(mainCats);
+    if (mainResult.changed) {
+      ops.push(this.writeValue('rd.taskCategories', mainResult.categories));
+    }
+    const store = await this.readProductCategoryStore();
+    const nextStore: Record<string, unknown> = { ...store };
+    let storeChanged = false;
+    for (const [pid, raw] of Object.entries(store)) {
+      if (pid === RD_MAIN_PRODUCT_ID) continue;
+      const cats = ensurePocBomTaskCategories(asArray(raw));
+      const result = transform(cats);
+      if (result.changed) {
+        nextStore[pid] = result.categories;
+        storeChanged = true;
+      }
+    }
+    if (storeChanged) ops.push(this.saveProductCategoryStore(nextStore));
+    await Promise.all(ops);
   }
 
   private buildDefaultProducts(): JsonRecord[] {
@@ -1045,11 +1275,13 @@ export class ResearchDevelopmentService {
   }
 
   async createTask(payload: JsonRecord) {
+    const productId = cleanText(payload.product_id) || RD_MAIN_PRODUCT_ID;
     const [categories, identity] = await Promise.all([
-      this.readNormalizedTaskCategories(),
+      this.readTaskCategoriesForProduct(productId),
       this.getIdentityContext(),
     ]);
-    const { category_id, sub_project_id, ...taskData } = payload;
+    const { category_id, sub_project_id, product_id: _productId, ...taskData } = payload;
+    void _productId;
     const categoryId = typeof category_id === 'string' ? category_id.trim() : '';
     const requestedSubProjectId = typeof sub_project_id === 'string' ? sub_project_id.trim() : '';
 
@@ -1122,7 +1354,7 @@ export class ResearchDevelopmentService {
 
     if (!categoryFound) throw new NotFoundException('指定的分类不存在');
     if (!inserted) throw new NotFoundException('指定的子项目不存在');
-    await this.writeValue('rd.taskCategories', updated);
+    await this.writeTaskCategoriesForProduct(productId, updated);
     await this.recomputeDirectorDashboard();
     // 成员立项提交（status=pending_review）时，自动通知具备审核权限的管理员，
     // 触发管理员个人工作台通知中心的待审核卡片。直接派单（status=in_progress/draft）不触发。
@@ -1155,10 +1387,7 @@ export class ResearchDevelopmentService {
     // reject:  always → in_progress (task sent back for revision)
     let resolvedPatch: JsonRecord = persistPatch;
 
-    const [categories, identity] = await Promise.all([
-      this.readNormalizedTaskCategories(),
-      this.getIdentityContext(),
-    ]);
+    const identity = await this.getIdentityContext();
     let found = false;
     let originalTask: JsonRecord | null = null;
 
@@ -1261,19 +1490,21 @@ export class ResearchDevelopmentService {
       });
     };
 
-    const updated = categories.map((cat) => {
-      if (!isRecord(cat)) return cat;
-      return {
-        ...cat,
-        children: asArray(cat.children).map((child) => {
-          if (!isRecord(child)) return child;
-          return { ...child, tasks: updateInTasks(asArray(child.tasks)) };
-        }),
-      };
+    await this.mutateTaskAcrossStores((categories) => {
+      const updated = categories.map((cat) => {
+        if (!isRecord(cat)) return cat;
+        return {
+          ...cat,
+          children: asArray(cat.children).map((child) => {
+            if (!isRecord(child)) return child;
+            return { ...child, tasks: updateInTasks(asArray(child.tasks)) };
+          }),
+        };
+      });
+      return { categories: updated, found };
     });
 
     if (!found) throw new NotFoundException('任务不存在');
-    await this.writeValue('rd.taskCategories', updated);
     await this.recomputeDirectorDashboard();
 
     // Auto-send review notifications (best-effort, never blocks response)
@@ -1663,7 +1894,6 @@ export class ResearchDevelopmentService {
   }
 
   async deleteTask(taskId: string) {
-    const categories = await this.readNormalizedTaskCategories();
     let found = false;
     // 记录被删除的全部 task_id（含子任务），用于连带清理其待审核通知
     const removedTaskIds: string[] = [];
@@ -1684,19 +1914,21 @@ export class ResearchDevelopmentService {
       });
     }
 
-    const updated = categories.map((cat) => {
-      if (!isRecord(cat)) return cat;
-      return {
-        ...cat,
-        children: asArray(cat.children).map((child) => {
-          if (!isRecord(child)) return child;
-          return { ...child, tasks: deleteFromTasks(asArray(child.tasks)) };
-        }),
-      };
+    await this.mutateTaskAcrossStores((categories) => {
+      const updated = categories.map((cat) => {
+        if (!isRecord(cat)) return cat;
+        return {
+          ...cat,
+          children: asArray(cat.children).map((child) => {
+            if (!isRecord(child)) return child;
+            return { ...child, tasks: deleteFromTasks(asArray(child.tasks)) };
+          }),
+        };
+      });
+      return { categories: updated, found };
     });
 
     if (!found) throw new NotFoundException('任务不存在');
-    await this.writeValue('rd.taskCategories', updated);
     // 连带清理：删除任务（含子任务）后，把它们关联的"待审核"通知标记为已处理，
     // 避免管理员收件箱残留指向已删任务的孤儿待审核卡片（清理立项脏数据时常见）。
     for (const removedId of removedTaskIds) {
@@ -1716,13 +1948,21 @@ export class ResearchDevelopmentService {
   }
 
   private async recomputeDirectorDashboard(): Promise<void> {
-    const [categories, people, users] = await Promise.all([
+    const [mainCategories, people, users, productStore] = await Promise.all([
       this.readNormalizedTaskCategories(),
       this.getPeople(),
       this.listIdentityUsers(),
+      this.readProductCategoryStore(),
     ]);
 
-    // Flatten all tasks from the category tree
+    // 汇总主库 + 所有产品库的分类树，让总监看板覆盖全部产品的任务（人员负载/阻塞/待指派/系统进度均跨产品）。
+    const allTrees: JsonRecord[][] = [mainCategories.filter(isRecord)];
+    for (const [pid, raw] of Object.entries(productStore)) {
+      if (pid === RD_MAIN_PRODUCT_ID) continue;
+      allTrees.push(ensurePocBomTaskCategories(asArray(raw)).filter(isRecord));
+    }
+
+    // Flatten all tasks from every product's category tree
     const allTasks: JsonRecord[] = [];
     function collectTasksInto(tasks: unknown[], output: JsonRecord[]) {
       for (const t of tasks) {
@@ -1731,38 +1971,48 @@ export class ResearchDevelopmentService {
         if (Array.isArray(t.subtasks)) collectTasksInto(t.subtasks, output);
       }
     }
-    function collectTasks(tasks: unknown[]) {
-      collectTasksInto(tasks, allTasks);
-    }
-    for (const cat of categories) {
-      if (!isRecord(cat)) continue;
-      for (const child of asArray(cat.children)) {
-        if (!isRecord(child)) continue;
-        collectTasks(asArray(child.tasks));
+    for (const tree of allTrees) {
+      for (const cat of tree) {
+        if (!isRecord(cat)) continue;
+        for (const child of asArray(cat.children)) {
+          if (!isRecord(child)) continue;
+          collectTasksInto(asArray(child.tasks), allTasks);
+        }
       }
     }
 
-    // Category progress — one entry per top-level category, including subtasks.
+    // Category progress — 按顶层系统 id 跨所有产品聚合（BOM 系统 id 在各产品间稳定一致，
+    // 故按 id 合并即「按系统」把全部产品的任务汇总到一条）。
     const COLORS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444', '#06b6d4'];
-    let colorIdx = 0;
-    const categoryProgress = categories.filter(isRecord).map((cat) => {
-      const catTasks: JsonRecord[] = [];
-      for (const child of asArray(cat.children)) {
-        if (!isRecord(child)) continue;
-        collectTasksInto(asArray(child.tasks), catTasks);
+    type ProgressEntry = { id: string; label: string; total: number; completed: number; in_progress: number; blocked: number };
+    const progressMap = new Map<string, ProgressEntry>();
+    const progressOrder: string[] = [];
+    for (const tree of allTrees) {
+      for (const cat of tree) {
+        if (!isRecord(cat)) continue;
+        const id = String(cat.id ?? '');
+        const catTasks: JsonRecord[] = [];
+        for (const child of asArray(cat.children)) {
+          if (!isRecord(child)) continue;
+          collectTasksInto(asArray(child.tasks), catTasks);
+        }
+        const visibleTasks = catTasks.filter((t) => !isArchivedTask(t));
+        let entry = progressMap.get(id);
+        if (!entry) {
+          entry = { id, label: String(cat.label ?? ''), total: 0, completed: 0, in_progress: 0, blocked: 0 };
+          progressMap.set(id, entry);
+          progressOrder.push(id);
+        }
+        entry.total += visibleTasks.length;
+        entry.completed += visibleTasks.filter((t) => t.status === 'completed').length;
+        entry.in_progress += visibleTasks.filter((t) => t.status === 'in_progress').length;
+        entry.blocked += visibleTasks.filter((t) => t.status === 'paused_blocked').length;
       }
-      const visibleTasks = catTasks.filter((t) => !isArchivedTask(t));
-      const total = visibleTasks.length;
-      return {
-        id: String(cat.id ?? ''),
-        label: String(cat.label ?? ''),
-        total,
-        completed: visibleTasks.filter((t) => t.status === 'completed').length,
-        in_progress: visibleTasks.filter((t) => t.status === 'in_progress').length,
-        blocked: visibleTasks.filter((t) => t.status === 'paused_blocked').length,
-        color: COLORS[colorIdx++ % COLORS.length],
-      };
-    });
+    }
+    const categoryProgress = progressOrder.map((id, idx) => ({
+      ...progressMap.get(id)!,
+      color: COLORS[idx % COLORS.length],
+    }));
 
     // Person loads — merge rd.people with active live task counts only.
     const ownerTaskIds = new Map<string, string[]>();
@@ -2222,7 +2472,6 @@ export class ResearchDevelopmentService {
 
   private async incrementTaskAttachmentCount(taskId: string, delta: number): Promise<void> {
     if (!taskId || delta <= 0) return;
-    const categories = await this.readNormalizedTaskCategories();
     let found = false;
 
     const updateInTasks = (tasks: unknown[]): unknown[] =>
@@ -2239,19 +2488,21 @@ export class ResearchDevelopmentService {
         return task;
       });
 
-    const updated = categories.map((category) => {
-      if (!isRecord(category)) return category;
-      return {
-        ...category,
-        children: asArray(category.children).map((child) => {
-          if (!isRecord(child)) return child;
-          return { ...child, tasks: updateInTasks(asArray(child.tasks)) };
-        }),
-      };
+    const { found: didFind } = await this.mutateTaskAcrossStores((categories) => {
+      const updated = categories.map((category) => {
+        if (!isRecord(category)) return category;
+        return {
+          ...category,
+          children: asArray(category.children).map((child) => {
+            if (!isRecord(child)) return child;
+            return { ...child, tasks: updateInTasks(asArray(child.tasks)) };
+          }),
+        };
+      });
+      return { categories: updated, found };
     });
 
-    if (!found) return;
-    await this.writeValue('rd.taskCategories', updated);
+    if (!didFind) return;
     await this.recomputeDirectorDashboard();
   }
 
@@ -2779,6 +3030,7 @@ export class ResearchDevelopmentService {
   async clearAllTaskData() {
     await Promise.all([
       this.writeValue('rd.taskCategories', []),
+      this.writeValue('rd.productTaskCategories', {}),
       this.writeValue('rd.workspace', EMPTY_WORKSPACE),
       this.writeValue('rd.directorDashboard', EMPTY_DIRECTOR_DASHBOARD),
       this.writeValue('rd.taskProgressNotes', {}),
@@ -2889,7 +3141,8 @@ export class ResearchDevelopmentService {
     if (!currentUserId) return saved;
 
     const [rawCategories, identity, noteMap] = await Promise.all([
-      this.readNormalizedTaskCategories(),
+      // 我的工作台「只关注任务」：跨所有产品库聚合该成员的任务（产品仅是展示分区，不切分"我的任务"）。
+      this.readMergedTaskCategories(),
       this.getIdentityContext(),
       this.getProgressNoteMap(),
     ]);
@@ -3103,15 +3356,12 @@ export class ResearchDevelopmentService {
   }
 
   private async rewritePersonAssignments(before: JsonRecord, after: JsonRecord | null) {
-    const rawCategories = await this.readArray('rd.taskCategories');
-    const categories = ensurePocBomTaskCategories(rawCategories);
-    let changed = false;
-
-    const rewriteTask = (task: JsonRecord): JsonRecord => {
+    // 「人员改名/删除」要波及该人名下的全部任务——跨主库 + 所有产品库改写（产品仅是分区）。
+    const rewriteTask = (task: JsonRecord, mark: () => void): JsonRecord => {
       let next: JsonRecord = { ...task };
 
       if (this.assignmentMatchesPerson(task, before)) {
-        changed = true;
+        mark();
         if (after) {
           next = {
             ...next,
@@ -3132,7 +3382,7 @@ export class ResearchDevelopmentService {
         .filter(isRecord)
         .map((collaborator) => {
           if (!this.collaboratorMatchesPerson(collaborator, before)) return collaborator;
-          changed = true;
+          mark();
           if (!after) return null;
           return {
             ...collaborator,
@@ -3145,21 +3395,22 @@ export class ResearchDevelopmentService {
       return {
         ...next,
         collaborators,
-        subtasks: asArray(task.subtasks).filter(isRecord).map(rewriteTask),
+        subtasks: asArray(task.subtasks).filter(isRecord).map((s) => rewriteTask(s, mark)),
       };
     };
 
-    const updated = categories.map((category) => ({
-      ...category,
-      children: asArray(category.children).filter(isRecord).map((child) => ({
-        ...child,
-        tasks: asArray(child.tasks).filter(isRecord).map(rewriteTask),
-      })),
-    }));
-
-    if (changed || JSON.stringify(rawCategories) !== JSON.stringify(updated)) {
-      await this.writeValue('rd.taskCategories', updated);
-    }
+    await this.mutateAllStores((categories) => {
+      let changed = false;
+      const mark = () => { changed = true; };
+      const updated = categories.map((category) => ({
+        ...category,
+        children: asArray(category.children).filter(isRecord).map((child) => ({
+          ...child,
+          tasks: asArray(child.tasks).filter(isRecord).map((t) => rewriteTask(t, mark)),
+        })),
+      }));
+      return { categories: updated, changed };
+    });
   }
 
   async getPeople() {
@@ -3340,7 +3591,7 @@ export class ResearchDevelopmentService {
 
   private async collectTaskParticipantUserIds(taskId: string): Promise<Set<string>> {
     const result = new Set<string>();
-    const categories = await this.readNormalizedTaskCategories();
+    const categories = await this.readMergedTaskCategories();
     const walk = (tasks: unknown[]): void => {
       for (const t of tasks) {
         if (!isRecord(t)) continue;
@@ -3375,7 +3626,7 @@ export class ResearchDevelopmentService {
     failed: number;
     failed_ids: string[];
   }> {
-    const categories = await this.readNormalizedTaskCategories();
+    const categories = await this.readMergedTaskCategories();
     const completedIds: string[] = [];
     const collect = (tasks: unknown[]): void => {
       for (const t of tasks) {
@@ -3457,8 +3708,8 @@ export class ResearchDevelopmentService {
       // 幂等：已有评分则跳过（用户要求"不需要重新评分"）
       if (isRecord(map[taskId])) return;
 
-      // 收集任务详情
-      const categories = await this.readNormalizedTaskCategories();
+      // 收集任务详情（跨所有产品库定位：评分按 task_id，产品仅是分区）
+      const categories = await this.readMergedTaskCategories();
       let foundTask: JsonRecord | null = null;
       const findInTasks = (tasks: unknown[]): void => {
         for (const t of tasks) {
@@ -4268,8 +4519,9 @@ export class ResearchDevelopmentService {
     return setting?.value ?? null;
   }
 
-  private async writeValue(key: RdStoreKey, value: unknown) {
-    const setting = await this.prisma.systemSetting.upsert({
+  /** 构造单个 store 的 upsert 操作（不执行），供 writeValue 与 $transaction 批量原子写复用。 */
+  private buildSettingUpsert(key: RdStoreKey, value: unknown) {
+    return this.prisma.systemSetting.upsert({
       where: { key },
       create: {
         category: CATEGORY,
@@ -4282,6 +4534,10 @@ export class ResearchDevelopmentService {
         value: value as any,
       },
     });
+  }
+
+  private async writeValue(key: RdStoreKey, value: unknown) {
+    const setting = await this.buildSettingUpsert(key, value);
     return setting.value;
   }
 

@@ -214,7 +214,7 @@ const STATUS_CONFIG: Record<TaskStatus, { className: string; dot: string }> = {
 };
 
 function PriorityBadge({ priority }: { priority: Priority }) {
-  const cfg = PRIORITY_CONFIG[priority];
+  const cfg = PRIORITY_CONFIG[priority] ?? PRIORITY_CONFIG.medium;
   return (
     <span className={cn("inline-flex items-center rounded-md border px-1.5 py-0.5 text-xs font-semibold", cfg.className)}>
       {cfg.label}
@@ -223,7 +223,7 @@ function PriorityBadge({ priority }: { priority: Priority }) {
 }
 
 function StatusPill({ task }: { task: WorkspaceTask }) {
-  const cfg = STATUS_CONFIG[task.status];
+  const cfg = STATUS_CONFIG[task.status] ?? STATUS_CONFIG.draft;
   return (
     <span className={cn("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium", cfg.className)}>
       <span className={cn("h-1.5 w-1.5 rounded-full", cfg.dot)} />
@@ -2033,7 +2033,7 @@ function WorkspaceTaskCard({
       className={cn(
         "group relative overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_1px_4px_rgba(15,23,42,0.04)] transition-all duration-200 focus-visible:outline-none",
         isPendingReview
-          ? "cursor-not-allowed opacity-60 grayscale-[0.35]"
+          ? "cursor-not-allowed select-text bg-slate-50 opacity-60 grayscale"
           : "cursor-pointer hover:-translate-y-0.5 hover:border-slate-200 hover:shadow-[0_8px_24px_rgba(15,23,42,0.09)] focus-visible:ring-2 focus-visible:ring-slate-300",
       )}
     >

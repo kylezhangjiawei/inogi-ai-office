@@ -13,6 +13,7 @@ import { Permissions } from '../auth/decorators/permissions.decorator';
 import {
   RdAiService,
   type RdAiPersonContext,
+  type RdAiProductOption,
   type RdAiProposalRefineScope,
   type RdAiProposalTaskInput,
 } from './rd-ai.service';
@@ -82,6 +83,21 @@ function parseTaskDrafts(raw: unknown): RdAiProposalTaskInput[] {
     .filter((item): item is RdAiProposalTaskInput => item !== null);
 }
 
+function parseProductOptions(raw: unknown): RdAiProductOption[] {
+  const value = typeof raw === 'string' && raw.trim() ? safeJsonParse(raw) : raw;
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item): RdAiProductOption | null => {
+      if (!item || typeof item !== 'object') return null;
+      const product = item as Record<string, unknown>;
+      const id = typeof product.id === 'string' ? product.id.trim() : '';
+      const name = typeof product.name === 'string' ? product.name.trim() : '';
+      if (!id || !name) return null;
+      return { id, name };
+    })
+    .filter((item): item is RdAiProductOption => item !== null);
+}
+
 function safeJsonParse(raw: string): unknown {
   try {
     return JSON.parse(raw);
@@ -109,6 +125,7 @@ export class RdAiController {
       peopleProfiles?: RdAiPersonContext[];
       categoryLabels?: string[];
       proposalTitle?: string;
+      products?: RdAiProductOption[];
     },
   ) {
     return this.rdAiService.extract({
@@ -117,6 +134,7 @@ export class RdAiController {
       peopleProfiles: parsePeopleProfiles(body.peopleProfiles),
       categoryLabels: parseList(body.categoryLabels),
       proposalTitle: body.proposalTitle,
+      products: parseProductOptions(body.products),
     });
   }
 
@@ -130,6 +148,7 @@ export class RdAiController {
       peopleProfiles?: string | RdAiPersonContext[];
       categoryLabels?: string | string[];
       proposalTitle?: string;
+      products?: string | RdAiProductOption[];
     },
   ) {
     return this.rdAiService.extract({
@@ -138,6 +157,7 @@ export class RdAiController {
       peopleProfiles: parsePeopleProfiles(body.peopleProfiles),
       categoryLabels: parseList(body.categoryLabels),
       proposalTitle: body.proposalTitle,
+      products: parseProductOptions(body.products),
     });
   }
 
