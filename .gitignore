@@ -12,3 +12,4 @@ __pycache__/
 .idea/
 .claude/
 tmp/*.log
+local-db-backups/

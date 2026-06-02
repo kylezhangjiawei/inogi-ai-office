@@ -52,7 +52,6 @@ import {
   fetchRdTaskCategories,
   fetchRdTaskProgressNotes,
   recomputeRdDirectorDashboard,
-  regenerateAllRdDailyReports,
   saveRdTaskCategories,
   sendRdMessage,
   updateRdPerson,
@@ -61,7 +60,6 @@ import {
   type RdCategory,
   type RdCategoryProgress,
   type RdCollaborator,
-  type RdDailyReport,
   type RdDirectorDashboardPayload,
   type RdPendingAssignTask,
   type RdPersonLoad,
@@ -73,10 +71,12 @@ import {
   getAttachmentUrl,
 } from "./lib/rdApi";
 import { ProgressAttachmentGrid } from "./RDProgressEvidence";
+import { RDDailyReportPanel } from "./RDDailyReportPanel";
 
 const DIRECTOR_MOTION_EASE = [0.22, 1, 0.36, 1] as [number, number, number, number];
 const DIRECTOR_FAST_TRANSITION = { duration: 0.18, ease: DIRECTOR_MOTION_EASE };
 const DIRECTOR_PANEL_TRANSITION = { duration: 0.24, ease: DIRECTOR_MOTION_EASE };
+
 const POC_BOM_CATEGORY_IDS = new Set([
   "cat-power",
   "cat-base",
@@ -2834,24 +2834,12 @@ export function RDDirectorDashboardPage() {
 
   useEffect(() => { loadCategories(); }, [loadCategories]);
 
-  // Daily reports — list + history filters
-  const [dailyReports, setDailyReports] = useState<RdDailyReport[]>([]);
-  const [dailyReportsLoading, setDailyReportsLoading] = useState(false);
-  const [regeneratingReports, setRegeneratingReports] = useState(false);
-  const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
-  const [reportDateFilter, setReportDateFilter] = useState<string>(""); // YYYY-MM-DD or empty for all
-  const [reportUserFilter, setReportUserFilter] = useState<string>(""); // user_id or empty for all
-  const [reportPage, setReportPage] = useState(1);
-  const REPORT_PAGE_SIZE = 5; // date groups per page
+  // 进度记录映射（task_id → 进度记录），供「按人」标签页的图片组使用。
+  // 复用最近日报的 note_refs 反查关联任务，避免逐任务拉取。日报本体已迁出至共享组件 RDDailyReportPanel。
   const [progressNoteMap, setProgressNoteMap] = useState<Record<string, RdTaskProgressNote[]>>({});
 
-  const loadDailyReports = useCallback(() => {
-    setDailyReportsLoading(true);
-    fetchRdDailyReports({
-        date: reportDateFilter || undefined,
-        user_id: reportUserFilter || undefined,
-        limit: reportDateFilter || reportUserFilter ? 500 : 50,
-      })
+  const loadProgressNotes = useCallback(() => {
+    fetchRdDailyReports({ limit: 50 })
       .then(async (list) => {
         const taskIds = Array.from(
           new Set(list.flatMap((report) => report.summary.note_refs.map((ref) => ref.task_id)).filter(Boolean)),
@@ -2859,60 +2847,19 @@ export function RDDirectorDashboardPage() {
         const noteEntries = await Promise.all(
           taskIds.map(async (taskId) => [taskId, await fetchRdTaskProgressNotes(taskId)] as const),
         );
-        const noteMap = Object.fromEntries(noteEntries);
-        return { list, noteMap };
+        return Object.fromEntries(noteEntries);
       })
-      .then(({ list, noteMap }) => {
-        if (!isMountedRef.current) return;
-        setDailyReports(list);
-        setProgressNoteMap(noteMap);
-      })
-      .catch(() => {
-        if (!isMountedRef.current) return;
-        setDailyReports([]);
-        setProgressNoteMap({});
-      })
-      .finally(() => { if (isMountedRef.current) setDailyReportsLoading(false); });
-  }, [reportDateFilter, reportUserFilter]);
+      .then((noteMap) => { if (isMountedRef.current) setProgressNoteMap(noteMap); })
+      .catch(() => { if (isMountedRef.current) setProgressNoteMap({}); });
+  }, []);
 
-  useEffect(() => { loadDailyReports(); }, [loadDailyReports]);
-
-  // Build user options for the filter from current person loads
-  const reportUserOptions = useMemo(() => {
-    const opts: { value: string; label: string }[] = [];
-    const seen = new Set<string>();
-    for (const p of dashboard.personLoads) {
-      const id = p.user_id ?? p.id;
-      if (!id || seen.has(id)) continue;
-      seen.add(id);
-      opts.push({ value: id, label: p.name });
-    }
-    return opts;
-  }, [dashboard.personLoads]);
-
-  // Group reports by date for history view
-  const reportsByDate = useMemo(() => {
-    const map = new Map<string, RdDailyReport[]>();
-    for (const r of dailyReports) {
-      const arr = map.get(r.date) ?? [];
-      arr.push(r);
-      map.set(r.date, arr);
-    }
-    return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]));
-  }, [dailyReports]);
-  const progressNoteById = useMemo(() => {
-    const map = new Map<string, RdTaskProgressNote>();
-    for (const notes of Object.values(progressNoteMap)) {
-      for (const note of notes) map.set(note.id, note);
-    }
-    return map;
-  }, [progressNoteMap]);
+  useEffect(() => { loadProgressNotes(); }, [loadProgressNotes]);
 
   const reloadAll = useCallback(() => {
     loadDashboard();
     loadCategories();
-    loadDailyReports();
-  }, [loadDashboard, loadCategories, loadDailyReports]);
+    loadProgressNotes();
+  }, [loadDashboard, loadCategories, loadProgressNotes]);
 
   // Flat task map: task_id → RdTask (includes subtasks)
   const taskMap = useMemo(() => {
@@ -4040,269 +3987,8 @@ export function RDDirectorDashboardPage() {
               </Tabs>
             </div>
 
-            {/* Daily reports */}
-            <div className="rounded-2xl border border-violet-100 bg-violet-50/40 p-5 shadow-sm">
-              <div className="mb-4 flex items-center justify-between gap-2">
-                <div>
-                  <h2 className="flex items-center gap-2 text-sm font-bold text-slate-800">
-                    <CalendarDays className="h-4 w-4 text-violet-500" />
-                    研发日报
-                    <span className="rounded-full bg-violet-100 px-1.5 text-xs text-violet-700">{dailyReports.length}</span>
-                    {(reportDateFilter || reportUserFilter) && (
-                      <button
-                        type="button"
-                        onClick={() => { setReportDateFilter(""); setReportUserFilter(""); }}
-                        className="ml-1 inline-flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold text-violet-700 hover:bg-violet-200"
-                      >
-                        清除筛选
-                        <X className="h-3 w-3" />
-                      </button>
-                    )}
-                  </h2>
-                  <p className="mt-0.5 text-[11px] text-slate-400">
-                    研发成员手动生成或每日 18:30 自动汇总 · 历史保存最近 1000 条
-                  </p>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={loadDailyReports}
-                    disabled={dailyReportsLoading}
-                    className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-all hover:border-indigo-200 hover:text-indigo-600 disabled:opacity-50"
-                  >
-                    {dailyReportsLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : null}
-                    刷新
-                  </button>
-                  {(canReassignTasks || canCreateTask) && (
-                    <button
-                      type="button"
-                      disabled={regeneratingReports}
-                      onClick={async () => {
-                        setRegeneratingReports(true);
-                        try {
-                          const result = await regenerateAllRdDailyReports();
-                          toast.success(`已为 ${result.count} 位成员生成 ${result.date} 日报`);
-                          loadDailyReports();
-                        } catch (err) {
-                          toast.error(err instanceof Error ? err.message : "批量生成失败");
-                        } finally {
-                          setRegeneratingReports(false);
-                        }
-                      }}
-                      className="inline-flex items-center gap-1 rounded-md bg-violet-600 px-2.5 py-1 text-xs font-medium text-white shadow-sm transition-all hover:bg-violet-700 disabled:opacity-60"
-                    >
-                      {regeneratingReports ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                      立即汇总
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* History filters */}
-              <div className="mb-3 flex items-center gap-2 rounded-lg border border-violet-100 bg-white/60 px-3 py-2">
-                {/* date group — can shrink */}
-                <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
-                  <div className="flex shrink-0 items-center gap-1 text-[11px] font-semibold text-slate-500">
-                    <CalendarDays className="h-3 w-3" />
-                    日期
-                  </div>
-                  <Input
-                    type="date"
-                    value={reportDateFilter}
-                    onChange={(e) => { setReportDateFilter(e.target.value); setReportPage(1); }}
-                    className="h-7 w-32 shrink-0 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
-                  />
-                  <div className="flex shrink-0 items-center gap-1 text-[10px]">
-                    {[
-                      { label: "今天", value: new Date().toISOString().slice(0, 10) },
-                      { label: "昨天", value: new Date(Date.now() - 86_400_000).toISOString().slice(0, 10) },
-                      { label: "近 7 天", value: "" },
-                    ].map((preset) => (
-                      <button
-                        key={preset.label}
-                        type="button"
-                        onClick={() => {
-                          if (preset.label === "近 7 天") setReportDateFilter("");
-                          else setReportDateFilter(preset.value);
-                          setReportPage(1);
-                        }}
-                        className={cn(
-                          "rounded-full px-2 py-0.5 font-medium transition-colors",
-                          reportDateFilter === preset.value
-                            ? "bg-violet-600 text-white"
-                            : "bg-slate-100 text-slate-600 hover:bg-violet-100 hover:text-violet-700",
-                        )}
-                      >
-                        {preset.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-                {/* member filter — always on one line, never wraps */}
-                <div className="flex shrink-0 items-center gap-1.5">
-                  {/*<span className="text-[11px] font-semibold text-slate-500">成员</span>*/}
-                  <NativeSelect
-                    value={reportUserFilter}
-                    onChange={(e) => { setReportUserFilter(e.target.value); setReportPage(1); }}
-                    className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
-                  >
-                    <option value="">全部成员</option>
-                    {reportUserOptions.map((opt) => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </NativeSelect>
-                </div>
-              </div>
-
-              {dailyReportsLoading ? (
-                <DashboardEmptyPanel title="正在读取日报" description="请稍候，系统正在同步日报数据。" />
-              ) : dailyReports.length === 0 ? (
-                <DashboardEmptyPanel
-                  title={reportDateFilter || reportUserFilter ? "该筛选下暂无日报" : "暂无日报"}
-                  description={
-                    reportDateFilter || reportUserFilter
-                      ? "请尝试切换日期或成员；或点击「清除筛选」查看全部。"
-                      : "研发成员点击「生成日报」或等待 18:30 自动生成后，会在这里展示。"
-                  }
-                />
-              ) : (
-                <div className="space-y-3">
-                  {reportsByDate.slice((reportPage - 1) * REPORT_PAGE_SIZE, reportPage * REPORT_PAGE_SIZE).map(([date, reportsInDate]) => (
-                    <div key={date}>
-                      <div className="mb-1.5 flex items-center gap-2 text-[11px] font-semibold text-slate-500">
-                        <span className="rounded-md bg-violet-100 px-1.5 py-0.5 text-violet-700">{date}</span>
-                        <span className="text-slate-400">{reportsInDate.length} 份日报</span>
-                      </div>
-                      <ul className="space-y-2">
-                        {reportsInDate.map((report) => {
-                          const expanded = expandedReportId === report.id;
-                          const s = report.summary.stats;
-                          return (
-                            <li
-                              key={report.id}
-                              className="overflow-hidden rounded-xl border border-violet-100 bg-white transition-colors"
-                            >
-                              <button
-                                type="button"
-                                onClick={() => setExpandedReportId(expanded ? null : report.id)}
-                                className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-violet-50/40"
-                              >
-                                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-xs font-bold text-violet-700">
-                                  {report.user_name.slice(0, 1)}
-                                </div>
-                                <div className="min-w-0 flex-1">
-                                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                                    <span className="text-sm font-semibold text-slate-800">{report.user_name}</span>
-                                    <span className="text-xs tabular-nums text-slate-500">{report.date}</span>
-                                    <span
-                                      className={cn(
-                                        "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
-                                        report.trigger === "cron"
-                                          ? "bg-slate-100 text-slate-600"
-                                          : "bg-blue-100 text-blue-700",
-                                      )}
-                                    >
-                                      {report.trigger === "cron" ? "自动" : "手动"}
-                                    </span>
-                                  </div>
-                                  <div className="mt-1 flex flex-wrap items-center gap-3 text-[11px] text-slate-500">
-                                    <span>任务 {s.total_tasks}</span>
-                                    <span className="text-blue-600">进行中 {s.in_progress}</span>
-                                    <span className="text-emerald-600">已完成 {s.completed}</span>
-                                    {s.blocked > 0 && <span className="text-red-600">阻塞 {s.blocked}</span>}
-                                    <span className="text-slate-400">·</span>
-                                    <span>进度记录 {s.notes_count}</span>
-                                  </div>
-                                </div>
-                                <ChevronRight
-                                  className={cn(
-                                    "h-4 w-4 shrink-0 text-slate-400 transition-transform",
-                                    expanded && "rotate-90",
-                                  )}
-                                />
-                              </button>
-                        {expanded && (
-                          <div className="border-t border-violet-100 bg-violet-50/30 px-4 py-3">
-                            <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-6 text-slate-700">
-                              {report.summary.text}
-                            </pre>
-                            {report.summary.note_refs.length > 0 && (
-                              <div className="mt-3">
-                                <div className="mb-1.5 text-[11px] font-semibold text-slate-500">关联进度记录</div>
-                                <ul className="space-y-1">
-                                  {report.summary.note_refs.map((ref) => {
-                                    const note = progressNoteById.get(ref.note_id);
-                                    const attachments = note?.attachments ?? [];
-                                    return (
-                                    <li key={ref.note_id} className="rounded-md bg-white px-2.5 py-1.5 text-[11px] text-slate-600 ring-1 ring-violet-100">
-                                      <span className="font-mono text-slate-400">{ref.task_id}</span>
-                                      <span className="mx-1.5 text-slate-300">·</span>
-                                      {ref.progress != null && <span className="mr-1.5 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">进度 {ref.progress}%</span>}
-                                      <span className="text-slate-700">{ref.excerpt || "—"}</span>
-                                      {ref.attachments_count > 0 && (
-                                        <span className="ml-1.5 text-[10px] text-violet-600">+{ref.attachments_count} 附件</span>
-                                      )}
-                                      {attachments.length > 0 && (
-                                        <ProgressAttachmentGrid attachments={attachments} compact className="mt-2" />
-                                      )}
-                                    </li>
-                                    );
-                                  })}
-                                </ul>
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </li>
-                          );
-                        })}
-                      </ul>
-                    </div>
-                  ))}
-                  {/* pagination */}
-                  {reportsByDate.length > REPORT_PAGE_SIZE && (
-                    <div className="flex items-center justify-between pt-1">
-                      <span className="text-[11px] text-slate-400">
-                        共 {reportsByDate.length} 天 · 第 {reportPage} / {Math.ceil(reportsByDate.length / REPORT_PAGE_SIZE)} 页
-                      </span>
-                      <div className="flex items-center gap-1">
-                        <button
-                          type="button"
-                          disabled={reportPage === 1}
-                          onClick={() => setReportPage((p) => p - 1)}
-                          className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-violet-300 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          <ChevronLeft className="h-3.5 w-3.5" />
-                        </button>
-                        {Array.from({ length: Math.ceil(reportsByDate.length / REPORT_PAGE_SIZE) }, (_, i) => i + 1).map((pg) => (
-                          <button
-                            key={pg}
-                            type="button"
-                            onClick={() => setReportPage(pg)}
-                            className={cn(
-                              "flex h-7 min-w-[28px] items-center justify-center rounded-md border px-1.5 text-xs font-semibold transition",
-                              pg === reportPage
-                                ? "border-violet-400 bg-violet-600 text-white"
-                                : "border-slate-200 bg-white text-slate-600 hover:border-violet-300 hover:text-violet-700",
-                            )}
-                          >
-                            {pg}
-                          </button>
-                        ))}
-                        <button
-                          type="button"
-                          disabled={reportPage === Math.ceil(reportsByDate.length / REPORT_PAGE_SIZE)}
-                          onClick={() => setReportPage((p) => p + 1)}
-                          className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-violet-300 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          <ChevronRight className="h-3.5 w-3.5" />
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
+            {/* 研发日报（共享组件：今日速览 + 历史详情层） */}
+            <RDDailyReportPanel canRegenerate={canReassignTasks || canCreateTask} />
 
           </div>
 

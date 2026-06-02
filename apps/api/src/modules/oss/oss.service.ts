@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as OSS from 'ali-oss';
-import { randomUUID } from 'crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { extname } from 'path';
 
 @Injectable()
@@ -190,6 +190,66 @@ export class OssService implements OnModuleInit {
     } catch {
       return null;
     }
+  }
+
+  /**
+   * Open a readable stream for an object, used by the same-origin preview proxy so the
+   * browser can render PDFs/images inline (the bucket forces Content-Disposition: attachment
+   * on direct signed URLs, which makes iframes download instead of preview).
+   * Tries the internal endpoint first, then the public endpoint.
+   */
+  async getObjectStream(
+    objectKey: string,
+  ): Promise<{ stream: NodeJS.ReadableStream; contentType: string; size: number } | null> {
+    // Internal endpoint first (free OSS→ECS transfer inside the VPC), then public. The internal
+    // attempt gets a short timeout so that outside the VPC (e.g. local dev, where the internal
+    // endpoint is unreachable) we fail over to public in ~2s instead of hanging on the TLS
+    // handshake. In production the internal endpoint answers in well under 100ms.
+    const attempts: Array<{ client: OSS; timeout?: number }> = [];
+    if (this.internalClient) attempts.push({ client: this.internalClient, timeout: 2000 });
+    if (this.publicClient && this.publicClient !== this.internalClient) attempts.push({ client: this.publicClient });
+
+    for (const { client, timeout } of attempts) {
+      try {
+        const result = await client.getStream(objectKey, timeout ? { timeout } : {});
+        const headers = (result.res?.headers ?? {}) as Record<string, string>;
+        return {
+          stream: result.stream as NodeJS.ReadableStream,
+          contentType: String(headers['content-type'] ?? '') || 'application/octet-stream',
+          size: Number(headers['content-length'] ?? 0),
+        };
+      } catch (err) {
+        this.logger.warn(`OSS getStream 失败(${objectKey}): ${(err as Error)?.message ?? err}`);
+      }
+    }
+    return null;
+  }
+
+  /** HMAC secret for self-authenticating preview tokens (iframes can't send Authorization headers). */
+  private previewSecret(): string {
+    return (
+      this.config.get<string>('OSS_PREVIEW_SECRET') ||
+      this.config.get<string>('JWT_SECRET') ||
+      'change-me-jwt-secret'
+    );
+  }
+
+  /** Sign a time-limited HMAC token authorizing inline preview of an object via the proxy. */
+  signPreviewToken(objectKey: string, expiresSeconds = 24 * 3600): { exp: number; sig: string } {
+    const exp = Math.floor(Date.now() / 1000) + expiresSeconds;
+    const sig = createHmac('sha256', this.previewSecret()).update(`${objectKey}|${exp}`).digest('hex');
+    return { exp, sig };
+  }
+
+  /** Constant-time verify of a preview token. */
+  verifyPreviewToken(objectKey: string, exp: number, sig: string): boolean {
+    if (!objectKey || !sig || !Number.isFinite(exp)) return false;
+    if (exp < Math.floor(Date.now() / 1000)) return false;
+    const expected = createHmac('sha256', this.previewSecret()).update(`${objectKey}|${exp}`).digest('hex');
+    const a = Buffer.from(sig);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length) return false;
+    return timingSafeEqual(a, b);
   }
 
   private guessMime(ext: string): string {

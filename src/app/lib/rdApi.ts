@@ -87,7 +87,7 @@ export type RdTask = {
   primary_owner: string;
   primary_owner_user_id?: string | null;
   collaborators: RdCollaborator[];
-  pending_review_type?: "collaboration" | "result" | "proposal" | "due_date" | string | null;
+  pending_review_type?: "collaboration" | "result" | "proposal" | "due_date" | "abandon" | string | null;
   /** 进入"待审核"的时间戳（方案B 逾期判定）：与 due_date 比较，判断申请者是否逾期提交。 */
   submitted_for_review_at?: string | null;
   pending_collaborators?: RdCollaborator[];
@@ -97,6 +97,9 @@ export type RdTask = {
   pending_due_date?: string | null;
   pending_due_date_reason?: string | null;
   pending_due_date_requested_at?: string | null;
+  /** 待审核的放弃申请：原因 + 提交时间。审核通过后任务被移除（等同删除）。 */
+  pending_abandon_reason?: string | null;
+  pending_abandon_requested_at?: string | null;
   status: RdTaskStatus;
   progress: number;
   ai_priority: RdPriority;
@@ -170,7 +173,7 @@ export type RdWorkspaceTask = {
   owner: string;
   owner_user_id?: string | null;
   collaborators?: RdCollaborator[];
-  pending_review_type?: "collaboration" | "result" | "proposal" | "due_date" | string | null;
+  pending_review_type?: "collaboration" | "result" | "proposal" | "due_date" | "abandon" | string | null;
   /** 进入"待审核"的时间戳（方案B 逾期判定）。 */
   submitted_for_review_at?: string | null;
   pending_collaborators?: RdCollaborator[];
@@ -178,6 +181,8 @@ export type RdWorkspaceTask = {
   pending_due_date?: string | null;
   pending_due_date_reason?: string | null;
   pending_due_date_requested_at?: string | null;
+  pending_abandon_reason?: string | null;
+  pending_abandon_requested_at?: string | null;
   collab_role?: string;
   on_leave?: boolean;
   ai_pending?: boolean;
@@ -777,6 +782,8 @@ export type RdTaskProgressAttachment = {
   size: number;
   /** OSS 签名 URL（OSS 已配置时使用）。优先级高于 data_url。 */
   oss_url?: string;
+  /** 同源内联预览代理 URL（后端 HMAC 签名）。iframe 预览用，规避 OSS 强制下载。 */
+  preview_url?: string;
   /** base64 data URI（OSS 未配置时的降级方案）。 */
   data_url?: string;
   /** AI 抽取出的文本内容（OCR/文档抽取/视觉模型），用于 AI 评分上下文。上传后由后台异步填充。 */
@@ -791,6 +798,17 @@ export type RdTaskProgressAttachment = {
 export function getAttachmentUrl(att: { oss_url?: string; data_url?: string } | null | undefined): string {
   if (!att) return "";
   return att.oss_url ?? att.data_url ?? "";
+}
+
+/**
+ * 取附件的「内联预览」URL：优先用同源代理（preview_url，规避 OSS 强制下载），
+ * 否则回退到普通 URL。用于 iframe / PDF 预览；下载仍用 getAttachmentUrl。
+ */
+export function getAttachmentPreviewUrl(
+  att: { preview_url?: string; oss_url?: string; data_url?: string } | null | undefined,
+): string {
+  if (!att) return "";
+  return att.preview_url ?? getAttachmentUrl(att);
 }
 
 export type RdTaskProgressNote = {
@@ -939,6 +957,25 @@ export type RdDailyReportNoteRef = {
   attachments_count: number;
 };
 
+export type RdDailyReportGroup = "completed_today" | "progressed" | "stalled" | "blocked";
+
+// 当日某成员单个任务的画像（新版日报按分组展示的最小单元）。
+export type RdDailyReportTaskItem = {
+  task_id: string;
+  title: string;
+  status: string;
+  status_label: string;
+  progress: number | null;
+  due_date: string | null;
+  role: "owner" | "collaborator";
+  group: RdDailyReportGroup;
+  today_note_id: string | null;
+  today_excerpt: string | null;
+  today_progress: number | null;
+  today_attachments: number;
+  blocked_reason: string | null;
+};
+
 export type RdDailyReport = {
   id: string;
   user_id: string | null;
@@ -954,8 +991,13 @@ export type RdDailyReport = {
       blocked: number;
       pending: number;
       notes_count: number;
+      // 新增（旧日报无此字段，故可选）
+      stalled?: number;
+      as_collaborator?: number;
     };
     note_refs: RdDailyReportNoteRef[];
+    // 新版按任务分组的明细（旧日报无此字段，渲染时回退到 note_refs）
+    tasks?: RdDailyReportTaskItem[];
   };
   created_at: string;
 };
@@ -1109,6 +1151,8 @@ export type KbEntry = {
   /** True when this entry has a base64 file stored server-side (data_url not included in list). */
   has_data_file?: boolean;
   oss_url?: string | null;
+  /** Same-origin inline-preview proxy URL (规避 OSS bucket 强制下载)；仅当 oss_url 存在时由后端注入。 */
+  preview_url?: string | null;
   external_url?: string | null;
   view_count: number;
   download_count: number;

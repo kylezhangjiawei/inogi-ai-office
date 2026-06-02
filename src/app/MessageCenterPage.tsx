@@ -24,7 +24,7 @@ import { fetchRdMessages, patchRdMessage, updateRdTask, type RdMessage } from ".
 
 type ReviewRequestBody = {
   type: "review_request";
-  review_type: "result" | "collaboration" | "proposal" | "due_date";
+  review_type: "result" | "collaboration" | "proposal" | "due_date" | "abandon";
   task_id: string;
   task_title: string;
   submitter_name: string;
@@ -140,7 +140,7 @@ function ApproveDialog({
 }: {
   taskTitle: string;
   taskId: string;
-  reviewType: "result" | "collaboration" | "proposal" | "due_date";
+  reviewType: "result" | "collaboration" | "proposal" | "due_date" | "abandon";
   submitterName: string;
   pendingDueDate?: string;
   currentDueDate?: string;
@@ -155,6 +155,8 @@ function ApproveDialog({
       ? "立项审核"
       : reviewType === "due_date"
       ? "截止日期变更审核"
+      : reviewType === "abandon"
+      ? "放弃任务审核"
       : "成果审核";
 
   return (
@@ -203,6 +205,8 @@ function ApproveDialog({
                 ? "通过后任务将正式立项并进入进行中状态，同时通知发起人。"
                 : reviewType === "due_date"
                 ? "通过后任务的截止日期将更新为申请值，并回到进行中状态。"
+                : reviewType === "abandon"
+                ? "通过后该任务将被移除（等同删除），不可恢复，并通知申请人。"
                 : "通过后任务会进入审核通过状态，并通知对应申请人员。"}
             </div>
           </div>
@@ -269,7 +273,7 @@ function MessageCard({
 
   if (body.type === "review_request") {
     const rb = body;
-    const reviewTypeLabel = rb.review_type === "collaboration" ? "协作申请" : rb.review_type === "proposal" ? "立项申请" : rb.review_type === "due_date" ? "截止日期变更" : "成果提交";
+    const reviewTypeLabel = rb.review_type === "collaboration" ? "协作申请" : rb.review_type === "proposal" ? "立项申请" : rb.review_type === "due_date" ? "截止日期变更" : rb.review_type === "abandon" ? "放弃任务" : "成果提交";
     const isHandled = msg.handled === true;
 
     return (
@@ -291,7 +295,7 @@ function MessageCard({
               {msg.read ? "已读" : "未读"}
             </span>
             <span className="material-chip bg-blue-100 text-blue-700">审核申请</span>
-            <span className={cn("material-chip", rb.review_type === "collaboration" ? "bg-purple-50 text-purple-700" : rb.review_type === "proposal" ? "bg-indigo-50 text-indigo-700" : rb.review_type === "due_date" ? "bg-sky-50 text-sky-700" : "bg-amber-50 text-amber-700")}>
+            <span className={cn("material-chip", rb.review_type === "collaboration" ? "bg-purple-50 text-purple-700" : rb.review_type === "proposal" ? "bg-indigo-50 text-indigo-700" : rb.review_type === "due_date" ? "bg-sky-50 text-sky-700" : rb.review_type === "abandon" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700")}>
               {reviewTypeLabel}
             </span>
             {!msg.read && !isHandled && (

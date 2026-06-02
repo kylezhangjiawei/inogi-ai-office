@@ -97,16 +97,18 @@ function XlsxPreview({ fileUrl }: { fileUrl: string }) {
     setError(null);
     (async () => {
       try {
-        const [{ default: XLSX }, buf] = await Promise.all([
+        const [xlsxMod, buf] = await Promise.all([
           // dynamic import：xlsx 包大约 700KB，只在用户真要预览时才下载
-          import("xlsx") as Promise<{ default: typeof import("xlsx") }>,
+          import("xlsx"),
           fetch(fileUrl).then((r) => {
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             return r.arrayBuffer();
           }),
         ]);
         if (cancelled) return;
-        const workbook = XLSX.read(buf, { type: "array" });
+        // SheetJS 的 ESM 构建只有具名导出、无 default；CJS 互操作下 default 才是整包。两者都兼容。
+        const XLSX = ((xlsxMod as unknown as { default?: typeof import("xlsx") }).default ?? xlsxMod) as typeof import("xlsx");
+        const workbook = XLSX.read(new Uint8Array(buf), { type: "array" });
         const parsed = workbook.SheetNames.map((name) => ({
           name,
           html: XLSX.utils.sheet_to_html(workbook.Sheets[name], { editable: false }),

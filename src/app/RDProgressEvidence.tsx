@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Download, FileText, ImageIcon, Paperclip, X } from "lucide-react";
 import { cn } from "./components/ui/utils";
-import { getAttachmentUrl, type RdTaskProgressAttachment, type RdTaskProgressNote } from "./lib/rdApi";
+import { getAttachmentPreviewUrl, getAttachmentUrl, type RdTaskProgressAttachment, type RdTaskProgressNote } from "./lib/rdApi";
 
 export function formatRdFileSize(size: number): string {
   if (!Number.isFinite(size) || size <= 0) return "0 B";
@@ -139,7 +139,7 @@ function AttachmentPreviewModal({
             </div>
           ) : canInlinePreview ? (
             <iframe
-              src={getAttachmentUrl(attachment)}
+              src={getAttachmentPreviewUrl(attachment)}
               title={attachment.name}
               className="h-[72vh] w-full rounded-[8px] border border-slate-200 bg-white"
             />

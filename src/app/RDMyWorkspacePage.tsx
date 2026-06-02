@@ -39,7 +39,7 @@ import { usePermission } from "./hooks/usePermission";
 import { useAuth } from "./auth";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
 import { AuditTimeline } from "./RDAuditTimeline";
-import { ProgressNoteList } from "./RDProgressEvidence";
+import { ProgressAttachmentGrid, ProgressNoteList } from "./RDProgressEvidence";
 import { AuditActor, recordAudit, useAuditActor, useAuditLogs } from "./lib/auditLog";
 import { PERMISSIONS } from "./lib/permissions";
 import { isTaskOverdue, taskOverdueDays } from "./lib/taskDue";
@@ -73,7 +73,7 @@ type AiSuggestion = RdAiSuggestion;
 type WorkspaceNotification = RdWorkspaceNotification;
 
 type ActivePanel =
-  | { kind: "task"; task: WorkspaceTask; tab: OperationTab; openedAt: number }
+  | { kind: "task"; task: WorkspaceTask; tab: OperationTab; openedAt: number; abandon?: boolean }
   | { kind: "ai"; suggestion: AiSuggestion; regenerated?: boolean }
   | { kind: "notification"; notification: WorkspaceNotification };
 
@@ -96,7 +96,7 @@ type ConfirmDialogConfig = {
 };
 
 const TODAY_LABEL = new Date().toISOString().split("T")[0]!;
-const NOTE_ATTACHMENT_MAX_FILES = 5;
+const NOTE_ATTACHMENT_MAX_FILES = 10;
 const NOTE_ATTACHMENT_MAX_FILE_BYTES = 25 * 1024 * 1024;
 const NOTE_ATTACHMENT_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
 type WorkspaceDueFilter = "all" | "overdue" | "today" | "3d" | "7d" | "no_due";
@@ -579,6 +579,7 @@ function TaskOperationDrawer({
   onRequestConfirm,
   onSubmittedForReview,
   onCollaborationChanged,
+  autoAbandon,
 }: {
   task: WorkspaceTask;
   initialTab: OperationTab;
@@ -588,6 +589,7 @@ function TaskOperationDrawer({
   onRequestConfirm: (config: ConfirmDialogConfig) => void;
   onSubmittedForReview: (taskId: string, options?: { progress?: number }) => void | Promise<void>;
   onCollaborationChanged: (taskId: string, collaborators: RdCollaborator[], status?: TaskStatus) => void | Promise<void>;
+  autoAbandon?: boolean;
 }) {
   const WORKSPACE_AUDIT_ACTOR = useAuditActor("研发成员");
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
@@ -601,6 +603,7 @@ function TaskOperationDrawer({
   const [aiAssessment, setAiAssessment] = useState<ProgressAssessment | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [noteAttachments, setNoteAttachments] = useState<File[]>([]);
+  const [noteDragOver, setNoteDragOver] = useState(false);
   const [savingNote, setSavingNote] = useState(false);
   const [peopleOptions, setPeopleOptions] = useState<RdPersonLoad[]>([]);
   const [peopleLoading, setPeopleLoading] = useState(false);
@@ -613,7 +616,60 @@ function TaskOperationDrawer({
   const [editingDueDate, setEditingDueDate] = useState(false);
   const [draftDueDate, setDraftDueDate] = useState(() => toDateInputValue(task.due_date));
   const [dueDateReason, setDueDateReason] = useState("");
+  const [abandonOpen, setAbandonOpen] = useState(false);
+  const [abandonReason, setAbandonReason] = useState("");
+  const [abandonSubmitting, setAbandonSubmitting] = useState(false);
   const taskLogs = useAuditLogs({ resourceType: "task", resourceId: task.task_id });
+  const [progressNotes, setProgressNotes] = useState<RdTaskProgressNote[]>([]);
+  const [progressNotesReloadKey, setProgressNotesReloadKey] = useState(0);
+  // 拉取本任务的进度留痕，把其中的附件/照片挂到「操作留痕」对应记录下展示。
+  useEffect(() => {
+    let cancelled = false;
+    fetchRdTaskProgressNotes(task.task_id)
+      .then((notes) => { if (!cancelled) setProgressNotes(notes); })
+      .catch(() => { if (!cancelled) setProgressNotes([]); });
+    return () => { cancelled = true; };
+  }, [task.task_id, progressNotesReloadKey]);
+  // 进度留痕并入操作留痕：把每条「更新了任务进度」的留痕附件挂到对应操作记录下。
+  // 关联优先用 metadata.note_id（新数据精确）；老数据回退「同进度值 + 2 分钟内」启发式，保证一条留痕只挂一处。
+  const logNoteMatches = useMemo(() => {
+    const map = new Map<string, RdTaskProgressNote>();
+    const used = new Set<string>();
+    const progressLogs = taskLogs.filter((log) => log.action === "task.progress_updated");
+    for (const log of progressLogs) {
+      const noteId = typeof log.metadata?.note_id === "string" ? log.metadata.note_id : "";
+      if (!noteId) continue;
+      const note = progressNotes.find((n) => n.id === noteId);
+      if (note && !used.has(note.id)) {
+        map.set(log.id, note);
+        used.add(note.id);
+      }
+    }
+    for (const log of progressLogs) {
+      if (map.has(log.id)) continue;
+      const after = log.changes?.find((c) => c.field === "progress")?.after;
+      const logTime = new Date(log.timestamp).getTime();
+      let best: RdTaskProgressNote | undefined;
+      let bestDelta = Infinity;
+      for (const note of progressNotes) {
+        if (used.has(note.id)) continue;
+        if (typeof after === "number" && typeof note.progress === "number" && note.progress !== after) continue;
+        const delta = Math.abs(new Date(note.created_at).getTime() - logTime);
+        if (delta > 120_000 || delta >= bestDelta) continue;
+        best = note;
+        bestDelta = delta;
+      }
+      if (best) {
+        map.set(log.id, best);
+        used.add(best.id);
+      }
+    }
+    return map;
+  }, [taskLogs, progressNotes]);
+  const taskAttachmentTotal = useMemo(
+    () => progressNotes.reduce((sum, note) => sum + note.attachments.length, 0),
+    [progressNotes],
+  );
   const canApplyCollaborationDirectly = canDirectProject || canReviewProjectL1 || canReviewProjectL2 || canReassignTask || canManagePeople;
   const dueDateChangePending = task.status === "pending_review" && task.pending_review_type === "due_date";
 
@@ -745,6 +801,8 @@ function TaskOperationDrawer({
           setAiAssessment(null);
           setNote("");
           setDraftProgress(progressToSave);
+          // 刷新进度留痕，让本次上传的附件/照片立即出现在操作留痕里（无需重开任务）。
+          setProgressNotesReloadKey((k) => k + 1);
         } catch (err) {
           const msg = err instanceof Error ? err.message : "进度记录保存失败";
           toast.error(msg);
@@ -986,6 +1044,109 @@ function TaskOperationDrawer({
     });
   };
 
+  // 请求放弃任务：仅主责人、且任务处于活跃状态（进行中/请假/阻塞/挂起）时可发起。
+  // 一律走审批（无直接生效路径）；审核通过后任务被硬删除（等同管理员删除），故文案强调不可恢复。
+  const canAbandon =
+    task.role === "primary" &&
+    ["in_progress", "paused_leave", "paused_blocked", "on_hold"].includes(task.status);
+
+  const submitAbandon = async () => {
+    const reason = abandonReason.trim();
+    if (!reason) {
+      toast.error("请填写放弃原因，便于管理员审核");
+      return;
+    }
+    setAbandonSubmitting(true);
+    try {
+      await updateRdTask(task.task_id, {
+        status: "pending_review",
+        pending_review_type: "abandon",
+        pending_abandon_reason: reason,
+        pending_abandon_requested_at: new Date().toISOString(),
+      });
+      recordAudit({
+        actor: WORKSPACE_AUDIT_ACTOR,
+        action: "task.abandon_requested",
+        resource: { type: "task", id: task.task_id, name: task.title },
+        changes: [{ field: "status", before: task.status, after: "pending_review" }],
+        comment: reason,
+        metadata: { current_progress: task.progress },
+        source: "web",
+      });
+      toast.success(`${task.task_id} 已提交放弃申请`);
+      onLog(`${task.task_id} 已提交放弃申请`);
+      window.dispatchEvent(new CustomEvent("rd:review-submitted"));
+      await onSubmittedForReview(task.task_id);
+      setAbandonOpen(false);
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "提交失败，请重试");
+      setAbandonSubmitting(false);
+    }
+  };
+
+  // ── 进度附件入列：文件选择 / 拖拽 / 粘贴三处共用同一套校验，避免重复 ──
+  const addNoteFiles = (incoming: File[]) => {
+    const files = incoming.filter((f) => f.size > 0);
+    if (files.length === 0) return;
+    if (noteAttachments.length >= NOTE_ATTACHMENT_MAX_FILES) {
+      toast.error(`最多上传 ${NOTE_ATTACHMENT_MAX_FILES} 个附件`);
+      return;
+    }
+    const oversized = files.find((f) => f.size > NOTE_ATTACHMENT_MAX_FILE_BYTES);
+    if (oversized) {
+      toast.error(`${oversized.name || "文件"} 超过单文件 25MB 限制`);
+      return;
+    }
+    const merged = [...noteAttachments, ...files].slice(0, NOTE_ATTACHMENT_MAX_FILES);
+    if (merged.reduce((sum, f) => sum + f.size, 0) > NOTE_ATTACHMENT_MAX_TOTAL_BYTES) {
+      toast.error("附件总大小不能超过 50MB");
+      return;
+    }
+    const added = merged.length - noteAttachments.length;
+    setNoteAttachments(merged);
+    if (added > 0) toast.success(`已添加 ${added} 个附件`);
+    if (added < files.length) toast.error(`超出 ${NOTE_ATTACHMENT_MAX_FILES} 个上限，部分文件未添加`);
+  };
+
+  // 从剪贴板/拖拽数据里抽出文件；截图粘贴通常无有意义文件名（Chrome 给 "image.png"），
+  // 补一个带时间戳的名字避免多张截图互相覆盖。
+  const extractDataTransferFiles = (items: DataTransferItemList | null | undefined): File[] => {
+    if (!items) return [];
+    const out: File[] = [];
+    Array.from(items).forEach((item, i) => {
+      if (item.kind !== "file") return;
+      const f = item.getAsFile();
+      if (!f) return;
+      if (f.type.startsWith("image/") && (!f.name || f.name === "image.png")) {
+        const ext = (f.type.split("/")[1] || "png").replace("jpeg", "jpg");
+        out.push(new File([f], `粘贴图片-${Date.now()}-${i}.${ext}`, { type: f.type }));
+      } else {
+        out.push(f);
+      }
+    });
+    return out;
+  };
+
+  const handleNotePaste = (e: React.ClipboardEvent) => {
+    if (savingNote || aiLoading) return;
+    const files = extractDataTransferFiles(e.clipboardData?.items);
+    if (files.length > 0) {
+      e.preventDefault(); // 仅在含文件时拦截，纯文本粘贴保持默认行为
+      addNoteFiles(files);
+    }
+  };
+
+  // 从任务列表卡片「申请放弃」进入时，挂载即自动弹出原因弹窗（复用同一套提交/审批逻辑）。
+  // activePanel 以 openedAt 作 key，每次打开都会重新挂载，故空依赖只在本次打开触发一次。
+  useEffect(() => {
+    if (autoAbandon && canAbandon) {
+      setAbandonReason("");
+      setAbandonOpen(true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
     <DrawerShell
       title={task.title}
@@ -1197,11 +1358,34 @@ function TaskOperationDrawer({
               <div className="mb-3 flex items-center justify-between">
                 <div className="text-sm font-semibold text-slate-900">操作留痕</div>
                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
-                  {taskLogs.length} 条
+                  {taskLogs.length} 条{taskAttachmentTotal > 0 ? ` · ${taskAttachmentTotal} 个附件` : ""}
                 </span>
               </div>
-              <AuditTimeline logs={taskLogs} showResource={false} emptyText="暂无此任务的操作记录" />
+              <AuditTimeline
+                logs={taskLogs}
+                showResource={false}
+                emptyText="暂无此任务的操作记录"
+                renderExtra={(log) => {
+                  const note = logNoteMatches.get(log.id);
+                  if (!note || note.attachments.length === 0) return null;
+                  return <ProgressAttachmentGrid attachments={note.attachments} compact />;
+                }}
+              />
             </div>
+
+            {/* 方案2：低强调的次级文字按钮，置于详情底部，点击打开聚焦的放弃原因弹窗。
+                仅主责人 + 活跃状态可见（待审核/已完成等不显示）。 */}
+            {canAbandon && (
+              <div className="flex justify-center pt-1">
+                <button
+                  type="button"
+                  onClick={() => { setAbandonReason(""); setAbandonOpen(true); }}
+                  className="cursor-pointer text-xs font-medium text-slate-400 underline-offset-4 transition-colors hover:text-rose-600 hover:underline"
+                >
+                  请求放弃此任务
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -1316,13 +1500,31 @@ function TaskOperationDrawer({
               <Textarea
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
+                onPaste={handleNotePaste}
                 rows={4}
-                placeholder="说明本次进度变化、上传文件依据、产出内容、仍需支持的事项"
+                placeholder="说明本次进度变化、上传文件依据、产出内容、仍需支持的事项（可直接 Ctrl/⌘+V 粘贴截图）"
                 className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none transition-colors focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
               />
             </label>
 
-            <div className="rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-3">
+            <div
+              tabIndex={0}
+              onPaste={handleNotePaste}
+              onDragOver={(e) => { e.preventDefault(); if (!savingNote && !aiLoading) setNoteDragOver(true); }}
+              onDragLeave={(e) => { e.preventDefault(); setNoteDragOver(false); }}
+              onDrop={(e) => {
+                e.preventDefault();
+                setNoteDragOver(false);
+                if (savingNote || aiLoading) return;
+                addNoteFiles(extractDataTransferFiles(e.dataTransfer.items));
+              }}
+              className={cn(
+                "rounded-xl border px-3 py-3 outline-none transition-colors",
+                noteDragOver
+                  ? "border-dashed border-indigo-400 bg-indigo-50/70 ring-2 ring-indigo-100"
+                  : "border-slate-200 bg-slate-50/60 focus-visible:border-indigo-300",
+              )}
+            >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-slate-700">附件（AI 判断依据 + 留档）</span>
                 <label
@@ -1342,29 +1544,16 @@ function TaskOperationDrawer({
                     className="sr-only"
                     accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.zip,.rar,.png,.jpg,.jpeg,.webp,.bmp"
                     onChange={(event) => {
-                      const incoming = Array.from(event.target.files ?? []);
-                      if (incoming.length === 0) return;
-                      const oversized = incoming.find((file) => file.size > NOTE_ATTACHMENT_MAX_FILE_BYTES);
-                      if (oversized) {
-                        toast.error(`${oversized.name} 超过单文件 25MB 限制`);
-                        event.target.value = "";
-                        return;
-                      }
-                      const merged = [...noteAttachments, ...incoming].slice(0, NOTE_ATTACHMENT_MAX_FILES);
-                      const totalSize = merged.reduce((sum, file) => sum + file.size, 0);
-                      if (totalSize > NOTE_ATTACHMENT_MAX_TOTAL_BYTES) {
-                        toast.error("附件总大小不能超过 50MB");
-                        event.target.value = "";
-                        return;
-                      }
-                      setNoteAttachments(merged);
+                      addNoteFiles(Array.from(event.target.files ?? []));
                       event.target.value = "";
                     }}
                   />
                 </label>
               </div>
-              {noteAttachments.length === 0 ? (
-                <p className="mt-2 text-[11px] text-slate-400">最多 5 个，单文件 25MB 以内，总计不超过 50MB。填写说明 / 上传附件后，点「AI 解析」让 AI 给出进度建议。</p>
+              {noteDragOver ? (
+                <p className="mt-2 text-[11px] font-medium text-indigo-600">松开鼠标即可上传到此任务</p>
+              ) : noteAttachments.length === 0 ? (
+                <p className="mt-2 text-[11px] text-slate-400">最多 10 个，单文件 25MB 以内，总计 50MB。可点上方按钮、把文件拖到此处、或直接 Ctrl/⌘+V 粘贴截图。填写说明 / 上传附件后点「AI 解析」获取进度建议。</p>
               ) : (
                 <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
                   {noteAttachments.map((file, idx) => (
@@ -1544,6 +1733,69 @@ function TaskOperationDrawer({
           </div>
         )}
       </div>
+
+      {/* 请求放弃任务：聚焦弹窗（自含确认）。填写原因 → 提交，一律进入待审核走审批。
+          z-[80] 盖在抽屉(z-50)之上。弹窗本身即审慎确认面，故不再二次确认。 */}
+      {abandonOpen && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-[2px]"
+          onClick={abandonSubmitting ? undefined : () => setAbandonOpen(false)}
+        >
+          <div
+            className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="workspace-abandon-title"
+          >
+            <div className="flex items-start gap-3 border-b border-rose-100 bg-rose-50/70 px-6 py-5">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-rose-100 text-rose-600">
+                <AlertTriangle className="h-5 w-5" />
+              </span>
+              <div>
+                <h3 id="workspace-abandon-title" className="text-base font-bold text-slate-900">请求放弃任务</h3>
+                <p className="mt-1 text-sm text-slate-500">提交后将流转给研发主管审核</p>
+              </div>
+            </div>
+            <div className="space-y-3 px-6 py-5">
+              <div className="rounded-xl bg-rose-50/60 px-4 py-3 text-xs leading-5 text-rose-700 ring-1 ring-rose-100">
+                审核通过后，任务「{task.title}」将被移除（等同删除），不可恢复；审核期间任务进入待审核状态，不可继续操作。
+              </div>
+              <div>
+                <label className="text-sm font-semibold text-slate-900">
+                  放弃原因<span className="ml-0.5 text-rose-500">（必填）</span>
+                </label>
+                <Textarea
+                  value={abandonReason}
+                  onChange={(event) => setAbandonReason(event.target.value)}
+                  rows={4}
+                  autoFocus
+                  placeholder="请说明放弃该任务的原因，便于管理员审核判断"
+                  className="mt-2"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-4">
+              <button
+                type="button"
+                disabled={abandonSubmitting}
+                onClick={() => setAbandonOpen(false)}
+                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                disabled={abandonSubmitting || !abandonReason.trim()}
+                onClick={submitAbandon}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {abandonSubmitting ? "提交中…" : "提交放弃申请"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </DrawerShell>
   );
 }
@@ -1737,7 +1989,7 @@ function NotificationDrawer({
                 <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">待审核</span>
               )}
               <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500 ring-1 ring-slate-200">
-                {reviewType === "collaboration" ? "协作变更审核" : reviewType === "proposal" ? "立项审核" : reviewType === "due_date" ? "截止日期变更审核" : "成果审核"}
+                {reviewType === "collaboration" ? "协作变更审核" : reviewType === "proposal" ? "立项审核" : reviewType === "due_date" ? "截止日期变更审核" : reviewType === "abandon" ? "放弃任务审核" : "成果审核"}
               </span>
             </div>
             <div>
@@ -1755,7 +2007,7 @@ function NotificationDrawer({
             )}
             {reviewNote && (
               <div className="rounded-lg bg-white px-3 py-2 text-sm text-slate-700 ring-1 ring-slate-200">
-                <span className="font-medium text-slate-500">{reviewType === "due_date" ? "修改原因：" : "备注："}</span>{reviewNote}
+                <span className="font-medium text-slate-500">{reviewType === "due_date" ? "修改原因：" : reviewType === "abandon" ? "放弃原因：" : "备注："}</span>{reviewNote}
               </div>
             )}
             {isHandled && (
@@ -2013,7 +2265,7 @@ function WorkspaceTaskCard({
   onOpen,
 }: {
   task: WorkspaceTask;
-  onOpen: (task: WorkspaceTask, tab: OperationTab) => void;
+  onOpen: (task: WorkspaceTask, tab: OperationTab, opts?: { abandon?: boolean }) => void;
 }) {
   const grad = WS_PRIORITY_GRAD[task.priority] ?? WS_PRIORITY_GRAD.medium!;
   const sCfg = WS_STATUS_CONFIG[task.status] ?? WS_STATUS_CONFIG.draft!;
@@ -2022,6 +2274,10 @@ function WorkspaceTaskCard({
   const isOverdue = isTaskOverdue(task);
   // 待审核任务默认置灰且不可点击：等待管理员审核期间不允许成员进入操作详情。
   const isPendingReview = task.status === "pending_review";
+  // 列表卡片直接发起「申请放弃」：仅主责人 + 活跃状态可见（与详情抽屉内 canAbandon 口径一致）。
+  const canAbandon =
+    task.role === "primary" &&
+    ["in_progress", "paused_leave", "paused_blocked", "on_hold"].includes(task.status);
 
   return (
     <motion.div
@@ -2112,7 +2368,22 @@ function WorkspaceTaskCard({
         </div>
 
         {!isPendingReview && (
-          <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 opacity-0 transition-all duration-150 group-hover:translate-x-0.5 group-hover:opacity-100" />
+          <div className="flex shrink-0 items-center gap-1">
+            {canAbandon && (
+              <button
+                type="button"
+                title="申请放弃此任务（需管理员审核）"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpen(task, "detail", { abandon: true });
+                }}
+                className="cursor-pointer rounded-lg border border-transparent px-2 py-1 text-[11px] font-medium text-slate-400 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
+              >
+                申请放弃
+              </button>
+            )}
+            <ChevronRight className="h-4 w-4 text-slate-300 opacity-0 transition-all duration-150 group-hover:translate-x-0.5 group-hover:opacity-100" />
+          </div>
         )}
       </div>
     </motion.div>
@@ -2285,7 +2556,8 @@ export function RDMyWorkspacePage() {
   }, [filteredAllTasks.length, hasMoreTasks, loading]);
 
   const findTask = (taskId?: string) => allTasks.find((task) => task.task_id === taskId);
-  const openTask = (task: WorkspaceTask, tab: OperationTab) => setActivePanel({ kind: "task", task, tab, openedAt: Date.now() });
+  const openTask = (task: WorkspaceTask, tab: OperationTab, opts?: { abandon?: boolean }) =>
+    setActivePanel({ kind: "task", task, tab, openedAt: Date.now(), abandon: opts?.abandon });
 
   const approveNotificationReview = React.useCallback((notification: WorkspaceNotification) => {
     if (!notification.raw_body) {
@@ -2314,6 +2586,8 @@ export function RDMyWorkspacePage() {
         ? "立项审核"
         : reviewType === "due_date"
         ? "截止日期变更审核"
+        : reviewType === "abandon"
+        ? "放弃任务审核"
         : "成果审核";
     if (!taskId) {
       toast.error("通知内容缺少任务 ID，无法审核");
@@ -2337,6 +2611,8 @@ export function RDMyWorkspacePage() {
           ? "通过后任务将正式立项并进入进行中状态，同时通知发起人。"
           : reviewType === "due_date"
           ? "通过后任务的截止日期将更新为申请值，并回到进行中状态。"
+          : reviewType === "abandon"
+          ? "通过后该任务将被移除（等同删除），不可恢复，并通知申请人。"
           : "通过后任务会进入审核通过状态，并通知对应申请人员。",
       ],
       onConfirm: async () => {
@@ -2744,6 +3020,7 @@ export function RDMyWorkspacePage() {
           key={`panel-task-${activePanel.openedAt}`}
           task={activePanel.task}
           initialTab={activePanel.tab}
+          autoAbandon={activePanel.abandon}
           onClose={() => setActivePanel(null)}
           onProgressSave={async (taskId, progress) => {
             await updateRdTask(taskId, { progress });

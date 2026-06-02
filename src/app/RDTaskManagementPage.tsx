@@ -109,6 +109,7 @@ import {
   getAttachmentUrl,
 } from "./lib/rdApi";
 import { ProgressAttachmentGrid } from "./RDProgressEvidence";
+import { RDDailyReportPanel } from "./RDDailyReportPanel";
 import {
   computeTaskCompletionScore,
   getGradeTone,
@@ -116,6 +117,7 @@ import {
 } from "./lib/taskCompletionScore";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
 import { Button } from "./components/ui/button";
+import { Checkbox } from "./components/ui/checkbox";
 import { Label } from "./components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover";
@@ -3448,13 +3450,13 @@ function ApprovalActionDialog({
               </div>
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-slate-700">回退进度（%）</label>
-                <input
+                <Input
                   type="number"
                   min={0}
                   max={99}
                   value={rollbackProgress}
                   onChange={(e) => setRollbackProgress(Math.min(99, Math.max(0, Number(e.target.value))))}
-                  className="w-24 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                  className="w-24"
                 />
                 <span className="ml-2 text-xs text-slate-400">当前进度 {task.progress}%</span>
               </div>
@@ -3940,6 +3942,7 @@ function TaskDetailDrawer({
   onClose,
   onOpenPerson,
   onDescriptionUpdated,
+  onTaskPatched,
   onTaskCompleted,
   onTaskMutated,
   onMoveTask,
@@ -3949,6 +3952,8 @@ function TaskDetailDrawer({
   onClose: () => void;
   onOpenPerson?: (name: string) => void;
   onDescriptionUpdated?: (taskId: string, description: string) => void;
+  /** 抽屉内直接编辑字段（标题/优先级）后，父组件用来即时回填打开中的 selectedTask，让抽屉立刻显示新值 */
+  onTaskPatched?: (taskId: string, patch: Partial<Task>) => void;
   onTaskCompleted?: (task: Task) => void;
   /** 任意会影响任务数据（协作人/移交/字段更新等）的动作后回调，父组件用来重新拉数据刷新列表 */
   onTaskMutated?: () => void;
@@ -3966,12 +3971,17 @@ function TaskDetailDrawer({
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState(task.description ?? "");
   const [savingDesc, setSavingDesc] = useState(false);
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(task.title);
+  const [savingTitle, setSavingTitle] = useState(false);
+  const [savingPriority, setSavingPriority] = useState(false);
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
   const [showHandoverDialog, setShowHandoverDialog] = useState(false);
   const [showAddCollaboratorsDialog, setShowAddCollaboratorsDialog] = useState(false);
   const [showApprovalDialog, setShowApprovalDialog] = useState<"approve" | "reject" | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
   const statusCfg = STATUS_CONFIG[task.status];
   const taskLogs = useAuditLogs({ resourceType: "task", resourceId: task.task_id });
   const [progressNotes, setProgressNotes] = useState<RdTaskProgressNote[]>([]);
@@ -4076,6 +4086,63 @@ function TaskDetailDrawer({
       toast.error(err instanceof Error ? err.message : "保存失败");
     } finally {
       setSavingDesc(false);
+    }
+  };
+
+  const saveTitle = async () => {
+    if (savingTitle) return;
+    const next = titleDraft.trim();
+    if (!next) {
+      toast.error("任务标题不能为空");
+      return;
+    }
+    if (next === task.title.trim()) {
+      setEditingTitle(false);
+      return;
+    }
+    setSavingTitle(true);
+    try {
+      await updateRdTask(task.task_id, { title: next });
+      recordAudit({
+        actor: RD_ADMIN_AUDIT_ACTOR,
+        action: "task.updated",
+        resource: { type: "task", id: task.task_id, name: next },
+        changes: [{ field: "title", before: task.title, after: next }],
+        comment: "更新任务标题",
+        source: "web",
+      });
+      onTaskPatched?.(task.task_id, { title: next });
+      onTaskMutated?.();
+      setEditingTitle(false);
+      toast.success("标题已保存");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "保存失败");
+    } finally {
+      setSavingTitle(false);
+    }
+  };
+
+  const savePriority = async (next: Priority) => {
+    if (savingPriority || next === task.final_priority) return;
+    const prev = task.final_priority;
+    setSavingPriority(true);
+    try {
+      await updateRdTask(task.task_id, { final_priority: next });
+      recordAudit({
+        actor: RD_ADMIN_AUDIT_ACTOR,
+        action: "task.updated",
+        resource: { type: "task", id: task.task_id, name: task.title },
+        changes: [{ field: "priority", before: PRIORITY_CONFIG[prev].label, after: PRIORITY_CONFIG[next].label }],
+        comment: "更新任务优先级",
+        source: "web",
+      });
+      onTaskPatched?.(task.task_id, { final_priority: next });
+      onTaskMutated?.();
+      toast.success(`优先级已调整为「${PRIORITY_CONFIG[next].label}」`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "保存失败");
+    } finally {
+      setSavingPriority(false);
     }
   };
 
@@ -4235,6 +4302,36 @@ function TaskDetailDrawer({
     }
   };
 
+  const isDescDirty = editingDesc && descDraft.trim() !== (task.description ?? "").trim();
+  const isTitleDirty = editingTitle && titleDraft.trim().length > 0 && titleDraft.trim() !== task.title.trim();
+  const hasUnsavedEdits = isDescDirty || isTitleDirty;
+  const hasNestedDialog =
+    showSubmitConfirm ||
+    showCompleteConfirm ||
+    showHandoverDialog ||
+    showAddCollaboratorsDialog ||
+    showApprovalDialog !== null;
+  // 关闭意图统一入口：仅当有未保存的内联编辑（描述/标题）时弹确认，否则直接关闭。
+  const requestClose = () => {
+    if (hasUnsavedEdits) {
+      setShowCloseConfirm(true);
+      return;
+    }
+    onClose();
+  };
+  // Esc 关闭；有嵌套弹窗 / 确认框打开时让位给上层，避免误关抽屉。
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      if (hasNestedDialog || showCloseConfirm) return;
+      event.stopPropagation();
+      if (hasUnsavedEdits) setShowCloseConfirm(true);
+      else onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [hasNestedDialog, showCloseConfirm, hasUnsavedEdits, onClose]);
+
   return (
     <motion.div
       className="fixed inset-0 z-50 flex justify-end"
@@ -4243,19 +4340,64 @@ function TaskDetailDrawer({
       exit={{ opacity: 0 }}
       transition={RD_FAST_TRANSITION}
     >
+      {/* 点击面板外空白处关闭（透明遮罩，保留原有「页面不变暗」观感）；脏检查在 requestClose 内处理 */}
+      <div className="absolute inset-0" aria-hidden onClick={requestClose} />
       <motion.div
-        className="flex h-full w-full max-w-[620px] flex-col overflow-y-auto border-l border-slate-200 bg-white shadow-2xl sm:w-[min(620px,92vw)]"
+        className="relative z-10 flex h-full w-full max-w-[620px] flex-col overflow-y-auto border-l border-slate-200 bg-white shadow-2xl sm:w-[min(620px,92vw)]"
         initial={shouldReduceMotion ? false : { opacity: 0, x: 36 }}
         animate={{ opacity: 1, x: 0 }}
         exit={{ opacity: 0, x: 28 }}
         transition={RD_PANEL_TRANSITION}
       >
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
-          <div>
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-6 py-4">
+          <div className="min-w-0 flex-1">
             <div className="text-xs font-mono text-slate-400">{task.task_id}</div>
-            <div className="text-base font-semibold text-slate-800">{task.title}</div>
+            {editingTitle ? (
+              <div className="mt-1 flex items-center gap-1.5">
+                <Input
+                  value={titleDraft}
+                  onChange={(e) => setTitleDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { e.preventDefault(); saveTitle(); }
+                  }}
+                  autoFocus
+                  placeholder="任务标题"
+                  className="h-8 flex-1 text-base font-semibold"
+                />
+                <button
+                  type="button"
+                  onClick={() => { setEditingTitle(false); setTitleDraft(task.title); }}
+                  className="cursor-pointer rounded px-2 py-0.5 text-[11px] text-slate-500 hover:bg-slate-100"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={saveTitle}
+                  disabled={savingTitle}
+                  className="flex cursor-pointer items-center gap-1 rounded bg-indigo-600 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+                >
+                  {savingTitle ? <RefreshCw className="h-2.5 w-2.5 animate-spin" /> : <CheckCircle2 className="h-2.5 w-2.5" />}
+                  保存
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1.5">
+                <div className="truncate text-base font-semibold text-slate-800">{task.title}</div>
+                {canManageTaskFlow && !task.archived && (
+                  <button
+                    type="button"
+                    onClick={() => { setTitleDraft(task.title); setEditingTitle(true); }}
+                    title="编辑任务标题"
+                    className="shrink-0 cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
-          <button type="button" onClick={onClose} className="cursor-pointer rounded-lg p-1.5 hover:bg-slate-100">
+          <button type="button" onClick={requestClose} className="shrink-0 cursor-pointer rounded-lg p-1.5 hover:bg-slate-100">
             <X className="h-4 w-4 text-slate-500" />
           </button>
         </div>
@@ -4278,7 +4420,28 @@ function TaskDetailDrawer({
             </div>
             <div>
               <div className="mb-1 text-xs text-slate-400">优先级</div>
-              <PriorityPill priority={task.final_priority} aiPriority={task.ai_priority} />
+              {canManageTaskFlow && !task.archived ? (
+                <div className="flex items-center gap-2">
+                  <NativeSelect
+                    value={task.final_priority}
+                    disabled={savingPriority}
+                    onChange={(e) => savePriority(e.target.value as Priority)}
+                    className="w-[96px] border-slate-200 text-xs"
+                  >
+                    <option value="high">高</option>
+                    <option value="medium">中</option>
+                    <option value="low">低</option>
+                  </NativeSelect>
+                  {savingPriority && <RefreshCw className="h-3 w-3 animate-spin text-slate-400" />}
+                  {task.ai_priority && task.ai_priority !== task.final_priority && (
+                    <span className="text-[11px] text-slate-400" title="AI 初始建议">
+                      AI 建议: {PRIORITY_CONFIG[task.ai_priority].label}
+                    </span>
+                  )}
+                </div>
+              ) : (
+                <PriorityPill priority={task.final_priority} aiPriority={task.ai_priority} />
+              )}
             </div>
             <div>
               <div className="mb-1 text-xs text-slate-400">主责人</div>
@@ -4617,6 +4780,26 @@ function TaskDetailDrawer({
           />
         )}
       </AnimatePresence>
+
+      <AlertDialog open={showCloseConfirm} onOpenChange={(open) => { if (!open) setShowCloseConfirm(false); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>放弃未保存的修改？</AlertDialogTitle>
+            <AlertDialogDescription>
+              还有未保存的内联编辑（任务标题或描述），关闭后这些修改将丢失。
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>继续编辑</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 text-white hover:bg-red-700 focus:ring-red-600"
+              onClick={() => { setShowCloseConfirm(false); onClose(); }}
+            >
+              放弃并关闭
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </motion.div>
   );
 }
@@ -5177,6 +5360,15 @@ function PersonDetailDrawer({
   const count = load?.count ?? activeTasks.length;
   const ratio = maxTasks > 0 ? Math.min(100, Math.round((count / maxTasks) * 100)) : 0;
   const statusLabel = profile?.status === "on_leave" || load?.onLeave ? "请假中" : profile?.status === "resigned" ? "已离职" : "在岗";
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.stopPropagation();
+      onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
   return (
     <motion.div
       className="fixed inset-0 z-50 flex justify-end bg-slate-900/25 backdrop-blur-sm"
@@ -5185,8 +5377,10 @@ function PersonDetailDrawer({
       exit={{ opacity: 0 }}
       transition={RD_FAST_TRANSITION}
     >
+      {/* 点击面板外空白处关闭（人员详情为只读，无需脏检查） */}
+      <div className="absolute inset-0" aria-hidden onClick={onClose} />
       <motion.div
-        className="flex h-full w-full max-w-[620px] flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl sm:w-[min(620px,92vw)]"
+        className="relative z-10 flex h-full w-full max-w-[620px] flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl sm:w-[min(620px,92vw)]"
         initial={shouldReduceMotion ? false : { opacity: 0, x: 36 }}
         animate={{ opacity: 1, x: 0 }}
         exit={{ opacity: 0, x: 28 }}
@@ -7068,6 +7262,40 @@ function TaskAttachmentStrip({
   );
 }
 
+// ── Masonry (瀑布流) helpers for the task feed ──
+// 把已排序的任务按轮转 (round-robin) 分配到 N 个独立列：第 i 个任务进入第 i % N 列。
+// 每列各自纵向堆叠、互不影响高度，所以带附件的高卡片只撑高自己所在列，不会像 CSS grid
+// 那样把同一行里的矮卡片拉出大片空白。轮转对前缀稳定：滚动加载追加新任务时已有卡片位置不变。
+function distributeIntoColumns<T>(items: T[], columnCount: number): T[][] {
+  const columns: T[][] = Array.from({ length: columnCount }, () => []);
+  items.forEach((item, index) => columns[index % columnCount].push(item));
+  return columns;
+}
+
+// 响应式列数：移动端 1 列、平板 2 列、桌面 3 列（断点与原 grid 一致）。
+function useMasonryColumns(): number {
+  const compute = () => {
+    if (typeof window === "undefined") return 3;
+    if (window.matchMedia("(min-width: 1024px)").matches) return 3;
+    if (window.matchMedia("(min-width: 640px)").matches) return 2;
+    return 1;
+  };
+  const [columns, setColumns] = useState(compute);
+  useEffect(() => {
+    const lg = window.matchMedia("(min-width: 1024px)");
+    const sm = window.matchMedia("(min-width: 640px)");
+    const update = () => setColumns(lg.matches ? 3 : sm.matches ? 2 : 1);
+    update();
+    lg.addEventListener("change", update);
+    sm.addEventListener("change", update);
+    return () => {
+      lg.removeEventListener("change", update);
+      sm.removeEventListener("change", update);
+    };
+  }, []);
+  return columns;
+}
+
 function PersonTaskCockpit({
   risks,
   personLoads,
@@ -7094,6 +7322,7 @@ function PersonTaskCockpit({
   onClearKpiFilter?: () => void;
 }) {
   const shouldReduceMotion = useReducedMotion();
+  const masonryColumns = useMasonryColumns();
 
   // ── Tab state (with prev-tab for slide direction) ──
   const [activeTab, setActiveTab] = useState("all");
@@ -7105,6 +7334,16 @@ function PersonTaskCockpit({
     setPrevTab(activeTab);
     setActiveTab(v);
   }, [activeTab]);
+
+  // 异步刷新后（如删除了某人最后一个任务），该成员会从 personLoads 中消失。
+  // 此时停留在已不存在的人员 tab 上会让内容区空白，回退到「全部」。
+  // 其余刷新（成员仍有任务）保持当前选中人员不变。
+  useEffect(() => {
+    if (activeTab !== "all" && !personLoads.some((p) => p.name === activeTab)) {
+      setActiveTab("all");
+      setPrevTab("all");
+    }
+  }, [activeTab, personLoads]);
 
   // ── Notes (images) lazy fetch ──
   const [notesMap, setNotesMap] = useState<Record<string, RdTaskProgressNote[]>>({});
@@ -7431,24 +7670,23 @@ function PersonTaskCockpit({
           {/* ─── 关键指标条（顶部、左对齐）：时间戳（主） + AI 评分（次） ─── */}
           {(completionScore || showPendingScoreBadge || relativeUpdate) && (
             <div className="flex flex-wrap items-center gap-2">
-              {/* 时间戳（主视觉，字号 18px，比评分大）*/}
+              {/* 时间戳（中性白底徽标 + 彩色圆点/文字，字号 14px 与 AI 评分同字号；
+                  去掉填充色块，和右侧「转派/删除」白底胶囊统一，让 AI 评分成为唯一高亮）*/}
               {relativeUpdate && updateTone && (
                 <div
                   className={cn(
-                    "inline-flex items-center gap-2 rounded-xl border-2 px-3 py-1.5 font-bold",
-                    updateTone.bg,
+                    "inline-flex h-7 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 font-medium",
                     updateTone.text,
-                    updateTone.border,
                   )}
                   title={lastUpdateIso ? `最近更新：${new Date(lastUpdateIso).toLocaleString("zh-CN")}` : ""}
                 >
-                  <span className="relative flex h-2.5 w-2.5 shrink-0">
+                  <span className="relative flex h-2 w-2 shrink-0">
                     {relativeUpdate.tone === "fresh" && (
                       <span className={cn("absolute inline-flex h-full w-full animate-ping rounded-full opacity-60", updateTone.dot)} />
                     )}
-                    <span className={cn("relative inline-flex h-2.5 w-2.5 rounded-full", updateTone.dot)} />
+                    <span className={cn("relative inline-flex h-2 w-2 rounded-full", updateTone.dot)} />
                   </span>
-                  <span className="text-lg leading-none tabular-nums">{relativeUpdate.label}</span>
+                  <span className="text-sm leading-none tabular-nums">{relativeUpdate.label}</span>
                 </div>
               )}
 
@@ -7459,7 +7697,7 @@ function PersonTaskCockpit({
                     <div
                       onClick={(e) => e.stopPropagation()}
                       className={cn(
-                        "inline-flex cursor-help items-center gap-1.5 rounded-lg border px-2 py-1 transition-all hover:shadow-sm",
+                        "inline-flex h-7 cursor-help items-center gap-1.5 rounded-lg border px-2 transition-all hover:shadow-sm",
                         gradeTone.bg,
                         gradeTone.border,
                       )}
@@ -7504,7 +7742,7 @@ function PersonTaskCockpit({
               {showPendingScoreBadge && (
                 <div
                   onClick={(e) => e.stopPropagation()}
-                  className="inline-flex items-center gap-1 rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-2 py-1 text-slate-400"
+                  className="inline-flex h-7 items-center gap-1 rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-2 text-slate-400"
                   title={aiScoreFetched ? "AI 评分尚未生成，可在「完成」筛选中点击「AI 复盘评分」按钮批量生成" : "正在读取 AI 评分…"}
                 >
                   <Sparkles className="h-3 w-3 opacity-50" />
@@ -7518,7 +7756,7 @@ function PersonTaskCockpit({
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onReassignTask(task); }}
-                      className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+                      className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
                     >
                       <UserCog className="h-3 w-3" />
                       转派
@@ -7529,7 +7767,7 @@ function PersonTaskCockpit({
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onDeleteTask(task); }}
                       title="删除任务（不可恢复）"
-                      className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-500 transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-600"
+                      className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-500 transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-600"
                     >
                       <Trash2 className="h-3 w-3" />
                       删除
@@ -7860,10 +8098,16 @@ function PersonTaskCockpit({
                           style={{ height: 480 }}
                           onScroll={(e) => handleTaskScroll(e, "all", allActiveTasks.length)}
                         >
-                          <div className="space-y-2.5 px-4 py-3">
-                            <AnimatePresence>
-                              {shownTasks.map((task, idx) => renderTaskCard(task, idx, allGrad, { showOwner: true }))}
-                            </AnimatePresence>
+                          <div className="flex items-start gap-2.5 px-4 py-3">
+                            {distributeIntoColumns(shownTasks, masonryColumns).map((column, colIdx) => (
+                              <div key={colIdx} className="flex min-w-0 flex-1 flex-col gap-2.5">
+                                <AnimatePresence>
+                                  {column.map((task, rowIdx) =>
+                                    renderTaskCard(task, colIdx + rowIdx * masonryColumns, allGrad, { showOwner: true }),
+                                  )}
+                                </AnimatePresence>
+                              </div>
+                            ))}
                           </div>
 
                           {hasMore ? (
@@ -7939,10 +8183,16 @@ function PersonTaskCockpit({
                           style={{ height: 480 }}
                           onScroll={(e) => handleTaskScroll(e, p.name, tasks.length)}
                         >
-                          <div className="space-y-2.5 px-4 py-3">
-                            <AnimatePresence>
-                              {shownTasks.map((task, taskIdx) => renderTaskCard(task, taskIdx, grad))}
-                            </AnimatePresence>
+                          <div className="flex items-start gap-2.5 px-4 py-3">
+                            {distributeIntoColumns(shownTasks, masonryColumns).map((column, colIdx) => (
+                              <div key={colIdx} className="flex min-w-0 flex-1 flex-col gap-2.5">
+                                <AnimatePresence>
+                                  {column.map((task, rowIdx) =>
+                                    renderTaskCard(task, colIdx + rowIdx * masonryColumns, grad),
+                                  )}
+                                </AnimatePresence>
+                              </div>
+                            ))}
                           </div>
 
                           {/* 底部状态 */}
@@ -8110,11 +8360,10 @@ function TaskReassignModal({
                     <p className="py-4 text-center text-sm text-slate-400">暂无可转派任务</p>
                   ) : assignableTasks.map((t) => (
                     <label key={t.task_id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-100 px-3 py-2 hover:bg-slate-50">
-                      <input
-                        type="checkbox"
+                      <Checkbox
                         checked={selectedTasks.has(t.task_id)}
-                        onChange={() => toggleTask(t.task_id)}
-                        className="h-4 w-4 rounded border-slate-300 accent-indigo-600"
+                        onCheckedChange={() => toggleTask(t.task_id)}
+                        className="border-slate-300"
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
@@ -8637,7 +8886,7 @@ function ExecutiveOverview({
       initial={shouldReduceMotion ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={RD_FAST_TRANSITION}
-      className="min-h-full bg-slate-50/30 px-6 py-6 lg:px-8 lg:py-8"
+      className="min-h-full bg-slate-50/30 px-6 lg:px-8  "
       style={{ background: "transparent" }}
     >
       <div className="mx-auto max-w-[1400px] space-y-6 rd-stagger-children">
@@ -8769,7 +9018,10 @@ function ExecutiveOverview({
           </div>
         </section>
 
-        {loading || catStats.length === 0 ? (
+        {/* 骨架屏只在「尚无数据可显示」时出现（首次加载 / 真空数据）。刷新（如删除任务后的
+            loadCategories）虽然把 loading 置 true，但旧 catStats 仍在 —— 此时保持下方面板挂载，
+            避免 PersonTaskCockpit 被卸载重挂导致 activeTab（当前人员）等内部状态被重置回「全部」。 */}
+        {catStats.length === 0 ? (
           <section className="rounded-xl border border-dashed border-slate-200 bg-white px-6 py-16 text-center shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]">
             <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-lg bg-slate-900 text-white">
               <LayoutGrid className="h-5 w-5" />
@@ -8800,6 +9052,8 @@ function ExecutiveOverview({
           </section>
         ) : (
           <>
+            <RDDailyReportPanel canRegenerate={(canReassign ?? false) || (canCreateTask ?? false)} />
+
             <PersonTaskCockpit
               risks={risks}
               personLoads={personLoads}
@@ -9164,11 +9418,10 @@ function MoveTasksDialog({
                 <p className="py-4 text-center text-sm text-slate-400">该子项下暂无任务</p>
               ) : fromSub.tasks.map((t) => (
                 <label key={t.task_id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-100 px-3 py-2 hover:bg-slate-50">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={selectedIds.has(t.task_id)}
-                    onChange={() => toggleTask(t.task_id)}
-                    className="h-4 w-4 rounded border-slate-300 accent-indigo-600"
+                    onCheckedChange={() => toggleTask(t.task_id)}
+                    className="border-slate-300"
                   />
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-sm text-slate-800">{t.title}</div>
@@ -9798,6 +10051,9 @@ export function RDTaskManagementPage() {
               onDescriptionUpdated={(taskId, description) => {
                 setSelectedTask((prev) => prev && prev.task_id === taskId ? { ...prev, description } : prev);
               }}
+              onTaskPatched={(taskId, patch) => {
+                setSelectedTask((prev) => prev && prev.task_id === taskId ? { ...prev, ...patch } : prev);
+              }}
               onTaskCompleted={(completedTask) => {
                 setSelectedTask(null);
                 setCompletedTaskNotice(completedTask);
@@ -10090,6 +10346,9 @@ export function RDTaskManagementPage() {
               }}
               onDescriptionUpdated={(taskId, description) => {
                 setSelectedTask((prev) => prev && prev.task_id === taskId ? { ...prev, description } : prev);
+              }}
+              onTaskPatched={(taskId, patch) => {
+                setSelectedTask((prev) => prev && prev.task_id === taskId ? { ...prev, ...patch } : prev);
               }}
               onTaskCompleted={(completedTask) => {
                 setSelectedTask(null);

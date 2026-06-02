@@ -53,28 +53,33 @@ const DEFAULT_BOM_TASK_TYPE = '研发任务';
 // 主产品（便携式制氧机）：其任务分类树存于 rd.taskCategories；其余产品存于 rd.productTaskCategories[productId]。
 // 与前端 MAIN_PRODUCT_ID 保持一致，是跨产品移动任务时判断「写哪个 store」的唯一依据。
 const RD_MAIN_PRODUCT_ID = 'prod-portable-o2';
-const PROGRESS_NOTE_MAX_FILES = 5;
+const PROGRESS_NOTE_MAX_FILES = 10;
 const PROGRESS_NOTE_MAX_FILE_BYTES = 25 * 1024 * 1024;
 const PROGRESS_NOTE_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
 
 // ─── 审核类型「单一事实源」───────────────────────────────────────────────
 // 四种审核类型的标签、通过后目标状态、审计动作集中在此定义，前后端各处只引用、
 // 不再各写各的，避免不同类型的文案/流程互相污染（立项被记成成果、成果被当协作等）。
-type ReviewType = 'proposal' | 'result' | 'collaboration' | 'due_date';
-const REVIEW_TYPES: ReviewType[] = ['proposal', 'result', 'collaboration', 'due_date'];
+type ReviewType = 'proposal' | 'result' | 'collaboration' | 'due_date' | 'abandon';
+const REVIEW_TYPES: ReviewType[] = ['proposal', 'result', 'collaboration', 'due_date', 'abandon'];
 /** 中文标签，用于通知标题、留痕、类型 badge 等所有展示处。 */
 const REVIEW_TYPE_LABEL: Record<ReviewType, string> = {
   proposal: '立项',
   result: '成果',
   collaboration: '协作变更',
   due_date: '截止日期变更',
+  abandon: '放弃任务',
 };
-/** 审核「通过」后的目标状态：只有"成果"通过=已完成，其余三种=进行中。这是唯一裁决处。 */
-const REVIEW_APPROVE_STATUS: Record<ReviewType, 'in_progress' | 'completed'> = {
+/**
+ * 审核「通过」后的目标状态：成果通过=已完成；放弃通过=封存（随后硬删除，等同删除任务）；其余=进行中。
+ * 这是唯一裁决处。
+ */
+const REVIEW_APPROVE_STATUS: Record<ReviewType, 'in_progress' | 'completed' | 'archived'> = {
   proposal: 'in_progress',
   result: 'completed',
   collaboration: 'in_progress',
   due_date: 'in_progress',
+  abandon: 'archived',
 };
 function isKnownReviewType(value: string): value is ReviewType {
   return (REVIEW_TYPES as string[]).includes(value);
@@ -1442,6 +1447,14 @@ export class ResearchDevelopmentService {
               actionPatch.pending_due_date_requested_at = null;
             }
 
+            // 放弃任务审核：通过 → 状态先派生为 archived（见 REVIEW_APPROVE_STATUS），
+            // 随后在 mutate 完成后由本方法硬删除该任务（等同管理员删除）；驳回 → 回进行中。
+            // 两种情况都清空 pending_abandon* 字段。
+            if (reviewType === 'abandon') {
+              actionPatch.pending_abandon_reason = null;
+              actionPatch.pending_abandon_requested_at = null;
+            }
+
             resolvedPatch = actionPatch;
           }
 
@@ -1546,6 +1559,12 @@ export class ResearchDevelopmentService {
         if (_review_action === 'approve' && reviewType === 'result' && newStatus === 'completed') {
           void this.triggerTaskCompletionScoring(taskId);
         }
+        // 放弃任务审核通过 → 硬删除该任务（含子任务），等同管理员在驾驶舱「删除」的效果：
+        // 任务从所有视图（驾驶舱/工作台/看板）彻底消失。须在通知提交人之后执行
+        // （通知读取的是 originalTask 快照，删除不影响）。
+        if (_review_action === 'approve' && reviewType === 'abandon') {
+          await this.deleteTask(taskId);
+        }
       }
 
       // 非审核动作（管理员直接改协作人/主责人）→ 给被影响的成员发系统通知
@@ -1610,13 +1629,15 @@ export class ResearchDevelopmentService {
         task_title: String(task.title ?? ''),
         submitter_name: String(task.primary_owner ?? ''),
         submitter_user_id: String(task.primary_owner_user_id ?? ''),
-        // 理由按审核类型取本类型的字段，避免协作/截止日期理由互相串味
+        // 理由按审核类型取本类型的字段，避免协作/截止日期/放弃理由互相串味
         note: String(
           reviewType === 'collaboration'
             ? (patch.pending_collaboration_reason ?? task.pending_collaboration_reason ?? '')
             : reviewType === 'due_date'
               ? (patch.pending_due_date_reason ?? task.pending_due_date_reason ?? '')
-              : '',
+              : reviewType === 'abandon'
+                ? (patch.pending_abandon_reason ?? task.pending_abandon_reason ?? '')
+                : '',
         ),
         pending_collaborators: patch.pending_collaborators ?? task.pending_collaborators ?? [],
         // 截止日期变更审核：把申请的新日期 + 任务当前日期带给审核人查看。
@@ -1673,7 +1694,9 @@ export class ResearchDevelopmentService {
               ? `[审核结果·协作变更] 「${taskTitle}」协作变更${isApproved ? '已通过并生效' : '被驳回，保持原协作人'}`
               : reviewType === 'due_date'
                 ? `[审核结果·截止日期变更] 「${taskTitle}」截止日期变更${isApproved ? '已通过并生效' : '被驳回，保持原日期'}`
-                : `[审核结果·${typeLabel}] 「${taskTitle}」${isApproved ? '已通过' : '被驳回'}`;
+                : reviewType === 'abandon'
+                  ? `[审核结果·放弃任务] 「${taskTitle}」放弃申请${isApproved ? '已通过，任务已移除' : '被驳回，任务继续进行'}`
+                  : `[审核结果·${typeLabel}] 「${taskTitle}」${isApproved ? '已通过' : '被驳回'}`;
       await this.createMessage({
         sender: { id: null, name: '系统通知', role: 'system' },
         recipient_id: submitterId || null,
@@ -2125,22 +2148,54 @@ export class ResearchDevelopmentService {
 
   // ── Task progress notes (text + attachments) ───────────────────────────
 
+  /** Build a same-origin inline-preview proxy URL for an OSS-backed attachment, deriving the objectKey from its signed oss_url. */
+  private buildAttachmentPreviewUrl(ossUrl: string): string | null {
+    try {
+      const objectKey = decodeURIComponent(new URL(ossUrl).pathname).replace(/^\/+/, '');
+      if (!objectKey) return null;
+      const { exp, sig } = this.ossService.signPreviewToken(objectKey, 24 * 3600);
+      const params = new URLSearchParams({ key: objectKey, exp: String(exp), sig });
+      return `/api/research-development/oss-preview?${params.toString()}`;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Decorate progress-note attachments with `preview_url` (same-origin inline proxy) so the client can iframe-preview OSS files. */
+  private decorateNotesWithPreview(notes: JsonRecord[]): JsonRecord[] {
+    if (!Array.isArray(notes)) return notes;
+    return notes.map((note) => {
+      const attachments = isRecord(note) ? note.attachments : null;
+      if (!Array.isArray(attachments)) return note;
+      const decorated = attachments.map((att) => {
+        if (!isRecord(att) || typeof att.oss_url !== 'string' || !att.oss_url) return att;
+        const previewUrl = this.buildAttachmentPreviewUrl(att.oss_url);
+        return previewUrl ? { ...att, preview_url: previewUrl } : att;
+      });
+      return { ...note, attachments: decorated };
+    });
+  }
+
   async getTaskProgressNotes(taskId: string, viewer?: { userId?: string; hasFullAccess?: boolean }) {
     const map = await this.getProgressNoteMap();
     const notes = map[taskId] ?? [];
-    if (viewer?.hasFullAccess) return notes;
+    if (viewer?.hasFullAccess) return this.decorateNotesWithPreview(notes);
     // Non-managers can only see notes they themselves authored
     const userId = viewer?.userId;
     if (!userId) return [];
-    return notes.filter((note) => {
+    return this.decorateNotesWithPreview(notes.filter((note) => {
       const actor = isRecord(note.actor) ? note.actor : null;
       return Boolean(actor && actor.id === userId);
-    });
+    }));
   }
 
   async listAllTaskProgressNotes(viewer?: { userId?: string; hasFullAccess?: boolean }) {
     const map = await this.getProgressNoteMap();
-    if (viewer?.hasFullAccess) return map;
+    if (viewer?.hasFullAccess) {
+      const out: Record<string, JsonRecord[]> = {};
+      for (const [taskId, notes] of Object.entries(map)) out[taskId] = this.decorateNotesWithPreview(notes);
+      return out;
+    }
     const userId = viewer?.userId;
     if (!userId) return {};
     const filtered: Record<string, JsonRecord[]> = {};
@@ -2149,7 +2204,7 @@ export class ResearchDevelopmentService {
         const actor = isRecord(note.actor) ? note.actor : null;
         return Boolean(actor && actor.id === userId);
       });
-      if (own.length > 0) filtered[taskId] = own;
+      if (own.length > 0) filtered[taskId] = this.decorateNotesWithPreview(own);
     }
     return filtered;
   }
@@ -2265,7 +2320,7 @@ export class ResearchDevelopmentService {
       }
     }
 
-    return note;
+    return this.decorateNotesWithPreview([note])[0];
   }
 
   /**
@@ -2716,110 +2771,214 @@ export class ResearchDevelopmentService {
   }
 
   private async buildDailyReportSummary(userId: string | null, userName: string, date: string) {
-    // 1. Tasks assigned to this user
-    const categories = await this.readArray('rd.taskCategories');
+    // 1. 归集该成员当日相关任务：主责 + 协作，跨所有产品库聚合，排除已归档。
+    //    （旧实现只读主库且只算主责，会漏掉协作任务与产品库任务。）
+    const categories = await this.readMergedTaskCategories();
     const allTasks = this.collectAllCategoryTasks(categories);
-    const myTasks = allTasks.filter((task) => {
-      const owner = String(task.primary_owner ?? task.owner ?? '').trim();
-      const ownerUserId = typeof task.primary_owner_user_id === 'string' ? task.primary_owner_user_id : '';
-      if (userId && ownerUserId === userId) return true;
-      return owner === userName;
-    });
-
-    // 2. Progress notes authored today by this user
     const noteMap = await this.getProgressNoteMap();
-    const todayNotes: JsonRecord[] = [];
-    for (const notes of Object.values(noteMap)) {
-      for (const note of notes) {
-        if (typeof note.created_at !== 'string' || !note.created_at.startsWith(date)) continue;
-        const actor = isRecord(note.actor) ? note.actor : null;
-        const matchById = userId && actor && actor.id === userId;
-        const matchByName = !userId && actor && actor.name === userName;
-        if (matchById || matchByName) todayNotes.push(note);
+
+    const userKey = userId ? `u:${cleanUserId(userId)}` : '';
+    const nameKey = personNameLookupKey(userName);
+    const matchesUser = (idVal: unknown, nameVal: unknown): boolean => {
+      const uid = cleanUserId(idVal);
+      if (userKey && uid && `u:${uid}` === userKey) return true;
+      const nk = personNameLookupKey(nameVal);
+      return Boolean(nameKey && nk && nk === nameKey);
+    };
+
+    // 某任务今日由本人提交的进度记录（升序，末位即最新一条，作为画像）
+    const todayNotesForTask = (taskId: string): JsonRecord[] => {
+      const notes = noteMap[taskId];
+      if (!Array.isArray(notes)) return [];
+      return notes
+        .filter((note) => {
+          if (typeof note.created_at !== 'string' || !note.created_at.startsWith(date)) return false;
+          const actor = isRecord(note.actor) ? note.actor : null;
+          return Boolean(actor && matchesUser(actor.id, actor.name));
+        })
+        .sort((a, b) => cleanText(a.created_at).localeCompare(cleanText(b.created_at)));
+    };
+
+    type DailyGroup = 'completed_today' | 'progressed' | 'stalled' | 'blocked';
+    type DailyTaskItem = {
+      task_id: string;
+      title: string;
+      status: string;
+      status_label: string;
+      progress: number | null;
+      due_date: string | null;
+      role: 'owner' | 'collaborator';
+      group: DailyGroup;
+      today_note_id: string | null;
+      today_excerpt: string | null;
+      today_progress: number | null;
+      today_attachments: number;
+      blocked_reason: string | null;
+    };
+
+    let totalTasks = 0;
+    let asCollaborator = 0;
+    let inProgress = 0;
+    let completed = 0;
+    let blocked = 0;
+    let pending = 0;
+    let notesCount = 0;
+    const items: DailyTaskItem[] = [];
+
+    for (const task of allTasks) {
+      if (isArchivedTask(task)) continue;
+      const isOwner = matchesUser(
+        task.primary_owner_user_id ?? task.owner_user_id,
+        task.primary_owner ?? task.owner,
+      );
+      const collaborators = asArray(task.collaborators).filter(isRecord);
+      const isCollaborator = !isOwner && collaborators.some((c) => matchesUser(c.user_id, c.name));
+      if (!isOwner && !isCollaborator) continue;
+
+      totalTasks += 1;
+      if (!isOwner) asCollaborator += 1;
+      const role: 'owner' | 'collaborator' = isOwner ? 'owner' : 'collaborator';
+
+      const status = cleanText(task.status) || 'in_progress';
+      if (status === 'in_progress') inProgress += 1;
+      else if (status === 'completed') completed += 1;
+      else if (status === 'paused_blocked') blocked += 1;
+      else if (status === 'pending_assign' || status === 'pending_review') pending += 1;
+
+      const taskId = cleanText(task.task_id);
+      const todayNotes = taskId ? todayNotesForTask(taskId) : [];
+      notesCount += todayNotes.length;
+      const latestNote = todayNotes.length > 0 ? todayNotes[todayNotes.length - 1] : null;
+      const hasTodayNote = todayNotes.length > 0;
+      const isBlocked = status === 'paused_blocked';
+      const isCompleted = status === 'completed';
+
+      // 分组优先级：阻塞 > 今日完成 > 今日有进展 > 停滞无进展。
+      // 历史完成（无今日记录）/ 草稿 / 挂起 / 请假 仅计入统计，不进正文。
+      let group: DailyGroup | null = null;
+      if (isBlocked) {
+        group = 'blocked';
+      } else if (isCompleted && hasTodayNote) {
+        group = 'completed_today';
+      } else if (isCompleted) {
+        group = null;
+      } else if (hasTodayNote) {
+        group = 'progressed';
+      } else if (status === 'in_progress' || status === 'pending_review' || status === 'pending_assign') {
+        group = 'stalled';
+      } else {
+        group = null;
       }
+      if (!group) continue;
+
+      items.push({
+        task_id: taskId,
+        title: cleanText(task.title) || '未命名任务',
+        status,
+        status_label: this.taskStatusLabel(task.status),
+        progress: typeof task.progress === 'number' ? task.progress : null,
+        due_date: cleanText(task.due_date) || null,
+        role,
+        group,
+        today_note_id: latestNote ? cleanText(latestNote.id) || null : null,
+        today_excerpt: latestNote ? cleanText(latestNote.text).slice(0, 120) || null : null,
+        today_progress: latestNote && typeof latestNote.progress === 'number' ? latestNote.progress : null,
+        today_attachments: latestNote && Array.isArray(latestNote.attachments) ? latestNote.attachments.length : 0,
+        blocked_reason: isBlocked ? cleanText(task.blocked_reason) || '当前任务存在阻塞' : null,
+      });
     }
 
-    // 3. Status breakdown
-    const inProgress = myTasks.filter((t) => t.status === 'in_progress').length;
-    const completed = myTasks.filter((t) => t.status === 'completed').length;
-    const blocked = myTasks.filter((t) => t.status === 'paused_blocked').length;
-    const pending = myTasks.filter((t) => t.status === 'pending_assign' || t.status === 'pending_review').length;
+    const groupRank: Record<DailyGroup, number> = {
+      completed_today: 0,
+      progressed: 1,
+      stalled: 2,
+      blocked: 3,
+    };
+    items.sort((a, b) => {
+      if (groupRank[a.group] !== groupRank[b.group]) return groupRank[a.group] - groupRank[b.group];
+      if (a.role !== b.role) return a.role === 'owner' ? -1 : 1;
+      return a.title.localeCompare(b.title, 'zh-CN');
+    });
 
-    // 4. 优先调用 AI 模型生成日报正文；失败/未配置时回退到本地拼接版本。
+    const stalled = items.filter((it) => it.group === 'stalled').length;
     const stats = {
-      total_tasks: myTasks.length,
+      total_tasks: totalTasks,
       in_progress: inProgress,
       completed,
       blocked,
       pending,
-      notes_count: todayNotes.length,
+      notes_count: notesCount,
+      stalled,
+      as_collaborator: asCollaborator,
     };
 
-    const sortedNotes = todayNotes
-      .slice()
-      .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
-
-    const noteSummaries = sortedNotes.map((note) => ({
-      taskTitle: this.lookupTaskTitle(allTasks, String(note.task_id ?? '')) || undefined,
-      progress: typeof note.progress === 'number' ? note.progress : null,
-      excerpt: String(note.text ?? '').trim().slice(0, 200),
-      attachmentsCount: Array.isArray(note.attachments) ? note.attachments.length : 0,
-    }));
-
+    // 2. 优先调用 AI 模型生成日报正文；失败/未配置时回退到本地按分组拼接版本。
     let summaryText: string;
     const aiResult = await this.rdAiService.summarizeDailyReport({
       userName,
       date,
       stats: {
-        totalTasks: stats.total_tasks,
+        totalTasks,
         inProgress,
         completed,
         blocked,
         pending,
-        notesCount: stats.notes_count,
+        notesCount,
+        stalled,
+        asCollaborator,
       },
-      notes: noteSummaries,
+      tasks: items.map((it) => ({
+        title: it.title,
+        role: it.role === 'owner' ? '主责' : '协作',
+        statusLabel: it.status_label,
+        group: it.group,
+        progress: it.progress,
+        dueDate: it.due_date,
+        todayExcerpt: it.today_excerpt,
+        todayAttachments: it.today_attachments,
+        blockedReason: it.blocked_reason,
+      })),
     });
+
+    const groupMeta: Array<{ key: DailyGroup; emoji: string; label: string }> = [
+      { key: 'completed_today', emoji: '✅', label: '今日完成' },
+      { key: 'progressed', emoji: '🟦', label: '今日有进展' },
+      { key: 'stalled', emoji: '🔔', label: '停滞·今日无进展' },
+      { key: 'blocked', emoji: '⚠️', label: '阻塞·需关注' },
+    ];
 
     if (aiResult) {
       summaryText = `【${userName} · ${date} 工作日报】\n\n${aiResult.text}`;
     } else {
-      // 本地兜底：AI 未配置 / 调用失败时拼出可读文本
+      // 本地兜底：AI 未配置 / 调用失败时按分组拼出可读文本
       const lines: string[] = [];
       lines.push(`【${userName} · ${date} 工作日报】`);
       lines.push('');
-      lines.push(`📊 任务概况：共 ${myTasks.length} 个任务（进行中 ${inProgress} · 已完成 ${completed} · 阻塞 ${blocked} · 待办 ${pending}）`);
-      lines.push('');
-      if (sortedNotes.length > 0) {
-        lines.push(`✍️ 今日提交了 ${sortedNotes.length} 条进度记录：`);
-        for (const note of sortedNotes) {
-          const text = String(note.text ?? '').trim().slice(0, 200);
-          const progress = typeof note.progress === 'number' ? `${note.progress}%` : '—';
-          const titleHint = this.lookupTaskTitle(allTasks, String(note.task_id ?? ''));
-          const att = Array.isArray(note.attachments) ? note.attachments.length : 0;
-          lines.push(`  • ${titleHint ? `《${titleHint}》` : note.task_id}（进度 ${progress}${att > 0 ? ` · ${att} 个附件` : ''}）`);
-          if (text) lines.push(`    ${text}`);
+      lines.push(
+        `📊 任务概况：共 ${totalTasks} 个任务（主责 ${totalTasks - asCollaborator} · 协作 ${asCollaborator}）` +
+          `｜进行中 ${inProgress} · 已完成 ${completed} · 阻塞 ${blocked} · 待办 ${pending}`,
+      );
+      for (const meta of groupMeta) {
+        const groupItems = items.filter((it) => it.group === meta.key);
+        if (groupItems.length === 0) continue;
+        lines.push('');
+        lines.push(`${meta.emoji} ${meta.label}（${groupItems.length}）`);
+        for (const it of groupItems) {
+          const roleTag = it.role === 'collaborator' ? '[协作] ' : '';
+          const prog = typeof it.progress === 'number' ? ` · 进度 ${it.progress}%` : '';
+          const due = it.due_date ? ` · 截止 ${it.due_date}` : '';
+          lines.push(`  • ${roleTag}《${it.title}》（${it.status_label}${prog}${due}）`);
+          if (it.group === 'blocked' && it.blocked_reason) {
+            lines.push(`    阻塞原因：${it.blocked_reason}`);
+          } else if (it.today_excerpt) {
+            const att = it.today_attachments > 0 ? `（${it.today_attachments} 个附件）` : '';
+            lines.push(`    ${it.today_excerpt}${att}`);
+          }
         }
-      } else {
-        lines.push('✍️ 今日未提交进度记录。');
       }
-      lines.push('');
-      if (blocked > 0 && sortedNotes.length === 0) {
-        lines.push(`⚠️ 注意：当前有 ${blocked} 个任务处于阻塞状态，且今日未提交任何进度记录，请关注推进情况。`);
-      } else if (blocked > 0) {
-        lines.push(`⚠️ 注意：当前有 ${blocked} 个任务处于阻塞状态，需要支援。`);
-      } else if (completed > 0 && sortedNotes.length > 0) {
-        lines.push(`✅ 今日推进顺利，已完成 ${completed} 个任务，并提交了进度记录。`);
-      } else if (completed > 0) {
-        lines.push(`✅ 已完成 ${completed} 个任务，但今日未提交进度记录，建议补充说明。`);
-      } else if (inProgress > 0 && sortedNotes.length === 0) {
-        lines.push(`🔔 今日有 ${inProgress} 个任务进行中，但未提交任何进度记录，请及时更新进展。`);
-      } else if (inProgress > 0) {
-        lines.push('🟦 今日推进正常，请保持节奏。');
-      } else if (pending > 0) {
-        lines.push(`📋 当前有 ${pending} 个任务待处理，尚未开始执行，请关注任务启动情况。`);
-      } else {
-        lines.push('📭 当前暂无任务，请确认任务分配情况。');
+      if (items.length === 0) {
+        lines.push('');
+        lines.push('📭 今日暂无需要关注的任务动态，请确认任务分配与推进情况。');
       }
       summaryText = lines.join('\n');
     }
@@ -2827,21 +2986,19 @@ export class ResearchDevelopmentService {
     return {
       text: summaryText,
       stats,
-      note_refs: sortedNotes.map((note) => ({
-        note_id: String(note.id ?? ''),
-        task_id: String(note.task_id ?? ''),
-        progress: typeof note.progress === 'number' ? note.progress : null,
-        excerpt: String(note.text ?? '').slice(0, 100),
-        attachments_count: Array.isArray(note.attachments) ? note.attachments.length : 0,
-      })),
+      tasks: items,
+      note_refs: items
+        .filter((it) => it.today_note_id)
+        .map((it) => ({
+          note_id: it.today_note_id ?? '',
+          task_id: it.task_id,
+          progress: it.today_progress,
+          excerpt: it.today_excerpt ?? '',
+          attachments_count: it.today_attachments,
+        })),
     };
   }
 
-  private lookupTaskTitle(tasks: JsonRecord[], taskId: string): string {
-    if (!taskId) return '';
-    const found = tasks.find((t) => t.task_id === taskId);
-    return found ? String(found.title ?? '') : '';
-  }
 
   // ── Internal messages (sender → recipient) ────────────────────────────────
 
@@ -3127,6 +3284,8 @@ export class ResearchDevelopmentService {
         role: cleanText(collaborator.role) || '协作人',
       })).filter((collaborator) => collaborator.name),
       pending_collaboration_reason: cleanText(task.pending_collaboration_reason) || null,
+      pending_abandon_reason: cleanText(task.pending_abandon_reason) || null,
+      pending_abandon_requested_at: cleanText(task.pending_abandon_requested_at) || null,
       collab_role: collabRole,
       on_leave: task.status === 'paused_leave',
       ai_pending: task.ai_modified === true,
@@ -3288,6 +3447,10 @@ export class ResearchDevelopmentService {
           displayMessage = isApproved
             ? `${reviewerName} 已通过任务「${taskTitle}」的立项申请，任务进入进行中。`
             : `${reviewerName} 打回了任务「${taskTitle}」的立项申请。${reason ? `原因：${reason}` : ''}`;
+        } else if (reviewType === 'abandon') {
+          displayMessage = isApproved
+            ? `${reviewerName} 已通过任务「${taskTitle}」的放弃申请，任务已移除。`
+            : `${reviewerName} 驳回了任务「${taskTitle}」的放弃申请，任务继续进行。${reason ? `原因：${reason}` : ''}`;
         } else {
           displayMessage = isApproved
             ? `${reviewerName} 已批准任务「${taskTitle}」，任务已完成。`
@@ -4243,6 +4406,26 @@ export class ResearchDevelopmentService {
     return { ...e, permission_level: level };
   }
 
+  /**
+   * 计算 viewer 在知识库的「可见权限分值」（0-100），供列表与详情鉴权共用。
+   * - 匹配人员用与 getUserKbLevel 一致的规范化方式：cleanUserId(user_id ?? auth_user_id)，
+   *   避免严格 === 在空白/类型差异、或人员仅以 auth_user_id 关联时漏配；
+   * - 命中后按 kb_level_scale 解析（score=直接分值，legacy=1-5 映射）；
+   * - 未命中按最严处理返回 0（读侧「拒绝式默认」，仅放行完全公开 level 0 条目；
+   *   与 getUserKbLevel「写/上传」侧默认 20 有意区分）。
+   */
+  private async resolveViewerKbLevel(viewerUserId?: string | null): Promise<number> {
+    if (!viewerUserId) return 0;
+    const rawPeople = await this.readArray('rd.people');
+    const personRecord = rawPeople
+      .filter(isRecord)
+      .find((p) => cleanUserId(p.user_id ?? (p as JsonRecord).auth_user_id) === viewerUserId);
+    if (!isRecord(personRecord)) return 0;
+    return cleanText(personRecord.kb_level_scale) === 'score'
+      ? ResearchDevelopmentService.clampLevel(personRecord.kb_level)
+      : ResearchDevelopmentService.legacyKbLevelToScore(personRecord.kb_level);
+  }
+
   async getKnowledgeEntries(
     filter?: {
       categoryId?: string;
@@ -4261,15 +4444,10 @@ export class ResearchDevelopmentService {
     entries = entries.filter(e => !e.archived);
 
     // ── Viewer-level access control ──────────────────────────────────────
+    // 「看全部」仅限 KB 管理员（* / rd-kb:manage，由 controller 的 buildKbViewer 判定）；
+    // 其余成员一律按本人 kb_level 过滤，确保「个人权限」对所有非 KB 管理员真正生效。
     if (viewer && !viewer.hasFullAccess) {
-      // Find the person linked to this viewer to get their kb_level
-      const rawPeople = await this.readArray('rd.people');
-      const personRecord = rawPeople.filter(isRecord).find(p => p.user_id === viewer.userId);
-      const viewerLevel: number = isRecord(personRecord)
-        ? cleanText(personRecord.kb_level_scale) === 'score'
-          ? ResearchDevelopmentService.clampLevel(personRecord.kb_level)
-          : ResearchDevelopmentService.legacyKbLevelToScore(personRecord.kb_level)
-        : 0;
+      const viewerLevel = await this.resolveViewerKbLevel(viewer.userId);
       entries = entries.filter(e => (e.permission_level as number) <= viewerLevel);
     }
 
@@ -4324,14 +4502,34 @@ export class ResearchDevelopmentService {
         ...rest,
         // Expose a lightweight flag so the frontend knows a downloadable file exists
         has_data_file: Boolean(data_url),
+        // Same-origin inline-preview proxy URL (bucket forces attachment download on direct OSS URLs)
+        ...(typeof rest.oss_url === 'string' && rest.oss_url
+          ? { preview_url: this.buildAttachmentPreviewUrl(rest.oss_url) ?? undefined }
+          : {}),
       }));
   }
 
   /** Return a single KB entry including its data_url (used for download). */
-  async getKnowledgeEntryById(id: string): Promise<JsonRecord | null> {
+  async getKnowledgeEntryById(
+    id: string,
+    viewer?: { userId?: string; hasFullAccess?: boolean },
+  ): Promise<JsonRecord | null> {
     const raw = await this.readValue('rd.knowledgeEntries');
     const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
-    return entries.find((e) => e.id === id) ?? null;
+    const found = entries.find((e) => e.id === id);
+    if (!found) return null;
+    // 归一化以拿到可靠的 permission_level（部分老条目未显式存分值，靠 visibility 推导）
+    const entry = ResearchDevelopmentService.normalizeKbEntry(found);
+    // 与列表一致的 kb_level 鉴权：非 KB 管理员不得越权读取高于自身分值的条目，
+    // 堵住「详情接口绕过列表过滤」的口子。返回 null → 404，避免泄露条目是否存在。
+    if (viewer && !viewer.hasFullAccess) {
+      const viewerLevel = await this.resolveViewerKbLevel(viewer.userId);
+      if ((entry.permission_level as number) > viewerLevel) return null;
+    }
+    const previewUrl = typeof entry.oss_url === 'string' && entry.oss_url
+      ? this.buildAttachmentPreviewUrl(entry.oss_url)
+      : null;
+    return previewUrl ? { ...entry, preview_url: previewUrl } : entry;
   }
 
   async classifyKbFiles(filenames: string[]) {

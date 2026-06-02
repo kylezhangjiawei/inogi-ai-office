@@ -1341,6 +1341,9 @@ interface PreviewModalProps {
 function PreviewModal({ entry, onClose }: PreviewModalProps) {
   const fileType = getFileType(entry.file_name, entry.file_type);
   const [fileUrl, setFileUrl] = React.useState<string | null>(entry.oss_url ?? null);
+  // Same-origin inline-preview proxy URL — used by iframe/fetch-based previews (pdf/html/text/xlsx/docx)
+  // to bypass the OSS bucket's forced Content-Disposition: attachment and CORS restrictions.
+  const [previewUrl, setPreviewUrl] = React.useState<string | null>(entry.preview_url ?? entry.oss_url ?? null);
   const [loading, setLoading] = React.useState(false);
   const permScore = entry.permission_level ?? 0;
   const permCfg = getPermissionScoreConfig(permScore);
@@ -1356,7 +1359,11 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
     if (fileUrl || !entry.has_data_file) return;
     setLoading(true);
     fetchKbEntry(entry.id)
-      .then((full) => setFileUrl(full.oss_url ?? full.data_url ?? null))
+      .then((full) => {
+        const direct = full.oss_url ?? full.data_url ?? null;
+        setFileUrl(direct);
+        setPreviewUrl(full.preview_url ?? direct);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, [entry.id, entry.has_data_file, fileUrl]);
@@ -1479,7 +1486,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
           {/* PDF viewer */}
           {!loading && fileType === 'pdf' && fileUrl && (
             <iframe
-              src={fileUrl}
+              src={previewUrl ?? fileUrl}
               className="w-full h-[70vh] border-0"
               title={entry.title}
             />
@@ -1494,9 +1501,9 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
             />
           )}
 
-          {/* HTML / 纯文本 / Excel / Word：客户端解析渲染 */}
+          {/* HTML / 纯文本 / Excel / Word：客户端解析渲染（走同源代理，规避 OSS 强制下载 + CORS） */}
           {!loading && fileUrl && (fileType === 'html' || fileType === 'text' || fileType === 'xlsx' || fileType === 'docx') && (
-            <KbAdvancedPreview fileUrl={fileUrl} fileType={fileType} fileName={entry.file_name ?? undefined} />
+            <KbAdvancedPreview fileUrl={previewUrl ?? fileUrl} fileType={fileType} fileName={entry.file_name ?? undefined} />
           )}
 
           {/* Previewable type but URL failed to load */}

@@ -2552,12 +2552,19 @@ export class RdAiService {
       blocked: number;
       pending: number;
       notesCount: number;
+      stalled?: number;
+      asCollaborator?: number;
     };
-    notes: Array<{
-      taskTitle?: string;
+    tasks: Array<{
+      title: string;
+      role: '主责' | '协作';
+      statusLabel: string;
+      group: 'completed_today' | 'progressed' | 'stalled' | 'blocked';
       progress?: number | null;
-      excerpt?: string;
-      attachmentsCount?: number;
+      dueDate?: string | null;
+      todayExcerpt?: string | null;
+      todayAttachments?: number;
+      blockedReason?: string | null;
     }>;
   }): Promise<{ text: string; model: string; provider: AiProvider } | null> {
     const selectedModel = await this.resolveSceneModelConfig('daily_report_summary').catch(() => null);
@@ -2567,34 +2574,67 @@ export class RdAiService {
     const model = selectedModel.model;
     const baseUrl = selectedModel.baseUrl;
 
-    const { userName, date, stats, notes } = input;
+    const { userName, date, stats, tasks } = input;
     const systemPrompt =
-      '你是一名研发主管的智能助理，负责把当日工作数据汇总成精炼、可读的中文日报。' +
+      '你是一名研发主管的智能助理，负责把某成员当日的全部任务动态汇总成精炼、可读的中文日报。' +
       '要求：(1) 全文不超过 350 字；(2) 使用「📊 任务概况 / ✍️ 今日推进 / ⚠️ 需关注 / 🎯 下一步建议」四段式结构；' +
-      '(3) 客观描述事实，不要编造未提供的信息；(4) 数据为 0 的段落允许省略；' +
-      '(5) 结尾给出 1 句具体的下一步行动建议（如有阻塞优先提该项）。';
+      '(3) 覆盖该成员当日所有相关任务（含其协作的任务），而不仅仅是有进度记录的任务；' +
+      '(4) 客观描述事实，不要编造未提供的信息；(5) 数据为 0 的段落允许省略；' +
+      '(6)「需关注」段优先点名「阻塞」与「停滞·今日无进展」的任务；' +
+      '(7) 结尾给出 1 句具体的下一步行动建议（如有阻塞优先提该项）。';
 
-    const notesBlock = notes.length === 0
-      ? '今日无新增进度记录。'
-      : notes
-          .map((n, idx) => {
-            const title = n.taskTitle ? `《${n.taskTitle}》` : '（任务标题缺失）';
-            const progress = typeof n.progress === 'number' ? `${n.progress}%` : '—';
-            const att = (n.attachmentsCount ?? 0) > 0 ? ` · ${n.attachmentsCount} 附件` : '';
-            const excerpt = (n.excerpt ?? '').trim().slice(0, 160);
-            return `${idx + 1}. ${title} 进度${progress}${att}${excerpt ? ` — ${excerpt}` : ''}`;
+    const groupLabels: Record<string, string> = {
+      completed_today: '今日完成',
+      progressed: '今日有进展',
+      stalled: '停滞·今日无进展',
+      blocked: '阻塞·需关注',
+    };
+    const groupOrder = ['completed_today', 'progressed', 'stalled', 'blocked'];
+
+    const tasksBlock = tasks.length === 0
+      ? '今日无需要关注的任务动态。'
+      : groupOrder
+          .map((groupKey) => {
+            const groupItems = tasks.filter((t) => t.group === groupKey);
+            if (groupItems.length === 0) return '';
+            const header = `【${groupLabels[groupKey]}】（${groupItems.length}）`;
+            const lines = groupItems.map((t) => {
+              const roleTag = t.role === '协作' ? '[协作] ' : '';
+              const progress = typeof t.progress === 'number' ? ` 进度${t.progress}%` : '';
+              const due = t.dueDate ? ` 截止${t.dueDate}` : '';
+              const att = (t.todayAttachments ?? 0) > 0 ? ` ·${t.todayAttachments}附件` : '';
+              const detail = t.group === 'blocked' && t.blockedReason
+                ? ` — 阻塞原因：${t.blockedReason}`
+                : t.todayExcerpt
+                  ? ` — ${t.todayExcerpt.trim().slice(0, 120)}`
+                  : '';
+              return `  · ${roleTag}《${t.title}》(${t.statusLabel}${progress}${due}${att})${detail}`;
+            });
+            return [header, ...lines].join('\n');
           })
+          .filter(Boolean)
           .join('\n');
+
+    const overviewParts = [
+      `总任务 ${stats.totalTasks}`,
+      `主责 ${stats.totalTasks - (stats.asCollaborator ?? 0)}`,
+      `协作 ${stats.asCollaborator ?? 0}`,
+      `进行中 ${stats.inProgress}`,
+      `已完成 ${stats.completed}`,
+      `阻塞 ${stats.blocked}`,
+      `停滞 ${stats.stalled ?? 0}`,
+      `待办 ${stats.pending}`,
+    ];
 
     const userMessage = [
       `用户：${userName}`,
       `日期：${date}`,
       '',
       '【任务概况】',
-      `总任务 ${stats.totalTasks} · 进行中 ${stats.inProgress} · 已完成 ${stats.completed} · 阻塞 ${stats.blocked} · 待办 ${stats.pending}`,
+      overviewParts.join(' · '),
       '',
-      '【今日进度记录】',
-      notesBlock,
+      '【当日任务动态（按分组）】',
+      tasksBlock,
     ].join('\n');
 
     const client = this.createClient(selectedModel.apiKey, provider, baseUrl);

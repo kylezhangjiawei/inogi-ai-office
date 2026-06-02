@@ -1,7 +1,9 @@
-import { Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Put, Query, Request, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import { Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Put, Query, Request, Res, UploadedFiles, UseInterceptors } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
+import { Response } from 'express';
 
 import { Permissions } from '../auth/decorators/permissions.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 import { OssService } from '../oss/oss.service';
 import { ResearchDevelopmentService } from './research-development.service';
 
@@ -20,6 +22,18 @@ type AuthedRequest = { user?: { id?: string; name?: string; role?: string; permi
 function buildViewer(req: AuthedRequest): { userId?: string; hasFullAccess: boolean } {
   const perms = req.user?.permissions ?? [];
   const hasFullAccess = perms.includes('*') || perms.includes('rd-task:reassign');
+  return { userId: req.user?.id, hasFullAccess };
+}
+
+/**
+ * 知识库专用 viewer：「看全部」必须用 KB 自己的权限（* / rd-kb:manage），
+ * 与上传/编辑侧 isKbManager 判定保持一致。
+ * 不能用任务管理权限 rd-task:reassign —— 否则「研发管理员」等可转派任务的角色
+ * 会绕过 kb_level 过滤、看到全部知识库，导致设置的「个人权限」形同虚设。
+ */
+function buildKbViewer(req: AuthedRequest): { userId?: string; hasFullAccess: boolean } {
+  const perms = req.user?.permissions ?? [];
+  const hasFullAccess = perms.includes('*') || perms.includes('rd-kb:manage');
   return { userId: req.user?.id, hasFullAccess };
 }
 
@@ -119,6 +133,40 @@ export class ResearchDevelopmentController {
   @Get('task-progress-notes/:taskId')
   getTaskProgressNotes(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
     return this.rdService.getTaskProgressNotes(taskId, buildViewer(req));
+  }
+
+  /**
+   * Same-origin inline preview proxy for attachment OSS objects.
+   * Public + HMAC-token guarded because iframes can't send Authorization headers; the token
+   * (key|exp signed with the server secret) acts as a short-lived capability URL, mirroring the
+   * existing 30-day signed OSS URLs. Streams the object with Content-Disposition: inline so
+   * PDFs/images render in the browser instead of force-downloading (bucket sets x-oss-force-download).
+   */
+  @Public()
+  @Permissions()
+  @Get('oss-preview')
+  async ossPreview(
+    @Query('key') key: string,
+    @Query('exp') exp: string,
+    @Query('sig') sig: string,
+    @Res() res: Response,
+  ) {
+    if (!key || !this.ossService.verifyPreviewToken(key, Number(exp), sig)) {
+      throw new NotFoundException();
+    }
+    const obj = await this.ossService.getObjectStream(key);
+    if (!obj) throw new NotFoundException();
+
+    res.setHeader('Content-Type', obj.contentType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('Cache-Control', 'private, max-age=600');
+    if (obj.size > 0) res.setHeader('Content-Length', String(obj.size));
+
+    obj.stream.on('error', () => {
+      if (res.headersSent) res.end();
+      else res.status(500).end();
+    });
+    obj.stream.pipe(res);
   }
 
   @Get('task-completion-scores/:taskId')
@@ -477,7 +525,7 @@ export class ResearchDevelopmentController {
     @Request() req?: AuthedRequest,
   ) {
     const permissionLevel = permissionLevelStr ? Number(permissionLevelStr) : undefined;
-    const viewer = req ? buildViewer(req) : undefined;
+    const viewer = req ? buildKbViewer(req) : undefined;
     return this.rdService.getKnowledgeEntries(
       { categoryId, keyword, source, fileType, visibility, permissionLevel: Number.isFinite(permissionLevel) ? permissionLevel : undefined },
       viewer,
@@ -642,8 +690,8 @@ export class ResearchDevelopmentController {
   /** Fetch a single KB entry including its data_url (needed for download of base64 files). */
   @Get('knowledge/entries/:id')
   @Permissions(...RD_READ_PERMISSIONS, 'page:rd-knowledge-base', 'rd-kb:upload')
-  async getKnowledgeEntry(@Param('id') id: string) {
-    const entry = await this.rdService.getKnowledgeEntryById(id);
+  async getKnowledgeEntry(@Param('id') id: string, @Request() req: AuthedRequest) {
+    const entry = await this.rdService.getKnowledgeEntryById(id, buildKbViewer(req));
     if (!entry) throw new NotFoundException('条目不存在');
     return entry;
   }
