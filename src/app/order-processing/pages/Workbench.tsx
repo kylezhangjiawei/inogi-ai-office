@@ -538,7 +538,7 @@ export function Workbench() {
     await refreshAfterMutation();
   };
   return (
-    <div className="flex h-full min-h-0 w-full flex-col bg-[#f0f4f9] p-3">
+    <div className="material-scrollbar flex h-full min-h-0 w-full flex-col overflow-x-auto p-3 pb-4">
       <input
         ref={orderUploadInputRef}
         type="file"
@@ -562,7 +562,7 @@ export function Workbench() {
           void simulateAiTemplateGeneration(files);
         }} />
       {/* Main Workbench Container */}
-      <div className="bg-gradient-mesh rounded-[20px] elevation-2 flex min-h-0 flex-1 flex-col overflow-hidden">
+      <div className="bg-gradient-mesh rounded-[20px] elevation-2 flex min-h-0 min-w-[1536px] flex-1 flex-col overflow-hidden">
         {/* Overview Strip */}
         <div className="min-h-14 bg-slate-50/80 border-b border-slate-100 flex items-center justify-between gap-4 px-6 py-3 shrink-0">
           <div className="flex items-center gap-3 flex-wrap">
@@ -719,7 +719,7 @@ export function Workbench() {
           </div>
 
           {/* CENTER: Order Comparison */}
-          <div className="flex-1 flex min-h-0 flex-col min-w-0 bg-slate-50/30">
+          <div className="flex-1 flex min-h-0 min-w-[860px] flex-col bg-slate-50/30">
             {/* Compact Summary */}
             <div className="mx-5 mt-4 mb-3 px-4 py-2.5 bg-white rounded-2xl elevation-1 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm shrink-0">
               <div className="flex items-center gap-2 whitespace-nowrap">
@@ -751,13 +751,15 @@ export function Workbench() {
                   className="h-8 px-3 text-xs font-medium text-blue-700 bg-blue-50 rounded-full hover:bg-blue-100 transition-all active:scale-95 flex items-center gap-1.5 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed">
                   <FileText className="w-3.5 h-3.5" /> 查看原单
                 </button>
-                <button
-                  onClick={selectedOrder?.generated ? () => setActiveModal('preview') : handleOpenInvoiceDraft}
-                  disabled={!selectedOrder?.id || loading}
-                  className="h-8 px-3.5 text-xs font-medium text-white bg-gradient-primary rounded-full glow-blue transition-all active:scale-95 flex items-center gap-1.5 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed">
-                  {selectedOrder?.generated ? <Eye className="w-3.5 h-3.5" /> : <FileDown className="w-3.5 h-3.5" />}
-                  {selectedOrder?.generated ? '查看发票' : '生成发票'}
-                </button>
+                {selectedOrder?.generated &&
+                  <button
+                    onClick={() => setActiveModal('preview')}
+                    disabled={!selectedOrder?.id || loading}
+                    className="h-8 px-3.5 text-xs font-medium text-white bg-gradient-primary rounded-full glow-blue transition-all active:scale-95 flex items-center gap-1.5 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed">
+                    <Eye className="w-3.5 h-3.5" />
+                    查看发票
+                  </button>
+                }
               </div>
             </div>
 
@@ -954,7 +956,7 @@ export function Workbench() {
           </div>
 
           {/* RIGHT: Shipment Summary */}
-          <div className="hidden w-[320px] border-l border-slate-100 2xl:flex min-h-0 flex-col bg-white shrink-0 z-10">
+          <div className="flex w-[320px] border-l border-slate-100 min-h-0 flex-col bg-white shrink-0 z-10">
             <div className="min-h-0 flex-1 overflow-y-auto p-4 pb-24 space-y-4 bg-slate-50/30">
               {/* Shipment Action Card */}
               <div className="bg-white rounded-3xl p-5 elevation-1">
@@ -1888,9 +1890,9 @@ export function Workbench() {
                       <div className="text-right bg-slate-50 p-4 rounded-2xl border border-slate-100">
                         <div className="flex justify-end gap-3 mb-2">
                           <span className="text-slate-500">Invoice No:</span>
-                          <span className="font-bold text-slate-800">
-                            #INV-AI-001
-                          </span>
+	                          <span className="font-bold text-slate-800">
+	                            #{orderDetails.invoiceNo || '未生成'}
+	                          </span>
                         </div>
                         <div className="flex justify-end gap-3 mb-2">
                           <span className="text-slate-500">Date:</span>

@@ -1,6 +1,8 @@
 node_modules/
 dist/
 .deploy-cache/
+.DS_Store
+.pnpm-store/
 .env
 .env.*
 .env.local

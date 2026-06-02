@@ -7,7 +7,7 @@ import { OcrService } from '../ocr';
 import { MailCredentials, MailIngestionService } from '../resume-screening/mail-ingestion.service';
 import { IngestedMail } from '../resume-screening/resume-screening.types';
 import { SecureConfigService } from '../security/secure-config.service';
-import { createInitialOrderProcessingState } from './order-processing.seed';
+import { createInitialOrderProcessingState, createInitialPurchaseOrders } from './order-processing.seed';
 import {
   InventoryItem,
   InventoryStatus,
@@ -21,6 +21,10 @@ import {
   OrderSummary,
   PageResult,
   ProductCheckStatus,
+  PurchaseOrder,
+  PurchaseOrderLine,
+  PurchaseOrderStats,
+  PurchaseOrderStatus,
   ReminderRule,
   StockMovement,
 } from './order-processing.types';
@@ -34,7 +38,7 @@ const ORDER_MAIL_LAST_UID_PREFIX = 'order-processing:wecom-mail:last-uid';
 const ORDER_MAIL_REQUIRED_SUBJECT = 'PO';
 const ORDER_MAIL_REQUIRED_SENDER = 'Paul Zhang';
 const ORDER_MAIL_DEFAULT_SINCE_HOURS = 168;
-const ORDER_MAIL_DEFAULT_LIMIT = 80;
+const ORDER_MAIL_DEFAULT_LIMIT = 20;
 
 type UploadedFileLike = { originalname: string; size?: number; mimetype?: string; buffer?: Buffer };
 type StockItemInput = { id: string; qty: number };
@@ -80,6 +84,7 @@ type ParsedStockInDraft = {
   remark: string;
   items: StockItemInput[];
 };
+type PurchaseOrderImportDraft = Omit<PurchaseOrder, 'items'> & { items: PurchaseOrderLine[] };
 type ExtractedDocument = {
   fileName: string;
   extension: string;
@@ -105,6 +110,9 @@ type OrderRow = Prisma.OrderProcessingOrderGetPayload<{
   };
 }>;
 type OrderProductRow = Prisma.OrderProcessingOrderProductGetPayload<Record<string, never>>;
+type PurchaseOrderRow = Prisma.OrderProcessingPurchaseOrderGetPayload<{
+  include: { lines: true };
+}>;
 
 @Injectable()
 export class OrderProcessingService {
@@ -218,12 +226,14 @@ export class OrderProcessingService {
     const matchedMails = mails.filter((mail) => this.isOrderMailCandidate(mail));
     const created: OrderSummary[] = [];
     const skipped: Array<{ subject: string; sender: string; reason: string }> = [];
+    const retryBoundaryUids: number[] = [];
 
     await this.prisma.$transaction(async (tx) => {
       for (const [index, mail] of matchedMails.entries()) {
         const parsed = await this.parseOrderMail(mail, state, index);
         if (!parsed) {
           skipped.push({ subject: mail.subject, sender: this.mailSenderLabel(mail), reason: '未识别到商品明细' });
+          if (mail.imapUid) retryBoundaryUids.push(mail.imapUid);
           continue;
         }
 
@@ -246,21 +256,23 @@ export class OrderProcessingService {
         state.orderDetails[parsed.detail.id] = parsed.detail;
       }
 
-      if (latestUid) {
+      const persistedLatestUid = ignoreLastUid ? null : this.resolveSafeMailCursor(latestUid, retryBoundaryUids);
+      if (persistedLatestUid) {
         await tx.runtimeState.upsert({
           where: { key: runtimeKey },
-          create: { key: runtimeKey, value: String(latestUid) },
-          update: { value: String(latestUid) },
+          create: { key: runtimeKey, value: String(persistedLatestUid) },
+          update: { value: String(persistedLatestUid) },
         });
       }
     });
+    const persistedLatestUid = ignoreLastUid ? latestUid : this.resolveSafeMailCursor(latestUid, retryBoundaryUids);
 
     return {
       scannedCount,
       matchedCount: matchedMails.length,
       created,
       skipped,
-      latestUid,
+      latestUid: persistedLatestUid,
       filter: {
         subject: `主题包含 ${ORDER_MAIL_REQUIRED_SUBJECT}`,
         sender: `发件人 ${ORDER_MAIL_REQUIRED_SENDER}（含转发原始发件人）`,
@@ -472,13 +484,21 @@ export class OrderProcessingService {
         name: this.toString(payload.name) || `识别模板 ${aiCount + 1}`,
         source: 'ai',
         accentColor: '#8b5cf6',
-        config: {
-          sourceFiles: files.map((file) => file.originalname),
-          detectedFields,
-          pdfLayout,
-          headerStyle:
-            pdfLayout === 'inogi'
-              ? 'final-consolidated-balance-invoice'
+          config: {
+            sourceFiles: files.map((file) => file.originalname),
+            detectedFields,
+            pdfLayout,
+            pdf: {
+              title: pdfLayout === 'inogi' ? 'Final Consolidated Balance Invoice' : 'Commercial Invoice',
+              subtitle: pdfLayout === 'inogi' ? 'INOGI Invoice Service' : 'AI Generated Invoice Template',
+              primaryColor: pdfLayout === 'inogi' ? '#0a2342' : '#4f46e5',
+              accentColor: '#8b5cf6',
+              tableHeaderColor: '#eef2ff',
+              footerNote: 'Generated from the selected AI invoice template.',
+            },
+            headerStyle:
+              pdfLayout === 'inogi'
+                ? 'final-consolidated-balance-invoice'
               : pdfLayout === 'weoxy'
                 ? 'standard-commercial-invoice'
                 : 'compact-commercial-invoice',
@@ -742,6 +762,69 @@ export class OrderProcessingService {
     };
   }
 
+  async getPurchaseOrders(query: Record<string, unknown>) {
+    await this.ensureInitialized();
+    const page = this.toPage(query.page);
+    const pageSize = this.toPageSize(query.pageSize, 50);
+    const where = this.buildPurchaseOrderWhere(query);
+
+    const [total, rows, suppliers, stats] = await Promise.all([
+      this.prisma.orderProcessingPurchaseOrder.count({ where }),
+      this.prisma.orderProcessingPurchaseOrder.findMany({
+        where,
+        include: { lines: { orderBy: { sortOrder: 'asc' } } },
+        orderBy: [{ etaDate: 'asc' }, { createdAt: 'desc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.orderProcessingPurchaseOrder.findMany({
+        select: { supplier: true },
+        distinct: ['supplier'],
+        orderBy: { supplier: 'asc' },
+      }),
+      this.getPurchaseOrderStats(),
+    ]);
+
+    return {
+      orders: this.paginateRows(rows.map((row) => this.toPurchaseOrder(row)), total, page, pageSize),
+      suppliers: suppliers.map((item) => item.supplier).filter(Boolean),
+      stats,
+    };
+  }
+
+  async getPurchaseOrder(idOrPoNo: string) {
+    await this.ensureInitialized();
+    const decoded = decodeURIComponent(idOrPoNo);
+    const order = await this.prisma.orderProcessingPurchaseOrder.findFirst({
+      where: { OR: [{ id: decoded }, { poNo: decoded }] },
+      include: { lines: { orderBy: { sortOrder: 'asc' } } },
+    });
+    if (!order) throw new NotFoundException('采购订单不存在');
+    return { order: this.toPurchaseOrder(order) };
+  }
+
+  async importPurchaseOrders(files: UploadedFileLike[] = []) {
+    await this.ensureInitialized();
+    if (files.length === 0) throw new BadRequestException('请上传采购订单文件');
+
+    const drafts = await this.parsePurchaseOrderFiles(files);
+    if (drafts.length === 0) throw new BadRequestException('文件中没有可导入的采购订单');
+
+    const saved = await this.prisma.$transaction(async (tx) => {
+      const result: PurchaseOrderRow[] = [];
+      for (const draft of drafts) {
+        const row = await this.upsertPurchaseOrder(tx, draft);
+        result.push(row);
+      }
+      return result;
+    });
+
+    return {
+      created: saved.map((row) => this.toPurchaseOrder(row)),
+      message: `已导入 ${saved.length} 条采购订单`,
+    };
+  }
+
   private ensureInitialized() {
     if (!this.initializationPromise) {
       this.initializationPromise = this.initializeStorage().catch((error) => {
@@ -753,15 +836,19 @@ export class OrderProcessingService {
   }
 
   private async initializeStorage() {
-    const [orderCount, inventoryCount, templateCount] = await Promise.all([
+    const [orderCount, inventoryCount, templateCount, purchaseOrderCount] = await Promise.all([
       this.prisma.orderProcessingOrder.count(),
       this.prisma.orderProcessingInventoryItem.count(),
       this.prisma.orderProcessingInvoiceTemplate.count(),
+      this.prisma.orderProcessingPurchaseOrder.count(),
     ]);
 
     if (orderCount === 0 && inventoryCount === 0) {
       const runtimeState = await this.readRuntimeState();
       await this.persistInitialState(runtimeState ?? createInitialOrderProcessingState());
+      if (purchaseOrderCount === 0) {
+        await this.seedPurchaseOrders(createInitialPurchaseOrders());
+      }
       return;
     }
 
@@ -769,6 +856,10 @@ export class OrderProcessingService {
       await this.seedTemplatesAndSettings(createInitialOrderProcessingState());
     } else {
       await this.ensureSettings();
+    }
+
+    if (purchaseOrderCount === 0) {
+      await this.seedPurchaseOrders(createInitialPurchaseOrders());
     }
   }
 
@@ -969,6 +1060,17 @@ export class OrderProcessingService {
     });
   }
 
+  private async seedPurchaseOrders(orders: PurchaseOrder[]) {
+    await this.prisma.$transaction(async (tx) => {
+      for (const order of orders) {
+        await this.upsertPurchaseOrder(tx, {
+          ...order,
+          items: order.items ?? [],
+        });
+      }
+    });
+  }
+
   private async ensureSettings() {
     const initial = createInitialOrderProcessingState();
     await this.prisma.orderProcessingSetting.upsert({
@@ -1075,6 +1177,13 @@ export class OrderProcessingService {
     } catch {
       throw new BadRequestException('当前企业微信邮箱配置已失效，请重新保存邮箱密码后再试');
     }
+  }
+
+  private resolveSafeMailCursor(latestUid: number | null, retryBoundaryUids: number[]) {
+    if (!latestUid) return null;
+    if (retryBoundaryUids.length === 0) return latestUid;
+    const retryFromUid = Math.min(...retryBoundaryUids);
+    return retryFromUid > 1 ? Math.min(latestUid, retryFromUid - 1) : null;
   }
 
   private isOrderMailCandidate(mail: IngestedMail) {
@@ -1370,6 +1479,326 @@ export class OrderProcessingService {
       createdAt: this.formatDate(template.createdAt),
       config: this.toRecord(template.config),
     };
+  }
+
+  private toPurchaseOrder(order: PurchaseOrderRow): PurchaseOrder {
+    return {
+      id: order.id,
+      poNo: order.poNo,
+      supplier: order.supplier,
+      supplierContact: order.supplierContact ?? undefined,
+      supplierPhone: order.supplierPhone ?? undefined,
+      supplierEmail: order.supplierEmail ?? undefined,
+      buyer: order.buyer,
+      status: order.status as PurchaseOrderStatus,
+      orderDate: this.formatDate(order.orderDate),
+      etaDate: this.formatDate(order.etaDate),
+      itemCount: order.itemCount,
+      amount: Number(order.amount),
+      currency: order.currency === 'USD' ? 'USD' : 'CNY',
+      warehouse: order.warehouse,
+      owner: order.owner,
+      paymentTerm: order.paymentTerm ?? undefined,
+      deliveryTerm: order.deliveryTerm ?? undefined,
+      invoiceType: order.invoiceType ?? undefined,
+      approvalStatus: order.approvalStatus ?? undefined,
+      remark: order.remark ?? undefined,
+      sourceFile: order.sourceFile ?? undefined,
+      items: order.lines.map((line) => ({
+        sku: line.sku,
+        name: line.name,
+        spec: line.spec,
+        unit: line.unit,
+        qty: line.qty,
+        receivedQty: line.receivedQty,
+        unitPrice: Number(line.unitPrice),
+      })),
+    };
+  }
+
+  private buildPurchaseOrderWhere(query: Record<string, unknown>): Prisma.OrderProcessingPurchaseOrderWhereInput {
+    const q = this.toString(query.q);
+    const status = this.toString(query.status);
+    const supplier = this.toString(query.supplier);
+    const dateFrom = this.toOptionalDate(query.dateFrom ?? query.startDate, '开始日期');
+    const dateTo = this.toOptionalDate(query.dateTo ?? query.endDate, '结束日期');
+
+    return {
+      ...(q
+        ? {
+            OR: [
+              { poNo: { contains: q, mode: 'insensitive' } },
+              { supplier: { contains: q, mode: 'insensitive' } },
+              { buyer: { contains: q, mode: 'insensitive' } },
+              { warehouse: { contains: q, mode: 'insensitive' } },
+              { owner: { contains: q, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+      ...(status && status !== 'all' ? { status } : {}),
+      ...(supplier && supplier !== 'all' ? { supplier } : {}),
+      ...(dateFrom || dateTo
+        ? {
+            etaDate: {
+              ...(dateFrom ? { gte: this.startOfDay(dateFrom) } : {}),
+              ...(dateTo ? { lte: this.endOfDay(dateTo) } : {}),
+            },
+          }
+        : {}),
+    };
+  }
+
+  private async getPurchaseOrderStats(): Promise<PurchaseOrderStats> {
+    const [total, open, inbound, abnormal, amount] = await Promise.all([
+      this.prisma.orderProcessingPurchaseOrder.count(),
+      this.prisma.orderProcessingPurchaseOrder.count({ where: { status: { in: ['待确认', '已下单'] } } }),
+      this.prisma.orderProcessingPurchaseOrder.count({ where: { status: '部分到货' } }),
+      this.prisma.orderProcessingPurchaseOrder.count({ where: { status: '异常' } }),
+      this.prisma.orderProcessingPurchaseOrder.aggregate({ _sum: { amount: true } }),
+    ]);
+
+    return {
+      total,
+      open,
+      inbound,
+      abnormal,
+      amount: Number(amount._sum.amount ?? 0),
+    };
+  }
+
+  private async parsePurchaseOrderFiles(files: UploadedFileLike[]): Promise<PurchaseOrderImportDraft[]> {
+    const extractedDocs = await Promise.all(files.map((file) => this.extractUploadedDocument(file, '采购订单')));
+    const grouped = new Map<string, PurchaseOrderImportDraft>();
+    let rowIndex = 0;
+
+    for (const doc of extractedDocs) {
+      const records = this.purchaseRowsToRecords(doc.rows, doc.fileName);
+      for (const record of records) {
+        const draft = this.normalizePurchaseOrderRecord(record, rowIndex, doc.fileName);
+        rowIndex += 1;
+        const current = grouped.get(draft.poNo);
+        if (!current) {
+          grouped.set(draft.poNo, draft);
+          continue;
+        }
+
+        current.items.push(...draft.items);
+        current.amount = current.amount || draft.amount;
+        current.itemCount = Math.max(current.itemCount, draft.itemCount);
+        current.remark = current.remark || draft.remark;
+      }
+    }
+
+    return Array.from(grouped.values()).map((draft) => {
+      const items = draft.items.length > 0 ? draft.items : [this.buildPurchaseOrderFallbackLine(draft)];
+      const amount = items.length > 0 ? items.reduce((sum, item) => sum + item.qty * item.unitPrice, 0) : draft.amount;
+      return {
+        ...draft,
+        items,
+        amount: amount || draft.amount,
+        itemCount: items.length || draft.itemCount,
+      };
+    });
+  }
+
+  private purchaseRowsToRecords(rows: string[][], fileName: string) {
+    const headerIndex = rows.findIndex((row) =>
+      this.findColumn(row, ['采购单号', '采购订单号', 'PO号', 'PO No', 'PO', 'poNo']) >= 0 ||
+      this.findColumn(row, ['供应商', '供应商名称', 'Supplier', 'Vendor']) >= 0
+    );
+    if (headerIndex < 0) throw new BadRequestException(`采购订单 ${fileName} 未识别到表头`);
+
+    const header = rows[headerIndex].map((cell, index) => this.toCellString(cell) || `column-${index + 1}`);
+    return rows
+      .slice(headerIndex + 1)
+      .filter((row) => row.some((cell) => this.toCellString(cell)))
+      .map((row) => Object.fromEntries(header.map((key, index) => [key, this.toCellString(row[index])])));
+  }
+
+  private normalizePurchaseOrderRecord(record: Record<string, unknown>, index: number, fileName: string): PurchaseOrderImportDraft {
+    const today = this.formatDate(new Date());
+    const poNo = this.readRecordField(record, ['采购单号', '采购订单号', 'PO号', 'PO No', 'PO', '单号', 'poNo']) || `PO-IMPORT-${Date.now()}-${index + 1}`;
+    const qty = this.toSafeInteger(this.readRecordField(record, ['采购数量', '订购数量', '数量', 'Qty', 'Quantity']), 0);
+    const receivedQty = this.toSafeInteger(this.readRecordField(record, ['已到货', '到货数量', '已收货', 'Received']), 0);
+    const lineSubtotal = this.toSafeMoney(this.readRecordField(record, ['行金额', '明细金额', '小计', 'Line Amount']));
+    const rawUnitPrice = this.toSafeMoney(this.readRecordField(record, ['单价', '采购单价', 'Unit Price', 'Price']));
+    const unitPrice = rawUnitPrice || (qty > 0 && lineSubtotal > 0 ? lineSubtotal / qty : 0);
+    const sku = this.readRecordField(record, ['SKU', '商品编码', '产品编码', '物料编码', 'Item', 'Part No']);
+    const name = this.readRecordField(record, ['商品名称', '产品名称', '品名', 'Description', 'Name']);
+    const amount = this.toSafeMoney(this.readRecordField(record, ['金额', '采购金额', '总金额', 'Amount', 'Total']));
+    const itemCount = this.toSafeInteger(this.readRecordField(record, ['SKU数', '商品数', '明细数', 'Item Count']), 0);
+    const hasLine = Boolean(sku || name || qty > 0 || unitPrice > 0);
+
+    return {
+      id: `po-import-${Date.now()}-${index + 1}`,
+      poNo,
+      supplier: this.readRecordField(record, ['供应商', '供应商名称', 'Supplier', 'Vendor']) || '未命名供应商',
+      supplierContact: this.readRecordField(record, ['供应商联系人', '联系人', 'Contact']) || undefined,
+      supplierPhone: this.readRecordField(record, ['供应商电话', '联系电话', 'Phone']) || undefined,
+      supplierEmail: this.readRecordField(record, ['供应商邮箱', '邮箱', 'Email']) || undefined,
+      buyer: this.readRecordField(record, ['采购员', '采购负责人', 'Buyer']) || '未指定',
+      status: this.normalizePurchaseOrderStatus(this.readRecordField(record, ['状态', '订单状态', 'Status'])),
+      orderDate: this.normalizePurchaseOrderDate(this.readRecordField(record, ['下单日期', '订单日期', '采购日期', 'Order Date'])) || today,
+      etaDate: this.normalizePurchaseOrderDate(this.readRecordField(record, ['预计到货日', '预计到货', '交期', 'ETA', '到货日期'])) || today,
+      itemCount,
+      amount,
+      currency: this.readRecordField(record, ['币种', 'Currency']).toUpperCase() === 'USD' ? 'USD' : 'CNY',
+      warehouse: this.readRecordField(record, ['仓库', '到货仓', 'Warehouse']) || '主仓 - 上海',
+      owner: this.readRecordField(record, ['采购组', '部门', 'Owner']) || '采购一组',
+      paymentTerm: this.readRecordField(record, ['付款条件', '账期', 'Payment Term']) || undefined,
+      deliveryTerm: this.readRecordField(record, ['交付方式', '运输方式', 'Delivery Term']) || undefined,
+      invoiceType: this.readRecordField(record, ['发票类型', 'Invoice Type']) || undefined,
+      approvalStatus: this.readRecordField(record, ['审批状态', 'Approval']) || undefined,
+      remark: this.readRecordField(record, ['备注', '说明', 'Remark']) || undefined,
+      sourceFile: fileName,
+      items: hasLine
+        ? [
+            {
+              sku: sku || `ITEM-${index + 1}`,
+              name: name || '未命名商品',
+              spec: this.readRecordField(record, ['规格', '型号', 'Spec']) || '-',
+              unit: this.readRecordField(record, ['单位', 'Unit']) || '件',
+              qty: qty || 1,
+              receivedQty: Math.max(0, Math.min(receivedQty, qty || receivedQty)),
+              unitPrice,
+            },
+          ]
+        : [],
+    };
+  }
+
+  private async upsertPurchaseOrder(tx: PrismaTx, order: PurchaseOrderImportDraft | PurchaseOrder): Promise<PurchaseOrderRow> {
+    const items = order.items?.length ? order.items : [this.buildPurchaseOrderFallbackLine(order)];
+    const amount = items.length > 0 ? items.reduce((sum, item) => sum + item.qty * item.unitPrice, 0) : order.amount;
+    const itemCount = items.length || order.itemCount;
+    const row = await tx.orderProcessingPurchaseOrder.upsert({
+      where: { poNo: order.poNo },
+      create: {
+        id: order.id,
+        poNo: order.poNo,
+        supplier: order.supplier,
+        supplierContact: order.supplierContact,
+        supplierPhone: order.supplierPhone,
+        supplierEmail: order.supplierEmail,
+        buyer: order.buyer,
+        status: order.status,
+        orderDate: this.parseDate(order.orderDate),
+        etaDate: this.parseDate(order.etaDate),
+        itemCount,
+        amount,
+        currency: order.currency,
+        warehouse: order.warehouse,
+        owner: order.owner,
+        paymentTerm: order.paymentTerm,
+        deliveryTerm: order.deliveryTerm,
+        invoiceType: order.invoiceType,
+        approvalStatus: order.approvalStatus,
+        remark: order.remark,
+        sourceFile: order.sourceFile,
+        metadata: {} as Prisma.InputJsonValue,
+      },
+      update: {
+        supplier: order.supplier,
+        supplierContact: order.supplierContact,
+        supplierPhone: order.supplierPhone,
+        supplierEmail: order.supplierEmail,
+        buyer: order.buyer,
+        status: order.status,
+        orderDate: this.parseDate(order.orderDate),
+        etaDate: this.parseDate(order.etaDate),
+        itemCount,
+        amount,
+        currency: order.currency,
+        warehouse: order.warehouse,
+        owner: order.owner,
+        paymentTerm: order.paymentTerm,
+        deliveryTerm: order.deliveryTerm,
+        invoiceType: order.invoiceType,
+        approvalStatus: order.approvalStatus,
+        remark: order.remark,
+        sourceFile: order.sourceFile,
+      },
+    });
+
+    await tx.orderProcessingPurchaseOrderLine.deleteMany({ where: { purchaseOrderId: row.id } });
+    await tx.orderProcessingPurchaseOrderLine.createMany({
+      data: items.map((item, index) => ({
+        purchaseOrderId: row.id,
+        sku: item.sku,
+        name: item.name,
+        spec: item.spec,
+        unit: item.unit,
+        qty: item.qty,
+        receivedQty: item.receivedQty,
+        unitPrice: item.unitPrice,
+        sortOrder: index,
+      })),
+    });
+
+    const saved = await tx.orderProcessingPurchaseOrder.findUnique({
+      where: { id: row.id },
+      include: { lines: { orderBy: { sortOrder: 'asc' } } },
+    });
+    if (!saved) throw new NotFoundException('采购订单保存失败');
+    return saved;
+  }
+
+  private buildPurchaseOrderFallbackLine(order: Pick<PurchaseOrder, 'itemCount' | 'amount' | 'sourceFile'>): PurchaseOrderLine {
+    const qty = Math.max(order.itemCount || 1, 1);
+    return {
+      sku: 'IMPORT-SUMMARY',
+      name: '导入汇总明细',
+      spec: order.sourceFile ? `来源文件：${order.sourceFile}` : '未提供明细行',
+      unit: '批',
+      qty,
+      receivedQty: 0,
+      unitPrice: qty > 0 ? Math.round((order.amount / qty) * 100) / 100 : 0,
+    };
+  }
+
+  private readRecordField(record: Record<string, unknown>, keys: string[]) {
+    const entries = Object.entries(record);
+    for (const key of keys) {
+      const normalizedKey = this.normalizeKey(key);
+      const match = entries.find(([candidate, value]) => this.normalizeKey(candidate) === normalizedKey && this.toCellString(value));
+      if (match) return this.toCellString(match[1]);
+    }
+    for (const key of keys) {
+      const normalizedKey = this.normalizeKey(key);
+      const match = entries.find(([candidate, value]) => this.normalizeKey(candidate).includes(normalizedKey) && this.toCellString(value));
+      if (match) return this.toCellString(match[1]);
+    }
+    return '';
+  }
+
+  private normalizePurchaseOrderStatus(value: string): PurchaseOrderStatus {
+    const text = this.toCellString(value);
+    if (['待确认', '已下单', '部分到货', '已完成', '异常'].includes(text)) return text as PurchaseOrderStatus;
+    if (/异常|取消|逾期|错误/i.test(text)) return '异常';
+    if (/完成|关闭|已入库/i.test(text)) return '已完成';
+    if (/部分|到货中/i.test(text)) return '部分到货';
+    if (/下单|已发|采购中/i.test(text)) return '已下单';
+    return '待确认';
+  }
+
+  private normalizePurchaseOrderDate(value: string) {
+    const text = this.toCellString(value);
+    if (!text) return '';
+    const numeric = Number(text);
+    if (Number.isFinite(numeric) && numeric > 25569) {
+      return this.formatDate(new Date((numeric - 25569) * 86400000));
+    }
+    return this.normalizeDateString(text);
+  }
+
+  private toSafeInteger(value: unknown, fallback: number) {
+    const number = this.parseNumber(value);
+    return Number.isFinite(number) && number >= 0 ? Math.round(number) : fallback;
+  }
+
+  private toSafeMoney(value: unknown) {
+    const number = this.parseNumber(value);
+    return Number.isFinite(number) && number >= 0 ? Math.round(number * 100) / 100 : 0;
   }
 
   private async parseUploadedOrder(file: UploadedFileLike, state: OrderProcessingState, index: number): Promise<ParsedOrderDraft> {
@@ -2625,6 +3054,7 @@ export class OrderProcessingService {
     totalPages: number,
   ) {
     const commands: string[] = [];
+    const theme = this.resolveGenericInvoicePdfTheme(input);
     const tableX = 42;
     const tableWidth = 511;
     const tableTop = 586;
@@ -2641,26 +3071,26 @@ export class OrderProcessingService {
       { label: '金额', x: 492, w: 58, align: 'right' as const },
     ];
 
-    commands.push(this.pdfFillRect(0, 0, 595, 842, '#f8fafc'));
-    commands.push(this.pdfFillRect(36, 744, 523, 72, '#0f2a4a'));
-    commands.push(this.pdfText(54, 786, '商业发票', 22, '#ffffff'));
-    commands.push(this.pdfText(54, 765, 'Commercial Invoice', 10, '#dbeafe'));
+    commands.push(this.pdfFillRect(0, 0, 595, 842, theme.pageBg));
+    commands.push(this.pdfFillRect(36, 744, 523, 72, theme.primaryColor));
+    commands.push(this.pdfText(54, 786, theme.title, 22, '#ffffff'));
+    commands.push(this.pdfText(54, 765, theme.subtitle, 10, '#dbeafe'));
     commands.push(this.pdfText(540, 788, input.detail.invoiceNo || '未生成', 13, '#ffffff', 'right', 190));
     commands.push(this.pdfText(540, 768, `模板：${input.templateName}`, 9, '#bfdbfe', 'right', 220));
 
     commands.push(this.pdfFillRect(42, 640, 511, 86, '#ffffff'));
     commands.push(this.pdfStrokeRect(42, 640, 511, 86, '#e2e8f0'));
-    commands.push(this.pdfText(60, 704, '客户', 9, '#64748b'));
+    commands.push(this.pdfText(60, 704, theme.customerLabel, 9, '#64748b'));
     commands.push(this.pdfText(116, 704, input.info.customer || '-', 11, '#0f172a', 'left', 300));
-    commands.push(this.pdfText(60, 682, '订单号', 9, '#64748b'));
+    commands.push(this.pdfText(60, 682, theme.orderLabel, 9, '#64748b'));
     commands.push(this.pdfText(116, 682, input.info.orderId || '-', 11, '#0f172a', 'left', 240));
-    commands.push(this.pdfText(60, 660, '发货日', 9, '#64748b'));
+    commands.push(this.pdfText(60, 660, theme.dateLabel, 9, '#64748b'));
     commands.push(this.pdfText(116, 660, input.info.date || '-', 11, '#0f172a', 'left', 220));
-    commands.push(this.pdfText(536, 704, '金额', 9, '#64748b', 'right', 120));
-    commands.push(this.pdfText(536, 676, input.detail.amount, 20, '#2563eb', 'right', 180));
+    commands.push(this.pdfText(536, 704, theme.amountLabel, 9, '#64748b', 'right', 120));
+    commands.push(this.pdfText(536, 676, input.detail.amount, 20, theme.accentColor, 'right', 180));
 
-    commands.push(this.pdfText(tableX, 612, totalPages > 1 ? `商品明细（第 ${pageNo} / ${totalPages} 页）` : '商品明细', 13, '#0f172a'));
-    commands.push(this.pdfFillRect(tableX, headerBottom, tableWidth, headerHeight, '#eef4ff'));
+    commands.push(this.pdfText(tableX, 612, totalPages > 1 ? `${theme.itemsTitle}（第 ${pageNo} / ${totalPages} 页）` : theme.itemsTitle, 13, '#0f172a'));
+    commands.push(this.pdfFillRect(tableX, headerBottom, tableWidth, headerHeight, theme.tableHeaderColor));
     commands.push(this.pdfStrokeRect(tableX, headerBottom, tableWidth, headerHeight, '#dbe5f2'));
     columns.forEach((column) => {
       commands.push(this.pdfText(column.align === 'right' ? column.x + column.w : column.x, tableTop - 19, column.label, 9, '#334155', column.align, column.w));
@@ -2683,14 +3113,35 @@ export class OrderProcessingService {
       const afterRowsBottom = headerBottom - rows.length * rowHeight;
       const totalTop = Math.max(108, afterRowsBottom - 56);
       commands.push(this.pdfLine(tableX, totalTop + 42, tableX + tableWidth, totalTop + 42, '#dbe5f2', 0.8));
-      commands.push(this.pdfText(382, totalTop + 18, '合计', 13, '#0f172a'));
-      commands.push(this.pdfText(540, totalTop + 18, input.detail.amount, 18, '#2563eb', 'right', 160));
+      commands.push(this.pdfText(382, totalTop + 18, theme.totalLabel, 13, '#0f172a'));
+      commands.push(this.pdfText(540, totalTop + 18, input.detail.amount, 18, theme.accentColor, 'right', 160));
     }
 
     commands.push(this.pdfText(42, 48, `Invoice ${input.detail.invoiceNo || input.info.orderId}`, 8, '#94a3b8'));
     commands.push(this.pdfText(298, 48, `第 ${pageNo} / ${totalPages} 页`, 8, '#94a3b8', 'center', 120));
-    commands.push(this.pdfText(553, 48, 'INOGI AI Office', 8, '#94a3b8', 'right', 140));
+    commands.push(this.pdfText(553, 48, theme.footerNote, 8, '#94a3b8', 'right', 180));
     return commands.join('\n');
+  }
+
+  private resolveGenericInvoicePdfTheme(input: InvoicePdfInput) {
+    const config = this.toRecord(input.templateConfig);
+    const pdf = this.toRecord(config.pdf);
+    const labels = this.toRecord(pdf.labels);
+    return {
+      title: this.toString(pdf.title) || this.toString(config.title) || '商业发票',
+      subtitle: this.toString(pdf.subtitle) || 'Commercial Invoice',
+      primaryColor: this.normalizePdfHexColor(this.toString(pdf.primaryColor) || this.toString(config.primaryColor), '#0f2a4a'),
+      accentColor: this.normalizePdfHexColor(this.toString(pdf.accentColor) || this.toString(config.accentColor), '#2563eb'),
+      tableHeaderColor: this.normalizePdfHexColor(this.toString(pdf.tableHeaderColor), '#eef4ff'),
+      pageBg: this.normalizePdfHexColor(this.toString(pdf.pageBg), '#f8fafc'),
+      customerLabel: this.toString(labels.customer) || '客户',
+      orderLabel: this.toString(labels.orderNo) || '订单号',
+      dateLabel: this.toString(labels.date) || '发货日',
+      amountLabel: this.toString(labels.amount) || '金额',
+      itemsTitle: this.toString(labels.itemsTitle) || '商品明细',
+      totalLabel: this.toString(labels.total) || '合计',
+      footerNote: this.toString(pdf.footerNote) || 'INOGI AI Office',
+    };
   }
 
   private renderPdfDocument(pageContents: string[]) {
@@ -2776,6 +3227,13 @@ export class OrderProcessingService {
     const green = Number.parseInt(value.slice(2, 4), 16) / 255;
     const blue = Number.parseInt(value.slice(4, 6), 16) / 255;
     return [red, green, blue].map((channel) => this.pdfNumber(Number.isFinite(channel) ? channel : 0)).join(' ');
+  }
+
+  private normalizePdfHexColor(value: string, fallback: string) {
+    const clean = value.trim();
+    if (/^#[0-9a-f]{6}$/i.test(clean)) return clean;
+    if (/^#[0-9a-f]{3}$/i.test(clean)) return clean;
+    return fallback;
   }
 
   private pdfNumber(value: number) {

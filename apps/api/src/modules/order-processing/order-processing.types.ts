@@ -3,6 +3,7 @@ export type OrderStatusType = 'warning' | 'error' | 'success';
 export type ProductCheckStatus = '通过' | '价格差异' | '库存不足';
 export type InventoryStatus = '正常' | '偏低' | '缺货';
 export type StockMovementType = 'in' | 'out' | 'adjust';
+export type PurchaseOrderStatus = '待确认' | '已下单' | '部分到货' | '已完成' | '异常';
 
 export type OrderSummary = {
   id: string;
@@ -128,4 +129,47 @@ export type PageResult<T> = {
   pageSize: number;
   total: number;
   totalPages: number;
+};
+
+export type PurchaseOrderLine = {
+  sku: string;
+  name: string;
+  spec: string;
+  unit: string;
+  qty: number;
+  receivedQty: number;
+  unitPrice: number;
+};
+
+export type PurchaseOrder = {
+  id: string;
+  poNo: string;
+  supplier: string;
+  supplierContact?: string;
+  supplierPhone?: string;
+  supplierEmail?: string;
+  buyer: string;
+  status: PurchaseOrderStatus;
+  orderDate: string;
+  etaDate: string;
+  itemCount: number;
+  amount: number;
+  currency: 'CNY' | 'USD';
+  warehouse: string;
+  owner: string;
+  paymentTerm?: string;
+  deliveryTerm?: string;
+  invoiceType?: string;
+  approvalStatus?: string;
+  remark?: string;
+  items?: PurchaseOrderLine[];
+  sourceFile?: string;
+};
+
+export type PurchaseOrderStats = {
+  total: number;
+  open: number;
+  inbound: number;
+  abnormal: number;
+  amount: number;
 };

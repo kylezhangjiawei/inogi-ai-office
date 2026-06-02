@@ -337,7 +337,7 @@ export function Inventory() {
     timeFilter === 'custom' ? `${customStartDate} ~ ${customEndDate}` :
     '';
   return (
-    <div className="flex h-full min-h-0 w-full flex-col bg-[#f0f4f9] p-3">
+    <div className="flex h-full min-h-0 w-full flex-col  p-3">
       <input
         ref={stockInFileInputRef}
         type="file"

@@ -86,6 +86,24 @@ export class OrderProcessingController {
     return this.service.exportInventory(query);
   }
 
+  @Get('purchase-orders')
+  getPurchaseOrders(@Query() query: Record<string, unknown>) {
+    return this.service.getPurchaseOrders(query);
+  }
+
+  @Get('purchase-orders/:id')
+  getPurchaseOrder(@Param('id') id: string) {
+    return this.service.getPurchaseOrder(id);
+  }
+
+  @Post('purchase-orders/import')
+  @UseInterceptors(FilesInterceptor('files', 5))
+  importPurchaseOrders(
+    @UploadedFiles() files: Array<{ originalname: string; size?: number; mimetype?: string; buffer?: Buffer }> | undefined,
+  ) {
+    return this.service.importPurchaseOrders(files ?? []);
+  }
+
   @Post('inventory/:itemId/stock-out')
   createStockOut(@Param('itemId') itemId: string, @Body() payload: Record<string, unknown>) {
     return this.service.createStockOut(itemId, payload);

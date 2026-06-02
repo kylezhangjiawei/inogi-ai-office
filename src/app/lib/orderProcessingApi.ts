@@ -6,6 +6,7 @@ export type OrderSource = "wecom_mail" | "gmail" | "upload";
 export type OrderStatusType = "warning" | "error" | "success";
 export type ProductCheckStatus = "通过" | "价格差异" | "库存不足";
 export type InventoryStatus = "正常" | "偏低" | "缺货";
+export type PurchaseOrderStatus = "待确认" | "已下单" | "部分到货" | "已完成" | "异常";
 
 export type PageResult<T> = {
   items: T[];
@@ -184,6 +185,55 @@ export type StockInRecognitionResponse = {
   message: string;
 };
 
+export type PurchaseOrderLine = {
+  sku: string;
+  name: string;
+  spec: string;
+  unit: string;
+  qty: number;
+  receivedQty: number;
+  unitPrice: number;
+};
+
+export type PurchaseOrder = {
+  id: string;
+  poNo: string;
+  supplier: string;
+  supplierContact?: string;
+  supplierPhone?: string;
+  supplierEmail?: string;
+  buyer: string;
+  status: PurchaseOrderStatus;
+  orderDate: string;
+  etaDate: string;
+  itemCount: number;
+  amount: number;
+  currency: "CNY" | "USD";
+  warehouse: string;
+  owner: string;
+  paymentTerm?: string;
+  deliveryTerm?: string;
+  invoiceType?: string;
+  approvalStatus?: string;
+  remark?: string;
+  items?: PurchaseOrderLine[];
+  sourceFile?: string;
+};
+
+export type PurchaseOrderStats = {
+  total: number;
+  open: number;
+  inbound: number;
+  abnormal: number;
+  amount: number;
+};
+
+export type PurchaseOrdersResponse = {
+  orders: PageResult<PurchaseOrder>;
+  suppliers: string[];
+  stats: PurchaseOrderStats;
+};
+
 export type DownloadPayload = {
   fileName: string;
   mimeType: string;
@@ -336,6 +386,28 @@ export const orderProcessingApi = {
     const payload = await requestJson<DownloadPayload>(`/inventory/export${buildQuery(params)}`, { method: "POST" });
     downloadFile(payload);
     return payload;
+  },
+
+  getPurchaseOrders(params: {
+    q?: string;
+    status?: string;
+    supplier?: string;
+    dateFrom?: string;
+    dateTo?: string;
+    page?: number;
+    pageSize?: number;
+  }) {
+    return requestJson<PurchaseOrdersResponse>(`/purchase-orders${buildQuery(params)}`);
+  },
+
+  getPurchaseOrder(id: string) {
+    return requestJson<{ order: PurchaseOrder }>(`/purchase-orders/${encodeURIComponent(id)}`);
+  },
+
+  importPurchaseOrders(files: File[] = []) {
+    const form = new FormData();
+    files.forEach((file) => form.append("files", file));
+    return requestJson<{ created: PurchaseOrder[]; message: string }>("/purchase-orders/import", { method: "POST", body: form });
   },
 
   createStockOut(itemId: string, payload: { qty: number; operator?: string; note?: string }) {

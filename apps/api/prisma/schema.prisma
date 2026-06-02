@@ -305,6 +305,58 @@ model OrderProcessingInvoiceCounter {
   updatedAt DateTime @updatedAt
 }
 
+model OrderProcessingPurchaseOrder {
+  id              String                              @id @default(cuid())
+  poNo            String                              @unique
+  supplier        String
+  supplierContact String?
+  supplierPhone   String?
+  supplierEmail   String?
+  buyer           String
+  status          String
+  orderDate       DateTime
+  etaDate         DateTime
+  itemCount       Int                                 @default(0)
+  amount          Decimal                             @db.Decimal(14, 2)
+  currency        String                              @default("CNY")
+  warehouse       String
+  owner           String
+  paymentTerm     String?
+  deliveryTerm    String?
+  invoiceType     String?
+  approvalStatus  String?
+  remark          String?
+  sourceFile      String?
+  metadata        Json                                @default("{}")
+  lines           OrderProcessingPurchaseOrderLine[]
+  createdAt       DateTime                            @default(now())
+  updatedAt       DateTime                            @updatedAt
+
+  @@index([status, etaDate])
+  @@index([supplier])
+  @@index([orderDate])
+  @@index([etaDate])
+}
+
+model OrderProcessingPurchaseOrderLine {
+  id              String                         @id @default(cuid())
+  purchaseOrderId String
+  purchaseOrder   OrderProcessingPurchaseOrder   @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  sku             String
+  name            String
+  spec            String
+  unit            String
+  qty             Int
+  receivedQty     Int                            @default(0)
+  unitPrice       Decimal                        @db.Decimal(12, 2)
+  sortOrder       Int                            @default(0)
+  createdAt       DateTime                       @default(now())
+  updatedAt       DateTime                       @updatedAt
+
+  @@index([purchaseOrderId, sortOrder])
+  @@index([sku])
+}
+
 model JobRule {
   id         String                @id @default(cuid())
   name       String

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import {
   ArrowLeft,
@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ClipboardCheck,
   FileText,
+  Loader2,
   Mail,
   PackageCheck,
   Phone,
@@ -25,11 +26,11 @@ import {
 } from '../../components/ui/table';
 import {
   formatCurrency,
-  loadStoredOrders,
   statusBadgeClass,
   type PurchaseOrder,
   type PurchaseOrderLine,
 } from './PurchaseOrders';
+import { orderProcessingApi } from '../../lib/orderProcessingApi';
 
 function safeDecode(value: string) {
   try {
@@ -83,19 +84,49 @@ export function PurchaseOrderDetail() {
   const navigate = useNavigate();
   const { id = '' } = useParams();
   const decodedId = safeDecode(id);
-  const orders = useMemo(() => loadStoredOrders(), []);
-  const order = orders.find((item) => item.id === decodedId || item.poNo === decodedId);
+  const [order, setOrder] = useState<PurchaseOrder | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    setLoading(true);
+    setErrorMessage('');
+    orderProcessingApi.getPurchaseOrder(decodedId)
+      .then((data) => {
+        if (alive) setOrder(data.order);
+      })
+      .catch((error) => {
+        if (alive) setErrorMessage(error instanceof Error ? error.message : '采购订单加载失败');
+      })
+      .finally(() => {
+        if (alive) setLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [decodedId]);
+
   const items = order ? (order.items?.length ? order.items : buildFallbackItems(order)) : [];
   const itemAmount = items.reduce((sum, item) => sum + item.qty * item.unitPrice, 0);
   const receivedTotal = items.reduce((sum, item) => sum + item.receivedQty, 0);
   const orderedTotal = items.reduce((sum, item) => sum + item.qty, 0);
+
+  if (loading) {
+    return (
+      <div className="flex min-h-[520px] flex-col items-center justify-center rounded-2xl border border-slate-100 bg-white p-8 text-center shadow-sm">
+        <Loader2 className="h-10 w-10 animate-spin text-blue-500" />
+        <p className="mt-3 text-sm text-slate-500">正在加载采购订单详情</p>
+      </div>
+    );
+  }
 
   if (!order) {
     return (
       <div className="flex min-h-[520px] flex-col items-center justify-center rounded-2xl border border-slate-100 bg-white p-8 text-center shadow-sm">
         <PackageCheck className="h-12 w-12 text-slate-300" />
         <h1 className="mt-4 text-xl font-semibold text-slate-900">未找到采购订单</h1>
-        <p className="mt-2 text-sm text-slate-500">当前链接对应的采购订单不存在，可能已被清理或尚未导入。</p>
+        <p className="mt-2 text-sm text-slate-500">{errorMessage || '当前链接对应的采购订单不存在，可能已被清理或尚未导入。'}</p>
         <Button className="mt-5" onClick={() => navigate('/purchase-orders')}>
           返回采购订单
         </Button>
