@@ -112,6 +112,16 @@ export type WorkbenchResponse = {
   reminderRule: { enabled: boolean; daysBefore: number };
 };
 
+export type MailSyncResponse = {
+  scannedCount: number;
+  matchedCount: number;
+  created: OrderSummary[];
+  skipped: Array<{ subject: string; sender: string; reason: string }>;
+  latestUid: number | null;
+  filter: { subject: string; sender: string };
+  message: string;
+};
+
 export type InventoryItem = {
   id: string;
   name: string;
@@ -239,6 +249,13 @@ export const orderProcessingApi = {
     files.forEach((file) => form.append("files", file));
     if (files.length === 0) form.append("fileName", "manual-order.pdf");
     return requestJson<{ created: OrderSummary[]; message: string }>("/orders/upload", { method: "POST", body: form });
+  },
+
+  syncWecomMailOrders(payload: { mailboxId?: string; sinceHours?: number; limit?: number; ignoreLastUid?: boolean }) {
+    return requestJson<MailSyncResponse>("/orders/sync-mail", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
   },
 
   generateInvoice(orderId: string, payload?: { templateId?: string; info?: InvoiceInfo; lines?: InvoiceGenerateLine[] }) {

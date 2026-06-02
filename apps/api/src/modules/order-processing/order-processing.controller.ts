@@ -21,6 +21,11 @@ export class OrderProcessingController {
     return this.service.uploadOrders(files ?? [], payload);
   }
 
+  @Post('orders/sync-mail')
+  syncWecomMailOrders(@Body() payload: Record<string, unknown>) {
+    return this.service.syncWecomMailOrders(payload);
+  }
+
   @Post('orders/:orderId/generate-invoice')
   generateInvoice(@Param('orderId') orderId: string, @Body() payload: Record<string, unknown>) {
     return this.service.generateInvoice(orderId, payload);

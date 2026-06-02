@@ -4,6 +4,9 @@ import { PDFParse } from 'pdf-parse';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { OcrService } from '../ocr';
+import { MailCredentials, MailIngestionService } from '../resume-screening/mail-ingestion.service';
+import { IngestedMail } from '../resume-screening/resume-screening.types';
+import { SecureConfigService } from '../security/secure-config.service';
 import { createInitialOrderProcessingState } from './order-processing.seed';
 import {
   InventoryItem,
@@ -27,6 +30,11 @@ const ACTIVE_TEMPLATE_SETTING = 'active-template-id';
 const REMINDER_RULE_SETTING = 'reminder-rule';
 const DEFAULT_PAGE_SIZE = 12;
 const PRODUCT_PAGE_SIZE = 8;
+const ORDER_MAIL_LAST_UID_PREFIX = 'order-processing:wecom-mail:last-uid';
+const ORDER_MAIL_REQUIRED_SUBJECT = 'PO';
+const ORDER_MAIL_REQUIRED_SENDER = 'Paul Zhang';
+const ORDER_MAIL_DEFAULT_SINCE_HOURS = 168;
+const ORDER_MAIL_DEFAULT_LIMIT = 80;
 
 type UploadedFileLike = { originalname: string; size?: number; mimetype?: string; buffer?: Buffer };
 type StockItemInput = { id: string; qty: number };
@@ -51,6 +59,15 @@ type InvoiceExportLine = {
   subtotal: string;
   status: string;
 };
+type InvoicePdfLayout = 'weoxy' | 'inogi' | 'generic';
+type InvoicePdfInput = {
+  detail: OrderDetail;
+  info: InvoiceInfo;
+  lines: InvoiceExportLine[];
+  templateName: string;
+  templateId?: string;
+  templateConfig?: Record<string, unknown>;
+};
 type ParsedOrderDraft = { order: OrderSummary; detail: OrderDetail; metadata: Record<string, unknown> };
 type ParsedStockInDraft = {
   type: string;
@@ -68,7 +85,7 @@ type ExtractedDocument = {
   extension: string;
   rows: string[][];
   text: string;
-  provider: 'spreadsheet' | 'csv' | 'pdf' | 'ocr';
+  provider: 'spreadsheet' | 'csv' | 'pdf' | 'ocr' | 'mail';
 };
 type CatalogItem = {
   id: string;
@@ -96,6 +113,8 @@ export class OrderProcessingService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ocrService: OcrService,
+    private readonly mailIngestionService: MailIngestionService,
+    private readonly secureConfigService: SecureConfigService,
   ) {}
 
   async getWorkbench(query: Record<string, unknown>) {
@@ -175,6 +194,82 @@ export class OrderProcessingService {
     });
 
     return { created: created.map((item) => item.order), message: `已解析 ${created.length} 份订货单，请复核后生成发票` };
+  }
+
+  async syncWecomMailOrders(payload: Record<string, unknown> = {}) {
+    await this.ensureInitialized();
+    const mailboxId = this.toString(payload.mailboxId);
+    const credentials = await this.resolveOrderMailCredentials(mailboxId);
+    const state = await this.getStateSnapshot();
+    const runtimeKey = `${ORDER_MAIL_LAST_UID_PREFIX}:${credentials.configId}:${credentials.credentials.mailbox}`;
+    const runtimeState = await this.prisma.runtimeState.findUnique({ where: { key: runtimeKey } });
+    const ignoreLastUid = this.toBoolean(payload.ignoreLastUid, false);
+    const lastUid = ignoreLastUid ? null : runtimeState ? Number(runtimeState.value) : null;
+    const sinceHours = this.toMailSyncPositiveInt(payload.sinceHours, ORDER_MAIL_DEFAULT_SINCE_HOURS);
+    const limit = this.toMailSyncPositiveInt(payload.limit, ORDER_MAIL_DEFAULT_LIMIT);
+
+    const { mails, latestUid, scannedCount } = await this.mailIngestionService.fetchCandidateEmails({
+      sinceHours,
+      limit,
+      lastUid,
+      credentials: credentials.credentials,
+      includeAttachments: true,
+    });
+    const matchedMails = mails.filter((mail) => this.isOrderMailCandidate(mail));
+    const created: OrderSummary[] = [];
+    const skipped: Array<{ subject: string; sender: string; reason: string }> = [];
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const [index, mail] of matchedMails.entries()) {
+        const parsed = await this.parseOrderMail(mail, state, index);
+        if (!parsed) {
+          skipped.push({ subject: mail.subject, sender: this.mailSenderLabel(mail), reason: '未识别到商品明细' });
+          continue;
+        }
+
+        const existing = await tx.orderProcessingOrder.findFirst({
+          where: {
+            OR: [
+              { id: parsed.order.id },
+              { metadata: { path: ['mailUniqueKey'], equals: mail.uniqueKey } },
+            ],
+          },
+        });
+        if (existing) {
+          skipped.push({ subject: mail.subject, sender: this.mailSenderLabel(mail), reason: `已存在订货单 ${existing.id}` });
+          continue;
+        }
+
+        await this.insertOrderDetail(tx, parsed.order, parsed.detail, `mail:${mail.messageId}`, parsed.metadata as Prisma.InputJsonValue);
+        created.push(parsed.order);
+        state.orders.unshift(parsed.order);
+        state.orderDetails[parsed.detail.id] = parsed.detail;
+      }
+
+      if (latestUid) {
+        await tx.runtimeState.upsert({
+          where: { key: runtimeKey },
+          create: { key: runtimeKey, value: String(latestUid) },
+          update: { value: String(latestUid) },
+        });
+      }
+    });
+
+    return {
+      scannedCount,
+      matchedCount: matchedMails.length,
+      created,
+      skipped,
+      latestUid,
+      filter: {
+        subject: `主题包含 ${ORDER_MAIL_REQUIRED_SUBJECT}`,
+        sender: `发件人 ${ORDER_MAIL_REQUIRED_SENDER}（含转发原始发件人）`,
+      },
+      message:
+        created.length > 0
+          ? `邮箱同步完成，已按 PO + Paul Zhang 规则新增 ${created.length} 张订货单。`
+          : `本次已检查 ${scannedCount} 封邮件，未新增符合 PO + Paul Zhang 规则的订货单。`,
+    };
   }
 
   async generateInvoice(orderId: string, payload: Record<string, unknown> = {}) {
@@ -288,7 +383,9 @@ export class OrderProcessingService {
     if (!updated) throw new NotFoundException('订单不存在');
     const detail = this.toOrderDetail(updated);
     const settings = await this.getTemplatesAndSettings();
-    const templateName = settings.templates.find((template) => template.id === detail.invoiceTemplateId)?.name ?? '商业发票模板';
+    const selectedTemplateId = detail.invoiceTemplateId ?? settings.activeTemplateId;
+    const selectedTemplate = settings.templates.find((template) => template.id === selectedTemplateId);
+    const templateName = selectedTemplate?.name ?? '商业发票模板';
     const exportInfo = detail.invoiceInfo ?? { customer: detail.customer, orderId: detail.orderId, date: detail.date };
     const exportLines: InvoiceExportLine[] =
       detail.invoiceLines?.map((line) => ({
@@ -316,6 +413,8 @@ export class OrderProcessingService {
       info: exportInfo,
       lines: exportLines,
       templateName,
+      templateId: selectedTemplateId,
+      templateConfig: selectedTemplate?.config ?? {},
     });
 
     return {
@@ -363,7 +462,9 @@ export class OrderProcessingService {
     await this.ensureInitialized();
     if (files.length === 0) throw new BadRequestException('请上传一份发票样式文件');
     const extractedDocs = await Promise.all(files.map((file) => this.extractUploadedDocument(file, '发票模板')));
-    const detectedFields = this.detectInvoiceTemplateFields(extractedDocs.map((doc) => doc.text).join('\n'));
+    const templateText = extractedDocs.map((doc) => doc.text).join('\n');
+    const detectedFields = this.detectInvoiceTemplateFields(templateText);
+    const pdfLayout = this.detectInvoicePdfLayout(templateText);
     const aiCount = await this.prisma.orderProcessingInvoiceTemplate.count({ where: { source: 'ai' } });
     const template = await this.prisma.orderProcessingInvoiceTemplate.create({
       data: {
@@ -374,7 +475,13 @@ export class OrderProcessingService {
         config: {
           sourceFiles: files.map((file) => file.originalname),
           detectedFields,
-          headerStyle: 'compact-commercial-invoice',
+          pdfLayout,
+          headerStyle:
+            pdfLayout === 'inogi'
+              ? 'final-consolidated-balance-invoice'
+              : pdfLayout === 'weoxy'
+                ? 'standard-commercial-invoice'
+                : 'compact-commercial-invoice',
           generatedBy: 'document-parser',
           parsedAt: new Date().toISOString(),
         },
@@ -934,6 +1041,84 @@ export class OrderProcessingService {
     };
   }
 
+  private async resolveOrderMailCredentials(configId: string) {
+    const config = configId
+      ? await this.prisma.integrationConfig.findFirst({ where: { id: configId, kind: 'mail' } })
+      : await this.prisma.integrationConfig.findFirst({
+          where: { kind: 'mail', isActive: true },
+          orderBy: { updatedAt: 'desc' },
+        });
+    if (configId && !config) throw new NotFoundException('所选企业微信邮箱配置不存在');
+    if (!config) throw new BadRequestException('请先在邮箱管理启用企业微信邮箱');
+    if (!config.isActive) throw new BadRequestException('所选企业微信邮箱未启用');
+
+    const metadata = this.toRecord(config.metadata);
+    const pass = this.decryptStoredMailSecret(config.encryptedSecret);
+    const credentials: MailCredentials = {
+      host: this.toString(metadata.host) || process.env.MAIL_IMAP_HOST || '',
+      port: Number(metadata.port ?? process.env.MAIL_IMAP_PORT ?? 993),
+      user: config.accountIdentifier ?? config.name,
+      pass,
+      mailbox: this.toString(metadata.mailbox) || process.env.MAIL_FOLDER || 'INBOX',
+      keywords: [ORDER_MAIL_REQUIRED_SUBJECT.toLowerCase()],
+    };
+
+    return {
+      configId: config.id,
+      credentials,
+    };
+  }
+
+  private decryptStoredMailSecret(payload: string) {
+    try {
+      return this.secureConfigService.decryptFromStorage(payload);
+    } catch {
+      throw new BadRequestException('当前企业微信邮箱配置已失效，请重新保存邮箱密码后再试');
+    }
+  }
+
+  private isOrderMailCandidate(mail: IngestedMail) {
+    return this.hasRequiredPoSubject(mail.subject) && this.hasRequiredSender(mail);
+  }
+
+  private hasRequiredPoSubject(subject: string) {
+    return /(^|[^a-z])po($|[^a-z]|[0-9])/i.test(subject);
+  }
+
+  private hasRequiredSender(mail: IngestedMail) {
+    const actual = this.normalizeMailParty(this.mailSenderLabel(mail));
+    const expected = this.normalizeMailParty(ORDER_MAIL_REQUIRED_SENDER);
+    if (actual.includes(expected) || actual.replace(/\s+/g, '').includes(expected.replace(/\s+/g, ''))) return true;
+
+    return this.extractForwardedSenderLabels(mail.contentText)
+      .map((sender) => this.normalizeMailParty(sender))
+      .some((sender) => sender.includes(expected) || sender.replace(/\s+/g, '').includes(expected.replace(/\s+/g, '')));
+  }
+
+  private extractForwardedSenderLabels(text: string) {
+    return text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .map((line) => line.match(/^(?:发件人|From)\s*[:：]\s*(.+)$/i)?.[1]?.trim() ?? '')
+      .filter(Boolean);
+  }
+
+  private normalizeMailParty(value: string) {
+    return value.toLowerCase().replace(/[^a-z0-9]+/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+
+  private mailSenderLabel(mail: Pick<IngestedMail, 'senderName' | 'senderEmail'>) {
+    const name = mail.senderName.trim();
+    const email = mail.senderEmail.trim();
+    if (name && email) return `${name} <${email}>`;
+    return name || email || '未知发件人';
+  }
+
+  private toMailSyncPositiveInt(value: unknown, fallback: number) {
+    const number = Number(value ?? fallback);
+    return Number.isFinite(number) && Number.isInteger(number) && number > 0 ? number : fallback;
+  }
+
   private buildInventoryWhere(q: string, category: string, status: string, scopedItemIds: string[] | null = null): Prisma.OrderProcessingInventoryItemWhereInput {
     return {
       ...(scopedItemIds ? { id: { in: scopedItemIds.length > 0 ? scopedItemIds : ['__no_inventory_items__'] } } : {}),
@@ -1235,6 +1420,121 @@ export class OrderProcessingService {
     };
   }
 
+  private async parseOrderMail(mail: IngestedMail, state: OrderProcessingState, index: number): Promise<ParsedOrderDraft | null> {
+    const text = this.normalizeExtractedText([
+      `Subject: ${mail.subject}`,
+      `Sender: ${this.mailSenderLabel(mail)}`,
+      mail.contentText,
+    ].filter(Boolean).join('\n'));
+    const documents: ExtractedDocument[] = [{
+      fileName: `mail-${mail.imapUid ?? index + 1}.txt`,
+      extension: 'mail',
+      rows: this.rowsFromText(text),
+      text,
+      provider: 'mail',
+    }];
+    const attachmentErrors: string[] = [];
+    const parseableAttachments = this.selectOrderMailAttachments(mail.attachments ?? []);
+    for (const attachment of parseableAttachments) {
+      if (!this.isSupportedOrderAttachment(attachment.fileName)) continue;
+      try {
+        documents.push(await this.extractUploadedDocument({
+          originalname: attachment.fileName,
+          mimetype: attachment.contentType,
+          size: attachment.size,
+          buffer: attachment.content,
+        }, '订货单附件'));
+      } catch (error) {
+        attachmentErrors.push(`${attachment.fileName}: ${error instanceof Error ? error.message : '附件解析失败'}`);
+      }
+    }
+    const extracted: ExtractedDocument = {
+      fileName: documents.map((document) => document.fileName).join(', '),
+      extension: documents.map((document) => document.extension).join('+'),
+      rows: documents.flatMap((document) => document.rows),
+      text: documents.map((document) => document.text).filter(Boolean).join('\n'),
+      provider: documents.some((document) => document.provider !== 'mail') ? documents.find((document) => document.provider !== 'mail')?.provider ?? 'mail' : 'mail',
+    };
+    const catalog = this.buildCatalog(state);
+    const meta = this.extractOrderMeta(extracted);
+    const products = this.extractOrderProducts(extracted.rows, extracted.text, catalog);
+    if (products.length === 0) return null;
+
+    const createdAt = new Date(mail.receivedAt.getTime() + index);
+    const orderId = meta.orderId || this.orderIdFromMail(mail, createdAt, index);
+    const shipDate = meta.shipDate || this.formatDate(new Date(createdAt.getTime() + 3 * 86400000));
+    const customer = meta.customer || ORDER_MAIL_REQUIRED_SENDER;
+    const amount = products.reduce((sum, product) => sum + this.parseCurrency(product.subtotal), 0);
+    const hasIssue = this.hasBlockingIssue(products);
+    const detail: OrderDetail = {
+      id: orderId,
+      customer,
+      orderId,
+      date: shipDate,
+      amount: this.formatCurrency(amount),
+      invoiceNo: '',
+      mailContent: {
+        subject: mail.subject,
+        sender: this.mailSenderLabel(mail),
+        receivedAt: this.formatDateTime(mail.receivedAt),
+        body: mail.contentText || '当前邮件暂无正文内容',
+      },
+      products,
+    };
+    const order: OrderSummary = {
+      id: orderId,
+      customer,
+      type: hasIssue ? 'warning' : 'success',
+      status: hasIssue ? '待人工确认' : '已识别',
+      date: shipDate.slice(5),
+      source: 'wecom_mail',
+      generated: false,
+      invoiceExported: false,
+      createdAt: createdAt.toISOString(),
+    };
+
+    return {
+      order,
+      detail,
+      metadata: {
+        parser: extracted.provider,
+        parsedAt: new Date().toISOString(),
+        mailUniqueKey: mail.uniqueKey,
+        mailMessageId: mail.messageId,
+        mailImapUid: mail.imapUid,
+        mailSenderName: mail.senderName,
+        mailSenderEmail: mail.senderEmail,
+        mailAttachmentCount: mail.attachments?.length ?? 0,
+        mailAttachmentErrors: attachmentErrors,
+        sourceFiles: documents.map((document) => document.fileName),
+        sourceOrderId: meta.orderId,
+      },
+    };
+  }
+
+  private orderIdFromMail(mail: IngestedMail, createdAt: Date, index: number) {
+    const candidate = [mail.subject, mail.contentText]
+      .join('\n')
+      .match(/(?:PO)[-_]?\d{4,}[-_]?\d*/i)?.[0]?.replace(/_/g, '-').toUpperCase();
+    if (candidate) return candidate;
+    const stamp = createdAt.toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+    return `PO-MAIL-${stamp}-${index + 1}`;
+  }
+
+  private isSupportedOrderAttachment(fileName: string) {
+    return ['csv', 'txt', 'tsv', 'xlsx', 'xls', 'pdf', 'png', 'jpg', 'jpeg', 'webp', 'bmp'].includes(this.fileExtension(fileName));
+  }
+
+  private selectOrderMailAttachments(attachments: NonNullable<IngestedMail['attachments']>) {
+    const supported = attachments.filter((attachment) => this.isSupportedOrderAttachment(attachment.fileName));
+    const documentAttachments = supported.filter((attachment) => !this.isImageAttachment(attachment.fileName));
+    return documentAttachments.length > 0 ? documentAttachments : supported;
+  }
+
+  private isImageAttachment(fileName: string) {
+    return ['png', 'jpg', 'jpeg', 'webp', 'bmp'].includes(this.fileExtension(fileName));
+  }
+
   private async parseStockInFiles(files: UploadedFileLike[]): Promise<ParsedStockInDraft> {
     const state = await this.getStateSnapshot();
     const catalog = this.buildCatalog(state);
@@ -1330,8 +1630,8 @@ export class OrderProcessingService {
   private extractOrderMeta(extracted: ExtractedDocument) {
     return {
       orderId: this.findMetaValue(extracted.rows, extracted.text, ['订单号', '订货单号', '采购单号', 'PO No', 'PO Number', 'Purchase Order']),
-      customer: this.findMetaValue(extracted.rows, extracted.text, ['客户', '客户名称', '买方', '采购方', 'Bill To', 'Buyer', 'Customer']),
-      shipDate: this.normalizeDateString(this.findMetaValue(extracted.rows, extracted.text, ['发货日', '发货日期', '交期', '交货日期', 'Ship Date', 'Delivery Date'])),
+      customer: this.findMetaValue(extracted.rows, extracted.text, ['客户', '客户名称', 'Shipping address', 'Bill To', 'Customer', '买方', '采购方', 'Buyer']),
+      shipDate: this.normalizeDateString(this.findMetaValue(extracted.rows, extracted.text, ['发货日', '发货日期', '交期', '交货日期', 'Ship Date', 'Delivery Date', 'Expected Arrival'])),
     };
   }
 
@@ -1349,6 +1649,11 @@ export class OrderProcessingService {
   }
 
   private extractOrderProducts(rows: string[][], text: string, catalog: Map<string, CatalogItem>): OrderProduct[] {
+    const bracketedPoProducts = this.extractBracketedPoProductsFromText(text, catalog);
+    if (bracketedPoProducts.length > 0) {
+      return bracketedPoProducts.map((product, index) => ({ ...product, lineId: product.lineId ?? `line-${index + 1}` }));
+    }
+
     const headerIndex = this.findHeaderRow(rows, ['商品编码', '产品编码', '物料编码', 'sku', 'item', 'part no'], ['订货数量', '订单数量', '数量', 'qty', 'quantity']);
     const products = headerIndex >= 0 ? this.extractOrderProductsFromRows(rows, headerIndex, catalog) : this.extractOrderProductsFromText(text, catalog);
     return products.map((product, index) => ({ ...product, lineId: product.lineId ?? `line-${index + 1}` }));
@@ -1388,8 +1693,11 @@ export class OrderProcessingService {
   }
 
   private extractOrderProductsFromText(text: string, catalog: Map<string, CatalogItem>): OrderProduct[] {
+    const blockProducts = this.extractBracketedPoProductsFromText(text, catalog);
+    if (blockProducts.length > 0) return blockProducts;
+
     const products: OrderProduct[] = [];
-    const skuPattern = /\b[A-Z]{2,}[-_]?\d{2,}[A-Z0-9-]*\b/i;
+    const skuPattern = /\b[A-Z0-9][A-Z0-9_-]{2,}\b/i;
     for (const line of text.split('\n')) {
       const sku = line.match(skuPattern)?.[0]?.toUpperCase().replace('_', '-') ?? '';
       if (!sku) continue;
@@ -1410,6 +1718,69 @@ export class OrderProcessingService {
       }));
     }
     return products;
+  }
+
+  private extractBracketedPoProductsFromText(text: string, catalog: Map<string, CatalogItem>): OrderProduct[] {
+    const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    const products: OrderProduct[] = [];
+
+    for (let index = 0; index < lines.length; index += 1) {
+      const header = lines[index].match(/^\[([A-Z0-9][A-Z0-9_-]{1,})\]\s+(.+)$/i);
+      if (!header) continue;
+
+      const rawSku = header[1].toUpperCase().replace(/_/g, '-');
+      const name = header[2].trim();
+      const block: string[] = [];
+      for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+        if (/^\[[A-Z0-9][A-Z0-9_-]{1,}\]\s+/i.test(lines[cursor])) break;
+        if (/^(untaxed amount|total|payment terms|weoxy health llc|page \d+|-- \d+ of \d+ --)$/i.test(lines[cursor])) break;
+        if (/^(description|price)\b/i.test(lines[cursor])) continue;
+        block.push(lines[cursor]);
+      }
+
+      const qtyIndex = block.findIndex((line) => this.isStandalonePositiveNumber(line));
+      if (qtyIndex < 0) continue;
+      const orderQty = this.parseNumber(block[qtyIndex]);
+      if (!Number.isFinite(orderQty) || orderQty <= 0) continue;
+
+      const priceLine = block.slice(qtyIndex + 1).find((line) => this.moneyNumbersFromLine(line).length >= 2);
+      const priceNumbers = priceLine ? this.moneyNumbersFromLine(priceLine) : [];
+      const orderPrice = priceNumbers.find((value) => Number.isFinite(value) && value > 0) ?? 0;
+      if (!Number.isFinite(orderPrice) || orderPrice <= 0) continue;
+
+      const unit = this.normalizeOrderUnit(block[qtyIndex + 1]);
+      const catalogItem = this.matchCatalogItem(catalog, rawSku, name);
+      products.push(this.buildOrderProduct({
+        id: catalogItem?.id ?? rawSku,
+        name: name || catalogItem?.name || rawSku,
+        category: catalogItem?.category || '采购商品',
+        spec: catalogItem?.spec || rawSku,
+        unit: unit || catalogItem?.unit || '件',
+        orderQty: Math.trunc(orderQty),
+        orderPrice,
+        catalogItem,
+      }));
+    }
+
+    return products;
+  }
+
+  private isStandalonePositiveNumber(line: string) {
+    const value = this.parseNumber(line);
+    return /^[¥￥$]?\s*\d+(?:,\d{3})*(?:\.\d+)?\s*$/.test(line) && Number.isFinite(value) && value > 0;
+  }
+
+  private moneyNumbersFromLine(line: string) {
+    return line
+      .match(/[¥￥$]?\s*\d+(?:,\d{3})*(?:\.\d+)?/g)
+      ?.map((value) => this.parseNumber(value))
+      .filter((value) => Number.isFinite(value)) ?? [];
+  }
+
+  private normalizeOrderUnit(line: string | undefined) {
+    const value = this.toCellString(line);
+    if (!value || this.isStandalonePositiveNumber(value) || this.moneyNumbersFromLine(value).length >= 2) return '';
+    return value.replace(/,$/, '');
   }
 
   private extractStockItems(rows: string[][], text: string, catalog: Map<string, CatalogItem>): StockItemInput[] {
@@ -1619,6 +1990,8 @@ export class OrderProcessingService {
     const normalized = text.replace(/[./]/g, '-');
     const full = normalized.match(/(20\d{2})-(\d{1,2})-(\d{1,2})/);
     if (full) return `${full[1]}-${full[2].padStart(2, '0')}-${full[3].padStart(2, '0')}`;
+    const monthFirst = normalized.match(/\b(\d{1,2})-(\d{1,2})-(20\d{2})\b/);
+    if (monthFirst) return `${monthFirst[3]}-${monthFirst[1].padStart(2, '0')}-${monthFirst[2].padStart(2, '0')}`;
     const short = normalized.match(/(\d{1,2})-(\d{1,2})/);
     if (short) return `${new Date().getFullYear()}-${short[1].padStart(2, '0')}-${short[2].padStart(2, '0')}`;
     const compact = normalized.match(/(20\d{2})(\d{2})(\d{2})/);
@@ -1652,6 +2025,29 @@ export class OrderProcessingService {
     const normalized = text.toLowerCase();
     const fields = candidates.filter(([, labels]) => labels.some((label) => normalized.includes(label))).map(([field]) => field);
     return fields.length > 0 ? fields : ['invoiceNo', 'orderNo', 'customer', 'date', 'amount'];
+  }
+
+  private detectInvoicePdfLayout(text: string): InvoicePdfLayout {
+    const normalized = text.toLowerCase();
+    if (
+      [
+        'final consolidated balance invoice',
+        'consolidated balance invoice',
+        'balance due',
+        'total payment received',
+        'nan jing yinuoji',
+        'nanjing yinuoji',
+        'inogi',
+        '结算发票',
+        '余款',
+      ].some((keyword) => normalized.includes(keyword))
+    ) {
+      return 'inogi';
+    }
+    if (['weoxy.co', 'weoxy co', 'weoxy health', 'standard invoice'].some((keyword) => normalized.includes(keyword))) {
+      return 'weoxy';
+    }
+    return 'generic';
   }
 
   private ensureStateOrderDetail(state: OrderProcessingState, orderId: string): OrderDetail {
@@ -2035,18 +2431,195 @@ export class OrderProcessingService {
     return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   }
 
-  private buildInvoicePdf(input: { detail: OrderDetail; info: InvoiceInfo; lines: InvoiceExportLine[]; templateName: string }) {
-    const rowsPerPage = 12;
+  private buildInvoicePdf(input: InvoicePdfInput) {
+    const layout = this.resolveInvoicePdfLayout(input.templateId, input.templateConfig);
+    const rowsPerPage = layout === 'inogi' ? 7 : layout === 'weoxy' ? 7 : 12;
     const totalPages = Math.max(1, Math.ceil(input.lines.length / rowsPerPage));
     const pages = Array.from({ length: totalPages }, (_, pageIndex) => {
       const rows = input.lines.slice(pageIndex * rowsPerPage, (pageIndex + 1) * rowsPerPage);
+      if (layout === 'weoxy') {
+        return this.buildWeoxyInvoicePdfPage(input, rows, pageIndex + 1, totalPages);
+      }
+      if (layout === 'inogi') {
+        return this.buildInogiInvoicePdfPage(input, rows, pageIndex + 1, totalPages);
+      }
       return this.buildInvoicePdfPage(input, rows, pageIndex + 1, totalPages);
     });
     return this.renderPdfDocument(pages);
   }
 
+  private resolveInvoicePdfLayout(templateId: string | undefined, config: Record<string, unknown> = {}): InvoicePdfLayout {
+    const configured = this.toString(config.pdfLayout);
+    if (configured === 'weoxy' || configured === 'inogi' || configured === 'generic') return configured;
+    if (templateId === 'weoxy') return 'weoxy';
+    if (templateId === 'inogi') return 'inogi';
+    return 'generic';
+  }
+
+  private buildWeoxyInvoicePdfPage(
+    input: InvoicePdfInput,
+    rows: InvoiceExportLine[],
+    pageNo: number,
+    totalPages: number,
+  ) {
+    const commands: string[] = [];
+    const pageMargin = 48;
+    const darkBlue = '#0a2342';
+    const tableTop = 494;
+    const tableWidth = 499;
+    const rowHeight = 46;
+    const isLastPage = pageNo === totalPages;
+
+    commands.push(this.pdfFillRect(0, 0, 595, 842, '#ffffff'));
+    commands.push(this.pdfText(pageMargin, 780, 'WEOXY.CO', 32, darkBlue, 'left', 220));
+    commands.push(this.pdfText(547, 784, 'INVOICE', 18, darkBlue, 'right', 160));
+    commands.push(this.pdfText(547, 766, 'degang.wang@gmail.com', 9, darkBlue, 'right', 180));
+
+    commands.push(this.pdfText(pageMargin, 714, 'Seller:', 10, darkBlue, 'left', 90));
+    commands.push(this.pdfText(pageMargin, 696, 'WeOxy Co., LTD.', 10, darkBlue, 'left', 180));
+    commands.push(this.pdfText(pageMargin, 662, 'Bill To:', 10, darkBlue, 'left', 90));
+    commands.push(this.pdfText(pageMargin, 644, input.info.customer || '-', 10, darkBlue, 'left', 230));
+    commands.push(this.pdfText(pageMargin, 626, '110 Cedar Street, STE 105,', 9, darkBlue, 'left', 230));
+    commands.push(this.pdfText(pageMargin, 608, 'Wellesley, MA 02481, U.S.A.', 9, darkBlue, 'left', 230));
+    commands.push(this.pdfText(pageMargin, 574, 'Ship To:', 10, darkBlue, 'left', 90));
+    commands.push(this.pdfText(pageMargin, 556, input.info.customer || '-', 10, darkBlue, 'left', 230));
+
+    const labelX = 352;
+    const valueX = 547;
+    commands.push(this.pdfKeyValue(labelX, 714, valueX, 'Invoice:', `#${input.detail.invoiceNo || '未生成'}`, darkBlue));
+    commands.push(this.pdfKeyValue(labelX, 694, valueX, 'Date:', input.info.date || '-', darkBlue));
+    commands.push(this.pdfKeyValue(labelX, 674, valueX, 'Purchase Order:', input.info.orderId || '-', darkBlue));
+    commands.push(this.pdfKeyValue(labelX, 654, valueX, 'Incoterm:', 'DDP', darkBlue));
+    commands.push(this.pdfKeyValue(labelX, 634, valueX, 'Terms:', 'Full Payment Due upon Receipt', darkBlue));
+
+    commands.push(this.pdfLine(pageMargin, tableTop + 8, pageMargin + tableWidth, tableTop + 8, darkBlue, 3));
+    commands.push(this.pdfText(pageMargin, tableTop - 10, 'DESCRIPTION', 9, darkBlue, 'left', 240));
+    commands.push(this.pdfText(pageMargin + tableWidth, tableTop - 10, 'AMOUNT', 9, darkBlue, 'right', 120));
+    commands.push(this.pdfLine(pageMargin, tableTop - 22, pageMargin + tableWidth, tableTop - 22, darkBlue, 3));
+
+    rows.forEach((line, index) => {
+      const y = tableTop - 45 - index * rowHeight;
+      const description = `${line.name}${line.spec && line.spec !== '-' ? ` (${line.spec})` : ''}`;
+      commands.push(this.pdfText(pageMargin, y, description, 10, darkBlue, 'left', 360));
+      commands.push(this.pdfText(pageMargin, y - 16, `${line.quantity} ${line.unit} x ${this.formatPdfMoney(line.unitPrice)}`, 9, '#475569', 'left', 280));
+      commands.push(this.pdfText(pageMargin + tableWidth, y, this.formatPdfMoney(line.subtotal), 10, darkBlue, 'right', 120));
+      commands.push(this.pdfLine(pageMargin, y - 25, pageMargin + tableWidth, y - 25, '#e2e8f0', 0.8));
+    });
+
+    const afterRowsY = tableTop - 45 - rows.length * rowHeight - 8;
+    if (isLastPage) {
+      const totalY = Math.max(184, afterRowsY);
+      commands.push(this.pdfLine(pageMargin, totalY, pageMargin + tableWidth, totalY, darkBlue, 3));
+      commands.push(this.pdfText(pageMargin, totalY - 24, 'Subtotal', 12, darkBlue, 'left', 180));
+      commands.push(this.pdfText(pageMargin + tableWidth, totalY - 24, this.formatPdfMoney(input.detail.amount), 12, darkBlue, 'right', 140));
+      commands.push(this.pdfText(pageMargin, totalY - 48, 'Total Amount Due (100%)', 12, darkBlue, 'left', 220));
+      commands.push(this.pdfText(pageMargin + tableWidth, totalY - 48, this.formatPdfMoney(input.detail.amount), 12, darkBlue, 'right', 140));
+      commands.push(this.pdfLine(pageMargin, totalY - 62, pageMargin + tableWidth, totalY - 62, darkBlue, 3));
+
+      commands.push(this.pdfText(pageMargin, 116, 'PAYMENT INSTRUCTIONS', 9, darkBlue, 'left', 180));
+      commands.push(this.pdfText(pageMargin, 96, 'Beneficiary Name: WEOXY CO LTD', 8, darkBlue, 'left', 240));
+      commands.push(this.pdfText(pageMargin, 80, 'Bank Name: Bank of America, N.A.', 8, darkBlue, 'left', 260));
+      commands.push(this.pdfText(pageMargin, 64, 'SWIFT Code: BOFAUS3N', 8, darkBlue, 'left', 220));
+      commands.push(this.pdfText(330, 116, 'ADDITIONAL NOTES', 9, darkBlue, 'left', 180));
+      commands.push(this.pdfText(330, 96, `Please include Invoice #${input.detail.invoiceNo || '未生成'} in the wire memo.`, 8, darkBlue, 'left', 210));
+    }
+
+    commands.push(this.pdfText(pageMargin, 32, `Invoice ${input.detail.invoiceNo || input.info.orderId}`, 8, '#94a3b8'));
+    commands.push(this.pdfText(298, 32, `Page ${pageNo} / ${totalPages}`, 8, '#94a3b8', 'center', 120));
+    return commands.join('\n');
+  }
+
+  private buildInogiInvoicePdfPage(
+    input: InvoicePdfInput,
+    rows: InvoiceExportLine[],
+    pageNo: number,
+    totalPages: number,
+  ) {
+    const commands: string[] = [];
+    const pageMargin = 42;
+    const darkBlue = '#0a2342';
+    const footerGray = '#e2e2e2';
+    const contentWidth = 511;
+    const darkBottom = 230;
+    const tableTop = 544;
+    const rowStart = 484;
+    const rowHeight = 30;
+    const isLastPage = pageNo === totalPages;
+    const invoiceNo = input.detail.invoiceNo || '未生成';
+    const amount = this.formatPdfMoney(input.detail.amount);
+
+    commands.push(this.pdfFillRect(0, 0, 595, 842, '#ffffff'));
+    commands.push(this.pdfFillRect(36, darkBottom, 523, 596, darkBlue));
+    commands.push(this.pdfFillRect(36, 42, 523, darkBottom - 42, footerGray));
+
+    commands.push(this.pdfText(pageMargin + 6, 778, 'INOGI', 34, '#ffffff', 'left', 180));
+    commands.push(this.pdfText(540, 786, 'INVOICE SERVICE', 13, '#ffffff', 'right', 170));
+    commands.push(this.pdfText(540, 766, 'www.inogi.cn', 9, '#dbeafe', 'right', 170));
+    commands.push(this.pdfText(540, 750, 'geshuang@inogi.cn', 9, '#dbeafe', 'right', 170));
+
+    commands.push(this.pdfText(pageMargin + 6, 704, totalPages > 1 ? `Final Consolidated Balance Invoice (${pageNo}/${totalPages})` : 'Final Consolidated Balance Invoice', 20, '#ffffff', 'left', 420));
+
+    commands.push(this.pdfText(pageMargin + 6, 658, 'CLIENT NAME', 10, '#ffffff', 'left', 150));
+    commands.push(this.pdfText(pageMargin + 6, 636, input.info.customer || '-', 11, '#ffffff', 'left', 235));
+    commands.push(this.pdfText(pageMargin + 6, 616, '110 Cedar Street, STE 105,', 8, '#dbeafe', 'left', 220));
+    commands.push(this.pdfText(pageMargin + 6, 600, 'Wellesley, MA 02481, U.S.A.', 8, '#dbeafe', 'left', 220));
+    commands.push(this.pdfText(pageMargin + 6, 584, 'degang.wang@gmail.com', 8, '#dbeafe', 'left', 220));
+
+    const labelX = 354;
+    const valueX = 540;
+    commands.push(this.pdfKeyValue(labelX, 658, valueX, 'Invoice:', `#${invoiceNo}`, '#ffffff'));
+    commands.push(this.pdfKeyValue(labelX, 638, valueX, 'Date:', input.info.date || '-', '#ffffff'));
+    commands.push(this.pdfKeyValue(labelX, 618, valueX, 'Purchase Order:', input.info.orderId || '-', '#ffffff'));
+    commands.push(this.pdfKeyValue(labelX, 598, valueX, 'Incoterm:', 'DDP', '#ffffff'));
+
+    commands.push(this.pdfLine(pageMargin + 6, tableTop, pageMargin + contentWidth, tableTop, '#ffffff', 2.5));
+    commands.push(this.pdfText(pageMargin + 6, tableTop - 24, 'ORIGINAL INVOICE AMOUNT', 9, '#ffffff', 'left', 280));
+    commands.push(this.pdfText(pageMargin + contentWidth, tableTop - 24, 'AMOUNT', 9, '#ffffff', 'right', 120));
+    commands.push(this.pdfLine(pageMargin + 6, tableTop - 34, pageMargin + contentWidth, tableTop - 34, '#ffffff', 2.5));
+
+    rows.forEach((line, index) => {
+      const y = rowStart - index * rowHeight;
+      const invoiceLabel = line.id ? `WH-${line.id}-INOGI` : line.name;
+      commands.push(this.pdfText(pageMargin + 6, y, invoiceLabel, 9, '#ffffff', 'left', 320));
+      commands.push(this.pdfText(pageMargin + contentWidth, y, this.formatPdfMoney(line.subtotal), 9, '#ffffff', 'right', 140));
+      commands.push(this.pdfLine(pageMargin + 6, y - 10, pageMargin + contentWidth, y - 10, '#31506e', 0.6));
+    });
+
+    if (isLastPage) {
+      const afterRowsY = rowStart - rows.length * rowHeight - 10;
+      const totalTop = Math.max(darkBottom + 66, afterRowsY);
+      commands.push(this.pdfLine(pageMargin + 6, totalTop, pageMargin + contentWidth, totalTop, '#ffffff', 2.5));
+      commands.push(this.pdfText(pageMargin + 6, totalTop - 26, 'Total Goods Value:', 12, '#ffffff', 'left', 220));
+      commands.push(this.pdfText(pageMargin + contentWidth, totalTop - 26, amount, 12, '#ffffff', 'right', 150));
+      commands.push(this.pdfText(pageMargin + 6, totalTop - 50, 'Total Payment Received:', 12, '#ffffff', 'left', 240));
+      commands.push(this.pdfText(pageMargin + contentWidth, totalTop - 50, '¥0.00', 12, '#ffffff', 'right', 150));
+      commands.push(this.pdfText(pageMargin + 6, totalTop - 74, 'Balance Due:', 12, '#ffffff', 'left', 180));
+      commands.push(this.pdfText(pageMargin + contentWidth, totalTop - 74, amount, 12, '#ffffff', 'right', 150));
+    } else {
+      commands.push(this.pdfText(pageMargin + 6, darkBottom + 36, 'Continued on next page', 9, '#dbeafe', 'left', 220));
+    }
+
+    commands.push(this.pdfText(pageMargin + 6, 190, 'PAYMENT INSTRUCTIONS', 9, darkBlue, 'left', 180));
+    commands.push(this.pdfText(pageMargin + 6, 170, 'Bank Name: BANK OF CHINA JIANGSU BRANCH', 7, darkBlue, 'left', 240));
+    commands.push(this.pdfText(pageMargin + 6, 154, 'Sub-Branch: NANJING WENDE ROAD SUB-BRANCH', 7, darkBlue, 'left', 240));
+    commands.push(this.pdfText(pageMargin + 6, 138, 'Account Name: NANJING YINUOJI MEDICAL TECHNOLOGY CO., LTD.', 7, darkBlue, 'left', 240));
+    commands.push(this.pdfText(pageMargin + 6, 122, 'Company Address: 4F, Building 8, No. 71 Xinghui Road, Nanjing', 7, darkBlue, 'left', 240));
+    commands.push(this.pdfText(pageMargin + 6, 106, 'Account Number: 485880964815', 7, darkBlue, 'left', 240));
+    commands.push(this.pdfText(pageMargin + 6, 90, 'SWIFT Code: BKCHCNBJ940', 7, darkBlue, 'left', 240));
+    commands.push(this.pdfText(pageMargin + 6, 74, 'Bank Address: No. 1 Wende East Road, Pukou District, Nanjing', 7, darkBlue, 'left', 240));
+
+    commands.push(this.pdfText(356, 190, 'ADDITIONAL NOTES', 9, darkBlue, 'left', 168));
+    commands.push(this.pdfText(356, 170, 'Final balance for these POs.', 7, darkBlue, 'left', 170));
+    commands.push(this.pdfText(356, 138, `Include Invoice #${invoiceNo} in the wire memo.`, 7, darkBlue, 'left', 170));
+    commands.push(this.pdfText(548, 72, 'Nanjing Yinuoji Medical Technology Co.,Ltd', 8, darkBlue, 'right', 260));
+
+    commands.push(this.pdfText(pageMargin, 24, `Invoice ${invoiceNo}`, 8, '#94a3b8'));
+    commands.push(this.pdfText(298, 24, `Page ${pageNo} / ${totalPages}`, 8, '#94a3b8', 'center', 120));
+    return commands.join('\n');
+  }
+
   private buildInvoicePdfPage(
-    input: { detail: OrderDetail; info: InvoiceInfo; lines: InvoiceExportLine[]; templateName: string },
+    input: InvoicePdfInput,
     rows: InvoiceExportLine[],
     pageNo: number,
     totalPages: number,
@@ -2125,21 +2698,22 @@ export class OrderProcessingService {
       { number: 1, body: '<< /Type /Catalog /Pages 2 0 R >>' },
       {
         number: 2,
-        body: `<< /Type /Pages /Kids [${pageContents.map((_, index) => `${5 + index * 2} 0 R`).join(' ')}] /Count ${pageContents.length} >>`,
+        body: `<< /Type /Pages /Kids [${pageContents.map((_, index) => `${6 + index * 2} 0 R`).join(' ')}] /Count ${pageContents.length} >>`,
       },
       { number: 3, body: '<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UCS2-H /DescendantFonts [4 0 R] >>' },
       {
         number: 4,
         body: '<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 5 >> /DW 1000 >>',
       },
+      { number: 5, body: '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>' },
     ];
 
     pageContents.forEach((content, index) => {
-      const pageObject = 5 + index * 2;
+      const pageObject = 6 + index * 2;
       const contentObject = pageObject + 1;
       objects.push({
         number: pageObject,
-        body: `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R >> >> /Contents ${contentObject} 0 R >>`,
+        body: `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 5 0 R >> >> /Contents ${contentObject} 0 R >>`,
       });
       objects.push({
         number: contentObject,
@@ -2170,7 +2744,17 @@ export class OrderProcessingService {
     const text = this.fitPdfText(String(value ?? ''), maxWidth, size);
     const width = this.estimatePdfTextWidth(text, size);
     const textX = align === 'right' ? x - width : align === 'center' ? x - width / 2 : x;
+    if (this.canUseWinAnsi(text)) {
+      return `BT\n/F2 ${size} Tf\n${this.pdfColor(color)} rg\n${this.pdfNumber(textX)} ${this.pdfNumber(y)} Td\n<${this.winAnsiHex(text)}> Tj\nET`;
+    }
     return `BT\n/F1 ${size} Tf\n${this.pdfColor(color)} rg\n${this.pdfNumber(textX)} ${this.pdfNumber(y)} Td\n<${this.utf16BeHex(text)}> Tj\nET`;
+  }
+
+  private pdfKeyValue(labelX: number, y: number, valueX: number, label: string, value: unknown, color: string) {
+    return [
+      this.pdfText(labelX, y, label, 9, color, 'left', 104),
+      this.pdfText(valueX, y, value, 9, color, 'right', 172),
+    ].join('\n');
   }
 
   private pdfFillRect(x: number, y: number, width: number, height: number, color: string) {
@@ -2207,6 +2791,25 @@ export class OrderProcessingService {
       bigEndian[index + 1] = littleEndian[index];
     }
     return bigEndian.toString('hex').toUpperCase();
+  }
+
+  private canUseWinAnsi(text: string) {
+    return Array.from(text).every((char) => {
+      const code = char.codePointAt(0) ?? 0;
+      return code >= 0x20 && code <= 0xff;
+    });
+  }
+
+  private winAnsiHex(text: string) {
+    return Buffer.from(text.replace(/\s+/g, ' ').trim(), 'latin1').toString('hex').toUpperCase();
+  }
+
+  private formatPdfMoney(value: unknown) {
+    const text = String(value ?? '').trim();
+    const numeric = text.replace(/[¥￥$,\s]/g, '');
+    const number = Number(numeric);
+    if (Number.isFinite(number)) return `¥${number.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return text.replace(/[￥]/g, '¥');
   }
 
   private fitPdfText(text: string, maxWidth: number, size: number) {

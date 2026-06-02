@@ -11,10 +11,7 @@ import {
   ChevronRight,
   Download,
   Eye,
-  Edit3,
   X,
-  GripVertical,
-  Plus,
   Check,
   FileDown,
   Layers,
@@ -33,8 +30,6 @@ import {
   TableHeader,
   TableRow
 } from '../../components/ui/table';
-import { Badge } from '../../components/ui/badge';
-import { Button } from '../../components/ui/button';
 import {
   Pagination,
   PaginationContent,
@@ -132,8 +127,6 @@ const buildInvoiceInfoForDetail = (detail: OrderDetail): InvoiceDraftInfo => ({
   date: detail.invoiceInfo?.date || detail.date || ''
 });
 
-const getProductStatusLabel = (status: string) => status === '库存不足' ? '待确认' : status;
-
 export function Workbench() {
   const orderQueueRef = useRef<HTMLDivElement | null>(null);
   const orderUploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -143,17 +136,17 @@ export function Workbench() {
   const [selectedOrderId, setSelectedOrderId] = useState('');
   const [orderSearch, setOrderSearch] = useState('');
   const [productSearch, setProductSearch] = useState('');
-  const [productStatusFilter, setProductStatusFilter] = useState('all');
   const [productCategoryFilter, setProductCategoryFilter] = useState('all');
   const [orderPage, setOrderPage] = useState(1);
   const [productPage, setProductPage] = useState(1);
   const [loading, setLoading] = useState(false);
   const [loadingMoreOrders, setLoadingMoreOrders] = useState(false);
   const [loadingWecomMailboxes, setLoadingWecomMailboxes] = useState(false);
+  const [syncingWecomOrders, setSyncingWecomOrders] = useState(false);
   const [wecomMailboxes, setWecomMailboxes] = useState<MailboxItem[]>([]);
   const [selectedWecomMailboxId, setSelectedWecomMailboxId] = useState('');
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
-  const [activeModal, setActiveModal] = useState<'original' | 'preview' | 'template' | 'aiTemplate' | 'invoiceDraft' | null>(null);
+  const [activeModal, setActiveModal] = useState<'original' | 'preview' | 'aiTemplate' | 'invoiceDraft' | null>(null);
   const [invoiceDraftInfo, setInvoiceDraftInfo] = useState<InvoiceDraftInfo>({ customer: '', orderId: '', date: '' });
   const [invoiceDraftLines, setInvoiceDraftLines] = useState<InvoiceDraftLine[]>([]);
   const [invoiceSubmitting, setInvoiceSubmitting] = useState(false);
@@ -236,8 +229,10 @@ export function Workbench() {
   }, []);
 
   const templates = workbench?.templates ?? [];
-  const defaultTemplate = workbench?.activeTemplateId ?? 'weoxy';
-  const activeTemplate = selectedTemplateId || defaultTemplate;
+  const selectableTemplates = useMemo(() => templates.filter((template) => template.id !== 'custom'), [templates]);
+  const fallbackTemplateId = selectableTemplates[0]?.id ?? 'weoxy';
+  const defaultTemplate = workbench?.activeTemplateId && workbench.activeTemplateId !== 'custom' ? workbench.activeTemplateId : fallbackTemplateId;
+  const activeTemplate = selectedTemplateId && selectedTemplateId !== 'custom' ? selectedTemplateId : defaultTemplate;
   const selectedOrder = workbench?.selectedOrder ?? null;
   const orderDetails: OrderDetail = workbench?.orderDetails ?? {
     id: '',
@@ -257,11 +252,10 @@ export function Workbench() {
     const q = productSearch.trim().toLowerCase();
     return allProductRows.filter((item) => {
       const matchesQuery = !q || [item.id, item.name, item.category, item.spec, item.remark].some((value) => value.toLowerCase().includes(q));
-      const matchesStatus = productStatusFilter === 'all' || item.status === productStatusFilter;
       const matchesCategory = productCategoryFilter === 'all' || item.category === productCategoryFilter;
-      return matchesQuery && matchesStatus && matchesCategory;
+      return matchesQuery && matchesCategory;
     });
-  }, [allProductRows, productCategoryFilter, productSearch, productStatusFilter]);
+  }, [allProductRows, productCategoryFilter, productSearch]);
   const productTotalPages = Math.max(1, Math.ceil(filteredProductRows.length / PRODUCT_TABLE_PAGE_SIZE));
   const normalizedProductPage = Math.min(productPage, productTotalPages);
   const productRows = filteredProductRows.slice((normalizedProductPage - 1) * PRODUCT_TABLE_PAGE_SIZE, normalizedProductPage * PRODUCT_TABLE_PAGE_SIZE);
@@ -275,17 +269,10 @@ export function Workbench() {
   const visibleQueueItems = queueItems.length > 0 ? queueItems : queue?.items ?? [];
   const hasMoreOrders = Boolean(queue && queue.page < queue.totalPages);
   const loadedOrderCount = Math.min(visibleQueueItems.length, queue?.total ?? visibleQueueItems.length);
-  const productStats = useMemo(() => {
-    const products = orderDetails.products ?? [];
-    return {
-      passed: products.filter((item) => item.status === '通过').length,
-      price: products.filter((item) => item.status === '价格差异').length,
-      review: products.filter((item) => item.status !== '通过' && item.status !== '价格差异').length
-    };
-  }, [orderDetails]);
-  const activeTemplateName = templates.find((template) => template.id === activeTemplate)?.name ?? '当前发票模板';
-  const invoicePreviewTemplate = orderDetails.invoiceTemplateId || activeTemplate;
-  const invoicePreviewTemplateName = templates.find((template) => template.id === invoicePreviewTemplate)?.name ?? activeTemplateName;
+  const activeTemplateName = selectableTemplates.find((template) => template.id === activeTemplate)?.name ?? '当前发票模板';
+  const rawInvoicePreviewTemplate = orderDetails.invoiceTemplateId || activeTemplate;
+  const invoicePreviewTemplate = rawInvoicePreviewTemplate === 'custom' ? fallbackTemplateId : rawInvoicePreviewTemplate;
+  const invoicePreviewTemplateName = selectableTemplates.find((template) => template.id === invoicePreviewTemplate)?.name ?? activeTemplateName;
   const invoicePreviewInfo = useMemo(() => buildInvoiceInfoForDetail(orderDetails), [orderDetails]);
   const invoicePreviewLines = useMemo(() => buildInvoiceLinesForDetail(orderDetails), [orderDetails]);
   const invoicePreviewAmount = useMemo(
@@ -308,13 +295,13 @@ export function Workbench() {
 	  };
 
   useEffect(() => {
-    if (selectedTemplateId && templates.some((template) => template.id === selectedTemplateId)) return;
+    if (selectedTemplateId && selectableTemplates.some((template) => template.id === selectedTemplateId)) return;
     if (defaultTemplate) setSelectedTemplateId(defaultTemplate);
-  }, [defaultTemplate, selectedTemplateId, templates]);
+  }, [defaultTemplate, selectableTemplates, selectedTemplateId]);
 
   useEffect(() => {
     setProductPage(1);
-  }, [productCategoryFilter, productSearch, productStatusFilter, selectedOrderId]);
+  }, [productCategoryFilter, productSearch, selectedOrderId]);
 
 	  const handleSelectOrder = (orderId: string) => {
     setSelectedOrderId(orderId);
@@ -349,6 +336,44 @@ export function Workbench() {
       if (result.created[0]?.id) setSelectedOrderId(result.created[0].id);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : '订货单上传失败');
+    }
+  };
+
+  const handleRefreshOrders = async () => {
+    if (activeTab !== 'wecom_mail') {
+      resetOrderQueue();
+      if (orderPage === 1) void loadWorkbench();
+      return;
+    }
+
+    if (!selectedWecomMailboxId) {
+      toast.info('请先选择企业微信邮箱');
+      return;
+    }
+
+    setSyncingWecomOrders(true);
+    try {
+      const result = await orderProcessingApi.syncWecomMailOrders({ mailboxId: selectedWecomMailboxId, ignoreLastUid: true });
+      const skippedReason = result.created.length === 0 ? result.skipped[0]?.reason : '';
+      const syncMessage = skippedReason ? `${result.message} 原因：${skippedReason}` : result.message;
+      if (result.created.length > 0) {
+        toast.success(syncMessage);
+      } else if (result.matchedCount > 0 || skippedReason) {
+        toast.warning(syncMessage);
+      } else {
+        toast.info(syncMessage);
+      }
+      resetOrderQueue();
+      setProductPage(1);
+      if (result.created[0]?.id) {
+        setSelectedOrderId(result.created[0].id);
+      } else if (orderPage === 1) {
+        await loadWorkbench();
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '企业微信邮箱同步失败');
+    } finally {
+      setSyncingWecomOrders(false);
     }
   };
 
@@ -477,22 +502,6 @@ export function Workbench() {
     setSelectedTemplateId(templateId);
   };
 
-  const handleSaveTemplate = async () => {
-    try {
-      const result = await orderProcessingApi.saveTemplate({
-        id: activeTemplate,
-        name: templates.find((template) => template.id === activeTemplate)?.name ?? '自定义模板',
-        config: { fields: ['序号', '商品编码', '商品名称', '规格', '数量', '单价', '金额'] }
-      });
-      toast.success(result.message);
-      setSelectedTemplateId(result.activeTemplateId);
-      setActiveModal(null);
-      await refreshAfterMutation();
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : '模板保存失败');
-    }
-  };
-
   const formatLocalFileSize = (size: number) => {
     if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
     return `${(size / 1024 / 1024).toFixed(1)} MB`;
@@ -563,16 +572,6 @@ export function Workbench() {
             <StatItem label="未导出" value={String(workbench?.stats.unexported ?? 0)} color="amber" />
           </div>
 
-          <div className="flex items-center justify-end gap-2.5 text-sm font-medium flex-wrap">
-            <Button
-              variant="default"
-              size="sm"
-              onClick={handleOpenInvoiceDraft}
-              disabled={!selectedOrder?.id}
-              className="h-9 bg-blue-600 px-4 text-white shadow-sm shadow-blue-200 hover:bg-blue-700">
-              <FileDown className="w-4 h-4" /> 生成发票
-            </Button>
-          </div>
         </div>
 
         {/* Three Column Layout */}
@@ -705,16 +704,10 @@ export function Workbench() {
 		            <div className="p-4 border-t border-slate-100 bg-slate-50/30">
 		              <div className="flex gap-3">
 		                <button
-		                  onClick={() => {
-		                    if (activeTab === 'wecom_mail' && !selectedWecomMailboxId) {
-		                      toast.info('请先选择企业微信邮箱');
-		                      return;
-		                    }
-		                    resetOrderQueue();
-		                    if (orderPage === 1) void loadWorkbench();
-		                  }}
-		                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-blue-50 text-blue-700 rounded-full text-sm font-medium hover:bg-blue-100 transition-all active:scale-95">
-		                  <Mail className="w-4 h-4" /> 刷新
+		                  onClick={() => void handleRefreshOrders()}
+		                  disabled={syncingWecomOrders}
+		                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-blue-50 text-blue-700 rounded-full text-sm font-medium hover:bg-blue-100 transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-60">
+		                  {syncingWecomOrders ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />} 刷新
 		                </button>
                 <button
                   onClick={() => orderUploadInputRef.current?.click()}
@@ -773,26 +766,6 @@ export function Workbench() {
 	              <div className="px-4 py-3 border-b border-slate-50 bg-white shrink-0">
 	                <div className="flex flex-wrap items-center gap-3">
 	                  <h3 className="font-semibold text-slate-800 whitespace-nowrap">商品明细</h3>
-	                  <div className="flex items-center gap-2 text-xs">
-	                  <Badge
-	                    variant="secondary"
-	                    className="rounded-full border-emerald-100 bg-emerald-50 px-3 py-1 font-medium text-emerald-700 hover:bg-emerald-50">
-                    
-                    {productStats.passed} 通过
-                  </Badge>
-                  <Badge
-                    variant="secondary"
-                    className="rounded-full border-amber-100 bg-amber-50 px-3 py-1 font-medium text-amber-700 hover:bg-amber-50">
-                    
-                    {productStats.price} 价格
-                  </Badge>
-                  <Badge
-                    variant="secondary"
-                    className="rounded-full border-slate-100 bg-slate-50 px-3 py-1 font-medium text-slate-600 hover:bg-slate-50">
-                    
-	                    {productStats.review} 待确认
-	                  </Badge>
-	                  </div>
 	                  <div className="ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
 	                    <div className="relative min-w-[180px] flex-1 max-w-[260px]">
 	                      <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
@@ -802,14 +775,6 @@ export function Workbench() {
 	                        placeholder="筛商品 / SKU / 备注"
 	                        className="h-8 w-full rounded-full border border-slate-200 bg-slate-50 pl-8 pr-3 text-xs text-slate-700 outline-none transition-all focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-500/10" />
 	                    </div>
-	                    <select
-	                      value={productStatusFilter}
-	                      onChange={(event) => setProductStatusFilter(event.target.value)}
-	                      className="h-8 rounded-full border border-slate-200 bg-slate-50 px-3 text-xs text-slate-700 outline-none transition-all focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-500/10">
-	                      <option value="all">全部状态</option>
-	                      <option value="通过">通过</option>
-	                      <option value="价格差异">价格差异</option>
-	                    </select>
 	                    <select
 	                      value={productCategoryFilter}
 	                      onChange={(event) => setProductCategoryFilter(event.target.value)}
@@ -824,7 +789,7 @@ export function Workbench() {
 	              </div>
 
               <ScrollArea type="always" scrollbars="both" className="min-h-0 min-w-0 flex-1">
-                <Table containerClassName="overflow-visible" className="min-w-[1120px] text-sm text-left whitespace-nowrap">
+                <Table containerClassName="overflow-visible" className="min-w-[980px] text-sm text-left whitespace-nowrap">
                   <TableHeader className="text-xs text-slate-600 [&_th]:sticky [&_th]:top-0 [&_th]:z-30 [&_th]:bg-slate-50 [&_th]:shadow-[0_1px_0_rgba(148,163,184,0.25)]">
                     <TableRow>
                       <TableHead className="px-4 py-2.5 font-medium">序号</TableHead>
@@ -845,7 +810,6 @@ export function Workbench() {
                       <TableHead className="px-4 py-2.5 font-medium text-right">
                         小计金额
                       </TableHead>
-                      <TableHead className="px-4 py-2.5 font-medium">校验状态</TableHead>
                       <TableHead className="px-4 py-2.5 font-medium">备注</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -855,8 +819,6 @@ export function Workbench() {
                       key={p.id}
                       className={`
                         hover:bg-blue-50/30 transition-colors
-                        ${p.status === '价格差异' ? 'bg-yellow-50/40' : ''}
-                        ${p.status !== '通过' && p.status !== '价格差异' ? 'bg-slate-50/50' : ''}
                       `}>
                       
                         <TableCell className="px-4 py-2.5 text-slate-500">
@@ -887,18 +849,6 @@ export function Workbench() {
                         <TableCell className="px-4 py-2.5 text-right font-medium text-slate-800">
                           ¥{p.subtotal}
                         </TableCell>
-                        <TableCell className="px-4 py-2.5">
-                          <Badge
-                          variant="secondary"
-                          className={`rounded-full border px-2.5 py-1 text-xs font-medium
-                            ${p.status === '通过' ? 'text-emerald-700 bg-emerald-50' : ''}
-                            ${p.status === '价格差异' ? 'text-amber-700 bg-amber-50' : ''}
-                            ${p.status !== '通过' && p.status !== '价格差异' ? 'text-slate-700 bg-slate-50' : ''}
-                          `}>
-                          
-                            {getProductStatusLabel(p.status)}
-                          </Badge>
-                        </TableCell>
                         <TableCell
                         className="px-4 py-2.5 text-slate-500 text-xs max-w-[150px] truncate"
                         title={p.remark}>
@@ -909,7 +859,7 @@ export function Workbench() {
 	                    )}
 	                    {productRows.length === 0 &&
 	                    <TableRow>
-	                      <TableCell colSpan={12} className="px-4 py-10 text-center text-sm text-slate-400">
+	                      <TableCell colSpan={11} className="px-4 py-10 text-center text-sm text-slate-400">
 	                        暂无匹配商品
 	                      </TableCell>
 	                    </TableRow>
@@ -1068,16 +1018,10 @@ export function Workbench() {
                       
                       <Sparkles className="w-3.5 h-3.5" /> AI 模板
                     </button>
-                    <button
-                      onClick={() => setActiveModal('template')}
-                      className="w-8 h-8 flex items-center justify-center text-blue-600 hover:bg-blue-50 rounded-full transition-colors">
-                      
-                      <Edit3 className="w-4 h-4" />
-                    </button>
                   </div>
                 </div>
                 <div className="space-y-1.5 mb-4">
-                  {templates.map((t) =>
+                  {selectableTemplates.map((t) =>
                   <div
                     key={t.id}
                     onClick={() => void handleSelectTemplate(t.id)}
@@ -1923,55 +1867,7 @@ export function Workbench() {
                   </div>
             }
 
-                {/* TEMPLATE C: CUSTOM (Fallback) */}
-                {invoicePreviewTemplate === 'custom' &&
-            <div className="bg-white p-8 elevation-1 w-full max-w-2xl relative rounded-2xl overflow-hidden">
-                    <div className="text-center mb-8">
-                      <h1 className="text-3xl font-bold text-slate-800 tracking-wider">
-                        自定义发票
-                      </h1>
-                      <p className="text-slate-500 mt-1">CUSTOM INVOICE</p>
-                    </div>
-                    <div className="mb-6 grid grid-cols-2 gap-4 text-sm">
-                      <div>
-                        <span className="text-slate-400">客户：</span>
-                        <span className="font-medium text-slate-800">{invoicePreviewInfo.customer}</span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-slate-400">订单号：</span>
-                        <span className="font-mono text-slate-800">{invoicePreviewInfo.orderId}</span>
-                      </div>
-                    </div>
-                    <Table className="w-full text-sm">
-                      <TableHeader className="bg-slate-50">
-                        <TableRow>
-                          <TableHead className="px-3 py-2">商品</TableHead>
-                          <TableHead className="px-3 py-2 text-right">数量</TableHead>
-                          <TableHead className="px-3 py-2 text-right">单价</TableHead>
-                          <TableHead className="px-3 py-2 text-right">金额</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {invoicePreviewLines.map((p) =>
-                        <TableRow key={p.lineId ?? p.id}>
-                          <TableCell className="px-3 py-2">
-                            <div className="font-medium text-slate-800">{p.name}</div>
-                            <div className="text-xs text-slate-500">{p.id} · {p.spec}</div>
-                          </TableCell>
-                          <TableCell className="px-3 py-2 text-right">{p.quantity}</TableCell>
-                          <TableCell className="px-3 py-2 text-right">{formatInvoiceMoney(p.unitPrice)}</TableCell>
-                          <TableCell className="px-3 py-2 text-right font-medium">{formatInvoiceMoney(p.subtotal)}</TableCell>
-                        </TableRow>
-                        )}
-                      </TableBody>
-                    </Table>
-                    <div className="mt-6 flex justify-end border-t border-slate-200 pt-4 text-lg font-bold text-slate-800">
-                      合计：{invoicePreviewAmountText}
-                    </div>
-                  </div>
-            }
-
-                {/* TEMPLATE D: AI GENERATED */}
+                {/* TEMPLATE C: AI GENERATED */}
                 {invoicePreviewTemplate.startsWith('ai-') &&
             <div className="bg-white p-10 elevation-1 w-full max-w-3xl relative overflow-hidden font-sans">
                     {/* Decorative header accent */}
@@ -2118,175 +2014,6 @@ export function Workbench() {
             </div>
         }
 
-          {/* Template Editor Modal */}
-          {activeModal === 'template' &&
-        <div
-          className="bg-white rounded-3xl elevation-3 w-full max-w-2xl max-h-[85vh] flex flex-col overflow-hidden"
-          onClick={(e) => e.stopPropagation()}>
-          
-              <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white">
-                <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                  <Edit3 className="w-5 h-5 text-indigo-500" /> 模板定制
-                </h2>
-                <button
-              onClick={() => setActiveModal(null)}
-              className="w-9 h-9 flex items-center justify-center text-slate-400 hover:bg-slate-100 rounded-full transition-colors">
-              
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <div className="p-6 overflow-y-auto flex-1 bg-slate-50/30">
-                <div className="space-y-6">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-2">
-                      模板名称
-                    </label>
-                    <input
-                  type="text"
-                  defaultValue="标准商业发票"
-                  className="w-full px-4 py-2.5 bg-slate-100 border-none rounded-full focus:ring-2 focus:ring-blue-500/20 focus:bg-white outline-none transition-all" />
-                
-                  </div>
-
-                  <div>
-                    <h3 className="text-sm font-medium text-slate-700 mb-3">
-                      表格字段配置 (拖拽排序)
-                    </h3>
-                    <div className="space-y-2">
-                      {[
-                  '序号',
-                  '商品编码',
-                  '商品名称',
-                  '规格',
-                  '数量',
-                  '单价',
-                  '金额'].
-                  map((field, i) =>
-                  <div
-                    key={field}
-                    className="flex items-center gap-3 p-3 bg-white rounded-2xl shadow-sm elevation-1">
-                    
-                          <GripVertical className="w-4 h-4 text-slate-400 cursor-move" />
-                          <input
-                      type="checkbox"
-                      defaultChecked
-                      className="w-4.5 h-4.5 text-blue-600 rounded border-slate-300 focus:ring-blue-500" />
-                    
-                          <input
-                      type="text"
-                      defaultValue={field}
-                      className="flex-1 px-3 py-1.5 text-sm bg-slate-50 border-none focus:bg-white focus:ring-2 focus:ring-blue-500/20 rounded-full outline-none transition-all" />
-                    
-                          <select className="text-sm bg-slate-50 border-none rounded-full px-3 py-1.5 text-slate-600 outline-none focus:ring-2 focus:ring-blue-500/20">
-                            <option>自适应</option>
-                            <option>固定宽度</option>
-                          </select>
-                        </div>
-                  )}
-                    </div>
-                    <button className="mt-4 text-sm text-blue-700 bg-blue-50 px-4 py-2 rounded-full font-medium flex items-center gap-1.5 hover:bg-blue-100 transition-colors">
-                      <Plus className="w-4 h-4" /> 添加自定义字段
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-6">
-                    <div className="bg-white p-5 rounded-3xl elevation-1">
-                      <h3 className="text-sm font-medium text-slate-700 mb-4">
-                        表头配置
-                      </h3>
-                      <div className="space-y-3">
-                        <label className="flex items-center gap-3 text-sm text-slate-600">
-                          <input
-                        type="checkbox"
-                        defaultChecked
-                        className="w-4.5 h-4.5 rounded text-blue-600" />
-                      {' '}
-                          显示公司Logo
-                        </label>
-                        <label className="flex items-center gap-3 text-sm text-slate-600">
-                          <input
-                        type="checkbox"
-                        defaultChecked
-                        className="w-4.5 h-4.5 rounded text-blue-600" />
-                      {' '}
-                          显示公司名称
-                        </label>
-                        <label className="flex items-center gap-3 text-sm text-slate-600">
-                          <input
-                        type="checkbox"
-                        defaultChecked
-                        className="w-4.5 h-4.5 rounded text-blue-600" />
-                      {' '}
-                          显示发票号
-                        </label>
-                        <label className="flex items-center gap-3 text-sm text-slate-600">
-                          <input
-                        type="checkbox"
-                        defaultChecked
-                        className="w-4.5 h-4.5 rounded text-blue-600" />
-                      {' '}
-                          显示关联订单号
-                        </label>
-                      </div>
-                    </div>
-                    <div className="bg-white p-5 rounded-3xl elevation-1">
-                      <h3 className="text-sm font-medium text-slate-700 mb-4">
-                        表尾配置
-                      </h3>
-                      <div className="space-y-3">
-                        <label className="flex items-center gap-3 text-sm text-slate-600">
-                          <input
-                        type="checkbox"
-                        defaultChecked
-                        className="w-4.5 h-4.5 rounded text-blue-600" />
-                      {' '}
-                          显示合计金额
-                        </label>
-                        <label className="flex items-center gap-3 text-sm text-slate-600">
-                          <input
-                        type="checkbox"
-                        defaultChecked
-                        className="w-4.5 h-4.5 rounded text-blue-600" />
-                      {' '}
-                          显示大写金额
-                        </label>
-                        <label className="flex items-center gap-3 text-sm text-slate-600">
-                          <input
-                        type="checkbox"
-                        defaultChecked
-                        className="w-4.5 h-4.5 rounded text-blue-600" />
-                      {' '}
-                          显示签名栏
-                        </label>
-                        <label className="flex items-center gap-3 text-sm text-slate-600">
-                          <input
-                        type="checkbox"
-                        defaultChecked
-                        className="w-4.5 h-4.5 rounded text-blue-600" />
-                      {' '}
-                          显示备注说明
-                        </label>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <div className="px-6 py-4 border-t border-slate-100 bg-white flex justify-end gap-3">
-                <button
-              onClick={() => setActiveModal(null)}
-              className="px-5 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-full hover:bg-slate-200 transition-all">
-              
-                  取消
-                </button>
-                <button
-              onClick={() => void handleSaveTemplate()}
-              className="px-6 py-2 text-sm font-medium text-white bg-gradient-primary rounded-full shadow-md shadow-blue-500/20 hover:shadow-lg transition-all">
-              
-                  保存模板
-                </button>
-              </div>
-            </div>
-        }
         </div>
       }
     </div>);

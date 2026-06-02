@@ -60,9 +60,9 @@ export function createInitialOrderProcessingState(): OrderProcessingState {
       { id: 'MV-004', itemId: 'PB-100', itemName: '移动电源 10000mAh', type: 'out', qty: 30, time: '2026-05-23 16:42', operator: '王芳', note: '销售出库 · 杭州优品电子' },
     ],
     templates: [
-      { id: 'weoxy', name: '标准发票 (WEOXY)', source: 'builtin' },
-      { id: 'inogi', name: '结算发票 (INOGI)', source: 'builtin' },
-      { id: 'custom', name: '自定义模板', source: 'builtin' },
+      { id: 'weoxy', name: '标准发票 (WEOXY)', source: 'builtin', config: { pdfLayout: 'weoxy' } },
+      { id: 'inogi', name: '结算发票 (INOGI)', source: 'builtin', config: { pdfLayout: 'inogi' } },
+      { id: 'custom', name: '自定义模板', source: 'builtin', config: { pdfLayout: 'generic' } },
     ],
     activeTemplateId: 'weoxy',
     reminderRule: { enabled: true, daysBefore: 3 },
