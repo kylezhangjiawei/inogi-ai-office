@@ -175,6 +175,136 @@ model RuntimeState {
   updatedAt DateTime @updatedAt
 }
 
+model OrderProcessingOrder {
+  id              String                         @id
+  customer        String
+  type            String
+  status          String
+  shipDate        DateTime
+  source          String                         @default("upload")
+  generated       Boolean                        @default(false)
+  invoiceExported Boolean                        @default(false)
+  originalFileName String?
+  metadata        Json                           @default("{}")
+  products        OrderProcessingOrderProduct[]
+  invoice         OrderProcessingInvoice?
+  createdAt       DateTime                       @default(now())
+  updatedAt       DateTime                       @updatedAt
+
+  @@index([source, createdAt])
+  @@index([status, createdAt])
+  @@index([shipDate])
+}
+
+model OrderProcessingOrderProduct {
+  id         String                 @id @default(cuid())
+  orderId    String
+  order      OrderProcessingOrder   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sku        String
+  name       String
+  category   String
+  spec       String
+  unit       String
+  orderQty   Int
+  stockQty   Int
+  orderPrice Decimal                @db.Decimal(12, 2)
+  sysPrice   Decimal                @db.Decimal(12, 2)
+  subtotal   Decimal                @db.Decimal(14, 2)
+  status     String
+  remark     String
+  sortOrder  Int                    @default(0)
+  createdAt  DateTime               @default(now())
+  updatedAt  DateTime               @updatedAt
+
+  @@index([orderId, sku])
+  @@index([sku])
+  @@index([status])
+}
+
+model OrderProcessingInvoice {
+  id          String                @id @default(cuid())
+  orderId     String                @unique
+  order       OrderProcessingOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  invoiceNo   String                @unique
+  amount      Decimal               @db.Decimal(14, 2)
+  generatedAt DateTime?
+  exportedAt  DateTime?
+  templateId  String?
+  metadata    Json                  @default("{}")
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
+
+  @@index([generatedAt])
+  @@index([exportedAt])
+}
+
+model OrderProcessingInventoryItem {
+  id              String                         @id
+  name            String
+  category        String
+  spec            String
+  stock           Int
+  safe            Int
+  inboundPending  Int                            @default(0)
+  outboundPending Int                            @default(0)
+  status          String
+  sortOrder       Int                            @default(0)
+  movements       OrderProcessingStockMovement[]
+  createdAt       DateTime                       @default(now())
+  updatedAt       DateTime                       @updatedAt
+
+  @@index([sortOrder])
+  @@index([category])
+  @@index([status])
+}
+
+model OrderProcessingStockMovement {
+  id             String                       @id
+  itemId         String
+  item           OrderProcessingInventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  itemName       String
+  type           String
+  qty            Int
+  operator       String
+  note           String
+  relatedOrderId String?
+  documentNo     String?
+  warehouse      String?
+  supplier       String?
+  businessDate   DateTime?
+  metadata       Json                         @default("{}")
+  createdAt      DateTime                     @default(now())
+
+  @@index([itemId, createdAt])
+  @@index([type, createdAt])
+  @@index([relatedOrderId])
+  @@index([businessDate])
+}
+
+model OrderProcessingInvoiceTemplate {
+  id          String   @id
+  name        String
+  source      String
+  accentColor String?
+  config      Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([source, createdAt])
+}
+
+model OrderProcessingSetting {
+  key       String   @id
+  value     Json
+  updatedAt DateTime @updatedAt
+}
+
+model OrderProcessingInvoiceCounter {
+  year      Int      @id
+  nextValue Int
+  updatedAt DateTime @updatedAt
+}
+
 model JobRule {
   id         String                @id @default(cuid())
   name       String
@@ -417,4 +547,3 @@ model KnowledgeChunk {
   @@index([sourceType, sourceId])
   @@index([archived])
 }
-

@@ -13,6 +13,10 @@ export const PERMISSIONS = {
   PAGE_RA_KNOWLEDGE: 'page:ra-knowledge',
   PAGE_QUALITY_DMS: 'page:quality-dms',
   PAGE_QA_TRACEABILITY: 'page:qa-traceability',
+  PAGE_ORDER_WORKBENCH: 'page:order-workbench',
+  PAGE_PURCHASE_ORDERS: 'page:purchase-orders',
+  PAGE_PURCHASE_ORDER_DETAIL: 'page:purchase-order-detail',
+  PAGE_INVENTORY_MANAGEMENT: 'page:inventory-management',
   PAGE_RESUME_SCREENING: 'page:resume-screening',
   PAGE_EMPLOYEE_ARCHIVE: 'page:employee-archive',
   PAGE_QUICK_CAPTURE: 'page:quick-capture',
@@ -189,6 +193,15 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { code: 'page:ra-knowledge', label: '法规知识库' },
       { code: 'page:quality-dms', label: '质量文件 DMS' },
       { code: 'page:qa-traceability', label: '全链路追溯' },
+    ],
+  },
+  {
+    label: '页面访问 · 订单与库存',
+    permissions: [
+      { code: 'page:order-workbench', label: '订货单处理工作台', description: '订货单队列、商品校验、商业发票生成与模板管理' },
+      { code: 'page:purchase-orders', label: '采购订单', description: '采购订单导入、过滤查询与到货跟踪' },
+      { code: 'page:purchase-order-detail', label: '采购订单详情', description: '查看采购订单明细、供应商、履约、结算与备注信息' },
+      { code: 'page:inventory-management', label: '库存管理', description: '库存台账、入库登记、预警商品与出入库记录' },
     ],
   },
   {

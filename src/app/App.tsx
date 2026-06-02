@@ -28,6 +28,7 @@ import { MailboxManagementPage } from "./MailboxManagementPage";
 import { MeetingMinutes } from "./MeetingMinutes";
 import { MessageCenterPage } from "./MessageCenterPage";
 import { OpsCenterPage } from "./OpsCenterPage";
+import { InventoryManagementPage, OrderWorkbenchPage, PurchaseOrderDetailPage, PurchaseOrdersPage } from "./order-processing";
 import { PersonalCenterPage } from "./PersonalCenterPage";
 import { ContractReviewPage } from "./ContractReviewPage";
 import { QualityDMSPage } from "./QualityDMSPage";
@@ -237,6 +238,10 @@ const router = createBrowserRouter([
       { path: "ra-knowledge", element: makeProtected(<RAKnowledgePage />, "page:ra-knowledge") },
       { path: "quality-dms", element: makeProtected(<QualityDMSPage />, "page:quality-dms") },
       { path: "qa-traceability", element: makeProtected(<QATraceability />, "page:qa-traceability") },
+      { path: "order-workbench", element: makeProtected(<OrderWorkbenchPage />, "page:order-workbench") },
+      { path: "purchase-orders", element: makeProtected(<PurchaseOrdersPage />, "page:purchase-orders") },
+      { path: "purchase-orders/:id", element: makeProtected(<PurchaseOrderDetailPage />, "page:purchase-order-detail") },
+      { path: "inventory-management", element: makeProtected(<InventoryManagementPage />, "page:inventory-management") },
       { path: "resume-screening", element: makeProtected(<ResumeScreeningPage />, "page:resume-screening") },
       { path: "employee-archive", element: makeProtected(<EmployeeArchivePage />, "page:employee-archive") },
       { path: "quick-capture", element: makeProtected(<QuickCapturePage />, "page:quick-capture") },
