@@ -994,8 +994,9 @@ export function Workbench() {
                   <button
                     onClick={() => setActiveModal('preview')}
                     disabled={!selectedOrder?.generated}
-                    className="flex-1 py-2 bg-blue-50 text-blue-700 rounded-full text-sm font-medium hover:bg-blue-100 transition-all flex items-center justify-center gap-1.5">
-                    
+                    title={selectedOrder?.generated ? "预览商业发票" : "请先点击「生成发票」"}
+                    className="flex-1 py-2 bg-blue-50 text-blue-700 rounded-full text-sm font-medium enabled:hover:bg-blue-100 transition-all flex items-center justify-center gap-1.5 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed">
+
                     <Eye className="w-4 h-4" /> 预览
                   </button>
                   <button
