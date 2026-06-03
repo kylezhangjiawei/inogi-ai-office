@@ -86,6 +86,7 @@ export class ApiRequestLogInterceptor implements NestInterceptor {
           requestMeta: {
             query: this.sanitize(req.query),
             body: this.sanitize(req.body),
+            ...this.buildUploadMeta(req),
           } as Prisma.InputJsonValue,
           responseMeta: {
             statusCode,
@@ -150,5 +151,70 @@ export class ApiRequestLogInterceptor implements NestInterceptor {
       }
     }
     return result;
+  }
+
+  /**
+   * Summarizes multipart/file-upload context so that file-related failures
+   * (e.g. Multer "Unexpected field" / too-many-files) become diagnosable in
+   * the ops-center. Never stores file buffers — only field name, original
+   * name, mimetype and byte size. For multipart requests it also records the
+   * raw Content-Type/Content-Length, which survive even when Multer rejects
+   * the upload before req.files is populated (the exact failure case here).
+   */
+  private buildUploadMeta(req: AuthenticatedRequest): Record<string, unknown> {
+    const contentType = req.header('content-type') ?? '';
+    const isMultipart = contentType.toLowerCase().includes('multipart/form-data');
+    const files = this.summarizeFiles(req);
+
+    if (!isMultipart && !files) return {};
+
+    const meta: Record<string, unknown> = {};
+    if (isMultipart) {
+      const contentLength = req.header('content-length');
+      meta.upload = {
+        contentType: contentType.slice(0, 200),
+        contentLength: contentLength ? Number(contentLength) : null,
+      };
+    }
+    if (files) {
+      meta.files = files;
+    }
+    return meta;
+  }
+
+  private summarizeFiles(
+    req: AuthenticatedRequest,
+  ): { count: number; items: Array<Record<string, unknown>> } | undefined {
+    const container = req as unknown as { files?: unknown; file?: unknown };
+    const raw = container.files ?? container.file;
+
+    const list: Array<Record<string, unknown>> = [];
+    if (Array.isArray(raw)) {
+      list.push(...(raw as Array<Record<string, unknown>>));
+    } else if (raw && typeof raw === 'object') {
+      const single = raw as Record<string, unknown>;
+      if ('originalname' in single) {
+        list.push(single);
+      } else {
+        for (const group of Object.values(single)) {
+          if (Array.isArray(group)) list.push(...(group as Array<Record<string, unknown>>));
+        }
+      }
+    }
+
+    if (list.length === 0) return undefined;
+
+    return {
+      count: list.length,
+      items: list.slice(0, 20).map((file) => ({
+        field: file.fieldname ?? null,
+        name:
+          typeof file.originalname === 'string'
+            ? file.originalname.slice(0, 200)
+            : file.originalname ?? null,
+        type: file.mimetype ?? null,
+        size: typeof file.size === 'number' ? file.size : null,
+      })),
+    };
   }
 }

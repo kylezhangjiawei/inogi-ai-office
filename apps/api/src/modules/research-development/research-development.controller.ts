@@ -200,7 +200,7 @@ export class ResearchDevelopmentController {
 
   @Post('task-progress-notes')
   @Permissions('page:rd-my-workspace', 'rd-task:edit', 'rd-task:create')
-  @UseInterceptors(FilesInterceptor('files', 5))
+  @UseInterceptors(FilesInterceptor('files', 10))
   createTaskProgressNote(
     @UploadedFiles() files: Array<{ originalname: string; mimetype?: string; size?: number; buffer: Buffer }> | undefined,
     @Body()

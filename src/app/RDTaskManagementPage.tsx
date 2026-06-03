@@ -7437,6 +7437,12 @@ function PersonTaskCockpit({
 
   // ── Per-tab visible counts (for infinite scroll pagination) ──
   const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({});
+  // 当前激活 tab 的滚动容器。用 callback-ref 把节点存进 state，而不是 useRef：
+  // AnimatePresence mode="wait" 下切 tab 时旧容器会先退场动画(~220ms)再卸载、新容器随后才挂载；
+  // 用 useRef + 仅依赖 activeTab 的 effect 会在退场期测到旧容器、且新容器挂载后不再重跑 effect，
+  // 导致少卡片的新 tab 永不自动填充。把节点放进 state 后，节点挂载/卸载即触发 effect 重跑，时序正确。
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+  const setScrollRef = useCallback((node: HTMLDivElement | null) => setScrollEl(node), []);
 
   // 固定高度容器内的 onScroll 触发分页
   const handleTaskScroll = useCallback(
@@ -7578,6 +7584,25 @@ function PersonTaskCockpit({
     });
     return () => { cancelled = true; };
   }, [activeTab, allActiveTasks, personTasksMap, visibleCounts]);
+
+  // 自动填充：瀑布流把卡片分到多列后，少量卡片(如初始只显示 4 条而总数更多)撑不满 480px 容器→
+  // 无滚动条→onScroll 永不触发→加载更多被永久卡死。此处在内容未达可滚动阈值且仍有更多时主动
+  // 加载下一页，直到出现滚动空间或全部加载完。依赖 scrollEl(节点挂载即重跑，修复切 tab 时序)、
+  // masonryColumns(响应式列数变化后重评估)、visibleCounts(每次加载后迭代直至填满)。
+  useEffect(() => {
+    if (!scrollEl) return;
+    const total = activeTab === "all"
+      ? allActiveTasks.length
+      : (personTasksMap.get(activeTab)?.length ?? 0);
+    const shown = visibleCounts[activeTab] ?? TASK_PAGE_SIZE;
+    if (shown >= total) return;
+    if (scrollEl.scrollHeight - scrollEl.clientHeight >= 120) return;
+    setVisibleCounts((prev) => {
+      const current = prev[activeTab] ?? TASK_PAGE_SIZE;
+      if (current >= total) return prev;
+      return { ...prev, [activeTab]: Math.min(current + TASK_PAGE_SIZE, total) };
+    });
+  }, [scrollEl, activeTab, visibleCounts, masonryColumns, allActiveTasks, personTasksMap]);
 
   // Slide variants for tab content transitions
   const slideVariants = {
@@ -8094,6 +8119,7 @@ function PersonTaskCockpit({
                         </div>
                       ) : (
                         <div
+                          ref={setScrollRef}
                           className="cockpit-scroll overflow-y-auto"
                           style={{ height: 480 }}
                           onScroll={(e) => handleTaskScroll(e, "all", allActiveTasks.length)}
@@ -8179,6 +8205,7 @@ function PersonTaskCockpit({
                         </div>
                       ) : (
                         <div
+                          ref={setScrollRef}
                           className="cockpit-scroll overflow-y-auto"
                           style={{ height: 480 }}
                           onScroll={(e) => handleTaskScroll(e, p.name, tasks.length)}

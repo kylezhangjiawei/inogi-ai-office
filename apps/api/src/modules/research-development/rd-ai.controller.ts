@@ -196,7 +196,7 @@ export class RdAiController {
 
   @Post('assess-progress')
   @Permissions('page:rd-my-workspace', 'rd-task:edit', 'rd-task:create', 'page:rd-director-dashboard')
-  @UseInterceptors(FilesInterceptor('files', 5))
+  @UseInterceptors(FilesInterceptor('files', 10))
   async assessProgress(
     @UploadedFiles() files: Array<{ originalname: string; buffer: Buffer; mimetype?: string }> | undefined,
     @Body()
