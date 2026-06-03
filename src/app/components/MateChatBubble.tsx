@@ -23,7 +23,8 @@ import { toast } from "sonner";
 import { authFetch } from "../lib/authSession";
 import { useAuth } from "../auth";
 import { cn } from "./ui/utils";
-import { ragStatus, type RagCitation, type RagStatus } from "../lib/ragApi";
+import { backfillKbToRag, ragStatus, type RagCitation, type RagStatus } from "../lib/ragApi";
+import { hasPermission } from "../lib/permissions";
 import { RagCitations, RagPermissionNotice } from "./RagCitations";
 
 // ─── 类型 ─────────────────────────────────────────────────────────────────────
@@ -167,6 +168,8 @@ async function apiListModels(): Promise<ModelOption[]> {
 
 export function MateChatBubble() {
   const { user } = useAuth();
+  // KB 管理员才看得到「一键回填」入口（后端同样以 rd-kb:manage 鉴权，普通用户即便看到点击也会被 403 拦下）
+  const canBackfillRag = hasPermission(user?.permissions ?? [], "rd-kb:manage");
 
   // 浮动气泡
   const bubbleRef = useRef<HTMLButtonElement | null>(null);
@@ -204,6 +207,8 @@ export function MateChatBubble() {
   const [msgCitations, setMsgCitations] = useState<Record<string, MessageCitations>>({});
   // RAG 探活状态（embedding 配置 + 索引文档数）
   const [rag, setRag] = useState<RagStatus | null>(null);
+  // KB→RAG 一键回填进行中（仅 KB 管理员触发）
+  const [backfilling, setBackfilling] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -281,6 +286,27 @@ export function MateChatBubble() {
   }, []);
 
   useEffect(() => { if (open) void loadInit(); }, [open, loadInit]);
+
+  // ── KB→RAG 一键回填：embedding 已配置但索引为空时，KB 管理员可一键把知识库灌入向量索引 ──
+  const handleBackfillRag = useCallback(async () => {
+    if (backfilling) return;
+    setBackfilling(true);
+    try {
+      const res = await backfillKbToRag();
+      toast.success(
+        res.failed > 0
+          ? `回填完成：成功 ${res.succeeded}/${res.total} 条，失败 ${res.failed} 条`
+          : `回填完成：已索引 ${res.succeeded}/${res.total} 条知识库条目`,
+      );
+      // 重新探活刷新徽章（成功后 chunkCount 应 > 0，徽章转为「RAG 就绪」）
+      const next = await ragStatus().catch(() => null);
+      if (next) setRag(next);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "回填失败，请稍后重试");
+    } finally {
+      setBackfilling(false);
+    }
+  }, [backfilling]);
 
   // ── 切换会话时加载消息 ──────────────────────────────────────────────────────
 
@@ -996,15 +1022,29 @@ export function MateChatBubble() {
                           <span
                             className="inline-flex items-center gap-1 rounded-full bg-slate-50 px-2 py-1 text-[10px] font-medium text-slate-500 ring-1 ring-slate-200"
                             title={
-                              !rag.embeddingConfigured
+                              rag.reason ??
+                              (!rag.embeddingConfigured
                                 ? "未配置 Embedding 模型，回答仅基于通用知识"
-                                : "知识库尚未回填，请管理员触发回填"
+                                : "知识库尚未回填，请管理员触发回填")
                             }
                           >
                             <Database className="h-2.5 w-2.5" />
                             RAG 未启用
                           </span>
                         )
+                      )}
+                      {/* 一键回填：仅当「embedding 已配置但索引为空」且当前用户是 KB 管理员时出现 */}
+                      {rag && rag.embeddingConfigured && rag.chunkCount === 0 && canBackfillRag && (
+                        <button
+                          type="button"
+                          onClick={() => void handleBackfillRag()}
+                          disabled={backfilling}
+                          className="inline-flex items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-1 text-[10px] font-medium text-indigo-600 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          title="将知识库条目同步到 RAG 向量索引，使 AI 能检索内部资料（仅 KB 管理员可用）"
+                        >
+                          <RefreshCw className={cn("h-2.5 w-2.5", backfilling && "animate-spin")} />
+                          {backfilling ? "回填中…" : "一键回填"}
+                        </button>
                       )}
                       {showModelMenu && models.length > 0 && (
                         <div

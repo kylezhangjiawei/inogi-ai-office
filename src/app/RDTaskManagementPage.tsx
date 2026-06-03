@@ -110,11 +110,8 @@ import {
 } from "./lib/rdApi";
 import { ProgressAttachmentGrid } from "./RDProgressEvidence";
 import { RDDailyReportPanel } from "./RDDailyReportPanel";
-import {
-  computeTaskCompletionScore,
-  getGradeTone,
-  type TaskCompletionScore,
-} from "./lib/taskCompletionScore";
+import { getGradeTone } from "./lib/taskCompletionScore";
+import { openTaskCompletionReport, openBatchCompletionReport } from "./lib/taskCompletionReport";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
 import { Button } from "./components/ui/button";
 import { Checkbox } from "./components/ui/checkbox";
@@ -135,6 +132,23 @@ type Priority = RdPriority;
 type Collaborator = RdCollaborator;
 type Task = RdTask;
 type SubProject = RdSubProject;
+// 带并发上限地映射数组，避免批量导出时一次性发起成百上千个请求压垮浏览器/后端。
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length)) }, async () => {
+    while (cursor < items.length) {
+      const i = cursor++;
+      results[i] = await fn(items[i], i);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
 type Category = RdCategory;
 type ProductDef = RdProductDef;
 type PersonProfile = {
@@ -3492,7 +3506,7 @@ function ApprovalActionDialog({
 
 function TaskCompletionScoreCard({
   task,
-  notes: _notes,
+  notes,
   loading,
   canView,
 }: {
@@ -3509,7 +3523,6 @@ function TaskCompletionScoreCard({
   const [debugOpen, setDebugOpen] = useState(false);
   const [debugData, setDebugData] = useState<RdTaskCompletionScoreDebug | null>(null);
   const [debugLoading, setDebugLoading] = useState(false);
-  void _notes;
 
   const openDebug = useCallback(async () => {
     setDebugOpen(true);
@@ -3611,9 +3624,6 @@ function TaskCompletionScoreCard({
               </span>
             )}
           </div>
-          {aiScore.summary && (
-            <p className="mt-1.5 text-xs leading-5 text-slate-700">{aiScore.summary}</p>
-          )}
         </div>
         <div className="shrink-0 text-right">
           <div className="flex items-baseline justify-end gap-1">
@@ -3635,7 +3645,17 @@ function TaskCompletionScoreCard({
         </div>
       </div>
 
-      <ul className="space-y-2">
+      {aiScore.summary && (
+        <div className="rounded-md border border-slate-200 bg-slate-50/70 px-3 py-2">
+          <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
+            <Sparkles className="h-3 w-3 text-indigo-500" />
+            AI 综合点评
+          </div>
+          <p className="text-xs leading-6 text-slate-700">{aiScore.summary}</p>
+        </div>
+      )}
+
+      <ul className="space-y-2.5">
         {dimensions.map((d) => {
           const pct = Math.round((d.score / d.max) * 100);
           return (
@@ -3647,14 +3667,13 @@ function TaskCompletionScoreCard({
                   <span className="text-slate-400"> / {d.max}</span>
                 </span>
               </div>
-              <div className="flex items-center gap-2">
-                <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
-                  <div className={cn("h-full rounded-full", tone.bar)} style={{ width: `${pct}%` }} />
-                </div>
-                <span className="w-40 shrink-0 truncate text-right text-[10px] text-slate-500" title={d.detail}>
-                  {d.detail}
-                </span>
+              <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
+                <div className={cn("h-full rounded-full", tone.bar)} style={{ width: `${pct}%` }} />
               </div>
+              {/* 维度评语完整展示（此前用 w-40 truncate 截断导致"看不全"，改为整行换行） */}
+              {d.detail && (
+                <p className="text-[11px] leading-5 text-slate-500">{d.detail}</p>
+              )}
             </li>
           );
         })}
@@ -3706,17 +3725,31 @@ function TaskCompletionScoreCard({
             </>
           )}
         </p>
-        {isSuper && (
+        <div className="flex shrink-0 items-center gap-1.5">
           <button
             type="button"
-            onClick={openDebug}
-            className="shrink-0 inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
-            title="超级管理员专属：查看 AI 评分的原始 prompt 和 AI 响应（用于审查抽取/RAG 是否真的传到 AI）"
+            onClick={() => {
+              const ok = openTaskCompletionReport(task, aiScore, notes);
+              if (!ok) toast.error("报告窗口被浏览器拦截，请允许本站弹出窗口后重试");
+            }}
+            className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+            title="生成正式的完成质量评估报告，在弹出的打印对话框中选择「另存为 PDF」即可下载"
           >
-            <Settings2 className="h-3 w-3" />
-            调试
+            <FileText className="h-3 w-3" />
+            生成报告
           </button>
-        )}
+          {isSuper && (
+            <button
+              type="button"
+              onClick={openDebug}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
+              title="超级管理员专属：查看 AI 评分的原始 prompt 和 AI 响应（用于审查抽取/RAG 是否真的传到 AI）"
+            >
+              <Settings2 className="h-3 w-3" />
+              调试
+            </button>
+          )}
+        </div>
       </div>
       {debugOpen && (
         <CompletionScoreDebugDialog
@@ -7355,8 +7388,10 @@ function PersonTaskCockpit({
   const [backfillBusy, setBackfillBusy] = useState(false);
   // 批量补抽取历史附件的进行中标记
   const [extractionBackfillBusy, setExtractionBackfillBusy] = useState(false);
+  // 批量导出报告的进行中标记
+  const [batchExportBusy, setBatchExportBusy] = useState(false);
 
-  const handleBackfillScores = useCallback(async () => {
+  const handleBackfillScores = useCallback(async (force = false) => {
     if (backfillBusy) return;
     setBackfillBusy(true);
     const toastId = toast.loading("[1/2] 正在抽取历史附件文本（OCR/文档/视觉）…");
@@ -7385,10 +7420,14 @@ function PersonTaskCockpit({
     // Step 2：AI 评分
     toast.loading(`[2/2] ${extractionSummary} → 生成 AI 评分中…`, { id: toastId });
     try {
-      const result = await backfillRdTaskCompletionScores();
-      const scoreSummary = `AI 评分：${result.scored} 新评分 / ${result.skipped} 已存在${
-        result.failed > 0 ? ` / ${result.failed} 失败` : ""
-      }`;
+      const result = await backfillRdTaskCompletionScores({ force });
+      const scoreSummary = force
+        ? `AI 重新评分：${result.scored} 个已按新标准更新${
+            result.failed > 0 ? ` / ${result.failed} 失败` : ""
+          }`
+        : `AI 评分：${result.scored} 新评分 / ${result.skipped} 已存在${
+            result.failed > 0 ? ` / ${result.failed} 失败` : ""
+          }`;
       const finalMsg = [extractionSummary, scoreSummary, extractionHasMore ? "提示：附件仍有未抽取项，可再次点击继续完善评分" : ""]
         .filter(Boolean)
         .join("\n");
@@ -7519,6 +7558,63 @@ function PersonTaskCockpit({
     }
     return map;
   }, [personLoads, allTasks, sortByUpdatedDesc, matchesKpiFilter]);
+
+  // 批量导出报告：把当前范围（"全部" / 某成员）已完成且已评分的任务，汇总成一份多页 PDF。
+  // 注意：依赖 allActiveTasks / personTasksMap，必须定义在它们的 useMemo 之后，否则触发 TDZ。
+  const handleBatchExportReports = useCallback(async () => {
+    if (batchExportBusy) return;
+    const scopeTasks = (activeTab === "all" ? allActiveTasks : (personTasksMap.get(activeTab) ?? []))
+      .filter((t) => t.status === "completed");
+    if (scopeTasks.length === 0) {
+      toast.info("当前范围没有已完成任务可导出");
+      return;
+    }
+    if (
+      scopeTasks.length > 50 &&
+      !window.confirm(`当前范围有 ${scopeTasks.length} 个已完成任务，将逐个拉取评分与留痕并生成多页报告，可能较慢。确定继续？`)
+    ) {
+      return;
+    }
+    setBatchExportBusy(true);
+    const toastId = toast.loading(`正在汇总 ${scopeTasks.length} 个任务的评分…`);
+    try {
+      // 1) 拉评分（并发上限 6），优先用已缓存的 aiScoreMap
+      const scoreEntries = await mapWithConcurrency(scopeTasks, 6, async (t) => {
+        const cached = aiScoreMap[t.task_id];
+        const score = cached !== undefined ? cached : await fetchRdTaskCompletionScore(t.task_id).catch(() => null);
+        return [t, score] as const;
+      });
+      const scored = scoreEntries.filter(
+        (e): e is readonly [Task, RdTaskCompletionScore] => e[1] != null,
+      );
+      if (scored.length === 0) {
+        toast.error("这些任务尚未生成 AI 评分，请先点击「AI 复盘评分」", { id: toastId });
+        return;
+      }
+      // 2) 拉进度留痕（并发上限 6），优先用 notesMap 缓存
+      toast.loading(`正在汇总 ${scored.length} 个任务的进度留痕…`, { id: toastId });
+      const items = await mapWithConcurrency(scored, 6, async ([t, score]) => {
+        const cachedNotes = notesMap[t.task_id];
+        const noteList = cachedNotes !== undefined ? cachedNotes : await fetchRdTaskProgressNotes(t.task_id).catch(() => []);
+        return { task: t, score, notes: noteList };
+      });
+      const scopeLabel = activeTab === "all" ? "全部成员" : activeTab;
+      const ok = openBatchCompletionReport(scopeLabel, items);
+      if (!ok) {
+        toast.error("报告窗口被浏览器拦截，请允许本站弹出窗口后重试", { id: toastId });
+        return;
+      }
+      const skipped = scopeTasks.length - scored.length;
+      toast.success(
+        `已生成 ${items.length} 份报告${skipped > 0 ? `，跳过 ${skipped} 个未评分任务` : ""}`,
+        { id: toastId, duration: 6000 },
+      );
+    } catch (err) {
+      toast.error(`批量导出失败：${err instanceof Error ? err.message : "未知错误"}`, { id: toastId });
+    } finally {
+      setBatchExportBusy(false);
+    }
+  }, [batchExportBusy, activeTab, allActiveTasks, personTasksMap, aiScoreMap, notesMap]);
 
   // 切换 KPI 筛选时重置分页计数，避免旧偏移导致空白
   useEffect(() => {
@@ -8021,20 +8117,50 @@ function PersonTaskCockpit({
               </div>
               <div className="flex shrink-0 items-center gap-2">
                 {kpiFilter === "completed" && canReassign && (
-                  <button
-                    type="button"
-                    onClick={handleBackfillScores}
-                    disabled={backfillBusy}
-                    className="inline-flex shrink-0 items-center gap-1 rounded-md border border-indigo-200 bg-white px-2 py-1 text-[11px] font-semibold text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
-                    title="一键执行：① 自动抽取附件文本（OCR/文档/视觉） → ② 调 AI 评分。已抽取/已评分的会跳过（幂等）。"
-                  >
-                    {backfillBusy ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <Sparkles className="h-3 w-3" />
-                    )}
-                    {backfillBusy ? "抽取+评分中…" : "AI 复盘评分"}
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleBackfillScores(false)}
+                      disabled={backfillBusy}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-indigo-200 bg-white px-2 py-1 text-[11px] font-semibold text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      title="一键执行：① 自动抽取附件文本（OCR/文档/视觉） → ② 调 AI 评分。已抽取/已评分的会跳过（幂等）。"
+                    >
+                      {backfillBusy ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Sparkles className="h-3 w-3" />
+                      )}
+                      {backfillBusy ? "抽取+评分中…" : "AI 复盘评分"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            "将对【所有已完成任务】按最新评分标准重新评分，并覆盖现有分数（消耗 AI 额度、耗时较长）。\n通常仅在评分标准调整后执行一次。确定继续？",
+                          )
+                        ) {
+                          void handleBackfillScores(true);
+                        }
+                      }}
+                      disabled={backfillBusy}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-amber-200 bg-white px-2 py-1 text-[11px] font-semibold text-amber-700 transition-colors hover:border-amber-300 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      title="强制重算：对所有已完成任务按最新评分标准重新评分并覆盖旧分。用于评分标准升级后统一刷新历史分。"
+                    >
+                      <RotateCcw className="h-3 w-3" />
+                      按新标准重算
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleBatchExportReports}
+                      disabled={batchExportBusy}
+                      className="inline-flex shrink-0 items-center gap-1 rounded-md border border-violet-200 bg-white px-2 py-1 text-[11px] font-semibold text-violet-700 transition-colors hover:border-violet-300 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      title="把当前范围（全部 / 选中成员）已完成且已评分的任务，汇总成一份多页正式报告，可在打印对话框中选择「另存为 PDF」下载。"
+                    >
+                      {batchExportBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />}
+                      {batchExportBusy ? "汇总中…" : "批量导出报告"}
+                    </button>
+                  </>
                 )}
                 {canReassign && (
                   <button
@@ -8917,7 +9043,10 @@ function ExecutiveOverview({
       style={{ background: "transparent" }}
     >
       <div className="mx-auto  space-y-6 rd-stagger-children">
-        <section className="rounded-2xl border border-slate-200/70 bg-white px-5 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]">
+        {/* 顶部并排区：研发执行提示（占 3）+ 今日日报速览（占 2）。窄屏（< xl）自动上下堆叠，
+            宽屏并排可省下一整块纵向高度，留给下方的人员任务驾驶舱。 */}
+        <div className={catStats.length > 0 ? "grid items-stretch gap-6 xl:grid-cols-5" : undefined}>
+        <section className={cn("rounded-2xl border border-slate-200/70 bg-white px-5 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]", catStats.length > 0 && "min-w-0 xl:col-span-3 xl:self-start")}>
           <div className="grid gap-4 lg:grid-cols-[minmax(280px,1fr)_auto]">
             <div className="order-1 flex min-w-0 items-center gap-3">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-[0_6px_16px_-4px_rgba(79,70,229,0.45)]">
@@ -9044,6 +9173,12 @@ function ExecutiveOverview({
             )}
           </div>
         </section>
+        {catStats.length > 0 && (
+          <div className="min-w-0 xl:col-span-2">
+            <RDDailyReportPanel canRegenerate={(canReassign ?? false) || (canCreateTask ?? false)} />
+          </div>
+        )}
+        </div>
 
         {/* 骨架屏只在「尚无数据可显示」时出现（首次加载 / 真空数据）。刷新（如删除任务后的
             loadCategories）虽然把 loading 置 true，但旧 catStats 仍在 —— 此时保持下方面板挂载，
@@ -9079,8 +9214,6 @@ function ExecutiveOverview({
           </section>
         ) : (
           <>
-            <RDDailyReportPanel canRegenerate={(canReassign ?? false) || (canCreateTask ?? false)} />
-
             <PersonTaskCockpit
               risks={risks}
               personLoads={personLoads}

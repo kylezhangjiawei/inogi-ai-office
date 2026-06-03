@@ -17,22 +17,36 @@ export class RagController {
     private readonly embedding: EmbeddingClient,
   ) {}
 
-  /** 探活：embedding 模型是否配置 + 当前索引文档数。前端用来显示"RAG 就绪/未配置"徽章 */
+  /**
+   * 探活：embedding 模型是否配置 + 当前索引文档数。前端用来显示"RAG 就绪/未配置"徽章。
+   * reason：未就绪的具体原因（模型未配置 / 密钥解密失败 / 密钥为空 / 知识库未回填），
+   * 便于线上「RAG 未启用」时一眼定位，而不用翻服务端日志。
+   */
   @Get('status')
   async getStatus() {
     let embeddingConfigured = false;
     let embeddingModel: string | null = null;
+    let reason: string | null = null;
     try {
       const cfg = await this.embedding.loadConfig();
       embeddingConfigured = Boolean(cfg.apiKey);
       embeddingModel = cfg.model;
-    } catch {
+      if (!embeddingConfigured) {
+        reason = 'Embedding 模型密钥为空，请在「AI 模型管理」补全。';
+      }
+    } catch (err) {
+      // loadConfig 在「未配置 / 解密失败 / 密钥为空」时抛 BadRequestException，
+      // 把它的 message 透出，让前端徽章直接显示原因。
       embeddingConfigured = false;
+      reason = err instanceof Error ? err.message : 'Embedding 模型加载失败';
     }
     const chunkCount = await this.prisma.knowledgeChunk
       .count({ where: { archived: false } })
       .catch(() => 0);
-    return { embeddingConfigured, embeddingModel, chunkCount };
+    if (embeddingConfigured && chunkCount === 0) {
+      reason = '已配置 Embedding 模型，但知识库暂无可检索的索引，请管理员触发「KB→RAG 回填」。';
+    }
+    return { embeddingConfigured, embeddingModel, chunkCount, reason };
   }
 
   @Post('search')

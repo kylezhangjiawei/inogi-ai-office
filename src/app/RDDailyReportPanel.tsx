@@ -331,9 +331,9 @@ export function RDDailyReportPanel({ canRegenerate }: { canRegenerate: boolean }
   const totalPages = Math.max(1, Math.ceil(reportsByDate.length / REPORT_PAGE_SIZE));
 
   return (
-    <div className="space-y-3">
-      {/* ── 今日速览（始终可见） ─────────────────────────────────────────── */}
-      <div className="rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-indigo-50/40 p-4 shadow-sm">
+    <div className="flex h-full flex-col gap-3">
+      {/* ── 今日速览（始终可见；flex-1 让它在宽屏并排时撑满到与左侧 KPI 卡等高） ──── */}
+      <div className="flex-1 rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-indigo-50/40 p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-600 text-white shadow-sm">

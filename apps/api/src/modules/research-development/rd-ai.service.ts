@@ -2878,28 +2878,37 @@ export class RdAiService {
       '你的目标是从多个维度客观评估任务的"完成质量"，帮助团队识别优秀实践与改进空间。',
       '评分必须严格基于提供的事实数据，不臆测、不打感情分。',
       '',
+      '【评分基调 — 必须遵守】',
+      '一个"按要求正常完成"的任务应落在合格~良好区间（约 60-82 分）；只有确有执行问题的任务才给低分。',
+      '研发工作中以下做法是常见且合理的，本身不是缺陷，不得因此结构性压低分数，只在确实影响了结果时才酌情扣分：',
+      '  · 未填写截止日期；· 单人独立完成；· 以截图 / 代码提交 / 链接（而非正式文档）作为交付记录；· 留痕简短但能说清工作。',
+      '请把"满分前提"理解为"做得很好"，而不是"做到完美无可挑剔"。',
+      '',
       '评分维度（每项满分 25，总分 100）：',
       '',
       '1. 时效性 (timeliness, 0-25)',
       '   - 是否按时/提前完成、逾期程度',
-      '   - 提前 + 完成质量稳定 = 满分；轻微逾期但有合理记录可酌情扣分；严重逾期且无说明则大幅扣分',
-      '   - 无截止日期时按中性 15 分起评',
+      '   - 提前 / 按时完成 = 22-25；轻微逾期但有合理记录 = 16-21；明显逾期且无任何说明才降到 10 分以下',
+      '   - 无截止日期时按中性 18 分起评（不因未设期限而扣分），仅在留痕显示明显拖延时下调',
       '',
       '2. 过程透明度 (process, 0-25)',
       '   - 进度留痕的频率、阶段覆盖度、文字详尽程度',
-      '   - 是否能从留痕中清晰看出"做了什么 / 遇到什么 / 下一步是什么"',
-      '   - 零留痕直接 ≤5 分；流水账式留痕 8-12 分；阶段清晰且有判断 20+ 分',
+      '   - 是否能从留痕中看出"做了什么 / 遇到什么 / 下一步是什么"',
+      '   - 阶段清晰且有判断/复盘 = 21-25；能说清工作内容的正常留痕 = 16-20；',
+      '     简短但有效的记录 = 13-16（不要因为不是长篇就压到很低）；完全零留痕才 ≤8 分',
       '',
       '3. 交付证据 (evidence, 0-25)',
-      '   - 留痕附件是否充分、相关、可作为完成依据',
-      '   - 文件名是否能反映出测试/方案/评审等关键产出（如 "EMC测试报告.pdf"、"BOM变更说明.xlsx" 优于 "图片1.png"）',
-      '   - 无任何附件 ≤5 分；仅截图无文档 10-15 分；有可追溯交付物 20+ 分',
+      '   - 是否有可佐证任务完成、且与任务相关的产出',
+      '   - 截图 / 代码提交 / 链接 / 文档都算有效证据；正式测试/评审/方案文档是加分项，而非及格线',
+      '   - 佐证充分且可追溯（命名清晰的报告/数据等）= 21-25；有与任务相关的有效佐证 = 16-20；',
+      '     仅有少量或弱相关佐证 = 11-15；完全无任何可佐证内容才 ≤8 分',
       '',
       '4. 协作与风险管理 (collaboration, 0-25)',
-      '   - 协作人配置是否合理、协作记录是否充分',
-      '   - 是否识别并解决了阻塞/风险（看操作历史中的阻塞标记、留痕中的风险描述）',
-      '   - 独立完成不直接扣分（部分任务确实适合独立），但需在 comment 中说明判断',
-      '   - 高优先级任务对该维度要求更高',
+      '   - 是否识别并妥善处理了阻塞/风险（看操作历史中的阻塞标记、留痕中的风险描述）',
+      '   - 独立完成是常态，按中性 17-20 起评，绝不因"没有协作人"而扣分',
+      '   - 有良好协作记录、或妥善化解了风险/阻塞 = 21-25',
+      '   - 仅在"明显需要协作却未协作"或"存在阻塞却放任不处理"时，才降到 12 分以下',
+      '   - 高优先级任务可对风险管理要求略高',
       '',
       '输出严格 JSON，禁止任何额外文字或 markdown 包装：',
       '{',
@@ -2920,7 +2929,7 @@ export class RdAiService {
       '  "improvements": [string, ...]   // 1-3 条改进建议, 每条 25 字内; 任务做得很好时也至少给 1 条',
       '}',
       '',
-      '等级映射：≥90→A 优秀；75-89→B 良好；60-74→C 合格；<60→D 需改进',
+      '等级映射：≥85→A 优秀；70-84→B 良好；55-69→C 合格；<55→D 需改进',
       'total 必须等于 4 个 dimension.score 之和，不要单独算。',
       '',
       '如果输入数据严重缺失（如完全无留痕、无操作记录），仍要给出评分，',
@@ -3063,7 +3072,7 @@ export class RdAiService {
     // 以维度分之和为准（防止 AI 算错总分）
     const total = Math.max(0, Math.min(100, computedTotal));
     const grade: RdTaskCompletionScoreResult['grade'] =
-      total >= 90 ? 'A' : total >= 75 ? 'B' : total >= 60 ? 'C' : 'D';
+      total >= 85 ? 'A' : total >= 70 ? 'B' : total >= 55 ? 'C' : 'D';
     const gradeLabelMap: Record<RdTaskCompletionScoreResult['grade'], string> = {
       A: '优秀',
       B: '良好',
@@ -3105,7 +3114,8 @@ export class RdAiService {
     const { task, notes } = input;
     const completionTime = this.pickLatestNoteTime(notes) ?? task.updated_at ?? null;
     const dueDate = task.due_date;
-    let timeliness = 15;
+    // 中性基准：未设截止日期不扣分（18 起评），与 AI 评分口径一致
+    let timeliness = 18;
     let timelinessComment = '无截止日期，按中性分';
     if (dueDate && completionTime) {
       const dayDiff = Math.floor(
@@ -3113,28 +3123,31 @@ export class RdAiService {
       );
       if (!Number.isNaN(dayDiff)) {
         if (dayDiff <= 0) {
-          timeliness = 25;
+          timeliness = dayDiff < 0 ? 25 : 23;
           timelinessComment = dayDiff < 0 ? `提前 ${-dayDiff} 天完成` : '按时完成';
         } else if (dayDiff <= 3) {
           timeliness = 18;
           timelinessComment = `逾期 ${dayDiff} 天`;
         } else if (dayDiff <= 7) {
-          timeliness = 10;
+          timeliness = 12;
           timelinessComment = `逾期 ${dayDiff} 天`;
         } else {
-          timeliness = 4;
+          timeliness = 6;
           timelinessComment = `严重逾期 ${dayDiff} 天`;
         }
       }
     }
     const noteCount = notes.length;
+    // 有留痕即给合格分；只有完全零留痕才低分
     const process =
-      noteCount >= 5 ? 22 : noteCount >= 3 ? 17 : noteCount >= 1 ? 10 : 0;
+      noteCount >= 5 ? 20 : noteCount >= 3 ? 16 : noteCount >= 1 ? 13 : 6;
     const attCount =
       notes.reduce((sum, n) => sum + (n.attachments?.length ?? 0), 0) + (task.attachments ?? 0);
-    const evidence = attCount >= 3 ? 18 : attCount >= 1 ? 10 : 0;
+    // 截图 / 代码 / 文档等任意佐证都算有效证据
+    const evidence = attCount >= 3 ? 20 : attCount >= 1 ? 15 : 6;
     const collabCount = task.collaborators?.length ?? 0;
-    const collaboration = collabCount >= 2 ? 15 : collabCount === 1 ? 8 : 5;
+    // 独立完成是常态，按中性 16 起评，不因无协作人而扣分
+    const collaboration = collabCount >= 2 ? 20 : collabCount === 1 ? 18 : 16;
     const dimensions: RdTaskCompletionScoreDimension[] = [
       { key: 'timeliness', label: '时效性', score: timeliness, max: 25, comment: timelinessComment },
       { key: 'process', label: '过程透明度', score: process, max: 25, comment: `${noteCount} 条进度记录` },
@@ -3149,7 +3162,7 @@ export class RdAiService {
     ];
     const total = dimensions.reduce((sum, d) => sum + d.score, 0);
     const grade: RdTaskCompletionScoreResult['grade'] =
-      total >= 90 ? 'A' : total >= 75 ? 'B' : total >= 60 ? 'C' : 'D';
+      total >= 85 ? 'A' : total >= 70 ? 'B' : total >= 55 ? 'C' : 'D';
     const gradeLabelMap: Record<RdTaskCompletionScoreResult['grade'], string> = {
       A: '优秀',
       B: '良好',

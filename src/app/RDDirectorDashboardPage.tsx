@@ -72,6 +72,7 @@ import {
 } from "./lib/rdApi";
 import { ProgressAttachmentGrid } from "./RDProgressEvidence";
 import { RDDailyReportPanel } from "./RDDailyReportPanel";
+import { RDPerformanceAssessmentPanel } from "./RDPerformanceAssessmentPanel";
 
 const DIRECTOR_MOTION_EASE = [0.22, 1, 0.36, 1] as [number, number, number, number];
 const DIRECTOR_FAST_TRANSITION = { duration: 0.18, ease: DIRECTOR_MOTION_EASE };
@@ -3989,6 +3990,9 @@ export function RDDirectorDashboardPage() {
 
             {/* 研发日报（共享组件：今日速览 + 历史详情层） */}
             <RDDailyReportPanel canRegenerate={canReassignTasks || canCreateTask} />
+
+            {/* 团队绩效考核（交付质量 + 吞吐 + MateChat 活跃度 → 综合分与相对排名） */}
+            <RDPerformanceAssessmentPanel />
 
           </div>
 

@@ -522,6 +522,79 @@ export function recomputeRdDirectorDashboard() {
   return requestJson<{ ok: true }>("/director-dashboard/recompute", { method: "POST" });
 }
 
+// ── 团队绩效考核（按人聚合）─────────────────────────────────────────────────────
+
+export type RdPerformanceGradeDist = { A: number; B: number; C: number; D: number };
+
+export type RdPerformanceRow = {
+  person_id: string;
+  user_id: string | null;
+  name: string;
+  position: string;
+  department: string;
+  /** 本人作为主责人的已完成任务数 */
+  completed_count: number;
+  /** 其中已被 AI 评分的数量 */
+  scored_count: number;
+  /** 已评分任务平均分（0~100），无则 null */
+  avg_score: number | null;
+  grade_dist: RdPerformanceGradeDist;
+  /** 四维度平均分（各满分 25），无评分则 null */
+  dimension_avg: {
+    timeliness: number;
+    process: number;
+    evidence: number;
+    collaboration: number;
+  } | null;
+  /** MateChat 累计发言条数 */
+  chat_total: number;
+  /** MateChat 近 30 天发言条数 */
+  chat_recent: number;
+  /** 近 30 天均分 */
+  recent_avg: number | null;
+  /** 前 30 天均分 */
+  prev_avg: number | null;
+  /** 趋势差（近 − 前），数据不足为 null */
+  trend_delta: number | null;
+  /** 最近若干次完成评分点（升序），用于迷你趋势图 */
+  score_series: Array<{ at: string; total: number }>;
+  /** 交付质量分（= avg_score） */
+  delivery_score: number | null;
+  /** 交付吞吐分（饱和曲线） */
+  throughput_score: number;
+  /** AI 工具活跃度分（饱和曲线） */
+  chat_score: number;
+  /** 综合考核分（0~100），无评分任务则 null（不参与排名） */
+  composite: number | null;
+  /** 排名（仅有综合分者，1 起），否则 null */
+  rank: number | null;
+};
+
+export type RdPerformanceAssessment = {
+  generated_at: string;
+  window_days: number;
+  weights: { delivery: number; throughput: number; chat: number };
+  saturation: { throughput_k: number; chat_k: number };
+  team: {
+    ranked_people: number;
+    avg_composite: number | null;
+    avg_score: number | null;
+    median_score: number | null;
+    grade_dist: RdPerformanceGradeDist;
+    total_completed: number;
+    total_scored: number;
+    chat_total: number;
+    score_months: Array<{ month: string; avg: number; count: number }>;
+  };
+  rows: RdPerformanceRow[];
+  notes: string[];
+};
+
+/** 团队绩效考核聚合（仅主管驾驶舱权限可读）。 */
+export function fetchRdPerformanceAssessment() {
+  return requestJson<RdPerformanceAssessment>("/performance-assessment");
+}
+
 export function saveRdDirectorDashboard(payload: RdDirectorDashboardPayload) {
   return requestJson<RdDirectorDashboardPayload>("/director-dashboard", {
     method: "PUT",
@@ -897,10 +970,13 @@ export type RdTaskCompletionScoreBackfillResult = {
 };
 
 /** 管理员批量为现存已完成任务补跑 AI 评分。已评分任务会跳过。 */
-export function backfillRdTaskCompletionScores(): Promise<RdTaskCompletionScoreBackfillResult> {
+export function backfillRdTaskCompletionScores(
+  opts: { force?: boolean } = {},
+): Promise<RdTaskCompletionScoreBackfillResult> {
+  // force=true：评分标准升级后，强制对所有已完成任务按新标准重新评分（覆盖旧分）
   return requestJson<RdTaskCompletionScoreBackfillResult>(
     `/task-completion-scores/backfill`,
-    { method: "POST" },
+    { method: "POST", body: JSON.stringify({ force: !!opts.force }) },
   );
 }
 

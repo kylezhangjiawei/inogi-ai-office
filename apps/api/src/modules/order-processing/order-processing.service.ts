@@ -7,7 +7,7 @@ import { OcrService } from '../ocr';
 import { MailCredentials, MailIngestionService } from '../resume-screening/mail-ingestion.service';
 import { IngestedMail } from '../resume-screening/resume-screening.types';
 import { SecureConfigService } from '../security/secure-config.service';
-import { createInitialOrderProcessingState, createInitialPurchaseOrders } from './order-processing.seed';
+import { createInitialOrderProcessingState } from './order-processing.seed';
 import {
   InventoryItem,
   InventoryStatus,
@@ -32,6 +32,7 @@ import {
 const STATE_KEY = 'order-processing:state:v1';
 const ACTIVE_TEMPLATE_SETTING = 'active-template-id';
 const REMINDER_RULE_SETTING = 'reminder-rule';
+const DEMO_SEED_CLEARED_SETTING = 'demo-seed-cleared';
 const DEFAULT_PAGE_SIZE = 12;
 const PRODUCT_PAGE_SIZE = 8;
 const ORDER_MAIL_LAST_UID_PREFIX = 'order-processing:wecom-mail:last-uid';
@@ -836,31 +837,86 @@ export class OrderProcessingService {
   }
 
   private async initializeStorage() {
-    const [orderCount, inventoryCount, templateCount, purchaseOrderCount] = await Promise.all([
-      this.prisma.orderProcessingOrder.count(),
-      this.prisma.orderProcessingInventoryItem.count(),
-      this.prisma.orderProcessingInvoiceTemplate.count(),
-      this.prisma.orderProcessingPurchaseOrder.count(),
-    ]);
-
-    if (orderCount === 0 && inventoryCount === 0) {
-      const runtimeState = await this.readRuntimeState();
-      await this.persistInitialState(runtimeState ?? createInitialOrderProcessingState());
-      if (purchaseOrderCount === 0) {
-        await this.seedPurchaseOrders(createInitialPurchaseOrders());
-      }
-      return;
-    }
-
+    // 仅确保发票模板与系统设置存在；不再注入任何演示业务数据。
+    const templateCount = await this.prisma.orderProcessingInvoiceTemplate.count();
     if (templateCount === 0) {
       await this.seedTemplatesAndSettings(createInitialOrderProcessingState());
     } else {
       await this.ensureSettings();
     }
 
-    if (purchaseOrderCount === 0) {
-      await this.seedPurchaseOrders(createInitialPurchaseOrders());
-    }
+    // 一次性清理历史版本遗留的演示订单 / 库存 / 出入库 / 采购订单数据。
+    await this.clearLegacyDemoSeedData();
+  }
+
+  /**
+   * 清除历史版本通过种子数据写入的演示业务数据（订单 / 库存 / 出入库 / 采购订单）。
+   * 通过设置项标记保证每个数据库仅执行一次，且只删除已知的演示固定 ID，
+   * 不会影响任何真实上传 / 邮件识别 / 手动录入的数据。
+   */
+  private async clearLegacyDemoSeedData() {
+    const cleared = await this.prisma.orderProcessingSetting.findUnique({
+      where: { key: DEMO_SEED_CLEARED_SETTING },
+    });
+    if (cleared) return;
+
+    const demoOrderIds = [
+      'PO-20260524-01',
+      'PO-20260523-08',
+      'PO-20260523-07',
+      'PO-20260522-11',
+      'PO-20260521-16',
+      'PO-20260520-03',
+    ];
+    const demoInventoryIds = [
+      'BT-001',
+      'TC-002',
+      'PB-100',
+      'CH-018',
+      'SP-002',
+      'HS-005',
+      'HD-010',
+      'BOX-022',
+      'KB-008',
+      'MS-006',
+      'CL-020',
+      'AD-011',
+    ];
+    const demoMovementIds = ['MV-001', 'MV-002', 'MV-003', 'MV-004'];
+    const demoPurchaseOrderIds = [
+      'po-20260601-001',
+      'po-20260531-014',
+      'po-20260530-009',
+      'po-20260529-017',
+      'po-20260525-003',
+    ];
+
+    // 安全护栏：仅清理「本次发布之前」由旧种子写入的演示数据。发布后新建 / 邮件识别 / 手动录入的真实
+    // 数据 createdAt 必然 ≥ 此时间点，即使其 id 偶然与下列演示 ID 相同，也不会被这次一次性清理误删。
+    const LEGACY_SEED_CUTOFF = new Date('2026-06-03T00:00:00.000Z');
+
+    await this.prisma.$transaction(async (tx) => {
+      // 先删出入库记录（itemId 外键级联，此处显式删除更稳妥）
+      await tx.orderProcessingStockMovement.deleteMany({
+        where: { id: { in: demoMovementIds }, createdAt: { lt: LEGACY_SEED_CUTOFF } },
+      });
+      // 删订单时会级联删除其明细与发票
+      await tx.orderProcessingOrder.deleteMany({
+        where: { id: { in: demoOrderIds }, createdAt: { lt: LEGACY_SEED_CUTOFF } },
+      });
+      // 删库存项会级联删除其剩余的出入库记录
+      await tx.orderProcessingInventoryItem.deleteMany({
+        where: { id: { in: demoInventoryIds }, createdAt: { lt: LEGACY_SEED_CUTOFF } },
+      });
+      // 删采购订单会级联删除其明细行
+      await tx.orderProcessingPurchaseOrder.deleteMany({
+        where: { id: { in: demoPurchaseOrderIds }, createdAt: { lt: LEGACY_SEED_CUTOFF } },
+      });
+      // 写入标记，保证清理仅执行一次
+      await tx.orderProcessingSetting.create({
+        data: { key: DEMO_SEED_CLEARED_SETTING, value: true },
+      });
+    });
   }
 
   private async readRuntimeState() {

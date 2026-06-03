@@ -14,8 +14,11 @@ import {
   ClipboardCheck,
   Clock,
   FileText,
+  FolderInput,
   GitBranch,
   Info,
+  Layers,
+  List,
   MessageSquare,
   RefreshCw,
   Search,
@@ -46,15 +49,22 @@ import { isTaskOverdue, taskOverdueDays } from "./lib/taskDue";
 import {
   assessRdTaskProgress,
   createRdTaskProgressNote,
+  fetchProductTaskCategories,
   fetchRdPeople,
+  fetchRdProducts,
+  fetchRdTaskCategories,
   fetchRdTaskProgressNotes,
   fetchRdWorkspace,
+  moveRdTasks,
   patchRdMessage,
   updateRdTask,
   type RdAiProgressAssessment,
+  type RdCategory,
   type RdCollaborator,
   type RdPersonLoad,
   type RdPriority,
+  type RdProductDef,
+  type RdSubProject,
   type RdTaskProgressNote,
   type RdTaskStatus,
   type RdWorkspacePayload,
@@ -2260,12 +2270,274 @@ const WS_PRIORITY_CONFIG: Record<string, { label: string; bg: string; text: stri
   low:    { label: "低",  bg: "bg-slate-100", text: "text-slate-500"  },
 };
 
+// 个人工作台「移动归类」：与研发任务驾驶舱共用同一套移动目标（产品 → 一级系统 → 子项）。
+// 主产品(prod-portable-o2)的分类树存于主库，用 fetchRdTaskCategories 取；其余产品用
+// fetchProductTaskCategories 按需加载（切勿对主产品调用，否则后端会误种空 BOM）。
+const RD_MAIN_PRODUCT_ID = "prod-portable-o2";
+
+/** 选择移动目标产品并按需加载其分类树（镜像驾驶舱 useMoveTargetTree，自带产品列表 + 主树加载）。 */
+function useWorkspaceMoveTargetTree() {
+  const [products, setProducts] = useState<RdProductDef[]>([]);
+  const [mainTree, setMainTree] = useState<RdCategory[]>([]);
+  const [targetProductId, setTargetProductId] = useState<string>(RD_MAIN_PRODUCT_ID);
+  const [treeCache, setTreeCache] = useState<Record<string, RdCategory[]>>({});
+  const [loadingBase, setLoadingBase] = useState(true);
+  const [loadingTree, setLoadingTree] = useState(false);
+
+  // 初始化：产品列表 + 主产品分类树
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingBase(true);
+    Promise.all([fetchRdProducts(), fetchRdTaskCategories()])
+      .then(([prods, mainCats]) => {
+        if (cancelled) return;
+        setProducts(prods);
+        setMainTree(mainCats);
+      })
+      .catch(() => {
+        if (!cancelled) toast.error("移动目标加载失败，请重试");
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingBase(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 切到非主产品时按需加载其分类树（缓存）
+  useEffect(() => {
+    if (targetProductId === RD_MAIN_PRODUCT_ID) return;
+    if (treeCache[targetProductId]) return;
+    let cancelled = false;
+    setLoadingTree(true);
+    fetchProductTaskCategories(targetProductId)
+      .then((cats) => {
+        if (!cancelled) setTreeCache((prev) => ({ ...prev, [targetProductId]: cats }));
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setTreeCache((prev) => ({ ...prev, [targetProductId]: [] }));
+          toast.error("目标产品分类加载失败，请重试");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingTree(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetProductId]);
+
+  const targetCategories =
+    targetProductId === RD_MAIN_PRODUCT_ID ? mainTree : treeCache[targetProductId] ?? [];
+
+  return { products, targetProductId, setTargetProductId, targetCategories, loadingBase, loadingTree };
+}
+
+/** 移动归类弹窗：支持单个 / 批量。目标按 产品→一级系统→子项 三段选择，跨产品可选。 */
+function WorkspaceMoveDialog({
+  tasks,
+  onConfirm,
+  onClose,
+}: {
+  tasks: WorkspaceTask[];
+  onConfirm: (
+    taskIds: string[],
+    targetProductId: string,
+    targetCatId: string,
+    targetSubId: string,
+  ) => Promise<void>;
+  onClose: () => void;
+}) {
+  const shouldReduceMotion = useReducedMotion();
+  const { products, targetProductId, setTargetProductId, targetCategories, loadingBase, loadingTree } =
+    useWorkspaceMoveTargetTree();
+  const [targetCatId, setTargetCatId] = useState<string>("");
+  const [targetSubId, setTargetSubId] = useState<string>("");
+  const [saving, setSaving] = useState(false);
+  const isCrossProduct = targetProductId !== RD_MAIN_PRODUCT_ID;
+  const isBatch = tasks.length > 1;
+
+  const allTargetOptions = useMemo(() => {
+    const opts: { cat: RdCategory; sub: RdSubProject }[] = [];
+    for (const cat of targetCategories) {
+      for (const sub of cat.children) opts.push({ cat, sub });
+    }
+    return opts;
+  }, [targetCategories]);
+
+  // 切换产品时清空系统/子项；切换系统时清空子项
+  useEffect(() => {
+    setTargetCatId("");
+    setTargetSubId("");
+  }, [targetProductId]);
+  useEffect(() => {
+    setTargetSubId("");
+  }, [targetCatId]);
+
+  const targetSubOptions = useMemo(
+    () => (targetCatId ? allTargetOptions.filter((o) => o.cat.id === targetCatId) : allTargetOptions),
+    [allTargetOptions, targetCatId],
+  );
+
+  const handleConfirm = async () => {
+    if (!targetSubId) {
+      toast.error("请选择目标子项");
+      return;
+    }
+    const chosen = allTargetOptions.find((o) => o.sub.id === targetSubId);
+    if (!chosen) {
+      toast.error("目标子项无效，请重新选择");
+      return;
+    }
+    setSaving(true);
+    try {
+      await onConfirm(tasks.map((t) => t.task_id), targetProductId, chosen.cat.id, targetSubId);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <motion.div
+      initial={shouldReduceMotion ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.15 }}
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 14, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 14, scale: 0.98 }}
+        transition={{ duration: 0.18 }}
+        className="w-full max-w-md rounded-2xl bg-white shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
+              <FolderInput className="h-4 w-4" />
+            </div>
+            <div>
+              <h3 className="text-base font-semibold text-slate-900">移动任务归类</h3>
+              <p className="max-w-[260px] truncate text-xs text-slate-500">
+                {isBatch ? `已选 ${tasks.length} 个任务` : tasks[0]?.title}
+              </p>
+            </div>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100">
+            <X className="h-4 w-4 text-slate-500" />
+          </button>
+        </div>
+
+        <div className="space-y-4 p-6">
+          {!isBatch && (
+            <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-500">
+              当前位置：<span className="font-medium text-slate-700">{tasks[0]?.category_path || "未分类"}</span>
+            </div>
+          )}
+
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700">目标位置</label>
+            <div className="mb-2">
+              <label className="mb-1 block text-xs text-slate-500">产品</label>
+              <NativeSelect
+                value={targetProductId}
+                onChange={(e) => setTargetProductId(e.target.value)}
+                className="w-full text-sm"
+                disabled={loadingBase}
+              >
+                {products.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                    {p.id === RD_MAIN_PRODUCT_ID ? "（主产品）" : ""}
+                  </option>
+                ))}
+              </NativeSelect>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">一级系统</label>
+                <NativeSelect
+                  value={targetCatId}
+                  onChange={(e) => setTargetCatId(e.target.value)}
+                  className="w-full text-sm"
+                  disabled={loadingBase || loadingTree}
+                >
+                  <option value="">全部系统</option>
+                  {targetCategories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.label}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </div>
+              <div>
+                <label className="mb-1 block text-xs text-slate-500">子项</label>
+                <NativeSelect
+                  value={targetSubId}
+                  onChange={(e) => setTargetSubId(e.target.value)}
+                  className="w-full text-sm"
+                  disabled={loadingBase || loadingTree}
+                >
+                  <option value="">{loadingTree ? "加载中…" : "请选择子项"}</option>
+                  {targetSubOptions.map(({ cat, sub }) => (
+                    <option key={sub.id} value={sub.id}>
+                      {cat.label} / {sub.label}
+                    </option>
+                  ))}
+                </NativeSelect>
+              </div>
+            </div>
+            {isCrossProduct && (
+              <p className="mt-2 text-xs text-amber-600">跨产品移动：任务将移出当前产品，归入所选产品。</p>
+            )}
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
+          <button
+            type="button"
+            disabled={saving}
+            onClick={onClose}
+            className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            disabled={saving || loadingBase || loadingTree || !targetSubId}
+            onClick={handleConfirm}
+            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-60"
+          >
+            {saving ? <RefreshCw className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
+            确认移动
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 function WorkspaceTaskCard({
   task,
   onOpen,
+  moveEnabled = false,
+  selected = false,
+  onToggleSelect,
+  onMove,
 }: {
   task: WorkspaceTask;
   onOpen: (task: WorkspaceTask, tab: OperationTab, opts?: { abandon?: boolean }) => void;
+  /** 子系统全景视图下、且为自己主责的任务才允许移动/勾选。 */
+  moveEnabled?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (task: WorkspaceTask) => void;
+  onMove?: (task: WorkspaceTask) => void;
 }) {
   const grad = WS_PRIORITY_GRAD[task.priority] ?? WS_PRIORITY_GRAD.medium!;
   const sCfg = WS_STATUS_CONFIG[task.status] ?? WS_STATUS_CONFIG.draft!;
@@ -2295,6 +2567,7 @@ function WorkspaceTaskCard({
         isPendingReview
           ? "cursor-not-allowed select-text bg-slate-50 opacity-60 grayscale"
           : "cursor-pointer hover:-translate-y-0.5 hover:border-slate-200 hover:shadow-[0_8px_24px_rgba(15,23,42,0.09)] focus-visible:ring-2 focus-visible:ring-slate-300",
+        selected && "ring-2 ring-indigo-400/70",
       )}
     >
       {/* Left gradient stripe */}
@@ -2369,6 +2642,20 @@ function WorkspaceTaskCard({
 
         {!isPendingReview && (
           <div className="flex shrink-0 items-center gap-1">
+            {moveEnabled && onMove && (
+              <button
+                type="button"
+                title="移动到其它系统 / 子项"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onMove(task);
+                }}
+                className="inline-flex cursor-pointer items-center gap-0.5 rounded-lg border border-transparent px-2 py-1 text-[11px] font-medium text-indigo-500 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+              >
+                <FolderInput className="h-3 w-3" />
+                移动
+              </button>
+            )}
             {canAbandon && (
               <button
                 type="button"
@@ -2382,11 +2669,151 @@ function WorkspaceTaskCard({
                 申请放弃
               </button>
             )}
-            <ChevronRight className="h-4 w-4 text-slate-300 opacity-0 transition-all duration-150 group-hover:translate-x-0.5 group-hover:opacity-100" />
+            {moveEnabled && onToggleSelect ? (
+              <button
+                type="button"
+                title={selected ? "取消选择" : "勾选以批量移动"}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onToggleSelect(task);
+                }}
+                className={cn(
+                  "ml-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors",
+                  selected
+                    ? "border-indigo-500 bg-indigo-500 text-white"
+                    : "border-slate-300 bg-white text-transparent hover:border-indigo-300",
+                )}
+              >
+                <Check className="h-3 w-3" />
+              </button>
+            ) : (
+              <ChevronRight className="h-4 w-4 text-slate-300 opacity-0 transition-all duration-150 group-hover:translate-x-0.5 group-hover:opacity-100" />
+            )}
           </div>
         )}
       </div>
     </motion.div>
+  );
+}
+
+/** 子系统全景：把"我的任务"按 category_path 的一级系统归类，区分进行中/已完成。 */
+type SubsystemGroup = {
+  key: string;
+  active: WorkspaceTask[];
+  done: WorkspaceTask[];
+  total: number;
+  avgProgress: number;
+};
+
+/** 从 category_path（形如「一级系统 / 子项 / 任务类型」）中取出一级系统名；空值兜底为「未分类」。 */
+function subsystemOf(task: WorkspaceTask): string {
+  const head = (task.category_path ?? "").split(" / ")[0]?.trim();
+  return head && head.length > 0 ? head : "未分类";
+}
+
+/** 全景视图的移动归类能力（仅对自己主责的任务开放）。传入即开启「移动 / 批量勾选」。 */
+type PanoramaMoveProps = {
+  selectedIds: Set<string>;
+  onToggleSelect: (task: WorkspaceTask) => void;
+  onMoveTask: (task: WorkspaceTask) => void;
+};
+
+function SubsystemGroupBlock({
+  group,
+  onOpen,
+  move,
+}: {
+  group: SubsystemGroup;
+  onOpen: (task: WorkspaceTask, tab: OperationTab, opts?: { abandon?: boolean }) => void;
+  move?: PanoramaMoveProps;
+}) {
+  // 没有进行中任务时（整组都已完成），默认展开已完成，避免分组看起来空白。
+  const [doneOpen, setDoneOpen] = useState(group.active.length === 0);
+  return (
+    <section className="rounded-2xl border border-slate-100 bg-white/70 p-3 shadow-[0_1px_4px_rgba(15,23,42,0.04)]">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-1.5">
+          <Layers className="h-4 w-4 shrink-0 text-indigo-500" />
+          <h3 className="truncate text-sm font-semibold text-slate-800" title={group.key}>{group.key}</h3>
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5">
+          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">进行中 {group.active.length}</span>
+          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">已完成 {group.done.length}</span>
+        </div>
+      </div>
+
+      <div className="mb-2.5 flex items-center gap-2">
+        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-indigo-400 to-indigo-600 transition-all duration-500"
+            style={{ width: `${group.avgProgress}%` }}
+          />
+        </div>
+        <span className="w-9 shrink-0 text-right text-[11px] tabular-nums text-slate-400">{group.avgProgress}%</span>
+      </div>
+
+      {group.active.length > 0 && (
+        <div className="space-y-2">
+          {group.active.map((task) => (
+            <WorkspaceTaskCard
+              key={task.task_id}
+              task={task}
+              onOpen={onOpen}
+              moveEnabled={Boolean(move) && task.role === "primary"}
+              selected={move?.selectedIds.has(task.task_id) ?? false}
+              onToggleSelect={move?.onToggleSelect}
+              onMove={move?.onMoveTask}
+            />
+          ))}
+        </div>
+      )}
+
+      {group.done.length > 0 && (
+        <div className={group.active.length > 0 ? "mt-2" : ""}>
+          <button
+            type="button"
+            onClick={() => setDoneOpen((v) => !v)}
+            className="flex w-full items-center gap-1.5 rounded-lg px-1 py-1 text-[11px] font-semibold text-slate-500 transition-colors hover:text-slate-700"
+          >
+            <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", doneOpen ? "" : "-rotate-90")} />
+            已完成 {group.done.length}
+          </button>
+          {doneOpen && (
+            <div className="mt-1.5 space-y-2">
+              {group.done.map((task) => (
+                <WorkspaceTaskCard
+                  key={task.task_id}
+                  task={task}
+                  onOpen={onOpen}
+                  moveEnabled={Boolean(move) && task.role === "primary"}
+                  selected={move?.selectedIds.has(task.task_id) ?? false}
+                  onToggleSelect={move?.onToggleSelect}
+                  onMove={move?.onMoveTask}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function SubsystemPanorama({
+  groups,
+  onOpen,
+  move,
+}: {
+  groups: SubsystemGroup[];
+  onOpen: (task: WorkspaceTask, tab: OperationTab, opts?: { abandon?: boolean }) => void;
+  move?: PanoramaMoveProps;
+}) {
+  return (
+    <div className="space-y-3">
+      {groups.map((group) => (
+        <SubsystemGroupBlock key={group.key} group={group} onOpen={onOpen} move={move} />
+      ))}
+    </div>
   );
 }
 
@@ -2457,6 +2884,11 @@ export function RDMyWorkspacePage() {
   const [taskPriorityFilter, setTaskPriorityFilter] = useState<Priority | "all">("all");
   const [taskStatusFilter, setTaskStatusFilter] = useState<TaskStatus | "all">("all");
   const [taskDueFilter, setTaskDueFilter] = useState<WorkspaceDueFilter>("all");
+  // 任务区视图：list = 现有平铺列表；panorama = 子系统全景（按一级系统归类，仅看自己的任务）。
+  const [taskView, setTaskView] = useState<"list" | "panorama">("list");
+  // 子系统全景的「移动归类」：勾选集合 + 移动弹窗目标任务（单个 / 批量共用同一弹窗）。
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  const [moveDialogTasks, setMoveDialogTasks] = useState<WorkspaceTask[] | null>(null);
   const myTasks = useMemo(() => applyProgressOverrides(workspace.myTasks, progressOverrides), [workspace.myTasks, progressOverrides]);
   const collabTasks = useMemo(() => applyProgressOverrides(workspace.collabTasks, progressOverrides), [workspace.collabTasks, progressOverrides]);
   const allTasks = useMemo(() => [...myTasks, ...collabTasks], [myTasks, collabTasks]);
@@ -2523,6 +2955,40 @@ export function RDMyWorkspacePage() {
     () => [...filteredMyTasks, ...filteredCollabTasks],
     [filteredMyTasks, filteredCollabTasks],
   );
+  // 子系统全景分组：基于已筛选的「我的任务」（主责+协作），按一级系统归类，已完成与进行中分桶。
+  const subsystemGroups = useMemo<SubsystemGroup[]>(() => {
+    const map = new Map<string, { active: WorkspaceTask[]; done: WorkspaceTask[]; progressSum: number; count: number }>();
+    for (const task of filteredAllTasks) {
+      const key = subsystemOf(task);
+      let bucket = map.get(key);
+      if (!bucket) {
+        bucket = { active: [], done: [], progressSum: 0, count: 0 };
+        map.set(key, bucket);
+      }
+      if (task.status === "completed") bucket.done.push(task);
+      else bucket.active.push(task);
+      bucket.progressSum += task.progress;
+      bucket.count += 1;
+    }
+    const groups = Array.from(map.entries()).map<SubsystemGroup>(([key, bucket]) => ({
+      key,
+      active: bucket.active,
+      done: bucket.done,
+      total: bucket.count,
+      avgProgress: bucket.count > 0 ? Math.round(bucket.progressSum / bucket.count) : 0,
+    }));
+    groups.sort((a, b) => {
+      // 「未分类」恒排最后
+      const au = a.key === "未分类" ? 1 : 0;
+      const bu = b.key === "未分类" ? 1 : 0;
+      if (au !== bu) return au - bu;
+      // 进行中多的子系统排前面，其次按总数，最后按名称
+      if (b.active.length !== a.active.length) return b.active.length - a.active.length;
+      if (b.total !== a.total) return b.total - a.total;
+      return a.key.localeCompare(b.key, "zh-Hans-CN");
+    });
+    return groups;
+  }, [filteredAllTasks]);
   const shownTasks = filteredAllTasks.slice(0, taskVisibleCount);
   const hasMoreTasks = taskVisibleCount < filteredAllTasks.length;
   // Keep ref in sync so the IntersectionObserver callback always has the latest value
@@ -2558,6 +3024,74 @@ export function RDMyWorkspacePage() {
   const findTask = (taskId?: string) => allTasks.find((task) => task.task_id === taskId);
   const openTask = (task: WorkspaceTask, tab: OperationTab, opts?: { abandon?: boolean }) =>
     setActivePanel({ kind: "task", task, tab, openedAt: Date.now(), abandon: opts?.abandon });
+
+  // 离开全景视图时清空勾选，避免切回列表后残留选择态。
+  useEffect(() => {
+    if (taskView !== "panorama") setSelectedTaskIds(new Set());
+  }, [taskView]);
+
+  // 仅「自己主责 + 当前已筛选可见」的任务可参与批量移动（防止移动到不可见 / 协作任务）。
+  const selectedTasks = useMemo(
+    () => filteredAllTasks.filter((task) => task.role === "primary" && selectedTaskIds.has(task.task_id)),
+    [filteredAllTasks, selectedTaskIds],
+  );
+
+  const toggleTaskSelected = React.useCallback((task: WorkspaceTask) => {
+    setSelectedTaskIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(task.task_id)) next.delete(task.task_id);
+      else next.add(task.task_id);
+      return next;
+    });
+  }, []);
+
+  const openSingleMove = React.useCallback((task: WorkspaceTask) => {
+    setMoveDialogTasks([task]);
+  }, []);
+
+  const openBatchMove = React.useCallback(() => {
+    if (selectedTasks.length === 0) {
+      toast.error("请先勾选要移动的任务");
+      return;
+    }
+    setMoveDialogTasks(selectedTasks);
+  }, [selectedTasks]);
+
+  const handleWorkspaceMoveConfirm = React.useCallback(
+    async (taskIds: string[], targetProductId: string, targetCatId: string, targetSubId: string) => {
+      try {
+        const result = await moveRdTasks({ taskIds, targetProductId, targetCategoryId: targetCatId, targetSubId });
+        const movedPath = `${result.targetCategoryLabel} / ${result.targetSubLabel}`;
+        const firstTask = (moveDialogTasks ?? []).find((task) => task.task_id === taskIds[0]);
+        // 审计：操作者 = 当前研发成员本人（自助归类的同时保留可追溯）。
+        recordAudit({
+          actor: WORKSPACE_AUDIT_ACTOR,
+          action: "task.updated",
+          resource:
+            taskIds.length === 1 && firstTask
+              ? { type: "task", id: firstTask.task_id, name: firstTask.title }
+              : { type: "system", id: targetSubId, name: "移动任务归类" },
+          changes:
+            taskIds.length === 1 && firstTask
+              ? [{ field: "category_path", before: firstTask.category_path, after: movedPath }]
+              : undefined,
+          comment:
+            taskIds.length === 1
+              ? `个人工作台移动任务 → ${movedPath}`
+              : `个人工作台批量移动 ${result.movedCount} 个任务 → ${movedPath}`,
+          metadata: { taskIds, targetProductId, targetSubId },
+          source: "web",
+        });
+        toast.success(`已移动 ${result.movedCount} 个任务到 ${movedPath}`);
+        setMoveDialogTasks(null);
+        setSelectedTaskIds(new Set());
+        await loadWorkspace({ silent: true });
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "移动失败，请重试");
+      }
+    },
+    [WORKSPACE_AUDIT_ACTOR, loadWorkspace, moveDialogTasks],
+  );
 
   const approveNotificationReview = React.useCallback((notification: WorkspaceNotification) => {
     if (!notification.raw_body) {
@@ -2708,9 +3242,9 @@ export function RDMyWorkspacePage() {
           <main className="flex min-h-0 flex-col gap-3">
             {/* Sticky filter bar */}
             <div className="shrink-0 rounded-2xl border border-white bg-white/90 p-3 shadow-sm backdrop-blur">
-              <div className="flex items-center gap-2">
-                {/* Search — grows to fill spare space */}
-                <label className="relative block min-w-0 flex-1">
+              <div className="flex items-center justify-between gap-3">
+                {/* Search — grows up to a sensible cap so the right-side filters always keep their room */}
+                <label className="relative block min-w-0 flex-1 max-w-[360px]">
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                   <Input
                     className="h-8 w-full rounded-[8px] border border-slate-200 bg-slate-50 pl-8 pr-3 text-xs text-slate-700 outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-50"
@@ -2722,6 +3256,33 @@ export function RDMyWorkspacePage() {
 
                 {/* Selects + 清空 + count — always one row, never wrap */}
                 <div className="flex shrink-0 items-center gap-1.5">
+                  {/* 视图切换：列表 / 子系统全景（仅看自己的任务） */}
+                  <div className="flex items-center gap-0.5 rounded-[8px] border border-slate-200 bg-slate-50 p-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setTaskView("list")}
+                      className={cn(
+                        "w-[4vw] flex h-7 items-center gap-1 rounded-[6px] px-2 text-xs font-medium transition-colors",
+                        taskView === "list" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-700",
+                      )}
+                      title="平铺列表"
+                    >
+                      <List className="h-3.5 w-3.5" />
+                      列表
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTaskView("panorama")}
+                      className={cn(
+                        "w-[4vw] flex h-7 items-center gap-1 rounded-[6px] px-2 text-xs font-medium transition-colors",
+                        taskView === "panorama" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-700",
+                      )}
+                      title="按子系统归类查看（仅我的任务）"
+                    >
+                      <Layers className="h-3.5 w-3.5" />
+                      全景
+                    </button>
+                  </div>
                   <NativeSelect
                     className="h-8 rounded-[8px] border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
                     value={taskPriorityFilter}
@@ -2791,6 +3352,12 @@ export function RDMyWorkspacePage() {
                     {taskFiltersActive ? "没有匹配的任务" : "当前没有分配给我的任务"}
                   </p>
                 </div>
+              ) : taskView === "panorama" ? (
+                <SubsystemPanorama
+                  groups={subsystemGroups}
+                  onOpen={openTask}
+                  move={{ selectedIds: selectedTaskIds, onToggleSelect: toggleTaskSelected, onMoveTask: openSingleMove }}
+                />
               ) : (
                 <>
                   <div className="space-y-2">
@@ -3225,6 +3792,49 @@ export function RDMyWorkspacePage() {
         userRole="user"
         forceOwnerToCurrentUser
       />
+
+      {/* 批量移动浮条：仅子系统全景视图且已勾选任务时出现 */}
+      <AnimatePresence>
+        {taskView === "panorama" && selectedTasks.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 16 }}
+            transition={{ duration: 0.18 }}
+            className="fixed bottom-6 left-1/2 z-[60] flex -translate-x-1/2 items-center gap-3 rounded-full border border-slate-200 bg-white/95 px-4 py-2 shadow-xl backdrop-blur"
+          >
+            <span className="text-xs font-semibold text-slate-600">
+              已选 <span className="tabular-nums text-indigo-600">{selectedTasks.length}</span> 个任务
+            </span>
+            <button
+              type="button"
+              onClick={openBatchMove}
+              className="inline-flex items-center gap-1 rounded-full bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700"
+            >
+              <FolderInput className="h-3.5 w-3.5" />
+              批量移动
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedTaskIds(new Set())}
+              className="text-xs font-medium text-slate-400 transition-colors hover:text-slate-600"
+            >
+              取消选择
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* 移动归类弹窗（单个 / 批量共用） */}
+      <AnimatePresence>
+        {moveDialogTasks && (
+          <WorkspaceMoveDialog
+            tasks={moveDialogTasks}
+            onConfirm={handleWorkspaceMoveConfirm}
+            onClose={() => setMoveDialogTasks(null)}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

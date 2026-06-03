@@ -4,9 +4,11 @@ import {
   ArrowDownToLine,
   BookOpen,
   Check,
+  ChevronLeft,
   ChevronRight,
   Code2,
   Cpu,
+  DatabaseZap,
   Edit3,
   Eye,
   File,
@@ -79,10 +81,11 @@ import {
   type KbVisibility,
   type KbClassifyResult,
 } from "./lib/rdApi";
+import { backfillKbToRag } from "./lib/ragApi";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const KB_PAGE_SIZE = 12;
+const KB_PAGE_SIZE = 9; // 每页条目数（分页）；3 列布局下正好 3 行
 
 const FILE_TYPE_FILTER_OPTIONS = [
   { value: 'all', label: '全部' },
@@ -2057,7 +2060,7 @@ export function RDKnowledgeBasePage() {
 
   const [categories, setCategories] = useState<KbCategory[]>([]);
   const [entries, setEntries] = useState<KbEntry[]>([]);
-  const [visibleCount, setVisibleCount] = useState(KB_PAGE_SIZE);
+  const [page, setPage] = useState(1); // 当前页码（1 起；分页）
   const [loading, setLoading] = useState(false);
   const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
   const [keyword, setKeyword] = useState('');
@@ -2084,16 +2087,11 @@ export function RDKnowledgeBasePage() {
   const pageDragDepthRef = useRef(0);
   /** Always-current categories — readable inside callbacks without stale closure. */
   const categoriesRef = useRef<KbCategory[]>([]);
-  /** Always-current entries.length — readable inside IntersectionObserver callback. */
-  const entriesLengthRef = useRef(0);
-  /** Sentinel div observed for infinite scroll. */
-  const sentinelRef = useRef<HTMLDivElement>(null);
   /** Skips first run of the filter-change effect (which fires on mount). */
   const filterInitializedRef = useRef(false);
 
   // Keep refs in sync so callbacks always read fresh values without stale closures
   useEffect(() => { categoriesRef.current = categories; }, [categories]);
-  useEffect(() => { entriesLengthRef.current = entries.length; }, [entries.length]);
 
   // Debounce keyword → triggers a server-side re-filter 400 ms after the user stops typing
   useEffect(() => {
@@ -2123,7 +2121,7 @@ export function RDKnowledgeBasePage() {
         setCategories(cats);
         categoriesRef.current = cats;
         setEntries(ents);
-        setVisibleCount(KB_PAGE_SIZE);
+        setPage(1);
       })
       .catch(() => toast.error('知识库数据加载失败'))
       .finally(() => setLoading(false));
@@ -2147,7 +2145,7 @@ export function RDKnowledgeBasePage() {
         if (cancelled) return;
         React.startTransition(() => {
           setEntries(ents);
-          setVisibleCount(KB_PAGE_SIZE);
+          setPage(1);
         });
       })
       .catch(() => { if (!cancelled) toast.error('知识库数据加载失败'); })
@@ -2164,34 +2162,12 @@ export function RDKnowledgeBasePage() {
           setCategories(cats);
           categoriesRef.current = cats;
           setEntries(ents);
-          setVisibleCount(KB_PAGE_SIZE);
+          setPage(1);
         });
       })
       .catch(() => toast.error('知识库数据加载失败'))
       .finally(() => setLoading(false));
   }, [buildParams]);
-
-  // Infinite scroll — show KB_PAGE_SIZE more cards each time the sentinel enters the viewport
-  useEffect(() => {
-    const sentinel = sentinelRef.current;
-    if (!sentinel) return;
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (entry?.isIntersecting) {
-          React.startTransition(() => {
-            setVisibleCount((prev) => {
-              const total = entriesLengthRef.current;
-              if (prev >= total) return prev;
-              return Math.min(prev + KB_PAGE_SIZE, total);
-            });
-          });
-        }
-      },
-      { rootMargin: '200px' },
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, []);
 
   const [repairing, setRepairing] = useState(false);
   const handleRepairFilenames = useCallback(async () => {
@@ -2206,6 +2182,27 @@ export function RDKnowledgeBasePage() {
       setRepairing(false);
     }
   }, [handleRefresh]);
+
+  // KB→RAG 一键回填：把知识库全部条目重新灌入向量索引，让 MateChat 能检索内部资料。
+  // 适用场景：首次开启 RAG / 切换 Embedding 模型后 / 清理脏数据后。重复执行安全（幂等覆盖）。
+  const [backfillingRag, setBackfillingRag] = useState(false);
+  const handleBackfillRag = useCallback(async () => {
+    if (backfillingRag) return;
+    if (!window.confirm('将把知识库全部条目重新同步到 RAG 向量索引（按条调用 Embedding 模型，条目较多时可能耗时）。确定现在执行吗？')) return;
+    setBackfillingRag(true);
+    try {
+      const res = await backfillKbToRag();
+      toast.success(
+        res.failed > 0
+          ? `RAG 回填完成：成功索引 ${res.succeeded}/${res.total} 条，失败 ${res.failed} 条`
+          : `RAG 回填完成：已索引 ${res.succeeded}/${res.total} 条知识库条目`,
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'RAG 回填失败，请稍后重试');
+    } finally {
+      setBackfillingRag(false);
+    }
+  }, [backfillingRag]);
 
   // ── Derived ────────────────────────────────────────────────────────────────
 
@@ -2227,9 +2224,14 @@ export function RDKnowledgeBasePage() {
     return counts;
   }, [categories]);
 
+  const totalPages = Math.max(1, Math.ceil(entries.length / KB_PAGE_SIZE));
+  // 删除/移动后条目变少时，避免停留在已不存在的页码上
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [page, totalPages]);
   const visibleEntries = useMemo(
-    () => entries.slice(0, visibleCount),
-    [entries, visibleCount],
+    () => entries.slice((page - 1) * KB_PAGE_SIZE, page * KB_PAGE_SIZE),
+    [entries, page],
   );
 
   // ── Actions ────────────────────────────────────────────────────────────────
@@ -2417,7 +2419,7 @@ export function RDKnowledgeBasePage() {
           React.startTransition(() => {
             syncCategories(nextCats);
             setEntries(nextEntries);
-            setVisibleCount(KB_PAGE_SIZE);
+            setPage(1);
           });
         })
         .catch(() => undefined);
@@ -2587,6 +2589,19 @@ export function RDKnowledgeBasePage() {
                 <Wrench className={cn('w-4 h-4', repairing && 'animate-spin')} />
               </Button>
             )}
+            {hasLegacyManage && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleBackfillRag}
+                disabled={backfillingRag}
+                className="h-9 gap-2 rounded-lg border-indigo-200 bg-white px-3 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 hover:text-indigo-800 focus-visible:ring-2 focus-visible:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-60"
+                title="把知识库条目同步到 RAG 向量索引，使 MateChat 能检索内部资料（首次开启 RAG / 切换 Embedding 模型后执行）"
+              >
+                <DatabaseZap className={cn('w-4 h-4', backfillingRag && 'animate-pulse')} />
+                {backfillingRag ? '回填中…' : 'RAG 回填'}
+              </Button>
+            )}
             {canUpload && (
               <Button
                 type="button"
@@ -2748,23 +2763,72 @@ export function RDKnowledgeBasePage() {
 
           {/* Grid */}
           {entries.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3 auto-rows-min">
-              {visibleEntries.map((entry) => (
-                <EntryCard
-                  key={entry.id}
-                  entry={entry}
-                  canEdit={canEditEntry}
-                  canMove={canMoveEntry}
-                  canDelete={canDeleteEntry}
-                  onEdit={handleEditRequest}
-                  onDelete={handleDelete}
-                  onMove={handleMoveRequest}
-                  onPreview={handlePreview}
-                />
-              ))}
-              {/* Infinite-scroll sentinel — IntersectionObserver loads next batch when visible */}
-              <div ref={sentinelRef} className="col-span-full h-4" aria-hidden />
-            </div>
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3 auto-rows-min">
+                {visibleEntries.map((entry) => (
+                  <EntryCard
+                    key={entry.id}
+                    entry={entry}
+                    canEdit={canEditEntry}
+                    canMove={canMoveEntry}
+                    canDelete={canDeleteEntry}
+                    onEdit={handleEditRequest}
+                    onDelete={handleDelete}
+                    onMove={handleMoveRequest}
+                    onPreview={handlePreview}
+                  />
+                ))}
+              </div>
+
+              {/* 分页 — 仅在多于一页时出现 */}
+              {totalPages > 1 && (
+                <nav
+                  aria-label="知识库分页"
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200/80 bg-white px-3 py-2 text-xs shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+                >
+                  <span className="text-slate-500">
+                    第 <span className="font-semibold tabular-nums text-slate-700">{page}</span> / {totalPages} 页 · 共{' '}
+                    <span className="font-semibold tabular-nums text-slate-700">{entries.length}</span> 条
+                  </span>
+                  <div className="flex flex-wrap items-center justify-end gap-1">
+                    <button
+                      type="button"
+                      disabled={page === 1}
+                      onClick={() => setPage((p) => Math.max(1, p - 1))}
+                      className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-indigo-300 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                      aria-label="上一页"
+                    >
+                      <ChevronLeft className="h-3.5 w-3.5" />
+                    </button>
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((pg) => (
+                      <button
+                        key={pg}
+                        type="button"
+                        onClick={() => setPage(pg)}
+                        aria-current={pg === page ? 'page' : undefined}
+                        className={cn(
+                          'flex h-7 min-w-[28px] items-center justify-center rounded-md border px-1.5 text-xs font-semibold tabular-nums transition',
+                          pg === page
+                            ? 'border-indigo-500 bg-indigo-600 text-white'
+                            : 'border-slate-200 bg-white text-slate-600 hover:border-indigo-300 hover:text-indigo-700',
+                        )}
+                      >
+                        {pg}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      disabled={page === totalPages}
+                      onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                      className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-indigo-300 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                      aria-label="下一页"
+                    >
+                      <ChevronRight className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </nav>
+              )}
+            </>
           )}
         </div>
 

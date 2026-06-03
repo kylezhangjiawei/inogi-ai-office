@@ -4,6 +4,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   AlertTriangle,
   BellRing,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   Filter,
   Loader2,
@@ -467,12 +469,16 @@ const filterLabels: Record<FilterType, string> = {
   review_result: "审核结果",
 };
 
+// 消息列表每页条数
+const MESSAGE_PAGE_SIZE = 8;
+
 export function MessageCenterPage() {
   const { user } = useAuth();
   const [messages, setMessages] = useState<RdMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [keyword, setKeyword] = useState("");
   const [filter, setFilter] = useState<FilterType>("all");
+  const [page, setPage] = useState(1);
 
   // Reject dialog state
   const [rejectTarget, setRejectTarget] = useState<{ msg: RdMessage; body: ReviewRequestBody } | null>(null);
@@ -574,6 +580,21 @@ export function MessageCenterPage() {
     });
   }, [messages, filter, keyword]);
 
+  // 切换筛选 / 搜索时回到第一页
+  useEffect(() => {
+    setPage(1);
+  }, [filter, keyword]);
+
+  // 分页（safePage 兜底防止筛选后页码越界）
+  const totalPages = Math.max(1, Math.ceil(filteredMessages.length / MESSAGE_PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const pagedMessages = useMemo(
+    () => filteredMessages.slice((safePage - 1) * MESSAGE_PAGE_SIZE, safePage * MESSAGE_PAGE_SIZE),
+    [filteredMessages, safePage],
+  );
+  const visibleStart = filteredMessages.length === 0 ? 0 : (safePage - 1) * MESSAGE_PAGE_SIZE + 1;
+  const visibleEnd = Math.min(safePage * MESSAGE_PAGE_SIZE, filteredMessages.length);
+
   const requestApprove = useCallback((msg: RdMessage, body: ReviewRequestBody) => {
     setApproveTarget({ msg, body });
   }, []);
@@ -641,18 +662,35 @@ export function MessageCenterPage() {
               汇总审核申请、审核结果和系统通知，管理员可在此直接批准或打回审核请求。
             </p>
           </div>
-          <div className="grid w-full gap-3 sm:w-auto sm:grid-cols-3">
-            {[
-              { label: "未读", value: unreadCount, Icon: BellRing, tone: "text-blue-600" },
-              { label: "待审核", value: pendingReviewCount, Icon: AlertTriangle, tone: "text-amber-500" },
-              { label: "共计", value: messages.length, Icon: MessageSquare, tone: "text-slate-600" },
-            ].map((item) => (
-              <div key={item.label} className="rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
-                <item.Icon className={cn("mb-2 h-4 w-4", item.tone)} />
-                <div className="text-xl font-bold text-slate-900">{item.value}</div>
-                <div className="text-xs text-slate-500">{item.label}</div>
-              </div>
-            ))}
+          <div className="grid w-full grid-cols-3 gap-2.5 sm:w-auto">
+            {([
+              { label: "未读", value: unreadCount, Icon: BellRing, filterValue: "unread" as FilterType, iconCls: "bg-blue-50 text-blue-600 group-hover:bg-blue-100", activeCls: "border-blue-300 bg-blue-50/70 ring-1 ring-blue-200" },
+              { label: "待审核", value: pendingReviewCount, Icon: AlertTriangle, filterValue: "review_request" as FilterType, iconCls: "bg-amber-50 text-amber-600 group-hover:bg-amber-100", activeCls: "border-amber-300 bg-amber-50/70 ring-1 ring-amber-200" },
+              { label: "共计", value: messages.length, Icon: MessageSquare, filterValue: "all" as FilterType, iconCls: "bg-slate-100 text-slate-500 group-hover:bg-slate-200", activeCls: "border-slate-300 bg-slate-50 ring-1 ring-slate-200" },
+            ]).map((item) => {
+              const active = filter === item.filterValue;
+              return (
+                <button
+                  key={item.label}
+                  type="button"
+                  onClick={() => setFilter((cur) => (cur === item.filterValue ? "all" : item.filterValue))}
+                  aria-pressed={active}
+                  title={`按「${item.label}」筛选列表`}
+                  className={cn(
+                    "group flex items-center gap-3 rounded-xl border px-3.5 py-2.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300/60 sm:min-w-[118px]",
+                    active ? item.activeCls : "border-slate-200/80 bg-white shadow-sm hover:border-slate-300",
+                  )}
+                >
+                  <span className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors", item.iconCls)}>
+                    <item.Icon className="h-5 w-5" />
+                  </span>
+                  <span className="min-w-0">
+                    <span className="block text-2xl font-bold leading-none tabular-nums text-slate-900">{item.value}</span>
+                    <span className="mt-1 block text-[11px] font-medium text-slate-500">{item.label}</span>
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
       </section>
@@ -703,7 +741,7 @@ export function MessageCenterPage() {
           </div>
         ) : (
           <div className="space-y-3">
-            {filteredMessages.map((msg) => (
+            {pagedMessages.map((msg) => (
               <MessageCard
                 key={msg.id}
                 msg={msg}
@@ -714,6 +752,40 @@ export function MessageCenterPage() {
                 onReject={(m, b) => setRejectTarget({ msg: m, body: b })}
               />
             ))}
+          </div>
+        )}
+
+        {/* 分页 */}
+        {!loading && filteredMessages.length > 0 && (
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+            <div className="text-xs tabular-nums text-slate-500">
+              显示 {visibleStart}-{visibleEnd}
+              <span className="mx-1 text-slate-300">/</span>
+              共 {filteredMessages.length} 条
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.max(1, current - 1))}
+                disabled={safePage === 1}
+                className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-all hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-35"
+                aria-label="上一页"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <span className="min-w-[64px] px-2 text-center text-xs font-semibold tabular-nums text-slate-600">
+                {safePage} / {totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                disabled={safePage === totalPages}
+                className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-all hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-35"
+                aria-label="下一页"
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         )}
       </section>

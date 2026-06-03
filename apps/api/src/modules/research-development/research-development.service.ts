@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { OcrService } from '../ocr/ocr.service';
@@ -1032,6 +1032,7 @@ export class ResearchDevelopmentService {
   async moveTasks(
     taskIds: unknown,
     target: { productId: unknown; categoryId: unknown; subId: unknown },
+    options?: { requesterUserId?: string; requesterName?: string; canMoveAny?: boolean },
   ): Promise<{
     ok: true;
     movedCount: number;
@@ -1121,6 +1122,26 @@ export class ResearchDevelopmentService {
     }
 
     if (collected.size === 0) throw new NotFoundException('任务不存在');
+
+    // 个人工作台来的移动请求：非管理员只能移动「自己负责的任务」。与 getWorkspace 的 isPrimary 同口径——
+    // 优先按 user_id 匹配，历史上「仅按姓名指派、未绑定用户ID」的任务再按姓名兜底匹配。
+    // 管理员（canMoveAny）跳过此校验。此处尚未写库（仅改了内存工作副本），抛错即安全回滚。
+    if (!options?.canMoveAny) {
+      const requesterUserId = cleanUserId(options?.requesterUserId);
+      const requesterNameKey = personNameLookupKey(options?.requesterName);
+      const ownsTask = (task: JsonRecord): boolean => {
+        const ownerUserId = cleanUserId(task.primary_owner_user_id ?? task.owner_user_id);
+        if (ownerUserId) return Boolean(requesterUserId) && ownerUserId === requesterUserId;
+        return (
+          Boolean(requesterNameKey) &&
+          personNameLookupKey(task.primary_owner ?? task.owner) === requesterNameKey
+        );
+      };
+      const hasForeignTask = Array.from(collected.values()).some((task) => !ownsTask(task));
+      if (hasForeignTask) {
+        throw new ForbiddenException('只能移动自己负责的任务');
+      }
+    }
 
     // 写入目标子项（置顶，category_path 改写为目标系统/子项，任务类型段保留）。
     const shaped = Array.from(collected.values()).map((t) =>
@@ -3766,6 +3787,337 @@ export class ResearchDevelopmentService {
     return raw;
   }
 
+  /**
+   * 团队绩效考核聚合（按人）。供研发主管驾驶舱「团队绩效考核」面板使用。
+   *
+   * 综合分 = 交付质量 70% + 交付吞吐 20% + AI 工具活跃度 10%
+   *   · 交付质量：该成员作为主责人、已被 AI 评分的已完成任务平均分（0~100，直接采用）。
+   *   · 交付吞吐：100·c/(c+5)（绝对饱和曲线，不与他人相比，避免「别人做得多就把我比下去」的不公平）。
+   *   · AI 工具活跃度：100·m/(m+30)（m=该成员在 MateChat 的发言条数；饱和曲线使刷量边际收益递减，降低可操纵性）。
+   * 仅对「至少 1 条已评分完成任务」的成员计算综合分与排名；其余成员只展示完成数 / 对话活跃度，不参与排名。
+   * 趋势：按完成时间（completed_at，回退 computed_at）取近 30 天均分 − 前 30 天均分。
+   */
+  async getPerformanceAssessment(): Promise<JsonRecord> {
+    const WINDOW_DAYS = 30;
+    const WEIGHTS = { delivery: 0.7, throughput: 0.2, chat: 0.1 };
+    const THROUGHPUT_K = 5;
+    const CHAT_K = 30;
+
+    const [categories, scoresRaw, people] = await Promise.all([
+      this.readMergedTaskCategories(),
+      this.readValue('rd.taskCompletionScores'),
+      this.getPeople(),
+    ]);
+    const scoreMap: JsonRecord = isRecord(scoresRaw) ? scoresRaw : {};
+
+    // 收集所有「已完成」任务并归到主责人（评分按 task_id，产品仅是分区）。
+    type CompletedEntry = { task_id: string; owner: string; ownerUserId: string };
+    const completed: CompletedEntry[] = [];
+    const collect = (tasks: unknown[]): void => {
+      for (const t of tasks) {
+        if (!isRecord(t)) continue;
+        if (isCompletedTask(t) && !isArchivedTask(t) && typeof t.task_id === 'string') {
+          const owner = cleanText(t.primary_owner ?? t.owner);
+          if (!isUnassignedOwner(owner)) {
+            completed.push({
+              task_id: t.task_id,
+              owner,
+              ownerUserId: cleanUserId(t.primary_owner_user_id ?? t.owner_user_id),
+            });
+          }
+        }
+        if (Array.isArray(t.subtasks)) collect(t.subtasks);
+      }
+    };
+    for (const cat of categories) {
+      if (!isRecord(cat)) continue;
+      for (const child of asArray(cat.children).filter(isRecord)) {
+        collect(asArray(child.tasks));
+      }
+    }
+
+    // MateChat 发言条数（按用户）：总量 + 近 30 天。失败则降级为 0（绝不阻断考核）。
+    const chatByUser = new Map<string, { total: number; recent: number }>();
+    try {
+      const chatRows = await this.prisma.$queryRawUnsafe<
+        Array<{ user_id: string; total_cnt: number | bigint; recent_cnt: number | bigint }>
+      >(
+        `SELECT c."userId" AS user_id,
+                COUNT(m.id)::int AS total_cnt,
+                COUNT(m.id) FILTER (WHERE m."createdAt" >= NOW() - INTERVAL '${WINDOW_DAYS} days')::int AS recent_cnt
+         FROM "ChatMessage" m
+         JOIN "ChatConversation" c ON c.id = m."conversationId"
+         WHERE m.role = 'user'
+         GROUP BY c."userId"`,
+      );
+      for (const r of chatRows) {
+        const uid = cleanUserId(r.user_id);
+        if (!uid) continue;
+        chatByUser.set(uid, { total: Number(r.total_cnt) || 0, recent: Number(r.recent_cnt) || 0 });
+      }
+    } catch (err) {
+      this.logger.warn(
+        `[getPerformanceAssessment] MateChat 统计查询失败，按 0 计：${(err as Error).message}`,
+      );
+    }
+
+    type Agg = {
+      person_id: string;
+      user_id: string | null;
+      name: string;
+      position: string;
+      department: string;
+      completed_count: number;
+      scores: number[];
+      grade_dist: { A: number; B: number; C: number; D: number };
+      dim_sum: { timeliness: number; process: number; evidence: number; collaboration: number };
+      dim_n: number;
+      points: Array<{ at: string; total: number }>;
+    };
+    const aggMap = new Map<string, Agg>();
+    const keyOf = (userId: string, name: string) =>
+      userId ? `u:${userId}` : `n:${personNameLookupKey(name)}`;
+
+    for (const p of people) {
+      if (!isRecord(p)) continue;
+      const userId = cleanUserId(p.user_id);
+      const name = cleanText(p.name);
+      const key = keyOf(userId, name);
+      if (!key || key === 'n:' || aggMap.has(key)) continue;
+      aggMap.set(key, {
+        person_id:
+          typeof p.id === 'string' && p.id
+            ? p.id
+            : userId
+              ? `rd-user-${userId}`
+              : `rd-unbound-${personNameLookupKey(name)}`,
+        user_id: userId || null,
+        name: name || '未命名成员',
+        position: cleanText(p.position) || '研发成员',
+        department: cleanText(p.department),
+        completed_count: 0,
+        scores: [],
+        grade_dist: { A: 0, B: 0, C: 0, D: 0 },
+        dim_sum: { timeliness: 0, process: 0, evidence: 0, collaboration: 0 },
+        dim_n: 0,
+        points: [],
+      });
+    }
+
+    const ensureAgg = (userId: string, name: string): Agg | null => {
+      const key = keyOf(userId, name);
+      if (!key || key === 'n:') return null;
+      let agg = aggMap.get(key);
+      if (!agg) {
+        agg = {
+          person_id: userId ? `rd-user-${userId}` : `rd-unbound-${personNameLookupKey(name)}`,
+          user_id: userId || null,
+          name: name || '未绑定成员',
+          position: '研发成员',
+          department: '',
+          completed_count: 0,
+          scores: [],
+          grade_dist: { A: 0, B: 0, C: 0, D: 0 },
+          dim_sum: { timeliness: 0, process: 0, evidence: 0, collaboration: 0 },
+          dim_n: 0,
+          points: [],
+        };
+        aggMap.set(key, agg);
+      }
+      return agg;
+    };
+
+    for (const c of completed) {
+      const agg = ensureAgg(c.ownerUserId, c.owner);
+      if (!agg) continue;
+      agg.completed_count += 1;
+      const entry = scoreMap[c.task_id];
+      if (!isRecord(entry)) continue;
+      const total = typeof entry.total === 'number' ? entry.total : Number(entry.total);
+      if (!Number.isFinite(total)) continue;
+      agg.scores.push(total);
+      if (entry.grade === 'A' || entry.grade === 'B' || entry.grade === 'C' || entry.grade === 'D') {
+        agg.grade_dist[entry.grade] += 1;
+      }
+      const dims = asArray(entry.dimensions).filter(isRecord);
+      for (const d of dims) {
+        const k = d.key;
+        const s = typeof d.score === 'number' ? d.score : Number(d.score);
+        if (!Number.isFinite(s)) continue;
+        if (k === 'timeliness' || k === 'process' || k === 'evidence' || k === 'collaboration') {
+          agg.dim_sum[k] += s;
+        }
+      }
+      if (dims.length > 0) agg.dim_n += 1;
+      const at =
+        typeof entry.completed_at === 'string' && entry.completed_at
+          ? entry.completed_at
+          : typeof entry.computed_at === 'string'
+            ? entry.computed_at
+            : '';
+      if (at) agg.points.push({ at, total });
+    }
+
+    const now = Date.now();
+    const recentFrom = now - WINDOW_DAYS * 86_400_000;
+    const prevFrom = now - 2 * WINDOW_DAYS * 86_400_000;
+    const round1 = (n: number) => Math.round(n * 10) / 10;
+    const avg = (xs: number[]): number | null =>
+      xs.length === 0 ? null : round1(xs.reduce((s, x) => s + x, 0) / xs.length);
+    const saturate = (x: number, k: number) => (x <= 0 ? 0 : Math.round((100 * x) / (x + k)));
+
+    const rows = Array.from(aggMap.values()).map((agg) => {
+      const scoredCount = agg.scores.length;
+      const avgScore = avg(agg.scores);
+      const chat = agg.user_id
+        ? chatByUser.get(agg.user_id) ?? { total: 0, recent: 0 }
+        : { total: 0, recent: 0 };
+      const throughputScore = saturate(scoredCount, THROUGHPUT_K);
+      const chatScore = saturate(chat.total, CHAT_K);
+      const composite =
+        scoredCount >= 1 && avgScore !== null
+          ? Math.round(
+              WEIGHTS.delivery * avgScore +
+                WEIGHTS.throughput * throughputScore +
+                WEIGHTS.chat * chatScore,
+            )
+          : null;
+
+      const recentScores = agg.points
+        .filter((p) => new Date(p.at).getTime() >= recentFrom)
+        .map((p) => p.total);
+      const prevScores = agg.points
+        .filter((p) => {
+          const t = new Date(p.at).getTime();
+          return t >= prevFrom && t < recentFrom;
+        })
+        .map((p) => p.total);
+      const recentAvg = avg(recentScores);
+      const prevAvg = avg(prevScores);
+      const trendDelta =
+        recentAvg !== null && prevAvg !== null ? round1(recentAvg - prevAvg) : null;
+
+      const series = [...agg.points]
+        .sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
+        .slice(-10)
+        .map((p) => ({ at: p.at, total: p.total }));
+
+      const dimensionAvg =
+        agg.dim_n > 0
+          ? {
+              timeliness: round1(agg.dim_sum.timeliness / agg.dim_n),
+              process: round1(agg.dim_sum.process / agg.dim_n),
+              evidence: round1(agg.dim_sum.evidence / agg.dim_n),
+              collaboration: round1(agg.dim_sum.collaboration / agg.dim_n),
+            }
+          : null;
+
+      return {
+        person_id: agg.person_id,
+        user_id: agg.user_id,
+        name: agg.name,
+        position: agg.position,
+        department: agg.department,
+        completed_count: agg.completed_count,
+        scored_count: scoredCount,
+        avg_score: avgScore,
+        grade_dist: agg.grade_dist,
+        dimension_avg: dimensionAvg,
+        chat_total: chat.total,
+        chat_recent: chat.recent,
+        recent_avg: recentAvg,
+        prev_avg: prevAvg,
+        trend_delta: trendDelta,
+        score_series: series,
+        delivery_score: avgScore,
+        throughput_score: throughputScore,
+        chat_score: chatScore,
+        composite,
+        rank: null as number | null,
+      };
+    });
+
+    // 排名：仅对有综合分者按综合分降序；其余按完成数 → 对话量降序排在后面。
+    const ranked = rows
+      .filter((r) => r.composite !== null)
+      .sort((a, b) => (b.composite as number) - (a.composite as number));
+    ranked.forEach((r, i) => {
+      r.rank = i + 1;
+    });
+    const unranked = rows
+      .filter((r) => r.composite === null)
+      .sort((a, b) => b.completed_count - a.completed_count || b.chat_total - a.chat_total);
+    const orderedRows = [...ranked, ...unranked];
+
+    // 团队层汇总
+    const allAvgScores = rows
+      .map((r) => r.avg_score)
+      .filter((x): x is number => x !== null);
+    const sortedAvg = [...allAvgScores].sort((a, b) => a - b);
+    const medianScore =
+      sortedAvg.length === 0
+        ? null
+        : sortedAvg.length % 2 === 1
+          ? sortedAvg[(sortedAvg.length - 1) / 2]
+          : round1((sortedAvg[sortedAvg.length / 2 - 1] + sortedAvg[sortedAvg.length / 2]) / 2);
+    const teamGrade = { A: 0, B: 0, C: 0, D: 0 };
+    for (const r of rows) {
+      teamGrade.A += r.grade_dist.A;
+      teamGrade.B += r.grade_dist.B;
+      teamGrade.C += r.grade_dist.C;
+      teamGrade.D += r.grade_dist.D;
+    }
+    const compositeVals = ranked.map((r) => r.composite as number);
+    const avgComposite = compositeVals.length
+      ? Math.round(compositeVals.reduce((s, x) => s + x, 0) / compositeVals.length)
+      : null;
+
+    // 团队月度均分（近 6 月）——用未截断的完整评分点，做团队趋势迷你图。
+    const monthBuckets = new Map<string, { sum: number; count: number }>();
+    for (const agg of aggMap.values()) {
+      for (const p of agg.points) {
+        const d = new Date(p.at);
+        if (Number.isNaN(d.getTime())) continue;
+        const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+        const b = monthBuckets.get(ym) ?? { sum: 0, count: 0 };
+        b.sum += p.total;
+        b.count += 1;
+        monthBuckets.set(ym, b);
+      }
+    }
+    const scoreMonths = Array.from(monthBuckets.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .slice(-6)
+      .map(([month, b]) => ({ month, avg: round1(b.sum / b.count), count: b.count }));
+
+    return {
+      generated_at: new Date().toISOString(),
+      window_days: WINDOW_DAYS,
+      weights: WEIGHTS,
+      saturation: { throughput_k: THROUGHPUT_K, chat_k: CHAT_K },
+      team: {
+        ranked_people: ranked.length,
+        avg_composite: avgComposite,
+        avg_score: avg(allAvgScores),
+        median_score: medianScore,
+        grade_dist: teamGrade,
+        total_completed: rows.reduce((s, r) => s + r.completed_count, 0),
+        total_scored: rows.reduce((s, r) => s + r.scored_count, 0),
+        chat_total: rows.reduce((s, r) => s + r.chat_total, 0),
+        score_months: scoreMonths,
+      },
+      rows: orderedRows,
+      notes: [
+        '综合分 = 交付质量 70% + 交付吞吐 20% + AI 工具活跃度 10%。',
+        '交付质量：本人作为主责人、已被 AI 评分的已完成任务平均分（0~100）。',
+        '交付吞吐：100×c/(c+5)，c=已评分完成任务数；绝对饱和曲线，不与他人相比，避免「别人做得多就把我比下去」。',
+        'AI 工具活跃度：100×m/(m+30)，m=本人在 MateChat 的发言条数；饱和曲线使刷量边际收益递减，降低可操纵性。',
+        '仅对「至少 1 条已评分完成任务」的成员计算综合分与排名；其余成员只展示完成数与对话活跃度。',
+        '趋势：按完成时间取近 30 天均分 − 前 30 天均分；数据不足时留空。',
+      ],
+    };
+  }
+
   private async collectTaskParticipantUserIds(taskId: string): Promise<Set<string>> {
     const result = new Set<string>();
     const categories = await this.readMergedTaskCategories();
@@ -3794,9 +4146,12 @@ export class ResearchDevelopmentService {
 
   /**
    * 批量为现存已完成任务补跑 AI 评分（一次性 / 升级用）。
-   * 已有评分的任务会被跳过（幂等）。返回扫描总数、成功评分数、跳过数、失败数。
+   * 默认幂等：已有评分的任务会被跳过；传 force=true 则强制对所有已完成任务重新评分
+   * （用于评分标准升级后统一刷新历史分）。返回扫描总数、成功评分数、跳过数、失败数。
    */
-  async backfillTaskCompletionScores(): Promise<{
+  async backfillTaskCompletionScores(
+    opts: { force?: boolean } = {},
+  ): Promise<{
     total: number;
     scored: number;
     skipped: number;
@@ -3830,6 +4185,7 @@ export class ResearchDevelopmentService {
 
     // 并发 3 个，避免一次性把 AI 上游打爆
     const CONCURRENCY = 3;
+    const force = !!opts.force;
     const queue = [...completedIds];
     const runners: Promise<void>[] = [];
     for (let i = 0; i < Math.min(CONCURRENCY, queue.length); i++) {
@@ -3837,23 +4193,35 @@ export class ResearchDevelopmentService {
         (async () => {
           while (queue.length > 0) {
             const taskId = queue.shift()!;
-            if (isRecord(existingMap[taskId])) {
+            if (!force && isRecord(existingMap[taskId])) {
               skipped++;
               continue;
             }
             const before = await this.readValue('rd.taskCompletionScores');
             const beforeMap = isRecord(before) ? before : {};
+            const beforeEntry = beforeMap[taskId];
+            const beforeAt =
+              isRecord(beforeEntry) && typeof beforeEntry.computed_at === 'string'
+                ? beforeEntry.computed_at
+                : undefined;
             try {
-              await this.triggerTaskCompletionScoring(taskId);
+              await this.triggerTaskCompletionScoring(taskId, { force });
               const after = await this.readValue('rd.taskCompletionScores');
               const afterMap = isRecord(after) ? after : {};
-              if (isRecord(afterMap[taskId]) && !isRecord(beforeMap[taskId])) {
-                scored++;
-              } else if (isRecord(afterMap[taskId])) {
-                skipped++;
-              } else {
+              const afterEntry = afterMap[taskId];
+              if (!isRecord(afterEntry)) {
                 failed++;
                 failedIds.push(taskId);
+              } else if (force) {
+                // 强制模式：computed_at 变化才算真正重算（防止"任务未找到"等未写入的情况误计）
+                const afterAt =
+                  typeof afterEntry.computed_at === 'string' ? afterEntry.computed_at : undefined;
+                if (afterAt && afterAt !== beforeAt) scored++;
+                else skipped++;
+              } else if (!isRecord(beforeEntry)) {
+                scored++;
+              } else {
+                skipped++;
               }
             } catch {
               failed++;
@@ -3874,16 +4242,32 @@ export class ResearchDevelopmentService {
     };
   }
 
+  /** 评分落库串行锁：并发回填时保证对 rd.taskCompletionScores 的「读-改-写」不互相覆盖（进程内）。 */
+  private scoreWriteChain: Promise<unknown> = Promise.resolve();
+  /** 在串行锁内执行 fn（等前一个写入完成后再开始），返回 fn 的结果；链本身吞掉异常，避免一次失败阻断后续写入。 */
+  private runExclusiveScoreWrite<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.scoreWriteChain.then(() => fn());
+    this.scoreWriteChain = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
   /**
-   * 触发已完成任务的 AI 评分；幂等：已有评分则跳过。仅在主管审核通过将任务标记为 completed 后调用。
+   * 触发已完成任务的 AI 评分；默认幂等：已有评分则跳过。仅在主管审核通过将任务标记为 completed 后调用。
+   * 传 options.force=true 可强制重算（覆盖已有评分），用于评分标准升级后刷新历史分。
    * 设计为 fire-and-forget；失败仅记录日志，不影响审核主流程。
    */
-  async triggerTaskCompletionScoring(taskId: string): Promise<void> {
+  async triggerTaskCompletionScoring(
+    taskId: string,
+    options: { force?: boolean } = {},
+  ): Promise<void> {
     try {
-      const allScores = await this.readValue('rd.taskCompletionScores');
-      const map: JsonRecord = isRecord(allScores) ? { ...allScores } : {};
-      // 幂等：已有评分则跳过（用户要求"不需要重新评分"）
-      if (isRecord(map[taskId])) return;
+      // 预检查（仅用于幂等跳过）：真正落库在下方串行临界区内重新读取最新值，避免并发回填互相覆盖。
+      const existing = await this.readValue('rd.taskCompletionScores');
+      // 幂等：已有评分则跳过；force=true 时强制重算（用于评分标准升级后刷新历史分）
+      if (!options.force && isRecord(existing) && isRecord((existing as JsonRecord)[taskId])) return;
 
       // 收集任务详情（跨所有产品库定位：评分按 task_id，产品仅是分区）
       const categories = await this.readMergedTaskCategories();
@@ -3995,8 +4379,28 @@ export class ResearchDevelopmentService {
         ).catch(() => []),
       });
 
-      map[taskId] = aiResult as unknown as JsonRecord;
-      await this.writeValue('rd.taskCompletionScores', map);
+      // 串行落库：并发回填（CONCURRENCY>1）时多个 runner 各自耗时数秒算分后回写整块 JSON，若各自基于
+      // 「算分前的旧快照」写回会互相覆盖、静默丢分。这里在进程内串行锁中「重新读取最新整块 → 只合并本任务
+      // 这一条 → 写回」，保证不丢更新（AI 算分仍并发，临界区只是两次轻量 DB 操作）。
+      await this.runExclusiveScoreWrite(async () => {
+        const latest = await this.readValue('rd.taskCompletionScores');
+        const map: JsonRecord = isRecord(latest) ? { ...latest } : {};
+        // 钉死一个稳定的「完成时间」：首次评分时记为当下（评分在审核通过转 completed 的瞬间触发，
+        // 故约等于真实完成时间）；之后的强制重算（force）保留原值，使绩效趋势不会因「按新标准重算」
+        // 把所有历史分的时间戳塌缩到同一天而失真。
+        const prevEntry = isRecord(map[taskId]) ? (map[taskId] as JsonRecord) : null;
+        const prevCompletedAt =
+          prevEntry && typeof prevEntry.completed_at === 'string' && prevEntry.completed_at
+            ? prevEntry.completed_at
+            : // 历史分没有 completed_at 时，退回其原始 computed_at（≈ 真实完成时间），
+              // 这样「按新标准重算」也不会把旧任务的趋势点塌缩到今天。
+              prevEntry && typeof prevEntry.computed_at === 'string' && prevEntry.computed_at
+              ? prevEntry.computed_at
+              : null;
+        const completedAt = prevCompletedAt ?? new Date().toISOString();
+        map[taskId] = { ...(aiResult as unknown as JsonRecord), completed_at: completedAt };
+        await this.writeValue('rd.taskCompletionScores', map);
+      });
       this.logger.log(
         `[triggerTaskCompletionScoring] scored ${taskId}: ${aiResult.total}/100 (${aiResult.grade}) via ${aiResult.provider}/${aiResult.model}`,
       );

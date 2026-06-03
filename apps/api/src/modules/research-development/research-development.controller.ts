@@ -80,7 +80,7 @@ export class ResearchDevelopmentController {
   }
 
   @Post('task-categories/tasks/move')
-  @Permissions('rd-task:edit')
+  @Permissions('rd-task:edit', 'rd-task:reassign', 'page:rd-my-workspace')
   moveTasks(
     @Body()
     payload: {
@@ -89,12 +89,22 @@ export class ResearchDevelopmentController {
       targetCategoryId?: unknown;
       targetSubId?: unknown;
     },
+    @Request() req: AuthedRequest,
   ) {
-    return this.rdService.moveTasks(payload?.taskIds, {
-      productId: payload?.targetProductId,
-      categoryId: payload?.targetCategoryId,
-      subId: payload?.targetSubId,
-    });
+    // 个人工作台放开「移动归类」：管理员（* / rd-task:reassign / rd-task:edit）可移动任意任务；
+    // 仅有 page:rd-my-workspace 的普通研发只能移动自己负责的任务（由服务层按 owner 兜底校验）。
+    const perms = req.user?.permissions ?? [];
+    const canMoveAny =
+      perms.includes('*') || perms.includes('rd-task:reassign') || perms.includes('rd-task:edit');
+    return this.rdService.moveTasks(
+      payload?.taskIds,
+      {
+        productId: payload?.targetProductId,
+        categoryId: payload?.targetCategoryId,
+        subId: payload?.targetSubId,
+      },
+      { requesterUserId: req.user?.id, requesterName: req.user?.name, canMoveAny },
+    );
   }
 
   @Get('products')
@@ -187,8 +197,9 @@ export class ResearchDevelopmentController {
 
   @Post('task-completion-scores/backfill')
   @Permissions('rd-task:reassign')
-  backfillTaskCompletionScores() {
-    return this.rdService.backfillTaskCompletionScores();
+  backfillTaskCompletionScores(@Body() body: { force?: boolean } = {}) {
+    // force=true：评分标准升级后，强制对所有已完成任务重新评分（覆盖旧分）
+    return this.rdService.backfillTaskCompletionScores({ force: !!body?.force });
   }
 
   @Post('task-progress-notes/backfill-extraction')
@@ -384,6 +395,13 @@ export class ResearchDevelopmentController {
   @Permissions('rd-task:reassign', 'rd-task:edit', 'rd-task:create')
   recomputeDirectorDashboard() {
     return this.rdService.recomputeDashboard();
+  }
+
+  /** 团队绩效考核（按人聚合：交付质量 + 吞吐 + MateChat 活跃度 → 综合分与排名）。仅限主管驾驶舱权限。 */
+  @Get('performance-assessment')
+  @Permissions('page:rd-director-dashboard')
+  performanceAssessment() {
+    return this.rdService.getPerformanceAssessment();
   }
 
   @Get('people')

@@ -54,6 +54,8 @@ export type RagStatus = {
   embeddingConfigured: boolean;
   embeddingModel: string | null;
   chunkCount: number;
+  /** 未就绪时的具体原因（模型未配置 / 解密失败 / 密钥为空 / 知识库未回填），就绪时为 null */
+  reason?: string | null;
 };
 
 export async function ragStatus(): Promise<RagStatus> {
