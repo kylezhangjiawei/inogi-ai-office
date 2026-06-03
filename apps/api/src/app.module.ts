@@ -27,6 +27,7 @@ import { ResearchDevelopmentModule } from './modules/research-development/resear
 import { OssModule } from './modules/oss/oss.module';
 import { FilesModule } from './modules/files/files.module';
 import { RagModule } from './modules/rag/rag.module';
+import { OrderProcessingModule } from './modules/order-processing/order-processing.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
 import { AuditInterceptor } from './modules/audit/audit.interceptor';
@@ -63,6 +64,7 @@ const envFilePath = [
     PermissionCatalogModule,
     OssModule,
     FilesModule,
+    OrderProcessingModule,
     ExpenseModule,
     RagModule,
     ResearchDevelopmentModule,

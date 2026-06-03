@@ -1,3 +1,5 @@
+import type { Buffer } from 'node:buffer';
+
 export interface InterviewQaItem {
   question: string;
   answer: string;
@@ -54,4 +56,10 @@ export interface IngestedMail {
   receivedAt: Date;
   contentText: string;
   contentHtml?: string;
+  attachments?: Array<{
+    fileName: string;
+    contentType?: string;
+    size?: number;
+    content: Buffer;
+  }>;
 }

@@ -23,10 +23,12 @@ import {
   MessageSquareText,
   MonitorCog,
   NotebookPen,
+  PackageCheck,
   Presentation,
   Receipt,
   Route,
   ScanSearch,
+  ShoppingCart,
   ScrollText,
   ShieldCheck,
   Telescope,
@@ -34,6 +36,7 @@ import {
   Users,
   UserSquare2,
   Wand2,
+  Warehouse,
   Waypoints,
 } from "lucide-react";
 
@@ -87,6 +90,14 @@ export const navGroups: NavGroup[] = [
       { label: "法规知识库", path: "/ra-knowledge", icon: BookOpen, requiredPermission: "page:ra-knowledge" },
       { label: "质量文件 DMS", path: "/quality-dms", icon: ShieldCheck, requiredPermission: "page:quality-dms" },
       { label: "全链路追溯", path: "/qa-traceability", icon: BadgeCheck, requiredPermission: "page:qa-traceability" },
+    ],
+  },
+  {
+    label: "订单与库存",
+    items: [
+      { label: "订货单处理工作台", path: "/order-workbench", icon: PackageCheck, requiredPermission: "page:order-workbench" },
+      { label: "采购订单", path: "/purchase-orders", icon: ShoppingCart, requiredPermission: "page:purchase-orders" },
+      { label: "库存管理", path: "/inventory-management", icon: Warehouse, requiredPermission: "page:inventory-management" },
     ],
   },
   {

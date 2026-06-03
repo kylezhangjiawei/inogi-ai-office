@@ -2,6 +2,15 @@ packages:
   - '.'
   - 'apps/*'
 
+allowBuilds:
+  '@nestjs/core': set this to true or false
+  '@prisma/client': set this to true or false
+  '@prisma/engines': set this to true or false
+  '@tailwindcss/oxide': set this to true or false
+  argon2: set this to true or false
+  esbuild: set this to true or false
+  prisma: set this to true or false
+
 # pnpm v10 默认屏蔽依赖的构建脚本（含原生模块的安装脚本）。
 # 这里显式允许这些包运行构建/安装脚本，否则 argon2（登录密码哈希）、
 # prisma 引擎、tailwind oxide 等原生依赖可能装不全、运行时报错。

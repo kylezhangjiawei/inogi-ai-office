@@ -24,6 +24,7 @@ export class MailIngestionService {
     limit: number;
     lastUid: number | null;
     credentials?: MailCredentials;
+    includeAttachments?: boolean;
   }): Promise<{ mails: IngestedMail[]; latestUid: number | null; scannedCount: number }> {
     const creds = params.credentials ?? this.resolveEnvCredentials();
 
@@ -91,6 +92,14 @@ export class MailIngestionService {
           receivedAt,
           contentText,
           contentHtml,
+          attachments: params.includeAttachments
+            ? parsed.attachments.map((attachment) => ({
+                fileName: attachment.filename || `mail-attachment-${message.uid}`,
+                contentType: attachment.contentType,
+                size: attachment.size,
+                content: attachment.content,
+              }))
+            : undefined,
         });
       }
 

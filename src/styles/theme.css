@@ -291,6 +291,63 @@
     box-shadow: var(--m3-elevation-1);
   }
 
+  .elevation-1 {
+    box-shadow:
+      0 1px 2px rgba(15, 23, 42, 0.04),
+      0 1px 3px rgba(15, 23, 42, 0.06);
+  }
+
+  .elevation-2 {
+    box-shadow:
+      0 4px 12px rgba(15, 23, 42, 0.06),
+      0 2px 6px rgba(15, 23, 42, 0.04);
+  }
+
+  .elevation-3 {
+    box-shadow:
+      0 20px 40px rgba(15, 23, 42, 0.12),
+      0 8px 16px rgba(15, 23, 42, 0.06);
+  }
+
+  .bg-gradient-primary {
+    background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 45%, #4f46e5 100%);
+  }
+
+  .bg-gradient-primary:hover {
+    background: linear-gradient(135deg, #3b82f6 0%, #2563eb 45%, #4338ca 100%);
+  }
+
+  .bg-gradient-soft {
+    background: linear-gradient(135deg, #eff6ff 0%, #e0e7ff 100%);
+  }
+
+  .bg-gradient-mesh {
+    background:
+      linear-gradient(135deg, rgba(239, 246, 255, 0.92) 0%, rgba(255, 255, 255, 0.98) 54%, rgba(238, 242, 255, 0.94) 100%);
+  }
+
+  .bg-gradient-reminder {
+    background: linear-gradient(135deg, #dbeafe 0%, #e0e7ff 50%, #f3e8ff 100%);
+  }
+
+  .text-gradient-primary {
+    background: linear-gradient(135deg, #3b82f6 0%, #4f46e5 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  .glow-blue {
+    box-shadow:
+      0 8px 20px -4px rgba(59, 130, 246, 0.4),
+      0 4px 8px -2px rgba(79, 70, 229, 0.2);
+  }
+
+  .glow-blue:hover {
+    box-shadow:
+      0 12px 28px -4px rgba(59, 130, 246, 0.5),
+      0 6px 12px -2px rgba(79, 70, 229, 0.3);
+  }
+
   .expense-tech-surface {
     background:
       radial-gradient(circle at 14% 0%, color-mix(in srgb, var(--primary) 8%, transparent), transparent 30rem),
