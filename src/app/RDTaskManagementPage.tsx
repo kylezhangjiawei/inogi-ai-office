@@ -8913,10 +8913,10 @@ function ExecutiveOverview({
       initial={shouldReduceMotion ? false : { opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={RD_FAST_TRANSITION}
-      className="min-h-full bg-slate-50/30 px-6 lg:px-8  "
+      className="min-h-full bg-slate-50/30  "
       style={{ background: "transparent" }}
     >
-      <div className="mx-auto max-w-[1400px] space-y-6 rd-stagger-children">
+      <div className="mx-auto  space-y-6 rd-stagger-children">
         <section className="rounded-2xl border border-slate-200/70 bg-white px-5 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]">
           <div className="grid gap-4 lg:grid-cols-[minmax(280px,1fr)_auto]">
             <div className="order-1 flex min-w-0 items-center gap-3">

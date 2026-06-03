@@ -36,6 +36,7 @@ import type {
   WeComSyncStatus,
 } from './expense.types';
 import { UploadExpenseOcrFilesDto } from './dto/upload-expense-ocr-files.dto';
+import { OcrService } from '../ocr/ocr.service';
 import { OssService } from '../oss/oss.service';
 
 type UploadedExpenseFile = {
@@ -102,6 +103,7 @@ export class ExpenseService {
     private readonly secureConfigService: SecureConfigService,
     private readonly configService: ConfigService,
     private readonly ossService: OssService,
+    private readonly ocrService: OcrService,
   ) {}
 
   async listInvoices(query: ListExpenseInvoicesQueryDto) {
@@ -555,22 +557,24 @@ export class ExpenseService {
 
   async saveIntegrationConfig(payload: SaveExpenseIntegrationConfigDto) {
     const existing = await this.getStoredIntegrationConfig();
+
+    // 腾讯 OCR 已统一到 IntegrationConfig(kind=tencent_ocr)，由「系统管理 → 腾讯OCR配置」维护。
+    // 兼容旧入参：若仍携带 tencent_ocr，则转写到统一存储，不再落 systemSetting。
+    if (payload.tencent_ocr) {
+      const current = await this.ocrService.getMaskedTencentConfig();
+      await this.ocrService.saveTencentConfig({
+        enabled: payload.tencent_ocr.enabled ?? current.enabled,
+        secret_id: payload.tencent_ocr.secret_id ?? current.secret_id,
+        secret_key: payload.tencent_ocr.secret_key || undefined,
+        region: payload.tencent_ocr.region ?? current.region,
+        endpoint: payload.tencent_ocr.endpoint ?? current.endpoint,
+        invoice_action: payload.tencent_ocr.invoice_action ?? current.invoice_action,
+      });
+    }
+
     const next: StoredExpenseConfig = {
-      tencent_ocr: {
-        ...(existing.tencent_ocr ?? {}),
-        ...(payload.tencent_ocr
-          ? {
-              enabled: payload.tencent_ocr.enabled ?? existing.tencent_ocr?.enabled,
-              secret_id: payload.tencent_ocr.secret_id ?? existing.tencent_ocr?.secret_id,
-              region: payload.tencent_ocr.region ?? existing.tencent_ocr?.region,
-              endpoint: payload.tencent_ocr.endpoint ?? existing.tencent_ocr?.endpoint,
-              invoice_action: payload.tencent_ocr.invoice_action ?? existing.tencent_ocr?.invoice_action,
-              encrypted_secret_key: payload.tencent_ocr.secret_key
-                ? this.secureConfigService.encryptForStorage(payload.tencent_ocr.secret_key)
-                : existing.tencent_ocr?.encrypted_secret_key,
-            }
-          : {}),
-      },
+      // 保留历史 tencent_ocr 旧值（已不再被读取），避免破坏既有数据
+      tencent_ocr: existing.tencent_ocr,
       wecom: {
         ...(existing.wecom ?? {}),
         ...(payload.wecom
@@ -1208,30 +1212,9 @@ export class ExpenseService {
   private async getResolvedIntegrationConfig(): Promise<ExpenseIntegrationConfig> {
     const stored = await this.getStoredIntegrationConfig();
     return {
-      tencent_ocr: {
-        ...DEFAULT_TENCENT_OCR_CONFIG,
-        enabled: stored.tencent_ocr?.enabled ?? this.envBool('TENCENTCLOUD_OCR_ENABLED'),
-        secret_id:
-          stored.tencent_ocr?.secret_id ??
-          this.configService.get<string>('TENCENTCLOUD_SECRET_ID') ??
-          '',
-        secret_key:
-          this.decryptStored(stored.tencent_ocr?.encrypted_secret_key) ??
-          this.configService.get<string>('TENCENTCLOUD_SECRET_KEY') ??
-          '',
-        region:
-          stored.tencent_ocr?.region ??
-          this.configService.get<string>('TENCENTCLOUD_OCR_REGION') ??
-          DEFAULT_TENCENT_OCR_CONFIG.region,
-        endpoint:
-          stored.tencent_ocr?.endpoint ??
-          this.configService.get<string>('TENCENTCLOUD_OCR_ENDPOINT') ??
-          DEFAULT_TENCENT_OCR_CONFIG.endpoint,
-        invoice_action:
-          stored.tencent_ocr?.invoice_action ??
-          this.configService.get<string>('TENCENTCLOUD_OCR_INVOICE_ACTION') ??
-          DEFAULT_TENCENT_OCR_CONFIG.invoice_action,
-      },
+      // 腾讯 OCR 凭证统一由 OcrService 解析（IntegrationConfig kind=tencent_ocr，env 回退），
+      // 与「系统管理 → 腾讯OCR配置」和研发模块共用同一处，避免配置分叉。
+      tencent_ocr: await this.ocrService.getTencentConfig(),
       wecom: {
         ...DEFAULT_WECOM_EXPENSE_CONFIG,
         enabled: stored.wecom?.enabled ?? this.envBool('WECOM_EXPENSE_ENABLED'),

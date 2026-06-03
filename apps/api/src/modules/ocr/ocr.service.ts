@@ -1,10 +1,12 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecureConfigService } from '../security/secure-config.service';
 import {
   DEFAULT_TENCENT_OCR_CONFIG,
+  TENCENT_OCR_SUPPORTED_ACTIONS,
   TencentOcrClient,
   getTencentOcrService,
   type TencentOcrDocumentKind,
@@ -32,10 +34,23 @@ const OCR_TEXT_FIELD_NAMES = new Set([
 const TENCENT_INTEGRATION_KIND = 'tencent_ocr';
 const CONFIG_CACHE_TTL_MS = 60_000;
 
+/** integration-management「腾讯OCR配置」保存端点的入参：secret_key 为明文（传输层已解密），undefined 表示保留原值 */
+export type SaveTencentOcrInput = {
+  enabled: boolean;
+  secret_id?: string;
+  secret_key?: string;
+  region?: string;
+  endpoint?: string;
+  invoice_action?: string;
+};
+
 @Injectable()
 export class OcrService {
+  private readonly logger = new Logger(OcrService.name);
   private cachedConfig: TencentOcrConfig | null = null;
   private cachedAt = 0;
+  /** env 回退告警只打一次，避免 60s 缓存过期反复刷屏 */
+  private warnedEnvFallback = false;
 
   constructor(
     private readonly configService: ConfigService,
@@ -88,10 +103,10 @@ export class OcrService {
       endpoint = this.configService.get<string>('TENCENTCLOUD_OCR_ENDPOINT') ?? endpoint;
       invoice_action = this.configService.get<string>('TENCENTCLOUD_OCR_INVOICE_ACTION') ?? invoice_action;
       enabled = this.envBool('TENCENTCLOUD_OCR_ENABLED');
-      if (secret_id || secret_key) {
-        // eslint-disable-next-line no-console
-        console.warn(
-          '[OcrService] 腾讯 OCR key 仍从环境变量读取。建议在系统设置 → 集成配置中迁移到数据库（kind=tencent_ocr）。',
+      if ((secret_id || secret_key) && !this.warnedEnvFallback) {
+        this.warnedEnvFallback = true;
+        this.logger.warn(
+          '腾讯 OCR 凭证来自环境变量（明文、需重启才能更新）。可在「系统管理 → 腾讯OCR配置」录入，改为加密存储并支持热更新。',
         );
       }
     }
@@ -114,6 +129,113 @@ export class OcrService {
   invalidateConfigCache() {
     this.cachedConfig = null;
     this.cachedAt = 0;
+  }
+
+  /**
+   * 集成配置页用：返回脱敏后的腾讯 OCR 配置。
+   * source=database 表示已迁入 DB；env 表示仍在用环境变量；none 表示完全未配置。
+   * 与 loadBaseConfig 不同，这里不按 isActive 过滤，停用的记录也要能回显到表单。
+   */
+  async getMaskedTencentConfig() {
+    const record = await this.prisma.integrationConfig
+      .findFirst({
+        where: { kind: TENCENT_INTEGRATION_KIND },
+        orderBy: { updatedAt: 'desc' },
+      })
+      .catch(() => null);
+
+    if (record) {
+      const meta = (record.metadata && typeof record.metadata === 'object' ? record.metadata : {}) as Record<
+        string,
+        unknown
+      >;
+      let hasSecretKey = false;
+      try {
+        hasSecretKey = Boolean(record.encryptedSecret && this.secureConfig.decryptFromStorage(record.encryptedSecret));
+      } catch {
+        hasSecretKey = false;
+      }
+      return {
+        source: 'database' as const,
+        enabled: record.isActive && meta.enabled !== false,
+        secret_id: record.accountIdentifier ?? '',
+        has_secret_key: hasSecretKey,
+        region: this.asString(meta.region) || DEFAULT_TENCENT_OCR_CONFIG.region,
+        endpoint: this.asString(meta.endpoint) || DEFAULT_TENCENT_OCR_CONFIG.endpoint,
+        invoice_action: this.asString(meta.invoice_action) || DEFAULT_TENCENT_OCR_CONFIG.invoice_action,
+        operator_name: this.asString(meta.operator_name) || '系统',
+        updated_at: record.updatedAt.toISOString(),
+        supported_actions: TENCENT_OCR_SUPPORTED_ACTIONS,
+      };
+    }
+
+    // 没有 DB 记录：回退看 env，提示用户是否仍在用环境变量
+    const envSecretId = this.configService.get<string>('TENCENTCLOUD_SECRET_ID') ?? '';
+    const envSecretKey = this.configService.get<string>('TENCENTCLOUD_SECRET_KEY') ?? '';
+    const fromEnv = Boolean(envSecretId || envSecretKey);
+    return {
+      source: (fromEnv ? 'env' : 'none') as 'env' | 'none',
+      enabled: fromEnv ? this.envBool('TENCENTCLOUD_OCR_ENABLED') : false,
+      secret_id: envSecretId,
+      has_secret_key: Boolean(envSecretKey),
+      region: this.configService.get<string>('TENCENTCLOUD_OCR_REGION') ?? DEFAULT_TENCENT_OCR_CONFIG.region,
+      endpoint: this.configService.get<string>('TENCENTCLOUD_OCR_ENDPOINT') ?? DEFAULT_TENCENT_OCR_CONFIG.endpoint,
+      invoice_action:
+        this.configService.get<string>('TENCENTCLOUD_OCR_INVOICE_ACTION') ?? DEFAULT_TENCENT_OCR_CONFIG.invoice_action,
+      operator_name: '系统',
+      updated_at: null,
+      supported_actions: TENCENT_OCR_SUPPORTED_ACTIONS,
+    };
+  }
+
+  /**
+   * 集成配置页用：把腾讯 OCR 配置写入 IntegrationConfig(kind=tencent_ocr) 单例行。
+   * secret_key 为明文（传输层已解密）；未提供时保留原密文。写入后立即失效缓存。
+   */
+  async saveTencentConfig(input: SaveTencentOcrInput, operatorName = '系统') {
+    const existing = await this.prisma.integrationConfig.findFirst({
+      where: { kind: TENCENT_INTEGRATION_KIND },
+      orderBy: { updatedAt: 'desc' },
+    });
+
+    const secretId = (input.secret_id ?? existing?.accountIdentifier ?? '').trim();
+    const region = input.region?.trim() || DEFAULT_TENCENT_OCR_CONFIG.region;
+    const endpoint = input.endpoint?.trim() || DEFAULT_TENCENT_OCR_CONFIG.endpoint;
+    const invoiceAction = input.invoice_action?.trim() || DEFAULT_TENCENT_OCR_CONFIG.invoice_action;
+    const encryptedSecret = input.secret_key
+      ? this.secureConfig.encryptForStorage(input.secret_key)
+      : existing?.encryptedSecret ?? this.secureConfig.encryptForStorage('');
+
+    const metadata = {
+      region,
+      endpoint,
+      invoice_action: invoiceAction,
+      enabled: input.enabled,
+      operator_name: operatorName,
+    } as Prisma.InputJsonValue;
+
+    const data = {
+      name: '腾讯 OCR',
+      accountIdentifier: secretId,
+      encryptedSecret,
+      isActive: input.enabled,
+      metadata,
+    };
+
+    if (existing) {
+      await this.prisma.integrationConfig.update({ where: { id: existing.id }, data });
+    } else {
+      await this.prisma.integrationConfig.create({
+        data: { kind: TENCENT_INTEGRATION_KIND, ...data },
+      });
+    }
+
+    this.invalidateConfigCache();
+    return this.getMaskedTencentConfig();
+  }
+
+  private asString(value: unknown): string {
+    return typeof value === 'string' ? value : '';
   }
 
   async getTencentConfig(overrides: Partial<TencentOcrConfig> = {}): Promise<TencentOcrConfig> {

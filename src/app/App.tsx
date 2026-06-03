@@ -26,6 +26,7 @@ import { InquiryPage } from "./InquiryPage";
 import { LoginPage } from "./LoginPage";
 import { MailboxManagementPage } from "./MailboxManagementPage";
 import { MeetingMinutes } from "./MeetingMinutes";
+import { OcrConfigManagementPage } from "./OcrConfigManagementPage";
 import { MessageCenterPage } from "./MessageCenterPage";
 import { OpsCenterPage } from "./OpsCenterPage";
 import { PersonalCenterPage } from "./PersonalCenterPage";
@@ -247,6 +248,7 @@ const router = createBrowserRouter([
       { path: "contract-review", element: makeProtected(<ContractReviewPage />, "page:contract-review") },
       { path: "mailbox-management", element: makeProtected(<MailboxManagementPage />, "page:mailbox-management") },
       { path: "ai-model-management", element: makeProtected(<AiModelManagementPage />, "page:ai-model-management") },
+      { path: "ocr-config-management", element: makeProtected(<OcrConfigManagementPage />, "page:ocr-config-management") },
       { path: "ops-center", element: makeProtected(<OpsCenterPage section="overview" />, "page:ops-center") },
       { path: "ops-center/api-errors", element: makeProtected(<OpsCenterPage section="api-errors" />, "page:ops-api-errors") },
       { path: "ops-center/database", element: makeProtected(<OpsCenterPage section="database" />, "page:ops-database") },

@@ -4,6 +4,7 @@ import { Request } from 'express';
 import { ListIntegrationQueryDto } from './dto/list-integration-query.dto';
 import { SaveAiModelDto } from './dto/save-ai-model.dto';
 import { SaveMailboxDto } from './dto/save-mailbox.dto';
+import { SaveOcrConfigDto } from './dto/save-ocr-config.dto';
 import { TestAiModelConnectionDto } from './dto/test-ai-model-connection.dto';
 import { IntegrationManagementService } from './integration-management.service';
 
@@ -55,5 +56,15 @@ export class IntegrationManagementController {
   @Delete('ai-models/:modelId')
   deleteAiModel(@Param('modelId') modelId: string) {
     return this.integrationManagementService.deleteAiModel(modelId);
+  }
+
+  @Get('ocr-config')
+  getOcrConfig() {
+    return this.integrationManagementService.getOcrConfig();
+  }
+
+  @Post('ocr-config')
+  saveOcrConfig(@Body() payload: SaveOcrConfigDto, @Req() req: AuthenticatedRequest) {
+    return this.integrationManagementService.saveOcrConfig(payload, req.user?.id);
   }
 }

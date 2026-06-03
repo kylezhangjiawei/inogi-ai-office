@@ -2,11 +2,13 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { IntegrationConfig, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { OcrService } from '../ocr/ocr.service';
 import { OpenAiScreeningService } from '../resume-screening/openai-screening.service';
 import { SecureConfigService } from '../security/secure-config.service';
 import { ListIntegrationQueryDto } from './dto/list-integration-query.dto';
 import { SaveAiModelDto } from './dto/save-ai-model.dto';
 import { SaveMailboxDto } from './dto/save-mailbox.dto';
+import { SaveOcrConfigDto } from './dto/save-ocr-config.dto';
 import { TestAiModelConnectionDto } from './dto/test-ai-model-connection.dto';
 
 type MailboxMetadata = {
@@ -51,7 +53,34 @@ export class IntegrationManagementService {
     private readonly prisma: PrismaService,
     private readonly secureConfigService: SecureConfigService,
     private readonly openAiScreeningService: OpenAiScreeningService,
+    private readonly ocrService: OcrService,
   ) {}
+
+  /** 腾讯 OCR 配置：读取脱敏后的当前配置（DB / env / 未配置） */
+  getOcrConfig() {
+    return this.ocrService.getMaskedTencentConfig();
+  }
+
+  /** 腾讯 OCR 配置：保存到 IntegrationConfig(kind=tencent_ocr)，与 OcrService/经费共用同一处 */
+  async saveOcrConfig(payload: SaveOcrConfigDto, userId?: string) {
+    const operatorName = await this.resolveOperatorName(userId);
+    const secretKey = this.resolveTransportSecret({
+      encryptedSecret: payload.encrypted_secret,
+      plainSecret: payload.plain_secret,
+    });
+    return this.ocrService.saveTencentConfig(
+      {
+        enabled: payload.enabled,
+        secret_id: payload.secret_id,
+        // 空字符串视为「未提供」→ 保留原密钥
+        secret_key: secretKey || undefined,
+        region: payload.region,
+        endpoint: payload.endpoint,
+        invoice_action: payload.invoice_action,
+      },
+      operatorName,
+    );
+  }
 
   getSecurityPublicKey() {
     return {

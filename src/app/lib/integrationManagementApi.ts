@@ -91,6 +91,36 @@ export interface TestAiModelConnectionResult {
   total_tokens?: number | null;
 }
 
+export interface OcrSupportedAction {
+  key: string;
+  label: string;
+  default_action: string;
+}
+
+export interface OcrConfigItem {
+  /** database=已迁入数据库；env=仍在用环境变量；none=完全未配置 */
+  source: "database" | "env" | "none";
+  enabled: boolean;
+  secret_id: string;
+  has_secret_key: boolean;
+  region: string;
+  endpoint: string;
+  invoice_action: string;
+  operator_name: string;
+  updated_at: string | null;
+  supported_actions: OcrSupportedAction[];
+}
+
+export interface SaveOcrConfigPayload {
+  enabled: boolean;
+  secret_id?: string;
+  /** 明文 SecretKey；留空表示保留原密钥 */
+  secret_key?: string;
+  region?: string;
+  endpoint?: string;
+  invoice_action?: string;
+}
+
 type SecurityPublicKeyResponse = {
   algorithm: "RSA-OAEP";
   public_key: string;
@@ -321,5 +351,39 @@ export const integrationManagementApi = {
     return request<{ id: string }>(`/api/integration-management/ai-models/${modelId}`, {
       method: "DELETE",
     });
+  },
+  getOcrConfig() {
+    return request<OcrConfigItem>("/api/integration-management/ocr-config");
+  },
+  async saveOcrConfig(payload: SaveOcrConfigPayload) {
+    const buildBody = (secretPayload: Record<string, string>) => ({
+      enabled: payload.enabled,
+      secret_id: payload.secret_id,
+      region: payload.region,
+      endpoint: payload.endpoint,
+      invoice_action: payload.invoice_action,
+      ...secretPayload,
+    });
+
+    try {
+      return await request<OcrConfigItem>("/api/integration-management/ocr-config", {
+        method: "POST",
+        body: JSON.stringify(buildBody(prepareSecretPayload(payload.secret_key))),
+      });
+    } catch (error) {
+      if (!shouldRetryWithLegacySecret(error) || !payload.secret_key?.trim()) {
+        throw error;
+      }
+
+      const legacySecretPayload = await prepareLegacySecretPayload(payload.secret_key);
+      if (!legacySecretPayload) {
+        throw buildLegacyVersionMismatchError();
+      }
+
+      return request<OcrConfigItem>("/api/integration-management/ocr-config", {
+        method: "POST",
+        body: JSON.stringify(buildBody(legacySecretPayload)),
+      });
+    }
   },
 };
