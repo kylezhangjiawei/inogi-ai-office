@@ -8230,7 +8230,7 @@ function PersonTaskCockpit({
                       </AnimatePresence>
 
                       {allActiveTasks.length === 0 ? (
-                        <div className="flex h-[480px] flex-col items-center justify-center gap-2 text-sm text-slate-400">
+                        <div className="flex h-[65vh] flex-col items-center justify-center gap-2 text-sm text-slate-400">
                           <span>{kpiFilter === "all" ? "暂无任务" : `当前筛选「${KPI_FILTER_LABEL[kpiFilter]}」下暂无任务`}</span>
                           {kpiFilter !== "all" && onClearKpiFilter && (
                             <button
@@ -8247,7 +8247,7 @@ function PersonTaskCockpit({
                         <div
                           ref={setScrollRef}
                           className="cockpit-scroll overflow-y-auto"
-                          style={{ height: 480 }}
+                          style={{ height: "65vh" }}
                           onScroll={(e) => handleTaskScroll(e, "all", allActiveTasks.length)}
                         >
                           <div className="flex items-start gap-2.5 px-4 py-3">
@@ -8316,7 +8316,7 @@ function PersonTaskCockpit({
 
                       {/* Task list — 与"全部"相同的 INS 风格滚动 feed */}
                       {tasks.length === 0 ? (
-                        <div className="flex h-[480px] flex-col items-center justify-center gap-2 text-sm text-slate-400">
+                        <div className="flex h-[65vh] flex-col items-center justify-center gap-2 text-sm text-slate-400">
                           <span>{kpiFilter === "all" ? "该成员当前暂无任务" : `该成员当前筛选「${KPI_FILTER_LABEL[kpiFilter]}」下暂无任务`}</span>
                           {kpiFilter !== "all" && onClearKpiFilter && (
                             <button
@@ -8333,7 +8333,7 @@ function PersonTaskCockpit({
                         <div
                           ref={setScrollRef}
                           className="cockpit-scroll overflow-y-auto"
-                          style={{ height: 480 }}
+                          style={{ height: "65vh" }}
                           onScroll={(e) => handleTaskScroll(e, p.name, tasks.length)}
                         >
                           <div className="flex items-start gap-2.5 px-4 py-3">
