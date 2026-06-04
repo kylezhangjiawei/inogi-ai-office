@@ -1102,6 +1102,130 @@ export function regenerateAllRdDailyReports(date?: string) {
   });
 }
 
+// ── 每月工作月报 ─────────────────────────────────────────────────────────────
+
+export type RdMonthlyReportGroup = "completed" | "progressed" | "stalled" | "blocked";
+
+// 当月某成员单个任务的画像（月报按分组展示的最小单元）。
+export type RdMonthlyReportTaskItem = {
+  task_id: string;
+  title: string;
+  status: string;
+  status_label: string;
+  progress: number | null;
+  due_date: string | null;
+  role: "owner" | "collaborator";
+  group: RdMonthlyReportGroup;
+  month_notes_count: number;
+  month_excerpt: string | null;
+  month_progress: number | null;
+  month_attachments: number;
+  blocked_reason: string | null;
+  overdue: boolean;
+};
+
+export type RdMonthlyReport = {
+  id: string;
+  user_id: string | null;
+  user_name: string;
+  month: string; // YYYY-MM
+  trigger: "manual" | "cron";
+  summary: {
+    text: string;
+    stats: {
+      total_tasks: number;
+      in_progress: number;
+      completed: number;
+      blocked: number;
+      pending: number;
+      notes_count: number;
+      stalled: number;
+      as_collaborator: number;
+      progressed: number;
+    };
+    note_refs: RdDailyReportNoteRef[];
+    tasks?: RdMonthlyReportTaskItem[];
+  };
+  created_at: string;
+};
+
+export function fetchRdMonthlyReports(filters?: { user_id?: string; month?: string; limit?: number }) {
+  const params = new URLSearchParams();
+  if (filters?.user_id) params.set("user_id", filters.user_id);
+  if (filters?.month) params.set("month", filters.month);
+  if (typeof filters?.limit === "number") params.set("limit", String(filters.limit));
+  const qs = params.toString();
+  return requestJson<RdMonthlyReport[]>(`/monthly-reports${qs ? `?${qs}` : ""}`);
+}
+
+export function createRdMonthlyReport(payload: { user_id?: string; user_name?: string; month?: string }) {
+  return requestJson<RdMonthlyReport>("/monthly-reports", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    timeoutMs: 120_000,
+  });
+}
+
+export function regenerateAllRdMonthlyReports(month?: string) {
+  return requestJson<{ month: string; count: number }>("/monthly-reports/regenerate-all", {
+    method: "POST",
+    body: JSON.stringify({ month }),
+    timeoutMs: 180_000,
+  });
+}
+
+// ── 月度绩效报表 ─────────────────────────────────────────────────────────────
+
+export type RdPerformanceMetrics = {
+  total_tasks: number;
+  owner_tasks: number;
+  collab_tasks: number;
+  completed: number;
+  in_progress: number;
+  blocked: number;
+  stalled: number;
+  pending: number;
+  notes_count: number;
+  attachments_count: number;
+  overdue_tasks: number;
+  completion_rate: number;
+};
+
+export type RdPerformanceReport = {
+  id: string;
+  user_id: string | null;
+  user_name: string;
+  month: string; // YYYY-MM
+  trigger: "manual" | "cron";
+  summary: {
+    period: string;
+    period_label: string;
+    score: number;
+    grade: string;
+    metrics: RdPerformanceMetrics;
+    text: string;
+    generated_by: "ai" | "local";
+  };
+  created_at: string;
+};
+
+export function fetchRdPerformanceReports(filters?: { user_id?: string; month?: string; limit?: number }) {
+  const params = new URLSearchParams();
+  if (filters?.user_id) params.set("user_id", filters.user_id);
+  if (filters?.month) params.set("month", filters.month);
+  if (typeof filters?.limit === "number") params.set("limit", String(filters.limit));
+  const qs = params.toString();
+  return requestJson<RdPerformanceReport[]>(`/performance-reports${qs ? `?${qs}` : ""}`);
+}
+
+export function createRdPerformanceReport(payload: { user_id?: string; user_name?: string; month?: string }) {
+  return requestJson<RdPerformanceReport>("/performance-reports", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    timeoutMs: 120_000,
+  });
+}
+
 // ── 站内消息 ────────────────────────────────────────────────────────────────
 
 export type RdMessage = {

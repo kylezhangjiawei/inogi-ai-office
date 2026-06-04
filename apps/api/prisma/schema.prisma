@@ -93,6 +93,8 @@ model ChatMessage {
   content        String
   model          String?
   reaction       String?
+  // 用户消息附带的图片/文件附件，结构：[{ fileId, name, mime, size, objectKey }]
+  attachments    Json?
   createdAt      DateTime         @default(now())
 }
 

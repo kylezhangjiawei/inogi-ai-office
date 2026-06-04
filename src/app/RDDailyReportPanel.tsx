@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   CalendarDays,
   ChevronDown,
@@ -191,7 +191,7 @@ const REPORT_PAGE_SIZE = 5; // date groups per page (history layer)
  * 研发日报面板（共享）。顶部「今日速览」始终可见，供领导一眼掌握当日团队状态；
  * 「查看全部」展开历史详情层（按日期分组 + 成员筛选 + 分页）。自带数据获取，可在任意页面挂载。
  */
-export function RDDailyReportPanel({ canRegenerate }: { canRegenerate: boolean }) {
+export function RDDailyReportPanel({ canRegenerate, tabSlot }: { canRegenerate: boolean; tabSlot?: ReactNode }) {
   const isMountedRef = useRef(true);
   useEffect(() => () => { isMountedRef.current = false; }, []);
 
@@ -334,6 +334,7 @@ export function RDDailyReportPanel({ canRegenerate }: { canRegenerate: boolean }
     <div className="flex h-full flex-col gap-3">
       {/* ── 今日速览（始终可见；flex-1 让它在宽屏并排时撑满到与左侧 KPI 卡等高） ──── */}
       <div className="flex-1 rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-indigo-50/40 p-4 shadow-sm">
+        {tabSlot}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-600 text-white shadow-sm">

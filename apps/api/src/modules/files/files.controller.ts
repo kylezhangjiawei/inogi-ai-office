@@ -19,7 +19,7 @@ import { UploadFileDto } from './dto/upload-file.dto';
 
 type RequestUser = { id?: string; sub?: string };
 
-@Controller('api/files')
+@Controller('files')
 export class FilesController {
   constructor(private readonly filesService: FilesService) {}
 

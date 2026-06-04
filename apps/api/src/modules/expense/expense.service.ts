@@ -256,6 +256,11 @@ export class ExpenseService {
     return this.applyAutoVoucherMatches(true);
   }
 
+  /**
+   * 人工关联票据与付款凭证。区别于 AI 自动关联（只在双方都未关联时建链），
+   * 人工关联允许「改绑」：目标票据或目标凭证若已关联到别的对端，会先释放旧对端再建新链。
+   * 仅对「已报销」的票据加保护，避免破坏已提交的报销单。
+   */
   async linkVoucherManually(invoiceId: string, voucherId: string) {
     const [invoice, vouchers, invoices] = await Promise.all([
       this.getInvoiceOrThrow(invoiceId),
@@ -266,11 +271,41 @@ export class ExpenseService {
     if (!voucher) {
       throw new NotFoundException('付款凭证不存在');
     }
-    if (invoice.voucher_no || invoice.matched_voucher_id) {
-      throw new BadRequestException('该票据已关联付款凭证');
+
+    // 已经互相关联：幂等返回，避免无意义写库
+    if (invoice.matched_voucher_id === voucher.id && voucher.matched_invoice_id === invoice.id) {
+      return invoice;
     }
-    if (voucher.matched_invoice_id) {
-      throw new BadRequestException('该付款凭证已关联其他票据');
+    // 已报销的票据不允许改动关联
+    if (invoice.status === '已报销') {
+      throw new BadRequestException('该票据已报销，无法重新关联');
+    }
+
+    const writes: Array<Promise<unknown>> = [];
+
+    // 1) 目标票据原先关联了别的凭证 → 释放该旧凭证
+    if (invoice.matched_voucher_id && invoice.matched_voucher_id !== voucher.id) {
+      const oldVoucher = vouchers.find((item) => item.id === invoice.matched_voucher_id);
+      if (oldVoucher) {
+        const released = this.releaseVoucherLink(oldVoucher);
+        writes.push(
+          this.upsertValue(RECORD_CATEGORIES.voucher, released.id, released, released.voucher_no || released.file_name),
+        );
+      }
+    }
+
+    // 2) 目标凭证原先关联了别的票据 → 释放该旧票据
+    if (voucher.matched_invoice_id && voucher.matched_invoice_id !== invoice.id) {
+      const oldInvoice = invoices.find((item) => item.id === voucher.matched_invoice_id);
+      if (oldInvoice) {
+        if (oldInvoice.status === '已报销') {
+          throw new BadRequestException('该付款凭证已关联到已报销票据，无法改绑');
+        }
+        const released = this.releaseInvoiceLink(oldInvoice);
+        writes.push(
+          this.upsertValue(RECORD_CATEGORIES.invoice, released.id, released, `${released.invoice_no} ${released.vendor}`),
+        );
+      }
     }
 
     const candidate = this.scoreVoucherMatch(invoice, voucher, invoices);
@@ -297,17 +332,47 @@ export class ExpenseService {
       matched_by: 'manual',
       matched_at: matchedAt,
     };
-
-    await Promise.all([
+    writes.push(
       this.upsertValue(RECORD_CATEGORIES.invoice, nextInvoice.id, nextInvoice, `${nextInvoice.invoice_no} ${nextInvoice.vendor}`),
       this.upsertValue(RECORD_CATEGORIES.voucher, nextVoucher.id, nextVoucher, nextVoucher.voucher_no || nextVoucher.file_name),
-    ]);
+    );
+
+    await Promise.all(writes);
     await this.recordEvent({
       title: '付款凭证人工关联完成',
       detail: `${nextInvoice.invoice_no} 已关联 ${nextVoucher.voucher_no}，匹配分 ${score}`,
       level: 'info',
     });
     return nextInvoice;
+  }
+
+  /** 解除付款凭证侧的关联字段（改绑或解绑时复用），状态回到「已识别」（异常态保持不变）。 */
+  private releaseVoucherLink(voucher: ExpenseVoucherValue): ExpenseVoucherValue {
+    return {
+      ...voucher,
+      matched_invoice_id: undefined,
+      match_score: undefined,
+      match_reasons: undefined,
+      matched_by: undefined,
+      matched_at: undefined,
+      status: voucher.status === '异常' ? voucher.status : '已识别',
+    };
+  }
+
+  /** 解除票据侧的关联字段（改绑或解绑时复用），状态回到「已识别」。 */
+  private releaseInvoiceLink(invoice: ExpenseInvoiceValue): ExpenseInvoiceValue {
+    return {
+      ...invoice,
+      voucher_no: undefined,
+      matched_voucher_id: undefined,
+      match_confidence: undefined,
+      payment_voucher: undefined,
+      match_score: undefined,
+      match_reasons: undefined,
+      matched_by: undefined,
+      matched_at: undefined,
+      status: '已识别',
+    };
   }
 
   async updateInvoice(invoiceId: string, payload: UpdateExpenseInvoiceDto) {

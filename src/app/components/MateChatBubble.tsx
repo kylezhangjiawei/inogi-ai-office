@@ -5,8 +5,12 @@ import {
   Clock3,
   Copy,
   Database,
+  FileText,
   Globe,
+  Image as ImageIcon,
+  Loader2,
   MessageSquarePlus,
+  Paperclip,
   PencilLine,
   Pin,
   RefreshCw,
@@ -38,13 +42,37 @@ type ApiConversation = {
   _count?: { messages: number };
 };
 
+/** 后端 getMessages 返回的附件视图（带同源内联预览 URL） */
+type AttachmentView = {
+  fileId: string;
+  name: string;
+  mime: string;
+  size: number;
+  url: string | null;
+  isImage: boolean;
+};
+
 type ApiMessage = {
   id: string;
   role: "user" | "assistant";
   content: string;
   model: string | null;
   reaction: string | null;
+  attachments?: AttachmentView[];
   createdAt: string;
+};
+
+/** 输入区待发送附件（上传中 / 完成 / 失败 三态） */
+type PendingAttachment = {
+  localId: string;
+  name: string;
+  size: number;
+  mime: string;
+  status: "compressing" | "uploading" | "done" | "error";
+  fileId?: string;
+  /** 图片本地 blob 预览（发送后乐观消息也复用它） */
+  previewUrl?: string;
+  error?: string;
 };
 
 type ModelOption = { id: string; label: string; provider: string; model: string; usage_kind?: string };
@@ -77,6 +105,78 @@ const QUICK_PROMPTS = [
   "总结当前项目的风险点",
   "给我一份合同审查意见模板",
 ];
+
+/** 附件数量与单文件大小上限（与后端 uploads-temp 的 20MB 对齐） */
+const ATTACH_MAX_COUNT = 10;
+const ATTACH_MAX_BYTES = 20 * 1024 * 1024;
+
+function fmtFileSize(bytes: number) {
+  if (!bytes || bytes < 0) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/** 是否图片：优先看 MIME，缺失时回退看扩展名（粘贴/拖拽偶尔丢失 type） */
+function isImageFile(file: File): boolean {
+  if ((file.type || "").startsWith("image/")) return true;
+  return /\.(png|jpe?g|gif|webp|bmp|heic|heif|avif)$/i.test(file.name || "");
+}
+
+/** canvas.toBlob 的 Promise 包装 */
+function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob | null> {
+  return new Promise((resolve) => canvas.toBlob((b) => resolve(b), type, quality));
+}
+
+/** 压缩后统一输出 JPEG，把文件名扩展名换成 .jpg */
+function renameToJpg(name: string): string {
+  const dot = name.lastIndexOf(".");
+  const base = dot > 0 ? name.slice(0, dot) : name;
+  return `${base || "image"}.jpg`;
+}
+
+/**
+ * 客户端压缩图片到 maxBytes 以内：先把最长边限制到 2560px，再逐级降低 JPEG 质量；
+ * 仍超限则进一步缩小尺寸重试。解码失败或压到最小仍超限返回 null（调用方据此提示）。
+ */
+async function compressImageToLimit(file: File, maxBytes: number): Promise<File | null> {
+  let bitmap: ImageBitmap;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    return null; // 浏览器无法解码（如 HEIC）
+  }
+  try {
+    const canvas = document.createElement("canvas");
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    let maxEdge = Math.min(Math.max(bitmap.width, bitmap.height), 2560);
+    for (let i = 0; i < 8 && maxEdge >= 480; i++) {
+      const ratio = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
+      const w = Math.max(1, Math.round(bitmap.width * ratio));
+      const h = Math.max(1, Math.round(bitmap.height * ratio));
+      canvas.width = w;
+      canvas.height = h;
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = "#ffffff"; // JPEG 无透明通道，铺白底避免黑块
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(bitmap, 0, 0, w, h);
+      for (const quality of [0.82, 0.7, 0.6, 0.5]) {
+        const blob = await canvasToBlob(canvas, "image/jpeg", quality);
+        if (blob && blob.size <= maxBytes) {
+          return new File([blob], renameToJpg(file.name), {
+            type: "image/jpeg",
+            lastModified: Date.now(),
+          });
+        }
+      }
+      maxEdge = Math.round(maxEdge * 0.75); // 仍超限则进一步缩小尺寸
+    }
+    return null;
+  } finally {
+    bitmap.close();
+  }
+}
 
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
@@ -151,6 +251,30 @@ async function apiDeleteMessage(msgId: string): Promise<void> {
   if (!res.ok) throw new Error("删除消息失败");
 }
 
+type UploadResult = {
+  fileId: string;
+  objectKey: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  signedUrl: string | null;
+  expiresIn: number;
+};
+
+/** 上传单个文件到通用文件接口（uploads-temp 桶，允许任意类型 ≤20MB），返回权威文件信息 */
+async function apiUploadFile(file: File): Promise<UploadResult> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("businessType", "uploads-temp");
+  // 注意：FormData 不能手动设 Content-Type（authFetch 仅对 string body 加 JSON 头，这里会让浏览器自动带 boundary）
+  const res = await authFetch("/api/files/upload", { method: "POST", body: form });
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { message?: string };
+    throw new Error(err.message ?? "上传失败");
+  }
+  return res.json() as Promise<UploadResult>;
+}
+
 async function apiListModels(): Promise<ModelOption[]> {
   const res = await authFetch("/api/chat/models");
   if (!res.ok) return [];
@@ -210,6 +334,17 @@ export function MateChatBubble() {
   // KB→RAG 一键回填进行中（仅 KB 管理员触发）
   const [backfilling, setBackfilling] = useState(false);
 
+  // 附件上传
+  const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
+  const [dragActive, setDragActive] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  // 同步镜像，供 addFiles 同步计算剩余名额（避免闭包拿到旧 state）
+  const attachmentsRef = useRef<PendingAttachment[]>([]);
+  // 拖拽进出计数，避免子元素 enter/leave 抖动
+  const dragDepthRef = useRef(0);
+  // 记录创建过的本地 blob URL，组件卸载时统一回收
+  const createdBlobUrlsRef = useRef<Set<string>>(new Set());
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // ── 气泡位置初始化 + resize 归位 ───────────────────────────────────────────
@@ -260,20 +395,38 @@ export function MateChatBubble() {
   // ── 首次打开加载数据（含 5 分钟缓存，避免反复开关抽屉时重复拉取） ────────────
   const lastLoadedAt = useRef<number>(0);
   const CACHE_TTL_MS = 5 * 60 * 1000;
+  // 初始化加载在途标记：防止 StrictMode 双触发 / 快速开关抽屉时并发执行 loadInit，
+  // 否则新用户的「自动建默认对话」可能被并发触发出多个空对话。
+  const initInFlightRef = useRef(false);
 
   const loadInit = useCallback(async (forceRefresh = false) => {
+    if (initInFlightRef.current) return;
     const now = Date.now();
     // 缓存未过期且非强刷 → 跳过
     if (!forceRefresh && conversations.length > 0 && models.length > 0 && now - lastLoadedAt.current < CACHE_TTL_MS) {
       return;
     }
+    initInFlightRef.current = true;
     setLoadingConvs(true);
     try {
       const [convs, mds] = await Promise.all([apiListConversations(), apiListModels()]);
-      setConversations(convs);
       setModels(mds);
       if (mds.length > 0 && !selectedModel) setSelectedModel(mds[0].id);
-      if (convs.length > 0 && !activeId) setActiveId(convs[0].id);
+      if (convs.length > 0) {
+        setConversations(convs);
+        if (!activeId) setActiveId(convs[0].id);
+      } else {
+        // 新用户首次使用：没有任何历史对话 → 自动建一个默认对话并选中，省去手动点「新建」，
+        // 让聊天窗口开箱即用。建过一次后会话已持久化，后续打开不会再进此分支、不会堆叠空对话。
+        try {
+          const conv = await apiCreateConversation();
+          setConversations([conv]);
+          setActiveId(conv.id);
+        } catch {
+          // 自动建默认对话失败不阻断（用户仍可手动点「新建」）
+          setConversations([]);
+        }
+      }
       lastLoadedAt.current = now;
       // 探活 RAG（embedding 是否配置 + 索引文档数）— 失败不影响主流程
       ragStatus().then(setRag).catch(() => setRag(null));
@@ -281,6 +434,7 @@ export function MateChatBubble() {
       toast.error(err instanceof Error ? err.message : "加载失败");
     } finally {
       setLoadingConvs(false);
+      initInFlightRef.current = false;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -357,15 +511,248 @@ export function MateChatBubble() {
     }
   };
 
+  // ── 附件上传（按钮 / 拖拽 / 粘贴 三种入口共用）──────────────────────────────
+
+  // 镜像最新附件，供 addFiles 同步读取
+  useEffect(() => { attachmentsRef.current = attachments; }, [attachments]);
+  // 卸载时回收所有本地 blob URL，避免内存泄漏
+  useEffect(() => {
+    const urls = createdBlobUrlsRef.current;
+    return () => {
+      urls.forEach((url) => URL.revokeObjectURL(url));
+      urls.clear();
+    };
+  }, []);
+
+  const uploadOne = useCallback(async (localId: string, file: File) => {
+    try {
+      const r = await apiUploadFile(file);
+      setAttachments((prev) =>
+        prev.map((a) =>
+          a.localId === localId
+            ? {
+                ...a,
+                status: "done",
+                fileId: r.fileId,
+                name: r.fileName || a.name,
+                mime: r.mimeType || a.mime,
+                size: typeof r.fileSize === "number" ? r.fileSize : a.size,
+              }
+            : a,
+        ),
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "上传失败";
+      setAttachments((prev) =>
+        prev.map((a) => (a.localId === localId ? { ...a, status: "error", error: message } : a)),
+      );
+      toast.error(`「${file.name}」上传失败：${message}`);
+    }
+  }, []);
+
+  // 超大图片：先压缩，成功则转上传，压不下去则标错（不直接丢弃）
+  const compressThenUpload = useCallback(
+    async (localId: string, file: File) => {
+      let compressed: File | null = null;
+      try {
+        compressed = await compressImageToLimit(file, ATTACH_MAX_BYTES);
+      } catch {
+        compressed = null;
+      }
+      if (!compressed) {
+        setAttachments((prev) =>
+          prev.map((a) =>
+            a.localId === localId
+              ? { ...a, status: "error", error: "图片过大，压缩后仍超过 20MB" }
+              : a,
+          ),
+        );
+        toast.error(`「${file.name}」过大，压缩后仍超过 20MB，已跳过`);
+        return;
+      }
+      const out = compressed;
+      const previewUrl = URL.createObjectURL(out);
+      createdBlobUrlsRef.current.add(previewUrl);
+      setAttachments((prev) =>
+        prev.map((a) =>
+          a.localId === localId
+            ? { ...a, status: "uploading", name: out.name, size: out.size, mime: out.type, previewUrl }
+            : a,
+        ),
+      );
+      toast.success(`「${file.name}」已压缩至 ${fmtFileSize(out.size)}`);
+      await uploadOne(localId, out);
+    },
+    [uploadOne],
+  );
+
+  const addFiles = useCallback(
+    (files: File[]) => {
+      if (files.length === 0) return;
+      const room = ATTACH_MAX_COUNT - attachmentsRef.current.length;
+      if (room <= 0) {
+        toast.error(`最多上传 ${ATTACH_MAX_COUNT} 个附件`);
+        return;
+      }
+      const items: PendingAttachment[] = [];
+      const direct: { localId: string; file: File }[] = [];
+      const toCompress: { localId: string; file: File }[] = [];
+      let taken = 0;
+      for (const file of files) {
+        if (taken >= room) {
+          toast.error(`最多上传 ${ATTACH_MAX_COUNT} 个附件，多余的已忽略`);
+          break;
+        }
+        const localId = `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        const isImg = isImageFile(file);
+        if (file.size > ATTACH_MAX_BYTES) {
+          // 非图片无法压缩，仍跳过；超大图片先占位再压缩
+          if (!isImg) {
+            toast.error(`「${file.name}」超过 20MB，已跳过`);
+            continue;
+          }
+          items.push({
+            localId,
+            name: file.name || "未命名图片",
+            size: file.size,
+            mime: file.type || "image/jpeg",
+            status: "compressing",
+          });
+          toCompress.push({ localId, file });
+          taken++;
+          continue;
+        }
+        let previewUrl: string | undefined;
+        if (isImg) {
+          previewUrl = URL.createObjectURL(file);
+          createdBlobUrlsRef.current.add(previewUrl);
+        }
+        items.push({
+          localId,
+          name: file.name || "未命名文件",
+          size: file.size,
+          mime: file.type || "application/octet-stream",
+          status: "uploading",
+          previewUrl,
+        });
+        direct.push({ localId, file });
+        taken++;
+      }
+      if (items.length === 0) return;
+      attachmentsRef.current = [...attachmentsRef.current, ...items];
+      setAttachments((prev) => [...prev, ...items]);
+      for (const d of direct) void uploadOne(d.localId, d.file);
+      for (const c of toCompress) void compressThenUpload(c.localId, c.file);
+    },
+    [uploadOne, compressThenUpload],
+  );
+
+  const removeAttachment = useCallback((localId: string) => {
+    setAttachments((prev) => {
+      const target = prev.find((a) => a.localId === localId);
+      if (target?.previewUrl) {
+        URL.revokeObjectURL(target.previewUrl);
+        createdBlobUrlsRef.current.delete(target.previewUrl);
+      }
+      const next = prev.filter((a) => a.localId !== localId);
+      attachmentsRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const onPickFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    addFiles(files);
+    e.target.value = ""; // 允许重复选择同一文件
+  };
+
+  const onPasteInput = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    const files: File[] = [];
+    for (const it of Array.from(items)) {
+      if (it.kind === "file") {
+        const f = it.getAsFile();
+        if (f) files.push(f);
+      }
+    }
+    if (files.length > 0) {
+      e.preventDefault(); // 阻止把文件路径当文本粘进输入框
+      addFiles(files);
+    }
+  };
+
+  const dragHasFiles = (e: React.DragEvent) =>
+    Array.from(e.dataTransfer?.types ?? []).includes("Files");
+
+  const onDragEnter = (e: React.DragEvent) => {
+    if (!activeId || !dragHasFiles(e)) return;
+    e.preventDefault();
+    dragDepthRef.current += 1;
+    setDragActive(true);
+  };
+  const onDragOver = (e: React.DragEvent) => {
+    if (!activeId || !dragHasFiles(e)) return;
+    e.preventDefault();
+  };
+  const onDragLeave = (e: React.DragEvent) => {
+    if (!dragHasFiles(e)) return;
+    e.preventDefault();
+    dragDepthRef.current -= 1;
+    if (dragDepthRef.current <= 0) {
+      dragDepthRef.current = 0;
+      setDragActive(false);
+    }
+  };
+  const onDrop = (e: React.DragEvent) => {
+    if (!activeId) return;
+    e.preventDefault();
+    dragDepthRef.current = 0;
+    setDragActive(false);
+    const files = e.dataTransfer?.files ? Array.from(e.dataTransfer.files) : [];
+    if (files.length > 0) addFiles(files);
+  };
+
   // ── 发送消息（智能模式：自动并行检索内部数据库 + 走 LLM 流式回答）─────────────
 
   const handleSend = useCallback(
     async (preset?: string) => {
       if (!activeId || sending) return;
+      const isPreset = preset !== undefined;
       const content = (preset ?? draft).trim();
-      if (!content) return;
+      // 附件仅随手动发送提交；快捷提问 / 重新回答（preset）只发文本，不动托盘
+      const sendableAtts = isPreset
+        ? []
+        : attachments.filter((a) => a.status === "done" && a.fileId);
+      if (!isPreset && attachments.some((a) => a.status === "uploading" || a.status === "compressing")) {
+        toast.error("附件还在处理中，请稍候");
+        return;
+      }
+      if (!content && sendableAtts.length === 0) return;
+
+      // 乐观展示用的附件视图（图片用本地 blob 预览）
+      const optimisticAtts: AttachmentView[] = sendableAtts.map((a) => ({
+        fileId: a.fileId as string,
+        name: a.name,
+        mime: a.mime,
+        size: a.size,
+        url: a.previewUrl ?? null,
+        isImage: a.mime.startsWith("image/"),
+      }));
+      // 传给后端的入参：只传 fileId 等，后端回查 FileAsset 作为权威来源
+      const attachPayload = sendableAtts.map((a) => ({
+        fileId: a.fileId as string,
+        name: a.name,
+        mime: a.mime,
+        size: a.size,
+      }));
 
       setDraft("");
+      if (!isPreset) {
+        // 清空托盘（blob 仍被乐观消息引用，保留到卸载时统一回收）
+        setAttachments([]);
+        attachmentsRef.current = [];
+      }
       setSending(true);
 
       const tempUserId = `tmp-user-${Date.now()}`;
@@ -375,14 +762,18 @@ export function MateChatBubble() {
       // 乐观添加占位消息
       setMessages((prev) => [
         ...prev,
-        { id: tempUserId, role: "user", content, model: null, reaction: null, createdAt: now },
+        { id: tempUserId, role: "user", content, model: null, reaction: null, createdAt: now, attachments: optimisticAtts },
         { id: tempAiId, role: "assistant", content: "", model: selectedModel || null, reaction: null, createdAt: now },
       ]);
 
       try {
         const res = await authFetch(`/api/chat/conversations/${activeId}/messages`, {
           method: "POST",
-          body: JSON.stringify({ content, model: selectedModel || undefined }),
+          body: JSON.stringify({
+            content: content || undefined,
+            model: selectedModel || undefined,
+            attachments: attachPayload.length > 0 ? attachPayload : undefined,
+          }),
         });
 
         if (!res.ok) {
@@ -481,7 +872,7 @@ export function MateChatBubble() {
         void (realUserId); // suppress unused warning
       }
     },
-    [activeId, sending, draft, selectedModel],
+    [activeId, sending, draft, selectedModel, attachments],
   );
 
   // ── 重新生成 ────────────────────────────────────────────────────────────────
@@ -581,6 +972,17 @@ export function MateChatBubble() {
   };
 
   const currentModel = models.find((m) => m.id === selectedModel);
+
+  // 附件相关派生状态
+  const hasPendingAttachment = attachments.some(
+    (a) => a.status === "uploading" || a.status === "compressing",
+  );
+  const readyAttachmentCount = attachments.filter((a) => a.status === "done").length;
+  const canSend =
+    !!activeId &&
+    !sending &&
+    !hasPendingAttachment &&
+    (draft.trim().length > 0 || readyAttachmentCount > 0);
 
   // ── 渲染 ────────────────────────────────────────────────────────────────────
 
@@ -742,7 +1144,23 @@ export function MateChatBubble() {
             </section>
 
             {/* 右侧消息区 */}
-            <section className="flex min-w-0 flex-1 flex-col">
+            <section
+              className="relative flex min-w-0 flex-1 flex-col"
+              onDragEnter={onDragEnter}
+              onDragOver={onDragOver}
+              onDragLeave={onDragLeave}
+              onDrop={onDrop}
+            >
+              {/* 拖拽上传遮罩 */}
+              {dragActive && (
+                <div className="pointer-events-none absolute inset-0 z-30 m-3 flex flex-col items-center justify-center gap-3 rounded-3xl border-2 border-dashed border-indigo-300 bg-indigo-50/85 backdrop-blur-sm">
+                  <Paperclip className="h-8 w-8 text-indigo-500" />
+                  <div className="text-sm font-medium text-indigo-700">松开鼠标上传文件</div>
+                  <div className="text-xs text-indigo-400">
+                    支持图片与文档，最多 {ATTACH_MAX_COUNT} 个 · 单个 ≤ 20MB
+                  </div>
+                </div>
+              )}
               {/* 顶部工具栏 */}
               <div className="flex items-center justify-between border-b border-slate-200/70 px-6 py-5">
                 <div className="min-w-0">
@@ -870,33 +1288,78 @@ export function MateChatBubble() {
                             )}
                             {/* 消息体 */}
                             <div className={isUser ? "text-right" : ""}>
-                              <div
-                                className={cn(
-                                  "rounded-[24px] px-4 py-3 text-sm leading-7 shadow-sm",
-                                  isUser ? "rounded-tr-md bg-indigo-50 text-slate-800" : "rounded-tl-md bg-[#f5f5fb] text-slate-800",
-                                  isStreaming && !msg.content && "py-4",
-                                )}
-                                style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
-                              >
-                                {isStreaming && !msg.content ? (
-                                  <span className="flex items-center gap-1.5">
-                                    {[0, 1, 2].map((i) => (
-                                      <span
-                                        key={i}
-                                        className="h-2 w-2 rounded-full bg-slate-400 animate-bounce"
-                                        style={{ animationDelay: `${i * 160}ms`, animationDuration: "0.72s" }}
-                                      />
-                                    ))}
-                                  </span>
-                                ) : (
-                                  <>
-                                    {msg.content}
-                                    {isStreaming && (
-                                      <span className="ml-1 inline-block h-4 w-0.5 animate-pulse bg-slate-500 align-middle" />
-                                    )}
-                                  </>
-                                )}
-                              </div>
+                              {(msg.content || isStreaming) && (
+                                <div
+                                  className={cn(
+                                    "rounded-[24px] px-4 py-3 text-sm leading-7 shadow-sm",
+                                    isUser ? "rounded-tr-md bg-indigo-50 text-slate-800" : "rounded-tl-md bg-[#f5f5fb] text-slate-800",
+                                    isStreaming && !msg.content && "py-4",
+                                  )}
+                                  style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+                                >
+                                  {isStreaming && !msg.content ? (
+                                    <span className="flex items-center gap-1.5">
+                                      {[0, 1, 2].map((i) => (
+                                        <span
+                                          key={i}
+                                          className="h-2 w-2 rounded-full bg-slate-400 animate-bounce"
+                                          style={{ animationDelay: `${i * 160}ms`, animationDuration: "0.72s" }}
+                                        />
+                                      ))}
+                                    </span>
+                                  ) : (
+                                    <>
+                                      {msg.content}
+                                      {isStreaming && (
+                                        <span className="ml-1 inline-block h-4 w-0.5 animate-pulse bg-slate-500 align-middle" />
+                                      )}
+                                    </>
+                                  )}
+                                </div>
+                              )}
+                              {/* 附件（图片缩略图 / 文件卡片） */}
+                              {msg.attachments && msg.attachments.length > 0 && (
+                                <div className={cn("mt-2 flex flex-wrap gap-2", isUser ? "justify-end" : "justify-start")}>
+                                  {msg.attachments.map((att) =>
+                                    att.isImage && att.url ? (
+                                      <a
+                                        key={att.fileId}
+                                        href={att.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="block overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
+                                        title={att.name}
+                                      >
+                                        <img src={att.url} alt={att.name} className="max-h-44 max-w-[220px] object-cover" />
+                                      </a>
+                                    ) : (
+                                      <a
+                                        key={att.fileId}
+                                        href={att.url ?? undefined}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className={cn(
+                                          "flex max-w-[240px] items-center gap-2 rounded-2xl border px-3 py-2 text-left text-xs transition",
+                                          att.url
+                                            ? "border-slate-200 bg-white hover:border-indigo-200 hover:bg-indigo-50/40"
+                                            : "cursor-default border-slate-200 bg-white opacity-70",
+                                        )}
+                                        title={att.name}
+                                      >
+                                        <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-500">
+                                          {att.isImage ? <ImageIcon className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
+                                        </span>
+                                        <span className="min-w-0">
+                                          <span className="block truncate font-medium text-slate-700">{att.name}</span>
+                                          {att.size > 0 && (
+                                            <span className="block text-[10px] text-slate-400">{fmtFileSize(att.size)}</span>
+                                          )}
+                                        </span>
+                                      </a>
+                                    ),
+                                  )}
+                                </div>
+                              )}
                               <div className="mt-1 flex flex-wrap items-center gap-2 px-1">
                                 <span className="text-xs text-slate-400">{fmtTime(msg.createdAt)}</span>
                                 {!isUser && msg.model && (
@@ -980,10 +1443,72 @@ export function MateChatBubble() {
                 </div>
 
                 <div className="rounded-[28px] border border-slate-200 bg-slate-50/92 p-3">
+                  {/* 隐藏的文件选择器（由附件按钮触发） */}
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={onPickFiles}
+                  />
+                  {/* 待发送附件预览条 */}
+                  {attachments.length > 0 && (
+                    <div className="mb-2 flex flex-wrap gap-2">
+                      {attachments.map((a) => (
+                        <div
+                          key={a.localId}
+                          className={cn(
+                            "group relative flex items-center gap-2 rounded-xl border bg-white py-1.5 pl-1.5 pr-7 text-xs",
+                            a.status === "error" ? "border-red-200 bg-red-50" : "border-slate-200",
+                          )}
+                        >
+                          {a.previewUrl ? (
+                            <img src={a.previewUrl} alt={a.name} className="h-8 w-8 flex-shrink-0 rounded-md object-cover" />
+                          ) : (
+                            <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-indigo-50 text-indigo-500">
+                              <FileText className="h-4 w-4" />
+                            </span>
+                          )}
+                          <span className="min-w-0 max-w-[140px]">
+                            <span className="block truncate font-medium text-slate-700">{a.name}</span>
+                            <span
+                              className={cn(
+                                "block text-[10px]",
+                                a.status === "error" ? "text-red-500" : "text-slate-400",
+                              )}
+                            >
+                              {a.status === "uploading"
+                                ? "上传中…"
+                                : a.status === "compressing"
+                                  ? "压缩中…"
+                                  : a.status === "error"
+                                    ? a.error ?? "上传失败"
+                                    : fmtFileSize(a.size)}
+                            </span>
+                          </span>
+                          {(a.status === "uploading" || a.status === "compressing") && (
+                            <Loader2 className="h-3.5 w-3.5 flex-shrink-0 animate-spin text-indigo-400" />
+                          )}
+                          {a.status === "error" && (
+                            <AlertTriangle className="h-3.5 w-3.5 flex-shrink-0 text-red-400" />
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeAttachment(a.localId)}
+                            className="absolute right-1 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full bg-slate-100 text-slate-400 opacity-0 transition hover:bg-slate-200 hover:text-slate-600 group-hover:opacity-100"
+                            title="移除"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   <textarea
                     rows={3}
                     value={draft}
                     onChange={(e) => setDraft(e.target.value)}
+                    onPaste={onPasteInput}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
@@ -992,7 +1517,7 @@ export function MateChatBubble() {
                     }}
                     disabled={sending || !activeId}
                     className="material-scrollbar min-h-[72px] w-full resize-none bg-transparent text-sm leading-7 text-slate-700 outline-none placeholder:text-slate-400 disabled:opacity-50"
-                    placeholder={activeId ? "输入问题，Enter 发送，Shift+Enter 换行" : "请先选择或新建一个对话"}
+                    placeholder={activeId ? "输入问题，Enter 发送，Shift+Enter 换行；可点击附件按钮 / 拖拽 / 粘贴上传" : "请先选择或新建一个对话"}
                   />
                   <div className="mt-3 flex items-center justify-between gap-3">
                     {/* 模型选择器 */}
@@ -1071,15 +1596,31 @@ export function MateChatBubble() {
                       )}
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={() => void handleSend()}
-                      disabled={sending || !draft.trim() || !activeId}
-                      className="material-button-primary disabled:opacity-50"
-                    >
-                      <Send className="h-4 w-4" />
-                      {sending ? "发送中…" : "发送"}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      {/* 附件按钮（点击上传，亦支持拖拽 / 粘贴） */}
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        disabled={!activeId || sending || attachments.length >= ATTACH_MAX_COUNT}
+                        className="flex h-9 w-9 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 transition hover:border-indigo-200 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-40"
+                        title={
+                          attachments.length >= ATTACH_MAX_COUNT
+                            ? `最多上传 ${ATTACH_MAX_COUNT} 个附件`
+                            : "上传图片或文件（也可拖拽 / 粘贴）"
+                        }
+                      >
+                        <Paperclip className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void handleSend()}
+                        disabled={!canSend}
+                        className="material-button-primary disabled:opacity-50"
+                      >
+                        <Send className="h-4 w-4" />
+                        {sending ? "发送中…" : "发送"}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

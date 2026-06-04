@@ -28,11 +28,13 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'rd-task:edit', label: '编辑任务', description: '修改任务字段和状态', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 81 },
   { code: 'rd-task:archive', label: '封存/解封任务', description: '触发任务封存或解除封存（需审批）', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 82 },
   { code: 'rd-task:reassign', label: '转派任务', description: '批量或单条任务重分配（高级权限）', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 83 },
-  { code: 'rd-task:override-priority', label: '覆盖优先级', description: '覆盖 AI 判定的优先级（组长及以上）', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 84 },
-  { code: 'rd-people:manage', label: '管理研发人员', description: '新增、编辑、删除研发成员和任务容量', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 85 },
-  { code: 'rd-approval-flow:manage', label: '管理审批流', description: '新增、调整、保存、重置研发审批流节点', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 86 },
-  { code: 'rd-audit:clear', label: '清空操作留痕', description: '清空研发任务管理操作留痕记录', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 87 },
-  { code: 'rd-ai:configure', label: '配置研发 AI 策略', description: '维护研发模块各 AI 场景模型、OCR 兜底、文件解析和人工确认策略', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 88 },
+  { code: 'rd-task:move', label: '移动任务归类', description: '将任务移动到其他系统、子项或产品（含跨产品移动）', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 84 },
+  { code: 'rd-task:override-priority', label: '覆盖优先级', description: '覆盖 AI 判定的优先级（组长及以上）', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 85 },
+  { code: 'rd-people:manage', label: '管理研发人员', description: '新增、编辑、删除研发成员和任务容量', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 86 },
+  { code: 'rd-approval-flow:manage', label: '管理审批流', description: '新增、调整、保存、重置研发审批流节点', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 87 },
+  { code: 'rd-audit:clear', label: '清空操作留痕', description: '清空研发任务管理操作留痕记录', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 88 },
+  { code: 'rd-ai:configure', label: '配置研发 AI 策略', description: '维护研发模块各 AI 场景模型、OCR 兜底、文件解析和人工确认策略', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 89 },
+  { code: 'rd-data:clear', label: '清空研发任务数据', description: '清空研发任务分类、个人工作台和研发主管驾驶舱数据', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 90 },
 
   // 研发知识库操作权限（细粒度，与页面权限 page:rd-knowledge-base 配合使用）
   { code: 'rd-kb:upload', label: '上传知识库文件', description: '向知识库上传文件（含拖拽 / 文件选择）', groupLabel: '操作权限 · 研发知识库', type: 'action', sortOrder: 95 },

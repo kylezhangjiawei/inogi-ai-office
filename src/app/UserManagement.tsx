@@ -233,7 +233,9 @@ function PasswordCell({
   onChangePwd: (user: User) => void;
 }) {
   const isSelf = user.id === currentUserId;
-  const canChange = isSelf || (currentUserIsSuperAdmin && !isSuperAdmin(user));
+  // 超级管理员账号受保护：其密码不允许在用户管理页修改（即便是本人），故对超管行一律隐藏密码操作按钮，
+  // 与「操作」列的「不可操作」保持一致。普通用户行维持原逻辑：本人可改、超管可重置他人。
+  const canChange = !isSuperAdmin(user) && (isSelf || currentUserIsSuperAdmin);
 
   return (
     <div className="flex min-w-0 items-center gap-2">

@@ -39,6 +39,8 @@ type RdStoreKey =
   | 'rd.aiSettings'
   | 'rd.taskProgressNotes'
   | 'rd.dailyReports'
+  | 'rd.monthlyReports'
+  | 'rd.performanceReports'
   | 'rd.messages'
   | 'rd.proposalDrafts'
   | 'rd.products'
@@ -222,6 +224,30 @@ const DEFAULT_AI_SETTINGS = {
       require_human_review: false,
       show_to_user: true,
     },
+    {
+      id: 'monthly_report_summary',
+      name: '月报智能汇总',
+      description: '把当月任务进展、里程碑与风险信号汇总成主题化、可读的月报',
+      enabled: true,
+      model_id: '',
+      fallback_model_id: '',
+      prompt_version: 'rd-monthly-report-summary-v1',
+      confidence_threshold: 0.78,
+      require_human_review: false,
+      show_to_user: true,
+    },
+    {
+      id: 'performance_review',
+      name: '月度绩效评估',
+      description: '基于成员当月任务量与产出生成正式、宽容的绩效考核结论',
+      enabled: true,
+      model_id: '',
+      fallback_model_id: '',
+      prompt_version: 'rd-performance-review-v1',
+      confidence_threshold: 0.75,
+      require_human_review: true,
+      show_to_user: true,
+    },
   ],
   file_policy: {
     ocr_provider: 'tencent_ocr',
@@ -315,6 +341,67 @@ function todayDateString(): string {
   const d = String(now.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
+
+/** 当前月份 'YYYY-MM'（服务器本地时区）。 */
+function monthDateString(d = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  return `${y}-${m}`;
+}
+
+/**
+ * 月份字符串 'YYYY-MM' → 该月的起止边界与中文标签。
+ * start 含、endExclusive 不含（次月 1 号）；ISO 日期字符串可直接做 >= / < 字典序比较。
+ * 非法输入回退到当前月。
+ */
+function monthRange(month: string): { start: string; endExclusive: string; label: string } {
+  const m = /^(\d{4})-(\d{2})$/.exec((month ?? '').trim());
+  const now = new Date();
+  const year = m ? Number(m[1]) : now.getFullYear();
+  const mon = m ? Math.min(12, Math.max(1, Number(m[2]))) : now.getMonth() + 1;
+  const nextYear = mon === 12 ? year + 1 : year;
+  const nextMon = mon === 12 ? 1 : mon + 1;
+  const start = `${String(year).padStart(4, '0')}-${String(mon).padStart(2, '0')}-01`;
+  const endExclusive = `${String(nextYear).padStart(4, '0')}-${String(nextMon).padStart(2, '0')}-01`;
+  return { start, endExclusive, label: `${year}年${String(mon).padStart(2, '0')}月` };
+}
+
+/** 月报「按任务分组」枚举：本月完成 / 本月推进 / 长期停滞 / 月末仍阻塞。 */
+type MonthlyReportGroup = 'completed' | 'progressed' | 'stalled' | 'blocked';
+
+/** 月报单任务画像（月报与绩效共用）。 */
+type MonthlyReportTaskItem = {
+  task_id: string;
+  title: string;
+  status: string;
+  status_label: string;
+  progress: number | null;
+  due_date: string | null;
+  role: 'owner' | 'collaborator';
+  group: MonthlyReportGroup;
+  month_notes_count: number;
+  month_excerpt: string | null;
+  month_progress: number | null;
+  month_attachments: number;
+  blocked_reason: string | null;
+  overdue: boolean;
+};
+
+/** 绩效考核的客观指标（由任务画像汇总而来）。 */
+type PerformanceMetrics = {
+  total_tasks: number;
+  owner_tasks: number;
+  collab_tasks: number;
+  completed: number;
+  in_progress: number;
+  blocked: number;
+  stalled: number;
+  pending: number;
+  notes_count: number;
+  attachments_count: number;
+  overdue_tasks: number;
+  completion_rate: number;
+};
 
 function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -2737,7 +2824,7 @@ export class ResearchDevelopmentService {
    * Auto-run by cron: generate a daily report for every active user who had
    * activity today (progress notes, tasks assigned to them, etc.).
    */
-  async generateDailyReportsForAll(date?: string) {
+  async generateDailyReportsForAll(date?: string, trigger: 'manual' | 'cron' = 'cron') {
     const targetDate = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : todayDateString();
 
     // Determine users with activity today: union of (people from rd.people) and
@@ -2779,7 +2866,7 @@ export class ResearchDevelopmentService {
           user_id: userId,
           user_name: activeUserNames.get(userId),
           date: targetDate,
-          trigger: 'cron',
+          trigger,
         });
         results.push(report);
       } catch (err) {
@@ -3018,6 +3105,553 @@ export class ResearchDevelopmentService {
           attachments_count: it.today_attachments,
         })),
     };
+  }
+
+  // ── Monthly reports（月报，复用日报数据采集，按月份区间切片）────────────────
+
+  async listMonthlyReports(
+    filters?: { user_id?: string; month?: string; limit?: number },
+    viewer?: { userId?: string; hasFullAccess?: boolean },
+  ) {
+    const all = await this.readArray('rd.monthlyReports');
+    const reports = all.filter(isRecord);
+    const limit = Math.max(1, Math.min(500, filters?.limit ?? 100));
+    let filtered = reports;
+
+    // Privacy: 非管理者只能看自己的月报
+    if (viewer && !viewer.hasFullAccess) {
+      const ownId = viewer.userId;
+      if (!ownId) return [];
+      filtered = filtered.filter((r) => r.user_id === ownId);
+    }
+
+    if (filters?.user_id) filtered = filtered.filter((r) => r.user_id === filters.user_id);
+    if (filters?.month) filtered = filtered.filter((r) => r.month === filters.month);
+    return filtered
+      .slice()
+      .sort((a, b) => cleanText(b.created_at).localeCompare(cleanText(a.created_at)))
+      .slice(0, limit);
+  }
+
+  async createMonthlyReport(payload: {
+    user_id?: string | null;
+    user_name?: string | null;
+    month?: string;
+    trigger?: 'manual' | 'cron';
+  }) {
+    const month = payload.month && /^\d{4}-\d{2}$/.test(payload.month) ? payload.month : monthDateString();
+    const userId = (payload.user_id ?? '').trim() || null;
+    const userName = (payload.user_name ?? '').trim() || '我';
+
+    const summary = await this.buildMonthlyReportSummary(userId, userName, month);
+    const report = {
+      id: `mrep-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      user_id: userId,
+      user_name: userName,
+      month,
+      trigger: payload.trigger ?? 'manual',
+      summary,
+      created_at: new Date().toISOString(),
+    };
+
+    const all = await this.readArray('rd.monthlyReports');
+    const filtered = all.filter(isRecord);
+    // 同一用户同一月份只保留一份
+    const deduped = filtered.filter((r) => !(r.user_id === userId && r.month === month));
+    const next = [report, ...deduped].slice(0, 1000);
+    await this.writeValue('rd.monthlyReports', next);
+    return report;
+  }
+
+  /** 全员月报：对当月（或指定月）有活动的成员 + 全部人员各生成一份。 */
+  async generateMonthlyReportsForAll(month?: string, trigger: 'manual' | 'cron' = 'cron') {
+    const targetMonth = month && /^\d{4}-\d{2}$/.test(month) ? month : monthDateString();
+    const { start, endExclusive } = monthRange(targetMonth);
+
+    const peopleList = await this.readArray('rd.people');
+    const noteMap = await this.getProgressNoteMap();
+    const activeUserIds = new Set<string>();
+    const activeUserNames = new Map<string, string>();
+
+    for (const notes of Object.values(noteMap)) {
+      for (const note of notes) {
+        const created = typeof note.created_at === 'string' ? note.created_at : '';
+        if (!(created >= start && created < endExclusive)) continue;
+        const actor = isRecord(note.actor) ? note.actor : null;
+        if (actor) {
+          const id = typeof actor.id === 'string' ? actor.id : '';
+          const name = typeof actor.name === 'string' ? actor.name : '';
+          if (id) {
+            activeUserIds.add(id);
+            if (name) activeUserNames.set(id, name);
+          }
+        }
+      }
+    }
+
+    for (const p of peopleList) {
+      if (!isRecord(p)) continue;
+      const userId = typeof p.user_id === 'string' ? p.user_id : null;
+      if (userId) {
+        activeUserIds.add(userId);
+        if (typeof p.name === 'string') activeUserNames.set(userId, p.name);
+      }
+    }
+
+    const results: JsonRecord[] = [];
+    for (const userId of activeUserIds) {
+      try {
+        const report = await this.createMonthlyReport({
+          user_id: userId,
+          user_name: activeUserNames.get(userId),
+          month: targetMonth,
+          trigger,
+        });
+        results.push(report);
+      } catch (err) {
+        // eslint-disable-next-line no-console
+        console.error(`[generateMonthlyReportsForAll] user=${userId}`, err);
+      }
+    }
+    return { month: targetMonth, count: results.length };
+  }
+
+  /**
+   * 归集某成员在指定月份的任务画像（主责 + 协作，跨产品库聚合，排除归档）。
+   * 月报与绩效共用：仅纳入「本月有进度记录」或「当前仍处活动态」的任务，
+   * 历史完成且本月无活动者不计入月度画像。
+   */
+  private async collectUserMonthlyTasks(
+    userId: string | null,
+    userName: string,
+    month: string,
+  ): Promise<{
+    items: MonthlyReportTaskItem[];
+    stats: {
+      total_tasks: number;
+      in_progress: number;
+      completed: number;
+      blocked: number;
+      pending: number;
+      notes_count: number;
+      stalled: number;
+      as_collaborator: number;
+      progressed: number;
+    };
+    metrics: PerformanceMetrics;
+  }> {
+    const { start, endExclusive } = monthRange(month);
+    const categories = await this.readMergedTaskCategories();
+    const allTasks = this.collectAllCategoryTasks(categories);
+    const noteMap = await this.getProgressNoteMap();
+
+    const userKey = userId ? `u:${cleanUserId(userId)}` : '';
+    const nameKey = personNameLookupKey(userName);
+    const matchesUser = (idVal: unknown, nameVal: unknown): boolean => {
+      const uid = cleanUserId(idVal);
+      if (userKey && uid && `u:${uid}` === userKey) return true;
+      const nk = personNameLookupKey(nameVal);
+      return Boolean(nameKey && nk && nk === nameKey);
+    };
+
+    const monthNotesForTask = (taskId: string): JsonRecord[] => {
+      const notes = noteMap[taskId];
+      if (!Array.isArray(notes)) return [];
+      return notes
+        .filter((note) => {
+          const created = typeof note.created_at === 'string' ? note.created_at : '';
+          if (!(created >= start && created < endExclusive)) return false;
+          const actor = isRecord(note.actor) ? note.actor : null;
+          return Boolean(actor && matchesUser(actor.id, actor.name));
+        })
+        .sort((a, b) => cleanText(a.created_at).localeCompare(cleanText(b.created_at)));
+    };
+
+    let totalTasks = 0;
+    let ownerTasks = 0;
+    let asCollaborator = 0;
+    let inProgress = 0;
+    let completed = 0;
+    let blocked = 0;
+    let pending = 0;
+    let stalledCount = 0;
+    let progressedCount = 0;
+    let notesCount = 0;
+    let attachmentsCount = 0;
+    let overdueCount = 0;
+    const items: MonthlyReportTaskItem[] = [];
+
+    for (const task of allTasks) {
+      if (isArchivedTask(task)) continue;
+      const isOwner = matchesUser(
+        task.primary_owner_user_id ?? task.owner_user_id,
+        task.primary_owner ?? task.owner,
+      );
+      const collaborators = asArray(task.collaborators).filter(isRecord);
+      const isCollaborator = !isOwner && collaborators.some((c) => matchesUser(c.user_id, c.name));
+      if (!isOwner && !isCollaborator) continue;
+
+      const taskId = cleanText(task.task_id);
+      const monthNotes = taskId ? monthNotesForTask(taskId) : [];
+      const hasMonthNote = monthNotes.length > 0;
+      const status = cleanText(task.status) || 'in_progress';
+      const isBlocked = status === 'paused_blocked';
+      const isCompleted = status === 'completed';
+      const isActiveNow =
+        status === 'in_progress' ||
+        status === 'paused_blocked' ||
+        status === 'pending_review' ||
+        status === 'pending_assign' ||
+        status === 'paused_leave' ||
+        status === 'on_hold' ||
+        status === 'draft';
+
+      // 仅纳入「本月有活动」或「当前仍处活动态」的任务。
+      if (!hasMonthNote && !isActiveNow) continue;
+
+      // 月度分组（月末状态口径，不依赖状态变更历史）：
+      //  completed  本月有活动且当前已完成
+      //  blocked    月末仍阻塞
+      //  progressed 本月有进度记录、未完成、未阻塞
+      //  stalled    本月零进度、未完成、仍处活动态（长期停滞）
+      let group: MonthlyReportGroup | null = null;
+      if (isCompleted && hasMonthNote) group = 'completed';
+      else if (isCompleted) group = null;
+      else if (isBlocked) group = 'blocked';
+      else if (hasMonthNote) group = 'progressed';
+      else group = 'stalled';
+      if (!group) continue;
+
+      totalTasks += 1;
+      if (isOwner) ownerTasks += 1;
+      else asCollaborator += 1;
+      if (group === 'completed') completed += 1;
+      else if (status === 'in_progress') inProgress += 1;
+      else if (status === 'paused_blocked') blocked += 1;
+      else if (status === 'pending_assign' || status === 'pending_review') pending += 1;
+      if (group === 'stalled') stalledCount += 1;
+      if (group === 'progressed') progressedCount += 1;
+
+      const monthAttachments = monthNotes.reduce(
+        (sum, note) => sum + (Array.isArray(note.attachments) ? note.attachments.length : 0),
+        0,
+      );
+      notesCount += monthNotes.length;
+      attachmentsCount += monthAttachments;
+
+      const dueDate = cleanText(task.due_date) || null;
+      const overdue = Boolean(!isCompleted && dueDate && dueDate < endExclusive);
+      if (overdue) overdueCount += 1;
+
+      const latestNote = monthNotes.length > 0 ? monthNotes[monthNotes.length - 1] : null;
+      items.push({
+        task_id: taskId,
+        title: cleanText(task.title) || '未命名任务',
+        status,
+        status_label: this.taskStatusLabel(task.status),
+        progress: typeof task.progress === 'number' ? task.progress : null,
+        due_date: dueDate,
+        role: isOwner ? 'owner' : 'collaborator',
+        group,
+        month_notes_count: monthNotes.length,
+        month_excerpt: latestNote ? cleanText(latestNote.text).slice(0, 140) || null : null,
+        month_progress: latestNote && typeof latestNote.progress === 'number' ? latestNote.progress : null,
+        month_attachments: monthAttachments,
+        blocked_reason: isBlocked ? cleanText(task.blocked_reason) || '当前任务存在阻塞' : null,
+        overdue,
+      });
+    }
+
+    const groupRank: Record<MonthlyReportGroup, number> = {
+      completed: 0,
+      progressed: 1,
+      blocked: 2,
+      stalled: 3,
+    };
+    items.sort((a, b) => {
+      if (groupRank[a.group] !== groupRank[b.group]) return groupRank[a.group] - groupRank[b.group];
+      if (a.role !== b.role) return a.role === 'owner' ? -1 : 1;
+      return a.title.localeCompare(b.title, 'zh-CN');
+    });
+
+    const completionBase = completed + inProgress + blocked + pending + stalledCount;
+    const completionRate = completionBase > 0 ? Math.round((completed / completionBase) * 100) : 0;
+
+    return {
+      items,
+      stats: {
+        total_tasks: totalTasks,
+        in_progress: inProgress,
+        completed,
+        blocked,
+        pending,
+        notes_count: notesCount,
+        stalled: stalledCount,
+        as_collaborator: asCollaborator,
+        progressed: progressedCount,
+      },
+      metrics: {
+        total_tasks: totalTasks,
+        owner_tasks: ownerTasks,
+        collab_tasks: asCollaborator,
+        completed,
+        in_progress: inProgress,
+        blocked,
+        stalled: stalledCount,
+        pending,
+        notes_count: notesCount,
+        attachments_count: attachmentsCount,
+        overdue_tasks: overdueCount,
+        completion_rate: completionRate,
+      },
+    };
+  }
+
+  private async buildMonthlyReportSummary(userId: string | null, userName: string, month: string) {
+    const { items, stats } = await this.collectUserMonthlyTasks(userId, userName, month);
+    const { label } = monthRange(month);
+
+    const aiResult = await this.rdAiService.summarizeMonthlyReport({
+      userName,
+      monthLabel: label,
+      stats: {
+        totalTasks: stats.total_tasks,
+        inProgress: stats.in_progress,
+        completed: stats.completed,
+        blocked: stats.blocked,
+        pending: stats.pending,
+        notesCount: stats.notes_count,
+        stalled: stats.stalled,
+        asCollaborator: stats.as_collaborator,
+        progressed: stats.progressed,
+      },
+      tasks: items.map((it) => ({
+        title: it.title,
+        role: it.role === 'owner' ? '主责' : '协作',
+        statusLabel: it.status_label,
+        group: it.group,
+        progress: it.progress,
+        dueDate: it.due_date,
+        monthNotesCount: it.month_notes_count,
+        monthExcerpt: it.month_excerpt,
+        monthAttachments: it.month_attachments,
+        blockedReason: it.blocked_reason,
+        overdue: it.overdue,
+      })),
+    });
+
+    const groupMeta: Array<{ key: MonthlyReportGroup; emoji: string; label: string }> = [
+      { key: 'completed', emoji: '✅', label: '本月完成' },
+      { key: 'progressed', emoji: '🟦', label: '本月推进' },
+      { key: 'blocked', emoji: '⚠️', label: '月末仍阻塞' },
+      { key: 'stalled', emoji: '🔔', label: '长期停滞' },
+    ];
+
+    let summaryText: string;
+    if (aiResult) {
+      summaryText = `【${userName} · ${label}工作月报】\n\n${aiResult.text}`;
+    } else {
+      const lines: string[] = [];
+      lines.push(`【${userName} · ${label}工作月报】`);
+      lines.push('');
+      lines.push(
+        `📊 月度概况：本月相关任务 ${stats.total_tasks} 个（主责 ${stats.total_tasks - stats.as_collaborator} · 协作 ${stats.as_collaborator}）` +
+          `｜完成 ${stats.completed} · 推进 ${stats.progressed} · 阻塞 ${stats.blocked} · 停滞 ${stats.stalled}｜进度记录 ${stats.notes_count} 条`,
+      );
+      for (const meta of groupMeta) {
+        const groupItems = items.filter((it) => it.group === meta.key);
+        if (groupItems.length === 0) continue;
+        lines.push('');
+        lines.push(`${meta.emoji} ${meta.label}（${groupItems.length}）`);
+        for (const it of groupItems) {
+          const roleTag = it.role === 'collaborator' ? '[协作] ' : '';
+          const prog = typeof it.progress === 'number' ? ` · 进度 ${it.progress}%` : '';
+          const due = it.due_date ? ` · 截止 ${it.due_date}` : '';
+          lines.push(`  • ${roleTag}《${it.title}》（${it.status_label}${prog}${due}）`);
+          if (it.group === 'blocked' && it.blocked_reason) {
+            lines.push(`    阻塞原因：${it.blocked_reason}`);
+          } else if (it.month_excerpt) {
+            const extra = it.month_notes_count > 1 ? `（本月 ${it.month_notes_count} 条记录）` : '';
+            lines.push(`    最新进展：${it.month_excerpt}${extra}`);
+          }
+        }
+      }
+      if (items.length === 0) {
+        lines.push('');
+        lines.push('📭 本月暂无可统计的任务动态。');
+      }
+      summaryText = lines.join('\n');
+    }
+
+    return {
+      text: summaryText,
+      stats,
+      tasks: items,
+      note_refs: items
+        .filter((it) => it.month_notes_count > 0)
+        .map((it) => ({
+          note_id: '',
+          task_id: it.task_id,
+          progress: it.month_progress,
+          excerpt: it.month_excerpt ?? '',
+          attachments_count: it.month_attachments,
+        })),
+    };
+  }
+
+  // ── Performance reviews（月度绩效，AI 生成正式考核结论；评价从宽）──────────────
+
+  async listPerformanceReports(
+    filters?: { user_id?: string; month?: string; limit?: number },
+    viewer?: { userId?: string; hasFullAccess?: boolean },
+  ) {
+    const all = await this.readArray('rd.performanceReports');
+    const reports = all.filter(isRecord);
+    const limit = Math.max(1, Math.min(500, filters?.limit ?? 100));
+    let filtered = reports;
+
+    // Privacy: 非管理者只能看自己的绩效
+    if (viewer && !viewer.hasFullAccess) {
+      const ownId = viewer.userId;
+      if (!ownId) return [];
+      filtered = filtered.filter((r) => r.user_id === ownId);
+    }
+
+    if (filters?.user_id) filtered = filtered.filter((r) => r.user_id === filters.user_id);
+    if (filters?.month) filtered = filtered.filter((r) => r.month === filters.month);
+    return filtered
+      .slice()
+      .sort((a, b) => cleanText(b.created_at).localeCompare(cleanText(a.created_at)))
+      .slice(0, limit);
+  }
+
+  async createPerformanceReport(payload: {
+    user_id?: string | null;
+    user_name?: string | null;
+    month?: string;
+    trigger?: 'manual' | 'cron';
+  }) {
+    const month = payload.month && /^\d{4}-\d{2}$/.test(payload.month) ? payload.month : monthDateString();
+    const userId = (payload.user_id ?? '').trim() || null;
+    const userName = (payload.user_name ?? '').trim() || '我';
+
+    const summary = await this.buildPerformanceReview(userId, userName, month);
+    const report = {
+      id: `perf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      user_id: userId,
+      user_name: userName,
+      month,
+      trigger: payload.trigger ?? 'manual',
+      summary,
+      created_at: new Date().toISOString(),
+    };
+
+    const all = await this.readArray('rd.performanceReports');
+    const filtered = all.filter(isRecord);
+    const deduped = filtered.filter((r) => !(r.user_id === userId && r.month === month));
+    const next = [report, ...deduped].slice(0, 1000);
+    await this.writeValue('rd.performanceReports', next);
+    return report;
+  }
+
+  /** 宽松评分：基线 78，按完成率/活跃度加分，阻塞/逾期仅小幅扣分且封顶，确保评价不过于苛刻。 */
+  private computePerformanceScore(metrics: PerformanceMetrics): { score: number; grade: string } {
+    let score = 78;
+    score += Math.round((metrics.completion_rate / 100) * 12); // 完成率最高 +12
+    score += Math.min(8, metrics.notes_count); // 活跃度（进度记录）最高 +8
+    score += metrics.completed >= 1 ? 2 : 0; // 有交付 +2
+    score -= Math.min(6, metrics.overdue_tasks * 2); // 逾期扣分封顶 -6
+    score -= Math.min(4, metrics.blocked * 1); // 阻塞扣分封顶 -4
+    score = Math.max(60, Math.min(98, score));
+    const grade = score >= 90 ? '优秀' : score >= 80 ? '良好' : score >= 70 ? '合格' : '待改进';
+    return { score, grade };
+  }
+
+  private async buildPerformanceReview(userId: string | null, userName: string, month: string) {
+    const { items, metrics } = await this.collectUserMonthlyTasks(userId, userName, month);
+    const { label } = monthRange(month);
+    const { score, grade } = this.computePerformanceScore(metrics);
+
+    const aiResult = await this.rdAiService.assessPerformance({
+      userName,
+      monthLabel: label,
+      score,
+      grade,
+      metrics,
+      tasks: items.map((it) => ({
+        title: it.title,
+        role: it.role === 'owner' ? '主责' : '协作',
+        statusLabel: it.status_label,
+        group: it.group,
+        progress: it.progress,
+        dueDate: it.due_date,
+        monthNotesCount: it.month_notes_count,
+        monthExcerpt: it.month_excerpt,
+        blockedReason: it.blocked_reason,
+        overdue: it.overdue,
+      })),
+    });
+
+    const text = aiResult
+      ? aiResult.text
+      : this.buildLocalPerformanceText(userName, label, score, grade, metrics, items);
+
+    return {
+      period: month,
+      period_label: label,
+      score,
+      grade,
+      metrics,
+      text,
+      generated_by: aiResult ? ('ai' as const) : ('local' as const),
+    };
+  }
+
+  /** AI 未配置/失败时的本地兜底：按正式绩效文件分节拼接。 */
+  private buildLocalPerformanceText(
+    userName: string,
+    label: string,
+    score: number,
+    grade: string,
+    metrics: PerformanceMetrics,
+    items: MonthlyReportTaskItem[],
+  ): string {
+    const lines: string[] = [];
+    lines.push(`一、考核周期：${label}`);
+    lines.push(`二、被考核人：${userName}`);
+    lines.push('');
+    lines.push('三、工作量与产出');
+    lines.push(
+      `本月共负责/参与任务 ${metrics.total_tasks} 项（主责 ${metrics.owner_tasks} · 协作 ${metrics.collab_tasks}），` +
+        `完成 ${metrics.completed} 项，推进中 ${metrics.in_progress} 项，阻塞 ${metrics.blocked} 项，停滞 ${metrics.stalled} 项；` +
+        `累计提交进度记录 ${metrics.notes_count} 条、上传材料 ${metrics.attachments_count} 个，任务完成率约 ${metrics.completion_rate}%。`,
+    );
+    lines.push('');
+    lines.push('四、综合评价');
+    lines.push(
+      `${userName}本月工作态度积极，能够围绕研发任务持续推进并保持进度透明。` +
+        `${metrics.completed >= 1 ? `按期交付 ${metrics.completed} 项任务，` : ''}` +
+        `${metrics.overdue_tasks > 0 ? `部分任务进度略有滞后（逾期 ${metrics.overdue_tasks} 项），建议加强排期管理；` : '整体节奏把控良好；'}` +
+        `总体表现${grade}，希望继续保持。`,
+    );
+    lines.push('');
+    lines.push('五、主要亮点');
+    const done = items.filter((it) => it.group === 'completed').slice(0, 3);
+    if (done.length > 0) {
+      for (const it of done) lines.push(`· 完成《${it.title}》${it.month_excerpt ? `：${it.month_excerpt}` : ''}`);
+    } else {
+      lines.push('· 持续推进在研任务，保持稳定产出与进度同步。');
+    }
+    lines.push('');
+    lines.push('六、改进建议');
+    if (metrics.blocked > 0 || metrics.stalled > 0) {
+      lines.push(`· 关注 ${metrics.blocked} 项阻塞与 ${metrics.stalled} 项停滞任务，及时反馈协调资源、推动闭环。`);
+    } else {
+      lines.push('· 保持当前推进节奏，可适度提升任务交付的提前量与文档沉淀。');
+    }
+    lines.push('');
+    lines.push(`七、综合评分：${score} 分（${grade}）`);
+    return lines.join('\n');
   }
 
 

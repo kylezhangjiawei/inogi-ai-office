@@ -6,10 +6,11 @@ import { SecurityModule } from '../security/security.module';
 import { RagModule } from '../rag/rag.module';
 import { ChatController } from './chat.controller';
 import { ChatService } from './chat.service';
+import { ChatAttachmentService } from './chat-attachment.service';
 
 @Module({
   imports: [PrismaModule, ConfigModule, SecurityModule, RagModule],
   controllers: [ChatController],
-  providers: [ChatService],
+  providers: [ChatService, ChatAttachmentService],
 })
 export class ChatModule {}

@@ -1,4 +1,10 @@
-import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import OpenAI from 'openai';
@@ -7,6 +13,7 @@ import { Response } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecureConfigService } from '../security/secure-config.service';
 import { RagService, type RagUserContext, type RagChatCitation } from '../rag/rag.service';
+import { ChatAttachmentService } from './chat-attachment.service';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { UpdateConversationDto } from './dto/update-conversation.dto';
@@ -45,6 +52,8 @@ const CONV_SELECT = {
 export class ChatService {
   /** base64 data_url 兜底下载的内联上限：超过则不附下载链接，避免 SSE 引用负载膨胀（≈3MB base64 ≈2.2MB 文件）。 */
   private static readonly KB_INLINE_DOWNLOAD_MAX_LEN = 3_000_000;
+  /** 所有文档附件抽取文本注入 LLM 的总字符上限（每个文档自身已先截断，这里再做整体兜底）。 */
+  private static readonly MAX_TOTAL_DOC_CHARS = 16000;
 
   private readonly logger = new Logger(ChatService.name);
   private readonly openaiApiKey: string | null;
@@ -57,6 +66,7 @@ export class ChatService {
     private readonly config: ConfigService,
     private readonly secureConfigService: SecureConfigService,
     private readonly ragService: RagService,
+    private readonly attachmentService: ChatAttachmentService,
   ) {
     this.openaiApiKey = this.config.get<string>('OPENAI_API_KEY') ?? null;
     this.openaiBaseUrl =
@@ -109,11 +119,24 @@ export class ChatService {
 
   async getMessages(conversationId: string, userId: string) {
     await this.assertOwner(conversationId, userId);
-    return this.prisma.chatMessage.findMany({
+    const messages = await this.prisma.chatMessage.findMany({
       where: { conversationId },
       orderBy: { createdAt: 'asc' },
-      select: { id: true, role: true, content: true, model: true, reaction: true, createdAt: true },
+      select: {
+        id: true,
+        role: true,
+        content: true,
+        model: true,
+        reaction: true,
+        attachments: true,
+        createdAt: true,
+      },
     });
+    // attachments 列存的是 objectKey 等内部字段，回前端时统一换成带新鲜签名 URL 的视图
+    return messages.map((m) => ({
+      ...m,
+      attachments: this.attachmentService.signForDisplay(m.attachments),
+    }));
   }
 
   async updateReaction(messageId: string, userId: string, reaction: string | null) {
@@ -189,17 +212,35 @@ export class ChatService {
     if (!conv) throw new NotFoundException('会话不存在');
     if (conv.userId !== userId) throw new ForbiddenException();
 
-    // Save user message
+    // 解析附件：只信任 fileId，回查 FileAsset 拿权威 name/mime/size/objectKey，并过滤越权文件
+    const attachments = dto.attachments?.length
+      ? await this.attachmentService.resolveOwned(userId, dto.attachments)
+      : [];
+    const content = (dto.content ?? '').trim();
+    // 文本与附件不能同时为空
+    if (!content && attachments.length === 0) {
+      throw new BadRequestException('消息内容不能为空');
+    }
+
+    // Save user message（附件以内部结构存入 attachments JSON 列）
     const userMsg = await this.prisma.chatMessage.create({
-      data: { conversationId, role: 'user', content: dto.content },
+      data: {
+        conversationId,
+        role: 'user',
+        content,
+        ...(attachments.length
+          ? { attachments: attachments as unknown as Prisma.InputJsonValue }
+          : {}),
+      },
     });
 
-    // Auto-set title from first user message
+    // Auto-set title from first user message（纯附件消息用首个附件名兜底）
+    const titleSeed = content || attachments[0]?.name || '新对话';
     const isFirstUserMsg = !conv.messages.some((m) => m.role === 'user');
     if (isFirstUserMsg) {
       await this.prisma.chatConversation.update({
         where: { id: conversationId },
-        data: { title: dto.content.slice(0, 30) || '新对话', summary: dto.content.slice(0, 60) },
+        data: { title: titleSeed.slice(0, 30) || '新对话', summary: titleSeed.slice(0, 60) },
       });
     }
 
@@ -246,11 +287,11 @@ export class ChatService {
     // ── 智能检索：并行做"结构化关键词搜索"+"向量语义检索"，结果合并进 system prompt ──
     // 用户无需切换模式；命中内部资料 → 优先用；没命中 → LLM 走通用知识兜底
     const [dbContext, ragResponse] = await Promise.all([
-      this.searchDatabase(dto.content, userContext).catch((err) => {
+      this.searchDatabase(content, userContext).catch((err) => {
         this.logger.warn(`searchDatabase 失败: ${err instanceof Error ? err.message : err}`);
         return '';
       }),
-      this.ragService.search(dto.content, userContext, { topK: 5 }).catch((err) => {
+      this.ragService.search(content, userContext, { topK: 5 }).catch((err) => {
         this.logger.warn(`ragService.search 失败: ${err instanceof Error ? err.message : err}`);
         return { results: [], filteredByPermission: 0 };
       }),
@@ -318,6 +359,65 @@ export class ChatService {
       });
     }
 
+    // ── 组装本轮用户消息：文本 + 文档抽取内容 + 图片（视觉模型走 image_url，否则降级为文字提示）──
+    const imageAttachments = attachments.filter((a) => this.attachmentService.isImage(a.mime));
+    const docAttachments = attachments.filter((a) => !this.attachmentService.isImage(a.mime));
+
+    // 文档：并行抽取纯文本，拼接后整体再做一次总长度兜底
+    let docContext = '';
+    if (docAttachments.length > 0) {
+      const docTexts = await Promise.all(
+        docAttachments.map(async (a) => {
+          const text = await this.attachmentService.extractDocumentText(a);
+          return text
+            ? `【附件：${a.name}】\n${text}`
+            : `【附件：${a.name}】（该文件无法自动提取文本，请提示用户改用可解析的格式或直接粘贴内容）`;
+        }),
+      );
+      const combined = docTexts.join('\n\n');
+      docContext =
+        combined.length > ChatService.MAX_TOTAL_DOC_CHARS
+          ? combined.slice(0, ChatService.MAX_TOTAL_DOC_CHARS) + '\n…（文档内容过长，已整体截断）'
+          : combined;
+    }
+
+    const visionOk = imageAttachments.length > 0 && this.modelSupportsVision(model);
+
+    const textSegments: string[] = [];
+    if (content) textSegments.push(content);
+    if (docContext) {
+      textSegments.push(
+        `\n\n以下是用户上传文档的自动提取内容（可能不完整或有格式损失），请结合作答：\n\n${docContext}`,
+      );
+    }
+    // 有图片但模型不支持视觉 → 文字告知，避免 AI 无视上传
+    if (imageAttachments.length > 0 && !visionOk) {
+      textSegments.push(
+        `\n\n（用户上传了 ${imageAttachments.length} 张图片：${imageAttachments
+          .map((a) => a.name)
+          .join('、')}。当前模型不支持图片识别，请提示用户切换到支持视觉的模型，或用文字描述图片内容。）`,
+      );
+    }
+    const userText = textSegments.join('').trim() || '（用户未输入文字，仅上传了附件）';
+
+    let userMessage: OpenAI.Chat.Completions.ChatCompletionMessageParam;
+    if (visionOk) {
+      const imageParts: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [];
+      for (const img of imageAttachments) {
+        const dataUrl = await this.attachmentService.buildImageDataUrl(img);
+        if (dataUrl) imageParts.push({ type: 'image_url', image_url: { url: dataUrl } });
+      }
+      userMessage =
+        imageParts.length > 0
+          ? { role: 'user', content: [{ type: 'text', text: userText }, ...imageParts] }
+          : {
+              role: 'user',
+              content: `${userText}\n\n（用户上传的图片体积过大或读取失败，未能传给视觉模型，请提示用户压缩后重试。）`,
+            };
+    } else {
+      userMessage = { role: 'user', content: userText };
+    }
+
     let fullContent = '';
     try {
       const stream = await client.chat.completions.create({
@@ -325,7 +425,7 @@ export class ChatService {
         messages: [
           { role: 'system', content: systemContent },
           ...history,
-          { role: 'user', content: dto.content },
+          userMessage,
         ],
         stream: true,
       });
@@ -351,7 +451,7 @@ export class ChatService {
         },
       });
 
-      send({ type: 'done', messageId: assistantMsg.id, title: isFirstUserMsg ? dto.content.slice(0, 30) : undefined });
+      send({ type: 'done', messageId: assistantMsg.id, title: isFirstUserMsg ? titleSeed.slice(0, 30) : undefined });
     } catch (err) {
       send({ type: 'error', message: err instanceof Error ? err.message : 'AI 调用失败' });
     } finally {
@@ -418,6 +518,17 @@ export class ChatService {
   /** 统一判断：是不是对话模型不能用的（embedding / image-only） */
   private isNonChatModel(model: string, usageKind: string): boolean {
     return this.isImageOnlyModel(model, usageKind) || this.isEmbeddingModel(model);
+  }
+
+  /**
+   * 粗略判断模型是否支持图片输入（视觉/多模态）。命名约定覆盖主流模型：
+   * 含 vl/vision 的（qwen-vl、qwen2.5-vl、internvl 等）、GPT-4o/4.1、Claude 3+、Gemini、GLM-4V、LLaVA、Pixtral 等。
+   * 仅用于决定"是否内联 base64 图片"；判断失误时退化为文字提示，不会报错。
+   */
+  private modelSupportsVision(model: string): boolean {
+    return /vl|vision|gpt-4o|gpt-4\.1|omni|claude-3|claude-opus|claude-sonnet|gemini|glm-4v|internvl|llava|step-1v|pixtral/i.test(
+      model ?? '',
+    );
   }
 
   private async resolveDefaultModelConfig() {

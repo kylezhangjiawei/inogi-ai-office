@@ -80,7 +80,7 @@ export class ResearchDevelopmentController {
   }
 
   @Post('task-categories/tasks/move')
-  @Permissions('rd-task:edit', 'rd-task:reassign', 'page:rd-my-workspace')
+  @Permissions('rd-task:move', 'rd-task:edit', 'rd-task:reassign', 'page:rd-my-workspace')
   moveTasks(
     @Body()
     payload: {
@@ -91,11 +91,14 @@ export class ResearchDevelopmentController {
     },
     @Request() req: AuthedRequest,
   ) {
-    // 个人工作台放开「移动归类」：管理员（* / rd-task:reassign / rd-task:edit）可移动任意任务；
+    // 个人工作台放开「移动归类」：管理员（* / rd-task:move / rd-task:reassign / rd-task:edit）可移动任意任务；
     // 仅有 page:rd-my-workspace 的普通研发只能移动自己负责的任务（由服务层按 owner 兜底校验）。
     const perms = req.user?.permissions ?? [];
     const canMoveAny =
-      perms.includes('*') || perms.includes('rd-task:reassign') || perms.includes('rd-task:edit');
+      perms.includes('*') ||
+      perms.includes('rd-task:move') ||
+      perms.includes('rd-task:reassign') ||
+      perms.includes('rd-task:edit');
     return this.rdService.moveTasks(
       payload?.taskIds,
       {
@@ -279,7 +282,74 @@ export class ResearchDevelopmentController {
   @Post('daily-reports/regenerate-all')
   @Permissions('rd-task:reassign', 'rd-task:edit', 'page:rd-director-dashboard')
   regenerateAllDailyReports(@Body() body: { date?: string }) {
-    return this.rdService.generateDailyReportsForAll(body?.date);
+    return this.rdService.generateDailyReportsForAll(body?.date, 'manual');
+  }
+
+  @Get('monthly-reports')
+  listMonthlyReports(
+    @Request() req: AuthedRequest,
+    @Query('user_id') userId?: string,
+    @Query('month') month?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const parsedLimit = limit ? Number(limit) : undefined;
+    return this.rdService.listMonthlyReports(
+      {
+        user_id: userId,
+        month,
+        limit: Number.isFinite(parsedLimit) ? (parsedLimit as number) : undefined,
+      },
+      buildViewer(req),
+    );
+  }
+
+  @Post('monthly-reports')
+  @Permissions('page:rd-my-workspace', 'rd-task:edit', 'rd-task:create')
+  createMonthlyReport(
+    @Body() body: { user_id?: string; user_name?: string; month?: string },
+    @Request() req: { user?: { id?: string; name?: string } },
+  ) {
+    return this.rdService.createMonthlyReport({
+      user_id: body.user_id || req.user?.id,
+      user_name: body.user_name || req.user?.name,
+      month: body.month,
+      trigger: 'manual',
+    });
+  }
+
+  @Post('monthly-reports/regenerate-all')
+  @Permissions('rd-task:reassign', 'rd-task:edit', 'page:rd-director-dashboard')
+  regenerateAllMonthlyReports(@Body() body: { month?: string }) {
+    return this.rdService.generateMonthlyReportsForAll(body?.month, 'manual');
+  }
+
+  @Get('performance-reports')
+  listPerformanceReports(
+    @Request() req: AuthedRequest,
+    @Query('user_id') userId?: string,
+    @Query('month') month?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const parsedLimit = limit ? Number(limit) : undefined;
+    return this.rdService.listPerformanceReports(
+      {
+        user_id: userId,
+        month,
+        limit: Number.isFinite(parsedLimit) ? (parsedLimit as number) : undefined,
+      },
+      buildViewer(req),
+    );
+  }
+
+  @Post('performance-reports')
+  @Permissions('rd-task:reassign', 'rd-task:edit', 'page:rd-director-dashboard')
+  createPerformanceReport(@Body() body: { user_id?: string; user_name?: string; month?: string }) {
+    return this.rdService.createPerformanceReport({
+      user_id: body.user_id,
+      user_name: body.user_name,
+      month: body.month,
+      trigger: 'manual',
+    });
   }
 
   @Get('messages')

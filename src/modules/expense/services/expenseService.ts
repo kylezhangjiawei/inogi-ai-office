@@ -398,6 +398,15 @@ function appendOcrOptions(formData: FormData, options: ExpenseOcrUploadOptions =
   }
 }
 
+export type VoucherMatchSummary = {
+  auto_linked: number;
+  manual_review: number;
+  blocked: number;
+  links: Array<{ invoice_id: string; voucher_id: string; voucher_no: string; score: number; reasons: string[] }>;
+};
+
+const emptyMatchSummary: VoucherMatchSummary = { auto_linked: 0, manual_review: 0, blocked: 0, links: [] };
+
 export const expenseService = {
   async listInvoices(filters?: Partial<InvoiceFilters>) {
     const params = new URLSearchParams();
@@ -457,31 +466,26 @@ export const expenseService = {
     const formData = new FormData();
     files.forEach((file) => formData.append("files", file));
     appendOcrOptions(formData, options);
-    const result = await request<{ items: ApiInvoice[] }>("/api/expenses/invoices/upload", {
+    const result = await request<{ items: ApiInvoice[]; matches?: VoucherMatchSummary }>("/api/expenses/invoices/upload", {
       method: "POST",
       body: formData,
     });
-    return result.items.map(toInvoice);
+    return { items: result.items.map(toInvoice), matches: result.matches ?? emptyMatchSummary };
   },
 
   async uploadVoucherFiles(files: File[], options: ExpenseOcrUploadOptions = {}) {
     const formData = new FormData();
     files.forEach((file) => formData.append("files", file));
     appendOcrOptions(formData, options);
-    const result = await request<{ items: ApiVoucherUpload[] }>("/api/expenses/vouchers/upload", {
+    const result = await request<{ items: ApiVoucherUpload[]; matches?: VoucherMatchSummary }>("/api/expenses/vouchers/upload", {
       method: "POST",
       body: formData,
     });
-    return result.items.map(toVoucherUpload);
+    return { items: result.items.map(toVoucherUpload), matches: result.matches ?? emptyMatchSummary };
   },
 
   async autoMatchVouchers() {
-    return request<{
-      auto_linked: number;
-      manual_review: number;
-      blocked: number;
-      links: Array<{ invoice_id: string; voucher_id: string; voucher_no: string; score: number; reasons: string[] }>;
-    }>("/api/expenses/vouchers/auto-match", {
+    return request<VoucherMatchSummary>("/api/expenses/vouchers/auto-match", {
       method: "POST",
     });
   },

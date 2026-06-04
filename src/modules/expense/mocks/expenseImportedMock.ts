@@ -172,6 +172,15 @@ export const MOCK_APPROVALS = [
   totalSteps: 4,
   status: 'pending',
   items: 5,
+  weComSpNo: '202605260012',
+  weComTemplate: '差旅费报销',
+  weComSyncStatus: '审批中',
+  weComApprovalMethod: '或签',
+  currentNode: '财务审核',
+  carbonCopy: [
+  { name: '赵敏', department: '财务部' },
+  { name: '孙莉', department: '人事行政部' }],
+
   flow: [
   {
     name: '李华',
@@ -201,6 +210,14 @@ export const MOCK_APPROVALS = [
   totalSteps: 4,
   status: 'approved',
   items: 3,
+  weComSpNo: '202605240008',
+  weComTemplate: '日常费用报销',
+  weComSyncStatus: '已回调',
+  weComApprovalMethod: '或签',
+  currentNode: '审批完成',
+  carbonCopy: [
+  { name: '赵敏', department: '财务部' }],
+
   flow: [
   {
     name: '李华',
@@ -240,6 +257,14 @@ export const MOCK_APPROVALS = [
   totalSteps: 4,
   status: 'rejected',
   items: 2,
+  weComSpNo: '202605220015',
+  weComTemplate: '办公采购报销',
+  weComSyncStatus: '已回调',
+  weComApprovalMethod: '或签',
+  currentNode: '已驳回',
+  carbonCopy: [
+  { name: '李娜', department: '采购部' }],
+
   flow: [
   {
     name: '王芳',

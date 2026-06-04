@@ -53,7 +53,7 @@ import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
 import { useAuth } from "./auth";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./components/ui/tooltip";
-import { usePermission } from "./hooks/usePermission";
+import { usePermission, useAnyPermission } from "./hooks/usePermission";
 import { AuditTimeline } from "./RDAuditTimeline";
 import { addAuditLogNote, AuditActor, AuditChange, recordAudit, useAuditActor, useAuditLogs } from "./lib/auditLog";
 import { getReviewTypeMeta } from "./lib/reviewTypes";
@@ -109,7 +109,7 @@ import {
   getAttachmentUrl,
 } from "./lib/rdApi";
 import { ProgressAttachmentGrid } from "./RDProgressEvidence";
-import { RDDailyReportPanel } from "./RDDailyReportPanel";
+import { RDReportsPanel } from "./RDReportsPanel";
 import { getGradeTone } from "./lib/taskCompletionScore";
 import { openTaskCompletionReport, openBatchCompletionReport } from "./lib/taskCompletionReport";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
@@ -1658,6 +1658,8 @@ function CategorySidebar({
   const canReviewProjectL2 = usePermission(PERMISSIONS.RD_PROJECT_REVIEW_L2);
   const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
   const canReassignTasks = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
+  // 「移动任务」次级按钮：与抽屉「移动到其他类目」一致，按移动/转派/编辑任一放行（独立于建树权限）。
+  const canMoveTasks = useAnyPermission(PERMISSIONS.RD_TASK_MOVE, PERMISSIONS.RD_TASK_REASSIGN, PERMISSIONS.RD_TASK_EDIT);
   const shouldReduceMotion = useReducedMotion();
   const selectedParentCatId = useMemo(() => {
     const id = selectedId;
@@ -1879,23 +1881,25 @@ function CategorySidebar({
                             />
                             <span className="min-w-0 flex-1 truncate text-xs font-semibold">{sub.label}</span>
                           </button>
-                          {canManageTree && onRequestEditor && (
+                          {(canManageTree || (canMoveTasks && subTaskTotal > 0)) && onRequestEditor && (
                             <div className="flex items-center gap-0.5 opacity-0 transition-opacity duration-150 group-hover/sub:opacity-100 focus-within:opacity-100">
-                              <button
-                                type="button"
-                                disabled={subTaskTotal > 0}
-                                onClick={(e) => { e.stopPropagation(); if (subTaskTotal === 0) onRequestEditor({ mode: "edit-sub", category: cat, sub }); }}
-                                className={cn(
-                                  "rounded p-1 transition-colors",
-                                  subTaskTotal > 0
-                                    ? "cursor-not-allowed text-slate-300"
-                                    : "text-slate-400 hover:bg-slate-100 hover:text-slate-700",
-                                )}
-                                title={subTaskTotal > 0 ? `含 ${subTaskTotal} 个任务，请先移空后再改名` : "重命名"}
-                              >
-                                <Pencil className="h-3 w-3" />
-                              </button>
-                              {subTaskTotal > 0 && (
+                              {canManageTree && (
+                                <button
+                                  type="button"
+                                  disabled={subTaskTotal > 0}
+                                  onClick={(e) => { e.stopPropagation(); if (subTaskTotal === 0) onRequestEditor({ mode: "edit-sub", category: cat, sub }); }}
+                                  className={cn(
+                                    "rounded p-1 transition-colors",
+                                    subTaskTotal > 0
+                                      ? "cursor-not-allowed text-slate-300"
+                                      : "text-slate-400 hover:bg-slate-100 hover:text-slate-700",
+                                  )}
+                                  title={subTaskTotal > 0 ? `含 ${subTaskTotal} 个任务，请先移空后再改名` : "重命名"}
+                                >
+                                  <Pencil className="h-3 w-3" />
+                                </button>
+                              )}
+                              {canMoveTasks && subTaskTotal > 0 && (
                                 <button
                                   type="button"
                                   onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "move-tasks", fromCategory: cat, fromSub: sub }); }}
@@ -1905,20 +1909,22 @@ function CategorySidebar({
                                   <ArrowRight className="h-3 w-3" />
                                 </button>
                               )}
-                              <button
-                                type="button"
-                                disabled={subTaskTotal > 0}
-                                onClick={(e) => { e.stopPropagation(); if (subTaskTotal === 0) onRequestEditor({ mode: "delete-sub", category: cat, sub }); }}
-                                className={cn(
-                                  "rounded p-1 transition-colors",
-                                  subTaskTotal > 0
-                                    ? "cursor-not-allowed text-slate-300"
-                                    : "text-slate-400 hover:bg-red-50 hover:text-red-600",
-                                )}
-                                title={subTaskTotal > 0 ? `含 ${subTaskTotal} 个任务，请先移空后再删除` : "删除"}
-                              >
-                                <Trash2 className="h-3 w-3" />
-                              </button>
+                              {canManageTree && (
+                                <button
+                                  type="button"
+                                  disabled={subTaskTotal > 0}
+                                  onClick={(e) => { e.stopPropagation(); if (subTaskTotal === 0) onRequestEditor({ mode: "delete-sub", category: cat, sub }); }}
+                                  className={cn(
+                                    "rounded p-1 transition-colors",
+                                    subTaskTotal > 0
+                                      ? "cursor-not-allowed text-slate-300"
+                                      : "text-slate-400 hover:bg-red-50 hover:text-red-600",
+                                  )}
+                                  title={subTaskTotal > 0 ? `含 ${subTaskTotal} 个任务，请先移空后再删除` : "删除"}
+                                >
+                                  <Trash2 className="h-3 w-3" />
+                                </button>
+                              )}
                             </div>
                           )}
                         </div>
@@ -9046,7 +9052,7 @@ function ExecutiveOverview({
         {/* 顶部并排区：研发执行提示（占 3）+ 今日日报速览（占 2）。窄屏（< xl）自动上下堆叠，
             宽屏并排可省下一整块纵向高度，留给下方的人员任务驾驶舱。 */}
         <div className={catStats.length > 0 ? "grid items-stretch gap-6 xl:grid-cols-5" : undefined}>
-        <section className={cn("rounded-2xl border border-slate-200/70 bg-white px-5 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]", catStats.length > 0 && "min-w-0 xl:col-span-3 xl:self-start")}>
+        <section className={cn("rounded-2xl border border-slate-200/70 bg-white px-5 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]", catStats.length > 0 && "min-w-0 xl:col-span-3")}>
           <div className="grid gap-4 lg:grid-cols-[minmax(280px,1fr)_auto]">
             <div className="order-1 flex min-w-0 items-center gap-3">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-[0_6px_16px_-4px_rgba(79,70,229,0.45)]">
@@ -9175,7 +9181,7 @@ function ExecutiveOverview({
         </section>
         {catStats.length > 0 && (
           <div className="min-w-0 xl:col-span-2">
-            <RDDailyReportPanel canRegenerate={(canReassign ?? false) || (canCreateTask ?? false)} />
+            <RDReportsPanel canRegenerate={(canReassign ?? false) || (canCreateTask ?? false)} />
           </div>
         )}
         </div>
@@ -9723,6 +9729,8 @@ export function RDTaskManagementPage() {
   const canReassignTasks = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
   const canClearData = usePermission(PERMISSIONS.RD_DATA_CLEAR);
   const canDeleteTasks = usePermission(PERMISSIONS.RD_TASK_EDIT);
+  // 「移动到其他类目」按钮门控：专职移动权限，或具备转派/编辑的高级角色（与后端 move 接口一致）。
+  const canMoveTask = useAnyPermission(PERMISSIONS.RD_TASK_MOVE, PERMISSIONS.RD_TASK_REASSIGN, PERMISSIONS.RD_TASK_EDIT);
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
   const RD_ADMIN_AUDIT_ACTOR = useAuditActor("研发管理员");
   const [showCreate, setShowCreate] = useState(false);
@@ -10220,7 +10228,7 @@ export function RDTaskManagementPage() {
                 loadCategories();
               }}
               onTaskMutated={loadCategories}
-              onMoveTask={() => setMoveTaskTarget(selectedTask)}
+              onMoveTask={canMoveTask ? () => setMoveTaskTarget(selectedTask) : undefined}
               people={peopleProfiles}
             />
           )}
@@ -10516,7 +10524,7 @@ export function RDTaskManagementPage() {
                 loadCategories();
               }}
               onTaskMutated={loadCategories}
-              onMoveTask={() => setMoveTaskTarget(selectedTask)}
+              onMoveTask={canMoveTask ? () => setMoveTaskTarget(selectedTask) : undefined}
               people={peopleProfiles}
             />
           )}

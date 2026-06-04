@@ -2643,7 +2643,7 @@ export function RDKnowledgeBasePage() {
             <NativeSelect
               value={fileTypeFilter}
               onValueChange={handleFileTypeFilterChange}
-              className="h-full w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition-shadow focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              className="h-100% w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition-shadow focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             >
               {FILE_TYPE_FILTER_OPTIONS.map((option) => (
                 <option key={option.value} value={option.value}>

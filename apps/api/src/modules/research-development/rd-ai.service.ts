@@ -2658,6 +2658,261 @@ export class RdAiService {
     }
   }
 
+  /**
+   * 月报智能汇总：把某成员当月的全部任务画像汇总成主题化、可读的中文月报。
+   * 复用 daily_report_summary 的模型解析与 qwen 分支；未配置/失败返回 null 让调用方走本地兜底。
+   */
+  async summarizeMonthlyReport(input: {
+    userName: string;
+    monthLabel: string;
+    stats: {
+      totalTasks: number;
+      inProgress: number;
+      completed: number;
+      blocked: number;
+      pending: number;
+      notesCount: number;
+      stalled?: number;
+      asCollaborator?: number;
+      progressed?: number;
+    };
+    tasks: Array<{
+      title: string;
+      role: '主责' | '协作';
+      statusLabel: string;
+      group: 'completed' | 'progressed' | 'stalled' | 'blocked';
+      progress?: number | null;
+      dueDate?: string | null;
+      monthNotesCount?: number;
+      monthExcerpt?: string | null;
+      monthAttachments?: number;
+      blockedReason?: string | null;
+      overdue?: boolean;
+    }>;
+  }): Promise<{ text: string; model: string; provider: AiProvider } | null> {
+    const selectedModel = await this.resolveSceneModelConfig('monthly_report_summary').catch(() => null);
+    if (!selectedModel?.apiKey) return null;
+
+    const provider: AiProvider = selectedModel.provider;
+    const model = selectedModel.model;
+    const baseUrl = selectedModel.baseUrl;
+
+    const { userName, monthLabel, stats, tasks } = input;
+    const systemPrompt =
+      '你是一名研发主管的智能助理，负责把某成员当月的全部任务动态汇总成结构化、可读的中文月报。' +
+      '要求：(1) 全文 500~800 字；(2) 采用「📊 月度概况 / 🏆 关键成果 / 🚧 阻塞与停滞 / 📈 趋势与节奏 / 🎯 下月计划」五段式结构；' +
+      '(3)「关键成果」要提炼主题与里程碑，而非把任务逐条罗列；(4) 客观描述事实，不要编造未提供的信息；' +
+      '(5) 数据为 0 的段落允许省略；(6)「阻塞与停滞」段优先点名风险任务并给出协调建议；' +
+      '(7) 结尾在「下月计划」给出 2~3 条具体、可执行的建议。';
+
+    const groupLabels: Record<string, string> = {
+      completed: '本月完成',
+      progressed: '本月推进',
+      blocked: '月末仍阻塞',
+      stalled: '长期停滞',
+    };
+    const groupOrder = ['completed', 'progressed', 'blocked', 'stalled'];
+
+    const tasksBlock =
+      tasks.length === 0
+        ? '本月无可统计的任务动态。'
+        : groupOrder
+            .map((groupKey) => {
+              const groupItems = tasks.filter((t) => t.group === groupKey);
+              if (groupItems.length === 0) return '';
+              const header = `【${groupLabels[groupKey]}】（${groupItems.length}）`;
+              const lines = groupItems.map((t) => {
+                const roleTag = t.role === '协作' ? '[协作] ' : '';
+                const progress = typeof t.progress === 'number' ? ` 进度${t.progress}%` : '';
+                const due = t.dueDate ? ` 截止${t.dueDate}` : '';
+                const overdue = t.overdue ? ' ·已逾期' : '';
+                const noteCount = (t.monthNotesCount ?? 0) > 0 ? ` ·本月${t.monthNotesCount}条记录` : '';
+                const detail =
+                  t.group === 'blocked' && t.blockedReason
+                    ? ` — 阻塞原因：${t.blockedReason}`
+                    : t.monthExcerpt
+                      ? ` — ${t.monthExcerpt.trim().slice(0, 140)}`
+                      : '';
+                return `  · ${roleTag}《${t.title}》(${t.statusLabel}${progress}${due}${overdue}${noteCount})${detail}`;
+              });
+              return [header, ...lines].join('\n');
+            })
+            .filter(Boolean)
+            .join('\n');
+
+    const overviewParts = [
+      `相关任务 ${stats.totalTasks}`,
+      `主责 ${stats.totalTasks - (stats.asCollaborator ?? 0)}`,
+      `协作 ${stats.asCollaborator ?? 0}`,
+      `完成 ${stats.completed}`,
+      `推进 ${stats.progressed ?? 0}`,
+      `进行中 ${stats.inProgress}`,
+      `阻塞 ${stats.blocked}`,
+      `停滞 ${stats.stalled ?? 0}`,
+      `待办 ${stats.pending}`,
+      `进度记录 ${stats.notesCount} 条`,
+    ];
+
+    const userMessage = [
+      `用户：${userName}`,
+      `月份：${monthLabel}`,
+      '',
+      '【月度概况】',
+      overviewParts.join(' · '),
+      '',
+      '【当月任务动态（按分组）】',
+      tasksBlock,
+    ].join('\n');
+
+    const client = this.createClient(selectedModel.apiKey, provider, baseUrl);
+    try {
+      const response = await client.chat.completions.create({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage },
+        ],
+        ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+      });
+      const text = (response.choices[0]?.message?.content ?? '').trim();
+      if (!text) return null;
+      return { text, model, provider };
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn('[summarizeMonthlyReport] AI call failed:', error instanceof Error ? error.message : error);
+      return null;
+    }
+  }
+
+  /**
+   * 月度绩效评估：基于客观指标 + 任务画像生成一份正式、宽容的中文绩效考核结论。
+   * 评分与评级由后端计算后传入，AI 不得自行改动；未配置/失败返回 null 让调用方走本地兜底。
+   */
+  async assessPerformance(input: {
+    userName: string;
+    monthLabel: string;
+    score: number;
+    grade: string;
+    metrics: {
+      total_tasks: number;
+      owner_tasks: number;
+      collab_tasks: number;
+      completed: number;
+      in_progress: number;
+      blocked: number;
+      stalled: number;
+      pending: number;
+      notes_count: number;
+      attachments_count: number;
+      overdue_tasks: number;
+      completion_rate: number;
+    };
+    tasks: Array<{
+      title: string;
+      role: '主责' | '协作';
+      statusLabel: string;
+      group: 'completed' | 'progressed' | 'stalled' | 'blocked';
+      progress?: number | null;
+      dueDate?: string | null;
+      monthNotesCount?: number;
+      monthExcerpt?: string | null;
+      blockedReason?: string | null;
+      overdue?: boolean;
+    }>;
+  }): Promise<{ text: string; model: string; provider: AiProvider } | null> {
+    const selectedModel = await this.resolveSceneModelConfig('performance_review').catch(() => null);
+    if (!selectedModel?.apiKey) return null;
+
+    const provider: AiProvider = selectedModel.provider;
+    const model = selectedModel.model;
+    const baseUrl = selectedModel.baseUrl;
+
+    const { userName, monthLabel, score, grade, metrics, tasks } = input;
+    const systemPrompt =
+      '你是一名研发主管，正在为团队成员撰写正式的月度绩效考核结论。' +
+      '评价取向：以鼓励和发展为主，宽容而不苛刻——充分肯定投入与产出，用建设性、正面的语气提出改进项，避免负面定性与情绪化措辞。' +
+      '请输出一份正式的中文绩效评价正文，严格采用如下分节（用「一、二、三、四、五、六、七」中文序号开头，分节之间空一行）：' +
+      '一、考核周期；二、被考核人；三、工作量与产出（结合给定客观指标如实描述）；四、综合评价（积极、肯定为主）；' +
+      '五、主要亮点（结合本月完成的任务，列 2~4 条）；六、改进建议（建设性、1~3 条）；' +
+      '七、综合评分（直接采用给定的分数与评级，不要自行改动数值）。' +
+      '全文 500~800 字，措辞正式、得体，适合作为正式绩效文件归档。直接输出正文，不要额外解释。';
+
+    const groupLabels: Record<string, string> = {
+      completed: '本月完成',
+      progressed: '本月推进',
+      blocked: '月末仍阻塞',
+      stalled: '长期停滞',
+    };
+    const groupOrder = ['completed', 'progressed', 'blocked', 'stalled'];
+    const tasksBlock =
+      tasks.length === 0
+        ? '本月无可统计的任务动态。'
+        : groupOrder
+            .map((groupKey) => {
+              const groupItems = tasks.filter((t) => t.group === groupKey);
+              if (groupItems.length === 0) return '';
+              const header = `【${groupLabels[groupKey]}】（${groupItems.length}）`;
+              const lines = groupItems.map((t) => {
+                const roleTag = t.role === '协作' ? '[协作] ' : '';
+                const progress = typeof t.progress === 'number' ? ` 进度${t.progress}%` : '';
+                const detail =
+                  t.group === 'blocked' && t.blockedReason
+                    ? ` — 阻塞：${t.blockedReason}`
+                    : t.monthExcerpt
+                      ? ` — ${t.monthExcerpt.trim().slice(0, 120)}`
+                      : '';
+                return `  · ${roleTag}《${t.title}》(${t.statusLabel}${progress})${detail}`;
+              });
+              return [header, ...lines].join('\n');
+            })
+            .filter(Boolean)
+            .join('\n');
+
+    const metricsBlock = [
+      `任务总数 ${metrics.total_tasks}（主责 ${metrics.owner_tasks} · 协作 ${metrics.collab_tasks}）`,
+      `本月完成 ${metrics.completed}`,
+      `推进中 ${metrics.in_progress}`,
+      `阻塞 ${metrics.blocked}`,
+      `停滞 ${metrics.stalled}`,
+      `逾期 ${metrics.overdue_tasks}`,
+      `任务完成率 ${metrics.completion_rate}%`,
+      `进度记录 ${metrics.notes_count} 条`,
+      `上传材料 ${metrics.attachments_count} 个`,
+    ].join(' · ');
+
+    const userMessage = [
+      `被考核人：${userName}`,
+      `考核周期：${monthLabel}`,
+      `综合评分（请直接采用）：${score} 分`,
+      `评级（请直接采用）：${grade}`,
+      '',
+      '【客观指标】',
+      metricsBlock,
+      '',
+      '【本月任务明细（按分组）】',
+      tasksBlock,
+    ].join('\n');
+
+    const client = this.createClient(selectedModel.apiKey, provider, baseUrl);
+    try {
+      const response = await client.chat.completions.create({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage },
+        ],
+        ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+      });
+      const text = (response.choices[0]?.message?.content ?? '').trim();
+      if (!text) return null;
+      return { text, model, provider };
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn('[assessPerformance] AI call failed:', error instanceof Error ? error.message : error);
+      return null;
+    }
+  }
+
   // ── 附件内容抽取（L1+L2+L3：OCR + 文档抽取 + 视觉模型兜底）─────────────────
 
   /**
