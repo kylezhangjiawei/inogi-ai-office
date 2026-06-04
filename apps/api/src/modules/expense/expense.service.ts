@@ -363,6 +363,10 @@ export class ExpenseService {
     if (invoices.length === 0) {
       throw new BadRequestException('请至少选择一张有效票据');
     }
+    const voucherIds = Array.from(new Set([
+      ...(payload.voucher_ids ?? []),
+      ...invoices.map((invoice) => invoice.matched_voucher_id ?? invoice.voucher_no).filter(Boolean),
+    ] as string[]));
     const now = new Date();
     const reimbursement: ExpenseReimbursementValue = {
       id: this.newBusinessId('EXP'),
@@ -372,6 +376,7 @@ export class ExpenseService {
       amount: invoices.reduce((sum, invoice) => sum + invoice.amount, 0),
       invoice_count: invoices.length,
       invoice_ids: invoices.map((invoice) => invoice.id),
+      voucher_ids: voucherIds,
       status: '草稿',
       node: '待提交企微审批',
       project: payload.project?.trim() || invoices[0]?.project || '',
@@ -398,6 +403,7 @@ export class ExpenseService {
     const controlIds = await this.getApprovalControlIds();
     const client = new WeComApprovalClient(config.wecom);
     const accessToken = await client.getAccessToken();
+    const materialSummary = `${reimbursement.invoice_count} 张发票 / ${reimbursement.voucher_ids?.length ?? 0} 份凭证`;
     const response = await client.submitApproval(accessToken, {
       creator_userid: reimbursement.wecom_creator_userid || config.wecom.default_creator_userid,
       template_id: config.wecom.approval_template_id,
@@ -407,7 +413,7 @@ export class ExpenseService {
           this.textControl(controlIds.title, reimbursement.title),
           this.moneyControl(controlIds.amount, reimbursement.amount),
           this.textControl(controlIds.reason, reimbursement.reason || reimbursement.project || reimbursement.title),
-          this.textControl(controlIds.invoice_count, `${reimbursement.invoice_count}`),
+          this.textControl(controlIds.invoice_count, materialSummary),
           this.textControl(controlIds.project, reimbursement.project || '-'),
         ],
       },
@@ -416,6 +422,7 @@ export class ExpenseService {
           summary_info: [
             { text: reimbursement.title, lang: 'zh_CN' },
             { text: this.formatCurrency(reimbursement.amount), lang: 'zh_CN' },
+            { text: materialSummary, lang: 'zh_CN' },
           ],
         },
       ],
@@ -1062,6 +1069,13 @@ export class ExpenseService {
       wecom_raw_response: payload,
     };
     await this.upsertValue(RECORD_CATEGORIES.reimbursement, next.id, next, next.title);
+    if (next.status === '已通过' || next.status === '已付款') {
+      const invoices = await this.refreshInvoicesByIds(next.invoice_ids);
+      await Promise.all(invoices.map((invoice) => {
+        const nextInvoice: ExpenseInvoiceValue = { ...invoice, status: '已报销' };
+        return this.upsertValue(RECORD_CATEGORIES.invoice, nextInvoice.id, nextInvoice, `${nextInvoice.invoice_no} ${nextInvoice.vendor}`);
+      }));
+    }
     return next;
   }
 
