@@ -1,1982 +1,2652 @@
-import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Fragment } from 'react';
 import {
-  AlertTriangle,
-  BarChart3,
-  CalendarDays,
-  Columns3,
-  Download,
-  FileCheck2,
+  ChevronLeft,
+  Wallet,
+  Upload,
+  Sparkles,
+  Receipt,
   FileText,
-  FolderOpen,
   Link2,
-  ListFilter,
-  MoreHorizontal,
-  Plus,
-  RefreshCw,
-  Save,
+  Archive,
+  CheckCircle,
+  Clock,
+  XCircle,
+  AlertCircle,
   Search,
+  Calendar,
+  Download,
+  ChevronRight,
+  ChevronDown,
   Send,
-  Settings2,
-  ShieldCheck,
-  UploadCloud,
-} from "lucide-react";
+  TrendingUp,
+  Filter,
+  Check,
+  X,
+  Loader2,
+  MessageCircle,
+  FileDown,
+  Plus,
+  FolderOpen } from
+'lucide-react';
 import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Line,
-  LineChart,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
-import { AnimatePresence, motion } from "motion/react";
-import { toast } from "sonner";
-
-import { Badge } from "../../../app/components/ui/badge";
-import { Button } from "../../../app/components/ui/button";
-import { Checkbox } from "../../../app/components/ui/checkbox";
-import { Input } from "../../../app/components/ui/input";
-import { Progress } from "../../../app/components/ui/progress";
+  MOCK_EXPENSE_VOUCHERS,
+  MOCK_INVOICE_VOUCHERS,
+  MOCK_APPROVALS } from
+'../mocks/expenseImportedMock';
+import { expenseService } from '../services/expenseService';
+import type { InvoiceRecord, ReimbursementRecord, VoucherUploadRecord } from '../types';
+import { Badge } from '../../../app/components/ui/badge';
+import { Button } from '../../../app/components/ui/button';
+import { Checkbox } from '../../../app/components/ui/checkbox';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '../../../app/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '../../../app/components/ui/dropdown-menu';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "../../../app/components/ui/select";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "../../../app/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../../app/components/ui/tabs";
-import { Textarea } from "../../../app/components/ui/textarea";
-import { cn } from "../../../app/components/ui/utils";
-import { ConfidenceTag } from "../components/ConfidenceTag";
-import { DrawerShell } from "../components/DrawerShell";
-import { EmptyState } from "../components/EmptyState";
-import { FilterBar } from "../components/FilterBar";
-import { InvoiceThumbnail } from "../components/InvoiceThumbnail";
-import { KPICard } from "../components/KPICard";
-import { StatusBadge } from "../components/StatusBadge";
-import { UploadDropzone } from "../components/UploadDropzone";
-import { categoryColors } from "../mocks/expenseMock";
-import { expenseService } from "../services/expenseService";
-import type {
-  ExpenseOcrService,
-  ExpenseOcrServiceCatalog,
-  ExpenseOcrUploadOptions,
-} from "../services/expenseService";
-import { expenseText } from "../locales/zh-CN";
-import type {
-  DrawerKind,
-  DrawerWidth,
-  ExpenseCategory,
-  ExpenseDashboardData,
-  ExpenseRule,
-  ExpenseSubMenu,
-  InvoiceFilters,
-  InvoiceRecord,
-  ReimbursementRecord,
-  VoucherUploadRecord,
-  VoucherCandidate,
-} from "../types";
+} from '../../../app/components/ui/select';
+import { Tabs, TabsList, TabsTrigger } from '../../../app/components/ui/tabs';
+import { ToggleGroup, ToggleGroupItem } from '../../../app/components/ui/toggle-group';
 
-const defaultFilters: InvoiceFilters = {
-  quickRange: "本月",
-  status: "全部",
-  category: "全部",
-  amountMin: "",
-  amountMax: "",
-  keyword: "",
-  maxConfidence: 1,
+type ExpenseVoucherView = {
+  id: string;
+  vendor: string;
+  amount: number;
+  date: string;
+  category: string;
+  type: string;
+  matched: boolean;
+  matchedTo?: string;
+  thumbColor: string;
+  sourceInvoiceId?: string;
+  sourceInvoiceStatus?: InvoiceRecord['status'];
+  sourceVoucherId?: string;
 };
 
-const subMenus: Array<{ key: ExpenseSubMenu; icon: React.ElementType }> = [
-  { key: "workspace", icon: BarChart3 },
-  { key: "invoices", icon: FolderOpen },
-  { key: "reimbursements", icon: FileCheck2 },
-  { key: "matching", icon: Link2 },
-  { key: "rules", icon: Settings2 },
-];
-
-const pageMotion = {
-  initial: { opacity: 0, y: 10 },
-  animate: { opacity: 1, y: 0 },
-  exit: { opacity: 0, y: -8 },
-  transition: { duration: 0.22, ease: [0.22, 1, 0.36, 1] },
+type InvoiceVoucherView = {
+  id: string;
+  issuer: string;
+  invoiceNumber: string;
+  amount: number;
+  taxAmount: number;
+  date: string;
+  type: string;
+  matched: boolean;
+  matchedTo?: string;
+  status?: InvoiceRecord['status'];
+  sourceInvoiceId?: string;
 };
 
-const columns = [
-  { key: "thumbnail", label: "缩略图" },
-  { key: "invoiceNo", label: "发票号" },
-  { key: "issuedDate", label: "开票日期" },
-  { key: "vendor", label: "销售方" },
-  { key: "amount", label: "金额" },
-  { key: "category", label: "类别" },
-  { key: "project", label: "项目" },
-  { key: "status", label: "状态" },
-  { key: "uploader", label: "上传人" },
-  { key: "uploadedAt", label: "上传时间" },
-  { key: "actions", label: "操作" },
-] as const;
+type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'draft';
 
-const chartBarPalette = [
-  "var(--primary)",
-  "var(--chart-2)",
-  "var(--chart-3)",
-  "var(--chart-4)",
-  "var(--chart-5)",
-  "#22c55e",
-  "#f472b6",
-  "#14b8a6",
-  "#f97316",
-  "#64748b",
-];
-
-const formatCurrency = (value: number) =>
-  new Intl.NumberFormat("zh-CN", {
-    style: "currency",
-    currency: "CNY",
-    maximumFractionDigits: 0,
-  }).format(value);
-
-const hasActiveInvoiceFilters = (filters: InvoiceFilters) =>
-  filters.quickRange !== defaultFilters.quickRange ||
-  filters.status !== defaultFilters.status ||
-  filters.category !== defaultFilters.category ||
-  filters.amountMin.trim().length > 0 ||
-  filters.amountMax.trim().length > 0 ||
-  filters.keyword.trim().length > 0 ||
-  filters.maxConfidence !== defaultFilters.maxConfidence;
-
-const formatServiceError = (error: unknown) => {
-  const payload = (error as { payload?: { official_error?: { provider?: string; code?: string | number; message?: string } } })?.payload;
-  const officialError = payload?.official_error;
-  if (officialError) {
-    return `${officialError.provider ?? "third-party"} ${officialError.code}: ${officialError.message}`;
-  }
-  return error instanceof Error ? error.message : "操作失败";
+type ApprovalFlowStep = {
+  name: string;
+  role: string;
+  status: 'done' | 'current' | 'pending' | 'rejected';
+  time: string;
+  remark?: string;
 };
 
-const getDrawerTitle = (drawer: DrawerKind) => {
-  if (drawer === "upload") return expenseText.drawers.upload;
-  if (drawer === "voucher-upload") return expenseText.drawers.voucherUpload;
-  if (drawer === "invoice-detail") return expenseText.drawers.invoiceDetail;
-  if (drawer === "batch-classify") return expenseText.drawers.batchClassify;
-  if (drawer === "link-voucher") return expenseText.drawers.linkVoucher;
-  if (drawer === "new-reimbursement") return expenseText.drawers.newReimbursement;
-  if (drawer === "reimbursement-detail") return expenseText.drawers.reimbursementDetail;
-  if (drawer === "matching-detail") return expenseText.drawers.matchingDetail;
-  if (drawer === "push-settings") return expenseText.drawers.pushSettings;
-  return expenseText.drawers.ruleEditor;
+type ApprovalMaterialItem = {
+  invoiceId: string;
+  invoiceNo: string;
+  invoiceIssuer: string;
+  invoiceDate: string;
+  invoiceAmount: number;
+  voucherId: string;
+  voucherNo: string;
+  voucherVendor: string;
+  voucherDate: string;
+  voucherAmount: number;
+  category: string;
 };
 
-const getDrawerWidth = (drawer: DrawerKind): DrawerWidth => {
-  if (drawer === "upload" || drawer === "voucher-upload" || drawer === "push-settings" || drawer === "rule-editor") return "narrow";
-  if (drawer === "batch-classify" || drawer === "new-reimbursement" || drawer === "reimbursement-detail" || drawer === "matching-detail") return "wide";
-  return "medium";
+type ApprovalView = {
+  id: string;
+  title: string;
+  applicant: string;
+  department: string;
+  amount: number;
+  submitDate: string;
+  currentStep: number;
+  totalSteps: number;
+  status: ApprovalStatus;
+  items: number;
+  invoiceIds?: string[];
+  voucherIds?: string[];
+  materials?: ApprovalMaterialItem[];
+  flow: ApprovalFlowStep[];
 };
+
+type ReimbursementInspector = {
+  itemId: string;
+  kind: 'invoice' | 'link';
+};
+
+const expenseCategoryColor: Record<string, string> = {
+  餐饮: 'bg-orange-100',
+  交通: 'bg-blue-100',
+  差旅: 'bg-purple-100',
+  办公: 'bg-rose-100',
+  采购: 'bg-emerald-100',
+  其他: 'bg-slate-100',
+};
+
+const toErrorMessage = (error: unknown) => error instanceof Error ? error.message : '操作失败';
+
+const formatMoney = (value: number) => `¥${value.toFixed(2)}`;
+const REIMBURSEMENT_PAGE_SIZE = 4;
+
+function isSuccessfullyApprovedInvoice(status?: InvoiceRecord['status']) {
+  return status === '已报销';
+}
+
+function isInvoiceMatched(invoice: InvoiceRecord) {
+  return Boolean(invoice.voucherNo || invoice.matchedVoucherId || invoice.status === '已关联' || invoice.status === '已报销');
+}
+
+function getVoucherSubmitId(item: ExpenseVoucherView) {
+  return item.sourceVoucherId ?? item.id;
+}
+
+function findInvoiceForExpenseItem(item: ExpenseVoucherView, invoices: InvoiceVoucherView[]) {
+  return invoices.find((invoice) =>
+    invoice.id === item.matchedTo ||
+    invoice.sourceInvoiceId === item.matchedTo ||
+    (Boolean(item.sourceInvoiceId) && invoice.id === item.sourceInvoiceId) ||
+    (Boolean(item.sourceInvoiceId) && invoice.sourceInvoiceId === item.sourceInvoiceId)
+  );
+}
+
+function buildApprovalMaterialsFromItems(items: ExpenseVoucherView[], invoices: InvoiceVoucherView[]): ApprovalMaterialItem[] {
+  return items.map((item) => {
+    const invoice = findInvoiceForExpenseItem(item, invoices);
+    return {
+      invoiceId: invoice?.sourceInvoiceId ?? invoice?.id ?? item.matchedTo ?? '-',
+      invoiceNo: invoice?.invoiceNumber ?? item.matchedTo ?? '-',
+      invoiceIssuer: invoice?.issuer ?? '-',
+      invoiceDate: invoice?.date ?? item.date,
+      invoiceAmount: invoice?.amount ?? item.amount,
+      voucherId: getVoucherSubmitId(item),
+      voucherNo: item.id,
+      voucherVendor: item.vendor,
+      voucherDate: item.date,
+      voucherAmount: item.amount,
+      category: item.category,
+    };
+  });
+}
+
+function buildApprovalMaterialsFromIds(
+  invoiceIds: string[] = [],
+  voucherIds: string[] = [],
+  expenses: ExpenseVoucherView[],
+  invoices: InvoiceVoucherView[]
+) {
+  return invoiceIds.map((invoiceId, index) => {
+    const item = expenses.find((voucher) =>
+      voucher.matchedTo === invoiceId ||
+      voucher.sourceInvoiceId === invoiceId ||
+      voucher.id === voucherIds[index] ||
+      voucher.sourceVoucherId === voucherIds[index]
+    );
+    if (item) {
+      return buildApprovalMaterialsFromItems([item], invoices)[0];
+    }
+    const invoice = invoices.find((entry) => entry.id === invoiceId || entry.sourceInvoiceId === invoiceId);
+    return {
+      invoiceId,
+      invoiceNo: invoice?.invoiceNumber ?? invoiceId,
+      invoiceIssuer: invoice?.issuer ?? '-',
+      invoiceDate: invoice?.date ?? '-',
+      invoiceAmount: invoice?.amount ?? 0,
+      voucherId: voucherIds[index] ?? invoice?.matchedTo ?? '-',
+      voucherNo: voucherIds[index] ?? invoice?.matchedTo ?? '-',
+      voucherVendor: '-',
+      voucherDate: '-',
+      voucherAmount: invoice?.amount ?? 0,
+      category: invoice?.type ?? '费用',
+    };
+  });
+}
+
+function invoiceToInvoiceVoucher(invoice: InvoiceRecord): InvoiceVoucherView {
+  const matchedTo = invoice.matchedVoucherId ?? invoice.voucherNo;
+  return {
+    id: invoice.id,
+    issuer: invoice.vendor,
+    invoiceNumber: invoice.invoiceNo,
+    amount: invoice.amount,
+    taxAmount: invoice.tax,
+    date: invoice.issuedDate,
+    type: invoice.thumbnailType === 'PDF' ? 'PDF 发票' : '增值税电子发票',
+    matched: isInvoiceMatched(invoice),
+    matchedTo,
+    status: invoice.status,
+    sourceInvoiceId: invoice.id,
+  };
+}
+
+function invoiceToExpenseVoucher(invoice: InvoiceRecord): ExpenseVoucherView {
+  const voucherId = invoice.matchedVoucherId ?? invoice.voucherNo ?? `EV-${invoice.id}`;
+  const matched = isInvoiceMatched(invoice);
+  return {
+    id: voucherId,
+    vendor: invoice.paymentVoucher ?? invoice.vendor,
+    amount: invoice.amount,
+    date: invoice.issuedDate,
+    category: invoice.category,
+    type: invoice.paymentVoucher ? '付款凭证' : invoice.thumbnailType,
+    matched,
+    matchedTo: matched ? invoice.id : undefined,
+    thumbColor: expenseCategoryColor[invoice.category] ?? 'bg-slate-100',
+    sourceInvoiceId: invoice.id,
+    sourceInvoiceStatus: invoice.status,
+    sourceVoucherId: invoice.matchedVoucherId,
+  };
+}
+
+function uploadedVoucherToExpenseVoucher(voucher: VoucherUploadRecord): ExpenseVoucherView {
+  return {
+    id: voucher.id,
+    vendor: voucher.counterparty ?? voucher.subject ?? voucher.fileName,
+    amount: voucher.amount,
+    date: voucher.date,
+    category: '其他',
+    type: voucher.detectedType ?? '付款凭证',
+    matched: Boolean(voucher.matchedInvoiceId),
+    matchedTo: voucher.matchedInvoiceId,
+    thumbColor: 'bg-slate-100',
+    sourceVoucherId: voucher.id,
+  };
+}
+
+function reimbursementToApproval(reimbursement: ReimbursementRecord, materials: ApprovalMaterialItem[] = []): ApprovalView {
+  const approved = reimbursement.status === '已通过' || reimbursement.status === '已付款';
+  const rejected = reimbursement.status === '已驳回';
+  const pending = reimbursement.status === '审批中';
+  return {
+    id: reimbursement.id,
+    title: reimbursement.title,
+    applicant: reimbursement.applicant,
+    department: reimbursement.node || '费用报销',
+    amount: reimbursement.amount,
+    submitDate: reimbursement.weComUpdatedAt || reimbursement.appliedDate,
+    currentStep: approved || rejected ? 4 : pending ? 3 : 1,
+    totalSteps: 4,
+    status: rejected ? 'rejected' : approved ? 'approved' : pending ? 'pending' : 'draft',
+    items: materials.length || reimbursement.invoiceCount,
+    invoiceIds: reimbursement.invoiceIds,
+    voucherIds: reimbursement.voucherIds,
+    materials,
+    flow: [
+      { name: reimbursement.applicant, role: '申请人', status: 'done', time: reimbursement.appliedDate },
+      { name: '部门主管', role: '部门审批', status: approved || rejected || pending ? 'done' : 'pending', time: pending || approved || rejected ? reimbursement.appliedDate : '' },
+      {
+        name: reimbursement.weComApprover || '财务审核',
+        role: '财务审核',
+        status: rejected ? 'rejected' : approved ? 'done' : pending ? 'current' : 'pending',
+        time: reimbursement.weComUpdatedAt,
+        remark: rejected ? '审批驳回，请检查材料' : undefined,
+      },
+      { name: '出纳', role: '付款确认', status: reimbursement.status === '已付款' ? 'done' : 'pending', time: reimbursement.status === '已付款' ? reimbursement.weComUpdatedAt : '' },
+    ],
+  };
+}
+
+function mergeById<T extends { id: string }>(current: T[], incoming: T[]) {
+  const next = new Map(current.map((item) => [item.id, item]));
+  incoming.forEach((item) => next.set(item.id, item));
+  return Array.from(next.values());
+}
+
+const TABS = [
+{
+  id: 'vouchers',
+  label: '凭证管理',
+  icon: Receipt
+},
+{
+  id: 'archive',
+  label: '归档分类',
+  icon: Archive
+},
+{
+  id: 'approval',
+  label: '审批流',
+  icon: CheckCircle
+},
+{
+  id: 'buyback',
+  label: '发票回购',
+  icon: FileDown
+}];
+
+type TreeNode = {
+  id: string;
+  name: string;
+  icon?: string;
+  color?: string;
+  // vendor keyword filters that map items into this leaf node
+  vendorFilter?: string[];
+  children?: TreeNode[];
+};
+const ARCHIVE_TREE: TreeNode[] = [
+{
+  id: 'cat-food',
+  name: '餐饮',
+  icon: '🍜',
+  color: 'orange',
+  children: [
+  {
+    id: 'cat-food-work',
+    name: '工作餐',
+    vendorFilter: ['星巴克']
+  },
+  {
+    id: 'cat-food-host',
+    name: '接待餐',
+    vendorFilter: ['蜀大侠']
+  },
+  {
+    id: 'cat-food-ot',
+    name: '加班餐',
+    vendorFilter: []
+  }]
+
+},
+{
+  id: 'cat-transport',
+  name: '交通',
+  icon: '🚗',
+  color: 'blue',
+  children: [
+  {
+    id: 'cat-transport-taxi',
+    name: '打车',
+    vendorFilter: ['滴滴', '出租车']
+  },
+  {
+    id: 'cat-transport-rail',
+    name: '高铁/动车',
+    vendorFilter: ['高铁', '铁路']
+  },
+  {
+    id: 'cat-transport-flight',
+    name: '飞机',
+    vendorFilter: ['航空']
+  },
+  {
+    id: 'cat-transport-public',
+    name: '地铁/公交',
+    vendorFilter: ['地铁', '公交']
+  }]
+
+},
+{
+  id: 'cat-office',
+  name: '办公',
+  icon: '📦',
+  color: 'rose',
+  children: [
+  {
+    id: 'cat-office-supplies',
+    name: '办公用品',
+    vendorFilter: ['京东', '天猫']
+  },
+  {
+    id: 'cat-office-print',
+    name: '打印耗材',
+    vendorFilter: []
+  },
+  {
+    id: 'cat-office-software',
+    name: '软件订阅',
+    vendorFilter: []
+  }]
+
+},
+{
+  id: 'cat-travel',
+  name: '差旅',
+  icon: '🏨',
+  color: 'purple',
+  children: [
+  {
+    id: 'cat-travel-hotel',
+    name: '酒店住宿',
+    vendorFilter: ['锦江', '酒店']
+  },
+  {
+    id: 'cat-travel-transport',
+    name: '长途交通',
+    vendorFilter: []
+  },
+  {
+    id: 'cat-travel-meal',
+    name: '差旅餐饮',
+    vendorFilter: []
+  }]
+
+},
+{
+  id: 'cat-other',
+  name: '其他',
+  icon: '📄',
+  color: 'slate',
+  children: []
+}];
 
 export function ExpenseModule() {
-  const [activeMenu, setActiveMenu] = useState<ExpenseSubMenu>("workspace");
-  const [filters, setFilters] = useState<InvoiceFilters>(defaultFilters);
-  const [advancedFilters, setAdvancedFilters] = useState(false);
-  const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
-  const [dashboard, setDashboard] = useState<ExpenseDashboardData | null>(null);
-  const [reimbursements, setReimbursements] = useState<ReimbursementRecord[]>([]);
-  const [rules, setRules] = useState<ExpenseRule[]>([]);
-  const [voucherCandidates, setVoucherCandidates] = useState<VoucherCandidate[]>([]);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
-  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string | null>(null);
-  const [drawer, setDrawer] = useState<DrawerKind>(null);
-  const [viewMode, setViewMode] = useState<"table" | "grid">("table");
-  const [sortKey, setSortKey] = useState<"issuedDate" | "amount" | "confidence">("issuedDate");
-  const [visibleColumns, setVisibleColumns] = useState(() => new Set(columns.map((column) => column.key)));
+  const [activeTab, setActiveTab] = useState('vouchers');
+  const [selectedExpense, setSelectedExpense] = useState<string | null>(null);
+  const [selectedInvoice, setSelectedInvoice] = useState<string | null>(null);
+  const [aiMatching, setAiMatching] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [dirtyDrawer, setDirtyDrawer] = useState(false);
-  const [reloadToken, setReloadToken] = useState(0);
-  const deferredFilters = useDeferredValue(filters);
+  const [expenseVouchers, setExpenseVouchers] = useState<ExpenseVoucherView[]>(
+    MOCK_EXPENSE_VOUCHERS as ExpenseVoucherView[]
+  );
+  const [invoiceVouchers, setInvoiceVouchers] = useState<InvoiceVoucherView[]>(
+    MOCK_INVOICE_VOUCHERS as InvoiceVoucherView[]
+  );
+  const [approvals, setApprovals] = useState<ApprovalView[]>(
+    MOCK_APPROVALS as ApprovalView[]
+  );
+  const [selectedApproval, setSelectedApproval] = useState<ApprovalView | null>(
+    (MOCK_APPROVALS as ApprovalView[])[0] ?? null
+  );
+  const [reimbursementDialogOpen, setReimbursementDialogOpen] = useState(false);
+  const [reimbursementDraftItems, setReimbursementDraftItems] = useState<ExpenseVoucherView[]>([]);
+  const [selectedReimbursementItemIds, setSelectedReimbursementItemIds] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [reimbursementPage, setReimbursementPage] = useState(1);
+  const [reimbursementInspector, setReimbursementInspector] = useState<ReimbursementInspector | null>(null);
+  const [reimbursementKeyword, setReimbursementKeyword] = useState('');
+  const [reimbursementCategoryFilter, setReimbursementCategoryFilter] = useState('all');
+  const [reimbursementSelectionFilter, setReimbursementSelectionFilter] = useState<'all' | 'selected' | 'unselected'>('all');
+  const [reimbursementTitle, setReimbursementTitle] = useState('');
+  const [reimbursementApplicant, setReimbursementApplicant] = useState('当前用户');
+  const [reimbursementReason, setReimbursementReason] = useState('费用报销');
+  const [submittingReimbursement, setSubmittingReimbursement] = useState(false);
+  const expenseUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const invoiceUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const [dateRange, setDateRange] = useState({
+    start: '2026-05-01',
+    end: '2026-05-31'
+  });
+  const [archiveSelected, setArchiveSelected] = useState<string>('all');
+  const [archiveExpanded, setArchiveExpanded] = useState<Set<string>>(
+    new Set(['all', 'cat-food', 'cat-transport'])
+  );
+
+  const reloadExpenseData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [invoices, reimbursements] = await Promise.all([
+        expenseService.listInvoices(),
+        expenseService.listReimbursements(),
+      ]);
+      let nextInvoiceVouchers: InvoiceVoucherView[] = [];
+      let nextExpenseVouchers: ExpenseVoucherView[] = [];
+
+      if (invoices.length) {
+        nextInvoiceVouchers = invoices.map(invoiceToInvoiceVoucher);
+        setInvoiceVouchers(nextInvoiceVouchers);
+        nextExpenseVouchers = invoices
+          .filter((invoice) => isInvoiceMatched(invoice))
+          .map(invoiceToExpenseVoucher);
+        if (nextExpenseVouchers.length) {
+          setExpenseVouchers(nextExpenseVouchers);
+        }
+      }
+
+      if (reimbursements.length) {
+        const nextApprovals = reimbursements.map((reimbursement) =>
+          reimbursementToApproval(
+            reimbursement,
+            buildApprovalMaterialsFromIds(
+              reimbursement.invoiceIds,
+              reimbursement.voucherIds,
+              nextExpenseVouchers,
+              nextInvoiceVouchers
+            )
+          )
+        );
+        setApprovals(nextApprovals);
+        setSelectedApproval((current) =>
+          nextApprovals.find((item) => item.id === current?.id) ?? nextApprovals[0] ?? current
+        );
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
+    void reloadExpenseData();
+  }, [reloadExpenseData]);
 
+  const totalAmount = expenseVouchers.reduce((s, v) => s + v.amount, 0);
+  const unmatched = expenseVouchers.filter((v) => !v.matched).length;
+  const matched = expenseVouchers.filter((v) => v.matched).length;
+  const totalInvoices = invoiceVouchers.length;
+  const pendingApprovals = approvals.filter((a) => a.status === 'pending').length;
+  const filteredInvoices = invoiceVouchers.filter((iv) => {
+    return iv.date >= dateRange.start && iv.date <= dateRange.end;
+  });
+  const buybackTotal = filteredInvoices.reduce((s, v) => s + v.amount, 0);
+  const buybackTax = filteredInvoices.reduce((s, v) => s + v.taxAmount, 0);
+
+  const handleExpenseUpload = useCallback(async (files: File[]) => {
+    if (!files.length) return;
     setLoading(true);
-    Promise.all([
-      expenseService.listInvoices(deferredFilters),
-      expenseService.getDashboard(),
-      expenseService.listReimbursements(),
-      expenseService.listRules(),
-    ])
-      .then(([invoiceResult, dashboardResult, reimbursementResult, ruleResult]) => {
-        if (cancelled) return;
-        setInvoices(invoiceResult);
-        setDashboard(dashboardResult);
-        setReimbursements(reimbursementResult);
-        setRules(ruleResult);
-        setLoading(false);
+    try {
+      const uploaded = await expenseService.uploadVoucherFiles(files);
+      const nextVouchers = uploaded.map(uploadedVoucherToExpenseVoucher);
+      setExpenseVouchers((current) => mergeById(current, nextVouchers));
+      await reloadExpenseData();
+    } catch (error) {
+      window.alert(`上传报销凭证失败：${toErrorMessage(error)}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [reloadExpenseData]);
+
+  const handleInvoiceUpload = useCallback(async (files: File[]) => {
+    if (!files.length) return;
+    setLoading(true);
+    try {
+      const uploaded = await expenseService.uploadInvoiceFiles(files);
+      setInvoiceVouchers((current) => mergeById(current, uploaded.map(invoiceToInvoiceVoucher)));
+      const matchedUploads = uploaded.filter((invoice) => isInvoiceMatched(invoice)).map(invoiceToExpenseVoucher);
+      if (matchedUploads.length) {
+        setExpenseVouchers((current) => mergeById(current, matchedUploads));
+      }
+      await reloadExpenseData();
+    } catch (error) {
+      window.alert(`上传发票凭证失败：${toErrorMessage(error)}`);
+    } finally {
+      setLoading(false);
+    }
+  }, [reloadExpenseData]);
+
+  const applyMatchLinks = useCallback((links: Array<{ invoice_id: string; voucher_id: string; voucher_no?: string }>) => {
+    if (!links.length) return;
+    setExpenseVouchers((current) =>
+      current.map((voucher) => {
+        const link = links.find((item) => item.voucher_id === voucher.sourceVoucherId || item.voucher_id === voucher.id || item.voucher_no === voucher.id);
+        return link ? { ...voucher, matched: true, matchedTo: link.invoice_id } : voucher;
       })
-      .catch((error) => {
-        if (cancelled) return;
-        setLoading(false);
-        toast.error(formatServiceError(error));
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [deferredFilters, reloadToken]);
-
-  const selectedInvoice = useMemo(
-    () => invoices.find((invoice) => invoice.id === selectedInvoiceId) ?? invoices[0] ?? null,
-    [invoices, selectedInvoiceId],
-  );
-
-  const sortedInvoices = useMemo(() => {
-    const next = [...invoices];
-    if (sortKey === "amount") next.sort((a, b) => b.amount - a.amount);
-    if (sortKey === "confidence") next.sort((a, b) => a.categoryConfidence - b.categoryConfidence);
-    if (sortKey === "issuedDate") next.sort((a, b) => b.issuedDate.localeCompare(a.issuedDate));
-    return next;
-  }, [invoices, sortKey]);
-
-  const pageInvoices = useMemo(() => sortedInvoices.slice(0, 20), [sortedInvoices]);
-
-  const selectedInvoices = useMemo(
-    () => invoices.filter((invoice) => selectedIds.has(invoice.id)),
-    [invoices, selectedIds],
-  );
-
-  const openDrawer = useCallback((nextDrawer: DrawerKind, invoice?: InvoiceRecord) => {
-    if (invoice) setSelectedInvoiceId(invoice.id);
-    setDirtyDrawer(false);
-    setDrawer(nextDrawer);
+    );
+    setInvoiceVouchers((current) =>
+      current.map((invoice) => {
+        const link = links.find((item) => item.invoice_id === invoice.sourceInvoiceId || item.invoice_id === invoice.id);
+        return link ? { ...invoice, matched: true, matchedTo: link.voucher_id || link.voucher_no } : invoice;
+      })
+    );
   }, []);
 
-  const openLinkDrawer = useCallback((invoice?: InvoiceRecord) => {
-    const targetInvoice = invoice ?? selectedInvoice ?? invoices[0];
-    if (!targetInvoice) return;
-    setSelectedInvoiceId(targetInvoice.id);
-    expenseService.listVoucherCandidates(targetInvoice.id).then(setVoucherCandidates).catch((error) => {
-      toast.error(formatServiceError(error));
-    });
-    openDrawer("link-voucher", targetInvoice);
-  }, [invoices, openDrawer, selectedInvoice]);
+  const runLocalMatch = useCallback(() => {
+    const unmatchedExpenses = expenseVouchers.filter((voucher) => !voucher.matched);
+    const unmatchedInvoices = invoiceVouchers.filter((invoice) => !invoice.matched);
+    const links: Array<{ invoice_id: string; voucher_id: string }> = [];
+    const usedInvoiceIds = new Set<string>();
 
-  const toggleSelected = useCallback((id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
-
-  const toggleAllVisible = useCallback(() => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      const allSelected = pageInvoices.every((invoice) => next.has(invoice.id));
-      pageInvoices.forEach((invoice) => {
-        if (allSelected) next.delete(invoice.id);
-        else next.add(invoice.id);
+    unmatchedExpenses.forEach((voucher) => {
+      const invoice = unmatchedInvoices.find((item) => {
+        if (usedInvoiceIds.has(item.id)) return false;
+        const amountMatched = Math.abs(item.amount - voucher.amount) < 1;
+        const vendorMatched = item.issuer.includes(voucher.vendor.slice(0, 2)) || voucher.vendor.includes(item.issuer.slice(0, 2));
+        return amountMatched || vendorMatched;
       });
-      return next;
+      if (invoice) {
+        usedInvoiceIds.add(invoice.id);
+        links.push({ invoice_id: invoice.id, voucher_id: voucher.id });
+      }
     });
-  }, [pageInvoices]);
 
-  return (
-    <div className="expense-tech-surface min-h-full min-w-[1120px] text-slate-900" style={{background: 'transparent'}}>
-      <div className="mx-auto max-w-[1480px] space-y-4">
-        <ModuleHeader activeMenu={activeMenu} onMenuChange={setActiveMenu} />
+    applyMatchLinks(links);
+    return links.length;
+  }, [applyMatchLinks, expenseVouchers, invoiceVouchers]);
 
-        <AnimatePresence mode="wait">
-          <motion.div key={activeMenu} {...pageMotion}>
-            {activeMenu === "workspace" ? (
-              <WorkspacePage dashboard={dashboard} loading={loading} onOpenDrawer={openDrawer} />
-            ) : null}
-
-            {activeMenu === "invoices" ? (
-              <InvoiceFolderPage
-                invoices={pageInvoices}
-                total={sortedInvoices.length}
-                loading={loading}
-                filters={filters}
-                advancedFilters={advancedFilters}
-                selectedIds={selectedIds}
-                selectedInvoices={selectedInvoices}
-                sortKey={sortKey}
-                viewMode={viewMode}
-                visibleColumns={visibleColumns}
-                onFiltersChange={setFilters}
-                onResetFilters={() => setFilters(defaultFilters)}
-                onToggleAdvanced={() => setAdvancedFilters((value) => !value)}
-                onToggleSelected={toggleSelected}
-                onToggleAllVisible={toggleAllVisible}
-                onOpenDrawer={openDrawer}
-                onOpenLinkDrawer={openLinkDrawer}
-                onSortChange={setSortKey}
-                onViewModeChange={setViewMode}
-                onVisibleColumnsChange={setVisibleColumns}
-              />
-            ) : null}
-
-            {activeMenu === "reimbursements" ? (
-              <ReimbursementPage reimbursements={reimbursements} invoices={invoices} onOpenDrawer={openDrawer} />
-            ) : null}
-
-            {activeMenu === "matching" ? (
-              <MatchingPage
-                invoices={invoices}
-                onOpenDrawer={openLinkDrawer}
-                onOpenVoucherUpload={() => openDrawer("voucher-upload")}
-                onDataChanged={() => setReloadToken((value) => value + 1)}
-              />
-            ) : null}
-
-            {activeMenu === "rules" ? (
-              <RulesPage rules={rules} onOpenDrawer={openDrawer} />
-            ) : null}
-          </motion.div>
-        </AnimatePresence>
-      </div>
-
-      <DrawerShell
-        open={drawer !== null}
-        title={getDrawerTitle(drawer)}
-        description={expenseText.drawers.description}
-        width={getDrawerWidth(drawer)}
-        dirty={dirtyDrawer}
-        onOpenChange={(open) => {
-          if (!open) setDrawer(null);
-        }}
-        footer={<DrawerFooterActions drawer={drawer} selectedCount={selectedIds.size} onClose={() => setDrawer(null)} />}
-      >
-        {drawer === "upload" ? <UploadInvoiceDrawer onDirtyChange={setDirtyDrawer} onDataChanged={() => setReloadToken((value) => value + 1)} /> : null}
-        {drawer === "voucher-upload" ? <UploadVoucherDrawer onDirtyChange={setDirtyDrawer} onDataChanged={() => setReloadToken((value) => value + 1)} /> : null}
-        {drawer === "invoice-detail" && selectedInvoice ? (
-          <InvoiceDetailDrawer invoice={selectedInvoice} onDirtyChange={setDirtyDrawer} onLink={() => openLinkDrawer(selectedInvoice)} />
-        ) : null}
-        {drawer === "batch-classify" ? <BatchClassifyDrawer invoices={selectedInvoices.length ? selectedInvoices : pageInvoices.slice(0, 4)} onDirtyChange={setDirtyDrawer} /> : null}
-        {drawer === "link-voucher" && selectedInvoice ? (
-          <LinkVoucherDrawer
-            invoice={selectedInvoice}
-            candidates={voucherCandidates}
-            onDataChanged={() => setReloadToken((value) => value + 1)}
-          />
-        ) : null}
-        {drawer === "new-reimbursement" ? <NewReimbursementDrawer invoices={invoices.slice(0, 8)} onDirtyChange={setDirtyDrawer} onDataChanged={() => setReloadToken((value) => value + 1)} /> : null}
-        {drawer === "reimbursement-detail" ? <ReimbursementDetailDrawer reimbursements={reimbursements} onDataChanged={() => setReloadToken((value) => value + 1)} /> : null}
-        {drawer === "matching-detail" && selectedInvoice ? <MatchingDetailDrawer invoice={selectedInvoice} candidates={voucherCandidates} /> : null}
-        {drawer === "push-settings" ? <PushSettingsDrawer onDirtyChange={setDirtyDrawer} /> : null}
-        {drawer === "rule-editor" ? <RuleEditorDrawer onDirtyChange={setDirtyDrawer} /> : null}
-      </DrawerShell>
-    </div>
-  );
-}
-
-function ModuleHeader({
-  activeMenu,
-  onMenuChange,
-}: {
-  activeMenu: ExpenseSubMenu;
-  onMenuChange: (menu: ExpenseSubMenu) => void;
-}) {
-  return (
-    <section className="material-panel overflow-hidden p-0">
-      <div className="expense-module-hero relative flex items-center justify-between gap-4 border-b border-slate-200 px-5 py-4">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-1 bg-[linear-gradient(90deg,var(--primary),var(--chart-2),var(--chart-4),var(--chart-3),#f472b6,var(--chart-5),#22c55e,var(--primary-container))]" />
-        <div className="relative z-10 flex min-w-0 items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--m3-shape-medium)] border border-blue-100 bg-white/80 text-blue-700 shadow-sm">
-            <BarChart3 className="h-4 w-4" />
-          </div>
-          <div className="min-w-0">
-            <div className="flex min-w-0 items-center gap-2">
-              <h2 className="truncate text-xl font-bold text-slate-950">{expenseText.moduleTitle}</h2>
-              <span className="shrink-0 rounded-full border border-blue-100 bg-white/80 px-2 py-0.5 text-[11px] font-bold text-blue-700 shadow-sm">
-                {expenseText.moduleBadge}
-              </span>
-            </div>
-            <p className="mt-0.5 truncate text-xs text-slate-500">{expenseText.moduleSubtitle}</p>
-          </div>
-        </div>
-        <div className="relative z-10 flex shrink-0 rounded-full border border-slate-200 bg-white/72 p-1 shadow-sm backdrop-blur">
-          {subMenus.map((item) => {
-            const Icon = item.icon;
-            const active = item.key === activeMenu;
-            return (
-              <motion.div key={item.key} whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }}>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => onMenuChange(item.key)}
-                className={cn(
-                  "h-9 border-transparent bg-transparent px-4",
-                  active
-                    ? "border-blue-100 bg-[linear-gradient(135deg,#ffffff,var(--primary-container))] text-blue-700 shadow-[0_8px_18px_rgba(30,64,175,0.08)]"
-                    : "text-slate-600 hover:bg-white/80",
-                )}
-              >
-                <Icon className="h-4 w-4" />
-                {expenseText.menus[item.key]}
-              </Button>
-              </motion.div>
-            );
-          })}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function WorkspacePage({
-  dashboard,
-  loading,
-  onOpenDrawer,
-}: {
-  dashboard: ExpenseDashboardData | null;
-  loading: boolean;
-  onOpenDrawer: (drawer: DrawerKind) => void;
-}) {
-  if (loading || !dashboard) {
-    return <EmptyState title="正在加载工作台数据" detail="KPI、图表和待办会从费用模块 service 层统一读取。" />;
-  }
-
-  const hasTodos = dashboard.todos.length > 0;
-  const hasActivities = dashboard.activities.length > 0;
-
-  return (
-    <div className="space-y-4">
-      <section className="grid auto-rows-[1fr] grid-cols-4 items-stretch gap-3">
-        {dashboard.kpis.map((item) => <KPICard key={item.title} {...item} />)}
-      </section>
-
-      <section className="material-panel p-4">
-        <PanelTitle icon={AlertTriangle} title={expenseText.workspace.todoTitle} right={hasTodos ? "点击后打开对应处理 Drawer" : "暂无待处理事项"} />
-        {hasTodos ? (
-          <div className="grid auto-rows-[1fr] grid-cols-3 items-stretch gap-3">
-            {dashboard.todos.map((todo, index) => (
-              <motion.button
-                key={todo.id}
-                type="button"
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.04, duration: 0.22 }}
-                whileHover={{ y: -2 }}
-                onClick={() => onOpenDrawer(todo.drawer)}
-                className={cn(
-                  "expense-tip-card relative flex h-full min-h-[116px] w-full cursor-pointer flex-col justify-between overflow-hidden rounded-[var(--m3-shape-large)] border bg-white px-4 py-3 pl-5 text-left transition-colors hover:bg-blue-50",
-                  todo.severity === "error" ? "border-red-100" : todo.severity === "warning" ? "border-amber-100" : "border-blue-100",
-                )}
-              >
-                <span
-                  className={cn(
-                    "absolute inset-y-0 left-0 w-1",
-                    todo.severity === "error" ? "bg-red-400" : todo.severity === "warning" ? "bg-amber-400" : "bg-blue-500",
-                  )}
-                />
-                <div>
-                  <div className="text-sm font-bold text-slate-900">{todo.title}</div>
-                  <div className="mt-1 text-xs leading-5 text-slate-500">{todo.detail}</div>
-                </div>
-                <span className="mt-3 text-xs font-bold text-blue-700">打开处理</span>
-              </motion.button>
-            ))}
-          </div>
-        ) : (
-          <EmptyState
-            compact
-            icon={ShieldCheck}
-            title="暂无待办"
-            detail="上传票据、OCR 识别异常或企业微信审批回调失败后，会在这里生成处理任务。"
-            action={<Button type="button" size="sm" onClick={() => onOpenDrawer("upload")}><UploadCloud className="h-4 w-4" />上传票据</Button>}
-          />
-        )}
-      </section>
-
-      <section className="space-y-4">
-        <div className="expense-analysis-toolbar material-panel flex items-center justify-between gap-3 p-4">
-          <div className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-[var(--m3-shape-medium)] border border-blue-100 bg-white text-blue-700 shadow-sm">
-              <BarChart3 className="h-4 w-4" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-slate-900">统计分析</h3>
-              <div className="mt-1 text-xs text-slate-500">已整合到工作台，避免看板数据重复分散。</div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <Input type="month" defaultValue="2026-05" className="h-9 w-40" />
-            <Select defaultValue="department">
-              <SelectTrigger className="material-input h-9 w-40">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="department">按部门</SelectItem>
-                <SelectItem value="category">按类别</SelectItem>
-                <SelectItem value="project">按项目</SelectItem>
-              </SelectContent>
-            </Select>
-            <Button type="button" variant="outline"><Download className="h-4 w-4" />导出报表</Button>
-            <Button type="button" onClick={() => onOpenDrawer("push-settings")}><Send className="h-4 w-4" />订阅推送</Button>
-          </div>
-        </div>
-        <div className="grid grid-cols-2 gap-4">
-          <ChartPanel title="月度趋势折线图" data={dashboard.monthlyTrend} type="trend" />
-          <ChartPanel title="类别占比饼图" data={dashboard.categoryShare} type="pie" />
-          <ChartPanel title="部门对比柱状图" data={dashboard.departmentBars} type="bar" />
-          <ChartPanel title="项目费用 Top 10" data={dashboard.projectTop} type="project" />
-        </div>
-      </section>
-
-      <section className="material-panel p-4">
-        <PanelTitle icon={ShieldCheck} title={expenseText.workspace.activityTitle} />
-        {hasActivities ? (
-          <div className="grid auto-rows-[1fr] grid-cols-4 gap-3">
-            {dashboard.activities.map((activity) => (
-              <div key={activity.id} className="flex h-full flex-col rounded-[var(--m3-shape-large)] border border-slate-200 bg-slate-50 p-3">
-                <div className="mb-2 w-fit rounded-full border border-blue-100 bg-white px-2 py-0.5 text-xs font-bold text-blue-700">{activity.time}</div>
-                <div className="mt-2 text-sm font-bold text-slate-900">{activity.title}</div>
-                <div className="mt-1 flex-1 text-xs leading-5 text-slate-500">{activity.detail}</div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <EmptyState
-            compact
-            icon={ClockIcon}
-            title="暂无动态"
-            detail="OCR 入库、人工修正、企业微信审批提交和回调更新会记录到这里。"
-          />
-        )}
-      </section>
-    </div>
-  );
-}
-
-function InvoiceFolderPage(props: {
-  invoices: InvoiceRecord[];
-  total: number;
-  loading: boolean;
-  filters: InvoiceFilters;
-  advancedFilters: boolean;
-  selectedIds: Set<string>;
-  selectedInvoices: InvoiceRecord[];
-  sortKey: "issuedDate" | "amount" | "confidence";
-  viewMode: "table" | "grid";
-  visibleColumns: Set<(typeof columns)[number]["key"]>;
-  onFiltersChange: (filters: InvoiceFilters) => void;
-  onResetFilters: () => void;
-  onToggleAdvanced: () => void;
-  onToggleSelected: (id: string) => void;
-  onToggleAllVisible: () => void;
-  onOpenDrawer: (drawer: DrawerKind, invoice?: InvoiceRecord) => void;
-  onOpenLinkDrawer: (invoice?: InvoiceRecord) => void;
-  onSortChange: (sort: "issuedDate" | "amount" | "confidence") => void;
-  onViewModeChange: (mode: "table" | "grid") => void;
-  onVisibleColumnsChange: (columns: Set<(typeof columns)[number]["key"]>) => void;
-}) {
-  const allVisibleSelected = props.invoices.length > 0 && props.invoices.every((invoice) => props.selectedIds.has(invoice.id));
-  const activeFilters = hasActiveInvoiceFilters(props.filters);
-  const showEmptyState = !props.loading && props.invoices.length === 0;
-
-  return (
-    <div className="space-y-4">
-      <FilterBar
-        filters={props.filters}
-        advanced={props.advancedFilters}
-        onFiltersChange={props.onFiltersChange}
-        onReset={props.onResetFilters}
-        onToggleAdvanced={props.onToggleAdvanced}
-      />
-
-      <section className="material-panel p-4">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Button type="button" onClick={() => props.onOpenDrawer("upload")}>
-              <Plus className="h-4 w-4" />
-              {expenseText.invoices.upload}
-            </Button>
-            <Button type="button" variant="outline" onClick={() => props.onOpenDrawer("upload")}>
-              <UploadCloud className="h-4 w-4" />
-              {expenseText.invoices.batchImport}
-            </Button>
-          </div>
-
-          {props.selectedIds.size > 0 ? (
-            <div className="flex items-center gap-2 rounded-full border border-blue-100 bg-blue-50 px-3 py-1">
-              <span className="text-xs font-bold text-blue-700">{expenseText.common.selected} {props.selectedIds.size}</span>
-              <Button type="button" size="sm" variant="outline" onClick={() => props.onOpenDrawer("batch-classify")}>{expenseText.invoices.batchClassify}</Button>
-              <Button type="button" size="sm" variant="outline" onClick={() => props.onOpenLinkDrawer()}>{expenseText.invoices.batchLink}</Button>
-              <Button type="button" size="sm" variant="outline" onClick={() => toast.success("已导出选中票据")}>{expenseText.invoices.batchExport}</Button>
-              <Button type="button" size="sm" variant="outline" onClick={() => toast.success("已生成删除确认任务")}>{expenseText.invoices.batchDelete}</Button>
-            </div>
-          ) : null}
-
-          <div className="flex items-center gap-2">
-            <Select value={props.sortKey} onValueChange={(value) => props.onSortChange(value as "issuedDate" | "amount" | "confidence")}>
-              <SelectTrigger className="material-input h-9 w-36">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="issuedDate">按开票日期</SelectItem>
-                <SelectItem value="amount">按金额</SelectItem>
-                <SelectItem value="confidence">按低置信度</SelectItem>
-              </SelectContent>
-            </Select>
-            <ColumnSettings columns={props.visibleColumns} onChange={props.onVisibleColumnsChange} />
-            <Button type="button" variant="outline" size="icon" onClick={() => toast.success("票夹已刷新")} title={expenseText.invoices.refresh}>
-              <RefreshCw className="h-4 w-4" />
-            </Button>
-            <Button type="button" variant={props.viewMode === "table" ? "default" : "outline"} size="sm" onClick={() => props.onViewModeChange("table")}>{expenseText.invoices.tableView}</Button>
-            <Button type="button" variant={props.viewMode === "grid" ? "default" : "outline"} size="sm" onClick={() => props.onViewModeChange("grid")}>{expenseText.invoices.gridView}</Button>
-          </div>
-        </div>
-
-        {props.loading ? <EmptyState title="正在加载票夹" detail="正在读取票据、OCR 状态和企业微信关联信息。" /> : null}
-        {showEmptyState ? (
-          <EmptyState
-            icon={FolderOpen}
-            title={activeFilters ? "没有符合筛选条件的票据" : "还没有票据"}
-            detail={activeFilters ? "放宽筛选条件或重置筛选后再查看。" : "上传发票或票据后，腾讯 OCR 会识别字段并写入票夹。"}
-            action={activeFilters ? (
-              <Button type="button" size="sm" variant="outline" onClick={props.onResetFilters}>重置筛选</Button>
-            ) : (
-              <Button type="button" size="sm" onClick={() => props.onOpenDrawer("upload")}><UploadCloud className="h-4 w-4" />上传票据</Button>
-            )}
-          />
-        ) : null}
-        {!props.loading && !showEmptyState && props.viewMode === "table" ? (
-          <InvoiceTable
-            invoices={props.invoices}
-            visibleColumns={props.visibleColumns}
-            selectedIds={props.selectedIds}
-            allVisibleSelected={allVisibleSelected}
-            onToggleAllVisible={props.onToggleAllVisible}
-            onToggleSelected={props.onToggleSelected}
-            onOpenDrawer={props.onOpenDrawer}
-            onOpenLinkDrawer={props.onOpenLinkDrawer}
-          />
-        ) : null}
-        {!props.loading && !showEmptyState && props.viewMode === "grid" ? (
-          <InvoiceGrid invoices={props.invoices} onOpenDrawer={props.onOpenDrawer} />
-        ) : null}
-
-        {props.total > 0 ? <div className="mt-3 flex items-center justify-between border-t border-slate-200 pt-3 text-xs text-slate-500">
-          <span>{expenseText.common.total} {props.total} {expenseText.common.rows}，当前展示 20 条/页</span>
-          <div className="flex items-center gap-2">
-            <Button type="button" size="sm" variant="outline" disabled>上一页</Button>
-            <Badge variant="outline" className="bg-white">1</Badge>
-            <Button type="button" size="sm" variant="outline">下一页</Button>
-          </div>
-        </div> : null}
-      </section>
-    </div>
-  );
-}
-
-function InvoiceTable({
-  invoices,
-  visibleColumns,
-  selectedIds,
-  allVisibleSelected,
-  onToggleAllVisible,
-  onToggleSelected,
-  onOpenDrawer,
-  onOpenLinkDrawer,
-}: {
-  invoices: InvoiceRecord[];
-  visibleColumns: Set<(typeof columns)[number]["key"]>;
-  selectedIds: Set<string>;
-  allVisibleSelected: boolean;
-  onToggleAllVisible: () => void;
-  onToggleSelected: (id: string) => void;
-  onOpenDrawer: (drawer: DrawerKind, invoice?: InvoiceRecord) => void;
-  onOpenLinkDrawer: (invoice: InvoiceRecord) => void;
-}) {
-  if (!invoices.length) return <EmptyState title="没有符合条件的票据" detail="调整筛选条件后再试。" />;
-
-  return (
-    <div className="overflow-hidden rounded-[var(--m3-shape-large)] border border-slate-200">
-      <Table>
-        <TableHeader className="sticky top-0 z-10 bg-blue-50">
-          <TableRow>
-            <TableHead className="w-[50px]"><Checkbox checked={allVisibleSelected} onCheckedChange={onToggleAllVisible} /></TableHead>
-            {columns.map((column) => visibleColumns.has(column.key) ? <TableHead key={column.key}>{column.label}</TableHead> : null)}
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {invoices.map((invoice, index) => (
-            <motion.tr
-              key={invoice.id}
-              initial={{ opacity: 0, y: 6 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: Math.min(index * 0.018, 0.18), duration: 0.2 }}
-              className={cn("h-16 border-b transition-colors hover:bg-muted/50", invoice.status === "异常" ? "border-l-4 border-l-red-500" : "")}
-            >
-              <TableCell><Checkbox checked={selectedIds.has(invoice.id)} onCheckedChange={() => onToggleSelected(invoice.id)} /></TableCell>
-              {visibleColumns.has("thumbnail") ? <TableCell><InvoiceThumbnail invoice={invoice} /></TableCell> : null}
-              {visibleColumns.has("invoiceNo") ? <TableCell className="font-medium text-slate-900">{invoice.invoiceNo}</TableCell> : null}
-              {visibleColumns.has("issuedDate") ? <TableCell>{invoice.issuedDate}</TableCell> : null}
-              {visibleColumns.has("vendor") ? <TableCell className="max-w-[210px] truncate" title={invoice.vendor}>{invoice.vendor}</TableCell> : null}
-              {visibleColumns.has("amount") ? <TableCell className={cn("text-right font-bold", invoice.amount > 5000 ? "text-amber-700" : "text-slate-950")}>{formatCurrency(invoice.amount)}</TableCell> : null}
-              {visibleColumns.has("category") ? (
-                <TableCell>
-                  <div className="flex items-center gap-1.5">
-                    <Badge variant="outline" className="bg-white">{invoice.category}</Badge>
-                    <ConfidenceTag value={invoice.categoryConfidence} />
-                  </div>
-                </TableCell>
-              ) : null}
-              {visibleColumns.has("project") ? <TableCell className="max-w-[150px] truncate text-blue-700" title={invoice.project}>{invoice.project}</TableCell> : null}
-              {visibleColumns.has("status") ? <TableCell><StatusBadge status={invoice.status} /></TableCell> : null}
-              {visibleColumns.has("uploader") ? (
-                <TableCell>
-                  <div className="flex items-center gap-2">
-                    <span className="flex h-7 w-7 items-center justify-center rounded-full bg-blue-50 text-xs font-bold text-blue-700">{invoice.uploaderAvatar}</span>
-                    {invoice.uploader}
-                  </div>
-                </TableCell>
-              ) : null}
-              {visibleColumns.has("uploadedAt") ? <TableCell title={invoice.uploadedAt}>{invoice.relativeUploadedAt}</TableCell> : null}
-              {visibleColumns.has("actions") ? (
-                <TableCell>
-                  <div className="flex items-center gap-1">
-                    <Button type="button" size="sm" variant="outline" onClick={() => onOpenDrawer("invoice-detail", invoice)}>详情</Button>
-                    <Button type="button" size="sm" variant="outline" onClick={() => onOpenLinkDrawer(invoice)}>手动关联</Button>
-                    <Button type="button" size="icon" variant="ghost" title="编辑、删除、导出 PDF、查看变更历史">
-                      <MoreHorizontal className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </TableCell>
-              ) : null}
-            </motion.tr>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
-  );
-}
-
-function InvoiceGrid({ invoices, onOpenDrawer }: { invoices: InvoiceRecord[]; onOpenDrawer: (drawer: DrawerKind, invoice?: InvoiceRecord) => void }) {
-  if (!invoices.length) return <EmptyState title="没有符合条件的票据" />;
-  return (
-    <div className="grid grid-cols-5 gap-3">
-      {invoices.map((invoice) => (
-        <button key={invoice.id} type="button" onClick={() => onOpenDrawer("invoice-detail", invoice)} className="cursor-pointer rounded-[var(--m3-shape-large)] border border-slate-200 bg-white p-3 text-left transition-colors hover:border-blue-300 hover:bg-blue-50">
-          <div className="mb-3 flex items-center justify-between gap-2">
-            <InvoiceThumbnail invoice={invoice} />
-            <StatusBadge status={invoice.status} />
-          </div>
-          <div className="truncate text-sm font-bold text-slate-900">{invoice.vendor}</div>
-          <div className="mt-1 text-xs text-slate-500">{invoice.invoiceNo}</div>
-          <div className="mt-3 flex items-center justify-between">
-            <span className="text-sm font-bold text-slate-950">{formatCurrency(invoice.amount)}</span>
-            <ConfidenceTag value={invoice.categoryConfidence} />
-          </div>
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function ColumnSettings({
-  columns: visibleColumns,
-  onChange,
-}: {
-  columns: Set<(typeof columns)[number]["key"]>;
-  onChange: (columns: Set<(typeof columns)[number]["key"]>) => void;
-}) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <div className="relative">
-      <Button type="button" variant="outline" size="icon" onClick={() => setOpen((value) => !value)} title={expenseText.invoices.columnSettings}>
-        <Columns3 className="h-4 w-4" />
-      </Button>
-      {open ? (
-        <div className="absolute right-0 top-10 z-20 w-48 rounded-[var(--m3-shape-large)] border border-slate-200 bg-white p-2 shadow-lg">
-          {columns.map((column) => (
-            <label key={column.key} className="flex cursor-pointer items-center gap-2 rounded-[var(--m3-shape-medium)] px-2 py-1.5 text-xs font-medium text-slate-700 hover:bg-blue-50">
-              <Checkbox
-                checked={visibleColumns.has(column.key)}
-                onCheckedChange={() => {
-                  const next = new Set(visibleColumns);
-                  if (next.has(column.key)) next.delete(column.key);
-                  else next.add(column.key);
-                  onChange(next);
-                }}
-              />
-              {column.label}
-            </label>
-          ))}
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function ReimbursementPage({
-  reimbursements,
-  invoices,
-  onOpenDrawer,
-}: {
-  reimbursements: ReimbursementRecord[];
-  invoices: InvoiceRecord[];
-  onOpenDrawer: (drawer: DrawerKind) => void;
-}) {
-  const pending = reimbursements.filter((item) => item.status === "审批中").length;
-  const weComSynced = reimbursements.filter((item) => item.weComSyncStatus !== "未提交" && item.weComSyncStatus !== "同步失败").length;
-  const weComActive = reimbursements.filter((item) => item.weComSyncStatus === "审批中").length;
-  return (
-    <div className="space-y-4">
-      <section className="grid auto-rows-[1fr] grid-cols-4 items-stretch gap-3">
-        <KPICard title="本月报销笔数" value={`${reimbursements.length} 笔`} icon={FileCheck2} />
-        <KPICard title="平均处理时长" value={reimbursements.length ? "1.8 天" : "0 天"} icon={CalendarDays} trend={reimbursements.length ? "较上月 -0.4 天" : "暂无报销单"} />
-        <KPICard title="待审批数" value={`${pending} 笔`} icon={AlertTriangle} />
-        <KPICard title="企微审批同步" value={reimbursements.length ? `${weComSynced}/${reimbursements.length}` : "0 单"} icon={Send} trend={`${weComActive} 笔审批中`} />
-      </section>
-      <section className="material-panel p-4">
-        <PanelTitle icon={FileCheck2} title="报销单列表" right={<Button type="button" onClick={() => onOpenDrawer("new-reimbursement")}><Plus className="h-4 w-4" />新建报销单</Button>} />
-        {reimbursements.length ? (
-          <Table>
-            <TableHeader><TableRow><TableHead>报销单号</TableHead><TableHead>申请人</TableHead><TableHead>申请日期</TableHead><TableHead>总金额</TableHead><TableHead>票据数</TableHead><TableHead>当前状态</TableHead><TableHead>企业微信审批</TableHead><TableHead>操作</TableHead></TableRow></TableHeader>
-            <TableBody>
-              {reimbursements.map((item) => (
-                <TableRow key={item.id}>
-                  <TableCell className="font-bold">{item.id}</TableCell>
-                  <TableCell>{item.applicant}</TableCell>
-                  <TableCell>{item.appliedDate}</TableCell>
-                  <TableCell className="font-bold">{formatCurrency(item.amount)}</TableCell>
-                  <TableCell>{item.invoiceCount}</TableCell>
-                  <TableCell><StatusBadge status={item.status} /> <span className="ml-2 text-xs text-slate-500">{item.node}</span></TableCell>
-                  <TableCell>
-                    <div className="space-y-1">
-                      <StatusBadge status={item.weComSyncStatus} />
-                      <div className="text-xs text-slate-500">{item.weComFlowId}</div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
-                      <Button type="button" size="sm" variant="outline" onClick={() => onOpenDrawer("reimbursement-detail")}>详情</Button>
-                      <Button type="button" size="sm" variant="outline" onClick={() => toast.success("已同步企业微信审批状态")}>同步企微</Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        ) : (
-          <EmptyState
-            icon={FileCheck2}
-            title="还没有报销单"
-            detail={invoices.length ? "从票夹选择票据后，可以创建报销单并提交企业微信审批。" : "当前没有可用于报销的票据，请先上传票据。"}
-            action={invoices.length ? (
-              <Button type="button" size="sm" onClick={() => onOpenDrawer("new-reimbursement")}><Plus className="h-4 w-4" />新建报销单</Button>
-            ) : (
-              <Button type="button" size="sm" onClick={() => onOpenDrawer("upload")}><UploadCloud className="h-4 w-4" />上传票据</Button>
-            )}
-          />
-        )}
-      </section>
-      <section className="material-panel p-4">
-        <PanelTitle icon={FolderOpen} title="可引用票夹票据" right={`${invoices.filter((item) => item.status === "已关联").length} 张已关联票据`} />
-        {!invoices.length ? (
-          <EmptyState compact icon={FolderOpen} title="暂无可引用票据" detail="票据入库后，可在新建报销单时勾选引用。" />
-        ) : null}
-      </section>
-    </div>
-  );
-}
-
-function MatchingPage({
-  invoices,
-  onOpenDrawer,
-  onOpenVoucherUpload,
-  onDataChanged,
-}: {
-  invoices: InvoiceRecord[];
-  onOpenDrawer: (invoice?: InvoiceRecord) => void;
-  onOpenVoucherUpload: () => void;
-  onDataChanged: () => void;
-}) {
-  const failed = invoices.filter((invoice) => invoice.status === "异常" || invoice.categoryConfidence < 0.7);
-  const handleAutoMatch = useCallback(async () => {
+  const runAiMatch = useCallback(async () => {
+    setAiMatching(true);
     try {
       const result = await expenseService.autoMatchVouchers();
-      onDataChanged();
-      toast.success(`已自动关联 ${result.auto_linked} 张票据，${result.manual_review} 条进入人工确认`);
-    } catch (error) {
-      toast.error(formatServiceError(error));
+      if (result.links.length) {
+        applyMatchLinks(result.links);
+      } else {
+        runLocalMatch();
+      }
+      await reloadExpenseData();
+    } catch {
+      runLocalMatch();
+    } finally {
+      window.setTimeout(() => setAiMatching(false), 700);
     }
-  }, [onDataChanged]);
+  }, [applyMatchLinks, reloadExpenseData, runLocalMatch]);
 
-  return (
-    <section className="material-panel p-4">
-      <PanelTitle
-        icon={Link2}
-        title="凭证关联管理"
-        right={(
-          <div className="flex items-center gap-2">
-            <Button type="button" variant="outline" onClick={onOpenVoucherUpload}>
-              <UploadCloud className="h-4 w-4" />
-              上传付款凭证
-            </Button>
-            <Button type="button" onClick={handleAutoMatch}>
-              <Link2 className="h-4 w-4" />
-              批量自动关联
-            </Button>
-          </div>
-        )}
-      />
-      <Tabs defaultValue="pending">
-        <TabsList>
-          <TabsTrigger value="pending">待关联</TabsTrigger>
-          <TabsTrigger value="linked">已关联</TabsTrigger>
-          <TabsTrigger value="failed">关联失败</TabsTrigger>
-        </TabsList>
-        <TabsContent value="pending">
-          <MatchingTable
-            invoices={invoices.filter((item) => !item.voucherNo).slice(0, 12)}
-            emptyTitle={invoices.length ? "暂无待关联票据" : "还没有票据"}
-            emptyDetail={invoices.length ? "高置信度票据完成凭证匹配后，会从这里移出。" : "上传票据后才能进行付款凭证关联。"}
-            onOpenDrawer={onOpenDrawer}
-          />
-        </TabsContent>
-        <TabsContent value="linked">
-          <MatchingTable
-            invoices={invoices.filter((item) => item.voucherNo).slice(0, 12)}
-            emptyTitle="暂无已关联票据"
-            emptyDetail="完成自动或人工凭证关联后，会在这里显示关联结果。"
-            onOpenDrawer={onOpenDrawer}
-          />
-        </TabsContent>
-        <TabsContent value="failed">
-          <MatchingTable
-            invoices={failed.slice(0, 12)}
-            emptyTitle="暂无关联失败"
-            emptyDetail="金额、日期、项目或凭证信息不一致时，会进入失败列表。"
-            onOpenDrawer={onOpenDrawer}
-          />
-        </TabsContent>
-      </Tabs>
-    </section>
-  );
-}
+  const handleManualLink = useCallback(() => {
+    if (!selectedExpense || !selectedInvoice) {
+      window.alert('请先在左右两侧各选择一条待关联凭证');
+      return;
+    }
+    applyMatchLinks([{ invoice_id: selectedInvoice, voucher_id: selectedExpense }]);
+  }, [applyMatchLinks, selectedExpense, selectedInvoice]);
 
-function MatchingTable({
-  invoices,
-  emptyTitle,
-  emptyDetail,
-  onOpenDrawer,
-}: {
-  invoices: InvoiceRecord[];
-  emptyTitle: string;
-  emptyDetail: string;
-  onOpenDrawer: (invoice?: InvoiceRecord) => void;
-}) {
-  if (!invoices.length) {
-    return <EmptyState compact icon={Link2} title={emptyTitle} detail={emptyDetail} />;
-  }
+  const openReimbursementDialog = useCallback((items?: ExpenseVoucherView[]) => {
+    const sourceItems = items?.length ? items : expenseVouchers;
+    const targetItems = sourceItems.filter((voucher) => {
+      const invoice = findInvoiceForExpenseItem(voucher, invoiceVouchers);
+      return voucher.matched && !isSuccessfullyApprovedInvoice(invoice?.status ?? voucher.sourceInvoiceStatus);
+    });
+    setReimbursementDraftItems(targetItems);
+    setSelectedReimbursementItemIds(new Set(targetItems.map((item) => item.id)));
+    setReimbursementPage(1);
+    setReimbursementInspector(null);
+    setReimbursementKeyword('');
+    setReimbursementCategoryFilter('all');
+    setReimbursementSelectionFilter('all');
+    setReimbursementTitle(`${new Date().getMonth() + 1} 月费用报销申请`);
+    setReimbursementApplicant('当前用户');
+    setReimbursementReason(targetItems[0]?.category ? `${targetItems[0].category}费用报销` : '费用报销');
+    setReimbursementDialogOpen(true);
+  }, [expenseVouchers, invoiceVouchers]);
 
-  return (
-    <Table>
-      <TableHeader><TableRow><TableHead>发票号</TableHead><TableHead>金额</TableHead><TableHead>AI 推荐凭证</TableHead><TableHead>置信度</TableHead><TableHead>状态</TableHead><TableHead>操作</TableHead></TableRow></TableHeader>
-      <TableBody>
-        {invoices.map((invoice) => (
-          <TableRow key={invoice.id}>
-            <TableCell className="font-bold">{invoice.invoiceNo}</TableCell>
-            <TableCell>{formatCurrency(invoice.amount)}</TableCell>
-            <TableCell>{invoice.voucherNo ?? "等待 AI 推荐"}</TableCell>
-            <TableCell><ConfidenceTag value={invoice.matchConfidence ?? invoice.categoryConfidence} /></TableCell>
-            <TableCell><StatusBadge status={invoice.voucherNo ? "已关联" : invoice.status === "异常" ? "关联失败" : "待关联"} /></TableCell>
-            <TableCell><Button type="button" size="sm" variant="outline" onClick={() => onOpenDrawer(invoice)}>手动关联</Button></TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
-  );
-}
-
-function RulesPage({ rules, onOpenDrawer }: { rules: ExpenseRule[]; onOpenDrawer: (drawer: DrawerKind) => void }) {
-  return (
-    <section className="material-panel p-4">
-      <PanelTitle icon={Settings2} title="规则配置" right={<Button type="button" onClick={() => onOpenDrawer("rule-editor")}><Plus className="h-4 w-4" />新增规则</Button>} />
-      <Tabs defaultValue="category">
-        <TabsList>
-          <TabsTrigger value="category">分类规则</TabsTrigger>
-          <TabsTrigger value="threshold">AI 阈值</TabsTrigger>
-          <TabsTrigger value="approval">审批流</TabsTrigger>
-          <TabsTrigger value="materials">必备材料清单</TabsTrigger>
-        </TabsList>
-        <TabsContent value="category">
-          {rules.length ? (
-            <Table>
-              <TableHeader><TableRow><TableHead>规则名</TableHead><TableHead>关键词</TableHead><TableHead>匹配类型</TableHead><TableHead>目标类别</TableHead><TableHead>优先级</TableHead><TableHead>命中次数</TableHead><TableHead>启用</TableHead></TableRow></TableHeader>
-              <TableBody>
-                {rules.map((rule) => (
-                  <TableRow key={rule.id}>
-                    <TableCell className="font-bold">{rule.name}</TableCell>
-                    <TableCell>{rule.keywords}</TableCell>
-                    <TableCell>{rule.matchType}</TableCell>
-                    <TableCell><Badge variant="outline">{rule.targetCategory}</Badge></TableCell>
-                    <TableCell>{rule.priority}</TableCell>
-                    <TableCell>{rule.hits}</TableCell>
-                    <TableCell><Checkbox checked={rule.enabled} /></TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          ) : (
-            <EmptyState
-              compact
-              icon={Settings2}
-              title="暂无分类规则"
-              detail="没有规则时，票据仍可入库，但分类、材料校验和审批触发需要人工确认。"
-              action={<Button type="button" size="sm" onClick={() => onOpenDrawer("rule-editor")}><Plus className="h-4 w-4" />新增规则</Button>}
-            />
-          )}
-        </TabsContent>
-        <TabsContent value="threshold"><ThresholdCards /></TabsContent>
-        <TabsContent value="approval"><FlowConfig /></TabsContent>
-        <TabsContent value="materials"><MaterialRules /></TabsContent>
-      </Tabs>
-    </section>
-  );
-}
-
-const emptyOcrCatalog: ExpenseOcrServiceCatalog = {
-  default_mode: "auto",
-  invoice: [],
-  voucher: [],
-};
-
-function useExpenseOcrCatalog() {
-  const [catalog, setCatalog] = useState<ExpenseOcrServiceCatalog>(emptyOcrCatalog);
-
-  useEffect(() => {
-    let mounted = true;
-    expenseService
-      .getOcrServices()
-      .then((result) => {
-        if (mounted) setCatalog(result);
-      })
-      .catch((error) => {
-        console.warn("[expense] OCR service catalog unavailable", error);
-      });
-    return () => {
-      mounted = false;
-    };
+  const toggleReimbursementItem = useCallback((itemId: string) => {
+    setSelectedReimbursementItemIds((current) => {
+      const next = new Set(current);
+      if (next.has(itemId)) {
+        next.delete(itemId);
+      } else {
+        next.add(itemId);
+      }
+      return next;
+    });
   }, []);
 
-  return catalog;
-}
+  const toggleReimbursementCategory = useCallback((category: string) => {
+    const categoryItemIds = reimbursementDraftItems
+      .filter((item) => item.category === category)
+      .map((item) => item.id);
 
-function flattenOcrServices(catalog: ExpenseOcrServiceCatalog, kind: "invoice" | "voucher") {
-  return catalog[kind].flatMap((category) => category.services);
-}
+    setSelectedReimbursementItemIds((current) => {
+      const next = new Set(current);
+      const allSelected = categoryItemIds.every((id) => next.has(id));
+      categoryItemIds.forEach((id) => {
+        if (allSelected) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
+      });
+      return next;
+    });
+  }, [reimbursementDraftItems]);
 
-function buildOcrUploadOptions(
-  mode: "auto" | "manual",
-  manualServiceKey: string,
-): ExpenseOcrUploadOptions {
-  return mode === "manual"
-    ? { ocrMode: "manual", ocrServiceKey: manualServiceKey }
-    : { ocrMode: "auto" };
-}
+  const closeReimbursementDialog = useCallback(() => {
+    if (submittingReimbursement) return;
+    setReimbursementDialogOpen(false);
+  }, [submittingReimbursement]);
 
-function OcrServicePanel({
-  mode,
-  services,
-  manualServiceKey,
-  onModeChange,
-  onServiceChange,
-}: {
-  mode: "auto" | "manual";
-  services: ExpenseOcrService[];
-  manualServiceKey: string;
-  onModeChange: (mode: "auto" | "manual") => void;
-  onServiceChange: (serviceKey: string) => void;
-}) {
-  const selectedService = services.find((service) => service.key === manualServiceKey);
+  const createLocalApproval = useCallback((items: ExpenseVoucherView[], title = '费用报销申请', applicant = '当前用户') => {
+    const amount = items.reduce((sum, item) => sum + item.amount, 0);
+    const now = new Date();
+    const materials = buildApprovalMaterialsFromItems(items, invoiceVouchers);
+    const created: ApprovalView = {
+      id: `BX-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(approvals.length + 1).padStart(2, '0')}`,
+      title,
+      applicant,
+      department: '费用报销',
+      amount,
+      submitDate: now.toISOString().slice(0, 16).replace('T', ' '),
+      currentStep: 2,
+      totalSteps: 4,
+      status: 'pending',
+      items: items.length,
+      invoiceIds: materials.map((item) => item.invoiceId),
+      voucherIds: materials.map((item) => item.voucherId),
+      materials,
+      flow: [
+        { name: applicant, role: '申请人', status: 'done', time: now.toISOString().slice(0, 10) },
+        { name: '部门主管', role: '部门主管', status: 'current', time: '' },
+        { name: '财务审核', role: '财务审核', status: 'pending', time: '' },
+        { name: '出纳', role: '付款确认', status: 'pending', time: '' },
+      ],
+    };
+    setApprovals((current) => [created, ...current]);
+    setSelectedApproval(created);
+    setActiveTab('approval');
+  }, [approvals.length, invoiceVouchers]);
 
-  return (
-    <div className="rounded-[var(--m3-shape-large)] border border-slate-200 bg-white p-4">
-      <PanelTitle
-        icon={Search}
-        title="OCR 识别方式"
-        right={<Badge variant="outline" className="border-slate-200 bg-slate-50 text-slate-700">{mode === "auto" ? "默认自动识别" : "指定服务重识别"}</Badge>}
-      />
-      <div className="grid gap-2 sm:grid-cols-2">
-        {[
-          { key: "auto", title: "自动识别", detail: "上传后先由系统判断票据类型" },
-          { key: "manual", title: "手动指定", detail: "识别失败或类型不准时选择服务重试" },
-        ].map((item) => (
-          <button
-            key={item.key}
-            type="button"
-            className={cn(
-              "rounded border p-3 text-left transition-colors",
-              mode === item.key
-                ? "border-blue-200 bg-blue-50 text-blue-900"
-                : "border-slate-200 bg-slate-50 text-slate-700 hover:bg-white",
-            )}
-            onClick={() => onModeChange(item.key as "auto" | "manual")}
-          >
-            <span className="block text-sm font-bold">{item.title}</span>
-            <span className="mt-1 block text-xs text-slate-500">{item.detail}</span>
-          </button>
-        ))}
-      </div>
-      {mode === "manual" ? (
-        <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-          <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">选择腾讯 OCR 服务</span>
-            <Select value={manualServiceKey} onValueChange={onServiceChange}>
-              <SelectTrigger className="h-9 bg-white">
-                <SelectValue placeholder="请选择服务" />
-              </SelectTrigger>
-              <SelectContent>
-                {services.map((service) => (
-                  <SelectItem key={service.key} value={service.key}>
-                    {service.category_label} / {service.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </label>
-          {selectedService ? (
-            <Badge variant="outline" className="h-9 justify-center border-blue-100 bg-blue-50 px-3 text-blue-700">
-              {selectedService.action}
-            </Badge>
-          ) : null}
-        </div>
-      ) : null}
-      {selectedService && mode === "manual" ? (
-        <p className="mt-2 text-xs leading-5 text-slate-500">{selectedService.description}</p>
-      ) : null}
-    </div>
-  );
-}
-
-function UploadInvoiceDrawer({
-  onDirtyChange,
-  onDataChanged,
-}: {
-  onDirtyChange: (dirty: boolean) => void;
-  onDataChanged: () => void;
-}) {
-  const [processing, setProcessing] = useState(false);
-  const [ocrMode, setOcrMode] = useState<"auto" | "manual">("auto");
-  const [manualServiceKey, setManualServiceKey] = useState("");
-  const [lastFiles, setLastFiles] = useState<File[]>([]);
-  const [uploadedInvoices, setUploadedInvoices] = useState<InvoiceRecord[]>([]);
-  const catalog = useExpenseOcrCatalog();
-  const manualServices = useMemo(
-    () => flattenOcrServices(catalog, "invoice").filter((service) => service.mode === "manual"),
-    [catalog],
-  );
-
-  useEffect(() => {
-    if (manualServices.length > 0 && !manualServices.some((service) => service.key === manualServiceKey)) {
-      setManualServiceKey(manualServices[0].key);
-    }
-  }, [manualServiceKey, manualServices]);
-
-  const uploadFiles = useCallback(async (files: File[], options: ExpenseOcrUploadOptions) => {
-    setProcessing(true);
-    setLastFiles(files);
-    try {
-      const result = await expenseService.uploadInvoiceFiles(files, options);
-      setUploadedInvoices(result);
-      onDataChanged();
-      toast.success(`已上传 ${result.length} 张票据，OCR 结果已写入票夹`);
-    } catch (error) {
-      toast.error(formatServiceError(error));
-    } finally {
-      setProcessing(false);
-    }
-  }, [onDataChanged]);
-
-  const handleFilesSelected = useCallback((files: File[]) => {
-    void uploadFiles(files, buildOcrUploadOptions(ocrMode, manualServiceKey));
-  }, [manualServiceKey, ocrMode, uploadFiles]);
-
-  const retryWithManualService = useCallback(() => {
-    if (lastFiles.length === 0) {
-      toast.error("请先上传需要重识别的票据文件");
+  const handleConfirmCreateApproval = useCallback(async () => {
+    const targetItems = reimbursementDraftItems.filter((item) =>
+      selectedReimbursementItemIds.has(item.id)
+    );
+    const invoiceIds = Array.from(new Set(targetItems.map((item) => item.matchedTo).filter(Boolean) as string[]));
+    const voucherIds = Array.from(new Set(targetItems.map(getVoucherSubmitId).filter(Boolean)));
+    if (!targetItems.length || !invoiceIds.length) {
+      window.alert('请先选择要报销的已关联发票');
       return;
     }
-    if (!manualServiceKey) {
-      toast.error("请先选择腾讯 OCR 服务");
-      return;
-    }
-    setOcrMode("manual");
-    void uploadFiles(lastFiles, { ocrMode: "manual", ocrServiceKey: manualServiceKey });
-  }, [lastFiles, manualServiceKey, uploadFiles]);
+    const materials = buildApprovalMaterialsFromItems(targetItems, invoiceVouchers);
+    const title = reimbursementTitle.trim() || `${new Date().getMonth() + 1} 月费用报销申请`;
+    const applicant = reimbursementApplicant.trim() || '当前用户';
+    const reason = reimbursementReason.trim() || '费用报销';
 
-  const needsManualReview = uploadedInvoices.some((invoice) => invoice.manualReviewRequired);
-
-  return (
-    <div className="space-y-4">
-      <OcrServicePanel
-        mode={ocrMode}
-        services={manualServices}
-        manualServiceKey={manualServiceKey}
-        onModeChange={setOcrMode}
-        onServiceChange={setManualServiceKey}
-      />
-      <UploadDropzone
-        processing={processing}
-        description="支持 JPG / PNG / PDF，多张上传后默认自动判断票据类型"
-        processingLabel="OCR 正在识别票据类型与字段..."
-        onFilesSelected={handleFilesSelected}
-      />
-      <div className="rounded-[var(--m3-shape-large)] border border-slate-200 bg-slate-50 p-4">
-        <PanelTitle
-          icon={Search}
-          title="OCR 识别结果"
-          right={uploadedInvoices.length ? `${uploadedInvoices.length} 张已入库` : "等待上传"}
-        />
-        {uploadedInvoices.length ? (
-          <div className="space-y-2">
-            {uploadedInvoices.map((invoice) => (
-              <InvoiceOcrResult key={invoice.id} invoice={invoice} />
-            ))}
-          </div>
-        ) : (
-          <EmptyState
-            compact
-            icon={UploadCloud}
-            title="还没有上传票据"
-            detail="上传后先自动识别类型；识别失败或类型不准时，再切换为手动指定服务重试。"
-          />
-        )}
-        {needsManualReview ? (
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded border border-amber-100 bg-amber-50 px-3 py-2">
-            <span className="text-xs font-medium text-amber-800">存在低置信度或异常票据，可选择服务后用同一批文件重识别。</span>
-            <Button type="button" size="sm" variant="outline" onClick={retryWithManualService} disabled={processing}>
-              指定服务重识别
-            </Button>
-          </div>
-        ) : null}
-      </div>
-      <Button type="button" variant="outline" onClick={() => onDirtyChange(true)}>编辑识别字段</Button>
-    </div>
-  );
-}
-
-function UploadVoucherDrawer({
-  onDirtyChange,
-  onDataChanged,
-}: {
-  onDirtyChange: (dirty: boolean) => void;
-  onDataChanged: () => void;
-}) {
-  const [processing, setProcessing] = useState(false);
-  const [ocrMode, setOcrMode] = useState<"auto" | "manual">("auto");
-  const [manualServiceKey, setManualServiceKey] = useState("");
-  const [lastFiles, setLastFiles] = useState<File[]>([]);
-  const [uploadedVouchers, setUploadedVouchers] = useState<VoucherUploadRecord[]>([]);
-  const catalog = useExpenseOcrCatalog();
-  const manualServices = useMemo(
-    () => flattenOcrServices(catalog, "voucher").filter((service) => service.mode === "manual"),
-    [catalog],
-  );
-
-  useEffect(() => {
-    if (manualServices.length > 0 && !manualServices.some((service) => service.key === manualServiceKey)) {
-      setManualServiceKey(manualServices[0].key);
-    }
-  }, [manualServiceKey, manualServices]);
-
-  const uploadFiles = useCallback(async (files: File[], options: ExpenseOcrUploadOptions) => {
-    setProcessing(true);
-    setLastFiles(files);
-    try {
-      const result = await expenseService.uploadVoucherFiles(files, options);
-      setUploadedVouchers(result);
-      onDataChanged();
-      toast.success(`已上传 ${result.length} 张付款凭证，OCR 结果已入库`);
-    } catch (error) {
-      toast.error(formatServiceError(error));
-    } finally {
-      setProcessing(false);
-    }
-  }, [onDataChanged]);
-
-  const handleFilesSelected = useCallback((files: File[]) => {
-    void uploadFiles(files, buildOcrUploadOptions(ocrMode, manualServiceKey));
-  }, [manualServiceKey, ocrMode, uploadFiles]);
-
-  const retryWithManualService = useCallback(() => {
-    if (lastFiles.length === 0) {
-      toast.error("请先上传需要重识别的付款凭证");
-      return;
-    }
-    if (!manualServiceKey) {
-      toast.error("请先选择腾讯 OCR 服务");
-      return;
-    }
-    setOcrMode("manual");
-    void uploadFiles(lastFiles, { ocrMode: "manual", ocrServiceKey: manualServiceKey });
-  }, [lastFiles, manualServiceKey, uploadFiles]);
-
-  const needsManualReview = uploadedVouchers.some((voucher) => voucher.manualReviewRequired);
-
-  return (
-    <div className="space-y-4">
-      <OcrServicePanel
-        mode={ocrMode}
-        services={manualServices}
-        manualServiceKey={manualServiceKey}
-        onModeChange={setOcrMode}
-        onServiceChange={setManualServiceKey}
-      />
-      <UploadDropzone
-        processing={processing}
-        title="拖拽或点击上传付款凭证"
-        description="支持银行回单、付款截图、PDF / JPG / PNG，多张上传后自动提取金额、付款日期和流水号"
-        accept=".jpg,.jpeg,.png,.pdf"
-        processingLabel="OCR 正在提取凭证字段并准备关联票据..."
-        onFilesSelected={handleFilesSelected}
-      />
-      <div className="rounded-[var(--m3-shape-large)] border border-blue-100 bg-blue-50/60 p-4">
-        <PanelTitle icon={Link2} title="凭证入库与关联规则" right={<Badge variant="outline" className="border-blue-100 bg-white text-blue-700">自动匹配</Badge>} />
-        <div className="grid gap-3 text-sm sm:grid-cols-4">
-          <Info label="识别字段" value="流水号 / 金额 / 日期 / 付款方" />
-          <Info label="匹配条件" value="金额 + 项目 + 日期窗口" />
-          <Info label="低置信度处理" value="进入人工关联池" />
-          <Info label="关联结果" value="写回票夹与报销单" />
-        </div>
-      </div>
-      <div className="rounded-[var(--m3-shape-large)] border border-slate-200 bg-slate-50 p-4">
-        <PanelTitle icon={Search} title="本次识别结果" right={uploadedVouchers.length ? `${uploadedVouchers.length} 张已入库` : "等待上传"} />
-        {uploadedVouchers.length ? (
-          <div className="space-y-2">
-            {uploadedVouchers.map((voucher) => (
-              <VoucherOcrResult key={voucher.id} voucher={voucher} />
-            ))}
-          </div>
-        ) : (
-          <EmptyState
-            compact
-            icon={UploadCloud}
-            title="还没有上传付款凭证"
-            detail="凭证支持多张批量上传；识别失败时可切换为手动指定腾讯 OCR 服务后重试。"
-          />
-        )}
-        {needsManualReview ? (
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded border border-amber-100 bg-amber-50 px-3 py-2">
-            <span className="text-xs font-medium text-amber-800">存在低置信度或异常凭证，可选择服务后用同一批文件重识别。</span>
-            <Button type="button" size="sm" variant="outline" onClick={retryWithManualService} disabled={processing}>
-              指定服务重识别
-            </Button>
-          </div>
-        ) : null}
-      </div>
-      <Button type="button" variant="outline" onClick={() => onDirtyChange(true)}>编辑凭证识别字段</Button>
-    </div>
-  );
-}
-
-function InvoiceOcrResult({ invoice }: { invoice: InvoiceRecord }) {
-  return (
-    <div className="rounded border border-slate-200 bg-white p-3">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-bold text-slate-900">{invoice.vendor || invoice.invoiceNo}</div>
-          <div className="mt-1 text-xs text-slate-500">
-            {invoice.detectedType ?? "待判断类型"} / {invoice.ocrServiceLabel ?? "自动识别"} / {invoice.ocrAction ?? "-"}
-          </div>
-        </div>
-        <StatusBadge status={invoice.status} />
-      </div>
-      <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-4">
-        <Info label="票据号" value={invoice.invoiceNo} />
-        <Info label="金额" value={formatCurrency(invoice.amount)} />
-        <Info label="置信度" value={`${Math.round((invoice.detectedTypeConfidence ?? invoice.categoryConfidence ?? 0) * 100)}%`} />
-        <Info label="RequestId" value={invoice.ocrRequestId ?? "-"} />
-      </div>
-      {invoice.thirdPartyErrors?.length ? <OcrErrorList errors={invoice.thirdPartyErrors} /> : null}
-    </div>
-  );
-}
-
-function VoucherOcrResult({ voucher }: { voucher: VoucherUploadRecord }) {
-  return (
-    <div className="rounded border border-slate-200 bg-white p-3">
-      <div className="flex flex-wrap items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="truncate text-sm font-bold text-slate-900">{voucher.fileName || voucher.voucherNo}</div>
-          <div className="mt-1 text-xs text-slate-500">
-            {voucher.detectedType ?? voucher.subject} / {voucher.ocrServiceLabel ?? "自动识别"} / {voucher.ocrAction ?? "-"}
-          </div>
-        </div>
-        <StatusBadge status={voucher.status} />
-      </div>
-      <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-4">
-        <Info label="凭证号" value={voucher.voucherNo} />
-        <Info label="金额" value={formatCurrency(voucher.amount)} />
-        <Info label="置信度" value={`${Math.round((voucher.confidence ?? 0) * 100)}%`} />
-        <Info label="关联票据" value={voucher.matchedInvoiceId ?? "待匹配"} />
-      </div>
-      {voucher.matchReasons?.length ? (
-        <div className="mt-2 rounded border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-700">
-          {voucher.matchReasons.join("；")}
-        </div>
-      ) : null}
-      {voucher.reason ? <p className="mt-2 text-xs leading-5 text-slate-500">{voucher.reason}</p> : null}
-      {voucher.thirdPartyErrors?.length ? <OcrErrorList errors={voucher.thirdPartyErrors} /> : null}
-    </div>
-  );
-}
-
-function OcrErrorList({
-  errors,
-}: {
-  errors: Array<{ code: string | number; message: string; request_id?: string; action?: string }>;
-}) {
-  return (
-    <div className="mt-3 space-y-1 rounded border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700">
-      {errors.map((error) => (
-        <div key={`${error.code}-${error.request_id ?? error.action ?? ""}`}>
-          {error.action ? `${error.action} / ` : ""}{error.code}: {error.message}
-          {error.request_id ? ` / RequestId ${error.request_id}` : ""}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function InvoiceDetailDrawer({ invoice, onDirtyChange, onLink }: { invoice: InvoiceRecord; onDirtyChange: (dirty: boolean) => void; onLink: () => void }) {
-  const fields = [
-    ["发票号", invoice.invoiceNo],
-    ["发票代码", invoice.invoiceCode],
-    ["开票日期", invoice.issuedDate],
-    ["销售方", invoice.vendor],
-    ["税号", invoice.vendorTaxNo],
-    ["金额", formatCurrency(invoice.amount)],
-    ["税额", formatCurrency(invoice.tax)],
-    ["类别", invoice.category],
-    ["项目", invoice.project],
-  ];
-  return (
-    <div className="grid grid-cols-2 gap-4">
-      <div className="rounded-[var(--m3-shape-large)] border border-slate-200 bg-slate-50 p-4">
-        <PanelTitle icon={FileText} title="票据原图" />
-        <div className="flex h-[440px] items-center justify-center rounded-[var(--m3-shape-large)] border border-dashed border-slate-300 bg-white">
-          <InvoiceThumbnail invoice={invoice} className="scale-[2.2]" />
-        </div>
-        <div className="mt-3 flex gap-2"><Button variant="outline" size="sm">缩放</Button><Button variant="outline" size="sm">旋转</Button><Button variant="outline" size="sm">全屏</Button></div>
-      </div>
-      <div className="space-y-4">
-        <div className="rounded-[var(--m3-shape-large)] border border-slate-200 bg-white p-4">
-          <PanelTitle icon={ListFilter} title="字段表单" right={<ConfidenceTag value={invoice.categoryConfidence} />} />
-          <div className="grid grid-cols-2 gap-3">
-            {fields.map(([label, value]) => (
-              <label key={label} className="block">
-                <span className="mb-1 block text-xs font-medium text-slate-500">{label}</span>
-                <Input defaultValue={value} onChange={() => onDirtyChange(true)} className="h-9" />
-              </label>
-            ))}
-          </div>
-          <Button type="button" variant="outline" size="sm" className="mt-3" onClick={() => toast.success("已恢复 AI 原值")}>恢复 AI 原值</Button>
-        </div>
-        <div className="rounded-[var(--m3-shape-large)] border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
-          <div className="mb-1 font-bold">AI 智能建议</div>
-          <div className="text-xs leading-5">{invoice.aiInsight}</div>
-        </div>
-        <div className="rounded-[var(--m3-shape-large)] border border-slate-200 bg-slate-50 p-4">
-          <PanelTitle icon={ClockIcon} title="操作历史" />
-          <div className="space-y-2 text-xs text-slate-600">
-            <div>09:42 AI 完成 OCR 字段提取</div>
-            <div>09:43 系统按规则归入 {invoice.category}</div>
-            <div>09:45 材料清单校验完成</div>
-          </div>
-        </div>
-        <div className="flex gap-2">
-          <Button type="button" onClick={onLink}>关联凭证</Button>
-          <Button type="button" variant="outline" onClick={() => toast.success("票据已保存")}>保存</Button>
-          <Button type="button" variant="outline" onClick={() => toast.success("已生成删除确认任务")}>删除</Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function BatchClassifyDrawer({ invoices, onDirtyChange }: { invoices: InvoiceRecord[]; onDirtyChange: (dirty: boolean) => void }) {
-  return (
-    <div className="grid grid-cols-[330px_minmax(0,1fr)] gap-4">
-      <div className="rounded-[var(--m3-shape-large)] border border-slate-200 bg-slate-50 p-4">
-        <PanelTitle icon={FolderOpen} title={`已勾选票据 ${invoices.length} 张`} />
-        <div className="material-scrollbar max-h-[560px] space-y-2 overflow-y-auto">
-          {invoices.map((invoice) => (
-            <div key={invoice.id} className="flex items-center gap-2 rounded border border-slate-200 bg-white p-2">
-              <InvoiceThumbnail invoice={invoice} />
-              <div className="min-w-0"><div className="truncate text-sm font-bold">{invoice.vendor}</div><div className="text-xs text-slate-500">{formatCurrency(invoice.amount)}</div></div>
-            </div>
-          ))}
-        </div>
-      </div>
-      <div className="space-y-4">
-        <div className="rounded-[var(--m3-shape-large)] border border-slate-200 bg-white p-4">
-          <PanelTitle icon={Settings2} title="统一设置" />
-          <div className="grid grid-cols-2 gap-3">
-            <Select defaultValue="差旅" onValueChange={() => onDirtyChange(true)}>
-              <SelectTrigger className="material-input h-9">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {["差旅", "采购", "餐饮", "办公", "其他"].map((item) => (
-                  <SelectItem key={item} value={item}>{item}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <Input placeholder="关联项目" onChange={() => onDirtyChange(true)} />
-          </div>
-          <Textarea className="mt-3" placeholder="备注" onChange={() => onDirtyChange(true)} />
-        </div>
-        <div className="rounded-[var(--m3-shape-large)] border border-blue-100 bg-blue-50 p-4">
-          <PanelTitle icon={ShieldCheck} title="AI 建议方案" />
-          <div className="grid grid-cols-2 gap-3">
-            <SuggestionCard title="展会差旅组" detail="4 张票据，建议归入差旅 / MEDICA 项目" confidence={0.94} />
-            <SuggestionCard title="采购配件组" detail="3 张票据，建议归入采购 / 样机阀门配件" confidence={0.88} />
-          </div>
-        </div>
-        <Button type="button" onClick={() => toast.success(`已应用到 ${invoices.length} 张票据`)}>应用到 {invoices.length} 张</Button>
-      </div>
-    </div>
-  );
-}
-
-function LinkVoucherDrawer({
-  invoice,
-  candidates,
-  onDataChanged,
-}: {
-  invoice: InvoiceRecord;
-  candidates: VoucherCandidate[];
-  onDataChanged: () => void;
-}) {
-  const [selectedVoucherId, setSelectedVoucherId] = useState(candidates[0]?.id ?? "");
-  const [linking, setLinking] = useState(false);
-
-  useEffect(() => {
-    setSelectedVoucherId(candidates[0]?.id ?? "");
-  }, [candidates]);
-
-  const confirmManualLink = useCallback(async () => {
-    if (!selectedVoucherId) {
-      toast.error("请先选择付款凭证");
-      return;
-    }
-    setLinking(true);
-    try {
-      await expenseService.linkVoucher(invoice.id, selectedVoucherId);
-      onDataChanged();
-      toast.success("人工关联已确认并写入票夹");
-    } catch (error) {
-      toast.error(formatServiceError(error));
-    } finally {
-      setLinking(false);
-    }
-  }, [invoice.id, onDataChanged, selectedVoucherId]);
-
-  return (
-    <div className="space-y-4">
-      <div className="rounded-[var(--m3-shape-large)] border border-slate-200 bg-slate-50 p-4">
-        <PanelTitle icon={ReceiptIcon} title="当前票据" right={<StatusBadge status={invoice.status} />} />
-        <div className="grid grid-cols-4 gap-3 text-sm"><Info label="发票号" value={invoice.invoiceNo} /><Info label="金额" value={formatCurrency(invoice.amount)} /><Info label="日期" value={invoice.issuedDate} /><Info label="项目" value={invoice.project} /></div>
-      </div>
-      <div className="rounded-[var(--m3-shape-large)] border border-slate-200 bg-white p-4">
-        <PanelTitle icon={Link2} title="AI 推荐候选凭证 Top 3" />
-        <div className="space-y-2">
-          {candidates.map((candidate, index) => (
-            <motion.button
-              key={candidate.id}
-              type="button"
-              initial={{ opacity: 0, x: 12 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: index * 0.04 }}
-              whileHover={{ x: 3 }}
-              onClick={() => setSelectedVoucherId(candidate.id)}
-              className={cn(
-                "w-full cursor-pointer rounded-[var(--m3-shape-medium)] border bg-slate-50 p-3 text-left transition-colors hover:border-blue-300 hover:bg-blue-50",
-                selectedVoucherId === candidate.id ? "border-blue-300 bg-blue-50" : "border-slate-200",
-              )}
-            >
-              <div className="mb-2 flex items-center justify-between"><span className="font-bold text-slate-900">{candidate.voucherNo}</span><ConfidenceTag value={candidate.confidence} /></div>
-              <div className="grid grid-cols-3 gap-3 text-xs text-slate-600"><span>{formatCurrency(candidate.amount)}</span><span>{candidate.date}</span><span>{candidate.subject}</span></div>
-              <div className="mt-2 text-xs text-slate-500">{candidate.reason}</div>
-            </motion.button>
-          ))}
-        </div>
-      </div>
-
-      <div className="manual-link-panel rounded-[var(--m3-shape-large)] border p-4">
-        <PanelTitle
-          icon={Search}
-          title="人工关联工作台"
-          right={<Badge variant="outline" className="border-blue-100 bg-white/80 text-blue-700">手动优先模式</Badge>}
-        />
-        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-2">
-          <Input placeholder="手动搜索凭证号 / 金额 / 日期 / 项目" className="bg-white/90" />
-          <Button type="button" variant="outline"><Search className="h-4 w-4" />搜索凭证</Button>
-          <Button type="button" onClick={() => toast.success("已进入人工指定关联流程")}><Link2 className="h-4 w-4" />人工指定</Button>
-        </div>
-        <div className="mt-3 grid grid-cols-3 gap-3">
-          {(candidates.length ? candidates : []).map((candidate) => (
-            <button
-              key={`manual-${candidate.id}`}
-              type="button"
-              onClick={() => setSelectedVoucherId(candidate.id)}
-              className={cn(
-                "cursor-pointer rounded-[var(--m3-shape-medium)] border bg-white/88 p-3 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-[0_14px_30px_rgba(30,64,175,0.12)]",
-                selectedVoucherId === candidate.id ? "border-blue-300 ring-2 ring-blue-100" : "border-blue-100",
-              )}
-            >
-              <div className="mb-1 flex items-center justify-between gap-2">
-                <span className="truncate text-sm font-bold text-slate-900">{candidate.voucherNo}</span>
-                <span className="text-xs font-bold text-blue-700">{Math.round(candidate.confidence * 100)}%</span>
-              </div>
-              <div className="text-xs text-slate-500">{candidate.project}</div>
-              <div className="mt-2 text-sm font-bold text-slate-950">{formatCurrency(candidate.amount)}</div>
-            </button>
-          ))}
-        </div>
-        <div className="mt-3 flex items-center justify-between rounded-[var(--m3-shape-medium)] border border-blue-100 bg-white/70 px-3 py-2 text-xs text-blue-900">
-          <span>人工关联会保留操作者、选择理由和原 AI 推荐结果，方便财务复核追溯。</span>
-          <Button type="button" size="sm" onClick={confirmManualLink} disabled={linking || !selectedVoucherId}>确认人工关联</Button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function NewReimbursementDrawer({
-  invoices,
-  onDirtyChange,
-  onDataChanged,
-}: {
-  invoices: InvoiceRecord[];
-  onDirtyChange: (dirty: boolean) => void;
-  onDataChanged: () => void;
-}) {
-  const selectedInvoices = invoices.slice(0, 3);
-  const total = selectedInvoices.reduce((sum, invoice) => sum + invoice.amount, 0);
-  const [title, setTitle] = useState("5 月费用报销申请");
-  const [project, setProject] = useState(selectedInvoices[0]?.project ?? "");
-  const [reason, setReason] = useState("费用报销");
-  const [submitting, setSubmitting] = useState(false);
-
-  const submitToWeCom = useCallback(async () => {
-    setSubmitting(true);
+    setSubmittingReimbursement(true);
     try {
       const reimbursement = await expenseService.createReimbursement({
         title,
-        project,
+        applicant,
+        project: targetItems[0]?.category ?? '费用报销',
         reason,
-        invoice_ids: selectedInvoices.map((invoice) => invoice.id),
+        invoice_ids: invoiceIds,
+        voucher_ids: voucherIds,
       });
-      await expenseService.submitWeComApproval(reimbursement.id);
-      onDataChanged();
-      toast.success("已提交企业微信报销审批");
-    } catch (error) {
-      toast.error(formatServiceError(error));
+      let next = reimbursement;
+      try {
+        next = await expenseService.submitWeComApproval(reimbursement.id);
+      } catch {
+        // 企微未配置时，保留已创建的报销单并在页面中展示草稿/待提交状态。
+      }
+      const approval = reimbursementToApproval(next, materials);
+      setApprovals((current) => mergeById([approval, ...current], [approval]));
+      setSelectedApproval(approval);
+      setActiveTab('approval');
+      setReimbursementDialogOpen(false);
+      await reloadExpenseData();
+    } catch {
+      createLocalApproval(targetItems, title, applicant);
+      setReimbursementDialogOpen(false);
     } finally {
-      setSubmitting(false);
+      setSubmittingReimbursement(false);
     }
-  }, [onDataChanged, project, reason, selectedInvoices, title]);
+  }, [createLocalApproval, invoiceVouchers, reimbursementApplicant, reimbursementDraftItems, reimbursementReason, reimbursementTitle, reloadExpenseData, selectedReimbursementItemIds]);
 
-  return (
-    <div className="space-y-4">
-      <div className="rounded-[var(--m3-shape-large)] border border-slate-200 bg-white p-4">
-        <PanelTitle icon={FileCheck2} title="基本信息" />
-        <div className="grid grid-cols-2 gap-3">
-          <Input value={title} onChange={(event) => { setTitle(event.target.value); onDirtyChange(true); }} />
-          <Input defaultValue="2026-05-12" type="date" onChange={() => onDirtyChange(true)} />
-          <Input value={project} placeholder="关联项目" onChange={(event) => { setProject(event.target.value); onDirtyChange(true); }} />
-          <Input value={reason} placeholder="报销事由" onChange={(event) => { setReason(event.target.value); onDirtyChange(true); }} />
-        </div>
-      </div>
-      <div className="rounded-[var(--m3-shape-large)] border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-emerald-50 p-4 shadow-[0_18px_45px_rgba(37,99,235,0.10)]">
-        <PanelTitle icon={Send} title="企业微信审批提交" right={<StatusBadge status="未提交" />} />
-        <div className="grid grid-cols-4 gap-3 text-sm">
-          <Info label="审批模板" value="费用报销审批" />
-          <Info label="发起方式" value="确认后创建企微审批单" />
-          <Info label="审批节点" value="部门负责人 → 财务复核 → 出纳付款" />
-          <Info label="状态回写" value="企微回调自动同步" />
-        </div>
-        <div className="mt-3 flex items-center justify-between rounded-[var(--m3-shape-medium)] border border-blue-100 bg-white/70 px-3 py-2 text-xs text-blue-900">
-          <span>提交后系统生成 WeCom Approval ID，并把审批通过、驳回、付款节点回写到报销单。</span>
-          <Button type="button" size="sm" variant="outline" onClick={() => {
-            expenseService.getIntegrationRequirements()
-              .then((requirements) => {
-                const missing = [...requirements.wecom.missing, ...requirements.tencent_ocr.missing];
-                if (missing.length) toast.warning(`缺少配置：${missing.map((item) => item.label).join("、")}`);
-                else toast.success("企业微信与腾讯 OCR 配置已完整");
-              })
-              .catch((error) => toast.error(formatServiceError(error)));
-          }}>校验企微配置</Button>
-        </div>
-        <Button type="button" className="mt-3" disabled={submitting || selectedInvoices.length === 0} onClick={submitToWeCom}>
-          <Send className="h-4 w-4" />
-          {submitting ? "正在提交..." : "创建并提交企微审批"}
-        </Button>
-      </div>
-      <div className="rounded-[var(--m3-shape-large)] border border-slate-200 bg-slate-50 p-4">
-        <PanelTitle icon={FolderOpen} title="从票夹中选取票据" right={`自动汇总 ${formatCurrency(total)}`} />
-        <InvoiceTableMini invoices={invoices} />
-      </div>
-    </div>
-  );
-}
-
-function ReimbursementDetailDrawer({
-  reimbursements,
-  onDataChanged,
-}: {
-  reimbursements: ReimbursementRecord[];
-  onDataChanged: () => void;
-}) {
-  const current = reimbursements[0];
-  const [syncing, setSyncing] = useState(false);
-
-  const syncWeCom = useCallback(async () => {
-    if (!current) return;
-    setSyncing(true);
+  const handleSyncSelectedApproval = useCallback(async () => {
+    if (!selectedApproval) return;
     try {
-      await expenseService.syncWeComApproval(current.id);
-      onDataChanged();
-      toast.success("已拉取企业微信最新审批状态");
+      const reimbursement = await expenseService.syncWeComApproval(selectedApproval.id);
+      const approval = reimbursementToApproval(
+        reimbursement,
+        buildApprovalMaterialsFromIds(
+          reimbursement.invoiceIds,
+          reimbursement.voucherIds,
+          expenseVouchers,
+          invoiceVouchers
+        )
+      );
+      setApprovals((current) => mergeById(current, [approval]));
+      setSelectedApproval(approval);
     } catch (error) {
-      toast.error(formatServiceError(error));
-    } finally {
-      setSyncing(false);
+      window.alert(`同步审批状态失败：${toErrorMessage(error)}`);
     }
-  }, [current, onDataChanged]);
+  }, [expenseVouchers, invoiceVouchers, selectedApproval]);
 
-  return (
-    <div className="space-y-4">
-      <div className="rounded-[var(--m3-shape-large)] border border-slate-200 bg-slate-50 p-4">
-        <PanelTitle icon={FileCheck2} title={current?.title ?? "报销单详情"} right={current ? <StatusBadge status={current.status} /> : null} />
-        <div className="grid grid-cols-4 gap-3 text-sm"><Info label="申请人" value={current?.applicant ?? "-"} /><Info label="申请日期" value={current?.appliedDate ?? "-"} /><Info label="总金额" value={formatCurrency(current?.amount ?? 0)} /><Info label="当前节点" value={current?.node ?? "-"} /></div>
-      </div>
-      {current ? (
-        <div className="rounded-[var(--m3-shape-large)] border border-blue-100 bg-gradient-to-br from-blue-50 via-white to-cyan-50 p-4">
-          <PanelTitle icon={Send} title="企业微信审批流" right={<StatusBadge status={current.weComSyncStatus} />} />
-          <div className="grid grid-cols-4 gap-3 text-sm">
-            <Info label="企微审批 ID" value={current.weComFlowId} />
-            <Info label="当前处理人" value={current.weComApprover} />
-            <Info label="最近回写" value={current.weComUpdatedAt} />
-            <Info label="回调路径" value={`/expense/reimbursements/${current.id}/wecom/callback`} />
-          </div>
-          <div className="mt-3 flex gap-2">
-            <Button type="button" size="sm" disabled={syncing} onClick={syncWeCom}><RefreshCw className="h-4 w-4" />{syncing ? "同步中..." : "同步企微状态"}</Button>
-            <Button type="button" size="sm" variant="outline" onClick={() => toast.success("已打开企业微信审批单预览")}>打开企微审批</Button>
-            <Button type="button" size="sm" variant="outline" onClick={() => toast.success("已重新推送企业微信审批流")}>重新推送</Button>
-          </div>
-        </div>
-      ) : null}
-      <FlowConfig />
-      <div className="flex gap-2"><Button>通过</Button><Button variant="outline">驳回</Button><Button variant="outline">转他人</Button></div>
-    </div>
-  );
-}
-
-function MatchingDetailDrawer({ invoice, candidates }: { invoice: InvoiceRecord; candidates: VoucherCandidate[] }) {
-  const candidate = candidates[0];
-  return (
-    <div className="grid grid-cols-[1fr_180px_1fr] gap-4">
-      <ComparePane title="发票详情" rows={[["发票号", invoice.invoiceNo], ["金额", formatCurrency(invoice.amount)], ["日期", invoice.issuedDate], ["项目", invoice.project]]} />
-      <div className="rounded-[var(--m3-shape-large)] border border-blue-100 bg-blue-50 p-4 text-center">
-        <Link2 className="mx-auto mb-3 h-6 w-6 text-blue-700" />
-        <div className="text-sm font-bold text-blue-900">匹配维度</div>
-        <div className="mt-3 space-y-2 text-xs text-blue-800"><div>金额一致</div><div>日期相差 1 天</div><div>项目匹配</div><div>科目匹配</div></div>
-      </div>
-      <ComparePane title="凭证详情" rows={[["凭证号", candidate?.voucherNo ?? "-"], ["金额", formatCurrency(candidate?.amount ?? 0)], ["日期", candidate?.date ?? "-"], ["科目", candidate?.subject ?? "-"]]} />
-    </div>
-  );
-}
-
-function PushSettingsDrawer({ onDirtyChange }: { onDirtyChange: (dirty: boolean) => void }) {
-  const [missingConfig, setMissingConfig] = useState<string[]>([]);
-
-  useEffect(() => {
-    let cancelled = false;
-    expenseService.getIntegrationRequirements()
-      .then((requirements) => {
-        if (cancelled) return;
-        setMissingConfig([...requirements.wecom.missing, ...requirements.tencent_ocr.missing].map((item) => item.label));
-      })
-      .catch((error) => {
-        if (!cancelled) toast.error(formatServiceError(error));
-      });
-    return () => {
-      cancelled = true;
+  const getItemsForNode = (nodeId: string) => {
+    const matchedItems = expenseVouchers.filter((v) => v.matched);
+    if (nodeId === 'all') return matchedItems;
+    // Find node in tree
+    const findNode = (nodes: TreeNode[], id: string): TreeNode | null => {
+      for (const n of nodes) {
+        if (n.id === id) return n;
+        if (n.children) {
+          const found = findNode(n.children, id);
+          if (found) return found;
+        }
+      }
+      return null;
     };
+    const node = findNode(ARCHIVE_TREE, nodeId);
+    if (!node) return [];
+    // Top-level category (no vendorFilter, has children) -> map by category name
+    if (node.children && node.children.length > 0) {
+      return matchedItems.filter((v) => v.category === node.name);
+    }
+    // Leaf node with vendorFilter
+    if (node.vendorFilter && node.vendorFilter.length > 0) {
+      return matchedItems.filter((v) =>
+      node.vendorFilter!.some((k) => v.vendor.includes(k))
+      );
+    }
+    // Empty leaf
+    return [];
+  };
+  const toggleArchiveExpanded = (id: string) => {
+    setArchiveExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);else
+      next.add(id);
+      return next;
+    });
+  };
+  const selectedReimbursementItems = useMemo(
+    () => reimbursementDraftItems.filter((item) => selectedReimbursementItemIds.has(item.id)),
+    [reimbursementDraftItems, selectedReimbursementItemIds]
+  );
+  const reimbursementDraftGroups = useMemo(() => {
+    const groups = new Map<string, ExpenseVoucherView[]>();
+    reimbursementDraftItems.forEach((item) => {
+      const category = item.category || '其他';
+      const items = groups.get(category) ?? [];
+      items.push(item);
+      groups.set(category, items);
+    });
+    return Array.from(groups.entries()).map(([category, items]) => {
+      const selectedItems = items.filter((item) => selectedReimbursementItemIds.has(item.id));
+      return {
+        category,
+        items,
+        selectedAmount: selectedItems.reduce((sum, item) => sum + item.amount, 0),
+        selectedCount: selectedItems.length,
+      };
+    });
+  }, [reimbursementDraftItems, selectedReimbursementItemIds]);
+  const reimbursementCategoryOptions = useMemo(
+    () => Array.from(new Set(reimbursementDraftItems.map((item) => item.category || '其他'))),
+    [reimbursementDraftItems]
+  );
+  const filteredReimbursementItems = useMemo(() => {
+    const keyword = reimbursementKeyword.trim().toLowerCase();
+    return reimbursementDraftItems.filter((item) => {
+      const invoice = findInvoiceForExpenseItem(item, invoiceVouchers);
+      const selected = selectedReimbursementItemIds.has(item.id);
+      const categoryMatched =
+        reimbursementCategoryFilter === 'all' || item.category === reimbursementCategoryFilter;
+      const selectionMatched =
+        reimbursementSelectionFilter === 'all' ||
+        (reimbursementSelectionFilter === 'selected' && selected) ||
+        (reimbursementSelectionFilter === 'unselected' && !selected);
+      const keywordMatched = !keyword || [
+        item.id,
+        item.vendor,
+        item.category,
+        item.type,
+        item.date,
+        item.matchedTo,
+        item.sourceVoucherId,
+        invoice?.issuer,
+        invoice?.invoiceNumber,
+        invoice?.type,
+        invoice?.date,
+      ].filter(Boolean).join(' ').toLowerCase().includes(keyword);
+      return categoryMatched && selectionMatched && keywordMatched;
+    });
+  }, [
+    invoiceVouchers,
+    reimbursementCategoryFilter,
+    reimbursementDraftItems,
+    reimbursementKeyword,
+    reimbursementSelectionFilter,
+    selectedReimbursementItemIds,
+  ]);
+  const selectFilteredReimbursementItems = useCallback(() => {
+    setSelectedReimbursementItemIds((current) => {
+      const next = new Set(current);
+      filteredReimbursementItems.forEach((item) => next.add(item.id));
+      return next;
+    });
+  }, [filteredReimbursementItems]);
+  const clearFilteredReimbursementItems = useCallback(() => {
+    setSelectedReimbursementItemIds((current) => {
+      const next = new Set(current);
+      filteredReimbursementItems.forEach((item) => next.delete(item.id));
+      return next;
+    });
+  }, [filteredReimbursementItems]);
+  const resetReimbursementFilters = useCallback(() => {
+    setReimbursementKeyword('');
+    setReimbursementCategoryFilter('all');
+    setReimbursementSelectionFilter('all');
+    setReimbursementPage(1);
+    setReimbursementInspector(null);
+  }, []);
+  const reimbursementFilterActive =
+    reimbursementKeyword.trim() || reimbursementCategoryFilter !== 'all' || reimbursementSelectionFilter !== 'all';
+  const reimbursementTotalPages = Math.max(1, Math.ceil(filteredReimbursementItems.length / REIMBURSEMENT_PAGE_SIZE));
+  const reimbursementCurrentPage = Math.min(reimbursementPage, reimbursementTotalPages);
+  const pagedReimbursementItems = useMemo(() => {
+    const start = (reimbursementCurrentPage - 1) * REIMBURSEMENT_PAGE_SIZE;
+    return filteredReimbursementItems.slice(start, start + REIMBURSEMENT_PAGE_SIZE);
+  }, [filteredReimbursementItems, reimbursementCurrentPage]);
+  const pagedReimbursementGroups = useMemo(() => {
+    const groups = new Map<string, ExpenseVoucherView[]>();
+    pagedReimbursementItems.forEach((item) => {
+      const category = item.category || '其他';
+      const items = groups.get(category) ?? [];
+      items.push(item);
+      groups.set(category, items);
+    });
+    return Array.from(groups.entries()).map(([category, items]) => {
+      const selectedItems = items.filter((item) => selectedReimbursementItemIds.has(item.id));
+      return {
+        category,
+        items,
+        selectedAmount: selectedItems.reduce((sum, item) => sum + item.amount, 0),
+        selectedCount: selectedItems.length,
+      };
+    });
+  }, [pagedReimbursementItems, selectedReimbursementItemIds]);
+  const reimbursementPageStart = filteredReimbursementItems.length
+    ? (reimbursementCurrentPage - 1) * REIMBURSEMENT_PAGE_SIZE + 1
+    : 0;
+  const reimbursementPageEnd = Math.min(
+    reimbursementCurrentPage * REIMBURSEMENT_PAGE_SIZE,
+    filteredReimbursementItems.length
+  );
+  const inspectedReimbursementItem = reimbursementInspector
+    ? reimbursementDraftItems.find((item) => item.id === reimbursementInspector.itemId)
+    : undefined;
+  const inspectedReimbursementInvoice = inspectedReimbursementItem
+    ? findInvoiceForExpenseItem(inspectedReimbursementItem, invoiceVouchers)
+    : undefined;
+  const reimbursementDraftTotal = selectedReimbursementItems.reduce((sum, item) => sum + item.amount, 0);
+  const reimbursementDraftInvoiceCount = new Set(
+    selectedReimbursementItems.map((item) => item.matchedTo).filter(Boolean)
+  ).size;
+  const archiveActionItems = getItemsForNode(archiveSelected);
+  const downloadCsv = useCallback((filename: string, rows: Array<Array<string | number>>) => {
+    const csv = rows
+      .map((row) =>
+        row
+          .map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`)
+          .join(',')
+      )
+      .join('\n');
+    const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+  }, []);
+  const exportArchiveItems = useCallback(() => {
+    const rows: Array<Array<string | number>> = [
+      ['报销凭证', '供应商', '分类', '日期', '金额', '关联发票', '开票方', '税额'],
+      ...archiveActionItems.map((item) => {
+        const invoice = findInvoiceForExpenseItem(item, invoiceVouchers);
+        return [
+          item.id,
+          item.vendor,
+          item.category,
+          item.date,
+          item.amount.toFixed(2),
+          invoice?.invoiceNumber ?? '',
+          invoice?.issuer ?? '',
+          invoice?.taxAmount.toFixed(2) ?? '0.00',
+        ];
+      }),
+    ];
+    downloadCsv(`归档凭证-${archiveSelected}.csv`, rows);
+  }, [archiveActionItems, archiveSelected, downloadCsv, invoiceVouchers]);
+  const exportBuybackItems = useCallback(() => {
+    const rows: Array<Array<string | number>> = [
+      ['发票号码', '开票方', '类型', '日期', '价税合计', '税额', '状态'],
+      ...filteredInvoices.map((invoice) => [
+        invoice.invoiceNumber,
+        invoice.issuer,
+        invoice.type,
+        invoice.date,
+        invoice.amount.toFixed(2),
+        invoice.taxAmount.toFixed(2),
+        invoice.status ?? '',
+      ]),
+    ];
+    downloadCsv(`发票回购-${dateRange.start}-${dateRange.end}.csv`, rows);
+  }, [dateRange.end, dateRange.start, downloadCsv, filteredInvoices]);
+  const generateBuybackPdf = useCallback(() => {
+    window.print();
   }, []);
 
   return (
-    <div className="space-y-4">
-      <div className="rounded-[var(--m3-shape-large)] border border-blue-100 bg-blue-50 p-4 text-sm text-blue-900">
-        <PanelTitle icon={ShieldCheck} title="第三方集成状态" right={missingConfig.length ? "待录入" : "已完整"} />
-        <div className="text-xs leading-5">
-          {missingConfig.length ? `缺少：${missingConfig.join("、")}` : "企业微信审批与腾讯 OCR 配置已完整。"}
+    <div className="flex h-full min-h-0 w-full flex-col p-3 bg-[#f0f4f9]">
+      <input
+        ref={expenseUploadInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        accept=".pdf,.png,.jpg,.jpeg,.webp"
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          event.target.value = '';
+          void handleExpenseUpload(files);
+        }}
+      />
+      <input
+        ref={invoiceUploadInputRef}
+        type="file"
+        multiple
+        className="hidden"
+        accept=".pdf,.png,.jpg,.jpeg,.webp"
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          event.target.value = '';
+          void handleInvoiceUpload(files);
+        }}
+      />
+      <div className="bg-gradient-mesh rounded-[20px] elevation-2 flex min-h-0 flex-col flex-1 overflow-hidden">
+        {/* Stats Strip */}
+        <div className="px-5 py-2 bg-slate-50/30 border-b border-slate-100 flex gap-3 shrink-0">
+          <div className="flex-1 bg-white px-3.5 py-2 rounded-2xl elevation-1 flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-emerald-50 flex items-center justify-center">
+              <Wallet className="w-4 h-4 text-emerald-600" />
+            </div>
+            <div>
+              <p className="text-xs text-slate-500 mb-0.5">本月报销总额</p>
+              <p className="text-lg font-bold text-slate-800">
+                ¥{totalAmount.toFixed(2)}
+              </p>
+            </div>
+          </div>
+          <div className="flex-1 bg-white px-3.5 py-2 rounded-2xl elevation-1 flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center">
+              <Link2 className="w-4 h-4 text-blue-600" />
+            </div>
+            <div>
+              <p className="text-xs text-slate-500 mb-0.5">已关联凭证</p>
+              <p className="text-lg font-bold text-slate-800">{matched}</p>
+            </div>
+          </div>
+          <div className="flex-1 bg-white px-3.5 py-2 rounded-2xl elevation-1 flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-amber-50 flex items-center justify-center">
+              <AlertCircle className="w-4 h-4 text-amber-600" />
+            </div>
+            <div>
+              <p className="text-xs text-slate-500 mb-0.5">待关联凭证</p>
+              <p className="text-lg font-bold text-slate-800">{unmatched}</p>
+            </div>
+          </div>
+          <div className="flex-1 bg-white px-3.5 py-2 rounded-2xl elevation-1 flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-purple-50 flex items-center justify-center">
+              <Clock className="w-4 h-4 text-purple-600" />
+            </div>
+            <div>
+              <p className="text-xs text-slate-500 mb-0.5">审批中</p>
+              <p className="text-lg font-bold text-slate-800">
+                {pendingApprovals}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Tabs Nav */}
+        <Tabs value={activeTab} onValueChange={setActiveTab} className="gap-0">
+        <div className="flex items-center justify-between gap-4 border-b border-slate-100 bg-slate-50/25 px-6 shrink-0">
+          <TabsList className="h-10 rounded-none bg-transparent p-0">
+            {TABS.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <TabsTrigger
+                  key={tab.id}
+                  value={tab.id}
+                  className="h-10 rounded-none border-x-0 border-t-0 border-b-2 border-transparent bg-transparent px-4 text-sm font-medium text-slate-500 shadow-none focus-visible:ring-0 focus-visible:outline-none data-[state=active]:border-b-emerald-500 data-[state=active]:border-x-transparent data-[state=active]:border-t-transparent data-[state=active]:bg-transparent data-[state=active]:text-emerald-700 data-[state=active]:shadow-none hover:bg-emerald-50/40 hover:text-slate-800">
+                  <Icon className="w-4 h-4" />
+                  {tab.label}
+                </TabsTrigger>);
+
+            })}
+          </TabsList>
+
+          <div className="ml-auto flex min-w-0 items-center justify-end gap-2">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={loading}
+                  className="h-8 bg-transparent text-slate-700 shadow-none hover:bg-emerald-50/70 hover:text-emerald-700">
+                  <Upload className="h-3.5 w-3.5" /> 上传
+                  <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-40 rounded-2xl p-2">
+                <DropdownMenuItem
+                  disabled={loading}
+                  onSelect={() => expenseUploadInputRef.current?.click()}
+                  className="rounded-xl text-orange-700">
+                  <Receipt className="h-4 w-4" /> 报销凭证
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={loading}
+                  onSelect={() => invoiceUploadInputRef.current?.click()}
+                  className="rounded-xl text-blue-700">
+                  <FileText className="h-4 w-4" /> 发票凭证
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={runAiMatch}
+              disabled={aiMatching || loading}
+              className="h-8 bg-transparent text-slate-700 shadow-none hover:bg-emerald-50/70 hover:text-emerald-700">
+              {aiMatching ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              {aiMatching ? '匹配中' : 'AI 匹配'}
+            </Button>
+
+            {activeTab === 'vouchers' &&
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleManualLink}
+              disabled={!selectedExpense || !selectedInvoice}
+              className="h-8 bg-transparent text-slate-700 shadow-none hover:bg-emerald-50/70 hover:text-emerald-700">
+                <Link2 className="h-3.5 w-3.5" /> 手动关联
+              </Button>
+            }
+            {activeTab === 'archive' &&
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={archiveActionItems.length === 0}
+                  className="h-8 bg-transparent text-slate-700 shadow-none hover:bg-emerald-50/70 hover:text-emerald-700">
+                    本组操作
+                    <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44 rounded-2xl p-2">
+                  <DropdownMenuItem
+                  onSelect={exportArchiveItems}
+                  disabled={archiveActionItems.length === 0}
+                  className="rounded-xl">
+                    <Download className="h-4 w-4" /> 导出当前分类
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                  onSelect={() => openReimbursementDialog(archiveActionItems)}
+                  disabled={archiveActionItems.length === 0}
+                  className="rounded-xl text-emerald-700">
+                    <Send className="h-4 w-4" /> 提交本组审批
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            }
+            {activeTab === 'approval' &&
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => void handleSyncSelectedApproval()}
+              disabled={!selectedApproval}
+              className="h-8 bg-transparent text-slate-700 shadow-none hover:bg-emerald-50/70 hover:text-emerald-700">
+                <MessageCircle className="h-3.5 w-3.5" /> 同步状态
+              </Button>
+            }
+            {activeTab === 'buyback' &&
+            <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={filteredInvoices.length === 0}
+                  className="h-8 bg-transparent text-slate-700 shadow-none hover:bg-emerald-50/70 hover:text-emerald-700">
+                    导出
+                    <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-36 rounded-2xl p-2">
+                  <DropdownMenuItem
+                  onSelect={exportBuybackItems}
+                  disabled={filteredInvoices.length === 0}
+                  className="rounded-xl">
+                    <FileDown className="h-4 w-4" /> Excel
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                  onSelect={generateBuybackPdf}
+                  disabled={filteredInvoices.length === 0}
+                  className="rounded-xl text-blue-700">
+                    <Download className="h-4 w-4" /> PDF
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            }
+
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => openReimbursementDialog()}
+              disabled={loading}
+              className="h-8 bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-sm shadow-emerald-500/25 hover:shadow-md">
+              <Plus className="h-3.5 w-3.5" /> 新建报销单
+            </Button>
+          </div>
+        </div>
+        </Tabs>
+
+        {/* Tab Content */}
+        <div className="flex-1 overflow-hidden bg-slate-50/30">
+          {/* TAB 1: VOUCHERS */}
+          {activeTab === 'vouchers' &&
+          <div className="h-full flex flex-col">
+              {/* Toolbar */}
+              <div className="px-5 py-2 flex items-center gap-3 border-b border-slate-100 bg-white shrink-0">
+                <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <Badge variant="secondary" className="rounded-full border-0 bg-slate-100 text-slate-600">全部 {expenseVouchers.length}</Badge>
+                  <Badge variant="secondary" className="rounded-full border-0 bg-emerald-50 text-emerald-700">已关联 {matched}</Badge>
+                  <Badge variant="secondary" className="rounded-full border-0 bg-amber-50 text-amber-700">待关联 {unmatched}</Badge>
+                </div>
+                <div className="ml-auto flex items-center gap-2">
+                  <div className="relative w-48">
+                    <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                    type="text"
+                    placeholder="搜索凭证"
+                    className="w-full pl-10 pr-3 py-1 bg-slate-100 border-none rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
+                  
+                  </div>
+                  <Button type="button" variant="ghost" size="icon" className="text-slate-500 hover:bg-slate-100">
+                    <Filter className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+
+              {/* Two-column matching area */}
+              <div className="flex-1 overflow-hidden flex p-3 gap-3">
+                {/* LEFT: Expense vouchers */}
+                <div className="flex-1 bg-white rounded-3xl elevation-1 flex flex-col overflow-hidden min-w-0">
+                  <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between shrink-0">
+                    <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                      <Receipt className="w-4 h-4 text-orange-500" />
+                      报销凭证
+                      <span className="text-xs text-slate-400 font-normal ml-1">
+                        ({expenseVouchers.length})
+                      </span>
+                    </h3>
+                    <div className="text-xs text-slate-500">
+                      已匹配{' '}
+                      <span className="text-emerald-600 font-medium">
+                        {matched}
+                      </span>{' '}
+                      / 待匹配{' '}
+                      <span className="text-amber-600 font-medium">
+                        {unmatched}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                    {expenseVouchers.map((v) => {
+                    const isSelected = selectedExpense === v.id;
+                    return (
+                      <div
+                        key={v.id}
+                        onClick={() =>
+                        setSelectedExpense(isSelected ? null : v.id)
+                        }
+                        className={`p-3 rounded-2xl border-2 cursor-pointer transition-all flex items-center gap-3 ${isSelected ? 'border-blue-400 bg-blue-50/50 shadow-sm' : v.matched ? 'border-transparent bg-emerald-50/40 hover:bg-emerald-50/70' : 'border-transparent bg-slate-50 hover:bg-slate-100/60'}`}>
+                        
+                          <div
+                          className={`w-12 h-12 rounded-xl ${v.thumbColor} flex items-center justify-center shrink-0`}>
+                          
+                            <Receipt className="w-5 h-5 text-slate-600" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <span className="text-sm font-medium text-slate-800 truncate">
+                                {v.vendor}
+                              </span>
+                              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-200 text-slate-600 shrink-0">
+                                {v.type}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-slate-500">
+                              <span className="font-mono">{v.id}</span>
+                              <span>·</span>
+                              <span>{v.date}</span>
+                              <span>·</span>
+                              <span>{v.category}</span>
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className="text-sm font-bold text-slate-800">
+                              ¥{v.amount.toFixed(2)}
+                            </div>
+                            {v.matched ?
+                          <div className="text-[10px] text-emerald-600 flex items-center gap-0.5 mt-0.5">
+                                <CheckCircle className="w-3 h-3" /> 已关联
+                              </div> :
+
+                          <div className="text-[10px] text-amber-600 flex items-center gap-0.5 mt-0.5">
+                                <AlertCircle className="w-3 h-3" /> 待关联
+                              </div>
+                          }
+                          </div>
+                        </div>);
+
+                  })}
+                  </div>
+                </div>
+
+                {/* CENTER: Association indicator */}
+                <div className="w-16 flex flex-col items-center justify-center shrink-0">
+                  <div
+                  className={`w-12 h-12 rounded-full flex items-center justify-center transition-all ${aiMatching ? 'bg-gradient-to-br from-violet-500 to-blue-600 shadow-lg shadow-violet-500/30' : 'bg-white border-2 border-slate-200'}`}>
+                  
+                    {aiMatching ?
+                  <Sparkles className="w-5 h-5 text-white animate-pulse" /> :
+
+                  <Link2 className="w-5 h-5 text-slate-400" />
+                  }
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-2 text-center leading-tight">
+                    {aiMatching ? 'AI 匹配中' : '智能关联'}
+                  </div>
+                </div>
+
+                {/* RIGHT: Invoice vouchers */}
+                <div className="flex-1 bg-white rounded-3xl elevation-1 flex flex-col overflow-hidden min-w-0">
+                  <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between shrink-0">
+                    <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                      <FileText className="w-4 h-4 text-blue-500" />
+                      发票凭证
+                      <span className="text-xs text-slate-400 font-normal ml-1">
+                        ({totalInvoices})
+                      </span>
+                    </h3>
+                    <span className="text-xs text-slate-400">已导入 {totalInvoices}</span>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                    {invoiceVouchers.map((iv) => {
+                    const associatedExpense = expenseVouchers.find(
+                      (e) => e.id === iv.matchedTo
+                    );
+                    const highlightedAsMatch =
+                    selectedExpense &&
+                    expenseVouchers.find(
+                      (e) => e.id === selectedExpense
+                    )?.matchedTo === iv.id;
+                    const isInvoiceSelected = selectedInvoice === iv.id;
+                    return (
+                      <div
+                        key={iv.id}
+                        onClick={() => setSelectedInvoice(isInvoiceSelected ? null : iv.id)}
+                        className={`p-3 rounded-2xl border-2 cursor-pointer transition-all flex items-center gap-3 ${highlightedAsMatch || isInvoiceSelected ? 'border-blue-400 bg-blue-50/50 shadow-sm' : iv.matched ? 'border-transparent bg-emerald-50/40' : 'border-transparent bg-slate-50 hover:bg-slate-100/60'}`}>
+                        
+                          <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
+                            <FileText className="w-5 h-5 text-blue-600" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-slate-800 truncate mb-0.5">
+                              {iv.issuer}
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-slate-500">
+                              <span className="font-mono">
+                                {iv.invoiceNumber}
+                              </span>
+                              <span>·</span>
+                              <span>{iv.date}</span>
+                            </div>
+                            <div className="text-[10px] text-slate-400 mt-0.5 truncate">
+                              {iv.type} · 税额 ¥{iv.taxAmount.toFixed(2)}
+                            </div>
+                          </div>
+                          <div className="text-right shrink-0">
+                            <div className="text-sm font-bold text-slate-800">
+                              ¥{iv.amount.toFixed(2)}
+                            </div>
+                            {iv.matched && associatedExpense ?
+                          <div className="text-[10px] text-emerald-600 flex items-center gap-0.5 mt-0.5">
+                                <Link2 className="w-3 h-3" />{' '}
+                                {associatedExpense.id}
+                              </div> :
+
+                          <div className="text-[10px] text-amber-600 flex items-center gap-0.5 mt-0.5">
+                                <AlertCircle className="w-3 h-3" /> 待匹配
+                              </div>
+                          }
+                          </div>
+                        </div>);
+
+                  })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          }
+
+          {/* TAB 2: ARCHIVE */}
+          {activeTab === 'archive' &&
+          (() => {
+            const currentItems = getItemsForNode(archiveSelected);
+            const currentTotal = currentItems.reduce(
+              (s, v) => s + v.amount,
+              0
+            );
+            const currentTaxTotal = currentItems.reduce((s, v) => {
+              const iv = invoiceVouchers.find(
+                (i) => i.id === v.matchedTo
+              );
+              return s + (iv?.taxAmount || 0);
+            }, 0);
+            // Build breadcrumb
+            const findPath = (
+            nodes: TreeNode[],
+            id: string,
+            path: TreeNode[] = [])
+            : TreeNode[] | null => {
+              for (const n of nodes) {
+                const next = [...path, n];
+                if (n.id === id) return next;
+                if (n.children) {
+                  const found = findPath(n.children, id, next);
+                  if (found) return found;
+                }
+              }
+              return null;
+            };
+            const breadcrumb =
+            archiveSelected === 'all' ?
+            [] :
+            findPath(ARCHIVE_TREE, archiveSelected) || [];
+            const currentNode = breadcrumb[breadcrumb.length - 1];
+            const renderTreeNode = (node: TreeNode, depth: number) => {
+              const hasChildren = node.children && node.children.length > 0;
+              const isExpanded = archiveExpanded.has(node.id);
+              const isSelected = archiveSelected === node.id;
+              const nodeItems = getItemsForNode(node.id);
+              const nodeTotal = nodeItems.reduce((s, v) => s + v.amount, 0);
+              return (
+                <div key={node.id}>
+                    <div
+                    onClick={() => setArchiveSelected(node.id)}
+                    className={`flex items-center gap-1.5 pr-2 py-1.5 rounded-xl cursor-pointer transition-all group ${isSelected ? 'bg-blue-50 text-blue-700' : 'hover:bg-slate-100/60 text-slate-700'}`}
+                    style={{
+                      paddingLeft: `${depth * 16 + 8}px`
+                    }}>
+                    
+                      {hasChildren ?
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleArchiveExpanded(node.id);
+                      }}
+                      className="w-4 h-4 flex items-center justify-center text-slate-400 hover:text-slate-700 shrink-0">
+                      
+                          {isExpanded ?
+                      <ChevronDown className="w-3.5 h-3.5" /> :
+
+                      <ChevronRight className="w-3.5 h-3.5" />
+                      }
+                        </button> :
+
+                    <span className="w-4 h-4 shrink-0"></span>
+                    }
+                      {hasChildren ?
+                    <span className="text-base">{node.icon}</span> :
+
+                    <span className="w-1.5 h-1.5 rounded-full bg-slate-300 ml-1 shrink-0"></span>
+                    }
+                      <span
+                      className={`text-sm flex-1 truncate ${isSelected ? 'font-medium' : ''}`}>
+                      
+                        {node.name}
+                      </span>
+                      {nodeItems.length > 0 &&
+                    <span
+                      className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${isSelected ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>
+                      
+                          {nodeItems.length}
+                        </span>
+                    }
+                    </div>
+                    {hasChildren && isExpanded &&
+                  <div>
+                        {node.children!.map((child) =>
+                    renderTreeNode(child, depth + 1)
+                    )}
+                      </div>
+                  }
+                  </div>);
+
+            };
+            return (
+              <div className="h-full flex overflow-hidden p-4 gap-4">
+                  {/* LEFT: Tree Sidebar */}
+                  <div className="w-[232px] bg-white rounded-3xl elevation-1 flex flex-col overflow-hidden shrink-0">
+                    <div className="px-4 py-3 border-b border-slate-100 shrink-0">
+                      <div className="flex items-center justify-between mb-3">
+                        <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                          <Archive className="w-4 h-4 text-blue-500" /> 分类导航
+                        </h3>
+                        <button className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">
+                          <Plus className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <div className="relative">
+                        <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                        <input
+                        type="text"
+                        placeholder="搜索分类"
+                        className="w-full pl-8 pr-3 py-1.5 bg-slate-50 border-none rounded-full text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
+                      
+                      </div>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
+                      {/* All node */}
+                      <div
+                      onClick={() => setArchiveSelected('all')}
+                      className={`flex items-center gap-2 px-2 py-2 rounded-xl cursor-pointer transition-all ${archiveSelected === 'all' ? 'bg-blue-50 text-blue-700' : 'hover:bg-slate-100/60 text-slate-700'}`}>
+                      
+                        <FolderOpen
+                        className={`w-4 h-4 shrink-0 ${archiveSelected === 'all' ? 'text-blue-600' : 'text-slate-400'}`} />
+                      
+                        <span
+                        className={`text-sm flex-1 ${archiveSelected === 'all' ? 'font-medium' : ''}`}>
+                        
+                          全部归档
+                        </span>
+                        <span
+                        className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${archiveSelected === 'all' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>
+                        
+                          {
+                        expenseVouchers.filter((v) => v.matched).
+                        length
+                        }
+                        </span>
+                      </div>
+
+                      <div className="px-2 pt-3 pb-1 text-[10px] font-medium text-slate-400 uppercase tracking-wide">
+                        费用类别
+                      </div>
+                      {ARCHIVE_TREE.map((node) => renderTreeNode(node, 0))}
+                    </div>
+
+                    <div className="px-4 py-2.5 border-t border-slate-100 bg-slate-50/50 shrink-0">
+                      <div className="text-[10px] text-slate-500 mb-1">
+                        本月已归档
+                      </div>
+                      <div className="flex items-baseline justify-between">
+                        <div className="text-lg font-bold text-slate-800">
+                          ¥
+                          {expenseVouchers.filter((v) => v.matched).
+                        reduce((s, v) => s + v.amount, 0).
+                        toFixed(2)}
+                        </div>
+                        <div className="text-[10px] text-slate-500">
+                          {
+                        expenseVouchers.filter((v) => v.matched).
+                        length
+                        }{' '}
+                          项
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* RIGHT: Detail Panel */}
+                  <div className="flex-1 bg-white rounded-3xl elevation-1 flex flex-col overflow-hidden min-w-0">
+                    {/* Header with breadcrumb */}
+                    <div className="px-5 py-3 border-b border-slate-100 shrink-0">
+                      <div className="flex items-center justify-between">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-1">
+                            <span
+                            className="hover:text-blue-600 cursor-pointer"
+                            onClick={() => setArchiveSelected('all')}>
+                            
+                              全部归档
+                            </span>
+                            {breadcrumb.map((b, idx) =>
+                          <Fragment key={b.id}>
+                                <ChevronRight className="w-3 h-3" />
+                                <span
+                              className={`${idx === breadcrumb.length - 1 ? 'text-slate-700 font-medium' : 'hover:text-blue-600 cursor-pointer'}`}
+                              onClick={() => setArchiveSelected(b.id)}>
+                              
+                                  {b.name}
+                                </span>
+                              </Fragment>
+                          )}
+                          </div>
+                          <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                            {currentNode?.icon &&
+                          <span className="text-xl">
+                                {currentNode.icon}
+                              </span>
+                          }
+                            {archiveSelected === 'all' ?
+                          '全部归档凭证' :
+                          currentNode?.name}
+                          </h3>
+                        </div>
+                        <div className="text-xs font-medium text-slate-400">
+                          {currentItems.length} 项
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Mini stats */}
+                    <div className="px-5 py-3 border-b border-slate-100 bg-slate-50/30 shrink-0 flex gap-3">
+                      <div className="flex-1 bg-white rounded-2xl px-4 py-2.5 border border-slate-100">
+                        <div className="text-[10px] text-slate-500 mb-0.5">
+                          凭证数量
+                        </div>
+                        <div className="text-lg font-bold text-slate-800">
+                          {currentItems.length}
+                        </div>
+                      </div>
+                      <div className="flex-1 bg-white rounded-2xl px-4 py-2.5 border border-slate-100">
+                        <div className="text-[10px] text-slate-500 mb-0.5">
+                          合计金额
+                        </div>
+                        <div className="text-lg font-bold text-slate-800">
+                          ¥{currentTotal.toFixed(2)}
+                        </div>
+                      </div>
+                      <div className="flex-1 bg-white rounded-2xl px-4 py-2.5 border border-slate-100">
+                        <div className="text-[10px] text-slate-500 mb-0.5">
+                          可抵扣税额
+                        </div>
+                        <div className="text-lg font-bold text-emerald-600">
+                          ¥{currentTaxTotal.toFixed(2)}
+                        </div>
+                      </div>
+                      <div className="flex-1 bg-white rounded-2xl px-4 py-2.5 border border-slate-100">
+                        <div className="text-[10px] text-slate-500 mb-0.5">
+                          关联订单
+                        </div>
+                        <div className="text-lg font-bold text-blue-600">
+                          {currentItems.filter((v) => v.matched).length}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Items table */}
+                    <div className="flex-1 overflow-auto">
+                      {currentItems.length === 0 ?
+                    <div className="h-full flex flex-col items-center justify-center text-slate-400">
+                          <Archive className="w-12 h-12 mb-3 text-slate-300" />
+                          <p className="text-sm">该分类下暂无归档凭证</p>
+                          <p className="text-xs mt-1">
+                            在「凭证管理」中关联后将自动归档至此
+                          </p>
+                        </div> :
+
+                    <table className="w-full min-w-[560px] table-fixed text-sm">
+                          <colgroup>
+                            <col className="w-10" />
+                            <col />
+                            <col className="w-[36%]" />
+                            <col className="w-[104px]" />
+                            <col className="w-[86px]" />
+                          </colgroup>
+                          <thead className="text-xs text-slate-500 bg-slate-50/50 sticky top-0 z-10">
+                            <tr>
+                              <th className="px-3 py-2.5 text-left font-medium">
+                                <input
+                              type="checkbox"
+                              className="rounded border-slate-300" />
+                            
+                              </th>
+                              <th className="px-3 py-2.5 text-left font-medium">
+                                报销凭证
+                              </th>
+                              <th className="px-3 py-2.5 text-left font-medium">
+                                关联发票
+                              </th>
+                              <th className="px-3 py-2.5 text-right font-medium">
+                                金额
+                              </th>
+                              <th className="px-3 py-2.5 text-center font-medium">
+                                状态
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-50">
+                            {currentItems.map((v) => {
+                          const iv = invoiceVouchers.find(
+                            (i) => i.id === v.matchedTo
+                          );
+                          return (
+                            <tr
+                              key={v.id}
+                              className="hover:bg-slate-50/50 transition-colors">
+                              
+                                  <td className="px-3 py-3">
+                                    <input
+                                  type="checkbox"
+                                  className="rounded border-slate-300" />
+                                
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    <div className="truncate font-medium text-slate-800" title={v.vendor}>
+                                      {v.vendor}
+                                    </div>
+                                    <div className="mt-0.5 truncate text-[10px] text-slate-400">
+                                      <span className="font-mono">{v.id}</span>
+                                      <span className="mx-1">·</span>
+                                      <span>{v.date}</span>
+                                      <span className="mx-1">·</span>
+                                      <span>{v.category}</span>
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    <div
+                                  className="truncate text-xs text-slate-700"
+                                  title={iv?.issuer}>
+                                  
+                                      {iv?.issuer || '-'}
+                                    </div>
+                                    <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                                      {iv?.invoiceNumber || '-'}
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-3 text-right whitespace-nowrap">
+                                    <div className="font-medium text-slate-800">¥{v.amount.toFixed(2)}</div>
+                                    <div className="mt-0.5 text-[10px] text-slate-400">
+                                      税 ¥{iv?.taxAmount.toFixed(2) || '0.00'}
+                                    </div>
+                                  </td>
+                                  <td className="px-3 py-3 text-center">
+                                    <span className="inline-flex items-center gap-1 whitespace-nowrap rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">
+                                      <Check className="w-3 h-3" /> 已归档
+                                    </span>
+                                  </td>
+                                </tr>);
+
+                        })}
+                          </tbody>
+                        </table>
+                    }
+                    </div>
+                  </div>
+                </div>);
+
+          })()}
+
+          {/* TAB 3: APPROVAL */}
+          {activeTab === 'approval' &&
+          <div className="h-full flex overflow-hidden p-5 gap-5">
+              {/* LEFT: Approval list */}
+              <div className="w-[380px] bg-white rounded-3xl elevation-1 flex flex-col overflow-hidden shrink-0">
+                <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+                  <h3 className="text-sm font-semibold text-slate-800">
+                    报销申请单
+                  </h3>
+                  <span className="text-xs text-slate-400">{approvals.length} 单</span>
+                </div>
+                <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                  {approvals.map((a) => {
+                  const isSelected = selectedApproval?.id === a.id;
+                  const statusStyle =
+                  a.status === 'approved' ?
+                  'bg-emerald-50 text-emerald-700' :
+                  a.status === 'rejected' ?
+                  'bg-rose-50 text-rose-700' :
+                  'bg-amber-50 text-amber-700';
+                  const statusLabel =
+                  a.status === 'approved' ?
+                  '已通过' :
+                  a.status === 'rejected' ?
+                  '已驳回' :
+                  '审批中';
+                  const statusIcon =
+                  a.status === 'approved' ?
+                  CheckCircle :
+                  a.status === 'rejected' ?
+                  XCircle :
+                  Clock;
+                  const StatusIcon = statusIcon;
+                  return (
+                    <div
+                      key={a.id}
+                      onClick={() => setSelectedApproval(a)}
+                      className={`p-4 rounded-2xl cursor-pointer transition-all ${isSelected ? 'bg-blue-50 ring-2 ring-blue-200' : 'bg-slate-50 hover:bg-slate-100/60'}`}>
+                      
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex-1 min-w-0">
+                            <h4 className="text-sm font-semibold text-slate-800 truncate">
+                              {a.title}
+                            </h4>
+                            <p className="text-xs text-slate-500 mt-0.5 font-mono">
+                              {a.id}
+                            </p>
+                          </div>
+                          <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium ${statusStyle} shrink-0`}>
+                          
+                            <StatusIcon className="w-3 h-3" />
+                            {statusLabel}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between mt-3">
+                          <div className="text-xs text-slate-500">
+                            {a.applicant} · {a.department}
+                          </div>
+                          <div className="text-base font-bold text-slate-800">
+                            ¥{a.amount.toFixed(2)}
+                          </div>
+                        </div>
+                        {a.status === 'pending' &&
+                      <div className="mt-3">
+                            <div className="h-1 bg-slate-200 rounded-full overflow-hidden">
+                              <div
+                            className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full"
+                            style={{
+                              width: `${a.currentStep / a.totalSteps * 100}%`
+                            }} />
+                          
+                            </div>
+                            <p className="text-[10px] text-slate-500 mt-1">
+                              进度 {a.currentStep}/{a.totalSteps} · 当前节点{' '}
+                              {a.flow[a.currentStep - 1]?.role}
+                            </p>
+                          </div>
+                      }
+                      </div>);
+
+                })}
+                </div>
+              </div>
+
+              {/* RIGHT: Approval detail */}
+              {selectedApproval &&
+            <div className="flex-1 bg-white rounded-3xl elevation-1 flex flex-col overflow-hidden">
+                  <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shrink-0">
+                    <div>
+                      <h3 className="text-base font-semibold text-slate-800">
+                        {selectedApproval.title}
+                      </h3>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {selectedApproval.id} · 提交于{' '}
+                        {selectedApproval.submitDate}
+                      </p>
+                    </div>
+                    <span className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-500">
+                      {selectedApproval.status === 'approved' ? '已通过' : selectedApproval.status === 'rejected' ? '已驳回' : '审批中'}
+                    </span>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto p-6 space-y-5">
+                    {/* Summary */}
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="bg-slate-50 rounded-2xl p-4">
+                        <p className="text-xs text-slate-500 mb-1">报销金额</p>
+                        <p className="text-xl font-bold text-slate-800">
+                          ¥{selectedApproval.amount.toFixed(2)}
+                        </p>
+                      </div>
+                      <div className="bg-slate-50 rounded-2xl p-4">
+                        <p className="text-xs text-slate-500 mb-1">材料数量</p>
+                        <p className="text-xl font-bold text-slate-800">
+                          {selectedApproval.materials?.length ? `${selectedApproval.materials.length * 2} 份` : `${selectedApproval.items} 项`}
+                        </p>
+                      </div>
+                      <div className="bg-slate-50 rounded-2xl p-4">
+                        <p className="text-xs text-slate-500 mb-1">申请人</p>
+                        <p className="text-base font-semibold text-slate-800 mt-1">
+                          {selectedApproval.applicant}
+                          <span className="text-xs text-slate-500 font-normal ml-1">
+                            · {selectedApproval.department}
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+
+                    {selectedApproval.materials && selectedApproval.materials.length > 0 &&
+                  <div>
+                        <h4 className="text-sm font-semibold text-slate-800 mb-3 flex items-center gap-2">
+                          <Archive className="w-4 h-4 text-emerald-500" />{' '}
+                          提交材料
+                        </h4>
+                        <div className="overflow-hidden rounded-2xl border border-slate-100">
+                          <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_96px] bg-slate-50 px-4 py-2 text-xs font-medium text-slate-500">
+                            <span>发票</span>
+                            <span>关联凭证</span>
+                            <span className="text-right">金额</span>
+                          </div>
+                          <div className="divide-y divide-slate-50">
+                            {selectedApproval.materials.map((material) =>
+                        <div key={`${material.invoiceId}-${material.voucherId}`} className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_96px] gap-3 px-4 py-3 text-sm">
+                                <div className="min-w-0">
+                                  <div className="truncate font-medium text-slate-800">{material.invoiceIssuer}</div>
+                                  <div className="mt-0.5 truncate text-xs text-slate-400">
+                                    {material.invoiceNo} · {material.invoiceDate}
+                                  </div>
+                                </div>
+                                <div className="min-w-0">
+                                  <div className="truncate font-medium text-slate-700">{material.voucherVendor}</div>
+                                  <div className="mt-0.5 truncate text-xs text-slate-400">
+                                    {material.voucherNo} · {material.category}
+                                  </div>
+                                </div>
+                                <div className="text-right font-semibold text-slate-900">{formatMoney(material.invoiceAmount)}</div>
+                              </div>
+                        )}
+                          </div>
+                        </div>
+                      </div>
+                  }
+
+                    {/* Approval Flow Steps */}
+                    <div>
+                      <h4 className="text-sm font-semibold text-slate-800 mb-4 flex items-center gap-2">
+                        <TrendingUp className="w-4 h-4 text-blue-500" />{' '}
+                        审批流程
+                      </h4>
+                      <div className="space-y-4">
+                        {selectedApproval.flow.map((step: any, idx: number) => {
+                      const isLast =
+                      idx === selectedApproval.flow.length - 1;
+                      const stepColor =
+                      step.status === 'done' ?
+                      'bg-emerald-500 text-white' :
+                      step.status === 'current' ?
+                      'bg-blue-500 text-white animate-pulse' :
+                      step.status === 'rejected' ?
+                      'bg-rose-500 text-white' :
+                      'bg-slate-200 text-slate-400';
+                      const stepIcon =
+                      step.status === 'done' ?
+                      <Check className="w-4 h-4" /> :
+                      step.status === 'rejected' ?
+                      <X className="w-4 h-4" /> :
+                      step.status === 'current' ?
+                      <Loader2 className="w-4 h-4 animate-spin" /> :
+
+                      <span className="text-xs font-medium">
+                                {idx + 1}
+                              </span>;
+
+                      return (
+                        <div key={idx} className="flex gap-4 relative">
+                              {!isLast &&
+                          <div
+                            className={`absolute left-4 top-9 w-0.5 h-full -translate-x-1/2 ${step.status === 'done' ? 'bg-emerald-300' : 'bg-slate-200'}`} />
+
+                          }
+                              <div
+                            className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 z-10 ${stepColor}`}>
+                            
+                                {stepIcon}
+                              </div>
+                              <div className="flex-1 pb-2">
+                                <div className="flex items-baseline justify-between gap-3">
+                                  <div>
+                                    <span className="text-sm font-medium text-slate-800">
+                                      {step.name}
+                                    </span>
+                                    <span className="text-xs text-slate-500 ml-2">
+                                      {step.role}
+                                    </span>
+                                  </div>
+                                  {step.time &&
+                              <span className="text-xs text-slate-400 font-mono">
+                                      {step.time}
+                                    </span>
+                              }
+                                </div>
+                                {step.remark &&
+                            <div
+                              className={`mt-1.5 text-xs px-3 py-2 rounded-xl inline-block ${step.status === 'rejected' ? 'bg-rose-50 text-rose-700' : 'bg-slate-50 text-slate-600'}`}>
+                              
+                                    {step.remark}
+                                  </div>
+                            }
+                                {step.status === 'current' &&
+                            <p className="text-xs text-blue-600 mt-1">
+                                    审批中...
+                                  </p>
+                            }
+                                {step.status === 'pending' &&
+                            <p className="text-xs text-slate-400 mt-1">
+                                    待审批
+                                  </p>
+                            }
+                              </div>
+                            </div>);
+
+                    })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+            }
+            </div>
+          }
+
+          {/* TAB 4: BUYBACK */}
+          {activeTab === 'buyback' &&
+          <div className="h-full overflow-y-auto p-6 space-y-5">
+              {/* Date Range Selector */}
+              <div className="bg-white rounded-3xl p-5 elevation-1">
+                <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2 mb-4">
+                  <Calendar className="w-4 h-4 text-blue-500" />{' '}
+                  发票回购明细生成
+                </h3>
+                <div className="flex items-center gap-4 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-slate-500">开始日期</label>
+                    <input
+                    type="date"
+                    value={dateRange.start}
+                    onChange={(e) =>
+                    setDateRange({
+                      ...dateRange,
+                      start: e.target.value
+                    })
+                    }
+                    className="px-3 py-1.5 bg-slate-100 border-none rounded-full text-sm focus:ring-2 focus:ring-blue-500/20 focus:bg-white outline-none transition-all" />
+                  
+                  </div>
+                  <span className="text-slate-400">至</span>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-slate-500">结束日期</label>
+                    <input
+                    type="date"
+                    value={dateRange.end}
+                    onChange={(e) =>
+                    setDateRange({
+                      ...dateRange,
+                      end: e.target.value
+                    })
+                    }
+                    className="px-3 py-1.5 bg-slate-100 border-none rounded-full text-sm focus:ring-2 focus:ring-blue-500/20 focus:bg-white outline-none transition-all" />
+                  
+                  </div>
+                  <div className="flex p-1 bg-slate-100 rounded-full">
+                    {[
+                  {
+                    l: '本月',
+                    s: '2026-05-01',
+                    e: '2026-05-31'
+                  },
+                  {
+                    l: '上月',
+                    s: '2026-04-01',
+                    e: '2026-04-30'
+                  },
+                  {
+                    l: 'Q2',
+                    s: '2026-04-01',
+                    e: '2026-06-30'
+                  }].
+                  map((p) =>
+                  <button
+                    key={p.l}
+                    onClick={() =>
+                    setDateRange({
+                      start: p.s,
+                      end: p.e
+                    })
+                    }
+                    className="px-3 py-1 text-xs text-slate-600 hover:bg-white hover:shadow-sm rounded-full transition-all">
+                    
+                        {p.l}
+                      </button>
+                  )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Summary cards */}
+              <div className="grid grid-cols-3 gap-5">
+                <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-3xl p-5 text-white">
+                  <p className="text-xs text-blue-100 mb-1">日期区间内发票数</p>
+                  <p className="text-3xl font-bold">
+                    {filteredInvoices.length} 张
+                  </p>
+                  <p className="text-xs text-blue-100 mt-2">
+                    {dateRange.start} ~ {dateRange.end}
+                  </p>
+                </div>
+                <div className="bg-white rounded-3xl p-5 elevation-1">
+                  <p className="text-xs text-slate-500 mb-1">价税合计</p>
+                  <p className="text-3xl font-bold text-slate-800">
+                    ¥{buybackTotal.toFixed(2)}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-2">含税金额</p>
+                </div>
+                <div className="bg-white rounded-3xl p-5 elevation-1">
+                  <p className="text-xs text-slate-500 mb-1">可抵扣税额</p>
+                  <p className="text-3xl font-bold text-emerald-600">
+                    ¥{buybackTax.toFixed(2)}
+                  </p>
+                  <p className="text-xs text-slate-400 mt-2">
+                    占比 {(buybackTax / buybackTotal * 100 || 0).toFixed(1)}%
+                  </p>
+                </div>
+              </div>
+
+              {/* Buyback table */}
+              <div className="bg-white rounded-3xl elevation-1 overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                    <FileText className="w-4 h-4 text-blue-500" />{' '}
+                    发票回购明细表单
+                  </h3>
+                  <span className="text-xs text-slate-500">
+                    共 {filteredInvoices.length} 条记录
+                  </span>
+                </div>
+                <table className="w-full text-sm">
+                  <thead className="text-xs text-slate-500 bg-slate-50/50">
+                    <tr>
+                      <th className="px-5 py-3 text-left font-medium">序号</th>
+                      <th className="px-5 py-3 text-left font-medium">
+                        发票号码
+                      </th>
+                      <th className="px-5 py-3 text-left font-medium">
+                        开票方
+                      </th>
+                      <th className="px-5 py-3 text-left font-medium">
+                        发票类型
+                      </th>
+                      <th className="px-5 py-3 text-left font-medium">
+                        开票日期
+                      </th>
+                      <th className="px-5 py-3 text-right font-medium">
+                        不含税金额
+                      </th>
+                      <th className="px-5 py-3 text-right font-medium">税额</th>
+                      <th className="px-5 py-3 text-right font-medium">
+                        价税合计
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {filteredInvoices.map((iv, idx) =>
+                  <tr key={iv.id} className="hover:bg-slate-50/50">
+                        <td className="px-5 py-3 text-slate-500">{idx + 1}</td>
+                        <td className="px-5 py-3 font-mono text-slate-700">
+                          {iv.invoiceNumber}
+                        </td>
+                        <td className="px-5 py-3 text-slate-800">
+                          {iv.issuer}
+                        </td>
+                        <td className="px-5 py-3">
+                          <span className="px-2 py-0.5 rounded-full text-xs bg-blue-50 text-blue-700">
+                            {iv.type}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3 text-slate-600">{iv.date}</td>
+                        <td className="px-5 py-3 text-right text-slate-700">
+                          ¥{(iv.amount - iv.taxAmount).toFixed(2)}
+                        </td>
+                        <td className="px-5 py-3 text-right text-emerald-600">
+                          ¥{iv.taxAmount.toFixed(2)}
+                        </td>
+                        <td className="px-5 py-3 text-right font-medium text-slate-800">
+                          ¥{iv.amount.toFixed(2)}
+                        </td>
+                      </tr>
+                  )}
+                    {filteredInvoices.length === 0 &&
+                  <tr>
+                        <td
+                      colSpan={8}
+                      className="px-5 py-10 text-center text-sm text-slate-400">
+                      
+                          所选日期区间内暂无发票
+                        </td>
+                      </tr>
+                  }
+                  </tbody>
+                  {filteredInvoices.length > 0 &&
+                <tfoot className="bg-slate-50 font-medium">
+                      <tr>
+                        <td
+                      colSpan={5}
+                      className="px-5 py-3 text-right text-slate-600">
+                      
+                          合计
+                        </td>
+                        <td className="px-5 py-3 text-right text-slate-800">
+                          ¥{(buybackTotal - buybackTax).toFixed(2)}
+                        </td>
+                        <td className="px-5 py-3 text-right text-emerald-600">
+                          ¥{buybackTax.toFixed(2)}
+                        </td>
+                        <td className="px-5 py-3 text-right text-blue-700 text-base font-bold">
+                          ¥{buybackTotal.toFixed(2)}
+                        </td>
+                      </tr>
+                    </tfoot>
+                }
+                </table>
+              </div>
+            </div>
+          }
         </div>
       </div>
-      <Select defaultValue="monthly" onValueChange={() => onDirtyChange(true)}>
-        <SelectTrigger className="material-input h-10">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="daily">每日</SelectItem>
-          <SelectItem value="weekly">每周</SelectItem>
-          <SelectItem value="monthly">每月</SelectItem>
-        </SelectContent>
-      </Select>
-      <div className="grid grid-cols-3 gap-2">{["企微", "钉钉", "邮件"].map((item) => <label key={item} className="rounded border border-slate-200 bg-white px-3 py-2 text-sm"><Checkbox defaultChecked={item === "企微"} /> <span className="ml-2">{item}</span></label>)}</div>
-      <Input defaultValue="财务负责人、部门负责人" onChange={() => onDirtyChange(true)} />
-      <Textarea placeholder="异常阈值设置：超预算告警、突增告警" onChange={() => onDirtyChange(true)} />
-    </div>
-  );
+      <Dialog
+        open={reimbursementDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) closeReimbursementDialog();
+        }}>
+        <DialogContent className="flex max-h-[88vh] w-full max-w-5xl grid-rows-none flex-col gap-0 overflow-hidden rounded-3xl border-0 bg-white p-0 elevation-3 sm:max-w-5xl">
+            <DialogHeader className="border-b border-slate-100 px-6 py-5 text-left">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <DialogTitle className="text-lg font-semibold text-slate-900">新建报销单</DialogTitle>
+                  <DialogDescription className="mt-1 text-xs text-slate-500">
+                    请确认报销信息与凭证范围，确认后才会创建审批单。
+                  </DialogDescription>
+                </div>
+              </div>
+            </DialogHeader>
+
+            <div className={`flex-1 overflow-y-auto p-6 ${inspectedReimbursementItem ? 'lg:pr-[360px]' : ''}`}>
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-2xl bg-emerald-50 px-4 py-3">
+                  <div className="text-xs text-emerald-700">已选金额</div>
+                  <div className="mt-1 text-xl font-bold text-emerald-800">
+                    {formatMoney(reimbursementDraftTotal)}
+                  </div>
+                </div>
+                <div className="rounded-2xl bg-blue-50 px-4 py-3">
+                  <div className="text-xs text-blue-700">材料数量</div>
+                  <div className="mt-1 text-xl font-bold text-blue-800">
+                    {selectedReimbursementItems.length * 2} / {reimbursementDraftItems.length * 2} 份
+                  </div>
+                </div>
+                <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                  <div className="text-xs text-slate-500">关联发票</div>
+                  <div className="mt-1 text-xl font-bold text-slate-800">
+                    {reimbursementDraftInvoiceCount} 张
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-5 grid grid-cols-2 gap-4">
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-medium text-slate-500">报销标题</span>
+                  <input
+                    value={reimbursementTitle}
+                    onChange={(event) => setReimbursementTitle(event.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 outline-none transition-all focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                    placeholder="例如：6 月费用报销申请" />
+                </label>
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-medium text-slate-500">申请人</span>
+                  <input
+                    value={reimbursementApplicant}
+                    onChange={(event) => setReimbursementApplicant(event.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 outline-none transition-all focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                    placeholder="申请人姓名" />
+                </label>
+                <label className="col-span-2 block">
+                  <span className="mb-1.5 block text-xs font-medium text-slate-500">报销事由</span>
+                  <textarea
+                    value={reimbursementReason}
+                    onChange={(event) => setReimbursementReason(event.target.value)}
+                    className="min-h-[78px] w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition-all focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                    placeholder="填写本次报销用途、项目或说明" />
+                </label>
+              </div>
+
+              <div className="mt-5 overflow-hidden rounded-2xl border border-slate-100">
+                <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-4 py-3">
+                  <span className="text-sm font-semibold text-slate-800">选择报销发票</span>
+                  <span className="text-xs text-slate-500">
+                    仅显示未审批成功单据 · 显示 {filteredReimbursementItems.length} / {reimbursementDraftItems.length}
+                  </span>
+                </div>
+                {reimbursementDraftItems.length ? (
+                  <>
+                    <div className="space-y-3 border-b border-slate-100 bg-white px-4 py-3">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="relative w-full min-w-[240px] max-w-[540px] flex-[1_1_360px]">
+                          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                          <input
+                            value={reimbursementKeyword}
+                            onChange={(event) => {
+                              setReimbursementKeyword(event.target.value);
+                              setReimbursementPage(1);
+                              setReimbursementInspector(null);
+                            }}
+                            className="h-9 w-full rounded-full border border-slate-200 bg-slate-50 pl-9 pr-9 text-sm text-slate-800 outline-none transition-all focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                            placeholder="搜索发票号码、开票方或凭证" />
+                          {reimbursementKeyword &&
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReimbursementKeyword('');
+                            setReimbursementPage(1);
+                            setReimbursementInspector(null);
+                          }}
+                          className="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-slate-400 hover:bg-slate-200 hover:text-slate-700">
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                        }
+                        </div>
+                        <div className="ml-auto flex shrink-0 items-center gap-2">
+                          <Select
+                            value={reimbursementCategoryFilter}
+                            onValueChange={(value) => {
+                              setReimbursementCategoryFilter(value);
+                              setReimbursementPage(1);
+                              setReimbursementInspector(null);
+                            }}>
+                            <SelectTrigger className="h-9 w-[136px] rounded-full border-slate-200 bg-white text-sm text-slate-700 focus:ring-blue-100">
+                              <SelectValue placeholder="全部类别" />
+                            </SelectTrigger>
+                            <SelectContent className="z-[80]">
+                              <SelectItem value="all">全部类别</SelectItem>
+                              {reimbursementCategoryOptions.map((category) =>
+                            <SelectItem key={category} value={category}>{category}</SelectItem>
+                            )}
+                            </SelectContent>
+                          </Select>
+                          <ToggleGroup
+                            type="single"
+                            value={reimbursementSelectionFilter}
+                          onValueChange={(value) => {
+                            if (!value) return;
+                            setReimbursementSelectionFilter(value as 'all' | 'selected' | 'unselected');
+                            setReimbursementPage(1);
+                            setReimbursementInspector(null);
+                          }}
+                            className="overflow-hidden rounded-full bg-slate-100 p-1">
+                            {[
+                              { id: 'all', label: '全部' },
+                              { id: 'selected', label: '已选' },
+                              { id: 'unselected', label: '未选' },
+                            ].map((option) =>
+                          <ToggleGroupItem
+                            key={option.id}
+                            value={option.id}
+                            className="h-7 min-w-11 !rounded-full border-0 px-3 text-xs font-medium text-slate-500 shadow-none hover:bg-white/50 data-[state=on]:bg-blue-50 data-[state=on]:text-blue-700 data-[state=on]:shadow-none">
+                                {option.label}
+                              </ToggleGroupItem>
+                          )}
+                          </ToggleGroup>
+                          {reimbursementFilterActive &&
+                        <button
+                          type="button"
+                          onClick={resetReimbursementFilters}
+                          className="inline-flex h-9 items-center gap-1.5 rounded-full bg-slate-100 px-3 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200">
+                              <Filter className="h-3.5 w-3.5" /> 重置
+                            </button>
+                        }
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={selectFilteredReimbursementItems}
+                        disabled={filteredReimbursementItems.length === 0}
+                        className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 transition-colors hover:bg-emerald-100">
+                        <Check className="h-3.5 w-3.5" /> 全选结果
+                      </button>
+                      <button
+                        type="button"
+                        onClick={clearFilteredReimbursementItems}
+                        disabled={filteredReimbursementItems.length === 0}
+                        className="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200">
+                        <X className="h-3.5 w-3.5" /> 清空结果
+                      </button>
+                      {reimbursementDraftGroups.map((group) => {
+                        const allSelected = group.selectedCount === group.items.length;
+                        const partiallySelected = group.selectedCount > 0 && !allSelected;
+                        return (
+                          <button
+                            key={group.category}
+                            type="button"
+                            onClick={() => toggleReimbursementCategory(group.category)}
+                            className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-all ${allSelected ? 'border-blue-200 bg-blue-50 text-blue-700' : partiallySelected ? 'border-amber-200 bg-amber-50 text-amber-700' : 'border-slate-200 bg-white text-slate-500 hover:bg-slate-50'}`}>
+                            {group.category} {group.selectedCount}/{group.items.length}
+                          </button>
+                        );
+                      })}
+                      </div>
+                    </div>
+                    <div className="max-h-64 overflow-y-auto">
+                      {filteredReimbursementItems.length ? pagedReimbursementGroups.map((group) => {
+                        const allSelected = group.selectedCount === group.items.length;
+                        const partiallySelected = group.selectedCount > 0 && !allSelected;
+                        return (
+                          <div key={group.category} className="border-b border-slate-50 last:border-b-0">
+                            <div className="flex items-center justify-between gap-3 bg-slate-50/70 px-4 py-2">
+                              <div
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => toggleReimbursementCategory(group.category)}
+                                onKeyDown={(event) => {
+                                  if (event.key === 'Enter' || event.key === ' ') {
+                                    event.preventDefault();
+                                    toggleReimbursementCategory(group.category);
+                                  }
+                                }}
+                                className="inline-flex min-w-0 items-center gap-2 text-xs font-medium text-slate-700">
+                                <Checkbox
+                                  checked={allSelected ? true : partiallySelected ? 'indeterminate' : false}
+                                  aria-label={`选择${group.category}分类`}
+                                  onClick={(event) => event.stopPropagation()}
+                                  onCheckedChange={() => toggleReimbursementCategory(group.category)}
+                                  className="h-4 w-4 rounded border-slate-300 data-[state=checked]:border-blue-500 data-[state=checked]:bg-blue-500 data-[state=indeterminate]:border-blue-500 data-[state=indeterminate]:bg-blue-500" />
+                                <span className="truncate">{group.category}</span>
+                              </div>
+                              <span className="shrink-0 text-xs text-slate-500">
+                                {group.selectedCount}/{group.items.length} · {formatMoney(group.selectedAmount)}
+                              </span>
+                            </div>
+                            <div className="divide-y divide-slate-50">
+                              {group.items.map((item) => {
+                                const invoice = findInvoiceForExpenseItem(item, invoiceVouchers);
+                                const selected = selectedReimbursementItemIds.has(item.id);
+                                return (
+                                  <div
+                                    key={item.id}
+                                    aria-pressed={selected}
+                                    onClick={() => toggleReimbursementItem(item.id)}
+                                    className={`grid w-full cursor-pointer grid-cols-[24px_minmax(0,1fr)_74px_112px] items-center gap-3 px-4 py-3 text-left text-sm transition-colors ${selected ? 'bg-emerald-50/40' : 'hover:bg-slate-50'}`}>
+                                    <Checkbox
+                                      checked={selected}
+                                      aria-label={`选择 ${invoice?.invoiceNumber ?? item.id}`}
+                                      onClick={(event) => event.stopPropagation()}
+                                      onCheckedChange={() => toggleReimbursementItem(item.id)}
+                                      className="h-5 w-5 rounded-md border-slate-300 data-[state=checked]:border-emerald-500 data-[state=checked]:bg-emerald-500" />
+                                    <span className="min-w-0">
+                                      <span className="block truncate font-medium text-slate-800" title={invoice?.issuer ?? item.vendor}>
+                                        {invoice?.issuer ?? item.vendor}
+                                      </span>
+                                      <span className="mt-0.5 block truncate text-xs text-slate-400">
+                                        发票 {invoice?.invoiceNumber ?? item.matchedTo ?? '-'} · 凭证 {item.id} · {item.vendor}
+                                      </span>
+                                    </span>
+                                    <span className="flex items-center justify-end gap-1">
+                                      <button
+                                        type="button"
+                                        title="查看发票详情"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          setReimbursementInspector({ itemId: item.id, kind: 'invoice' });
+                                        }}
+                                        className="flex h-7 w-7 items-center justify-center rounded-full text-blue-600 transition-colors hover:bg-blue-50">
+                                        <FileText className="h-3.5 w-3.5" />
+                                      </button>
+                                      <button
+                                        type="button"
+                                        title="查看关联详情"
+                                        onClick={(event) => {
+                                          event.stopPropagation();
+                                          setReimbursementInspector({ itemId: item.id, kind: 'link' });
+                                        }}
+                                        className="flex h-7 w-7 items-center justify-center rounded-full text-emerald-600 transition-colors hover:bg-emerald-50">
+                                        <Link2 className="h-3.5 w-3.5" />
+                                      </button>
+                                    </span>
+                                    <span className="text-right font-semibold text-slate-900">{formatMoney(item.amount)}</span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      }) :
+                      <div className="px-4 py-10 text-center text-sm text-slate-400">
+                        没有匹配的发票/凭证，请调整筛选条件。
+                      </div>
+                      }
+                    </div>
+                    <div className="flex items-center justify-between border-t border-slate-100 bg-white px-4 py-3">
+                      <span className="text-xs text-slate-500">
+                        {reimbursementPageStart}-{reimbursementPageEnd} / {filteredReimbursementItems.length} 项
+                      </span>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setReimbursementPage((page) => Math.max(1, page - 1))}
+                          disabled={reimbursementCurrentPage <= 1}
+                          className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200 disabled:opacity-40">
+                          <ChevronLeft className="h-3.5 w-3.5" /> 上一页
+                        </button>
+                        <span className="min-w-12 text-center text-xs font-medium text-slate-600">
+                          {reimbursementCurrentPage} / {reimbursementTotalPages}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setReimbursementPage((page) => Math.min(reimbursementTotalPages, page + 1))}
+                          disabled={reimbursementCurrentPage >= reimbursementTotalPages}
+                          className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200 disabled:opacity-40">
+                          下一页 <ChevronRight className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="px-4 py-10 text-center text-sm text-slate-400">
+                    暂无可提交凭证，请先完成发票关联；已审批成功的票据不会重复展示。
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {inspectedReimbursementItem &&
+          <aside className="absolute bottom-[78px] right-4 top-[92px] hidden w-[328px] overflow-y-auto rounded-2xl border border-slate-100 bg-white shadow-xl shadow-slate-900/10 lg:block">
+                <div className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${reimbursementInspector?.kind === 'invoice' ? 'bg-blue-50 text-blue-600' : 'bg-emerald-50 text-emerald-600'}`}>
+                      {reimbursementInspector?.kind === 'invoice' ? <FileText className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}
+                    </span>
+                    <div className="min-w-0">
+                      <h4 className="truncate text-sm font-semibold text-slate-900">
+                        {reimbursementInspector?.kind === 'invoice' ? '发票详情' : '关联详情'}
+                      </h4>
+                      <p className="truncate text-xs text-slate-400">
+                        {inspectedReimbursementInvoice?.invoiceNumber ?? inspectedReimbursementItem.id}
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setReimbursementInspector(null)}
+                    className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700">
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                {reimbursementInspector?.kind === 'invoice' ?
+            <div className="space-y-4 p-4">
+                    <div>
+                      <div className="text-xs text-slate-400">开票方</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-900">
+                        {inspectedReimbursementInvoice?.issuer ?? '-'}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+                      <div>
+                        <div className="text-xs text-slate-400">发票号码</div>
+                        <div className="mt-1 font-mono text-slate-800">{inspectedReimbursementInvoice?.invoiceNumber ?? '-'}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-400">开票日期</div>
+                        <div className="mt-1 text-slate-800">{inspectedReimbursementInvoice?.date ?? inspectedReimbursementItem.date}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-400">价税合计</div>
+                        <div className="mt-1 font-semibold text-slate-900">{formatMoney(inspectedReimbursementInvoice?.amount ?? inspectedReimbursementItem.amount)}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-400">税额</div>
+                        <div className="mt-1 text-emerald-700">{formatMoney(inspectedReimbursementInvoice?.taxAmount ?? 0)}</div>
+                      </div>
+                    </div>
+                    <div className="rounded-2xl bg-slate-50 px-4 py-3">
+                      <div className="text-xs text-slate-400">审批状态</div>
+                      <div className="mt-1 text-sm font-medium text-slate-800">
+                        {inspectedReimbursementInvoice?.status ?? inspectedReimbursementItem.sourceInvoiceStatus ?? '未审批成功'}
+                      </div>
+                    </div>
+                  </div> :
+            <div className="space-y-4 p-4">
+                    <div>
+                      <div className="mb-2 text-xs font-medium text-blue-600">发票</div>
+                      <div className="text-sm font-semibold text-slate-900">{inspectedReimbursementInvoice?.issuer ?? '-'}</div>
+                      <div className="mt-1 font-mono text-xs text-slate-500">{inspectedReimbursementInvoice?.invoiceNumber ?? inspectedReimbursementItem.matchedTo ?? '-'}</div>
+                      <div className="mt-2 text-sm font-semibold text-slate-900">
+                        {formatMoney(inspectedReimbursementInvoice?.amount ?? inspectedReimbursementItem.amount)}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs font-medium text-emerald-600">
+                      <span className="h-px flex-1 bg-emerald-100" />
+                      <Link2 className="h-4 w-4" />
+                      已关联
+                      <span className="h-px flex-1 bg-emerald-100" />
+                    </div>
+                    <div>
+                      <div className="mb-2 text-xs font-medium text-emerald-600">凭证</div>
+                      <div className="text-sm font-semibold text-slate-900">{inspectedReimbursementItem.vendor}</div>
+                      <div className="mt-1 font-mono text-xs text-slate-500">{getVoucherSubmitId(inspectedReimbursementItem)}</div>
+                      <div className="mt-2 text-sm font-semibold text-slate-900">{formatMoney(inspectedReimbursementItem.amount)}</div>
+                    </div>
+                    <div className="rounded-2xl bg-slate-50 px-4 py-3 text-xs text-slate-500">
+                      {inspectedReimbursementItem.category} · {inspectedReimbursementItem.date}
+                    </div>
+                  </div>
+            }
+              </aside>
+          }
+
+            <DialogFooter className="flex-row items-center justify-between border-t border-slate-100 bg-slate-50 px-6 py-4 sm:justify-between">
+              <p className="text-xs text-slate-500">
+                确认后将创建报销单，并尝试提交企业微信审批。
+              </p>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={closeReimbursementDialog}
+                  className="rounded-full bg-white px-4 py-2 text-sm font-medium text-slate-600 ring-1 ring-slate-200 transition-colors hover:bg-slate-100">
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleConfirmCreateApproval()}
+                  disabled={submittingReimbursement || selectedReimbursementItems.length === 0}
+                  className="inline-flex items-center gap-1.5 rounded-full bg-gradient-to-br from-emerald-500 to-teal-600 px-5 py-2 text-sm font-medium text-white shadow-sm shadow-emerald-500/30 transition-all hover:shadow-md disabled:opacity-50">
+                  {submittingReimbursement ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                  {submittingReimbursement ? '创建中...' : '确认创建'}
+                </button>
+              </div>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+    </div>);
+
 }
-
-function RuleEditorDrawer({ onDirtyChange }: { onDirtyChange: (dirty: boolean) => void }) {
-  return (
-    <div className="space-y-3">
-      <Input placeholder="规则名称" onChange={() => onDirtyChange(true)} />
-      <Textarea placeholder="匹配条件：关键词 / 销售方包含 / 金额范围 / 复合条件" onChange={() => onDirtyChange(true)} />
-      <Select defaultValue="travel" onValueChange={() => onDirtyChange(true)}>
-        <SelectTrigger className="material-input h-10">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="travel">归类到差旅</SelectItem>
-          <SelectItem value="purchase">归类到采购</SelectItem>
-          <SelectItem value="approval">触发审批</SelectItem>
-        </SelectContent>
-      </Select>
-      <Input placeholder="优先级" onChange={() => onDirtyChange(true)} />
-    </div>
-  );
-}
-
-function DrawerFooterActions({ drawer, selectedCount, onClose }: { drawer: DrawerKind; selectedCount: number; onClose: () => void }) {
-  if (!drawer) return null;
-  const saveLabel =
-    drawer === "batch-classify"
-      ? `应用到 ${Math.max(selectedCount, 1)} 张`
-      : drawer === "upload"
-        ? "确认入库"
-        : drawer === "voucher-upload"
-          ? "确认导入凭证"
-        : drawer === "new-reimbursement"
-          ? "提交企微审批"
-          : drawer === "reimbursement-detail"
-            ? "同步企微状态"
-            : "保存";
-  return (
-    <div className="flex w-full justify-end gap-2">
-      <Button type="button" variant="outline" onClick={onClose}>取消</Button>
-      <Button type="button" variant="outline" onClick={() => toast.success("草稿已保存")}>保存草稿</Button>
-      <Button type="button" onClick={() => { toast.success("操作已完成"); onClose(); }}><Save className="h-4 w-4" />{saveLabel}</Button>
-    </div>
-  );
-}
-
-function PanelTitle({ icon: Icon, title, right }: { icon: React.ElementType; title: string; right?: React.ReactNode }) {
-  return (
-    <div className="mb-3 flex items-center justify-between gap-3">
-      <div className="flex items-center gap-2">
-        <Icon className="h-4 w-4 text-blue-700" />
-        <h3 className="text-sm font-bold text-slate-900">{title}</h3>
-      </div>
-      {right ? <div className="text-xs font-medium text-slate-500">{right}</div> : null}
-    </div>
-  );
-}
-
-function Info({ label, value }: { label: string; value: React.ReactNode }) {
-  return <div className="rounded border border-slate-200 bg-white p-3"><div className="text-xs text-slate-500">{label}</div><div className="mt-1 truncate font-bold text-slate-900">{value}</div></div>;
-}
-
-function SuggestionCard({ title, detail, confidence }: { title: string; detail: string; confidence: number }) {
-  return <div className="rounded border border-blue-100 bg-white p-3"><div className="mb-2 flex items-center justify-between"><span className="font-bold text-slate-900">{title}</span><ConfidenceTag value={confidence} /></div><div className="text-xs text-slate-500">{detail}</div></div>;
-}
-
-function InvoiceTableMini({ invoices }: { invoices: InvoiceRecord[] }) {
-  if (!invoices.length) {
-    return <EmptyState compact icon={FolderOpen} title="暂无可选票据" detail="上传并确认票据后，可以在这里勾选生成报销单。" />;
-  }
-  return <div className="grid grid-cols-2 gap-2">{invoices.slice(0, 8).map((invoice) => <label key={invoice.id} className="flex items-center gap-2 rounded border border-slate-200 bg-white p-2 text-sm"><Checkbox defaultChecked={invoice.status === "已关联"} /><InvoiceThumbnail invoice={invoice} /><span className="min-w-0 flex-1 truncate">{invoice.vendor}</span><span className="font-bold">{formatCurrency(invoice.amount)}</span></label>)}</div>;
-}
-
-function ComparePane({ title, rows }: { title: string; rows: Array<[string, React.ReactNode]> }) {
-  return <div className="rounded-[var(--m3-shape-large)] border border-slate-200 bg-white p-4"><PanelTitle icon={FileText} title={title} />{rows.map(([label, value]) => <Info key={label} label={label} value={value} />)}</div>;
-}
-
-function ChartPanel({ title, data, type }: { title: string; data: any[]; type: "trend" | "pie" | "bar" | "project" }) {
-  const hasData = data.length > 0;
-
-  return (
-    <div className="expense-chart-panel material-panel p-4">
-      <PanelTitle
-        icon={BarChart3}
-        title={title}
-        right={hasData && (type === "bar" || type === "project") ? <span className="text-[11px] text-slate-500">逐条独立色彩</span> : null}
-      />
-      {!hasData ? (
-        <EmptyState
-          compact
-          icon={BarChart3}
-          title="暂无统计数据"
-          detail="有票据入库并完成分类后，这里会生成对应维度的统计图。"
-        />
-      ) : null}
-      {hasData ? <div className="h-[260px]">
-        <ResponsiveContainer width="100%" height="100%">
-          {type === "pie" ? (
-            <PieChart><Pie data={data} dataKey="amount" nameKey="category" innerRadius={56} outerRadius={92}>{data.map((item) => <Cell key={item.category} fill={categoryColors[item.category as ExpenseCategory]} />)}</Pie><Tooltip formatter={(value: number | string) => [formatCurrency(Number(value)), "金额"]} /></PieChart>
-          ) : type === "bar" || type === "project" ? (
-            <BarChart data={data} layout="vertical" margin={{ top: 8, right: 12, bottom: 0, left: 8 }}>
-              <XAxis type="number" hide />
-              <YAxis type="category" dataKey={type === "bar" ? "dept" : "project"} width={92} tick={{ fontSize: 11, fill: "var(--muted-foreground)" }} axisLine={false} tickLine={false} />
-              <Tooltip formatter={(value: number | string) => [formatCurrency(Number(value)), "金额"]} />
-              <Bar dataKey="amount" radius={[0, 6, 6, 0]}>
-                {data.map((item, index) => (
-                  <Cell key={`${type}-${item.dept ?? item.project ?? index}`} fill={chartBarPalette[index % chartBarPalette.length]} />
-                ))}
-              </Bar>
-            </BarChart>
-          ) : (
-            <LineChart data={data}><CartesianGrid stroke="var(--outline-variant)" vertical={false} /><XAxis dataKey="month" tick={{ fontSize: 11 }} axisLine={false} tickLine={false} /><YAxis tick={{ fontSize: 11 }} axisLine={false} tickLine={false} /><Tooltip formatter={(value: number | string) => [formatCurrency(Number(value)), "金额"]} /><Line dataKey="差旅" stroke="var(--primary)" dot={false} /><Line dataKey="采购" stroke="var(--chart-3)" dot={false} /></LineChart>
-          )}
-        </ResponsiveContainer>
-      </div> : null}
-    </div>
-  );
-}
-
-function ThresholdCards() {
-  return <div className="grid grid-cols-3 gap-3">{[["分类自动入库置信度阈值", 90], ["关联自动通过置信度阈值", 85], ["异常告警置信度阈值", 70]].map(([label, value]) => <div key={label} className="rounded border border-slate-200 bg-slate-50 p-4"><div className="mb-2 text-sm font-bold">{label}</div><Progress value={Number(value)} /><div className="mt-2 text-xs text-slate-500">{value}%</div></div>)}</div>;
-}
-
-function FlowConfig() {
-  return <div className="rounded-[var(--m3-shape-large)] border border-slate-200 bg-slate-50 p-4"><PanelTitle icon={ShieldCheck} title="审批流" /><div className="grid grid-cols-4 gap-2">{["申请人提交", "部门负责人", "财务复核", "出纳付款"].map((step, index) => <div key={step} className="rounded border border-slate-200 bg-white p-3 text-center text-sm font-bold">{index + 1}. {step}</div>)}</div></div>;
-}
-
-function MaterialRules() {
-  return <div className="grid grid-cols-4 gap-3">{(["差旅", "餐饮", "采购", "办公"] as ExpenseCategory[]).map((category) => <div key={category} className="rounded border border-slate-200 bg-slate-50 p-4"><div className="mb-2 font-bold">{category}</div><div className="text-xs leading-5 text-slate-500">{category === "差旅" ? "发票 + 行程单 + 审批单" : category === "餐饮" ? "发票 + 参与人 + 事由" : category === "采购" ? "发票 + 合同 + 入库单" : "发票 + 申请说明"}</div></div>)}</div>;
-}
-
-const ClockIcon = CalendarDays;
-const ReceiptIcon = FileText;

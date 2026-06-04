@@ -125,6 +125,8 @@ export type ReimbursementRecord = {
   appliedDate: string;
   amount: number;
   invoiceCount: number;
+  invoiceIds?: string[];
+  voucherIds?: string[];
   status: ReimbursementStatus;
   node: string;
   weComFlowId: string;

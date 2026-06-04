@@ -86,6 +86,8 @@ type ApiReimbursement = {
   applied_date: string;
   amount: number;
   invoice_count: number;
+  invoice_ids?: string[];
+  voucher_ids?: string[];
   status: ReimbursementRecord["status"];
   node: string;
   wecom_flow_id: string;
@@ -292,6 +294,8 @@ function toReimbursement(item: ApiReimbursement): ReimbursementRecord {
     appliedDate: item.applied_date,
     amount: item.amount,
     invoiceCount: item.invoice_count,
+    invoiceIds: item.invoice_ids,
+    voucherIds: item.voucher_ids,
     status: item.status,
     node: item.node,
     weComFlowId: item.wecom_flow_id,
@@ -495,6 +499,7 @@ export const expenseService = {
     project?: string;
     reason?: string;
     invoice_ids: string[];
+    voucher_ids?: string[];
     wecom_creator_userid?: string;
   }) {
     return toReimbursement(await request<ApiReimbursement>("/api/expenses/reimbursements", {

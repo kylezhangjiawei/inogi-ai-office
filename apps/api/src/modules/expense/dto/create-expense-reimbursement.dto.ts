@@ -22,6 +22,11 @@ export class CreateExpenseReimbursementDto {
   invoice_ids!: string[];
 
   @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  voucher_ids?: string[];
+
+  @IsOptional()
   @IsString()
   wecom_creator_userid?: string;
 }

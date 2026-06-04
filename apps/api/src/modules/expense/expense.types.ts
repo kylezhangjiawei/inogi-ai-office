@@ -98,6 +98,7 @@ export type ExpenseReimbursementValue = {
   amount: number;
   invoice_count: number;
   invoice_ids: string[];
+  voucher_ids?: string[];
   status: ReimbursementStatus;
   node: string;
   project: string;
