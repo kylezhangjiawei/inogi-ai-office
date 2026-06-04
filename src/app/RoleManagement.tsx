@@ -691,7 +691,7 @@ export function RoleManagement() {
         open={dialogMode === "create" || dialogMode === "edit"}
         onOpenChange={(open) => !open && closeDialog()}
       >
-        <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+        <DialogContent className="material-scrollbar sm:max-w-[50vw] max-h-[85vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {dialogMode === "edit" ? (

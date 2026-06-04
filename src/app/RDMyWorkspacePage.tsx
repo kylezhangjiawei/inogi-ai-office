@@ -1310,59 +1310,59 @@ function TaskOperationDrawer({
               <div className="mt-3 rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-700">{task.next_action}</div>
             </div>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-xl border border-slate-200 p-4">
-                <div className="mb-3 text-sm font-semibold text-slate-900">交付物</div>
-                <ul className="space-y-2">
-                  {task.deliverables.map((item) => (
-                    <li key={item} className="flex items-center gap-2 text-sm text-slate-600">
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              <div className="rounded-xl border border-slate-200 p-4">
-                <div className="mb-3 text-sm font-semibold text-slate-900">阻塞项</div>
-                {task.blockers.length === 0 ? (
-                  <p className="text-sm text-slate-400">暂无阻塞</p>
-                ) : (
-                  <ul className="space-y-2">
-                    {task.blockers.map((item) => (
-                      <li key={item} className="flex items-center gap-2 text-sm text-red-600">
-                        <AlertTriangle className="h-3.5 w-3.5" />
-                        {item}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
+            {/*<div className="grid gap-4 sm:grid-cols-2">*/}
+            {/*  <div className="rounded-xl border border-slate-200 p-4">*/}
+            {/*    <div className="mb-3 text-sm font-semibold text-slate-900">交付物</div>*/}
+            {/*    <ul className="space-y-2">*/}
+            {/*      {task.deliverables.map((item) => (*/}
+            {/*        <li key={item} className="flex items-center gap-2 text-sm text-slate-600">*/}
+            {/*          <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />*/}
+            {/*          {item}*/}
+            {/*        </li>*/}
+            {/*      ))}*/}
+            {/*    </ul>*/}
+            {/*  </div>*/}
+            {/*  <div className="rounded-xl border border-slate-200 p-4">*/}
+            {/*    <div className="mb-3 text-sm font-semibold text-slate-900">阻塞项</div>*/}
+            {/*    {task.blockers.length === 0 ? (*/}
+            {/*      <p className="text-sm text-slate-400">暂无阻塞</p>*/}
+            {/*    ) : (*/}
+            {/*      <ul className="space-y-2">*/}
+            {/*        {task.blockers.map((item) => (*/}
+            {/*          <li key={item} className="flex items-center gap-2 text-sm text-red-600">*/}
+            {/*            <AlertTriangle className="h-3.5 w-3.5" />*/}
+            {/*            {item}*/}
+            {/*          </li>*/}
+            {/*        ))}*/}
+            {/*      </ul>*/}
+            {/*    )}*/}
+            {/*  </div>*/}
+            {/*</div>*/}
 
-            <div className="rounded-xl border border-slate-200 p-4">
-              <div className="mb-3 text-sm font-semibold text-slate-900">任务时间线</div>
-              <div className="space-y-0">
-                {task.timeline.map((item, index) => (
-                  <div key={item.label} className="relative flex gap-3 pb-4 last:pb-0">
-                    {index < task.timeline.length - 1 && (
-                      <span className="absolute left-[7px] top-5 h-[calc(100%-16px)] w-px bg-slate-200" />
-                    )}
-                    <span
-                      className={cn(
-                        "relative z-10 mt-1 h-3.5 w-3.5 rounded-full border-2 bg-white",
-                        item.state === "done" && "border-emerald-400",
-                        item.state === "current" && "border-blue-500 shadow-[0_0_0_4px_rgba(37,99,235,0.10)]",
-                        item.state === "todo" && "border-slate-300",
-                      )}
-                    />
-                    <div>
-                      <div className="text-sm font-medium text-slate-800">{item.label}</div>
-                      <div className="text-xs text-slate-400">{item.time}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+            {/*<div className="rounded-xl border border-slate-200 p-4">*/}
+            {/*  <div className="mb-3 text-sm font-semibold text-slate-900">任务时间线</div>*/}
+            {/*  <div className="space-y-0">*/}
+            {/*    {task.timeline.map((item, index) => (*/}
+            {/*      <div key={item.label} className="relative flex gap-3 pb-4 last:pb-0">*/}
+            {/*        {index < task.timeline.length - 1 && (*/}
+            {/*          <span className="absolute left-[7px] top-5 h-[calc(100%-16px)] w-px bg-slate-200" />*/}
+            {/*        )}*/}
+            {/*        <span*/}
+            {/*          className={cn(*/}
+            {/*            "relative z-10 mt-1 h-3.5 w-3.5 rounded-full border-2 bg-white",*/}
+            {/*            item.state === "done" && "border-emerald-400",*/}
+            {/*            item.state === "current" && "border-blue-500 shadow-[0_0_0_4px_rgba(37,99,235,0.10)]",*/}
+            {/*            item.state === "todo" && "border-slate-300",*/}
+            {/*          )}*/}
+            {/*        />*/}
+            {/*        <div>*/}
+            {/*          <div className="text-sm font-medium text-slate-800">{item.label}</div>*/}
+            {/*          <div className="text-xs text-slate-400">{item.time}</div>*/}
+            {/*        </div>*/}
+            {/*      </div>*/}
+            {/*    ))}*/}
+            {/*  </div>*/}
+            {/*</div>*/}
 
             <div className="rounded-xl border border-slate-200 p-4">
               <div className="mb-3 flex items-center justify-between">

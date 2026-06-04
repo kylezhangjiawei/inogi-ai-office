@@ -2915,83 +2915,83 @@ function TaskLifecycleTimeline({ task }: { task: Task }) {
     { label: "封存", helper: task.archived || task.status === "archived" ? "任务已归档" : "完成后可封存", Icon: Archive },
   ];
 
-  return (
-    <motion.section
-      initial={shouldReduceMotion ? false : { opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={RD_PANEL_TRANSITION}
-      className="rounded-[8px] border border-slate-200 bg-white px-4 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.04)]"
-    >
-      <div className="mb-3 flex items-center justify-between">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-900">任务时间轴</h3>
-          <p className="mt-0.5 text-xs text-slate-500">当前节点已高亮显示</p>
-        </div>
-        <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">
-          {steps[currentIndex].label}
-        </span>
-      </div>
-
-      <div className="space-y-0">
-        {steps.map((step, index) => {
-          const state: TimelineStepState =
-            index < currentIndex ? "done" : index === currentIndex ? (attentionCurrent ? "attention" : "current") : "todo";
-          const isLast = index === steps.length - 1;
-          return (
-            <motion.div
-              key={step.label}
-              initial={shouldReduceMotion ? false : { opacity: 0, x: -8 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={shouldReduceMotion ? { duration: 0 } : { ...RD_LIST_TRANSITION, delay: index * 0.03 }}
-              className="relative flex gap-3"
-            >
-              {!isLast && (
-                <motion.span
-                  initial={shouldReduceMotion ? false : { scaleY: 0 }}
-                  animate={{ scaleY: 1 }}
-                  transition={shouldReduceMotion ? { duration: 0 } : { ...RD_LIST_TRANSITION, delay: index * 0.04 }}
-                  className={cn(
-                    "absolute left-[15px] top-8 h-[calc(100%-24px)] w-px origin-top",
-                    index < currentIndex ? "bg-emerald-200" : "bg-slate-200",
-                  )}
-                />
-              )}
-              <motion.span
-                initial={shouldReduceMotion ? false : { scale: 0.9 }}
-                animate={{ scale: 1 }}
-                transition={shouldReduceMotion ? { duration: 0 } : { ...RD_FAST_TRANSITION, delay: index * 0.03 }}
-                className={cn(
-                  "relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-white transition-all",
-                  state === "done" && "border-emerald-200 bg-emerald-50 text-emerald-600",
-                  state === "current" && "border-indigo-200 bg-indigo-50 text-indigo-700 shadow-[0_0_0_4px_rgba(59,130,246,0.10)]",
-                  state === "attention" && "border-amber-200 bg-amber-50 text-amber-700 shadow-[0_0_0_4px_rgba(245,158,11,0.10)]",
-                  state === "todo" && "border-slate-200 text-slate-300",
-                )}
-              >
-                <step.Icon className="h-4 w-4" />
-              </motion.span>
-              <div className={cn("min-w-0 pb-4", isLast && "pb-0")}>
-                <div
-                  className={cn(
-                    "text-sm font-semibold",
-                    state === "done" && "text-emerald-700",
-                    state === "current" && "text-indigo-800",
-                    state === "attention" && "text-amber-800",
-                    state === "todo" && "text-slate-400",
-                  )}
-                >
-                  {step.label}
-                </div>
-                <div className={cn("mt-0.5 text-xs", state === "todo" ? "text-slate-400" : "text-slate-500")}>
-                  {step.helper}
-                </div>
-              </div>
-            </motion.div>
-          );
-        })}
-      </div>
-    </motion.section>
-  );
+  // return (
+  //   <motion.section
+  //     initial={shouldReduceMotion ? false : { opacity: 0, y: 6 }}
+  //     animate={{ opacity: 1, y: 0 }}
+  //     transition={RD_PANEL_TRANSITION}
+  //     className="rounded-[8px] border border-slate-200 bg-white px-4 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.04)]"
+  //   >
+  //     <div className="mb-3 flex items-center justify-between">
+  //       <div>
+  //         <h3 className="text-sm font-semibold text-slate-900">任务时间轴</h3>
+  //         <p className="mt-0.5 text-xs text-slate-500">当前节点已高亮显示</p>
+  //       </div>
+  //       <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">
+  //         {steps[currentIndex].label}
+  //       </span>
+  //     </div>
+  //
+  //     <div className="space-y-0">
+  //       {steps.map((step, index) => {
+  //         const state: TimelineStepState =
+  //           index < currentIndex ? "done" : index === currentIndex ? (attentionCurrent ? "attention" : "current") : "todo";
+  //         const isLast = index === steps.length - 1;
+  //         return (
+  //           <motion.div
+  //             key={step.label}
+  //             initial={shouldReduceMotion ? false : { opacity: 0, x: -8 }}
+  //             animate={{ opacity: 1, x: 0 }}
+  //             transition={shouldReduceMotion ? { duration: 0 } : { ...RD_LIST_TRANSITION, delay: index * 0.03 }}
+  //             className="relative flex gap-3"
+  //           >
+  //             {!isLast && (
+  //               <motion.span
+  //                 initial={shouldReduceMotion ? false : { scaleY: 0 }}
+  //                 animate={{ scaleY: 1 }}
+  //                 transition={shouldReduceMotion ? { duration: 0 } : { ...RD_LIST_TRANSITION, delay: index * 0.04 }}
+  //                 className={cn(
+  //                   "absolute left-[15px] top-8 h-[calc(100%-24px)] w-px origin-top",
+  //                   index < currentIndex ? "bg-emerald-200" : "bg-slate-200",
+  //                 )}
+  //               />
+  //             )}
+  //             <motion.span
+  //               initial={shouldReduceMotion ? false : { scale: 0.9 }}
+  //               animate={{ scale: 1 }}
+  //               transition={shouldReduceMotion ? { duration: 0 } : { ...RD_FAST_TRANSITION, delay: index * 0.03 }}
+  //               className={cn(
+  //                 "relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-white transition-all",
+  //                 state === "done" && "border-emerald-200 bg-emerald-50 text-emerald-600",
+  //                 state === "current" && "border-indigo-200 bg-indigo-50 text-indigo-700 shadow-[0_0_0_4px_rgba(59,130,246,0.10)]",
+  //                 state === "attention" && "border-amber-200 bg-amber-50 text-amber-700 shadow-[0_0_0_4px_rgba(245,158,11,0.10)]",
+  //                 state === "todo" && "border-slate-200 text-slate-300",
+  //               )}
+  //             >
+  //               <step.Icon className="h-4 w-4" />
+  //             </motion.span>
+  //             <div className={cn("min-w-0 pb-4", isLast && "pb-0")}>
+  //               <div
+  //                 className={cn(
+  //                   "text-sm font-semibold",
+  //                   state === "done" && "text-emerald-700",
+  //                   state === "current" && "text-indigo-800",
+  //                   state === "attention" && "text-amber-800",
+  //                   state === "todo" && "text-slate-400",
+  //                 )}
+  //               >
+  //                 {step.label}
+  //               </div>
+  //               <div className={cn("mt-0.5 text-xs", state === "todo" ? "text-slate-400" : "text-slate-500")}>
+  //                 {step.helper}
+  //               </div>
+  //             </div>
+  //           </motion.div>
+  //         );
+  //       })}
+  //     </div>
+  //   </motion.section>
+  // );
 }
 
 // ─── SubmitConfirmDialog ──────────────────────────────────────────────────────
@@ -4376,7 +4376,7 @@ function TaskDetailDrawer({
       {/* 点击面板外空白处关闭（透明遮罩，保留原有「页面不变暗」观感）；脏检查在 requestClose 内处理 */}
       <div className="absolute inset-0" aria-hidden onClick={requestClose} />
       <motion.div
-        className="relative z-10 flex h-full w-full max-w-[620px] flex-col overflow-y-auto border-l border-slate-200 bg-white shadow-2xl sm:w-[min(620px,92vw)]"
+        className="relative z-10 flex h-full w-full max-w-[620px] flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl sm:w-[min(620px,92vw)]"
         initial={shouldReduceMotion ? false : { opacity: 0, x: 36 }}
         animate={{ opacity: 1, x: 0 }}
         exit={{ opacity: 0, x: 28 }}
@@ -4435,7 +4435,7 @@ function TaskDetailDrawer({
           </button>
         </div>
 
-        <div className="flex-1 space-y-5 p-6">
+        <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-6">
           {task.archived && (
             <div className="flex items-center gap-2 rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3">
               <Lock className="h-4 w-4 text-slate-400" />
@@ -4623,15 +4623,15 @@ function TaskDetailDrawer({
             />
           )}
 
-          <div>
+          <div className="flex min-h-0 flex-1 flex-col">
             <div className="mb-2 flex items-center justify-between">
               <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">操作留痕</div>
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
                 {taskLogs.length} 条{taskAttachmentTotal > 0 ? ` · ${taskAttachmentTotal} 个附件` : ""}
               </span>
             </div>
-            {/* 固定高度 + 内部滚动：留痕较多时不再撑开面板、避免反复上下拉动 */}
-            <div className="max-h-80 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/40 px-2 py-2">
+            {/* 占满剩余高度 + 内部滚动：留痕区自适应填满详情面板的剩余空间，内容超出时仅在区内滚动 */}
+            <div className="min-h-[220px] flex-1 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/40 px-2 py-2">
               <AuditTimeline
                 logs={taskLogs}
                 showResource={false}
