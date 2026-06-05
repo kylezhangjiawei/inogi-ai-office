@@ -263,12 +263,38 @@ export class ChatService {
       return;
     }
 
-    const model = selectedConfig.model;
+    // ── 运行期自动路由：传了图、但当前模型不支持视觉 → 自动改用一个多模态模型处理本轮 ──
+    //    能力标记 usage_kind=multimodal 是权威依据（命名正则识别不出 qwen3.6-plus 这类
+    //    名字不带 vl/vision 的统一多模态模型），所以这里可以放心按标记自动选模。
+    //    找不到任何可用多模态模型时，保持原模型不变，后面会降级为「文字提示」兜底。
+    let activeConfig = selectedConfig;
+    const hasImageAttachment = attachments.some((a) => this.attachmentService.isImage(a.mime));
+    if (
+      hasImageAttachment &&
+      !this.modelSupportsVision(selectedConfig.model, selectedConfig.usageKind)
+    ) {
+      const visionConfig = await this.resolveVisionModelConfig();
+      if (visionConfig && visionConfig.id !== selectedConfig.id) {
+        activeConfig = visionConfig;
+        send({
+          type: 'modelSwitched',
+          from: selectedConfig.model,
+          to: visionConfig.model,
+          reason: 'vision',
+        });
+        this.logger.log(
+          `图片自动路由：${selectedConfig.model} → ${visionConfig.model}（会话 ${conversationId}）`,
+        );
+      }
+    }
+
+    const model = activeConfig.model;
+    const usageKind = activeConfig.usageKind;
     const isQwen = /qwen|tongyi|dashscope|dashscope|阿里|通义/i.test(
-      `${selectedConfig.provider} ${model}`,
+      `${activeConfig.provider} ${model}`,
     );
     const apiKey =
-      selectedConfig.apiKey ||
+      activeConfig.apiKey ||
       (isQwen ? (this.qwenApiKey ?? this.openaiApiKey) : this.openaiApiKey);
 
     if (!apiKey) {
@@ -278,7 +304,7 @@ export class ChatService {
     }
 
     const baseURL =
-      selectedConfig.baseUrl || (isQwen ? this.qwenBaseUrl : (this.openaiBaseUrl ?? undefined));
+      activeConfig.baseUrl || (isQwen ? this.qwenBaseUrl : (this.openaiBaseUrl ?? undefined));
     const client = new OpenAI({ apiKey, ...(baseURL ? { baseURL } : {}) });
 
     const history = conv.messages.map((m) => ({
@@ -383,7 +409,7 @@ export class ChatService {
           : combined;
     }
 
-    const visionOk = imageAttachments.length > 0 && this.modelSupportsVision(model);
+    const visionOk = imageAttachments.length > 0 && this.modelSupportsVision(model, usageKind);
 
     const textSegments: string[] = [];
     if (content) textSegments.push(content);
@@ -512,9 +538,53 @@ export class ChatService {
       id: config.id,
       provider: config.provider ?? 'openai',
       model: config.model ?? '',
+      usageKind: metadata.usage_kind,
       baseUrl: metadata.base_url || undefined,
       apiKey: this.decryptSecret(config.encryptedSecret),
     };
+  }
+
+  /**
+   * 运行期自动路由用：挑一个能「看图」且可用的对话模型配置。
+   * 排序与默认模型一致（updatedAt desc, name asc），筛选条件：
+   *   1) 能解析出可用 API Key（已存密钥或环境兜底）——否则切过去也会因缺 Key 直接报错；
+   *   2) 是对话模型（排除图片生成 / embedding / 文档解析）；
+   *   3) 支持视觉——优先采信管理员显式标记 usage_kind=multimodal，其次命名正则兜底。
+   * 找不到则返回 null（调用方据此退回「文字提示」兜底，不硬切到没法用的模型）。
+   * 返回结构与 resolveModelConfig 完全一致，apiKey 已算好可直接用。
+   */
+  private async resolveVisionModelConfig() {
+    const configs = await this.prisma.integrationConfig.findMany({
+      where: { kind: 'openai', isActive: true },
+      orderBy: [{ updatedAt: 'desc' }, { name: 'asc' }],
+    });
+
+    const candidates = configs
+      .map((config) => {
+        const metadata = this.parseAiModelMetadata(config.metadata);
+        const model = config.model ?? '';
+        const provider = config.provider ?? 'openai';
+        const stored = this.decryptSecret(config.encryptedSecret);
+        const isQwen = /qwen|tongyi|dashscope|阿里|通义/i.test(`${provider} ${model}`);
+        const apiKey =
+          stored || (isQwen ? (this.qwenApiKey ?? this.openaiApiKey) : this.openaiApiKey) || '';
+        return {
+          id: config.id,
+          provider,
+          model,
+          usageKind: metadata.usage_kind,
+          baseUrl: metadata.base_url || undefined,
+          apiKey,
+        };
+      })
+      .filter((c) => Boolean(c.apiKey) && !this.isNonChatModel(c.model, c.usageKind));
+
+    // 优先 usage_kind=multimodal（权威标记），其次命名正则兜底识别（vl/vision/gpt-4o…）
+    return (
+      candidates.find((c) => c.usageKind === 'multimodal') ??
+      candidates.find((c) => this.modelSupportsVision(c.model, c.usageKind)) ??
+      null
+    );
   }
 
   /** 统一判断：是不是对话模型不能用的（embedding / image-only / 文档解析） */
@@ -542,7 +612,11 @@ export class ChatService {
    * 含 vl/vision 的（qwen-vl、qwen2.5-vl、internvl 等）、GPT-4o/4.1、Claude 3+、Gemini、GLM-4V、LLaVA、Pixtral 等。
    * 仅用于决定"是否内联 base64 图片"；判断失误时退化为文字提示，不会报错。
    */
-  private modelSupportsVision(model: string): boolean {
+  private modelSupportsVision(model: string, usageKind?: string): boolean {
+    // 管理员在「AI 模型管理」显式标记为「文本/图片 — 多模态理解」(usage_kind=multimodal)
+    // 的模型优先采信：很多统一多模态模型（如 qwen3.6-plus、kimi-k2.6）名字里并不带
+    // vl/vision，光靠命名正则识别不出来，必须靠 usage_kind 兜底，否则图片会被丢弃。
+    if (usageKind === 'multimodal') return true;
     return /vl|vision|gpt-4o|gpt-4\.1|omni|claude-3|claude-opus|claude-sonnet|gemini|glm-4v|internvl|llava|step-1v|pixtral/i.test(
       model ?? '',
     );

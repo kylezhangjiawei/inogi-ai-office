@@ -5,6 +5,7 @@ import { toast } from "sonner";
 
 import { Switch } from "./components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./components/ui/table";
+import { MaterialSelect } from "./components/MaterialFields";
 import { AiModelItem, integrationManagementApi } from "./lib/integrationManagementApi";
 import { cn } from "./components/ui/utils";
 import { getAiModelUsage } from "./lib/aiModelOptions";
@@ -512,7 +513,15 @@ export function AiModelManagementPage() {
         </div>
       </section>
 
-      <Dialog open={dialogMode === "create" || dialogMode === "edit"} onClose={closeDialog} fullWidth maxWidth="md">
+      <Dialog
+        open={dialogMode === "create" || dialogMode === "edit"}
+        onClose={closeDialog}
+        fullWidth
+        maxWidth="md"
+        // Radix Select 的下拉用 Portal 渲染到 body，MUI 默认的焦点陷阱会把焦点抢回 Dialog
+        // 导致下拉一打开就被关闭；关掉 enforceFocus 后下拉才能正常交互。
+        disableEnforceFocus
+      >
         <DialogTitle>{dialogMode === "edit" ? "编辑 AI 模型" : "新增 AI 模型"}</DialogTitle>
         <DialogContent dividers>
           <div className="grid gap-4 pt-1 md:grid-cols-2">
@@ -554,16 +563,17 @@ export function AiModelManagementPage() {
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                 用途类型
               </label>
-              <select
-                className="material-input w-full"
+              <MaterialSelect
                 value={usageKind}
-                onChange={(event) => setUsageKind(event.target.value)}
-              >
-                <option value="auto">自动识别（根据模型名称推断）</option>
-                <option value="text">文本 — 纯文字对话、摘要、提取</option>
-                <option value="multimodal">文本/图片 — 多模态理解（可接收图片输入）</option>
-                <option value="image">图片生成 — 文生图、参考图生图</option>
-              </select>
+                onValueChange={setUsageKind}
+                contentClassName="z-[1400]"
+                options={[
+                  { value: "auto", label: "自动识别（根据模型名称推断）" },
+                  { value: "text", label: "文本 — 纯文字对话、摘要、提取" },
+                  { value: "multimodal", label: "文本/图片 — 多模态理解（可接收图片输入）" },
+                  { value: "image", label: "图片生成 — 文生图、参考图生图" },
+                ]}
+              />
               <p className="mt-1.5 text-xs leading-5 text-slate-400">
                 手动指定后，系统将精准分配此模型到对应场景（对话、图片生成等），避免模型出现在不兼容的选择列表中。
               </p>

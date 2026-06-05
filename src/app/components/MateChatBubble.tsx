@@ -82,6 +82,7 @@ type SseEvent =
   | { type: "context"; fromDb: boolean }
   | { type: "citations"; citations: RagCitation[]; filteredByPermission: number }
   | { type: "delta"; delta: string }
+  | { type: "modelSwitched"; from: string; to: string; reason: string }
   | { type: "done"; messageId: string; title?: string }
   | { type: "error"; message: string };
 
@@ -820,6 +821,11 @@ export function MateChatBubble() {
                   ...prev,
                   [tempAiId]: { citations: event.citations, filteredByPermission: event.filteredByPermission },
                 }));
+              }
+
+              if (event.type === "modelSwitched") {
+                // 当前模型不支持图片，后端已自动切到多模态模型识别本轮图片，提示用户
+                toast.info(`当前模型不支持图片，已自动切换到「${event.to}」识别本次图片`);
               }
 
               if (event.type === "delta") {

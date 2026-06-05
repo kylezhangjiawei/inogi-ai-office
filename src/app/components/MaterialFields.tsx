@@ -78,6 +78,8 @@ type MaterialSelectProps = {
   options: MaterialSelectOption[];
   placeholder?: string;
   className?: string;
+  /** 透传到下拉浮层(SelectContent)。放进 MUI Dialog 等高层级容器时，传 z-[1400] 之类盖过它 */
+  contentClassName?: string;
 };
 
 export function MaterialSelect({
@@ -89,6 +91,7 @@ export function MaterialSelect({
   options,
   placeholder,
   className,
+  contentClassName,
 }: MaterialSelectProps) {
   const normalizedValue = value === "" ? EMPTY_SELECT_VALUE : value;
 
@@ -106,7 +109,12 @@ export function MaterialSelect({
         >
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
-        <SelectContent className="rounded-[var(--m3-shape-large)] border border-slate-200 bg-white p-1 shadow-[var(--m3-elevation-3)]">
+        <SelectContent
+          className={cn(
+            "rounded-[var(--m3-shape-large)] border border-slate-200 bg-white p-1 shadow-[var(--m3-elevation-3)]",
+            contentClassName,
+          )}
+        >
           {options.map((option) => (
             <SelectItem
               key={option.value || EMPTY_SELECT_VALUE}
