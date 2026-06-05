@@ -5,6 +5,8 @@ import { getRoleLabel, useAuth } from "../auth";
 import { routeTitleMap } from "../routesConfig";
 import { useUserAvatar } from "../lib/userAvatar";
 import { fetchRdMessages, patchRdMessage, type RdMessage } from "../lib/rdApi";
+import { useLayoutChromeState } from "../lib/layoutChrome";
+import { cn } from "./ui/utils";
 import { ImageWithFallback } from "./figma/ImageWithFallback";
 import {
   DropdownMenu,
@@ -47,6 +49,7 @@ export function Header() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const { immersive } = useLayoutChromeState();
   const avatar = useUserAvatar(user?.id);
   const [open, setOpen] = useState(false);
   const [rdMessages, setRdMessages] = useState<RdMessage[]>([]);
@@ -103,7 +106,14 @@ export function Header() {
     [location.pathname, title],
   );
   return (
-    <header className="relative z-40 border-b border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.82),rgba(255,255,255,0.72))] px-6 py-4 backdrop-blur-xl">
+    <header
+      className={cn(
+        "relative z-40 border-b border-white/70 bg-[linear-gradient(180deg,rgba(255,255,255,0.82),rgba(255,255,255,0.72))] px-6 backdrop-blur-xl transition-[max-height,padding,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]",
+        immersive
+          ? "pointer-events-none max-h-0 overflow-hidden border-b-0 py-0 opacity-0"
+          : "max-h-[400px] py-4 opacity-100",
+      )}
+    >
       <div className="flex flex-col gap-4 xl:flex-row xl:items-center">
         <div className="flex min-w-0 items-start gap-4">
           <div className="hidden h-14 w-1 rounded-full bg-[linear-gradient(180deg,#42a5f5_0%,#1976d2_100%)] xl:block" />

@@ -29,6 +29,8 @@ import {
   Paperclip,
   FileText,
   Pencil,
+  Pin,
+  PinOff,
   Plus,
   Trash2,
   UserCog,
@@ -69,6 +71,7 @@ import {
   AlertDialogTitle,
 } from "./components/ui/alert-dialog";
 import { PERMISSIONS, isSuperAdmin } from "./lib/permissions";
+import { useLayoutChromeActions } from "./lib/layoutChrome";
 import {
   backfillRdTaskCompletionScores,
   backfillRdTaskProgressNoteExtraction,
@@ -315,7 +318,7 @@ const RELATIVE_UPDATE_TONE: Record<
   stale: { bg: "bg-slate-100", text: "text-slate-600", border: "border-slate-200", dot: "bg-slate-400" },
 };
 
-type Risk = {
+export type Risk = {
   task: Task;
   category: Category;
   type: "overdue" | "due_soon" | "blocked" | "pending" | "slow";
@@ -383,7 +386,7 @@ function collectTaskIds(tasks: Task[]): Set<string> {
   return ids;
 }
 
-function flattenTasks(tasks: Task[]): Task[] {
+export function flattenTasks(tasks: Task[]): Task[] {
   const result: Task[] = [];
   function walk(items: Task[]) {
     for (const task of items) {
@@ -395,7 +398,7 @@ function flattenTasks(tasks: Task[]): Task[] {
   return result;
 }
 
-function computeRisks(categories: Category[]): Risk[] {
+export function computeRisks(categories: Category[]): Risk[] {
   const risks = categories.flatMap((cat) =>
     cat.children.flatMap((sub) => sub.tasks.flatMap((task) => collectTaskRisks(task, cat))),
   );
@@ -1412,7 +1415,7 @@ function SubProjectSection({
 
 // ─── Category Sidebar ─────────────────────────────────────────────────────────
 
-type CatStat = {
+export type CatStat = {
   cat: Category;
   total: number;
   inProgress: number;
@@ -1434,7 +1437,7 @@ const KPI_FILTER_LABEL: Record<KpiFilter, string> = {
   risk: "风险任务",
 };
 
-function buildCatStats(categories: Category[], risks: Risk[]): CatStat[] {
+export function buildCatStats(categories: Category[], risks: Risk[]): CatStat[] {
   return categories.map((cat) => {
     const tasks = flattenTasks(cat.children.flatMap((s) => s.tasks));
     const active = tasks.filter((t) => !t.archived);
@@ -1454,7 +1457,7 @@ function buildCatStats(categories: Category[], risks: Risk[]): CatStat[] {
 
 // ─── Executive Overview helpers ──────────────────────────────────────────────
 
-type PersonLoad = { name: string; count: number; max: number; onLeave: boolean };
+export type PersonLoad = { name: string; count: number; max: number; onLeave: boolean };
 type SystemHealth = "healthy" | "watch" | "alert" | "idle";
 
 const HEALTH_CONFIG: Record<
@@ -1540,7 +1543,7 @@ function computeScopedPersonLoads(
 /**
  * Aggregate active load per person across all categories.
  */
-function computePersonLoads(categories: Category[], maxPerPerson = 8): PersonLoad[] {
+export function computePersonLoads(categories: Category[], maxPerPerson = 8): PersonLoad[] {
   const counts = new Map<string, number>();
   const onLeave = new Set<string>();
 
@@ -7347,6 +7350,8 @@ function PersonTaskCockpit({
   onDeleteTask,
   kpiFilter = "all",
   onClearKpiFilter,
+  headerCollapsed = false,
+  onHeaderCollapseChange,
 }: {
   risks: Risk[];
   personLoads: PersonLoad[];
@@ -7359,6 +7364,10 @@ function PersonTaskCockpit({
   onDeleteTask?: (task: Task) => void;
   kpiFilter?: KpiFilter;
   onClearKpiFilter?: () => void;
+  /** 顶部模块当前是否收起：收起时把任务 feed 增高到 ~84vh 以最大化可视区 */
+  headerCollapsed?: boolean;
+  /** 任务 feed 滚动方向回调：下滑→true(请求收起)，上滑/回顶→false(请求展开)。父级「钉住」时忽略 */
+  onHeaderCollapseChange?: (collapsed: boolean) => void;
 }) {
   const shouldReduceMotion = useReducedMotion();
   const masonryColumns = useMasonryColumns();
@@ -7488,6 +7497,11 @@ function PersonTaskCockpit({
   // 导致少卡片的新 tab 永不自动填充。把节点放进 state 后，节点挂载/卸载即触发 effect 重跑，时序正确。
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
   const setScrollRef = useCallback((node: HTMLDivElement | null) => setScrollEl(node), []);
+  // 上一次滚动位置：用于判滚动方向(下滑收起/上滑展开)，带滞回阈值防抖动
+  const lastScrollTopRef = useRef(0);
+  // 收起/展开切换后的短暂冷却：feed 高度变化会让浏览器把超出新范围的 scrollTop 夹紧、回弹出一串
+  // 反向滚动事件；锁定窗口内只同步基准、不改变状态，避免「收起↔展开」来回横跳。
+  const collapseLockUntilRef = useRef(0);
 
   // 固定高度容器内的 onScroll 触发分页
   const handleTaskScroll = useCallback(
@@ -7501,8 +7515,40 @@ function PersonTaskCockpit({
           return { ...prev, [tabKey]: Math.min(current + TASK_PAGE_SIZE, totalTasks) };
         });
       }
+      // 顶部模块「下滑收起 / 上滑或回顶展开」：滞回阈值(累计>6px 才响应、下滑须越过 80px)避免抖动；
+      // 只在状态需要真正翻转时触发，并设冷却锁吸收高度变化引发的回弹。父级在「钉住」时忽略该信号。
+      if (onHeaderCollapseChange) {
+        const top = el.scrollTop;
+        if (Date.now() < collapseLockUntilRef.current) {
+          lastScrollTopRef.current = top;
+          return;
+        }
+        const lock = () => {
+          collapseLockUntilRef.current = Date.now() + 420;
+          lastScrollTopRef.current = top;
+        };
+        if (top <= 8) {
+          if (headerCollapsed) {
+            onHeaderCollapseChange(false);
+            lock();
+          }
+          lastScrollTopRef.current = top;
+        } else {
+          const delta = top - lastScrollTopRef.current;
+          if (delta > 6 && top > 80 && !headerCollapsed) {
+            onHeaderCollapseChange(true);
+            lock();
+          } else if (delta < -6 && headerCollapsed) {
+            onHeaderCollapseChange(false);
+            lock();
+          } else if (Math.abs(delta) > 6) {
+            // 方向明确但状态无需变化：仅推进基准，保持滞回灵敏度
+            lastScrollTopRef.current = top;
+          }
+        }
+      }
     },
-    [],
+    [onHeaderCollapseChange, headerCollapsed],
   );
 
   // ── Gallery lightbox ──
@@ -7704,7 +7750,7 @@ function PersonTaskCockpit({
       if (current >= total) return prev;
       return { ...prev, [activeTab]: Math.min(current + TASK_PAGE_SIZE, total) };
     });
-  }, [scrollEl, activeTab, visibleCounts, masonryColumns, allActiveTasks, personTasksMap]);
+  }, [scrollEl, activeTab, visibleCounts, masonryColumns, allActiveTasks, personTasksMap, headerCollapsed]);
 
   // Slide variants for tab content transitions
   const slideVariants = {
@@ -8252,8 +8298,8 @@ function PersonTaskCockpit({
                       ) : (
                         <div
                           ref={setScrollRef}
-                          className="cockpit-scroll overflow-y-auto"
-                          style={{ height: "65vh" }}
+                          className="cockpit-scroll overflow-y-auto transition-[height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+                          style={{ height: headerCollapsed ? "84vh" : "65vh" }}
                           onScroll={(e) => handleTaskScroll(e, "all", allActiveTasks.length)}
                         >
                           <div className="flex items-start gap-2.5 px-4 py-3">
@@ -8338,8 +8384,8 @@ function PersonTaskCockpit({
                       ) : (
                         <div
                           ref={setScrollRef}
-                          className="cockpit-scroll overflow-y-auto"
-                          style={{ height: "65vh" }}
+                          className="cockpit-scroll overflow-y-auto transition-[height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
+                          style={{ height: headerCollapsed ? "84vh" : "65vh" }}
                           onScroll={(e) => handleTaskScroll(e, p.name, tasks.length)}
                         >
                           <div className="flex items-start gap-2.5 px-4 py-3">
@@ -9040,6 +9086,28 @@ function ExecutiveOverview({
     setKpiFilter((prev) => (prev === key ? "all" : key));
   }, []);
 
+  // 沉浸模式（整屏看任务）：把顶部概览的收起信号上报给 Root，联动隐藏全局顶栏 + 滑出侧边栏。
+  const { setImmersive } = useLayoutChromeActions();
+
+  // 顶部模块（研发执行提示 + 日报/月报）随任务流滚动自动收起；「钉住」后常显、忽略滚动信号。
+  const [headerCollapsed, setHeaderCollapsed] = useState(false);
+  const [headerPinned, setHeaderPinned] = useState(false);
+  // 来自 PersonTaskCockpit 的滚动方向信号：钉住时丢弃，否则同步收起/展开。
+  const handleHeaderCollapseChange = useCallback(
+    (collapsed: boolean) => {
+      if (headerPinned) return;
+      setHeaderCollapsed(collapsed);
+    },
+    [headerPinned],
+  );
+
+  // 顶部概览收起（滚动下滑且未钉住）即进入沉浸模式：Root 据此隐藏全局顶栏 + 滑出侧边栏，整屏看任务。
+  useEffect(() => {
+    setImmersive(headerCollapsed);
+  }, [headerCollapsed, setImmersive]);
+  // 离开驾驶舱时复位，避免顶栏/侧栏在其他页面残留隐藏。
+  useEffect(() => () => setImmersive(false), [setImmersive]);
+
   return (
     <motion.div
       initial={shouldReduceMotion ? false : { opacity: 0 }}
@@ -9050,7 +9118,61 @@ function ExecutiveOverview({
     >
       <div className="mx-auto  space-y-6 rd-stagger-children">
         {/* 顶部并排区：研发执行提示（占 3）+ 今日日报速览（占 2）。窄屏（< xl）自动上下堆叠，
-            宽屏并排可省下一整块纵向高度，留给下方的人员任务驾驶舱。 */}
+            宽屏并排可省下一整块纵向高度，留给下方的人员任务驾驶舱。
+            随任务流下滑自动收起（上滑/回顶展开）以最大化任务可视区；可「钉住」常显。 */}
+        <div className="relative">
+        {/* 收起/钉住控制条：始终可见。收起态=整条可点(展开并钉住)并保留风险态势感知；展开态=右对齐钉住开关 */}
+        <div className="mb-2">
+          {headerCollapsed ? (
+            <button
+              type="button"
+              onClick={() => { setHeaderPinned(true); setHeaderCollapsed(false); }}
+              aria-label="展开研发执行提示与日报/月报并钉住常显"
+              title="点击展开研发执行提示与日报/月报，并钉住常显"
+              className="group flex w-full items-center gap-2 rounded-xl border border-slate-200/80 bg-white/70 px-3 py-1.5 text-[11px] text-slate-500 shadow-[0_1px_2px_rgba(15,23,42,0.04)] backdrop-blur transition-colors hover:border-indigo-200 hover:bg-indigo-50/60"
+            >
+              <Sparkles className="h-3.5 w-3.5 shrink-0 text-indigo-500" />
+              <span className="shrink-0 font-semibold text-slate-600 group-hover:text-indigo-700">顶部概览已收起</span>
+              {risks.length > 0 && (
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-600">
+                  <AlertTriangle className="h-3 w-3" />
+                  {risks.length} 风险
+                </span>
+              )}
+              <span className="ml-auto inline-flex shrink-0 items-center gap-1 font-semibold text-indigo-600">
+                展开
+                <ChevronDown className="h-3.5 w-3.5 transition-transform group-hover:translate-y-0.5" />
+              </span>
+            </button>
+          ) : (
+            <div className="flex items-center justify-end">
+              <button
+                type="button"
+                onClick={() => { const next = !headerPinned; setHeaderPinned(next); if (next) setHeaderCollapsed(false); }}
+                aria-pressed={headerPinned}
+                aria-label={headerPinned ? "已钉住顶部模块，点击恢复滚动自动收起" : "顶部模块随任务滚动自动收起，点击钉住常显"}
+                title={headerPinned ? "已钉住：滚动时保持展开 · 点击恢复自动收起" : "滚动任务时自动收起 · 点击钉住常显"}
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold shadow-sm transition-colors",
+                  headerPinned
+                    ? "border-indigo-300 bg-indigo-600 text-white hover:bg-indigo-700"
+                    : "border-slate-200 bg-white/70 text-slate-400 hover:border-indigo-200 hover:bg-white hover:text-indigo-600",
+                )}
+              >
+                {headerPinned ? <Pin className="h-3 w-3" /> : <PinOff className="h-3 w-3" />}
+                {headerPinned ? "已钉住" : "自动收起"}
+              </button>
+            </div>
+          )}
+        </div>
+        <motion.div
+          initial={false}
+          animate={{ height: headerCollapsed ? 0 : "auto", opacity: headerCollapsed ? 0 : 1 }}
+          transition={shouldReduceMotion ? { duration: 0 } : RD_FAST_TRANSITION}
+          className={headerCollapsed ? "overflow-hidden" : "overflow-visible"}
+          aria-hidden={headerCollapsed}
+          inert={headerCollapsed ? "" : undefined}
+        >
         <div className={catStats.length > 0 ? "grid items-stretch gap-6 xl:grid-cols-5" : undefined}>
         <section className={cn("rounded-2xl border border-slate-200/70 bg-white px-5 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]", catStats.length > 0 && "min-w-0 xl:col-span-3")}>
           <div className="grid gap-4 lg:grid-cols-[minmax(280px,1fr)_auto]">
@@ -9185,6 +9307,8 @@ function ExecutiveOverview({
           </div>
         )}
         </div>
+        </motion.div>
+        </div>
 
         {/* 骨架屏只在「尚无数据可显示」时出现（首次加载 / 真空数据）。刷新（如删除任务后的
             loadCategories）虽然把 loading 置 true，但旧 catStats 仍在 —— 此时保持下方面板挂载，
@@ -9232,6 +9356,8 @@ function ExecutiveOverview({
               onDeleteTask={onDeleteTask}
               kpiFilter={kpiFilter}
               onClearKpiFilter={() => setKpiFilter("all")}
+              headerCollapsed={headerCollapsed}
+              onHeaderCollapseChange={handleHeaderCollapseChange}
             />
 
             <SystemPanorama
