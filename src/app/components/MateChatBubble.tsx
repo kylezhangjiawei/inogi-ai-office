@@ -279,11 +279,14 @@ async function apiListModels(): Promise<ModelOption[]> {
   const res = await authFetch("/api/chat/models");
   if (!res.ok) return [];
   const all = (await res.json()) as ModelOption[];
-  // 图片生成模型不支持对话（后端已过滤，前端再加一层防护）
+  // 图片生成 / 文档解析模型不支持对话（后端已过滤，前端再加一层防护）
   return all.filter((m) => {
-    if (m.usage_kind === "image") return false;
-    if (m.usage_kind && m.usage_kind !== "auto") return true;
     const n = m.model.toLowerCase();
+    if (m.usage_kind === "image") return false;
+    // 文档解析模型（qwen-doc-turbo 等）只用于文件读取，不能当对话模型，
+    // 必须在 usage_kind 判定之前排除，避免被当成普通文本模型放行。
+    if (n.includes("qwen-doc")) return false;
+    if (m.usage_kind && m.usage_kind !== "auto") return true;
     return !(n.includes("gpt-image") || n.includes("image-to-image") || n === "dall-e-2" || n.startsWith("dall-e-"));
   });
 }

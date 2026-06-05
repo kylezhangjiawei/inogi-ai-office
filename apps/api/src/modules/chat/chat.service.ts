@@ -189,8 +189,10 @@ export class ChatService {
       .filter((item) =>
         item.model
         && item.ready
-        && !this.isImageOnlyModel(item.model, item.usage_kind)
-        && !this.isEmbeddingModel(item.model)
+        // 与发送链路保持一致：排除图片生成 / 嵌入 / 文档解析模型。
+        // 否则 qwen-doc-turbo 这类「文件读取模型」会混进对话模型选择器，
+        // 甚至在没有可用对话模型时被排到第一、成为 MateChat 的默认模型。
+        && !this.isNonChatModel(item.model, item.usage_kind)
       )
       .sort((left, right) => Number(right.isDefault) - Number(left.isDefault));
   }
@@ -515,9 +517,24 @@ export class ChatService {
     };
   }
 
-  /** 统一判断：是不是对话模型不能用的（embedding / image-only） */
+  /** 统一判断：是不是对话模型不能用的（embedding / image-only / 文档解析） */
   private isNonChatModel(model: string, usageKind: string): boolean {
-    return this.isImageOnlyModel(model, usageKind) || this.isEmbeddingModel(model);
+    return (
+      this.isImageOnlyModel(model, usageKind)
+      || this.isEmbeddingModel(model)
+      || this.isDocReaderModel(model)
+    );
+  }
+
+  /**
+   * 文档解析模型（如 qwen-doc-turbo）只用于简历筛选 / 附件等「文件读取」场景，
+   * 不支持普通对话，必须排除在对话模型列表之外——否则它会出现在 MateChat 模型
+   * 选择器里，且在没有其它可用对话模型时被选成默认模型。
+   * 简历筛选里以常量 FILE_SCREENING_DOC_MODEL='qwen-doc-turbo' 固定调用，
+   * 这里按名称前缀匹配 qwen-doc 系列，覆盖 qwen-doc-turbo 及其变体。
+   */
+  private isDocReaderModel(model: string): boolean {
+    return /qwen-doc/i.test(model ?? '');
   }
 
   /**
