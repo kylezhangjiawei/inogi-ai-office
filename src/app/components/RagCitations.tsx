@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { BookOpen, ChevronDown, ChevronUp, Download, ExternalLink, FileText, Sparkles } from "lucide-react";
+import { createPortal } from "react-dom";
+import { BookOpen, ChevronDown, ChevronUp, Download, Eye, ExternalLink, FileText, Sparkles, X } from "lucide-react";
 import { cn } from "./ui/utils";
 import { RagCitation, RagChunk, SOURCE_TYPE_LABELS, type RagSourceType } from "../lib/ragApi";
 
@@ -23,6 +24,15 @@ function tintFor(type: string) {
   return SOURCE_TINT[type] ?? SOURCE_TINT.kb;
 }
 
+// 图片引用判定：downloadUrl 对 KB 源即 oss_url 签名直链或 data:image base64，二者皆可直接当 <img src>。
+const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|bmp|svg|avif|heic)$/i;
+function isImageCitation(c: RagCitation): boolean {
+  if (!c.downloadUrl) return false;
+  if (c.downloadUrl.startsWith("data:image")) return true;
+  if (c.sourceType === "image") return true;
+  return Boolean(c.title && IMAGE_EXT_RE.test(c.title.trim()));
+}
+
 // ─── 引用列表 ────────────────────────────────────────────────────────────────
 
 export function RagCitations({
@@ -33,6 +43,8 @@ export function RagCitations({
   /** 点击引用卡片时回调（如跳转到 KB 详情页） */
   onOpenSource?: (citation: RagCitation) => void;
 }) {
+  // 图片引用的「预览大图」灯箱（点击缩略图或预览按钮打开）
+  const [lightbox, setLightbox] = useState<{ url: string; alt: string } | null>(null);
   if (citations.length === 0) return null;
   /** 默认点击跳转：若 metadata.url 存在则新窗口打开（KB 文档详情等内部路由） */
   const defaultOpenSource = (c: RagCitation) => {
@@ -42,6 +54,7 @@ export function RagCitations({
   };
   const handleClick = onOpenSource ?? defaultOpenSource;
   return (
+    <>
     <div className="mt-3 space-y-1.5 rounded-md border border-slate-200 bg-slate-50/60 p-2">
       <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
         <BookOpen className="h-3 w-3" />
@@ -51,6 +64,7 @@ export function RagCitations({
         {citations.map((c, idx) => {
           const tint = tintFor(c.sourceType);
           const clickable = Boolean(c.url) || Boolean(onOpenSource);
+          const imgUrl = isImageCitation(c) ? c.downloadUrl : undefined;
           return (
             <div
               key={`${c.sourceType}-${c.sourceId}-${idx}`}
@@ -88,6 +102,16 @@ export function RagCitations({
                 <span className="ml-auto shrink-0 text-[10px] tabular-nums text-slate-400">
                   {(c.similarity * 100).toFixed(0)}%
                 </span>
+                {imgUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setLightbox({ url: imgUrl, alt: c.title ?? "预览图" })}
+                    title="预览图片"
+                    className="shrink-0 rounded p-0.5 text-pink-500 hover:bg-pink-50 hover:text-pink-700"
+                  >
+                    <Eye className="h-3 w-3" />
+                  </button>
+                )}
                 {c.url && (
                   <button
                     type="button"
@@ -112,6 +136,22 @@ export function RagCitations({
                   </a>
                 )}
               </div>
+              {imgUrl && (
+                <button
+                  type="button"
+                  onClick={() => setLightbox({ url: imgUrl, alt: c.title ?? "预览图" })}
+                  title="点击预览大图"
+                  className="mb-1 block w-full overflow-hidden rounded border border-slate-200 bg-slate-50 transition hover:border-indigo-300"
+                >
+                  <img
+                    src={imgUrl}
+                    alt={c.title ?? "预览图"}
+                    loading="lazy"
+                    draggable={false}
+                    className="h-28 w-full object-cover"
+                  />
+                </button>
+              )}
               <p
                 className={cn(
                   "line-clamp-2 text-[11px] leading-snug text-slate-600",
@@ -126,6 +166,35 @@ export function RagCitations({
         })}
       </div>
     </div>
+    {lightbox &&
+      createPortal(
+        <div
+          className="fixed inset-0 z-[1400] flex items-center justify-center bg-black/80 p-6 backdrop-blur-sm"
+          onClick={() => setLightbox(null)}
+          role="dialog"
+          aria-modal="true"
+        >
+          <img
+            src={lightbox.url}
+            alt={lightbox.alt}
+            className="max-h-[88vh] max-w-[92vw] rounded-lg object-contain shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+          <div className="absolute left-1/2 top-4 max-w-[80vw] -translate-x-1/2 truncate rounded-full bg-black/50 px-3 py-1 text-xs text-white">
+            {lightbox.alt}
+          </div>
+          <button
+            type="button"
+            onClick={() => setLightbox(null)}
+            title="关闭"
+            className="absolute right-5 top-5 rounded-full bg-white/15 p-2 text-white backdrop-blur transition hover:bg-white/30"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>,
+        document.body,
+      )}
+    </>
   );
 }
 

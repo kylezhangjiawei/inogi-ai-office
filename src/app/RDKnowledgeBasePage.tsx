@@ -334,6 +334,61 @@ function FileTypeIcon({ entry, className }: { entry: KbEntry; className?: string
   return <File className={cn('text-slate-400', className)} />;
 }
 
+/**
+ * 卡片左上角「图标 / 缩略图」：图片类条目若有可用 URL（oss_url 优先，preview_url 兜底）则显示真实缩略图，
+ * 加载失败或非图片回退到类型图标。传入 onClick 时缩略图可点开预览（与「预览」按钮一致）。
+ */
+function EntryThumb({ entry, onClick }: { entry: KbEntry; onClick?: () => void }) {
+  const fileType = getFileType(entry.file_name, entry.file_type);
+  const isImage = fileType === 'image';
+  const directUrl = isImage ? (entry.oss_url || entry.preview_url || null) : null;
+  const [lazyUrl, setLazyUrl] = React.useState<string | null>(null);
+  const [failed, setFailed] = React.useState(false);
+
+  // 图片但列表里没有可用直链：OSS 未配置时文件以 base64 内联存储，而列表为了性能把 data_url 精简掉了，
+  // 于是缩略图无源可用 → 这里按需取一次完整条目拿 data_url。fetchKbEntry 只读、不计浏览量（recordKbView 是独立调用）。
+  React.useEffect(() => {
+    if (!isImage || directUrl || lazyUrl || !entry.has_data_file) return;
+    let alive = true;
+    fetchKbEntry(entry.id)
+      .then((full) => { if (alive && full.data_url) setLazyUrl(full.data_url); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [entry.id, isImage, directUrl, lazyUrl, entry.has_data_file]);
+
+  const imageUrl = directUrl ?? lazyUrl;
+
+  if (imageUrl && !failed) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={!onClick}
+        title={onClick ? '点击预览' : undefined}
+        className={cn(
+          'shrink-0 mt-0.5 h-12 w-12 overflow-hidden rounded-lg bg-slate-50 ring-1 ring-slate-200/70',
+          onClick && 'cursor-pointer transition hover:ring-2 hover:ring-indigo-300',
+        )}
+      >
+        <img
+          src={imageUrl}
+          alt={entry.title}
+          loading="lazy"
+          draggable={false}
+          onError={() => setFailed(true)}
+          className="h-full w-full object-cover"
+        />
+      </button>
+    );
+  }
+
+  return (
+    <div className="shrink-0 mt-0.5 p-2 bg-slate-50 rounded-lg ring-1 ring-slate-200/70">
+      <FileTypeIcon entry={entry} className="w-5 h-5" />
+    </div>
+  );
+}
+
 // ── Entry Card ────────────────────────────────────────────────────────────────
 
 interface EntryCardProps {
@@ -370,9 +425,7 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
 
       {/* Icon + title + description */}
       <div className="flex items-start gap-3">
-        <div className="shrink-0 mt-0.5 p-2 bg-slate-50 rounded-lg ring-1 ring-slate-200/70">
-          <FileTypeIcon entry={entry} className="w-5 h-5" />
-        </div>
+        <EntryThumb entry={entry} onClick={isPreviewable ? () => onPreview(entry) : undefined} />
         <div className="min-w-0 flex-1">
           <p className="text-sm font-semibold text-slate-900 leading-snug break-words">{entry.title}</p>
           {entry.description && (
