@@ -285,6 +285,7 @@ export const integrationManagementApi = {
         provider: payload.provider,
         model: payload.model,
         base_url: payload.base_url,
+        usage_kind: payload.usage_kind,
         enabled: payload.enabled,
         current_status: payload.current_status,
         last_success_at: payload.last_success_at,
