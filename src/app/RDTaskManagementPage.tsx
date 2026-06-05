@@ -78,6 +78,7 @@ import {
   fetchRdAiSettings,
   fetchRdPeople,
   fetchRdTaskCategories,
+  fetchMergedTaskCategories,
   fetchRdTaskCompletionScore,
   fetchRdTaskCompletionScoreDebug,
   fetchRdTaskProgressNotes,
@@ -1547,18 +1548,24 @@ export function computePersonLoads(categories: Category[], maxPerPerson = 8): Pe
   const counts = new Map<string, number>();
   const onLeave = new Set<string>();
 
+  // 「主责」口径：只统计该成员作为主责人(primary_owner)、且活跃(未完成 / 未归档)的任务，每个 +1。
+  // 与个人工作台「主责」严格同口径，逐条对齐后端 getWorkspace：
+  //   - 活跃 = !isArchivedTask && !isCompletedTask，其中 isArchivedTask = archived===true || status==='archived'
+  //   - 后端 collectAllCategoryTasks 对子任务「无条件递归再逐条过滤」：即便父任务已完成/归档，
+  //     其下仍活跃的子任务仍计入。故这里必须「总是递归子任务」，只把「是否计数」按活跃性判断，
+  //     不能因父任务被跳过就连子任务一起漏掉——否则会比工作台「主责 N」少算。
+  //   - 协作不计入头像角标——否则会与工作台「主责 N」对不上。
+  // 数据范围由调用方决定：概览传「所有产品库合并树」=> 跨产品；进入某产品库 board => 该库。
   function walk(tasks: Task[]) {
     for (const t of tasks) {
-      if (t.archived || t.status === "completed") continue;
+      const isArchived = t.archived || t.status === "archived";
+      const isActive = !isArchived && t.status !== "completed";
       // Skip placeholder owners like "待指派" and "(已离职)"
-      if (!/已离职|待指派/.test(t.primary_owner)) {
+      if (isActive && !/已离职|待指派/.test(t.primary_owner)) {
         counts.set(t.primary_owner, (counts.get(t.primary_owner) ?? 0) + 1);
         if (t.status === "paused_leave") onLeave.add(t.primary_owner);
       }
-      for (const c of t.collaborators) {
-        counts.set(c.name, (counts.get(c.name) ?? 0) + 0.5);
-      }
-      if (t.subtasks) walk(t.subtasks);
+      if (t.subtasks) walk(t.subtasks); // 始终递归，对齐后端 collectAllCategoryTasks 的无条件展开
     }
   }
   for (const cat of categories) for (const sub of cat.children) walk(sub.tasks);
@@ -1566,7 +1573,7 @@ export function computePersonLoads(categories: Category[], maxPerPerson = 8): Pe
   return Array.from(counts.entries())
     .map(([name, count]) => ({
       name,
-      count: Math.ceil(count),
+      count,
       max: maxPerPerson,
       onLeave: onLeave.has(name),
     }))
@@ -7304,6 +7311,13 @@ function TaskAttachmentStrip({
   );
 }
 
+// 任务「最近活动」排序键：与卡片标签 lastUpdateIso 同一兜底链
+//   last_activity_at(后端派生 = max(updated_at, 最新留痕时间)) → 最新留痕时间 → updated_at。
+// 排序与显示共用此键，保证「列表里越靠前 = 标签显示越新」，不会出现标签新却排在后面的逆序。
+function taskActivityKey(t: Task): string {
+  return t.last_activity_at || t.latest_progress_summary?.created_at || t.updated_at || "";
+}
+
 // ── Masonry (瀑布流) helpers for the task feed ──
 // 把已排序的任务按轮转 (round-robin) 分配到 N 个独立列：第 i 个任务进入第 i % N 列。
 // 每列各自纵向堆叠、互不影响高度，所以带附件的高卡片只撑高自己所在列，不会像 CSS grid
@@ -7314,25 +7328,39 @@ function distributeIntoColumns<T>(items: T[], columnCount: number): T[][] {
   return columns;
 }
 
-// 响应式列数：移动端 1 列、平板 2 列、桌面 3 列（断点与原 grid 一致）。
+// 响应式列数：
+//   - 触摸设备(移动端手机 / 平板竖屏，pointer: coarse)且未达桌面宽(<1024)：强制「1 列」。
+//     原因：多列瀑布流各列高度独立，带图卡片更高，相邻的新旧任务在纵向上必然错位——即便数据
+//     已严格按 last_activity_at 倒序，视觉上仍会出现「右上是更旧的、左下反而更新」，让人误以为
+//     排序乱了。移动端单列可保证任务从上到下严格「最新优先」，所见即排序。
+//     （注意：此页是桌面驾驶舱、非 /m 移动路由，受全局 min-width 影响手机上常被测成 ≥640 而误判多列，
+//      故这里用 pointer: coarse 这一「是否触摸设备」的语义信号兜底，而非单纯依赖宽度断点。）
+//   - 桌面(鼠标)：≥1024 → 3 列、≥640 → 2 列、否则 1 列（断点与原 grid 一致），保持不变。
 function useMasonryColumns(): number {
+  const resolve = (coarse: boolean, lg: boolean, sm: boolean) =>
+    coarse && !lg ? 1 : lg ? 3 : sm ? 2 : 1;
   const compute = () => {
     if (typeof window === "undefined") return 3;
-    if (window.matchMedia("(min-width: 1024px)").matches) return 3;
-    if (window.matchMedia("(min-width: 640px)").matches) return 2;
-    return 1;
+    return resolve(
+      window.matchMedia("(pointer: coarse)").matches,
+      window.matchMedia("(min-width: 1024px)").matches,
+      window.matchMedia("(min-width: 640px)").matches,
+    );
   };
   const [columns, setColumns] = useState(compute);
   useEffect(() => {
     const lg = window.matchMedia("(min-width: 1024px)");
     const sm = window.matchMedia("(min-width: 640px)");
-    const update = () => setColumns(lg.matches ? 3 : sm.matches ? 2 : 1);
+    const coarse = window.matchMedia("(pointer: coarse)");
+    const update = () => setColumns(resolve(coarse.matches, lg.matches, sm.matches));
     update();
     lg.addEventListener("change", update);
     sm.addEventListener("change", update);
+    coarse.addEventListener("change", update);
     return () => {
       lg.removeEventListener("change", update);
       sm.removeEventListener("change", update);
+      coarse.removeEventListener("change", update);
     };
   }, []);
   return columns;
@@ -7557,10 +7585,13 @@ function PersonTaskCockpit({
   // ── Sort helper: newest activity first ──
   // 排序键用后端派生的 last_activity_at（= max(updated_at, 最新留痕时间)），与卡片「最近更新」
   // 显示同一口径。进度留痕不刷新 updated_at，单用 updated_at 排序会让刚留痕的任务沉底、出现逆序。
+  // 关键：兜底链必须与卡片标签 lastUpdateIso 完全一致（last_activity_at → 最新留痕时间 → updated_at），
+  // 否则当 last_activity_at 缺失时，标签按留痕时间显示「N 分钟前」、排序却退回 updated_at，
+  // 会出现「刚留痕的任务标签很新但排在很后面」的逆序观感。统一走模块级 taskActivityKey。
   const sortByUpdatedDesc = useCallback((arr: Task[]): Task[] => {
     return arr.slice().sort((a, b) => {
-      const at = a.last_activity_at || a.updated_at || "";
-      const bt = b.last_activity_at || b.updated_at || "";
+      const at = taskActivityKey(a);
+      const bt = taskActivityKey(b);
       if (at === bt) return 0;
       return at < bt ? 1 : -1;
     });
@@ -8409,7 +8440,13 @@ function PersonTaskCockpit({
                           ) : tasks.length > 0 ? (
                             <div className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400">
                               <CheckCircle2 className="h-3 w-3 text-emerald-400" />
-                              <span>已显示全部 <span className="font-semibold tabular-nums text-slate-500">{tasks.length}</span> 个任务</span>
+                              <span>
+                                已显示全部 <span className="font-semibold tabular-nums text-slate-500">{tasks.length}</span> 个任务
+                                {/* 角标=主责进行中(与个人工作台「主责」同口径)；此列表是超集，另含协作 / 已完成，故两数不同属正常 */}
+                                {kpiFilter === "all" && (
+                                  <> · 其中主责进行中 <span className="font-semibold tabular-nums text-indigo-500">{p.count}</span> 个<span className="text-slate-300">（= 头像角标，余为协作 / 已完成）</span></>
+                                )}
+                              </span>
                             </div>
                           ) : null}
                         </div>
@@ -9870,6 +9907,9 @@ export function RDTaskManagementPage() {
   const [selectedPersonName, setSelectedPersonName] = useState<string | null>(null);
   const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
   const [categories, setCategories] = useState<Category[]>([]);
+  // 概览「人员任务」专用：主库 + 所有产品库合并的分类树（跨产品聚合，与个人工作台主责同源）。
+  // null = 尚未加载/加载失败，此时回退到当前 `categories`（主库），保证不空白、不崩溃。
+  const [mergedCategories, setMergedCategories] = useState<Category[] | null>(null);
   const [peopleProfiles, setPeopleProfiles] = useState<PersonProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -9914,12 +9954,25 @@ export function RDTaskManagementPage() {
   // 因此自动作用于当前产品；即便被当作事件处理器(带 event 实参)调用也安全——这里忽略实参。
   const loadCategories = () => loadCategoriesFor(boardProductId);
 
+  // 拉取「所有产品库合并」的分类树，供概览人员负载跨产品聚合。失败则回退到主库(mergedCategories=null)。
+  const loadMergedCategories = useCallback(() => {
+    fetchMergedTaskCategories()
+      .then((merged) => setMergedCategories(merged))
+      .catch(() => setMergedCategories(null));
+  }, []);
+
   useEffect(() => {
     loadCategories();
     fetchRdProducts().then(setProducts).catch(() => {
       toast.error("产品线数据加载失败，部分功能可能不可用");
     });
   }, []);
+
+  // 概览模式下保持「合并树」新鲜：进入概览、跨产品移动(panoramaReloadToken)、或本地任务变更
+  // 触发 categories 刷新时一并重拉。board 模式不拉(用单库 categories 即可，省一次请求)。
+  useEffect(() => {
+    if (mode === "overview") loadMergedCategories();
+  }, [mode, categories, panoramaReloadToken, loadMergedCategories]);
 
   const handleSaveProducts = async (next: ProductDef[]) => {
     await saveRdProducts(next);
@@ -10157,7 +10210,23 @@ export function RDTaskManagementPage() {
 
   const risks = useMemo(() => computeRisks(categories), [categories]);
   const catStats = useMemo(() => buildCatStats(categories, risks), [categories, risks]);
-  const personLoads = useMemo(() => computePersonLoads(categories), [categories]);
+  // 概览「人员任务」跨所有产品库聚合（与个人工作台「主责」同源）；进入某产品库 board 后回到该库口径。
+  // mergedCategories 未就绪时回退主库 categories，避免空窗。
+  const peopleCategories = mode === "overview" ? (mergedCategories ?? categories) : categories;
+  const personLoads = useMemo(() => computePersonLoads(peopleCategories), [peopleCategories]);
+  // 概览模式下喂给「人员任务驾驶舱」的任务全集：跨产品库（与角标同范围，保证点开头像看到的就是该范围的任务）。
+  const peopleAllTasks = useMemo(() => {
+    const tasks = flattenTasks(peopleCategories.flatMap((c) => c.children.flatMap((s) => s.tasks)));
+    // 用与卡片标签同口径的 taskActivityKey 倒序（最新活动在前），保证人员抽屉等不再二次排序的
+    // 消费方也是「最新优先」，与 PersonTaskCockpit 内部 sortByUpdatedDesc 完全一致。
+    return tasks.sort((a, b) => {
+      const ta = taskActivityKey(a);
+      const tb = taskActivityKey(b);
+      if (tb > ta) return 1;
+      if (tb < ta) return -1;
+      return 0;
+    });
+  }, [peopleCategories]);
 
   const enterBoard = (catId: string, productId: string = MAIN_PRODUCT_ID) => {
     // 切换产品时把该产品的独立任务树装载进 `categories`；同产品（含主产品）无需重载。
@@ -10210,12 +10279,14 @@ export function RDTaskManagementPage() {
   );
   const selectedPersonTasks = useMemo(() => {
     if (!selectedPersonName) return [];
-    return allTasks.filter(
+    // 用 peopleAllTasks（概览=跨所有产品库；board=当前库）与头像角标 / personLoads 同范围，
+    // 保证点开头像后抽屉里看到的任务集合与角标口径一致。
+    return peopleAllTasks.filter(
       (task) =>
         task.primary_owner === selectedPersonName ||
         task.collaborators.some((collaborator) => collaborator.name === selectedPersonName),
     );
-  }, [allTasks, selectedPersonName]);
+  }, [peopleAllTasks, selectedPersonName]);
 
   const selectedCategory = selectedCatId
     ? categories.find((c) => c.id === selectedCatId || c.children.some((sub) => sub.id === selectedCatId))
@@ -10267,7 +10338,9 @@ export function RDTaskManagementPage() {
           products={products}
           risks={risks}
           personLoads={personLoads}
-          allTasks={allTasks}
+          // 概览「人员任务」用跨所有产品库的任务全集（与 personLoads 角标同范围）；
+          // 其余系统/分类统计仍按主库 catStats 不变。
+          allTasks={peopleAllTasks}
           onSelectSystem={enterBoard}
           onSelectTask={setSelectedTask}
           onSelectPerson={openPersonDetail}

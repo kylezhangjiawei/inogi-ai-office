@@ -55,6 +55,12 @@ export class ResearchDevelopmentController {
     return this.rdService.getTaskCategories();
   }
 
+  /** 主库 + 所有产品库合并的分类树。供研发驾驶舱概览「人员任务」跨产品聚合，与个人工作台主责口径一致。 */
+  @Get('merged-task-categories')
+  mergedTaskCategories() {
+    return this.rdService.getMergedTaskCategories();
+  }
+
   @Put('task-categories')
   @Permissions('rd-task:create', 'rd-task:edit')
   saveTaskCategories(@Body() payload: unknown[]) {

@@ -427,6 +427,11 @@ export function fetchRdTaskCategories() {
   return requestJson<RdCategory[]>("/task-categories");
 }
 
+/** 主库 + 所有产品库合并的分类树。用于驾驶舱概览「人员任务」跨产品聚合（与个人工作台主责同源）。 */
+export function fetchMergedTaskCategories() {
+  return requestJson<RdCategory[]>("/merged-task-categories");
+}
+
 export function saveRdTaskCategories(payload: RdCategory[]) {
   return requestJson<RdCategory[]>("/task-categories", {
     method: "PUT",

@@ -1066,6 +1066,22 @@ export class ResearchDevelopmentService {
     return this.applyProgressAttachmentCounts(categories, noteMap, scoreMap);
   }
 
+  /**
+   * 主库 + 所有产品库合并后的分类树（前端格式，含附件数 / 完成评分）。
+   * 与个人工作台 getWorkspace 同源（均走 readMergedTaskCategories），用于研发驾驶舱「概览」
+   * 的人员任务跨产品聚合——「任务是任务，产品是产品」：一个人的任务是其在所有产品库任务的并集，
+   * 不被「当前产品库」切分，故概览头像负载与个人工作台口径一致。
+   */
+  async getMergedTaskCategories() {
+    const [categories, noteMap, scoresRaw] = await Promise.all([
+      this.readMergedTaskCategories(),
+      this.getProgressNoteMap(),
+      this.readValue('rd.taskCompletionScores'),
+    ]);
+    const scoreMap: JsonRecord = isRecord(scoresRaw) ? scoresRaw : {};
+    return this.applyProgressAttachmentCounts(categories, noteMap, scoreMap);
+  }
+
   async saveTaskCategories(payload: unknown[]) {
     const normalized = ensurePocBomTaskCategories(payload);
     const saved = await this.writeValue('rd.taskCategories', normalized);
