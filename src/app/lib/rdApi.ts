@@ -116,6 +116,10 @@ export type RdTask = {
   updated_at?: string;
   /** 后端派生：max(updated_at, 最新进度留痕时间)。排序与「最近更新」显示共用此口径，避免逆序。 */
   last_activity_at?: string;
+  /** 后端派生（仅读取时计算）：进度留痕里的图片附件 URL，按留痕时间倒序、上限 6 张，供移动端流式卡片做封面缩略图。 */
+  cover_images?: string[];
+  /** 后端派生（仅读取时计算）：已完成任务的 AI 复盘评分摘要（总分 + 等级）。 */
+  completion_score?: { total: number; grade: string } | null;
 };
 
 export type RdSubProject = { id: string; label: string; tasks: RdTask[] };

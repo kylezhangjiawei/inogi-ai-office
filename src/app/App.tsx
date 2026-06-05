@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { CssBaseline, ThemeProvider } from "@mui/material";
 import { createBrowserRouter, Navigate, RouterProvider, useLocation, useParams } from "react-router";
 import { toast } from "sonner";
@@ -26,6 +26,8 @@ import { InquiryPage } from "./InquiryPage";
 import { LoginPage } from "./LoginPage";
 import { MailboxManagementPage } from "./MailboxManagementPage";
 import { MeetingMinutes } from "./MeetingMinutes";
+import { MobileLayout } from "./MobileShell";
+import { MobileRDCockpit } from "./MobileRDCockpit";
 import { OcrConfigManagementPage } from "./OcrConfigManagementPage";
 import { MessageCenterPage } from "./MessageCenterPage";
 import { OpsCenterPage } from "./OpsCenterPage";
@@ -55,6 +57,7 @@ import { Root } from "./Root";
 import { DictionaryList } from "./DictionaryList";
 import { UserManagement } from "./UserManagement";
 import { hasPermission } from "./lib/permissions";
+import { isMobileViewport } from "./lib/mobileRouting";
 import { routePermissionMap } from "./routesConfig";
 
 type RuntimeHealthResponse = {
@@ -165,9 +168,24 @@ function RuntimeVersionGuard() {
   return null;
 }
 
+/**
+ * 响应式跟踪是否移动视口：监听 resize，使「桌面浏览器缩放 / 设备模拟器切换 / 横竖屏旋转」
+ * 也能即时触发 L2 跳转。纯同步判断只在首屏算一次，切换尺寸不刷新就不会跳，故这里用状态化。
+ */
+function useIsMobileViewport() {
+  const [mobile, setMobile] = useState(isMobileViewport);
+  useEffect(() => {
+    const onResize = () => setMobile(isMobileViewport());
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return mobile;
+}
+
 function ProtectedLayout() {
   const { user, hydrated } = useAuth();
   const location = useLocation();
+  const isMobile = useIsMobileViewport();
 
   if (!hydrated) {
     return (
@@ -180,6 +198,13 @@ function ProtectedLayout() {
   if (!user) {
     return <Navigate to="/login" replace state={{ from: location.pathname + location.search + location.hash }} />;
   }
+
+  // L2 自动跳：移动视口直接进入移动只读视图（/m）。
+  // 已移除「切换到电脑版」偏好开关——领导用手机即看移动版；如需桌面版改用宽屏访问。
+  if (isMobile) {
+    return <Navigate to="/m" replace />;
+  }
+
   return <Root />;
 }
 
@@ -272,6 +297,16 @@ const router = createBrowserRouter([
       { path: "settings", element: makeProtected(<DictionaryList />, "page:settings") },
       { path: "ui-design", element: makeProtected(<UIDesignPage />, "page:ui-design") },
       { path: "*", Component: () => <Navigate to="/" replace /> },
+    ],
+  },
+  {
+    // 移动端独立路由树：自带鉴权外壳，不复用桌面 Root（其写死 min-w-1024 + 侧边栏）。
+    // L1 直达：领导可直接访问 /m（书签 / 二维码 / IM 卡片）。
+    path: "/m",
+    Component: MobileLayout,
+    children: [
+      { index: true, element: <MobileRDCockpit /> },
+      { path: "*", element: <Navigate to="/m" replace /> },
     ],
   },
 ]);

@@ -863,3 +863,29 @@
     }
   }
 }
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * 移动端路由（/m）专用覆盖
+ * 桌面外壳在 @layer base 里给 html/body/#root 强加了 min-width:1024px、body 锁竖向滚动、
+ * #root 固定 100vh —— 这是为「最小 1024 的桌面应用」设计的，会把移动页强行撑到 1024 宽，
+ * 从而产生横向滚动条、内容左右被截断、页面无法正常竖向滚动。
+ * 这里用 MobileShell 挂载时打到 <html> 上的 .mobile-route 作用域解除上述约束：
+ * 不写进 @layer（无层级样式天然压过 @layer base），且只在 /m 期间存在，桌面端零影响。
+ * ──────────────────────────────────────────────────────────────────────────── */
+html.mobile-route,
+html.mobile-route body,
+html.mobile-route #root {
+  min-width: 0;
+}
+
+html.mobile-route body {
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+html.mobile-route #root {
+  height: auto;
+  min-height: 100dvh;
+  overflow: visible;
+}

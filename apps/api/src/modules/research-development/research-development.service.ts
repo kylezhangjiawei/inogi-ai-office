@@ -1057,11 +1057,13 @@ export class ResearchDevelopmentService {
   }
 
   async getTaskCategories() {
-    const [categories, noteMap] = await Promise.all([
+    const [categories, noteMap, scoresRaw] = await Promise.all([
       this.readNormalizedTaskCategories(),
       this.getProgressNoteMap(),
+      this.readValue('rd.taskCompletionScores'),
     ]);
-    return this.applyProgressAttachmentCounts(categories, noteMap);
+    const scoreMap: JsonRecord = isRecord(scoresRaw) ? scoresRaw : {};
+    return this.applyProgressAttachmentCounts(categories, noteMap, scoreMap);
   }
 
   async saveTaskCategories(payload: unknown[]) {
@@ -2681,21 +2683,44 @@ export class ResearchDevelopmentService {
     return result;
   }
 
+  /** 从评分存储里取「总分 + 等级」摘要（移动端流式卡片只需这两项，不下发整份维度明细）。 */
+  private extractCompletionScoreSummary(raw: unknown): { total: number; grade: string } | null {
+    if (!isRecord(raw)) return null;
+    const total = typeof raw.total === 'number' ? raw.total : null;
+    const grade = typeof raw.grade === 'string' ? raw.grade.trim() : '';
+    if (total === null || !grade) return null;
+    return { total, grade };
+  }
+
   private applyProgressAttachmentCounts(
     categories: JsonRecord[],
     noteMap: Record<string, JsonRecord[]>,
+    scoreMap: JsonRecord = {},
   ): JsonRecord[] {
     const attachmentCounts = new Map<string, number>();
     const latestNotes = new Map<string, JsonRecord>();
+    // 每个任务的图片附件 URL（按留痕时间倒序、去重、上限 6 张），供移动端卡片做封面缩略图。
+    const coverImages = new Map<string, string[]>();
     for (const [taskId, notes] of Object.entries(noteMap)) {
       const count = notes.reduce((sum, note) => {
         return sum + (Array.isArray(note.attachments) ? note.attachments.length : 0);
       }, 0);
       attachmentCounts.set(taskId, count);
-      const latest = notes
+      const ordered = notes
         .slice()
-        .sort((a, b) => cleanText(b.created_at).localeCompare(cleanText(a.created_at)))[0];
-      if (latest) latestNotes.set(taskId, latest);
+        .sort((a, b) => cleanText(b.created_at).localeCompare(cleanText(a.created_at)));
+      if (ordered[0]) latestNotes.set(taskId, ordered[0]);
+      const urls: string[] = [];
+      for (const note of ordered) {
+        if (!Array.isArray(note.attachments)) continue;
+        for (const att of note.attachments) {
+          if (!isRecord(att)) continue;
+          const mime = typeof att.mime === 'string' ? att.mime : '';
+          const ossUrl = typeof att.oss_url === 'string' ? att.oss_url : '';
+          if (mime.startsWith('image/') && ossUrl && !urls.includes(ossUrl)) urls.push(ossUrl);
+        }
+      }
+      if (urls.length) coverImages.set(taskId, urls.slice(0, 6));
     }
 
     const updateTasks = (tasks: unknown[]): unknown[] =>
@@ -2713,9 +2738,13 @@ export class ResearchDevelopmentService {
         const noteTime = latestNote && typeof latestNote.created_at === 'string' ? latestNote.created_at : '';
         const updatedAt = typeof task.updated_at === 'string' ? task.updated_at : '';
         const lastActivityAt = noteTime > updatedAt ? noteTime : updatedAt;
+        const taskCovers = coverImages.get(taskKey);
+        const scoreSummary = this.extractCompletionScoreSummary(scoreMap[taskKey]);
         const {
           latest_progress_summary: _latestProgressSummary,
           last_activity_at: _lastActivityAt,
+          cover_images: _coverImages,
+          completion_score: _completionScore,
           ...taskRest
         } = task;
         return {
@@ -2723,6 +2752,8 @@ export class ResearchDevelopmentService {
           attachments: Math.max(existing, progressAttachmentCount),
           ...(latestProgressSummary ? { latest_progress_summary: latestProgressSummary } : {}),
           ...(lastActivityAt ? { last_activity_at: lastActivityAt } : {}),
+          ...(taskCovers && taskCovers.length ? { cover_images: taskCovers } : {}),
+          ...(scoreSummary ? { completion_score: scoreSummary } : {}),
           subtasks: Array.isArray(task.subtasks) ? updateTasks(task.subtasks) : task.subtasks,
         };
       });
