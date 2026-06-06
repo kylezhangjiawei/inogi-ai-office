@@ -312,20 +312,18 @@ export function recordAudit(entry: Omit<AuditLog, "id" | "timestamp">): AuditLog
 
 /**
  * 给某条留痕追加一条备注。成功后把更新后的留痕写回本地缓存并广播 AUDIT_EVENT，
- * 让所有 `useAuditLogs()` 立即刷新看到新备注。返回更新后的留痕（失败返回 null）。
+ * 让所有 `useAuditLogs()` 立即刷新看到新备注。返回更新后的留痕。
+ * 写入失败时会抛出异常（不再静默吞错），由调用方捕获并提示用户——
+ * 否则备注其实没写进后端，UI 却「假装成功」，会导致谁都看不到。
  */
 export async function addAuditLogNote(
   logId: string,
   note: { text: string; actor: AuditActor },
-): Promise<AuditLog | null> {
-  try {
-    const updated = await addRdAuditLogNote<AuditLog>(logId, note);
-    const current = loadRaw().map((log) => (log.id === updated.id ? updated : log));
-    saveRaw(current); // emit=true → 广播事件，触发各处 useAuditLogs 从本地刷新
-    return updated;
-  } catch {
-    return null;
-  }
+): Promise<AuditLog> {
+  const updated = await addRdAuditLogNote<AuditLog>(logId, note);
+  const current = loadRaw().map((log) => (log.id === updated.id ? updated : log));
+  saveRaw(current); // emit=true → 广播事件，触发各处 useAuditLogs 从本地刷新
+  return updated;
 }
 
 /** Load all logs (newest first). */
