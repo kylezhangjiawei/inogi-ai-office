@@ -279,15 +279,20 @@ function AuditLogEntry({
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const submitNote = async () => {
     const text = draft.trim();
     if (!text || !onAddNote) return;
     setSaving(true);
+    setError(null);
     try {
       await onAddNote(log.id, text);
       setDraft("");
       setAdding(false);
+    } catch {
+      // 写入失败：保留草稿与输入框，给出明确提示让用户重试（不再「假装成功」）。
+      setError("备注保存失败，请检查网络后重试");
     } finally {
       setSaving(false);
     }
@@ -425,6 +430,12 @@ function AuditLogEntry({
                     }
                   }}
                 />
+                {error && (
+                  <div className="mt-1.5 flex items-center gap-1 text-[11px] font-medium text-rose-600">
+                    <XCircle className="h-3 w-3 shrink-0" />
+                    {error}
+                  </div>
+                )}
                 <div className="mt-1.5 flex items-center justify-end gap-1.5">
                   <span className={cn("mr-auto text-[10px] tabular-nums", draft.length >= 200 ? "text-rose-500" : "text-slate-400")}>
                     {draft.length}/200
@@ -434,6 +445,7 @@ function AuditLogEntry({
                     onClick={() => {
                       setAdding(false);
                       setDraft("");
+                      setError(null);
                     }}
                     disabled={saving}
                     className="rounded px-2 py-1 text-[11px] text-slate-500 hover:bg-slate-100 disabled:opacity-50"
