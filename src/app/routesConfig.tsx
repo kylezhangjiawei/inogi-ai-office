@@ -15,6 +15,7 @@ import {
   GanttChartSquare,
   GitBranch,
   GraduationCap,
+  Images,
   Inbox,
   LayoutDashboard,
   LayoutGrid,
@@ -103,7 +104,8 @@ export const navGroups: NavGroup[] = [
   {
     label: "AI 创作",
     items: [
-      { label: "UI 设计生成", path: "/ui-design", icon: Wand2, requiredPermission: "page:ui-design" },
+      { label: "AI 图像生成", path: "/ui-design", icon: Wand2, requiredPermission: "page:ui-design" },
+      { label: "图像作品库", path: "/image-library", icon: Images, requiredPermission: "page:image-library" },
     ],
   },
   {

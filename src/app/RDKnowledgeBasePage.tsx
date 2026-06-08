@@ -640,7 +640,7 @@ function EditEntryDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-lg rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden">
+      <DialogContent className="sm:max-w-lg rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden">
         <DialogHeader className="border-b border-slate-100 px-5 py-4 text-left">
           <DialogTitle className="flex items-center gap-2 text-base font-semibold text-slate-950">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
@@ -1055,7 +1055,7 @@ function CategoryFormDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-md rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden">
+      <DialogContent className="sm:max-w-md rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden">
         <DialogHeader className="border-b border-slate-100 px-5 py-4 text-left">
           <DialogTitle className="flex items-center gap-2 text-base font-semibold text-slate-950">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
@@ -1186,7 +1186,7 @@ function DeleteCategoryDialog({
 }) {
   return (
     <Dialog open onOpenChange={(open) => !open && onCancel()}>
-      <DialogContent className="max-w-sm rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden">
+      <DialogContent className="sm:max-w-sm rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden">
         <DialogTitle className="sr-only">确认删除知识库类目</DialogTitle>
         <DialogDescription className="sr-only">
           删除空的知识库类目，已有文件的类目不能删除。
@@ -1247,7 +1247,7 @@ function MoveEntryDialog({
 
   return (
     <Dialog open onOpenChange={(open) => !open && onCancel()}>
-      <DialogContent className="max-w-md rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden">
+      <DialogContent className="sm:max-w-md rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden">
         <DialogHeader className="border-b border-slate-100 px-5 py-4 text-left">
           <DialogTitle className="flex items-center gap-2 text-base font-semibold text-slate-950">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
@@ -1332,7 +1332,7 @@ interface DeleteConfirmDialogProps {
 function DeleteConfirmDialog({ entry, loading, onConfirm, onCancel }: DeleteConfirmDialogProps) {
   return (
     <Dialog open onOpenChange={(open) => !open && onCancel()}>
-      <DialogContent className="max-w-sm rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.22)] [&>button]:hidden">
+      <DialogContent className="sm:max-w-sm rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.22)] [&>button]:hidden">
         <DialogTitle className="sr-only">确认删除文件</DialogTitle>
         <DialogDescription className="sr-only">
           删除知识库文件，此操作不可撤销。

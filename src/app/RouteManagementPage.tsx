@@ -676,7 +676,7 @@ export function RouteManagementPage() {
 
       {/* ── Create / Edit dialog ─────────────────────────────────────── */}
       <Dialog open={dialogMode === "create" || dialogMode === "edit"} onOpenChange={(open) => !open && closeDialog()}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="sm:max-w-2xl">
           <DialogHeader>
             <DialogTitle>{dialogMode === "edit" ? "编辑权限目录" : "新增权限目录"}</DialogTitle>
           </DialogHeader>
@@ -793,7 +793,7 @@ export function RouteManagementPage() {
 
       {/* ── Delete dialog ────────────────────────────────────────────── */}
       <Dialog open={dialogMode === "delete"} onOpenChange={(open) => !open && closeDialog()}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="sm:max-w-sm">
           <DialogHeader>
             <DialogTitle>删除权限目录</DialogTitle>
           </DialogHeader>

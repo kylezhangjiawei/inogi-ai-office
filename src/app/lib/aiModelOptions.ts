@@ -156,10 +156,10 @@ export function buildImageModelOptions(items: AiModelItem[]) {
   const managedOptions = items
     .filter((item) => item.enabled && item.model && toAiModelOption(item).usageKind === "image")
     .map(toAiModelOption);
-  const hasManagedDefault = managedOptions.some(
-    (item) => item.provider === DEFAULT_IMAGE_MODEL_OPTION.provider && item.model === DEFAULT_IMAGE_MODEL_OPTION.model,
-  );
-  return hasManagedDefault ? managedOptions : [DEFAULT_IMAGE_MODEL_OPTION, ...managedOptions];
+  // 管理员已配置任意托管图片模型时，列表只展示这些托管模型；
+  // 仅当没有任何托管图片模型时，才回退到内置的 OpenAI 图生图默认项，避免出现
+  // 「内置 gpt-image-1」与「托管 gpt-image-2」并存这类看似重复的困惑条目。
+  return managedOptions.length > 0 ? managedOptions : [DEFAULT_IMAGE_MODEL_OPTION];
 }
 
 /** 纯文本模型（usageKind === 'text'） */

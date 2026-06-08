@@ -53,6 +53,7 @@ import { RDAuditLogPage } from "./RDAuditLogPage";
 import { RDAiSettingsPage } from "./RDAiSettingsPage";
 import { RouteManagementPage } from "./RouteManagementPage";
 import { UIDesignPage } from "./UIDesignPage";
+import { ImageLibraryPage } from "./ImageLibraryPage";
 import { Root } from "./Root";
 import { DictionaryList } from "./DictionaryList";
 import { UserManagement } from "./UserManagement";
@@ -296,6 +297,7 @@ const router = createBrowserRouter([
       { path: "route-management", element: makeProtected(<RouteManagementPage />, "page:route-management") },
       { path: "settings", element: makeProtected(<DictionaryList />, "page:settings") },
       { path: "ui-design", element: makeProtected(<UIDesignPage />, "page:ui-design") },
+      { path: "image-library", element: makeProtected(<ImageLibraryPage />, "page:image-library") },
       { path: "*", Component: () => <Navigate to="/" replace /> },
     ],
   },

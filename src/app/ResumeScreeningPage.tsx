@@ -1886,7 +1886,7 @@ export function ResumeScreeningPage() {
       </section>
 
       <Dialog open={showJobRuleManager} onOpenChange={setShowJobRuleManager}>
-        <DialogContent className="resume-screening-surface material-neu-panel max-h-[90vh] w-[calc(100vw-32px)] max-w-[1180px] overflow-y-auto rounded-[var(--m3-shape-extra-large)] p-6">
+        <DialogContent className="resume-screening-surface material-neu-panel max-h-[90vh] w-[calc(100vw-32px)] sm:max-w-[1180px] overflow-y-auto rounded-[var(--m3-shape-extra-large)] p-6">
           <div className="flex items-center justify-between gap-4">
             <div>
               <h2 className="text-2xl font-semibold tracking-tight text-slate-900">岗位规则</h2>
@@ -2035,7 +2035,7 @@ export function ResumeScreeningPage() {
       </Dialog>
 
       <Dialog open={showSyncSettings} onOpenChange={setShowSyncSettings}>
-        <DialogContent className="resume-screening-surface material-neu-panel max-h-[90vh] w-[calc(100vw-32px)] max-w-[1180px] overflow-y-auto rounded-[var(--m3-shape-extra-large)] p-6">
+        <DialogContent className="resume-screening-surface material-neu-panel max-h-[90vh] w-[calc(100vw-32px)] sm:max-w-[1180px] overflow-y-auto rounded-[var(--m3-shape-extra-large)] p-6">
           <div className="flex flex-col gap-4 pr-0 sm:pr-32">
             <div className="max-w-[560px]">
               <h2 className="text-2xl font-semibold tracking-tight text-slate-900">同步控制</h2>
@@ -2970,7 +2970,7 @@ export function ResumeScreeningPage() {
       </div>
 
       <Dialog open={showFilterDialog} onOpenChange={setShowFilterDialog}>
-        <DialogContent className="resume-screening-surface material-neu-panel flex h-[78vh] w-[calc(100vw-32px)] max-w-[900px] grid-rows-none flex-col overflow-hidden rounded-[var(--m3-shape-extra-large)] p-0">
+        <DialogContent className="resume-screening-surface material-neu-panel flex h-[78vh] w-[calc(100vw-32px)] sm:max-w-[900px] grid-rows-none flex-col overflow-hidden rounded-[var(--m3-shape-extra-large)] p-0">
           <div className="flex items-start justify-between gap-4 border-b border-slate-200/80 px-6 py-5">
             <div className="min-w-0">
               <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Candidate Pool MateChat</div>
@@ -3080,7 +3080,7 @@ export function ResumeScreeningPage() {
           }
         }}
       >
-        <DialogContent className="resume-screening-surface material-neu-panel flex h-[82vh] w-[calc(100vw-32px)] max-w-[980px] grid-rows-none flex-col overflow-hidden rounded-[var(--m3-shape-extra-large)] p-0">
+        <DialogContent className="resume-screening-surface material-neu-panel flex h-[82vh] w-[calc(100vw-32px)] sm:max-w-[980px] grid-rows-none flex-col overflow-hidden rounded-[var(--m3-shape-extra-large)] p-0">
           <div className="flex items-center justify-between border-b border-slate-200/80 px-6 py-5">
             <div className="min-w-0">
               <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Candidate MateChat</div>
@@ -3254,7 +3254,7 @@ export function ResumeScreeningPage() {
       </Dialog>
 
       <Dialog open={Boolean(deleteConfirm)} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
-        <DialogContent className="resume-screening-surface material-neu-panel w-[calc(100vw-32px)] max-w-[460px] rounded-[var(--m3-shape-extra-large)] p-6">
+        <DialogContent className="resume-screening-surface material-neu-panel w-[calc(100vw-32px)] sm:max-w-[460px] rounded-[var(--m3-shape-extra-large)] p-6">
           <DialogHeader>
               <DialogTitle>{deleteConfirm?.title || "确认删除？"}</DialogTitle>
               <DialogDescription>{deleteConfirm?.description || "该操作不可撤销。"}</DialogDescription>

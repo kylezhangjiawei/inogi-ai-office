@@ -36,6 +36,10 @@ const DialogContent = React.forwardRef<
     <DialogPrimitive.Content
       ref={ref}
       data-slot="dialog-content"
+      // ⚠️ 默认最大宽度是 `sm:max-w-lg`（≥640px 时 512px）。要加宽弹窗，覆盖类必须带上同样的
+      // `sm:` 断点前缀，例如 `sm:max-w-[1180px]` / `sm:max-w-3xl`。不要写裸的 `max-w-[1180px]`：
+      // tailwind-merge 只会合并「相同断点变体」的同组类，裸 `max-w-*`（无变体）无法替换 `sm:max-w-lg`，
+      // 二者会同时保留，而 `sm:` 变体在 ≥640px 时胜出，弹窗会被静默压回 512px（宽度“炸掉”）。
       className={cn(
         "fixed left-[50%] top-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-[var(--m3-shape-dialog)] border bg-background p-6 shadow-[var(--m3-elevation-3)] duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 sm:max-w-lg",
         className,

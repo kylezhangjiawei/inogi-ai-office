@@ -762,7 +762,7 @@ export function RoleManagement() {
 
       {/* ── Delete Confirm ───────────────────────────────────────── */}
       <Dialog open={dialogMode === "deleteConfirm"} onOpenChange={(open) => !open && closeDialog()}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Trash2 className="h-4 w-4 text-red-500" />

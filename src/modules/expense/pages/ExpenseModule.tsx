@@ -3502,7 +3502,7 @@ export function ExpenseModule() {
           onOpenChange={(open) => {
             if (!open) setDocPreview(null);
           }}>
-          <DialogContent className="w-full max-w-lg gap-0 overflow-hidden rounded-3xl border-0 bg-white p-0 elevation-3">
+          <DialogContent className="w-full sm:max-w-lg gap-0 overflow-hidden rounded-3xl border-0 bg-white p-0 elevation-3">
             <DialogHeader className="border-b border-slate-100 px-5 py-4 text-left">
               <div className="flex items-center gap-2.5">
                 <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
@@ -3651,7 +3651,7 @@ export function ExpenseModule() {
           onOpenChange={(open) => {
             if (!open) setCategoryEditor(null);
           }}>
-          <DialogContent className="w-full max-w-sm gap-0 overflow-hidden rounded-3xl border-0 bg-white p-0 elevation-3">
+          <DialogContent className="w-full sm:max-w-sm gap-0 overflow-hidden rounded-3xl border-0 bg-white p-0 elevation-3">
             <DialogHeader className="border-b border-slate-100 px-5 py-4 text-left">
               <DialogTitle className="text-base font-semibold text-slate-900">
                 {categoryEditor?.mode === 'rename' ? '重命名分类' : categoryEditor?.mode === 'add-child' ? '新增子分类' : '新增费用类别'}
@@ -3723,7 +3723,7 @@ export function ExpenseModule() {
           onOpenChange={(open) => {
             if (!open) setCategoryDeleteTarget(null);
           }}>
-          <DialogContent className="w-full max-w-sm gap-0 overflow-hidden rounded-3xl border-0 bg-white p-0 elevation-3">
+          <DialogContent className="w-full sm:max-w-sm gap-0 overflow-hidden rounded-3xl border-0 bg-white p-0 elevation-3">
             <DialogHeader className="px-5 py-4 text-left">
               <DialogTitle className="text-base font-semibold text-slate-900">删除分类</DialogTitle>
               <DialogDescription className="mt-1 text-xs leading-relaxed text-slate-500">
@@ -3758,7 +3758,7 @@ export function ExpenseModule() {
           onOpenChange={(open) => {
             if (!open) setMoveItemTarget(null);
           }}>
-          <DialogContent className="w-full max-w-md gap-0 overflow-hidden rounded-3xl border-0 bg-white p-0 elevation-3">
+          <DialogContent className="w-full sm:max-w-md gap-0 overflow-hidden rounded-3xl border-0 bg-white p-0 elevation-3">
             <DialogHeader className="border-b border-slate-100 px-5 py-4 text-left">
               <DialogTitle className="text-base font-semibold text-slate-900">移动到其他类目</DialogTitle>
               <DialogDescription className="mt-0.5 text-xs text-slate-500">
@@ -3808,7 +3808,7 @@ export function ExpenseModule() {
           onOpenChange={(open) => {
             if (!open) setDeleteItemTarget(null);
           }}>
-          <DialogContent className="w-full max-w-sm gap-0 overflow-hidden rounded-3xl border-0 bg-white p-0 elevation-3">
+          <DialogContent className="w-full sm:max-w-sm gap-0 overflow-hidden rounded-3xl border-0 bg-white p-0 elevation-3">
             <DialogHeader className="px-5 py-4 text-left">
               <DialogTitle className="text-base font-semibold text-slate-900">删除归档凭证</DialogTitle>
               <DialogDescription className="mt-1 text-xs leading-relaxed text-slate-500">
