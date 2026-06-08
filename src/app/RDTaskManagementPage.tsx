@@ -7705,22 +7705,27 @@ function PersonTaskCockpit({
   }, [kpiFilter]);
 
   // Lazy-fetch notes when person tab opens
+  // 仅拉「当前分页可见」内、有附件、且未缓存的任务，并发上限 4。
+  // 之前对该成员名下「全部」有附件任务一次性 Promise.all，成员任务多时瞬间打出上百个
+  // GET /task-progress-notes/:id，触发后端 100 次/60s 限流 → 满屏 429。改为按 visibleCounts 分页 +
+  // 限并发后，单次突发被压到 ≤4，随滚动增量补拉。
   useEffect(() => {
     if (activeTab === "all") return;
     const personTasks = personTasksMap.get(activeTab) ?? [];
-    const toFetch = personTasks.filter((t) => t.attachments > 0 && !(t.task_id in notesMap));
+    const visibleCount = visibleCounts[activeTab] ?? TASK_PAGE_SIZE;
+    const toFetch = personTasks.slice(0, visibleCount).filter((t) => t.attachments > 0 && !(t.task_id in notesMap));
     if (toFetch.length === 0) return;
     let cancelled = false;
     setLoadingNotes(true);
-    Promise.all(toFetch.map((t) =>
+    mapWithConcurrency(toFetch, 4, (t) =>
       fetchRdTaskProgressNotes(t.task_id)
         .then((notes) => [t.task_id, notes] as const)
         .catch(() => [t.task_id, []] as const),
-    ))
+    )
       .then((entries) => { if (!cancelled) setNotesMap((prev) => ({ ...prev, ...Object.fromEntries(entries) })); })
       .finally(() => { if (!cancelled) setLoadingNotes(false); });
     return () => { cancelled = true; };
-  }, [activeTab, personTasksMap]);
+  }, [activeTab, personTasksMap, visibleCounts]);
 
   // Lazy-fetch notes for "全部" tab — fetch attachments of visible tasks
   useEffect(() => {
@@ -7731,11 +7736,12 @@ function PersonTaskCockpit({
     if (toFetch.length === 0) return;
     let cancelled = false;
     setLoadingNotes(true);
-    Promise.all(toFetch.map((t) =>
+    // 限并发 4，避免一页内可见任务过多时一次性把后端 100 次/60s 限流打爆（429）。
+    mapWithConcurrency(toFetch, 4, (t) =>
       fetchRdTaskProgressNotes(t.task_id)
         .then((notes) => [t.task_id, notes] as const)
         .catch(() => [t.task_id, []] as const),
-    ))
+    )
       .then((entries) => { if (!cancelled) setNotesMap((prev) => ({ ...prev, ...Object.fromEntries(entries) })); })
       .finally(() => { if (!cancelled) setLoadingNotes(false); });
     return () => { cancelled = true; };
@@ -7754,11 +7760,12 @@ function PersonTaskCockpit({
       .filter((t) => t.status === "completed" && !(t.task_id in aiScoreMap));
     if (visibleCompleted.length === 0) return;
     let cancelled = false;
-    Promise.all(visibleCompleted.map((t) =>
+    // 限并发 4，与进度留痕拉取同口径，避免可见已完成任务多时的评分请求突发触发 429。
+    mapWithConcurrency(visibleCompleted, 4, (t) =>
       fetchRdTaskCompletionScore(t.task_id)
         .then((score) => [t.task_id, score] as const)
         .catch(() => [t.task_id, null] as const),
-    )).then((entries) => {
+    ).then((entries) => {
       if (!cancelled) setAiScoreMap((prev) => ({ ...prev, ...Object.fromEntries(entries) }));
     });
     return () => { cancelled = true; };

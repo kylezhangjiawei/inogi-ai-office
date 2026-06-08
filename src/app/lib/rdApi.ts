@@ -907,6 +907,15 @@ export function fetchRdTaskProgressNotes(taskId: string) {
   return requestJson<RdTaskProgressNote[]>(`/task-progress-notes/${encodeURIComponent(taskId)}`);
 }
 
+/**
+ * 一次性拉取「全部任务」的进度留痕（task_id → 留痕列表），后端按当前用户权限过滤
+ * （管理员看全部、成员仅看本人）。用于日报/主管驾驶舱等需要按多任务聚合的场景，
+ * 替代「逐任务并发 N 个 GET」——后者任务多时会瞬间打爆后端 100 次/60s 限流触发 429。
+ */
+export function fetchRdTaskProgressNoteMap() {
+  return requestJson<Record<string, RdTaskProgressNote[]>>(`/task-progress-notes`);
+}
+
 // ── 已完成任务 AI 复盘评分 ───────────────────────────────────────────────────
 
 export type RdTaskCompletionScoreDimensionKey =

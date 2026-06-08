@@ -46,11 +46,11 @@ import {
   clearRdAllTaskData,
   createRdTask,
   deleteRdTask,
-  fetchRdDailyReports,
   fetchRdDirectorDashboard,
   fetchRdPeople,
   fetchRdTaskCategories,
   fetchRdTaskProgressNotes,
+  fetchRdTaskProgressNoteMap,
   recomputeRdDirectorDashboard,
   saveRdTaskCategories,
   sendRdMessage,
@@ -2840,16 +2840,10 @@ export function RDDirectorDashboardPage() {
   const [progressNoteMap, setProgressNoteMap] = useState<Record<string, RdTaskProgressNote[]>>({});
 
   const loadProgressNotes = useCallback(() => {
-    fetchRdDailyReports({ limit: 50 })
-      .then(async (list) => {
-        const taskIds = Array.from(
-          new Set(list.flatMap((report) => report.summary.note_refs.map((ref) => ref.task_id)).filter(Boolean)),
-        );
-        const noteEntries = await Promise.all(
-          taskIds.map(async (taskId) => [taskId, await fetchRdTaskProgressNotes(taskId)] as const),
-        );
-        return Object.fromEntries(noteEntries);
-      })
+    // 一次性拉「全部留痕」聚合接口（按权限过滤），替代「逐任务并发 N 个 GET」。
+    // 后者任务多时会瞬间打出上百请求触发后端 100 次/60s 限流 → 429；消费端均按 task_id 索引，
+    // 多出的键不会被读取，行为不变。
+    fetchRdTaskProgressNoteMap()
       .then((noteMap) => { if (isMountedRef.current) setProgressNoteMap(noteMap); })
       .catch(() => { if (isMountedRef.current) setProgressNoteMap({}); });
   }, []);

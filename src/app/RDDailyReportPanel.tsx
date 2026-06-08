@@ -18,7 +18,7 @@ import { cn } from "./components/ui/utils";
 import { ProgressAttachmentGrid } from "./RDProgressEvidence";
 import {
   fetchRdDailyReports,
-  fetchRdTaskProgressNotes,
+  fetchRdTaskProgressNoteMap,
   regenerateAllRdDailyReports,
   type RdDailyReport,
   type RdTaskProgressNote,
@@ -67,14 +67,11 @@ function parseLocalDate(value: string): Date | undefined {
   return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
 }
 
-async function fetchNoteMapFor(list: RdDailyReport[]): Promise<Record<string, RdTaskProgressNote[]>> {
-  const taskIds = Array.from(
-    new Set(list.flatMap((report) => report.summary.note_refs.map((ref) => ref.task_id)).filter(Boolean)),
-  );
-  const entries = await Promise.all(
-    taskIds.map(async (taskId) => [taskId, await fetchRdTaskProgressNotes(taskId)] as const),
-  );
-  return Object.fromEntries(entries);
+async function fetchNoteMapFor(_list: RdDailyReport[]): Promise<Record<string, RdTaskProgressNote[]>> {
+  // 一次性拉「全部留痕」聚合接口（后端按权限过滤），替代按 note_refs 逐任务并发拉取。
+  // 后者任务多时会瞬间打出上百个 GET /task-progress-notes/:id，触发后端 100 次/60s 限流 → 429。
+  // 消费端均按 task_id 索引，多出的键不会被读取，行为不变。
+  return fetchRdTaskProgressNoteMap();
 }
 
 function DailyReportEmptyPanel({ title, description }: { title: string; description: string }) {
