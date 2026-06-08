@@ -78,6 +78,16 @@ export interface ResumeUploadStatusItem {
   error_message?: string;
 }
 
+export interface PendingResumeUploadItem {
+  unique_key: string;
+  candidate_id?: string | null;
+  status: string;
+  error_message?: string;
+  file_name: string;
+  file_type: string;
+  received_at: string;
+}
+
 export interface CandidateListItem {
   id: string;
   unique_key?: string | null;
@@ -285,6 +295,13 @@ export interface CandidateDetail {
 
 export interface ClearCandidatesResponse {
   deleted_candidates: number;
+  deleted_screenings: number;
+  deleted_logs: number;
+}
+
+export interface DeleteCandidateResponse {
+  deleted: boolean;
+  candidate_id: string;
   deleted_screenings: number;
   deleted_logs: number;
 }
@@ -577,6 +594,9 @@ export const recruitmentApi = {
       body: JSON.stringify({ unique_keys: uniqueKeys }),
     });
   },
+  listPendingResumeUploads() {
+    return request<PendingResumeUploadItem[]>("/api/recruitment/resume-upload/pending");
+  },
   listCandidates(filters: {
     keyword?: string;
     decision?: Decision | "";
@@ -622,6 +642,11 @@ export const recruitmentApi = {
   },
   clearCandidates() {
     return request<ClearCandidatesResponse>("/api/recruitment/candidates", {
+      method: "DELETE",
+    });
+  },
+  deleteCandidate(candidateId: string) {
+    return request<DeleteCandidateResponse>(`/api/recruitment/candidates/${candidateId}`, {
       method: "DELETE",
     });
   },

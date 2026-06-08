@@ -96,6 +96,11 @@ export class ResumeScreeningController {
     return this.resumeScreeningService.getResumeUploadStatuses(payload.unique_keys ?? []);
   }
 
+  @Get('resume-upload/pending')
+  listPendingResumeUploads() {
+    return this.resumeScreeningService.listPendingResumeUploads();
+  }
+
   @Get('mail-sync/schedule')
   getMailSyncSchedule() {
     return this.resumeScreeningService.getMailSyncSchedule();
@@ -126,6 +131,11 @@ export class ResumeScreeningController {
   @Delete('candidates')
   clearCandidates() {
     return this.resumeScreeningService.clearCandidates();
+  }
+
+  @Delete('candidates/:candidateId')
+  deleteCandidate(@Param('candidateId') candidateId: string) {
+    return this.resumeScreeningService.deleteCandidate(candidateId);
   }
 
   @Get('candidates/:candidateId')

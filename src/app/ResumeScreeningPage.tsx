@@ -67,6 +67,8 @@ import {
   type ResumeUploadStatusItem,
   recruitmentApi,
 } from "./lib/recruitmentApi";
+import { usePermission } from "./hooks/usePermission";
+import { PERMISSIONS } from "./lib/permissions";
 
 type RuleFormState = {
   id?: string;
@@ -87,6 +89,13 @@ type DeleteConfirmState =
     }
   | {
       kind: "candidate-data";
+      title: string;
+      description: string;
+      confirmLabel?: string;
+    }
+  | {
+      kind: "candidate";
+      id: string;
       title: string;
       description: string;
       confirmLabel?: string;
@@ -441,8 +450,12 @@ function mapUploadStatusItemToPreview(
   };
 }
 
-function shouldDisplayUploadPreview(file: UploadFilePreview) {
-  return ["已入队，后台 AI 筛选中", "已完成", "处理失败"].includes(file.status);
+function shouldDisplayUploadPreview(_file: UploadFilePreview) {
+  // 后端会为每个文件返回处理结果（已入队 / 格式不支持 / 不符合岗位 / 已存在 / 待配置 AI / 处理失败 等），
+  // 其中“已入队”文案还带有动态岗位名（如「已入队，AI 正在分析（机械制图员）」）。
+  // 这里展示全部结果，让用户清楚每个文件的去向；切勿再用固定字符串白名单过滤——
+  // 否则只要后端文案改动，整段上传反馈就会静默丢失（曾导致“上传后无任何有效提示”）。
+  return true;
 }
 
 function toCandidateScreeningStatus(status?: string | null) {
@@ -601,6 +614,7 @@ export function ResumeScreeningPage() {
   const [savingRule, setSavingRule] = useState(false);
   const [deletingJobRuleId, setDeletingJobRuleId] = useState<string | null>(null);
   const [clearingCandidates, setClearingCandidates] = useState(false);
+  const [deletingCandidateId, setDeletingCandidateId] = useState<string | null>(null);
   const [togglingJobRuleId, setTogglingJobRuleId] = useState<string | null>(null);
   const [selectedJobRuleId, setSelectedJobRuleId] = useState<string>("");
   const [ruleForm, setRuleForm] = useState<RuleFormState>(emptyRuleForm);
@@ -612,6 +626,7 @@ export function ResumeScreeningPage() {
   const [selectedMailConfigId, setSelectedMailConfigId] = useState("");
   const [selectedOpenAiConfigId, setSelectedOpenAiConfigId] = useState("");
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirmState | null>(null);
+  const canDeleteCandidate = usePermission(PERMISSIONS.RESUME_DELETE);
 
   const [scheduleForm, setScheduleForm] = useState<ScheduleFormState>(defaultScheduleForm);
   const [savingSchedule, setSavingSchedule] = useState(false);
@@ -736,6 +751,17 @@ export function ResumeScreeningPage() {
     [lastUploadResult?.file_previews],
   );
   const hasPendingBackgroundAnalysis = hasPendingSyncMail || hasPendingUploadFile;
+  // 实时统计后台仍在筛选中的份数：随着轮询把每个文件状态从「已入队…」更新为完成/失败，
+  // 这里的计数会自动递减，用于主页面的「正在后台筛选 N 份」进度提示。
+  const pendingUploadCount = useMemo(
+    () => lastUploadResult?.file_previews?.filter((file) => isSyncMailLoading(file.status)).length ?? 0,
+    [lastUploadResult?.file_previews],
+  );
+  const pendingSyncMailCount = useMemo(
+    () => lastSyncResult?.mail_previews?.filter((mail) => isSyncMailLoading(mail.status)).length ?? 0,
+    [lastSyncResult?.mail_previews],
+  );
+  const pendingBackgroundCount = pendingUploadCount + pendingSyncMailCount;
   const clearCandidatesDisabled =
     clearingCandidates || loadingCandidates || runningSync || uploadingFolder || hasPendingBackgroundAnalysis;
   const candidateFilterKey = useMemo(
@@ -754,6 +780,53 @@ export function ResumeScreeningPage() {
 
   useEffect(() => {
     void loadBootstrap();
+  }, []);
+
+  // 页面加载（含刷新）时恢复后台筛选进度提示：
+  // lastUploadResult 是会话内状态，刷新后会丢失，导致主页横幅与列表空态提示消失（即便 AI 仍在后台筛选）。
+  // 这里查询后端仍处于 queued 的【上传】日志，若存在则重建一个最小的 lastUploadResult，
+  // 让既有的轮询 effect 自动接管（拉取状态、静默刷新候选人列表、完成后自动停止），无需用户重新上传。
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const pending = await recruitmentApi.listPendingResumeUploads();
+        if (cancelled || !pending.length) {
+          return;
+        }
+        setLastUploadResult((current) => {
+          // 不覆盖本会话已有的上传结果（例如用户刚点过上传），避免丢失更完整的反馈信息。
+          if (current) {
+            return current;
+          }
+          return {
+            uploaded_count: pending.length,
+            processed: 0,
+            created_candidates: 0,
+            skipped: 0,
+            failed: 0,
+            queued_for_ai: pending.length,
+            file_previews: pending.map((item) => ({
+              unique_key: item.unique_key,
+              candidate_id: item.candidate_id ?? undefined,
+              file_name: item.file_name,
+              file_type: item.file_type,
+              received_at: item.received_at,
+              preview: "",
+              candidate_name: "",
+              status: item.status, // 'queued' → isSyncMailLoading 判定为加载中，驱动进度横幅
+              error_message: item.error_message,
+            })),
+            message: `检测到 ${pending.length} 份简历仍在后台筛选中，已为你恢复进度提示。`,
+          };
+        });
+      } catch {
+        // 静默失败：恢复进度提示属增强能力，失败不应影响页面其余功能。
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -1315,14 +1388,15 @@ export function ResumeScreeningPage() {
   }
 
   function resetRuleForm() {
+    // 仅重置“当前岗位 / 规则编辑”状态，不要联动表格的岗位筛选（jobRuleFilter）。
+    // 表格有自己独立的岗位筛选下拉，顶部 select 不应影响它。
     setSelectedJobRuleId("");
-    setJobRuleFilter("");
     setRuleForm(emptyRuleForm);
   }
 
   function hydrateRule(jobRule: JobRule) {
+    // 同上：选择/水合当前岗位只更新顶部 select 与规则表单，不改动表格筛选 jobRuleFilter。
     setSelectedJobRuleId(jobRule.id);
-    setJobRuleFilter(jobRule.id);
     setRuleForm({
       id: jobRule.id,
       name: jobRule.name,
@@ -1443,6 +1517,30 @@ export function ResumeScreeningPage() {
     }
   }
 
+  async function handleDeleteCandidate(candidateId: string) {
+    setDeletingCandidateId(candidateId);
+    try {
+      const result = await recruitmentApi.deleteCandidate(candidateId);
+      setCandidates((current) => current.filter((item) => item.id !== candidateId));
+      if (selectedCandidateId === candidateId) {
+        setSelectedCandidateId("");
+        setSelectedCandidate(null);
+        setInterviewQaExpanded(false);
+      }
+      if (candidateAiDialogId === candidateId) {
+        setCandidateAiDialogId(null);
+      }
+      toast.success(
+        `已删除候选人，共清理 ${result.deleted_screenings} 条筛选记录、${result.deleted_logs} 条打点记录。`,
+      );
+      void loadCandidates({ silent: true });
+    } catch (error) {
+      toast.error(getErrorMessage(error, "删除候选人失败"));
+    } finally {
+      setDeletingCandidateId(null);
+    }
+  }
+
   async function confirmDelete() {
     if (!deleteConfirm) return;
 
@@ -1451,6 +1549,8 @@ export function ResumeScreeningPage() {
       if (target) {
         await handleDeleteJobRule(target);
       }
+    } else if (deleteConfirm.kind === "candidate") {
+      await handleDeleteCandidate(deleteConfirm.id);
     } else {
       await handleClearCandidateData();
     }
@@ -1548,7 +1648,22 @@ export function ResumeScreeningPage() {
       const result = await recruitmentApi.uploadResumeFiles(formData);
       setLastUploadResult(result);
       await loadCandidates({ jobRuleId: jobRuleFilter });
-      toast.success(result.message || "简历文件夹上传完成");
+      // 根据真实处理结果给出反馈，而不是一律 success：
+      // 没有任何文件入队（格式不支持/不符合岗位/重复/未配置 AI）时必须报错提示，
+      // 否则用户会误以为“上传成功”却看不到任何识别结果。
+      const queuedCount = result.queued_for_ai ?? 0;
+      const failedCount = result.failed ?? 0;
+      const skippedCount = result.skipped ?? 0;
+      const uploadFeedback = result.message || "简历文件夹上传完成";
+      if (queuedCount > 0) {
+        if (failedCount > 0 || skippedCount > 0) {
+          toast.warning(uploadFeedback);
+        } else {
+          toast.success(uploadFeedback);
+        }
+      } else {
+        toast.error(uploadFeedback);
+      }
     } catch (error) {
       toast.error(getErrorMessage(error, "上传简历文件夹失败"));
     } finally {
@@ -1883,6 +1998,19 @@ export function ResumeScreeningPage() {
             <span>最近上传：入队 {lastUploadResult.queued_for_ai ?? 0}，失败 {lastUploadResult.failed}。</span>
           ) : null}
         </div>
+        {hasPendingBackgroundAnalysis ? (
+          <div className="mt-3 flex items-start gap-3 rounded-[var(--m3-shape-medium)] border border-indigo-100 bg-indigo-50/70 px-4 py-3 text-indigo-700">
+            <Loader2 className="mt-0.5 h-4 w-4 flex-shrink-0 animate-spin" />
+            <div className="min-w-0 leading-5">
+              <p className="text-sm font-semibold">
+                正在后台筛选 {pendingBackgroundCount || lastUploadResult?.queued_for_ai || ""} 份简历…
+              </p>
+              <p className="mt-0.5 text-xs text-indigo-600/80">
+                AI 正在逐条读取并打分，完成后会自动出现在下方候选人列表，无需刷新页面或重复上传。
+              </p>
+            </div>
+          </div>
+        ) : null}
       </section>
 
       <Dialog open={showJobRuleManager} onOpenChange={setShowJobRuleManager}>
@@ -2524,9 +2652,16 @@ export function ResumeScreeningPage() {
                   正在加载候选人...
                 </div>
               ) : filteredCandidates.length === 0 ? (
-                <div className="px-4 py-12 text-center text-sm text-slate-400">
-                  暂无候选人
-                </div>
+                hasPendingBackgroundAnalysis ? (
+                  <div className="px-4 py-12 text-center text-sm text-indigo-600">
+                    <Loader2 className="mx-auto mb-2 h-4 w-4 animate-spin" />
+                    正在后台筛选 {pendingBackgroundCount || lastUploadResult?.queued_for_ai || ""} 份简历，完成后会自动出现在此处，无需刷新…
+                  </div>
+                ) : (
+                  <div className="px-4 py-12 text-center text-sm text-slate-400">
+                    暂无候选人
+                  </div>
+                )
               ) : (
                 <MuiTable
                   stickyHeader
@@ -2656,19 +2791,45 @@ export function ResumeScreeningPage() {
                         </MuiTableCell>
                         <MuiTableCell sx={{ ...muiTableBodyCellSx, color: "#94a3b8", fontSize: 12 }}>{formatDate(candidate.received_at)}</MuiTableCell>
                         <MuiTableCell sx={{ ...muiTableBodyCellSx, pr: 2.5 }}>
-                          <button
-                            type="button"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setSelectedCandidateId(candidate.id);
-                              setCandidateAiDialogId(candidate.id);
-                              setCandidateAiQuestion("");
-                            }}
-                            className="material-table-button inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-[4px] px-3 text-xs font-semibold transition"
-                          >
-                            <MessageSquarePlus className="h-3.5 w-3.5" />
-                            AI 讨论
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedCandidateId(candidate.id);
+                                setCandidateAiDialogId(candidate.id);
+                                setCandidateAiQuestion("");
+                              }}
+                              className="material-table-button inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-[4px] px-3 text-xs font-semibold transition"
+                            >
+                              <MessageSquarePlus className="h-3.5 w-3.5" />
+                              AI 讨论
+                            </button>
+                            {canDeleteCandidate ? (
+                              <button
+                                type="button"
+                                disabled={deletingCandidateId === candidate.id}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setDeleteConfirm({
+                                    kind: "candidate",
+                                    id: candidate.id,
+                                    title: "删除该候选人？",
+                                    description: `将永久删除「${candidate.name || "未命名候选人"}」及其全部筛选记录与打点数据，该操作不可撤销。`,
+                                    confirmLabel: "删除候选人",
+                                  });
+                                }}
+                                className="inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-[4px] px-3 text-xs font-semibold text-rose-600 ring-1 ring-inset ring-rose-200 transition hover:bg-rose-50 disabled:opacity-60"
+                              >
+                                {deletingCandidateId === candidate.id ? (
+                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                )}
+                                删除
+                              </button>
+                            ) : null}
+                          </div>
                         </MuiTableCell>
                       </MuiTableRow>
                     );
@@ -3270,10 +3431,10 @@ export function ResumeScreeningPage() {
             <button
               type="button"
               onClick={() => void confirmDelete()}
-              disabled={Boolean(deletingJobRuleId) || clearingCandidates}
+              disabled={Boolean(deletingJobRuleId) || clearingCandidates || Boolean(deletingCandidateId)}
               className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-[4px] bg-rose-600 px-6 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:opacity-60"
             >
-              {deletingJobRuleId || clearingCandidates ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              {deletingJobRuleId || clearingCandidates || deletingCandidateId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
               {deleteConfirm?.confirmLabel || "确认删除"}
             </button>
           </DialogFooter>

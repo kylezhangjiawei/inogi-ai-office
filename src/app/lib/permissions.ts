@@ -107,6 +107,7 @@ export const PERMISSIONS = {
   // ─── Resume screening ───────────────────────────────────────────
   RESUME_UPLOAD: 'resume:upload',
   RESUME_SCREEN: 'resume:screen',
+  RESUME_DELETE: 'resume:delete',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -230,6 +231,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     permissions: [
       { code: 'resume:upload', label: '上传简历' },
       { code: 'resume:screen', label: '执行 AI 筛选' },
+      { code: 'resume:delete', label: '删除候选人', description: '删除已导入的候选人记录及其筛选数据' },
     ],
   },
   {

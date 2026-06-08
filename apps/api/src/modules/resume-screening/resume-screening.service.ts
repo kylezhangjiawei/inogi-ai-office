@@ -778,8 +778,14 @@ export class ResumeScreeningService implements OnModuleInit {
       error_message?: string;
     }> = [];
 
+    // 本次上传内已处理过的「内容哈希 + 岗位」组合，用于跳过同一份简历的重复文件
+    // （例如文件夹里同时存在 resume.pdf 与 resume(1).pdf 这类内容完全相同、仅文件名不同的副本），
+    // 避免在候选人列表里出现“两条一模一样的数据”。按岗位区分，保证同一份简历投递不同岗位时仍各自分析。
+    const seenContentJobKeys = new Set<string>();
+
     for (const file of files) {
       const fileName = this.normalizeUploadedFileName(file.originalname);
+      const contentHash = this.buildUploadedResumeContentHash(file.buffer);
       const uniqueKey = this.buildUploadedResumeUniqueKey(fileName, file.buffer);
       const receivedAt = new Date();
       const matchedJobRule = this.matchUploadedFileToJobRule(fileName, enabledJobRules, preferredJobRule?.id);
@@ -815,6 +821,26 @@ export class ResumeScreeningService implements OnModuleInit {
         });
         continue;
       }
+
+      // 同一批上传里，内容相同且匹配到同一岗位的文件只处理一次，跳过其余重复副本，
+      // 从源头避免生成“两条一模一样”的候选人记录。
+      const contentJobKey = `${contentHash}::${matchedJobRule.id}`;
+      if (seenContentJobKeys.has(contentJobKey)) {
+        skipped += 1;
+        duplicateCount += 1;
+        filePreviews.push({
+          unique_key: uniqueKey,
+          file_name: fileName,
+          file_type: this.getFileExtensionLabel(fileName),
+          received_at: receivedAt.toISOString(),
+          preview: '',
+          candidate_name: '',
+          status: '已存在',
+          error_message: '本次上传中已包含与之内容相同、岗位相同的简历，已自动跳过重复文件。',
+        });
+        continue;
+      }
+      seenContentJobKeys.add(contentJobKey);
 
       const existingLog = await this.prisma.emailIngestionLog.findUnique({
         where: { uniqueKey },
@@ -1009,6 +1035,44 @@ export class ResumeScreeningService implements OnModuleInit {
       candidate_id: log.candidateId ?? null,
       status: log.status,
       error_message: log.errorMessage ?? undefined,
+    }));
+  }
+
+  /**
+   * 列出仍在后台排队/筛选中的【上传】简历日志，供前端在页面加载（刷新）后恢复
+   * 「正在后台筛选 N 份」进度提示并接管轮询。
+   * - 仅限 mailbox='UPLOAD'：上传渠道在入队时写入 status='queued'（见 createIngestionLog 调用），
+   *   邮件同步渠道虽然也会写 'queued'，但其在途状态不应混入上传进度，避免语义错乱。
+   * - 加 24 小时时间窗：若某个 queued 日志因任务异常长期卡住，不应在以后每次加载都永远显示"筛选中"。
+   */
+  async listPendingResumeUploads() {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    const logs = await this.prisma.emailIngestionLog.findMany({
+      where: {
+        mailbox: 'UPLOAD',
+        status: 'queued',
+        receivedAt: { gte: since },
+      },
+      select: {
+        uniqueKey: true,
+        candidateId: true,
+        status: true,
+        errorMessage: true,
+        subject: true,
+        receivedAt: true,
+      },
+      orderBy: { receivedAt: 'desc' },
+      take: 100,
+    });
+
+    return logs.map((log) => ({
+      unique_key: log.uniqueKey,
+      candidate_id: log.candidateId ?? null,
+      status: log.status,
+      error_message: log.errorMessage ?? undefined,
+      file_name: log.subject,
+      file_type: this.getFileExtensionLabel(log.subject),
+      received_at: log.receivedAt.toISOString(),
     }));
   }
 
@@ -1721,6 +1785,38 @@ export class ResumeScreeningService implements OnModuleInit {
 
     return {
       deleted_candidates: deletedCandidates.count,
+      deleted_screenings: deletedScreenings.count,
+      deleted_logs: deletedLogs.count,
+    };
+  }
+
+  async deleteCandidate(candidateId: string) {
+    const id = candidateId?.trim();
+    if (!id) {
+      throw new BadRequestException('缺少候选人 ID。');
+    }
+
+    const candidate = await this.prisma.candidate.findUnique({ where: { id } });
+    if (!candidate) {
+      throw new NotFoundException('候选人不存在或已被删除。');
+    }
+
+    // 若该候选人仍在后台 AI 筛选队列中，删除后队列任务会写入一条引用已删除候选人的筛选记录，
+    // 触发外键约束错误。这里仅针对“该候选人”做拦截，避免影响其他脏数据的清理。
+    const isQueuedForScreening = this.screeningQueue.some((task) => task.candidateId === id);
+    if (isQueuedForScreening) {
+      throw new ConflictException('该候选人正在后台 AI 筛选队列中，请等待筛选完成后再删除。');
+    }
+
+    const [deletedScreenings, deletedLogs] = await this.prisma.$transaction([
+      this.prisma.candidateScreening.deleteMany({ where: { candidateId: id } }),
+      this.prisma.emailIngestionLog.deleteMany({ where: { candidateId: id } }),
+      this.prisma.candidate.delete({ where: { id } }),
+    ]);
+
+    return {
+      deleted: true,
+      candidate_id: id,
       deleted_screenings: deletedScreenings.count,
       deleted_logs: deletedLogs.count,
     };
@@ -2440,8 +2536,12 @@ export class ResumeScreeningService implements OnModuleInit {
     };
   }
 
+  private buildUploadedResumeContentHash(buffer: Buffer) {
+    return createHash('sha256').update(buffer).digest('hex');
+  }
+
   private buildUploadedResumeUniqueKey(fileName: string, buffer: Buffer) {
-    const hash = createHash('sha256').update(buffer).digest('hex');
+    const hash = this.buildUploadedResumeContentHash(buffer);
     const normalizedName = fileName.trim().toLowerCase();
     return `upload:${hash}:${normalizedName}`;
   }

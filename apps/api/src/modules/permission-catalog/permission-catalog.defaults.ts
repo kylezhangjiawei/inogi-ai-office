@@ -122,6 +122,7 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'role:delete', label: '删除角色', description: '永久删除角色', groupLabel: '操作权限 · 角色管理', type: 'action', sortOrder: 1220 },
   { code: 'resume:upload', label: '上传简历', groupLabel: '操作权限 · 简历筛选', type: 'action', sortOrder: 1300 },
   { code: 'resume:screen', label: '执行 AI 筛选', groupLabel: '操作权限 · 简历筛选', type: 'action', sortOrder: 1310 },
+  { code: 'resume:delete', label: '删除候选人', description: '删除已导入的候选人记录及其筛选数据', groupLabel: '操作权限 · 简历筛选', type: 'action', sortOrder: 1320 },
   { code: 'after-sales:create', label: '新建工单', groupLabel: '操作权限 · 售后工单', type: 'action', sortOrder: 1400 },
   { code: 'after-sales:edit', label: '编辑工单', groupLabel: '操作权限 · 售后工单', type: 'action', sortOrder: 1410 },
   { code: 'after-sales:delete', label: '删除工单', groupLabel: '操作权限 · 售后工单', type: 'action', sortOrder: 1420 },
