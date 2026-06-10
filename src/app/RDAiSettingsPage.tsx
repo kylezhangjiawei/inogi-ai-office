@@ -25,8 +25,18 @@ import {
   type RdAiSceneConfig,
   type RdAiSettingsPayload,
 } from "./lib/rdApi";
+import { resolveExplicitUsage, resolveModelUsageKind } from "./lib/aiModelOptions";
 
 type ModelRef = NonNullable<NonNullable<RdAiSettingsPayload["runtime"]>["models"]>[number];
+
+/** 模型用途在下拉里的聚合顺序：对话类在前，专用类（图片/向量/文档解析）在后。 */
+const USAGE_GROUP_ORDER: Record<string, number> = {
+  text: 0,
+  multimodal: 1,
+  image: 2,
+  embedding: 3,
+  document: 4,
+};
 
 const PIPELINE_STEPS = [
   { id: "detect", label: "类型识别", icon: FileText },
@@ -123,6 +133,17 @@ function ModelSelect({
   onChange: (value: string) => void;
 }) {
   const selectedMissing = value && !models.some((item) => item.id === value);
+  // 按用途类型聚合排序，并在每个选项后标注用途（文本/多模态/图片/向量/文档解析），
+  // 用途判定复用共享逻辑（usage_kind 权威 + 名称兜底），便于在研发场景里区分模型用途，
+  // 避免把 embedding / 图片模型误选成对话模型。NativeSelect 是 Radix 封装、不支持 optgroup，
+  // 故以「排序聚合 + 行内标签」实现可区分的分组观感。
+  const sorted = useMemo(
+    () =>
+      models
+        .map((model) => ({ model, usage: resolveExplicitUsage(resolveModelUsageKind(model)) }))
+        .sort((a, b) => (USAGE_GROUP_ORDER[a.usage.kind] ?? 9) - (USAGE_GROUP_ORDER[b.usage.kind] ?? 9)),
+    [models],
+  );
   return (
     <NativeSelect
       className="h-9 w-full rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
@@ -131,9 +152,9 @@ function ModelSelect({
     >
       <option value="">跟随默认模型</option>
       {selectedMissing ? <option value={value}>{value}</option> : null}
-      {models.map((model) => (
+      {sorted.map(({ model, usage }) => (
         <option key={model.id} value={model.id}>
-          {model.name || model.model} / {model.model}
+          {model.name || model.model} / {model.model} · {usage.label}
         </option>
       ))}
     </NativeSelect>

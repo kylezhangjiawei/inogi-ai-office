@@ -28,6 +28,7 @@ import { authFetch } from "../lib/authSession";
 import { useAuth } from "../auth";
 import { cn } from "./ui/utils";
 import { backfillKbToRag, ragStatus, type RagCitation, type RagStatus } from "../lib/ragApi";
+import { isChatUsableModel } from "../lib/aiModelOptions";
 import { hasPermission } from "../lib/permissions";
 import { RagCitations, RagPermissionNotice } from "./RagCitations";
 
@@ -280,16 +281,10 @@ async function apiListModels(): Promise<ModelOption[]> {
   const res = await authFetch("/api/chat/models");
   if (!res.ok) return [];
   const all = (await res.json()) as ModelOption[];
-  // 图片生成 / 文档解析模型不支持对话（后端已过滤，前端再加一层防护）
-  return all.filter((m) => {
-    const n = m.model.toLowerCase();
-    if (m.usage_kind === "image") return false;
-    // 文档解析模型（qwen-doc-turbo 等）只用于文件读取，不能当对话模型，
-    // 必须在 usage_kind 判定之前排除，避免被当成普通文本模型放行。
-    if (n.includes("qwen-doc")) return false;
-    if (m.usage_kind && m.usage_kind !== "auto") return true;
-    return !(n.includes("gpt-image") || n.includes("image-to-image") || n === "dall-e-2" || n.startsWith("dall-e-"));
-  });
+  // 仅保留可对话模型（文本/多模态）：用途判定复用共享的 isChatUsableModel
+  //（usage_kind 权威 + 名称兜底），自动排除图片生成 / 向量 / 文档解析模型，
+  // 后端已过滤，前端再加一层防护，且与其它页面共用同一套判定避免漂移。
+  return all.filter((m) => isChatUsableModel(m));
 }
 
 // ─── 主组件 ───────────────────────────────────────────────────────────────────

@@ -4,6 +4,8 @@ import { toast } from "sonner";
 import { AiModelItem, integrationManagementApi } from "./integrationManagementApi";
 import {
   buildChatModelOptions,
+  buildDocumentModelOptions,
+  buildEmbeddingModelOptions,
   buildImageModelOptions,
   buildMultimodalModelOptions,
   buildTextModelOptions,
@@ -40,6 +42,12 @@ export function useAiModelOptions(pageSize = 100) {
    */
   const chatModelOptions = useMemo(() => buildChatModelOptions(modelRows), [modelRows]);
 
+  /** 向量化模型（usageKind === 'embedding'），用于知识库检索配置 */
+  const embeddingModelOptions = useMemo(() => buildEmbeddingModelOptions(modelRows), [modelRows]);
+
+  /** 文档解析模型（usageKind === 'document'），用于附件 / 文件读取配置 */
+  const documentModelOptions = useMemo(() => buildDocumentModelOptions(modelRows), [modelRows]);
+
   const preferredManagedImageModelValue = useMemo(
     () => imageModelOptions.find((item) => item.managed)?.value ?? "",
     [imageModelOptions],
@@ -57,6 +65,10 @@ export function useAiModelOptions(pageSize = 100) {
     multimodalModelOptions,
     /** 文本 + 多模态（适合对话、提示词优化、研发场景配置等） */
     chatModelOptions,
+    /** 向量化模型（知识库检索） */
+    embeddingModelOptions,
+    /** 文档解析模型（附件 / 文件读取） */
+    documentModelOptions,
     preferredManagedImageModelValue,
   };
 }

@@ -40,6 +40,15 @@ export class AuthController {
     return this.authService.getCurrentUser(req.user.id);
   }
 
+  /**
+   * 头像目录：返回所有「有头像」用户的签名 URL，供驾驶舱等多用户界面解析他人头像。
+   * 需登录（非 @Public）；只读 id/name/头像 URL。
+   */
+  @Get('avatars')
+  listAvatars() {
+    return this.authService.listUserAvatars();
+  }
+
   @Patch('me')
   updateMe(
     @Request() req: { user: { id: string } },

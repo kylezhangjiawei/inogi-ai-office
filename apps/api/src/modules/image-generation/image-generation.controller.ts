@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   Param,
   Patch,
   Post,
@@ -30,6 +31,19 @@ export class ImageGenerationController {
   generate(@Req() req: Request, @Body() dto: GenerateImageDto) {
     const userId = this.getUserId(req);
     return this.service.generate(userId, dto);
+  }
+
+  @Post('generate/async')
+  createGenerateTask(@Req() req: Request, @Body() dto: GenerateImageDto) {
+    const userId = this.getUserId(req);
+    return this.service.createGenerationTask(userId, dto);
+  }
+
+  @Get('tasks/:taskId')
+  @Header('Cache-Control', 'no-store')
+  getImageTask(@Req() req: Request, @Param('taskId') taskId: string) {
+    const userId = this.getUserId(req);
+    return this.service.getImageTask(userId, taskId);
   }
 
   @Post('prompt-chat')
@@ -94,6 +108,12 @@ export class ImageGenerationController {
   editImage(@Req() req: Request, @Param('id') id: string, @Body() dto: EditImageDto) {
     const userId = this.getUserId(req);
     return this.service.editImage(userId, id, dto);
+  }
+
+  @Post('images/:id/edit/async')
+  createEditTask(@Req() req: Request, @Param('id') id: string, @Body() dto: EditImageDto) {
+    const userId = this.getUserId(req);
+    return this.service.createEditTask(userId, id, dto);
   }
 
   @Patch('images/:id/favorite')

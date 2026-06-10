@@ -37,6 +37,17 @@ function buildKbViewer(req: AuthedRequest): { userId?: string; hasFullAccess: bo
   return { userId: req.user?.id, hasFullAccess };
 }
 
+/**
+ * 研发数据表专用 viewer：「看全部」= 编辑权限（* / rd-sheet:edit）。
+ * 编辑者天然完全访问（不裁剪），其余人按各自 kb_level 行级裁剪。
+ * 不能用任务管理权限（rd-task:reassign 等）——否则会绕过密级过滤看到全部敏感行。
+ */
+function buildSheetViewer(req: AuthedRequest): { userId?: string; hasFullAccess: boolean } {
+  const perms = req.user?.permissions ?? [];
+  const hasFullAccess = perms.includes('*') || perms.includes('rd-sheet:edit');
+  return { userId: req.user?.id, hasFullAccess };
+}
+
 @Controller('research-development')
 @Permissions(...RD_READ_PERMISSIONS)
 export class ResearchDevelopmentController {
@@ -75,8 +86,25 @@ export class ResearchDevelopmentController {
 
   @Patch('task-categories/tasks/:taskId')
   @Permissions('page:rd-my-workspace', 'rd-task:edit', 'rd-task:create', 'rd-task:reassign')
-  updateTask(@Param('taskId') taskId: string, @Body() payload: Record<string, unknown>) {
-    return this.rdService.updateTask(taskId, payload);
+  updateTask(
+    @Param('taskId') taskId: string,
+    @Body() payload: Record<string, unknown>,
+    @Request() req: AuthedRequest,
+  ) {
+    // 越权防护：管理员级权限（* / rd-task:edit / rd-task:reassign / rd-task:create）可改任意任务，
+    // 行为不变；仅持 page:rd-my-workspace 的普通成员由服务层按 owner/协作人兜底校验，且禁止审批/移交。
+    // canEditAny 覆盖了「审核人集合」(rd-task:edit ∪ rd-task:reassign)，故合法审批不受影响。
+    const perms = req.user?.permissions ?? [];
+    const canEditAny =
+      perms.includes('*') ||
+      perms.includes('rd-task:edit') ||
+      perms.includes('rd-task:reassign') ||
+      perms.includes('rd-task:create');
+    return this.rdService.updateTask(taskId, payload, {
+      requesterUserId: req.user?.id,
+      requesterName: req.user?.name,
+      canEditAny,
+    });
   }
 
   @Delete('task-categories/tasks/:taskId')
@@ -151,7 +179,12 @@ export class ResearchDevelopmentController {
 
   @Get('task-progress-notes/:taskId')
   getTaskProgressNotes(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
-    return this.rdService.getTaskProgressNotes(taskId, buildViewer(req));
+    // 单任务读取额外带上 userName：参与人（含历史仅按姓名指派的任务）可见该任务全部进展。
+    // 仅此路由透传，不改动共享的 buildViewer（其它路由口径不变）。
+    return this.rdService.getTaskProgressNotes(taskId, {
+      ...buildViewer(req),
+      userName: req.user?.name,
+    });
   }
 
   /**
@@ -231,7 +264,7 @@ export class ResearchDevelopmentController {
       actor_name?: string;
       actor_role?: string;
     },
-    @Request() req: { user?: { id?: string; name?: string; role?: string } },
+    @Request() req: AuthedRequest,
   ) {
     const progressRaw = body.progress;
     const progress =
@@ -240,6 +273,13 @@ export class ResearchDevelopmentController {
         : progressRaw !== undefined && progressRaw !== ''
           ? Number(progressRaw)
           : undefined;
+    // 越权防护：管理员级权限可为任意任务记进展，普通成员由服务层按 owner/协作人兜底校验。
+    const perms = req.user?.permissions ?? [];
+    const canEditAny =
+      perms.includes('*') ||
+      perms.includes('rd-task:edit') ||
+      perms.includes('rd-task:reassign') ||
+      perms.includes('rd-task:create');
     return this.rdService.createTaskProgressNote({
       taskId: body.task_id ?? '',
       text: body.text ?? '',
@@ -250,6 +290,10 @@ export class ResearchDevelopmentController {
         role: body.actor_role || req.user?.role,
       },
       files: files ?? [],
+      // 归属校验只信任服务端鉴权得到的 req.user 身份（不用可被前端覆盖的 actor_name）
+      requesterUserId: req.user?.id,
+      requesterName: req.user?.name,
+      canEditAny,
     });
   }
 
@@ -568,6 +612,33 @@ export class ResearchDevelopmentController {
   @Permissions(...RD_READ_PERMISSIONS, 'page:ai-model-management', 'rd-ai:configure')
   planFileIngestion(@Body() payload: Record<string, unknown>) {
     return this.rdService.planFileIngestion(payload);
+  }
+
+  // ── 研发数据表（类 WPS 表格 · 行级密级管控）─────────────────────────────────
+
+  /** 列出数据表元信息。读权限（page:rd-sheet）或编辑权限均可访问。 */
+  @Get('sheets')
+  @Permissions('page:rd-sheet', 'rd-sheet:edit')
+  listSheets() {
+    return this.rdService.listSheets();
+  }
+
+  /** 读取单表。后端按 viewer 的密级分值行级裁剪；编辑者拿全量。 */
+  @Get('sheet/:id')
+  @Permissions('page:rd-sheet', 'rd-sheet:edit')
+  getSheet(@Param('id') id: string, @Request() req: AuthedRequest) {
+    return this.rdService.getSheet(id, buildSheetViewer(req));
+  }
+
+  /** 保存单表（仅编辑者）。始终写入完整未裁剪数据。 */
+  @Put('sheet/:id')
+  @Permissions('rd-sheet:edit')
+  saveSheet(
+    @Param('id') id: string,
+    @Body() payload: Record<string, unknown>,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.rdService.saveSheet(id, payload, req.user?.id);
   }
 
   // ── Knowledge Base ────────────────────────────────────────────────────────

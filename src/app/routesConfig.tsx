@@ -10,6 +10,7 @@ import {
   Download,
   FileBox,
   FileSearch,
+  FileSpreadsheet,
   FileText,
   FolderKanban,
   GanttChartSquare,
@@ -64,6 +65,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { label: "研发任务驾驶舱", path: "/rd-task-management", icon: LayoutGrid, requiredPermission: "page:rd-task-management" },
       { label: "个人工作台", path: "/rd-my-workspace", icon: GanttChartSquare, requiredPermission: "page:rd-my-workspace" },
+      { label: "研发数据表", path: "/rd-sheet", icon: FileSpreadsheet, requiredPermission: "page:rd-sheet" },
       { label: "研发知识库", path: "/rd-knowledge-base", icon: BookOpen, requiredPermission: "page:rd-knowledge-base" },
       // 研发主管驾驶舱 — 导航可见性由页面路由管理中的「导航」开关控制（默认隐藏）
       { label: "研发主管驾驶舱", path: "/rd-director-dashboard", icon: Telescope, requiredPermission: "page:rd-director-dashboard" },

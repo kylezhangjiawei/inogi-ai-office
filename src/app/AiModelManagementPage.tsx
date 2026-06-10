@@ -7,8 +7,11 @@ import { Switch } from "./components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./components/ui/table";
 import { MaterialSelect } from "./components/MaterialFields";
 import { AiModelItem, integrationManagementApi } from "./lib/integrationManagementApi";
+import { dictionaryApi } from "./lib/dictionaryApi";
 import { cn } from "./components/ui/utils";
-import { getAiModelUsage } from "./lib/aiModelOptions";
+import { resolveExplicitUsage, resolveModelUsageKind } from "./lib/aiModelOptions";
+
+const AI_PROVIDER_DICT_KEY = "ai_provider";
 
 const PAGE_SIZE = 8;
 
@@ -34,10 +37,12 @@ const statusToneMap: Record<string, string> = {
   未配置: "bg-slate-100 text-slate-600",
 };
 
-const usageToneMap = {
+const usageToneMap: Record<string, string> = {
   text: "bg-sky-50 text-sky-700",
   multimodal: "bg-violet-50 text-violet-700",
   image: "bg-amber-50 text-amber-700",
+  embedding: "bg-teal-50 text-teal-700",
+  document: "bg-indigo-50 text-indigo-700",
 };
 
 export function AiModelManagementPage() {
@@ -55,6 +60,7 @@ export function AiModelManagementPage() {
   const [rowTestingId, setRowTestingId] = useState<string | null>(null);
   const [dialogMode, setDialogMode] = useState<DialogMode>(null);
   const [selectedRow, setSelectedRow] = useState<AiModelItem | null>(null);
+  const [providerOptions, setProviderOptions] = useState<string[]>([]);
 
   const [name, setName] = useState("");
   const [provider, setProvider] = useState("OpenAI");
@@ -97,6 +103,28 @@ export function AiModelManagementPage() {
     void loadRows();
   }, [loadRows]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const types = await dictionaryApi.listTypes();
+        const providerType = types.find((type) => type.key === AI_PROVIDER_DICT_KEY);
+        if (!providerType) return;
+        const response = await dictionaryApi.listItems(providerType.id, { page: 1, pageSize: 100 });
+        if (cancelled) return;
+        const labels = response.items
+          .map((item) => (item.kind === "generic" ? item.label.trim() : ""))
+          .filter((label) => label.length > 0);
+        setProviderOptions(Array.from(new Set(labels)));
+      } catch {
+        // 字典不可用时静默降级为纯文本输入
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   function resetForm() {
     setName("");
     setProvider("OpenAI");
@@ -132,7 +160,7 @@ export function AiModelManagementPage() {
     setModel("text-embedding-v3");
     setBaseUrl("https://dashscope.aliyuncs.com/compatible-mode/v1");
     setApiKey("");
-    setUsageKind("auto");
+    setUsageKind("embedding");
     setEnabled(true);
     setIsDefaultEnabled(false);
     setDialogError("");
@@ -391,16 +419,10 @@ export function AiModelManagementPage() {
               </TableRow>
             ) : (
               rows.map((row) => {
-                  // 优先使用管理员显式设置的用途类型，回退到模型名称推断
+                  // 用途判定复用共享逻辑：usage_kind 权威 + 名称兜底，覆盖全部类型
+                  //（文本/多模态/图片/向量/文档解析），避免此处再各写一套映射而漂移。
                   const explicitKind = row.usage_kind && row.usage_kind !== "auto" ? row.usage_kind : null;
-                  const usage = explicitKind
-                    ? { kind: explicitKind as "text" | "multimodal" | "image",
-                        label: explicitKind === "image" ? "图片" : explicitKind === "multimodal" ? "文本/图片" : "文本",
-                        description: explicitKind === "image" ? "适合图片生成、参考图生图或图片编辑任务。"
-                          : explicitKind === "multimodal" ? "适合文本任务，也适合带图片输入的理解、分析和问答。"
-                          : "适合文本对话、摘要、筛选和结构化提取任务。",
-                      }
-                    : getAiModelUsage(row.model);
+                  const usage = resolveExplicitUsage(resolveModelUsageKind(row));
                   return (
                     <TableRow key={row.id} className="hover:bg-slate-50/70">
                       <TableCell className="px-4 py-3 text-sm font-medium text-slate-800">
@@ -531,7 +553,20 @@ export function AiModelManagementPage() {
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">服务商</label>
-              <input className="material-input w-full" value={provider} onChange={(event) => setProvider(event.target.value)} placeholder="如：OpenAI" />
+              <input
+                className="material-input w-full"
+                value={provider}
+                onChange={(event) => setProvider(event.target.value)}
+                placeholder="如：OpenAI"
+                list="ai-provider-options"
+              />
+              {providerOptions.length > 0 && (
+                <datalist id="ai-provider-options">
+                  {providerOptions.map((option) => (
+                    <option key={option} value={option} />
+                  ))}
+                </datalist>
+              )}
             </div>
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">模型标识</label>
@@ -572,6 +607,8 @@ export function AiModelManagementPage() {
                   { value: "text", label: "文本 — 纯文字对话、摘要、提取" },
                   { value: "multimodal", label: "文本/图片 — 多模态理解（可接收图片输入）" },
                   { value: "image", label: "图片生成 — 文生图、参考图生图" },
+                  { value: "embedding", label: "向量 — 知识库 RAG 向量化检索" },
+                  { value: "document", label: "文档解析 — 读取附件 / 文件内容" },
                 ]}
               />
               <p className="mt-1.5 text-xs leading-5 text-slate-400">

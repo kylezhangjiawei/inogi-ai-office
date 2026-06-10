@@ -7,6 +7,9 @@ import {
   ChevronUp,
   Clock3,
   Database,
+  Download,
+  FileUp,
+  FolderUp,
   Loader2,
   Mail,
   MessageSquarePlus,
@@ -19,6 +22,7 @@ import {
   Upload,
   User,
   UserRoundSearch,
+  X,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -32,6 +36,7 @@ import {
 } from "@mui/material";
 
 import { MaterialInput, MaterialSelect, MaterialTextarea } from "./components/MaterialFields";
+import { Checkbox } from "./components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -40,6 +45,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./components/ui/dropdown-menu";
 import {
   Tooltip,
   TooltipContent,
@@ -88,7 +99,8 @@ type DeleteConfirmState =
       confirmLabel?: string;
     }
   | {
-      kind: "candidate-data";
+      kind: "candidate-batch";
+      ids: string[];
       title: string;
       description: string;
       confirmLabel?: string;
@@ -270,6 +282,24 @@ function formatDate(value?: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   }).format(date);
+}
+
+function formatDateParts(value?: string | null) {
+  if (!value) return { date: "-", time: "" };
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return { date: value, time: "" };
+  const pad = (input: number) => String(input).padStart(2, "0");
+  return {
+    date: `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())}`,
+    time: `${pad(date.getHours())}:${pad(date.getMinutes())}`,
+  };
+}
+
+function csvEscape(value: string) {
+  if (/[",\r\n]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
 }
 
 function scoreTone(score?: number | null) {
@@ -613,7 +643,10 @@ export function ResumeScreeningPage() {
   const [loadingRules, setLoadingRules] = useState(false);
   const [savingRule, setSavingRule] = useState(false);
   const [deletingJobRuleId, setDeletingJobRuleId] = useState<string | null>(null);
-  const [clearingCandidates, setClearingCandidates] = useState(false);
+  const [batchDeletingCandidates, setBatchDeletingCandidates] = useState(false);
+  const [checkedCandidateIds, setCheckedCandidateIds] = useState<Set<string>>(new Set());
+  const [exportingCandidates, setExportingCandidates] = useState(false);
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [deletingCandidateId, setDeletingCandidateId] = useState<string | null>(null);
   const [togglingJobRuleId, setTogglingJobRuleId] = useState<string | null>(null);
   const [selectedJobRuleId, setSelectedJobRuleId] = useState<string>("");
@@ -667,6 +700,7 @@ export function ResumeScreeningPage() {
   const selectedCandidateIdRef = useRef(selectedCandidateId);
   const lastCandidateFilterKeyRef = useRef("");
   const uploadFolderInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadFilesInputRef = useRef<HTMLInputElement | null>(null);
   const scheduleExecutionRef = useRef<Pick<ScheduleFormState, "last_run_at" | "last_run_result">>({
     last_run_at: defaultScheduleForm.last_run_at ?? null,
     last_run_result: defaultScheduleForm.last_run_result ?? null,
@@ -700,6 +734,9 @@ export function ResumeScreeningPage() {
   }, [candidatePagination.total, candidates]);
 
   const filteredCandidates = candidates;
+  const allCurrentPageChecked =
+    filteredCandidates.length > 0 && filteredCandidates.every((item) => checkedCandidateIds.has(item.id));
+  const someCurrentPageChecked = filteredCandidates.some((item) => checkedCandidateIds.has(item.id));
   const selectedFilterSession = useMemo(
     () => filterSessions.find((item) => item.version_id === selectedFilterVersion) ?? null,
     [filterSessions, selectedFilterVersion],
@@ -762,8 +799,15 @@ export function ResumeScreeningPage() {
     [lastSyncResult?.mail_previews],
   );
   const pendingBackgroundCount = pendingUploadCount + pendingSyncMailCount;
-  const clearCandidatesDisabled =
-    clearingCandidates || loadingCandidates || runningSync || uploadingFolder || hasPendingBackgroundAnalysis;
+  const hasActiveCandidateFilters = Boolean(
+    candidateKeyword.trim() ||
+      decisionFilter ||
+      jobRuleFilter ||
+      minScoreFilter.trim() ||
+      minAgeFilter.trim() ||
+      maxAgeFilter.trim(),
+  );
+  const advancedFilterCount = [minScoreFilter, minAgeFilter, maxAgeFilter].filter((value) => value.trim()).length;
   const candidateFilterKey = useMemo(
     () =>
       JSON.stringify({
@@ -841,6 +885,9 @@ export function ResumeScreeningPage() {
   useEffect(() => {
     const filtersChanged = lastCandidateFilterKeyRef.current !== candidateFilterKey;
     lastCandidateFilterKeyRef.current = candidateFilterKey;
+    if (filtersChanged) {
+      setCheckedCandidateIds(new Set());
+    }
     if (filtersChanged && candidatePage !== 0) {
       setCandidatePage(0);
       return;
@@ -1495,25 +1542,146 @@ export function ResumeScreeningPage() {
     }
   }
 
-  async function handleClearCandidateData() {
-    setClearingCandidates(true);
+  function toggleCandidateChecked(candidateId: string, checked: boolean) {
+    setCheckedCandidateIds((current) => {
+      const next = new Set(current);
+      if (checked) {
+        next.add(candidateId);
+      } else {
+        next.delete(candidateId);
+      }
+      return next;
+    });
+  }
+
+  function toggleAllCurrentPageChecked(checked: boolean) {
+    setCheckedCandidateIds((current) => {
+      const next = new Set(current);
+      filteredCandidates.forEach((item) => {
+        if (checked) {
+          next.add(item.id);
+        } else {
+          next.delete(item.id);
+        }
+      });
+      return next;
+    });
+  }
+
+  function handleResetCandidateFilters() {
+    setCandidateKeyword("");
+    setDecisionFilter("");
+    setJobRuleFilter("");
+    setMinScoreFilter("");
+    setMinAgeFilter("");
+    setMaxAgeFilter("");
+    setCandidatePage(0);
+  }
+
+  async function handleExportCandidates() {
+    setExportingCandidates(true);
     try {
-      const result = await recruitmentApi.clearCandidates();
-      setCandidates([]);
-      setCandidatePage(0);
-      setCandidatePagination(defaultCandidatePagination);
-      setSelectedCandidateId("");
-      setSelectedCandidate(null);
-      setInterviewQaExpanded(false);
-      setLastSyncResult(null);
-      setLastUploadResult(null);
-      toast.success(
-        `已清空候选人数据，共删除 ${result.deleted_candidates} 位候选人、${result.deleted_screenings} 条筛选记录、${result.deleted_logs} 条打点记录。`,
-      );
+      const minScore = minScoreFilter.trim() ? Number(minScoreFilter) : undefined;
+      const minAge = minAgeFilter.trim() ? Number(minAgeFilter) : undefined;
+      const maxAge = maxAgeFilter.trim() ? Number(maxAgeFilter) : undefined;
+      const baseFilters = {
+        keyword: deferredCandidateKeyword,
+        decision: decisionFilter,
+        jobRuleId: jobRuleFilter,
+        minScore: typeof minScore === "number" && Number.isFinite(minScore) ? minScore : undefined,
+        minAge: typeof minAge === "number" && Number.isFinite(minAge) ? minAge : undefined,
+        maxAge: typeof maxAge === "number" && Number.isFinite(maxAge) ? maxAge : undefined,
+        screeningVersion: selectedFilterVersion || undefined,
+      };
+      const all: CandidateListItem[] = [];
+      let page = 1;
+      for (;;) {
+        const response = await recruitmentApi.listCandidates({ ...baseFilters, page, pageSize: 100 });
+        all.push(...response.items);
+        if (!response.pagination.has_next || page >= 100) break;
+        page += 1;
+      }
+      if (!all.length) {
+        toast.info("当前筛选条件下没有候选人可导出");
+        return;
+      }
+      const headers = ["姓名", "岗位", "分数", "结论", "城市", "年龄", "学历", "求职状态", "筛选状态", "收件时间", "邮箱", "电话", "AI 摘要"];
+      const rows = all.map((candidate) => {
+        const age = parseAgeFromBirthOrAge(candidate.birth_or_age);
+        const screeningStatus = candidate.screening_status ?? candidate.active_screening_status;
+        const mappedStatus = mapScreeningStatusToMailStatus(screeningStatus, candidate.screening_error_message);
+        return [
+          candidate.name || "",
+          buildCandidateJobLabels(candidate).join(" / "),
+          typeof candidate.score === "number" ? String(candidate.score) : "",
+          candidate.decision ? decisionMeta[candidate.decision].label : "",
+          candidate.city || "",
+          age != null ? String(age) : candidate.birth_or_age || "",
+          candidate.education || "",
+          candidate.status || "",
+          mappedStatus?.status || "待处理",
+          formatDate(candidate.received_at),
+          candidate.email || "",
+          candidate.phone || "",
+          candidate.summary || "",
+        ];
+      });
+      const csv = [headers, ...rows].map((row) => row.map((cell) => csvEscape(cell)).join(",")).join("\r\n");
+      const blob = new Blob(["\ufeff", csv], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      const now = new Date();
+      const pad = (input: number) => String(input).padStart(2, "0");
+      link.href = url;
+      link.download = `候选人筛选结果_${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}.csv`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      toast.success(`已导出 ${all.length} 位候选人`);
     } catch (error) {
-      toast.error(getErrorMessage(error, "清空候选人数据失败"));
+      toast.error(getErrorMessage(error, "导出候选人失败"));
     } finally {
-      setClearingCandidates(false);
+      setExportingCandidates(false);
+    }
+  }
+
+  async function handleBatchDeleteCandidates(candidateIds: string[]) {
+    if (!candidateIds.length) return;
+    setBatchDeletingCandidates(true);
+    const succeeded = new Set<string>();
+    let failed = 0;
+    try {
+      for (const candidateId of candidateIds) {
+        try {
+          await recruitmentApi.deleteCandidate(candidateId);
+          succeeded.add(candidateId);
+        } catch {
+          failed += 1;
+        }
+      }
+      setCandidates((current) => current.filter((item) => !succeeded.has(item.id)));
+      setCheckedCandidateIds((current) => {
+        const next = new Set(current);
+        succeeded.forEach((id) => next.delete(id));
+        return next;
+      });
+      if (selectedCandidateId && succeeded.has(selectedCandidateId)) {
+        setSelectedCandidateId("");
+        setSelectedCandidate(null);
+        setInterviewQaExpanded(false);
+      }
+      if (candidateAiDialogId && succeeded.has(candidateAiDialogId)) {
+        setCandidateAiDialogId(null);
+      }
+      if (failed) {
+        toast.warning(`批量删除完成：成功 ${succeeded.size} 位，失败 ${failed} 位。`);
+      } else {
+        toast.success(`已删除 ${succeeded.size} 位候选人。`);
+      }
+      void loadCandidates({ silent: true });
+    } finally {
+      setBatchDeletingCandidates(false);
     }
   }
 
@@ -1552,7 +1720,7 @@ export function ResumeScreeningPage() {
     } else if (deleteConfirm.kind === "candidate") {
       await handleDeleteCandidate(deleteConfirm.id);
     } else {
-      await handleClearCandidateData();
+      await handleBatchDeleteCandidates(deleteConfirm.ids);
     }
 
     setDeleteConfirm(null);
@@ -1619,7 +1787,7 @@ export function ResumeScreeningPage() {
     }
   }
 
-  async function handleUploadResumeFolder(event: React.ChangeEvent<HTMLInputElement>) {
+  async function handleUploadResumes(event: React.ChangeEvent<HTMLInputElement>) {
     const selectedFiles = Array.from(event.target.files ?? []);
     if (!selectedFiles.length) {
       return;
@@ -1654,7 +1822,7 @@ export function ResumeScreeningPage() {
       const queuedCount = result.queued_for_ai ?? 0;
       const failedCount = result.failed ?? 0;
       const skippedCount = result.skipped ?? 0;
-      const uploadFeedback = result.message || "简历文件夹上传完成";
+      const uploadFeedback = result.message || "简历上传完成";
       if (queuedCount > 0) {
         if (failedCount > 0 || skippedCount > 0) {
           toast.warning(uploadFeedback);
@@ -1665,7 +1833,7 @@ export function ResumeScreeningPage() {
         toast.error(uploadFeedback);
       }
     } catch (error) {
-      toast.error(getErrorMessage(error, "上传简历文件夹失败"));
+      toast.error(getErrorMessage(error, "上传简历失败"));
     } finally {
       setUploadingFolder(false);
       event.target.value = "";
@@ -1883,7 +2051,15 @@ export function ResumeScreeningPage() {
         multiple
         accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         className="hidden"
-        onChange={(event) => void handleUploadResumeFolder(event)}
+        onChange={(event) => void handleUploadResumes(event)}
+      />
+      <input
+        ref={uploadFilesInputRef}
+        type="file"
+        multiple
+        accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        className="hidden"
+        onChange={(event) => void handleUploadResumes(event)}
       />
 
       <section className="material-panel material-neu-panel-soft rounded-[var(--m3-shape-extra-large)] px-4 py-4 sm:px-5">
@@ -1936,7 +2112,7 @@ export function ResumeScreeningPage() {
               placeholder={loadingOpenAiConfigs ? "加载中..." : "选择 AI"}
             />
             <MaterialInput
-              label="回溯"
+              label="回溯（小时）"
               type="number"
               min={1}
               value={String(scheduleForm.since_hours)}
@@ -1949,7 +2125,7 @@ export function ResumeScreeningPage() {
               }}
             />
             <MaterialInput
-              label="上限"
+              label="上限（封）"
               type="number"
               min={1}
               value={String(scheduleForm.limit)}
@@ -1970,15 +2146,28 @@ export function ResumeScreeningPage() {
               {runningSync ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
               同步
             </button>
-            <button
-              type="button"
-              onClick={() => uploadFolderInputRef.current?.click()}
-              disabled={uploadingFolder}
-              className="material-neu-button inline-flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-slate-800 transition disabled:opacity-60"
-            >
-              {uploadingFolder ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-              上传
-            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  disabled={uploadingFolder}
+                  className="material-neu-button inline-flex h-12 w-full cursor-pointer items-center justify-center gap-2 rounded-[4px] px-5 text-sm font-semibold text-slate-800 transition disabled:opacity-60"
+                >
+                  {uploadingFolder ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                  上传
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-[180px]">
+                <DropdownMenuItem onSelect={() => uploadFilesInputRef.current?.click()}>
+                  <FileUp className="h-4 w-4" />
+                  上传文件（可多选）
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => uploadFolderInputRef.current?.click()}>
+                  <FolderUp className="h-4 w-4" />
+                  上传文件夹
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             <button
               type="button"
               onClick={() => setShowSyncSettings(true)}
@@ -2227,7 +2416,7 @@ export function ResumeScreeningPage() {
                   }}
                 />
                 <MaterialInput
-                  label="抓取上限"
+                  label="抓取上限（封）"
                   className="h-9"
                   type="number"
                   min={1}
@@ -2261,15 +2450,28 @@ export function ResumeScreeningPage() {
               {runningSync ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
               执行一次同步
             </button>
-            <button
-              type="button"
-              onClick={() => uploadFolderInputRef.current?.click()}
-              disabled={uploadingFolder}
-              className="material-neu-button inline-flex h-13 min-w-[280px] cursor-pointer items-center justify-center gap-3 rounded-xl px-7 text-l font-semibold text-slate-700 transition disabled:opacity-60"
-            >
-              {uploadingFolder ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}
-              上传简历文件夹
-            </button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  disabled={uploadingFolder}
+                  className="material-neu-button inline-flex h-13 min-w-[280px] cursor-pointer items-center justify-center gap-3 rounded-xl px-7 text-l font-semibold text-slate-700 transition disabled:opacity-60"
+                >
+                  {uploadingFolder ? <Loader2 className="h-5 w-5 animate-spin" /> : <Upload className="h-5 w-5" />}
+                  上传简历
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-[200px]">
+                <DropdownMenuItem onSelect={() => uploadFilesInputRef.current?.click()}>
+                  <FileUp className="h-4 w-4" />
+                  上传文件（可多选）
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => uploadFolderInputRef.current?.click()}>
+                  <FolderUp className="h-4 w-4" />
+                  上传文件夹
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
             </div>
 
             <div className="px-1 py-1 text-sm leading-6 text-slate-600">
@@ -2364,7 +2566,7 @@ export function ResumeScreeningPage() {
             <div className="material-neu-card mt-5 rounded-lg px-5 py-5">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <div className="text-base font-semibold text-slate-900">简历文件夹上传结果</div>
+                  <div className="text-base font-semibold text-slate-900">简历上传结果</div>
                   <div className="mt-1 text-sm text-slate-500">{lastUploadResult.message}</div>
                   {hasPendingUploadFile ? (
                     <div className="mt-2 inline-flex items-center gap-2 rounded-[4px] border border-indigo-200 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
@@ -2447,32 +2649,54 @@ export function ResumeScreeningPage() {
       </Dialog>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(400px,0.85fr)]">
-        <section className="material-panel material-neu-panel overflow-hidden !px-0 !py-6">
+        <section className="material-panel material-neu-panel flex flex-col overflow-hidden !px-0 !py-6">
           <div className="flex flex-wrap items-start justify-between gap-4 px-5">
             <div>
               <h2 className="text-2xl font-semibold tracking-tight text-slate-950">候选人列表</h2>
               <p className="mt-2 text-base text-slate-500">按筛选结论、岗位和分数查看候选人摘要。</p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              {/*<button*/}
-              {/*  type="button"*/}
-              {/*  onClick={() =>*/}
-              {/*    setDeleteConfirm({*/}
-              {/*      kind: "candidate-data",*/}
-              {/*      title: "确认清空候选人数据？",*/}
-              {/*      description: "会同时清空候选人列表、筛选历史和对应的导入打点记录。后台仍在筛选时不可执行。",*/}
-              {/*      confirmLabel: "确认清空",*/}
-              {/*    })*/}
-              {/*  }*/}
-              {/*  disabled={clearCandidatesDisabled}*/}
-              {/*  className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-[4px] border border-rose-200 bg-rose-50 px-4 text-sm font-medium text-rose-600 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"*/}
-              {/*>*/}
-              {/*  {clearingCandidates ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}*/}
-              {/*  清空候选人数据*/}
-              {/*</button>*/}
+              {checkedCandidateIds.size > 0 && canDeleteCandidate ? (
+                <button
+                  type="button"
+                  disabled={batchDeletingCandidates}
+                  onClick={() =>
+                    setDeleteConfirm({
+                      kind: "candidate-batch",
+                      ids: Array.from(checkedCandidateIds),
+                      title: `删除已选的 ${checkedCandidateIds.size} 位候选人？`,
+                      description: "将永久删除所选候选人及其全部筛选记录与打点数据，该操作不可撤销。",
+                      confirmLabel: "批量删除",
+                    })
+                  }
+                  className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-[4px] border border-rose-200 bg-rose-50 px-4 text-sm font-medium text-rose-600 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {batchDeletingCandidates ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                  删除已选（{checkedCandidateIds.size}）
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => void handleExportCandidates()}
+                disabled={exportingCandidates || loadingCandidates || !candidatePagination.total}
+                className="material-neu-button inline-flex h-10 cursor-pointer items-center gap-2 rounded-[4px] px-4 text-sm font-medium text-slate-700 transition disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {exportingCandidates ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                导出
+              </button>
+              {hasActiveCandidateFilters ? (
+                <button
+                  type="button"
+                  onClick={handleResetCandidateFilters}
+                  className="inline-flex h-10 cursor-pointer items-center gap-1.5 rounded-[4px] border border-slate-200 bg-white px-3 text-sm font-medium text-slate-500 transition hover:bg-slate-50 hover:text-slate-700"
+                >
+                  <X className="h-4 w-4" />
+                  清除筛选
+                </button>
+              ) : null}
               <div className="material-neu-chip inline-flex items-center gap-2 rounded-[4px] px-4 py-2 text-sm font-medium text-slate-700">
                 <Search className="h-4 w-4" />
-                共 {candidatePagination.total} 人
+                {hasActiveCandidateFilters ? `已筛选 ${candidatePagination.total} 人` : `共 ${candidatePagination.total} 人`}
               </div>
             </div>
           </div>
@@ -2502,8 +2726,19 @@ export function ResumeScreeningPage() {
               className="h-13"
             />
           </div>
-          <div className="mt-4 grid gap-3 px-5 md:grid-cols-3">
-            <MaterialInput
+          <div className="mt-3 px-5">
+            <button
+              type="button"
+              onClick={() => setShowMoreFilters((current) => !current)}
+              className="inline-flex cursor-pointer items-center gap-1.5 text-xs font-medium text-indigo-600 transition hover:text-indigo-700"
+            >
+              {showMoreFilters ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+              更多筛选{advancedFilterCount ? `（已设 ${advancedFilterCount} 项）` : ""}
+            </button>
+          </div>
+          {showMoreFilters ? (
+            <div className="mt-3 grid gap-3 px-5 md:grid-cols-3">
+              <MaterialInput
                 label="最低分"
                 type="number"
                 min={0}
@@ -2511,8 +2746,8 @@ export function ResumeScreeningPage() {
                 onChange={(event) => setMinScoreFilter(event.target.value)}
                 placeholder="请输入"
                 className="h-9.5"
-            />
-            <MaterialInput
+              />
+              <MaterialInput
                 label="最小年龄"
                 type="number"
                 min={1}
@@ -2521,8 +2756,8 @@ export function ResumeScreeningPage() {
                 onChange={(event) => setMinAgeFilter(event.target.value)}
                 placeholder="不限"
                 className="h-9.5"
-            />
-            <MaterialInput
+              />
+              <MaterialInput
                 label="最大年龄"
                 type="number"
                 min={1}
@@ -2531,8 +2766,9 @@ export function ResumeScreeningPage() {
                 onChange={(event) => setMaxAgeFilter(event.target.value)}
                 placeholder="不限"
                 className="h-9.5"
-            />
-          </div>
+              />
+            </div>
+          ) : null}
 
           <div className="material-neu-card mx-5 mt-6 rounded-[var(--m3-shape-large)] border-l-4 border-l-indigo-700 p-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -2575,90 +2811,30 @@ export function ResumeScreeningPage() {
                 {selectedFilterSession.filter_summary || selectedFilterSession.instruction}
               </div>
             ) : null}
-
-            <div className="hidden">
-              <div className="rounded-[var(--m3-shape-medium)] border border-slate-200 bg-slate-50/70 p-3">
-                <textarea
-                  rows={3}
-                  value={filterInstruction}
-                  onChange={(event) => setFilterInstruction(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-                      event.preventDefault();
-                      void handleIterateCandidateFilter();
-                    }
-                  }}
-                  disabled={filterRunning}
-                  className="material-scrollbar min-h-[76px] w-full resize-none bg-transparent text-sm leading-6 text-slate-700 outline-none placeholder:text-slate-400 disabled:opacity-60"
-                  placeholder="例如：优先保留机械制图经验明确、会 SolidWorks、南京周边、薪资不超过 10k 的候选人；对道路工程背景降权。"
-                />
-                <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                  <div className="text-xs text-slate-400">Ctrl/Command + Enter 发送，AI 会先分析，明确后生成版本。</div>
-                  <button
-                    type="button"
-                    onClick={() => void handleIterateCandidateFilter()}
-                    disabled={!filterInstruction.trim() || filterRunning}
-                    className="inline-flex h-9 cursor-pointer items-center justify-center gap-2 rounded-[var(--m3-shape-small)] bg-indigo-600 px-4 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {filterRunning ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                    {filterRunning ? "分析中" : "发送给 AI"}
-                  </button>
-                </div>
-              </div>
-
-              <div className="material-scrollbar max-h-[156px] overflow-y-auto rounded-[var(--m3-shape-medium)] border border-slate-200 bg-white px-3 py-3">
-                {filterConversation.length ? (
-                  <div className="space-y-2">
-                    {filterConversation.slice(-6).map((message, index) => (
-                      <div
-                        key={`${message.role}-${index}`}
-                        className={cn(
-                          "rounded-[var(--m3-shape-small)] px-3 py-2 text-xs leading-5",
-                          message.role === "user" ? "bg-slate-100 text-slate-700" : "bg-indigo-50 text-indigo-900",
-                        )}
-                      >
-                        <span className="mr-1 font-semibold">{message.role === "user" ? "我" : "AI"}：</span>
-                        {message.content}
-                      </div>
-                    ))}
-                    {filterRunning ? (
-                      <div className="inline-flex items-center gap-2 rounded-[var(--m3-shape-small)] bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        AI 正在分析筛选意图
-                      </div>
-                    ) : null}
-                  </div>
-                ) : (
-                  <div className="flex h-full min-h-[116px] items-center justify-center text-center text-xs leading-5 text-slate-400">
-                    暂无二次筛选沟通记录
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
 
-          <div className="material-data-table mx-3 mt-6 overflow-hidden rounded-[var(--m3-shape-large)] sm:mx-5">
+          <div className="material-data-table mx-3 mt-6 flex min-h-0 flex-auto flex-col overflow-hidden rounded-[var(--m3-shape-large)] sm:mx-5">
             <MuiTableContainer
               className="material-scrollbar"
               sx={{
-                maxHeight: 868,
+                flex: "1 1 auto",
                 overflow: "auto",
                 scrollbarGutter: "auto",
               }}
             >
               {loadingCandidates ? (
-                <div className="px-4 py-12 text-center text-sm text-slate-400">
-                  <Loader2 className="mx-auto mb-2 h-4 w-4 animate-spin" />
+                <div className="flex h-full flex-col items-center justify-center px-4 py-12 text-center text-sm text-slate-400">
+                  <Loader2 className="mb-2 h-4 w-4 animate-spin" />
                   正在加载候选人...
                 </div>
               ) : filteredCandidates.length === 0 ? (
                 hasPendingBackgroundAnalysis ? (
-                  <div className="px-4 py-12 text-center text-sm text-indigo-600">
-                    <Loader2 className="mx-auto mb-2 h-4 w-4 animate-spin" />
+                  <div className="flex h-full flex-col items-center justify-center px-4 py-12 text-center text-sm text-indigo-600">
+                    <Loader2 className="mb-2 h-4 w-4 animate-spin" />
                     正在后台筛选 {pendingBackgroundCount || lastUploadResult?.queued_for_ai || ""} 份简历，完成后会自动出现在此处，无需刷新…
                   </div>
                 ) : (
-                  <div className="px-4 py-12 text-center text-sm text-slate-400">
+                  <div className="flex h-full items-center justify-center px-4 py-12 text-center text-sm text-slate-400">
                     暂无候选人
                   </div>
                 )
@@ -2666,7 +2842,7 @@ export function ResumeScreeningPage() {
                 <MuiTable
                   stickyHeader
                   sx={{
-                    minWidth: 1040,
+                    minWidth: canDeleteCandidate ? 1158 : 1042,
                     tableLayout: "fixed",
                     "& .MuiTableCell-root": {
                       boxSizing: "border-box",
@@ -2675,16 +2851,24 @@ export function ResumeScreeningPage() {
                 >
                 <MuiTableHead>
                   <MuiTableRow>
-                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 160, pl: 2.5 }}>候选人</MuiTableCell>
-                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 240 }}>岗位</MuiTableCell>
-                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 90 }}>分数</MuiTableCell>
-                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 96 }}>结论</MuiTableCell>
-                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 140 }}>城市</MuiTableCell>
-                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 72 }}>年龄</MuiTableCell>
-                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 96 }}>学历</MuiTableCell>
-                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 112 }}>状态</MuiTableCell>
-                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 150 }}>收件时间</MuiTableCell>
-                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 120, pr: 2.5 }}>操作</MuiTableCell>
+                    {canDeleteCandidate ? (
+                      <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 48, pl: 2, pr: 0 }}>
+                        <Checkbox
+                          checked={allCurrentPageChecked ? true : someCurrentPageChecked ? "indeterminate" : false}
+                          onCheckedChange={(checked) => toggleAllCurrentPageChecked(checked === true)}
+                          aria-label="全选当前页候选人"
+                          className="bg-white"
+                        />
+                      </MuiTableCell>
+                    ) : null}
+                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 150, pl: canDeleteCandidate ? 1 : 2.5 }}>候选人</MuiTableCell>
+                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 190 }}>岗位</MuiTableCell>
+                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 76 }}>分数</MuiTableCell>
+                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 88 }}>结论</MuiTableCell>
+                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 178 }}>基本信息</MuiTableCell>
+                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 104 }}>状态</MuiTableCell>
+                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 124 }}>收件时间</MuiTableCell>
+                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: canDeleteCandidate ? 200 : 132, pr: 2.5 }}>操作</MuiTableCell>
                   </MuiTableRow>
                 </MuiTableHead>
                 <MuiTableBody>
@@ -2695,6 +2879,12 @@ export function ResumeScreeningPage() {
                     const mappedStatus = mapScreeningStatusToMailStatus(screeningStatus, candidate.screening_error_message);
                     const age = parseAgeFromBirthOrAge(candidate.birth_or_age);
                     const selected = selectedCandidateId === candidate.id;
+                    const received = formatDateParts(candidate.received_at);
+                    const basicFacts = joinCandidateFacts([
+                      candidate.city,
+                      age != null ? `${age} 岁` : candidate.birth_or_age,
+                      candidate.education,
+                    ]);
 
                     return (
                       <MuiTableRow
@@ -2736,8 +2926,21 @@ export function ResumeScreeningPage() {
                           },
                         }}
                       >
-                        <MuiTableCell sx={{ ...muiTableBodyCellSx, pl: 2.5 }}>
-                          <div className="flex min-w-[180px] items-center gap-3">
+                        {canDeleteCandidate ? (
+                          <MuiTableCell
+                            sx={{ ...muiTableBodyCellSx, pl: 2, pr: 0 }}
+                            onClick={(event) => event.stopPropagation()}
+                          >
+                            <Checkbox
+                              checked={checkedCandidateIds.has(candidate.id)}
+                              onCheckedChange={(checked) => toggleCandidateChecked(candidate.id, checked === true)}
+                              aria-label={`选择 ${candidate.name || "候选人"}`}
+                              className="bg-white"
+                            />
+                          </MuiTableCell>
+                        ) : null}
+                        <MuiTableCell sx={{ ...muiTableBodyCellSx, pl: canDeleteCandidate ? 1 : 2.5 }}>
+                          <div className="flex items-center gap-3">
                             <div className="material-table-avatar flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-[4px] text-sm font-semibold">
                               {candidate.avatar_url ? (
                                 <ImageWithFallback
@@ -2751,7 +2954,6 @@ export function ResumeScreeningPage() {
                             </div>
                             <div className="min-w-0">
                               <OverflowTooltipText text={candidateTitle} maxChars={16} className="font-semibold text-slate-900" />
-                              {/*<OverflowTooltipText text={candidate.email || candidate.phone || candidate.source_sender_email} maxChars={20} className="mt-0.5 text-xs text-slate-400" />*/}
                             </div>
                           </div>
                         </MuiTableCell>
@@ -2778,18 +2980,17 @@ export function ResumeScreeningPage() {
                           )}
                         </MuiTableCell>
                         <MuiTableCell sx={{ ...muiTableBodyCellSx, color: "#475569" }}>
-                          <OverflowTooltipText text={candidate.city || "-"} maxChars={8} className="max-w-[100px] text-slate-600" />
-                        </MuiTableCell>
-                        <MuiTableCell sx={{ ...muiTableBodyCellSx, color: "#475569" }}>{age ?? candidate.birth_or_age ?? "-"}</MuiTableCell>
-                        <MuiTableCell sx={muiTableBodyCellSx}>
-                          <OverflowTooltipText text={candidate.education || "-"} maxChars={10} className="max-w-[120px] text-slate-600" />
+                          <OverflowTooltipText text={basicFacts} maxChars={16} className="max-w-[170px] text-slate-600" />
                         </MuiTableCell>
                         <MuiTableCell sx={muiTableBodyCellSx}>
                           <span className="inline-flex min-w-[64px] justify-center rounded-[4px] bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600 ring-1 ring-inset ring-slate-200 whitespace-nowrap">
                             {mappedStatus?.status || "待处理"}
                           </span>
                         </MuiTableCell>
-                        <MuiTableCell sx={{ ...muiTableBodyCellSx, color: "#94a3b8", fontSize: 12 }}>{formatDate(candidate.received_at)}</MuiTableCell>
+                        <MuiTableCell sx={{ ...muiTableBodyCellSx, color: "#94a3b8", fontSize: 12, lineHeight: 1.4 }}>
+                          <div>{received.date}</div>
+                          {received.time ? <div className="text-[11px] text-slate-400">{received.time}</div> : null}
+                        </MuiTableCell>
                         <MuiTableCell sx={{ ...muiTableBodyCellSx, pr: 2.5 }}>
                           <div className="flex items-center justify-end gap-2">
                             <button
@@ -3431,10 +3632,10 @@ export function ResumeScreeningPage() {
             <button
               type="button"
               onClick={() => void confirmDelete()}
-              disabled={Boolean(deletingJobRuleId) || clearingCandidates || Boolean(deletingCandidateId)}
+              disabled={Boolean(deletingJobRuleId) || batchDeletingCandidates || Boolean(deletingCandidateId)}
               className="inline-flex h-11 cursor-pointer items-center justify-center gap-2 rounded-[4px] bg-rose-600 px-6 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:opacity-60"
             >
-              {deletingJobRuleId || clearingCandidates || deletingCandidateId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              {deletingJobRuleId || batchDeletingCandidates || deletingCandidateId ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
               {deleteConfirm?.confirmLabel || "确认删除"}
             </button>
           </DialogFooter>

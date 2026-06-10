@@ -116,6 +116,7 @@ import { ProgressAttachmentGrid } from "./RDProgressEvidence";
 import { RDReportsPanel } from "./RDReportsPanel";
 import { getGradeTone } from "./lib/taskCompletionScore";
 import { openTaskCompletionReport, openBatchCompletionReport } from "./lib/taskCompletionReport";
+import { useAvatarDirectory } from "./lib/userAvatar";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
 import { Button } from "./components/ui/button";
 import { Checkbox } from "./components/ui/checkbox";
@@ -170,7 +171,9 @@ type PersonProfile = {
 };
 
 // ─── Today ───────────────────────────────────────────────────────────────────
-const TODAY_STR = new Date().toISOString().split("T")[0]!;
+// 用本地日历日，而非 toISOString()（后者取 UTC 日期，UTC+8 时区每天 0–8 点会得到"昨天"）。
+const _todayNow = new Date();
+const TODAY_STR = `${_todayNow.getFullYear()}-${String(_todayNow.getMonth() + 1).padStart(2, "0")}-${String(_todayNow.getDate()).padStart(2, "0")}`;
 const TODAY = new Date(TODAY_STR);
 
 // ─── Demo data ────────────────────────────────────────────────────────────────
@@ -466,14 +469,45 @@ function PriorityPill({ priority, aiPriority }: { priority: Priority; aiPriority
   );
 }
 
-function OwnerAvatar({ name, size = "sm" }: { name: string; size?: "sm" | "xs" }) {
+function OwnerAvatar({
+  name,
+  size = "sm",
+  userId,
+}: {
+  name: string;
+  size?: "sm" | "xs";
+  userId?: string | null;
+}) {
+  const resolveAvatar = useAvatarDirectory();
+  const avatarUrl = resolveAvatar(name, userId);
+  const [imgFailed, setImgFailed] = useState(false);
+  // 头像 URL 变化（目录加载完成 / 失效重取）时重置失败态，允许新 URL 重新尝试
+  useEffect(() => { setImgFailed(false); }, [avatarUrl]);
+
   const initial = name.replace(/\(.+?\)/g, "").trim().slice(0, 1) || "?";
-  const dim = size === "xs" ? "h-5 w-5 text-[10px]" : "h-6 w-6 text-xs";
+  const dim = size === "xs" ? "h-5 w-5" : "h-6 w-6";
+  const textSize = size === "xs" ? "text-[10px]" : "text-xs";
+
+  // 有真实头像 → 渲染图片；无头像或加载失败 → 回退文字首字母（原行为）
+  if (avatarUrl && !imgFailed) {
+    return (
+      <img
+        src={avatarUrl}
+        alt={name}
+        title={name}
+        loading="lazy"
+        onError={() => setImgFailed(true)}
+        className={cn("inline-block shrink-0 rounded-full object-cover ring-2 ring-white", dim)}
+      />
+    );
+  }
+
   return (
     <span
       className={cn(
         "inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-white ring-2 ring-white",
         dim,
+        textSize,
         hashColor(name),
       )}
       title={name}
@@ -845,9 +879,9 @@ function TaskItem({
 
         {/* Owners */}
         <div className="hidden shrink-0 items-center -space-x-1.5 xl:flex">
-          <OwnerAvatar name={task.primary_owner} size="xs" />
+          <OwnerAvatar name={task.primary_owner} userId={task.primary_owner_user_id} size="xs" />
           {task.collaborators.slice(0, 1).map((c) => (
-            <OwnerAvatar key={c.id} name={c.name} size="xs" />
+            <OwnerAvatar key={c.id} name={c.name} userId={c.user_id} size="xs" />
           ))}
           {task.collaborators.length > 1 && (
             <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-slate-100 text-[10px] font-semibold text-slate-500 ring-2 ring-white">
@@ -1080,7 +1114,7 @@ function SubtaskRow({
           </span>
         )}
 
-        <OwnerAvatar name={task.primary_owner} size="xs" />
+        <OwnerAvatar name={task.primary_owner} userId={task.primary_owner_user_id} size="xs" />
 
         <div className="shrink-0 text-right">
           {task.due_date ? (
@@ -1178,7 +1212,7 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
 
           <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
             <span className="inline-flex min-w-0 items-center gap-1.5">
-              <OwnerAvatar name={task.primary_owner} size="xs" />
+              <OwnerAvatar name={task.primary_owner} userId={task.primary_owner_user_id} size="xs" />
               <span className="truncate font-medium text-slate-600">{task.primary_owner}</span>
             </span>
             <span className="inline-flex items-center gap-1.5">
@@ -1458,7 +1492,7 @@ export function buildCatStats(categories: Category[], risks: Risk[]): CatStat[] 
 
 // ─── Executive Overview helpers ──────────────────────────────────────────────
 
-export type PersonLoad = { name: string; count: number; max: number; onLeave: boolean };
+export type PersonLoad = { name: string; count: number; max: number; onLeave: boolean; user_id?: string | null };
 type SystemHealth = "healthy" | "watch" | "alert" | "idle";
 
 const HEALTH_CONFIG: Record<
@@ -1547,6 +1581,9 @@ function computeScopedPersonLoads(
 export function computePersonLoads(categories: Category[], maxPerPerson = 8): PersonLoad[] {
   const counts = new Map<string, number>();
   const onLeave = new Set<string>();
+  // 主责姓名 → user_id：供头像按 user_id 精确解析（同名同事不会张冠李戴）。
+  // 同一姓名首个非空 user_id 即固定，后续任务不覆盖。
+  const userIds = new Map<string, string>();
 
   // 「主责」口径：只统计该成员作为主责人(primary_owner)、且活跃(未完成 / 未归档)的任务，每个 +1。
   // 与个人工作台「主责」严格同口径，逐条对齐后端 getWorkspace：
@@ -1564,6 +1601,9 @@ export function computePersonLoads(categories: Category[], maxPerPerson = 8): Pe
       if (isActive && !/已离职|待指派/.test(t.primary_owner)) {
         counts.set(t.primary_owner, (counts.get(t.primary_owner) ?? 0) + 1);
         if (t.status === "paused_leave") onLeave.add(t.primary_owner);
+        if (t.primary_owner_user_id && !userIds.has(t.primary_owner)) {
+          userIds.set(t.primary_owner, t.primary_owner_user_id);
+        }
       }
       if (t.subtasks) walk(t.subtasks); // 始终递归，对齐后端 collectAllCategoryTasks 的无条件展开
     }
@@ -1576,6 +1616,7 @@ export function computePersonLoads(categories: Category[], maxPerPerson = 8): Pe
       count,
       max: maxPerPerson,
       onLeave: onLeave.has(name),
+      user_id: userIds.get(name) ?? null,
     }))
     .sort((a, b) => b.count - a.count);
 }
@@ -3361,7 +3402,7 @@ function AddCollaboratorsDialog({
                         >
                           {isSelected && <Check className="h-3 w-3" />}
                         </span>
-                        <OwnerAvatar name={p.name} size="xs" />
+                        <OwnerAvatar name={p.name} userId={p.user_id} size="xs" />
                         <span className="min-w-0 flex-1 truncate font-medium">{p.name}</span>
                         {p.position && <span className="shrink-0 text-[11px] text-slate-400">{p.position}</span>}
                       </button>
@@ -4251,23 +4292,32 @@ function TaskDetailDrawer({
   };
 
   const handleHandover = async (newOwner: string) => {
-    // _actor_name 让后端通知里能显示"谁移交的"，而不是默认的"管理员"
-    await updateRdTask(task.task_id, {
-      primary_owner: newOwner,
-      _actor_name: user?.name || "管理员",
-    } as Partial<Omit<Task, "task_id">> & { _actor_name?: string });
-    recordAudit({
-      actor: RD_ADMIN_AUDIT_ACTOR,
-      action: "task.updated",
-      resource: { type: "task", id: task.task_id, name: task.title },
-      changes: [{ field: "primary_owner", before: task.primary_owner, after: newOwner }],
-      comment: `移交任务给 ${newOwner}`,
-      source: "web",
-    });
-    toast.success(`任务已移交给 ${newOwner}`);
-    setShowHandoverDialog(false);
-    onTaskMutated?.(); // 移交后老/新主责人的任务数量都变了，需要刷新
-    onClose();
+    // 与其它写操作处理器一致：try/catch + setSubmitting，移交失败时给出报错、避免重复点击，
+    // 也防止 updateRdTask reject 变成未捕获的 Promise rejection。
+    setSubmitting(true);
+    try {
+      // _actor_name 让后端通知里能显示"谁移交的"，而不是默认的"管理员"
+      await updateRdTask(task.task_id, {
+        primary_owner: newOwner,
+        _actor_name: user?.name || "管理员",
+      } as Partial<Omit<Task, "task_id">> & { _actor_name?: string });
+      recordAudit({
+        actor: RD_ADMIN_AUDIT_ACTOR,
+        action: "task.updated",
+        resource: { type: "task", id: task.task_id, name: task.title },
+        changes: [{ field: "primary_owner", before: task.primary_owner, after: newOwner }],
+        comment: `移交任务给 ${newOwner}`,
+        source: "web",
+      });
+      toast.success(`任务已移交给 ${newOwner}`);
+      setShowHandoverDialog(false);
+      onTaskMutated?.(); // 移交后老/新主责人的任务数量都变了，需要刷新
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "移交失败");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   // 管理员直接添加协作人：写 collaborators 字段，不带 _review_action / pending_review_type，
@@ -4500,7 +4550,7 @@ function TaskDetailDrawer({
                 disabled={/已离职|待指派|外部机构/.test(task.primary_owner)}
                 className="flex items-center gap-2 rounded-md py-0.5 font-medium text-slate-700 transition-colors enabled:cursor-pointer enabled:hover:text-indigo-600 disabled:cursor-default"
               >
-                <OwnerAvatar name={task.primary_owner} />
+                <OwnerAvatar name={task.primary_owner} userId={task.primary_owner_user_id} />
                 {task.primary_owner}
                 {!/已离职|待指派|外部机构/.test(task.primary_owner) && <ChevronRight className="h-3 w-3 text-slate-300" />}
               </button>
@@ -4528,7 +4578,7 @@ function TaskDetailDrawer({
                 <div className="flex flex-wrap gap-2">
                   {task.collaborators.map((c) => (
                     <span key={c.id} className="flex items-center gap-1.5 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1 text-xs text-slate-600">
-                      <OwnerAvatar name={c.name} size="xs" />
+                      <OwnerAvatar name={c.name} userId={c.user_id} size="xs" />
                       {c.name} · {c.role}
                     </span>
                   ))}
@@ -5150,7 +5200,7 @@ function RiskHotspot({
                 </div>
               </div>
               <div className="hidden sm:block">
-                <OwnerAvatar name={r.task.primary_owner} size="xs" />
+                <OwnerAvatar name={r.task.primary_owner} userId={r.task.primary_owner_user_id} size="xs" />
               </div>
               <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 opacity-0 transition-all group-hover:translate-x-0.5 group-hover:opacity-100 group-focus-visible:opacity-100" />
             </li>
@@ -5305,7 +5355,7 @@ function PersonLoadPanel({
                 tabIndex={0}
                 className="flex cursor-pointer items-center gap-3 rounded-lg border border-transparent px-2 py-2 transition-all hover:border-slate-100 hover:bg-slate-50/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
               >
-                <OwnerAvatar name={p.name} size="xs" />
+                <OwnerAvatar name={p.name} userId={p.user_id} size="xs" />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center justify-between gap-2">
                     <span className="truncate text-sm font-medium text-slate-700">{p.name}</span>
@@ -5437,7 +5487,7 @@ function PersonDetailDrawer({
       >
         <header className="flex items-start justify-between border-b border-slate-100 px-6 py-5">
           <div className="flex min-w-0 items-center gap-3">
-            <OwnerAvatar name={name} />
+            <OwnerAvatar name={name} userId={profile?.user_id} />
             <div className="min-w-0">
               <h3 className="truncate text-lg font-semibold text-slate-900">{name}</h3>
               <p className="mt-0.5 text-xs text-slate-500">{profile?.position ?? "研发成员"} · {profile?.department ?? "未设置部门"}</p>
@@ -7399,6 +7449,8 @@ function PersonTaskCockpit({
 }) {
   const shouldReduceMotion = useReducedMotion();
   const masonryColumns = useMasonryColumns();
+  // 跨用户头像解析（人员 Stories 头像 = 文字 → 真实头像，按姓名兜底匹配）
+  const resolveAvatar = useAvatarDirectory();
 
   // ── Tab state (with prev-tab for slide direction) ──
   const [activeTab, setActiveTab] = useState("all");
@@ -8009,7 +8061,7 @@ function PersonTaskCockpit({
             {showOwner && task.primary_owner && (
               <>
                 <span className="inline-flex items-center gap-1.5">
-                  <OwnerAvatar name={task.primary_owner} size="xs" />
+                  <OwnerAvatar name={task.primary_owner} userId={task.primary_owner_user_id} size="xs" />
                   <span className="font-medium text-slate-700">{task.primary_owner}</span>
                 </span>
                 <span className="text-slate-300">·</span>
@@ -8140,6 +8192,7 @@ function PersonTaskCockpit({
               const grad = loadRingGradient(ratio, p.onLeave);
               const isActive = activeTab === p.name;
               const initial = p.name.replace(/\(.+?\)/g, "").trim().slice(0, 1) || "?";
+              const avatarUrl = resolveAvatar(p.name, p.user_id);
               return (
                 <TabsTrigger
                   key={p.name}
@@ -8157,9 +8210,18 @@ function PersonTaskCockpit({
                       }}
                     >
                       <div className={cn("flex h-full w-full items-center justify-center rounded-full bg-white", isActive ? "p-[2px]" : "p-[1.5px]")}>
-                        <div className={cn("flex h-full w-full items-center justify-center rounded-full text-sm font-bold text-white select-none", hashColor(p.name), p.onLeave && "opacity-50")}>
-                          {initial}
-                        </div>
+                        {avatarUrl ? (
+                          <img
+                            src={avatarUrl}
+                            alt={p.name}
+                            loading="lazy"
+                            className={cn("h-full w-full rounded-full object-cover", p.onLeave && "opacity-50")}
+                          />
+                        ) : (
+                          <div className={cn("flex h-full w-full items-center justify-center rounded-full text-sm font-bold text-white select-none", hashColor(p.name), p.onLeave && "opacity-50")}>
+                            {initial}
+                          </div>
+                        )}
                       </div>
                     </div>
                     {p.count > 0 && (

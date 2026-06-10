@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -34,12 +34,29 @@ const DEFAULT_PAGE_SIZE = 5;
 const TYPE_CATEGORY = 'dictionary_type';
 const ITEM_CATEGORY = 'dictionary_item';
 
+const RESERVED_AI_PROVIDER_KEY = 'ai_provider';
+const RESERVED_TYPE_KEYS = new Set<string>([RESERVED_AI_PROVIDER_KEY]);
+const DEFAULT_AI_PROVIDER_ITEMS: ReadonlyArray<{ code: string; label: string }> = [
+  { code: 'openai', label: 'OpenAI' },
+  { code: 'qwen', label: 'Qwen' },
+  { code: 'anthropic', label: 'Anthropic' },
+  { code: 'deepseek', label: 'DeepSeek' },
+  { code: 'azure', label: 'Azure OpenAI' },
+  { code: 'google', label: 'Google' },
+];
+
 @Injectable()
-export class DictionariesService {
+export class DictionariesService implements OnModuleInit {
+  private readonly logger = new Logger(DictionariesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly secureConfigService: SecureConfigService,
   ) {}
+
+  async onModuleInit() {
+    await this.ensureReservedTypes();
+  }
 
   async listTypes() {
     const records = await this.prisma.systemSetting.findMany({
@@ -125,6 +142,11 @@ export class DictionariesService {
       throw new NotFoundException('字典类型不存在');
     }
 
+    const parsedType = this.parseTypeValue(type.value);
+    if (parsedType && RESERVED_TYPE_KEYS.has(parsedType.key)) {
+      throw new BadRequestException('系统预置类型不可删除');
+    }
+
     const itemIds = (await this.prisma.systemSetting.findMany({
       where: { category: ITEM_CATEGORY },
       select: { id: true, value: true },
@@ -140,6 +162,69 @@ export class DictionariesService {
     ]);
 
     return { id: typeId };
+  }
+
+  private async ensureReservedTypes() {
+    try {
+      const records = await this.prisma.systemSetting.findMany({
+        where: { category: TYPE_CATEGORY },
+        select: { value: true },
+      });
+      const existingKeys = new Set(
+        records
+          .map((record) => this.parseTypeValue(record.value)?.key)
+          .filter((key): key is string => Boolean(key)),
+      );
+      if (!existingKeys.has(RESERVED_AI_PROVIDER_KEY)) {
+        await this.seedAiProviderType();
+      }
+    } catch (error) {
+      this.logger.error('初始化预置字典类型失败', error instanceof Error ? error.stack : String(error));
+    }
+  }
+
+  private async seedAiProviderType() {
+    const now = Date.now();
+    const value: DictionaryTypeValue = {
+      key: RESERVED_AI_PROVIDER_KEY,
+      label: 'AI 服务商',
+      kind: 'generic',
+      sort_order: 0,
+      created_by: '系统',
+      updated_by: '系统',
+    };
+
+    const type = await this.prisma.systemSetting.create({
+      data: {
+        category: TYPE_CATEGORY,
+        key: `dictionary_type:${RESERVED_AI_PROVIDER_KEY}:${now}`,
+        description: `${value.label} (${value.kind})`,
+        value: value as Prisma.InputJsonValue,
+      },
+    });
+
+    await Promise.all(
+      DEFAULT_AI_PROVIDER_ITEMS.map((item, index) => {
+        const itemValue: DictionaryItemValue = {
+          type_id: type.id,
+          kind: 'generic',
+          code: item.code,
+          label: item.label,
+          remark: '',
+          updated_by: '系统',
+        };
+        return this.prisma.systemSetting.create({
+          data: {
+            category: ITEM_CATEGORY,
+            key: `dictionary_item:${type.id}:${item.code}:${now + index}`,
+            description: `${item.code} / ${item.label}`,
+            value: itemValue as Prisma.InputJsonValue,
+          },
+        });
+      }),
+    );
+
+    this.logger.log('已预置「AI 服务商」字典类型及默认条目');
   }
 
   async listItems(typeId: string, query: ListDictionaryItemsQueryDto) {

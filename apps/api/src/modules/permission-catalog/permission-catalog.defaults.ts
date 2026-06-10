@@ -17,6 +17,7 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'page:rd-task-management', label: '研发任务驾驶舱', description: '树状任务表 · AI 解析新建 · 任务封存/移交', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-task-management', sortOrder: 50 },
   { code: 'page:rd-my-workspace', label: '个人工作台', description: '我的任务、协作任务、今日待办、待审核 AI 建议', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-my-workspace', sortOrder: 60 },
   { code: 'page:rd-knowledge-base', label: '研发知识库', description: '研发团队内部知识沉淀与权限分级查阅', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-knowledge-base', sortOrder: 65 },
+  { code: 'page:rd-sheet', label: '研发数据表', description: '类 WPS 表格，按密级行级管控的研发敏感数据；不同权限的人看到的行数不同', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-sheet', sortOrder: 66 },
   { code: 'page:rd-director-dashboard', label: '研发主管驾驶舱', description: '全局进度、人员负载热力图、批量重分配（高级权限）', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-director-dashboard', navHidden: true, sortOrder: 70 },
   { code: 'page:rd-people-management', label: '研发人员管理', description: '新增、编辑、删除研发成员，设置任务容量与知识库权限等级', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-people-management', navHidden: true, sortOrder: 73 },
   { code: 'page:rd-approval-flow', label: '审批流配置', description: '配置立项/任务审批的节点、模式、SLA', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-approval-flow', sortOrder: 75 },
@@ -35,6 +36,7 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'rd-audit:clear', label: '清空操作留痕', description: '清空研发任务管理操作留痕记录', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 88 },
   { code: 'rd-ai:configure', label: '配置研发 AI 策略', description: '维护研发模块各 AI 场景模型、OCR 兜底、文件解析和人工确认策略', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 89 },
   { code: 'rd-data:clear', label: '清空研发任务数据', description: '清空研发任务分类、个人工作台和研发主管驾驶舱数据', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 90 },
+  { code: 'rd-sheet:edit', label: '编辑研发数据表', description: '新增/修改/删除数据表的行列与密级；拥有此权限即可看到全量数据（不受行级密级裁剪）', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 91 },
 
   // 研发知识库操作权限（细粒度，与页面权限 page:rd-knowledge-base 配合使用）
   { code: 'rd-kb:upload', label: '上传知识库文件', description: '向知识库上传文件（含拖拽 / 文件选择）', groupLabel: '操作权限 · 研发知识库', type: 'action', sortOrder: 95 },

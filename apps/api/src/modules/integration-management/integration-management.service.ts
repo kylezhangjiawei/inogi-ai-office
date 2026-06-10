@@ -15,10 +15,25 @@ type MailboxMetadata = {
   operator_name: string;
 };
 
-/** 模型用途类型：text=纯文本, multimodal=图文理解, image=图片生成, auto=根据模型名称自动推断 */
-type AiModelUsageKind = 'text' | 'multimodal' | 'image' | 'auto';
+/**
+ * 模型用途类型（能力轴，与连接轴 kind 正交）：
+ * - text=纯文本对话/摘要/结构化提取
+ * - multimodal=图文理解（可接收图片输入）
+ * - image=图片生成 / 参考图生图 / 图片编辑
+ * - embedding=向量化（RAG 检索），不可当对话模型
+ * - document=文档解析（如 qwen-doc 系列），只用于文件读取，不可当对话模型
+ * - auto=根据模型名称自动推断（兜底）
+ */
+type AiModelUsageKind = 'text' | 'multimodal' | 'image' | 'embedding' | 'document' | 'auto';
 
-const VALID_USAGE_KINDS: readonly string[] = ['text', 'multimodal', 'image', 'auto'];
+const VALID_USAGE_KINDS: readonly string[] = [
+  'text',
+  'multimodal',
+  'image',
+  'embedding',
+  'document',
+  'auto',
+];
 
 type AiModelMetadata = {
   operator_name: string;

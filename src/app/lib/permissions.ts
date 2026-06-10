@@ -47,6 +47,7 @@ export const PERMISSIONS = {
   // ─── R&D Task Management ─────────────────────────────────────────
   PAGE_RD_TASK_MANAGEMENT: 'page:rd-task-management',
   PAGE_RD_MY_WORKSPACE: 'page:rd-my-workspace',
+  PAGE_RD_SHEET: 'page:rd-sheet',
   PAGE_RD_DIRECTOR_DASHBOARD: 'page:rd-director-dashboard',
   PAGE_RD_APPROVAL_FLOW: 'page:rd-approval-flow',
   PAGE_RD_AUDIT_LOG: 'page:rd-audit-log',
@@ -62,6 +63,8 @@ export const PERMISSIONS = {
   RD_AUDIT_CLEAR: 'rd-audit:clear',
   RD_DATA_CLEAR: 'rd-data:clear',
   RD_AI_CONFIGURE: 'rd-ai:configure',
+  /** 编辑研发数据表；拥有此权限即可见全量数据（不受行级密级裁剪） */
+  RD_SHEET_EDIT: 'rd-sheet:edit',
 
   // 立项流程
   RD_PROJECT_PROPOSE: 'rd-project:propose',
@@ -259,6 +262,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     permissions: [
       { code: 'page:rd-task-management', label: '研发任务管理', description: '树状任务表，AI 解析新建，任务封存/移交' },
       { code: 'page:rd-my-workspace', label: '个人工作台', description: '我的任务、协作任务、今日待办、待审核 AI 建议' },
+      { code: 'page:rd-sheet', label: '研发数据表', description: '类 WPS 表格，按密级行级管控；不同权限的人看到的行数不同' },
       { code: 'page:rd-director-dashboard', label: '研发主管驾驶舱', description: '全局进度、人员负载热力图、批量转派（高级权限）' },
       { code: 'page:rd-approval-flow', label: '审批流配置', description: '配置立项/任务审批的节点、模式、SLA' },
       { code: 'page:rd-audit-log', label: '操作留痕', description: '查看研发任务管理关键操作的审计时间轴' },
@@ -279,6 +283,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { code: 'rd-audit:clear', label: '清空操作留痕', description: '清空研发任务管理操作留痕记录' },
       { code: 'rd-data:clear', label: '清空研发任务数据', description: '清空研发任务分类、个人工作台和研发主管驾驶舱数据' },
       { code: 'rd-ai:configure', label: '配置研发 AI 策略', description: '维护研发模块各 AI 场景模型、OCR 兜底、文件解析和人工确认策略' },
+      { code: 'rd-sheet:edit', label: '编辑研发数据表', description: '新增/修改/删除数据表行列与密级；拥有此权限即可见全量数据' },
     ],
   },
   {

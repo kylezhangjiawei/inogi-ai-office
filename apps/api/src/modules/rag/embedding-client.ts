@@ -59,7 +59,20 @@ export class EmbeddingClient {
       })
       .catch(() => null);
 
-    // 2. 兜底：现有 AI 模型管理 UI 保存时 kind='openai'，模型名含 embedding 的也能用
+    // 2. 兜底：AI 模型管理 UI 保存时 kind='openai'。优先认管理员在用途下拉显式标注的
+    //    usage_kind='embedding'（权威，不依赖模型名），其次再回退「模型名含 embedding」的名称推断。
+    if (!record) {
+      record = await this.prisma.integrationConfig
+        .findFirst({
+          where: {
+            kind: 'openai',
+            isActive: true,
+            metadata: { path: ['usage_kind'], equals: 'embedding' },
+          },
+          orderBy: { updatedAt: 'desc' },
+        })
+        .catch(() => null);
+    }
     if (!record) {
       record = await this.prisma.integrationConfig
         .findFirst({

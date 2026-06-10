@@ -466,13 +466,15 @@ export function DictionaryList() {
                     >
                       <Pencil className="h-3 w-3 text-slate-500" />
                     </button>
-                    <button
-                      type="button"
-                      className="rounded p-1 hover:bg-red-100"
-                      onClick={(event) => openDeleteType(type.id, event)}
-                    >
-                      <Trash2 className="h-3 w-3 text-red-400" />
-                    </button>
+                    {type.key !== "ai_provider" && (
+                      <button
+                        type="button"
+                        className="rounded p-1 hover:bg-red-100"
+                        onClick={(event) => openDeleteType(type.id, event)}
+                      >
+                        <Trash2 className="h-3 w-3 text-red-400" />
+                      </button>
+                    )}
                   </div>
                 </div>
               ))

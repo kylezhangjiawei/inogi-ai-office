@@ -102,6 +102,24 @@ export class AuthService {
     return { ok: true };
   }
 
+  /**
+   * 返回所有「已设置头像且未禁用」用户的签名头像 URL，供驾驶舱等多用户界面
+   * 按 user_id / 姓名解析「他人」头像（/auth/me 只返回当前用户自己的头像）。
+   * 仅暴露 id / name / 头像 URL，不含敏感信息；任意登录用户可读。
+   */
+  async listUserAvatars(): Promise<Array<{ id: string; name: string; avatarUrl: string }>> {
+    const users = await this.prisma.user.findMany({
+      where: { avatarObjectKey: { not: null }, status: { not: 'DISABLED' } },
+      select: { id: true, name: true, avatarObjectKey: true },
+    });
+    const out: Array<{ id: string; name: string; avatarUrl: string }> = [];
+    for (const u of users) {
+      const url = this.buildAvatarUrl(u.avatarObjectKey ?? null);
+      if (url) out.push({ id: u.id, name: u.name, avatarUrl: url });
+    }
+    return out;
+  }
+
   /** 把 avatarObjectKey 转成 30 天签名 URL；无值或 OSS 未配置返回 null */
   private buildAvatarUrl(avatarObjectKey: string | null): string | null {
     if (!avatarObjectKey) return null;

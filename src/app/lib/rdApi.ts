@@ -439,6 +439,50 @@ export function saveRdTaskCategories(payload: RdCategory[]) {
   });
 }
 
+// ── 研发数据表（类 WPS 表格 · 行级密级管控）──────────────────────────────────
+// 后端按 viewer 的 kb_level 行级裁剪：低分值的人只拿到密级 <= 自己的行，且密级列
+// 整列对其隐藏（headers 里不含该列）。编辑者（rd-sheet:edit / 超管）拿全量。
+
+/** 主表固定 id，与后端 RD_SHEET_DEFAULT_ID 保持一致。 */
+export const RD_MASTER_SHEET_ID = "rd-master-sheet";
+
+export type RdSheetMeta = {
+  id: string;
+  name: string;
+  updated_at: string;
+};
+
+export type RdSheet = {
+  id: string;
+  name: string;
+  /** 表头；非编辑者看不到密级列，故此处可能不含密级列。 */
+  headers: string[];
+  /** 数据行，与 headers 顺序对齐，均为字符串。 */
+  rows: string[][];
+  /** 密级控制列名（默认「密级」）。编辑者据此识别哪一列控制行级可见性。 */
+  secrecy_column: string;
+  updated_at: string;
+  updated_by: string | null;
+};
+
+export function fetchRdSheets() {
+  return requestJson<RdSheetMeta[]>("/sheets");
+}
+
+export function fetchRdSheet(id: string) {
+  return requestJson<RdSheet>(`/sheet/${encodeURIComponent(id)}`);
+}
+
+export function saveRdSheet(
+  id: string,
+  payload: { name: string; headers: string[]; rows: string[][]; secrecy_column: string },
+) {
+  return requestJson<RdSheet>(`/sheet/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
 export type RdMoveTasksResult = {
   ok: true;
   movedCount: number;

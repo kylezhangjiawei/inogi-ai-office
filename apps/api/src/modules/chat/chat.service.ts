@@ -591,8 +591,8 @@ export class ChatService {
   private isNonChatModel(model: string, usageKind: string): boolean {
     return (
       this.isImageOnlyModel(model, usageKind)
-      || this.isEmbeddingModel(model)
-      || this.isDocReaderModel(model)
+      || this.isEmbeddingModel(model, usageKind)
+      || this.isDocReaderModel(model, usageKind)
     );
   }
 
@@ -603,7 +603,9 @@ export class ChatService {
    * 简历筛选里以常量 FILE_SCREENING_DOC_MODEL='qwen-doc-turbo' 固定调用，
    * 这里按名称前缀匹配 qwen-doc 系列，覆盖 qwen-doc-turbo 及其变体。
    */
-  private isDocReaderModel(model: string): boolean {
+  private isDocReaderModel(model: string, usageKind: string): boolean {
+    if (usageKind === 'document') return true;
+    if (usageKind !== 'auto') return false;
     return /qwen-doc/i.test(model ?? '');
   }
 
@@ -663,7 +665,9 @@ export class ChatService {
    * RAG 检索用的 embedding 模型由 EmbeddingClient 单独走 /api/rag 路径加载，
    * 不通过这里的对话模型列表。
    */
-  private isEmbeddingModel(model: string): boolean {
+  private isEmbeddingModel(model: string, usageKind: string): boolean {
+    if (usageKind === 'embedding') return true;
+    if (usageKind !== 'auto') return false;
     const n = (model ?? '').toLowerCase();
     return n.includes('embedding') || /(^|[\-_/])embed(?:ding)?s?($|[\-_/])/.test(n);
   }

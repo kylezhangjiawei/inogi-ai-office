@@ -47,7 +47,8 @@ type RdStoreKey =
   | 'rd.productTaskCategories'
   | 'rd.knowledgeCategories'
   | 'rd.knowledgeEntries'
-  | 'rd.taskCompletionScores';
+  | 'rd.taskCompletionScores'
+  | 'rd.sheets';
 
 const CATEGORY = 'research-development';
 const MAX_AUDIT_LOGS = 1000;
@@ -58,6 +59,29 @@ const RD_MAIN_PRODUCT_ID = 'prod-portable-o2';
 const PROGRESS_NOTE_MAX_FILES = 10;
 const PROGRESS_NOTE_MAX_FILE_BYTES = 25 * 1024 * 1024;
 const PROGRESS_NOTE_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
+
+// ─── 研发数据表（类 WPS 表格 · 行级密级管控）────────────────────────────────
+// 单一主表起步。每行可带一列「密级」（0-100 分值），读取时按 viewer 的 kb_level
+// 行级裁剪：分值低的人只看得到密级 <= 自己的行，且密级列整列对其隐藏。
+// 与知识库读取同一套人员分值口径（resolveViewerKbLevel：拒绝式默认 0、识别 kb_level_scale），
+// 后端强制、前端无法绕过。
+const RD_SHEET_DEFAULT_ID = 'rd-master-sheet';
+const RD_SHEET_SECRECY_COLUMN = '密级';
+const RD_SHEET_MAX_LEVEL = 100;
+
+/** 研发数据表的存储结构（始终矩形：每行单元格数 === headers.length）。 */
+type RdSheetData = {
+  id: string;
+  name: string;
+  /** 表头（第一行列名）。其中名为 secrecy_column 的列是行级密级控制列。 */
+  headers: string[];
+  /** 数据行，每行单元格按 headers 顺序对齐，统一存为字符串。 */
+  rows: string[][];
+  /** 密级控制列的列名，默认「密级」。 */
+  secrecy_column: string;
+  updated_at: string;
+  updated_by: string | null;
+};
 
 // ─── 审核类型「单一事实源」───────────────────────────────────────────────
 // 四种审核类型的标签、通过后目标状态、审计动作集中在此定义，前后端各处只引用、
@@ -421,6 +445,33 @@ function personNameLookupKey(value: unknown): string {
 
 function cleanUserId(value: unknown): string {
   return cleanText(value);
+}
+
+/**
+ * 判定某人是否为任务的「参与者」——主责人或协作人。用于写操作的越权防护：
+ * 仅持页面权限（page:rd-my-workspace）的普通成员只能改/记自己负责的任务。
+ * 与 moveTasks 的 ownsTask、getWorkspace 的 isPrimary 同口径：每个主责/协作条目
+ * 若已绑定 user_id 则按 id 严格匹配，历史上仅按姓名指派、未绑定用户ID的再按姓名归一化兜底。
+ */
+function isTaskParticipant(
+  task: JsonRecord,
+  requesterUserId?: string,
+  requesterName?: string,
+): boolean {
+  const uid = cleanUserId(requesterUserId);
+  const nameKey = personNameLookupKey(requesterName);
+  if (!uid && !nameKey) return false;
+  const matches = (idVal: unknown, nameVal: unknown): boolean => {
+    const targetId = cleanUserId(idVal);
+    if (targetId) return Boolean(uid) && targetId === uid;
+    return Boolean(nameKey) && personNameLookupKey(nameVal) === nameKey;
+  };
+  if (matches(task.primary_owner_user_id ?? task.owner_user_id, task.primary_owner ?? task.owner)) {
+    return true;
+  }
+  return asArray(task.collaborators)
+    .filter(isRecord)
+    .some((c) => matches((c as JsonRecord).user_id, (c as JsonRecord).name));
 }
 
 function isUnassignedOwner(value: unknown): boolean {
@@ -1228,6 +1279,17 @@ export class ResearchDevelopmentService {
 
     if (collected.size === 0) throw new NotFoundException('任务不存在');
 
+    // 部分 id 未在任何顶层任务中命中（多为子任务 id 或已不存在的 id）。
+    // 旧逻辑会静默丢弃这些 id、只移动命中的部分，导致「提示成功实则少移」的数据静默丢失。
+    // 这里改为明确报错。移动选择 UI 仅会传入顶层任务 id，正常流程不会触发；
+    // 仅用于防御直连 API / 脏数据。此处尚未写库（仅改了内存工作副本），抛错即安全回滚。
+    if (collected.size < ids.length) {
+      const missing = ids.filter((id) => !collected.has(id));
+      throw new BadRequestException(
+        `部分任务无法移动（可能是子任务或已不存在）：${missing.join('、')}`,
+      );
+    }
+
     // 个人工作台来的移动请求：非管理员只能移动「自己负责的任务」。与 getWorkspace 的 isPrimary 同口径——
     // 优先按 user_id 匹配，历史上「仅按姓名指派、未绑定用户ID」的任务再按姓名兜底匹配。
     // 管理员（canMoveAny）跳过此校验。此处尚未写库（仅改了内存工作副本），抛错即安全回滚。
@@ -1351,6 +1413,39 @@ export class ResearchDevelopmentService {
       merged.push(...ensurePocBomTaskCategories(asArray(raw)).filter(isRecord));
     }
     return merged;
+  }
+
+  /**
+   * 跨所有产品库按 task_id 定位单个任务（含子任务），找不到返回 null。
+   * 用于写操作（如进度留痕）前的归属/越权校验——此时还没有任务对象在手，需先查出来。
+   */
+  private async findTaskAcrossStores(taskId: string): Promise<JsonRecord | null> {
+    const id = (taskId ?? '').trim();
+    if (!id) return null;
+    const categories = await this.readMergedTaskCategories();
+    let found: JsonRecord | null = null;
+    const walk = (tasks: unknown[]): void => {
+      for (const t of tasks) {
+        if (!isRecord(t)) continue;
+        if (t.task_id === id) {
+          found = t;
+          return;
+        }
+        if (Array.isArray(t.subtasks)) {
+          walk(t.subtasks);
+          if (found) return;
+        }
+      }
+    };
+    for (const cat of categories) {
+      if (!isRecord(cat)) continue;
+      for (const child of asArray(cat.children).filter(isRecord)) {
+        walk(asArray(child.tasks));
+        if (found) break;
+      }
+      if (found) break;
+    }
+    return found;
   }
 
   /**
@@ -1495,7 +1590,11 @@ export class ResearchDevelopmentService {
     return newTask;
   }
 
-  async updateTask(taskId: string, patch: JsonRecord) {
+  async updateTask(
+    taskId: string,
+    patch: JsonRecord,
+    options?: { requesterUserId?: string; requesterName?: string; canEditAny?: boolean },
+  ) {
     // Strip private notification-metadata fields before persisting
     const {
       task_id: _protected,
@@ -1528,6 +1627,23 @@ export class ResearchDevelopmentService {
         if (t.task_id === taskId) {
           found = true;
           originalTask = { ...t };
+
+          // 越权防护（与 moveTasks 同口径）：仅持页面权限 page:rd-my-workspace 的普通成员
+          // 只能修改"自己负责"的任务（主责人或协作人），且不得审批(_review_action)或移交(primary_owner)
+          // ——审批/移交是研发主管/审核人专属。管理员级权限(canEditAny)完全跳过，行为不变。
+          // 此处仅改了内存工作副本、尚未写库（见 mutateTaskAcrossStores 先 transform 后 write），
+          // 抛错即安全回滚，无任何副作用。
+          if (!options?.canEditAny) {
+            if (!isTaskParticipant(t as JsonRecord, options?.requesterUserId, options?.requesterName)) {
+              throw new ForbiddenException('只能修改自己负责的任务');
+            }
+            if (_review_action) {
+              throw new ForbiddenException('无审核权限：仅研发主管可审批任务');
+            }
+            if (Object.prototype.hasOwnProperty.call(persistPatch, 'primary_owner')) {
+              throw new ForbiddenException('无权移交任务：仅研发主管可变更主责人');
+            }
+          }
 
           // Resolve review actions now that we have the original task.
           if (_review_action) {
@@ -2302,12 +2418,24 @@ export class ResearchDevelopmentService {
     });
   }
 
-  async getTaskProgressNotes(taskId: string, viewer?: { userId?: string; hasFullAccess?: boolean }) {
+  async getTaskProgressNotes(
+    taskId: string,
+    viewer?: { userId?: string; hasFullAccess?: boolean; userName?: string },
+  ) {
     const map = await this.getProgressNoteMap();
     const notes = map[taskId] ?? [];
     if (viewer?.hasFullAccess) return this.decorateNotesWithPreview(notes);
-    // Non-managers can only see notes they themselves authored
     const userId = viewer?.userId;
+    const userName = viewer?.userName;
+    if (!userId && !userName) return [];
+    // 参与人（主责人或协作人）可查看该任务的「全部」进展留痕——否则协作人/主管在审核时写下的
+    // 进展对本人不可见，造成同一条任务进展线被割裂。仅作用于「单任务读取」，不改动
+    // listAllTaskProgressNotes（日报/看板聚合仍按「仅本人撰写」口径，避免放大聚合可见范围）。
+    const task = await this.findTaskAcrossStores(taskId);
+    if (task && isTaskParticipant(task, userId, userName)) {
+      return this.decorateNotesWithPreview(notes);
+    }
+    // 非参与人（且非管理员）退化为「仅本人撰写」。
     if (!userId) return [];
     return this.decorateNotesWithPreview(notes.filter((note) => {
       const actor = isRecord(note.actor) ? note.actor : null;
@@ -2341,9 +2469,23 @@ export class ResearchDevelopmentService {
     progress?: number;
     actor?: { id?: string; name?: string; role?: string };
     files: Array<{ originalname: string; mimetype?: string; size?: number; buffer: Buffer }>;
+    requesterUserId?: string;
+    requesterName?: string;
+    canEditAny?: boolean;
   }) {
     const taskId = (payload.taskId ?? '').trim();
     if (!taskId) throw new BadRequestException('taskId 不能为空');
+
+    // 越权防护：进展留痕会带附件入知识库并参与 AI 评分，必须防止向他人任务注入内容。
+    // 非管理员（仅 page:rd-my-workspace）只能为"自己负责"的任务（主责人或协作人）添加进展；
+    // 管理员级权限(canEditAny)跳过，行为不变。用可信的 req.user 身份校验，不信任前端传入的 actor.name。
+    if (!payload.canEditAny) {
+      const task = await this.findTaskAcrossStores(taskId);
+      if (!task) throw new NotFoundException('任务不存在');
+      if (!isTaskParticipant(task, payload.requesterUserId, payload.requesterName)) {
+        throw new ForbiddenException('只能为自己负责的任务添加进展');
+      }
+    }
 
     const text = (payload.text ?? '').trim();
     const files = Array.isArray(payload.files) ? payload.files : [];
@@ -3288,6 +3430,9 @@ export class ResearchDevelopmentService {
     metrics: PerformanceMetrics;
   }> {
     const { start, endExclusive } = monthRange(month);
+    // 「今天」(UTC+8 业务日历日，与 due_date 的 YYYY-MM-DD 同口径)，用于"逾期"判定下界：
+    // 仅当截止日已真正过去(< 今天)才算逾期。否则本月内"尚未到期"的任务会被误判为逾期。
+    const todayStr = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
     const categories = await this.readMergedTaskCategories();
     const allTasks = this.collectAllCategoryTasks(categories);
     const noteMap = await this.getProgressNoteMap();
@@ -3387,7 +3532,10 @@ export class ResearchDevelopmentService {
       attachmentsCount += monthAttachments;
 
       const dueDate = cleanText(task.due_date) || null;
-      const overdue = Boolean(!isCompleted && dueDate && dueDate < endExclusive);
+      // 逾期 = 未完成 且 截止日在报告月末之前(dueDate < endExclusive) 且 截止日已真正过去(dueDate < 今天)。
+      // 过去月的报告：endExclusive 已是过去，是更紧的约束，历史口径不变；
+      // 当月报告：补上 dueDate < todayStr，避免"本月内尚未到期"的任务被恒判为逾期（原 bug）。
+      const overdue = Boolean(!isCompleted && dueDate && dueDate < endExclusive && dueDate < todayStr);
       if (overdue) overdueCount += 1;
 
       const latestNote = monthNotes.length > 0 ? monthNotes[monthNotes.length - 1] : null;
@@ -5830,6 +5978,120 @@ export class ResearchDevelopmentService {
       await this.writeValue('rd.taskCategories', normalized);
     }
     return normalized;
+  }
+
+  // ─── 研发数据表（类 WPS 表格 · 行级密级管控）─────────────────────────────
+
+  /** 把任意存储值规范化为矩形 RdSheetData（表头与每行宽度一致，单元格转字符串）。 */
+  private static normalizeSheet(raw: unknown): RdSheetData {
+    const rec = isRecord(raw) ? raw : {};
+    const headers = asArray(rec.headers).map((h) => cleanText(h));
+    const width = headers.length;
+    const rows = asArray(rec.rows).map((row) => {
+      const cells = asArray(row).map((c) => cleanText(c));
+      // 对齐表头宽度：超出截断、缺失补空，保证矩形结构便于裁剪与渲染。
+      return cells.length < width
+        ? [...cells, ...Array(width - cells.length).fill('')]
+        : cells.slice(0, width);
+    });
+    return {
+      id: cleanText(rec.id) || RD_SHEET_DEFAULT_ID,
+      name: cleanText(rec.name) || '研发数据表',
+      headers,
+      rows,
+      secrecy_column: cleanText(rec.secrecy_column) || RD_SHEET_SECRECY_COLUMN,
+      updated_at: cleanText(rec.updated_at) || new Date().toISOString(),
+      updated_by: cleanText(rec.updated_by) || null,
+    };
+  }
+
+  /** 空的默认主表（含密级列），首次访问 / 存储为空时兜底，避免页面空白。 */
+  private static buildDefaultSheet(): RdSheetData {
+    return {
+      id: RD_SHEET_DEFAULT_ID,
+      name: '研发数据表',
+      headers: ['项目', '负责人', '进度', '备注', RD_SHEET_SECRECY_COLUMN],
+      rows: [],
+      secrecy_column: RD_SHEET_SECRECY_COLUMN,
+      updated_at: new Date().toISOString(),
+      updated_by: null,
+    };
+  }
+
+  /**
+   * 行级密级裁剪（后端强制，前端无法绕过）：
+   * - 找不到密级列 → 所有行按最高密级处理（fail-closed，低分值成员看不到任何数据行）；
+   * - 单元格空白 / 非数字 → 视为最高密级 100（fail-closed，宁可多挡不可漏放）；
+   * - 行密级 > viewer 分值 → 丢弃整行；
+   * - 最终整列移除密级列（表头 + 每行），成员连「有哪些密级」都看不到。
+   * 仅对非完全访问的 viewer 调用；完全访问者（* / rd-sheet:edit）直接拿全量。
+   */
+  private static redactSheet(sheet: RdSheetData, viewerScore: number): RdSheetData {
+    const idx = sheet.headers.findIndex((h) => h === sheet.secrecy_column);
+    const keptRows = sheet.rows.filter((row) => {
+      // 注意 Number('') === 0：空白必须先于数值转换判掉，否则空密级会被当成 0（人人可见）
+      const text = idx >= 0 ? (row[idx] ?? '').trim() : '';
+      const raw = text === '' ? NaN : Number(text);
+      const level = Number.isFinite(raw)
+        ? Math.max(0, Math.min(RD_SHEET_MAX_LEVEL, raw))
+        : RD_SHEET_MAX_LEVEL;
+      return viewerScore >= level;
+    });
+    const headers = idx >= 0 ? sheet.headers.filter((_, i) => i !== idx) : sheet.headers;
+    const rows = idx >= 0 ? keptRows.map((r) => r.filter((_, i) => i !== idx)) : keptRows;
+    return { ...sheet, headers, rows };
+  }
+
+  /** 列出全部数据表的元信息（不含明细行，任意研发读权限可见）。 */
+  async listSheets(): Promise<Array<{ id: string; name: string; updated_at: string }>> {
+    const arr = (await this.readArray('rd.sheets')).map((s) =>
+      ResearchDevelopmentService.normalizeSheet(s),
+    );
+    const list = arr.length ? arr : [ResearchDevelopmentService.buildDefaultSheet()];
+    return list.map((s) => ({ id: s.id, name: s.name, updated_at: s.updated_at }));
+  }
+
+  /** 读取单个数据表；非完全访问者按其知识库可见分值（resolveViewerKbLevel）行级裁剪后返回。 */
+  async getSheet(
+    id: string,
+    viewer: { userId?: string; hasFullAccess: boolean },
+  ): Promise<RdSheetData> {
+    const wantedId = cleanText(id) || RD_SHEET_DEFAULT_ID;
+    const arr = (await this.readArray('rd.sheets')).map((s) =>
+      ResearchDevelopmentService.normalizeSheet(s),
+    );
+    const found =
+      arr.find((s) => s.id === wantedId) ??
+      (wantedId === RD_SHEET_DEFAULT_ID ? ResearchDevelopmentService.buildDefaultSheet() : null);
+    if (!found) throw new NotFoundException('数据表不存在');
+    if (viewer.hasFullAccess) return found;
+    // 读侧鉴权与知识库共用同一口径：resolveViewerKbLevel（拒绝式默认 0、识别 kb_level_scale），
+    // 而非写/上传侧的 getUserKbLevel（默认 20、不认 scale）。保证「同一个人员管理分值」在
+    // 数据表与知识库被一致解读，且未配置者按最严处理（仅见密级 0 的公开行）。
+    const score = await this.resolveViewerKbLevel(viewer.userId);
+    return ResearchDevelopmentService.redactSheet(found, score);
+  }
+
+  /**
+   * 保存数据表（仅 rd-sheet:edit / 超管，由 controller 守门）。
+   * 编辑者天然拥有完全访问（GET 时不裁剪），故这里始终写入完整未裁剪数据，
+   * 杜绝「读到裁剪版 → 回写 → 丢失隐藏行」的越权风险。
+   */
+  async saveSheet(id: string, payload: unknown, editorId?: string | null): Promise<RdSheetData> {
+    const wantedId = cleanText(id) || RD_SHEET_DEFAULT_ID;
+    const incoming = ResearchDevelopmentService.normalizeSheet(
+      isRecord(payload) ? { ...payload, id: wantedId } : { id: wantedId },
+    );
+    incoming.updated_at = new Date().toISOString();
+    incoming.updated_by = cleanText(editorId) || null;
+    const arr = (await this.readArray('rd.sheets')).map((s) =>
+      ResearchDevelopmentService.normalizeSheet(s),
+    );
+    const next = arr.some((s) => s.id === wantedId)
+      ? arr.map((s) => (s.id === wantedId ? incoming : s))
+      : [...arr, incoming];
+    await this.writeValue('rd.sheets', next);
+    return incoming;
   }
 
   private async readArray(key: RdStoreKey) {

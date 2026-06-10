@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
 import { CssBaseline, ThemeProvider } from "@mui/material";
 import { createBrowserRouter, Navigate, RouterProvider, useLocation, useParams } from "react-router";
 import { toast } from "sonner";
@@ -54,6 +54,10 @@ import { RDAiSettingsPage } from "./RDAiSettingsPage";
 import { RouteManagementPage } from "./RouteManagementPage";
 import { UIDesignPage } from "./UIDesignPage";
 import { ImageLibraryPage } from "./ImageLibraryPage";
+// 懒加载：研发数据表将内嵌 Univer Sheets（~1MB+），拆成独立 chunk 按需加载，避免拖慢业务主包。
+const RDSheetPage = React.lazy(() =>
+  import("./RDSheetPage").then((m) => ({ default: m.RDSheetPage })),
+);
 import { Root } from "./Root";
 import { DictionaryList } from "./DictionaryList";
 import { UserManagement } from "./UserManagement";
@@ -234,6 +238,23 @@ function makeProtected(component: React.ReactNode, permission: string) {
   return <PermissionRoute permission={permission}>{component}</PermissionRoute>;
 }
 
+/** Lightweight fallback while a lazy route chunk loads. */
+function PageLoadingFallback() {
+  return (
+    <div className="flex min-h-[40vh] items-center justify-center text-sm text-slate-400">
+      正在加载页面…
+    </div>
+  );
+}
+
+/** Like makeProtected, but wraps the (lazy) element in Suspense. */
+function makeLazyProtected(component: React.ReactNode, permission: string) {
+  return makeProtected(
+    <Suspense fallback={<PageLoadingFallback />}>{component}</Suspense>,
+    permission,
+  );
+}
+
 const router = createBrowserRouter([
   { path: "/login", Component: LoginPage },
   {
@@ -249,6 +270,7 @@ const router = createBrowserRouter([
       { path: "rd-task-management", element: makeProtected(<RDTaskManagementPage />, "page:rd-task-management") },
       { path: "rd-people-management", element: makeProtected(<RDPeopleManagementPage onBack={() => window.history.back()} />, "rd-people:manage") },
       { path: "rd-my-workspace", element: makeProtected(<RDMyWorkspacePage />, "page:rd-my-workspace") },
+      { path: "rd-sheet", element: makeLazyProtected(<RDSheetPage />, "page:rd-sheet") },
       { path: "rd-knowledge-base", element: makeProtected(<RDKnowledgeBasePage />, "page:rd-knowledge-base") },
       // 研发主管驾驶舱 — 导航可见性由页面路由管理中的「导航」开关控制（默认隐藏）
       { path: "rd-director-dashboard", element: makeProtected(<RDDirectorDashboardPage />, "page:rd-director-dashboard") },

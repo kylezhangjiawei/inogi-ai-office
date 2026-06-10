@@ -14,6 +14,25 @@ import { CreatePromptChatSessionDto, PromptChatDto } from './dto/prompt-chat.dto
 const CACHE_SIMILARITY_THRESHOLD = 0.65;
 const DEFAULT_IMAGE_TO_IMAGE_MODEL = 'gpt-image-1';
 const DEFAULT_PROMPT_CHAT_MODEL = 'gpt-4.1-mini';
+// 异步生成任务在内存中保留的最长时间（超过则清理，避免内存无界增长）
+const IMAGE_GENERATION_TASK_TTL_MS = 60 * 60 * 1000;
+// 当上游返回的是图片 URL（而非内联 base64）时，下载该 URL 的超时上限。
+// fetch 默认无超时：若 URL 主机慢/不可达会永久挂起，把异步任务永远卡在 processing。
+// 取 2min——下载一张已生成的图片本应秒级完成，且远小于上游生成 20min 预算，
+// 这样「下载卡死」会在前端 20min 兜底超时之前就以明确错误暴露出来。
+const IMAGE_DOWNLOAD_TIMEOUT_MS = 120_000;
+
+type ImageGenerationTaskStatus = 'pending' | 'processing' | 'completed' | 'failed';
+
+type ImageGenerationTask = {
+  id: string;
+  userId: string;
+  status: ImageGenerationTaskStatus;
+  result?: unknown;
+  error?: string;
+  createdAt: number;
+  updatedAt: number;
+};
 
 type OpenAiRuntime = {
   apiKey: string;
@@ -102,6 +121,8 @@ const GPT_IMAGE_1_PRICING_USD_PER_MILLION = {
 @Injectable()
 export class ImageGenerationService {
   private readonly logger = new Logger(ImageGenerationService.name);
+  // 异步图片生成任务的内存存储（提交后台执行 + 轮询查询）
+  private readonly generationTasks = new Map<string, ImageGenerationTask>();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -179,6 +200,11 @@ export class ImageGenerationService {
       apiKey,
       ...(baseUrl ? { baseURL: baseUrl } : {}),
       defaultHeaders: { 'X-Inogi-Image-Request-Id': requestId },
+      timeout: this.getImageRequestTimeoutMs(),
+      // 禁用 SDK 默认的 2 次自动重试：上游挂起/5xx/超时本身就是可重试错误，重试会把等待放大到约 3×timeout
+      // （最坏 ~60min）且可能被上游按次计费，而前端早已在 20min 兜底放弃。图片生成一次失败即应快速暴露真实
+      // 错误，由用户手动重试，而不是静默空跑。
+      maxRetries: 0,
     });
     const effectiveModel = hasReferenceImage && !this.supportsImageEdit(model) ? DEFAULT_IMAGE_TO_IMAGE_MODEL : model;
     this.assertPromptLength(prompt, effectiveModel);
@@ -225,9 +251,11 @@ export class ImageGenerationService {
       },
     });
 
-    // 5. 上传到 OSS（同步完成后写回 imageUrl，确保响应中携带 URL）
-    const imageUrl = await this.uploadAndSaveImageUrl(saved.id, imageData);
-    return { ...this.toResponse({ ...saved, imageUrl: imageUrl ?? '' }), fromCache: false, similarity: 0 };
+    // 5. 上传到 OSS：异步进行，不阻塞任务完成。uploadBuffer 无超时，若内网 OSS 端点不可达会长时间挂起，
+    //    会把整个异步任务卡在 processing，直到前端轮询超时报「图片处理超时」——即便图片此时早已存库并出现在列表里。
+    //    这里先用 base64 返回（toResponse 在 imageUrl 为空时回退到 imageData），OSS URL 由后台写回 DB，与命中缓存路径一致。
+    void this.uploadAndSaveImageUrl(saved.id, imageData);
+    return { ...this.toResponse(saved), fromCache: false, similarity: 0 };
     } catch (error) {
       if (error instanceof HttpException) {
         throw error;
@@ -236,6 +264,100 @@ export class ImageGenerationService {
       this.logger.error(`Image generation failed: ${message}`, error instanceof Error ? error.stack : undefined);
       throw new BadRequestException(`图片生成失败：${message}`);
     }
+  }
+
+  // ── 异步生成/编辑：提交任务后台执行 + 轮询查询（避免长连接被网关 504 截断）──────
+
+  createGenerationTask(userId: string, dto: GenerateImageDto) {
+    return this.startTask(userId, () => this.generate(userId, dto));
+  }
+
+  async createEditTask(userId: string, imageId: string, dto: EditImageDto) {
+    // 提交时即做轻量校验（空内容/归属），与同步接口的即时报错行为保持一致
+    if (!dto.message?.trim()) {
+      throw new BadRequestException('请先输入图片修改要求');
+    }
+    const owner = await this.prisma.generatedImage.findUnique({
+      where: { id: imageId },
+      select: { userId: true },
+    });
+    if (!owner) {
+      throw new NotFoundException('图片不存在');
+    }
+    if (owner.userId !== userId) {
+      throw new ForbiddenException();
+    }
+    return this.startTask(userId, () => this.editImage(userId, imageId, dto));
+  }
+
+  getImageTask(userId: string, taskId: string) {
+    const task = this.generationTasks.get(taskId);
+    if (!task) {
+      throw new NotFoundException('生成任务不存在或已过期，请重新生成');
+    }
+    if (task.userId !== userId) {
+      throw new ForbiddenException('无权访问该生成任务');
+    }
+    return {
+      taskId: task.id,
+      status: task.status,
+      result: task.status === 'completed' ? task.result : undefined,
+      error: task.status === 'failed' ? task.error : undefined,
+    };
+  }
+
+  private startTask(userId: string, work: () => Promise<unknown>) {
+    this.pruneExpiredTasks();
+    const taskId = randomUUID();
+    const now = Date.now();
+    this.generationTasks.set(taskId, {
+      id: taskId,
+      userId,
+      status: 'pending',
+      createdAt: now,
+      updatedAt: now,
+    });
+    // 后台执行，立即返回 taskId；不 await，避免阻塞请求
+    void this.runTask(taskId, work);
+    return { taskId, status: 'pending' as ImageGenerationTaskStatus };
+  }
+
+  private async runTask(taskId: string, work: () => Promise<unknown>) {
+    const task = this.generationTasks.get(taskId);
+    if (!task) return;
+    task.status = 'processing';
+    task.updatedAt = Date.now();
+    try {
+      const result = await work();
+      const current = this.generationTasks.get(taskId);
+      if (!current) return;
+      current.status = 'completed';
+      current.result = result;
+      current.updatedAt = Date.now();
+    } catch (error) {
+      const current = this.generationTasks.get(taskId);
+      if (!current) return;
+      current.status = 'failed';
+      current.error = this.getErrorMessage(error);
+      current.updatedAt = Date.now();
+    }
+  }
+
+  private pruneExpiredTasks() {
+    const now = Date.now();
+    for (const [id, task] of this.generationTasks) {
+      if (now - task.updatedAt > IMAGE_GENERATION_TASK_TTL_MS) {
+        this.generationTasks.delete(id);
+      }
+    }
+  }
+
+  // 图片生成/编辑的上游超时（毫秒）。默认 20 分钟：图片生成本就慢（实测可达 ~300s），且需与前端轮询兜底
+  // 超时对齐（imageStudioShared GENERATE_POLL_TIMEOUT_MS 同为 20min），避免后端先于前端放弃导致正常生成被误杀。
+  // 显式 timeout 会覆盖 SDK 默认 10min，可放心取更大值。可用 env OPENAI_IMAGE_TIMEOUT_MS 覆盖。
+  private getImageRequestTimeoutMs(): number {
+    const raw = Number(this.config.get('OPENAI_IMAGE_TIMEOUT_MS'));
+    return Number.isFinite(raw) && raw > 0 ? raw : 1_200_000;
   }
 
   async listPromptSessions(userId: string) {
@@ -694,6 +816,9 @@ export class ImageGenerationService {
         apiKey,
         ...(baseUrl ? { baseURL: baseUrl } : {}),
         defaultHeaders: { 'X-Inogi-Image-Request-Id': requestId },
+        timeout: this.getImageRequestTimeoutMs(),
+        // 同 generate：禁用 SDK 自动重试，避免上游挂起时静默把等待/费用放大，失败快速暴露真实错误。
+        maxRetries: 0,
       });
       const { imageData, revisedPrompt, usageSummary } = await this.generateWithOpenAi(client, {
         prompt: composedPrompt,
@@ -749,8 +874,8 @@ export class ImageGenerationService {
           } as Prisma.InputJsonValue,
         },
       });
-      // 上传编辑结果到 OSS
-      const editedImageUrl = await this.uploadAndSaveImageUrl(saved.id, imageData);
+      // 上传编辑结果到 OSS：异步进行，不阻塞任务完成（同 generate，避免 OSS 挂起把轮询任务卡死）
+      void this.uploadAndSaveImageUrl(saved.id, imageData);
 
       await this.prisma.imageEditMessage.create({
         data: {
@@ -778,7 +903,7 @@ export class ImageGenerationService {
       });
 
       return {
-        ...this.toResponse({ ...saved, imageUrl: editedImageUrl ?? saved.imageUrl ?? '' }),
+        ...this.toResponse(saved),
         fromCache: false,
         similarity: 0,
         conversation: await this.getImageConversation(userId, saved.id),
@@ -1711,12 +1836,27 @@ export class ImageGenerationService {
   }
 
   private async downloadToBase64(url: string): Promise<string> {
-    const res = await fetch(url);
-    if (!res.ok) throw new BadRequestException('图片下载失败');
-    const buffer = await res.arrayBuffer();
-    const base64 = Buffer.from(buffer).toString('base64');
-    const contentType = res.headers.get('content-type') ?? 'image/png';
-    return `data:${contentType};base64,${base64}`;
+    // 用 AbortController 给 fetch 加超时上限：上游可能返回图片 URL 而非内联 base64，
+    // 若该 URL 慢/不可达，无超时的 fetch 会永久挂起，使异步任务永远卡在 processing。
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), IMAGE_DOWNLOAD_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, { signal: controller.signal });
+      if (!res.ok) throw new BadRequestException('图片下载失败');
+      const buffer = await res.arrayBuffer();
+      const base64 = Buffer.from(buffer).toString('base64');
+      const contentType = res.headers.get('content-type') ?? 'image/png';
+      return `data:${contentType};base64,${base64}`;
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') {
+        throw new BadRequestException(
+          `图片下载超时：上游返回的图片地址在 ${Math.round(IMAGE_DOWNLOAD_TIMEOUT_MS / 1000)}s 内无法下载`,
+        );
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   private async resolveOpenAiCredentials(modelId?: string, requestedModel?: string): Promise<OpenAiRuntime> {
@@ -1736,13 +1876,14 @@ export class ImageGenerationService {
       where: { kind: 'openai', isActive: true },
       orderBy: { updatedAt: 'desc' },
     });
+    // 优先级：① 用户显式请求的同名模型；② usage_kind='image' 或名称判定为图片的「默认启用」模型；
+    // ③ 任意图片模型；④ 兜底默认启用模型；⑤ 列表首项。usage_kind 权威，避免错选文本默认模型。
+    const imageConfigs = configs.filter((item) => this.configSupportsImage(item));
     const config =
       configs.find((item) => item.model === model) ??
-      configs.find((item) => this.supportsImageEdit(item.model ?? '')) ??
-      configs.find((item) => {
-        const metadata = item.metadata as Record<string, unknown>;
-        return metadata?.is_default_enabled === true;
-      }) ??
+      imageConfigs.find((item) => this.metadataDefaultEnabled(item)) ??
+      imageConfigs[0] ??
+      configs.find((item) => this.metadataDefaultEnabled(item)) ??
       configs[0];
 
     if (!config) {
@@ -1760,7 +1901,7 @@ export class ImageGenerationService {
       const config = await this.prisma.integrationConfig.findFirst({
         where: { id: modelId.trim(), kind: 'openai', isActive: true },
       });
-      if (config && !this.isImageOnlyModel(config.model || requested || '')) {
+      if (config && this.configIsChatUsable(config)) {
         return this.buildOpenAiRuntime(config, config.model || requested || DEFAULT_PROMPT_CHAT_MODEL);
       }
     }
@@ -1769,7 +1910,7 @@ export class ImageGenerationService {
       where: { kind: 'openai', isActive: true },
       orderBy: { updatedAt: 'desc' },
     });
-    const textConfigs = configs.filter((item) => !this.isImageOnlyModel(item.model ?? ''));
+    const textConfigs = configs.filter((item) => this.configIsChatUsable(item));
     const config =
       (requested && textConfigs.find((item) => item.model === requested)) ??
       textConfigs.find((item) => {
@@ -1802,6 +1943,33 @@ export class ImageGenerationService {
   private isImageOnlyModel(model: string) {
     const normalized = model.toLowerCase();
     return normalized.includes('gpt-image') || normalized.includes('dall-e') || normalized.includes('image-to-image');
+  }
+
+  /** 读取模型配置里管理员显式设置的 usage_kind（空串表示未设置 / auto）。 */
+  private readUsageKind(config: IntegrationConfig): string {
+    const metadata = config.metadata as Record<string, unknown> | null;
+    return metadata && typeof metadata.usage_kind === 'string' ? metadata.usage_kind : '';
+  }
+
+  private metadataDefaultEnabled(config: IntegrationConfig): boolean {
+    const metadata = config.metadata as Record<string, unknown> | null;
+    return metadata?.is_default_enabled === true;
+  }
+
+  /** 该模型是否可用于图片生成：usage_kind='image' 权威，其它显式用途排除，auto 时回退名称判定。 */
+  private configSupportsImage(config: IntegrationConfig): boolean {
+    const usageKind = this.readUsageKind(config);
+    if (usageKind === 'image') return true;
+    if (usageKind && usageKind !== 'auto') return false;
+    return this.supportsImageEdit(config.model ?? '') || this.isGptImageModel(config.model ?? '');
+  }
+
+  /** 该模型是否可用于提示词优化（对话）：text/multimodal 可用，image/embedding/document 排除，auto 时回退名称判定。 */
+  private configIsChatUsable(config: IntegrationConfig): boolean {
+    const usageKind = this.readUsageKind(config);
+    if (usageKind === 'text' || usageKind === 'multimodal') return true;
+    if (usageKind && usageKind !== 'auto') return false;
+    return !this.isImageOnlyModel(config.model ?? '');
   }
 
   private toResponse(img: {

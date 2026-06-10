@@ -199,6 +199,47 @@ export const glassCard =
 
 // ─── API ────────────────────────────────────────────────────────────────────
 
+type GenerateTaskStatus = "pending" | "processing" | "completed" | "failed";
+
+type GenerateTaskResponse = {
+  taskId: string;
+  status: GenerateTaskStatus;
+  result?: GeneratedImage;
+  error?: string;
+};
+
+const GENERATE_POLL_INTERVAL_MS = 2000;
+// 前端轮询兜底超时与后端图片上游超时对齐（后端默认 20min，env OPENAI_IMAGE_TIMEOUT_MS），
+// 给偏慢的生成（gpt-image 实测可达 ~300s+）留足时间，避免在后端跑完前被前端误判为「图片处理超时」。
+const GENERATE_POLL_TIMEOUT_MS = 20 * 60 * 1000;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+// 轮询异步图片任务（生成 / 编辑通用），直到完成或失败。
+async function pollImageTask(taskId: string, fallbackMessage: string): Promise<GeneratedImage> {
+  const deadline = Date.now() + GENERATE_POLL_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await sleep(GENERATE_POLL_INTERVAL_MS);
+    const poll = await authFetch(`/api/image-generation/tasks/${taskId}`);
+    if (!poll.ok) {
+      throw new Error(await readErrorMessage(poll, fallbackMessage));
+    }
+    const task = (await poll.json()) as GenerateTaskResponse;
+    if (task.status === "completed" && task.result) {
+      return task.result;
+    }
+    if (task.status === "failed") {
+      throw new Error(task.error || fallbackMessage);
+    }
+  }
+  throw new Error("图片处理超时，请稍后重试");
+}
+
+// 异步生成：先提交任务拿到 taskId，再轮询任务状态直到完成/失败。
+// 函数签名与返回值（GeneratedImage）保持不变，调用方无需改动；
+// 这样生成请求不再保持长连接，避免网关 504。
 export async function apiGenerate(body: {
   prompt: string;
   style: Style;
@@ -209,17 +250,22 @@ export async function apiGenerate(body: {
   reference_image_data_list?: string[];
   skip_cache?: boolean;
 }): Promise<GeneratedImage> {
-  const response = await authFetch("/api/image-generation/generate", {
+  const submit = await authFetch("/api/image-generation/generate/async", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "图片生成失败"));
+  if (!submit.ok) {
+    throw new Error(await readErrorMessage(submit, "图片生成失败"));
   }
-  return response.json() as Promise<GeneratedImage>;
+  const { taskId } = (await submit.json()) as GenerateTaskResponse;
+  if (!taskId) {
+    throw new Error("图片生成任务创建失败，请重试");
+  }
+  return pollImageTask(taskId, "图片生成失败");
 }
 
+// 异步编辑：与 apiGenerate 相同的「提交 + 轮询」模式，签名/返回值不变。
 export async function apiEditImage(
   id: string,
   body: {
@@ -231,15 +277,19 @@ export async function apiEditImage(
     reference_image_data?: string;
   },
 ): Promise<GeneratedImage> {
-  const response = await authFetch(`/api/image-generation/images/${id}/edit`, {
+  const submit = await authFetch(`/api/image-generation/images/${id}/edit/async`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response, "图片修改失败"));
+  if (!submit.ok) {
+    throw new Error(await readErrorMessage(submit, "图片修改失败"));
   }
-  return response.json() as Promise<GeneratedImage>;
+  const { taskId } = (await submit.json()) as GenerateTaskResponse;
+  if (!taskId) {
+    throw new Error("图片修改任务创建失败，请重试");
+  }
+  return pollImageTask(taskId, "图片修改失败");
 }
 
 export async function apiImageConversation(id: string): Promise<ImageConversationResponse> {
