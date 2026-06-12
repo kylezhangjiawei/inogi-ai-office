@@ -169,6 +169,10 @@ export type RdWorkspaceTask = {
   title: string;
   priority: RdPriority;
   progress: number;
+  /** 立项时间（任务创建时刻，ISO），个人工作台排序首选键；存量旧任务可能为空。 */
+  created_at?: string;
+  /** 立项时设置的开始日期（YYYY-MM-DD），排序兜底键；旧数据可能为空。 */
+  start_date?: string;
   due_date: string;
   status: RdTaskStatus;
   status_label: string;

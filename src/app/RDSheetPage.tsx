@@ -329,39 +329,45 @@ export function RDSheetPage() {
         ...d,
         headers: d.headers.filter((_, i) => i !== c),
         rows: d.rows.map((row) => row.filter((_, i) => i !== c)),
-        // 删掉的若是密级列，则清空指向（保存后该表暂无行级管控，全部行对有页面权限者可见）。
+        // 删掉的若是密级列，清空指向让后端回落默认列名「密级」。行级管控不可移除：
+        // 后端保存/读取时会自动重建空密级列（空白密级按最高 100 处理，fail-closed）。
         secrecy_column: d.secrecy_column === removed ? "" : d.secrecy_column,
       };
     });
 
   const handleSave = async () => {
-    if (drafts.length === 0) return;
-    // Univer 模式：从 Univer 当前快照按 sheetOrder 读回全部工作表（含增删/改名/排序）；
-    // 否则用 HTML 兜底模式的 drafts。secrecy_column 按表 id 沿用原指向；
-    // 编辑器里新建的表默认「密级」（表头无该列时后端按最严处理，安全默认）。
-    let payload: Array<{
-      id?: string;
-      name: string;
-      headers: string[];
-      rows: string[][];
-      secrecy_column: string;
-    }>;
-    if (editorMode === "univer" && univerHandleRef.current) {
-      const byId = new Map(drafts.map((d) => [d.id, d]));
-      payload = univerHandleRef.current.getData().map((s) => ({
-        id: s.id,
-        name: s.name.trim() || "数据表",
-        headers: s.headers,
-        rows: s.rows,
-        secrecy_column: byId.get(s.id)?.secrecy_column || "密级",
-      }));
-    } else {
-      payload = drafts.map((d) => ({ ...d, name: d.name.trim() || "数据表" }));
-    }
-    if (payload.length === 0) return;
+    if (drafts.length === 0 || saving) return;
+    // 先置 saving 再读快照：全页遮罩立刻罩住，阻断「快照已读但尚未落库/重挂载」
+    // 窗口内的继续编辑——那些编辑不在快照里，会随保存后的重挂载被静默丢弃。
     setSaving(true);
     setError(null);
     try {
+      // Univer 模式：从 Univer 当前快照按 sheetOrder 读回全部工作表（含增删/改名/排序）；
+      // 否则用 HTML 兜底模式的 drafts。secrecy_column 按表 id 沿用原指向；
+      // 编辑器里新建的表默认「密级」（表头无该列时后端按最严处理，安全默认）。
+      let payload: Array<{
+        id?: string;
+        name: string;
+        headers: string[];
+        rows: string[][];
+        secrecy_column: string;
+      }>;
+      if (editorMode === "univer" && univerHandleRef.current) {
+        // 用户打完字未回车直接点「保存」时，单元格仍处编辑态——先强制提交，
+        // 否则 getData 读到的快照不含正在输入的内容，会被静默丢掉（保存后像「还原」）。
+        await univerHandleRef.current.commitPendingEdit();
+        const byId = new Map(drafts.map((d) => [d.id, d]));
+        payload = univerHandleRef.current.getData().map((s) => ({
+          id: s.id,
+          name: s.name.trim() || "数据表",
+          headers: s.headers,
+          rows: s.rows,
+          secrecy_column: byId.get(s.id)?.secrecy_column || "密级",
+        }));
+      } else {
+        payload = drafts.map((d) => ({ ...d, name: d.name.trim() || "数据表" }));
+      }
+      if (payload.length === 0) return;
       // ── 第一步：上传本地暂存图片（仅草稿中实际引用的），全部成功才继续落库 ──
       // 任何一批失败立即中止保存，临时标记不会被存入服务器（后端无法为其签发 URL）。
       const localIds = new Set<string>();
@@ -484,6 +490,8 @@ export function RDSheetPage() {
     // 成员的 drafts 已是后端按密级裁剪后的子集（无密级列、无越权行），导出不泄露越权数据。
     let sheetsData: Array<{ name: string; headers: string[]; rows: string[][] }> = drafts;
     if (canEdit && editorMode === "univer" && univerHandleRef.current) {
+      // 与保存同理：先提交飞行中的单元格编辑，导出才包含正在输入的内容。
+      await univerHandleRef.current.commitPendingEdit();
       sheetsData = univerHandleRef.current.getData();
     }
     try {
@@ -733,7 +741,7 @@ export function RDSheetPage() {
 
   // ── 渲染 ────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-4">
+    <div className="relative space-y-4">
       {/* 隐藏的导入文件选择器（仅编辑者通过「导入」按钮触发）。 */}
       <input
         ref={fileInputRef}
@@ -987,6 +995,26 @@ export function RDSheetPage() {
             ) : null}
           </div>
         )
+      ) : null}
+
+      {/* 保存中全页遮罩：罩住整个页面内容阻断鼠标操作，并抢走焦点（tabIndex+focus）
+          截断键盘输入——保存窗口期的编辑不在已读取的快照里，落库后重挂载会被静默丢弃。 */}
+      {saving ? (
+        <div
+          ref={(el) => el?.focus()}
+          tabIndex={-1}
+          aria-busy="true"
+          onKeyDown={(e) => e.preventDefault()}
+          onMouseDown={(e) => e.preventDefault()}
+          className="absolute inset-0 z-50 rounded-xl bg-white/60 outline-none backdrop-blur-[1px]"
+        >
+          <div className="sticky top-[40vh] mx-auto flex w-fit items-center gap-2.5 rounded-xl border border-slate-200 bg-white px-5 py-3.5 text-sm text-slate-700 shadow-lg">
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            {saveProgress
+              ? `正在上传图片 ${saveProgress.done}/${saveProgress.total}，请稍候…`
+              : "正在保存，请稍候…"}
+          </div>
+        </div>
       ) : null}
     </div>
   );

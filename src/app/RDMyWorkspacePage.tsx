@@ -180,6 +180,30 @@ function workspaceTaskMatches(
   ].some((value) => value?.toLowerCase().includes(keyword));
 }
 
+/** 列表分组沉底序：普通任务 → 待审核 → 已完成。 */
+function workspaceTaskGroupRank(task: WorkspaceTask): number {
+  if (task.status === "completed") return 2;
+  if (task.status === "pending_review") return 1;
+  return 0;
+}
+
+/** 立项时间排序键：创建时刻（created_at）优先，立项开始日期（start_date）兜底；均为可字典序比较的时间串。 */
+function workspaceTaskStartKey(task: WorkspaceTask): string {
+  return task.created_at || task.start_date || "";
+}
+
+/** 排序：先按分组（待审核沉底、已完成最底），组内按立项时间正序；缺失立项时间的存量任务排组尾、保持原有顺序。 */
+function compareWorkspaceTasks(a: WorkspaceTask, b: WorkspaceTask): number {
+  const rank = workspaceTaskGroupRank(a) - workspaceTaskGroupRank(b);
+  if (rank !== 0) return rank;
+  const aStart = workspaceTaskStartKey(a);
+  const bStart = workspaceTaskStartKey(b);
+  if (aStart && bStart) return aStart.localeCompare(bStart);
+  if (aStart) return -1;
+  if (bStart) return 1;
+  return 0;
+}
+
 function rdPersonOptionValue(person: RdPersonLoad): string {
   return person.user_id ? `user:${person.user_id}` : `person:${person.id}`;
 }
@@ -607,7 +631,9 @@ function TaskOperationDrawer({
   const canReviewProjectL2 = usePermission(PERMISSIONS.RD_PROJECT_REVIEW_L2);
   const canReassignTask = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
   const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
-  const [tab, setTab] = useState<OperationTab>(initialTab);
+  // 已完成任务只读：仅保留「任务详情」页签，屏蔽进度/移交/提交等会改状态的操作。
+  const isTaskCompleted = task.status === "completed";
+  const [tab, setTab] = useState<OperationTab>(isTaskCompleted ? "detail" : initialTab);
   const [draftProgress, setDraftProgress] = useState(() => clampProgressValue(task.progress));
   const [note, setNote] = useState("");
   const [aiAssessment, setAiAssessment] = useState<ProgressAssessment | null>(null);
@@ -1165,29 +1191,38 @@ function TaskOperationDrawer({
       onClose={onClose}
     >
       <div className="space-y-5">
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {tabConfig.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              onClick={() => {
-                setTab(item.key);
-                setReceipt(null);
-              }}
-              className={cn(
-                "flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-all",
-                tab === item.key
-                  ? "border-indigo-200 bg-indigo-50 text-indigo-700 shadow-[0_8px_18px_rgba(79,70,229,0.08)]"
-                  : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800",
-              )}
-            >
-              <item.icon className="h-3.5 w-3.5" />
-              {item.label}
-            </button>
-          ))}
-        </div>
+        {isTaskCompleted ? (
+          <div className="flex items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3 text-sm text-emerald-700">
+            <CheckCircle2 className="h-4 w-4 shrink-0" />
+            任务已完成，以下内容仅供回看。
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {tabConfig.map((item) => (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => {
+                    setTab(item.key);
+                    setReceipt(null);
+                  }}
+                  className={cn(
+                    "flex cursor-pointer items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-all",
+                    tab === item.key
+                      ? "border-indigo-200 bg-indigo-50 text-indigo-700 shadow-[0_8px_18px_rgba(79,70,229,0.08)]"
+                      : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800",
+                  )}
+                >
+                  <item.icon className="h-3.5 w-3.5" />
+                  {item.label}
+                </button>
+              ))}
+            </div>
 
-        <FlowSteps steps={flowSteps} />
+            <FlowSteps steps={flowSteps} />
+          </>
+        )}
 
         {receipt && (
           <div className="flex items-start gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
@@ -1210,7 +1245,7 @@ function TaskOperationDrawer({
               <div className="rounded-xl bg-slate-50 px-4 py-3">
                 <div className="flex items-center justify-between">
                   <div className="text-xs text-slate-400">截止日期</div>
-                  {dueDateChangePending ? (
+                  {isTaskCompleted ? null : dueDateChangePending ? (
                     <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">变更审核中</span>
                   ) : (
                     <button
@@ -2930,13 +2965,21 @@ export function RDMyWorkspacePage() {
     setNotifVisibleCount(NOTIF_PAGE_SIZE);
   }, [workspace.notifications]);
 
+  // 已完成任务进入列表后，头部统计仍维持原「活跃任务」口径：完成的不计入主责/协作/完成率/到期。
+  const activeAllTasks = useMemo(() => allTasks.filter((task) => task.status !== "completed"), [allTasks]);
+  const completedCount = allTasks.length - activeAllTasks.length;
+  const activeMyCount = useMemo(
+    () => myTasks.reduce((count, task) => count + (task.status === "completed" ? 0 : 1), 0),
+    [myTasks],
+  );
+  const activeCollabCount = activeAllTasks.length - activeMyCount;
   const averageProgress = useMemo(() => {
-    if (allTasks.length === 0) return 0;
-    return Math.round(allTasks.reduce((sum, task) => sum + task.progress, 0) / allTasks.length);
-  }, [allTasks]);
+    if (activeAllTasks.length === 0) return 0;
+    return Math.round(activeAllTasks.reduce((sum, task) => sum + task.progress, 0) / activeAllTasks.length);
+  }, [activeAllTasks]);
   const dueStats = useMemo(
     () =>
-      allTasks.reduce(
+      activeAllTasks.reduce(
         (stats, task) => {
           const days = workspaceDaysUntil(task.due_date);
           if (isTaskOverdue(task)) stats.overdue += 1;
@@ -2945,14 +2988,14 @@ export function RDMyWorkspacePage() {
         },
         { overdue: 0, today: 0 },
       ),
-    [allTasks],
+    [activeAllTasks],
   );
   const overdueCount = dueStats.overdue;
   const dueTodayCount = dueStats.today;
 
-  // Combined + filtered tasks in one list
+  // Combined + filtered tasks in one list（按立项时间正序；待审核沉底、已完成最底）
   const filteredAllTasks = useMemo(
-    () => [...filteredMyTasks, ...filteredCollabTasks],
+    () => [...filteredMyTasks, ...filteredCollabTasks].sort(compareWorkspaceTasks),
     [filteredMyTasks, filteredCollabTasks],
   );
   // 子系统全景分组：基于已筛选的「我的任务」（主责+协作），按一级系统归类，已完成与进行中分桶。
@@ -3189,14 +3232,19 @@ export function RDMyWorkspacePage() {
               <span className="text-xs text-slate-400 shrink-0">今日 {TODAY_LABEL}</span>
               {/* Stat chips — always shown */}
               <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700">
-                主责 {myTasks.length}
+                主责 {activeMyCount}
               </span>
               <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">
-                协作 {collabTasks.length}
+                协作 {activeCollabCount}
               </span>
               <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
                 完成率 {averageProgress}%
               </span>
+              {completedCount > 0 && (
+                <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
+                  已完成 {completedCount}
+                </span>
+              )}
               {/* Conditional chips */}
               {overdueCount > 0 && (
                 <span className="rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-semibold text-red-600">

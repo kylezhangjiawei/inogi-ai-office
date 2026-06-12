@@ -166,6 +166,11 @@ export type UniverSheetData = {
 export type RDSheetUniverHandle = {
   /** 从 Univer 当前快照按 sheetOrder 读回全部工作表的规整二维表数据（供父组件整簿保存）。 */
   getData: () => UniverSheetData[];
+  /**
+   * 提交「飞行中」的单元格编辑（用户打完字未回车就点页面按钮时，Univer 不会自动提交，
+   * wb.save() 快照里没有这部分内容）。保存/导出前必须先 await 此方法，否则正输入的字会被静默丢弃。
+   */
+  commitPendingEdit: () => Promise<void>;
   /** 向当前活动单元格写入文本（「插入图片」把 [图片:key] 标记写进选中格）。返回是否成功。 */
   insertTextAtActiveCell: (text: string) => boolean;
 };
@@ -221,8 +226,10 @@ function cellToStorage(
         drawings?: Record<string, CellDrawing>;
       }
     | undefined;
-  const drawings = p?.drawings;
-  if (p && drawings && Object.keys(drawings).length && typeof p.body?.dataStream === "string") {
+  // 只要是 doc 模型格（富文本/多行/含图）就必须从 dataStream 提取：这种格的 v 是
+  // 陈旧残留值或空，按 v 读会把用户可见的内容静默丢掉（保存后变旧值/空格）。
+  if (p && typeof p.body?.dataStream === "string") {
+    const drawings = p.drawings ?? {};
     try {
       // dataStream 中第 i 个 \b（\x08）按 startIndex 顺序对应 customBlocks[i] → drawing。
       const blocks = [...(p.body.customBlocks ?? [])].sort((a, b) => a.startIndex - b.startIndex);
@@ -237,7 +244,7 @@ function cellToStorage(
         .replace(/\r/g, "\n"); // 文内段落分隔 → 换行
       return toStorage(text);
     } catch {
-      return "[图片]";
+      return Object.keys(drawings).length ? "[图片]" : toStorage(cellStr(cell));
     }
   }
   return toStorage(cellStr(cell));
@@ -310,8 +317,9 @@ function buildWorkbookData(
 
 /**
  * 单个工作表快照 → headers + rows。
- * - 表头取第 0 行从 0 列起连续的、有值的列，决定列数。
- * - 数据行取第 1 行起、在表头列范围内含任意非空值的行（丢弃整行为空的尾部编辑行）。
+ * - 列数取「表头宽度」与「数据实际宽度」的较大值：用户可能把内容（如粘贴的图片）
+ *   放在没有表头的尾部列，若按表头截断，这些列会在保存时被静默丢弃。
+ * - 数据行取第 1 行起、含任意非空值的行（丢弃整行为空的尾部编辑行）。
  */
 function extractSheet(
   ws: { cellData?: unknown } | undefined,
@@ -323,6 +331,15 @@ function extractSheet(
 } {
   const cellData = (ws?.cellData ?? {}) as Record<string, Record<string, ICellData>>;
   const readCell = (cell: ICellData | undefined) => cellToStorage(cell, toStorage, drawingToMark);
+  // 宽度探测专用的结构化判空。不能复用 readCell：cellToStorage 对 base64 图片格会触发
+  // onRegisterImage 注册副作用，同一格调用两次会产生孤儿暂存图。
+  // p 格（富文本/多行/含图）一律视为有内容：真实内容在 dataStream 里，结构化精判不值得；
+  // 空 doc 误判最多多出一个全空列，经一轮保存即自愈。
+  const hasContent = (cell: ICellData | undefined): boolean => {
+    if (!cell) return false;
+    if ((cell as { p?: unknown }).p) return true;
+    return cell.v !== null && cell.v !== undefined && String(cell.v) !== "";
+  };
 
   const headerRow = cellData["0"] ?? {};
   let headerCols = 0;
@@ -333,10 +350,24 @@ function extractSheet(
     }
   });
 
-  if (headerCols === 0) return { headers: [], rows: [] };
+  let dataCols = 0;
+  Object.keys(cellData).forEach((rStr) => {
+    const r = Number(rStr);
+    if (!Number.isFinite(r) || r < 1) return;
+    const rowObj = cellData[rStr] ?? {};
+    Object.keys(rowObj).forEach((cStr) => {
+      const c = Number(cStr);
+      if (Number.isFinite(c) && c + 1 > dataCols && hasContent(rowObj[cStr])) {
+        dataCols = c + 1;
+      }
+    });
+  });
+
+  const totalCols = Math.max(headerCols, dataCols);
+  if (totalCols === 0) return { headers: [], rows: [] };
 
   const headers: string[] = [];
-  for (let c = 0; c < headerCols; c++) headers.push(readCell(headerRow[String(c)]));
+  for (let c = 0; c < totalCols; c++) headers.push(readCell(headerRow[String(c)]));
 
   const rowIndices = Object.keys(cellData)
     .map(Number)
@@ -348,7 +379,7 @@ function extractSheet(
     const rowObj = cellData[String(r)] ?? {};
     const row: string[] = [];
     let hasValue = false;
-    for (let c = 0; c < headerCols; c++) {
+    for (let c = 0; c < totalCols; c++) {
       const s = readCell(rowObj[String(c)]);
       if (s !== "") hasValue = true;
       row.push(s);
@@ -519,6 +550,18 @@ export const RDSheetUniver = forwardRef<RDSheetUniverHandle, Props>(
             return initialRef.current;
           }
         },
+        commitPendingEdit: async () => {
+          try {
+            const wb = apiRef.current?.getActiveWorkbook() as
+              | { endEditingAsync?: (save?: boolean) => Promise<boolean> }
+              | null
+              | undefined;
+            // 非编辑态时是无副作用的 no-op；老版本 facade 无此方法则静默跳过。
+            await wb?.endEditingAsync?.(true);
+          } catch {
+            /* 提交失败不阻塞保存：行为退回「未提交编辑不入库」，与修复前一致 */
+          }
+        },
         insertTextAtActiveCell: (text: string) => {
           try {
             const wb = apiRef.current?.getActiveWorkbook();
@@ -549,10 +592,21 @@ export const RDSheetUniver = forwardRef<RDSheetUniverHandle, Props>(
         locale: LocaleType.ZH_CN,
         locales: { [LocaleType.ZH_CN]: merge({}, sheetsCoreZhCN, sheetsDrawingZhCN) },
         theme: defaultTheme,
-        presets: [UniverSheetsCorePreset({ container }), UniverSheetsDrawingPreset()],
+        presets: [
+          UniverSheetsCorePreset({
+            container,
+            // 浮动图片不属于任何单元格，保存只读回 cellData 二维结构，存了也会静默丢失，故隐藏入口。
+            menu: { "sheet.command.insert-float-image": { hidden: true } },
+          }),
+          UniverSheetsDrawingPreset(),
+        ],
       });
       univerRef.current = univer;
       apiRef.current = univerAPI;
+      // DEV 调试钩子：线上排查保存丢数据类问题时需要从控制台直接操作 facade API。
+      if (import.meta.env.DEV) {
+        (window as unknown as Record<string, unknown>).__univerAPI = univerAPI;
+      }
 
       univerAPI.createWorkbook(
         buildWorkbookData(

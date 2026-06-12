@@ -7463,6 +7463,17 @@ function PersonTaskCockpit({
     setActiveTab(v);
   }, [activeTab]);
 
+  // ── 任务搜索（头像行右端图标态收纳，展开为小输入框）──
+  // 关键字与 KPI 筛选走同一管线（直接揉进 allActiveTasks / personTasksMap 两个 memo），
+  // 懒加载留痕/AI 评分、无限滚动、批量导出等所有下游自动同口径。
+  const [cockpitKeyword, setCockpitKeyword] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const cockpitSearch = cockpitKeyword.trim();
+  useEffect(() => {
+    if (searchOpen) searchInputRef.current?.focus();
+  }, [searchOpen]);
+
   // 异步刷新后（如删除了某人最后一个任务），该成员会从 personLoads 中消失。
   // 此时停留在已不存在的人员 tab 上会让内容区空白，回退到「全部」。
   // 其余刷新（成员仍有任务）保持当前选中人员不变。
@@ -7677,22 +7688,25 @@ function PersonTaskCockpit({
   // "全部" tab — 默认包含所有非归档任务（含已完成），按更新时间倒序；如有 KPI 筛选则再过滤
   const allActiveTasks = useMemo(() => {
     return sortByUpdatedDesc(
-      allTasks.filter((t) => !t.archived && matchesKpiFilter(t)),
+      allTasks.filter((t) => !t.archived && matchesKpiFilter(t) && taskMatches(t, cockpitSearch, "all", "all", "all")),
     );
-  }, [allTasks, sortByUpdatedDesc, matchesKpiFilter]);
+  }, [allTasks, sortByUpdatedDesc, matchesKpiFilter, cockpitSearch]);
 
-  // Per-person — 同步包含已完成任务并应用 KPI 筛选
+  // Per-person — 同步包含已完成任务并应用 KPI 筛选与搜索关键字
   const personTasksMap = useMemo(() => {
     const map = new Map<string, Task[]>();
     for (const p of personLoads) {
       const filtered = allTasks.filter(
-        (t) => !t.archived && matchesKpiFilter(t) &&
+        (t) => !t.archived && matchesKpiFilter(t) && taskMatches(t, cockpitSearch, "all", "all", "all") &&
           (t.primary_owner === p.name || t.collaborators.some((c) => c.name === p.name)),
       );
       map.set(p.name, sortByUpdatedDesc(filtered));
     }
     return map;
-  }, [personLoads, allTasks, sortByUpdatedDesc, matchesKpiFilter]);
+  }, [personLoads, allTasks, sortByUpdatedDesc, matchesKpiFilter, cockpitSearch]);
+
+  // 当前 tab 的搜索命中数（展示在搜索框内）
+  const cockpitHitCount = activeTab === "all" ? allActiveTasks.length : (personTasksMap.get(activeTab)?.length ?? 0);
 
   // 批量导出报告：把当前范围（"全部" / 某成员）已完成且已评分的任务，汇总成一份多页 PDF。
   // 注意：依赖 allActiveTasks / personTasksMap，必须定义在它们的 useMemo 之后，否则触发 TDZ。
@@ -7751,10 +7765,10 @@ function PersonTaskCockpit({
     }
   }, [batchExportBusy, activeTab, allActiveTasks, personTasksMap, aiScoreMap, notesMap]);
 
-  // 切换 KPI 筛选时重置分页计数，避免旧偏移导致空白
+  // 切换 KPI 筛选 / 搜索关键字时重置分页计数，避免旧偏移导致空白
   useEffect(() => {
     setVisibleCounts({});
-  }, [kpiFilter]);
+  }, [kpiFilter, cockpitSearch]);
 
   // Lazy-fetch notes when person tab opens
   // 仅拉「当前分页可见」内、有附件、且未缓存的任务，并发上限 4。
@@ -8137,8 +8151,10 @@ function PersonTaskCockpit({
       >
         <Tabs value={activeTab} onValueChange={handleTabChange} className="gap-0">
 
-          {/* ── INS Stories-style 人员导航栏 (with visible horizontal scrollbar) ── */}
-          <TabsList className="flex h-auto w-full justify-start gap-0 overflow-x-auto rounded-none border-b border-indigo-100 bg-slate-50/50 px-4 pt-4 pb-2 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/70 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400">
+          {/* ── INS Stories-style 人员导航栏 (with visible horizontal scrollbar) ──
+              外层 flex 承载底边框/底色：头像区可横向滚动，右端搜索控件钉死不随之滚走。 */}
+          <div className="flex w-full items-center border-b border-indigo-100 bg-slate-50/50 pr-4">
+          <TabsList className="flex h-auto min-w-0 flex-1 justify-start gap-0 overflow-x-auto rounded-none border-none bg-transparent px-4 pt-4 pb-2 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/70 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400">
 
             {/* 全部 — 所有活跃任务入口 */}
             <TabsTrigger
@@ -8253,6 +8269,60 @@ function PersonTaskCockpit({
               );
             })}
           </TabsList>
+
+          {/* 任务搜索：默认仅一枚圆形图标，点击展开为小输入框；为空失焦自动缩回 */}
+          <div className="ml-2 flex shrink-0 items-center">
+            {searchOpen || cockpitSearch ? (
+              <label className="relative block">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                <input
+                  ref={searchInputRef}
+                  value={cockpitKeyword}
+                  onChange={(e) => setCockpitKeyword(e.target.value)}
+                  onBlur={() => { if (!cockpitKeyword.trim()) setSearchOpen(false); }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      setCockpitKeyword("");
+                      setSearchOpen(false);
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  placeholder="任务、编号、负责人"
+                  className="h-9 w-40 rounded-full border border-slate-200 bg-white pl-8 pr-14 text-xs text-slate-700 shadow-sm outline-none transition-[border-color,box-shadow] focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50 sm:w-52"
+                />
+                {cockpitSearch ? (
+                  <span className="pointer-events-none absolute right-8 top-1/2 -translate-y-1/2 text-[10px] font-semibold tabular-nums text-indigo-500">
+                    {cockpitHitCount} 条
+                  </span>
+                ) : null}
+                {cockpitKeyword ? (
+                  <button
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      setCockpitKeyword("");
+                      searchInputRef.current?.focus();
+                    }}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer rounded-full p-0.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+                    aria-label="清空搜索"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
+              </label>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setSearchOpen(true)}
+                className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600"
+                title="搜索任务（标题 / 编号 / 负责人 / 路径）"
+                aria-label="搜索任务"
+              >
+                <Search className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+          </div>
 
           {/* ── 当前 KPI 筛选条 ── */}
           {kpiFilter !== "all" && (
@@ -8383,7 +8453,21 @@ function PersonTaskCockpit({
 
                       {allActiveTasks.length === 0 ? (
                         <div className="flex h-[65vh] flex-col items-center justify-center gap-2 text-sm text-slate-400">
-                          <span>{kpiFilter === "all" ? "暂无任务" : `当前筛选「${KPI_FILTER_LABEL[kpiFilter]}」下暂无任务`}</span>
+                          <span>
+                            {cockpitSearch
+                              ? `没有匹配「${cockpitSearch}」的任务`
+                              : kpiFilter === "all" ? "暂无任务" : `当前筛选「${KPI_FILTER_LABEL[kpiFilter]}」下暂无任务`}
+                          </span>
+                          {cockpitSearch && (
+                            <button
+                              type="button"
+                              onClick={() => { setCockpitKeyword(""); setSearchOpen(false); }}
+                              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                            >
+                              <X className="h-3 w-3" />
+                              清除搜索
+                            </button>
+                          )}
                           {kpiFilter !== "all" && onClearKpiFilter && (
                             <button
                               type="button"
@@ -8424,7 +8508,7 @@ function PersonTaskCockpit({
                               <CheckCircle2 className="h-3 w-3 text-emerald-400" />
                               <span>
                                 已显示全部 <span className="font-semibold tabular-nums text-slate-500">{allActiveTasks.length}</span> 个任务
-                                {kpiFilter === "all" && risks.length > 0 && (
+                                {kpiFilter === "all" && !cockpitSearch && risks.length > 0 && (
                                   <> · <span className="text-red-500 font-semibold">{risks.length} 个风险</span></>
                                 )}
                               </span>
@@ -8469,7 +8553,21 @@ function PersonTaskCockpit({
                       {/* Task list — 与"全部"相同的 INS 风格滚动 feed */}
                       {tasks.length === 0 ? (
                         <div className="flex h-[65vh] flex-col items-center justify-center gap-2 text-sm text-slate-400">
-                          <span>{kpiFilter === "all" ? "该成员当前暂无任务" : `该成员当前筛选「${KPI_FILTER_LABEL[kpiFilter]}」下暂无任务`}</span>
+                          <span>
+                            {cockpitSearch
+                              ? `该成员下没有匹配「${cockpitSearch}」的任务`
+                              : kpiFilter === "all" ? "该成员当前暂无任务" : `该成员当前筛选「${KPI_FILTER_LABEL[kpiFilter]}」下暂无任务`}
+                          </span>
+                          {cockpitSearch && (
+                            <button
+                              type="button"
+                              onClick={() => { setCockpitKeyword(""); setSearchOpen(false); }}
+                              className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                            >
+                              <X className="h-3 w-3" />
+                              清除搜索
+                            </button>
+                          )}
                           {kpiFilter !== "all" && onClearKpiFilter && (
                             <button
                               type="button"
@@ -8512,7 +8610,7 @@ function PersonTaskCockpit({
                               <span>
                                 已显示全部 <span className="font-semibold tabular-nums text-slate-500">{tasks.length}</span> 个任务
                                 {/* 角标=主责进行中(与个人工作台「主责」同口径)；此列表是超集，另含协作 / 已完成，故两数不同属正常 */}
-                                {kpiFilter === "all" && (
+                                {kpiFilter === "all" && !cockpitSearch && (
                                   <> · 其中主责进行中 <span className="font-semibold tabular-nums text-indigo-500">{p.count}</span> 个<span className="text-slate-300">（= 头像角标，余为协作 / 已完成）</span></>
                                 )}
                               </span>

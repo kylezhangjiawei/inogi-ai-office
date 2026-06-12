@@ -1550,6 +1550,8 @@ export class ResearchDevelopmentService {
               : null,
         }),
         subtasks: [],
+        // 立项时间：任务创建即写死，后续更新不再变（个人工作台按此排序）。
+        created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }),
       identity.people,
@@ -4125,6 +4127,8 @@ export class ResearchDevelopmentService {
       title: cleanText(task.title) || '未命名任务',
       priority: normalizePriority(task.final_priority ?? task.ai_priority),
       progress: typeof task.progress === 'number' ? task.progress : 0,
+      created_at: cleanText(task.created_at),
+      start_date: cleanText(task.start_date),
       due_date: dueDate,
       status: cleanText(task.status) || 'in_progress',
       status_label: this.taskStatusLabel(task.status),
@@ -4195,8 +4199,9 @@ export class ResearchDevelopmentService {
         .map((person) => cleanText(person.id))
         .filter(Boolean),
     );
-    const activeTasks = this.collectAllCategoryTasks(categories).filter(
-      (task) => !isArchivedTask(task) && !isCompletedTask(task),
+    // 个人工作台可见任务：含已完成（成员可回看自己完成的任务），仅排除已归档。
+    const visibleTasks = this.collectAllCategoryTasks(categories).filter(
+      (task) => !isArchivedTask(task),
     );
 
     const isMineByNameFallback = (task: JsonRecord) => {
@@ -4220,15 +4225,15 @@ export class ResearchDevelopmentService {
       return undefined;
     };
 
-    const myTasks = activeTasks
+    const myTasks = visibleTasks
       .filter(isPrimary)
       .map((task) => this.toWorkspaceTask(task, 'primary'));
-    const collabTasks = activeTasks
+    const collabTasks = visibleTasks
       .map((task) => ({ task, role: collaboratorRole(task) }))
       .filter((item) => item.role && !isPrimary(item.task))
       .map((item) => this.toWorkspaceTask(item.task, 'collaborator', item.role));
     const dueTasks = [...myTasks, ...collabTasks]
-      .filter((task) => task.due_date)
+      .filter((task) => task.status !== 'completed' && task.due_date)
       .sort((a, b) => a.due_date.localeCompare(b.due_date))
       .slice(0, 5);
 
@@ -5999,6 +6004,11 @@ export class ResearchDevelopmentService {
   private static normalizeSheet(raw: unknown): RdSheetData {
     const rec = isRecord(raw) ? raw : {};
     const headers = asArray(rec.headers).map((h) => cleanText(h));
+    const secrecyColumn = cleanText(rec.secrecy_column) || RD_SHEET_SECRECY_COLUMN;
+    // 密级列缺失（编辑者删列/改名、或历史数据）时自动补回到末尾：行级密级管控是
+    // 产品硬约束，缺列会让 redactSheet 对普通成员 fail-closed（一行都看不到）。
+    // 补回的列值为空，空白密级按最高 100 处理（仍 fail-closed），由编辑者自行填值放行。
+    if (!headers.includes(secrecyColumn)) headers.push(secrecyColumn);
     const width = headers.length;
     const rows = asArray(rec.rows).map((row) => {
       const cells = asArray(row).map((c) => cleanText(c));
@@ -6012,7 +6022,7 @@ export class ResearchDevelopmentService {
       name: cleanText(rec.name) || '研发数据表',
       headers,
       rows,
-      secrecy_column: cleanText(rec.secrecy_column) || RD_SHEET_SECRECY_COLUMN,
+      secrecy_column: secrecyColumn,
       updated_at: cleanText(rec.updated_at) || new Date().toISOString(),
       updated_by: cleanText(rec.updated_by) || null,
     };
