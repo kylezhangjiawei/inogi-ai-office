@@ -463,6 +463,11 @@ export type RdSheet = {
   secrecy_column: string;
   updated_at: string;
   updated_by: string | null;
+  /**
+   * 单元格图片标记「[图片:key]」的预览 URL 映射（仅含当前 viewer 可见行内的图片，
+   * 后端裁剪后签发；24h 时效，过期重新拉取本表即可）。只读字段，保存时忽略。
+   */
+  image_urls?: Record<string, string>;
 };
 
 export function fetchRdSheets() {
@@ -481,6 +486,42 @@ export function saveRdSheet(
     method: "PUT",
     body: JSON.stringify(payload),
   });
+}
+
+/** 整簿替换保存全部数据表（仅编辑者）：未包含的旧表会被删除。多工作表导入 / 增删表用。 */
+export function saveAllRdSheets(
+  payload: Array<{
+    id?: string;
+    name: string;
+    headers: string[];
+    rows: string[][];
+    secrecy_column: string;
+  }>,
+) {
+  return requestJson<RdSheet[]>("/sheets", {
+    method: "PUT",
+    body: JSON.stringify(payload),
+  });
+}
+
+export type RdSheetImageUpload = { key: string; url: string; name: string };
+
+/**
+ * 上传数据表单元格图片（仅编辑者）。返回 OSS key（写入单元格用「[图片:key]」标记）
+ * 与即时可用的预览 URL。支持 JPG/PNG/WebP/GIF/BMP，单张 ≤10MB，一次 ≤30 张。
+ */
+export async function uploadRdSheetImages(
+  files: Array<{ blob: Blob; name: string }>,
+): Promise<RdSheetImageUpload[]> {
+  const form = new FormData();
+  files.forEach((f) => form.append("files", f.blob, f.name));
+  const response = await fetchWithTimeout(
+    "/sheet-images",
+    { method: "POST", body: form },
+    120_000,
+    "图片上传失败",
+  );
+  return (await response.json()) as RdSheetImageUpload[];
 }
 
 export type RdMoveTasksResult = {

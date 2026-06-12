@@ -6,6 +6,7 @@ export const OSS_BUSINESS_TYPES = {
   EXPENSE_VOUCHERS: 'expense/vouchers',
   RD_PROGRESS_NOTES: 'rd/progress-notes',
   RD_KNOWLEDGE: 'rd/knowledge',
+  RD_SHEET_IMAGES: 'rd/sheet-images',
   RECRUITMENT_RESUMES: 'recruitment/resumes',
   ASSETS: 'assets',
 } as const;
@@ -20,6 +21,7 @@ export const OSS_MAX_FILE_SIZE: Record<OssBusinessType, number> = {
   'expense/vouchers': 10 * 1024 * 1024,
   'rd/progress-notes': 50 * 1024 * 1024,
   'rd/knowledge': 50 * 1024 * 1024,
+  'rd/sheet-images': 10 * 1024 * 1024,
   'recruitment/resumes': 10 * 1024 * 1024,
   'assets': 50 * 1024 * 1024,
 };
@@ -45,6 +47,7 @@ export const OSS_ALLOWED_MIME_TYPES: Record<OssBusinessType, string[]> = {
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'text/plain',
   ],
+  'rd/sheet-images': ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/bmp'],
   'recruitment/resumes': [
     'application/pdf',
     'application/msword',

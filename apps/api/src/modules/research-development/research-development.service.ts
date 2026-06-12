@@ -68,6 +68,19 @@ const PROGRESS_NOTE_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
 const RD_SHEET_DEFAULT_ID = 'rd-master-sheet';
 const RD_SHEET_SECRECY_COLUMN = '密级';
 const RD_SHEET_MAX_LEVEL = 100;
+// 单元格图片以「[图片:objectKey]」文本标记存储（图片本体在 OSS），标记随行走，
+// 行级裁剪后标记自然消失——预览 URL 只为裁剪后可见行内的图片签发，越权行连图片地址都拿不到。
+const RD_SHEET_IMAGE_MARK_RE = /\[图片:([^\[\]\s]+)\]/g;
+const RD_SHEET_IMAGE_BUSINESS_TYPE = 'rd/sheet-images';
+const RD_SHEET_IMAGE_MAX_FILES = 30;
+const RD_SHEET_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+const RD_SHEET_IMAGE_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'image/bmp',
+]);
 
 /** 研发数据表的存储结构（始终矩形：每行单元格数 === headers.length）。 */
 type RdSheetData = {
@@ -6055,7 +6068,7 @@ export class ResearchDevelopmentService {
   async getSheet(
     id: string,
     viewer: { userId?: string; hasFullAccess: boolean },
-  ): Promise<RdSheetData> {
+  ): Promise<RdSheetData & { image_urls?: Record<string, string> }> {
     const wantedId = cleanText(id) || RD_SHEET_DEFAULT_ID;
     const arr = (await this.readArray('rd.sheets')).map((s) =>
       ResearchDevelopmentService.normalizeSheet(s),
@@ -6064,12 +6077,88 @@ export class ResearchDevelopmentService {
       arr.find((s) => s.id === wantedId) ??
       (wantedId === RD_SHEET_DEFAULT_ID ? ResearchDevelopmentService.buildDefaultSheet() : null);
     if (!found) throw new NotFoundException('数据表不存在');
-    if (viewer.hasFullAccess) return found;
+    if (viewer.hasFullAccess) return this.attachSheetImageUrls(found);
     // 读侧鉴权与知识库共用同一口径：resolveViewerKbLevel（拒绝式默认 0、识别 kb_level_scale），
     // 而非写/上传侧的 getUserKbLevel（默认 20、不认 scale）。保证「同一个人员管理分值」在
     // 数据表与知识库被一致解读，且未配置者按最严处理（仅见密级 0 的公开行）。
     const score = await this.resolveViewerKbLevel(viewer.userId);
-    return ResearchDevelopmentService.redactSheet(found, score);
+    // 先裁剪后签发：图片预览 URL 只为该 viewer 可见行内的标记生成。
+    return this.attachSheetImageUrls(ResearchDevelopmentService.redactSheet(found, score));
+  }
+
+  /**
+   * 上传数据表单元格图片（仅编辑者，controller 守门）。图片入 OSS，调用方把返回的
+   * key 以「[图片:key]」标记写进单元格。OSS 未配置时直接报错——图片不降级 base64
+   * 进单元格（会撑爆 JSON 存储且绕开行级预览签发模型）。
+   */
+  async uploadSheetImages(
+    files: Array<{ originalname: string; mimetype?: string; size?: number; buffer: Buffer }>,
+  ): Promise<Array<{ key: string; url: string; name: string }>> {
+    if (!files.length) throw new BadRequestException('未收到图片文件');
+    if (files.length > RD_SHEET_IMAGE_MAX_FILES) {
+      throw new BadRequestException(`一次最多上传 ${RD_SHEET_IMAGE_MAX_FILES} 张图片`);
+    }
+    for (const f of files) {
+      if (!RD_SHEET_IMAGE_MIME_TYPES.has((f.mimetype ?? '').toLowerCase())) {
+        throw new BadRequestException(
+          `「${f.originalname}」不是支持的图片格式（支持 JPG/PNG/WebP/GIF/BMP）`,
+        );
+      }
+      if ((f.size ?? f.buffer.length) > RD_SHEET_IMAGE_MAX_BYTES) {
+        throw new BadRequestException(`图片「${f.originalname}」超过单张 10MB 限制`);
+      }
+    }
+    return Promise.all(
+      files.map(async (f) => {
+        const key = await this.ossService.uploadBuffer(
+          f.buffer,
+          RD_SHEET_IMAGE_BUSINESS_TYPE,
+          f.originalname,
+          f.mimetype,
+        );
+        if (!key) throw new BadRequestException('图片存储失败（OSS 未配置或不可用）');
+        const url = this.buildSheetImagePreviewUrl(key);
+        if (!url) throw new BadRequestException('图片预览地址签发失败');
+        return { key, url, name: f.originalname };
+      }),
+    );
+  }
+
+  /** 同源 HMAC 预览 URL（走本模块 GET /oss-preview，规避 bucket 强制下载且无需登录头）。 */
+  private buildSheetImagePreviewUrl(objectKey: string): string | null {
+    try {
+      const { exp, sig } = this.ossService.signPreviewToken(objectKey, 24 * 3600);
+      const params = new URLSearchParams({ key: objectKey, exp: String(exp), sig });
+      return `/api/research-development/oss-preview?${params.toString()}`;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * 为（已按 viewer 裁剪过的）表内全部图片标记签发预览 URL。
+   * 仅认本业务前缀的 key——防止借单元格标记让后端为其他业务的 OSS 对象签 URL。
+   */
+  private attachSheetImageUrls(
+    sheet: RdSheetData,
+  ): RdSheetData & { image_urls?: Record<string, string> } {
+    const keys = new Set<string>();
+    for (const row of sheet.rows) {
+      for (const cell of row) {
+        if (!cell || !cell.includes('[图片:')) continue;
+        for (const m of cell.matchAll(RD_SHEET_IMAGE_MARK_RE)) {
+          const key = m[1];
+          if (key && key.includes(`/${RD_SHEET_IMAGE_BUSINESS_TYPE}/`)) keys.add(key);
+        }
+      }
+    }
+    if (!keys.size) return sheet;
+    const image_urls: Record<string, string> = {};
+    for (const key of keys) {
+      const url = this.buildSheetImagePreviewUrl(key);
+      if (url) image_urls[key] = url;
+    }
+    return { ...sheet, image_urls };
   }
 
   /**
@@ -6092,6 +6181,34 @@ export class ResearchDevelopmentService {
       : [...arr, incoming];
     await this.writeValue('rd.sheets', next);
     return incoming;
+  }
+
+  /**
+   * 整簿替换保存（仅 rd-sheet:edit / 超管，由 controller 守门）：
+   * 以提交的数组整体覆盖 rd.sheets——未包含的旧表即被删除（删表语义由此实现）。
+   * 与 saveSheet 同理，编辑者读取时不裁剪，故写入的始终是完整数据。
+   */
+  async saveAllSheets(payload: unknown, editorId?: string | null): Promise<RdSheetData[]> {
+    if (!Array.isArray(payload) || payload.length === 0) {
+      throw new BadRequestException('至少需要保留一张数据表');
+    }
+    if (payload.length > 50) throw new BadRequestException('数据表数量超出上限（50）');
+    const now = new Date().toISOString();
+    const editor = cleanText(editorId) || null;
+    const seen = new Set<string>();
+    const next = payload.map((item, i) => {
+      const sheet = ResearchDevelopmentService.normalizeSheet(item);
+      // 整簿提交里 id 缺省/重复时重新生成，避免 normalizeSheet 的默认 id 互相覆盖。
+      if (!isRecord(item) || !cleanText(item.id) || seen.has(sheet.id)) {
+        sheet.id = `rd-sheet-${Date.now().toString(36)}-${i}`;
+      }
+      seen.add(sheet.id);
+      sheet.updated_at = now;
+      sheet.updated_by = editor;
+      return sheet;
+    });
+    await this.writeValue('rd.sheets', next);
+    return next;
   }
 
   private async readArray(key: RdStoreKey) {

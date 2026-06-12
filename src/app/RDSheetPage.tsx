@@ -1,7 +1,9 @@
 import React, { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { useBlocker } from "react-router";
 import {
   Download,
   FileSpreadsheet,
+  ImagePlus,
   Info,
   Loader2,
   Lock,
@@ -16,7 +18,13 @@ import { useAuth } from "./auth";
 import { hasPermission, PERMISSIONS } from "./lib/permissions";
 import { Button } from "./components/ui/button";
 import { cn } from "./components/ui/utils";
-import { fetchRdSheet, RD_MASTER_SHEET_ID, saveRdSheet, type RdSheet } from "./lib/rdApi";
+import {
+  fetchRdSheet,
+  fetchRdSheets,
+  saveAllRdSheets,
+  uploadRdSheetImages,
+  type RdSheet,
+} from "./lib/rdApi";
 import type { RDSheetUniverHandle } from "./RDSheetUniver";
 
 // Univer 编辑器体积大且仅编辑者需要：惰性加载，普通成员永不触达此 chunk（含 CSS）。
@@ -36,17 +44,71 @@ const LazyUniverEditor = React.lazy(() => import("./RDSheetUniver"));
  *   的规整二维结构读回单元格字面值，以兼容行级密级管控。
  * - Univer 加载/渲染失败时由 UniverErrorBoundary 回退到内置基础 HTML 表格（EditableTable），编辑不中断。
  * - 普通成员走轻量只读表格（ReadOnlyTable），不加载 Univer。
+ *
+ * 多工作表（workbook）：
+ * - 页面承载多张数据表（与 WPS/Excel 的多 sheet 对应）。Univer 模式用其原生底部 tab 切换；
+ *   只读视图与 HTML 兜底模式用页面自绘的 SheetTabs 切换。
+ * - 导入即整簿导入：文件的每个工作表成为一张数据表；保存/撤销也按整簿处理。
  */
 
 type Draft = {
+  id: string;
   name: string;
   headers: string[];
   rows: string[][];
   secrecy_column: string;
 };
 
+// 单元格图片标记（与后端约定一致）：[图片:objectKey]，图片本体在 OSS。
+// 标记随行走 → 行级密级裁剪天然作用于图片；预览 URL 由后端只为可见行内的 key 签发。
+const IMAGE_MARK_RE = /\[图片:([^\[\]\s]+)\]/g;
+// 本地暂存图片（粘贴/插入/导入产生，尚未上传）：单元格先写 [图片:local-xxx] 临时标记、
+// 以 blob URL 即时预览；点「保存」时统一上传并替换为正式 objectKey 后才落库。
+const LOCAL_MARK_RE = /\[图片:(local-[^\[\]\s]+)\]/g;
+// 导入解析阶段先用控制字符占位符标记图片落点，确认导入后替换为本地暂存标记。
+const IMPORT_IMG_PH = (n: number) => `\u0000IMG:${n}\u0000`;
+const IMPORT_IMG_PH_RE = /\u0000IMG:(\d+)\u0000/g;
+// 提取 WPS 单元格内嵌图片公式 =DISPIMG("ID_xxx",1) 的 ID（兼容 =_xlfn./=@ 等前缀变体）。
+const DISPIMG_ID_RE = /^=.*DISPIMG\s*\(\s*"([^"]+)"/i;
+// 图片自然宽高编码进上传文件名前缀 w{W}h{H}-：后端 key 保留原文件名（{hash}-{原名}），
+// 重新打开页面时从 key 反解宽高即可把纯图片格渲染成等比缩略图，无需任何后端改动。
+// hash 是纯 hex（不含 w/h 字符），不会误匹配到 hash 段。
+const KEY_DIMS_RE = /-w(\d+)h(\d+)-/;
+
+/** 读取图片自然宽高（解码失败返回 null，对应单元格退回文本标记显示）。 */
+async function readImageDims(blob: Blob): Promise<{ w: number; h: number } | null> {
+  try {
+    if (typeof createImageBitmap === "function") {
+      const bmp = await createImageBitmap(blob);
+      const dims = { w: bmp.width, h: bmp.height };
+      bmp.close();
+      if (dims.w > 0 && dims.h > 0) return dims;
+    }
+  } catch {
+    /* 走 <img> 兜底 */
+  }
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(
+        img.naturalWidth > 0 && img.naturalHeight > 0
+          ? { w: img.naturalWidth, h: img.naturalHeight }
+          : null,
+      );
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      resolve(null);
+    };
+    img.src = url;
+  });
+}
+
 function toDraft(sheet: RdSheet): Draft {
   return {
+    id: sheet.id,
     name: sheet.name,
     headers: [...sheet.headers],
     rows: sheet.rows.map((r) => [...r]),
@@ -84,8 +146,11 @@ export function RDSheetPage() {
   const userPerms = user?.permissions ?? [];
   const canEdit = hasPermission(userPerms, PERMISSIONS.RD_SHEET_EDIT);
 
-  const [sheet, setSheet] = useState<RdSheet | null>(null);
-  const [draft, setDraft] = useState<Draft | null>(null);
+  // 整簿状态：serverSheets = 已保存基线（撤销用）；drafts = 工作副本（与服务器同序）。
+  const [serverSheets, setServerSheets] = useState<RdSheet[]>([]);
+  const [drafts, setDrafts] = useState<Draft[]>([]);
+  // 只读视图 / HTML 兜底模式的当前工作表下标（Univer 模式用其原生底部 tab，不读此值）。
+  const [activeIdx, setActiveIdx] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -94,20 +159,118 @@ export function RDSheetPage() {
 
   // Univer 编辑器：默认走 Univer；加载/渲染失败时由 ErrorBoundary 切到 "fallback"（HTML 表格）。
   const [editorMode, setEditorMode] = useState<EditorMode>("univer");
-  // 重挂载 Univer 用：撤销改动 / 导入时 +1，从当前 draft 重新装载。
+  // 重挂载 Univer 用：撤销改动 / 导入时 +1，从当前 drafts 重新装载。
   const [reloadKey, setReloadKey] = useState(0);
   const univerHandleRef = useRef<RDSheetUniverHandle | null>(null);
   // 导入用：隐藏的文件选择器 + 导入结果提示。
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [importNotice, setImportNotice] = useState<string | null>(null);
+  // 单元格图片：objectKey → 预览 URL（同源 HMAC 代理、24h 时效）。
+  // 后端只为「当前 viewer 可见行」内的图片签发；本地暂存图片以 local-id → blob URL 合并进来。
+  const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
+  // 导入解析中（读 zip/提取图片，大文件需数秒）；保存时图片批量上传的进度。
+  const [importing, setImporting] = useState(false);
+  const [saveProgress, setSaveProgress] = useState<{ done: number; total: number } | null>(
+    null,
+  );
+  // 本地暂存图片注册表：local-id → 图片本体。uploadedKey 记录「已上传但尚未随保存落库」
+  // 的正式 key（上传成功而保存失败时，重试保存不会重复上传）；dims 为异步解析出的
+  // 自然宽高（dimsReady 解析完成的信号），编辑器据此把纯图片格渲染成等比缩略图。
+  const localImagesRef = useRef(
+    new Map<
+      string,
+      {
+        blob: Blob;
+        name: string;
+        url: string;
+        uploadedKey?: string;
+        dims?: { w: number; h: number };
+        dimsReady?: Promise<void>;
+      }
+    >(),
+  );
+
+  const mergeImageUrls = useCallback((more: Record<string, string> | undefined) => {
+    if (!more || Object.keys(more).length === 0) return;
+    setImageUrls((prev) => ({ ...prev, ...more }));
+  }, []);
+
+  /** 图片暂存到本地（不发网络请求）：注册 blob、生成即时预览 URL，返回临时引用 id。
+   *  宽高在后台异步解析（写入编辑器前用 waitForLocalDims 等待就绪）。 */
+  const registerLocalImage = useCallback(
+    (blob: Blob, name: string): string => {
+      const id = `local-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      const url = URL.createObjectURL(blob);
+      const entry: NonNullable<ReturnType<typeof localImagesRef.current.get>> = {
+        blob,
+        name,
+        url,
+      };
+      entry.dimsReady = readImageDims(blob).then((dims) => {
+        if (dims) entry.dims = dims;
+      });
+      localImagesRef.current.set(id, entry);
+      mergeImageUrls({ [id]: url });
+      return id;
+    },
+    [mergeImageUrls],
+  );
+
+  /** 等待一批本地暂存图片的宽高解析完成（解析失败的不阻塞，对应格退回文本标记）。 */
+  const waitForLocalDims = useCallback(async (ids: string[]) => {
+    await Promise.all(
+      ids.map((id) => localImagesRef.current.get(id)?.dimsReady ?? Promise.resolve()),
+    );
+  }, []);
+
+  /** 图片引用 → 自然宽高：本地暂存查注册表；正式 objectKey 从文件名前缀反解。 */
+  const getImageDims = useCallback((ref: string): { w: number; h: number } | null => {
+    const ent = localImagesRef.current.get(ref);
+    if (ent?.dims) return ent.dims;
+    const m = KEY_DIMS_RE.exec(ref);
+    if (m) {
+      const w = Number(m[1]);
+      const h = Number(m[2]);
+      if (w > 0 && h > 0) return { w, h };
+    }
+    return null;
+  }, []);
+
+  /** 丢弃全部本地暂存图片（撤销改动时）：释放 blob URL、从预览映射剔除临时 id。 */
+  const discardLocalImages = useCallback(() => {
+    const map = localImagesRef.current;
+    if (map.size === 0) return;
+    setImageUrls((prev) => {
+      const next = { ...prev };
+      for (const id of map.keys()) delete next[id];
+      return next;
+    });
+    for (const ent of map.values()) URL.revokeObjectURL(ent.url);
+    map.clear();
+  }, []);
+
+  // 卸载时释放本地暂存图片的 blob URL（避免内存泄漏）。
+  useEffect(() => {
+    const map = localImagesRef.current;
+    return () => {
+      for (const ent of map.values()) URL.revokeObjectURL(ent.url);
+      map.clear();
+    };
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchRdSheet(RD_MASTER_SHEET_ID);
-      setSheet(data);
-      setDraft(toDraft(data));
+      const metas = await fetchRdSheets();
+      const list = await Promise.all(metas.map((m) => fetchRdSheet(m.id)));
+      setServerSheets(list);
+      setDrafts(list.map(toDraft));
+      const merged: Record<string, string> = {};
+      for (const s of list) Object.assign(merged, s.image_urls ?? {});
+      setImageUrls(merged);
+      setActiveIdx(0);
       setDirty(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "加载数据表失败");
@@ -120,11 +283,14 @@ export function RDSheetPage() {
     void load();
   }, [load]);
 
-  // ── 编辑操作（仅编辑者）─────────────────────────────────────────────────
-  const mutate = useCallback((fn: (d: Draft) => Draft) => {
-    setDraft((prev) => (prev ? fn(prev) : prev));
-    setDirty(true);
-  }, []);
+  // ── 编辑操作（仅编辑者，作用于当前工作表；HTML 兜底模式使用）───────────────
+  const mutate = useCallback(
+    (fn: (d: Draft) => Draft) => {
+      setDrafts((prev) => prev.map((d, i) => (i === activeIdx ? fn(d) : d)));
+      setDirty(true);
+    },
+    [activeIdx],
+  );
 
   const setCell = (r: number, c: number, value: string) =>
     mutate((d) => {
@@ -169,42 +335,142 @@ export function RDSheetPage() {
     });
 
   const handleSave = async () => {
-    if (!draft) return;
-    // Univer 模式：从 Univer 当前快照读回规整二维表；否则用 HTML 表格的 draft。
-    // secrecy_column / name 仍以 draft 为准（Univer 不编辑表名，密级列由后端按名定位）。
-    let headers = draft.headers;
-    let rows = draft.rows;
+    if (drafts.length === 0) return;
+    // Univer 模式：从 Univer 当前快照按 sheetOrder 读回全部工作表（含增删/改名/排序）；
+    // 否则用 HTML 兜底模式的 drafts。secrecy_column 按表 id 沿用原指向；
+    // 编辑器里新建的表默认「密级」（表头无该列时后端按最严处理，安全默认）。
+    let payload: Array<{
+      id?: string;
+      name: string;
+      headers: string[];
+      rows: string[][];
+      secrecy_column: string;
+    }>;
     if (editorMode === "univer" && univerHandleRef.current) {
-      const data = univerHandleRef.current.getData();
-      headers = data.headers;
-      rows = data.rows;
+      const byId = new Map(drafts.map((d) => [d.id, d]));
+      payload = univerHandleRef.current.getData().map((s) => ({
+        id: s.id,
+        name: s.name.trim() || "数据表",
+        headers: s.headers,
+        rows: s.rows,
+        secrecy_column: byId.get(s.id)?.secrecy_column || "密级",
+      }));
+    } else {
+      payload = drafts.map((d) => ({ ...d, name: d.name.trim() || "数据表" }));
     }
+    if (payload.length === 0) return;
     setSaving(true);
     setError(null);
     try {
-      const saved = await saveRdSheet(RD_MASTER_SHEET_ID, {
-        name: draft.name.trim() || "研发数据表",
-        headers,
-        rows,
-        secrecy_column: draft.secrecy_column,
-      });
-      setSheet(saved);
-      setDraft(toDraft(saved));
+      // ── 第一步：上传本地暂存图片（仅草稿中实际引用的），全部成功才继续落库 ──
+      // 任何一批失败立即中止保存，临时标记不会被存入服务器（后端无法为其签发 URL）。
+      const localIds = new Set<string>();
+      for (const s of payload) {
+        for (const cell of [...s.headers, ...s.rows.flat()]) {
+          for (const m of String(cell).matchAll(LOCAL_MARK_RE)) localIds.add(m[1]);
+        }
+      }
+      const keyByLocal = new Map<string, string>();
+      const toUpload: Array<{
+        id: string;
+        ent: { blob: Blob; name: string; url: string; uploadedKey?: string };
+      }> = [];
+      for (const id of localIds) {
+        const ent = localImagesRef.current.get(id);
+        if (!ent) continue; // 本地条目丢失（不应发生）：标记将降级为纯文本 [图片]
+        if (ent.uploadedKey) keyByLocal.set(id, ent.uploadedKey);
+        else toUpload.push({ id, ent });
+      }
+      if (toUpload.length) {
+        setSaveProgress({ done: 0, total: toUpload.length });
+        try {
+          // 上传文件名带上宽高前缀（落库 key 保留原名）：重开页面时凭 key 反解宽高
+          // 渲染等比缩略图。先等宽高解析完（通常早已就绪，这里只是兜底）。
+          await waitForLocalDims(toUpload.map((t) => t.id));
+          const uploadName = (ent: { name: string; dims?: { w: number; h: number } }) =>
+            ent.dims ? `w${ent.dims.w}h${ent.dims.h}-${ent.name}` : ent.name;
+          // 分批 ≤30 与后端单次上限一致。
+          for (let i = 0; i < toUpload.length; i += 30) {
+            const batch = toUpload.slice(i, i + 30);
+            const uploaded = await uploadRdSheetImages(
+              batch.map((b) => ({ blob: b.ent.blob, name: uploadName(b.ent) })),
+            );
+            uploaded.forEach((u, j) => {
+              const item = batch[j];
+              if (!item) return;
+              item.ent.uploadedKey = u.key; // 记录已传：保存失败重试时不重复上传
+              keyByLocal.set(item.id, u.key);
+            });
+            mergeImageUrls(Object.fromEntries(uploaded.map((u) => [u.key, u.url])));
+            setSaveProgress({
+              done: Math.min(i + batch.length, toUpload.length),
+              total: toUpload.length,
+            });
+          }
+        } catch (e) {
+          setError(
+            `图片上传失败：${
+              e instanceof Error ? e.message : "未知错误"
+            }。已中止保存（数据仍在编辑器中），请重试；已上传成功的图片不会重复上传。`,
+          );
+          return;
+        } finally {
+          setSaveProgress(null);
+        }
+      }
+      // ── 第二步：把临时标记替换为正式 objectKey 后整簿落库 ──
+      if (localIds.size) {
+        const replaceLocal = (s: string) =>
+          s.replace(LOCAL_MARK_RE, (_all, id: string) => {
+            const key = keyByLocal.get(id);
+            return key ? `[图片:${key}]` : "[图片]";
+          });
+        payload = payload.map((s) => ({
+          ...s,
+          headers: s.headers.map(replaceLocal),
+          rows: s.rows.map((row) => row.map(replaceLocal)),
+        }));
+      }
+      const saved = await saveAllRdSheets(payload);
+      // 已落库的本地暂存图片：释放 blob URL、预览映射切换到正式 key（上传时已合并）。
+      if (keyByLocal.size) {
+        setImageUrls((prev) => {
+          const next = { ...prev };
+          for (const id of keyByLocal.keys()) delete next[id];
+          return next;
+        });
+        for (const id of keyByLocal.keys()) {
+          const ent = localImagesRef.current.get(id);
+          if (ent) {
+            URL.revokeObjectURL(ent.url);
+            localImagesRef.current.delete(id);
+          }
+        }
+      }
+      setServerSheets(saved);
+      setDrafts(saved.map(toDraft));
+      setActiveIdx((i) => Math.min(i, Math.max(0, saved.length - 1)));
       setDirty(false);
       setSavedAt(new Date().toLocaleTimeString("zh-CN"));
       setImportNotice(null);
+      // 保存返回的 id/顺序可能与编辑器内不同（新建表等场景）：重挂载对齐。
+      if (editorMode === "univer") setReloadKey((k) => k + 1);
     } catch (e) {
       setError(e instanceof Error ? e.message : "保存失败");
     } finally {
       setSaving(false);
+      setSaveProgress(null);
     }
   };
 
   const handleReset = () => {
-    if (!sheet) return;
-    setDraft(toDraft(sheet));
+    if (serverSheets.length === 0) return;
+    setDrafts(serverSheets.map(toDraft));
+    setActiveIdx((i) => Math.min(i, Math.max(0, serverSheets.length - 1)));
     setDirty(false);
     setImportNotice(null);
+    // 未保存的本地暂存图片随改动一并丢弃。
+    discardLocalImages();
     // Univer 模式无内部撤销接口：重挂载组件，从已保存数据重新装载。
     if (editorMode === "univer") setReloadKey((k) => k + 1);
   };
@@ -213,113 +479,257 @@ export function RDSheetPage() {
   // xlsx（SheetJS）较重，按需动态加载：普通成员不点导出/导入就不会下载这坨依赖，
   // 与 Univer 惰性加载同一思路（保持成员视图轻量）。
   const handleExport = useCallback(async () => {
-    if (!draft) return;
-    // 导出「当前所见」：编辑者 Univer 模式读 Univer 实时数据；其余用 draft。
-    // 成员的 draft 已是后端按密级裁剪后的子集（无密级列、无越权行），导出不泄露越权数据。
-    let headers = draft.headers;
-    let rows = draft.rows;
+    if (drafts.length === 0) return;
+    // 导出「当前所见」整簿：编辑者 Univer 模式读 Univer 实时数据；其余用 drafts。
+    // 成员的 drafts 已是后端按密级裁剪后的子集（无密级列、无越权行），导出不泄露越权数据。
+    let sheetsData: Array<{ name: string; headers: string[]; rows: string[][] }> = drafts;
     if (canEdit && editorMode === "univer" && univerHandleRef.current) {
-      const d = univerHandleRef.current.getData();
-      headers = d.headers;
-      rows = d.rows;
+      sheetsData = univerHandleRef.current.getData();
     }
     try {
       const XLSX = await import("xlsx");
-      const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "研发数据表");
+      const usedNames = new Set<string>();
+      sheetsData.forEach((s, i) => {
+        const ws = XLSX.utils.aoa_to_sheet([s.headers, ...s.rows]);
+        // Excel 工作表名约束：≤31 字符、不含 \ / ? * [ ] :，且簿内唯一。
+        const base =
+          (s.name || "").replace(/[\\/?*[\]:]+/g, " ").trim().slice(0, 27) ||
+          `数据表${i + 1}`;
+        let name = base;
+        let n = 2;
+        while (usedNames.has(name)) name = `${base}(${n++})`;
+        usedNames.add(name);
+        XLSX.utils.book_append_sheet(wb, ws, name);
+      });
       const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
-      const safeName =
-        (draft.name || "研发数据表").replace(/[\\/:*?"<>|]+/g, "_").slice(0, 60) ||
-        "研发数据表";
-      XLSX.writeFile(wb, `${safeName}_${stamp}.xlsx`);
+      XLSX.writeFile(wb, `研发数据表_${stamp}.xlsx`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "导出失败");
     }
-  }, [draft, canEdit, editorMode]);
+  }, [drafts, canEdit, editorMode]);
 
   const handleImportClick = () => fileInputRef.current?.click();
 
   const handleImportFile = useCallback(
     async (file: File) => {
       setError(null);
+      setImporting(true);
       try {
         const XLSX = await import("xlsx");
         const buf = await file.arrayBuffer();
         const wb = XLSX.read(buf, { type: "array" });
-        const wsName = wb.SheetNames[0];
-        if (!wsName) {
+        if (wb.SheetNames.length === 0) {
           setError("导入失败：文件不含任何工作表");
           return;
         }
-        const ws = wb.Sheets[wsName];
-        const raw = XLSX.utils.sheet_to_json<unknown[]>(ws, {
-          header: 1,
-          raw: false,
-          defval: "",
+
+        // 图片提取（SheetJS 不解析图片本体，按 zip 解包读取）：WPS DISPIMG 内嵌图 + 浮动图。
+        // 解析阶段只登记待上传清单并写占位符；用户确认导入后才真正上传。
+        const { extractXlsxImages } = await import("./lib/xlsxImages");
+        const images = await extractXlsxImages(buf);
+        const pendingImages: Array<{ blob: Blob; name: string }> = [];
+        let unmatchedImages = 0; // DISPIMG 引用在文件里找不到图片本体的个数
+
+        const cleanCell = (v: unknown): string => {
+          const s = String(v ?? "");
+          const m = DISPIMG_ID_RE.exec(s.trim());
+          if (!m) return s;
+          const img = images.dispimg.get(m[1]);
+          if (!img) {
+            unmatchedImages++;
+            return "[图片]";
+          }
+          pendingImages.push({ blob: img.blob, name: img.name });
+          return IMPORT_IMG_PH(pendingImages.length - 1);
+        };
+
+        // 整簿导入：每个工作表 → 一张数据表。第 0 行为表头（去尾部空列）；
+        // 全空工作表保留为空表（名字仍占一个 tab），不再因单表无表头而整体报错。
+        const stampBase = Date.now().toString(36);
+        const parsed = wb.SheetNames.map((wsName, i) => {
+          const ws = wb.Sheets[wsName];
+          const raw = ws
+            ? XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: false, defval: "" })
+            : [];
+          let headers = ((raw[0] as unknown[]) ?? []).map((h) => cleanCell(h).trim());
+          let lastCol = -1;
+          headers.forEach((h, c) => {
+            if (h !== "") lastCol = c;
+          });
+          headers = headers.slice(0, lastCol + 1);
+          let rows =
+            lastCol < 0
+              ? []
+              : raw.slice(1).map((r) => {
+                  const arr = Array.isArray(r) ? r : [];
+                  return headers.map((_, c) => cleanCell(arr[c]));
+                });
+
+          // 浮动图片按锚点归位到单元格：超出表头宽度则扩列；
+          // 纯图片工作表（无表头）按图片分布生成默认表头。空行过滤须在归位之后。
+          const floats = images.floats.get(wsName) ?? [];
+          if (floats.length) {
+            const needCols = Math.max(...floats.map((f) => f.col)) + 1;
+            while (headers.length < needCols) headers.push(`列${headers.length + 1}`);
+            rows = rows.map((row) => {
+              while (row.length < headers.length) row.push("");
+              return row;
+            });
+            for (const f of floats) {
+              const r = Math.max(0, f.row - 1); // 原网格第 0 行是表头
+              while (rows.length <= r) rows.push(Array<string>(headers.length).fill(""));
+              pendingImages.push({ blob: f.image.blob, name: f.image.name });
+              const mark = IMPORT_IMG_PH(pendingImages.length - 1);
+              rows[r][f.col] = rows[r][f.col] ? `${rows[r][f.col]} ${mark}` : mark;
+            }
+          }
+
+          // 丢弃整行为空的行（图片占位符含非空白字符，不会被误删）。
+          rows = rows.filter((r) => r.some((c) => c.trim() !== ""));
+
+          // 无密级列时自动补全（末尾追加列、每行默认 0 = 全员可见）：
+          // 否则后端 fail-closed 按最高密级处理，普通成员将看不到任何行。
+          const autoSecrecy = headers.length > 0 && !headers.includes("密级");
+          if (autoSecrecy) {
+            headers = [...headers, "密级"];
+            rows = rows.map((r) => [...r, "0"]);
+          }
+          return {
+            id: `rd-sheet-${stampBase}-${i + 1}`,
+            name: wsName,
+            headers,
+            rows,
+            secrecy_column: "密级",
+            autoSecrecy,
+          };
         });
-        if (raw.length === 0) {
-          setError("导入失败：文件为空");
-          return;
-        }
-        // 第 0 行为表头；去掉尾部空列，避免导出文件的冗余空白列污染表结构。
-        let headers = (raw[0] as unknown[]).map((h) => String(h ?? "").trim());
-        let lastCol = -1;
-        headers.forEach((h, i) => {
-          if (h !== "") lastCol = i;
-        });
-        if (lastCol < 0) {
-          setError("导入失败：第一行需为列名（表头）");
-          return;
-        }
-        headers = headers.slice(0, lastCol + 1);
-        const rows = raw
-          .slice(1)
-          .map((r) => {
-            const arr = Array.isArray(r) ? r : [];
-            return headers.map((_, c) => String(arr[c] ?? ""));
-          })
-          .filter((r) => r.some((c) => c.trim() !== ""));
+
+        const totalRows = parsed.reduce((n, p) => n + p.rows.length, 0);
+        const autoCount = parsed.filter((p) => p.autoSecrecy).length;
+        const emptyCount = parsed.filter((p) => p.headers.length === 0).length;
 
         const ok = window.confirm(
-          `将用「${file.name}」的内容替换当前表格（${headers.length} 列 · ${rows.length} 行）。\n` +
+          `将用「${file.name}」的 ${parsed.length} 个工作表替换当前全部数据表（共 ${totalRows} 行）：\n` +
+            parsed.map((p) => ` · ${p.name}：${p.rows.length} 行`).join("\n") +
+            "\n" +
+            (autoCount
+              ? `其中 ${autoCount} 个工作表无「密级」列，将自动补全并默认填 0（全员可见）。\n`
+              : "") +
+            (pendingImages.length
+              ? `检测到 ${pendingImages.length} 张图片（导入后悬停单元格可预览），将在点击「保存」时上传到服务器。\n`
+              : "") +
             `导入后需点击「保存」才会写入服务器，或用「撤销改动」还原。是否继续？`,
         );
         if (!ok) return;
 
-        const secrecyName = draft?.secrecy_column || "密级";
-        setDraft((prev) => {
-          if (!prev) return prev;
-          // 密级控制列指向：导入表里仍有原列名则沿用；否则若含「密级」列则指向它；
-          // 都没有则保留原指向（由下方提示告警，后端按最严处理）。
-          const secrecy_column = headers.includes(prev.secrecy_column)
-            ? prev.secrecy_column
-            : headers.includes("密级")
-              ? "密级"
-              : prev.secrecy_column;
-          return { ...prev, headers, rows, secrecy_column };
-        });
+        // 图片不在导入时上传：先本地暂存（即时可预览），点「保存」时统一上传。
+        // 取消导入 / 撤销改动都不会在服务器留下孤儿图片。
+        const localByIdx = pendingImages.map((p) => registerLocalImage(p.blob, p.name));
+        // 等宽高解析完再重建编辑器：纯图片格才能装载为等比缩略图（解析失败退回文本标记）。
+        await waitForLocalDims(localByIdx);
+        const resolveMarks = (s: string) =>
+          s.replace(IMPORT_IMG_PH_RE, (_all, d: string) => {
+            const id = localByIdx[Number(d)];
+            return id ? `[图片:${id}]` : "[图片]";
+          });
+
+        setDrafts(
+          parsed.map(({ autoSecrecy: _omit, ...d }) => ({
+            ...d,
+            headers: d.headers.map(resolveMarks),
+            rows: d.rows.map((row) => row.map(resolveMarks)),
+          })),
+        );
+        setActiveIdx(0);
         setDirty(true);
         if (editorMode === "univer") setReloadKey((k) => k + 1);
 
-        const hasSecrecy =
-          headers.includes(secrecyName) || headers.includes("密级");
         setImportNotice(
-          `已从「${file.name}」导入 ${rows.length} 行 · ${headers.length} 列，点击「保存」生效。` +
-            (hasSecrecy
-              ? ""
-              : " ⚠ 未检测到「密级」列：保存后普通成员将看不到任何数据行（按最严处理）。"),
+          `已从「${file.name}」导入 ${parsed.length} 个工作表 · 共 ${totalRows} 行，点击「保存」生效。` +
+            (autoCount
+              ? ` ${autoCount} 个工作表已自动补全「密级」列（默认 0 · 全员可见），可在保存前调整。`
+              : "") +
+            (emptyCount ? ` ${emptyCount} 个工作表无可读内容。` : "") +
+            (localByIdx.length
+              ? ` 已导入 ${localByIdx.length} 张图片（悬停单元格可预览），保存时上传到服务器。`
+              : "") +
+            (unmatchedImages
+              ? ` ${unmatchedImages} 个图片引用未在文件中找到图片本体，已以 [图片] 占位。`
+              : "") +
+            (images.unsupported
+              ? ` ${images.unsupported} 张图片格式不受支持（如 emf/wmf），未导入。`
+              : ""),
         );
       } catch (e) {
         setError(e instanceof Error ? e.message : "导入失败：无法解析文件");
+      } finally {
+        setImporting(false);
       }
     },
-    [draft, editorMode],
+    [editorMode, registerLocalImage, waitForLocalDims],
   );
+
+  // ── 单元格图片：工具栏插入 / 编辑器内粘贴 ───────────────────────────────────
+  // 不立即上传：先本地暂存（blob URL 即时预览、单元格写临时标记），点「保存」时统一上传。
+  // 写入前先等宽高解析（毫秒级）：单张图片整格写入时编辑器才能渲染成等比缩略图。
+  const handleInsertImages = useCallback(
+    async (files: File[]) => {
+      if (files.length === 0) return;
+      setError(null);
+      const ids = files.map((f) => registerLocalImage(f, f.name || "image.png"));
+      await waitForLocalDims(ids);
+      const text = ids.map((id) => `[图片:${id}]`).join(" ");
+      const inserted = univerHandleRef.current?.insertTextAtActiveCell(text) ?? false;
+      if (inserted) {
+        setDirty(true);
+      } else {
+        setError("写入单元格失败：请先在表格中选中目标单元格后重试。");
+      }
+    },
+    [registerLocalImage, waitForLocalDims],
+  );
+
+  // 粘贴回调由 Univer 容器在拦截到图片粘贴时触发；write 指向「粘贴那一刻」的活动单元格。
+  const handlePasteImage = useCallback(
+    (file: File, write: (text: string) => void) => {
+      const id = registerLocalImage(file, file.name || "pasted-image.png");
+      void waitForLocalDims([id]).then(() => {
+        write(`[图片:${id}]`);
+        setDirty(true);
+      });
+    },
+    [registerLocalImage, waitForLocalDims],
+  );
+
+  // ── 未保存改动的离开提醒 ──────────────────────────────────────────────────
+  // 关闭 / 刷新浏览器：原生 beforeunload 确认框。
+  useEffect(() => {
+    if (!dirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [dirty]);
+  // 应用内切换页面：react-router 导航拦截。
+  const blocker = useBlocker(dirty);
+  useEffect(() => {
+    if (blocker.state !== "blocked") return;
+    if (window.confirm("当前数据表有未保存的改动，离开后将丢失。确定离开吗？")) {
+      blocker.proceed();
+    } else {
+      blocker.reset();
+    }
+  }, [blocker]);
 
   // Univer 模式下 dirty 追踪依赖事件、未必精确，故不据此禁用按钮；HTML 兜底模式仍按 dirty 门控。
   const editActionDisabled =
-    saving || loading || (editorMode === "fallback" && !dirty);
+    saving || loading || importing || (editorMode === "fallback" && !dirty);
+
+  // 只读视图 / HTML 兜底模式的当前工作表。
+  const activeDraft = drafts[activeIdx] ?? drafts[0] ?? null;
 
   // ── 渲染 ────────────────────────────────────────────────────────────────
   return (
@@ -334,6 +744,19 @@ export function RDSheetPage() {
           const f = e.target.files?.[0];
           e.target.value = ""; // 允许重复导入同一文件
           if (f) void handleImportFile(f);
+        }}
+      />
+      {/* 隐藏的图片选择器（「插入图片」按钮触发，上传后写入 Univer 当前选中单元格）。 */}
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif,image/bmp"
+        multiple
+        className="hidden"
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? []);
+          e.target.value = "";
+          if (files.length) void handleInsertImages(files);
         }}
       />
 
@@ -359,7 +782,7 @@ export function RDSheetPage() {
             variant="outline"
             size="sm"
             onClick={() => void handleExport()}
-            disabled={loading || !draft || draft.headers.length === 0}
+            disabled={loading || drafts.length === 0}
           >
             <Download className="h-4 w-4" />
             导出
@@ -370,11 +793,27 @@ export function RDSheetPage() {
                 variant="outline"
                 size="sm"
                 onClick={handleImportClick}
-                disabled={saving || loading}
+                disabled={saving || loading || importing}
               >
-                <Upload className="h-4 w-4" />
-                导入
+                {importing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Upload className="h-4 w-4" />
+                )}
+                {importing ? "解析中…" : "导入"}
               </Button>
+              {editorMode === "univer" ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => imageInputRef.current?.click()}
+                  disabled={saving || loading}
+                  title="图片先暂存在本地并写入当前选中的单元格（也可直接在表格里粘贴截图），点「保存」时统一上传"
+                >
+                  <ImagePlus className="h-4 w-4" />
+                  插入图片
+                </Button>
+              ) : null}
               <Button
                 variant="outline"
                 size="sm"
@@ -390,7 +829,11 @@ export function RDSheetPage() {
                 ) : (
                   <Save className="h-4 w-4" />
                 )}
-                {saving ? "保存中…" : "保存"}
+                {saving
+                  ? saveProgress
+                    ? `上传图片 ${saveProgress.done}/${saveProgress.total}…`
+                    : "保存中…"
+                  : "保存"}
               </Button>
             </>
           ) : null}
@@ -422,9 +865,12 @@ export function RDSheetPage() {
           <p>
             {editorMode === "univer" ? (
               <>
-                已接入 Univer Sheets 编辑器（第 0 行为表头，其后每行一条记录）。
-                <strong>保存时仅按此二维结构读回单元格字面值</strong>
-                ——公式结果按当前显示值保存、合并单元格不予保留，这是为「行级密级」安全所做的取舍。请保留名为「密级」的列以启用行级管控。
+                已接入 Univer Sheets 编辑器，支持多工作表（底部 tab 切换/新建/删除，每个工作表第 0
+                行为表头，其后每行一条记录）。
+                <strong>保存时按此二维结构整簿读回单元格字面值</strong>
+                ——公式结果按当前显示值保存、合并单元格不予保留，这是为「行级密级」安全所做的取舍。每个工作表保留名为「密级」的列以启用行级管控。
+                图片：点「插入图片」或直接粘贴截图，先暂存在本地，纯图片单元格直接显示缩略图（悬停看大图）、与文字混排时显示
+                [图片#n] 短标记，点「保存」时统一上传到服务器，随所在行受密级管控。
               </>
             ) : (
               <>
@@ -443,6 +889,14 @@ export function RDSheetPage() {
           <Button variant="outline" size="sm" onClick={() => void load()}>
             重试
           </Button>
+        </div>
+      ) : null}
+
+      {/* 导入解析中 */}
+      {importing ? (
+        <div className="flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-2.5 text-sm text-indigo-700">
+          <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+          <span>正在解析导入文件（含图片提取），大文件可能需要数秒…</span>
         </div>
       ) : null}
 
@@ -467,20 +921,29 @@ export function RDSheetPage() {
           <Loader2 className="h-4 w-4 animate-spin" />
           正在加载数据表…
         </div>
-      ) : draft ? (
+      ) : drafts.length > 0 ? (
         canEdit ? (
           <UniverErrorBoundary
             onError={() => setEditorMode("fallback")}
             fallback={
-              <EditableTable
-                draft={draft}
-                onSetCell={setCell}
-                onSetHeader={setHeader}
-                onAddRow={addRow}
-                onDeleteRow={deleteRow}
-                onAddColumn={addColumn}
-                onDeleteColumn={deleteColumn}
-              />
+              <div className="space-y-3">
+                <SheetTabs
+                  names={drafts.map((d) => d.name)}
+                  active={activeIdx}
+                  onSelect={setActiveIdx}
+                />
+                {activeDraft ? (
+                  <EditableTable
+                    draft={activeDraft}
+                    onSetCell={setCell}
+                    onSetHeader={setHeader}
+                    onAddRow={addRow}
+                    onDeleteRow={deleteRow}
+                    onAddColumn={addColumn}
+                    onDeleteColumn={deleteColumn}
+                  />
+                ) : null}
+              </div>
             }
           >
             <Suspense
@@ -494,23 +957,123 @@ export function RDSheetPage() {
               <LazyUniverEditor
                 key={reloadKey}
                 ref={univerHandleRef}
-                initialHeaders={draft.headers}
-                initialRows={draft.rows}
-                sheetName={draft.name}
+                initialSheets={drafts.map((d) => ({
+                  id: d.id,
+                  name: d.name,
+                  headers: d.headers,
+                  rows: d.rows,
+                }))}
                 onDirty={() => setDirty(true)}
+                imageUrls={imageUrls}
+                getImageDims={getImageDims}
+                onRegisterImage={registerLocalImage}
+                onPasteImage={handlePasteImage}
               />
             </Suspense>
           </UniverErrorBoundary>
         ) : (
-          <ReadOnlyTable headers={draft.headers} rows={draft.rows} />
+          <div className="space-y-3">
+            <SheetTabs
+              names={drafts.map((d) => d.name)}
+              active={activeIdx}
+              onSelect={setActiveIdx}
+            />
+            {activeDraft ? (
+              <ReadOnlyTable
+                headers={activeDraft.headers}
+                rows={activeDraft.rows}
+                imageUrls={imageUrls}
+              />
+            ) : null}
+          </div>
         )
       ) : null}
     </div>
   );
 }
 
+// ── 工作表切换 tab（只读视图 / HTML 兜底模式用；Univer 模式用其原生底部 tab）──
+function SheetTabs({
+  names,
+  active,
+  onSelect,
+}: {
+  names: string[];
+  active: number;
+  onSelect: (i: number) => void;
+}) {
+  if (names.length <= 1) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1 rounded-xl border border-slate-200 bg-white p-1.5">
+      {names.map((n, i) => (
+        <button
+          key={i}
+          type="button"
+          onClick={() => onSelect(i)}
+          className={cn(
+            "rounded-lg px-3 py-1.5 text-sm transition-colors",
+            i === active
+              ? "bg-primary font-medium text-primary-foreground"
+              : "text-slate-600 hover:bg-slate-100",
+          )}
+        >
+          {n || `数据表${i + 1}`}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+// ── 单元格内容渲染：把 [图片:key] 标记替换为缩略图（点击新窗口看大图）──────────
+// 无 URL 映射（图片在越权行、或 URL 已过期）时显示灰字 [图片]——后端只为可见行签发
+// URL，这里拿不到映射本身就是行级管控生效的表现。
+function CellContent({
+  value,
+  imageUrls,
+}: {
+  value: string;
+  imageUrls?: Record<string, string>;
+}) {
+  if (!value.includes("[图片:")) return <>{value}</>;
+  const parts: React.ReactNode[] = [];
+  const re = new RegExp(IMAGE_MARK_RE.source, "g");
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let i = 0;
+  while ((m = re.exec(value))) {
+    if (m.index > last) parts.push(value.slice(last, m.index));
+    const url = imageUrls?.[m[1]];
+    parts.push(
+      url ? (
+        <img
+          key={`img-${i++}`}
+          src={url}
+          alt="单元格图片"
+          className="inline-block max-h-16 max-w-24 cursor-zoom-in rounded border border-slate-200 object-contain align-middle"
+          onClick={() => window.open(url, "_blank", "noopener")}
+        />
+      ) : (
+        <span key={`na-${i++}`} className="text-xs text-slate-400">
+          [图片]
+        </span>
+      ),
+    );
+    last = m.index + m[0].length;
+  }
+  if (last < value.length) parts.push(value.slice(last));
+  return <>{parts}</>;
+}
+
 // ── 只读表格（成员视图，数据已由后端脱敏）────────────────────────────────────
-function ReadOnlyTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
+function ReadOnlyTable({
+  headers,
+  rows,
+  imageUrls,
+}: {
+  headers: string[];
+  rows: string[][];
+  imageUrls?: Record<string, string>;
+}) {
   if (headers.length === 0) {
     return <EmptyHint text="该数据表暂无可见列。" />;
   }
@@ -550,7 +1113,7 @@ function ReadOnlyTable({ headers, rows }: { headers: string[]; rows: string[][] 
                     key={c}
                     className="border-b border-l border-slate-100 px-3 py-1.5 text-slate-700"
                   >
-                    {row[c] ?? ""}
+                    <CellContent value={row[c] ?? ""} imageUrls={imageUrls} />
                   </td>
                 ))}
               </tr>

@@ -641,6 +641,24 @@ export class ResearchDevelopmentController {
     return this.rdService.saveSheet(id, payload, req.user?.id);
   }
 
+  /** 整簿替换保存全部数据表（仅编辑者）。多工作表导入 / 工作簿编辑（增删表）用。 */
+  @Put('sheets')
+  @Permissions('rd-sheet:edit')
+  saveAllSheets(@Body() payload: unknown[], @Request() req: AuthedRequest) {
+    return this.rdService.saveAllSheets(payload, req.user?.id);
+  }
+
+  /** 上传数据表单元格图片（仅编辑者）。返回 [{key,url}]，key 以 [图片:key] 标记写入单元格。 */
+  @Post('sheet-images')
+  @Permissions('rd-sheet:edit')
+  @UseInterceptors(FilesInterceptor('files', 30))
+  uploadSheetImages(
+    @UploadedFiles()
+    files: Array<{ originalname: string; mimetype?: string; size?: number; buffer: Buffer }> | undefined,
+  ) {
+    return this.rdService.uploadSheetImages(files ?? []);
+  }
+
   // ── Knowledge Base ────────────────────────────────────────────────────────
 
   @Get('knowledge/categories')
