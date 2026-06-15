@@ -447,85 +447,24 @@ export function saveRdTaskCategories(payload: RdCategory[]) {
 // 后端按 viewer 的 kb_level 行级裁剪：低分值的人只拿到密级 <= 自己的行，且密级列
 // 整列对其隐藏（headers 里不含该列）。编辑者（rd-sheet:edit / 超管）拿全量。
 
-/** 主表固定 id，与后端 RD_SHEET_DEFAULT_ID 保持一致。 */
-export const RD_MASTER_SHEET_ID = "rd-master-sheet";
-
-export type RdSheetMeta = {
-  id: string;
-  name: string;
-  updated_at: string;
-};
-
-export type RdSheet = {
-  id: string;
-  name: string;
-  /** 表头；非编辑者看不到密级列，故此处可能不含密级列。 */
-  headers: string[];
-  /** 数据行，与 headers 顺序对齐，均为字符串。 */
-  rows: string[][];
-  /** 密级控制列名（默认「密级」）。编辑者据此识别哪一列控制行级可见性。 */
-  secrecy_column: string;
+/** 研发数据表整簿快照（Univer IWorkbookData，前端 opaque 透传；图片以 base64 内嵌其中）。 */
+export type RdSheetWorkbook = {
+  snapshot: Record<string, unknown>;
   updated_at: string;
   updated_by: string | null;
-  /**
-   * 单元格图片标记「[图片:key]」的预览 URL 映射（仅含当前 viewer 可见行内的图片，
-   * 后端裁剪后签发；24h 时效，过期重新拉取本表即可）。只读字段，保存时忽略。
-   */
-  image_urls?: Record<string, string>;
 };
 
-export function fetchRdSheets() {
-  return requestJson<RdSheetMeta[]>("/sheets");
+/** 读取整簿快照（page:rd-sheet 只读 / rd-sheet:edit 可编辑，均拿全量；已无行级密级）。 */
+export function fetchRdSheetWorkbook() {
+  return requestJson<RdSheetWorkbook>("/sheet-workbook");
 }
 
-export function fetchRdSheet(id: string) {
-  return requestJson<RdSheet>(`/sheet/${encodeURIComponent(id)}`);
-}
-
-export function saveRdSheet(
-  id: string,
-  payload: { name: string; headers: string[]; rows: string[][]; secrecy_column: string },
-) {
-  return requestJson<RdSheet>(`/sheet/${encodeURIComponent(id)}`, {
+/** 保存整簿快照（仅 rd-sheet:edit / 超管）。 */
+export function saveRdSheetWorkbook(snapshot: unknown) {
+  return requestJson<RdSheetWorkbook>("/sheet-workbook", {
     method: "PUT",
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ snapshot }),
   });
-}
-
-/** 整簿替换保存全部数据表（仅编辑者）：未包含的旧表会被删除。多工作表导入 / 增删表用。 */
-export function saveAllRdSheets(
-  payload: Array<{
-    id?: string;
-    name: string;
-    headers: string[];
-    rows: string[][];
-    secrecy_column: string;
-  }>,
-) {
-  return requestJson<RdSheet[]>("/sheets", {
-    method: "PUT",
-    body: JSON.stringify(payload),
-  });
-}
-
-export type RdSheetImageUpload = { key: string; url: string; name: string };
-
-/**
- * 上传数据表单元格图片（仅编辑者）。返回 OSS key（写入单元格用「[图片:key]」标记）
- * 与即时可用的预览 URL。支持 JPG/PNG/WebP/GIF/BMP，单张 ≤10MB，一次 ≤30 张。
- */
-export async function uploadRdSheetImages(
-  files: Array<{ blob: Blob; name: string }>,
-): Promise<RdSheetImageUpload[]> {
-  const form = new FormData();
-  files.forEach((f) => form.append("files", f.blob, f.name));
-  const response = await fetchWithTimeout(
-    "/sheet-images",
-    { method: "POST", body: form },
-    120_000,
-    "图片上传失败",
-  );
-  return (await response.json()) as RdSheetImageUpload[];
 }
 
 export type RdMoveTasksResult = {
@@ -1422,6 +1361,16 @@ export function deleteRdProposalDraft(draftId: string) {
 
 // ── Knowledge Base ────────────────────────────────────────────────────────────
 
+/**
+ * 知识库 API 路径前缀。
+ *   kbId 缺省 = 研发知识库，走 /knowledge/*（行为完全不变）；
+ *   kbId = 部门 id（如 'finance'）= 部门知识库，走 /dept-knowledge/{kbId}/*。
+ * 同一组前端函数 + RDKnowledgeBasePage 同时服务两者，仅靠 kbId 区分。
+ */
+function kbBase(kbId?: string): string {
+  return kbId ? `/dept-knowledge/${encodeURIComponent(kbId)}` : '/knowledge';
+}
+
 export type KbVisibility = 'public' | 'internal' | 'restricted';
 export type KbSource = 'task_attachment' | 'manual' | 'import';
 
@@ -1470,12 +1419,12 @@ export type KbEntry = {
   archived: boolean;
 };
 
-export function fetchKbCategories(): Promise<KbCategory[]> {
-  return requestJson<KbCategory[]>('/knowledge/categories');
+export function fetchKbCategories(kbId?: string): Promise<KbCategory[]> {
+  return requestJson<KbCategory[]>(`${kbBase(kbId)}/categories`);
 }
 
-export function saveKbCategories(categories: KbCategory[]): Promise<{ ok: boolean }> {
-  return requestJson<{ ok: boolean }>('/knowledge/categories', {
+export function saveKbCategories(categories: KbCategory[], kbId?: string): Promise<{ ok: boolean }> {
+  return requestJson<{ ok: boolean }>(`${kbBase(kbId)}/categories`, {
     method: 'PUT',
     body: JSON.stringify(categories),
   });
@@ -1492,8 +1441,8 @@ export function createKbCategory(payload: {
   parent_id?: string;
   icon?: string;
   color?: string;
-}): Promise<KbCategoryMutationResult> {
-  return requestJson<KbCategoryMutationResult>('/knowledge/categories', {
+}, kbId?: string): Promise<KbCategoryMutationResult> {
+  return requestJson<KbCategoryMutationResult>(`${kbBase(kbId)}/categories`, {
     method: 'POST',
     body: JSON.stringify(payload),
   });
@@ -1502,15 +1451,16 @@ export function createKbCategory(payload: {
 export function updateKbCategory(
   id: string,
   payload: { label?: string; icon?: string; color?: string },
+  kbId?: string,
 ): Promise<KbCategoryMutationResult> {
-  return requestJson<KbCategoryMutationResult>(`/knowledge/categories/${encodeURIComponent(id)}`, {
+  return requestJson<KbCategoryMutationResult>(`${kbBase(kbId)}/categories/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
   });
 }
 
-export function deleteKbCategory(id: string): Promise<KbCategoryMutationResult> {
-  return requestJson<KbCategoryMutationResult>(`/knowledge/categories/${encodeURIComponent(id)}`, {
+export function deleteKbCategory(id: string, kbId?: string): Promise<KbCategoryMutationResult> {
+  return requestJson<KbCategoryMutationResult>(`${kbBase(kbId)}/categories/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   });
 }
@@ -1522,34 +1472,34 @@ export function fetchKbEntries(params?: {
   file_type?: string;
   visibility?: string;
   permission_level?: number;
-}): Promise<KbEntry[]> {
+}, kbId?: string): Promise<KbEntry[]> {
   const qs = params ? new URLSearchParams(
     Object.entries(params).filter(([, v]) => v !== undefined && v !== '') as [string, string][]
   ).toString() : '';
-  return requestJson<KbEntry[]>(`/knowledge/entries${qs ? `?${qs}` : ''}`);
+  return requestJson<KbEntry[]>(`${kbBase(kbId)}/entries${qs ? `?${qs}` : ''}`);
 }
 
 /** Fetch a single KB entry including its full data_url (for download of base64 files). */
-export function fetchKbEntry(id: string): Promise<KbEntry> {
-  return requestJson<KbEntry>(`/knowledge/entries/${encodeURIComponent(id)}`);
+export function fetchKbEntry(id: string, kbId?: string): Promise<KbEntry> {
+  return requestJson<KbEntry>(`${kbBase(kbId)}/entries/${encodeURIComponent(id)}`);
 }
 
-export function updateKbEntry(id: string, payload: Partial<Pick<KbEntry, 'title' | 'description' | 'category_id' | 'tags' | 'visibility' | 'permission_level' | 'archived'>>): Promise<KbEntry> {
-  return requestJson<KbEntry>(`/knowledge/entries/${encodeURIComponent(id)}`, {
+export function updateKbEntry(id: string, payload: Partial<Pick<KbEntry, 'title' | 'description' | 'category_id' | 'tags' | 'visibility' | 'permission_level' | 'archived'>>, kbId?: string): Promise<KbEntry> {
+  return requestJson<KbEntry>(`${kbBase(kbId)}/entries/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
   });
 }
 
-export function moveKbEntry(id: string, categoryId: string): Promise<KbEntry> {
-  return requestJson<KbEntry>(`/knowledge/entries/${encodeURIComponent(id)}/move`, {
+export function moveKbEntry(id: string, categoryId: string, kbId?: string): Promise<KbEntry> {
+  return requestJson<KbEntry>(`${kbBase(kbId)}/entries/${encodeURIComponent(id)}/move`, {
     method: 'PATCH',
     body: JSON.stringify({ category_id: categoryId }),
   });
 }
 
-export function deleteKbEntry(id: string): Promise<{ ok: boolean }> {
-  return requestJson<{ ok: boolean }>(`/knowledge/entries/${encodeURIComponent(id)}`, {
+export function deleteKbEntry(id: string, kbId?: string): Promise<{ ok: boolean }> {
+  return requestJson<{ ok: boolean }>(`${kbBase(kbId)}/entries/${encodeURIComponent(id)}`, {
     method: 'DELETE',
   });
 }
@@ -1561,8 +1511,8 @@ export type KbClassifyResult = Array<{
   method: 'rule' | 'ai' | 'none';
 }>;
 
-export function classifyKbFiles(filenames: string[]): Promise<KbClassifyResult> {
-  return requestJson<KbClassifyResult>('/knowledge/classify-files', {
+export function classifyKbFiles(filenames: string[], kbId?: string): Promise<KbClassifyResult> {
+  return requestJson<KbClassifyResult>(`${kbBase(kbId)}/classify-files`, {
     method: 'POST',
     body: JSON.stringify({ filenames }),
     timeoutMs: RD_AI_TIMEOUT_MS,
@@ -1595,11 +1545,11 @@ export async function uploadKbFiles(params: {
   visibility?: string;
   permission_level?: number;
   tags?: string;
-}): Promise<KbEntry[]> {
+}, kbId?: string): Promise<KbEntry[]> {
   // ── Step 1: request presigned PUT URLs ──────────────────────────────────────
   let presign: PresignResult;
   try {
-    presign = await requestJson<PresignResult>('/knowledge/presign-upload', {
+    presign = await requestJson<PresignResult>(`${kbBase(kbId)}/presign-upload`, {
       method: 'POST',
       body: JSON.stringify({
         files: params.files.map((f) => ({
@@ -1630,7 +1580,7 @@ export async function uploadKbFiles(params: {
     );
 
     // Notify server to create KB entries for the already-uploaded objects
-    return requestJson<KbEntry[]>('/knowledge/entries/from-oss-keys', {
+    return requestJson<KbEntry[]>(`${kbBase(kbId)}/entries/from-oss-keys`, {
       method: 'POST',
       body: JSON.stringify({
         oss_files: presign.files.map((pf, i) => ({
@@ -1657,13 +1607,13 @@ export async function uploadKbFiles(params: {
   if (typeof params.permission_level === 'number') fd.append('permission_level', String(params.permission_level));
   if (params.tags) fd.append('tags', params.tags);
   // authFetch/readErrorMessage 顶部已经 import，无需 dynamic import（之前的写法会触发 Rollup 警告）
-  const response = await authFetch(`${RD_API_BASE}/knowledge/entries`, { method: 'POST', body: fd });
+  const response = await authFetch(`${RD_API_BASE}${kbBase(kbId)}/entries`, { method: 'POST', body: fd });
   if (!response.ok) throw new Error(await readErrorMessage(response, '上传失败'));
   return (await response.json()) as KbEntry[];
 }
 
-export function recordKbView(id: string): Promise<{ ok: boolean }> {
-  return requestJson<{ ok: boolean }>(`/knowledge/entries/${encodeURIComponent(id)}/view`, { method: 'POST' });
+export function recordKbView(id: string, kbId?: string): Promise<{ ok: boolean }> {
+  return requestJson<{ ok: boolean }>(`${kbBase(kbId)}/entries/${encodeURIComponent(id)}/view`, { method: 'POST' });
 }
 
 /** One-shot: ask the backend to fix garbled Latin-1 filenames on all KB entries. */

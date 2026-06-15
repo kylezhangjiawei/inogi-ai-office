@@ -63,7 +63,7 @@ import { DictionaryList } from "./DictionaryList";
 import { UserManagement } from "./UserManagement";
 import { hasPermission } from "./lib/permissions";
 import { isMobileViewport } from "./lib/mobileRouting";
-import { routePermissionMap } from "./routesConfig";
+import { DEPT_KBS, routePermissionMap } from "./routesConfig";
 
 type RuntimeHealthResponse = {
   ok: boolean;
@@ -272,6 +272,11 @@ const router = createBrowserRouter([
       { path: "rd-my-workspace", element: makeProtected(<RDMyWorkspacePage />, "page:rd-my-workspace") },
       { path: "rd-sheet", element: makeLazyProtected(<RDSheetPage />, "page:rd-sheet") },
       { path: "rd-knowledge-base", element: makeProtected(<RDKnowledgeBasePage />, "page:rd-knowledge-base") },
+      // 部门知识库：8 个部门各一条路由，复用 RDKnowledgeBasePage（kbScope 切到部门库）
+      ...DEPT_KBS.map((d) => ({
+        path: `dept-kb/${d.id}`,
+        element: makeProtected(<RDKnowledgeBasePage kbScope={{ kbId: d.id, label: d.label }} />, `page:dept-kb-${d.id}`),
+      })),
       // 研发主管驾驶舱 — 导航可见性由页面路由管理中的「导航」开关控制（默认隐藏）
       { path: "rd-director-dashboard", element: makeProtected(<RDDirectorDashboardPage />, "page:rd-director-dashboard") },
       { path: "rd-approval-flow", element: makeProtected(<RDApprovalFlowPage />, "page:rd-approval-flow") },

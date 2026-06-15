@@ -83,6 +83,16 @@ import {
 } from "./lib/rdApi";
 import { backfillKbToRag } from "./lib/ragApi";
 
+// ── 知识库作用域（研发库 / 部门库共用本页面）────────────────────────────────────
+// kbId === undefined → 研发知识库（走 /knowledge/*，行为完全不变）；
+// kbId === 部门 id（如 'finance'）→ 部门知识库（走 /dept-knowledge/{id}/*）。
+// 用 Context 把 kbId 下发给所有子组件（缩略图 / 预览 / 编辑 / 上传弹窗），避免逐层 prop 透传。
+const KbScopeContext = React.createContext<string | undefined>(undefined);
+const useKbId = () => React.useContext(KbScopeContext);
+
+/** 本页面对外的作用域入参：缺省即研发库。 */
+export type KbScope = { kbId: string; label: string };
+
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const KB_PAGE_SIZE = 9; // 每页条目数（分页）；3 列布局下正好 3 行
@@ -185,7 +195,7 @@ function formatSize(bytes?: number | null): string {
 }
 
 /** Imperatively download / open a KB entry — handles OSS URLs, lazy base64 fetch, and external links. */
-async function downloadKbEntry(entry: KbEntry): Promise<void> {
+async function downloadKbEntry(entry: KbEntry, kbId?: string): Promise<void> {
   if (entry.external_url) {
     window.open(entry.external_url, '_blank');
     return;
@@ -202,7 +212,7 @@ async function downloadKbEntry(entry: KbEntry): Promise<void> {
   }
   if (entry.has_data_file) {
     try {
-      const full = await fetchKbEntry(entry.id);
+      const full = await fetchKbEntry(entry.id, kbId);
       const url = full.oss_url ?? full.data_url;
       if (url) {
         const a = document.createElement('a');
@@ -339,6 +349,7 @@ function FileTypeIcon({ entry, className }: { entry: KbEntry; className?: string
  * 加载失败或非图片回退到类型图标。传入 onClick 时缩略图可点开预览（与「预览」按钮一致）。
  */
 function EntryThumb({ entry, onClick }: { entry: KbEntry; onClick?: () => void }) {
+  const kbId = useKbId();
   const fileType = getFileType(entry.file_name, entry.file_type);
   const isImage = fileType === 'image';
   const directUrl = isImage ? (entry.oss_url || entry.preview_url || null) : null;
@@ -350,11 +361,11 @@ function EntryThumb({ entry, onClick }: { entry: KbEntry; onClick?: () => void }
   React.useEffect(() => {
     if (!isImage || directUrl || lazyUrl || !entry.has_data_file) return;
     let alive = true;
-    fetchKbEntry(entry.id)
+    fetchKbEntry(entry.id, kbId)
       .then((full) => { if (alive && full.data_url) setLazyUrl(full.data_url); })
       .catch(() => {});
     return () => { alive = false; };
-  }, [entry.id, isImage, directUrl, lazyUrl, entry.has_data_file]);
+  }, [entry.id, isImage, directUrl, lazyUrl, entry.has_data_file, kbId]);
 
   const imageUrl = directUrl ?? lazyUrl;
 
@@ -406,6 +417,7 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
   { entry, canEdit, canMove, canDelete, onEdit, onDelete, onMove, onPreview },
   ref,
 ) {
+  const kbId = useKbId();
   const hasAnyManageAction = canEdit || canMove || canDelete;
   const fileType = getFileType(entry.file_name, entry.file_type);
   const srcCfg = SOURCE_CONFIG[entry.source] ?? SOURCE_CONFIG.manual;
@@ -511,7 +523,7 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => void downloadKbEntry(entry)}
+                onClick={() => void downloadKbEntry(entry, kbId)}
                 className={cn(
                   "h-8 flex-1 min-w-[88px] rounded-lg px-2.5 text-xs font-semibold",
                   isPreviewable
@@ -588,6 +600,7 @@ function EditEntryDialog({
   onSaved: (updated: KbEntry) => void;
   onClose: () => void;
 }) {
+  const kbId = useKbId();
   const flatCats = useMemo(() => flattenCategories(categories), [categories]);
   const [title, setTitle] = useState(entry.title);
   const [description, setDescription] = useState(entry.description ?? '');
@@ -628,7 +641,7 @@ function EditEntryDialog({
         category_id: categoryId,
         tags: tagsArray,
         permission_level: Math.max(0, Math.min(100, Math.round(permissionLevel))),
-      });
+      }, kbId);
       toast.success('文件已更新');
       onSaved(updated);
     } catch (err) {
@@ -1395,6 +1408,7 @@ interface PreviewModalProps {
 }
 
 function PreviewModal({ entry, onClose }: PreviewModalProps) {
+  const kbId = useKbId();
   const fileType = getFileType(entry.file_name, entry.file_type);
   const [fileUrl, setFileUrl] = React.useState<string | null>(entry.oss_url ?? null);
   // Same-origin inline-preview proxy URL — used by iframe/fetch-based previews (pdf/html/text/xlsx/docx)
@@ -1414,7 +1428,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
   React.useEffect(() => {
     if (fileUrl || !entry.has_data_file) return;
     setLoading(true);
-    fetchKbEntry(entry.id)
+    fetchKbEntry(entry.id, kbId)
       .then((full) => {
         const direct = full.oss_url ?? full.data_url ?? null;
         setFileUrl(direct);
@@ -1422,7 +1436,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, [entry.id, entry.has_data_file, fileUrl]);
+  }, [entry.id, entry.has_data_file, fileUrl, kbId]);
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
@@ -1491,7 +1505,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => void downloadKbEntry(entry)}
+              onClick={() => void downloadKbEntry(entry, kbId)}
               className="h-8 shrink-0 gap-1.5 rounded-lg border-indigo-200 bg-indigo-50/70 px-3 text-xs font-semibold text-indigo-700 hover:border-indigo-300 hover:bg-indigo-100"
             >
               <ArrowDownToLine className="h-3.5 w-3.5" />
@@ -1594,7 +1608,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
               {hasDownloadable && (
                 <Button
                   type="button"
-                  onClick={() => void downloadKbEntry(entry)}
+                  onClick={() => void downloadKbEntry(entry, kbId)}
                   className="h-9 px-6 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-[0_6px_18px_rgba(79,70,229,0.28)] gap-2"
                 >
                   <ArrowDownToLine className="w-4 h-4" />
@@ -1684,6 +1698,7 @@ interface UploadDialogProps {
 
 function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canSetPermissionLevel = false }: UploadDialogProps) {
   const { user } = useAuth();
+  const kbId = useKbId();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragDepthRef = useRef(0);
   const [selectedFiles, setSelectedFiles] = useState<File[]>(() => initialFiles);
@@ -1691,17 +1706,18 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
   const [categorySource, setCategorySource] = useState<'manual' | 'rule' | 'ai' | null>(null);
   const [classifyResults, setClassifyResults] = useState<KbClassifyResult>([]);
   const [classifying, setClassifying] = useState(false);
-  // 默认 permission_level 取当前用户在「人员管理」里配置的 kb_level；拉不到时兜底 20
-  const [permissionLevel, setPermissionLevel] = useState<number>(20);
+  // 研发库：默认 permission_level 取当前用户在「人员管理」里配置的 kb_level（拉不到时兜底 20）。
+  // 部门库：一期默认全可见，无部门级人员分值，初值取 0（仅管理员可调）。
+  const [permissionLevel, setPermissionLevel] = useState<number>(kbId ? 0 : 20);
   const [permissionLevelTouched, setPermissionLevelTouched] = useState(false);
   const [description, setDescription] = useState('');
   const [tags, setTags] = useState('');
   const [uploading, setUploading] = useState(false);
   const [dragging, setDragging] = useState(false);
 
-  // 挂载时拉当前用户的 kb_level 作为默认权限分值（仅当用户没手动调过滑块时生效）
+  // 挂载时拉当前用户的 kb_level 作为默认权限分值（仅研发库；部门库无此接口，跳过用初值 0）
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || kbId) return;
     let cancelled = false;
     fetchMyKbPermissionLevel()
       .then((res) => {
@@ -1715,7 +1731,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
     return () => { cancelled = true; };
     // 故意只在挂载时拉一次，后续用户手动调滑块后即使再 refetch 也不要覆盖
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
+  }, [user?.id, kbId]);
 
   const flatCats = useMemo(() => flattenCategories(categories), [categories]);
 
@@ -1732,7 +1748,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
     }
     let cancelled = false;
     setClassifying(true);
-    classifyKbFiles(selectedFiles.map((f) => f.name))
+    classifyKbFiles(selectedFiles.map((f) => f.name), kbId)
       .then((results) => {
         if (cancelled) return;
         setClassifyResults(results);
@@ -1779,7 +1795,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
         description: description || undefined,
         permission_level: permissionLevel,
         tags: tags || undefined,
-      });
+      }, kbId);
       toast.success(`成功上传 ${entries.length} 个文件`);
       onUploaded(entries);
       onClose();
@@ -1833,7 +1849,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
           <div className="absolute inset-0 bg-slate-50/60" />
           <DialogTitle className="relative text-base font-semibold text-slate-950">上传知识库文件</DialogTitle>
           <DialogDescription className="sr-only">
-            选择文件、分类和访问权限后上传到研发知识库。
+            选择文件、分类和访问权限后上传到知识库。
           </DialogDescription>
           <Button
             type="button"
@@ -2088,26 +2104,33 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
-export function RDKnowledgeBasePage() {
+export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
   const { user } = useAuth();
 
+  // 作用域：研发库 kbId=undefined（rd-kb:* 权限 + /knowledge 接口）；部门库 kbId=部门 id（dept-kb:* 权限 + /dept-knowledge 接口）
+  const kbId = kbScope?.kbId;
   const userPerms = user?.permissions ?? [];
+  // 按作用域选用的一套权限码：研发库用 rd-kb:*，部门库用共用的 dept-kb:*
+  const P = kbId
+    ? { upload: 'dept-kb:upload', manage: 'dept-kb:manage', entryEdit: 'dept-kb:entry:edit', entryMove: 'dept-kb:entry:move', entryDelete: 'dept-kb:entry:delete', catCreate: 'dept-kb:category:create', catEdit: 'dept-kb:category:edit', catDelete: 'dept-kb:category:delete' }
+    : { upload: 'rd-kb:upload', manage: 'rd-kb:manage', entryEdit: 'rd-kb:entry:edit', entryMove: 'rd-kb:entry:move', entryDelete: 'rd-kb:entry:delete', catCreate: 'rd-kb:category:create', catEdit: 'rd-kb:category:edit', catDelete: 'rd-kb:category:delete' };
   // 留痕动作的 actor 信息，按当前账号填充；姓名/角色取自 user 对象
-  const kbAuditActor = useAuditActor(user?.name || "研发成员");
+  const kbAuditActor = useAuditActor(user?.name || "成员");
   const isSuper = userPerms.includes('*');
   const canUpload =
     !!user &&
-    (hasPermission(userPerms, 'rd-kb:upload') ||
-      hasPermission(userPerms, 'rd-task:create') ||
+    (hasPermission(userPerms, P.upload) ||
+      // 研发库额外放行「可建任务」的研发成员上传；部门库不沿用该旁路
+      (!kbId && hasPermission(userPerms, 'rd-task:create')) ||
       isSuper);
-  // 旧的笼统 rd-kb:manage 仍向后兼容；新拆分的 entry/category 权限按动作粒度判断
-  const hasLegacyManage = hasPermission(userPerms, 'rd-kb:manage') || isSuper;
-  const canEditEntry = hasLegacyManage || hasPermission(userPerms, 'rd-kb:entry:edit');
-  const canMoveEntry = hasLegacyManage || hasPermission(userPerms, 'rd-kb:entry:move') || hasPermission(userPerms, 'rd-kb:entry:edit');
-  const canDeleteEntry = hasLegacyManage || hasPermission(userPerms, 'rd-kb:entry:delete');
-  const canCreateCategory = hasLegacyManage || hasPermission(userPerms, 'rd-kb:category:create');
-  const canEditCategory = hasLegacyManage || hasPermission(userPerms, 'rd-kb:category:edit');
-  const canDeleteCategory = hasLegacyManage || hasPermission(userPerms, 'rd-kb:category:delete');
+  // 旧的笼统 manage 权限仍向后兼容；新拆分的 entry/category 权限按动作粒度判断
+  const hasLegacyManage = hasPermission(userPerms, P.manage) || isSuper;
+  const canEditEntry = hasLegacyManage || hasPermission(userPerms, P.entryEdit);
+  const canMoveEntry = hasLegacyManage || hasPermission(userPerms, P.entryMove) || hasPermission(userPerms, P.entryEdit);
+  const canDeleteEntry = hasLegacyManage || hasPermission(userPerms, P.entryDelete);
+  const canCreateCategory = hasLegacyManage || hasPermission(userPerms, P.catCreate);
+  const canEditCategory = hasLegacyManage || hasPermission(userPerms, P.catEdit);
+  const canDeleteCategory = hasLegacyManage || hasPermission(userPerms, P.catDelete);
   // 兼容旧调用：原 `canManage` 现在等于"任一管理动作"
   const canManage = hasLegacyManage || canEditEntry || canDeleteEntry || canCreateCategory || canEditCategory || canDeleteCategory;
 
@@ -2169,7 +2192,7 @@ export function RDKnowledgeBasePage() {
   // Initial load — categories + all entries with no filters
   const loadData = useCallback(() => {
     setLoading(true);
-    Promise.all([fetchKbCategories(), fetchKbEntries()])
+    Promise.all([fetchKbCategories(kbId), fetchKbEntries(undefined, kbId)])
       .then(([cats, ents]) => {
         setCategories(cats);
         categoriesRef.current = cats;
@@ -2178,7 +2201,7 @@ export function RDKnowledgeBasePage() {
       })
       .catch(() => toast.error('知识库数据加载失败'))
       .finally(() => setLoading(false));
-  }, []);
+  }, [kbId]);
 
   useEffect(() => {
     loadData();
@@ -2193,7 +2216,7 @@ export function RDKnowledgeBasePage() {
     }
     let cancelled = false;
     setLoading(true);
-    fetchKbEntries(buildParams())
+    fetchKbEntries(buildParams(), kbId)
       .then((ents) => {
         if (cancelled) return;
         React.startTransition(() => {
@@ -2204,12 +2227,12 @@ export function RDKnowledgeBasePage() {
       .catch(() => { if (!cancelled) toast.error('知识库数据加载失败'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [buildParams]);
+  }, [buildParams, kbId]);
 
   // Refresh button handler — re-fetches categories + entries with current filters
   const handleRefresh = useCallback(() => {
     setLoading(true);
-    Promise.all([fetchKbCategories(), fetchKbEntries(buildParams())])
+    Promise.all([fetchKbCategories(kbId), fetchKbEntries(buildParams(), kbId)])
       .then(([cats, ents]) => {
         React.startTransition(() => {
           setCategories(cats);
@@ -2220,7 +2243,7 @@ export function RDKnowledgeBasePage() {
       })
       .catch(() => toast.error('知识库数据加载失败'))
       .finally(() => setLoading(false));
-  }, [buildParams]);
+  }, [buildParams, kbId]);
 
   const [repairing, setRepairing] = useState(false);
   const handleRepairFilenames = useCallback(async () => {
@@ -2316,7 +2339,7 @@ export function RDKnowledgeBasePage() {
   /** Opens the preview modal and records a view. */
   const handlePreview = useCallback((entry: KbEntry) => {
     setPreviewEntry(entry);
-    void recordKbView(entry.id).catch(() => undefined);
+    void recordKbView(entry.id, kbId).catch(() => undefined);
     React.startTransition(() => {
       setEntries((prev) =>
         prev.map((e) => (e.id === entry.id ? { ...e, view_count: e.view_count + 1 } : e)),
@@ -2339,7 +2362,7 @@ export function RDKnowledgeBasePage() {
     if (!deletingEntry) return;
     setDeleteLoading(true);
     try {
-      await deleteKbEntry(deletingEntry.id);
+      await deleteKbEntry(deletingEntry.id, kbId);
       toast.success('已删除');
       recordAudit({
         actor: kbAuditActor,
@@ -2354,7 +2377,7 @@ export function RDKnowledgeBasePage() {
         source: "web",
       });
       setEntries((prev) => prev.filter((e) => e.id !== deletingEntry.id));
-      void fetchKbCategories().then(syncCategories).catch(() => undefined);
+      void fetchKbCategories(kbId).then(syncCategories).catch(() => undefined);
       setDeletingEntry(null);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '删除失败');
@@ -2370,12 +2393,12 @@ export function RDKnowledgeBasePage() {
     const before = isCreate ? null : categoryDialog.category;
     try {
       const result = isCreate
-        ? await createKbCategory(payload)
+        ? await createKbCategory(payload, kbId)
         : await updateKbCategory(categoryDialog.category.id, {
             label: payload.label,
             icon: payload.icon,
             color: payload.color,
-          });
+          }, kbId);
       syncCategories(result.categories);
 
       // 留痕：新建或编辑分类
@@ -2421,7 +2444,7 @@ export function RDKnowledgeBasePage() {
     setCategoryDeleteLoading(true);
     try {
       const deletedIds = new Set(collectCategoryIds(deletingCategory));
-      const result = await deleteKbCategory(deletingCategory.id);
+      const result = await deleteKbCategory(deletingCategory.id, kbId);
       syncCategories(result.categories);
       recordAudit({
         actor: kbAuditActor,
@@ -2446,7 +2469,7 @@ export function RDKnowledgeBasePage() {
     setMoveLoading(true);
     try {
       const previousCategoryId = movingEntry.category_id;
-      const updatedEntry = toListEntry(await moveKbEntry(movingEntry.id, categoryId));
+      const updatedEntry = toListEntry(await moveKbEntry(movingEntry.id, categoryId, kbId));
       const nextCategories = updateCategoryCountsForMove(categoriesRef.current, previousCategoryId, updatedEntry.category_id);
       const activeCategoryScope = getCategoryScopeIds(nextCategories, selectedCatId);
 
@@ -2467,7 +2490,7 @@ export function RDKnowledgeBasePage() {
       });
       setMovingEntry(null);
       toast.success('文件已移动');
-      void Promise.all([fetchKbCategories(), fetchKbEntries(buildParams())])
+      void Promise.all([fetchKbCategories(kbId), fetchKbEntries(buildParams(), kbId)])
         .then(([nextCats, nextEntries]) => {
           React.startTransition(() => {
             syncCategories(nextCats);
@@ -2488,7 +2511,7 @@ export function RDKnowledgeBasePage() {
     // list stays consistent with what getKnowledgeEntries returns (metadata only).
     const sanitized = newEntries.map(toListEntry);
     setEntries((prev) => [...sanitized, ...prev]);
-    void fetchKbCategories().then(syncCategories).catch(() => undefined);
+    void fetchKbCategories(kbId).then(syncCategories).catch(() => undefined);
 
     // 留痕：上传文件（每条文件分别记录，便于审计追溯到具体文件）
     for (const entry of sanitized) {
@@ -2566,6 +2589,7 @@ export function RDKnowledgeBasePage() {
   }, [entries]);
 
   return (
+    <KbScopeContext.Provider value={kbId}>
     <div
       className="relative min-h-full bg-slate-50/30 flex flex-col text-slate-900"
       onDragEnter={handlePageDragEnter}
@@ -2596,10 +2620,10 @@ export function RDKnowledgeBasePage() {
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-[0_10px_22px_rgba(79,70,229,0.22)]">
                 <BookOpen className="w-4 h-4" />
               </span>
-              <span className="truncate">研发知识库</span>
+              <span className="truncate">{kbScope ? `${kbScope.label}知识库` : '研发知识库'}</span>
             </h1>
             <p className="mt-1.5 text-sm font-medium text-slate-500">
-              统一管理研发文档、技术资料与任务成果附件
+              {kbScope ? `统一管理${kbScope.label}的文档、制度与资料` : '统一管理研发文档、技术资料与任务成果附件'}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 xl:justify-end">
@@ -2629,7 +2653,7 @@ export function RDKnowledgeBasePage() {
             >
               <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
             </Button>
-            {canManage && (
+            {canManage && !kbId && (
               <Button
                 type="button"
                 variant="outline"
@@ -2642,7 +2666,7 @@ export function RDKnowledgeBasePage() {
                 <Wrench className={cn('w-4 h-4', repairing && 'animate-spin')} />
               </Button>
             )}
-            {hasLegacyManage && (
+            {hasLegacyManage && !kbId && (
               <Button
                 type="button"
                 variant="outline"
@@ -2949,7 +2973,7 @@ export function RDKnowledgeBasePage() {
               source: "web",
             });
             setEntries((prev) => prev.map((e) => (e.id === updated.id ? toListEntry(updated) : e)));
-            void fetchKbCategories().then(syncCategories).catch(() => undefined);
+            void fetchKbCategories(kbId).then(syncCategories).catch(() => undefined);
             setEditingEntry(null);
           }}
           onClose={() => setEditingEntry(null)}
@@ -2974,5 +2998,6 @@ export function RDKnowledgeBasePage() {
         />
       )}
     </div>
+    </KbScopeContext.Provider>
   );
 }

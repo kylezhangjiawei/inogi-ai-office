@@ -4,6 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { OcrService } from '../ocr/ocr.service';
 import { OssService } from '../oss/oss.service';
 import { RagService } from '../rag/rag.service';
+import { DEPT_KB_DEFAULT_CATEGORIES } from './dept-knowledge.constants';
 import { RdAiService } from './rd-ai.service';
 
 type JsonRecord = Record<string, unknown>;
@@ -48,7 +49,10 @@ type RdStoreKey =
   | 'rd.knowledgeCategories'
   | 'rd.knowledgeEntries'
   | 'rd.taskCompletionScores'
-  | 'rd.sheets';
+  | 'rd.sheets'
+  // 部门知识库：复用知识库 CRUD，按 kbId 切换存储键（缺省 kbId = 研发库走上面的 rd.* 键）
+  | `deptkb.${string}.knowledgeCategories`
+  | `deptkb.${string}.knowledgeEntries`;
 
 const CATEGORY = 'research-development';
 const MAX_AUDIT_LOGS = 1000;
@@ -60,41 +64,13 @@ const PROGRESS_NOTE_MAX_FILES = 10;
 const PROGRESS_NOTE_MAX_FILE_BYTES = 25 * 1024 * 1024;
 const PROGRESS_NOTE_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
 
-// ─── 研发数据表（类 WPS 表格 · 行级密级管控）────────────────────────────────
-// 单一主表起步。每行可带一列「密级」（0-100 分值），读取时按 viewer 的 kb_level
-// 行级裁剪：分值低的人只看得到密级 <= 自己的行，且密级列整列对其隐藏。
-// 与知识库读取同一套人员分值口径（resolveViewerKbLevel：拒绝式默认 0、识别 kb_level_scale），
-// 后端强制、前端无法绕过。
-const RD_SHEET_DEFAULT_ID = 'rd-master-sheet';
-const RD_SHEET_SECRECY_COLUMN = '密级';
-const RD_SHEET_MAX_LEVEL = 100;
-// 单元格图片以「[图片:objectKey]」文本标记存储（图片本体在 OSS），标记随行走，
-// 行级裁剪后标记自然消失——预览 URL 只为裁剪后可见行内的图片签发，越权行连图片地址都拿不到。
-const RD_SHEET_IMAGE_MARK_RE = /\[图片:([^\[\]\s]+)\]/g;
-const RD_SHEET_IMAGE_BUSINESS_TYPE = 'rd/sheet-images';
-const RD_SHEET_IMAGE_MAX_FILES = 30;
-const RD_SHEET_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
-const RD_SHEET_IMAGE_MIME_TYPES = new Set([
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-  'image/gif',
-  'image/bmp',
-]);
-
-/** 研发数据表的存储结构（始终矩形：每行单元格数 === headers.length）。 */
-type RdSheetData = {
-  id: string;
-  name: string;
-  /** 表头（第一行列名）。其中名为 secrecy_column 的列是行级密级控制列。 */
-  headers: string[];
-  /** 数据行，每行单元格按 headers 顺序对齐，统一存为字符串。 */
-  rows: string[][];
-  /** 密级控制列的列名，默认「密级」。 */
-  secrecy_column: string;
-  updated_at: string;
-  updated_by: string | null;
-};
+// ─── 研发数据表（B2：Univer 工作簿快照 · 已去除行级密级）─────────────────────
+// rd.sheets 存「单个 Univer 工作簿快照」：{ snapshot, updated_at, updated_by }。
+// 图片以 base64 内嵌在快照（SHEET_DRAWING_PLUGIN 资源）里，无需 OSS；不再做行级密级裁剪，
+// 拥有 page:rd-sheet 即可只读查看，拥有 rd-sheet:edit 方可编辑保存。
+// 旧格式（{headers,rows,secrecy_column}[] 扁平数组）在读取时按「值」无损迁移成快照。
+const RD_SHEET_WORKBOOK_ID = 'rd-sheet-workbook';
+const RD_SHEET_IMAGE_MARK_RE = /\[图片:[^\[\]\s]+\]/g;
 
 // ─── 审核类型「单一事实源」───────────────────────────────────────────────
 // 四种审核类型的标签、通过后目标状态、审计动作集中在此定义，前后端各处只引用、
@@ -5368,6 +5344,29 @@ export class ResearchDevelopmentService {
   }
 
   // ── Knowledge Base ────────────────────────────────────────────────────────
+  //
+  // 同一套 CRUD 同时服务「研发知识库」与「部门知识库」：
+  //   kbId 缺省（undefined）= 研发库，沿用 rd.knowledgeCategories / rd.knowledgeEntries / 'rd/knowledge' OSS 前缀，行为零变化；
+  //   kbId = 部门 id（如 'finance'）= 部门库，切到 deptkb.{id}.* 存储键与 deptkb/{id} OSS 前缀。
+  // 部门库不接 RAG（一期决策），故 createKnowledgeEntry/updateKnowledgeEntry/deleteKnowledgeEntry 仅在研发库路径同步向量。
+
+  private kbCategoriesKey(kbId?: string): RdStoreKey {
+    return kbId ? `deptkb.${kbId}.knowledgeCategories` : 'rd.knowledgeCategories';
+  }
+
+  private kbEntriesKey(kbId?: string): RdStoreKey {
+    return kbId ? `deptkb.${kbId}.knowledgeEntries` : 'rd.knowledgeEntries';
+  }
+
+  /** 部门库默认仅一个「其他」兜底分类；研发库用其专属预置分类树。 */
+  private kbDefaultCategories(kbId?: string): unknown[] {
+    return kbId ? DEPT_KB_DEFAULT_CATEGORIES : DEFAULT_KB_CATEGORIES;
+  }
+
+  /** OSS 对象前缀：研发库 'rd/knowledge'，部门库 'deptkb/{id}'。 */
+  buildKbOssPrefix(kbId?: string): string {
+    return kbId ? `deptkb/${kbId}` : 'rd/knowledge';
+  }
 
   private cloneKnowledgeCategories(source: unknown): JsonRecord[] {
     return JSON.parse(JSON.stringify(source)) as JsonRecord[];
@@ -5407,14 +5406,14 @@ export class ResearchDevelopmentService {
       .filter((category): category is JsonRecord => Boolean(category));
   }
 
-  private async readKnowledgeCategoryRecords(): Promise<JsonRecord[]> {
-    const raw = await this.readValue('rd.knowledgeCategories');
-    const source = Array.isArray(raw) && raw.length > 0 ? raw : DEFAULT_KB_CATEGORIES;
+  private async readKnowledgeCategoryRecords(kbId?: string): Promise<JsonRecord[]> {
+    const raw = await this.readValue(this.kbCategoriesKey(kbId));
+    const source = Array.isArray(raw) && raw.length > 0 ? raw : this.kbDefaultCategories(kbId);
     return this.normalizeKnowledgeCategories(this.cloneKnowledgeCategories(source));
   }
 
-  private async readActiveKnowledgeEntryRecords(): Promise<JsonRecord[]> {
-    const raw = await this.readValue('rd.knowledgeEntries');
+  private async readActiveKnowledgeEntryRecords(kbId?: string): Promise<JsonRecord[]> {
+    const raw = await this.readValue(this.kbEntriesKey(kbId));
     const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
     return entries
       .map(ResearchDevelopmentService.normalizeKbEntry)
@@ -5508,8 +5507,9 @@ export class ResearchDevelopmentService {
   private async resolveKnowledgeCategoryId(
     categoryId: unknown,
     options?: { fallbackToOther?: boolean },
+    kbId?: string,
   ): Promise<string> {
-    const categories = await this.readKnowledgeCategoryRecords();
+    const categories = await this.readKnowledgeCategoryRecords(kbId);
     const ids = this.collectKnowledgeCategoryIds(categories);
     const id = cleanText(categoryId);
     if (id && ids.has(id)) return id;
@@ -5517,25 +5517,25 @@ export class ResearchDevelopmentService {
     throw new BadRequestException('知识库类目不存在');
   }
 
-  async getKnowledgeCategories() {
-    const categories = await this.readKnowledgeCategoryRecords();
-    const entries = await this.readActiveKnowledgeEntryRecords();
+  async getKnowledgeCategories(kbId?: string) {
+    const categories = await this.readKnowledgeCategoryRecords(kbId);
+    const entries = await this.readActiveKnowledgeEntryRecords(kbId);
     return this.attachKnowledgeCategoryCounts(categories, entries);
   }
 
-  async saveKnowledgeCategories(categories: unknown[]) {
+  async saveKnowledgeCategories(categories: unknown[], kbId?: string) {
     const normalized = this.normalizeKnowledgeCategories(categories);
-    await this.writeValue('rd.knowledgeCategories', this.stripKnowledgeCategoryComputedFields(normalized));
-    const entries = await this.readActiveKnowledgeEntryRecords();
+    await this.writeValue(this.kbCategoriesKey(kbId), this.stripKnowledgeCategoryComputedFields(normalized));
+    const entries = await this.readActiveKnowledgeEntryRecords(kbId);
     return { ok: true, categories: this.attachKnowledgeCategoryCounts(normalized, entries) };
   }
 
-  async createKnowledgeCategory(payload: { label?: unknown; parent_id?: unknown; icon?: unknown; color?: unknown }) {
+  async createKnowledgeCategory(payload: { label?: unknown; parent_id?: unknown; icon?: unknown; color?: unknown }, kbId?: string) {
     const label = cleanText(payload.label);
     if (!label) throw new BadRequestException('类目名称不能为空');
     if (label.length > 40) throw new BadRequestException('类目名称不能超过 40 个字符');
 
-    const categories = await this.readKnowledgeCategoryRecords();
+    const categories = await this.readKnowledgeCategoryRecords(kbId);
     const parentId = cleanText(payload.parent_id);
     let siblings = categories;
 
@@ -5562,21 +5562,22 @@ export class ResearchDevelopmentService {
     };
 
     siblings.push(category);
-    await this.writeValue('rd.knowledgeCategories', this.stripKnowledgeCategoryComputedFields(categories));
-    const entries = await this.readActiveKnowledgeEntryRecords();
+    await this.writeValue(this.kbCategoriesKey(kbId), this.stripKnowledgeCategoryComputedFields(categories));
+    const entries = await this.readActiveKnowledgeEntryRecords(kbId);
     return { ok: true, category, categories: this.attachKnowledgeCategoryCounts(categories, entries) };
   }
 
   async updateKnowledgeCategory(
     id: string,
     payload: { label?: unknown; icon?: unknown; color?: unknown },
+    kbId?: string,
   ) {
     const categoryId = cleanText(id);
-    const categories = await this.readKnowledgeCategoryRecords();
+    const categories = await this.readKnowledgeCategoryRecords(kbId);
     const found = this.findKnowledgeCategory(categories, categoryId);
     if (!found) throw new NotFoundException('知识库类目不存在');
 
-    const entries = await this.readActiveKnowledgeEntryRecords();
+    const entries = await this.readActiveKnowledgeEntryRecords(kbId);
     if (this.categoryHasActiveEntries(found.category, entries)) {
       throw new BadRequestException('类目下存在文件，无法编辑；请先将文件移动到其他类目');
     }
@@ -5599,28 +5600,28 @@ export class ResearchDevelopmentService {
     }
     found.category.updated_at = new Date().toISOString();
 
-    await this.writeValue('rd.knowledgeCategories', this.stripKnowledgeCategoryComputedFields(categories));
+    await this.writeValue(this.kbCategoriesKey(kbId), this.stripKnowledgeCategoryComputedFields(categories));
     return { ok: true, category: found.category, categories: this.attachKnowledgeCategoryCounts(categories, entries) };
   }
 
-  async deleteKnowledgeCategory(id: string) {
+  async deleteKnowledgeCategory(id: string, kbId?: string) {
     const categoryId = cleanText(id);
     if (categoryId === 'kb-other') {
       throw new BadRequestException('默认“其他”类目不能删除');
     }
 
-    const categories = await this.readKnowledgeCategoryRecords();
+    const categories = await this.readKnowledgeCategoryRecords(kbId);
     const found = this.findKnowledgeCategory(categories, categoryId);
     if (!found) throw new NotFoundException('知识库类目不存在');
 
-    const entries = await this.readActiveKnowledgeEntryRecords();
+    const entries = await this.readActiveKnowledgeEntryRecords(kbId);
     if (this.categoryHasActiveEntries(found.category, entries)) {
       throw new BadRequestException('类目下存在文件，无法删除；请先将文件移动到其他类目');
     }
 
     const index = found.siblings.findIndex((category) => cleanText(category.id) === categoryId);
     if (index >= 0) found.siblings.splice(index, 1);
-    await this.writeValue('rd.knowledgeCategories', this.stripKnowledgeCategoryComputedFields(categories));
+    await this.writeValue(this.kbCategoriesKey(kbId), this.stripKnowledgeCategoryComputedFields(categories));
     return { ok: true, categories: this.attachKnowledgeCategoryCounts(categories, entries) };
   }
 
@@ -5687,8 +5688,9 @@ export class ResearchDevelopmentService {
       permissionLevel?: number;
     },
     viewer?: { userId?: string; hasFullAccess?: boolean },
+    kbId?: string,
   ) {
-    const raw = await this.readValue('rd.knowledgeEntries');
+    const raw = await this.readValue(this.kbEntriesKey(kbId));
     let entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
     // Always carry normalised permission_level
     entries = entries.map(ResearchDevelopmentService.normalizeKbEntry);
@@ -5764,8 +5766,9 @@ export class ResearchDevelopmentService {
   async getKnowledgeEntryById(
     id: string,
     viewer?: { userId?: string; hasFullAccess?: boolean },
+    kbId?: string,
   ): Promise<JsonRecord | null> {
-    const raw = await this.readValue('rd.knowledgeEntries');
+    const raw = await this.readValue(this.kbEntriesKey(kbId));
     const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
     const found = entries.find((e) => e.id === id);
     if (!found) return null;
@@ -5783,8 +5786,8 @@ export class ResearchDevelopmentService {
     return previewUrl ? { ...entry, preview_url: previewUrl } : entry;
   }
 
-  async classifyKbFiles(filenames: string[]) {
-    const categories = await this.getKnowledgeCategories() as Array<{
+  async classifyKbFiles(filenames: string[], kbId?: string) {
+    const categories = await this.getKnowledgeCategories(kbId) as Array<{
       id: string; label: string; children?: Array<{ id: string; label: string }>
     }>;
     return this.rdAiService.classifyKbFiles({ filenames, categories });
@@ -5808,11 +5811,11 @@ export class ResearchDevelopmentService {
     external_url?: string;
     created_by_id?: string;
     created_by_name?: string;
-  }) {
-    const raw = await this.readValue('rd.knowledgeEntries');
+  }, kbId?: string) {
+    const raw = await this.readValue(this.kbEntriesKey(kbId));
     const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
     const now = new Date().toISOString();
-    const categoryId = await this.resolveKnowledgeCategoryId(payload.category_id, { fallbackToOther: true });
+    const categoryId = await this.resolveKnowledgeCategoryId(payload.category_id, { fallbackToOther: true }, kbId);
     const resolvedLevel = typeof payload.permission_level === 'number'
       ? ResearchDevelopmentService.clampLevel(payload.permission_level)
       : ResearchDevelopmentService.visibilityToLevel(payload.visibility);
@@ -5843,9 +5846,9 @@ export class ResearchDevelopmentService {
     };
     entries.unshift(entry);
     // Cap at 2000 entries to avoid unbounded growth
-    await this.writeValue('rd.knowledgeEntries', entries.slice(0, 2000));
-    // RAG 同步（best-effort，不阻塞返回）
-    void this.syncKbEntryToRag(entry);
+    await this.writeValue(this.kbEntriesKey(kbId), entries.slice(0, 2000));
+    // RAG 同步（best-effort，不阻塞返回）；部门库一期不接 RAG，仅研发库同步向量
+    if (!kbId) void this.syncKbEntryToRag(entry);
     return entry;
   }
 
@@ -5895,11 +5898,11 @@ export class ResearchDevelopmentService {
   async updateKnowledgeEntry(id: string, payload: Partial<{
     title: string; description: string; category_id: string;
     tags: string[]; visibility: string; permission_level: number; archived: boolean;
-  }>) {
-    const raw = await this.readValue('rd.knowledgeEntries');
+  }>, kbId?: string) {
+    const raw = await this.readValue(this.kbEntriesKey(kbId));
     const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
     const categoryId = payload.category_id !== undefined
-      ? await this.resolveKnowledgeCategoryId(payload.category_id)
+      ? await this.resolveKnowledgeCategoryId(payload.category_id, undefined, kbId)
       : undefined;
     let found = false;
     const updated = entries.map(e => {
@@ -5916,34 +5919,36 @@ export class ResearchDevelopmentService {
       return { ...e, ...patch, updated_at: new Date().toISOString() };
     });
     if (!found) throw new NotFoundException('知识条目不存在');
-    await this.writeValue('rd.knowledgeEntries', updated);
+    await this.writeValue(this.kbEntriesKey(kbId), updated);
     const next = updated.find(e => e.id === id);
-    // RAG 同步：内容变更需要重新 embedding
-    if (next) void this.syncKbEntryToRag(next);
+    // RAG 同步：内容变更需要重新 embedding；部门库不接 RAG
+    if (next && !kbId) void this.syncKbEntryToRag(next);
     return next;
   }
 
-  async moveKnowledgeEntry(id: string, categoryId: string) {
-    return this.updateKnowledgeEntry(id, { category_id: categoryId });
+  async moveKnowledgeEntry(id: string, categoryId: string, kbId?: string) {
+    return this.updateKnowledgeEntry(id, { category_id: categoryId }, kbId);
   }
 
-  async deleteKnowledgeEntry(id: string) {
-    const raw = await this.readValue('rd.knowledgeEntries');
+  async deleteKnowledgeEntry(id: string, kbId?: string) {
+    const raw = await this.readValue(this.kbEntriesKey(kbId));
     const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
     const updated = entries.map(e => e.id === id ? { ...e, archived: true, updated_at: new Date().toISOString() } : e);
-    await this.writeValue('rd.knowledgeEntries', updated);
-    // RAG 同步：archived=true 触发 chunk 删除
-    void this.ragService.removeChunksForSource('kb', id).catch((err) => {
-      this.logger.warn(`[RAG] removeChunksForSource 失败 (entry=${id}): ${err instanceof Error ? err.message : String(err)}`);
-    });
+    await this.writeValue(this.kbEntriesKey(kbId), updated);
+    // RAG 同步：archived=true 触发 chunk 删除；部门库不接 RAG
+    if (!kbId) {
+      void this.ragService.removeChunksForSource('kb', id).catch((err) => {
+        this.logger.warn(`[RAG] removeChunksForSource 失败 (entry=${id}): ${err instanceof Error ? err.message : String(err)}`);
+      });
+    }
     return { ok: true };
   }
 
-  async incrementKbEntryViewCount(id: string) {
-    const raw = await this.readValue('rd.knowledgeEntries');
+  async incrementKbEntryViewCount(id: string, kbId?: string) {
+    const raw = await this.readValue(this.kbEntriesKey(kbId));
     const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
     const updated = entries.map(e => e.id === id ? { ...e, view_count: (Number(e.view_count) || 0) + 1 } : e);
-    await this.writeValue('rd.knowledgeEntries', updated);
+    await this.writeValue(this.kbEntriesKey(kbId), updated);
     return { ok: true };
   }
 
@@ -5998,227 +6003,81 @@ export class ResearchDevelopmentService {
     return normalized;
   }
 
-  // ─── 研发数据表（类 WPS 表格 · 行级密级管控）─────────────────────────────
+  // ─── 研发数据表（B2：Univer 工作簿快照 · 已去除行级密级）─────────────────────
 
-  /** 把任意存储值规范化为矩形 RdSheetData（表头与每行宽度一致，单元格转字符串）。 */
-  private static normalizeSheet(raw: unknown): RdSheetData {
-    const rec = isRecord(raw) ? raw : {};
-    const headers = asArray(rec.headers).map((h) => cleanText(h));
-    const secrecyColumn = cleanText(rec.secrecy_column) || RD_SHEET_SECRECY_COLUMN;
-    // 密级列缺失（编辑者删列/改名、或历史数据）时自动补回到末尾：行级密级管控是
-    // 产品硬约束，缺列会让 redactSheet 对普通成员 fail-closed（一行都看不到）。
-    // 补回的列值为空，空白密级按最高 100 处理（仍 fail-closed），由编辑者自行填值放行。
-    if (!headers.includes(secrecyColumn)) headers.push(secrecyColumn);
-    const width = headers.length;
-    const rows = asArray(rec.rows).map((row) => {
-      const cells = asArray(row).map((c) => cleanText(c));
-      // 对齐表头宽度：超出截断、缺失补空，保证矩形结构便于裁剪与渲染。
-      return cells.length < width
-        ? [...cells, ...Array(width - cells.length).fill('')]
-        : cells.slice(0, width);
-    });
+  /** 空工作簿快照（首次访问 / 存储为空时兜底）。 */
+  private static buildEmptyWorkbookSnapshot(): JsonRecord {
+    const sheetId = 'sheet-1';
     return {
-      id: cleanText(rec.id) || RD_SHEET_DEFAULT_ID,
-      name: cleanText(rec.name) || '研发数据表',
-      headers,
-      rows,
-      secrecy_column: secrecyColumn,
-      updated_at: cleanText(rec.updated_at) || new Date().toISOString(),
-      updated_by: cleanText(rec.updated_by) || null,
-    };
-  }
-
-  /** 空的默认主表（含密级列），首次访问 / 存储为空时兜底，避免页面空白。 */
-  private static buildDefaultSheet(): RdSheetData {
-    return {
-      id: RD_SHEET_DEFAULT_ID,
+      id: RD_SHEET_WORKBOOK_ID,
       name: '研发数据表',
-      headers: ['项目', '负责人', '进度', '备注', RD_SHEET_SECRECY_COLUMN],
-      rows: [],
-      secrecy_column: RD_SHEET_SECRECY_COLUMN,
-      updated_at: new Date().toISOString(),
-      updated_by: null,
+      sheetOrder: [sheetId],
+      sheets: { [sheetId]: { id: sheetId, name: '数据表1', cellData: {}, rowCount: 60, columnCount: 20, mergeData: [] } },
+      styles: {},
+      resources: [],
     };
   }
 
   /**
-   * 行级密级裁剪（后端强制，前端无法绕过）：
-   * - 找不到密级列 → 所有行按最高密级处理（fail-closed，低分值成员看不到任何数据行）；
-   * - 单元格空白 / 非数字 → 视为最高密级 100（fail-closed，宁可多挡不可漏放）；
-   * - 行密级 > viewer 分值 → 丢弃整行；
-   * - 最终整列移除密级列（表头 + 每行），成员连「有哪些密级」都看不到。
-   * 仅对非完全访问的 viewer 调用；完全访问者（* / rd-sheet:edit）直接拿全量。
+   * 旧扁平格式（{headers,rows,secrecy_column}[]）→ Univer 快照（仅迁移「值」）：
+   * 第 0 行为表头，其后每行一条；密级列保留为普通列（用户可手动删）；
+   * 单元格内的图片标记 [图片:..] 剥离为空（旧图不随迁移还原，重新导入原 xlsx 即为高保真版）。
    */
-  private static redactSheet(sheet: RdSheetData, viewerScore: number): RdSheetData {
-    const idx = sheet.headers.findIndex((h) => h === sheet.secrecy_column);
-    const keptRows = sheet.rows.filter((row) => {
-      // 注意 Number('') === 0：空白必须先于数值转换判掉，否则空密级会被当成 0（人人可见）
-      const text = idx >= 0 ? (row[idx] ?? '').trim() : '';
-      const raw = text === '' ? NaN : Number(text);
-      const level = Number.isFinite(raw)
-        ? Math.max(0, Math.min(RD_SHEET_MAX_LEVEL, raw))
-        : RD_SHEET_MAX_LEVEL;
-      return viewerScore >= level;
+  private static migrateFlatSheetsToSnapshot(arr: unknown[]): JsonRecord {
+    const strip = (s: string) => cleanText(s).replace(RD_SHEET_IMAGE_MARK_RE, '').replace(/\s+/g, ' ').trim();
+    const sheets: JsonRecord = {};
+    const sheetOrder: string[] = [];
+    arr.forEach((raw, i) => {
+      const rec = isRecord(raw) ? raw : {};
+      const headers = asArray(rec.headers).map((h) => cleanText(h));
+      const rows = asArray(rec.rows).map((row) => asArray(row).map((c) => strip(cleanText(c))));
+      const sheetId = `sheet-${i + 1}`;
+      sheetOrder.push(sheetId);
+      const cellData: Record<number, Record<number, { v: string }>> = {};
+      headers.forEach((h, c) => { if (h) (cellData[0] = cellData[0] || {})[c] = { v: h }; });
+      rows.forEach((row, r) => { row.forEach((v, c) => { if (v) (cellData[r + 1] = cellData[r + 1] || {})[c] = { v }; }); });
+      sheets[sheetId] = {
+        id: sheetId,
+        name: cleanText(rec.name) || `数据表${i + 1}`,
+        cellData,
+        rowCount: Math.max(rows.length + 11, 40),
+        columnCount: Math.max(headers.length + 4, 12),
+        mergeData: [],
+      };
     });
-    const headers = idx >= 0 ? sheet.headers.filter((_, i) => i !== idx) : sheet.headers;
-    const rows = idx >= 0 ? keptRows.map((r) => r.filter((_, i) => i !== idx)) : keptRows;
-    return { ...sheet, headers, rows };
-  }
-
-  /** 列出全部数据表的元信息（不含明细行，任意研发读权限可见）。 */
-  async listSheets(): Promise<Array<{ id: string; name: string; updated_at: string }>> {
-    const arr = (await this.readArray('rd.sheets')).map((s) =>
-      ResearchDevelopmentService.normalizeSheet(s),
-    );
-    const list = arr.length ? arr : [ResearchDevelopmentService.buildDefaultSheet()];
-    return list.map((s) => ({ id: s.id, name: s.name, updated_at: s.updated_at }));
-  }
-
-  /** 读取单个数据表；非完全访问者按其知识库可见分值（resolveViewerKbLevel）行级裁剪后返回。 */
-  async getSheet(
-    id: string,
-    viewer: { userId?: string; hasFullAccess: boolean },
-  ): Promise<RdSheetData & { image_urls?: Record<string, string> }> {
-    const wantedId = cleanText(id) || RD_SHEET_DEFAULT_ID;
-    const arr = (await this.readArray('rd.sheets')).map((s) =>
-      ResearchDevelopmentService.normalizeSheet(s),
-    );
-    const found =
-      arr.find((s) => s.id === wantedId) ??
-      (wantedId === RD_SHEET_DEFAULT_ID ? ResearchDevelopmentService.buildDefaultSheet() : null);
-    if (!found) throw new NotFoundException('数据表不存在');
-    if (viewer.hasFullAccess) return this.attachSheetImageUrls(found);
-    // 读侧鉴权与知识库共用同一口径：resolveViewerKbLevel（拒绝式默认 0、识别 kb_level_scale），
-    // 而非写/上传侧的 getUserKbLevel（默认 20、不认 scale）。保证「同一个人员管理分值」在
-    // 数据表与知识库被一致解读，且未配置者按最严处理（仅见密级 0 的公开行）。
-    const score = await this.resolveViewerKbLevel(viewer.userId);
-    // 先裁剪后签发：图片预览 URL 只为该 viewer 可见行内的标记生成。
-    return this.attachSheetImageUrls(ResearchDevelopmentService.redactSheet(found, score));
+    if (!sheetOrder.length) return ResearchDevelopmentService.buildEmptyWorkbookSnapshot();
+    return { id: RD_SHEET_WORKBOOK_ID, name: '研发数据表', sheetOrder, sheets, styles: {}, resources: [] };
   }
 
   /**
-   * 上传数据表单元格图片（仅编辑者，controller 守门）。图片入 OSS，调用方把返回的
-   * key 以「[图片:key]」标记写进单元格。OSS 未配置时直接报错——图片不降级 base64
-   * 进单元格（会撑爆 JSON 存储且绕开行级预览签发模型）。
+   * 读取研发数据表工作簿快照（page:rd-sheet 只读 / rd-sheet:edit 可编辑，均拿全量；已无行级密级）。
+   * 新格式直接返回；旧扁平格式按值迁移成快照（不落库，下次保存才以新格式写回）。
    */
-  async uploadSheetImages(
-    files: Array<{ originalname: string; mimetype?: string; size?: number; buffer: Buffer }>,
-  ): Promise<Array<{ key: string; url: string; name: string }>> {
-    if (!files.length) throw new BadRequestException('未收到图片文件');
-    if (files.length > RD_SHEET_IMAGE_MAX_FILES) {
-      throw new BadRequestException(`一次最多上传 ${RD_SHEET_IMAGE_MAX_FILES} 张图片`);
+  async getSheetWorkbook(): Promise<{ snapshot: JsonRecord; updated_at: string; updated_by: string | null }> {
+    const raw = await this.readValue('rd.sheets');
+    if (isRecord(raw) && isRecord((raw as JsonRecord).snapshot)) {
+      const rec = raw as JsonRecord;
+      return {
+        snapshot: rec.snapshot as JsonRecord,
+        updated_at: cleanText(rec.updated_at) || new Date().toISOString(),
+        updated_by: cleanText(rec.updated_by) || null,
+      };
     }
-    for (const f of files) {
-      if (!RD_SHEET_IMAGE_MIME_TYPES.has((f.mimetype ?? '').toLowerCase())) {
-        throw new BadRequestException(
-          `「${f.originalname}」不是支持的图片格式（支持 JPG/PNG/WebP/GIF/BMP）`,
-        );
-      }
-      if ((f.size ?? f.buffer.length) > RD_SHEET_IMAGE_MAX_BYTES) {
-        throw new BadRequestException(`图片「${f.originalname}」超过单张 10MB 限制`);
-      }
+    if (Array.isArray(raw) && raw.length > 0) {
+      return { snapshot: ResearchDevelopmentService.migrateFlatSheetsToSnapshot(raw), updated_at: new Date().toISOString(), updated_by: null };
     }
-    return Promise.all(
-      files.map(async (f) => {
-        const key = await this.ossService.uploadBuffer(
-          f.buffer,
-          RD_SHEET_IMAGE_BUSINESS_TYPE,
-          f.originalname,
-          f.mimetype,
-        );
-        if (!key) throw new BadRequestException('图片存储失败（OSS 未配置或不可用）');
-        const url = this.buildSheetImagePreviewUrl(key);
-        if (!url) throw new BadRequestException('图片预览地址签发失败');
-        return { key, url, name: f.originalname };
-      }),
-    );
+    return { snapshot: ResearchDevelopmentService.buildEmptyWorkbookSnapshot(), updated_at: new Date().toISOString(), updated_by: null };
   }
 
-  /** 同源 HMAC 预览 URL（走本模块 GET /oss-preview，规避 bucket 强制下载且无需登录头）。 */
-  private buildSheetImagePreviewUrl(objectKey: string): string | null {
-    try {
-      const { exp, sig } = this.ossService.signPreviewToken(objectKey, 24 * 3600);
-      const params = new URLSearchParams({ key: objectKey, exp: String(exp), sig });
-      return `/api/research-development/oss-preview?${params.toString()}`;
-    } catch {
-      return null;
+  /** 保存整簿快照（仅 rd-sheet:edit / 超管，controller 守门）。 */
+  async saveSheetWorkbook(snapshot: unknown, editorId?: string | null): Promise<{ snapshot: JsonRecord; updated_at: string; updated_by: string | null }> {
+    if (!isRecord(snapshot) || !isRecord((snapshot as JsonRecord).sheets)) {
+      throw new BadRequestException('工作簿快照格式不正确');
     }
-  }
-
-  /**
-   * 为（已按 viewer 裁剪过的）表内全部图片标记签发预览 URL。
-   * 仅认本业务前缀的 key——防止借单元格标记让后端为其他业务的 OSS 对象签 URL。
-   */
-  private attachSheetImageUrls(
-    sheet: RdSheetData,
-  ): RdSheetData & { image_urls?: Record<string, string> } {
-    const keys = new Set<string>();
-    for (const row of sheet.rows) {
-      for (const cell of row) {
-        if (!cell || !cell.includes('[图片:')) continue;
-        for (const m of cell.matchAll(RD_SHEET_IMAGE_MARK_RE)) {
-          const key = m[1];
-          if (key && key.includes(`/${RD_SHEET_IMAGE_BUSINESS_TYPE}/`)) keys.add(key);
-        }
-      }
-    }
-    if (!keys.size) return sheet;
-    const image_urls: Record<string, string> = {};
-    for (const key of keys) {
-      const url = this.buildSheetImagePreviewUrl(key);
-      if (url) image_urls[key] = url;
-    }
-    return { ...sheet, image_urls };
-  }
-
-  /**
-   * 保存数据表（仅 rd-sheet:edit / 超管，由 controller 守门）。
-   * 编辑者天然拥有完全访问（GET 时不裁剪），故这里始终写入完整未裁剪数据，
-   * 杜绝「读到裁剪版 → 回写 → 丢失隐藏行」的越权风险。
-   */
-  async saveSheet(id: string, payload: unknown, editorId?: string | null): Promise<RdSheetData> {
-    const wantedId = cleanText(id) || RD_SHEET_DEFAULT_ID;
-    const incoming = ResearchDevelopmentService.normalizeSheet(
-      isRecord(payload) ? { ...payload, id: wantedId } : { id: wantedId },
-    );
-    incoming.updated_at = new Date().toISOString();
-    incoming.updated_by = cleanText(editorId) || null;
-    const arr = (await this.readArray('rd.sheets')).map((s) =>
-      ResearchDevelopmentService.normalizeSheet(s),
-    );
-    const next = arr.some((s) => s.id === wantedId)
-      ? arr.map((s) => (s.id === wantedId ? incoming : s))
-      : [...arr, incoming];
-    await this.writeValue('rd.sheets', next);
-    return incoming;
-  }
-
-  /**
-   * 整簿替换保存（仅 rd-sheet:edit / 超管，由 controller 守门）：
-   * 以提交的数组整体覆盖 rd.sheets——未包含的旧表即被删除（删表语义由此实现）。
-   * 与 saveSheet 同理，编辑者读取时不裁剪，故写入的始终是完整数据。
-   */
-  async saveAllSheets(payload: unknown, editorId?: string | null): Promise<RdSheetData[]> {
-    if (!Array.isArray(payload) || payload.length === 0) {
-      throw new BadRequestException('至少需要保留一张数据表');
-    }
-    if (payload.length > 50) throw new BadRequestException('数据表数量超出上限（50）');
-    const now = new Date().toISOString();
-    const editor = cleanText(editorId) || null;
-    const seen = new Set<string>();
-    const next = payload.map((item, i) => {
-      const sheet = ResearchDevelopmentService.normalizeSheet(item);
-      // 整簿提交里 id 缺省/重复时重新生成，避免 normalizeSheet 的默认 id 互相覆盖。
-      if (!isRecord(item) || !cleanText(item.id) || seen.has(sheet.id)) {
-        sheet.id = `rd-sheet-${Date.now().toString(36)}-${i}`;
-      }
-      seen.add(sheet.id);
-      sheet.updated_at = now;
-      sheet.updated_by = editor;
-      return sheet;
-    });
-    await this.writeValue('rd.sheets', next);
-    return next;
+    const updated_at = new Date().toISOString();
+    const updated_by = cleanText(editorId) || null;
+    await this.writeValue('rd.sheets', { snapshot, updated_at, updated_by });
+    return { snapshot: snapshot as JsonRecord, updated_at, updated_by };
   }
 
   private async readArray(key: RdStoreKey) {

@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 
 import { OcrModule } from '../ocr/ocr.module';
 import { RagModule } from '../rag/rag.module';
+import { DeptKbGuard } from './dept-kb.guard';
+import { DeptKnowledgeController } from './dept-knowledge.controller';
 import { RdAiController } from './rd-ai.controller';
 import { RdAiService } from './rd-ai.service';
 import { RdDailyReportCron } from './rd-daily-report.cron';
@@ -11,7 +13,7 @@ import { ResearchDevelopmentService } from './research-development.service';
 
 @Module({
   imports: [OcrModule, RagModule],
-  controllers: [ResearchDevelopmentController, RdAiController],
-  providers: [ResearchDevelopmentService, RdAiService, RdDailyReportCron, RdMonthlyReportCron],
+  controllers: [ResearchDevelopmentController, DeptKnowledgeController, RdAiController],
+  providers: [ResearchDevelopmentService, RdAiService, RdDailyReportCron, RdMonthlyReportCron, DeptKbGuard],
 })
 export class ResearchDevelopmentModule {}

@@ -48,6 +48,26 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'rd-kb:category:delete', label: '删除知识库分类', description: '删除空分类（含子分类）', groupLabel: '操作权限 · 研发知识库', type: 'action', sortOrder: 101 },
   { code: 'rd-kb:manage', label: '管理知识库（兼容旧权限）', description: '旧的笼统管理权限，建议改用上面细分的权限；后端仍兼容此权限以避免历史角色失效', groupLabel: '操作权限 · 研发知识库', type: 'action', sortOrder: 102 },
 
+  // ─── 部门知识库（8 个部门各一个独立库；逻辑同研发知识库，按部门页面码隔离）─────────────
+  // 页面访问：每部门一个页面码，决定该用户「属于哪个部门库」（后端 DeptKbGuard 按 kbId 动态校验）
+  { code: 'page:dept-kb-gm', label: '总经办知识库', description: '总经办部门知识沉淀与分级查阅', groupLabel: '页面访问 · 部门知识库', type: 'page', routePath: '/dept-kb/gm', sortOrder: 660 },
+  { code: 'page:dept-kb-hr', label: '人事行政部知识库', description: '人事行政部门知识沉淀与分级查阅', groupLabel: '页面访问 · 部门知识库', type: 'page', routePath: '/dept-kb/hr', sortOrder: 661 },
+  { code: 'page:dept-kb-finance', label: '财务部知识库', description: '财务部门知识沉淀与分级查阅', groupLabel: '页面访问 · 部门知识库', type: 'page', routePath: '/dept-kb/finance', sortOrder: 662 },
+  { code: 'page:dept-kb-purchasing', label: '采购部知识库', description: '采购部门知识沉淀与分级查阅', groupLabel: '页面访问 · 部门知识库', type: 'page', routePath: '/dept-kb/purchasing', sortOrder: 663 },
+  { code: 'page:dept-kb-production', label: '生产部知识库', description: '生产部门知识沉淀与分级查阅', groupLabel: '页面访问 · 部门知识库', type: 'page', routePath: '/dept-kb/production', sortOrder: 664 },
+  { code: 'page:dept-kb-tech-rd', label: '技术研发部知识库', description: '技术研发部门知识沉淀与分级查阅', groupLabel: '页面访问 · 部门知识库', type: 'page', routePath: '/dept-kb/tech-rd', sortOrder: 665 },
+  { code: 'page:dept-kb-quality', label: '质量部知识库', description: '质量部门知识沉淀与分级查阅', groupLabel: '页面访问 · 部门知识库', type: 'page', routePath: '/dept-kb/quality', sortOrder: 666 },
+  { code: 'page:dept-kb-sales', label: '销售部知识库', description: '销售部门知识沉淀与分级查阅', groupLabel: '页面访问 · 部门知识库', type: 'page', routePath: '/dept-kb/sales', sortOrder: 667 },
+  // 操作权限：8 个部门库共用同一套操作码（归属由页面码决定）
+  { code: 'dept-kb:upload', label: '上传部门知识库文件', description: '向所属部门知识库上传文件（含拖拽 / 文件选择）', groupLabel: '操作权限 · 部门知识库', type: 'action', sortOrder: 670 },
+  { code: 'dept-kb:entry:edit', label: '编辑部门知识库文件', description: '修改已上传文件的名称、描述、标签、权限分值', groupLabel: '操作权限 · 部门知识库', type: 'action', sortOrder: 671 },
+  { code: 'dept-kb:entry:move', label: '移动部门知识库文件', description: '把文件在分类之间移动归位', groupLabel: '操作权限 · 部门知识库', type: 'action', sortOrder: 672 },
+  { code: 'dept-kb:entry:delete', label: '删除部门知识库文件', description: '删除已上传的文件', groupLabel: '操作权限 · 部门知识库', type: 'action', sortOrder: 673 },
+  { code: 'dept-kb:category:create', label: '新增部门知识库分类', description: '新建一级或子级分类', groupLabel: '操作权限 · 部门知识库', type: 'action', sortOrder: 674 },
+  { code: 'dept-kb:category:edit', label: '编辑部门知识库分类', description: '修改分类名称 / 图标 / 颜色', groupLabel: '操作权限 · 部门知识库', type: 'action', sortOrder: 675 },
+  { code: 'dept-kb:category:delete', label: '删除部门知识库分类', description: '删除空分类（含子分类）', groupLabel: '操作权限 · 部门知识库', type: 'action', sortOrder: 676 },
+  { code: 'dept-kb:manage', label: '管理部门知识库', description: '可设置文件权限分值，隐含全部上传/编辑/分类操作', groupLabel: '操作权限 · 部门知识库', type: 'action', sortOrder: 677 },
+
   // 立项流程操作权限
   { code: 'rd-project:propose', label: '立项申请', description: '提交立项需求，进入审核队列', groupLabel: '操作权限 · 立项流程', type: 'action', sortOrder: 90 },
   { code: 'rd-project:review-l1', label: '立项一审', description: '研发管理员审核立项（多级中的第一级）', groupLabel: '操作权限 · 立项流程', type: 'action', sortOrder: 91 },

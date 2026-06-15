@@ -55,6 +55,21 @@ export type NavGroup = {
   items: NavItem[];
 };
 
+/**
+ * 部门知识库清单（与后端 dept-knowledge.constants.ts 的 DEPT_KBS 保持一致）。
+ * id 为永久标识：路由 /dept-kb/{id}、页面码 page:dept-kb-{id}、存储键全部依赖它，确定后不可更名。
+ */
+export const DEPT_KBS: { id: string; label: string }[] = [
+  { id: "gm", label: "总经办" },
+  { id: "hr", label: "人事行政部" },
+  { id: "finance", label: "财务部" },
+  { id: "purchasing", label: "采购部" },
+  { id: "production", label: "生产部" },
+  { id: "tech-rd", label: "技术研发部" },
+  { id: "quality", label: "质量部" },
+  { id: "sales", label: "销售部" },
+];
+
 export const navGroups: NavGroup[] = [
   {
     label: "总览",
@@ -73,6 +88,15 @@ export const navGroups: NavGroup[] = [
       { label: "操作留痕", path: "/rd-audit-log", icon: ShieldCheck, requiredPermission: "page:rd-audit-log" },
       { label: "研发 AI 策略", path: "/rd-ai-settings", icon: Bot, requiredPermission: "page:rd-ai-settings" },
     ],
+  },
+  {
+    label: "部门知识库",
+    items: DEPT_KBS.map((d) => ({
+      label: `${d.label}知识库`,
+      path: `/dept-kb/${d.id}`,
+      icon: BookOpen,
+      requiredPermission: `page:dept-kb-${d.id}`,
+    })),
   },
   {
     label: "信息流转",

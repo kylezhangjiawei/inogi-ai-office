@@ -37,17 +37,6 @@ function buildKbViewer(req: AuthedRequest): { userId?: string; hasFullAccess: bo
   return { userId: req.user?.id, hasFullAccess };
 }
 
-/**
- * 研发数据表专用 viewer：「看全部」= 编辑权限（* / rd-sheet:edit）。
- * 编辑者天然完全访问（不裁剪），其余人按各自 kb_level 行级裁剪。
- * 不能用任务管理权限（rd-task:reassign 等）——否则会绕过密级过滤看到全部敏感行。
- */
-function buildSheetViewer(req: AuthedRequest): { userId?: string; hasFullAccess: boolean } {
-  const perms = req.user?.permissions ?? [];
-  const hasFullAccess = perms.includes('*') || perms.includes('rd-sheet:edit');
-  return { userId: req.user?.id, hasFullAccess };
-}
-
 @Controller('research-development')
 @Permissions(...RD_READ_PERMISSIONS)
 export class ResearchDevelopmentController {
@@ -614,49 +603,20 @@ export class ResearchDevelopmentController {
     return this.rdService.planFileIngestion(payload);
   }
 
-  // ── 研发数据表（类 WPS 表格 · 行级密级管控）─────────────────────────────────
+  // ── 研发数据表（B2：Univer 工作簿快照 · 已去除行级密级）────────────────────────
 
-  /** 列出数据表元信息。读权限（page:rd-sheet）或编辑权限均可访问。 */
-  @Get('sheets')
+  /** 读取整簿快照。page:rd-sheet 只读查看 / rd-sheet:edit 可编辑，均拿全量（已无行级密级）。 */
+  @Get('sheet-workbook')
   @Permissions('page:rd-sheet', 'rd-sheet:edit')
-  listSheets() {
-    return this.rdService.listSheets();
+  getSheetWorkbook() {
+    return this.rdService.getSheetWorkbook();
   }
 
-  /** 读取单表。后端按 viewer 的密级分值行级裁剪；编辑者拿全量。 */
-  @Get('sheet/:id')
-  @Permissions('page:rd-sheet', 'rd-sheet:edit')
-  getSheet(@Param('id') id: string, @Request() req: AuthedRequest) {
-    return this.rdService.getSheet(id, buildSheetViewer(req));
-  }
-
-  /** 保存单表（仅编辑者）。始终写入完整未裁剪数据。 */
-  @Put('sheet/:id')
+  /** 保存整簿快照（仅编辑者 rd-sheet:edit / 超管）。 */
+  @Put('sheet-workbook')
   @Permissions('rd-sheet:edit')
-  saveSheet(
-    @Param('id') id: string,
-    @Body() payload: Record<string, unknown>,
-    @Request() req: AuthedRequest,
-  ) {
-    return this.rdService.saveSheet(id, payload, req.user?.id);
-  }
-
-  /** 整簿替换保存全部数据表（仅编辑者）。多工作表导入 / 工作簿编辑（增删表）用。 */
-  @Put('sheets')
-  @Permissions('rd-sheet:edit')
-  saveAllSheets(@Body() payload: unknown[], @Request() req: AuthedRequest) {
-    return this.rdService.saveAllSheets(payload, req.user?.id);
-  }
-
-  /** 上传数据表单元格图片（仅编辑者）。返回 [{key,url}]，key 以 [图片:key] 标记写入单元格。 */
-  @Post('sheet-images')
-  @Permissions('rd-sheet:edit')
-  @UseInterceptors(FilesInterceptor('files', 30))
-  uploadSheetImages(
-    @UploadedFiles()
-    files: Array<{ originalname: string; mimetype?: string; size?: number; buffer: Buffer }> | undefined,
-  ) {
-    return this.rdService.uploadSheetImages(files ?? []);
+  saveSheetWorkbook(@Body() body: { snapshot?: unknown }, @Request() req: AuthedRequest) {
+    return this.rdService.saveSheetWorkbook(body?.snapshot, req.user?.id);
   }
 
   // ── Knowledge Base ────────────────────────────────────────────────────────
