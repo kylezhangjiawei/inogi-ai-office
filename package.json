@@ -43,6 +43,7 @@
     "@radix-ui/react-toggle-group": "1.1.2",
     "@radix-ui/react-tooltip": "1.1.8",
     "@univerjs/preset-sheets-core": "^0.25.0",
+    "@univerjs/preset-sheets-drawing": "^0.25.0",
     "@univerjs/presets": "^0.25.0",
     "canvas-confetti": "1.9.4",
     "class-variance-authority": "0.7.1",
