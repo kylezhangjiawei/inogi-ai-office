@@ -141,6 +141,68 @@ function decodeAddr(addr: string): { r: number; c: number } | null {
   return { r: Number(m[2]) - 1, c: c - 1 };
 }
 
+// ── 样式映射：ExcelJS 样式 → Univer IStyleData ─────────────────────────────────
+type ExcelColor = { argb?: string; theme?: number; indexed?: number } | undefined;
+/** ExcelJS ARGB（AARRGGBB）→ Univer #RRGGBB；全透明 / 非 argb（主题色等）返回 undefined。 */
+function argbToHex(c: ExcelColor): string | undefined {
+  const argb = c && typeof c.argb === "string" ? c.argb : "";
+  if (!/^[0-9a-fA-F]{8}$/.test(argb)) return undefined;
+  if (argb.slice(0, 2).toLowerCase() === "00") return undefined;
+  return "#" + argb.slice(2).toUpperCase();
+}
+const H_ALIGN: Record<string, number> = { left: 1, center: 2, right: 3, justify: 4, fill: 1, distributed: 6, centerContinuous: 2 };
+const V_ALIGN: Record<string, number> = { top: 1, middle: 2, bottom: 3 };
+const BORDER_STYLE: Record<string, number> = {
+  thin: 1, hair: 2, dotted: 3, dashed: 4, dashDot: 5, dashDotDot: 6, double: 7,
+  medium: 8, mediumDashed: 9, mediumDashDot: 10, mediumDashDotDot: 11, slantDashDot: 12, thick: 13,
+};
+function borderSide(side: { style?: string; color?: ExcelColor } | undefined): Json | undefined {
+  if (!side || !side.style) return undefined;
+  return { s: BORDER_STYLE[side.style] ?? 1, cl: { rgb: argbToHex(side.color) || "#000000" } };
+}
+/** 从 ExcelJS 单元格构建 Univer 样式对象（无样式则返回空对象，由 internStyle 丢弃）。 */
+function buildCellStyle(cell: unknown): Json {
+  const c = cell as {
+    font?: { name?: string; size?: number; bold?: boolean; italic?: boolean; underline?: unknown; strike?: boolean; color?: ExcelColor };
+    fill?: { type?: string; pattern?: string; fgColor?: ExcelColor };
+    alignment?: { horizontal?: string; vertical?: string; wrapText?: boolean };
+    border?: { top?: { style?: string; color?: ExcelColor }; bottom?: { style?: string; color?: ExcelColor }; left?: { style?: string; color?: ExcelColor }; right?: { style?: string; color?: ExcelColor } };
+  };
+  const st: Json = {};
+  const f = c.font;
+  if (f) {
+    if (f.name) st.ff = String(f.name);
+    if (f.size) st.fs = Number(f.size);
+    if (f.bold) st.bl = 1;
+    if (f.italic) st.it = 1;
+    if (f.underline) st.ul = { s: 1 };
+    if (f.strike) st.st = { s: 1 };
+    const cl = argbToHex(f.color);
+    if (cl) st.cl = { rgb: cl };
+  }
+  const fl = c.fill;
+  if (fl && fl.type === "pattern" && fl.fgColor) {
+    const bg = argbToHex(fl.fgColor);
+    if (bg) st.bg = { rgb: bg };
+  }
+  const al = c.alignment;
+  if (al) {
+    if (al.horizontal && H_ALIGN[al.horizontal]) st.ht = H_ALIGN[al.horizontal];
+    if (al.vertical && V_ALIGN[al.vertical]) st.vt = V_ALIGN[al.vertical];
+    if (al.wrapText) st.tb = 3;
+  }
+  const bd = c.border;
+  if (bd) {
+    const border: Json = {};
+    const t = borderSide(bd.top); if (t) border.t = t;
+    const b = borderSide(bd.bottom); if (b) border.b = b;
+    const l = borderSide(bd.left); if (l) border.l = l;
+    const r = borderSide(bd.right); if (r) border.r = r;
+    if (Object.keys(border).length) st.bd = border;
+  }
+  return st;
+}
+
 export async function xlsxToUniverSnapshot(buf: ArrayBuffer, unitId: string): Promise<Json> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(buf);
@@ -152,6 +214,21 @@ export async function xlsxToUniverSnapshot(buf: ArrayBuffer, unitId: string): Pr
     const [url, dims] = await Promise.all([blobToDataUrl(img.blob), imageDims(img.blob)]);
     dispimg.set(id, { url, w: dims.w, h: dims.h });
   }
+
+  // 工作簿级样式注册表（去重）：cellData[r][c].s 引用其 id；空样式不入册。
+  const styles: Record<string, Json> = {};
+  const styleCache = new Map<string, string>();
+  let styleSeq = 0;
+  const internStyle = (st: Json): string | undefined => {
+    if (!Object.keys(st).length) return undefined;
+    const key = JSON.stringify(st);
+    const hit = styleCache.get(key);
+    if (hit) return hit;
+    const id = `s${++styleSeq}`;
+    styles[id] = st;
+    styleCache.set(key, id);
+    return id;
+  };
 
   const sheets: Record<string, unknown> = {};
   const sheetOrder: string[] = [];
@@ -181,7 +258,8 @@ export async function xlsxToUniverSnapshot(buf: ArrayBuffer, unitId: string): Pr
         if (dm && dispimg.has(dm[1])) { dispimgAt.push({ r, c, id: dm[1] }); return; }
         const v = cellValue(cell.value);
         if (v === null || v === "") return;
-        (cellData[r] = cellData[r] || {})[c] = { v };
+        const sid = internStyle(buildCellStyle(cell));
+        (cellData[r] = cellData[r] || {})[c] = sid ? { v, s: sid } : { v };
       });
     });
 
@@ -270,5 +348,5 @@ export async function xlsxToUniverSnapshot(buf: ArrayBuffer, unitId: string): Pr
     resources.push({ name: SHEET_DRAWING_PLUGIN, data: JSON.stringify(drawingResource) });
   }
 
-  return { id: unitId, name: "研发数据表", sheetOrder, sheets, resources, styles: {} };
+  return { id: unitId, name: "研发数据表", sheetOrder, sheets, resources, styles };
 }
