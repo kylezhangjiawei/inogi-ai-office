@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "build": "vite build",
+    "build": "node --max-old-space-size=4096 ./node_modules/vite/bin/vite.js build",
     "dev": "node ./scripts/dev-all.mjs",
     "dev:web": "vite",
     "dev:api": "npm --prefix apps/api run start:dev",
