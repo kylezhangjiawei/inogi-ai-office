@@ -10,7 +10,7 @@
  * 维度防爆：绝不用 ws.rowCount/columnCount（Excel 整列格式会让它们高达百万级，循环会卡死），
  * 一律以实际有数据/图片的范围为准并封顶。
  */
-import ExcelJS from "exceljs";
+import type ExcelJS from "exceljs"; // 仅类型；运行时在 xlsxToUniverSnapshot 内动态 import，拆成独立 chunk
 
 import { extractXlsxImages } from "./xlsxImages";
 
@@ -204,7 +204,11 @@ function buildCellStyle(cell: unknown): Json {
 }
 
 export async function xlsxToUniverSnapshot(buf: ArrayBuffer, unitId: string): Promise<Json> {
-  const wb = new ExcelJS.Workbook();
+  // 动态加载 ExcelJS：体积大，拆成独立异步 chunk —— 仅在真正导入时才下载，
+  // 同时减小数据表页首屏 chunk 与构建峰值内存。
+  const mod = await import("exceljs");
+  const ExcelJSLib = ((mod as { default?: typeof ExcelJS }).default ?? mod) as typeof ExcelJS;
+  const wb = new ExcelJSLib.Workbook();
   await wb.xlsx.load(buf);
   const media = buildMediaMap(wb);
   const extra = await extractXlsxImages(buf);

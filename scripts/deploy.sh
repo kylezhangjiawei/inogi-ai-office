@@ -36,6 +36,9 @@ export NODEJS_ORG_MIRROR="https://registry.npmmirror.com/-/binary/node"
 export NVM_NODEJS_ORG_MIRROR="https://registry.npmmirror.com/-/binary/node"
 export SHARP_BINARY_HOST="https://registry.npmmirror.com/-/binary/sharp"
 export SHARP_LIBVIPS_BINARY_HOST="https://registry.npmmirror.com/-/binary/sharp-libvips"
+# 前端构建内存上限：Node 默认堆 ~2GB，Univer/ExcelJS 等大依赖构建峰值会超而 OOM，统一抬到 4GB。
+# 放在环境层 → 任何构建路径都生效（package.json 里也有同值的 --max-old-space-size 作双保险）。
+export NODE_OPTIONS="--max-old-space-size=4096 ${NODE_OPTIONS:-}"
 
 # ------------------------------- 工具 -------------------------------
 ts() { date +"%Y-%m-%d %H:%M:%S"; }
