@@ -55,7 +55,7 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'page:dept-kb-finance', label: '财务部知识库', description: '财务部门知识沉淀与分级查阅', groupLabel: '页面访问 · 部门知识库', type: 'page', routePath: '/dept-kb/finance', sortOrder: 662 },
   { code: 'page:dept-kb-purchasing', label: '采购部知识库', description: '采购部门知识沉淀与分级查阅', groupLabel: '页面访问 · 部门知识库', type: 'page', routePath: '/dept-kb/purchasing', sortOrder: 663 },
   { code: 'page:dept-kb-production', label: '生产部知识库', description: '生产部门知识沉淀与分级查阅', groupLabel: '页面访问 · 部门知识库', type: 'page', routePath: '/dept-kb/production', sortOrder: 664 },
-  { code: 'page:dept-kb-tech-rd', label: '技术研发部知识库', description: '技术研发部门知识沉淀与分级查阅', groupLabel: '页面访问 · 部门知识库', type: 'page', routePath: '/dept-kb/tech-rd', sortOrder: 665 },
+  // 技术研发部不单设部门库：研发团队统一用「研发知识库」(page:rd-knowledge-base)，故此处不再有 page:dept-kb-tech-rd。
   { code: 'page:dept-kb-quality', label: '质量部知识库', description: '质量部门知识沉淀与分级查阅', groupLabel: '页面访问 · 部门知识库', type: 'page', routePath: '/dept-kb/quality', sortOrder: 666 },
   { code: 'page:dept-kb-sales', label: '销售部知识库', description: '销售部门知识沉淀与分级查阅', groupLabel: '页面访问 · 部门知识库', type: 'page', routePath: '/dept-kb/sales', sortOrder: 667 },
   // 操作权限：8 个部门库共用同一套操作码（归属由页面码决定）

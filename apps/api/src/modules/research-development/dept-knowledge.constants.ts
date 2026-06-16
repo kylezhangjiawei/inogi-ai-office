@@ -11,14 +11,17 @@
 
 export type DeptKbDef = { id: string; label: string };
 
-/** 8 个部门固定硬编码（不绑定 DB 的 Department 表——后者与此清单对不上）。 */
+/**
+ * 部门知识库清单（固定硬编码，不绑定 DB 的 Department 表）。
+ * 技术研发部不单设部门库——研发团队统一用「研发知识库」(page:rd-knowledge-base / 全功能页)，
+ * 故这里不含 tech-rd；其页面码 page:dept-kb-tech-rd 已从权限目录默认值移除。
+ */
 export const DEPT_KBS: DeptKbDef[] = [
   { id: 'gm', label: '总经办' },
   { id: 'hr', label: '人事行政部' },
   { id: 'finance', label: '财务部' },
   { id: 'purchasing', label: '采购部' },
   { id: 'production', label: '生产部' },
-  { id: 'tech-rd', label: '技术研发部' },
   { id: 'quality', label: '质量部' },
   { id: 'sales', label: '销售部' },
 ];

@@ -65,7 +65,6 @@ export const DEPT_KBS: { id: string; label: string }[] = [
   { id: "finance", label: "财务部" },
   { id: "purchasing", label: "采购部" },
   { id: "production", label: "生产部" },
-  { id: "tech-rd", label: "技术研发部" },
   { id: "quality", label: "质量部" },
   { id: "sales", label: "销售部" },
 ];
@@ -81,7 +80,7 @@ export const navGroups: NavGroup[] = [
       { label: "研发任务驾驶舱", path: "/rd-task-management", icon: LayoutGrid, requiredPermission: "page:rd-task-management" },
       { label: "个人工作台", path: "/rd-my-workspace", icon: GanttChartSquare, requiredPermission: "page:rd-my-workspace" },
       { label: "研发数据表", path: "/rd-sheet", icon: FileSpreadsheet, requiredPermission: "page:rd-sheet" },
-      { label: "研发知识库", path: "/rd-knowledge-base", icon: BookOpen, requiredPermission: "page:rd-knowledge-base" },
+      // 「研发知识库」入口已移到下方「部门知识库」分组（仍指向 /rd-knowledge-base 原页面）
       // 研发主管驾驶舱 — 导航可见性由页面路由管理中的「导航」开关控制（默认隐藏）
       { label: "研发主管驾驶舱", path: "/rd-director-dashboard", icon: Telescope, requiredPermission: "page:rd-director-dashboard" },
       { label: "审批流配置", path: "/rd-approval-flow", icon: GitBranch, requiredPermission: "page:rd-approval-flow" },
@@ -91,12 +90,17 @@ export const navGroups: NavGroup[] = [
   },
   {
     label: "部门知识库",
-    items: DEPT_KBS.map((d) => ({
-      label: `${d.label}知识库`,
-      path: `/dept-kb/${d.id}`,
-      icon: BookOpen,
-      requiredPermission: `page:dept-kb-${d.id}`,
-    })),
+    items: [
+      ...DEPT_KBS.map((d) => ({
+        label: `${d.label}知识库`,
+        path: `/dept-kb/${d.id}`,
+        icon: BookOpen,
+        requiredPermission: `page:dept-kb-${d.id}`,
+      })),
+      // 「研发知识库」并入本组展示：点击仍跳转到原全功能页 /rd-knowledge-base（RAG/密级/任务入库等不变）。
+      // 技术研发部不再单设部门库，统一用研发知识库。
+      { label: "研发知识库", path: "/rd-knowledge-base", icon: BookOpen, requiredPermission: "page:rd-knowledge-base" },
+    ],
   },
   {
     label: "信息流转",
