@@ -4,12 +4,14 @@ import { toast } from "sonner";
 import {
   AtSign,
   Camera,
+  Check,
   CheckCircle2,
   Cpu,
   Eye,
   EyeOff,
   Fingerprint,
   Gauge,
+  Images,
   KeyRound,
   Loader2,
   LockKeyhole,
@@ -18,8 +20,10 @@ import {
   Save,
   ShieldAlert,
   ShieldCheck,
+  Upload,
   UserRound,
   User,
+  X,
 } from "lucide-react";
 import { getRoleLabel, useAuth } from "./auth";
 import { authFetch, readErrorMessage } from "./lib/authSession";
@@ -71,6 +75,23 @@ async function resetMyAvatar(): Promise<void> {
   if (!response.ok) throw new Error(await readErrorMessage(response, "头像重置失败"));
 }
 
+type AvatarPreset = { key: string; url: string };
+
+async function fetchAvatarPresets(): Promise<AvatarPreset[]> {
+  const response = await authFetch("/api/auth/avatar-presets");
+  if (!response.ok) throw new Error(await readErrorMessage(response, "默认头像加载失败"));
+  return response.json() as Promise<AvatarPreset[]>;
+}
+
+async function setMyAvatarPreset(key: string): Promise<{ avatarUrl: string | null }> {
+  const response = await authFetch("/api/auth/me/avatar/preset", {
+    method: "POST",
+    body: JSON.stringify({ key }),
+  });
+  if (!response.ok) throw new Error(await readErrorMessage(response, "头像设置失败"));
+  return response.json() as Promise<{ avatarUrl: string | null }>;
+}
+
 async function updatePassword(oldPassword: string, newPassword: string) {
   const response = await authFetch("/api/auth/me/password", {
     method: "POST",
@@ -94,6 +115,10 @@ export function PersonalCenterPage() {
   /** 头像上传中状态：用于禁用按钮 + 显示 spinner，让用户能感知请求进行/完成 */
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [resettingAvatar, setResettingAvatar] = useState(false);
+  /** 头像选择弹窗（双 Tab：上传自定义 / 默认头像库） */
+  const [avatarModalOpen, setAvatarModalOpen] = useState(false);
+  /** 正在设置的预置头像 key（用于在该卡片上显示 spinner） */
+  const [selectingPreset, setSelectingPreset] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showOldPassword, setShowOldPassword] = useState(false);
   const shouldReduceMotion = useReducedMotion();
@@ -139,8 +164,33 @@ export function PersonalCenterPage() {
           error: (err) => (err instanceof Error ? err.message : "头像上传失败"),
         },
       );
+      setAvatarModalOpen(false);
     } finally {
       setUploadingAvatar(false);
+    }
+  }
+
+  /** 选择某个预置头像：把当前用户 avatarObjectKey 设成该 key，再刷新 user 拿新签名 URL */
+  async function handleSelectPreset(key: string) {
+    if (!user || selectingPreset) return;
+    setSelectingPreset(key);
+    try {
+      await toast.promise(
+        (async () => {
+          await setMyAvatarPreset(key);
+          // 清掉历史本地缓存，让头像走 user.avatarUrl；并失效跨用户头像目录
+          clearStoredUserAvatar(user.id);
+          await refreshUser();
+        })(),
+        {
+          loading: "正在设置头像…",
+          success: "头像已更新",
+          error: (err) => (err instanceof Error ? err.message : "头像设置失败"),
+        },
+      );
+      setAvatarModalOpen(false);
+    } finally {
+      setSelectingPreset(null);
     }
   }
 
@@ -244,11 +294,11 @@ export function PersonalCenterPage() {
                 <motion.button
                   type="button"
                   whileTap={shouldReduceMotion || uploadingAvatar ? undefined : { scale: 0.93 }}
-                  onClick={() => fileInputRef.current?.click()}
+                  onClick={() => setAvatarModalOpen(true)}
                   disabled={uploadingAvatar || resettingAvatar}
                   className="absolute -bottom-3 -right-3 flex h-10 w-10 cursor-pointer items-center justify-center rounded-[8px] border border-primary/20 bg-primary text-primary-foreground shadow-[0_10px_24px_rgba(79,70,229,0.28)] transition hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
-                  aria-label="上传头像"
-                  title={uploadingAvatar ? "上传中，请稍候" : "选择图片上传头像"}
+                  aria-label="更换头像"
+                  title={uploadingAvatar ? "上传中，请稍候" : "更换头像（上传或选择默认头像）"}
                 >
                   {uploadingAvatar ? <Loader2 className="h-4 w-4 animate-spin" /> : <Camera className="h-4 w-4" />}
                 </motion.button>
@@ -347,8 +397,8 @@ export function PersonalCenterPage() {
               个人中心只处理个人资料；超级管理员敏感字段需通过账号治理流程变更。
             </div>
 
-            {/* reset avatar btn */}
-            {avatar ? (
+            {/* reset avatar btn —— 仅当用户设过自定义头像时显示（清掉后回到自动派发的默认头像） */}
+            {user?.hasCustomAvatar ? (
               <motion.button
                 type="button"
                 whileTap={shouldReduceMotion ? undefined : { scale: 0.98 }}
@@ -576,6 +626,208 @@ export function PersonalCenterPage() {
           </div>
         </motion.section>
       </div>
+
+      <AvatarPickerModal
+        open={avatarModalOpen}
+        onClose={() => setAvatarModalOpen(false)}
+        uploading={uploadingAvatar}
+        selectingKey={selectingPreset}
+        onPickFile={() => fileInputRef.current?.click()}
+        onSelectPreset={handleSelectPreset}
+      />
     </motion.div>
+  );
+}
+
+// ─── 头像选择弹窗 ───────────────────────────────────────────────────────────
+// 双 Tab：① 上传自定义（触发父级隐藏 file input）② 默认头像库（OSS 预置缩略图网格）。
+// 预置列表懒加载：仅当切到「默认头像库」Tab 时拉取一次，结果缓存在组件内（弹窗保持挂载）。
+
+function AvatarPickerModal({
+  open,
+  onClose,
+  uploading,
+  selectingKey,
+  onPickFile,
+  onSelectPreset,
+}: {
+  open: boolean;
+  onClose: () => void;
+  uploading: boolean;
+  selectingKey: string | null;
+  onPickFile: () => void;
+  onSelectPreset: (key: string) => void;
+}) {
+  const [tab, setTab] = useState<"upload" | "gallery">("upload");
+  const [presets, setPresets] = useState<AvatarPreset[] | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // 是否已发起过加载：用 ref（不进 effect 依赖）避免「setLoading 触发 effect 重跑→清掉在飞请求」的自失效循环
+  const loadedRef = React.useRef(false);
+
+  const loadPresets = React.useCallback(() => {
+    loadedRef.current = true;
+    setLoading(true);
+    setError(null);
+    fetchAvatarPresets()
+      .then((list) => setPresets(list))
+      .catch((err) => {
+        setError(err instanceof Error ? err.message : "默认头像加载失败");
+        loadedRef.current = false; // 失败允许重试
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  // 切到画廊 Tab 时懒加载一次（已加载过则跳过；弹窗保持挂载，缓存跨开关复用）
+  React.useEffect(() => {
+    if (open && tab === "gallery" && !loadedRef.current) loadPresets();
+  }, [open, tab, loadPresets]);
+
+  // Esc 关闭
+  React.useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  const retryLoad = () => loadPresets();
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" role="dialog" aria-modal="true">
+      <div className="absolute inset-0 bg-slate-900/55 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative flex max-h-[82vh] w-full max-w-2xl flex-col overflow-hidden rounded-[10px] border border-border bg-surface-container-lowest shadow-[0_32px_80px_rgba(15,23,42,0.28)]">
+        {/* header */}
+        <div className="flex items-center justify-between border-b border-border px-6 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] bg-primary text-primary-foreground shadow-[0_8px_18px_rgba(79,70,229,0.2)]">
+              <Camera className="h-4 w-4" />
+            </div>
+            <div>
+              <h3 className="text-sm font-black text-on-surface">更换头像</h3>
+              <p className="text-xs text-on-surface-variant">上传自定义图片，或从默认头像库中选择</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-[8px] text-on-surface-variant transition hover:bg-surface-container-high hover:text-on-surface focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/10"
+            aria-label="关闭"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* tabs */}
+        <div className="flex gap-1 border-b border-border px-4 pt-3">
+          {([
+            { id: "upload" as const, label: "上传自定义", icon: Upload },
+            { id: "gallery" as const, label: "默认头像库", icon: Images },
+          ]).map((t) => {
+            const Icon = t.icon;
+            const active = tab === t.id;
+            return (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setTab(t.id)}
+                className={`inline-flex items-center gap-2 rounded-t-[8px] px-4 py-2.5 text-sm font-bold transition ${
+                  active
+                    ? "border-b-2 border-primary text-primary"
+                    : "border-b-2 border-transparent text-on-surface-variant hover:text-on-surface"
+                }`}
+              >
+                <Icon className="h-4 w-4" />
+                {t.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* body */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {tab === "upload" ? (
+            <div className="flex flex-col items-center gap-5 py-6 text-center">
+              <div className="flex h-16 w-16 items-center justify-center rounded-[12px] border border-primary/15 bg-primary-container/60 text-primary">
+                <Upload className="h-7 w-7" />
+              </div>
+              <div>
+                <div className="text-sm font-bold text-on-surface">上传你自己的图片</div>
+                <p className="mt-1.5 max-w-sm text-xs leading-[1.7] text-on-surface-variant">
+                  支持 jpg / png / webp / gif 格式，单张不超过 10MB。图片将安全存储到 OSS。
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={onPickFile}
+                disabled={uploading}
+                className="inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-[8px] bg-primary px-5 text-sm font-bold text-primary-foreground transition hover:-translate-y-0.5 hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/15 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0"
+              >
+                {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                {uploading ? "上传中…" : "选择图片"}
+              </button>
+            </div>
+          ) : (
+            <div>
+              {loading ? (
+                <div className="flex flex-col items-center justify-center gap-3 py-12 text-on-surface-variant">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                  <span className="text-xs font-semibold">正在加载默认头像…</span>
+                </div>
+              ) : error ? (
+                <div className="flex flex-col items-center justify-center gap-3 py-12 text-center">
+                  <p className="text-xs text-destructive">{error}</p>
+                  <button
+                    type="button"
+                    onClick={retryLoad}
+                    className="inline-flex h-9 cursor-pointer items-center gap-2 rounded-[8px] border border-border bg-surface-container-low px-4 text-xs font-bold text-on-surface transition hover:border-primary/25 hover:bg-primary-container"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                    重新加载
+                  </button>
+                </div>
+              ) : presets && presets.length > 0 ? (
+                <div className="grid grid-cols-4 gap-3 sm:grid-cols-5 md:grid-cols-6">
+                  {presets.map((preset) => {
+                    const busy = selectingKey === preset.key;
+                    const disabled = Boolean(selectingKey);
+                    return (
+                      <button
+                        key={preset.key}
+                        type="button"
+                        onClick={() => onSelectPreset(preset.key)}
+                        disabled={disabled}
+                        title="选择此头像"
+                        className="group relative aspect-square overflow-hidden rounded-[10px] border border-border bg-surface-container-low transition hover:border-primary hover:shadow-[0_8px_20px_rgba(79,70,229,0.18)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/15 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        <img src={preset.url} alt="默认头像" loading="lazy" className="h-full w-full object-cover" />
+                        {busy ? (
+                          <div className="absolute inset-0 flex items-center justify-center bg-slate-900/55 text-white backdrop-blur-[1px]">
+                            <Loader2 className="h-5 w-5 animate-spin" />
+                          </div>
+                        ) : (
+                          <div className="absolute inset-0 flex items-center justify-center bg-primary/0 opacity-0 transition group-hover:bg-primary/15 group-hover:opacity-100">
+                            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground shadow">
+                              <Check className="h-4 w-4" />
+                            </span>
+                          </div>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center gap-2 py-12 text-center text-on-surface-variant">
+                  <Images className="h-8 w-8 opacity-40" />
+                  <span className="text-xs">暂无默认头像，请联系管理员上传</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

@@ -16,11 +16,15 @@ import {
   FileSpreadsheet,
   FileText,
   FileVideo,
+  Filter,
   FolderPlus,
   FlaskConical,
   FolderOpen,
+  LayoutGrid,
   Link,
+  List,
   Loader2,
+  MoreHorizontal,
   MoveRight,
   Plus,
   RefreshCw,
@@ -45,6 +49,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "./components/ui/dropdown-menu";
 import { Input } from "./components/ui/input";
 import { Label } from "./components/ui/label";
 import { NativeSelect } from "./components/ui/native-select";
@@ -58,6 +68,7 @@ import {
 } from "./components/ui/tooltip";
 import { cn } from "./components/ui/utils";
 import { useAuth } from "./auth";
+import { useAvatarDirectory } from "./lib/userAvatar";
 import { hasPermission } from "./lib/permissions";
 import { recordAudit, useAuditActor } from "./lib/auditLog";
 import { KbAdvancedPreview } from "./components/KbAdvancedPreview";
@@ -95,7 +106,7 @@ export type KbScope = { kbId: string; label: string };
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const KB_PAGE_SIZE = 9; // 每页条目数（分页）；3 列布局下正好 3 行
+const KB_PAGE_SIZE = 24; // 每页条目数（分页）；网格视图大图卡片，列表视图紧凑行
 
 const FILE_TYPE_FILTER_OPTIONS = [
   { value: 'all', label: '全部' },
@@ -345,10 +356,10 @@ function FileTypeIcon({ entry, className }: { entry: KbEntry; className?: string
 }
 
 /**
- * 卡片左上角「图标 / 缩略图」：图片类条目若有可用 URL（oss_url 优先，preview_url 兜底）则显示真实缩略图，
- * 加载失败或非图片回退到类型图标。传入 onClick 时缩略图可点开预览（与「预览」按钮一致）。
+ * 条目图片 URL 解析：图片类优先 oss_url / preview_url；列表为性能精简掉 data_url 时，
+ * 按需取一次完整条目拿 base64 兜底。fetchKbEntry 只读、不计浏览量。
  */
-function EntryThumb({ entry, onClick }: { entry: KbEntry; onClick?: () => void }) {
+function useEntryImageUrl(entry: KbEntry) {
   const kbId = useKbId();
   const fileType = getFileType(entry.file_name, entry.file_type);
   const isImage = fileType === 'image';
@@ -356,8 +367,6 @@ function EntryThumb({ entry, onClick }: { entry: KbEntry; onClick?: () => void }
   const [lazyUrl, setLazyUrl] = React.useState<string | null>(null);
   const [failed, setFailed] = React.useState(false);
 
-  // 图片但列表里没有可用直链：OSS 未配置时文件以 base64 内联存储，而列表为了性能把 data_url 精简掉了，
-  // 于是缩略图无源可用 → 这里按需取一次完整条目拿 data_url。fetchKbEntry 只读、不计浏览量（recordKbView 是独立调用）。
   React.useEffect(() => {
     if (!isImage || directUrl || lazyUrl || !entry.has_data_file) return;
     let alive = true;
@@ -367,36 +376,96 @@ function EntryThumb({ entry, onClick }: { entry: KbEntry; onClick?: () => void }
     return () => { alive = false; };
   }, [entry.id, isImage, directUrl, lazyUrl, entry.has_data_file, kbId]);
 
-  const imageUrl = directUrl ?? lazyUrl;
+  return { imageUrl: failed ? null : (directUrl ?? lazyUrl), onError: () => setFailed(true) };
+}
 
-  if (imageUrl && !failed) {
+/** 文件类型 → 封面底色 + 大图标（无图片预览时的占位封面）。 */
+function getCoverStyle(entry: KbEntry): { Icon: React.ComponentType<{ className?: string }>; tint: string; icon: string } {
+  const t = getFileType(entry.file_name, entry.file_type);
+  if (t === 'pdf') return { Icon: FileText, tint: 'bg-red-50', icon: 'text-red-400' };
+  if (t === 'image') return { Icon: FileImage, tint: 'bg-emerald-50', icon: 'text-emerald-400' };
+  if (t === 'xlsx' || t === 'doc' || t === 'docx') return { Icon: FileSpreadsheet, tint: 'bg-blue-50', icon: 'text-blue-400' };
+  if (t === 'video') return { Icon: FileVideo, tint: 'bg-violet-50', icon: 'text-violet-400' };
+  if (entry.external_url) return { Icon: Link, tint: 'bg-sky-50', icon: 'text-sky-400' };
+  return { Icon: File, tint: 'bg-slate-50', icon: 'text-slate-400' };
+}
+
+/** 卡片顶部封面：图片铺满；非图片显示带底色的大图标。填满父容器（父级定宽高比）。 */
+function EntryCover({ entry }: { entry: KbEntry }) {
+  const { imageUrl, onError } = useEntryImageUrl(entry);
+  if (imageUrl) {
     return (
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={!onClick}
-        title={onClick ? '点击预览' : undefined}
-        className={cn(
-          'shrink-0 mt-0.5 h-12 w-12 overflow-hidden rounded-lg bg-slate-50 ring-1 ring-slate-200/70',
-          onClick && 'cursor-pointer transition hover:ring-2 hover:ring-indigo-300',
-        )}
-      >
-        <img
-          src={imageUrl}
-          alt={entry.title}
-          loading="lazy"
-          draggable={false}
-          onError={() => setFailed(true)}
-          className="h-full w-full object-cover"
-        />
-      </button>
+      <img
+        src={imageUrl}
+        alt={entry.title}
+        loading="lazy"
+        draggable={false}
+        onError={onError}
+        className="h-full w-full object-cover"
+      />
     );
   }
-
+  const { Icon, tint, icon } = getCoverStyle(entry);
   return (
-    <div className="shrink-0 mt-0.5 p-2 bg-slate-50 rounded-lg ring-1 ring-slate-200/70">
-      <FileTypeIcon entry={entry} className="w-5 h-5" />
+    <div className={cn('flex h-full w-full items-center justify-center', tint)}>
+      <Icon className={cn('h-12 w-12', icon)} />
     </div>
+  );
+}
+
+/** 列表行小缩略图：图片或类型图标。 */
+function EntryThumbSmall({ entry, onClick }: { entry: KbEntry; onClick?: () => void }) {
+  const { imageUrl, onError } = useEntryImageUrl(entry);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={!onClick}
+      title={onClick ? '点击预览' : undefined}
+      className={cn(
+        'relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-slate-50 ring-1 ring-slate-200/70',
+        onClick && 'cursor-pointer transition hover:ring-2 hover:ring-indigo-300',
+      )}
+    >
+      {imageUrl ? (
+        <img src={imageUrl} alt={entry.title} loading="lazy" draggable={false} onError={onError} className="h-full w-full object-cover" />
+      ) : (
+        <span className="flex h-full w-full items-center justify-center"><FileTypeIcon entry={entry} className="h-5 w-5" /></span>
+      )}
+    </button>
+  );
+}
+
+/** 类型角标文案：优先文件扩展名（JPG/PNG/PDF…），无扩展名回退类型。 */
+function getTypeLabel(entry: KbEntry): string {
+  const name = entry.file_name ?? '';
+  const ext = name.includes('.') ? name.split('.').pop()!.toUpperCase() : '';
+  if (ext && ext.length <= 5) return ext;
+  const t = getFileType(entry.file_name, entry.file_type);
+  return t === 'image' ? 'IMG' : t.toUpperCase();
+}
+
+/** 来源副标题：有任务来源显示「来自任务 X · 标题」，否则用描述，再否则用来源标签。 */
+function entrySubtitle(entry: KbEntry): string {
+  if (entry.source_task_id) {
+    return `来自任务 ${entry.source_task_id}${entry.source_task_title ? ` · ${entry.source_task_title}` : ''}`;
+  }
+  return entry.description || (SOURCE_CONFIG[entry.source] ?? SOURCE_CONFIG.manual).label;
+}
+
+/** 上传人头像：走全站头像目录（含按 user_id 派发的默认头像），无则首字母。 */
+function UploaderAvatar({ name, userId, className }: { name?: string | null; userId?: string | null; className?: string }) {
+  const resolveAvatar = useAvatarDirectory();
+  const url = resolveAvatar(name ?? null, userId ?? null);
+  const [failed, setFailed] = React.useState(false);
+  React.useEffect(() => { setFailed(false); }, [url]);
+  if (url && !failed) {
+    return <img src={url} alt={name ?? ''} onError={() => setFailed(true)} className={cn('shrink-0 rounded-full object-cover', className)} />;
+  }
+  return (
+    <span className={cn('flex shrink-0 items-center justify-center rounded-full bg-indigo-600 font-bold text-white', className)}>
+      {(name ?? '?').charAt(0).toUpperCase()}
+    </span>
   );
 }
 
@@ -418,173 +487,186 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
   ref,
 ) {
   const kbId = useKbId();
-  const hasAnyManageAction = canEdit || canMove || canDelete;
+  const hasManage = canEdit || canMove || canDelete;
   const fileType = getFileType(entry.file_name, entry.file_type);
-  const srcCfg = SOURCE_CONFIG[entry.source] ?? SOURCE_CONFIG.manual;
   const hasFile = entry.has_data_file || !!entry.oss_url;
-  const hasAction = hasFile || !!entry.external_url;
+  const hasDownload = hasFile || !!entry.external_url;
   const isPreviewable = (
     fileType === 'image' || fileType === 'pdf' || fileType === 'video'
     || fileType === 'html' || fileType === 'text' || fileType === 'xlsx' || fileType === 'docx'
   ) && hasFile;
+  const score = entry.permission_level ?? 0;
+  const permCfg = getPermissionScoreConfig(score);
 
   return (
     <div
       ref={ref}
-      className="group relative overflow-hidden bg-white rounded-lg border border-slate-200/70 shadow-[0_1px_2px_rgba(15,23,42,0.04)] p-4 flex flex-col gap-3 transition-shadow duration-200 hover:shadow-[0_10px_22px_-8px_rgba(79,70,229,0.18)] hover:border-indigo-200/80 [content-visibility:auto] [contain-intrinsic-size:260px]"
+      className="group relative flex flex-col overflow-hidden rounded-xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-all duration-200 hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_14px_30px_-12px_rgba(79,70,229,0.28)] [content-visibility:auto] [contain-intrinsic-size:300px]"
     >
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-0.5 bg-indigo-600 opacity-60 transition-opacity duration-200 group-hover:opacity-100" />
+      {/* Cover */}
+      <div className="relative aspect-[16/10] w-full overflow-hidden bg-slate-50">
+        <EntryCover entry={entry} />
+        <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-md bg-white/90 px-1.5 py-0.5 text-[10px] font-bold text-slate-600 shadow-sm ring-1 ring-slate-200/70 backdrop-blur">
+          <FileTypeIcon entry={entry} className="h-3 w-3" />
+          {getTypeLabel(entry)}
+        </span>
+        {(isPreviewable || hasDownload) && (
+          <div className="absolute inset-0 flex items-center justify-center gap-2 bg-slate-900/35 opacity-0 backdrop-blur-[1px] transition-opacity duration-200 group-hover:opacity-100">
+            {isPreviewable && (
+              <button
+                type="button"
+                onClick={() => onPreview(entry)}
+                title="预览"
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-white/95 text-indigo-700 shadow transition hover:bg-white"
+              >
+                <Eye className="h-4 w-4" />
+              </button>
+            )}
+            {hasDownload && (
+              <button
+                type="button"
+                onClick={() => void downloadKbEntry(entry, kbId)}
+                title={entry.external_url ? '打开链接' : '下载'}
+                className="flex h-9 w-9 items-center justify-center rounded-full bg-white/95 text-slate-700 shadow transition hover:bg-white hover:text-indigo-700"
+              >
+                <ArrowDownToLine className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        )}
+      </div>
 
-      {/* Icon + title + description */}
-      <div className="flex items-start gap-3">
-        <EntryThumb entry={entry} onClick={isPreviewable ? () => onPreview(entry) : undefined} />
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-slate-900 leading-snug break-words">{entry.title}</p>
-          {entry.description && (
-            <p className="text-xs text-slate-500 mt-1 line-clamp-2 leading-relaxed">{entry.description}</p>
+      {/* Body */}
+      <div className="flex flex-1 flex-col gap-1 p-3">
+        <button
+          type="button"
+          onClick={isPreviewable ? () => onPreview(entry) : undefined}
+          disabled={!isPreviewable}
+          title={entry.title}
+          className={cn(
+            'block max-w-full truncate text-left text-sm font-semibold text-slate-900 transition-colors',
+            isPreviewable && 'cursor-pointer group-hover:text-indigo-600',
+          )}
+        >
+          {entry.title}
+        </button>
+        <p className="line-clamp-2 text-xs leading-relaxed text-slate-500" title={entrySubtitle(entry)}>
+          {entrySubtitle(entry)}
+        </p>
+
+        {/* Footer：默认显示上传人 + 权限分；悬停时浮出管理操作 */}
+        <div className="relative mt-auto flex items-center justify-between gap-2 border-t border-slate-100 pt-2">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <UploaderAvatar name={entry.created_by_name} userId={entry.created_by_id} className="h-5 w-5 text-[9px]" />
+            <div className="min-w-0 leading-tight">
+              <div className="truncate text-[11px] font-medium text-slate-600">{entry.created_by_name ?? '未知'}</div>
+              <div className="text-[10px] text-slate-400">{relativeTime(entry.created_at)}</div>
+            </div>
+          </div>
+          <span
+            className={cn('flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold', permCfg.badgeClass)}
+            title={`权限分值 ${score}/100 · ${permCfg.label}，用户分值 ≥ ${score} 方可访问`}
+          >
+            <ShieldCheck className="h-3 w-3" />
+            {score}
+          </span>
+
+          {hasManage && (
+            <div className="absolute inset-0 flex items-center justify-end gap-1 bg-white/95 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
+              {canEdit && (
+                <button type="button" onClick={() => onEdit(entry)} title="编辑" className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-indigo-50 hover:text-indigo-700">
+                  <Edit3 className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {canMove && (
+                <button type="button" onClick={() => onMove(entry)} title="移动" className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-indigo-50 hover:text-indigo-700">
+                  <MoveRight className="h-3.5 w-3.5" />
+                </button>
+              )}
+              {canDelete && (
+                <button type="button" onClick={() => onDelete(entry)} title="删除" className="flex h-7 w-7 items-center justify-center rounded-md text-red-500 transition hover:bg-red-50 hover:text-red-600">
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
           )}
         </div>
-      </div>
-
-      {/* Badges */}
-      <div className="flex items-center gap-1.5 flex-wrap">
-        <Badge variant="secondary" className={cn('text-[11px] font-medium px-2 py-0.5 rounded-md ring-1 ring-inset ring-current/10', srcCfg.className)}>
-          {srcCfg.label}
-        </Badge>
-        {(() => {
-          const score = entry.permission_level ?? 0;
-          const cfg = getPermissionScoreConfig(score);
-          return (
-            <div
-              className={cn('flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-semibold border cursor-default select-none', cfg.badgeClass)}
-              title={`权限分值 ${score}/100 · ${cfg.label}，用户分值 ≥ ${score} 方可访问`}
-            >
-              <ShieldCheck className="w-3 h-3 shrink-0" />
-              <span>{score}</span>
-              <span className="relative h-1.5 w-11 overflow-hidden rounded-full bg-white/70 ring-1 ring-current/10">
-                <span
-                  className="absolute inset-y-0 left-0 rounded-full bg-current/70"
-                  style={{ width: `${score}%` }}
-                />
-              </span>
-              <span className="font-normal opacity-70">{cfg.label}</span>
-            </div>
-          );
-        })()}
-      </div>
-
-      {/* Tags */}
-      {entry.tags.length > 0 && (
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <Tag className="w-3 h-3 text-slate-400 shrink-0" />
-          {entry.tags.slice(0, 3).map((tag) => (
-            <Badge variant="secondary" key={tag} className="text-[11px] text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded-md ring-1 ring-inset ring-slate-200/70">
-              {tag}
-            </Badge>
-          ))}
-          {entry.tags.length > 3 && <span className="text-[11px] text-slate-400">+{entry.tags.length - 3}</span>}
-        </div>
-      )}
-
-      {/* Uploader + stats */}
-      <div className="flex items-center gap-2 mt-auto pt-2 border-t border-slate-100">
-        <div className="flex items-center gap-1.5 min-w-0 flex-1">
-          <div className="h-5 w-5 rounded-full bg-indigo-600 flex items-center justify-center text-white text-[9px] font-bold shrink-0 shadow-sm">
-            {(entry.created_by_name ?? '?').charAt(0).toUpperCase()}
-          </div>
-          <span className="text-[11px] text-slate-600 font-medium truncate">{entry.created_by_name ?? '未知'}</span>
-          <span className="text-[11px] text-slate-400 shrink-0">· {relativeTime(entry.created_at)}</span>
-        </div>
-        <div className="flex items-center gap-2 shrink-0 text-[11px] text-slate-400">
-          <span className="flex items-center gap-0.5"><Eye className="w-3 h-3" />{entry.view_count}</span>
-          <span className="flex items-center gap-0.5"><ArrowDownToLine className="w-3 h-3" />{entry.download_count}</span>
-        </div>
-      </div>
-
-      {/* Action buttons — 主操作和管理操作分两行，窄屏时各自再自动换行 */}
-      <div className="flex flex-col gap-2 pt-2 border-t border-slate-100/80">
-        {/* Row 1: 主操作（预览 / 下载） */}
-        {(isPreviewable || hasAction) && (
-          <div className="flex flex-wrap items-center gap-2">
-            {isPreviewable && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => onPreview(entry)}
-                className="h-8 flex-1 min-w-[88px] rounded-lg border-indigo-100 bg-indigo-50/70 px-2.5 text-xs font-semibold text-indigo-700 hover:border-indigo-200 hover:bg-indigo-100"
-              >
-                <Eye className="w-3.5 h-3.5" />
-                预览
-              </Button>
-            )}
-            {hasAction && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => void downloadKbEntry(entry, kbId)}
-                className={cn(
-                  "h-8 flex-1 min-w-[88px] rounded-lg px-2.5 text-xs font-semibold",
-                  isPreviewable
-                    ? "border-slate-200 bg-white text-slate-700 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
-                    : "border-indigo-100 bg-indigo-50/70 text-indigo-700 hover:border-indigo-200 hover:bg-indigo-100",
-                )}
-              >
-                <ArrowDownToLine className="w-3.5 h-3.5" />
-                {entry.external_url ? '打开链接' : '下载'}
-              </Button>
-            )}
-          </div>
-        )}
-
-        {/* Row 2: 管理操作（编辑 / 移动 / 删除）— 仅在有任一管理权限时显示，靠右对齐，可换行 */}
-        {hasAnyManageAction && (
-          <div className="flex flex-wrap items-center justify-end gap-1">
-            {canEdit && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => onEdit(entry)}
-                className="h-7 px-2 text-xs font-medium text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-md gap-1"
-              >
-                <Edit3 className="w-3.5 h-3.5" />
-                编辑
-              </Button>
-            )}
-            {canMove && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => onMove(entry)}
-                className="h-7 px-2 text-xs font-medium text-slate-500 hover:text-indigo-700 hover:bg-indigo-50 rounded-md gap-1"
-              >
-                <MoveRight className="w-3.5 h-3.5" />
-                移动
-              </Button>
-            )}
-            {canDelete && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => onDelete(entry)}
-                className="h-7 px-2 text-xs font-medium text-red-500 hover:text-red-600 hover:bg-red-50 rounded-md gap-1"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-                删除
-              </Button>
-            )}
-          </div>
-        )}
       </div>
     </div>
   );
 }));
 
 EntryCard.displayName = "EntryCard";
+
+// ── Entry Row (列表视图) ────────────────────────────────────────────────────────
+const EntryRow = React.memo(function EntryRow({
+  entry, canEdit, canMove, canDelete, onEdit, onDelete, onMove, onPreview,
+}: EntryCardProps) {
+  const kbId = useKbId();
+  const hasManage = canEdit || canMove || canDelete;
+  const fileType = getFileType(entry.file_name, entry.file_type);
+  const hasFile = entry.has_data_file || !!entry.oss_url;
+  const hasDownload = hasFile || !!entry.external_url;
+  const isPreviewable = (
+    fileType === 'image' || fileType === 'pdf' || fileType === 'video'
+    || fileType === 'html' || fileType === 'text' || fileType === 'xlsx' || fileType === 'docx'
+  ) && hasFile;
+  const score = entry.permission_level ?? 0;
+  const permCfg = getPermissionScoreConfig(score);
+  const iconBtn = 'flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-indigo-50 hover:text-indigo-700';
+
+  return (
+    <div className="group flex items-center gap-3 rounded-lg border border-slate-200/70 bg-white px-3 py-2.5 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition hover:border-indigo-200 hover:shadow-[0_8px_18px_-10px_rgba(79,70,229,0.25)]">
+      <EntryThumbSmall entry={entry} onClick={isPreviewable ? () => onPreview(entry) : undefined} />
+      <span className="hidden shrink-0 items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-bold text-slate-500 ring-1 ring-slate-200/70 sm:inline-flex">
+        <FileTypeIcon entry={entry} className="h-3 w-3" />
+        {getTypeLabel(entry)}
+      </span>
+      <div className="min-w-0 flex-1">
+        <button
+          type="button"
+          onClick={isPreviewable ? () => onPreview(entry) : undefined}
+          disabled={!isPreviewable}
+          title={entry.title}
+          className={cn('block max-w-full truncate text-left text-sm font-semibold text-slate-900', isPreviewable && 'cursor-pointer hover:text-indigo-600')}
+        >
+          {entry.title}
+        </button>
+        <p className="truncate text-xs text-slate-500" title={entrySubtitle(entry)}>{entrySubtitle(entry)}</p>
+      </div>
+      <div className="hidden shrink-0 items-center gap-1.5 md:flex">
+        <UploaderAvatar name={entry.created_by_name} userId={entry.created_by_id} className="h-6 w-6 text-[10px]" />
+        <div className="leading-tight">
+          <div className="max-w-[88px] truncate text-[11px] font-medium text-slate-600">{entry.created_by_name ?? '未知'}</div>
+          <div className="text-[10px] text-slate-400">{relativeTime(entry.created_at)}</div>
+        </div>
+      </div>
+      <span
+        className={cn('hidden shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold lg:flex', permCfg.badgeClass)}
+        title={`权限分值 ${score}/100 · ${permCfg.label}`}
+      >
+        <ShieldCheck className="h-3 w-3" />
+        {score}
+      </span>
+      <div className="flex shrink-0 items-center gap-0.5">
+        {isPreviewable && (
+          <button type="button" onClick={() => onPreview(entry)} title="预览" className={iconBtn}><Eye className="h-3.5 w-3.5" /></button>
+        )}
+        {hasDownload && (
+          <button type="button" onClick={() => void downloadKbEntry(entry, kbId)} title={entry.external_url ? '打开链接' : '下载'} className={iconBtn}><ArrowDownToLine className="h-3.5 w-3.5" /></button>
+        )}
+        {hasManage && (
+          <span className="flex items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
+            {canEdit && <button type="button" onClick={() => onEdit(entry)} title="编辑" className={iconBtn}><Edit3 className="h-3.5 w-3.5" /></button>}
+            {canMove && <button type="button" onClick={() => onMove(entry)} title="移动" className={iconBtn}><MoveRight className="h-3.5 w-3.5" /></button>}
+            {canDelete && <button type="button" onClick={() => onDelete(entry)} title="删除" className="flex h-7 w-7 items-center justify-center rounded-md text-red-500 transition hover:bg-red-50 hover:text-red-600"><Trash2 className="h-3.5 w-3.5" /></button>}
+          </span>
+        )}
+      </div>
+    </div>
+  );
+});
+EntryRow.displayName = "EntryRow";
 
 // ── Edit Entry Dialog ─────────────────────────────────────────────────────────
 // 编辑已上传文件的元数据（标题、描述、分类、标签、权限分值）。
@@ -2137,6 +2219,7 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
   const [categories, setCategories] = useState<KbCategory[]>([]);
   const [entries, setEntries] = useState<KbEntry[]>([]);
   const [page, setPage] = useState(1); // 当前页码（1 起；分页）
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid'); // 右侧条目展示：网格 / 列表
   const [loading, setLoading] = useState(false);
   const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
   const [keyword, setKeyword] = useState('');
@@ -2144,7 +2227,6 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
   const [sourceFilter, setSourceFilter] = useState('all');
   const [fileTypeFilter, setFileTypeFilter] = useState('all');
   const [levelFilter, setLevelFilter] = useState(100);
-  const [levelFilterDraft, setLevelFilterDraft] = useState(100);
   /** Entry pending deletion — drives the confirmation modal. */
   const [deletingEntry, setDeletingEntry] = useState<KbEntry | null>(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
@@ -2611,158 +2693,140 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
           </div>
         </div>
       )}
-      {/* Page header */}
-      <div className="relative mx-4 mt-5 overflow-hidden rounded-2xl border border-slate-200/80 bg-white px-4 py-4 shadow-[0_16px_34px_rgba(15,23,42,0.06)] sm:mx-6">
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-indigo-400/45 to-transparent" />
-        <div className="relative z-10 mb-4 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
-          <div className="min-w-0">
-            <h1 className="flex items-center gap-3 text-xl font-semibold text-slate-950">
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-[0_10px_22px_rgba(79,70,229,0.22)]">
-                <BookOpen className="w-4 h-4" />
-              </span>
-              <span className="truncate">{kbScope ? `${kbScope.label}知识库` : '研发知识库'}</span>
-            </h1>
-            <p className="mt-1.5 text-sm font-medium text-slate-500">
-              {kbScope ? `统一管理${kbScope.label}的文档、制度与资料` : '统一管理研发文档、技术资料与任务成果附件'}
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 xl:justify-end">
-            {/* Stats */}
-            <div className="hidden md:flex items-center gap-2 text-xs text-slate-500">
-              <span className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 bg-slate-50/80 px-3 font-medium">
-                <span className="text-slate-400">共</span><strong className="font-semibold tabular-nums text-slate-800">{entries.length}</strong><span className="text-slate-400">条</span>
-              </span>
-              <span className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 bg-slate-50/80 px-3 font-medium">
-                <span className="text-slate-400">文档</span><strong className="font-semibold tabular-nums text-indigo-700">{docCount}</strong>
-              </span>
-              <span className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 bg-slate-50/80 px-3 font-medium">
-                <span className="text-slate-400">PDF</span><strong className="font-semibold tabular-nums text-indigo-700">{pdfCount}</strong>
-              </span>
-              <span className="inline-flex h-9 items-center gap-1 rounded-lg border border-slate-200 bg-slate-50/80 px-3 font-medium">
-                <span className="text-slate-400">图片</span><strong className="font-semibold tabular-nums text-indigo-700">{imageCount}</strong>
-              </span>
-            </div>
-            <Button
+      {/* Toolbar —— 单排：左 筛选/类型/权限；右 计数 + 视图切换 + 同步 + 更多 + 上传 */}
+      <div className="mx-4 mt-5 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200/80 bg-white px-3 py-2.5 shadow-[0_10px_24px_rgba(15,23,42,0.05)] sm:mx-6">
+        {/* 筛选输入 */}
+        <div className="relative min-w-[180px] flex-1 sm:max-w-xs">
+          <Filter className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+          <Input
+            type="text"
+            value={keyword}
+            onChange={(e) => setKeyword(e.target.value)}
+            placeholder="按标题、描述、标签筛选…"
+            className="h-9 w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-8 text-sm text-slate-800 outline-none transition-shadow placeholder-slate-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+          />
+          {keyword && (
+            <button
               type="button"
-              variant="outline"
-              size="icon"
-              onClick={handleRefresh}
-              disabled={loading}
-              className="h-9 w-9 rounded-lg border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-60"
-              title="刷新（保留当前筛选条件）"
+              onClick={() => setKeyword('')}
+              className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-slate-400 transition hover:text-slate-700"
+              aria-label="清除筛选词"
             >
-              <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
-            </Button>
-            {canManage && !kbId && (
-              <Button
-                type="button"
-                variant="outline"
-                size="icon"
-                onClick={handleRepairFilenames}
-                disabled={repairing}
-                className="h-9 w-9 rounded-lg border-amber-200 bg-white text-amber-600 hover:bg-amber-50 hover:text-amber-800 focus-visible:ring-2 focus-visible:ring-amber-200 disabled:cursor-not-allowed disabled:opacity-60"
-                title="修复历史文件名乱码（一次性操作）"
-              >
-                <Wrench className={cn('w-4 h-4', repairing && 'animate-spin')} />
-              </Button>
-            )}
-            {hasLegacyManage && !kbId && (
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleBackfillRag}
-                disabled={backfillingRag}
-                className="h-9 gap-2 rounded-lg border-indigo-200 bg-white px-3 text-sm font-semibold text-indigo-600 hover:bg-indigo-50 hover:text-indigo-800 focus-visible:ring-2 focus-visible:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-60"
-                title="把知识库条目同步到 RAG 向量索引，使 MateChat 能检索内部资料（首次开启 RAG / 切换 Embedding 模型后执行）"
-              >
-                <DatabaseZap className={cn('w-4 h-4', backfillingRag && 'animate-pulse')} />
-                {backfillingRag ? '回填中…' : 'RAG 回填'}
-              </Button>
-            )}
-            {canUpload && (
-              <Button
-                type="button"
-                onClick={() => openUploadDialog()}
-                className="h-9 gap-2 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(79,70,229,0.20)] transition-all duration-200 hover:bg-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
-              >
-                <Plus className="w-4 h-4" />
-                上传文件
-              </Button>
-            )}
-          </div>
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
 
-        {/* Search + filters */}
-        <div className="relative z-10 grid grid-cols-1 gap-3 rounded-xl border border-slate-200 bg-slate-50/60 p-3 lg:grid-cols-[minmax(24rem,1fr)_10rem_minmax(20rem,25rem)]">
-          <div className="relative min-w-0">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-            <Input
-              type="text"
-              value={keyword}
-              onChange={(e) => setKeyword(e.target.value)}
-              placeholder="搜索标题、描述、标签.."
-              className="h-11 w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-9 text-sm text-slate-800 outline-none transition-shadow placeholder-slate-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
-            />
-            {keyword && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => setKeyword('')}
-                className="absolute right-2 top-1/2 h-6 w-6 -translate-y-1/2 rounded-md text-slate-400 hover:text-slate-700 focus-visible:ring-2 focus-visible:ring-indigo-200"
-              >
-                <X className="w-3.5 h-3.5" />
-              </Button>
-            )}
+        {/* 类型筛选 */}
+        <NativeSelect
+          value={fileTypeFilter}
+          onValueChange={handleFileTypeFilterChange}
+          className="h-9 w-auto min-w-[7rem] rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-shadow focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+        >
+          {FILE_TYPE_FILTER_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label === '全部' ? '全部类型' : option.label}
+            </option>
+          ))}
+        </NativeSelect>
+
+        {/* 权限筛选（下拉，语义同原滑块：展示权限分 ≤ N 的条目） */}
+        <NativeSelect
+          value={String(levelFilter)}
+          onValueChange={(v) => setLevelFilter(Number(v))}
+          className="h-9 w-auto min-w-[9rem] rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-shadow focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+        >
+          <option value="100">权限分 ≤ 100（全部）</option>
+          <option value="75">权限分 ≤ 75（受限）</option>
+          <option value="50">权限分 ≤ 50（内部）</option>
+          <option value="25">权限分 ≤ 25（公开）</option>
+        </NativeSelect>
+
+        {/* 右侧：计数 + 视图切换 + 同步 + 更多 + 上传 */}
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          {/* 计数（纯展示） */}
+          <div className="hidden items-center gap-1.5 md:flex">
+            <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">共 <span className="tabular-nums">{entries.length}</span></span>
+            <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-600">文档 <span className="tabular-nums">{docCount}</span></span>
+            <span className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1 text-[11px] font-semibold text-red-600">PDF <span className="tabular-nums">{pdfCount}</span></span>
+            <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-600">图片 <span className="tabular-nums">{imageCount}</span></span>
           </div>
 
-          <div className="min-w-0">
-            <NativeSelect
-              value={fileTypeFilter}
-              onValueChange={handleFileTypeFilterChange}
-              className="h-100% w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition-shadow focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+          {/* 网格 / 列表 视图切换 */}
+          <div className="inline-flex items-center rounded-lg border border-slate-200 bg-slate-50 p-0.5">
+            <button
+              type="button"
+              onClick={() => setViewMode('grid')}
+              aria-pressed={viewMode === 'grid'}
+              title="网格视图"
+              className={cn('flex h-7 w-8 items-center justify-center rounded-md transition', viewMode === 'grid' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600')}
             >
-              {FILE_TYPE_FILTER_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label === '全部' ? '全部类型' : option.label}
-                </option>
-              ))}
-            </NativeSelect>
+              <LayoutGrid className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode('list')}
+              aria-pressed={viewMode === 'list'}
+              title="列表视图"
+              className={cn('flex h-7 w-8 items-center justify-center rounded-md transition', viewMode === 'list' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600')}
+            >
+              <List className="h-4 w-4" />
+            </button>
           </div>
 
-          <div className="min-w-0 rounded-lg border border-slate-200 bg-white px-3 py-2 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-            {(() => {
-              const cfg = levelFilterDraft === 100
-                ? {
-                    label: '全部',
-                    badgeClass: 'border-blue-200 bg-blue-50 text-blue-700',
-                    sliderClass: '[&_[data-slot=slider-range]]:bg-blue-500',
-                  }
-                : getPermissionScoreConfig(levelFilterDraft);
-              return (
-                <div className="flex min-h-7 flex-wrap items-center gap-x-3 gap-y-2">
-                  <div className="flex min-w-[8.75rem] items-center gap-2">
-                    <span className="text-[11px] font-semibold text-slate-500">权限分值</span>
-                    <Badge variant="secondary" className={cn("max-w-full rounded-full border px-2 py-0.5 text-[11px] font-semibold", cfg.badgeClass)}>
-                      ≤ {levelFilterDraft} · {cfg.label}
-                    </Badge>
-                  </div>
-                  <Slider
-                    value={[levelFilterDraft]}
-                    min={0}
-                    max={100}
-                    step={5}
-                    onValueChange={([value]) => setLevelFilterDraft(Math.max(0, Math.min(100, Math.round(value ?? 100))))}
-                    onValueCommit={([value]) => setLevelFilter(Math.max(0, Math.min(100, Math.round(value ?? 100))))}
-                    className={cn(
-                      'min-w-32 flex-1 [&_[data-slot=slider-track]]:h-2 [&_[data-slot=slider-thumb]]:size-4',
-                      cfg.sliderClass,
-                    )}
-                  />
-                </div>
-              );
-            })()}
-          </div>
+          {/* 同步（= 刷新，保留当前筛选） */}
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleRefresh}
+            disabled={loading}
+            className="h-9 gap-2 rounded-lg border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-60"
+            title="同步（保留当前筛选条件）"
+          >
+            <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+            同步
+          </Button>
+
+          {/* 更多：修复文件名 / RAG 回填（仅研发库管理员） */}
+          {!kbId && canManage && (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9 rounded-lg border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-indigo-200"
+                  title="更多操作"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem onClick={handleRepairFilenames} disabled={repairing} className="gap-2">
+                  <Wrench className={cn('h-4 w-4', repairing && 'animate-spin')} />
+                  {repairing ? '修复中…' : '修复文件名乱码'}
+                </DropdownMenuItem>
+                {hasLegacyManage && (
+                  <DropdownMenuItem onClick={handleBackfillRag} disabled={backfillingRag} className="gap-2">
+                    <DatabaseZap className={cn('h-4 w-4', backfillingRag && 'animate-pulse')} />
+                    {backfillingRag ? 'RAG 回填中…' : 'RAG 回填'}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
+          {/* 上传文件 */}
+          {canUpload && (
+            <Button
+              type="button"
+              onClick={() => openUploadDialog()}
+              className="h-9 gap-2 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(79,70,229,0.20)] transition-all duration-200 hover:bg-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
+            >
+              <Plus className="h-4 w-4" />
+              上传文件
+            </Button>
+          )}
         </div>
       </div>
 
@@ -2841,21 +2905,39 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
           {/* Grid */}
           {entries.length > 0 && (
             <>
-              <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3 auto-rows-min">
-                {visibleEntries.map((entry) => (
-                  <EntryCard
-                    key={entry.id}
-                    entry={entry}
-                    canEdit={canEditEntry}
-                    canMove={canMoveEntry}
-                    canDelete={canDeleteEntry}
-                    onEdit={handleEditRequest}
-                    onDelete={handleDelete}
-                    onMove={handleMoveRequest}
-                    onPreview={handlePreview}
-                  />
-                ))}
-              </div>
+              {viewMode === 'grid' ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
+                  {visibleEntries.map((entry) => (
+                    <EntryCard
+                      key={entry.id}
+                      entry={entry}
+                      canEdit={canEditEntry}
+                      canMove={canMoveEntry}
+                      canDelete={canDeleteEntry}
+                      onEdit={handleEditRequest}
+                      onDelete={handleDelete}
+                      onMove={handleMoveRequest}
+                      onPreview={handlePreview}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {visibleEntries.map((entry) => (
+                    <EntryRow
+                      key={entry.id}
+                      entry={entry}
+                      canEdit={canEditEntry}
+                      canMove={canMoveEntry}
+                      canDelete={canDeleteEntry}
+                      onEdit={handleEditRequest}
+                      onDelete={handleDelete}
+                      onMove={handleMoveRequest}
+                      onPreview={handlePreview}
+                    />
+                  ))}
+                </div>
+              )}
 
               {/* 分页 — 仅在多于一页时出现 */}
               {totalPages > 1 && (

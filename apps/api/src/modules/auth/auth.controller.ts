@@ -93,4 +93,19 @@ export class AuthController {
   resetAvatar(@Request() req: { user: { id: string } }) {
     return this.authService.resetAvatar(req.user.id);
   }
+
+  /** 预置头像库列表：返回 OSS 默认头像的缩略图签名 URL，供个人中心选择。 */
+  @Get('avatar-presets')
+  listAvatarPresets() {
+    return this.authService.listAvatarPresets();
+  }
+
+  /** 选择某个预置头像作为正式头像（body.key 必须属于预置库）。 */
+  @Post('me/avatar/preset')
+  setAvatarPreset(
+    @Request() req: { user: { id: string } },
+    @Body('key') key: string,
+  ) {
+    return this.authService.setAvatarPreset(req.user.id, key);
+  }
 }

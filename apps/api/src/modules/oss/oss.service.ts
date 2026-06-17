@@ -132,13 +132,60 @@ export class OssService implements OnModuleInit {
    * @param objectKey - The OSS object key returned by uploadBuffer
    * @param expiresSeconds - URL validity window (default 600 = 10 minutes)
    */
-  getSignedUrl(objectKey: string, expiresSeconds = 600): string | null {
+  getSignedUrl(objectKey: string, expiresSeconds = 600, process?: string): string | null {
     if (!this.publicClient) return null;
     try {
-      return this.publicClient.signatureUrl(objectKey, { expires: expiresSeconds });
+      // process：OSS 图片处理参数（如 image/resize,w_256/format,webp/quality,q_80），
+      // 读取时实时缩放/压缩/转格式，原图只存一份。签名会覆盖该参数，不可被篡改。
+      return this.publicClient.signatureUrl(objectKey, {
+        expires: expiresSeconds,
+        ...(process ? { process } : {}),
+      });
     } catch {
       return null;
     }
+  }
+
+  /** 业务相对前缀 → 完整 OSS 前缀（带 basePrefix）。用于列目录 / 前缀白名单校验。 */
+  resolveKeyPrefix(relativePrefix: string): string {
+    return `${this.basePrefix}/${relativePrefix}`.replace(/\/{2,}/g, '/');
+  }
+
+  /**
+   * 列出某前缀下的全部对象 key（跳过以 / 结尾的“目录”占位对象），自动翻页到取完或达上限。
+   * 与 getObjectStream 同策略：内网 client 优先（VPC 内免流量），但给短超时，
+   * 这样在 VPC 外（如本地 dev，内网域名不可达）会在 ~2s 内回退到公网 client，
+   * 而不是卡在 TLS 握手上一直超时返回空。生产内网 <100ms，正常命中第一次尝试。
+   */
+  async listObjects(fullPrefix: string, maxKeys = 2000): Promise<string[]> {
+    const attempts: Array<{ client: OSS; timeout?: number }> = [];
+    if (this.internalClient) attempts.push({ client: this.internalClient, timeout: 2000 });
+    // 公网兜底也给超时上限：listObjects 喂给登录 / /me 等鉴权路径，避免网络异常时长时间挂起。
+    if (this.publicClient && this.publicClient !== this.internalClient) attempts.push({ client: this.publicClient, timeout: 5000 });
+    if (attempts.length === 0) return [];
+
+    let lastErr: unknown = null;
+    for (const { client, timeout } of attempts) {
+      try {
+        const keys: string[] = [];
+        let marker: string | undefined;
+        do {
+          const res = await client.list(
+            { prefix: fullPrefix, 'max-keys': 1000, marker },
+            timeout ? { timeout } : {},
+          );
+          for (const o of res.objects ?? []) {
+            if (o.name && !o.name.endsWith('/')) keys.push(o.name);
+          }
+          marker = res.nextMarker;
+        } while (marker && keys.length < maxKeys);
+        return keys;
+      } catch (err) {
+        lastErr = err; // 内网不可达（本地）→ 落到下一次尝试（公网）
+      }
+    }
+    this.logger.warn(`OSS listObjects 失败 (prefix=${fullPrefix}): ${(lastErr as Error)?.message}`);
+    return [];
   }
 
   /**
