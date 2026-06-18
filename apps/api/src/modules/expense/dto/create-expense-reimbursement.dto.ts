@@ -29,4 +29,14 @@ export class CreateExpenseReimbursementDto {
   @IsOptional()
   @IsString()
   wecom_creator_userid?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  notify_emails?: string[];
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  cc_emails?: string[];
 }

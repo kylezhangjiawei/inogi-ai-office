@@ -964,7 +964,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
   };
 
   return (
-    <Card className="w-full lg:w-80 lg:shrink-0 bg-white rounded-lg border border-slate-200/80 p-2.5 flex flex-row lg:flex-col gap-1 overflow-x-auto lg:overflow-y-auto shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+    <Card className="w-full lg:w-80 lg:shrink-0 lg:min-h-0 bg-white rounded-lg border border-slate-200/80 p-2.5 flex flex-row lg:flex-col gap-1 overflow-x-auto lg:overflow-y-auto shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
       <div className="hidden lg:flex items-center justify-between px-3 pb-2 pt-1 text-[11px] font-semibold uppercase text-slate-400">
         <span>知识域</span>
         <div className="flex items-center gap-2">
@@ -2673,7 +2673,7 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
   return (
     <KbScopeContext.Provider value={kbId}>
     <div
-      className="relative min-h-full bg-slate-50/30 flex flex-col text-slate-900"
+      className="relative h-full overflow-hidden bg-slate-50/30 flex flex-col text-slate-900"
       onDragEnter={handlePageDragEnter}
       onDragOver={handlePageDragOver}
       onDragLeave={handlePageDragLeave}
@@ -2848,9 +2848,9 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
         />
 
         {/* Entry grid */}
-        <div className="flex-1 min-w-0 flex flex-col gap-4">
+        <div className="flex-1 min-w-0 min-h-0 flex flex-col gap-4">
           {/* Result count */}
-          <div className="flex items-center justify-between rounded-lg border border-slate-200/80 bg-white px-3 py-2 text-xs text-slate-500 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+          <div className="shrink-0 flex items-center justify-between rounded-lg border border-slate-200/80 bg-white px-3 py-2 text-xs text-slate-500 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
             <span>
               {loading
                 ? '加载中...'
@@ -2905,6 +2905,7 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
           {/* Grid */}
           {entries.length > 0 && (
             <>
+              <div className="flex-1 min-h-0 overflow-y-auto pr-1">
               {viewMode === 'grid' ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-3">
                   {visibleEntries.map((entry) => (
@@ -2938,12 +2939,13 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
                   ))}
                 </div>
               )}
+              </div>
 
               {/* 分页 — 仅在多于一页时出现 */}
               {totalPages > 1 && (
                 <nav
                   aria-label="知识库分页"
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200/80 bg-white px-3 py-2 text-xs shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
+                  className="shrink-0 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200/80 bg-white px-3 py-2 text-xs shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
                 >
                   <span className="text-slate-500">
                     第 <span className="font-semibold tabular-nums text-slate-700">{page}</span> / {totalPages} 页 · 共{' '}

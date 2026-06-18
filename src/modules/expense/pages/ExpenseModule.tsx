@@ -33,15 +33,13 @@ import {
   Lock,
   Users,
   Building2,
+  BarChart3,
   Hash } from
 'lucide-react';
-import {
-  MOCK_EXPENSE_VOUCHERS,
-  MOCK_INVOICE_VOUCHERS,
-  MOCK_APPROVALS } from
-'../mocks/expenseImportedMock';
-import { expenseService } from '../services/expenseService';
-import type { InvoiceRecord, ReimbursementRecord, VoucherUploadRecord } from '../types';
+import { expenseService, type ExpenseDepartmentOption } from '../services/expenseService';
+import type { ExpenseDashboardData, InvoiceRecord, ReimbursementRecord, VoucherUploadRecord } from '../types';
+import { ExpenseStatistics } from '../components/ExpenseStatistics';
+import { useAuth } from '../../../app/auth';
 import { Button } from '../../../app/components/ui/button';
 import { Checkbox } from '../../../app/components/ui/checkbox';
 import {
@@ -68,6 +66,7 @@ import {
 } from '../../../app/components/ui/select';
 import { Tabs, TabsList, TabsTrigger } from '../../../app/components/ui/tabs';
 import { ToggleGroup, ToggleGroupItem } from '../../../app/components/ui/toggle-group';
+import { integrationManagementApi, type MailboxItem } from '../../../app/lib/integrationManagementApi';
 import { toast } from 'sonner';
 
 type ExpenseVoucherView = {
@@ -97,6 +96,7 @@ type InvoiceVoucherView = {
   matchedTo?: string;
   status?: InvoiceRecord['status'];
   sourceInvoiceId?: string;
+  project?: string;
 };
 
 type DocPreview =
@@ -158,6 +158,9 @@ type ApprovalView = {
   weComApprovalMethod?: string; // 整体审批方式：或签/会签
   currentNode?: string; // 当前审批节点
   carbonCopy?: ApprovalCarbonCopy[]; // 抄送人
+  project?: string; // 项目/成本归属
+  notifyEmails?: string[]; // 邮件通知收件人（来自邮箱管理）
+  ccEmails?: string[]; // 邮件抄送人
 };
 
 type ReimbursementInspector = {
@@ -277,6 +280,7 @@ function invoiceToInvoiceVoucher(invoice: InvoiceRecord): InvoiceVoucherView {
     matchedTo,
     status: invoice.status,
     sourceInvoiceId: invoice.id,
+    project: invoice.project,
   };
 }
 
@@ -337,7 +341,13 @@ function reimbursementToApproval(reimbursement: ReimbursementRecord, materials: 
     weComSyncStatus: reimbursement.weComSyncStatus,
     weComApprovalMethod: '或签',
     currentNode: reimbursement.node,
-    carbonCopy: [{ name: '财务共享中心', department: '财务部' }],
+    project: reimbursement.project,
+    notifyEmails: reimbursement.notifyEmails ?? [],
+    ccEmails: reimbursement.ccEmails ?? [],
+    carbonCopy: [
+      { name: '财务共享中心', department: '财务部' },
+      ...(reimbursement.ccEmails ?? []).map((email) => ({ name: email, department: '邮件抄送' })),
+    ],
     flow: [
       { name: reimbursement.applicant, role: '申请人', status: 'done', time: reimbursement.appliedDate, nodeType: 'approval' },
       { name: '部门主管', role: '部门审批', status: approved || rejected || pending ? 'done' : 'pending', time: pending || approved || rejected ? reimbursement.appliedDate : '', nodeType: 'approval', approvalMethod: '或签' },
@@ -405,6 +415,11 @@ const TABS = [
   id: 'buyback',
   label: '发票回购',
   icon: FileDown
+},
+{
+  id: 'statistics',
+  label: '统计分析',
+  icon: BarChart3
 }];
 
 type TreeNode = {
@@ -573,6 +588,48 @@ function notifyAutoMatch(
   }
 }
 
+/** 报销邮件通知收件人/抄送的多选 chip 选择器，候选来自「邮箱管理」已启用邮箱。 */
+function EmailChipSelector({
+  options,
+  selected,
+  onToggle,
+  emptyHint,
+}: {
+  options: MailboxItem[];
+  selected: string[];
+  onToggle: (email: string) => void;
+  emptyHint: string;
+}) {
+  if (options.length === 0) {
+    return (
+      <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-400">
+        {emptyHint}
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2.5">
+      {options.map((mailbox) => {
+        const active = selected.includes(mailbox.email);
+        return (
+          <button
+            key={mailbox.id}
+            type="button"
+            onClick={() => onToggle(mailbox.email)}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-all ${
+              active
+                ? 'bg-blue-600 text-white shadow-sm shadow-blue-500/30'
+                : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-blue-50 hover:text-blue-700'
+            }`}>
+            {active ? <Check className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+            <span className="max-w-[180px] truncate">{mailbox.email}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function ExpenseModule() {
   const [activeTab, setActiveTab] = useState('vouchers');
   const [selectedExpense, setSelectedExpense] = useState<string | null>(null);
@@ -582,18 +639,11 @@ export function ExpenseModule() {
   const [aiMatching, setAiMatching] = useState(false);
   const [manualLinking, setManualLinking] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [expenseVouchers, setExpenseVouchers] = useState<ExpenseVoucherView[]>(
-    MOCK_EXPENSE_VOUCHERS as ExpenseVoucherView[]
-  );
-  const [invoiceVouchers, setInvoiceVouchers] = useState<InvoiceVoucherView[]>(
-    MOCK_INVOICE_VOUCHERS as InvoiceVoucherView[]
-  );
-  const [approvals, setApprovals] = useState<ApprovalView[]>(
-    MOCK_APPROVALS as ApprovalView[]
-  );
-  const [selectedApproval, setSelectedApproval] = useState<ApprovalView | null>(
-    (MOCK_APPROVALS as ApprovalView[])[0] ?? null
-  );
+  const [expenseVouchers, setExpenseVouchers] = useState<ExpenseVoucherView[]>([]);
+  const [invoiceVouchers, setInvoiceVouchers] = useState<InvoiceVoucherView[]>([]);
+  const [approvals, setApprovals] = useState<ApprovalView[]>([]);
+  const [selectedApproval, setSelectedApproval] = useState<ApprovalView | null>(null);
+  const [dashboard, setDashboard] = useState<ExpenseDashboardData | null>(null);
   const [reimbursementDialogOpen, setReimbursementDialogOpen] = useState(false);
   const [reimbursementDraftItems, setReimbursementDraftItems] = useState<ExpenseVoucherView[]>([]);
   const [selectedReimbursementItemIds, setSelectedReimbursementItemIds] = useState<Set<string>>(
@@ -607,6 +657,13 @@ export function ExpenseModule() {
   const [reimbursementTitle, setReimbursementTitle] = useState('');
   const [reimbursementApplicant, setReimbursementApplicant] = useState('当前用户');
   const [reimbursementReason, setReimbursementReason] = useState('费用报销');
+  // 企业微信审批所需补充字段：项目/成本归属、申请人企微 UserID（applyevent 提单人）
+  const [reimbursementProject, setReimbursementProject] = useState('');
+  const [reimbursementCreatorUserid, setReimbursementCreatorUserid] = useState('');
+  // 邮件通知：收件人/抄送，候选来自「邮箱管理」已启用邮箱
+  const [reimbursementNotifyEmails, setReimbursementNotifyEmails] = useState<string[]>([]);
+  const [reimbursementCcEmails, setReimbursementCcEmails] = useState<string[]>([]);
+  const [mailboxOptions, setMailboxOptions] = useState<MailboxItem[]>([]);
   const [submittingReimbursement, setSubmittingReimbursement] = useState(false);
   const expenseUploadInputRef = useRef<HTMLInputElement | null>(null);
   const invoiceUploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -641,63 +698,136 @@ export function ExpenseModule() {
   const [voucherKeyword, setVoucherKeyword] = useState('');
   const [voucherStatusFilter, setVoucherStatusFilter] = useState<'all' | 'matched' | 'unmatched'>('all');
 
+  // ── 部门作用域 ────────────────────────────────────────────────────────────
+  const { user } = useAuth();
+  const hasViewAll = Boolean(
+    user?.permissions?.includes('*') || user?.permissions?.includes('expense:view-all'),
+  );
+  const ownDeptName = user?.department ?? null;
+  const ownDeptCode = user?.departmentCode ?? null;
+  // 普通用户无部门 → 后端不返回数据且禁止录入，前端给出明确提示。
+  const blockedNoDept = !hasViewAll && !ownDeptCode;
+  // view-all 的部门筛选：'all' | 'unassigned' | 具体 code
+  const [departmentFilter, setDepartmentFilter] = useState<string>('all');
+  const [departmentOptions, setDepartmentOptions] = useState<ExpenseDepartmentOption[]>([]);
+  const [reassignTargetCode, setReassignTargetCode] = useState<string>('');
+  const [reassigning, setReassigning] = useState(false);
+  // 当前列表加载到的原始记录 id（供批量改派使用）
+  const loadedIdsRef = useRef<{ invoices: string[]; reimbursements: string[] }>({ invoices: [], reimbursements: [] });
+  // 传给接口的部门参数：仅 view-all 生效，'all' → 不传。
+  const departmentParam = hasViewAll && departmentFilter !== 'all' ? departmentFilter : undefined;
+
+  useEffect(() => {
+    if (!hasViewAll) return;
+    void (async () => {
+      const opts = await expenseService.listDepartmentOptions();
+      setDepartmentOptions(opts);
+    })();
+  }, [hasViewAll]);
+
   const reloadExpenseData = useCallback(async () => {
     setLoading(true);
     try {
-      const [invoices, reimbursements] = await Promise.all([
-        expenseService.listInvoices(),
-        expenseService.listReimbursements(),
+      const [invoices, reimbursements, dashboardData] = await Promise.all([
+        expenseService.listInvoices(undefined, departmentParam),
+        expenseService.listReimbursements(departmentParam),
+        expenseService.getDashboard(departmentParam),
       ]);
-      let nextInvoiceVouchers: InvoiceVoucherView[] = [];
-      let nextExpenseVouchers: ExpenseVoucherView[] = [];
+      loadedIdsRef.current = {
+        invoices: invoices.map((i) => i.id),
+        reimbursements: reimbursements.map((r) => r.id),
+      };
+      setDashboard(dashboardData);
 
-      if (invoices.length) {
-        nextInvoiceVouchers = invoices.map(invoiceToInvoiceVoucher);
-        setInvoiceVouchers(nextInvoiceVouchers);
-        nextExpenseVouchers = invoices
-          .filter((invoice) => isInvoiceMatched(invoice))
-          .map(invoiceToExpenseVoucher);
-        // 已关联发票投影为左栏「报销凭证」；同时保留本会话内上传但尚未关联的付款凭证，
-        // 避免 reload 把刚上传、待手动关联的凭证从界面清空。
-        setExpenseVouchers((current) => {
-          const projectedIds = new Set(nextExpenseVouchers.map((item) => item.id));
-          const survivingUploads = current.filter(
-            (item) =>
-              item.sourceVoucherId &&
-              !item.matched &&
-              !projectedIds.has(item.id) &&
-              !projectedIds.has(item.sourceVoucherId),
-          );
-          const merged = [...nextExpenseVouchers, ...survivingUploads];
-          return merged.length ? merged : current;
-        });
-      }
+      // 后端为唯一数据源：直接以接口结果覆盖（空数据 → 清空，不再回落到 mock 假数据）。
+      const nextInvoiceVouchers = invoices.map(invoiceToInvoiceVoucher);
+      setInvoiceVouchers(nextInvoiceVouchers);
 
-      if (reimbursements.length) {
-        const nextApprovals = reimbursements.map((reimbursement) =>
-          reimbursementToApproval(
-            reimbursement,
-            buildApprovalMaterialsFromIds(
-              reimbursement.invoiceIds,
-              reimbursement.voucherIds,
-              nextExpenseVouchers,
-              nextInvoiceVouchers
-            )
+      const nextExpenseVouchers = invoices
+        .filter((invoice) => isInvoiceMatched(invoice))
+        .map(invoiceToExpenseVoucher);
+      // 已关联发票投影为左栏「报销凭证」；同时保留本会话内上传但尚未关联的付款凭证，
+      // 避免 reload 把刚上传、待手动关联的凭证从界面清空。
+      setExpenseVouchers((current) => {
+        const projectedIds = new Set(nextExpenseVouchers.map((item) => item.id));
+        const survivingUploads = current.filter(
+          (item) =>
+            item.sourceVoucherId &&
+            !item.matched &&
+            !projectedIds.has(item.id) &&
+            !projectedIds.has(item.sourceVoucherId),
+        );
+        return [...nextExpenseVouchers, ...survivingUploads];
+      });
+
+      const nextApprovals = reimbursements.map((reimbursement) =>
+        reimbursementToApproval(
+          reimbursement,
+          buildApprovalMaterialsFromIds(
+            reimbursement.invoiceIds,
+            reimbursement.voucherIds,
+            nextExpenseVouchers,
+            nextInvoiceVouchers
           )
-        );
-        setApprovals(nextApprovals);
-        setSelectedApproval((current) =>
-          nextApprovals.find((item) => item.id === current?.id) ?? nextApprovals[0] ?? current
-        );
-      }
+        )
+      );
+      setApprovals(nextApprovals);
+      setSelectedApproval((current) =>
+        nextApprovals.find((item) => item.id === current?.id) ?? nextApprovals[0] ?? null
+      );
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [departmentParam]);
 
   useEffect(() => {
     void reloadExpenseData();
   }, [reloadExpenseData]);
+
+  // 批量改派：把当前列表里的发票与报销单改派到目标部门（仅 view-all）。
+  const handleReassignDepartment = useCallback(async () => {
+    if (!hasViewAll || !reassignTargetCode) return;
+    const { invoices, reimbursements } = loadedIdsRef.current;
+    if (invoices.length === 0 && reimbursements.length === 0) {
+      toast.info('当前没有可改派的记录');
+      return;
+    }
+    setReassigning(true);
+    try {
+      if (invoices.length > 0) {
+        await expenseService.reassignDepartment({ type: 'invoice', ids: invoices, department_code: reassignTargetCode });
+      }
+      if (reimbursements.length > 0) {
+        await expenseService.reassignDepartment({ type: 'reimbursement', ids: reimbursements, department_code: reassignTargetCode });
+      }
+      const target = departmentOptions.find((d) => d.code === reassignTargetCode);
+      toast.success(`已改派至「${target?.name ?? reassignTargetCode}」`);
+      setReassignTargetCode('');
+      await reloadExpenseData();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : '改派失败，请稍后重试');
+    } finally {
+      setReassigning(false);
+    }
+  }, [hasViewAll, reassignTargetCode, departmentOptions, reloadExpenseData]);
+
+  // 拉取「邮箱管理」中已启用的邮箱，作为报销邮件通知的收件人/抄送候选。
+  // 无权限或接口异常时静默降级为空列表（表单仍可手填）。
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await integrationManagementApi.listMailboxes({ page: 1, pageSize: 200 });
+        if (cancelled) return;
+        setMailboxOptions(response.items.filter((item) => item.enabled));
+      } catch {
+        if (!cancelled) setMailboxOptions([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // 切换归档分类节点时清空已勾选项并回到第一页，避免跨分类误操作
   useEffect(() => {
@@ -705,7 +835,8 @@ export function ExpenseModule() {
     setArchivePage(1);
   }, [archiveSelected]);
 
-  const totalAmount = expenseVouchers.reduce((s, v) => s + v.amount, 0);
+  // 本月报销总额取后端按 issued_date 月度汇总（真实口径），不再用前端「已关联凭证求和」近似。
+  const monthAmount = dashboard?.monthAmount ?? 0;
   const unmatched = expenseVouchers.filter((v) => !v.matched).length;
   const matched = expenseVouchers.filter((v) => v.matched).length;
   const totalInvoices = invoiceVouchers.length;
@@ -963,6 +1094,12 @@ export function ExpenseModule() {
     setReimbursementTitle(`${new Date().getMonth() + 1} 月费用报销申请`);
     setReimbursementApplicant('当前用户');
     setReimbursementReason(targetItems[0]?.category ? `${targetItems[0].category}费用报销` : '费用报销');
+    // 项目/成本归属：默认带出第一张关联发票的项目，可在表单中修改
+    const firstInvoice = targetItems[0] ? findInvoiceForExpenseItem(targetItems[0], invoiceVouchers) : undefined;
+    setReimbursementProject(firstInvoice?.project ?? '');
+    setReimbursementCreatorUserid('');
+    setReimbursementNotifyEmails([]);
+    setReimbursementCcEmails([]);
     setReimbursementDialogOpen(true);
   }, [expenseVouchers, invoiceVouchers]);
 
@@ -1020,6 +1157,13 @@ export function ExpenseModule() {
       invoiceIds: materials.map((item) => item.invoiceId),
       voucherIds: materials.map((item) => item.voucherId),
       materials,
+      project: reimbursementProject.trim() || items[0]?.category || undefined,
+      notifyEmails: reimbursementNotifyEmails,
+      ccEmails: reimbursementCcEmails,
+      carbonCopy: [
+        { name: '财务共享中心', department: '财务部' },
+        ...reimbursementCcEmails.map((email) => ({ name: email, department: '邮件抄送' })),
+      ],
       flow: [
         { name: applicant, role: '申请人', status: 'done', time: now.toISOString().slice(0, 10) },
         { name: '部门主管', role: '部门主管', status: 'current', time: '' },
@@ -1030,7 +1174,7 @@ export function ExpenseModule() {
     setApprovals((current) => [created, ...current]);
     setSelectedApproval(created);
     setActiveTab('approval');
-  }, [approvals.length, invoiceVouchers]);
+  }, [approvals.length, invoiceVouchers, reimbursementCcEmails, reimbursementNotifyEmails, reimbursementProject]);
 
   const handleConfirmCreateApproval = useCallback(async () => {
     const targetItems = reimbursementDraftItems.filter((item) =>
@@ -1046,16 +1190,21 @@ export function ExpenseModule() {
     const title = reimbursementTitle.trim() || `${new Date().getMonth() + 1} 月费用报销申请`;
     const applicant = reimbursementApplicant.trim() || '当前用户';
     const reason = reimbursementReason.trim() || '费用报销';
+    const project = reimbursementProject.trim();
+    const creatorUserid = reimbursementCreatorUserid.trim();
 
     setSubmittingReimbursement(true);
     try {
       const reimbursement = await expenseService.createReimbursement({
         title,
         applicant,
-        project: targetItems[0]?.category ?? '费用报销',
+        project: project || targetItems[0]?.category || '费用报销',
         reason,
         invoice_ids: invoiceIds,
         voucher_ids: voucherIds,
+        wecom_creator_userid: creatorUserid || undefined,
+        notify_emails: reimbursementNotifyEmails,
+        cc_emails: reimbursementCcEmails,
       });
       let next = reimbursement;
       try {
@@ -1075,7 +1224,7 @@ export function ExpenseModule() {
     } finally {
       setSubmittingReimbursement(false);
     }
-  }, [createLocalApproval, invoiceVouchers, reimbursementApplicant, reimbursementDraftItems, reimbursementReason, reimbursementTitle, reloadExpenseData, selectedReimbursementItemIds]);
+  }, [createLocalApproval, invoiceVouchers, reimbursementApplicant, reimbursementCcEmails, reimbursementCreatorUserid, reimbursementDraftItems, reimbursementNotifyEmails, reimbursementProject, reimbursementReason, reimbursementTitle, reloadExpenseData, selectedReimbursementItemIds]);
 
   const handleSyncSelectedApproval = useCallback(async () => {
     if (!selectedApproval) return;
@@ -1466,6 +1615,56 @@ export function ExpenseModule() {
         }}
       />
       <div className=" flex min-h-0 flex-col flex-1 overflow-hidden">
+        {/* 部门作用域条 */}
+        <div className="px-5 pt-2 shrink-0">
+          {blockedNoDept ? (
+            <div className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2 text-xs text-amber-700">
+              你的账号尚未设置部门，暂无法查看或录入费用数据，请联系管理员分配部门。
+            </div>
+          ) : hasViewAll ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2">
+              <span className="text-xs font-semibold text-slate-500">部门</span>
+              <select
+                value={departmentFilter}
+                onChange={(e) => setDepartmentFilter(e.target.value)}
+                className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+              >
+                <option value="all">全部部门</option>
+                <option value="unassigned">未分配</option>
+                {departmentOptions.map((d) => (
+                  <option key={d.code} value={d.code}>{d.name}</option>
+                ))}
+              </select>
+              <span className="ml-1 text-[11px] text-slate-400">跨部门查看权 · 数据已按部门隔离</span>
+              {/* 批量改派：把当前筛选下的发票/报销单归到目标部门 */}
+              <div className="ml-auto flex items-center gap-1.5">
+                <select
+                  value={reassignTargetCode}
+                  onChange={(e) => setReassignTargetCode(e.target.value)}
+                  className="h-7 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                >
+                  <option value="">改派到…</option>
+                  {departmentOptions.map((d) => (
+                    <option key={d.code} value={d.code}>{d.name}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  disabled={!reassignTargetCode || reassigning}
+                  onClick={() => void handleReassignDepartment()}
+                  className="inline-flex items-center gap-1 rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-medium text-white shadow-sm transition hover:bg-indigo-700 disabled:opacity-50"
+                >
+                  {reassigning ? '改派中…' : '批量改派当前列表'}
+                </button>
+              </div>
+            </div>
+          ) : ownDeptName ? (
+            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-xs text-slate-500">
+              <span className="font-semibold text-slate-600">当前部门：{ownDeptName}</span>
+              <span className="text-slate-400">· 仅展示本部门费用数据</span>
+            </div>
+          ) : null}
+        </div>
         {/* Stats Strip */}
         <div className="px-5 py-2 flex gap-3 shrink-0">
           <button
@@ -1479,7 +1678,7 @@ export function ExpenseModule() {
             <div>
               <p className="text-xs text-slate-500 mb-0.5">本月报销总额</p>
               <p className="text-lg font-bold text-slate-800">
-                ¥{totalAmount.toFixed(2)}
+                ¥{monthAmount.toFixed(2)}
               </p>
             </div>
           </button>
@@ -1681,6 +1880,12 @@ export function ExpenseModule() {
 
         {/* Tab Content */}
         <div className="flex-1 overflow-hidden ">
+          {/* TAB: STATISTICS（统计分析，数据来自后端 /api/expenses/dashboard 实时汇总） */}
+          {activeTab === 'statistics' &&
+          <div className="h-full">
+              <ExpenseStatistics dashboard={dashboard} loading={loading} />
+            </div>
+          }
           {/* TAB 1: VOUCHERS */}
           {activeTab === 'vouchers' &&
           <div className="h-full flex flex-col">
@@ -2670,7 +2875,27 @@ export function ExpenseModule() {
                           <p className="text-slate-400 mb-0.5">提交时间</p>
                           <p className="font-medium text-slate-700">{selectedApproval.submitDate}</p>
                         </div>
+                        {selectedApproval.project &&
+                        <div>
+                          <p className="text-slate-400 mb-0.5">项目 / 成本归属</p>
+                          <p className="font-medium text-slate-700">{selectedApproval.project}</p>
+                        </div>
+                        }
                       </div>
+                      {(selectedApproval.notifyEmails?.length ?? 0) > 0 &&
+                      <div className="mt-3.5 pt-3 border-t border-blue-100/70 flex items-start gap-2 flex-wrap">
+                        <span className="flex items-center gap-1 text-xs text-slate-400">
+                          <Send className="h-3.5 w-3.5" />邮件通知
+                        </span>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {selectedApproval.notifyEmails?.map((email) =>
+                          <span key={email} className="inline-flex items-center gap-1 rounded-full bg-white/80 px-2.5 py-0.5 text-xs text-slate-600">
+                            {email}
+                          </span>
+                          )}
+                        </div>
+                      </div>
+                      }
                       <div className="mt-3.5 pt-3 border-t border-blue-100/70 flex items-center gap-2 flex-wrap">
                         <span className="flex items-center gap-1 text-xs text-slate-400">
                           <Users className="h-3.5 w-3.5" />抄送人
@@ -3138,6 +3363,25 @@ export function ExpenseModule() {
                     className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 outline-none transition-all focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100"
                     placeholder="申请人姓名" />
                 </label>
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-medium text-slate-500">项目 / 成本归属</span>
+                  <input
+                    value={reimbursementProject}
+                    onChange={(event) => setReimbursementProject(event.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 outline-none transition-all focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                    placeholder="留空则取发票所属项目" />
+                </label>
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-medium text-slate-500">
+                    申请人企微 UserID
+                    <span className="ml-1 font-normal text-slate-400">（企业微信提单人）</span>
+                  </span>
+                  <input
+                    value={reimbursementCreatorUserid}
+                    onChange={(event) => setReimbursementCreatorUserid(event.target.value)}
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 outline-none transition-all focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                    placeholder="留空则用系统默认提单人" />
+                </label>
                 <label className="col-span-2 block">
                   <span className="mb-1.5 block text-xs font-medium text-slate-500">报销事由</span>
                   <textarea
@@ -3146,6 +3390,42 @@ export function ExpenseModule() {
                     className="min-h-[78px] w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none transition-all focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100"
                     placeholder="填写本次报销用途、项目或说明" />
                 </label>
+                <div className="col-span-2">
+                  <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-slate-500">
+                    <Send className="h-3.5 w-3.5 text-blue-500" /> 邮件通知收件人
+                    {reimbursementNotifyEmails.length > 0 && (
+                      <span className="text-blue-600">已选 {reimbursementNotifyEmails.length}</span>
+                    )}
+                  </div>
+                  <EmailChipSelector
+                    options={mailboxOptions}
+                    selected={reimbursementNotifyEmails}
+                    onToggle={(email) =>
+                      setReimbursementNotifyEmails((current) =>
+                        current.includes(email) ? current.filter((item) => item !== email) : [...current, email],
+                      )
+                    }
+                    emptyHint="「邮箱管理」暂无已启用邮箱，可前往邮箱管理页配置后再选择收件人。"
+                  />
+                </div>
+                <div className="col-span-2">
+                  <div className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-slate-500">
+                    <Users className="h-3.5 w-3.5 text-emerald-500" /> 抄送人
+                    {reimbursementCcEmails.length > 0 && (
+                      <span className="text-emerald-600">已选 {reimbursementCcEmails.length}</span>
+                    )}
+                  </div>
+                  <EmailChipSelector
+                    options={mailboxOptions}
+                    selected={reimbursementCcEmails}
+                    onToggle={(email) =>
+                      setReimbursementCcEmails((current) =>
+                        current.includes(email) ? current.filter((item) => item !== email) : [...current, email],
+                      )
+                    }
+                    emptyHint="暂无可选抄送邮箱（同上，来自「邮箱管理」已启用邮箱）。"
+                  />
+                </div>
               </div>
 
               <div className="mt-5 overflow-hidden rounded-2xl border border-slate-100">
@@ -3474,7 +3754,10 @@ export function ExpenseModule() {
 
             <DialogFooter className="flex-row items-center justify-between border-t border-slate-100 bg-slate-50 px-6 py-4 sm:justify-between">
               <p className="text-xs text-slate-500">
-                确认后将创建报销单，并尝试提交企业微信审批。
+                确认后将创建报销单并尝试提交企业微信审批
+                {(reimbursementNotifyEmails.length > 0 || reimbursementCcEmails.length > 0)
+                  ? `，并通知 ${reimbursementNotifyEmails.length + reimbursementCcEmails.length} 个邮箱。`
+                  : '。'}
               </p>
               <div className="flex items-center gap-2">
                 <button

@@ -26,6 +26,10 @@ type AuthUserProfile = {
   roleId: string | null;
   roleName: string | null;
   permissions: string[];
+  /** 所属部门名称（来源 User.department，可能为空）。 */
+  department: string | null;
+  /** 部门稳定标识（由部门名解析自部门表；解析不到为 null）。数据隔离以此为准，名称仅展示。 */
+  departmentCode: string | null;
   /**
    * 头像签名 URL。永不为 null（除非 OSS 未配置/预置库为空）：
    * 未设自定义头像时按 user_id 稳定派发预置库里的一张默认头像。
@@ -290,7 +294,7 @@ export class AuthService implements OnModuleInit {
     }
 
     await this.refreshPresetAvatarKeysIfStale();
-    return this.issueTokens(this.toAuthUserProfile(user));
+    return this.issueTokens(await this.toAuthUserProfile(user));
   }
 
   async refresh(rawToken: string) {
@@ -311,7 +315,7 @@ export class AuthService implements OnModuleInit {
     }
 
     await this.refreshPresetAvatarKeysIfStale();
-    return this.issueTokens(this.toAuthUserProfile(user));
+    return this.issueTokens(await this.toAuthUserProfile(user));
   }
 
   async getCurrentUser(userId: string) {
@@ -324,7 +328,7 @@ export class AuthService implements OnModuleInit {
     }
 
     await this.refreshPresetAvatarKeysIfStale();
-    return { user: this.toAuthUserProfile(user) };
+    return { user: await this.toAuthUserProfile(user) };
   }
 
   async updateCurrentUser(
@@ -364,7 +368,7 @@ export class AuthService implements OnModuleInit {
     });
 
     await this.refreshPresetAvatarKeysIfStale();
-    return { user: this.toAuthUserProfile(updated) };
+    return { user: await this.toAuthUserProfile(updated) };
   }
 
   async logout(rawToken: string, userId: string) {
@@ -411,6 +415,8 @@ export class AuthService implements OnModuleInit {
       email: user.email,
       roleId: user.roleId,
       permissions: user.permissions,
+      department: user.department,
+      departmentCode: user.departmentCode,
     };
     const accessToken = this.jwtService.sign(payload, {
       secret: this.jwtSecret,
@@ -433,15 +439,17 @@ export class AuthService implements OnModuleInit {
     };
   }
 
-  private toAuthUserProfile(user: {
+  private async toAuthUserProfile(user: {
     id: string;
     name: string;
     username?: string | null;
     email: string;
     roleId: string | null;
+    department?: string | null;
     avatarObjectKey?: string | null;
     role?: { name: string; permissions: unknown } | null;
-  }): AuthUserProfile {
+  }): Promise<AuthUserProfile> {
+    const department = user.department ?? null;
     return {
       id: user.id,
       name: user.name,
@@ -452,10 +460,24 @@ export class AuthService implements OnModuleInit {
       permissions: Array.isArray(user.role?.permissions)
         ? (user.role.permissions as string[])
         : [],
+      department,
+      departmentCode: await this.resolveDepartmentCodeByName(department),
       // 每次返回都现签 URL，30 天 TTL 内长期可用；无自定义头像时按 user_id 派发默认预置头像
       avatarUrl: this.buildAvatarUrl(user.id, user.avatarObjectKey ?? null),
       hasCustomAvatar: Boolean(user.avatarObjectKey),
     };
+  }
+
+  /** 部门名 → 稳定 code 的解析（带 5 分钟内存缓存，避免每次鉴权打库）。解析不到返回 null。 */
+  private deptCodeCache: { map: Map<string, string>; at: number } | null = null;
+  private async resolveDepartmentCodeByName(name: string | null): Promise<string | null> {
+    if (!name || !name.trim()) return null;
+    const now = Date.now();
+    if (!this.deptCodeCache || now - this.deptCodeCache.at > 5 * 60 * 1000) {
+      const rows = await this.prisma.department.findMany({ select: { name: true, code: true } });
+      this.deptCodeCache = { map: new Map(rows.map((r) => [r.name, r.code])), at: now };
+    }
+    return this.deptCodeCache.map.get(name.trim()) ?? null;
   }
 
   private resolveLoginPassword(password?: string, encryptedPassword?: string) {

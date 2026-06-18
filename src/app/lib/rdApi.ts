@@ -937,11 +937,40 @@ export function fetchRdTaskProgressNotes(taskId: string) {
 
 /**
  * 一次性拉取「全部任务」的进度留痕（task_id → 留痕列表），后端按当前用户权限过滤
- * （管理员看全部、成员仅看本人）。用于日报/主管驾驶舱等需要按多任务聚合的场景，
- * 替代「逐任务并发 N 个 GET」——后者任务多时会瞬间打爆后端 100 次/60s 限流触发 429。
+ * （管理员/只读全览看全部、成员仅看本人）。用于日报/主管驾驶舱等需要按多任务聚合的场景，
+ * 替代「逐任务并发 N 个 GET」——后者任务多时会瞬间打爆后端限流触发 429。
+ *
+ * 这里再加一层「短 TTL 内存缓存 + 同发去重」：驾驶舱页、日报面板、月报面板会各自调用本函数，
+ * 同一时间窗内复用同一份结果，避免重复请求继续挤占限流配额。写留痕后调用
+ * clearRdTaskProgressNoteMapCache() 失效缓存，保证新附件即时可见。
  */
-export function fetchRdTaskProgressNoteMap() {
-  return requestJson<Record<string, RdTaskProgressNote[]>>(`/task-progress-notes`);
+const NOTE_MAP_CACHE_TTL_MS = 15_000;
+let noteMapCache: { at: number; data: Record<string, RdTaskProgressNote[]> } | null = null;
+let noteMapInflight: Promise<Record<string, RdTaskProgressNote[]>> | null = null;
+
+export function clearRdTaskProgressNoteMapCache() {
+  noteMapCache = null;
+  noteMapInflight = null;
+}
+
+export function fetchRdTaskProgressNoteMap(options?: { force?: boolean }) {
+  const now = Date.now();
+  if (!options?.force && noteMapCache && now - noteMapCache.at < NOTE_MAP_CACHE_TTL_MS) {
+    return Promise.resolve(noteMapCache.data);
+  }
+  // 同发去重：多个组件同帧调用时只发一个请求。
+  if (!options?.force && noteMapInflight) return noteMapInflight;
+
+  const p = requestJson<Record<string, RdTaskProgressNote[]>>(`/task-progress-notes`)
+    .then((data) => {
+      noteMapCache = { at: Date.now(), data };
+      return data;
+    })
+    .finally(() => {
+      if (noteMapInflight === p) noteMapInflight = null;
+    });
+  noteMapInflight = p;
+  return p;
 }
 
 // ── 已完成任务 AI 复盘评分 ───────────────────────────────────────────────────
@@ -1066,6 +1095,8 @@ export async function createRdTaskProgressNote(payload: {
     60_000,
     "进度记录保存失败",
   );
+  // 新增留痕后失效聚合缓存，保证新附件在驾驶舱/日报等处即时可见。
+  clearRdTaskProgressNoteMapCache();
   return (await response.json()) as RdTaskProgressNote;
 }
 
@@ -1237,6 +1268,34 @@ export type RdPerformanceMetrics = {
   completion_rate: number;
 };
 
+/** 绩效考核的 5 个评分维度（自评与主管评分共用同一套，各维度 0-100）。 */
+export const PERF_SCORE_DIMENSIONS = [
+  { key: "delivery", label: "交付", hint: "任务交付与完成度" },
+  { key: "quality", label: "质量", hint: "工作质量" },
+  { key: "collaboration", label: "协作", hint: "协作与沟通" },
+  { key: "initiative", label: "主动性", hint: "主动性与担当" },
+  { key: "norm", label: "规范", hint: "过程规范（进度同步、材料留痕等）" },
+] as const;
+
+export type PerfScoreDimension = (typeof PERF_SCORE_DIMENSIONS)[number]["key"];
+export type RdPerfDimensionScores = Record<PerfScoreDimension, number>;
+
+export type RdPerfSelfAssessment = {
+  scores: RdPerfDimensionScores;
+  comment: string;
+  submitted_at: string;
+  by_id: string | null;
+  by_name: string;
+};
+
+export type RdPerfSupervisorAssessment = {
+  scores: RdPerfDimensionScores;
+  comment: string;
+  submitted_at: string;
+  reviewer_id: string | null;
+  reviewer_name: string;
+};
+
 export type RdPerformanceReport = {
   id: string;
   user_id: string | null;
@@ -1251,6 +1310,8 @@ export type RdPerformanceReport = {
     metrics: RdPerformanceMetrics;
     text: string;
     generated_by: "ai" | "local";
+    self_assessment?: RdPerfSelfAssessment | null;
+    supervisor_assessment?: RdPerfSupervisorAssessment | null;
   };
   created_at: string;
 };
@@ -1269,6 +1330,28 @@ export function createRdPerformanceReport(payload: { user_id?: string; user_name
     method: "POST",
     body: JSON.stringify(payload),
     timeoutMs: 120_000,
+  });
+}
+
+/** 成员提交本人绩效自评（5 维 + 说明）。 */
+export function submitRdSelfAssessment(
+  reportId: string,
+  payload: { scores: RdPerfDimensionScores; comment: string },
+) {
+  return requestJson<RdPerformanceReport>(`/performance-reports/${encodeURIComponent(reportId)}/self-assessment`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** 主管提交对某成员绩效的 5 维评分。 */
+export function submitRdSupervisorAssessment(
+  reportId: string,
+  payload: { scores: RdPerfDimensionScores; comment: string },
+) {
+  return requestJson<RdPerformanceReport>(`/performance-reports/${encodeURIComponent(reportId)}/supervisor-assessment`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
   });
 }
 

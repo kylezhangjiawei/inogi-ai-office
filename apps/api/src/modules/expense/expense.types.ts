@@ -8,7 +8,7 @@ export type ReimbursementStatus = '草稿' | '审批中' | '已通过' | '已驳
 export type WeComSyncStatus = '未提交' | '已同步' | '审批中' | '已回调' | '同步失败';
 export type ExpenseEventLevel = 'info' | 'warning' | 'error';
 
-export type ExpenseActivity = {
+export type ExpenseActivity = ExpenseDepartmentScope & {
   id: string;
   time: string;
   title: string;
@@ -18,7 +18,13 @@ export type ExpenseActivity = {
   official_error?: ThirdPartyOfficialError;
 };
 
-export type ExpenseInvoiceValue = {
+/** 部门归属字段（发票/凭证/报销单共用）：code 为隔离依据，name 为展示快照；均空表示「未分配」。 */
+export type ExpenseDepartmentScope = {
+  department_code?: string | null;
+  department_name?: string | null;
+};
+
+export type ExpenseInvoiceValue = ExpenseDepartmentScope & {
   id: string;
   thumbnail_type: 'JPG' | 'PNG' | 'PDF';
   invoice_no: string;
@@ -60,7 +66,7 @@ export type ExpenseInvoiceValue = {
   file_url?: string;
 };
 
-export type ExpenseVoucherValue = {
+export type ExpenseVoucherValue = ExpenseDepartmentScope & {
   id: string;
   voucher_no: string;
   amount: number;
@@ -90,7 +96,7 @@ export type ExpenseVoucherValue = {
   file_url?: string;
 };
 
-export type ExpenseReimbursementValue = {
+export type ExpenseReimbursementValue = ExpenseDepartmentScope & {
   id: string;
   title: string;
   applicant: string;
@@ -110,6 +116,10 @@ export type ExpenseReimbursementValue = {
   wecom_creator_userid?: string;
   wecom_template_id?: string;
   wecom_raw_response?: unknown;
+  /** 邮件通知收件人（来源于「邮箱管理」已启用邮箱），随报销单落库，提交审批时排队通知。 */
+  notify_emails?: string[];
+  /** 邮件抄送人（同上）。 */
+  cc_emails?: string[];
   third_party_errors?: ThirdPartyOfficialError[];
 };
 

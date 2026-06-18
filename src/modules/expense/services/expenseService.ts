@@ -90,10 +90,14 @@ type ApiReimbursement = {
   voucher_ids?: string[];
   status: ReimbursementRecord["status"];
   node: string;
+  project?: string;
+  reason?: string;
   wecom_flow_id: string;
   wecom_sync_status: ReimbursementRecord["weComSyncStatus"];
   wecom_approver: string;
   wecom_updated_at: string;
+  notify_emails?: string[];
+  cc_emails?: string[];
   third_party_errors?: OfficialThirdPartyError[];
 };
 
@@ -122,6 +126,8 @@ type ApiVoucherCandidate = {
 };
 
 type ApiDashboard = {
+  month_amount: number;
+  total_amount: number;
   kpis: Array<{
     key: string;
     title: string;
@@ -135,7 +141,7 @@ type ApiDashboard = {
   activities: ExpenseDashboardData["activities"];
   monthly_trend: ExpenseDashboardData["monthlyTrend"];
   category_share: ExpenseDashboardData["categoryShare"];
-  department_bars: ExpenseDashboardData["departmentBars"];
+  status_breakdown: ExpenseDashboardData["statusBreakdown"];
   project_top: ExpenseDashboardData["projectTop"];
 };
 
@@ -298,10 +304,14 @@ function toReimbursement(item: ApiReimbursement): ReimbursementRecord {
     voucherIds: item.voucher_ids,
     status: item.status,
     node: item.node,
+    project: item.project,
+    reason: item.reason,
     weComFlowId: item.wecom_flow_id,
     weComSyncStatus: item.wecom_sync_status,
     weComApprover: item.wecom_approver,
     weComUpdatedAt: item.wecom_updated_at,
+    notifyEmails: item.notify_emails ?? [],
+    ccEmails: item.cc_emails ?? [],
   };
 }
 
@@ -341,6 +351,8 @@ const kpiIcons = {
 };
 
 const emptyDashboardData: ExpenseDashboardData = {
+  monthAmount: 0,
+  totalAmount: 0,
   kpis: [
     { title: "本月报销总额", value: "¥0", trend: "暂无报销数据", icon: TrendingUp },
     { title: "待处理票据数", value: "0 张", badge: "0 异常", icon: Receipt },
@@ -351,12 +363,14 @@ const emptyDashboardData: ExpenseDashboardData = {
   activities: [],
   monthlyTrend: [],
   categoryShare: [],
-  departmentBars: [],
+  statusBreakdown: [],
   projectTop: [],
 };
 
 function toDashboard(data: ApiDashboard): ExpenseDashboardData {
   return {
+    monthAmount: data.month_amount ?? 0,
+    totalAmount: data.total_amount ?? 0,
     kpis: data.kpis.map((item) => ({
       title: item.title,
       value: item.value,
@@ -369,7 +383,7 @@ function toDashboard(data: ApiDashboard): ExpenseDashboardData {
     activities: data.activities,
     monthlyTrend: data.monthly_trend,
     categoryShare: data.category_share,
-    departmentBars: data.department_bars,
+    statusBreakdown: data.status_breakdown,
     projectTop: data.project_top,
   };
 }
@@ -407,13 +421,22 @@ export type VoucherMatchSummary = {
 
 const emptyMatchSummary: VoucherMatchSummary = { auto_linked: 0, manual_review: 0, blocked: 0, links: [] };
 
+/** 部门下拉项（来自 /api/departments/options），费用筛选/改派复用。 */
+export type ExpenseDepartmentOption = { id: string; code: string; name: string; category?: string };
+
+/** 部门筛选值：具体 code、'unassigned'（未分配）、或 undefined（全部）。仅 view-all 用户生效。 */
+function appendDepartment(params: URLSearchParams, department?: string) {
+  if (department) params.set("department", department);
+}
+
 export const expenseService = {
-  async listInvoices(filters?: Partial<InvoiceFilters>) {
+  async listInvoices(filters?: Partial<InvoiceFilters>, department?: string) {
     const params = new URLSearchParams();
     params.set("page_size", "200");
     if (filters?.keyword?.trim()) params.set("keyword", filters.keyword.trim());
     if (filters?.status && filters.status !== "全部") params.set("status", filters.status);
     if (filters?.category && filters.category !== "全部") params.set("category", filters.category);
+    appendDepartment(params, department);
 
     try {
       const result = await request<{ items: ApiInvoice[] }>(`/api/expenses/invoices?${params.toString()}`);
@@ -423,12 +446,34 @@ export const expenseService = {
     }
   },
 
-  async getDashboard(): Promise<ExpenseDashboardData> {
+  async getDashboard(department?: string): Promise<ExpenseDashboardData> {
+    const params = new URLSearchParams();
+    appendDepartment(params, department);
+    const qs = params.toString();
     try {
-      return toDashboard(await request<ApiDashboard>("/api/expenses/dashboard"));
+      return toDashboard(await request<ApiDashboard>(`/api/expenses/dashboard${qs ? `?${qs}` : ""}`));
     } catch (error) {
       return fallbackWithWarning("getDashboard", emptyDashboardData, error);
     }
+  },
+
+  async listDepartmentOptions(): Promise<ExpenseDepartmentOption[]> {
+    try {
+      return await request<ExpenseDepartmentOption[]>("/api/departments/options");
+    } catch (error) {
+      return fallbackWithWarning("listDepartmentOptions", [], error);
+    }
+  },
+
+  async reassignDepartment(payload: {
+    type: "invoice" | "voucher" | "reimbursement";
+    ids: string[];
+    department_code: string;
+  }) {
+    return request<{ updated: number; department_code: string | null; department_name: string | null }>(
+      "/api/expenses/reassign-department",
+      { method: "POST", body: JSON.stringify(payload) },
+    );
   },
 
   async listVoucherCandidates(invoiceId: string): Promise<VoucherCandidate[]> {
@@ -440,9 +485,12 @@ export const expenseService = {
     }
   },
 
-  async listReimbursements(): Promise<ReimbursementRecord[]> {
+  async listReimbursements(department?: string): Promise<ReimbursementRecord[]> {
+    const params = new URLSearchParams();
+    appendDepartment(params, department);
+    const qs = params.toString();
     try {
-      const result = await request<ApiReimbursement[]>("/api/expenses/reimbursements");
+      const result = await request<ApiReimbursement[]>(`/api/expenses/reimbursements${qs ? `?${qs}` : ""}`);
       return result.map(toReimbursement);
     } catch (error) {
       return fallbackWithWarning("listReimbursements", [], error);
@@ -505,6 +553,8 @@ export const expenseService = {
     invoice_ids: string[];
     voucher_ids?: string[];
     wecom_creator_userid?: string;
+    notify_emails?: string[];
+    cc_emails?: string[];
   }) {
     return toReimbursement(await request<ApiReimbursement>("/api/expenses/reimbursements", {
       method: "POST",

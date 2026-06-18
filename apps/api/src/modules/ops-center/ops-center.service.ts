@@ -1,15 +1,34 @@
-import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma, type ApiRequestLog } from '@prisma/client';
+import { createHash } from 'node:crypto';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { OpsAiService, type OpsErrorAnalysis } from './ops-ai.service';
 
 type Tone = 'healthy' | 'info' | 'warning' | 'danger' | 'neutral';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+/** 错误日志查询入参（服务端过滤 + 分页）。 */
+export type ApiErrorQuery = {
+  from?: string;
+  to?: string;
+  statusClass?: '2xx' | '4xx' | '5xx' | 'all';
+  method?: string;
+  keyword?: string;
+  errorsOnly?: boolean;
+  page?: number;
+  pageSize?: number;
+};
+
+const AI_ANALYSIS_CACHE_PREFIX = 'ops:ai-error-analysis:';
+
 @Injectable()
 export class OpsCenterService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly opsAi: OpsAiService,
+  ) {}
 
   async getOverview() {
     const now = new Date();
@@ -53,16 +72,193 @@ export class OpsCenterService {
     };
   }
 
-  async getApiErrors() {
-    const since = new Date(Date.now() - MS_PER_DAY * 7);
-    const [apiLogs, errorGroups] = await Promise.all([
-      this.getApiLogs(since, 80),
-      this.getRecentIssues(since, 20),
+  async getApiErrors(query: ApiErrorQuery = {}) {
+    const now = Date.now();
+    const from = query.from ? new Date(query.from) : new Date(now - MS_PER_DAY * 7);
+    const to = query.to ? new Date(query.to) : new Date(now);
+    const page = Math.max(1, query.page ?? 1);
+    const pageSize = Math.min(200, Math.max(10, query.pageSize ?? 30));
+
+    const where: Prisma.ApiRequestLogWhereInput = {
+      createdAt: { gte: from, lte: to },
+    };
+    // 状态类筛选
+    if (query.errorsOnly) {
+      where.statusCode = { gte: 400 };
+    }
+    if (query.statusClass && query.statusClass !== 'all') {
+      if (query.statusClass === '2xx') where.statusCode = { gte: 200, lt: 300 };
+      else if (query.statusClass === '4xx') where.statusCode = { gte: 400, lt: 500 };
+      else if (query.statusClass === '5xx') where.statusCode = { gte: 500 };
+    }
+    if (query.method && query.method !== '全部') {
+      where.method = query.method.toUpperCase();
+    }
+    const keyword = query.keyword?.trim();
+    if (keyword) {
+      where.OR = [
+        { path: { contains: keyword, mode: 'insensitive' } },
+        { errorMessage: { contains: keyword, mode: 'insensitive' } },
+        { errorName: { contains: keyword, mode: 'insensitive' } },
+        { requestId: { contains: keyword, mode: 'insensitive' } },
+      ];
+    }
+
+    const [total, rows, errorGroups, aiReady] = await Promise.all([
+      this.prisma.apiRequestLog.count({ where }),
+      this.prisma.apiRequestLog.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * pageSize, take: pageSize }),
+      this.getRecentIssues(from, 20),
+      this.opsAi.isReady(),
     ]);
+    const userMap = await this.getUserMap(rows.map((row) => row.userId).filter(Boolean) as string[]);
 
     return {
-      api_logs: apiLogs,
+      api_logs: rows.map((row) => this.serializeApiLog(row, userMap)),
       error_groups: errorGroups,
+      pagination: { page, pageSize, total, totalPages: Math.max(1, Math.ceil(total / pageSize)) },
+      ai_ready: aiReady,
+    };
+  }
+
+  /** 按接口聚合：窗口内 调用量 / 错误数 / 错误率 / 平均·最大耗时 / 最近错误时间。 */
+  async getEndpointStats(query: { from?: string; to?: string; sort?: 'errors' | 'calls' | 'latency' } = {}) {
+    const now = Date.now();
+    const from = query.from ? new Date(query.from) : new Date(now - MS_PER_DAY);
+    const to = query.to ? new Date(query.to) : new Date(now);
+    const baseWhere: Prisma.ApiRequestLogWhereInput = { createdAt: { gte: from, lte: to } };
+
+    const [totals, errorTotals] = await Promise.all([
+      this.prisma.apiRequestLog.groupBy({
+        by: ['method', 'path'],
+        where: baseWhere,
+        _count: { _all: true },
+        _avg: { durationMs: true },
+        _max: { durationMs: true },
+      }),
+      this.prisma.apiRequestLog.groupBy({
+        by: ['method', 'path'],
+        where: { ...baseWhere, statusCode: { gte: 400 } },
+        _count: { _all: true },
+        _max: { createdAt: true },
+      }),
+    ]);
+
+    const errorMap = new Map(errorTotals.map((e) => [`${e.method} ${e.path}`, e]));
+    const rows = totals.map((t) => {
+      const key = `${t.method} ${t.path}`;
+      const err = errorMap.get(key);
+      const calls = t._count._all;
+      const errors = err?._count._all ?? 0;
+      return {
+        method: t.method,
+        path: t.path,
+        service: this.resolveServiceName(t.path),
+        calls,
+        errors,
+        errorRate: calls > 0 ? Math.round((errors / calls) * 1000) / 10 : 0,
+        avgDuration: Math.round(t._avg.durationMs ?? 0),
+        maxDuration: t._max.durationMs ?? 0,
+        lastError: err?._max.createdAt ? this.formatDateTime(err._max.createdAt) : null,
+      };
+    });
+
+    const sort = query.sort ?? 'errors';
+    rows.sort((a, b) =>
+      sort === 'calls' ? b.calls - a.calls : sort === 'latency' ? b.maxDuration - a.maxDuration : b.errors - a.errors || b.calls - a.calls,
+    );
+    return { endpoints: rows.slice(0, 100), window: { from: this.formatDateTime(from), to: this.formatDateTime(to) } };
+  }
+
+  /** AI 报错归因：以某条请求为代表，聚合近 7 天同类错误后调用 AI；结果按错误签名缓存。 */
+  async analyzeApiError(payload: { request_id?: string; force?: boolean }): Promise<OpsErrorAnalysis & { signature: string; occurrences: number; cached: boolean; analyzed_at: string }> {
+    const requestId = (payload.request_id ?? '').trim();
+    if (!requestId) {
+      throw new BadRequestException('request_id 不能为空');
+    }
+    const row = await this.prisma.apiRequestLog.findUnique({ where: { requestId } });
+    if (!row) {
+      throw new NotFoundException('请求记录不存在');
+    }
+
+    const signature = this.errorSignature(row.statusCode, row.method, row.path, row.errorName, row.errorMessage);
+    const cacheKey = `${AI_ANALYSIS_CACHE_PREFIX}${createHash('sha1').update(signature).digest('hex')}`;
+
+    // 同签名近 7 天聚合
+    const since = new Date(Date.now() - MS_PER_DAY * 7);
+    const similar = await this.prisma.apiRequestLog.findMany({
+      where: { createdAt: { gte: since }, statusCode: row.statusCode, method: row.method, path: row.path },
+      select: { userId: true, createdAt: true },
+      take: 500,
+    });
+    const occurrences = similar.length;
+    const affectedUsers = new Set(similar.map((s) => s.userId).filter(Boolean)).size;
+    const times = similar.map((s) => s.createdAt.getTime());
+    const firstSeen = times.length ? this.formatDateTime(new Date(Math.min(...times))) : null;
+    const lastSeen = times.length ? this.formatDateTime(new Date(Math.max(...times))) : null;
+
+    if (!payload.force) {
+      const cached = await this.prisma.systemSetting.findUnique({ where: { key: cacheKey } });
+      const value = this.asRecord(cached?.value as Prisma.JsonValue);
+      if (value.analysis) {
+        return {
+          ...(value.analysis as OpsErrorAnalysis),
+          signature,
+          occurrences,
+          cached: true,
+          analyzed_at: typeof value.analyzed_at === 'string' ? value.analyzed_at : '',
+        };
+      }
+    }
+
+    const analysis = await this.opsAi.analyze({
+      method: row.method,
+      path: row.path,
+      statusCode: row.statusCode,
+      errorName: row.errorName,
+      errorMessage: row.errorMessage,
+      errorStack: row.errorStack,
+      requestMeta: row.requestMeta,
+      responseMeta: row.responseMeta,
+      occurrences,
+      firstSeen,
+      lastSeen,
+      affectedUsers,
+    });
+
+    const analyzedAt = this.formatDateTime(new Date());
+    // 仅缓存真正由 AI 生成的结果，避免把「未配置/失败」兜底缓存住。
+    if (analysis.generated_by === 'ai') {
+      await this.prisma.systemSetting
+        .upsert({
+          where: { key: cacheKey },
+          create: { category: 'ops_ai_analysis', key: cacheKey, description: signature.slice(0, 200), value: { analysis, analyzed_at: analyzedAt, signature } as Prisma.InputJsonValue },
+          update: { value: { analysis, analyzed_at: analyzedAt, signature } as Prisma.InputJsonValue },
+        })
+        .catch(() => undefined);
+    }
+    return { ...analysis, signature, occurrences, cached: false, analyzed_at: analyzedAt };
+  }
+
+  private errorSignature(statusCode: number, method: string, path: string, errorName?: string | null, errorMessage?: string | null) {
+    return `${statusCode}:${method}:${path}:${errorName ?? ''}:${(errorMessage ?? '').slice(0, 120)}`;
+  }
+
+  private serializeApiLog(row: ApiRequestLog, userMap: Map<string, string>) {
+    return {
+      id: row.requestId,
+      time: this.formatDateTime(row.createdAt),
+      method: row.method,
+      path: row.path,
+      status: row.statusCode,
+      duration: row.durationMs,
+      user: row.userId ? userMap.get(row.userId) ?? '未知用户' : '系统/未登录',
+      ip: row.ip ?? '-',
+      message: row.errorMessage ?? (row.statusCode >= 400 ? '请求失败' : 'OK'),
+      errorName: row.errorName,
+      errorStack: row.errorStack,
+      requestMeta: row.requestMeta,
+      responseMeta: row.responseMeta,
+      userAgent: row.userAgent,
     };
   }
 
@@ -128,32 +324,6 @@ export class OpsCenterService {
         '敏感字段：password、api_key、token、secret 自动脱敏',
       ],
     };
-  }
-
-  private async getApiLogs(since: Date, take: number) {
-    const rows = await this.prisma.apiRequestLog.findMany({
-      where: { createdAt: { gte: since } },
-      orderBy: { createdAt: 'desc' },
-      take,
-    });
-    const userMap = await this.getUserMap(rows.map((row) => row.userId).filter(Boolean) as string[]);
-
-    return rows.map((row) => ({
-      id: row.requestId,
-      time: this.formatDateTime(row.createdAt),
-      method: row.method,
-      path: row.path,
-      status: row.statusCode,
-      duration: row.durationMs,
-      user: row.userId ? userMap.get(row.userId) ?? '未知用户' : '系统/未登录',
-      ip: row.ip ?? '-',
-      message: row.errorMessage ?? (row.statusCode >= 400 ? '请求失败' : 'OK'),
-      errorName: row.errorName,
-      errorStack: row.errorStack,
-      requestMeta: row.requestMeta,
-      responseMeta: row.responseMeta,
-      userAgent: row.userAgent,
-    }));
   }
 
   private async getRecentIssues(since: Date, take: number) {

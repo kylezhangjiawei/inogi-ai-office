@@ -53,6 +53,7 @@ import {
   fetchRdPeople,
   fetchRdProducts,
   fetchRdTaskCategories,
+  fetchRdPerformanceReports,
   fetchRdTaskProgressNotes,
   fetchRdWorkspace,
   moveRdTasks,
@@ -71,7 +72,9 @@ import {
   type RdWorkspaceTask,
   type RdAiSuggestion,
   type RdWorkspaceNotification,
+  type RdPerformanceReport,
 } from "./lib/rdApi";
+import { RDPerformanceScoreDialog } from "./RDPerformanceScoreDialog";
 import { toast } from "sonner";
 
 type Priority = RdPriority;
@@ -1939,6 +1942,7 @@ function NotificationDrawer({
   canReview,
   onApprove,
   onReject,
+  onSelfAssess,
 }: {
   notification: WorkspaceNotification;
   relatedTask?: WorkspaceTask;
@@ -1948,6 +1952,7 @@ function NotificationDrawer({
   canReview?: boolean;
   onApprove?: () => void | Promise<void>;
   onReject?: (reason: string) => Promise<void>;
+  onSelfAssess?: () => void;
 }) {
   const [rejectOpen, setRejectOpen] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
@@ -1964,6 +1969,7 @@ function NotificationDrawer({
   const msgBodyType = parsedBody?.type ?? "";
   const isReviewRequest = msgBodyType === "review_request";
   const isReviewResult = msgBodyType === "review_result";
+  const isPerfSelfAssessment = msgBodyType === "perf_self_assessment";
 
   // review_request fields
   const reviewType = isReviewRequest ? String(parsedBody!.review_type ?? "") : "";
@@ -2117,6 +2123,17 @@ function NotificationDrawer({
           <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3">
             <p className="text-sm leading-6 text-slate-700">{notification.message}</p>
           </div>
+        )}
+
+        {/* ── 绩效自评入口 ── */}
+        {isPerfSelfAssessment && onSelfAssess && (
+          <button
+            type="button"
+            onClick={onSelfAssess}
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-violet-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-violet-700"
+          >
+            {isHandled ? "查看 / 修改自评" : "去自评"}
+          </button>
         )}
 
         {/* ── Related task block ── */}
@@ -2868,6 +2885,9 @@ export function RDMyWorkspacePage() {
   const [notifVisibleCount, setNotifVisibleCount] = useState(NOTIF_PAGE_SIZE);
   const [progressOverrides, setProgressOverrides] = useState<Record<string, number>>({});
   const [activePanel, setActivePanel] = useState<ActivePanel | null>(null);
+  // 绩效自评弹窗状态（从通知抽屉「去自评」打开）
+  const [perfSelfReport, setPerfSelfReport] = useState<RdPerformanceReport | null>(null);
+  const [perfSelfNotifId, setPerfSelfNotifId] = useState<string | null>(null);
   const [taskVisibleCount, setTaskVisibleCount] = useState(WORKSPACE_PAGE_SIZE);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogConfig | null>(null);
   const [showProposalDialog, setShowProposalDialog] = useState(false);
@@ -3134,6 +3154,37 @@ export function RDMyWorkspacePage() {
       }
     },
     [WORKSPACE_AUDIT_ACTOR, loadWorkspace, moveDialogTasks],
+  );
+
+  // 从「绩效自评」通知打开自评弹窗：按通知携带的月份拉取本人当月绩效。
+  const openWorkspaceSelfAssess = React.useCallback(
+    async (notification: WorkspaceNotification) => {
+      if (!user?.id) return;
+      let month = "";
+      try {
+        const body = notification.raw_body ? (JSON.parse(notification.raw_body) as Record<string, unknown>) : null;
+        month = body ? String(body.month ?? "") : "";
+      } catch {
+        month = "";
+      }
+      if (!month) {
+        toast.error("通知缺少月份信息");
+        return;
+      }
+      try {
+        const list = await fetchRdPerformanceReports({ user_id: user.id, month, limit: 1 });
+        const r = list[0] ?? null;
+        if (!r) {
+          toast.error("未找到对应的绩效报表，可能已被重新生成");
+          return;
+        }
+        setPerfSelfNotifId(notification.id);
+        setPerfSelfReport(r);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "读取绩效失败，请稍后重试");
+      }
+    },
+    [user?.id],
   );
 
   const approveNotificationReview = React.useCallback((notification: WorkspaceNotification) => {
@@ -3787,6 +3838,10 @@ export function RDMyWorkspacePage() {
           }
           onOpenTask={(task, tab) => setActivePanel({ kind: "task", task, tab, openedAt: Date.now() })}
           canReview={canReview}
+          onSelfAssess={() => {
+            const notif = activePanel!.kind === "notification" ? activePanel!.notification : null;
+            if (notif) void openWorkspaceSelfAssess(notif);
+          }}
           onApprove={() => {
             const notif = activePanel!.kind === "notification" ? activePanel!.notification : null;
             if (notif) approveNotificationReview(notif);
@@ -3839,6 +3894,25 @@ export function RDMyWorkspacePage() {
         onClose={() => setShowProposalDialog(false)}
         userRole="user"
         forceOwnerToCurrentUser
+      />
+
+      {/* 绩效自评弹窗（从通知抽屉打开） */}
+      <RDPerformanceScoreDialog
+        open={!!perfSelfReport}
+        onClose={() => {
+          setPerfSelfReport(null);
+          setPerfSelfNotifId(null);
+        }}
+        report={perfSelfReport}
+        mode="self"
+        onSubmitted={() => {
+          if (perfSelfNotifId) {
+            const notifId = perfSelfNotifId;
+            void patchRdMessage(notifId, { handled: true, read: true }).catch(() => {});
+            setDismissedNotifs((prev) => new Set(prev).add(notifId));
+            setActivePanel(null);
+          }
+        }}
       />
 
       {/* 批量移动浮条：仅子系统全景视图且已勾选任务时出现 */}

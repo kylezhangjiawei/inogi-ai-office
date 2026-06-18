@@ -13,6 +13,7 @@ import {
 import { toast } from "sonner";
 import { NativeSelect } from "./components/ui/native-select";
 import { cn } from "./components/ui/utils";
+import { CollapseTransition } from "./components/CollapseTransition";
 import { RDPerformanceReportDialog } from "./RDPerformanceReportDialog";
 import {
   fetchRdMonthlyReports,
@@ -151,7 +152,11 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot }: { canRegenerate
     setMonthLoading(true);
     fetchRdMonthlyReports({ month: monthStr, limit: 500 })
       .then((list) => { if (isMountedRef.current) setMonthReports(list); })
-      .catch(() => { if (isMountedRef.current) setMonthReports([]); })
+      .catch((err) => {
+        if (!isMountedRef.current) return;
+        setMonthReports([]);
+        toast.error(err instanceof Error ? err.message : "月报加载失败，请稍后重试");
+      })
       .finally(() => { if (isMountedRef.current) setMonthLoading(false); });
   }, [monthStr]);
 
@@ -208,7 +213,11 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot }: { canRegenerate
       limit: reportMonthFilter || reportUserFilter ? 500 : 80,
     })
       .then((list) => { if (isMountedRef.current) setHistoryReports(list); })
-      .catch(() => { if (isMountedRef.current) setHistoryReports([]); })
+      .catch((err) => {
+        if (!isMountedRef.current) return;
+        setHistoryReports([]);
+        toast.error(err instanceof Error ? err.message : "历史月报加载失败，请稍后重试");
+      })
       .finally(() => { if (isMountedRef.current) setHistoryLoading(false); });
   }, [reportMonthFilter, reportUserFilter]);
 
@@ -360,7 +369,8 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot }: { canRegenerate
         )}
 
         {/* 就地展开某成员当月四分组详情 + 月绩效报表入口 */}
-        {expandedMonthReport && (
+        <CollapseTransition open={!!expandedMonthReport}>
+          {expandedMonthReport && (
           <div className="mt-3 rounded-xl border border-amber-100 bg-white p-3.5">
             <div className="mb-1 flex flex-wrap items-center gap-2">
               <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-100 text-xs font-bold text-amber-700">
@@ -387,12 +397,15 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot }: { canRegenerate
                 </button>
               )}
             </div>
-            <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-6 text-slate-700">
-              {expandedMonthReport.summary.text}
-            </pre>
-            <MonthlyReportGroupedTasks report={expandedMonthReport} />
+            <div className="max-h-[60vh] overflow-y-auto pr-1">
+              <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-6 text-slate-700">
+                {expandedMonthReport.summary.text}
+              </pre>
+              <MonthlyReportGroupedTasks report={expandedMonthReport} />
+            </div>
           </div>
-        )}
+          )}
+        </CollapseTransition>
       </div>
 
       {/* ── 历史详情层（默认收起） ───────────────────────────────────────── */}
@@ -537,7 +550,7 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot }: { canRegenerate
                               )}
                             />
                           </button>
-                          {expanded && (
+                          <CollapseTransition open={expanded}>
                             <div className="border-t border-amber-100 bg-amber-50/30 px-4 py-3">
                               <div className="mb-2 flex flex-wrap items-center justify-end gap-2">
                                 {canRegenerate && (
@@ -551,12 +564,14 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot }: { canRegenerate
                                   </button>
                                 )}
                               </div>
-                              <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-6 text-slate-700">
-                                {report.summary.text}
-                              </pre>
-                              <MonthlyReportGroupedTasks report={report} />
+                              <div className="max-h-[60vh] overflow-y-auto pr-1">
+                                <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-6 text-slate-700">
+                                  {report.summary.text}
+                                </pre>
+                                <MonthlyReportGroupedTasks report={report} />
+                              </div>
                             </div>
-                          )}
+                          </CollapseTransition>
                         </li>
                       );
                     })}

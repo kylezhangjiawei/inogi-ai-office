@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { Award, Download, Loader2, RefreshCw, Sparkles, X } from "lucide-react";
+import { Award, Download, Loader2, RefreshCw, Sparkles, UserCheck, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
+import { RDPerformanceScoreDialog } from "./RDPerformanceScoreDialog";
 import {
   createRdPerformanceReport,
   fetchRdPerformanceReports,
+  PERF_SCORE_DIMENSIONS,
+  type RdPerfDimensionScores,
   type RdPerformanceReport,
 } from "./lib/rdApi";
 
@@ -16,10 +19,53 @@ function escapeHtml(text: string): string {
  * 生成 Word 可打开的正式绩效文件（零依赖）：用 Office HTML 命名空间拼 HTML，
  * 以 application/msword 的 Blob 下载为 .doc，Word/WPS 可直接打开并归档。
  */
+function avgScore(scores: RdPerfDimensionScores): number {
+  const sum = PERF_SCORE_DIMENSIONS.reduce((acc, d) => acc + (scores[d.key] ?? 0), 0);
+  return Math.round(sum / PERF_SCORE_DIMENSIONS.length);
+}
+
+/** 维度评分表（维度 | 自评 | 主管评）+ 自评说明 / 主管评语；无任何评分时返回空串。 */
+function buildAssessmentDocHtml(report: RdPerformanceReport): string {
+  const self = report.summary.self_assessment ?? null;
+  const supervisor = report.summary.supervisor_assessment ?? null;
+  if (!self && !supervisor) return "";
+
+  const rows = PERF_SCORE_DIMENSIONS.map(
+    (d) =>
+      `<tr><th>${escapeHtml(d.label)}</th>` +
+      `<td style="text-align:center">${self ? self.scores[d.key] ?? "—" : "—"}</td>` +
+      `<td style="text-align:center">${supervisor ? supervisor.scores[d.key] ?? "—" : "—"}</td></tr>`,
+  ).join("");
+  const avgRow =
+    `<tr><th>平均分</th>` +
+    `<td style="text-align:center"><b>${self ? avgScore(self.scores) : "—"}</b></td>` +
+    `<td style="text-align:center"><b>${supervisor ? avgScore(supervisor.scores) : "—"}</b></td></tr>`;
+
+  const commentBlocks: string[] = [];
+  if (self?.comment?.trim()) {
+    commentBlocks.push(`<div class="cmt"><b>自评说明：</b>${escapeHtml(self.comment).replace(/\n/g, "<br/>")}</div>`);
+  }
+  if (supervisor?.comment?.trim()) {
+    commentBlocks.push(
+      `<div class="cmt"><b>主管评语：</b>${escapeHtml(supervisor.comment).replace(/\n/g, "<br/>")}</div>`,
+    );
+  }
+
+  return `
+  <h2 class="sec">绩效评分（维度）</h2>
+  <table>
+    <tr><th style="text-align:center">考核维度</th><th style="text-align:center">自评分</th><th style="text-align:center">主管评分</th></tr>
+    ${rows}
+    ${avgRow}
+  </table>
+  ${commentBlocks.join("")}`;
+}
+
 function buildPerformanceDocHtml(report: RdPerformanceReport): string {
   const s = report.summary;
   const m = s.metrics;
   const bodyHtml = escapeHtml(s.text).replace(/\n/g, "<br/>");
+  const assessmentHtml = buildAssessmentDocHtml(report);
   const createdAt = new Date(report.created_at).toLocaleString("zh-CN");
   return `<!DOCTYPE html>
 <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
@@ -35,6 +81,8 @@ function buildPerformanceDocHtml(report: RdPerformanceReport): string {
   th { background: #f3f4f6; text-align: left; width: 110px; white-space: nowrap; }
   .score { font-size: 18px; font-weight: bold; color: #b45309; }
   .body { margin-top: 14px; }
+  .sec { font-size: 15px; margin: 22px 0 6px; }
+  .cmt { font-size: 13px; line-height: 1.9; margin: 8px 0; }
   .sign { margin-top: 36px; }
 </style>
 </head>
@@ -48,6 +96,7 @@ function buildPerformanceDocHtml(report: RdPerformanceReport): string {
     <tr><th>任务完成率</th><td>${m.completion_rate}%（逾期 ${m.overdue_tasks}）</td><th>过程记录</th><td>进度记录 ${m.notes_count} 条 · 材料 ${m.attachments_count} 个</td></tr>
   </table>
   <div class="body">${bodyHtml}</div>
+  ${assessmentHtml}
   <table class="sign">
     <tr><th>被考核人签字</th><td>&nbsp;</td><th>考核人签字</th><td>&nbsp;</td></tr>
     <tr><th>日期</th><td>&nbsp;</td><th>日期</th><td>&nbsp;</td></tr>
@@ -117,6 +166,54 @@ function PerformanceBody({ report }: { report: RdPerformanceReport }) {
       <pre className="whitespace-pre-wrap break-words rounded-xl bg-white px-4 py-3 font-sans text-[13px] leading-7 text-slate-700 ring-1 ring-slate-100">
         {s.text}
       </pre>
+      <PerformanceAssessmentView report={report} />
+    </div>
+  );
+}
+
+/** 已填的自评 / 主管评分展示（维度表 + 说明）；都没填则不渲染。 */
+function PerformanceAssessmentView({ report }: { report: RdPerformanceReport }) {
+  const self = report.summary.self_assessment ?? null;
+  const supervisor = report.summary.supervisor_assessment ?? null;
+  if (!self && !supervisor) return null;
+  const avg = (scores: RdPerfDimensionScores) =>
+    Math.round(PERF_SCORE_DIMENSIONS.reduce((a, d) => a + (scores[d.key] ?? 0), 0) / PERF_SCORE_DIMENSIONS.length);
+  return (
+    <div className="mt-4 rounded-xl ring-1 ring-slate-100">
+      <div className="border-b border-slate-100 px-4 py-2 text-[11px] font-semibold text-slate-500">绩效评分（维度）</div>
+      <table className="w-full text-[12px]">
+        <thead>
+          <tr className="text-slate-400">
+            <th className="px-4 py-1.5 text-left font-medium">维度</th>
+            <th className="px-2 py-1.5 text-center font-medium text-violet-600">自评</th>
+            <th className="px-2 py-1.5 text-center font-medium text-amber-600">主管</th>
+          </tr>
+        </thead>
+        <tbody>
+          {PERF_SCORE_DIMENSIONS.map((d) => (
+            <tr key={d.key} className="border-t border-slate-50">
+              <td className="px-4 py-1.5 text-slate-600">{d.label}</td>
+              <td className="px-2 py-1.5 text-center font-semibold tabular-nums text-slate-700">{self ? self.scores[d.key] ?? "—" : "—"}</td>
+              <td className="px-2 py-1.5 text-center font-semibold tabular-nums text-slate-700">{supervisor ? supervisor.scores[d.key] ?? "—" : "—"}</td>
+            </tr>
+          ))}
+          <tr className="border-t border-slate-100 bg-slate-50/60">
+            <td className="px-4 py-1.5 font-semibold text-slate-600">平均分</td>
+            <td className="px-2 py-1.5 text-center font-bold tabular-nums text-violet-700">{self ? avg(self.scores) : "—"}</td>
+            <td className="px-2 py-1.5 text-center font-bold tabular-nums text-amber-700">{supervisor ? avg(supervisor.scores) : "—"}</td>
+          </tr>
+        </tbody>
+      </table>
+      {(self?.comment?.trim() || supervisor?.comment?.trim()) && (
+        <div className="space-y-2 px-4 py-2.5 text-[12px] leading-6 text-slate-600">
+          {self?.comment?.trim() && (
+            <div><span className="font-semibold text-violet-600">自评说明：</span>{self.comment}</div>
+          )}
+          {supervisor?.comment?.trim() && (
+            <div><span className="font-semibold text-amber-600">主管评语：</span>{supervisor.comment}</div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -144,6 +241,7 @@ export function RDPerformanceReportDialog({
   const [generating, setGenerating] = useState(false);
   const [report, setReport] = useState<RdPerformanceReport | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [scoringOpen, setScoringOpen] = useState(false);
 
   const load = useCallback(() => {
     if (!userId) {
@@ -187,6 +285,7 @@ export function RDPerformanceReportDialog({
   if (!open) return null;
 
   return (
+    <>
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4"
       onClick={onClose}
@@ -264,6 +363,16 @@ export function RDPerformanceReportDialog({
                   重新生成
                 </button>
               )}
+              {canGenerate && (
+                <button
+                  type="button"
+                  onClick={() => setScoringOpen(true)}
+                  className="inline-flex items-center gap-1 rounded-lg border border-amber-300 px-3 py-1.5 text-xs font-semibold text-amber-700 transition hover:bg-amber-50"
+                >
+                  <UserCheck className="h-3.5 w-3.5" />
+                  {report.summary.supervisor_assessment ? "修改主管评分" : "主管评分"}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => downloadPerformanceDoc(report)}
@@ -277,5 +386,14 @@ export function RDPerformanceReportDialog({
         )}
       </div>
     </div>
+
+      <RDPerformanceScoreDialog
+        open={scoringOpen}
+        onClose={() => setScoringOpen(false)}
+        report={report}
+        mode="supervisor"
+        onSubmitted={(updated) => setReport(updated)}
+      />
+    </>
   );
 }

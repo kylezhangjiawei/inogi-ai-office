@@ -8,6 +8,36 @@ import { DEPT_KB_DEFAULT_CATEGORIES } from './dept-knowledge.constants';
 import { RdAiService } from './rd-ai.service';
 
 type JsonRecord = Record<string, unknown>;
+/**
+ * 全员日报/月报生成时一次性预读、跨成员复用的共享数据。
+ * 避免每位成员各自重读「合并任务库 + 进度留痕表」，把 N×(全表读) 降到 1×。
+ */
+type RdReportSharedData = {
+  categories: JsonRecord[];
+  noteMap: Record<string, JsonRecord[]>;
+};
+
+/** 绩效考核的 5 个评分维度（自评与主管评分共用同一套，各维度 0-100）。 */
+const PERF_SCORE_DIMENSIONS = ['delivery', 'quality', 'collaboration', 'initiative', 'norm'] as const;
+type PerfScoreDimension = (typeof PERF_SCORE_DIMENSIONS)[number];
+type PerfDimensionScores = Record<PerfScoreDimension, number>;
+
+/** 把任意输入规整为 5 维整数分（0-100）；任一维度缺失/非数值即报错。 */
+function normalizePerfScores(value: unknown): PerfDimensionScores {
+  if (!isRecord(value)) {
+    throw new BadRequestException('评分数据格式不正确');
+  }
+  const out = {} as PerfDimensionScores;
+  for (const dim of PERF_SCORE_DIMENSIONS) {
+    const raw = (value as Record<string, unknown>)[dim];
+    const num = typeof raw === 'number' ? raw : Number(raw);
+    if (!Number.isFinite(num)) {
+      throw new BadRequestException(`评分项「${dim}」缺失或不是数字`);
+    }
+    out[dim] = Math.max(0, Math.min(100, Math.round(num)));
+  }
+  return out;
+}
 type IdentityUser = {
   id: string;
   name: string;
@@ -2411,11 +2441,11 @@ export class ResearchDevelopmentService {
 
   async getTaskProgressNotes(
     taskId: string,
-    viewer?: { userId?: string; hasFullAccess?: boolean; userName?: string },
+    viewer?: { userId?: string; hasFullAccess?: boolean; canReadAll?: boolean; userName?: string },
   ) {
     const map = await this.getProgressNoteMap();
     const notes = map[taskId] ?? [];
-    if (viewer?.hasFullAccess) return this.decorateNotesWithPreview(notes);
+    if (viewer?.hasFullAccess || viewer?.canReadAll) return this.decorateNotesWithPreview(notes);
     const userId = viewer?.userId;
     const userName = viewer?.userName;
     if (!userId && !userName) return [];
@@ -2434,9 +2464,10 @@ export class ResearchDevelopmentService {
     }));
   }
 
-  async listAllTaskProgressNotes(viewer?: { userId?: string; hasFullAccess?: boolean }) {
+  async listAllTaskProgressNotes(viewer?: { userId?: string; hasFullAccess?: boolean; canReadAll?: boolean }) {
     const map = await this.getProgressNoteMap();
-    if (viewer?.hasFullAccess) {
+    // 管理权限或只读跨部门查看权（rd-task:view-all）均可看到全部留痕与附件。
+    if (viewer?.hasFullAccess || viewer?.canReadAll) {
       const out: Record<string, JsonRecord[]> = {};
       for (const [taskId, notes] of Object.entries(map)) out[taskId] = this.decorateNotesWithPreview(notes);
       return out;
@@ -2969,19 +3000,26 @@ export class ResearchDevelopmentService {
       .slice(0, limit);
   }
 
-  async createDailyReport(payload: {
-    user_id?: string | null;
-    user_name?: string | null;
-    date?: string;
-    trigger?: 'manual' | 'cron';
-  }) {
+  /**
+   * 仅构造单份日报记录（含 AI 汇总），不落库。供 createDailyReport（写库）与
+   * generateDailyReportsForAll（并发构造 + 末尾一次性写库）复用。
+   */
+  private async buildDailyReportRecord(
+    payload: {
+      user_id?: string | null;
+      user_name?: string | null;
+      date?: string;
+      trigger?: 'manual' | 'cron';
+    },
+    shared?: RdReportSharedData,
+  ): Promise<JsonRecord & { user_id: string | null; date: string }> {
     const date = payload.date && /^\d{4}-\d{2}-\d{2}$/.test(payload.date) ? payload.date : todayDateString();
     const userId = (payload.user_id ?? '').trim() || null;
     const userName = (payload.user_name ?? '').trim() || '我';
 
     // Collect today's activity for this user from progress notes + task changes
-    const summary = await this.buildDailyReportSummary(userId, userName, date);
-    const report = {
+    const summary = await this.buildDailyReportSummary(userId, userName, date, shared);
+    return {
       id: `rep-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       user_id: userId,
       user_name: userName,
@@ -2990,6 +3028,16 @@ export class ResearchDevelopmentService {
       summary,
       created_at: new Date().toISOString(),
     };
+  }
+
+  async createDailyReport(payload: {
+    user_id?: string | null;
+    user_name?: string | null;
+    date?: string;
+    trigger?: 'manual' | 'cron';
+  }) {
+    const report = await this.buildDailyReportRecord(payload);
+    const { user_id: userId, date } = report;
 
     const all = await this.readArray('rd.dailyReports');
     const filtered = all.filter(isRecord);
@@ -3039,31 +3087,67 @@ export class ResearchDevelopmentService {
       }
     }
 
+    // 预读跨成员共享的全表数据一次，传给每位成员的构造逻辑（避免逐人重读）。
+    const shared: RdReportSharedData = {
+      categories: await this.readMergedTaskCategories(),
+      noteMap,
+    };
+
+    // 并发构造各成员日报（每份含一次 AI 汇总）；有限并发避免击穿 AI 限流。
+    // 仅构造、不落库——所有写操作集中在末尾一次完成，消除逐人「读改写整表」的写放大与竞态。
+    const CONCURRENCY = 4;
+    const queue = [...activeUserIds];
     const results: JsonRecord[] = [];
-    for (const userId of activeUserIds) {
-      try {
-        const report = await this.createDailyReport({
-          user_id: userId,
-          user_name: activeUserNames.get(userId),
-          date: targetDate,
-          trigger,
-        });
-        results.push(report);
-      } catch (err) {
-        // Skip individual failures; logged but don't break the loop
-        // eslint-disable-next-line no-console
-        console.error(`[generateDailyReportsForAll] user=${userId}`, err);
-      }
+    const runners: Promise<void>[] = [];
+    for (let i = 0; i < Math.min(CONCURRENCY, queue.length); i++) {
+      runners.push(
+        (async () => {
+          while (queue.length > 0) {
+            const userId = queue.shift()!;
+            try {
+              const report = await this.buildDailyReportRecord(
+                {
+                  user_id: userId,
+                  user_name: activeUserNames.get(userId),
+                  date: targetDate,
+                  trigger,
+                },
+                shared,
+              );
+              results.push(report);
+            } catch (err) {
+              // Skip individual failures; logged but don't break the loop
+              // eslint-disable-next-line no-console
+              console.error(`[generateDailyReportsForAll] user=${userId}`, err);
+            }
+          }
+        })(),
+      );
     }
+    await Promise.all(runners);
+
+    // 末尾一次性合并落库：同一用户同一天只保留新生成的一份。
+    const all = (await this.readArray('rd.dailyReports')).filter(isRecord);
+    const dailyKey = (r: JsonRecord) => `${String(r.user_id ?? '')}::${String(r.date ?? '')}`;
+    const freshKeys = new Set(results.map(dailyKey));
+    const deduped = all.filter((r) => !freshKeys.has(dailyKey(r)));
+    const next = [...results, ...deduped].slice(0, 1000);
+    await this.writeValue('rd.dailyReports', next);
     return { date: targetDate, count: results.length };
   }
 
-  private async buildDailyReportSummary(userId: string | null, userName: string, date: string) {
+  private async buildDailyReportSummary(
+    userId: string | null,
+    userName: string,
+    date: string,
+    shared?: RdReportSharedData,
+  ) {
     // 1. 归集该成员当日相关任务：主责 + 协作，跨所有产品库聚合，排除已归档。
     //    （旧实现只读主库且只算主责，会漏掉协作任务与产品库任务。）
-    const categories = await this.readMergedTaskCategories();
+    // 全员生成时由调用方传入预读数据，避免逐人重读全表（见 RdReportSharedData）。
+    const categories = shared?.categories ?? (await this.readMergedTaskCategories());
     const allTasks = this.collectAllCategoryTasks(categories);
-    const noteMap = await this.getProgressNoteMap();
+    const noteMap = shared?.noteMap ?? (await this.getProgressNoteMap());
 
     const userKey = userId ? `u:${cleanUserId(userId)}` : '';
     const nameKey = personNameLookupKey(userName);
@@ -3313,18 +3397,25 @@ export class ResearchDevelopmentService {
       .slice(0, limit);
   }
 
-  async createMonthlyReport(payload: {
-    user_id?: string | null;
-    user_name?: string | null;
-    month?: string;
-    trigger?: 'manual' | 'cron';
-  }) {
+  /**
+   * 仅构造单份月报记录（含 AI 汇总），不落库。供 createMonthlyReport（写库）与
+   * generateMonthlyReportsForAll（并发构造 + 末尾一次性写库）复用。
+   */
+  private async buildMonthlyReportRecord(
+    payload: {
+      user_id?: string | null;
+      user_name?: string | null;
+      month?: string;
+      trigger?: 'manual' | 'cron';
+    },
+    shared?: RdReportSharedData,
+  ): Promise<JsonRecord & { user_id: string | null; month: string }> {
     const month = payload.month && /^\d{4}-\d{2}$/.test(payload.month) ? payload.month : monthDateString();
     const userId = (payload.user_id ?? '').trim() || null;
     const userName = (payload.user_name ?? '').trim() || '我';
 
-    const summary = await this.buildMonthlyReportSummary(userId, userName, month);
-    const report = {
+    const summary = await this.buildMonthlyReportSummary(userId, userName, month, shared);
+    return {
       id: `mrep-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       user_id: userId,
       user_name: userName,
@@ -3333,6 +3424,16 @@ export class ResearchDevelopmentService {
       summary,
       created_at: new Date().toISOString(),
     };
+  }
+
+  async createMonthlyReport(payload: {
+    user_id?: string | null;
+    user_name?: string | null;
+    month?: string;
+    trigger?: 'manual' | 'cron';
+  }) {
+    const report = await this.buildMonthlyReportRecord(payload);
+    const { user_id: userId, month } = report;
 
     const all = await this.readArray('rd.monthlyReports');
     const filtered = all.filter(isRecord);
@@ -3378,21 +3479,51 @@ export class ResearchDevelopmentService {
       }
     }
 
+    // 预读跨成员共享的全表数据一次，传给每位成员的构造逻辑（避免逐人重读）。
+    const shared: RdReportSharedData = {
+      categories: await this.readMergedTaskCategories(),
+      noteMap,
+    };
+
+    // 并发构造各成员月报（每份含一次 AI 汇总）；有限并发避免击穿 AI 限流。
+    // 仅构造、不落库——所有写操作集中在末尾一次完成，消除逐人「读改写整表」的写放大与竞态。
+    const CONCURRENCY = 4;
+    const queue = [...activeUserIds];
     const results: JsonRecord[] = [];
-    for (const userId of activeUserIds) {
-      try {
-        const report = await this.createMonthlyReport({
-          user_id: userId,
-          user_name: activeUserNames.get(userId),
-          month: targetMonth,
-          trigger,
-        });
-        results.push(report);
-      } catch (err) {
-        // eslint-disable-next-line no-console
-        console.error(`[generateMonthlyReportsForAll] user=${userId}`, err);
-      }
+    const runners: Promise<void>[] = [];
+    for (let i = 0; i < Math.min(CONCURRENCY, queue.length); i++) {
+      runners.push(
+        (async () => {
+          while (queue.length > 0) {
+            const userId = queue.shift()!;
+            try {
+              const report = await this.buildMonthlyReportRecord(
+                {
+                  user_id: userId,
+                  user_name: activeUserNames.get(userId),
+                  month: targetMonth,
+                  trigger,
+                },
+                shared,
+              );
+              results.push(report);
+            } catch (err) {
+              // eslint-disable-next-line no-console
+              console.error(`[generateMonthlyReportsForAll] user=${userId}`, err);
+            }
+          }
+        })(),
+      );
     }
+    await Promise.all(runners);
+
+    // 末尾一次性合并落库：同一用户同一月份只保留新生成的一份。
+    const all = (await this.readArray('rd.monthlyReports')).filter(isRecord);
+    const monthlyKey = (r: JsonRecord) => `${String(r.user_id ?? '')}::${String(r.month ?? '')}`;
+    const freshKeys = new Set(results.map(monthlyKey));
+    const deduped = all.filter((r) => !freshKeys.has(monthlyKey(r)));
+    const next = [...results, ...deduped].slice(0, 1000);
+    await this.writeValue('rd.monthlyReports', next);
     return { month: targetMonth, count: results.length };
   }
 
@@ -3405,6 +3536,7 @@ export class ResearchDevelopmentService {
     userId: string | null,
     userName: string,
     month: string,
+    shared?: RdReportSharedData,
   ): Promise<{
     items: MonthlyReportTaskItem[];
     stats: {
@@ -3424,9 +3556,10 @@ export class ResearchDevelopmentService {
     // 「今天」(UTC+8 业务日历日，与 due_date 的 YYYY-MM-DD 同口径)，用于"逾期"判定下界：
     // 仅当截止日已真正过去(< 今天)才算逾期。否则本月内"尚未到期"的任务会被误判为逾期。
     const todayStr = new Date(Date.now() + 8 * 3600 * 1000).toISOString().slice(0, 10);
-    const categories = await this.readMergedTaskCategories();
+    // 全员生成时由调用方传入预读数据，避免逐人重读全表（见 RdReportSharedData）。
+    const categories = shared?.categories ?? (await this.readMergedTaskCategories());
     const allTasks = this.collectAllCategoryTasks(categories);
-    const noteMap = await this.getProgressNoteMap();
+    const noteMap = shared?.noteMap ?? (await this.getProgressNoteMap());
 
     const userKey = userId ? `u:${cleanUserId(userId)}` : '';
     const nameKey = personNameLookupKey(userName);
@@ -3593,8 +3726,13 @@ export class ResearchDevelopmentService {
     };
   }
 
-  private async buildMonthlyReportSummary(userId: string | null, userName: string, month: string) {
-    const { items, stats } = await this.collectUserMonthlyTasks(userId, userName, month);
+  private async buildMonthlyReportSummary(
+    userId: string | null,
+    userName: string,
+    month: string,
+    shared?: RdReportSharedData,
+  ) {
+    const { items, stats } = await this.collectUserMonthlyTasks(userId, userName, month, shared);
     const { label } = monthRange(month);
 
     const aiResult = await this.rdAiService.summarizeMonthlyReport({
@@ -3722,22 +3860,173 @@ export class ResearchDevelopmentService {
     const userName = (payload.user_name ?? '').trim() || '我';
 
     const summary = await this.buildPerformanceReview(userId, userName, month);
+
+    const all = await this.readArray('rd.performanceReports');
+    const filtered = all.filter(isRecord);
+
+    // 重新生成保分：沿用同一 user+month 上已填的自评 / 主管评分，仅刷新指标与 AI 文本。
+    const prior = filtered.find((r) => r.user_id === userId && r.month === month);
+    const priorSummary = prior && isRecord(prior.summary) ? prior.summary : null;
+    const carriedSelf = priorSummary && isRecord(priorSummary.self_assessment) ? priorSummary.self_assessment : null;
+    const carriedSupervisor =
+      priorSummary && isRecord(priorSummary.supervisor_assessment) ? priorSummary.supervisor_assessment : null;
+
     const report = {
       id: `perf-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       user_id: userId,
       user_name: userName,
       month,
       trigger: payload.trigger ?? 'manual',
-      summary,
+      summary: {
+        ...summary,
+        self_assessment: carriedSelf,
+        supervisor_assessment: carriedSupervisor,
+      },
       created_at: new Date().toISOString(),
     };
 
-    const all = await this.readArray('rd.performanceReports');
-    const filtered = all.filter(isRecord);
     const deduped = filtered.filter((r) => !(r.user_id === userId && r.month === month));
     const next = [report, ...deduped].slice(0, 1000);
     await this.writeValue('rd.performanceReports', next);
+
+    // 仅在「该成员有账号 ID 且尚未填写自评」时发自评通知，避免重新生成反复打扰。
+    if (userId && !carriedSelf) {
+      await this.notifyPerformanceSelfAssessment(report).catch((err) => {
+        // eslint-disable-next-line no-console
+        console.error('[createPerformanceReport] notify self-assessment failed', err);
+      });
+    }
     return report;
+  }
+
+  /** 给被考核成员发一条「绩效自评」站内消息（结构化 body，前端据 type 打开自评弹窗）。 */
+  private async notifyPerformanceSelfAssessment(report: {
+    id: string;
+    user_id: string | null;
+    user_name: string;
+    month: string;
+    summary: { period_label?: string };
+  }): Promise<void> {
+    if (!report.user_id) return;
+    const periodLabel = report.summary?.period_label ?? report.month;
+
+    // 先把该成员同月旧的「绩效自评」通知置为已处理，避免重新生成产生重复待办。
+    const existing = (await this.readArray('rd.messages')).filter(isRecord);
+    let superseded = false;
+    const cleaned = existing.map((m) => {
+      if (m.recipient_id !== report.user_id || m.handled === true) return m;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(typeof m.body === 'string' ? m.body : '');
+      } catch {
+        return m;
+      }
+      if (isRecord(parsed) && parsed.type === 'perf_self_assessment' && parsed.month === report.month) {
+        superseded = true;
+        return { ...m, handled: true };
+      }
+      return m;
+    });
+    if (superseded) await this.writeValue('rd.messages', cleaned);
+
+    const body = JSON.stringify({
+      type: 'perf_self_assessment',
+      report_id: report.id,
+      month: report.month,
+      period_label: periodLabel,
+      user_name: report.user_name,
+    });
+    await this.createMessage({
+      sender: { id: null, name: '系统通知', role: 'system' },
+      recipient_id: report.user_id,
+      recipient_name: report.user_name,
+      subject: `[绩效自评] ${periodLabel}月度绩效已生成，请完成自评`,
+      body,
+    });
+  }
+
+  /** 成员提交本人绩效自评（5 维 + 说明）。仅本人可提交。 */
+  async submitPerformanceSelfAssessment(
+    reportId: string,
+    payload: { scores?: unknown; comment?: string },
+    actor: { userId?: string; userName?: string },
+  ) {
+    const scores = normalizePerfScores(payload.scores);
+    const comment = (payload.comment ?? '').trim().slice(0, 2000);
+
+    const all = (await this.readArray('rd.performanceReports')).filter(isRecord);
+    const idx = all.findIndex((r) => r.id === reportId);
+    if (idx < 0) throw new NotFoundException('绩效报表不存在');
+    const report = all[idx];
+    if (!actor.userId || report.user_id !== actor.userId) {
+      throw new ForbiddenException('只能对本人的绩效进行自评');
+    }
+
+    const summary = isRecord(report.summary) ? report.summary : {};
+    const selfAssessment = {
+      scores,
+      comment,
+      submitted_at: new Date().toISOString(),
+      by_id: actor.userId,
+      by_name: actor.userName ?? report.user_name ?? '我',
+    };
+    const updated = { ...report, summary: { ...summary, self_assessment: selfAssessment } };
+    const next = all.slice();
+    next[idx] = updated;
+    await this.writeValue('rd.performanceReports', next);
+
+    // 自评提交后把相关「绩效自评」通知标为已处理，从待办中移除。
+    await this.markPerfSelfAssessmentMessagesHandled(reportId, actor.userId).catch(() => {});
+    return updated;
+  }
+
+  /** 主管提交对某成员绩效的 5 维评分（与生成绩效同权限，由 controller 校验）。 */
+  async submitPerformanceSupervisorAssessment(
+    reportId: string,
+    payload: { scores?: unknown; comment?: string; reviewerId?: string | null; reviewerName?: string | null },
+  ) {
+    const scores = normalizePerfScores(payload.scores);
+    const comment = (payload.comment ?? '').trim().slice(0, 2000);
+
+    const all = (await this.readArray('rd.performanceReports')).filter(isRecord);
+    const idx = all.findIndex((r) => r.id === reportId);
+    if (idx < 0) throw new NotFoundException('绩效报表不存在');
+    const report = all[idx];
+
+    const summary = isRecord(report.summary) ? report.summary : {};
+    const supervisorAssessment = {
+      scores,
+      comment,
+      submitted_at: new Date().toISOString(),
+      reviewer_id: payload.reviewerId ?? null,
+      reviewer_name: payload.reviewerName ?? '主管',
+    };
+    const updated = { ...report, summary: { ...summary, supervisor_assessment: supervisorAssessment } };
+    const next = all.slice();
+    next[idx] = updated;
+    await this.writeValue('rd.performanceReports', next);
+    return updated;
+  }
+
+  /** 把指定绩效报表对应、发给某成员的「绩效自评」通知标记为已处理。 */
+  private async markPerfSelfAssessmentMessagesHandled(reportId: string, userId: string): Promise<void> {
+    const all = (await this.readArray('rd.messages')).filter(isRecord);
+    let changed = false;
+    const next = all.map((m) => {
+      if (m.recipient_id !== userId || m.handled === true) return m;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(typeof m.body === 'string' ? m.body : '');
+      } catch {
+        return m;
+      }
+      if (isRecord(parsed) && parsed.type === 'perf_self_assessment' && parsed.report_id === reportId) {
+        changed = true;
+        return { ...m, handled: true, read: true };
+      }
+      return m;
+    });
+    if (changed) await this.writeValue('rd.messages', next);
   }
 
   /** 宽松评分：基线 78，按完成率/活跃度加分，阻塞/逾期仅小幅扣分且封顶，确保评价不过于苛刻。 */
@@ -4300,6 +4589,10 @@ export class ResearchDevelopmentService {
             ? `${reviewerName} 已批准任务「${taskTitle}」，任务已完成。`
             : `${reviewerName} 打回了任务「${taskTitle}」，请修改后重新提交。${reason ? `原因：${reason}` : ''}`;
         }
+      } else if (msgType === 'perf_self_assessment') {
+        const periodLabel = String(parsedBody!['period_label'] ?? '');
+        defaultTitle = `绩效自评：${periodLabel}月度绩效已生成，请完成自评`;
+        displayMessage = `你的 ${periodLabel} 月度绩效报表已生成，请完成 5 维自评（交付 / 质量 / 协作 / 主动性 / 规范）。`;
       } else {
         defaultTitle = subject ? `${senderName}：${subject}` : `${senderName} 给你发来一条消息`;
         displayMessage = body.length > 200 ? `${body.slice(0, 200)}…` : body;

@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Put, Query, Request, Res, UploadedFiles, UseInterceptors } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
+import { SkipThrottle } from '@nestjs/throttler';
 import { Response } from 'express';
 
 import { Permissions } from '../auth/decorators/permissions.decorator';
@@ -19,10 +20,13 @@ const RD_READ_PERMISSIONS = [
 type AuthedRequest = { user?: { id?: string; name?: string; role?: string; permissions?: string[] } };
 
 /** Determines if the current request belongs to a manager who can view all cross-user data. */
-function buildViewer(req: AuthedRequest): { userId?: string; hasFullAccess: boolean } {
+function buildViewer(req: AuthedRequest): { userId?: string; hasFullAccess: boolean; canReadAll: boolean } {
   const perms = req.user?.permissions ?? [];
   const hasFullAccess = perms.includes('*') || perms.includes('rd-task:reassign');
-  return { userId: req.user?.id, hasFullAccess };
+  // 只读跨部门查看：管理权限 OR 专门的只读权限 rd-task:view-all。
+  // 仅放开「看全部留痕/附件」，不解锁任何编辑/转派能力（后者仍看 hasFullAccess）。
+  const canReadAll = hasFullAccess || perms.includes('rd-task:view-all');
+  return { userId: req.user?.id, hasFullAccess, canReadAll };
 }
 
 /**
@@ -185,6 +189,7 @@ export class ResearchDevelopmentController {
    */
   @Public()
   @Permissions()
+  @SkipThrottle()
   @Get('oss-preview')
   async ossPreview(
     @Query('key') key: string,
@@ -388,6 +393,36 @@ export class ResearchDevelopmentController {
       user_name: body.user_name,
       month: body.month,
       trigger: 'manual',
+    });
+  }
+
+  /** 成员对自己的绩效填写 5 维自评（仅本人可提交，越权由 service 拦截）。 */
+  @Patch('performance-reports/:reportId/self-assessment')
+  submitSelfAssessment(
+    @Param('reportId') reportId: string,
+    @Body() body: { scores?: Record<string, unknown>; comment?: string },
+    @Request() req: AuthedRequest,
+  ) {
+    return this.rdService.submitPerformanceSelfAssessment(
+      reportId,
+      { scores: body.scores, comment: body.comment },
+      { userId: req.user?.id, userName: req.user?.name },
+    );
+  }
+
+  /** 主管对成员绩效填写 5 维评分（与生成绩效同权限）。 */
+  @Patch('performance-reports/:reportId/supervisor-assessment')
+  @Permissions('rd-task:reassign', 'rd-task:edit', 'page:rd-director-dashboard')
+  submitSupervisorAssessment(
+    @Param('reportId') reportId: string,
+    @Body() body: { scores?: Record<string, unknown>; comment?: string },
+    @Request() req: AuthedRequest,
+  ) {
+    return this.rdService.submitPerformanceSupervisorAssessment(reportId, {
+      scores: body.scores,
+      comment: body.comment,
+      reviewerId: req.user?.id ?? null,
+      reviewerName: req.user?.name ?? null,
     });
   }
 

@@ -20,7 +20,15 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "./auth";
 import { cn } from "./components/ui/utils";
-import { fetchRdMessages, patchRdMessage, updateRdTask, type RdMessage } from "./lib/rdApi";
+import {
+  fetchRdMessages,
+  fetchRdPerformanceReports,
+  patchRdMessage,
+  updateRdTask,
+  type RdMessage,
+  type RdPerformanceReport,
+} from "./lib/rdApi";
+import { RDPerformanceScoreDialog } from "./RDPerformanceScoreDialog";
 
 // ── Parsed message body types ────────────────────────────────────────────────
 
@@ -47,13 +55,26 @@ type ReviewResultBody = {
   reason?: string;
 };
 
-type ParsedBody = ReviewRequestBody | ReviewResultBody | { type: "unknown"; raw: string };
+type PerfSelfAssessmentBody = {
+  type: "perf_self_assessment";
+  report_id: string;
+  month: string;
+  period_label: string;
+  user_name: string;
+};
+
+type ParsedBody =
+  | ReviewRequestBody
+  | ReviewResultBody
+  | PerfSelfAssessmentBody
+  | { type: "unknown"; raw: string };
 
 function parseBody(raw: string): ParsedBody {
   try {
     const obj = JSON.parse(raw) as Record<string, unknown>;
     if (obj.type === "review_request") return obj as unknown as ReviewRequestBody;
     if (obj.type === "review_result") return obj as unknown as ReviewResultBody;
+    if (obj.type === "perf_self_assessment") return obj as unknown as PerfSelfAssessmentBody;
     return { type: "unknown", raw };
   } catch {
     return { type: "unknown", raw };
@@ -244,6 +265,7 @@ function MessageCard({
   onOpen,
   onApprove,
   onReject,
+  onSelfAssess,
 }: {
   msg: RdMessage;
   canReview: boolean;
@@ -251,6 +273,7 @@ function MessageCard({
   onOpen: (msg: RdMessage) => void;
   onApprove: (msg: RdMessage, body: ReviewRequestBody) => void;
   onReject: (msg: RdMessage, body: ReviewRequestBody) => void;
+  onSelfAssess: (msg: RdMessage, body: PerfSelfAssessmentBody) => void;
 }) {
   const body = useMemo(() => parseBody(msg.body), [msg.body]);
 
@@ -422,6 +445,54 @@ function MessageCard({
     );
   }
 
+  if (body.type === "perf_self_assessment") {
+    const pb = body;
+    const isHandled = msg.handled === true;
+    return (
+      <article
+        className={cn("cursor-pointer rounded-2xl border p-5 transition-colors", isHandled ? "border-slate-100 bg-slate-50/60" : "border-violet-100 bg-violet-50/40")}
+        onClick={() => onSelfAssess(msg, pb)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onSelfAssess(msg, pb);
+          }
+        }}
+        role="button"
+        tabIndex={0}
+      >
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={cn("material-chip", msg.read ? "bg-slate-100 text-slate-500" : "bg-red-50 text-red-600")}>
+              {msg.read ? "已读" : "未读"}
+            </span>
+            <span className="material-chip bg-violet-100 text-violet-700">绩效自评</span>
+            {!msg.read && !isHandled && <span className="inline-block h-2 w-2 rounded-full bg-red-500" title="未读" />}
+            {isHandled && <span className="material-chip bg-emerald-50 text-emerald-600">已提交</span>}
+          </div>
+          <span className="flex items-center gap-1 text-xs text-slate-400">
+            <Clock3 className="h-3.5 w-3.5" />
+            {timeLabel}
+          </span>
+        </div>
+        <div className="mb-1 font-semibold text-slate-900">{pb.period_label}月度绩效自评</div>
+        <div className="mb-3 text-sm text-slate-600">你的 {pb.period_label} 月度绩效已生成，请完成 5 维自评（交付 / 质量 / 协作 / 主动性 / 规范）。</div>
+        <div className="mt-2 flex border-t border-slate-100 pt-4">
+          <button
+            type="button"
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-violet-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-violet-700"
+            onClick={(event) => {
+              event.stopPropagation();
+              onSelfAssess(msg, pb);
+            }}
+          >
+            {isHandled ? "查看 / 修改自评" : "去自评"}
+          </button>
+        </div>
+      </article>
+    );
+  }
+
   // Unknown / plain text message
   const rb = body as { type: "unknown"; raw: string };
   return (
@@ -484,6 +555,11 @@ export function MessageCenterPage() {
   const [rejectTarget, setRejectTarget] = useState<{ msg: RdMessage; body: ReviewRequestBody } | null>(null);
   const [approveTarget, setApproveTarget] = useState<{ msg: RdMessage; body: ReviewRequestBody } | null>(null);
   const [approving, setApproving] = useState<string | null>(null); // message id being approved
+
+  // 绩效自评弹窗状态
+  const [selfAssessReport, setSelfAssessReport] = useState<RdPerformanceReport | null>(null);
+  const [selfAssessLoading, setSelfAssessLoading] = useState(false);
+  const [selfAssessMsgId, setSelfAssessMsgId] = useState<string | null>(null);
 
   const canReview = user
     ? user.permissions.includes("*") || user.permissions.includes("rd-task:edit") || user.permissions.includes("rd-task:reassign")
@@ -552,6 +628,30 @@ export function MessageCenterPage() {
       .then(() => window.dispatchEvent(new CustomEvent("rd:messages-updated")))
       .catch(() => {});
   }, []);
+
+  // 打开绩效自评：先标已读，按消息携带的月份拉取本人当月绩效，再开评分弹窗。
+  const openSelfAssess = useCallback(
+    async (msg: RdMessage, body: PerfSelfAssessmentBody) => {
+      markMessageRead(msg);
+      if (!user?.id) return;
+      setSelfAssessMsgId(msg.id);
+      setSelfAssessLoading(true);
+      try {
+        const list = await fetchRdPerformanceReports({ user_id: user.id, month: body.month, limit: 1 });
+        const r = list[0] ?? null;
+        if (!r) {
+          toast.error("未找到对应的绩效报表，可能已被重新生成");
+          return;
+        }
+        setSelfAssessReport(r);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : "读取绩效失败，请稍后重试");
+      } finally {
+        setSelfAssessLoading(false);
+      }
+    },
+    [user?.id, markMessageRead],
+  );
 
   // Filtered messages
   const filteredMessages = useMemo(() => {
@@ -750,6 +850,7 @@ export function MessageCenterPage() {
                 onOpen={markMessageRead}
                 onApprove={requestApprove}
                 onReject={(m, b) => setRejectTarget({ msg: m, body: b })}
+                onSelfAssess={openSelfAssess}
               />
             ))}
           </div>
@@ -822,6 +923,35 @@ export function MessageCenterPage() {
           }}
         />
       )}
+
+      {/* 拉取绩效中的轻提示 */}
+      {selfAssessLoading && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40">
+          <div className="flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm text-slate-600 shadow-lg">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            正在读取绩效…
+          </div>
+        </div>
+      )}
+
+      {/* 绩效自评弹窗 */}
+      <RDPerformanceScoreDialog
+        open={!!selfAssessReport}
+        onClose={() => {
+          setSelfAssessReport(null);
+          setSelfAssessMsgId(null);
+        }}
+        report={selfAssessReport}
+        mode="self"
+        onSubmitted={() => {
+          if (selfAssessMsgId) {
+            void patchRdMessage(selfAssessMsgId, { handled: true, read: true })
+              .then(() => window.dispatchEvent(new CustomEvent("rd:messages-updated")))
+              .catch(() => {});
+          }
+          void loadMessages();
+        }}
+      />
     </div>
   );
 }

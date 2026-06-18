@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -30,6 +30,7 @@ import { RagModule } from './modules/rag/rag.module';
 import { OrderProcessingModule } from './modules/order-processing/order-processing.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
+import { UserThrottlerGuard } from './common/user-throttler.guard';
 import { AuditInterceptor } from './modules/audit/audit.interceptor';
 import { ApiRequestLogInterceptor } from './modules/ops-center/api-request-log.interceptor';
 
@@ -45,7 +46,7 @@ const envFilePath = [
       envFilePath: envFilePath.length > 0 ? envFilePath : undefined,
     }),
     ScheduleModule.forRoot(),
-    ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 300 }]),
     MulterConfigModule,
     PrismaModule,
     HealthModule,
@@ -70,8 +71,10 @@ const envFilePath = [
     ResearchDevelopmentModule,
   ],
   providers: [
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    // 顺序：先鉴权（设置 req.user）→ 再按用户限流 → 最后鉴别角色。
+    // 限流改为「按登录用户」计数（UserThrottlerGuard），解决办公网共享 IP 被打满导致的 429。
     { provide: APP_GUARD, useClass: JwtAuthGuard },
+    { provide: APP_GUARD, useClass: UserThrottlerGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     { provide: APP_INTERCEPTOR, useClass: ApiRequestLogInterceptor },
     { provide: APP_INTERCEPTOR, useClass: AuditInterceptor },

@@ -10,6 +10,10 @@ export interface JwtPayload {
   email: string;
   roleId: string | null;
   permissions: string[];
+  /** 所属部门名称（签发时快照）。 */
+  department?: string | null;
+  /** 部门稳定标识（签发时解析）。数据隔离以此为准。 */
+  departmentCode?: string | null;
 }
 
 @Injectable()
@@ -30,6 +34,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (!user || user.status === 'DISABLED') {
       throw new UnauthorizedException();
     }
-    return { id: user.id, name: user.name, email: user.email, roleId: user.roleId, permissions: payload.permissions };
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      roleId: user.roleId,
+      permissions: payload.permissions,
+      // 部门名取库内最新值；稳定标识取签发时快照（TTL 内一致，改派后重登生效）。
+      department: user.department ?? null,
+      departmentCode: payload.departmentCode ?? null,
+    };
   }
 }

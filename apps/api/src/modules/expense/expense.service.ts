@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
@@ -29,6 +29,7 @@ import type {
   ExpenseReimbursementValue,
   ExpenseRuleValue,
   ExpenseVoucherValue,
+  InvoiceStatus,
   ReimbursementStatus,
   ThirdPartyOfficialError,
   VoucherCandidateValue,
@@ -96,6 +97,21 @@ const INTEGRATION_KEY = 'expense:integrations';
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
 
+/** 「未分配」部门的筛选标识（用于 view-all 用户查看无部门标签的存量数据）。 */
+export const UNASSIGNED_DEPT = 'unassigned';
+
+/** 费用数据的访问作用域（由 controller 据 req.user 构建）。 */
+export type ExpenseScope = {
+  /** 当前用户自身部门 code（无则 null）。普通用户的数据作用域。 */
+  departmentCode: string | null;
+  /** 当前用户自身部门名（写库时作为展示快照）。 */
+  departmentName: string | null;
+  /** 是否持跨部门查看权（`*` 或 `expense:view-all`）。 */
+  hasViewAll: boolean;
+  /** 仅对 view-all 生效的部门筛选：具体 code、'unassigned'、或 undefined=全部。 */
+  filterDepartment?: string | null;
+};
+
 @Injectable()
 export class ExpenseService {
   constructor(
@@ -106,13 +122,13 @@ export class ExpenseService {
     private readonly ocrService: OcrService,
   ) {}
 
-  async listInvoices(query: ListExpenseInvoicesQueryDto) {
+  async listInvoices(query: ListExpenseInvoicesQueryDto, scope: ExpenseScope) {
     const page = query.page ?? DEFAULT_PAGE;
     const pageSize = query.page_size ?? DEFAULT_PAGE_SIZE;
     const keyword = query.keyword?.trim().toLowerCase() ?? '';
     const status = query.status?.trim() ?? '';
     const category = query.category?.trim() ?? '';
-    const invoices = await this.ensureInvoices();
+    const invoices = await this.ensureInvoices(scope);
 
     const filtered = invoices.filter((invoice) => {
       const matchesKeyword =
@@ -138,13 +154,16 @@ export class ExpenseService {
     };
   }
 
-  async getDashboard() {
+  async getDashboard(scope: ExpenseScope) {
     const [invoices, reimbursements, events] = await Promise.all([
-      this.ensureInvoices(),
-      this.ensureReimbursements(),
-      this.listEvents(8),
+      this.ensureInvoices(scope),
+      this.ensureReimbursements(scope),
+      this.listEvents(8, scope),
     ]);
     const totalAmount = invoices.reduce((sum, invoice) => sum + invoice.amount, 0);
+    const currentMonthKey = this.formatDate(new Date()).slice(0, 7);
+    const monthInvoices = invoices.filter((invoice) => this.monthKeyOf(invoice.issued_date) === currentMonthKey);
+    const monthAmount = monthInvoices.reduce((sum, invoice) => sum + invoice.amount, 0);
     const pendingInvoices = invoices.filter((invoice) => ['待识别', '待确认', '异常'].includes(invoice.status));
     const abnormalInvoices = invoices.filter((invoice) => invoice.status === '异常');
     const autoHandled = Math.round(
@@ -153,8 +172,10 @@ export class ExpenseService {
     const hasBusinessData = invoices.length > 0 || reimbursements.length > 0;
 
     return {
+      month_amount: monthAmount,
+      total_amount: totalAmount,
       kpis: [
-        { key: 'monthly_amount', title: '本月报销总额', value: this.formatCurrency(totalAmount), trend: '接口实时汇总', icon: 'TrendingUp' },
+        { key: 'monthly_amount', title: '本月报销总额', value: this.formatCurrency(monthAmount), trend: `${monthInvoices.length} 张 · 累计 ${this.formatCurrency(totalAmount)}`, icon: 'TrendingUp' },
         { key: 'pending_invoices', title: '待处理票据数', value: `${pendingInvoices.length} 张`, badge: `${abnormalInvoices.length} 异常`, icon: 'Receipt' },
         { key: 'auto_ratio', title: 'AI 自动处理率', value: `${autoHandled}%`, progress: autoHandled, icon: 'Bot' },
         { key: 'wecom_pending', title: '企微审批中', value: `${reimbursements.filter((item) => item.status === '审批中').length} 单`, trend: '回调自动更新', icon: 'Clock3' },
@@ -187,25 +208,23 @@ export class ExpenseService {
       activities: events,
       monthly_trend: invoices.length ? this.buildMonthlyTrend(invoices) : [],
       category_share: invoices.length ? this.buildCategoryShare(invoices) : [],
-      department_bars: invoices.length ? this.buildDepartmentBars(invoices) : [],
+      status_breakdown: invoices.length ? this.buildStatusBreakdown(invoices) : [],
       project_top: invoices.length ? this.buildProjectTop(invoices) : [],
     };
   }
 
-  async listReimbursements() {
-    return this.ensureReimbursements();
+  async listReimbursements(scope: ExpenseScope) {
+    return this.ensureReimbursements(scope);
   }
 
   async listRules() {
     return this.ensureRules();
   }
 
-  async listVoucherCandidates(invoiceId: string): Promise<VoucherCandidateValue[]> {
-    const invoice = (await this.ensureInvoices()).find((item) => item.id === invoiceId);
-    if (!invoice) {
-      throw new NotFoundException('发票不存在');
-    }
-    const [invoices, vouchers] = await Promise.all([this.ensureInvoices(), this.ensureVouchers()]);
+  async listVoucherCandidates(invoiceId: string, scope: ExpenseScope): Promise<VoucherCandidateValue[]> {
+    const invoice = await this.getInvoiceOrThrow(invoiceId, scope);
+    // 候选凭证池限定在同作用域内，杜绝跨部门撮合。
+    const [invoices, vouchers] = await Promise.all([this.ensureInvoices(scope), this.ensureVouchers(scope)]);
     return this.buildVoucherCandidates(invoice, invoices, vouchers)
       .filter((candidate) => candidate.confidence >= 0.7)
       .slice(0, 10)
@@ -220,40 +239,91 @@ export class ExpenseService {
     };
   }
 
-  async uploadInvoices(files: UploadedExpenseFile[], payload: UploadExpenseOcrFilesDto = {}) {
+  async uploadInvoices(files: UploadedExpenseFile[], payload: UploadExpenseOcrFilesDto = {}, scope: ExpenseScope) {
     if (files.length === 0) {
       throw new BadRequestException('请至少上传一个票据文件');
     }
+    this.assertCanWrite(scope);
+    const tag = this.ownDeptTag(scope);
 
-    const created = await Promise.all(files.map((file) => this.createInvoiceFromFile(file, payload)));
+    const created = await Promise.all(files.map((file) => this.createInvoiceFromFile(file, payload, tag)));
     await this.recordEvent({
       title: '票据上传完成',
       detail: `已接收 ${created.length} 个文件，默认自动识别；低置信度或失败时可人工选择服务重试`,
       level: 'info',
       provider: 'tencent_ocr',
+      ...tag,
     });
-    const matches = await this.applyAutoVoucherMatches(true);
+    const matches = await this.applyAutoVoucherMatches(true, scope);
     return { items: await this.refreshInvoicesByIds(created.map((item) => item.id)), matches };
   }
 
-  async uploadVouchers(files: UploadedExpenseFile[], payload: UploadExpenseOcrFilesDto = {}) {
+  async uploadVouchers(files: UploadedExpenseFile[], payload: UploadExpenseOcrFilesDto = {}, scope: ExpenseScope) {
     if (files.length === 0) {
       throw new BadRequestException('请至少上传一个付款凭证文件');
     }
+    this.assertCanWrite(scope);
+    const tag = this.ownDeptTag(scope);
 
-    const created = await Promise.all(files.map((file) => this.createVoucherFromFile(file, payload)));
+    const created = await Promise.all(files.map((file) => this.createVoucherFromFile(file, payload, tag)));
     await this.recordEvent({
       title: '付款凭证上传完成',
       detail: `已接收 ${created.length} 个文件，可继续与票据做自动或人工关联`,
       level: 'info',
       provider: 'tencent_ocr',
+      ...tag,
     });
-    const matches = await this.applyAutoVoucherMatches(true);
+    const matches = await this.applyAutoVoucherMatches(true, scope);
     return { items: created, matches };
   }
 
-  async autoMatchVouchers() {
-    return this.applyAutoVoucherMatches(true);
+  async autoMatchVouchers(scope: ExpenseScope) {
+    return this.applyAutoVoucherMatches(true, scope);
+  }
+
+  /** 批量改派部门（仅 view-all）：把发票/凭证/报销单归到目标部门 code，或 'unassigned' 清空。 */
+  async reassignDepartment(
+    payload: { type?: 'invoice' | 'voucher' | 'reimbursement'; ids?: string[]; department_code?: string },
+    scope: ExpenseScope,
+  ) {
+    if (!scope.hasViewAll) {
+      throw new ForbiddenException('无跨部门改派权限');
+    }
+    const ids = Array.from(new Set((payload.ids ?? []).filter(Boolean)));
+    if (ids.length === 0) {
+      throw new BadRequestException('请选择要改派的记录');
+    }
+    const targetCode =
+      payload.department_code === UNASSIGNED_DEPT ? null : (payload.department_code ?? '').trim() || null;
+    const targetName = targetCode ? await this.resolveDeptNameByCode(targetCode) : null;
+    if (targetCode && !targetName) {
+      throw new BadRequestException('目标部门不存在');
+    }
+
+    const typeMeta = {
+      invoice: { category: RECORD_CATEGORIES.invoice, label: '发票' },
+      voucher: { category: RECORD_CATEGORIES.voucher, label: '付款凭证' },
+      reimbursement: { category: RECORD_CATEGORIES.reimbursement, label: '报销单' },
+    } as const;
+    const meta = typeMeta[payload.type ?? 'invoice'];
+    if (!meta) {
+      throw new BadRequestException('改派类型不合法');
+    }
+
+    const all = await this.listValues<{ id: string } & Record<string, unknown>>(meta.category);
+    const targets = all.filter((r) => ids.includes(r.id));
+    for (const rec of targets) {
+      const next = { ...rec, department_code: targetCode, department_name: targetName };
+      await this.upsertValue(meta.category, rec.id, next, `${rec.id} → ${targetName ?? '未分配'}`);
+    }
+    await this.recordEvent({
+      title: '费用数据已改派部门',
+      detail: `${targets.length} 条${meta.label}已改派至「${targetName ?? '未分配'}」`,
+      level: 'info',
+      department_code: targetCode,
+      department_name: targetName,
+    });
+    return { updated: targets.length, department_code: targetCode, department_name: targetName };
   }
 
   /**
@@ -261,14 +331,15 @@ export class ExpenseService {
    * 人工关联允许「改绑」：目标票据或目标凭证若已关联到别的对端，会先释放旧对端再建新链。
    * 仅对「已报销」的票据加保护，避免破坏已提交的报销单。
    */
-  async linkVoucherManually(invoiceId: string, voucherId: string) {
+  async linkVoucherManually(invoiceId: string, voucherId: string, scope: ExpenseScope) {
     const [invoice, vouchers, invoices] = await Promise.all([
-      this.getInvoiceOrThrow(invoiceId),
-      this.ensureVouchers(),
-      this.ensureInvoices(),
+      this.getInvoiceOrThrow(invoiceId, scope),
+      this.ensureVouchers(scope),
+      this.ensureInvoices(scope),
     ]);
     const voucher = vouchers.find((item) => item.id === voucherId);
     if (!voucher) {
+      // 不在作用域内（含跨部门）按「不存在」处理，避免跨部门关联与存在性泄露。
       throw new NotFoundException('付款凭证不存在');
     }
 
@@ -375,8 +446,8 @@ export class ExpenseService {
     };
   }
 
-  async updateInvoice(invoiceId: string, payload: UpdateExpenseInvoiceDto) {
-    const invoice = await this.getInvoiceOrThrow(invoiceId);
+  async updateInvoice(invoiceId: string, payload: UpdateExpenseInvoiceDto, scope: ExpenseScope) {
+    const invoice = await this.getInvoiceOrThrow(invoiceId, scope);
     const next: ExpenseInvoiceValue = {
       ...invoice,
       invoice_no: payload.invoice_no ?? invoice.invoice_no,
@@ -400,8 +471,8 @@ export class ExpenseService {
     return next;
   }
 
-  async verifyVatInvoice(invoiceId: string) {
-    const invoice = await this.getInvoiceOrThrow(invoiceId);
+  async verifyVatInvoice(invoiceId: string, scope: ExpenseScope) {
+    const invoice = await this.getInvoiceOrThrow(invoiceId, scope);
     const config = await this.getResolvedIntegrationConfig();
     this.assertTencentReady(config, ['secret_id', 'secret_key']);
     const client = new TencentOcrClient(config.tencent_ocr);
@@ -423,17 +494,24 @@ export class ExpenseService {
     return result.Response;
   }
 
-  async createReimbursement(payload: CreateExpenseReimbursementDto) {
-    const invoices = (await this.ensureInvoices()).filter((invoice) => payload.invoice_ids.includes(invoice.id));
+  async createReimbursement(payload: CreateExpenseReimbursementDto, scope: ExpenseScope) {
+    this.assertCanWrite(scope);
+    // 仅能在作用域内的票据上组单，跨部门票据天然被过滤掉。
+    const invoices = (await this.ensureInvoices(scope)).filter((invoice) => payload.invoice_ids.includes(invoice.id));
     if (invoices.length === 0) {
       throw new BadRequestException('请至少选择一张有效票据');
     }
+    if (invoices.length !== payload.invoice_ids.length) {
+      throw new BadRequestException('部分票据不在你的部门范围内，无法组单');
+    }
+    const tag = this.ownDeptTag(scope);
     const voucherIds = Array.from(new Set([
       ...(payload.voucher_ids ?? []),
       ...invoices.map((invoice) => invoice.matched_voucher_id ?? invoice.voucher_no).filter(Boolean),
     ] as string[]));
     const now = new Date();
     const reimbursement: ExpenseReimbursementValue = {
+      ...tag,
       id: this.newBusinessId('EXP'),
       title: payload.title.trim(),
       applicant: payload.applicant?.trim() || '当前用户',
@@ -451,18 +529,21 @@ export class ExpenseService {
       wecom_approver: '-',
       wecom_updated_at: this.formatDateTime(now),
       wecom_creator_userid: payload.wecom_creator_userid,
+      notify_emails: this.normalizeEmails(payload.notify_emails),
+      cc_emails: this.normalizeEmails(payload.cc_emails),
     };
     await this.upsertValue(RECORD_CATEGORIES.reimbursement, reimbursement.id, reimbursement, reimbursement.title);
     await this.recordEvent({
       title: '报销单已创建',
       detail: `${reimbursement.title} / ${this.formatCurrency(reimbursement.amount)}`,
       level: 'info',
+      ...tag,
     });
     return reimbursement;
   }
 
-  async submitWeComApproval(reimbursementId: string) {
-    const reimbursement = await this.getReimbursementOrThrow(reimbursementId);
+  async submitWeComApproval(reimbursementId: string, scope: ExpenseScope) {
+    const reimbursement = await this.getReimbursementOrThrow(reimbursementId, scope);
     const config = await this.getResolvedIntegrationConfig();
     this.assertWeComReady(config, ['corp_id', 'corp_secret', 'approval_template_id', 'default_creator_userid']);
     const controlIds = await this.getApprovalControlIds();
@@ -511,11 +592,51 @@ export class ExpenseService {
       level: 'info',
       provider: 'wecom',
     });
+    // 邮件通知与审批提交解耦：失败不影响主流程（fire-and-forget）。
+    void this.queueReimbursementEmails(next, '已提交企业微信审批');
     return next;
   }
 
-  async syncWeComApproval(reimbursementId: string) {
-    const reimbursement = await this.getReimbursementOrThrow(reimbursementId);
+  /**
+   * 报销单邮件通知（与「邮箱管理」打通的业务流程闭环）。
+   * 当前阶段只把通知意图落到活动流，真实 SMTP 发送通道后续接入（邮箱管理暂无 SMTP 配置字段）。
+   */
+  private async queueReimbursementEmails(reimbursement: ExpenseReimbursementValue, trigger: string) {
+    const to = this.normalizeEmails(reimbursement.notify_emails);
+    const cc = this.normalizeEmails(reimbursement.cc_emails);
+    if (to.length === 0 && cc.length === 0) return;
+    try {
+      const audience = [
+        to.length ? `收件人 ${to.join('、')}` : '',
+        cc.length ? `抄送 ${cc.join('、')}` : '',
+      ]
+        .filter(Boolean)
+        .join('；');
+      await this.recordEvent({
+        title: '报销审批邮件通知已排队',
+        detail: `${trigger}：${reimbursement.title} → ${audience}（待发送通道接入）`,
+        level: 'info',
+      });
+    } catch (error) {
+      // 通知失败不应阻断审批主流程
+      void error;
+    }
+  }
+
+  /** 去重、去空、规范化邮箱列表。 */
+  private normalizeEmails(emails?: string[]) {
+    if (!Array.isArray(emails)) return [];
+    return Array.from(
+      new Set(
+        emails
+          .map((email) => (typeof email === 'string' ? email.trim().toLowerCase() : ''))
+          .filter((email) => email.length > 0),
+      ),
+    );
+  }
+
+  async syncWeComApproval(reimbursementId: string, scope: ExpenseScope) {
+    const reimbursement = await this.getReimbursementOrThrow(reimbursementId, scope);
     if (!reimbursement.wecom_flow_id) {
       throw new BadRequestException('报销单尚未提交企业微信审批');
     }
@@ -685,9 +806,15 @@ export class ExpenseService {
     return this.getMaskedIntegrationConfig();
   }
 
-  private async createInvoiceFromFile(file: UploadedExpenseFile, payload: UploadExpenseOcrFilesDto) {
+  private async createInvoiceFromFile(
+    file: UploadedExpenseFile,
+    payload: UploadExpenseOcrFilesDto,
+    dept: { department_code: string | null; department_name: string | null } = { department_code: null, department_name: null },
+  ) {
     const now = new Date();
     const baseInvoice = this.invoiceFromUpload(file, now);
+    // 打部门标签：所有分支均以 {...baseInvoice} 展开，故在此统一注入。
+    Object.assign(baseInvoice, dept);
     const ocrMode = payload.ocr_mode === 'manual' ? 'manual' : 'auto';
     const service = getTencentOcrService(
       ocrMode === 'manual' ? payload.ocr_service_key : undefined,
@@ -770,7 +897,11 @@ export class ExpenseService {
     }
   }
 
-  private async createVoucherFromFile(file: UploadedExpenseFile, payload: UploadExpenseOcrFilesDto) {
+  private async createVoucherFromFile(
+    file: UploadedExpenseFile,
+    payload: UploadExpenseOcrFilesDto,
+    dept: { department_code: string | null; department_name: string | null } = { department_code: null, department_name: null },
+  ) {
     const now = new Date();
     const ocrMode = payload.ocr_mode === 'manual' ? 'manual' : 'auto';
     const service = getTencentOcrService(
@@ -804,6 +935,7 @@ export class ExpenseService {
       ocr_service_label: service?.label,
       ocr_action: service?.action,
       manual_review_required: true,
+      ...dept,
       ...(fileUrl ? { file_url: fileUrl } : {}),
     };
     const config = await this.getResolvedIntegrationConfig();
@@ -847,8 +979,9 @@ export class ExpenseService {
     }
   }
 
-  private async applyAutoVoucherMatches(recordSummaryEvent: boolean): Promise<VoucherMatchResult> {
-    const [invoices, vouchers] = await Promise.all([this.ensureInvoices(), this.ensureVouchers()]);
+  private async applyAutoVoucherMatches(recordSummaryEvent: boolean, scope?: ExpenseScope): Promise<VoucherMatchResult> {
+    // 撮合池限定在作用域内（同部门），自动关联不会跨部门。
+    const [invoices, vouchers] = await Promise.all([this.ensureInvoices(scope), this.ensureVouchers(scope)]);
     const candidates = invoices.flatMap((invoice) => this.buildVoucherCandidates(invoice, invoices, vouchers));
     const strongByVoucher = new Map<string, VoucherMatchCandidate[]>();
     candidates
@@ -914,6 +1047,7 @@ export class ExpenseService {
         title: '付款凭证自动关联完成',
         detail: `已按金额、日期、项目、供应商和唯一性规则自动关联 ${links.length} 张票据`,
         level: 'info',
+        ...(scope ? this.ownDeptTag(scope) : {}),
       });
     }
 
@@ -1182,30 +1316,84 @@ export class ExpenseService {
     };
   }
 
-  private async ensureInvoices() {
-    return this.listValues<ExpenseInvoiceValue>(RECORD_CATEGORIES.invoice);
+  private async ensureInvoices(scope?: ExpenseScope) {
+    const list = await this.listValues<ExpenseInvoiceValue>(RECORD_CATEGORIES.invoice);
+    return scope ? this.filterByScope(list, scope) : list;
   }
 
-  private async ensureVouchers() {
-    return this.listValues<ExpenseVoucherValue>(RECORD_CATEGORIES.voucher);
+  private async ensureVouchers(scope?: ExpenseScope) {
+    const list = await this.listValues<ExpenseVoucherValue>(RECORD_CATEGORIES.voucher);
+    return scope ? this.filterByScope(list, scope) : list;
   }
 
-  private async ensureReimbursements() {
-    return this.listValues<ExpenseReimbursementValue>(RECORD_CATEGORIES.reimbursement);
+  private async ensureReimbursements(scope?: ExpenseScope) {
+    const list = await this.listValues<ExpenseReimbursementValue>(RECORD_CATEGORIES.reimbursement);
+    return scope ? this.filterByScope(list, scope) : list;
   }
 
   private async ensureRules() {
     return this.listValues<ExpenseRuleValue>(RECORD_CATEGORIES.rule);
   }
 
-  private async listEvents(take: number) {
+  private async listEvents(take: number, scope?: ExpenseScope) {
+    // 作用域存在时多取一些再过滤（活动按部门标签隔离；未打标签的旧事件仅 view-all 可见）。
     const records = await this.prisma.systemSetting.findMany({
       where: { category: RECORD_CATEGORIES.event },
       orderBy: { updatedAt: 'desc' },
-      take,
+      take: scope ? Math.max(take * 5, 50) : take,
     });
-    const events = records.map((record) => record.value as ExpenseActivity);
-    return events;
+    let events = records.map((record) => record.value as ExpenseActivity);
+    if (scope) events = events.filter((e) => this.recordInScope(e, scope));
+    return events.slice(0, take);
+  }
+
+  // ── 部门作用域 ────────────────────────────────────────────────────────────
+  /** 记录是否落在作用域内（普通用户=本部门；view-all=全部或按 filterDepartment）。 */
+  private recordInScope(rec: { department_code?: string | null }, scope: ExpenseScope): boolean {
+    const code = rec.department_code ?? null;
+    if (scope.hasViewAll) {
+      const f = scope.filterDepartment;
+      if (!f) return true;
+      if (f === UNASSIGNED_DEPT) return !code;
+      return code === f;
+    }
+    if (!scope.departmentCode) return false; // 无部门普通用户：看不到任何数据
+    return code === scope.departmentCode;
+  }
+
+  private filterByScope<T extends { department_code?: string | null }>(list: T[], scope: ExpenseScope): T[] {
+    return list.filter((rec) => this.recordInScope(rec, scope));
+  }
+
+  /** 写入前置校验：无部门的普通用户禁止录入（避免数据落进自己看不到的桶）。 */
+  private assertCanWrite(scope: ExpenseScope) {
+    if (!scope.hasViewAll && !scope.departmentCode) {
+      throw new ForbiddenException('未设置部门，无法录入费用数据，请联系管理员分配部门');
+    }
+  }
+
+  /** 新建记录的部门标签（按提交人自身部门归属）。 */
+  private ownDeptTag(scope: ExpenseScope): { department_code: string | null; department_name: string | null } {
+    return { department_code: scope.departmentCode ?? null, department_name: scope.departmentName ?? null };
+  }
+
+  /** 对指定记录做越权拦截：不在作用域内按「不存在」处理，避免泄露其它部门数据的存在性。 */
+  private assertRecordInScope(rec: { department_code?: string | null }, scope: ExpenseScope, label = '记录') {
+    if (!this.recordInScope(rec, scope)) {
+      throw new NotFoundException(`${label}不存在`);
+    }
+  }
+
+  /** code → 部门名（改派时用，带 5 分钟缓存）。 */
+  private deptNameCache: { map: Map<string, string>; at: number } | null = null;
+  private async resolveDeptNameByCode(code: string | null): Promise<string | null> {
+    if (!code || code === UNASSIGNED_DEPT) return null;
+    const now = Date.now();
+    if (!this.deptNameCache || now - this.deptNameCache.at > 5 * 60 * 1000) {
+      const rows = await this.prisma.department.findMany({ select: { name: true, code: true } });
+      this.deptNameCache = { map: new Map(rows.map((r) => [r.code, r.name])), at: now };
+    }
+    return this.deptNameCache.map.get(code) ?? null;
   }
 
   private async listValues<T>(category: string): Promise<T[]> {
@@ -1230,19 +1418,21 @@ export class ExpenseService {
     return legacyIdsByCategory[category]?.has(id) ?? false;
   }
 
-  private async getInvoiceOrThrow(invoiceId: string) {
+  private async getInvoiceOrThrow(invoiceId: string, scope?: ExpenseScope) {
     const invoice = (await this.ensureInvoices()).find((item) => item.id === invoiceId);
     if (!invoice) {
       throw new NotFoundException('发票不存在');
     }
+    if (scope) this.assertRecordInScope(invoice, scope, '发票');
     return invoice;
   }
 
-  private async getReimbursementOrThrow(reimbursementId: string) {
+  private async getReimbursementOrThrow(reimbursementId: string, scope?: ExpenseScope) {
     const reimbursement = (await this.ensureReimbursements()).find((item) => item.id === reimbursementId);
     if (!reimbursement) {
       throw new NotFoundException('报销单不存在');
     }
+    if (scope) this.assertRecordInScope(reimbursement, scope, '报销单');
     return reimbursement;
   }
 
@@ -1676,35 +1866,57 @@ export class ExpenseService {
       .slice(0, 5);
   }
 
-  private buildDepartmentBars(invoices: ExpenseInvoiceValue[]) {
-    const departments = ['销售部', '研发部', '售后部', '质量部', '行政部'];
-    return departments.map((dept, index) => ({
-      dept,
-      amount: invoices.filter((_, invoiceIndex) => invoiceIndex % departments.length === index).reduce((sum, invoice) => sum + invoice.amount, 0),
-    }));
-  }
-
-  private buildMonthlyTrend(invoices: ExpenseInvoiceValue[]) {
-    const months = Array.from({ length: 6 }, (_, index) => {
-      const date = new Date();
-      date.setMonth(date.getMonth() - (5 - index));
-      return `${date.getMonth() + 1}月`;
-    });
-    return months.map((month, index) => {
-      const factor = 0.78 + index * 0.06;
+  /** 票据状态分布（真实统计，按 6 种发票状态聚合张数与金额，供「统计分析」状态分布图使用）。 */
+  private buildStatusBreakdown(invoices: ExpenseInvoiceValue[]) {
+    const statuses: InvoiceStatus[] = ['待识别', '已识别', '待确认', '已关联', '异常', '已报销'];
+    return statuses.map((status) => {
+      const matched = invoices.filter((invoice) => invoice.status === status);
       return {
-        month,
-        差旅: Math.round(this.sumCategory(invoices, '差旅') * factor),
-        餐饮: Math.round(this.sumCategory(invoices, '餐饮') * factor),
-        采购: Math.round(this.sumCategory(invoices, '采购') * factor),
-        办公: Math.round(this.sumCategory(invoices, '办公') * factor),
-        其他: Math.round(this.sumCategory(invoices, '其他') * factor),
+        status,
+        count: matched.length,
+        amount: matched.reduce((sum, invoice) => sum + invoice.amount, 0),
       };
     });
   }
 
-  private sumCategory(invoices: ExpenseInvoiceValue[], category: ExpenseCategory) {
-    return invoices.filter((invoice) => invoice.category === category).reduce((sum, invoice) => sum + invoice.amount, 0);
+  /** 近 6 个月的分类金额趋势（真实统计，按发票 issued_date 落桶，无数据的月份为 0）。 */
+  private buildMonthlyTrend(invoices: ExpenseInvoiceValue[]) {
+    const categories: ExpenseCategory[] = ['差旅', '餐饮', '采购', '办公', '其他'];
+    const buckets = Array.from({ length: 6 }, (_, index) => {
+      const date = new Date();
+      date.setDate(1);
+      date.setMonth(date.getMonth() - (5 - index));
+      return {
+        key: this.formatDate(date).slice(0, 7),
+        label: `${date.getMonth() + 1}月`,
+      };
+    });
+    return buckets.map(({ key, label }) => {
+      const monthInvoices = invoices.filter((invoice) => this.monthKeyOf(invoice.issued_date) === key);
+      const row: { month: string } & Record<ExpenseCategory, number> = {
+        month: label,
+        差旅: 0,
+        餐饮: 0,
+        采购: 0,
+        办公: 0,
+        其他: 0,
+      };
+      categories.forEach((category) => {
+        row[category] = monthInvoices
+          .filter((invoice) => invoice.category === category)
+          .reduce((sum, invoice) => sum + invoice.amount, 0);
+      });
+      return row;
+    });
+  }
+
+  /** 将 issued_date 归一化为 YYYY-MM 月桶键（容忍 年月日/斜杠 等分隔符，非法值返回空串）。 */
+  private monthKeyOf(issuedDate: string | undefined) {
+    if (!issuedDate) return '';
+    const normalized = issuedDate.replace(/[年月./]/g, '-');
+    const match = normalized.match(/^(\d{4})-(\d{1,2})/);
+    if (!match) return '';
+    return `${match[1]}-${match[2].padStart(2, '0')}`;
   }
 
   private formatCurrency(value: number) {

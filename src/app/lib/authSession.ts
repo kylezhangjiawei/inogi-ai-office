@@ -6,6 +6,10 @@ export type AuthUser = {
   roleId: string | null;
   roleName: string | null;
   permissions: string[];
+  /** 所属部门名称（费用等模块按部门隔离时展示用，可能为空）。 */
+  department?: string | null;
+  /** 部门稳定标识（数据隔离依据；解析不到为空）。 */
+  departmentCode?: string | null;
   /** OSS 签名 URL（30 天 TTL）。无自定义头像时为按 user_id 派发的默认预置头像，仅 OSS 未配置时才为 null */
   avatarUrl: string | null;
   /** 是否设过自定义头像。false 表示当前是自动派发的默认头像（个人中心据此决定是否显示「恢复默认头像」） */

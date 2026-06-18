@@ -15,6 +15,7 @@ import { Button } from "./components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover";
 import { Calendar } from "./components/ui/calendar";
 import { cn } from "./components/ui/utils";
+import { CollapseTransition } from "./components/CollapseTransition";
 import { ProgressAttachmentGrid } from "./RDProgressEvidence";
 import {
   fetchRdDailyReports,
@@ -218,7 +219,11 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot }: { canRegenerate: 
         setTodayReports(list);
         setProgressNoteMap((prev) => ({ ...prev, ...noteMap }));
       })
-      .catch(() => { if (isMountedRef.current) setTodayReports([]); })
+      .catch((err) => {
+        if (!isMountedRef.current) return;
+        setTodayReports([]);
+        toast.error(err instanceof Error ? err.message : "今日日报加载失败，请稍后重试");
+      })
       .finally(() => { if (isMountedRef.current) setTodayLoading(false); });
   }, [todayStr]);
 
@@ -280,7 +285,11 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot }: { canRegenerate: 
         setHistoryReports(list);
         setProgressNoteMap((prev) => ({ ...prev, ...noteMap }));
       })
-      .catch(() => { if (isMountedRef.current) setHistoryReports([]); })
+      .catch((err) => {
+        if (!isMountedRef.current) return;
+        setHistoryReports([]);
+        toast.error(err instanceof Error ? err.message : "历史日报加载失败，请稍后重试");
+      })
       .finally(() => { if (isMountedRef.current) setHistoryLoading(false); });
   }, [reportDateFilter, reportUserFilter]);
 
@@ -425,7 +434,8 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot }: { canRegenerate: 
         )}
 
         {/* 就地展开某成员当日四分组详情 */}
-        {expandedTodayReport && (
+        <CollapseTransition open={!!expandedTodayReport}>
+          {expandedTodayReport && (
           <div className="mt-3 rounded-xl border border-violet-100 bg-white p-3.5">
             <div className="mb-1 flex items-center gap-2">
               <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-100 text-xs font-bold text-violet-700">
@@ -436,12 +446,15 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot }: { canRegenerate: 
                 {expandedTodayReport.trigger === "cron" ? "自动" : "手动"}
               </span>
             </div>
-            <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-6 text-slate-700">
-              {expandedTodayReport.summary.text}
-            </pre>
-            <DailyReportGroupedTasks report={expandedTodayReport} progressNoteById={progressNoteById} />
+            <div className="max-h-[60vh] overflow-y-auto pr-1">
+              <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-6 text-slate-700">
+                {expandedTodayReport.summary.text}
+              </pre>
+              <DailyReportGroupedTasks report={expandedTodayReport} progressNoteById={progressNoteById} />
+            </div>
           </div>
-        )}
+          )}
+        </CollapseTransition>
       </div>
 
       {/* ── 历史详情层（默认收起） ───────────────────────────────────────── */}
@@ -614,14 +627,16 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot }: { canRegenerate: 
                               )}
                             />
                           </button>
-                          {expanded && (
+                          <CollapseTransition open={expanded}>
                             <div className="border-t border-violet-100 bg-violet-50/30 px-4 py-3">
-                              <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-6 text-slate-700">
-                                {report.summary.text}
-                              </pre>
-                              <DailyReportGroupedTasks report={report} progressNoteById={progressNoteById} />
+                              <div className="max-h-[60vh] overflow-y-auto pr-1">
+                                <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-6 text-slate-700">
+                                  {report.summary.text}
+                                </pre>
+                                <DailyReportGroupedTasks report={report} progressNoteById={progressNoteById} />
+                              </div>
                             </div>
-                          )}
+                          </CollapseTransition>
                         </li>
                       );
                     })}

@@ -45,7 +45,7 @@ import { toast } from "sonner";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { cn } from "./components/ui/utils";
-import { opsCenterApi, OpsCenterSectionData } from "./lib/opsCenterApi";
+import { opsCenterApi, type OpsCenterSectionData, type OpsErrorAnalysis } from "./lib/opsCenterApi";
 
 type OpsSection = "overview" | "api-errors" | "database" | "services-tasks" | "alerts-audit";
 type Tone = "healthy" | "info" | "warning" | "danger" | "neutral";
@@ -739,9 +739,147 @@ function OverviewPage({ data }: { data: OpsCenterSectionData | null }) {
   );
 }
 
+function AiList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div>
+      <div className="font-semibold text-slate-800">{title}</div>
+      <ul className="mt-1 list-disc space-y-1 pl-4">
+        {items.map((it, i) => <li key={i}>{it}</li>)}
+      </ul>
+    </div>
+  );
+}
+
+/** AI 报错归因块：按 requestId 触发分析，展示 可能原因/影响面/排查建议/修复方向。 */
+function AiAnalysisBlock({ requestId, aiReady }: { requestId: string; aiReady?: boolean }) {
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<OpsErrorAnalysis | null>(null);
+
+  useEffect(() => { setResult(null); }, [requestId]);
+
+  const run = async (force: boolean) => {
+    if (!requestId) return;
+    setLoading(true);
+    try {
+      const r = await opsCenterApi.analyzeApiError({ request_id: requestId, force });
+      setResult(r);
+      if (r.generated_by !== "ai") toast.error(r.summary || "AI 暂不可用");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "AI 分析失败");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="rounded border border-indigo-200 bg-indigo-50/50 p-3">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5 text-xs font-semibold text-indigo-700">
+          <Sparkles className="h-3.5 w-3.5" />
+          AI 报错归因
+        </div>
+        <button
+          type="button"
+          className="material-button-secondary !px-2.5 !py-1.5 text-xs"
+          disabled={loading}
+          onClick={() => run(!!result)}
+        >
+          {loading ? "分析中…" : result ? "重新分析" : "AI 分析原因"}
+        </button>
+      </div>
+      {aiReady === false && !result ? (
+        <p className="mt-2 text-xs text-amber-600">未配置可用 AI 模型，请到「集成管理 → AI 模型」启用后再试。</p>
+      ) : null}
+      {result && result.generated_by === "ai" ? (
+        <div className="mt-3 space-y-2 text-xs leading-5 text-slate-700">
+          {result.summary ? <div className="rounded bg-white p-2 font-semibold text-slate-800">{result.summary}</div> : null}
+          {result.probable_causes.length ? <AiList title="可能原因" items={result.probable_causes} /> : null}
+          {result.impact ? <div><span className="font-semibold text-slate-800">影响面：</span>{result.impact}</div> : null}
+          {result.investigation_steps.length ? <AiList title="排查建议" items={result.investigation_steps} /> : null}
+          {result.fix_suggestions.length ? <AiList title="修复方向" items={result.fix_suggestions} /> : null}
+          <div className="pt-1 text-[11px] text-slate-400">
+            近 7 天同类 {result.occurrences} 次 · {result.cached ? "缓存结果" : "实时生成"}{result.model ? ` · ${result.model}` : ""} · {result.analyzed_at}
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/** 按接口聚合统计表：窗口内 调用量/错误数/错误率/平均·最大耗时/最近错误。 */
+function EndpointStatsPanel() {
+  const [rows, setRows] = useState<any[]>([]);
+  const [sort, setSort] = useState<"errors" | "calls" | "latency">("errors");
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    opsCenterApi
+      .getEndpointStats({ sort })
+      .then((r) => { if (!cancelled) setRows(r.endpoints ?? []); })
+      .catch(() => { if (!cancelled) setRows([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [sort]);
+
+  const { page, setPage, totalPages, pagedRows } = usePagedRows(rows, sort, 8);
+
+  return (
+    <section className="material-card p-5">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <PanelTitle icon={Activity} title="按接口调用统计" action="近 24 小时" />
+        <SelectControl
+          value={sort}
+          onValueChange={(v) => setSort(v as "errors" | "calls" | "latency")}
+          options={[{ label: "按错误数", value: "errors" }, { label: "按调用量", value: "calls" }, { label: "按最大耗时", value: "latency" }]}
+          className="w-full sm:w-40"
+        />
+      </div>
+      <div className="mt-5 overflow-hidden rounded border border-slate-200">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>接口</TableHead>
+              <TableHead>调用量</TableHead>
+              <TableHead>错误数</TableHead>
+              <TableHead>错误率</TableHead>
+              <TableHead>平均耗时</TableHead>
+              <TableHead>最大耗时</TableHead>
+              <TableHead>最近错误</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {loading ? (
+              <TableRow><TableCell colSpan={7} className="py-10 text-center text-sm text-slate-400">加载中…</TableCell></TableRow>
+            ) : pagedRows.length === 0 ? (
+              <TableRow><TableCell colSpan={7} className="py-10 text-center text-sm text-slate-400">暂无调用数据</TableCell></TableRow>
+            ) : pagedRows.map((row: any) => (
+              <TableRow key={`${row.method} ${row.path}`}>
+                <TableCell>
+                  <div className="font-mono text-xs font-semibold text-slate-800">{row.method} {row.path}</div>
+                  <div className="mt-1 text-[11px] text-slate-400">{row.service}</div>
+                </TableCell>
+                <TableCell className="tabular-nums">{row.calls}</TableCell>
+                <TableCell className={cn("tabular-nums font-semibold", row.errors > 0 ? "text-rose-600" : "text-slate-500")}>{row.errors}</TableCell>
+                <TableCell className={cn("tabular-nums", row.errorRate >= 5 ? "text-rose-600 font-semibold" : "text-slate-600")}>{row.errorRate}%</TableCell>
+                <TableCell className="tabular-nums text-slate-600">{row.avgDuration}ms</TableCell>
+                <TableCell className={cn("tabular-nums", row.maxDuration > 2000 ? "text-amber-700 font-semibold" : "text-slate-600")}>{row.maxDuration}ms</TableCell>
+                <TableCell className="whitespace-nowrap text-xs text-slate-500">{row.lastError ?? "—"}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>
+      <PaginationControls page={page} total={rows.length} totalPages={totalPages} onPageChange={setPage} />
+    </section>
+  );
+}
+
 function ApiErrorsPage({ data }: { data: OpsCenterSectionData | null }) {
   return (
     <div className="space-y-5">
+      <EndpointStatsPanel />
       <ApiLogsPage data={data} />
       <ErrorsPage data={data} />
     </div>
@@ -1096,73 +1234,87 @@ function AlertsAuditSettingsPage({ data }: { data: OpsCenterSectionData | null }
   );
 }
 
-function ApiLogsPage({ data }: { data: OpsCenterSectionData | null }) {
+const OPS_RANGE_PRESETS: Array<{ label: string; value: string; ms: number }> = [
+  { label: "近 1 小时", value: "1h", ms: 3600_000 },
+  { label: "近 24 小时", value: "24h", ms: 24 * 3600_000 },
+  { label: "近 7 天", value: "7d", ms: 7 * 24 * 3600_000 },
+  { label: "近 30 天", value: "30d", ms: 30 * 24 * 3600_000 },
+];
+
+function ApiLogsPage(_props: { data: OpsCenterSectionData | null }) {
   const [keyword, setKeyword] = useState("");
   const [statusFilter, setStatusFilter] = useState("全部");
+  const [methodFilter, setMethodFilter] = useState("全部");
+  const [range, setRange] = useState("24h");
+  const [page, setPage] = useState(1);
+  const [rows, setRows] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [aiReady, setAiReady] = useState<boolean | undefined>(undefined);
+  const [loading, setLoading] = useState(false);
   const [selectedLogId, setSelectedLogId] = useState("");
   const deferredKeyword = useDeferredValue(keyword);
-  const rows = getArray(data, "api_logs", apiLogs);
-  const errorRows = useMemo(() => rows.filter((item: any) => item.status >= 400), [rows]);
-  const filteredRows = useMemo(() => {
-    const normalized = deferredKeyword.trim().toLowerCase();
-    return rows.filter((item: any) => {
-      const statusMatched =
-        statusFilter === "全部" ||
-        (statusFilter === "2xx" && item.status >= 200 && item.status < 300) ||
-        (statusFilter === "4xx" && item.status >= 400 && item.status < 500) ||
-        (statusFilter === "5xx" && item.status >= 500);
-      const keywordMatched =
-        !normalized ||
-        item.path.toLowerCase().includes(normalized) ||
-        item.user.toLowerCase().includes(normalized) ||
-        item.message.toLowerCase().includes(normalized) ||
-        item.id.toLowerCase().includes(normalized);
-      return statusMatched && keywordMatched;
-    });
-  }, [deferredKeyword, rows, statusFilter]);
-  const {
-    page,
-    setPage,
-    totalPages,
-    pagedRows,
-  } = usePagedRows(filteredRows, `${deferredKeyword}|${statusFilter}`);
+
+  // 过滤条件变化时回到第 1 页
+  useEffect(() => { setPage(1); }, [deferredKeyword, statusFilter, methodFilter, range]);
+
+  // 服务端查询：时间范围 + 状态类 + 方法 + 关键字 + 分页（突破"只看最近 80 条"的限制）。
+  useEffect(() => {
+    let cancelled = false;
+    const preset = OPS_RANGE_PRESETS.find((p) => p.value === range) ?? OPS_RANGE_PRESETS[1];
+    const from = new Date(Date.now() - preset.ms).toISOString();
+    setLoading(true);
+    opsCenterApi
+      .getApiErrors({
+        from,
+        statusClass: statusFilter === "全部" ? "all" : (statusFilter as "2xx" | "4xx" | "5xx"),
+        method: methodFilter,
+        keyword: deferredKeyword,
+        page,
+        pageSize: 30,
+      })
+      .then((res: any) => {
+        if (cancelled) return;
+        setRows(res.api_logs ?? []);
+        setTotal(res.pagination?.total ?? (res.api_logs?.length ?? 0));
+        setTotalPages(res.pagination?.totalPages ?? 1);
+        setAiReady(Boolean(res.ai_ready));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setRows([]); setTotal(0); setTotalPages(1);
+      })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [deferredKeyword, statusFilter, methodFilter, range, page]);
 
   useEffect(() => {
-    if (!filteredRows.length) {
-      setSelectedLogId("");
-      return;
-    }
-    setSelectedLogId((current) => {
-      if (current && filteredRows.some((item: any) => item.id === current)) return current;
-      return filteredRows[0]?.id ?? "";
-    });
-  }, [filteredRows]);
+    if (!rows.length) { setSelectedLogId(""); return; }
+    setSelectedLogId((current) => (current && rows.some((r) => r.id === current) ? current : rows[0].id));
+  }, [rows]);
 
-  const selected = filteredRows.find((item: any) => item.id === selectedLogId) ?? filteredRows[0] ?? rows[0] ?? apiLogs[0];
-  const selectedHasError = selected.status >= 400 || selected.errorName || selected.errorStack;
+  const selected = rows.find((r) => r.id === selectedLogId) ?? rows[0] ?? null;
+  const selectedHasError = selected ? selected.status >= 400 || selected.errorName || selected.errorStack : false;
 
   return (
     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
       <section className="material-card min-w-0 p-5">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <PanelTitle icon={Activity} title="请求记录" action={`${filteredRows.length} 条`} />
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <div className="relative w-full sm:w-[320px]">
+          <PanelTitle icon={Activity} title="请求记录" action={loading ? "加载中…" : `${total} 条`} />
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+            <div className="relative w-full sm:w-[240px]">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input className="material-input py-2.5 pl-10" value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索接口、用户、错误信息" />
+              <input className="material-input py-2.5 pl-10" value={keyword} onChange={(event) => setKeyword(event.target.value)} placeholder="搜索接口、错误信息、Request ID" />
             </div>
-            <SelectControl
-              value={statusFilter}
-              onValueChange={setStatusFilter}
-              options={["全部", "2xx", "4xx", "5xx"].map((item) => ({ label: item, value: item }))}
-              className="w-full sm:w-28"
-            />
+            <SelectControl value={range} onValueChange={setRange} options={OPS_RANGE_PRESETS.map((p) => ({ label: p.label, value: p.value }))} className="w-full sm:w-32" />
+            <SelectControl value={methodFilter} onValueChange={setMethodFilter} options={["全部", "GET", "POST", "PATCH", "PUT", "DELETE"].map((m) => ({ label: m, value: m }))} className="w-full sm:w-28" />
+            <SelectControl value={statusFilter} onValueChange={setStatusFilter} options={["全部", "2xx", "4xx", "5xx"].map((m) => ({ label: m, value: m }))} className="w-full sm:w-24" />
           </div>
         </div>
 
         <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <MiniMetric label="当前错误日志" value={String(errorRows.length)} />
-          <MiniMetric label="5xx 严重错误" value={String(rows.filter((item: any) => item.status >= 500).length)} />
+          <MiniMetric label="当前结果" value={String(total)} />
+          <MiniMetric label="本页错误" value={String(rows.filter((item: any) => item.status >= 400).length)} />
           <MiniMetric label="当前选中" value={selected?.id ?? "-"} />
         </div>
 
@@ -1179,16 +1331,20 @@ function ApiLogsPage({ data }: { data: OpsCenterSectionData | null }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {pagedRows.length === 0 ? (
+              {loading ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="py-10 text-center text-sm text-slate-400">加载中…</TableCell>
+                </TableRow>
+              ) : rows.length === 0 ? (
                 <TableRow>
                   <TableCell colSpan={6} className="py-10 text-center text-sm text-slate-400">暂无匹配接口日志</TableCell>
                 </TableRow>
-              ) : pagedRows.map((row) => (
+              ) : rows.map((row) => (
                 <TableRow
                   key={row.id}
                   className={cn(
                     "cursor-pointer align-top transition hover:bg-indigo-50/40",
-                    selected.id === row.id && "bg-indigo-50/70 ring-1 ring-inset ring-indigo-200",
+                    selected?.id === row.id && "bg-indigo-50/70 ring-1 ring-inset ring-indigo-200",
                   )}
                   onClick={() => setSelectedLogId(row.id)}
                 >
@@ -1206,31 +1362,38 @@ function ApiLogsPage({ data }: { data: OpsCenterSectionData | null }) {
             </TableBody>
           </Table>
         </div>
-        <PaginationControls page={page} total={filteredRows.length} totalPages={totalPages} onPageChange={setPage} />
+        <PaginationControls page={page} total={total} totalPages={totalPages} onPageChange={setPage} />
       </section>
 
       <DetailPanel title="接口详情" icon={Eye}>
-        <KeyValue label="Request ID" value={selected.id} mono />
-        <KeyValue label="接口路径" value={`${selected.method} ${selected.path}`} mono />
-        <KeyValue label="状态码" value={String(selected.status)} />
-        <KeyValue label="请求耗时" value={`${selected.duration}ms`} />
-        <KeyValue label="触发用户" value={selected.user} />
-        <KeyValue label="来源 IP" value={selected.ip} />
-        <div className={cn("rounded border p-3 text-sm leading-6", selectedHasError ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-800")}>
-          <div className="mb-1 text-xs font-semibold uppercase tracking-[0.12em] opacity-80">{selectedHasError ? "错误信息" : "响应摘要"}</div>
-          {selected.message}
-        </div>
-        {selected.errorName ? <KeyValue label="错误类型" value={selected.errorName} mono /> : null}
-        {selected.errorStack ? (
-          <div className="rounded border border-slate-200 bg-slate-950 p-3 text-xs leading-5 text-slate-100">
-            <div className="mb-2 font-semibold text-slate-300">错误堆栈</div>
-            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono">{selected.errorStack}</pre>
-          </div>
-        ) : null}
-        <div className="grid gap-3">
-          <JsonBlock title="请求摘要" value={selected.requestMeta} />
-          <JsonBlock title="响应摘要" value={selected.responseMeta} />
-        </div>
+        {selected ? (
+          <>
+            <KeyValue label="Request ID" value={selected.id} mono />
+            <KeyValue label="接口路径" value={`${selected.method} ${selected.path}`} mono />
+            <KeyValue label="状态码" value={String(selected.status)} />
+            <KeyValue label="请求耗时" value={`${selected.duration}ms`} />
+            <KeyValue label="触发用户" value={selected.user} />
+            <KeyValue label="来源 IP" value={selected.ip} />
+            <div className={cn("rounded border p-3 text-sm leading-6", selectedHasError ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-800")}>
+              <div className="mb-1 text-xs font-semibold uppercase tracking-[0.12em] opacity-80">{selectedHasError ? "错误信息" : "响应摘要"}</div>
+              {selected.message}
+            </div>
+            {selectedHasError ? <AiAnalysisBlock requestId={selected.id} aiReady={aiReady} /> : null}
+            {selected.errorName ? <KeyValue label="错误类型" value={selected.errorName} mono /> : null}
+            {selected.errorStack ? (
+              <div className="rounded border border-slate-200 bg-slate-950 p-3 text-xs leading-5 text-slate-100">
+                <div className="mb-2 font-semibold text-slate-300">错误堆栈</div>
+                <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono">{selected.errorStack}</pre>
+              </div>
+            ) : null}
+            <div className="grid gap-3">
+              <JsonBlock title="请求摘要" value={selected.requestMeta} />
+              <JsonBlock title="响应摘要" value={selected.responseMeta} />
+            </div>
+          </>
+        ) : (
+          <div className="py-10 text-center text-sm text-slate-400">选择左侧一条请求查看详情</div>
+        )}
       </DetailPanel>
     </div>
   );
@@ -1342,6 +1505,7 @@ function ErrorsPage({ data }: { data: OpsCenterSectionData | null }) {
             <div className="mt-3 rounded bg-white/70 p-2 font-mono text-xs text-rose-700">{selectedIssue.path}</div>
           </div>
         ) : null}
+        {selectedIssue?.id ? <AiAnalysisBlock requestId={selectedIssue.id} /> : null}
         <div className="space-y-3">
           {[
             "先打开上方接口日志，确认最新 request id、错误堆栈和请求摘要",

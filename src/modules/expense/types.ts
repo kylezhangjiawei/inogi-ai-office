@@ -129,10 +129,16 @@ export type ReimbursementRecord = {
   voucherIds?: string[];
   status: ReimbursementStatus;
   node: string;
+  project?: string;
+  reason?: string;
   weComFlowId: string;
   weComSyncStatus: WeComSyncStatus;
   weComApprover: string;
   weComUpdatedAt: string;
+  /** 邮件通知收件人（来自「邮箱管理」已启用邮箱） */
+  notifyEmails?: string[];
+  /** 邮件抄送人 */
+  ccEmails?: string[];
 };
 
 export type ExpenseRule = {
@@ -181,11 +187,15 @@ export type InvoiceFilters = {
 };
 
 export type ExpenseDashboardData = {
+  /** 本月报销总额（按发票 issued_date 落在当前自然月汇总，单位元） */
+  monthAmount: number;
+  /** 累计报销总额（全部发票金额，单位元） */
+  totalAmount: number;
   kpis: KPIItem[];
   todos: DashboardTodo[];
   activities: ActivityLog[];
   monthlyTrend: Array<{ month: string; 差旅: number; 餐饮: number; 采购: number; 办公: number; 其他: number }>;
   categoryShare: Array<{ category: ExpenseCategory; amount: number }>;
-  departmentBars: Array<{ dept: string; amount: number }>;
+  statusBreakdown: Array<{ status: InvoiceStatus; count: number; amount: number }>;
   projectTop: Array<{ project: string; amount: number }>;
 };

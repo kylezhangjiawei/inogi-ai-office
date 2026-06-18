@@ -123,6 +123,8 @@ export const expenseRules: ExpenseRule[] = [
 ];
 
 export const dashboardData: ExpenseDashboardData = {
+  monthAmount: 72200,
+  totalAmount: 72200,
   kpis: [
     { title: "本月报销总额", value: "¥72,200", trend: "环比 +17.8%", icon: TrendingUp },
     { title: "待处理票据数", value: "18 张", badge: "5 异常", icon: Receipt },
@@ -161,12 +163,13 @@ export const dashboardData: ExpenseDashboardData = {
     { category: "餐饮", amount: 6800 },
     { category: "办公", amount: 4200 },
   ],
-  departmentBars: [
-    { dept: "销售部", amount: 24800 },
-    { dept: "研发部", amount: 18400 },
-    { dept: "售后部", amount: 12260 },
-    { dept: "质量部", amount: 8200 },
-    { dept: "行政部", amount: 5400 },
+  statusBreakdown: [
+    { status: "待识别", count: 3, amount: 5400 },
+    { status: "已识别", count: 6, amount: 18400 },
+    { status: "待确认", count: 4, amount: 12260 },
+    { status: "已关联", count: 8, amount: 24800 },
+    { status: "异常", count: 2, amount: 3200 },
+    { status: "已报销", count: 5, amount: 8200 },
   ],
   projectTop: [
     { project: "MEDICA 展会样机沟通", amount: 12680 },
