@@ -354,14 +354,9 @@ export function RDAuditLogPage() {
       animate={{ opacity: 1, y: 0 }}
       transition={AUDIT_PANEL}
       className="flex h-full min-h-0 flex-col overflow-hidden px-5 py-5 lg:px-7 lg:py-6"
-      style={{
-        backgroundImage:
-          "linear-gradient(180deg, rgba(236,253,245,0.45) 0%, rgba(244,247,248,0) 260px), linear-gradient(90deg, rgba(79,70,229,0.05) 1px, transparent 1px)",
-        backgroundSize: "auto, 28px 28px",
-      }}
     >
       <div className="mx-auto flex h-full min-h-0 w-full max-w-[1500px] flex-col gap-4 overflow-hidden">
-        <header className="flex shrink-0 flex-wrap items-end justify-between gap-4 border-b border-slate-200/80 pb-4">
+        <header className="flex shrink-0 flex-wrap items-end justify-between gap-4  pb-4">
           <div>
             <div className="flex items-center gap-2">
               <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-600 text-white shadow-[0_10px_22px_rgba(15,23,42,0.18)]">

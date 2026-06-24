@@ -134,7 +134,7 @@ export function RDSheetPage() {
   }, [dirty, load]);
 
   return (
-    <div className="relative min-h-full bg-slate-50/30 flex flex-col text-slate-900">
+    <div className="relative min-h-full bg-transparent flex flex-col text-slate-900">
       <input
         ref={fileInputRef}
         type="file"

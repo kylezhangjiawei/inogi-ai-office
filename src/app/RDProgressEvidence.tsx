@@ -1,7 +1,15 @@
 import React, { useEffect, useState } from "react";
-import { Download, FileText, ImageIcon, Paperclip, X } from "lucide-react";
+import { Download, FileText, ImageIcon, Loader2, Paperclip, Table2, X } from "lucide-react";
 import { cn } from "./components/ui/utils";
 import { getAttachmentPreviewUrl, getAttachmentUrl, type RdTaskProgressAttachment, type RdTaskProgressNote } from "./lib/rdApi";
+import { parseXlsxForPreview, type XlsxPreviewSheet } from "./lib/xlsxPreview";
+
+/** 文件名/MIME 判断是否为 Excel 表格（xlsx/xls）。 */
+function isSpreadsheetAttachment(att: { name?: string; mime?: string }): boolean {
+  const ext = (att.name ?? "").split(".").pop()?.toLowerCase() ?? "";
+  const mime = att.mime ?? "";
+  return ext === "xlsx" || ext === "xls" || mime.includes("spreadsheetml") || mime.includes("ms-excel");
+}
 
 export function formatRdFileSize(size: number): string {
   if (!Number.isFinite(size) || size <= 0) return "0 B";
@@ -94,6 +102,7 @@ function AttachmentPreviewModal({
   onClose: () => void;
 }) {
   const isImage = attachment.mime.startsWith("image/");
+  const isSpreadsheet = isSpreadsheetAttachment(attachment);
   const canInlinePreview =
     isImage ||
     attachment.mime === "application/pdf" ||
@@ -137,6 +146,8 @@ function AttachmentPreviewModal({
             <div className="flex min-h-[52vh] items-center justify-center">
               <img src={getAttachmentUrl(attachment)} alt={attachment.name} className="max-h-[72vh] max-w-full rounded-[8px] bg-white object-contain shadow-sm" />
             </div>
+          ) : isSpreadsheet ? (
+            <XlsxTablePreview attachment={attachment} />
           ) : canInlinePreview ? (
             <iframe
               src={getAttachmentPreviewUrl(attachment)}
@@ -153,6 +164,106 @@ function AttachmentPreviewModal({
             </div>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Excel 附件的只读 HTML 表格预览：拉取文件 → exceljs 解析 → 渲染表格（支持多 sheet 切页、合并单元格）。 */
+function XlsxTablePreview({ attachment }: { attachment: RdTaskProgressAttachment }) {
+  const [sheets, setSheets] = useState<XlsxPreviewSheet[] | null>(null);
+  const [active, setActive] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSheets(null);
+    setError(null);
+    setActive(0);
+    (async () => {
+      try {
+        const res = await fetch(getAttachmentPreviewUrl(attachment));
+        if (!res.ok) throw new Error(`文件下载失败（${res.status}）`);
+        const buf = await res.arrayBuffer();
+        const parsed = await parseXlsxForPreview(buf);
+        if (!cancelled) setSheets(parsed);
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : "表格解析失败");
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [attachment]);
+
+  if (error) {
+    return (
+      <div className="mx-auto flex min-h-[52vh] max-w-lg flex-col items-center justify-center rounded-[8px] border border-dashed border-slate-300 bg-white px-8 text-center">
+        <FileText className="h-10 w-10 text-slate-300" />
+        <div className="mt-4 text-sm font-semibold text-slate-900">表格预览失败</div>
+        <p className="mt-2 text-xs leading-5 text-slate-500">{error}，可点右上角「下载」打开。</p>
+      </div>
+    );
+  }
+  if (!sheets) {
+    return (
+      <div className="flex min-h-[52vh] flex-col items-center justify-center gap-3 text-slate-500">
+        <Loader2 className="h-6 w-6 animate-spin motion-reduce:animate-none" />
+        <span className="text-xs">正在解析表格…</span>
+      </div>
+    );
+  }
+  if (sheets.length === 0 || sheets.every((s) => s.rowCount === 0)) {
+    return (
+      <div className="mx-auto flex min-h-[52vh] max-w-lg flex-col items-center justify-center rounded-[8px] border border-dashed border-slate-300 bg-white px-8 text-center">
+        <Table2 className="h-10 w-10 text-slate-300" />
+        <div className="mt-4 text-sm font-semibold text-slate-900">这张表是空的</div>
+        <p className="mt-2 text-xs leading-5 text-slate-500">未读取到任何单元格内容。</p>
+      </div>
+    );
+  }
+
+  const sheet = sheets[Math.min(active, sheets.length - 1)];
+  return (
+    <div className="flex h-full min-h-[52vh] flex-col overflow-hidden rounded-[8px] border border-slate-200 bg-white">
+      {sheets.length > 1 && (
+        <div className="flex shrink-0 items-center gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50 px-2 py-1.5">
+          {sheets.map((s, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => setActive(i)}
+              className={cn(
+                "shrink-0 rounded-[6px] px-2.5 py-1 text-xs font-medium transition",
+                i === active ? "bg-white text-blue-700 shadow-sm" : "text-slate-500 hover:bg-white/70 hover:text-slate-700",
+              )}
+            >
+              {s.name}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="min-h-0 flex-1 overflow-auto">
+        <table className="border-collapse text-xs text-slate-800">
+          <tbody>
+            {sheet.rows.map((row, r) => (
+              <tr key={r}>
+                {row.map((cell, c) =>
+                  cell === null ? null : (
+                    <td
+                      key={c}
+                      rowSpan={cell.rowSpan}
+                      colSpan={cell.colSpan}
+                      className="min-w-[72px] max-w-[320px] whitespace-pre-wrap break-words border border-slate-200 px-2 py-1 align-top"
+                    >
+                      {cell.text}
+                    </td>
+                  ),
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     </div>
   );
