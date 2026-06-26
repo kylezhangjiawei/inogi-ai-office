@@ -1,6 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Post, Query, Req } from '@nestjs/common';
 import { Request } from 'express';
 
+import { Permissions } from '../auth/decorators/permissions.decorator';
 import { ListIntegrationQueryDto } from './dto/list-integration-query.dto';
 import { SaveAiModelDto } from './dto/save-ai-model.dto';
 import { SaveMailboxDto } from './dto/save-mailbox.dto';
@@ -29,11 +30,13 @@ export class IntegrationManagementController {
   }
 
   @Post('mailboxes')
+  @Permissions('page:mailbox-management')
   saveMailbox(@Body() payload: SaveMailboxDto, @Req() req: AuthenticatedRequest) {
     return this.integrationManagementService.saveMailbox(payload, req.user?.id);
   }
 
   @Delete('mailboxes/:mailboxId')
+  @Permissions('page:mailbox-management')
   deleteMailbox(@Param('mailboxId') mailboxId: string) {
     return this.integrationManagementService.deleteMailbox(mailboxId);
   }
@@ -44,16 +47,19 @@ export class IntegrationManagementController {
   }
 
   @Post('ai-models')
+  @Permissions('page:ai-model-management')
   saveAiModel(@Body() payload: SaveAiModelDto, @Req() req: AuthenticatedRequest) {
     return this.integrationManagementService.saveAiModel(payload, req.user?.id);
   }
 
   @Post('ai-models/test')
+  @Permissions('page:ai-model-management')
   testAiModelConnection(@Body() payload: TestAiModelConnectionDto) {
     return this.integrationManagementService.testAiModelConnection(payload);
   }
 
   @Delete('ai-models/:modelId')
+  @Permissions('page:ai-model-management')
   deleteAiModel(@Param('modelId') modelId: string) {
     return this.integrationManagementService.deleteAiModel(modelId);
   }
@@ -64,6 +70,7 @@ export class IntegrationManagementController {
   }
 
   @Post('ocr-config')
+  @Permissions('page:ocr-config-management')
   saveOcrConfig(@Body() payload: SaveOcrConfigDto, @Req() req: AuthenticatedRequest) {
     return this.integrationManagementService.saveOcrConfig(payload, req.user?.id);
   }

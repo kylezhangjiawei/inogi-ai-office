@@ -3,67 +3,86 @@ import { CssBaseline, ThemeProvider } from "@mui/material";
 import { createBrowserRouter, Navigate, RouterProvider, useLocation, useParams } from "react-router";
 import { toast } from "sonner";
 import { materialTheme } from "../styles/materialTheme";
-import { AfterSalesDetails } from "./AfterSalesDetails";
-import { AfterSalesForm } from "./AfterSalesForm";
-import { AfterSalesList } from "./AfterSalesList";
-import { AiModelManagementPage } from "./AiModelManagementPage";
 import { AuthProvider, useAuth } from "./auth";
-import { BOMArchive } from "./BOMArchive";
-import { BugLogPage } from "./BugLogPage";
-import { CustomsAI } from "./CustomsAI";
-import { CustomsDocs } from "./CustomsDocs";
-import { Dashboard } from "./Dashboard";
-import { DepartmentManagement } from "./DepartmentManagement";
-import { DesignChangesPage } from "./DesignChangesPage";
-import { DownloadTutorialPage, PlatformTutorialPage } from "./DownloadTutorialPage";
-import { EBPRPage } from "./EBPRPage";
-import { EmailAIPage } from "./EmailAIPage";
-import { EmployeeArchivePage } from "./EmployeeArchivePage";
-import { ExpenseCenterPage } from "./ExpenseCenterPage";
-import { ExternalDocsPage } from "./ExternalDocsPage";
-import { InspectionReleasePage } from "./InspectionReleasePage";
-import { InquiryPage } from "./InquiryPage";
-import { LoginPage } from "./LoginPage";
-import { MailboxManagementPage } from "./MailboxManagementPage";
-import { MeetingMinutes } from "./MeetingMinutes";
-import { MobileLayout } from "./MobileShell";
-import { MobileRDCockpit } from "./MobileRDCockpit";
-import { OcrConfigManagementPage } from "./OcrConfigManagementPage";
-import { MessageCenterPage } from "./MessageCenterPage";
-import { OpsCenterPage } from "./OpsCenterPage";
-import { InventoryManagementPage, OrderWorkbenchPage, PurchaseOrderDetailPage, PurchaseOrdersPage } from "./order-processing";
-import { PersonalCenterPage } from "./PersonalCenterPage";
-import { ContractReviewPage } from "./ContractReviewPage";
-import { QualityDMSPage } from "./QualityDMSPage";
-import { QATraceability } from "./QATraceability";
-import { QuickCapturePage } from "./QuickCapturePage";
-import { RAKnowledgePage } from "./RAKnowledgePage";
-import { RDIssues } from "./RDIssues";
-import { RegistrationProjects } from "./RegistrationProjects";
-import { ReportCompressionPage } from "./ReportCompressionPage";
-import { ResumeScreeningPage } from "./ResumeScreeningPage";
-import { RoleManagement } from "./RoleManagement";
-import { RDTaskManagementPage } from "./RDTaskManagementPage";
-import { RDMyWorkspacePage } from "./RDMyWorkspacePage";
-import { RDKnowledgeBasePage } from "./RDKnowledgeBasePage";
-import { RDPeopleManagementPage } from "./RDPeopleManagementPage";
-import { RDDirectorDashboardPage } from "./RDDirectorDashboardPage";
-import { RDApprovalFlowPage } from "./RDApprovalFlowPage";
-import { RDAuditLogPage } from "./RDAuditLogPage";
-import { RDAiSettingsPage } from "./RDAiSettingsPage";
-import { RouteManagementPage } from "./RouteManagementPage";
-import { UIDesignPage } from "./UIDesignPage";
-import { ImageLibraryPage } from "./ImageLibraryPage";
-// 懒加载：研发数据表将内嵌 Univer Sheets（~1MB+），拆成独立 chunk 按需加载，避免拖慢业务主包。
-const RDSheetPage = React.lazy(() =>
-  import("./RDSheetPage").then((m) => ({ default: m.RDSheetPage })),
-);
-import { Root } from "./Root";
-import { DictionaryList } from "./DictionaryList";
-import { UserManagement } from "./UserManagement";
 import { hasPermission } from "./lib/permissions";
 import { isMobileViewport } from "./lib/mobileRouting";
 import { DEPT_KBS, routePermissionMap } from "./routesConfig";
+
+// 首屏即需，保持同步加载：登录页、首页、桌面外壳、移动外壳。
+import { LoginPage } from "./LoginPage";
+import { Dashboard } from "./Dashboard";
+import { Root } from "./Root";
+import { MobileLayout } from "./MobileShell";
+import { MobileRDCockpit } from "./MobileRDCockpit";
+
+/**
+ * 路由级懒加载工具：把命名导出的页面组件包成 React.lazy 的 default 形态。
+ * 每个页面拆成独立 chunk 按需加载，首屏主包不再吞下全部页面（含 1 万行的研发驾驶舱等）。
+ */
+function lazyNamed<M extends Record<string, unknown>, K extends keyof M>(
+  loader: () => Promise<M>,
+  name: K,
+) {
+  return React.lazy(async () => {
+    const mod = await loader();
+    return { default: mod[name] as unknown as React.ComponentType<Record<string, unknown>> };
+  });
+}
+
+const AfterSalesDetails = lazyNamed(() => import("./AfterSalesDetails"), "AfterSalesDetails");
+const AfterSalesForm = lazyNamed(() => import("./AfterSalesForm"), "AfterSalesForm");
+const AfterSalesList = lazyNamed(() => import("./AfterSalesList"), "AfterSalesList");
+const AiModelManagementPage = lazyNamed(() => import("./AiModelManagementPage"), "AiModelManagementPage");
+const BOMArchive = lazyNamed(() => import("./BOMArchive"), "BOMArchive");
+const BugLogPage = lazyNamed(() => import("./BugLogPage"), "BugLogPage");
+const CustomsAI = lazyNamed(() => import("./CustomsAI"), "CustomsAI");
+const CustomsDocs = lazyNamed(() => import("./CustomsDocs"), "CustomsDocs");
+const DepartmentManagement = lazyNamed(() => import("./DepartmentManagement"), "DepartmentManagement");
+const DesignChangesPage = lazyNamed(() => import("./DesignChangesPage"), "DesignChangesPage");
+const DownloadTutorialPage = lazyNamed(() => import("./DownloadTutorialPage"), "DownloadTutorialPage");
+const PlatformTutorialPage = lazyNamed(() => import("./DownloadTutorialPage"), "PlatformTutorialPage");
+const EBPRPage = lazyNamed(() => import("./EBPRPage"), "EBPRPage");
+const EmailAIPage = lazyNamed(() => import("./EmailAIPage"), "EmailAIPage");
+const EmployeeArchivePage = lazyNamed(() => import("./EmployeeArchivePage"), "EmployeeArchivePage");
+const ExpenseCenterPage = lazyNamed(() => import("./ExpenseCenterPage"), "ExpenseCenterPage");
+const ExternalDocsPage = lazyNamed(() => import("./ExternalDocsPage"), "ExternalDocsPage");
+const InspectionReleasePage = lazyNamed(() => import("./InspectionReleasePage"), "InspectionReleasePage");
+const InquiryPage = lazyNamed(() => import("./InquiryPage"), "InquiryPage");
+const MailboxManagementPage = lazyNamed(() => import("./MailboxManagementPage"), "MailboxManagementPage");
+const MeetingMinutes = lazyNamed(() => import("./MeetingMinutes"), "MeetingMinutes");
+const OcrConfigManagementPage = lazyNamed(() => import("./OcrConfigManagementPage"), "OcrConfigManagementPage");
+const MessageCenterPage = lazyNamed(() => import("./MessageCenterPage"), "MessageCenterPage");
+const OpsCenterPage = lazyNamed(() => import("./OpsCenterPage"), "OpsCenterPage");
+const InventoryManagementPage = lazyNamed(() => import("./order-processing"), "InventoryManagementPage");
+const OrderWorkbenchPage = lazyNamed(() => import("./order-processing"), "OrderWorkbenchPage");
+const PurchaseOrderDetailPage = lazyNamed(() => import("./order-processing"), "PurchaseOrderDetailPage");
+const PurchaseOrdersPage = lazyNamed(() => import("./order-processing"), "PurchaseOrdersPage");
+const PersonalCenterPage = lazyNamed(() => import("./PersonalCenterPage"), "PersonalCenterPage");
+const ContractReviewPage = lazyNamed(() => import("./ContractReviewPage"), "ContractReviewPage");
+const QualityDMSPage = lazyNamed(() => import("./QualityDMSPage"), "QualityDMSPage");
+const QATraceability = lazyNamed(() => import("./QATraceability"), "QATraceability");
+const QuickCapturePage = lazyNamed(() => import("./QuickCapturePage"), "QuickCapturePage");
+const RAKnowledgePage = lazyNamed(() => import("./RAKnowledgePage"), "RAKnowledgePage");
+const RDIssues = lazyNamed(() => import("./RDIssues"), "RDIssues");
+const IssueAiModule = lazyNamed(() => import("./IssueAiModule"), "IssueAiModule");
+const RegistrationProjects = lazyNamed(() => import("./RegistrationProjects"), "RegistrationProjects");
+const ReportCompressionPage = lazyNamed(() => import("./ReportCompressionPage"), "ReportCompressionPage");
+const ResumeScreeningPage = lazyNamed(() => import("./ResumeScreeningPage"), "ResumeScreeningPage");
+const RoleManagement = lazyNamed(() => import("./RoleManagement"), "RoleManagement");
+const RDTaskManagementPage = lazyNamed(() => import("./RDTaskManagementPage"), "RDTaskManagementPage");
+const RDMyWorkspacePage = lazyNamed(() => import("./RDMyWorkspacePage"), "RDMyWorkspacePage");
+const RDKnowledgeBasePage = lazyNamed(() => import("./RDKnowledgeBasePage"), "RDKnowledgeBasePage");
+const RDPeopleManagementPage = lazyNamed(() => import("./RDPeopleManagementPage"), "RDPeopleManagementPage");
+const RDDirectorDashboardPage = lazyNamed(() => import("./RDDirectorDashboardPage"), "RDDirectorDashboardPage");
+const RDApprovalFlowPage = lazyNamed(() => import("./RDApprovalFlowPage"), "RDApprovalFlowPage");
+const RDAuditLogPage = lazyNamed(() => import("./RDAuditLogPage"), "RDAuditLogPage");
+const RDAiSettingsPage = lazyNamed(() => import("./RDAiSettingsPage"), "RDAiSettingsPage");
+const RDSheetPage = lazyNamed(() => import("./RDSheetPage"), "RDSheetPage");
+const RouteManagementPage = lazyNamed(() => import("./RouteManagementPage"), "RouteManagementPage");
+const UIDesignPage = lazyNamed(() => import("./UIDesignPage"), "UIDesignPage");
+const ImageLibraryPage = lazyNamed(() => import("./ImageLibraryPage"), "ImageLibraryPage");
+const DictionaryList = lazyNamed(() => import("./DictionaryList"), "DictionaryList");
+const UserManagement = lazyNamed(() => import("./UserManagement"), "UserManagement");
 
 type RuntimeHealthResponse = {
   ok: boolean;
@@ -255,6 +274,11 @@ function makeLazyProtected(component: React.ReactNode, permission: string) {
   );
 }
 
+/** 仅包 Suspense（无权限门）的懒加载包装：用于 profile / message-center 这类任意登录用户可访问的页面。 */
+function lazyWrap(node: React.ReactNode) {
+  return <Suspense fallback={<PageLoadingFallback />}>{node}</Suspense>;
+}
+
 const router = createBrowserRouter([
   { path: "/login", Component: LoginPage },
   {
@@ -262,69 +286,70 @@ const router = createBrowserRouter([
     Component: ProtectedLayout,
     children: [
       { index: true, element: makeProtected(<Dashboard />, routePermissionMap["/"] ?? "page:dashboard") },
-      { path: "profile", element: <PersonalCenterPage /> },
-      { path: "message-center", element: <MessageCenterPage /> },
-      { path: "after-sales", element: makeProtected(<AfterSalesList />, "page:after-sales") },
-      { path: "after-sales/new", element: makeProtected(<AfterSalesForm />, "page:after-sales") },
-      { path: "after-sales/:id", element: makeProtected(<AfterSalesDetails />, "page:after-sales") },
-      { path: "rd-task-management", element: makeProtected(<RDTaskManagementPage />, "page:rd-task-management") },
-      { path: "rd-people-management", element: makeProtected(<RDPeopleManagementPage onBack={() => window.history.back()} />, "rd-people:manage") },
-      { path: "rd-my-workspace", element: makeProtected(<RDMyWorkspacePage />, "page:rd-my-workspace") },
+      { path: "profile", element: lazyWrap(<PersonalCenterPage />) },
+      { path: "message-center", element: lazyWrap(<MessageCenterPage />) },
+      { path: "after-sales", element: makeLazyProtected(<AfterSalesList />, "page:after-sales") },
+      { path: "after-sales/new", element: makeLazyProtected(<AfterSalesForm />, "page:after-sales") },
+      { path: "after-sales/:id", element: makeLazyProtected(<AfterSalesDetails />, "page:after-sales") },
+      { path: "rd-task-management", element: makeLazyProtected(<RDTaskManagementPage />, "page:rd-task-management") },
+      { path: "issue-ai", element: makeLazyProtected(<IssueAiModule />, "page:issue-ai") },
+      { path: "rd-people-management", element: makeLazyProtected(<RDPeopleManagementPage onBack={() => window.history.back()} />, "rd-people:manage") },
+      { path: "rd-my-workspace", element: makeLazyProtected(<RDMyWorkspacePage />, "page:rd-my-workspace") },
       { path: "rd-sheet", element: makeLazyProtected(<RDSheetPage />, "page:rd-sheet") },
-      { path: "rd-knowledge-base", element: makeProtected(<RDKnowledgeBasePage />, "page:rd-knowledge-base") },
+      { path: "rd-knowledge-base", element: makeLazyProtected(<RDKnowledgeBasePage />, "page:rd-knowledge-base") },
       // 部门知识库：8 个部门各一条路由，复用 RDKnowledgeBasePage（kbScope 切到部门库）
       ...DEPT_KBS.map((d) => ({
         path: `dept-kb/${d.id}`,
-        element: makeProtected(<RDKnowledgeBasePage kbScope={{ kbId: d.id, label: d.label }} />, `page:dept-kb-${d.id}`),
+        element: makeLazyProtected(<RDKnowledgeBasePage kbScope={{ kbId: d.id, label: d.label }} />, `page:dept-kb-${d.id}`),
       })),
       // 研发主管驾驶舱 — 导航可见性由页面路由管理中的「导航」开关控制（默认隐藏）
-      { path: "rd-director-dashboard", element: makeProtected(<RDDirectorDashboardPage />, "page:rd-director-dashboard") },
-      { path: "rd-approval-flow", element: makeProtected(<RDApprovalFlowPage />, "page:rd-approval-flow") },
-      { path: "rd-audit-log", element: makeProtected(<RDAuditLogPage />, "page:rd-audit-log") },
-      { path: "rd-ai-settings", element: makeProtected(<RDAiSettingsPage />, "page:rd-ai-settings") },
-      { path: "rd-triage", element: makeProtected(<RDIssues />, "page:rd-triage") },
-      { path: "registration-projects", element: makeProtected(<RegistrationProjects />, "page:registration-projects") },
-      { path: "bom-archive", element: makeProtected(<BOMArchive />, "page:bom-archive") },
-      { path: "design-changes", element: makeProtected(<DesignChangesPage />, "page:design-changes") },
-      { path: "customs-ai", element: makeProtected(<CustomsAI />, "page:customs-ai") },
-      { path: "customs-docs", element: makeProtected(<CustomsDocs />, "page:customs-docs") },
-      { path: "external-docs", element: makeProtected(<ExternalDocsPage />, "page:external-docs") },
-      { path: "ra-knowledge", element: makeProtected(<RAKnowledgePage />, "page:ra-knowledge") },
-      { path: "quality-dms", element: makeProtected(<QualityDMSPage />, "page:quality-dms") },
-      { path: "qa-traceability", element: makeProtected(<QATraceability />, "page:qa-traceability") },
-      { path: "order-workbench", element: makeProtected(<OrderWorkbenchPage />, "page:order-workbench") },
-      { path: "purchase-orders", element: makeProtected(<PurchaseOrdersPage />, "page:purchase-orders") },
-      { path: "purchase-orders/:id", element: makeProtected(<PurchaseOrderDetailPage />, "page:purchase-order-detail") },
-      { path: "inventory-management", element: makeProtected(<InventoryManagementPage />, "page:inventory-management") },
-      { path: "resume-screening", element: makeProtected(<ResumeScreeningPage />, "page:resume-screening") },
-      { path: "employee-archive", element: makeProtected(<EmployeeArchivePage />, "page:employee-archive") },
-      { path: "quick-capture", element: makeProtected(<QuickCapturePage />, "page:quick-capture") },
-      { path: "expense-center", element: makeProtected(<ExpenseCenterPage />, "page:expense-center") },
-      { path: "ebpr", element: makeProtected(<EBPRPage />, "page:ebpr") },
-      { path: "inspection-release", element: makeProtected(<InspectionReleasePage />, "page:inspection-release") },
-      { path: "bug-log", element: makeProtected(<BugLogPage />, "page:bug-log") },
-      { path: "contract-review", element: makeProtected(<ContractReviewPage />, "page:contract-review") },
-      { path: "mailbox-management", element: makeProtected(<MailboxManagementPage />, "page:mailbox-management") },
-      { path: "ai-model-management", element: makeProtected(<AiModelManagementPage />, "page:ai-model-management") },
-      { path: "ocr-config-management", element: makeProtected(<OcrConfigManagementPage />, "page:ocr-config-management") },
-      { path: "ops-center", element: makeProtected(<OpsCenterPage section="overview" />, "page:ops-center") },
-      { path: "ops-center/api-errors", element: makeProtected(<OpsCenterPage section="api-errors" />, "page:ops-api-errors") },
-      { path: "ops-center/database", element: makeProtected(<OpsCenterPage section="database" />, "page:ops-database") },
-      { path: "ops-center/services-tasks", element: makeProtected(<OpsCenterPage section="services-tasks" />, "page:ops-services-tasks") },
-      { path: "ops-center/alerts-audit", element: makeProtected(<OpsCenterPage section="alerts-audit" />, "page:ops-alerts-audit") },
-      { path: "inquiry", element: makeProtected(<InquiryPage />, "page:inquiry") },
-      { path: "meeting", element: makeProtected(<MeetingMinutes />, "page:meeting") },
-      { path: "email-ai", element: makeProtected(<EmailAIPage />, "page:email-ai") },
-      { path: "report-compression", element: makeProtected(<ReportCompressionPage />, "page:report-compression") },
-      { path: "downloads", element: makeProtected(<DownloadTutorialPage />, "page:downloads") },
-      { path: "downloads/:platformId", element: makeProtected(<PlatformTutorialPage />, "page:downloads") },
-      { path: "departments", element: makeProtected(<DepartmentManagement />, "page:departments") },
-      { path: "users", element: makeProtected(<UserManagement />, "page:users") },
-      { path: "roles", element: makeProtected(<RoleManagement />, "page:roles") },
-      { path: "route-management", element: makeProtected(<RouteManagementPage />, "page:route-management") },
-      { path: "settings", element: makeProtected(<DictionaryList />, "page:settings") },
-      { path: "ui-design", element: makeProtected(<UIDesignPage />, "page:ui-design") },
-      { path: "image-library", element: makeProtected(<ImageLibraryPage />, "page:image-library") },
+      { path: "rd-director-dashboard", element: makeLazyProtected(<RDDirectorDashboardPage />, "page:rd-director-dashboard") },
+      { path: "rd-approval-flow", element: makeLazyProtected(<RDApprovalFlowPage />, "page:rd-approval-flow") },
+      { path: "rd-audit-log", element: makeLazyProtected(<RDAuditLogPage />, "page:rd-audit-log") },
+      { path: "rd-ai-settings", element: makeLazyProtected(<RDAiSettingsPage />, "page:rd-ai-settings") },
+      { path: "rd-triage", element: makeLazyProtected(<RDIssues />, "page:rd-triage") },
+      { path: "registration-projects", element: makeLazyProtected(<RegistrationProjects />, "page:registration-projects") },
+      { path: "bom-archive", element: makeLazyProtected(<BOMArchive />, "page:bom-archive") },
+      { path: "design-changes", element: makeLazyProtected(<DesignChangesPage />, "page:design-changes") },
+      { path: "customs-ai", element: makeLazyProtected(<CustomsAI />, "page:customs-ai") },
+      { path: "customs-docs", element: makeLazyProtected(<CustomsDocs />, "page:customs-docs") },
+      { path: "external-docs", element: makeLazyProtected(<ExternalDocsPage />, "page:external-docs") },
+      { path: "ra-knowledge", element: makeLazyProtected(<RAKnowledgePage />, "page:ra-knowledge") },
+      { path: "quality-dms", element: makeLazyProtected(<QualityDMSPage />, "page:quality-dms") },
+      { path: "qa-traceability", element: makeLazyProtected(<QATraceability />, "page:qa-traceability") },
+      { path: "order-workbench", element: makeLazyProtected(<OrderWorkbenchPage />, "page:order-workbench") },
+      { path: "purchase-orders", element: makeLazyProtected(<PurchaseOrdersPage />, "page:purchase-orders") },
+      { path: "purchase-orders/:id", element: makeLazyProtected(<PurchaseOrderDetailPage />, "page:purchase-order-detail") },
+      { path: "inventory-management", element: makeLazyProtected(<InventoryManagementPage />, "page:inventory-management") },
+      { path: "resume-screening", element: makeLazyProtected(<ResumeScreeningPage />, "page:resume-screening") },
+      { path: "employee-archive", element: makeLazyProtected(<EmployeeArchivePage />, "page:employee-archive") },
+      { path: "quick-capture", element: makeLazyProtected(<QuickCapturePage />, "page:quick-capture") },
+      { path: "expense-center", element: makeLazyProtected(<ExpenseCenterPage />, "page:expense-center") },
+      { path: "ebpr", element: makeLazyProtected(<EBPRPage />, "page:ebpr") },
+      { path: "inspection-release", element: makeLazyProtected(<InspectionReleasePage />, "page:inspection-release") },
+      { path: "bug-log", element: makeLazyProtected(<BugLogPage />, "page:bug-log") },
+      { path: "contract-review", element: makeLazyProtected(<ContractReviewPage />, "page:contract-review") },
+      { path: "mailbox-management", element: makeLazyProtected(<MailboxManagementPage />, "page:mailbox-management") },
+      { path: "ai-model-management", element: makeLazyProtected(<AiModelManagementPage />, "page:ai-model-management") },
+      { path: "ocr-config-management", element: makeLazyProtected(<OcrConfigManagementPage />, "page:ocr-config-management") },
+      { path: "ops-center", element: makeLazyProtected(<OpsCenterPage section="overview" />, "page:ops-center") },
+      { path: "ops-center/api-errors", element: makeLazyProtected(<OpsCenterPage section="api-errors" />, "page:ops-api-errors") },
+      { path: "ops-center/database", element: makeLazyProtected(<OpsCenterPage section="database" />, "page:ops-database") },
+      { path: "ops-center/services-tasks", element: makeLazyProtected(<OpsCenterPage section="services-tasks" />, "page:ops-services-tasks") },
+      { path: "ops-center/alerts-audit", element: makeLazyProtected(<OpsCenterPage section="alerts-audit" />, "page:ops-alerts-audit") },
+      { path: "inquiry", element: makeLazyProtected(<InquiryPage />, "page:inquiry") },
+      { path: "meeting", element: makeLazyProtected(<MeetingMinutes />, "page:meeting") },
+      { path: "email-ai", element: makeLazyProtected(<EmailAIPage />, "page:email-ai") },
+      { path: "report-compression", element: makeLazyProtected(<ReportCompressionPage />, "page:report-compression") },
+      { path: "downloads", element: makeLazyProtected(<DownloadTutorialPage />, "page:downloads") },
+      { path: "downloads/:platformId", element: makeLazyProtected(<PlatformTutorialPage />, "page:downloads") },
+      { path: "departments", element: makeLazyProtected(<DepartmentManagement />, "page:departments") },
+      { path: "users", element: makeLazyProtected(<UserManagement />, "page:users") },
+      { path: "roles", element: makeLazyProtected(<RoleManagement />, "page:roles") },
+      { path: "route-management", element: makeLazyProtected(<RouteManagementPage />, "page:route-management") },
+      { path: "settings", element: makeLazyProtected(<DictionaryList />, "page:settings") },
+      { path: "ui-design", element: makeLazyProtected(<UIDesignPage />, "page:ui-design") },
+      { path: "image-library", element: makeLazyProtected(<ImageLibraryPage />, "page:image-library") },
       { path: "*", Component: () => <Navigate to="/" replace /> },
     ],
   },
@@ -340,14 +365,78 @@ const router = createBrowserRouter([
   },
 ]);
 
+/**
+ * 应用级错误边界：捕获渲染期未处理异常，渲染可恢复的兜底页，避免整屏白屏且生产无诊断。
+ * （React 错误边界必须是 class 组件。）
+ */
+class AppErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    // 先打印，杜绝静默白屏无线索；后续可在此接入错误上报（Sentry 等）。
+    console.error("[AppErrorBoundary] 未捕获的渲染错误:", error, info.componentStack);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="flex min-h-screen flex-col items-center justify-center gap-4 bg-slate-50 px-6 text-center text-slate-600">
+          <div className="text-5xl">😵</div>
+          <p className="text-lg font-medium text-slate-800">页面出错了</p>
+          <p className="max-w-md text-sm text-slate-500">
+            遇到了一个未预期的错误，刷新通常即可恢复。如反复出现请联系系统管理员。
+          </p>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="mt-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-indigo-500"
+          >
+            刷新页面
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/** 全局兜底：捕获 React 树之外的未处理错误与 Promise 拒绝，确保至少有诊断日志。 */
+function GlobalErrorListener() {
+  useEffect(() => {
+    const onError = (e: ErrorEvent) => {
+      console.error("[window.onerror]", e.error ?? e.message);
+    };
+    const onRejection = (e: PromiseRejectionEvent) => {
+      console.error("[unhandledrejection]", e.reason);
+    };
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onRejection);
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onRejection);
+    };
+  }, []);
+  return null;
+}
+
 export default function App() {
   return (
     <ThemeProvider theme={materialTheme}>
       <CssBaseline />
-      <AuthProvider>
-        <RuntimeVersionGuard />
-        <RouterProvider router={router} />
-      </AuthProvider>
+      <AppErrorBoundary>
+        <AuthProvider>
+          <GlobalErrorListener />
+          <RuntimeVersionGuard />
+          <RouterProvider router={router} />
+        </AuthProvider>
+      </AppErrorBoundary>
     </ThemeProvider>
   );
 }

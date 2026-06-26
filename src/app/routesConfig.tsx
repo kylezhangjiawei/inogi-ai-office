@@ -23,6 +23,7 @@ import {
   ListChecks,
   Mail,
   MessageSquareText,
+  Microscope,
   MonitorCog,
   NotebookPen,
   PackageCheck,
@@ -80,6 +81,7 @@ export const navGroups: NavGroup[] = [
       { label: "研发任务驾驶舱", path: "/rd-task-management", icon: LayoutGrid, requiredPermission: "page:rd-task-management" },
       { label: "个人工作台", path: "/rd-my-workspace", icon: GanttChartSquare, requiredPermission: "page:rd-my-workspace" },
       { label: "研发数据表", path: "/rd-sheet", icon: FileSpreadsheet, requiredPermission: "page:rd-sheet" },
+      { label: "问题记录与 AI 定位", path: "/issue-ai", icon: Microscope, requiredPermission: "page:issue-ai" },
       // 「研发知识库」入口已移到下方「部门知识库」分组（仍指向 /rd-knowledge-base 原页面）
       // 研发主管驾驶舱 — 导航可见性由页面路由管理中的「导航」开关控制（默认隐藏）
       { label: "研发主管驾驶舱", path: "/rd-director-dashboard", icon: Telescope, requiredPermission: "page:rd-director-dashboard" },

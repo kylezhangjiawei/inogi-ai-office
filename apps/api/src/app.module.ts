@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -31,6 +31,7 @@ import { OrderProcessingModule } from './modules/order-processing/order-processi
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
 import { UserThrottlerGuard } from './common/user-throttler.guard';
+import { GlobalExceptionFilter } from './common/global-exception.filter';
 import { AuditInterceptor } from './modules/audit/audit.interceptor';
 import { ApiRequestLogInterceptor } from './modules/ops-center/api-request-log.interceptor';
 
@@ -71,6 +72,8 @@ const envFilePath = [
     ResearchDevelopmentModule,
   ],
   providers: [
+    // 全局兜底异常过滤器：HttpException 原样透传（前端契约不变），其余未捕获异常统一 500 + 日志、不泄露堆栈。
+    { provide: APP_FILTER, useClass: GlobalExceptionFilter },
     // 顺序：先鉴权（设置 req.user）→ 再按用户限流 → 最后鉴别角色。
     // 限流改为「按登录用户」计数（UserThrottlerGuard），解决办公网共享 IP 被打满导致的 429。
     { provide: APP_GUARD, useClass: JwtAuthGuard },

@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, HttpException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Interval } from '@nestjs/schedule';
 import OpenAI, { toFile } from 'openai';
 import { IntegrationConfig, Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
@@ -343,6 +344,9 @@ export class ImageGenerationService {
     }
   }
 
+  // 兜底定时清理：startTask/getImageTask 已会被动调用本方法，但若长时间没有任何新生成请求、
+  // 同时又有遗留的过期任务时，被动路径不会触发；这里每 10 分钟主动清一次，确保不滞留内存。
+  @Interval(10 * 60 * 1000)
   private pruneExpiredTasks() {
     const now = Date.now();
     for (const [id, task] of this.generationTasks) {
