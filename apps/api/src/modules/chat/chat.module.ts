@@ -12,5 +12,7 @@ import { ChatAttachmentService } from './chat-attachment.service';
   imports: [PrismaModule, ConfigModule, SecurityModule, RagModule],
   controllers: [ChatController],
   providers: [ChatService, ChatAttachmentService],
+  // issue-ai 复用：模型列表（与 MateChat 一致）+ 附件解析（文档抽取/图片多模态）
+  exports: [ChatService, ChatAttachmentService],
 })
 export class ChatModule {}

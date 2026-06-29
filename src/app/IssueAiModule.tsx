@@ -1,34 +1,32 @@
 /**
  * 问题记录与 AI 定位模块 — 页面外壳。
  * 单一数据源、单页：清单 ↔ 详情用模块内状态切换（非独立路由），用面包屑返回。
- * 数据全部经 IssueService 抽象（本期内存 mock，真实接入仅替换实现）。
+ * 数据全部经 IssueService 抽象；已接入真实后端（apps/api 的 issue 模块）。
  */
 import { useMemo, useState } from "react";
-import { ArrowLeft, ChevronRight } from "lucide-react";
 
-import { createIssueService } from "./lib/issue/issueService";
-import { Mono } from "./issue-ai/badges";
+import { createHttpIssueService } from "./lib/issue/issueHttpService";
 import { ListView } from "./issue-ai/ListView";
 import { DetailView } from "./issue-ai/DetailView";
 
 export function IssueAiModule() {
-  // 整个会话共享一个内存 service 实例（create/adopt/adjust 的变更跨清单↔详情保留）。
-  const service = useMemo(() => createIssueService(), []);
+  // 共享一个 HTTP service 实例（无状态，仅复用引用避免子组件 effect 反复重建）。
+  const service = useMemo(() => createHttpIssueService(), []);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-slate-50/60 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[var(--m3-shape-large)] bg-[linear-gradient(180deg,#f8fbff_0%,#eef4fb_100%)] text-slate-900 ring-1 ring-slate-200/70 dark:bg-slate-950 dark:bg-none dark:text-slate-100 dark:ring-slate-800">
       {selectedId ? (
-        // 详情：整页可滚动
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[1500px] px-5 py-5 lg:px-7 lg:py-6">
+        // 详情：窄屏整页滚动；xl+ 两栏各自定高、内部滚动（不超出视口）
+        <div className="material-scrollbar min-h-0 flex-1 overflow-y-auto xl:overflow-hidden">
+          <div className="mx-auto flex min-h-full w-full max-w-[1520px] px-4 py-4 sm:px-5 lg:px-6 xl:h-full">
             <DetailView service={service} issueId={selectedId} onBack={() => setSelectedId(null)} />
           </div>
         </div>
       ) : (
         // 清单：内容自然流动、整体可滚动（列表项卡片，数据少不撑空、分页紧跟列表）
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <div className="mx-auto w-full max-w-[1500px] px-5 py-5 lg:px-7 lg:py-6">
+        <div className="material-scrollbar min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-[1520px] px-4 py-4 sm:px-5 lg:px-6">
             <ListView service={service} onOpen={setSelectedId} />
           </div>
         </div>

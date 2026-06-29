@@ -262,6 +262,17 @@
     background-color: #cbd5e1;
   }
 
+  /* ── 隐藏滚动条但保留滚动能力（Firefox / IE / WebKit） ── */
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    width: 0;
+    height: 0;
+    display: none;
+  }
+
   .material-shell {
     background:
       linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(243, 246, 251, 0.9)),

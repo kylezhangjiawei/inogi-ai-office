@@ -151,4 +151,9 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'after-sales:edit', label: '编辑工单', groupLabel: '操作权限 · 售后工单', type: 'action', sortOrder: 1410 },
   { code: 'after-sales:delete', label: '删除工单', groupLabel: '操作权限 · 售后工单', type: 'action', sortOrder: 1420 },
   { code: 'after-sales:approve', label: '审批工单', groupLabel: '操作权限 · 售后工单', type: 'action', sortOrder: 1430 },
+
+  // ─── 问题记录与 AI 定位（issue-ai）───────────────────────────────────────────
+  { code: 'page:issue-ai', label: '问题记录与 AI 定位', description: '问题登记、AI 6M 根因分析、方案采纳与复用、问题知识库', groupLabel: '页面访问 · 问题记录与 AI 定位', type: 'page', routePath: '/issue-ai', sortOrder: 680 },
+  { code: 'issue:create', label: '登记问题', description: '新建问题记录并触发 AI 根因分析', groupLabel: '操作权限 · 问题记录与 AI 定位', type: 'action', sortOrder: 1500 },
+  { code: 'issue:resolve', label: '问题定性 / AI 配置', description: '判定问题是否已解决（进知识库可复用），并维护本模块 AI 配置', groupLabel: '操作权限 · 问题记录与 AI 定位', type: 'action', sortOrder: 1510 },
 ];

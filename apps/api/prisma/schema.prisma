@@ -601,3 +601,78 @@ model KnowledgeChunk {
   @@index([sourceType, sourceId])
   @@index([archived])
 }
+
+/// 问题记录与 AI 定位 — 主实体。id 为业务编号（NCR-YYMM-NNN）。
+/// 留痕 append-only：analyses / messages 只增不改。附件以 JSON 存 fileId 引用 FileAsset。
+model Issue {
+  id          String   @id
+  title       String
+  description String
+  source      String   // 'rd' | 'production'
+  product     String?
+  batch       String?
+  station     String?
+  severity    String   // 'fatal' | 'major' | 'normal' | 'minor'
+  defectRate  String?
+  status      String   @default("pending") // pending|analyzing|adjusting|adopted|archived
+  /// { kind:'analysis', causeId, solutionId } | { kind:'reuse', reusedFrom }
+  adopted     Json?
+  keywords    String[] @default([])
+  /// { resolved, by, at, note }
+  resolution  Json?
+  /// Attachment[]（含 fileId / fileName / fileType / extractedText 等，展示用）
+  attachments Json     @default("[]")
+  createdBy   String   // 创建人姓名（展示用）
+  createdById String?  // 创建人 user id（权限/我的）
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  analyses IssueAnalysis[]
+  messages IssueMessage[]
+
+  @@index([status])
+  @@index([source])
+  @@index([product])
+  @@index([createdById])
+}
+
+/// 每次「初次生成 / 对话调整」存一份结构化分析快照（append-only，可对比、可采纳）。
+model IssueAnalysis {
+  id             String   @id @default(cuid())
+  issueId        String
+  issue          Issue    @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  version        Int
+  /// RootCauseAnalysis：{ possibleCauses, summary, referencedCases }
+  content        Json
+  summary        String
+  model          String
+  triggerType    String   // 'initial' | 'adjustment'
+  basedOnVersion Int?
+  createdBy      String   // 'system' / 'AI' / 操作人
+  isAdopted      Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@unique([issueId, version])
+  @@index([issueId])
+}
+
+/// 对话留痕 = 审计流水，只增不改。
+model IssueMessage {
+  id                String   @id @default(cuid())
+  issueId           String
+  issue             Issue    @relation(fields: [issueId], references: [id], onDelete: Cascade)
+  seq               Int
+  role              String   // 'user' | 'assistant'
+  content           String
+  /// ChatUser：{ id, name, avatarUrl? }
+  author            Json?
+  operator          String?
+  /// Attachment[]（含 fileId 引用 FileAsset）
+  attachments       Json?
+  analysisVersionId String?
+  model             String?
+  createdAt         DateTime @default(now())
+
+  @@unique([issueId, seq])
+  @@index([issueId])
+}

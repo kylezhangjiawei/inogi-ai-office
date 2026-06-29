@@ -8,6 +8,7 @@ export const OSS_BUSINESS_TYPES = {
   RD_KNOWLEDGE: 'rd/knowledge',
   RD_SHEET_IMAGES: 'rd/sheet-images',
   RECRUITMENT_RESUMES: 'recruitment/resumes',
+  ISSUE_ATTACHMENTS: 'issue/attachments',
   ASSETS: 'assets',
 } as const;
 
@@ -23,6 +24,7 @@ export const OSS_MAX_FILE_SIZE: Record<OssBusinessType, number> = {
   'rd/knowledge': 50 * 1024 * 1024,
   'rd/sheet-images': 10 * 1024 * 1024,
   'recruitment/resumes': 10 * 1024 * 1024,
+  'issue/attachments': 20 * 1024 * 1024,
   'assets': 50 * 1024 * 1024,
 };
 
@@ -53,6 +55,7 @@ export const OSS_ALLOWED_MIME_TYPES: Record<OssBusinessType, string[]> = {
     'application/msword',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   ],
+  'issue/attachments': ['*/*'],
   'assets': ['*/*'],
 };
 

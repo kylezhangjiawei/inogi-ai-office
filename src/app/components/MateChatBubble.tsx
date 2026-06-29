@@ -757,6 +757,8 @@ export function MateChatBubble() {
       const tempUserId = `tmp-user-${Date.now()}`;
       const tempAiId = `tmp-ai-${Date.now()}`;
       const now = new Date().toISOString();
+      // 在函数作用域声明：finally 块要访问它，不能放进 try 块（块级作用域下 finally 取不到 → ReferenceError）。
+      let realUserId = tempUserId;
 
       // 乐观添加占位消息
       setMessages((prev) => [
@@ -783,7 +785,6 @@ export function MateChatBubble() {
         const reader = res.body!.getReader();
         const decoder = new TextDecoder();
         let buf = "";
-        let realUserId = tempUserId;
         let streamedContent = "";
         let currentFromDb = false;
 

@@ -12,8 +12,12 @@ import { SEED_ISSUES } from "./mockData";
 import {
   CAUSE_DIMENSIONS,
   isReusableIssue,
+  type AiConfig,
+  type AiModelChoice,
   type AnalysisVersion,
+  type Attachment,
   type CauseDimension,
+  type ChatUser,
   type DimensionStat,
   type Issue,
   type IssueMessage,
@@ -25,9 +29,12 @@ import {
   type Paged,
   type PossibleCause,
   type RootCauseAnalysis,
+  type SendChatInput,
+  type SendChatResult,
   type SimilarMatch,
   type Solution,
   type SolutionType,
+  type UploadFileInput,
 } from "./types";
 import { SEVERITY_WEIGHT, statusGroupOf } from "./config";
 
@@ -38,6 +45,14 @@ const store: Issue[] = deepClone(SEED_ISSUES);
 let issueSeq = computeMaxIssueSeq(store);
 // 各类 id 的单调自增计数器（确定性）。
 let idCounter = 1000;
+
+// 可选对话模型（mock；真实接入改为 /api/chat/models）。含纯文本与多模态，对齐 MateChat 选择能力。
+const AI_MODEL_CHOICES: AiModelChoice[] = [
+  { value: "gpt-4o-mini", label: "GPT-4o mini", provider: "OpenAI", model: "gpt-4o-mini", usageKind: "text", usageLabel: "文本" },
+  { value: "gpt-4o", label: "GPT-4o", provider: "OpenAI", model: "gpt-4o", usageKind: "multimodal", usageLabel: "文本·图片" },
+  { value: "claude-3-5-sonnet", label: "Claude 3.5 Sonnet", provider: "Anthropic", model: "claude-3-5-sonnet", usageKind: "multimodal", usageLabel: "文本·图片" },
+  { value: "qwen-vl-max", label: "通义千问 VL-Max", provider: "阿里云", model: "qwen-vl-max", usageKind: "multimodal", usageLabel: "文本·图片" },
+];
 
 // ── 工具函数 ─────────────────────────────────────────────────────────────────
 function deepClone<T>(value: T): T {
@@ -789,6 +804,9 @@ export function createIssueService(): IssueService {
       ? `（已识别 ${input.attachments.length} 个附件的内容）`
       : "";
 
+    // 本轮所选模型（缺省回退到全局 AiConfig.model）。
+    const usedModel = input.model?.trim() || aiConfig.model;
+
     // mock：本轮沟通推进论证，可能催生新分析版本（左侧结论据此更新）
     const prev = latestAnalysis(issue);
     let analysis: AnalysisVersion | undefined;
@@ -814,7 +832,7 @@ export function createIssueService(): IssueService {
           referencedCases: prev.content.referencedCases,
         },
         summary: summarize(merged),
-        model: aiConfig.model,
+        model: usedModel,
         triggerType: "adjustment",
         basedOnVersion: prev.version,
         createdBy: "AI",
@@ -833,6 +851,7 @@ export function createIssueService(): IssueService {
         ? `收到${attachNote}。已结合上下文更新论证（v${analysis.version}）。`
         : `收到${attachNote}。已记录，请继续补充信息以便定位。`,
       analysisVersionId: analysis?.id,
+      model: usedModel,
       createdAt: nextTimestamp(),
     };
     issue.messages.push(aiMessage);
@@ -896,6 +915,8 @@ export function createIssueService(): IssueService {
     return { ...aiConfig };
   };
 
+  const listAiModels = async (): Promise<AiModelChoice[]> => AI_MODEL_CHOICES.map((m) => ({ ...m }));
+
   return {
     list,
     get,
@@ -913,5 +934,6 @@ export function createIssueService(): IssueService {
     processAttachment,
     getAiConfig,
     setAiConfig,
+    listAiModels,
   };
 }

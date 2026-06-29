@@ -118,6 +118,7 @@ import { getGradeTone } from "./lib/taskCompletionScore";
 import { openTaskCompletionReport, openBatchCompletionReport } from "./lib/taskCompletionReport";
 import { useAvatarDirectory } from "./lib/userAvatar";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
+import { RdTaskExportButton } from "./components/RdTaskExportButton";
 import { Button } from "./components/ui/button";
 import { Checkbox } from "./components/ui/checkbox";
 import { Label } from "./components/ui/label";
@@ -9386,9 +9387,9 @@ function ExecutiveOverview({
               </span>
               <div className="min-w-0">
                 <h2 className="truncate text-base font-bold text-slate-900">研发执行提示</h2>
-                <p className="mt-0.5 truncate text-xs font-medium text-slate-500">
-                  优先处理阻塞、逾期和待指派任务；新增需求建议先走 AI 立项拆解。
-                </p>
+                {/*<p className="mt-0.5 truncate text-xs font-medium text-slate-500">*/}
+                {/*  优先处理阻塞、逾期和待指派任务；新增需求建议先走 AI 立项拆解。*/}
+                {/*</p>*/}
               </div>
             </div>
 
@@ -9439,8 +9440,10 @@ function ExecutiveOverview({
               })}
             </div>
 
-            {(canReassign || onCreateTask || canClearData || canDirectProject || onOpenPeople) && (
+            {(
               <div className="order-2 flex flex-wrap justify-start gap-2 lg:justify-end">
+                {/* 导出：按时间段导出所有人员任务完成情况（只读，所有可见驾驶舱的人可用） */}
+                <RdTaskExportButton allTasks={allTasks} />
                 {canDirectProject && onAiProject && (
                   <button
                     type="button"

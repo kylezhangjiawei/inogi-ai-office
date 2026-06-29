@@ -20,7 +20,8 @@ export type RagSourceType =
   | 'audit_log'
   | 'candidate'
   | 'image'
-  | 'file_asset';
+  | 'file_asset'
+  | 'issue';
 
 export type RagPermissionMetadata = {
   /** KB 分值制：用户 kb_level >= 此值方可访问 */

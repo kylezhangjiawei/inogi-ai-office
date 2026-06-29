@@ -197,6 +197,89 @@ export class ChatService {
       .sort((left, right) => Number(right.isDefault) - Number(left.isDefault));
   }
 
+  // ── Completion（非流式，供其它模块复用：issue-ai 结构化根因分析等）─────────────
+
+  /**
+   * 通用一次性补全。复用对话模型解析（resolveModelConfig）与密钥/baseURL 解析，
+   * 不落任何会话表，调用方自行决定如何持久化结果。
+   * - modelId 缺省/失效 → 自动降级默认对话模型；无任何可用模型抛错。
+   * - json=true 时请求 response_format=json_object（模型不支持也不影响，仅作提示）。
+   * 返回实际使用的 model，便于调用方留痕。
+   */
+  async complete(opts: {
+    modelId?: string;
+    system: string;
+    messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+    /** 随最后一条 user 消息一起发送的图片 data URL；仅当模型支持视觉时生效，否则忽略。 */
+    images?: string[];
+    json?: boolean;
+    temperature?: number;
+    /** 单次调用超时（ms）；超时抛错，调用方可降级。默认走 OpenAI 客户端默认值。 */
+    timeoutMs?: number;
+    /** 失败重试次数；默认 2。对“可降级到兜底”的调用方建议传 0/1 以快速失败。 */
+    maxRetries?: number;
+    /** 输出 token 上限（结构化分析无需过长输出，限长可显著降低延迟）。 */
+    maxTokens?: number;
+  }): Promise<{ content: string; model: string; visionUsed: boolean }> {
+    const config = await this.resolveModelConfig(opts.modelId);
+    if (!config) {
+      throw new BadRequestException('未配置可用 AI 模型，请先在 AI 模型管理中新增并启用模型');
+    }
+
+    const model = config.model;
+    const isQwen = /qwen|tongyi|dashscope|阿里|通义/i.test(`${config.provider} ${model}`);
+    const apiKey =
+      config.apiKey || (isQwen ? (this.qwenApiKey ?? this.openaiApiKey) : this.openaiApiKey);
+    if (!apiKey) {
+      throw new BadRequestException('AI 模型未配置 API Key，请先在 AI 模型管理中配置并启用模型');
+    }
+    const baseURL =
+      config.baseUrl || (isQwen ? this.qwenBaseUrl : (this.openaiBaseUrl ?? undefined));
+    const client = new OpenAI({
+      apiKey,
+      ...(baseURL ? { baseURL } : {}),
+      ...(typeof opts.timeoutMs === 'number' ? { timeout: opts.timeoutMs } : {}),
+      ...(typeof opts.maxRetries === 'number' ? { maxRetries: opts.maxRetries } : {}),
+    });
+
+    const images = (opts.images ?? []).filter((u) => typeof u === 'string' && u.startsWith('data:'));
+    const visionUsed = images.length > 0 && this.modelSupportsVision(model, config.usageKind);
+
+    const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [
+      { role: 'system', content: opts.system },
+      ...opts.messages.map((m) => ({ role: m.role, content: m.content })),
+    ];
+    // 把图片挂到最后一条 user 消息上（视觉模型走 image_url）
+    if (visionUsed) {
+      for (let i = messages.length - 1; i >= 0; i -= 1) {
+        if (messages[i].role === 'user') {
+          const text = typeof messages[i].content === 'string' ? (messages[i].content as string) : '';
+          messages[i] = {
+            role: 'user',
+            content: [
+              { type: 'text', text },
+              ...images.map((url): OpenAI.Chat.Completions.ChatCompletionContentPart => ({
+                type: 'image_url',
+                image_url: { url },
+              })),
+            ],
+          };
+          break;
+        }
+      }
+    }
+
+    const completion = await client.chat.completions.create({
+      model,
+      messages,
+      ...(typeof opts.temperature === 'number' ? { temperature: opts.temperature } : {}),
+      ...(typeof opts.maxTokens === 'number' ? { max_tokens: opts.maxTokens } : {}),
+      ...(opts.json ? { response_format: { type: 'json_object' as const } } : {}),
+    });
+
+    return { content: completion.choices[0]?.message?.content ?? '', model, visionUsed };
+  }
+
   // ── Streaming ────────────────────────────────────────────────────────────────
 
   async streamMessage(

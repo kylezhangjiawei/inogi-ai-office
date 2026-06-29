@@ -6,15 +6,23 @@
  */
 import * as React from "react";
 import {
+  Archive,
   ChevronLeft,
   ChevronRight,
+  ClipboardList,
+  Clock3,
+  Database,
+  ListChecks,
   Plus,
   Search,
+  Sparkles,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import { cn } from "../components/ui/utils";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
+import { usePermission } from "../hooks/usePermission";
 import {
   type Issue,
   type IssueQuery,
@@ -44,7 +52,39 @@ const STATUS_GROUP_ORDER: StatusGroupKey[] = [
 ];
 
 const cardClass =
-  "rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_4px_10px_rgba(15,23,42,0.05),0_16px_32px_rgba(15,23,42,0.08)] dark:border-slate-700/80 dark:bg-slate-900 dark:shadow-[0_2px_8px_rgba(0,0,0,0.4)]";
+  "rounded-lg border border-slate-200/80 bg-white/95 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_8px_24px_rgba(15,23,42,0.06)] dark:border-slate-700/80 dark:bg-slate-900/95 dark:shadow-[0_2px_8px_rgba(0,0,0,0.32)]";
+const panelClass =
+  "rounded-lg border border-slate-200/80 bg-white/90 shadow-[0_1px_2px_rgba(15,23,42,0.04)] dark:border-slate-700/80 dark:bg-slate-900/90";
+
+type StatTone = "slate" | "amber" | "emerald" | "indigo" | "sky";
+
+const statToneClass: Record<StatTone, { shell: string; icon: string; value: string }> = {
+  slate: {
+    shell: "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900",
+    icon: "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300",
+    value: "text-slate-800 dark:text-slate-100",
+  },
+  amber: {
+    shell: "border-amber-200 bg-amber-50/70 dark:border-amber-500/30 dark:bg-amber-500/10",
+    icon: "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300",
+    value: "text-amber-800 dark:text-amber-200",
+  },
+  emerald: {
+    shell: "border-emerald-200 bg-emerald-50/70 dark:border-emerald-500/30 dark:bg-emerald-500/10",
+    icon: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300",
+    value: "text-emerald-800 dark:text-emerald-200",
+  },
+  indigo: {
+    shell: "border-indigo-200 bg-indigo-50/70 dark:border-indigo-500/30 dark:bg-indigo-500/10",
+    icon: "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300",
+    value: "text-indigo-800 dark:text-indigo-200",
+  },
+  sky: {
+    shell: "border-sky-200 bg-sky-50/70 dark:border-sky-500/30 dark:bg-sky-500/10",
+    icon: "bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300",
+    value: "text-sky-800 dark:text-sky-200",
+  },
+};
 
 // ────────────────────────────────────────────────────────────────────────────
 // 概览统计带
@@ -53,37 +93,34 @@ function StatTile({
   label,
   value,
   suffix,
-  accent,
+  icon: Icon,
+  tone = "slate",
 }: {
   label: string;
   value: React.ReactNode;
   suffix?: string;
-  accent?: boolean;
+  icon: LucideIcon;
+  tone?: StatTone;
 }) {
+  const toneClass = statToneClass[tone];
   return (
     <div
       className={cn(
-        "flex min-w-[7.5rem] flex-1 flex-col gap-1 rounded-xl border px-4 py-2.5 transition-colors duration-200",
-        "shadow-[0_1px_2px_rgba(15,23,42,0.04),0_3px_8px_rgba(15,23,42,0.05)]",
-        accent
-          ? "border-indigo-200 bg-gradient-to-br from-indigo-50 to-white dark:border-indigo-500/30 dark:from-indigo-500/15 dark:to-slate-900"
-          : "border-slate-200/70 bg-white hover:border-slate-300 dark:border-slate-700/80 dark:bg-slate-900",
+        "flex min-h-[4.75rem] min-w-0 items-center gap-3 rounded-lg border px-3.5 py-3 transition-colors duration-200",
+        "shadow-[0_1px_2px_rgba(15,23,42,0.035)]",
+        toneClass.shell,
       )}
     >
-      <span className="text-xs text-slate-500 dark:text-slate-400">{label}</span>
-      <span
-        className={cn(
-          "text-2xl font-semibold leading-none",
-          accent
-            ? "text-indigo-700 dark:text-indigo-300"
-            : "text-slate-800 dark:text-slate-100",
-        )}
-      >
-        <Mono>{value}</Mono>
-        {suffix ? (
-          <span className="ml-0.5 text-sm font-normal text-slate-400">{suffix}</span>
-        ) : null}
+      <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-md", toneClass.icon)}>
+        <Icon className="size-4" />
       </span>
+      <div className="min-w-0">
+        <span className="block truncate text-xs text-slate-500 dark:text-slate-400">{label}</span>
+        <span className={cn("mt-1 block text-2xl font-semibold leading-none", toneClass.value)}>
+          <Mono>{value}</Mono>
+          {suffix ? <span className="ml-0.5 text-sm font-normal text-slate-400">{suffix}</span> : null}
+        </span>
+      </div>
     </div>
   );
 }
@@ -91,11 +128,11 @@ function StatTile({
 function StatsBand({ stats }: { stats: IssueStats | null }) {
   if (!stats) {
     return (
-      <div className="flex flex-wrap gap-3">
+      <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">
         {Array.from({ length: 5 }).map((_, i) => (
           <div
             key={i}
-            className="h-[4.25rem] min-w-[7.5rem] flex-1 animate-pulse rounded-xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_3px_8px_rgba(15,23,42,0.05)] dark:border-slate-700/80 dark:bg-slate-900"
+            className="h-[4.75rem] animate-pulse rounded-lg border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)] dark:border-slate-700/80 dark:bg-slate-900"
           />
         ))}
       </div>
@@ -105,12 +142,12 @@ function StatsBand({ stats }: { stats: IssueStats | null }) {
   const avg = stats.avgLocateHours;
   const avgStr = Number.isInteger(avg) ? String(avg) : avg.toFixed(1);
   return (
-    <div className="flex flex-wrap gap-3">
-      <StatTile label="问题总数" value={stats.total} />
-      <StatTile label="待处理" value={stats.pending} />
-      <StatTile label="已解决" value={stats.solved} />
-      <StatTile label="方案复用率" value={reusePct} suffix="%" accent />
-      <StatTile label="平均定位时长" value={avgStr} suffix="h" />
+    <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">
+      <StatTile label="问题总数" value={stats.total} icon={Database} />
+      <StatTile label="待处理" value={stats.pending} icon={ClipboardList} tone="amber" />
+      <StatTile label="已解决" value={stats.solved} icon={ListChecks} tone="emerald" />
+      <StatTile label="方案复用率" value={reusePct} suffix="%" icon={Archive} tone="indigo" />
+      <StatTile label="平均定位时长" value={avgStr} suffix="h" icon={Clock3} tone="sky" />
     </div>
   );
 }
@@ -132,7 +169,7 @@ function ActiveTag({
         type="button"
         onClick={onClear}
         aria-label="清除该筛选"
-        className="rounded-sm p-0.5 hover:bg-indigo-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:hover:bg-indigo-500/20"
+        className="cursor-pointer rounded-sm p-0.5 hover:bg-indigo-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:hover:bg-indigo-500/20"
       >
         <X className="size-3" />
       </button>
@@ -151,7 +188,7 @@ function IssueList({
   onOpen: (id: string) => void;
 }) {
   return (
-    <div className="space-y-2.5">
+    <div className="space-y-2">
       {items.map((it) => (
         <button
           key={it.id}
@@ -159,22 +196,21 @@ function IssueList({
           onClick={() => onOpen(it.id)}
           className={cn(
             cardClass,
-            "flex w-full items-center gap-4 p-4 text-left transition-all hover:border-indigo-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:hover:border-indigo-500/50",
+            "group grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3 text-left transition-all duration-200 hover:border-indigo-300 hover:bg-white hover:shadow-[0_10px_28px_rgba(79,70,229,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:hover:border-indigo-500/50 dark:hover:bg-slate-900",
           )}
         >
           {/* 左：编号 + 标题 + 来源/产品/工位 */}
           <div className="min-w-0 flex-1">
-            <Mono className="text-xs text-slate-400">{it.id}</Mono>
-            <div className="mt-1 truncate font-medium text-slate-800 dark:text-slate-100">
+            <div className="flex flex-wrap items-center gap-2">
+              <Mono className="text-[11px] font-semibold text-slate-400">{it.id}</Mono>
+              <SourceTag value={it.source} />
+            </div>
+            <div className="mt-1 truncate text-sm font-semibold text-slate-800 group-hover:text-indigo-700 dark:text-slate-100 dark:group-hover:text-indigo-300">
               {it.title}
             </div>
-            <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-400">
-              <SourceTag value={it.source} />
+            <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400">
               {it.product ? (
-                <>
-                  <span aria-hidden>·</span>
-                  <span>{it.product}</span>
-                </>
+                <span className="truncate">{it.product}</span>
               ) : null}
               {it.station ? (
                 <>
@@ -234,7 +270,7 @@ function ReusableCards({
             onClick={() => onOpen(it.id)}
             className={cn(
               cardClass,
-              "flex flex-col gap-2 p-4 text-left transition-all hover:border-indigo-300 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:hover:border-indigo-500/50",
+              "flex min-h-[12rem] cursor-pointer flex-col gap-2 p-4 text-left transition-all duration-200 hover:border-indigo-300 hover:bg-white hover:shadow-[0_10px_28px_rgba(79,70,229,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:hover:border-indigo-500/50 dark:hover:bg-slate-900",
             )}
           >
             <div className="flex items-start justify-between gap-2">
@@ -305,7 +341,7 @@ function Pagination({
           type="button"
           disabled={page <= 1}
           onClick={() => onPage(page - 1)}
-          className="inline-flex h-7 items-center gap-0.5 rounded-md border border-slate-200 px-2 text-xs text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+          className="inline-flex h-7 cursor-pointer items-center gap-0.5 rounded-md border border-slate-200 px-2 text-xs text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
         >
           <ChevronLeft className="size-3.5" />
           上一页
@@ -317,7 +353,7 @@ function Pagination({
             onClick={() => onPage(p)}
             aria-current={p === page ? "page" : undefined}
             className={cn(
-              "inline-flex h-7 min-w-7 items-center justify-center rounded-md border px-1.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60",
+              "inline-flex h-7 min-w-7 cursor-pointer items-center justify-center rounded-md border px-1.5 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60",
               p === page
                 ? "border-indigo-300 bg-indigo-50 font-medium text-indigo-700 dark:border-indigo-500/40 dark:bg-indigo-500/10 dark:text-indigo-300"
                 : "border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800",
@@ -330,7 +366,7 @@ function Pagination({
           type="button"
           disabled={page >= totalPages}
           onClick={() => onPage(page + 1)}
-          className="inline-flex h-7 items-center gap-0.5 rounded-md border border-slate-200 px-2 text-xs text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+          className="inline-flex h-7 cursor-pointer items-center gap-0.5 rounded-md border border-slate-200 px-2 text-xs text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
         >
           下一页
           <ChevronRight className="size-3.5" />
@@ -350,6 +386,7 @@ export function ListView({
   service: IssueService;
   onOpen: (id: string) => void;
 }) {
+  const canCreate = usePermission("issue:create");
   const [stats, setStats] = React.useState<IssueStats | null>(null);
 
   const [query, setQuery] = React.useState<IssueQuery>({
@@ -415,13 +452,34 @@ export function ListView({
 
   return (
     <div className="flex flex-col gap-4">
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div className="min-w-0">
+          <span className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300">
+            <Sparkles className="size-3.5" />
+            AI 根因定位
+          </span>
+          <h1 className="mt-2 text-[1.65rem] font-semibold leading-tight text-slate-950 dark:text-white">
+            问题记录与 AI 定位
+          </h1>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500 dark:text-slate-400">
+            面向研发与生产异常的质量闭环工作台，统一记录、相似复用、根因分析与处理留痕。
+          </p>
+        </div>
+        {canCreate && (
+          <Button size="sm" onClick={() => setDrawerOpen(true)} className="cursor-pointer shadow-sm">
+            <Plus className="size-4" />
+            新建问题
+          </Button>
+        )}
+      </header>
+
       {/* 1) 概览统计带 */}
       <div className="shrink-0">
         <StatsBand stats={stats} />
       </div>
 
       {/* 2) 工具栏 / 筛选 */}
-      <section className="flex shrink-0 flex-col gap-3">
+      <section className={cn(panelClass, "flex shrink-0 flex-col gap-3 p-3")}>
         <div className="flex flex-wrap items-center gap-2">
           {/* 状态分段 */}
           <div className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 p-1 dark:border-slate-700 dark:bg-slate-800/40">
@@ -433,7 +491,7 @@ export function ListView({
                   type="button"
                   onClick={() => patchQuery({ statusGroup: key })}
                   className={cn(
-                    "rounded-md px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60",
+                    "cursor-pointer rounded-md px-3 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60",
                     active
                       ? "bg-white text-indigo-700 shadow-sm dark:bg-slate-900 dark:text-indigo-300"
                       : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200",
@@ -459,11 +517,6 @@ export function ListView({
               className="h-9 border-slate-300 bg-white pl-8 text-xs shadow-sm focus-visible:border-indigo-400 dark:border-slate-600 dark:bg-slate-900"
             />
           </div>
-
-          <Button size="sm" onClick={() => setDrawerOpen(true)}>
-            <Plus className="size-4" />
-            新建问题
-          </Button>
         </div>
 
         {/* 活动搜索标签 */}
@@ -481,7 +534,7 @@ export function ListView({
             <button
               type="button"
               onClick={clearAll}
-              className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:text-slate-400 dark:hover:text-slate-200"
+              className="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-0.5 text-xs text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:text-slate-400 dark:hover:text-slate-200"
             >
               清除筛选
             </button>

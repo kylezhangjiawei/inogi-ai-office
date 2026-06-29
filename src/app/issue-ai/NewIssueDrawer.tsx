@@ -8,38 +8,36 @@
  */
 import * as React from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { toast } from "sonner";
 import { Loader2, Paperclip, Sparkles, X } from "lucide-react";
 import { cn } from "../components/ui/utils";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
-import { MenuSelect } from "./MenuSelect";
 import {
   type Issue,
   type IssueService,
-  type IssueSource,
   type NewIssueInput,
-  type Severity,
   type SimilarMatch,
 } from "../lib/issue/types";
-import { SEVERITY_CONFIG, SOURCE_LABEL } from "../lib/issue/config";
 import { Mono, SolutionTypeBadge, SourceTag } from "./badges";
 
-const SEVERITY_ORDER: Severity[] = ["fatal", "major", "normal", "minor"];
-const SOURCE_ORDER: IssueSource[] = ["rd", "production"];
-
 type DraftAttachment = NonNullable<NewIssueInput["attachments"]>[number];
+
+/** 读文件为 base64 dataURL（图片与文档都需要，用于真实上传为二进制）。 */
+function fileToDataUrl(file: File): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : undefined);
+    reader.onerror = () => resolve(undefined);
+    reader.readAsDataURL(file);
+  });
+}
 
 type Step = "form" | "similar";
 
 const emptyForm = {
   title: "",
   description: "",
-  source: "production" as IssueSource,
-  severity: "normal" as Severity,
-  product: "",
-  batch: "",
-  station: "",
-  defectRate: "",
 };
 
 export function NewIssueDrawer({
@@ -58,6 +56,7 @@ export function NewIssueDrawer({
   const [step, setStep] = React.useState<Step>("form");
   const [form, setForm] = React.useState(emptyForm);
   const [attachments, setAttachments] = React.useState<DraftAttachment[]>([]);
+  const [uploading, setUploading] = React.useState(false);
   const [touched, setTouched] = React.useState(false);
   const [dragOver, setDragOver] = React.useState(false);
 
@@ -74,6 +73,7 @@ export function NewIssueDrawer({
       setStep("form");
       setForm(emptyForm);
       setAttachments([]);
+      setUploading(false);
       setTouched(false);
       setSubmitting(false);
       setCreatedIssue(null);
@@ -103,25 +103,45 @@ export function NewIssueDrawer({
   const buildInput = (): NewIssueInput => ({
     title: form.title.trim(),
     description: form.description.trim(),
-    source: form.source,
-    severity: form.severity,
-    product: form.product.trim() || undefined,
-    batch: form.batch.trim() || undefined,
-    station: form.station.trim() || undefined,
-    defectRate: form.defectRate.trim() || undefined,
-    attachments: attachments.length ? attachments : undefined,
+    // 来源/严重度/产品等不再在表单收集；后端会给来源/严重度兜底默认值。
+    // attachments 仅传后端 DTO 允许字段（forbidNonWhitelisted），剥离 uploadedBy/uploadedAt；
+    // 不回传 fileUrl（那是 base64 dataURL，体积大且后端按 id 重算预览链接）。
+    attachments: attachments.length
+      ? attachments.map((a) => ({
+          id: a.id,
+          fileName: a.fileName,
+          fileType: a.fileType,
+          extractedText: a.extractedText,
+        }))
+      : undefined,
   });
 
-  const handleFiles = (files: FileList | null) => {
+  // 真实上传：每个文件读成 dataURL → service.uploadAttachment（落 OSS/FileAsset）→
+  // processAttachment 抽取文本，拿到带 id 的 Attachment，提交时随问题入库，首版 AI 分析即可见证据。
+  const handleFiles = async (files: FileList | null) => {
     if (!files) return;
-    const next: DraftAttachment[] = Array.from(files).map((f) => ({
-      fileName: f.name,
-      fileType: f.type || "application/octet-stream",
-      // 无真实上传：用占位 URL；extractedText 留空占位。
-      fileUrl: `local://pending/${encodeURIComponent(f.name)}`,
-      extractedText: undefined,
-    }));
-    setAttachments((cur) => [...cur, ...next]);
+    const list = Array.from(files).filter((f) => f.size > 0);
+    if (list.length === 0) return;
+    setUploading(true);
+    try {
+      const uploaded: DraftAttachment[] = [];
+      for (const f of list) {
+        const dataUrl = await fileToDataUrl(f);
+        const raw = await service.uploadAttachment({
+          fileName: f.name,
+          fileType: f.type || "application/octet-stream",
+          size: f.size,
+          dataUrl,
+        });
+        uploaded.push(await service.processAttachment(raw, "ai"));
+      }
+      setAttachments((cur) => [...cur, ...uploaded]);
+      toast.success(`已上传 ${uploaded.length} 个附件`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "附件上传失败");
+    } finally {
+      setUploading(false);
+    }
   };
 
   const goSimilar = async () => {
@@ -156,17 +176,12 @@ export function NewIssueDrawer({
     }
   };
 
-  const runAnalyze = async () => {
+  // 不再手动触发分析：进入详情后由 DetailView 自动生成根因（见 DetailView 的 auto-kick）。
+  const enterDetail = () => {
     if (!createdIssue || busyAction) return;
-    setBusyAction("analyze");
-    try {
-      await service.analyze(createdIssue.id);
-    } finally {
-      const id = createdIssue.id;
-      setBusyAction(null);
-      onClose();
-      onOpen(id);
-    }
+    const id = createdIssue.id;
+    onClose();
+    onOpen(id);
   };
 
   return (
@@ -222,6 +237,7 @@ export function NewIssueDrawer({
                   setForm={setForm}
                   attachments={attachments}
                   setAttachments={setAttachments}
+                  uploading={uploading}
                   touched={touched}
                   titleOk={titleOk}
                   descOk={descOk}
@@ -246,26 +262,22 @@ export function NewIssueDrawer({
                   <Button variant="ghost" onClick={onClose}>
                     取消
                   </Button>
-                  <Button onClick={goSimilar} disabled={submitting}>
-                    {submitting ? (
+                  <Button onClick={goSimilar} disabled={submitting || uploading}>
+                    {submitting || uploading ? (
                       <Loader2 className="size-4 animate-spin" />
                     ) : null}
-                    下一步：查相似
+                    {uploading ? "附件上传中…" : "下一步：查相似"}
                   </Button>
                 </div>
               ) : (
                 <Button
                   variant="outline"
                   className="w-full"
-                  onClick={runAnalyze}
+                  onClick={enterDetail}
                   disabled={!!busyAction}
                 >
-                  {busyAction === "analyze" ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <Sparkles className="size-4" />
-                  )}
-                  以上都不匹配 → 让 AI 做完整根因分析
+                  <Sparkles className="size-4" />
+                  以上都不匹配 → 进入详情（AI 自动分析）
                 </Button>
               )}
             </footer>
@@ -307,6 +319,7 @@ function FormStep({
   setForm,
   attachments,
   setAttachments,
+  uploading,
   touched,
   titleOk,
   descOk,
@@ -318,6 +331,7 @@ function FormStep({
   setForm: React.Dispatch<React.SetStateAction<typeof emptyForm>>;
   attachments: DraftAttachment[];
   setAttachments: React.Dispatch<React.SetStateAction<DraftAttachment[]>>;
+  uploading: boolean;
   touched: boolean;
   titleOk: boolean;
   descOk: boolean;
@@ -379,7 +393,11 @@ function FormStep({
               : "border-slate-300 dark:border-slate-600",
           )}
         >
-          <Paperclip className="size-5 text-slate-400" />
+          {uploading ? (
+            <Loader2 className="size-5 animate-spin text-indigo-500" />
+          ) : (
+            <Paperclip className="size-5 text-slate-400" />
+          )}
           <p className="text-xs text-slate-500 dark:text-slate-400">
             拖拽文件到此，或
             <label className="ml-1 cursor-pointer font-medium text-indigo-600 hover:underline dark:text-indigo-400">
@@ -387,6 +405,7 @@ function FormStep({
               <input
                 type="file"
                 multiple
+                disabled={uploading}
                 className="sr-only"
                 onChange={(e) => {
                   onFiles(e.target.files);
@@ -395,7 +414,9 @@ function FormStep({
               />
             </label>
           </p>
-          <p className="text-[11px] text-slate-400">仅记录文件名，暂不真实上传</p>
+          <p className="text-[11px] text-slate-400">
+            {uploading ? "正在上传…" : "支持图片与文档，上传后 AI 首版分析即可结合附件内容"}
+          </p>
         </div>
         {attachments.length > 0 && (
           <ul className="mt-2 space-y-1">
@@ -423,54 +444,6 @@ function FormStep({
         )}
       </Field>
 
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="来源">
-          <MenuSelect<IssueSource>
-            value={form.source}
-            onChange={(v) => v && set("source", v)}
-            options={SOURCE_ORDER.map((s) => ({ value: s, label: SOURCE_LABEL[s] }))}
-            triggerClassName="w-full text-sm"
-          />
-        </Field>
-
-        <Field label="严重度">
-          <MenuSelect<Severity>
-            value={form.severity}
-            onChange={(v) => v && set("severity", v)}
-            options={SEVERITY_ORDER.map((s) => ({ value: s, label: SEVERITY_CONFIG[s].label }))}
-            triggerClassName="w-full text-sm"
-          />
-        </Field>
-
-        <Field label="产品">
-          <Input
-            value={form.product}
-            onChange={(e) => set("product", e.target.value)}
-            placeholder="产品 / 型号"
-          />
-        </Field>
-        <Field label="批次">
-          <Input
-            value={form.batch}
-            onChange={(e) => set("batch", e.target.value)}
-            placeholder="批次号"
-          />
-        </Field>
-        <Field label="工序">
-          <Input
-            value={form.station}
-            onChange={(e) => set("station", e.target.value)}
-            placeholder="工位 / 工序"
-          />
-        </Field>
-        <Field label="不良率">
-          <Input
-            value={form.defectRate}
-            onChange={(e) => set("defectRate", e.target.value)}
-            placeholder="如 3.2%"
-          />
-        </Field>
-      </div>
     </div>
   );
 }
