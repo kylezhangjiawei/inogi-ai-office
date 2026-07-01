@@ -56,6 +56,22 @@ const cardClass =
 const panelClass =
   "rounded-lg border border-slate-200/80 bg-white/90 shadow-[0_1px_2px_rgba(15,23,42,0.04)] dark:border-slate-700/80 dark:bg-slate-900/90";
 
+/** 创建人首字头像（Issue 暂无头像 URL，用姓名首字占位）。尺寸/字号由 className 传入。 */
+function InitialAvatar({ name, className }: { name: string; className?: string }) {
+  const ch = (name ?? "").trim().charAt(0) || "?";
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "flex shrink-0 items-center justify-center rounded-full bg-indigo-100 font-semibold text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300",
+        className,
+      )}
+    >
+      {ch}
+    </span>
+  );
+}
+
 type StatTone = "slate" | "amber" | "emerald" | "indigo" | "sky";
 
 const statToneClass: Record<StatTone, { shell: string; icon: string; value: string }> = {
@@ -196,11 +212,14 @@ function IssueList({
           onClick={() => onOpen(it.id)}
           className={cn(
             cardClass,
-            "group grid w-full cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3 text-left transition-all duration-200 hover:border-indigo-300 hover:bg-white hover:shadow-[0_10px_28px_rgba(79,70,229,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:hover:border-indigo-500/50 dark:hover:bg-slate-900",
+            "group grid w-full cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left transition-all duration-200 hover:border-indigo-300 hover:bg-white hover:shadow-[0_10px_28px_rgba(79,70,229,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:hover:border-indigo-500/50 dark:hover:bg-slate-900",
           )}
         >
-          {/* 左：编号 + 标题 + 来源/产品/工位 */}
-          <div className="min-w-0 flex-1">
+          {/* 头像（创建人，最前） */}
+          <InitialAvatar name={it.createdBy} className="size-9 text-sm" />
+
+          {/* 中间：编号 + 来源 + 标题 + 创建人/产品/工位 */}
+          <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <Mono className="text-[11px] font-semibold text-slate-400">{it.id}</Mono>
               <SourceTag value={it.source} />
@@ -209,8 +228,12 @@ function IssueList({
               {it.title}
             </div>
             <div className="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-slate-500 dark:text-slate-400">
+              <span className="truncate font-medium text-slate-600 dark:text-slate-300">{it.createdBy}</span>
               {it.product ? (
-                <span className="truncate">{it.product}</span>
+                <>
+                  <span aria-hidden>·</span>
+                  <span className="truncate">{it.product}</span>
+                </>
               ) : null}
               {it.station ? (
                 <>
@@ -220,6 +243,7 @@ function IssueList({
               ) : null}
             </div>
           </div>
+
           {/* 右：严重度 + 状态 + 时间 */}
           <div className="flex shrink-0 flex-col items-end gap-1.5">
             <div className="flex items-center gap-1.5">

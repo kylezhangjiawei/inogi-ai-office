@@ -17,6 +17,7 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Copy,
   Cpu,
   FileText,
   History,
@@ -106,12 +107,35 @@ function MetaCell({ label, children }: { label: string; children: React.ReactNod
 function AttachmentRow({ att }: { att: Issue["attachments"][number] }) {
   const [open, setOpen] = React.useState(false);
   const hasText = Boolean(att.extractedText && att.extractedText.trim());
+  const copyLink = async () => {
+    if (!att.fileUrl) {
+      toast.error("暂无可复制的文件链接");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(att.fileUrl);
+      toast.success("已复制文件链接");
+    } catch {
+      toast.error("复制失败，请手动复制");
+    }
+  };
   return (
     <li className="rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 dark:border-slate-700 dark:bg-slate-800/40">
       <div className="flex items-center gap-2">
         <Paperclip className="size-4 shrink-0 text-slate-400" />
-        <span className="min-w-0 flex-1 truncate text-sm text-slate-800 dark:text-slate-100">{att.fileName}</span>
-        <span className={cn("shrink-0 text-xs", muted)}>{att.fileType}</span>
+        <span className="min-w-0 flex-1 truncate text-sm text-slate-800 dark:text-slate-100" title={att.fileName}>
+          {att.fileName}
+        </span>
+        <button
+          type="button"
+          onClick={copyLink}
+          title="复制 OSS 文件链接"
+          aria-label="复制文件链接"
+          className="inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-medium text-slate-500 outline-none hover:bg-slate-200/70 hover:text-slate-700 focus-visible:ring-2 focus-visible:ring-indigo-500/50 dark:text-slate-400 dark:hover:bg-slate-700"
+        >
+          <Copy className="size-3.5" />
+          复制链接
+        </button>
         {hasText && (
           <button
             type="button"
@@ -414,30 +438,43 @@ function ChatPanel({
       </div>
 
       <div className="material-scrollbar max-h-[42%] shrink-0 overflow-y-auto border-t border-slate-200/70 bg-white/90 p-3 backdrop-blur dark:border-slate-700/80 dark:bg-slate-900/90 sm:p-4">
-        {models.length > 0 && (
-          <div className="mb-2 flex items-center gap-1.5">
-            <Cpu className="size-3.5 shrink-0 text-slate-400" />
-            <span className={cn("shrink-0 text-xs", muted)}>AI 模型</span>
-            <select
-              value={selectedModel}
-              onChange={(e) => onSelectModel(e.target.value)}
-              disabled={sending}
-              aria-label="选择 AI 模型"
-              className="h-7 min-w-0 max-w-full rounded-md border border-slate-200 bg-white px-1.5 text-xs text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 disabled:cursor-not-allowed dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-            >
-              {models.map((m) => (
-                <option key={m.value} value={m.value}>
-                  {m.label} · {m.usageLabel}
-                </option>
-              ))}
-            </select>
-            <span className={cn("ml-auto shrink-0 text-[11px]", muted)}>
-              {models.find((m) => m.value === selectedModel)?.usageKind === "multimodal"
-                ? "图片可直传"
-                : "图片转文字"}
-            </span>
-          </div>
-        )}
+        {models.length > 0 && (() => {
+          const current = models.find((m) => m.value === selectedModel);
+          return (
+            <div className="mb-2">
+              <div className="flex items-center gap-1.5">
+                <Cpu className="size-3.5 shrink-0 text-slate-400" />
+                <span className={cn("shrink-0 text-xs", muted)}>AI 模型</span>
+                <select
+                  value={selectedModel}
+                  onChange={(e) => onSelectModel(e.target.value)}
+                  disabled={sending}
+                  aria-label="选择 AI 模型"
+                  className="h-7 min-w-0 max-w-full rounded-md border border-slate-200 bg-white px-1.5 text-xs text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 disabled:cursor-not-allowed dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                >
+                  {models.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label} · {m.usageLabel}
+                    </option>
+                  ))}
+                </select>
+                <span className={cn("ml-auto shrink-0 text-[11px]", muted)}>
+                  {current?.usageKind === "multimodal" ? "图片可直传" : "图片转文字"}
+                </span>
+              </div>
+              {current && (
+                <p className={cn("mt-1 pl-5 text-[11px]", muted)}>
+                  当前模型：
+                  <span className="text-slate-600 dark:text-slate-300">{current.provider}</span>
+                  {" · "}
+                  <Mono className="text-slate-600 dark:text-slate-300">{current.model}</Mono>
+                  {" · "}
+                  {current.usageLabel}
+                </p>
+              )}
+            </div>
+          );
+        })()}
         {pendingAttachments.length > 0 && (
           <div className="mb-2 grid gap-1.5">
             {pendingAttachments.map((att) => (
@@ -514,6 +551,7 @@ export function DetailView({
 
   const [analyzing, setAnalyzing] = React.useState(false);
   const [adoptingSolutionId, setAdoptingSolutionId] = React.useState<string | null>(null);
+  const [resolving, setResolving] = React.useState(false);
   const [draft, setDraft] = React.useState("");
   const [sending, setSending] = React.useState(false);
   const [uploading, setUploading] = React.useState(false);
@@ -788,6 +826,28 @@ export function DetailView({
   // ── 派生数据 ──────────────────────────────────────────────────────────────────
   const analyses = [...issue.analyses].sort((a, b) => a.version - b.version);
   const latest = analyses.length ? analyses[analyses.length - 1] : null;
+
+  // 一键「已解决」：采纳最新分析的最后一个方案（最后一条结果），再判定已解决 → 状态置为已完结(archived)。
+  const canResolve = !!latest && issue.status !== "archived";
+  const handleResolve = async () => {
+    if (resolving || !latest) return;
+    const causes = latest.content.possibleCauses;
+    const lastCause = causes[causes.length - 1];
+    const lastSolution = lastCause?.solutions[lastCause.solutions.length - 1];
+    setResolving(true);
+    try {
+      if (lastCause && lastSolution) {
+        await service.adopt(issueId, { kind: "analysis", causeId: lastCause.id, solutionId: lastSolution.id });
+      }
+      await service.resolveIssue(issueId, { resolved: true, by: currentChatUser, note: "标记已解决（采纳最新方案）" });
+      await reload();
+      toast.success("已标记为已完结");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "操作失败");
+    } finally {
+      setResolving(false);
+    }
+  };
   const shownVersion =
     viewVersion != null ? analyses.find((a) => a.version === viewVersion) ?? latest : latest;
   const isLatestShown = !shownVersion || shownVersion.version === latest?.version;
@@ -869,18 +929,24 @@ export function DetailView({
                 {issue.title}
               </h1>
 
-              <dl className={cn(insetPanel, "mt-4 grid grid-cols-2 gap-x-4 gap-y-3 p-3 sm:grid-cols-3 xl:grid-cols-2")}>
+              <dl className={cn(insetPanel, "mt-4 grid grid-cols-1 gap-x-4 gap-y-3 p-3 sm:grid-cols-2")}>
                 <MetaCell label="来源">{SOURCE_LABEL[issue.source]}</MetaCell>
-                <MetaCell label="产品">{issue.product}</MetaCell>
-                <MetaCell label="批次">{issue.batch}</MetaCell>
-                <MetaCell label="工序">{issue.station}</MetaCell>
-                <MetaCell label="不良率">{issue.defectRate ? <Mono>{issue.defectRate}</Mono> : "—"}</MetaCell>
                 <MetaCell label="创建">
                   <span>
                     {issue.createdBy} · <Mono className="text-xs">{fmtTime(issue.createdAt)}</Mono>
                   </span>
                 </MetaCell>
               </dl>
+
+              {/* 一键已解决：采纳最新分析的最后一个方案并置为已完结。 */}
+              {canResolve && (
+                <div className="mt-4 flex justify-end">
+                  <Button onClick={handleResolve} disabled={resolving}>
+                    {resolving ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
+                    已解决
+                  </Button>
+                </div>
+              )}
             </div>
           </motion.section>
 
@@ -909,115 +975,7 @@ export function DetailView({
             )}
           </motion.section>
 
-          {/* 3) AI 根因分析 */}
-          <motion.section {...fade} className={cn(card, "p-4 sm:p-5")}>
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className={cn(sectionTitle, "flex items-center gap-1.5")}>
-                <Sparkles className="size-4 text-indigo-500" />
-                AI 根因分析
-              </h2>
-              {totalVersions > 0 && shownVersion && (
-                <div className="flex flex-wrap items-center justify-end gap-1.5">
-                  <span className={cn("text-xs", muted)}>
-                    版本 <Mono>v{shownVersion.version}</Mono>（共 {totalVersions} 版）
-                  </span>
-                  {totalVersions > 1 && (
-                    <select
-                      value={shownVersion.version}
-                      onChange={(e) => setViewVersion(Number(e.target.value))}
-                      aria-label="查看历史版本"
-                      className="h-7 rounded-md border border-slate-200 bg-white px-1.5 text-xs text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
-                    >
-                      {analyses
-                        .slice()
-                        .reverse()
-                        .map((v) => (
-                          <option key={v.id} value={v.version}>
-                            v{v.version}（{triggerLabel(v.triggerType)}）
-                          </option>
-                        ))}
-                    </select>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* a. 复用历史方案块（无分析版本时） */}
-            {isReuse && analyses.length === 0 && (
-              <div className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50/60 p-3 dark:border-indigo-500/30 dark:bg-indigo-500/10">
-                <p className="flex items-center gap-1.5 text-sm font-medium text-indigo-800 dark:text-indigo-200">
-                  <CheckCircle2 className="size-4" />
-                  已复用历史方案
-                </p>
-                <p className={cn("mt-1 text-xs", muted)}>
-                  复用自 <Mono className="text-indigo-700 dark:text-indigo-300">{adopted?.kind === "reuse" ? adopted.reusedFrom : ""}</Mono>
-                </p>
-                {reusedAdopted ? (
-                  <div className="mt-2 rounded-md border border-slate-200 bg-white px-2.5 py-2 dark:border-slate-700 dark:bg-slate-900">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <DimensionChip value={reusedAdopted.cause.dimension} full />
-                      <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{reusedAdopted.cause.cause}</span>
-                    </div>
-                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
-                      <span className="text-sm text-slate-700 dark:text-slate-200">{reusedAdopted.solution.action}</span>
-                      <SolutionTypeBadge value={reusedAdopted.solution.type} />
-                    </div>
-                  </div>
-                ) : (
-                  <p className={cn("mt-2 text-xs", muted)}>（历史方案详情可在下方对话调整中进一步细化）</p>
-                )}
-              </div>
-            )}
-
-            {/* b. 加载态：进入未分析问题即自动生成（pending/analyzing 皆覆盖，无手动按钮） */}
-            {(analyzing ||
-              ((issue.status === "pending" || issue.status === "analyzing") &&
-                analyses.length === 0 &&
-                !isReuse)) && (
-              <div className="mt-3 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-300">
-                <Loader2 className="size-4 animate-spin text-indigo-500" />
-                AI 正在分析根因，请稍候…
-              </div>
-            )}
-
-            {/* c. 展示某版本分析结果 */}
-            {shownVersion && (
-              <div className="mt-3 space-y-3">
-                {!isLatestShown && (
-                  <p className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
-                    <Lock className="size-3" />
-                    历史版本 · 只读
-                  </p>
-                )}
-                <p className="rounded-lg border border-indigo-100 bg-indigo-50/45 px-3 py-2.5 text-sm leading-relaxed text-slate-700 dark:border-indigo-500/20 dark:bg-indigo-500/10 dark:text-slate-200">
-                  {shownVersion.summary}
-                </p>
-                {shownVersion.content.referencedCases.length > 0 && (
-                  <p className={cn("text-xs", muted)}>
-                    参考历史问题：
-                    {shownVersion.content.referencedCases.map((c, i) => (
-                      <React.Fragment key={c}>
-                        {i > 0 && "、"}
-                        <Mono className="text-slate-600 dark:text-slate-300">{c}</Mono>
-                      </React.Fragment>
-                    ))}
-                  </p>
-                )}
-                <div className="space-y-2.5">
-                  {shownVersion.content.possibleCauses.map((cause) => (
-                    <CauseCard
-                      key={cause.id}
-                      cause={cause}
-                      readOnly={!isLatestShown}
-                      adoptedSolutionId={adoptedSolutionId}
-                      adoptingSolutionId={adoptingSolutionId}
-                      onAdopt={handleAdopt}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-          </motion.section>
+          {/* AI 根因分析已移动到右栏（见 aside）。 */}
 
           <div className="grid gap-3">
           {/* 当前采纳方案 */}
@@ -1155,10 +1113,120 @@ export function DetailView({
           </div>
         </div>
 
-        {/* ══════════ 右栏 ══════════ */}
-        <aside className="min-w-0 xl:sticky xl:top-0 xl:flex xl:h-[calc(100vh-14rem)] xl:max-h-[calc(100vh-14rem)] xl:min-h-0">
+        {/* ══════════ 右栏：AI 根因分析 + 对话调整 ══════════ */}
+        <aside className="min-w-0 space-y-3 xl:sticky xl:top-0 xl:flex xl:flex-col xl:gap-3 xl:space-y-0 xl:h-[calc(100vh-14rem)] xl:max-h-[calc(100vh-14rem)] xl:min-h-0">
+          {/* 3) AI 根因分析（右栏顶部，独立滚动） */}
+          <motion.section {...fade} className={cn(card, "p-4 sm:p-5 xl:max-h-[48%] xl:shrink-0 xl:overflow-y-auto")}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className={cn(sectionTitle, "flex items-center gap-1.5")}>
+                <Sparkles className="size-4 text-indigo-500" />
+                AI 根因分析
+              </h2>
+              {totalVersions > 0 && shownVersion && (
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                  <span className={cn("text-xs", muted)}>
+                    版本 <Mono>v{shownVersion.version}</Mono>（共 {totalVersions} 版）
+                  </span>
+                  {totalVersions > 1 && (
+                    <select
+                      value={shownVersion.version}
+                      onChange={(e) => setViewVersion(Number(e.target.value))}
+                      aria-label="查看历史版本"
+                      className="h-7 rounded-md border border-slate-200 bg-white px-1.5 text-xs text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
+                    >
+                      {analyses
+                        .slice()
+                        .reverse()
+                        .map((v) => (
+                          <option key={v.id} value={v.version}>
+                            v{v.version}（{triggerLabel(v.triggerType)}）
+                          </option>
+                        ))}
+                    </select>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* a. 复用历史方案块（无分析版本时） */}
+            {isReuse && analyses.length === 0 && (
+              <div className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50/60 p-3 dark:border-indigo-500/30 dark:bg-indigo-500/10">
+                <p className="flex items-center gap-1.5 text-sm font-medium text-indigo-800 dark:text-indigo-200">
+                  <CheckCircle2 className="size-4" />
+                  已复用历史方案
+                </p>
+                <p className={cn("mt-1 text-xs", muted)}>
+                  复用自 <Mono className="text-indigo-700 dark:text-indigo-300">{adopted?.kind === "reuse" ? adopted.reusedFrom : ""}</Mono>
+                </p>
+                {reusedAdopted ? (
+                  <div className="mt-2 rounded-md border border-slate-200 bg-white px-2.5 py-2 dark:border-slate-700 dark:bg-slate-900">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <DimensionChip value={reusedAdopted.cause.dimension} full />
+                      <span className="text-sm font-medium text-slate-800 dark:text-slate-100">{reusedAdopted.cause.cause}</span>
+                    </div>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-2">
+                      <span className="text-sm text-slate-700 dark:text-slate-200">{reusedAdopted.solution.action}</span>
+                      <SolutionTypeBadge value={reusedAdopted.solution.type} />
+                    </div>
+                  </div>
+                ) : (
+                  <p className={cn("mt-2 text-xs", muted)}>（历史方案详情可在下方对话调整中进一步细化）</p>
+                )}
+              </div>
+            )}
+
+            {/* b. 加载态：进入未分析问题即自动生成（pending/analyzing 皆覆盖，无手动按钮） */}
+            {(analyzing ||
+              ((issue.status === "pending" || issue.status === "analyzing") &&
+                analyses.length === 0 &&
+                !isReuse)) && (
+              <div className="mt-3 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-300">
+                <Loader2 className="size-4 animate-spin text-indigo-500" />
+                AI 正在分析根因，请稍候…
+              </div>
+            )}
+
+            {/* c. 展示某版本分析结果 */}
+            {shownVersion && (
+              <div className="mt-3 space-y-3">
+                {!isLatestShown && (
+                  <p className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
+                    <Lock className="size-3" />
+                    历史版本 · 只读
+                  </p>
+                )}
+                <p className="rounded-lg border border-indigo-100 bg-indigo-50/45 px-3 py-2.5 text-sm leading-relaxed text-slate-700 dark:border-indigo-500/20 dark:bg-indigo-500/10 dark:text-slate-200">
+                  {shownVersion.summary}
+                </p>
+                {shownVersion.content.referencedCases.length > 0 && (
+                  <p className={cn("text-xs", muted)}>
+                    参考历史问题：
+                    {shownVersion.content.referencedCases.map((c, i) => (
+                      <React.Fragment key={c}>
+                        {i > 0 && "、"}
+                        <Mono className="text-slate-600 dark:text-slate-300">{c}</Mono>
+                      </React.Fragment>
+                    ))}
+                  </p>
+                )}
+                <div className="space-y-2.5">
+                  {shownVersion.content.possibleCauses.map((cause) => (
+                    <CauseCard
+                      key={cause.id}
+                      cause={cause}
+                      readOnly={!isLatestShown}
+                      adoptedSolutionId={adoptedSolutionId}
+                      adoptingSolutionId={adoptingSolutionId}
+                      onAdopt={handleAdopt}
+                    />
+                  ))}
+                </div>
+              </div>
+            )}
+          </motion.section>
+
           {/* 4) 对话调整（留痕） */}
-          <motion.section {...fade} className={cn(card, "flex min-h-[28rem] flex-1 flex-col overflow-hidden p-0 xl:h-full xl:min-h-0")}>
+          <motion.section {...fade} className={cn(card, "flex min-h-[24rem] flex-1 flex-col overflow-hidden p-0 xl:min-h-0")}>
             <div className="shrink-0 border-b border-slate-200/70 px-4 py-3 dark:border-slate-700/80 sm:px-5">
               <div className="flex items-center justify-between gap-3">
                 <h2 className={cn(sectionTitle, "flex items-center gap-1.5")}>

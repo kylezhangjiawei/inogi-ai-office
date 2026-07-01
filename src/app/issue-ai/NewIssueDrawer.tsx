@@ -98,10 +98,20 @@ export function NewIssueDrawer({
 
   const titleOk = form.title.trim().length > 0;
   const descOk = form.description.trim().length > 0;
-  const formValid = titleOk && descOk;
+  // 标题 / 描述 / 附件为「或」关系：任意其一有内容即可进行 AI 分析。
+  const formValid = titleOk || descOk || attachments.length > 0;
+
+  // 标题为空时兜底：取描述首句 → 附件名 → 占位，保证问题记录始终有可读标题。
+  const fallbackTitle = (): string => {
+    const desc = form.description.trim().replace(/\s+/g, " ");
+    if (desc) return desc.slice(0, 50);
+    const firstAttachment = attachments[0]?.fileName?.trim();
+    if (firstAttachment) return firstAttachment;
+    return "未命名问题";
+  };
 
   const buildInput = (): NewIssueInput => ({
-    title: form.title.trim(),
+    title: form.title.trim() || fallbackTitle(),
     description: form.description.trim(),
     // 来源/严重度/产品等不再在表单收集；后端会给来源/严重度兜底默认值。
     // attachments 仅传后端 DTO 允许字段（forbidNonWhitelisted），剥离 uploadedBy/uploadedAt；
@@ -152,6 +162,12 @@ export function NewIssueDrawer({
       const input = buildInput();
       const issue = await service.create(input);
       const found = await service.findSimilar(input);
+      // 没有相似历史问题时，跳过空白的「查相似」步骤，直接进入详情由 AI 自动分析。
+      if (found.length === 0) {
+        onClose();
+        onOpen(issue.id);
+        return;
+      }
       setCreatedIssue(issue);
       setMatches(found);
       setStep("similar");
@@ -238,9 +254,7 @@ export function NewIssueDrawer({
                   attachments={attachments}
                   setAttachments={setAttachments}
                   uploading={uploading}
-                  touched={touched}
-                  titleOk={titleOk}
-                  descOk={descOk}
+                  invalid={touched && !formValid}
                   dragOver={dragOver}
                   setDragOver={setDragOver}
                   onFiles={handleFiles}
@@ -320,9 +334,7 @@ function FormStep({
   attachments,
   setAttachments,
   uploading,
-  touched,
-  titleOk,
-  descOk,
+  invalid,
   dragOver,
   setDragOver,
   onFiles,
@@ -332,9 +344,7 @@ function FormStep({
   attachments: DraftAttachment[];
   setAttachments: React.Dispatch<React.SetStateAction<DraftAttachment[]>>;
   uploading: boolean;
-  touched: boolean;
-  titleOk: boolean;
-  descOk: boolean;
+  invalid: boolean;
   dragOver: boolean;
   setDragOver: (v: boolean) => void;
   onFiles: (files: FileList | null) => void;
@@ -344,36 +354,37 @@ function FormStep({
 
   return (
     <div className="space-y-4">
-      <Field label="标题" required error={touched && !titleOk ? "请填写标题" : undefined}>
+      {/* 标题 / 描述 / 附件为「或」关系：任意其一填写即可，无需全部填写。 */}
+      <p className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800/40 dark:text-slate-400">
+        标题、描述、附件<span className="font-medium text-slate-600 dark:text-slate-300">任填其一</span>即可开始 AI 分析。
+      </p>
+      {invalid ? (
+        <p className="text-xs text-red-500">请至少填写标题、描述，或上传附件其中之一。</p>
+      ) : null}
+
+      <Field label="标题">
         <Input
           value={form.title}
           onChange={(e) => set("title", e.target.value)}
-          aria-invalid={touched && !titleOk}
-          placeholder="一句话描述问题现象"
+          placeholder="一句话描述问题现象（可留空）"
         />
       </Field>
 
-      <Field
-        label="描述"
-        required
-        error={touched && !descOk ? "请填写描述" : undefined}
-      >
+      <Field label="描述">
         <textarea
           value={form.description}
           onChange={(e) => set("description", e.target.value)}
-          aria-invalid={touched && !descOk}
           rows={4}
           placeholder="现象 / 复现条件 / 影响范围…"
           className={cn(
             "flex w-full rounded-md border border-input bg-input-background px-3 py-2 text-sm outline-none transition-[color,box-shadow]",
             "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
             "dark:bg-input/30",
-            touched && !descOk && "border-destructive aria-invalid:ring-destructive/20",
           )}
         />
       </Field>
 
-      {/* 附件（占位，无真实上传） */}
+      {/* 附件（选填，但与标题/描述互为「或」） */}
       <Field label="附件（选填）">
         <div
           onDragOver={(e) => {

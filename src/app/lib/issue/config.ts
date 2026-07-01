@@ -33,7 +33,7 @@ export const STATUS_CONFIG: Record<IssueStatus, BadgeStyle & { dot: string }> = 
   analyzing: { label: "分析中", dot: "bg-blue-500 animate-pulse", className: "border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-300" },
   adjusting: { label: "调整中", dot: "bg-amber-500", className: "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300" },
   adopted: { label: "已采纳", dot: "bg-emerald-500", className: "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300" },
-  archived: { label: "已归档", dot: "bg-indigo-500", className: "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300" },
+  archived: { label: "已完结", dot: "bg-indigo-500", className: "border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300" },
 };
 
 /** 状态 → 分段筛选组。 */

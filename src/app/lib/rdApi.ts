@@ -1280,8 +1280,21 @@ export const PERF_SCORE_DIMENSIONS = [
 export type PerfScoreDimension = (typeof PERF_SCORE_DIMENSIONS)[number]["key"];
 export type RdPerfDimensionScores = Record<PerfScoreDimension, number>;
 
+/** 逐考核项打分：key=考核项名称（事项动态项 + 行为固定项），value=该项得分（0..该项权重）。 */
+export type RdPerfItemScores = Record<string, number>;
+
+/** 行为指标（20分）固定六项——评分弹窗与下载文件共用（写死，不走 AI）。 */
+export const PERF_BEHAVIOR_KPIS: ReadonlyArray<{ name: string; weight: string; item: string; standard: string }> = [
+  { name: "担当", weight: "2", item: "对自己行为的担当意识", standard: "主动承担工作任务，并按时完成。" },
+  { name: "专注", weight: "2", item: "对工作的高度集中", standard: "在工作中保持高度集中，减少干扰。" },
+  { name: "坚持", weight: "2", item: "对问题的不断探索", standard: "遇到困难问题时持续跟进，直至解决。" },
+  { name: "极致", weight: "2", item: "对工作的极致效率", standard: "追求工作质量和效率的持续优化。" },
+  { name: "务实", weight: "2", item: "对事情的务实态度", standard: "以实际效果和可执行结果为导向完成工作。" },
+  { name: "创新", weight: "10", item: "使用AI智能办公工具", standard: "AI智能办公软件使用频率：每周≤5次，1分每周6—10次，5分\n几乎每天都使用，10分" },
+];
+
 export type RdPerfSelfAssessment = {
-  scores: RdPerfDimensionScores;
+  scores: RdPerfItemScores;
   comment: string;
   submitted_at: string;
   by_id: string | null;
@@ -1289,7 +1302,7 @@ export type RdPerfSelfAssessment = {
 };
 
 export type RdPerfSupervisorAssessment = {
-  scores: RdPerfDimensionScores;
+  scores: RdPerfItemScores;
   comment: string;
   submitted_at: string;
   reviewer_id: string | null;
@@ -1337,10 +1350,10 @@ export function createRdPerformanceReport(payload: { user_id?: string; user_name
   });
 }
 
-/** 成员提交本人绩效自评（5 维 + 说明）。 */
+/** 成员提交本人绩效自评（逐考核项打分 + 说明）。 */
 export function submitRdSelfAssessment(
   reportId: string,
-  payload: { scores: RdPerfDimensionScores; comment: string },
+  payload: { scores: RdPerfItemScores; comment: string },
 ) {
   return requestJson<RdPerformanceReport>(`/performance-reports/${encodeURIComponent(reportId)}/self-assessment`, {
     method: "PATCH",
@@ -1348,10 +1361,10 @@ export function submitRdSelfAssessment(
   });
 }
 
-/** 主管提交对某成员绩效的 5 维评分。 */
+/** 主管提交对某成员绩效的逐考核项评分。 */
 export function submitRdSupervisorAssessment(
   reportId: string,
-  payload: { scores: RdPerfDimensionScores; comment: string },
+  payload: { scores: RdPerfItemScores; comment: string },
 ) {
   return requestJson<RdPerformanceReport>(`/performance-reports/${encodeURIComponent(reportId)}/supervisor-assessment`, {
     method: "PATCH",

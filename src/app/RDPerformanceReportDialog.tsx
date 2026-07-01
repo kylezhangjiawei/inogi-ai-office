@@ -7,32 +7,17 @@ import { RDPerformanceScoreDialog } from "./RDPerformanceScoreDialog";
 import {
   createRdPerformanceReport,
   fetchRdPerformanceReports,
-  PERF_SCORE_DIMENSIONS,
-  type RdPerfDimensionScores,
+  PERF_BEHAVIOR_KPIS,
   type RdPerformanceReport,
 } from "./lib/rdApi";
 
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
-
-/** 事项指标（80 分）——固定考核项与分值权重；「具体业务事项 / 评价标准」栏留空手填。 */
+/** 事项指标（80 分）——AI 未生成时回退用的固定考核项与分值权重；两文本列留空手填。 */
 const ITEM_KPIS: ReadonlyArray<{ name: string; weight: string }> = [
   { name: "研发项目", weight: "30" },
   { name: "分析不良品", weight: "20" },
   { name: "工艺稽查", weight: "10" },
   { name: "工艺优化持续改进", weight: "10" },
   { name: "完成领导布置的任务", weight: "10" },
-];
-
-/** 行为指标（20 分）——固定写死的六项（具体业务事项 + 评价标准均照公司表单原文，不走 AI）。 */
-const BEHAVIOR_KPIS: ReadonlyArray<{ name: string; weight: string; item: string; standard: string }> = [
-  { name: "担当", weight: "2", item: "对自己行为的担当意识", standard: "主动承担工作任务，并按时完成。" },
-  { name: "专注", weight: "2", item: "对工作的高度集中", standard: "在工作中保持高度集中，减少干扰。" },
-  { name: "坚持", weight: "2", item: "对问题的不断探索", standard: "遇到困难问题时持续跟进，直至解决。" },
-  { name: "极致", weight: "2", item: "对工作的极致效率", standard: "追求工作质量和效率的持续优化。" },
-  { name: "务实", weight: "2", item: "对事情的务实态度", standard: "以实际效果和可执行结果为导向完成工作。" },
-  { name: "创新", weight: "10", item: "使用AI智能办公工具", standard: "AI智能办公软件使用频率：每周≤5次，1分每周6—10次，5分\n几乎每天都使用，10分" },
 ];
 
 /** 绩效等级与奖金发放规则（照搬公司表单原文）。 */
@@ -50,112 +35,164 @@ function formatAssessMonth(report: RdPerformanceReport): string {
 }
 
 /**
- * 生成 Word 可打开的正式绩效文件（零依赖）：用 Office HTML 命名空间拼 HTML，
- * 以 application/msword 的 Blob 下载为 .doc，Word/WPS 可直接打开、打印、签字归档。
- * 版式与内容 1:1 复刻公司现用的《月度绩效考核表》：被考核人 / 考核月份自动填，
- * 其余打分（个人自评 / 直接领导 / CEO）、得分、绩效金额、岗位等留空供打印后手填。
+ * 生成正式绩效文件为 .xlsx（用 exceljs 动态构建，含合并单元格/边框/列宽）。
+ * 版式与内容 1:1 复刻公司现用的《月度绩效考核表》：被考核人 / 考核月份自动填；
+ * 个人自评、直接领导评分按考核项名逐项回显并求和小计；CEO 最终评分、绩效金额、岗位留空供手填。
  */
-function buildPerformanceDocHtml(report: RdPerformanceReport): string {
-  const name = escapeHtml(report.user_name);
-  const monthLabel = escapeHtml(formatAssessMonth(report));
+export async function downloadPerformanceXlsx(report: RdPerformanceReport): Promise<void> {
+  const mod = await import("exceljs");
+  const ExcelJSLib = ((mod as { default?: typeof import("exceljs") }).default ?? mod) as typeof import("exceljs");
+  const wb = new ExcelJSLib.Workbook();
+  const ws = wb.addWorksheet("月度绩效考核表", { views: [{ showGridLines: false }] });
+  ws.columns = [16, 10, 40, 8, 50, 10, 14, 14].map((w) => ({ width: w }));
 
-  // 事项指标行：优先用 AI 生成的逐项内容（具体业务事项 / 评价标准），旧报表无则回退到固定项留空。
-  const aiItems = report.summary.item_kpis;
+  const s = report.summary;
+  const name = report.user_name;
+  const monthLabel = formatAssessMonth(report);
+  const selfScores = s.self_assessment?.scores ?? {};
+  const supScores = s.supervisor_assessment?.scores ?? {};
+  const hasSelf = !!s.self_assessment;
+  const hasSup = !!s.supervisor_assessment;
   const itemSource =
-    aiItems && aiItems.length > 0
-      ? aiItems.map((k) => ({ name: k.name, weight: k.weight, business: k.business ?? "", standard: k.standard ?? "" }))
+    s.item_kpis && s.item_kpis.length > 0
+      ? s.item_kpis.map((k) => ({ name: k.name, weight: k.weight, business: k.business ?? "", standard: k.standard ?? "" }))
       : ITEM_KPIS.map((k) => ({ name: k.name, weight: k.weight, business: "", standard: "" }));
-  const itemRows = itemSource
-    .map(
-      (k) =>
-        `<tr><td class="l">${escapeHtml(k.name)}</td><td class="c">${escapeHtml(k.weight)}</td>` +
-        `<td class="l">${escapeHtml(k.business).replace(/\n/g, "<br/>")}</td><td class="c">月</td>` +
-        `<td class="l">${escapeHtml(k.standard).replace(/\n/g, "<br/>")}</td>` +
-        `<td class="score"></td><td class="score"></td><td class="score"></td></tr>`,
-    )
-    .join("");
+  const behaviorSource = PERF_BEHAVIOR_KPIS.map((k) => ({ name: k.name, weight: k.weight, item: k.item, standard: k.standard }));
 
-  // 行为指标行：固定写死（具体业务事项 + 评价标准照公司表单原文），不读 AI 内容。
-  const behaviorSource = BEHAVIOR_KPIS.map((k) => ({ name: k.name, weight: k.weight, item: k.item, standard: k.standard }));
-  const behaviorRows = behaviorSource
-    .map(
-      (k) =>
-        `<tr><td class="l">${escapeHtml(k.name)}</td><td class="c">${escapeHtml(k.weight)}</td>` +
-        `<td class="l">${escapeHtml(k.item).replace(/\n/g, "<br/>")}</td><td class="c">月</td>` +
-        `<td class="l">${escapeHtml(k.standard).replace(/\n/g, "<br/>")}</td>` +
-        `<td class="score"></td><td class="score"></td><td class="score"></td></tr>`,
-    )
-    .join("");
+  const thin = { style: "thin" as const, color: { argb: "FF999999" } };
+  const allBorder = { top: thin, left: thin, bottom: thin, right: thin };
+  const headerFill = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFF2F2F2" } };
+  const secFill = { type: "pattern" as const, pattern: "solid" as const, fgColor: { argb: "FFE8E8E8" } };
+  const numOr = (v: string): number | string => {
+    const n = Number(v);
+    return Number.isFinite(n) && v.trim() !== "" ? n : v;
+  };
+  const scoreOf = (map: Record<string, number>, n: string, has: boolean): number | string =>
+    has && typeof map[n] === "number" ? map[n] : "";
+  const sumOf = (src: ReadonlyArray<{ name: string }>, map: Record<string, number>) =>
+    src.reduce((a, k) => a + (Number(map[k.name]) || 0), 0);
 
-  const rulesHtml = escapeHtml(GRADE_RULES).replace(/\n/g, "<br/>");
+  let r = 1;
+  const border8 = (rowNum: number) => {
+    for (let c = 1; c <= 8; c++) ws.getCell(rowNum, c).border = allBorder;
+  };
+  type CellOpt = { align?: "left" | "center"; valign?: "top" | "middle"; wrap?: boolean; bold?: boolean; fill?: typeof headerFill };
+  const put = (col: number, value: string | number, opt?: CellOpt) => {
+    const cell = ws.getCell(r, col);
+    cell.value = value;
+    cell.alignment = { horizontal: opt?.align ?? "left", vertical: opt?.valign ?? "middle", wrapText: opt?.wrap ?? false };
+    if (opt?.bold) cell.font = { ...(cell.font ?? {}), bold: true };
+    if (opt?.fill) cell.fill = opt.fill;
+  };
+  const estHeight = (a: string, b: string) => {
+    const lineCount = (t: string) => t.split("\n").reduce((acc, ln) => acc + 1 + Math.floor(ln.length / 22), 0);
+    return Math.max(22, Math.max(lineCount(a), lineCount(b)) * 15);
+  };
 
-  return `<!DOCTYPE html>
-<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
-<head>
-<meta charset="utf-8" />
-<title>${name}-${monthLabel}绩效考核</title>
-<style>
-  @page { size: A4 landscape; margin: 1.2cm; }
-  body { font-family: "宋体", SimSun, serif; font-size: 12px; color: #000; }
-  table { border-collapse: collapse; width: 100%; table-layout: fixed; }
-  td, th { border: 1px solid #000; padding: 3px 5px; vertical-align: middle; word-break: break-all; line-height: 1.5; }
-  col.a { width: 10%; } col.b { width: 6%; } col.c { width: 17%; } col.d { width: 6%; }
-  col.e { width: 25%; } col.f { width: 9%; } col.g { width: 13%; } col.h { width: 14%; }
-  .title { text-align: center; font-size: 18px; font-weight: bold; padding: 6px; }
-  .info { text-align: left; padding: 6px 8px; }
-  .hd { background: #f2f2f2; font-weight: bold; text-align: center; }
-  .sec { background: #e8e8e8; font-weight: bold; text-align: left; }
-  .c { text-align: center; }
-  .l { text-align: left; }
-  .score { height: 22px; }
-  .rules { text-align: left; font-size: 11px; line-height: 1.7; padding: 6px 8px; }
-  .sign { height: 42px; vertical-align: top; }
-</style>
-</head>
-<body>
-  <table>
-    <colgroup>
-      <col class="a" /><col class="b" /><col class="c" /><col class="d" />
-      <col class="e" /><col class="f" /><col class="g" /><col class="h" />
-    </colgroup>
-    <tr><td colspan="8" class="title">壹诺吉研发部</td></tr>
-    <tr><td colspan="8" class="info">被考核人：${name}　　　被考核人岗位：<u>　　　　　　</u>　　　考核月份：${monthLabel}</td></tr>
-    <tr class="hd">
-      <th class="hd">考核项目</th><th class="hd">分值权重</th><th class="hd">具体业务事项</th><th class="hd">考核周期</th>
-      <th class="hd">评价标准</th><th class="hd">个人自评</th><th class="hd">直接领导评分</th><th class="hd">CEO最终评分</th>
-    </tr>
-    <tr><td colspan="8" class="sec">一、事项指标（80分）</td></tr>
-    ${itemRows}
-    <tr><td colspan="5" class="l">事项指标得分</td><td class="score"></td><td class="score"></td><td class="score"></td></tr>
-    <tr><td colspan="8" class="sec">二、行为指标（20分）</td></tr>
-    ${behaviorRows}
-    <tr><td colspan="5" class="l">行为指标得分</td><td class="score"></td><td class="score"></td><td class="score"></td></tr>
-    <tr><td colspan="5" class="l">总计</td><td class="score"></td><td class="score"></td><td class="score"></td></tr>
-    <tr><td colspan="3" class="l">总得分=（个人自评总分+ceo总评分）/2</td><td class="score"></td><td class="l">绩效等级</td><td colspan="3" class="score"></td></tr>
-    <tr><td colspan="3" class="l">绩效总金额</td><td class="score"></td><td class="l">绩效发放金额</td><td colspan="3" class="score"></td></tr>
-    <tr><td colspan="8" class="rules">${rulesHtml}</td></tr>
-    <tr>
-      <td class="l sign">被考核人签名确认：</td><td colspan="2" class="sign"></td>
-      <td colspan="2" class="l sign">直属上级签名确认：</td><td colspan="3" class="sign"></td>
-    </tr>
-  </table>
-</body>
-</html>`;
-}
+  // 标题
+  ws.mergeCells(r, 1, r, 8);
+  put(1, "壹诺吉研发部", { align: "center", bold: true });
+  ws.getCell(r, 1).font = { bold: true, size: 14 };
+  ws.getRow(r).height = 26;
+  border8(r);
+  r++;
 
-export function downloadPerformanceDoc(report: RdPerformanceReport): void {
-  const html = buildPerformanceDocHtml(report);
-  // 前置 BOM，确保中文在 Word 中正确解码。
-  const blob = new Blob(["﻿", html], { type: "application/msword" });
+  // 信息行
+  ws.mergeCells(r, 1, r, 8);
+  put(1, `被考核人：${name}          被考核人岗位：__________          考核月份：${monthLabel}`);
+  ws.getRow(r).height = 22;
+  border8(r);
+  r++;
+
+  // 表头
+  ["考核项目", "分值权重", "具体业务事项", "考核周期", "评价标准", "个人自评", "直接领导评分", "CEO最终评分"].forEach((h, i) =>
+    put(i + 1, h, { align: "center", bold: true, wrap: true, fill: headerFill }),
+  );
+  ws.getRow(r).height = 30;
+  border8(r);
+  r++;
+
+  const section = (label: string) => {
+    ws.mergeCells(r, 1, r, 8);
+    put(1, label, { bold: true, fill: secFill });
+    border8(r);
+    r++;
+  };
+  const kpiRow = (name0: string, weight: string, business: string, standard: string) => {
+    put(1, name0, { align: "left", valign: "middle", wrap: true });
+    put(2, numOr(weight), { align: "center" });
+    put(3, business, { align: "left", valign: "top", wrap: true });
+    put(4, "月", { align: "center" });
+    put(5, standard, { align: "left", valign: "top", wrap: true });
+    put(6, scoreOf(selfScores, name0, hasSelf), { align: "center" });
+    put(7, scoreOf(supScores, name0, hasSup), { align: "center" });
+    put(8, "", { align: "center" });
+    ws.getRow(r).height = estHeight(business, standard);
+    border8(r);
+    r++;
+  };
+  const subtotal = (label: string, src: ReadonlyArray<{ name: string }>) => {
+    ws.mergeCells(r, 1, r, 5);
+    put(1, label);
+    put(6, hasSelf ? sumOf(src, selfScores) : "", { align: "center" });
+    put(7, hasSup ? sumOf(src, supScores) : "", { align: "center" });
+    put(8, "", { align: "center" });
+    ws.getRow(r).height = 20;
+    border8(r);
+    r++;
+  };
+  const dualRow = (leftLabel: string, midLabel: string) => {
+    ws.mergeCells(r, 1, r, 3);
+    put(1, leftLabel);
+    put(4, "");
+    put(5, midLabel);
+    ws.mergeCells(r, 6, r, 8);
+    put(6, "");
+    ws.getRow(r).height = 22;
+    border8(r);
+    r++;
+  };
+
+  section("一、事项指标（80分）");
+  for (const k of itemSource) kpiRow(k.name, k.weight, k.business, k.standard);
+  subtotal("事项指标得分", itemSource);
+  section("二、行为指标（20分）");
+  for (const k of behaviorSource) kpiRow(k.name, k.weight, k.item, k.standard);
+  subtotal("行为指标得分", behaviorSource);
+  subtotal("总计", [...itemSource, ...behaviorSource]);
+  dualRow("总得分=（个人自评总分+ceo总评分）/2", "绩效等级");
+  dualRow("绩效总金额", "绩效发放金额");
+
+  // 等级规则
+  ws.mergeCells(r, 1, r, 8);
+  put(1, GRADE_RULES, { align: "left", valign: "top", wrap: true });
+  ws.getRow(r).height = 76;
+  border8(r);
+  r++;
+
+  // 签字行：A | B:C | D:E | F:H
+  put(1, "被考核人签名确认：");
+  ws.mergeCells(r, 2, r, 3);
+  put(2, "");
+  ws.mergeCells(r, 4, r, 5);
+  put(4, "直属上级签名确认：");
+  ws.mergeCells(r, 6, r, 8);
+  put(6, "");
+  ws.getRow(r).height = 42;
+  border8(r);
+
+  const buf = await wb.xlsx.writeBuffer();
+  const blob = new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${report.user_name}-${report.summary.period_label}-绩效考核.doc`;
+  a.download = `${report.user_name}-${report.summary.period_label}-绩效考核.xlsx`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+
 
 const GRADE_STYLE: Record<string, string> = {
   优秀: "bg-emerald-100 text-emerald-700 ring-emerald-300",
@@ -209,36 +246,47 @@ function PerformanceBody({ report }: { report: RdPerformanceReport }) {
   );
 }
 
-/** 已填的自评 / 主管评分展示（维度表 + 说明）；都没填则不渲染。 */
+/** 已填的自评 / 主管评分展示（按考核项 + 说明）；都没填则不渲染。 */
 function PerformanceAssessmentView({ report }: { report: RdPerformanceReport }) {
   const self = report.summary.self_assessment ?? null;
   const supervisor = report.summary.supervisor_assessment ?? null;
   if (!self && !supervisor) return null;
-  const avg = (scores: RdPerfDimensionScores) =>
-    Math.round(PERF_SCORE_DIMENSIONS.reduce((a, d) => a + (scores[d.key] ?? 0), 0) / PERF_SCORE_DIMENSIONS.length);
+
+  const itemKpis = report.summary.item_kpis ?? [];
+  const rows: Array<{ name: string; weight: number }> = [
+    ...itemKpis.map((k) => ({ name: k.name, weight: Number(k.weight) || 0 })),
+    ...PERF_BEHAVIOR_KPIS.map((k) => ({ name: k.name, weight: Number(k.weight) || 0 })),
+  ];
+  const cell = (a: { scores: Record<string, number> } | null, name: string) =>
+    a && typeof a.scores?.[name] === "number" ? a.scores[name] : "—";
+  const sum = (a: { scores: Record<string, number> } | null) =>
+    a ? rows.reduce((s, r) => s + (Number(a.scores?.[r.name]) || 0), 0) : null;
+
   return (
     <div className="mt-4 rounded-xl ring-1 ring-slate-100">
-      <div className="border-b border-slate-100 px-4 py-2 text-[11px] font-semibold text-slate-500">绩效评分（维度）</div>
+      <div className="border-b border-slate-100 px-4 py-2 text-[11px] font-semibold text-slate-500">绩效评分（逐考核项）</div>
       <table className="w-full text-[12px]">
         <thead>
           <tr className="text-slate-400">
-            <th className="px-4 py-1.5 text-left font-medium">维度</th>
-            <th className="px-2 py-1.5 text-center font-medium text-violet-600">自评</th>
-            <th className="px-2 py-1.5 text-center font-medium text-amber-600">主管</th>
+            <th className="px-4 py-1.5 text-left font-medium">考核项</th>
+            <th className="px-2 py-1.5 text-center font-medium text-slate-400">权重</th>
+            <th className="px-2 py-1.5 text-center font-medium text-violet-600">个人自评</th>
+            <th className="px-2 py-1.5 text-center font-medium text-amber-600">直接领导</th>
           </tr>
         </thead>
         <tbody>
-          {PERF_SCORE_DIMENSIONS.map((d) => (
-            <tr key={d.key} className="border-t border-slate-50">
-              <td className="px-4 py-1.5 text-slate-600">{d.label}</td>
-              <td className="px-2 py-1.5 text-center font-semibold tabular-nums text-slate-700">{self ? self.scores[d.key] ?? "—" : "—"}</td>
-              <td className="px-2 py-1.5 text-center font-semibold tabular-nums text-slate-700">{supervisor ? supervisor.scores[d.key] ?? "—" : "—"}</td>
+          {rows.map((r) => (
+            <tr key={r.name} className="border-t border-slate-50">
+              <td className="px-4 py-1.5 text-slate-600">{r.name}</td>
+              <td className="px-2 py-1.5 text-center tabular-nums text-slate-400">{r.weight}</td>
+              <td className="px-2 py-1.5 text-center font-semibold tabular-nums text-slate-700">{cell(self, r.name)}</td>
+              <td className="px-2 py-1.5 text-center font-semibold tabular-nums text-slate-700">{cell(supervisor, r.name)}</td>
             </tr>
           ))}
           <tr className="border-t border-slate-100 bg-slate-50/60">
-            <td className="px-4 py-1.5 font-semibold text-slate-600">平均分</td>
-            <td className="px-2 py-1.5 text-center font-bold tabular-nums text-violet-700">{self ? avg(self.scores) : "—"}</td>
-            <td className="px-2 py-1.5 text-center font-bold tabular-nums text-amber-700">{supervisor ? avg(supervisor.scores) : "—"}</td>
+            <td className="px-4 py-1.5 font-semibold text-slate-600" colSpan={2}>总计</td>
+            <td className="px-2 py-1.5 text-center font-bold tabular-nums text-violet-700">{sum(self) ?? "—"}</td>
+            <td className="px-2 py-1.5 text-center font-bold tabular-nums text-amber-700">{sum(supervisor) ?? "—"}</td>
           </tr>
         </tbody>
       </table>
@@ -414,7 +462,11 @@ export function RDPerformanceReportDialog({
               )}
               <button
                 type="button"
-                onClick={() => downloadPerformanceDoc(report)}
+                onClick={() => {
+                  downloadPerformanceXlsx(report).catch((err) =>
+                    toast.error(err instanceof Error ? err.message : "导出失败"),
+                  );
+                }}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-sm transition hover:bg-amber-600"
               >
                 <Download className="h-3.5 w-3.5" />

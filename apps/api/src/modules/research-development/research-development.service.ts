@@ -36,19 +36,21 @@ const PERF_ITEM_KPIS: ReadonlyArray<{ name: string; weight: string }> = [
 
 // 行为指标（20分）为固定写死项，由前端 RDPerformanceReportDialog 直接渲染，后端不再参与生成。
 
-/** 把任意输入规整为 5 维整数分（0-100）；任一维度缺失/非数值即报错。 */
-function normalizePerfScores(value: unknown): PerfDimensionScores {
+/**
+ * 逐考核项评分规整：入参为 {考核项名称: 分数} 映射，输出非负整数分（0-100 作兜底上限，
+ * 逐项权重上限由前端保证）。忽略空键与非数值项。
+ */
+function normalizePerfItemScores(value: unknown): Record<string, number> {
   if (!isRecord(value)) {
     throw new BadRequestException('评分数据格式不正确');
   }
-  const out = {} as PerfDimensionScores;
-  for (const dim of PERF_SCORE_DIMENSIONS) {
-    const raw = (value as Record<string, unknown>)[dim];
+  const out: Record<string, number> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const name = key.trim();
+    if (!name) continue;
     const num = typeof raw === 'number' ? raw : Number(raw);
-    if (!Number.isFinite(num)) {
-      throw new BadRequestException(`评分项「${dim}」缺失或不是数字`);
-    }
-    out[dim] = Math.max(0, Math.min(100, Math.round(num)));
+    if (!Number.isFinite(num)) continue;
+    out[name] = Math.max(0, Math.min(100, Math.round(num)));
   }
   return out;
 }
@@ -3903,8 +3905,9 @@ export class ResearchDevelopmentService {
     const next = [report, ...deduped].slice(0, 1000);
     await this.writeValue('rd.performanceReports', next);
 
-    // 仅在「该成员有账号 ID 且尚未填写自评」时发自评通知，避免重新生成反复打扰。
-    if (userId && !carriedSelf) {
+    // 每次生成/重新生成都给该成员（有账号 ID）重发自评通知：报表内容可能已变，需重新确认/自评。
+    // notifyPerformanceSelfAssessment 会先把同月旧的自评待办标为已处理再发新的，故不会堆叠重复。
+    if (userId) {
       await this.notifyPerformanceSelfAssessment(report).catch((err) => {
         // eslint-disable-next-line no-console
         console.error('[createPerformanceReport] notify self-assessment failed', err);
@@ -3959,13 +3962,13 @@ export class ResearchDevelopmentService {
     });
   }
 
-  /** 成员提交本人绩效自评（5 维 + 说明）。仅本人可提交。 */
+  /** 成员提交本人绩效自评（逐考核项打分 + 说明）。仅本人可提交。 */
   async submitPerformanceSelfAssessment(
     reportId: string,
     payload: { scores?: unknown; comment?: string },
     actor: { userId?: string; userName?: string },
   ) {
-    const scores = normalizePerfScores(payload.scores);
+    const scores = normalizePerfItemScores(payload.scores);
     const comment = (payload.comment ?? '').trim().slice(0, 2000);
 
     const all = (await this.readArray('rd.performanceReports')).filter(isRecord);
@@ -3994,12 +3997,12 @@ export class ResearchDevelopmentService {
     return updated;
   }
 
-  /** 主管提交对某成员绩效的 5 维评分（与生成绩效同权限，由 controller 校验）。 */
+  /** 主管提交对某成员绩效的逐考核项评分（与生成绩效同权限，由 controller 校验）。 */
   async submitPerformanceSupervisorAssessment(
     reportId: string,
     payload: { scores?: unknown; comment?: string; reviewerId?: string | null; reviewerName?: string | null },
   ) {
-    const scores = normalizePerfScores(payload.scores);
+    const scores = normalizePerfItemScores(payload.scores);
     const comment = (payload.comment ?? '').trim().slice(0, 2000);
 
     const all = (await this.readArray('rd.performanceReports')).filter(isRecord);
