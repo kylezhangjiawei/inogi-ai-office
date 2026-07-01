@@ -22,6 +22,20 @@ const PERF_SCORE_DIMENSIONS = ['delivery', 'quality', 'collaboration', 'initiati
 type PerfScoreDimension = (typeof PERF_SCORE_DIMENSIONS)[number];
 type PerfDimensionScores = Record<PerfScoreDimension, number>;
 
+/**
+ * 绩效考核表「一、事项指标（80分）」的固定考核项与分值权重（与前端下载模板一致）。
+ * 「具体业务事项 / 评价标准」由 AI 结合本月任务逐项生成，存入 summary.item_kpis。
+ */
+const PERF_ITEM_KPIS: ReadonlyArray<{ name: string; weight: string }> = [
+  { name: '研发项目', weight: '30' },
+  { name: '分析不良品', weight: '20' },
+  { name: '工艺稽查', weight: '10' },
+  { name: '工艺优化持续改进', weight: '10' },
+  { name: '完成领导布置的任务', weight: '10' },
+];
+
+// 行为指标（20分）为固定写死项，由前端 RDPerformanceReportDialog 直接渲染，后端不再参与生成。
+
 /** 把任意输入规整为 5 维整数分（0-100）；任一维度缺失/非数值即报错。 */
 function normalizePerfScores(value: unknown): PerfDimensionScores {
   if (!isRecord(value)) {
@@ -4047,29 +4061,44 @@ export class ResearchDevelopmentService {
     const { label } = monthRange(month);
     const { score, grade } = this.computePerformanceScore(metrics);
 
-    const aiResult = await this.rdAiService.assessPerformance({
-      userName,
-      monthLabel: label,
-      score,
-      grade,
-      metrics,
-      tasks: items.map((it) => ({
-        title: it.title,
-        role: it.role === 'owner' ? '主责' : '协作',
-        statusLabel: it.status_label,
-        group: it.group,
-        progress: it.progress,
-        dueDate: it.due_date,
-        monthNotesCount: it.month_notes_count,
-        monthExcerpt: it.month_excerpt,
-        blockedReason: it.blocked_reason,
-        overdue: it.overdue,
-      })),
-    });
+    const aiTasks = items.map((it) => ({
+      title: it.title,
+      role: (it.role === 'owner' ? '主责' : '协作') as '主责' | '协作',
+      statusLabel: it.status_label,
+      group: it.group,
+      progress: it.progress,
+      dueDate: it.due_date,
+      monthNotesCount: it.month_notes_count,
+      monthExcerpt: it.month_excerpt,
+      blockedReason: it.blocked_reason,
+      overdue: it.overdue,
+    }));
+
+    const kpiTasks = aiTasks.map((t) => ({
+      title: t.title,
+      role: t.role,
+      statusLabel: t.statusLabel,
+      group: t.group,
+      progress: t.progress,
+      monthExcerpt: t.monthExcerpt,
+      blockedReason: t.blockedReason,
+    }));
+
+    // 绩效正文 + 事项指标(AI 动态归纳考核项目)并行生成；行为指标为固定写死项，由前端渲染、不走 AI。
+    const [aiResult, itemKpisAi] = await Promise.all([
+      this.rdAiService.assessPerformance({ userName, monthLabel: label, score, grade, metrics, tasks: aiTasks }),
+      this.rdAiService.generatePerformanceItemKpis({ userName, monthLabel: label, tasks: kpiTasks }),
+    ]);
 
     const text = aiResult
       ? aiResult.text
       : this.buildLocalPerformanceText(userName, label, score, grade, metrics, items);
+
+    // 事项指标：AI 成功则用其【动态归纳的考核项目 + 权重 + 内容】，否则回退到固定 5 项(两列留空)。
+    const item_kpis =
+      itemKpisAi && itemKpisAi.length > 0
+        ? itemKpisAi
+        : PERF_ITEM_KPIS.map((k) => ({ name: k.name, weight: k.weight, business: '', standard: '' }));
 
     return {
       period: month,
@@ -4078,6 +4107,7 @@ export class ResearchDevelopmentService {
       grade,
       metrics,
       text,
+      item_kpis,
       generated_by: aiResult ? ('ai' as const) : ('local' as const),
     };
   }

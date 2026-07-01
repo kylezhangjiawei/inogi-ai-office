@@ -1309,6 +1309,10 @@ export type RdPerformanceReport = {
     grade: string;
     metrics: RdPerformanceMetrics;
     text: string;
+    /** 事项指标逐项内容（AI 结合本月任务生成）；旧报表可能缺失。 */
+    item_kpis?: Array<{ name: string; weight: string; business: string; standard: string }>;
+    /** 行为指标逐项内容（AI 结合本月任务生成，缺失时前端回退固定文案）。 */
+    behavior_kpis?: Array<{ name: string; weight: string; business: string; standard: string }>;
     generated_by: "ai" | "local";
     self_assessment?: RdPerfSelfAssessment | null;
     supervisor_assessment?: RdPerfSupervisorAssessment | null;

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Award, Download, Loader2, RefreshCw, Sparkles, UserCheck, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
@@ -15,91 +16,128 @@ function escapeHtml(text: string): string {
   return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+/** 事项指标（80 分）——固定考核项与分值权重；「具体业务事项 / 评价标准」栏留空手填。 */
+const ITEM_KPIS: ReadonlyArray<{ name: string; weight: string }> = [
+  { name: "研发项目", weight: "30" },
+  { name: "分析不良品", weight: "20" },
+  { name: "工艺稽查", weight: "10" },
+  { name: "工艺优化持续改进", weight: "10" },
+  { name: "完成领导布置的任务", weight: "10" },
+];
+
+/** 行为指标（20 分）——固定写死的六项（具体业务事项 + 评价标准均照公司表单原文，不走 AI）。 */
+const BEHAVIOR_KPIS: ReadonlyArray<{ name: string; weight: string; item: string; standard: string }> = [
+  { name: "担当", weight: "2", item: "对自己行为的担当意识", standard: "主动承担工作任务，并按时完成。" },
+  { name: "专注", weight: "2", item: "对工作的高度集中", standard: "在工作中保持高度集中，减少干扰。" },
+  { name: "坚持", weight: "2", item: "对问题的不断探索", standard: "遇到困难问题时持续跟进，直至解决。" },
+  { name: "极致", weight: "2", item: "对工作的极致效率", standard: "追求工作质量和效率的持续优化。" },
+  { name: "务实", weight: "2", item: "对事情的务实态度", standard: "以实际效果和可执行结果为导向完成工作。" },
+  { name: "创新", weight: "10", item: "使用AI智能办公工具", standard: "AI智能办公软件使用频率：每周≤5次，1分每周6—10次，5分\n几乎每天都使用，10分" },
+];
+
+/** 绩效等级与奖金发放规则（照搬公司表单原文）。 */
+const GRADE_RULES =
+  "一、110—100分，等级A+；99—90分，等级A；89—80分，等级B；79—70分，等级C；69—0，等级D。\n" +
+  "二、等级A+、B、C的计算公式：绩效奖金发放金额=总得分/90*绩效奖金总额。\n" +
+  "三、等级A全额发放绩效奖金，等级D不发放绩效奖金。\n" +
+  "四、全年绩效均分A+的当选年度优秀员工且晋升1级。";
+
+/** 把 YYYY-MM 转成表单里的「YY年M月」写法（如 2026-05 → 26年5月）；解析失败时回退到周期标签。 */
+function formatAssessMonth(report: RdPerformanceReport): string {
+  const m = /^(\d{4})-(\d{2})$/.exec(report.month ?? "");
+  if (m) return `${m[1].slice(2)}年${parseInt(m[2], 10)}月`;
+  return report.summary.period_label || report.month || "";
+}
+
 /**
  * 生成 Word 可打开的正式绩效文件（零依赖）：用 Office HTML 命名空间拼 HTML，
- * 以 application/msword 的 Blob 下载为 .doc，Word/WPS 可直接打开并归档。
+ * 以 application/msword 的 Blob 下载为 .doc，Word/WPS 可直接打开、打印、签字归档。
+ * 版式与内容 1:1 复刻公司现用的《月度绩效考核表》：被考核人 / 考核月份自动填，
+ * 其余打分（个人自评 / 直接领导 / CEO）、得分、绩效金额、岗位等留空供打印后手填。
  */
-function avgScore(scores: RdPerfDimensionScores): number {
-  const sum = PERF_SCORE_DIMENSIONS.reduce((acc, d) => acc + (scores[d.key] ?? 0), 0);
-  return Math.round(sum / PERF_SCORE_DIMENSIONS.length);
-}
-
-/** 维度评分表（维度 | 自评 | 主管评）+ 自评说明 / 主管评语；无任何评分时返回空串。 */
-function buildAssessmentDocHtml(report: RdPerformanceReport): string {
-  const self = report.summary.self_assessment ?? null;
-  const supervisor = report.summary.supervisor_assessment ?? null;
-  if (!self && !supervisor) return "";
-
-  const rows = PERF_SCORE_DIMENSIONS.map(
-    (d) =>
-      `<tr><th>${escapeHtml(d.label)}</th>` +
-      `<td style="text-align:center">${self ? self.scores[d.key] ?? "—" : "—"}</td>` +
-      `<td style="text-align:center">${supervisor ? supervisor.scores[d.key] ?? "—" : "—"}</td></tr>`,
-  ).join("");
-  const avgRow =
-    `<tr><th>平均分</th>` +
-    `<td style="text-align:center"><b>${self ? avgScore(self.scores) : "—"}</b></td>` +
-    `<td style="text-align:center"><b>${supervisor ? avgScore(supervisor.scores) : "—"}</b></td></tr>`;
-
-  const commentBlocks: string[] = [];
-  if (self?.comment?.trim()) {
-    commentBlocks.push(`<div class="cmt"><b>自评说明：</b>${escapeHtml(self.comment).replace(/\n/g, "<br/>")}</div>`);
-  }
-  if (supervisor?.comment?.trim()) {
-    commentBlocks.push(
-      `<div class="cmt"><b>主管评语：</b>${escapeHtml(supervisor.comment).replace(/\n/g, "<br/>")}</div>`,
-    );
-  }
-
-  return `
-  <h2 class="sec">绩效评分（维度）</h2>
-  <table>
-    <tr><th style="text-align:center">考核维度</th><th style="text-align:center">自评分</th><th style="text-align:center">主管评分</th></tr>
-    ${rows}
-    ${avgRow}
-  </table>
-  ${commentBlocks.join("")}`;
-}
-
 function buildPerformanceDocHtml(report: RdPerformanceReport): string {
-  const s = report.summary;
-  const m = s.metrics;
-  const bodyHtml = escapeHtml(s.text).replace(/\n/g, "<br/>");
-  const assessmentHtml = buildAssessmentDocHtml(report);
-  const createdAt = new Date(report.created_at).toLocaleString("zh-CN");
+  const name = escapeHtml(report.user_name);
+  const monthLabel = escapeHtml(formatAssessMonth(report));
+
+  // 事项指标行：优先用 AI 生成的逐项内容（具体业务事项 / 评价标准），旧报表无则回退到固定项留空。
+  const aiItems = report.summary.item_kpis;
+  const itemSource =
+    aiItems && aiItems.length > 0
+      ? aiItems.map((k) => ({ name: k.name, weight: k.weight, business: k.business ?? "", standard: k.standard ?? "" }))
+      : ITEM_KPIS.map((k) => ({ name: k.name, weight: k.weight, business: "", standard: "" }));
+  const itemRows = itemSource
+    .map(
+      (k) =>
+        `<tr><td class="l">${escapeHtml(k.name)}</td><td class="c">${escapeHtml(k.weight)}</td>` +
+        `<td class="l">${escapeHtml(k.business).replace(/\n/g, "<br/>")}</td><td class="c">月</td>` +
+        `<td class="l">${escapeHtml(k.standard).replace(/\n/g, "<br/>")}</td>` +
+        `<td class="score"></td><td class="score"></td><td class="score"></td></tr>`,
+    )
+    .join("");
+
+  // 行为指标行：固定写死（具体业务事项 + 评价标准照公司表单原文），不读 AI 内容。
+  const behaviorSource = BEHAVIOR_KPIS.map((k) => ({ name: k.name, weight: k.weight, item: k.item, standard: k.standard }));
+  const behaviorRows = behaviorSource
+    .map(
+      (k) =>
+        `<tr><td class="l">${escapeHtml(k.name)}</td><td class="c">${escapeHtml(k.weight)}</td>` +
+        `<td class="l">${escapeHtml(k.item).replace(/\n/g, "<br/>")}</td><td class="c">月</td>` +
+        `<td class="l">${escapeHtml(k.standard).replace(/\n/g, "<br/>")}</td>` +
+        `<td class="score"></td><td class="score"></td><td class="score"></td></tr>`,
+    )
+    .join("");
+
+  const rulesHtml = escapeHtml(GRADE_RULES).replace(/\n/g, "<br/>");
+
   return `<!DOCTYPE html>
 <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
 <head>
 <meta charset="utf-8" />
-<title>${escapeHtml(report.user_name)}-${escapeHtml(s.period_label)}绩效考核</title>
+<title>${name}-${monthLabel}绩效考核</title>
 <style>
-  body { font-family: "宋体", SimSun, serif; font-size: 14px; color: #1f2937; line-height: 1.9; margin: 32px; }
-  h1 { text-align: center; font-size: 22px; margin: 0 0 6px; }
-  .sub { text-align: center; color: #6b7280; font-size: 12px; margin-bottom: 18px; }
-  table { border-collapse: collapse; width: 100%; margin: 10px 0; }
-  td, th { border: 1px solid #9ca3af; padding: 6px 10px; font-size: 13px; vertical-align: middle; }
-  th { background: #f3f4f6; text-align: left; width: 110px; white-space: nowrap; }
-  .score { font-size: 18px; font-weight: bold; color: #b45309; }
-  .body { margin-top: 14px; }
-  .sec { font-size: 15px; margin: 22px 0 6px; }
-  .cmt { font-size: 13px; line-height: 1.9; margin: 8px 0; }
-  .sign { margin-top: 36px; }
+  @page { size: A4 landscape; margin: 1.2cm; }
+  body { font-family: "宋体", SimSun, serif; font-size: 12px; color: #000; }
+  table { border-collapse: collapse; width: 100%; table-layout: fixed; }
+  td, th { border: 1px solid #000; padding: 3px 5px; vertical-align: middle; word-break: break-all; line-height: 1.5; }
+  col.a { width: 10%; } col.b { width: 6%; } col.c { width: 17%; } col.d { width: 6%; }
+  col.e { width: 25%; } col.f { width: 9%; } col.g { width: 13%; } col.h { width: 14%; }
+  .title { text-align: center; font-size: 18px; font-weight: bold; padding: 6px; }
+  .info { text-align: left; padding: 6px 8px; }
+  .hd { background: #f2f2f2; font-weight: bold; text-align: center; }
+  .sec { background: #e8e8e8; font-weight: bold; text-align: left; }
+  .c { text-align: center; }
+  .l { text-align: left; }
+  .score { height: 22px; }
+  .rules { text-align: left; font-size: 11px; line-height: 1.7; padding: 6px 8px; }
+  .sign { height: 42px; vertical-align: top; }
 </style>
 </head>
 <body>
-  <h1>月度绩效考核表</h1>
-  <div class="sub">考核周期：${escapeHtml(s.period_label)}　·　生成时间：${escapeHtml(createdAt)}</div>
   <table>
-    <tr><th>被考核人</th><td>${escapeHtml(report.user_name)}</td><th>综合评级</th><td>${escapeHtml(s.grade)}</td></tr>
-    <tr><th>任务总数</th><td>${m.total_tasks}（主责 ${m.owner_tasks} · 协作 ${m.collab_tasks}）</td><th>综合评分</th><td class="score">${s.score} 分</td></tr>
-    <tr><th>完成 / 进行</th><td>完成 ${m.completed} · 进行中 ${m.in_progress}</td><th>阻塞 / 停滞</th><td>阻塞 ${m.blocked} · 停滞 ${m.stalled}</td></tr>
-    <tr><th>任务完成率</th><td>${m.completion_rate}%（逾期 ${m.overdue_tasks}）</td><th>过程记录</th><td>进度记录 ${m.notes_count} 条 · 材料 ${m.attachments_count} 个</td></tr>
-  </table>
-  <div class="body">${bodyHtml}</div>
-  ${assessmentHtml}
-  <table class="sign">
-    <tr><th>被考核人签字</th><td>&nbsp;</td><th>考核人签字</th><td>&nbsp;</td></tr>
-    <tr><th>日期</th><td>&nbsp;</td><th>日期</th><td>&nbsp;</td></tr>
+    <colgroup>
+      <col class="a" /><col class="b" /><col class="c" /><col class="d" />
+      <col class="e" /><col class="f" /><col class="g" /><col class="h" />
+    </colgroup>
+    <tr><td colspan="8" class="title">壹诺吉研发部</td></tr>
+    <tr><td colspan="8" class="info">被考核人：${name}　　　被考核人岗位：<u>　　　　　　</u>　　　考核月份：${monthLabel}</td></tr>
+    <tr class="hd">
+      <th class="hd">考核项目</th><th class="hd">分值权重</th><th class="hd">具体业务事项</th><th class="hd">考核周期</th>
+      <th class="hd">评价标准</th><th class="hd">个人自评</th><th class="hd">直接领导评分</th><th class="hd">CEO最终评分</th>
+    </tr>
+    <tr><td colspan="8" class="sec">一、事项指标（80分）</td></tr>
+    ${itemRows}
+    <tr><td colspan="5" class="l">事项指标得分</td><td class="score"></td><td class="score"></td><td class="score"></td></tr>
+    <tr><td colspan="8" class="sec">二、行为指标（20分）</td></tr>
+    ${behaviorRows}
+    <tr><td colspan="5" class="l">行为指标得分</td><td class="score"></td><td class="score"></td><td class="score"></td></tr>
+    <tr><td colspan="5" class="l">总计</td><td class="score"></td><td class="score"></td><td class="score"></td></tr>
+    <tr><td colspan="3" class="l">总得分=（个人自评总分+ceo总评分）/2</td><td class="score"></td><td class="l">绩效等级</td><td colspan="3" class="score"></td></tr>
+    <tr><td colspan="3" class="l">绩效总金额</td><td class="score"></td><td class="l">绩效发放金额</td><td colspan="3" class="score"></td></tr>
+    <tr><td colspan="8" class="rules">${rulesHtml}</td></tr>
+    <tr>
+      <td class="l sign">被考核人签名确认：</td><td colspan="2" class="sign"></td>
+      <td colspan="2" class="l sign">直属上级签名确认：</td><td colspan="3" class="sign"></td>
+    </tr>
   </table>
 </body>
 </html>`;
@@ -284,7 +322,8 @@ export function RDPerformanceReportDialog({
 
   if (!open) return null;
 
-  return (
+  // 挂载到 document.body，避免祖先元素的 transform/filter 把 fixed 定位困在面板内导致弹窗错位。
+  return createPortal(
     <>
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/50 p-4"
@@ -394,6 +433,7 @@ export function RDPerformanceReportDialog({
         mode="supervisor"
         onSubmitted={(updated) => setReport(updated)}
       />
-    </>
+    </>,
+    document.body,
   );
 }
