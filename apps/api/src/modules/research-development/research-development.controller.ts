@@ -102,8 +102,8 @@ export class ResearchDevelopmentController {
 
   @Delete('task-categories/tasks/:taskId')
   @Permissions('rd-task:edit')
-  deleteTask(@Param('taskId') taskId: string) {
-    return this.rdService.deleteTask(taskId);
+  deleteTask(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
+    return this.rdService.deleteTask(taskId, { userId: req.user?.id, userName: req.user?.name });
   }
 
   @Post('task-categories/tasks/move')

@@ -100,6 +100,17 @@ export type RdTask = {
   /** 待审核的放弃申请：原因 + 提交时间。审核通过后任务被移除（等同删除）。 */
   pending_abandon_reason?: string | null;
   pending_abandon_requested_at?: string | null;
+  /** 待审核的合并申请：目标任务 / 原因 / 发起人（审核通过后本任务并入目标并归档）。 */
+  pending_merge_target?: string | null;
+  pending_merge_reason?: string | null;
+  pending_merge_requested_at?: string | null;
+  pending_merge_requested_by?: string | null;
+  pending_merge_requested_by_id?: string | null;
+  /** 合并结果：本任务已并入的目标任务 id（源任务归档后带此指针）。 */
+  merged_into?: string | null;
+  merged_at?: string | null;
+  /** 目标任务累积并入的源任务 id 列表。 */
+  merged_from?: string[];
   status: RdTaskStatus;
   progress: number;
   ai_priority: RdPriority;

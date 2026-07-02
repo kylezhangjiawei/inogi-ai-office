@@ -4,7 +4,7 @@
 // 不再各写各的，避免不同类型的文案/流程互相污染。后端有一份等价定义。
 import type { PersistedAuditAction } from "./auditLog";
 
-export type ReviewType = "proposal" | "result" | "collaboration" | "due_date" | "abandon";
+export type ReviewType = "proposal" | "result" | "collaboration" | "due_date" | "abandon" | "merge";
 
 export type ReviewTypeMeta = {
   key: ReviewType;
@@ -52,6 +52,13 @@ export const REVIEW_TYPE_META: Record<ReviewType, ReviewTypeMeta> = {
     badgeClass: "bg-rose-50 text-rose-700 border-rose-200",
     approveAction: "abandon.approved",
     rejectAction: "abandon.rejected",
+  },
+  merge: {
+    key: "merge",
+    label: "任务合并",
+    badgeClass: "bg-cyan-50 text-cyan-700 border-cyan-200",
+    approveAction: "merge.approved",
+    rejectAction: "merge.rejected",
   },
 };
 

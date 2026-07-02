@@ -53,6 +53,7 @@ import {
   fetchRdPeople,
   fetchRdProducts,
   fetchRdTaskCategories,
+  fetchMergedTaskCategories,
   fetchRdPerformanceReports,
   fetchRdTaskProgressNotes,
   fetchRdWorkspace,
@@ -658,6 +659,13 @@ function TaskOperationDrawer({
   const [abandonOpen, setAbandonOpen] = useState(false);
   const [abandonReason, setAbandonReason] = useState("");
   const [abandonSubmitting, setAbandonSubmitting] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeReason, setMergeReason] = useState("");
+  const [mergeTargetId, setMergeTargetId] = useState("");
+  const [mergeSearch, setMergeSearch] = useState("");
+  const [mergeSubmitting, setMergeSubmitting] = useState(false);
+  const [mergeLoading, setMergeLoading] = useState(false);
+  const [mergeCandidates, setMergeCandidates] = useState<Array<{ task_id: string; title: string; primary_owner: string }>>([]);
   const taskLogs = useAuditLogs({ resourceType: "task", resourceId: task.task_id });
   const [progressNotes, setProgressNotes] = useState<RdTaskProgressNote[]>([]);
   const [progressNotesReloadKey, setProgressNotesReloadKey] = useState(0);
@@ -1124,6 +1132,83 @@ function TaskOperationDrawer({
     }
   };
 
+  // 申请合并：与放弃同门控（主责人 + 活跃状态）。一律走审批；通过后本任务并入目标并归档保留。
+  const canMerge =
+    task.role === "primary" &&
+    ["in_progress", "paused_leave", "paused_blocked", "on_hold"].includes(task.status);
+
+  // 打开合并弹窗时拉取候选目标任务（全部产品库展平，排除本任务/已归档/已完成）。同库校验由后端在审核通过时执行。
+  useEffect(() => {
+    if (!mergeOpen) return;
+    let alive = true;
+    setMergeLoading(true);
+    fetchMergedTaskCategories()
+      .then((cats) => {
+        const out: Array<{ task_id: string; title: string; primary_owner: string }> = [];
+        const walk = (tasks: unknown): void => {
+          for (const t of Array.isArray(tasks) ? tasks : []) {
+            const rec = t as { task_id?: string; title?: string; primary_owner?: string; archived?: boolean; status?: string; subtasks?: unknown };
+            if (rec?.task_id && rec.task_id !== task.task_id && !rec.archived && rec.status !== "completed") {
+              out.push({ task_id: rec.task_id, title: rec.title ?? "(无标题)", primary_owner: rec.primary_owner ?? "" });
+            }
+            if (Array.isArray(rec?.subtasks)) walk(rec.subtasks);
+          }
+        };
+        for (const c of Array.isArray(cats) ? cats : []) {
+          for (const ch of Array.isArray((c as { children?: unknown }).children) ? (c as { children: unknown[] }).children : []) {
+            walk((ch as { tasks?: unknown }).tasks);
+          }
+        }
+        if (alive) setMergeCandidates(out);
+      })
+      .catch(() => {
+        if (alive) setMergeCandidates([]);
+      })
+      .finally(() => {
+        if (alive) setMergeLoading(false);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [mergeOpen, task.task_id]);
+
+  const submitMergeRequest = async () => {
+    if (!mergeTargetId) {
+      toast.error("请选择要合并到的目标任务");
+      return;
+    }
+    setMergeSubmitting(true);
+    try {
+      await updateRdTask(task.task_id, {
+        status: "pending_review",
+        pending_review_type: "merge",
+        pending_merge_target: mergeTargetId,
+        pending_merge_reason: mergeReason.trim(),
+        pending_merge_requested_at: new Date().toISOString(),
+        pending_merge_requested_by: WORKSPACE_AUDIT_ACTOR.name,
+        pending_merge_requested_by_id: WORKSPACE_AUDIT_ACTOR.id,
+      } as Parameters<typeof updateRdTask>[1]);
+      recordAudit({
+        actor: WORKSPACE_AUDIT_ACTOR,
+        action: "task.merge_requested",
+        resource: { type: "task", id: task.task_id, name: task.title },
+        changes: [{ field: "status", before: task.status, after: "pending_review" }],
+        comment: mergeReason.trim() || `申请合并到 ${mergeTargetId}`,
+        metadata: { merge_target: mergeTargetId },
+        source: "web",
+      });
+      toast.success(`${task.task_id} 已提交合并申请`);
+      onLog(`${task.task_id} 已提交合并申请`);
+      window.dispatchEvent(new CustomEvent("rd:review-submitted"));
+      await onSubmittedForReview(task.task_id);
+      setMergeOpen(false);
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "提交合并申请失败，请重试");
+      setMergeSubmitting(false);
+    }
+  };
+
   // ── 进度附件入列：文件选择 / 拖拽 / 粘贴三处共用同一套校验，避免重复 ──
   const addNoteFiles = (incoming: File[]) => {
     const files = incoming.filter((f) => f.size > 0);
@@ -1423,15 +1508,26 @@ function TaskOperationDrawer({
 
             {/* 方案2：低强调的次级文字按钮，置于详情底部，点击打开聚焦的放弃原因弹窗。
                 仅主责人 + 活跃状态可见（待审核/已完成等不显示）。 */}
-            {canAbandon && (
-              <div className="flex justify-center pt-1">
-                <button
-                  type="button"
-                  onClick={() => { setAbandonReason(""); setAbandonOpen(true); }}
-                  className="cursor-pointer text-xs font-medium text-slate-400 underline-offset-4 transition-colors hover:text-rose-600 hover:underline"
-                >
-                  请求放弃此任务
-                </button>
+            {(canAbandon || canMerge) && (
+              <div className="flex justify-center gap-4 pt-1">
+                {canMerge && (
+                  <button
+                    type="button"
+                    onClick={() => { setMergeReason(""); setMergeTargetId(""); setMergeSearch(""); setMergeOpen(true); }}
+                    className="cursor-pointer text-xs font-medium text-slate-400 underline-offset-4 transition-colors hover:text-cyan-600 hover:underline"
+                  >
+                    申请合并到其他任务
+                  </button>
+                )}
+                {canAbandon && (
+                  <button
+                    type="button"
+                    onClick={() => { setAbandonReason(""); setAbandonOpen(true); }}
+                    className="cursor-pointer text-xs font-medium text-slate-400 underline-offset-4 transition-colors hover:text-rose-600 hover:underline"
+                  >
+                    请求放弃此任务
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -1839,6 +1935,104 @@ function TaskOperationDrawer({
                 className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {abandonSubmitting ? "提交中…" : "提交放弃申请"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 申请合并到其他任务：选目标 + 原因，提交给主管审核；通过后本任务并入目标并归档。 */}
+      {mergeOpen && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-[2px]"
+          onClick={mergeSubmitting ? undefined : () => setMergeOpen(false)}
+        >
+          <div
+            className="flex max-h-[86vh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="workspace-merge-title"
+          >
+            <div className="flex items-start gap-3 border-b border-cyan-100 bg-cyan-50/70 px-6 py-5">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-cyan-100 text-cyan-700">
+                <Sparkles className="h-5 w-5" />
+              </span>
+              <div>
+                <h3 id="workspace-merge-title" className="text-base font-bold text-slate-900">申请合并到其他任务</h3>
+                <p className="mt-1 text-sm text-slate-500">提交后将流转给研发主管审核</p>
+              </div>
+            </div>
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-5">
+              <div className="rounded-xl bg-cyan-50/60 px-4 py-3 text-xs leading-5 text-cyan-800 ring-1 ring-cyan-100">
+                审核通过后，本任务「{task.title}」将并入所选目标任务（进度留痕/附件/协作人一并迁移，子任务随迁），本任务归档保留；<strong>合并后由你担任目标任务的主责人</strong>。仅支持同一产品库内的任务合并。
+              </div>
+              <div>
+                <label className="text-sm font-semibold text-slate-900">选择目标任务<span className="ml-0.5 text-rose-500">（必选）</span></label>
+                <input
+                  value={mergeSearch}
+                  onChange={(e) => setMergeSearch(e.target.value)}
+                  placeholder="搜索任务标题 / 编号"
+                  className="mt-2 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-cyan-300 focus:ring-2 focus:ring-cyan-100"
+                />
+                <div className="mt-2 max-h-52 overflow-y-auto rounded-lg border border-slate-200">
+                  {mergeLoading ? (
+                    <div className="px-3 py-6 text-center text-sm text-slate-400">加载候选任务…</div>
+                  ) : (() => {
+                    const kw = mergeSearch.trim().toLowerCase();
+                    const list = mergeCandidates.filter(
+                      (c) => !kw || c.title.toLowerCase().includes(kw) || c.task_id.toLowerCase().includes(kw),
+                    );
+                    if (list.length === 0) {
+                      return <div className="px-3 py-6 text-center text-sm text-slate-400">没有可选的目标任务</div>;
+                    }
+                    return list.slice(0, 100).map((c) => (
+                      <button
+                        key={c.task_id}
+                        type="button"
+                        onClick={() => setMergeTargetId(c.task_id)}
+                        className={cn(
+                          "flex w-full items-center gap-2 border-b border-slate-100 px-3 py-2 text-left last:border-0 hover:bg-slate-50",
+                          mergeTargetId === c.task_id && "bg-cyan-50",
+                        )}
+                      >
+                        <span className={cn("h-3.5 w-3.5 shrink-0 rounded-full border", mergeTargetId === c.task_id ? "border-cyan-500 bg-cyan-500" : "border-slate-300")} />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium text-slate-800">{c.title}</span>
+                          <span className="block truncate text-[11px] text-slate-400">{c.task_id}{c.primary_owner ? ` · ${c.primary_owner}` : ""}</span>
+                        </span>
+                      </button>
+                    ));
+                  })()}
+                </div>
+              </div>
+              <div>
+                <label className="text-sm font-semibold text-slate-900">合并原因<span className="ml-1 text-xs font-normal text-slate-400">（选填）</span></label>
+                <Textarea
+                  value={mergeReason}
+                  onChange={(event) => setMergeReason(event.target.value)}
+                  rows={3}
+                  placeholder="简述为何要合并这两个任务，便于主管审核"
+                  className="mt-2"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-4">
+              <button
+                type="button"
+                disabled={mergeSubmitting}
+                onClick={() => setMergeOpen(false)}
+                className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                disabled={mergeSubmitting || !mergeTargetId}
+                onClick={submitMergeRequest}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {mergeSubmitting ? "提交中…" : "提交合并申请"}
               </button>
             </div>
           </div>

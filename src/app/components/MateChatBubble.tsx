@@ -1043,15 +1043,17 @@ export function MateChatBubble() {
         onClick={() => { if (!movedRef.current) setOpen(true); movedRef.current = false; }}
         style={{ left: bubblePos.x, top: bubblePos.y }}
         className={cn(
-          "fixed z-50 flex items-center gap-3 rounded-full border border-white/70 bg-indigo-600 px-4 py-3 text-white shadow-[0_18px_38px_rgba(79,70,229,0.28)] transition-all duration-200 cursor-grab hover:-translate-y-1 hover:scale-[1.02] will-change-[left,top]",
+          // 默认收成圆形（只露头像）；hover 时文字平滑展开，减少占位。
+          "group fixed z-50 flex items-center rounded-full border border-white/70 bg-indigo-600 p-2 text-white shadow-[0_18px_38px_rgba(79,70,229,0.28)] transition-all duration-200 cursor-grab hover:-translate-y-1 will-change-[left,top]",
           bubbleReady ? "opacity-100" : "opacity-0",
         )}
       >
-        <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-white/14">
+        <span className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/14">
           <img src={AI_AVATAR} alt="MateChat" className="h-7 w-7 object-contain" />
           <span className="absolute inset-[-5px] rounded-full border border-indigo-300/30 animate-pulse" />
         </span>
-        <span className="hidden sm:block">
+        {/* 文字：收起态宽度为 0 隐藏，hover 展开 */}
+        <span className="flex max-w-0 flex-col overflow-hidden whitespace-nowrap opacity-0 transition-all duration-200 group-hover:ml-2 group-hover:max-w-[180px] group-hover:pr-2 group-hover:opacity-100">
           <span className="block text-xs font-semibold uppercase tracking-[0.22em] text-white/72">AI Assistant</span>
           <span className="flex items-center gap-1 text-sm font-semibold">
             <Sparkles className="h-4 w-4" />

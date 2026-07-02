@@ -3,6 +3,7 @@ import { AlertTriangle, ArrowLeft, Clock, History, ImageIcon, Inbox, Loader2, Re
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
 import { ProgressNoteList } from "./RDProgressEvidence";
+import { recordAudit, useAuditActor } from "./lib/auditLog";
 import { useRDCockpitData } from "./hooks/useRDCockpitData";
 import {
   createRdTaskProgressNote,
@@ -235,7 +236,7 @@ function MobileFeedCard({
         }
       }}
       className={cn(
-        "mb-3 block w-full cursor-pointer break-inside-avoid overflow-hidden rounded-2xl border bg-white text-left shadow-sm transition active:scale-[0.99]",
+        "block w-full cursor-pointer overflow-hidden rounded-2xl border bg-white text-left shadow-sm transition active:scale-[0.99]",
         isRisk ? "border-red-200" : "border-slate-200/70",
       )}
     >
@@ -405,7 +406,10 @@ export function MobileRDCockpit() {
         break;
     }
     if (person) list = list.filter((t) => ((t.primary_owner || "").trim() || "未指派") === person);
-    return list;
+    // 按最近活动时间倒序，使卡片按行从左到右呈现时对应时间顺序（最新在前）。
+    const tsOf = (t: (typeof list)[number]) =>
+      String(t.last_activity_at ?? t.latest_progress_summary?.created_at ?? t.updated_at ?? "");
+    return [...list].sort((a, b) => tsOf(b).localeCompare(tsOf(a)));
   }, [allTasks, filter, person, riskTaskIds]);
 
   // 切换过滤回到第一页
@@ -587,7 +591,7 @@ export function MobileRDCockpit() {
             <span className="text-xs font-medium text-slate-400">没有符合条件的任务</span>
           </div>
         ) : (
-          <div className="columns-2 gap-3">
+          <div className="grid grid-cols-2 items-start gap-3">
             {shownTasks.map((t) => (
               <MobileFeedCard
                 key={t.task_id}
@@ -646,6 +650,7 @@ function MobileTaskDetail({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const auditActor = useAuditActor("研发成员");
 
   const status = STATUS_META[task.status] ?? STATUS_META.draft;
   const owner = (task.primary_owner || "").trim() || "未指派";
@@ -680,7 +685,17 @@ function MobileTaskDetail({
     if (!text || submitting) return;
     setSubmitting(true);
     try {
-      await createRdTaskProgressNote({ task_id: task.task_id, text });
+      const savedNote = await createRdTaskProgressNote({ task_id: task.task_id, text });
+      // 同步记一条「进度更新」操作留痕，使 PC 端 rd-task-management 的操作留痕时间线能看到该备注
+      // （PC 添加进展时也是这样记的；移动端此前只建了 note、漏了这条 audit，导致 PC 看不到）。
+      recordAudit({
+        actor: auditActor,
+        action: "task.progress_updated",
+        resource: { type: "task", id: task.task_id, name: task.title },
+        comment: text,
+        metadata: { source: "mobile", ...(savedNote?.id ? { note_id: savedNote.id } : {}) },
+        source: "web",
+      });
       setDraft("");
       toast.success("备注已提交");
       await loadNotes();

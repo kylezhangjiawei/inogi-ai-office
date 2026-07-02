@@ -121,8 +121,8 @@ const RD_SHEET_IMAGE_MARK_RE = /\[图片:[^\[\]\s]+\]/g;
 // ─── 审核类型「单一事实源」───────────────────────────────────────────────
 // 四种审核类型的标签、通过后目标状态、审计动作集中在此定义，前后端各处只引用、
 // 不再各写各的，避免不同类型的文案/流程互相污染（立项被记成成果、成果被当协作等）。
-type ReviewType = 'proposal' | 'result' | 'collaboration' | 'due_date' | 'abandon';
-const REVIEW_TYPES: ReviewType[] = ['proposal', 'result', 'collaboration', 'due_date', 'abandon'];
+type ReviewType = 'proposal' | 'result' | 'collaboration' | 'due_date' | 'abandon' | 'merge';
+const REVIEW_TYPES: ReviewType[] = ['proposal', 'result', 'collaboration', 'due_date', 'abandon', 'merge'];
 /** 中文标签，用于通知标题、留痕、类型 badge 等所有展示处。 */
 const REVIEW_TYPE_LABEL: Record<ReviewType, string> = {
   proposal: '立项',
@@ -130,9 +130,11 @@ const REVIEW_TYPE_LABEL: Record<ReviewType, string> = {
   collaboration: '协作变更',
   due_date: '截止日期变更',
   abandon: '放弃任务',
+  merge: '任务合并',
 };
 /**
  * 审核「通过」后的目标状态：成果通过=已完成；放弃通过=封存（随后硬删除，等同删除任务）；其余=进行中。
+ * 合并通过后源任务先回 in_progress，随后由 applyTaskMerge 原子完成归档+迁移（失败则不产生部分写，源任务保持 in_progress）。
  * 这是唯一裁决处。
  */
 const REVIEW_APPROVE_STATUS: Record<ReviewType, 'in_progress' | 'completed' | 'archived'> = {
@@ -141,6 +143,7 @@ const REVIEW_APPROVE_STATUS: Record<ReviewType, 'in_progress' | 'completed' | 'a
   collaboration: 'in_progress',
   due_date: 'in_progress',
   abandon: 'archived',
+  merge: 'in_progress',
 };
 function isKnownReviewType(value: string): value is ReviewType {
   return (REVIEW_TYPES as string[]).includes(value);
@@ -1734,6 +1737,16 @@ export class ResearchDevelopmentService {
               actionPatch.pending_abandon_requested_at = null;
             }
 
+            // 任务合并审核：通过 → 源任务先回 in_progress（上面已裁决），随后由 applyTaskMerge 归档并迁移到目标；
+            // 驳回 → 回 in_progress。两种情况都清空 pending_merge_* 字段。
+            if (reviewType === 'merge') {
+              actionPatch.pending_merge_target = null;
+              actionPatch.pending_merge_reason = null;
+              actionPatch.pending_merge_requested_at = null;
+              actionPatch.pending_merge_requested_by = null;
+              actionPatch.pending_merge_requested_by_id = null;
+            }
+
             resolvedPatch = actionPatch;
           }
 
@@ -1766,11 +1779,21 @@ export class ResearchDevelopmentService {
           const enteringReview =
             String((t as JsonRecord).status ?? '') !== 'pending_review' &&
             String((identityPatch.status ?? (t as JsonRecord).status) ?? '') === 'pending_review';
+          // 「仅截止日期变更」不刷新 updated_at：驾驶舱按 last_activity_at(=max(updated_at,最新留痕)) 排序，
+          // 改截止时间不应被当作"操作"把任务顶到最前、打乱按最后活动时间的排列。
+          // 命中：截止日期变更的申请（patch.pending_review_type==='due_date'）或其审核（本任务待审类型为 due_date）。
+          const dueDateOnlyChange =
+            (!!_review_action && String((t as JsonRecord).pending_review_type ?? '') === 'due_date') ||
+            (!_review_action && String((identityPatch as JsonRecord).pending_review_type ?? '') === 'due_date');
+          const preservedUpdatedAt =
+            dueDateOnlyChange && typeof (t as JsonRecord).updated_at === 'string'
+              ? ((t as JsonRecord).updated_at as string)
+              : nowIso;
           const merged = {
             ...t,
             ...identityPatch,
             task_id: taskId,
-            updated_at: nowIso,
+            updated_at: preservedUpdatedAt,
             ...(enteringReview ? { submitted_for_review_at: nowIso } : {}),
           };
           return this.normalizeTaskIdentity(merged, identity.people, identity.users);
@@ -1843,6 +1866,22 @@ export class ResearchDevelopmentService {
         // （通知读取的是 originalTask 快照，删除不影响）。
         if (_review_action === 'approve' && reviewType === 'abandon') {
           await this.deleteTask(taskId);
+        }
+        // 任务合并审核通过 → 执行合并：把源任务（含子任务/留痕/附件/协作人）并入目标任务，源任务归档保留。
+        // 读取 originalTask 快照上的合并目标与发起人（actionPatch 已清空 pending，故用快照）。
+        if (_review_action === 'approve' && reviewType === 'merge') {
+          const src = originalTask as JsonRecord;
+          const targetId = cleanText(src.pending_merge_target);
+          const initiator = {
+            id: cleanUserId(src.pending_merge_requested_by_id) || cleanUserId(src.primary_owner_user_id),
+            name: cleanText(src.pending_merge_requested_by) || cleanText(src.primary_owner) || '研发成员',
+          };
+          if (targetId) {
+            await this.applyTaskMerge(taskId, targetId, initiator).catch((err) => {
+              // eslint-disable-next-line no-console
+              console.error('[updateTask] applyTaskMerge failed', err);
+            });
+          }
         }
       }
 
@@ -2195,8 +2234,10 @@ export class ResearchDevelopmentService {
     return this.getUserKbLevel(viewer.userId);
   }
 
-  async deleteTask(taskId: string) {
+  async deleteTask(taskId: string, actor?: { userId?: string; userName?: string }) {
     let found = false;
+    // 被删任务快照（用于删除后通知其负责人 / 协作人）。
+    let removedTask: JsonRecord | null = null;
     // 记录被删除的全部 task_id（含子任务），用于连带清理其待审核通知
     const removedTaskIds: string[] = [];
     const collectIds = (t: JsonRecord): void => {
@@ -2207,7 +2248,7 @@ export class ResearchDevelopmentService {
 
     function deleteFromTasks(tasks: unknown[]): unknown[] {
       const filtered = tasks.filter((t) => {
-        if (isRecord(t) && t.task_id === taskId) { found = true; collectIds(t); return false; }
+        if (isRecord(t) && t.task_id === taskId) { found = true; removedTask = t; collectIds(t); return false; }
         return true;
       });
       return filtered.map((t) => {
@@ -2240,8 +2281,237 @@ export class ResearchDevelopmentService {
         // best-effort：任务已删除成功，通知清理失败不应阻断本次删除
       }
     }
+    // 通知被删任务的负责人与协作人（best-effort，失败不阻断删除）。
+    if (removedTask) {
+      await this.notifyTaskDeleted(removedTask, actor?.userName?.trim() || '管理员', cleanUserId(actor?.userId)).catch(
+        () => {},
+      );
+    }
     await this.recomputeDirectorDashboard();
     return { ok: true };
+  }
+
+  /** 删除任务后，通知其负责人 + 全部协作人（去重、排除操作者本人）。 */
+  private async notifyTaskDeleted(task: JsonRecord, actorName: string, actorUserId: string): Promise<void> {
+    try {
+      const taskTitle = String(task.title ?? '');
+      const taskNo = cleanText(task.task_no ?? task.task_id);
+      const subject = `[任务删除] 「${taskTitle}」已被删除`;
+      const body = `${actorName} 删除了任务「${taskTitle}」${taskNo ? `（${taskNo}）` : ''}。如有疑问请联系管理员。`;
+
+      const recipients: Array<{ user_id: string; person_id: string; name: string }> = [];
+      // 负责人（待指派 / 空名跳过）。
+      const ownerUserId = cleanUserId(task.primary_owner_user_id ?? task.owner_user_id);
+      const ownerName = cleanText(task.primary_owner ?? task.owner);
+      if (ownerUserId || (ownerName && ownerName !== '待指派')) {
+        recipients.push({ user_id: ownerUserId, person_id: '', name: ownerName });
+      }
+      // 协作人。
+      for (const c of asArray(task.collaborators)) {
+        if (!isRecord(c)) continue;
+        recipients.push({
+          user_id: cleanUserId(c.user_id),
+          person_id: cleanText(c.id),
+          name: cleanText(c.name),
+        });
+      }
+
+      const seen = new Set<string>();
+      for (const rcp of recipients) {
+        const nameKey = personNameLookupKey(rcp.name);
+        const key = rcp.user_id ? `u:${rcp.user_id}` : rcp.person_id ? `p:${rcp.person_id}` : nameKey ? `n:${nameKey}` : '';
+        if (!key) continue;
+        if (actorUserId && rcp.user_id === actorUserId) continue; // 不通知操作者本人
+        if (seen.has(key)) continue;
+        seen.add(key);
+        await this.createMessage({
+          sender: { id: null, name: '系统通知', role: 'system' },
+          recipient_id: rcp.user_id || null,
+          recipient_person_id: rcp.person_id || null,
+          recipient_name: rcp.name || null,
+          subject,
+          body,
+        });
+      }
+    } catch {
+      // best-effort
+    }
+  }
+
+  /**
+   * 执行任务合并（一期：仅同产品库）：把源任务并入目标任务。
+   * - 目标：追加源的子任务；主责改为发起人；描述由 AI 重写（失败则拼接）；截止取较晚；进度取较大；协作人并集去重；记录 merged_from。
+   * - 源：归档保留（archived + merged_into + merged_at + 清空子任务）。
+   * - 进度留痕/附件：源的留痕并入目标（附件计数随留痕在读取时自动派生）。
+   * 源与目标必须在同一库（transform 需同时命中二者，否则 found=false → 不写任何库 → 抛错，天然拒绝跨库、不产生部分写）。
+   */
+  private async applyTaskMerge(
+    sourceId: string,
+    targetId: string,
+    initiator: { id: string; name: string },
+  ): Promise<void> {
+    if (!sourceId || !targetId || sourceId === targetId) {
+      throw new BadRequestException('合并的源任务与目标任务无效');
+    }
+    const source = await this.findTaskAcrossStores(sourceId);
+    const target = await this.findTaskAcrossStores(targetId);
+    if (!source || !target) throw new NotFoundException('源任务或目标任务不存在');
+
+    const migratedSubtasks = asArray(source.subtasks).filter(isRecord);
+
+    // 描述：AI 重写（合并两条任务的描述），失败则拼接兜底。
+    const aiDesc = await this.rdAiService
+      .mergeTaskDescriptions({
+        targetTitle: cleanText(target.title),
+        targetDescription: cleanText(target.description),
+        sourceTitle: cleanText(source.title),
+        sourceDescription: cleanText(source.description),
+      })
+      .catch(() => null);
+    const fallbackDesc = [cleanText(target.description), cleanText(source.description)]
+      .filter(Boolean)
+      .join('\n')
+      .trim();
+    const mergedDescription = (aiDesc && aiDesc.trim()) || fallbackDesc;
+
+    // 截止取较晚（YYYY-MM-DD 字符串可直接比较）；进度取较大。
+    const srcDue = cleanText(source.due_date);
+    const tgtDue = cleanText(target.due_date);
+    const mergedDue = srcDue && tgtDue ? (srcDue > tgtDue ? srcDue : tgtDue) : srcDue || tgtDue || null;
+    const toNum = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : Number(v) || 0);
+    const mergedProgress = Math.max(0, Math.min(100, Math.max(toNum(source.progress), toNum(target.progress))));
+
+    // 协作人并集去重（排除新主责=发起人）。把源主责也纳为协作人（除非就是发起人）。
+    const collabKey = (c: JsonRecord) =>
+      cleanUserId(c.user_id) ? `u:${cleanUserId(c.user_id)}` : personNameLookupKey(cleanText(c.name)) ? `n:${personNameLookupKey(cleanText(c.name))}` : '';
+    const collabPool: JsonRecord[] = [
+      ...asArray(target.collaborators).filter(isRecord),
+      ...asArray(source.collaborators).filter(isRecord),
+    ];
+    const srcOwnerName = cleanText(source.primary_owner);
+    if (srcOwnerName && srcOwnerName !== '待指派') {
+      collabPool.push({ name: srcOwnerName, user_id: cleanUserId(source.primary_owner_user_id) || null });
+    }
+    const initiatorKey = initiator.id ? `u:${initiator.id}` : personNameLookupKey(initiator.name) ? `n:${personNameLookupKey(initiator.name)}` : '';
+    const seenCollab = new Set<string>();
+    const mergedCollaborators = collabPool.filter((c) => {
+      const k = collabKey(c);
+      if (!k || k === initiatorKey || seenCollab.has(k)) return false;
+      seenCollab.add(k);
+      return true;
+    });
+
+    const mergedFrom = [
+      ...asArray(target.merged_from).map((x) => cleanText(x)).filter(Boolean),
+      sourceId,
+    ];
+    const nowIso = new Date().toISOString();
+    const targetPatch: JsonRecord = {
+      description: mergedDescription,
+      due_date: mergedDue,
+      progress: mergedProgress,
+      primary_owner: initiator.name,
+      primary_owner_user_id: initiator.id || null,
+      collaborators: mergedCollaborators,
+      merged_from: mergedFrom,
+      updated_at: nowIso,
+    };
+
+    // 同库内改写：同时命中源与目标才写（found = 二者皆命中），否则不写任何库 → 抛跨库错误。
+    const rebuild = (tasks: unknown[], flags: { fs: boolean; ft: boolean }): unknown[] =>
+      tasks.map((t) => {
+        if (!isRecord(t)) return t;
+        if (t.task_id === sourceId) {
+          flags.fs = true;
+          return { ...t, archived: true, status: 'archived', merged_into: targetId, merged_at: nowIso, subtasks: [] };
+        }
+        if (t.task_id === targetId) {
+          flags.ft = true;
+          return { ...t, ...targetPatch, subtasks: [...asArray(t.subtasks), ...migratedSubtasks] };
+        }
+        if (Array.isArray(t.subtasks)) return { ...t, subtasks: rebuild(t.subtasks, flags) };
+        return t;
+      });
+
+    const result = await this.mutateTaskAcrossStores((categories) => {
+      const flags = { fs: false, ft: false };
+      const cats = categories.map((cat) => {
+        if (!isRecord(cat)) return cat;
+        return {
+          ...cat,
+          children: asArray(cat.children).map((child) =>
+            isRecord(child) ? { ...child, tasks: rebuild(asArray(child.tasks), flags) } : child,
+          ),
+        };
+      });
+      return { categories: cats, found: flags.fs && flags.ft };
+    });
+    if (!result.found) {
+      throw new BadRequestException('源任务与目标任务不在同一产品库，暂不支持跨库合并');
+    }
+
+    // 迁移进度留痕：源的留痕并入目标（重写 task_id），删除源的留痕键。
+    try {
+      const noteMap = await this.getProgressNoteMap();
+      const srcNotes = asArray(noteMap[sourceId]).filter(isRecord);
+      if (srcNotes.length > 0) {
+        const rekeyed = srcNotes.map((n) => ({ ...n, task_id: targetId }));
+        noteMap[targetId] = [...rekeyed, ...asArray(noteMap[targetId]).filter(isRecord)].slice(0, 100);
+        delete noteMap[sourceId];
+        await this.writeValue('rd.taskProgressNotes', noteMap);
+      }
+    } catch {
+      // best-effort：留痕迁移失败不回滚合并主流程
+    }
+
+    await this.notifyTaskMerged(source, target, initiator).catch(() => {});
+    await this.recomputeDirectorDashboard();
+  }
+
+  /** 合并后通知：源任务负责人/协作人 + 目标任务原负责人（主责已换为发起人，原负责人需知悉）。 */
+  private async notifyTaskMerged(
+    source: JsonRecord,
+    target: JsonRecord,
+    initiator: { id: string; name: string },
+  ): Promise<void> {
+    try {
+      const srcTitle = cleanText(source.title);
+      const tgtTitle = cleanText(target.title);
+      const recipients: Array<{ user_id: string; person_id: string; name: string }> = [];
+      // 源任务负责人 + 协作人
+      const srcOwnerName = cleanText(source.primary_owner);
+      if (cleanUserId(source.primary_owner_user_id) || (srcOwnerName && srcOwnerName !== '待指派')) {
+        recipients.push({ user_id: cleanUserId(source.primary_owner_user_id), person_id: '', name: srcOwnerName });
+      }
+      for (const c of asArray(source.collaborators)) {
+        if (isRecord(c)) recipients.push({ user_id: cleanUserId(c.user_id), person_id: cleanText(c.id), name: cleanText(c.name) });
+      }
+      // 目标任务原负责人（主责被换掉，需知悉）
+      const tgtOwnerName = cleanText(target.primary_owner);
+      if (cleanUserId(target.primary_owner_user_id) || (tgtOwnerName && tgtOwnerName !== '待指派')) {
+        recipients.push({ user_id: cleanUserId(target.primary_owner_user_id), person_id: '', name: tgtOwnerName });
+      }
+
+      const subject = `[任务合并] 「${srcTitle}」已并入「${tgtTitle}」`;
+      const body = `${initiator.name || '研发成员'} 将任务「${srcTitle}」合并到「${tgtTitle}」（合并后由其担任主责）。原任务已归档保留，进度留痕与附件已并入目标任务。`;
+      const seen = new Set<string>();
+      for (const rcp of recipients) {
+        const nameKey = personNameLookupKey(rcp.name);
+        const key = rcp.user_id ? `u:${rcp.user_id}` : rcp.person_id ? `p:${rcp.person_id}` : nameKey ? `n:${nameKey}` : '';
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        await this.createMessage({
+          sender: { id: null, name: '系统通知', role: 'system' },
+          recipient_id: rcp.user_id || null,
+          recipient_person_id: rcp.person_id || null,
+          recipient_name: rcp.name || null,
+          subject,
+          body,
+        });
+      }
+    } catch {
+      // best-effort
+    }
   }
 
   async recomputeDashboard() {

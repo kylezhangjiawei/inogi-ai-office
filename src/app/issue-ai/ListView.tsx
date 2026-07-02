@@ -23,6 +23,7 @@ import { cn } from "../components/ui/utils";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { usePermission } from "../hooks/usePermission";
+import { useAuth } from "../auth";
 import {
   type Issue,
   type IssueQuery,
@@ -56,8 +57,14 @@ const cardClass =
 const panelClass =
   "rounded-lg border border-slate-200/80 bg-white/90 shadow-[0_1px_2px_rgba(15,23,42,0.04)] dark:border-slate-700/80 dark:bg-slate-900/90";
 
-/** 创建人首字头像（Issue 暂无头像 URL，用姓名首字占位）。尺寸/字号由 className 传入。 */
-function InitialAvatar({ name, className }: { name: string; className?: string }) {
+/**
+ * 创建人头像：有真实头像 URL（src）则显示照片，否则用姓名首字占位。
+ * Issue 数据本身不含创建人头像，仅当创建人为当前登录用户时可拿到其 avatarUrl。尺寸由 className 传入。
+ */
+function InitialAvatar({ name, src, className }: { name: string; src?: string | null; className?: string }) {
+  if (src) {
+    return <img src={src} alt={name} className={cn("shrink-0 rounded-full object-cover", className)} />;
+  }
   const ch = (name ?? "").trim().charAt(0) || "?";
   return (
     <span
@@ -203,6 +210,11 @@ function IssueList({
   items: Issue[];
   onOpen: (id: string) => void;
 }) {
+  const { user } = useAuth();
+  const norm = (s?: string | null) => (s ?? "").trim().toLowerCase();
+  // 创建人为当前登录用户时用其真实头像；其余用姓名首字（Issue 数据不含他人头像）。
+  const avatarFor = (createdBy: string): string | null =>
+    user && norm(createdBy) === norm(user.name) ? user.avatarUrl : null;
   return (
     <div className="space-y-2">
       {items.map((it) => (
@@ -215,8 +227,8 @@ function IssueList({
             "group grid w-full cursor-pointer grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left transition-all duration-200 hover:border-indigo-300 hover:bg-white hover:shadow-[0_10px_28px_rgba(79,70,229,0.10)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:hover:border-indigo-500/50 dark:hover:bg-slate-900",
           )}
         >
-          {/* 头像（创建人，最前） */}
-          <InitialAvatar name={it.createdBy} className="size-9 text-sm" />
+          {/* 头像（创建人，最前）：本人显示真实头像，其余首字 */}
+          <InitialAvatar name={it.createdBy} src={avatarFor(it.createdBy)} className="size-9 text-sm" />
 
           {/* 中间：编号 + 来源 + 标题 + 创建人/产品/工位 */}
           <div className="min-w-0">

@@ -40,6 +40,7 @@ export type AuditAction =
   | "task.evidence_uploaded"
   | "task.handoff_requested"
   | "task.abandon_requested"
+  | "task.merge_requested"
   | "task.submitted"
   // Proposal lifecycle
   | "proposal.created"
@@ -60,6 +61,8 @@ export type AuditAction =
   | "due_date.rejected"
   | "abandon.approved"
   | "abandon.rejected"
+  | "merge.approved"
+  | "merge.rejected"
   // Approval flow config
   | "flow.saved"
   | "flow.node_added"
@@ -185,6 +188,7 @@ export const AUDIT_ACTION_META: Record<AuditAction, AuditActionMeta> = {
   "task.evidence_uploaded": { category: "task", label: "上传依据", verb: "上传了任务依据", tone: "slate" },
   "task.handoff_requested": { category: "task", label: "提交移交", verb: "提交了任务移交流程", tone: "violet" },
   "task.abandon_requested": { category: "task", label: "申请放弃", verb: "申请放弃了任务", tone: "amber" },
+  "task.merge_requested": { category: "task", label: "申请合并", verb: "申请合并任务", tone: "blue" },
   "task.submitted": { category: "task", label: "提交审核", verb: "提交了任务结果审核", tone: "blue" },
   // Proposal
   "proposal.created": { category: "proposal", label: "立项创建", verb: "创建了立项", tone: "blue" },
@@ -205,6 +209,8 @@ export const AUDIT_ACTION_META: Record<AuditAction, AuditActionMeta> = {
   "due_date.rejected": { category: "task", label: "截止变更驳回", verb: "驳回了截止日期变更", tone: "red" },
   "abandon.approved": { category: "task", label: "放弃通过", verb: "通过了放弃任务申请", tone: "red" },
   "abandon.rejected": { category: "task", label: "放弃驳回", verb: "驳回了放弃任务申请", tone: "slate" },
+  "merge.approved": { category: "task", label: "合并通过", verb: "通过了任务合并申请", tone: "emerald" },
+  "merge.rejected": { category: "task", label: "合并驳回", verb: "驳回了任务合并申请", tone: "slate" },
   // Flow
   "flow.saved": { category: "approval_flow", label: "保存配置", verb: "保存了审批流配置", tone: "blue" },
   "flow.node_added": { category: "approval_flow", label: "新增节点", verb: "新增了审批节点", tone: "emerald" },

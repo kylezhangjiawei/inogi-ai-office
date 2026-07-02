@@ -2,6 +2,7 @@ import React, { Suspense, useCallback, useEffect, useRef, useState } from "react
 import { useBlocker } from "react-router";
 import {
   FileSpreadsheet,
+  ImageDown,
   Info,
   Loader2,
   Lock,
@@ -39,6 +40,7 @@ export function RDSheetPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [converting, setConverting] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -133,6 +135,30 @@ export function RDSheetPage() {
     load();
   }, [dirty, load]);
 
+  // 把粘贴/导入产生的「浮动图片」转成「单元格图片」（嵌入格子、随保存往返）。
+  const handleConvertImages = useCallback(async () => {
+    if (!canEdit) return;
+    setError(null);
+    setNotice(null);
+    setConverting(true);
+    try {
+      const res = await handleRef.current?.convertFloatingImagesToCells();
+      if (!res || res.total === 0) {
+        setNotice("当前工作表没有浮动图片可转换。");
+        return;
+      }
+      setNotice(
+        res.converted === res.total
+          ? `已将 ${res.converted} 张浮动图片转为单元格图片，点「保存」生效。`
+          : `已转换 ${res.converted}/${res.total} 张（其余转换失败已跳过），点「保存」生效。`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "转换失败");
+    } finally {
+      setConverting(false);
+    }
+  }, [canEdit]);
+
   return (
     <div className="relative min-h-full bg-transparent flex flex-col text-slate-900">
       <input
@@ -169,6 +195,19 @@ export function RDSheetPage() {
               <RotateCcw className={cn("w-4 h-4", loading && "animate-spin")} />
               {canEdit ? "撤销改动" : "刷新"}
             </Button>
+            {canEdit && (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => void handleConvertImages()}
+                disabled={converting || importing || saving || loading}
+                className="h-9 gap-2 rounded-lg border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                title="把粘贴/导入进来的浮动图片转成嵌入单元格的图片（转换后点保存）"
+              >
+                {converting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageDown className="w-4 h-4" />}
+                {converting ? "转换中…" : "转为单元格图片"}
+              </Button>
+            )}
             {canEdit && (
               <Button
                 type="button"

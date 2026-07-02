@@ -31,6 +31,11 @@ export type RDSheetUniverHandle = {
   getSnapshot: () => IWorkbookData | null;
   /** 提交飞行中编辑（保存前调用，避免正在输入的内容被丢弃）。 */
   commitPendingEdit: () => Promise<void>;
+  /**
+   * 把当前工作表的「浮动图片」（粘贴/导入产生的悬浮图，Drawing）转换为「单元格图片」（嵌入格子、随快照往返）。
+   * 逐张：读取图源 → 插入到其锚点单元格（读不到锚点则退回当前选中格）→ 删除原浮动图。返回转换数量。
+   */
+  convertFloatingImagesToCells: () => Promise<{ converted: number; total: number }>;
 };
 
 type Props = {
@@ -75,6 +80,47 @@ export const RDSheetUniver = forwardRef<RDSheetUniverHandle, Props>(function RDS
         } catch {
           /* 提交失败不阻塞保存 */
         }
+      },
+      convertFloatingImagesToCells: async () => {
+        // facade 类型未完整导出，按运行期形状用 any 访问（Univer 0.25 已确认这些方法存在）。
+        /* eslint-disable @typescript-eslint/no-explicit-any */
+        const api = apiRef.current as any;
+        const ws = api?.getActiveWorkbook?.()?.getActiveSheet?.();
+        if (!ws || typeof ws.getImages !== "function") return { converted: 0, total: 0 };
+        const images: any[] = ws.getImages() ?? [];
+        if (images.length === 0) return { converted: 0, total: 0 };
+
+        // 锚点读不到时的兜底：当前选中区左上角单元格。
+        let fbRow = 0;
+        let fbCol = 0;
+        try {
+          const rng = ws.getSelection?.()?.getActiveRange?.();
+          if (rng) {
+            fbRow = rng.getRow();
+            fbCol = rng.getColumn();
+          }
+        } catch {
+          /* ignore */
+        }
+
+        let converted = 0;
+        for (const img of images) {
+          try {
+            const source: string | undefined = img.toBuilder?.()?.getSource?.();
+            if (!source) continue;
+            const from = img._image?.sheetTransform?.from;
+            const row = typeof from?.row === "number" ? from.row : fbRow;
+            const col = typeof from?.column === "number" ? from.column : fbCol;
+            await ws.getRange(row, col).insertCellImageAsync(source);
+            img.remove?.();
+            converted += 1;
+          } catch {
+            /* 单张失败跳过，不阻断其余 */
+          }
+        }
+        /* eslint-enable @typescript-eslint/no-explicit-any */
+        if (converted > 0) onDirtyRef.current?.();
+        return { converted, total: images.length };
       },
     }),
     [],

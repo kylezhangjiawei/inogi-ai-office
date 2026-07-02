@@ -3185,6 +3185,48 @@ export class RdAiService {
     }
   }
 
+  /**
+   * 任务合并时重写合并后的任务描述：综合目标任务与被合并任务的描述，去重、条理化，输出一段正文。
+   * 复用 progress_summary 场景模型；未配置/失败返回 null，由调用方拼接兜底。
+   */
+  async mergeTaskDescriptions(input: {
+    targetTitle: string;
+    targetDescription: string;
+    sourceTitle: string;
+    sourceDescription: string;
+  }): Promise<string | null> {
+    const selectedModel = await this.resolveSceneModelConfig('progress_summary').catch(() => null);
+    if (!selectedModel?.apiKey) return null;
+    const provider: AiProvider = selectedModel.provider;
+    const client = this.createClient(selectedModel.apiKey, provider, selectedModel.baseUrl);
+    const systemPrompt =
+      '你在把两条研发任务合并为一条。请综合二者的任务描述，输出一段【合并后的任务描述】：' +
+      '保留两边的关键目标、范围与要点，去除重复，条理清晰、客观简洁（150字以内）。只输出描述正文，不要任何前后缀或解释。';
+    const userMessage = [
+      `【目标任务（保留）】${input.targetTitle}`,
+      input.targetDescription || '（无描述）',
+      '',
+      `【被合并任务】${input.sourceTitle}`,
+      input.sourceDescription || '（无描述）',
+    ].join('\n');
+    try {
+      const response = await client.chat.completions.create({
+        model: selectedModel.model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage },
+        ],
+        ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+      });
+      const text = (response.choices[0]?.message?.content ?? '').trim();
+      return text || null;
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn('[mergeTaskDescriptions] AI call failed:', error instanceof Error ? error.message : error);
+      return null;
+    }
+  }
+
   // ── 附件内容抽取（L1+L2+L3：OCR + 文档抽取 + 视觉模型兜底）─────────────────
 
   /**

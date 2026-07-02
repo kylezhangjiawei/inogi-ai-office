@@ -57,7 +57,7 @@ import { useAuth } from "./auth";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./components/ui/tooltip";
 import { usePermission, useAnyPermission } from "./hooks/usePermission";
 import { AuditTimeline } from "./RDAuditTimeline";
-import { addAuditLogNote, AuditActor, AuditChange, recordAudit, useAuditActor, useAuditLogs } from "./lib/auditLog";
+import { addAuditLogNote, AuditActor, AuditChange, AuditLog, recordAudit, useAuditActor, useAuditLogs } from "./lib/auditLog";
 import { getReviewTypeMeta } from "./lib/reviewTypes";
 import { taskOverdueDays, isTaskOverdue } from "./lib/taskDue";
 import {
@@ -4113,6 +4113,35 @@ function TaskDetailDrawer({
     }
     return map;
   }, [taskLogs, progressNotes]);
+  // 追溯显示：把「没有对应『进度更新』操作留痕条目」的进度备注（历史数据、或早期移动端只建 note 未记 audit 的备注）
+  // 合成为时间线条目，一并并入操作留痕，保证 PC 也能看到。已匹配到真实 audit 条目的备注不重复合成。
+  const orphanNoteLogs = useMemo<AuditLog[]>(() => {
+    const usedNoteIds = new Set(Array.from(logNoteMatches.values(), (n) => n.id));
+    return progressNotes
+      .filter((n) => !usedNoteIds.has(n.id))
+      .map((n) => ({
+        id: `note-log-${n.id}`,
+        timestamp: n.created_at,
+        actor: { id: n.actor?.id ?? null, name: n.actor?.name ?? "研发成员", role: n.actor?.role ?? "研发成员" },
+        action: "task.progress_updated" as const,
+        resource: { type: "task" as const, id: task.task_id, name: task.title },
+        comment: n.text || "更新任务进度",
+        metadata: { note_id: n.id, synthetic: true },
+        source: "web" as const,
+      }));
+  }, [progressNotes, logNoteMatches, task.task_id, task.title]);
+  const orphanNoteById = useMemo(() => {
+    const m = new Map<string, RdTaskProgressNote>();
+    for (const n of progressNotes) m.set(`note-log-${n.id}`, n);
+    return m;
+  }, [progressNotes]);
+  const mergedTaskLogs = useMemo(
+    () =>
+      [...taskLogs, ...orphanNoteLogs].sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+      ),
+    [taskLogs, orphanNoteLogs],
+  );
   const taskAttachmentTotal = useMemo(
     () => progressNotes.reduce((sum, note) => sum + note.attachments.length, 0),
     [progressNotes],
@@ -4694,13 +4723,13 @@ function TaskDetailDrawer({
             <div className="mb-2 flex items-center justify-between">
               <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">操作留痕</div>
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
-                {taskLogs.length} 条{taskAttachmentTotal > 0 ? ` · ${taskAttachmentTotal} 个附件` : ""}
+                {mergedTaskLogs.length} 条{taskAttachmentTotal > 0 ? ` · ${taskAttachmentTotal} 个附件` : ""}
               </span>
             </div>
             {/* 占满剩余高度 + 内部滚动：留痕区自适应填满详情面板的剩余空间，内容超出时仅在区内滚动 */}
             <div className="min-h-[220px] flex-1 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/40 px-2 py-2">
               <AuditTimeline
-                logs={taskLogs}
+                logs={mergedTaskLogs}
                 showResource={false}
                 emptyText="暂无此任务的操作记录"
                 canAddNote={canManageTaskFlow}
@@ -4708,7 +4737,7 @@ function TaskDetailDrawer({
                   await addAuditLogNote(logId, { text, actor: RD_ADMIN_AUDIT_ACTOR });
                 }}
                 renderExtra={(log) => {
-                  const note = logNoteMatches.get(log.id);
+                  const note = logNoteMatches.get(log.id) ?? orphanNoteById.get(log.id);
                   if (!note || note.attachments.length === 0) return null;
                   return <ProgressAttachmentGrid attachments={note.attachments} compact />;
                 }}
