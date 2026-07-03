@@ -93,6 +93,13 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'page:purchase-order-detail', label: '采购订单详情', description: '查看采购订单明细、供应商、履约、结算与备注信息', groupLabel: '页面访问 · 订单与库存', type: 'page', routePath: '/purchase-orders/:id', navHidden: true, sortOrder: 266 },
   { code: 'page:inventory-management', label: '库存管理', description: '库存台账、入库登记、预警商品与出入库记录', groupLabel: '页面访问 · 订单与库存', type: 'page', routePath: '/inventory-management', sortOrder: 270 },
 
+  // 采购与研发协同（方案确认会演示原型）
+  { code: 'page:proc-overview', label: '采购协同流程总览', description: '采购与研发协同全流程图与方案确认（演示原型）', groupLabel: '页面访问 · 采购与研发协同', type: 'page', routePath: '/proc-overview', sortOrder: 272 },
+  { code: 'page:proc-rd-dashboard', label: '研发任务驾驶舱（演示版）', description: '研发任务转采购询价演示入口（演示原型）', groupLabel: '页面访问 · 采购与研发协同', type: 'page', routePath: '/proc-rd-dashboard', sortOrder: 273 },
+  { code: 'page:proc-workbench', label: '采购工作台', description: '采购需求询价、打样、测试、定价全流程（演示原型）', groupLabel: '页面访问 · 采购与研发协同', type: 'page', routePath: '/proc-workbench', sortOrder: 274 },
+  { code: 'page:proc-contracts', label: '采购合同台账', description: '合同审批、分批到货与付款审批（演示原型）', groupLabel: '页面访问 · 采购与研发协同', type: 'page', routePath: '/proc-contracts', sortOrder: 275 },
+  { code: 'page:proc-suppliers', label: '供应商档案', description: '供应商主数据维护：新增/编辑/停用与资质管理（演示原型）', groupLabel: '页面访问 · 采购与研发协同', type: 'page', routePath: '/proc-suppliers', sortOrder: 276 },
+
   { code: 'page:ui-design', label: 'AI 图像生成', groupLabel: '页面访问 · AI 创作', type: 'page', routePath: '/ui-design', sortOrder: 300 },
   { code: 'page:image-library', label: '图像作品库', description: '历史创作、收藏作品与上游用量统计', groupLabel: '页面访问 · AI 创作', type: 'page', routePath: '/image-library', sortOrder: 305 },
 

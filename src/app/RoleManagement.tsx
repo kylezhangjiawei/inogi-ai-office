@@ -100,6 +100,12 @@ function getGroupIcon(label: string) {
   return FileText;
 }
 
+/** 从组标签（"页面访问 · 研发任务管理" / "操作权限 · 研发任务管理"）取模块名（· 之后的部分）。 */
+function moduleOf(label: string): string {
+  const idx = label.indexOf("·");
+  return (idx >= 0 ? label.slice(idx + 1) : label).trim();
+}
+
 function computeInitialCollapsed(
   groups: PermissionCatalogGroup[],
   selected: string[],
@@ -150,9 +156,47 @@ function PermissionMatrix({
     }
   }
 
+  // 按模块归类：把「页面访问·X / 操作权限·X」这类组，聚到同一个模块 X 下（页面权限在前、操作权限在后），
+  // 模块顺序取首次出现序（沿用后端 sortOrder），避免同一模块的页面权限与操作权限被其它模块隔开。
+  const orderedModules = useMemo(() => {
+    const order: string[] = [];
+    const byModule = new Map<string, PermissionCatalogGroup[]>();
+    for (const g of groups) {
+      const mod = moduleOf(g.label);
+      if (!byModule.has(mod)) {
+        byModule.set(mod, []);
+        order.push(mod);
+      }
+      byModule.get(mod)!.push(g);
+    }
+    const kindRank = (label: string) =>
+      label.startsWith("页面访问") ? 0 : label.startsWith("操作权限") ? 1 : 2;
+    return order.map((name) => ({
+      name,
+      groups: [...(byModule.get(name) ?? [])].sort((a, b) => kindRank(a.label) - kindRank(b.label)),
+    }));
+  }, [groups]);
+
   return (
-    <div className="space-y-2.5">
-      {groups.map((group) => {
+    <div className="space-y-5">
+      {orderedModules.map((mod) => {
+        const modCodes = mod.groups.flatMap((g) => g.permissions.map((p) => p.code));
+        const modSelected = isWildcard
+          ? modCodes.length
+          : modCodes.filter((c) => selected.includes(c)).length;
+        return (
+          <div key={mod.name}>
+            {/* 模块小标题 */}
+            <div className="mb-2 flex items-center gap-2 px-0.5">
+              <span className="h-3.5 w-1 shrink-0 rounded-full bg-indigo-400" />
+              <span className="text-sm font-bold text-slate-900">{mod.name}</span>
+              <span className="text-[11px] tabular-nums text-slate-400">
+                {modSelected}/{modCodes.length}
+              </span>
+              <span className="h-px flex-1 bg-slate-100" />
+            </div>
+            <div className="space-y-2.5">
+              {mod.groups.map((group) => {
         const groupCodes = group.permissions.map((p) => p.code);
         const selectedCount = isWildcard
           ? groupCodes.length
@@ -296,6 +340,10 @@ function PermissionMatrix({
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        );
+              })}
             </div>
           </div>
         );

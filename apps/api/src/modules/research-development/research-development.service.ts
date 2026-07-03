@@ -2450,16 +2450,18 @@ export class ResearchDevelopmentService {
       throw new BadRequestException('源任务与目标任务不在同一产品库，暂不支持跨库合并');
     }
 
-    // 迁移进度留痕：源的留痕并入目标（重写 task_id），删除源的留痕键。
+    // 迁移进度留痕：源的留痕并入目标（重写 task_id），删除源的留痕键。锁内重读写，避免与并发写竞态。
     try {
-      const noteMap = await this.getProgressNoteMap();
-      const srcNotes = asArray(noteMap[sourceId]).filter(isRecord);
-      if (srcNotes.length > 0) {
-        const rekeyed = srcNotes.map((n) => ({ ...n, task_id: targetId }));
-        noteMap[targetId] = [...rekeyed, ...asArray(noteMap[targetId]).filter(isRecord)].slice(0, 100);
-        delete noteMap[sourceId];
-        await this.writeValue('rd.taskProgressNotes', noteMap);
-      }
+      await this.withProgressNoteLock(async () => {
+        const noteMap = await this.getProgressNoteMap();
+        const srcNotes = asArray(noteMap[sourceId]).filter(isRecord);
+        if (srcNotes.length > 0) {
+          const rekeyed = srcNotes.map((n) => ({ ...n, task_id: targetId }));
+          noteMap[targetId] = [...rekeyed, ...asArray(noteMap[targetId]).filter(isRecord)].slice(0, 100);
+          delete noteMap[sourceId];
+          await this.writeValue('rd.taskProgressNotes', noteMap);
+        }
+      });
     } catch {
       // best-effort：留痕迁移失败不回滚合并主流程
     }
@@ -2815,8 +2817,9 @@ export class ResearchDevelopmentService {
     }
 
     // 保留 buffer 引用，附件保存后用于异步 AI 抽取
-    const attachmentsWithBuffers = await Promise.all(files.map(async (f) => {
-      const id = `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const attachmentsWithBuffers = await Promise.all(files.map(async (f, i) => {
+      // 同一批附件在同一同步 tick 生成，Date.now() 相同 —— 加索引 i 杜绝 id 撞车（否则前端按 id 作 key 可能错渲染）。
+      const id = `att-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`;
       const objectKey = await this.ossService.uploadBuffer(
         f.buffer,
         'rd/progress-notes',
@@ -2853,10 +2856,13 @@ export class ResearchDevelopmentService {
       created_at: new Date().toISOString(),
     };
 
-    const map = await this.getProgressNoteMap();
-    const existing = Array.isArray(map[taskId]) ? map[taskId] : [];
-    map[taskId] = [note, ...existing].slice(0, 100);
-    await this.writeValue('rd.taskProgressNotes', map);
+    // 锁内重读→插入→写回，避免与异步抽取回写/并发留痕创建发生 lost-update。
+    await this.withProgressNoteLock(async () => {
+      const map = await this.getProgressNoteMap();
+      const existing = Array.isArray(map[taskId]) ? map[taskId] : [];
+      map[taskId] = [note, ...existing].slice(0, 100);
+      await this.writeValue('rd.taskProgressNotes', map);
+    });
     await this.incrementTaskAttachmentCount(taskId, attachments.length);
 
     // L1+L2+L3 异步抽取附件文本：图片走 OCR/vision，文档走 ExtractDocBasic/doc-turbo。
@@ -3077,28 +3083,31 @@ export class ResearchDevelopmentService {
     text: string,
     source: string,
   ): Promise<void> {
-    const map = await this.getProgressNoteMap();
-    const notes = Array.isArray(map[taskId]) ? map[taskId] : [];
-    let mutated = false;
-    const updatedNotes = notes.map((n) => {
-      if (!isRecord(n) || n.id !== noteId) return n;
-      const atts = asArray(n.attachments).filter(isRecord);
-      const newAtts = atts.map((a) => {
-        if (a.id !== attachmentId) return a;
-        mutated = true;
-        return {
-          ...a,
-          extracted_text: text,
-          extracted_source: source,
-          extracted_at: new Date().toISOString(),
-        };
+    // 锁内重读→改→写，串行化附件抽取回写，避免与并发写发生 lost-update（覆盖别的留痕/附件）。
+    await this.withProgressNoteLock(async () => {
+      const map = await this.getProgressNoteMap();
+      const notes = Array.isArray(map[taskId]) ? map[taskId] : [];
+      let mutated = false;
+      const updatedNotes = notes.map((n) => {
+        if (!isRecord(n) || n.id !== noteId) return n;
+        const atts = asArray(n.attachments).filter(isRecord);
+        const newAtts = atts.map((a) => {
+          if (a.id !== attachmentId) return a;
+          mutated = true;
+          return {
+            ...a,
+            extracted_text: text,
+            extracted_source: source,
+            extracted_at: new Date().toISOString(),
+          };
+        });
+        return { ...n, attachments: newAtts };
       });
-      return { ...n, attachments: newAtts };
+      if (mutated) {
+        map[taskId] = updatedNotes;
+        await this.writeValue('rd.taskProgressNotes', map);
+      }
     });
-    if (mutated) {
-      map[taskId] = updatedNotes;
-      await this.writeValue('rd.taskProgressNotes', map);
-    }
   }
 
   private async incrementTaskAttachmentCount(taskId: string, delta: number): Promise<void> {
@@ -3135,6 +3144,23 @@ export class ResearchDevelopmentService {
 
     if (!didFind) return;
     await this.recomputeDirectorDashboard();
+  }
+
+  /**
+   * 进度留痕 map 的进程内写锁：`rd.taskProgressNotes` 是单个 JSON blob，创建留痕与异步附件抽取回写
+   * 都做「读整块→改→写整块」。抽取(OCR/视觉)耗时数秒，多个 fire-and-forget 写在各自 await 处交错会造成
+   * lost-update（后写的旧快照覆盖先写的更新）→ 留痕/附件被覆盖，出现「显示的图与刚上传的不一致」。
+   * 用一个 promise 链把所有读-改-写串行化；读必须在锁内进行，才能拿到最新快照。
+   * 注意：仅进程内串行（与现有单实例假设一致）；多实例部署需改用 DB 行级锁/乐观并发。
+   */
+  private progressNoteWriteLock: Promise<unknown> = Promise.resolve();
+  private withProgressNoteLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.progressNoteWriteLock.then(fn, fn);
+    this.progressNoteWriteLock = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 
   private async getProgressNoteMap(): Promise<Record<string, JsonRecord[]>> {

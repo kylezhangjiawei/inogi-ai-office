@@ -326,6 +326,179 @@ const archiveEmployees: EmployeeArchive[] = [
   },
 ];
 
+// ── 花名册真实导入 / 导出 / 本地持久化 ───────────────────────────────────────────
+// 主档案以「在职员工」sheet 的 34 列为准（与页面详情四组字段一一对应）。缺口按全 34 列计算
+// （备注为可选、不计缺口）。敏感字段（证件/手机/银行/社保/紧急联系人手机）仅存脱敏值，原文不落库。
+const ROSTER_COLUMNS = [
+  "序号", "隶属", "入职日期", "结算日期", "工龄", "状态", "工作地", "部门", "职务", "姓名",
+  "证件号码", "出生日期", "出生月日", "生肖", "性别", "年龄", "民族", "婚姻状况", "手机号码", "银行帐号",
+  "工资卡开户行全称", "学历", "毕业院校", "专业", "籍贯", "户籍地址", "常住地址", "紧急联系人姓名",
+  "紧急联系人关系", "紧急联系人手机", "社保号", "社保首月日期", "备注", "费用归属",
+];
+const OPTIONAL_COLUMNS = new Set(["备注"]);
+const REQUIRED_COLUMN_COUNT = ROSTER_COLUMNS.filter((c) => !OPTIONAL_COLUMNS.has(c)).length;
+const ROSTER_STORAGE_KEY = "employee-archive-roster";
+
+function maskMiddle(value: string, head: number, tail: number): string {
+  const s = (value ?? "").trim();
+  if (!s) return "";
+  if (s.length <= head + tail) return s.length <= 2 ? s : s[0] + "*".repeat(Math.max(1, s.length - 1));
+  return s.slice(0, head) + "*".repeat(Math.max(2, s.length - head - tail)) + s.slice(s.length - tail);
+}
+const maskId = (v: string) => maskMiddle(v, 3, 4);
+const maskPhone = (v: string) => (v.trim().length >= 7 ? v.trim().slice(0, 3) + "****" + v.trim().slice(-4) : v.trim());
+const maskBank = (v: string) => (v.trim().length >= 4 ? "**** **** " + v.trim().slice(-4) : v.trim());
+const maskSocial = (v: string) => maskMiddle(v, 2, 3);
+
+function deriveArchiveFromRow(get: (col: string) => string, index: number): EmployeeArchive {
+  const raw = (c: string) => get(c).trim();
+  const missingFields = ROSTER_COLUMNS.filter((c) => !OPTIONAL_COLUMNS.has(c) && !raw(c));
+  const filled = REQUIRED_COLUMN_COUNT - missingFields.length;
+  const archiveScore = Math.round((filled / REQUIRED_COLUMN_COUNT) * 100);
+  const statusText = raw("状态");
+  const archiveStatus: ArchiveStatus =
+    missingFields.length === 0
+      ? "complete"
+      : /入职|待入职/.test(statusText)
+        ? "onboarding"
+        : /试用/.test(statusText)
+          ? "review"
+          : "missing";
+
+  const today = new Date().toISOString().slice(0, 10);
+  const docOf = (title: string, source: string, cols: string[]): DocItem => {
+    const miss = cols.some((c) => !raw(c));
+    return { title, source, status: miss ? "missing" : "done", detail: miss ? "存在缺项，待补录" : "字段完整，已核对", updatedAt: today };
+  };
+  const docs: DocItem[] = [
+    docOf("身份证信息", "证件号码 / 出生日期 / 民族", ["证件号码", "出生日期", "民族", "性别"]),
+    docOf("学历与专业", "学历 / 毕业院校 / 专业", ["学历", "毕业院校", "专业"]),
+    docOf("银行卡与开户行", "银行帐号 / 工资卡开户行全称", ["银行帐号", "工资卡开户行全称"]),
+    docOf("社保首月", "社保号 / 社保首月日期", ["社保号", "社保首月日期"]),
+    docOf("紧急联系人", "紧急联系人姓名 / 关系 / 手机", ["紧急联系人姓名", "紧急联系人关系", "紧急联系人手机"]),
+  ];
+  const alerts: string[] = [];
+  if (!raw("银行帐号") || !raw("工资卡开户行全称")) alerts.push("工资卡信息缺失影响结算");
+  if (!raw("社保号") || !raw("社保首月日期")) alerts.push("社保首月字段待确认");
+  if (!raw("紧急联系人姓名")) alerts.push("紧急联系人信息未留存");
+
+  return {
+    id: `emp-${raw("序号") || index}`,
+    rosterNo: raw("序号"),
+    company: raw("隶属"),
+    hireDate: raw("入职日期"),
+    settlementDate: raw("结算日期"),
+    tenure: raw("工龄"),
+    status: statusText,
+    workLocation: raw("工作地"),
+    department: raw("部门"),
+    title: raw("职务"),
+    name: raw("姓名"),
+    idNoMasked: maskId(raw("证件号码")),
+    birthDate: raw("出生日期"),
+    birthMonthDay: raw("出生月日"),
+    zodiac: raw("生肖"),
+    gender: raw("性别"),
+    age: Number(raw("年龄")) || 0,
+    ethnicity: raw("民族"),
+    maritalStatus: raw("婚姻状况"),
+    phoneMasked: maskPhone(raw("手机号码")),
+    bankAccountMasked: maskBank(raw("银行帐号")),
+    bankBranch: raw("工资卡开户行全称"),
+    education: raw("学历"),
+    school: raw("毕业院校"),
+    major: raw("专业"),
+    hometown: raw("籍贯"),
+    registeredAddress: raw("户籍地址"),
+    currentAddress: raw("常住地址"),
+    emergencyContact: raw("紧急联系人姓名"),
+    emergencyRelation: raw("紧急联系人关系"),
+    emergencyPhoneMasked: maskPhone(raw("紧急联系人手机")),
+    socialSecurityNo: maskSocial(raw("社保号")),
+    socialSecurityFirstMonth: raw("社保首月日期"),
+    note: raw("备注"),
+    costCenter: raw("费用归属"),
+    archiveStatus,
+    archiveScore,
+    missingFields,
+    alerts,
+    docs,
+  };
+}
+
+async function parseRosterWorkbook(data: ArrayBuffer): Promise<EmployeeArchive[]> {
+  const mod = await import("xlsx");
+  const XLSX = ((mod as unknown as { default?: typeof import("xlsx") }).default ?? mod) as typeof import("xlsx");
+  const wb = XLSX.read(new Uint8Array(data), { type: "array" });
+  const wsName = wb.SheetNames.find((n) => /在职/.test(n)) ?? wb.SheetNames[0];
+  const ws = wb.Sheets[wsName];
+  if (!ws) return [];
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: false, defval: "" });
+  // 表头行：含「姓名」且含「证件」的那一行（跳过标题/合并行）
+  let hdrIdx = rows.findIndex(
+    (r) => Array.isArray(r) && r.some((c) => String(c).trim() === "姓名") && r.some((c) => String(c).includes("证件")),
+  );
+  if (hdrIdx < 0) hdrIdx = rows.findIndex((r) => Array.isArray(r) && r.some((c) => String(c).trim() === "姓名"));
+  if (hdrIdx < 0) return [];
+  const headers = (rows[hdrIdx] as unknown[]).map((h) => String(h ?? "").trim());
+  const colIndex = (name: string) => headers.findIndex((h) => h === name);
+  const out: EmployeeArchive[] = [];
+  for (let i = hdrIdx + 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!Array.isArray(r)) continue;
+    const get = (col: string) => {
+      const ci = colIndex(col);
+      return ci >= 0 ? String(r[ci] ?? "").trim() : "";
+    };
+    if (!get("姓名") && !get("序号")) continue; // 跳过空行/尾部合计行
+    out.push(deriveArchiveFromRow(get, i));
+  }
+  return out;
+}
+
+async function exportRosterChecklist(employees: EmployeeArchive[]): Promise<void> {
+  const mod = await import("xlsx");
+  const XLSX = ((mod as unknown as { default?: typeof import("xlsx") }).default ?? mod) as typeof import("xlsx");
+  const requiredCols = ROSTER_COLUMNS.filter((c) => !OPTIONAL_COLUMNS.has(c));
+  const rows = employees.map((e) => {
+    const row: Record<string, string | number> = {
+      序号: e.rosterNo,
+      姓名: e.name,
+      隶属: e.company,
+      部门: e.department,
+      职务: e.title,
+      状态: e.status,
+      归档进度: `${e.archiveScore}%`,
+      缺项数: e.missingFields.length,
+      缺项字段: e.missingFields.join("、"),
+    };
+    for (const col of requiredCols) row[col] = e.missingFields.includes(col) ? "缺" : "✓";
+    return row;
+  });
+  const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ 提示: "暂无花名册数据，请先导入花名册" }]);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "归档核对清单");
+  XLSX.writeFile(wb, `员工入职归档核对清单_${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+
+function loadStoredEmployees(): EmployeeArchive[] | null {
+  try {
+    const raw = localStorage.getItem(ROSTER_STORAGE_KEY);
+    if (!raw) return null;
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) && arr.length > 0 ? (arr as EmployeeArchive[]) : null;
+  } catch {
+    return null;
+  }
+}
+function saveStoredEmployees(list: EmployeeArchive[]): void {
+  try {
+    localStorage.setItem(ROSTER_STORAGE_KEY, JSON.stringify(list));
+  } catch {
+    /* 忽略存储配额/隐私模式异常 */
+  }
+}
+
 const statusMeta: Record<ArchiveStatus, { label: string; className: string; dotClassName: string }> = {
   complete: {
     label: "归档完成",
@@ -646,12 +819,20 @@ function StatusBadge({ status }: { status: ArchiveStatus }) {
   );
 }
 
-function ArchiveActions({ compact = false }: { compact?: boolean }) {
+function ArchiveActions({
+  compact = false,
+  onImport,
+  onExport,
+}: {
+  compact?: boolean;
+  onImport: () => void;
+  onExport: () => void;
+}) {
   return (
     <div className="flex flex-wrap items-center gap-2">
       <button
         type="button"
-        onClick={() => toast.info("导入花名册（模拟）")}
+        onClick={onImport}
         className={cn("material-button-secondary justify-center", compact && "px-3 py-2 text-xs")}
       >
         <Upload className="h-4 w-4" />
@@ -659,7 +840,7 @@ function ArchiveActions({ compact = false }: { compact?: boolean }) {
       </button>
       <button
         type="button"
-        onClick={() => toast.success("归档核对清单已生成（模拟）")}
+        onClick={onExport}
         className={cn("material-button-primary justify-center", compact && "px-3 py-2 text-xs")}
       >
         <Download className="h-4 w-4" />
@@ -1243,10 +1424,13 @@ function BadgeAvatarEditor({
 
 export function EmployeeArchivePage() {
   const avatarInputRef = useRef<HTMLInputElement>(null);
+  const rosterInputRef = useRef<HTMLInputElement>(null);
+  // 花名册数据：优先取本地已导入的，回退到内置示例；导入后写入 localStorage 持久化。
+  const [employees, setEmployees] = useState<EmployeeArchive[]>(() => loadStoredEmployees() ?? archiveEmployees);
   const [search, setSearch] = useState("");
   const [companyFilter, setCompanyFilter] = useState("全部");
   const [statusFilter, setStatusFilter] = useState<ArchiveStatus | "全部">("全部");
-  const [selectedId, setSelectedId] = useState(archiveEmployees[0].id);
+  const [selectedId, setSelectedId] = useState(() => (loadStoredEmployees() ?? archiveEmployees)[0]?.id ?? "");
   const [badgeTemplateKey, setBadgeTemplateKey] = useState<BadgeTemplateKey>("official");
   const [badgePositions, setBadgePositions] = useState<BadgeLayoutPositions>(() => createBadgeLayoutPositions());
   const [badgePositionConfirmed, setBadgePositionConfirmed] = useState<Record<BadgeTemplateKey, boolean>>(
@@ -1261,13 +1445,13 @@ export function EmployeeArchivePage() {
   const [listPage, setListPage] = useState(1);
 
   const companies = useMemo(
-    () => ["全部", ...Array.from(new Set(archiveEmployees.map((employee) => employee.company)))],
-    [],
+    () => ["全部", ...Array.from(new Set(employees.map((employee) => employee.company)))],
+    [employees],
   );
 
   const filteredEmployees = useMemo(() => {
     const keyword = search.trim().toLowerCase();
-    return archiveEmployees.filter((employee) => {
+    return employees.filter((employee) => {
       const matchesKeyword =
         !keyword ||
         [
@@ -1286,13 +1470,44 @@ export function EmployeeArchivePage() {
       const matchesStatus = statusFilter === "全部" || employee.archiveStatus === statusFilter;
       return matchesKeyword && matchesCompany && matchesStatus;
     });
-  }, [companyFilter, search, statusFilter]);
+  }, [companyFilter, search, statusFilter, employees]);
 
   useEffect(() => {
     setListPage(1);
   }, [companyFilter, search, statusFilter]);
 
-  const selected = archiveEmployees.find((employee) => employee.id === selectedId) ?? archiveEmployees[0];
+  const selected = employees.find((employee) => employee.id === selectedId) ?? employees[0];
+
+  // 导入花名册：前端解析 xlsx（在职员工 34 列），按全 34 列核对缺口，写入本地持久化。
+  const handleRosterImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const parsed = await parseRosterWorkbook(await file.arrayBuffer());
+      if (parsed.length === 0) {
+        toast.error("未从花名册解析到有效记录，请检查表头是否含「姓名 / 证件号码」");
+        return;
+      }
+      setEmployees(parsed);
+      saveStoredEmployees(parsed);
+      setSelectedId(parsed[0].id);
+      setListPage(1);
+      setCompanyFilter("全部");
+      setStatusFilter("全部");
+      toast.success(`已导入 ${parsed.length} 名员工，按 34 列主档案完成字段核对`);
+    } catch (err) {
+      toast.error(err instanceof Error ? `导入失败：${err.message}` : "导入失败，请确认文件为 .xlsx 花名册");
+    }
+  };
+  const handleChecklistExport = async () => {
+    try {
+      await exportRosterChecklist(employees);
+      toast.success("归档核对清单已导出");
+    } catch {
+      toast.error("导出失败，请重试");
+    }
+  };
   const badgeEmployeeId = getBadgeEmployeeId(selected);
   const activeBadgeTemplate = getBadgeTemplate(badgeTemplateKey);
   const activeBadgePositions = badgePositions[badgeTemplateKey];
@@ -1405,12 +1620,12 @@ export function EmployeeArchivePage() {
   );
 
   const stats = useMemo(() => {
-    const total = archiveEmployees.length;
-    const completed = archiveEmployees.filter((employee) => employee.archiveStatus === "complete").length;
-    const needsAction = archiveEmployees.filter((employee) => employee.archiveStatus !== "complete").length;
-    const missing = archiveEmployees.reduce((sum, employee) => sum + employee.missingFields.length, 0);
+    const total = employees.length;
+    const completed = employees.filter((employee) => employee.archiveStatus === "complete").length;
+    const needsAction = employees.filter((employee) => employee.archiveStatus !== "complete").length;
+    const missing = employees.reduce((sum, employee) => sum + employee.missingFields.length, 0);
     return { total, completed, needsAction, missing };
-  }, []);
+  }, [employees]);
 
   const statusFilters: Array<{ key: ArchiveStatus | "全部"; label: string }> = [
     { key: "全部", label: "全部状态" },
@@ -1575,6 +1790,13 @@ export function EmployeeArchivePage() {
         className="hidden"
         onChange={handleBadgeAvatarFileChange}
       />
+      <input
+        ref={rosterInputRef}
+        type="file"
+        accept=".xlsx,.xls"
+        className="hidden"
+        onChange={handleRosterImport}
+      />
       {view === "list" ? (
         <div className="flex min-h-0 flex-1 flex-col gap-3">
           <section className="grid shrink-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -1615,7 +1837,7 @@ export function EmployeeArchivePage() {
                         className="material-input pl-11"
                       />
                     </div>
-                    <ArchiveActions compact />
+                    <ArchiveActions compact onImport={() => rosterInputRef.current?.click()} onExport={handleChecklistExport} />
 
                     <div className="flex flex-wrap gap-2">
                       {companies.map((company) => (
@@ -1850,7 +2072,7 @@ export function EmployeeArchivePage() {
                   <Pencil className="h-4 w-4" />
                   编辑字段
                 </button>
-                <ArchiveActions compact />
+                <ArchiveActions compact onImport={() => rosterInputRef.current?.click()} onExport={handleChecklistExport} />
               </div>
             </div>
           </div>

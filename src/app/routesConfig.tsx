@@ -134,6 +134,16 @@ export const navGroups: NavGroup[] = [
     ],
   },
   {
+    label: "采购与研发协同",
+    items: [
+      { label: "流程总览", path: "/proc-overview", icon: Waypoints, requiredPermission: "page:proc-overview" },
+      { label: "研发任务驾驶舱（演示版）", path: "/proc-rd-dashboard", icon: LayoutDashboard, requiredPermission: "page:proc-rd-dashboard" },
+      { label: "采购工作台", path: "/proc-workbench", icon: ShoppingCart, requiredPermission: "page:proc-workbench" },
+      { label: "采购合同台账", path: "/proc-contracts", icon: ScrollText, requiredPermission: "page:proc-contracts" },
+      { label: "供应商档案", path: "/proc-suppliers", icon: Building2, requiredPermission: "page:proc-suppliers" },
+    ],
+  },
+  {
     label: "AI 创作",
     items: [
       { label: "AI 图像生成", path: "/ui-design", icon: Wand2, requiredPermission: "page:ui-design" },

@@ -17,6 +17,11 @@ export const PERMISSIONS = {
   PAGE_PURCHASE_ORDERS: 'page:purchase-orders',
   PAGE_PURCHASE_ORDER_DETAIL: 'page:purchase-order-detail',
   PAGE_INVENTORY_MANAGEMENT: 'page:inventory-management',
+  PAGE_PROC_OVERVIEW: 'page:proc-overview',
+  PAGE_PROC_RD_DASHBOARD: 'page:proc-rd-dashboard',
+  PAGE_PROC_WORKBENCH: 'page:proc-workbench',
+  PAGE_PROC_CONTRACTS: 'page:proc-contracts',
+  PAGE_PROC_SUPPLIERS: 'page:proc-suppliers',
   PAGE_RESUME_SCREENING: 'page:resume-screening',
   PAGE_EMPLOYEE_ARCHIVE: 'page:employee-archive',
   PAGE_QUICK_CAPTURE: 'page:quick-capture',
@@ -209,6 +214,16 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { code: 'page:purchase-orders', label: '采购订单', description: '采购订单导入、过滤查询与到货跟踪' },
       { code: 'page:purchase-order-detail', label: '采购订单详情', description: '查看采购订单明细、供应商、履约、结算与备注信息' },
       { code: 'page:inventory-management', label: '库存管理', description: '库存台账、入库登记、预警商品与出入库记录' },
+    ],
+  },
+  {
+    label: '页面访问 · 采购与研发协同',
+    permissions: [
+      { code: 'page:proc-overview', label: '采购协同流程总览', description: '采购与研发协同全流程图与方案确认（演示原型）' },
+      { code: 'page:proc-rd-dashboard', label: '研发任务驾驶舱（演示版）', description: '研发任务转采购询价演示入口（演示原型）' },
+      { code: 'page:proc-workbench', label: '采购工作台', description: '采购需求询价、打样、测试、定价全流程（演示原型）' },
+      { code: 'page:proc-contracts', label: '采购合同台账', description: '合同审批、分批到货与付款审批（演示原型）' },
+      { code: 'page:proc-suppliers', label: '供应商档案', description: '供应商主数据维护（演示原型）' },
     ],
   },
   {
