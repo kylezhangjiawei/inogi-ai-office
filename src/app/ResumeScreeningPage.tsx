@@ -1,7 +1,9 @@
 import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertCircle,
+  Award,
   Bot,
+  Briefcase,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -9,18 +11,21 @@ import {
   Database,
   Download,
   FileUp,
+  GraduationCap,
   FolderUp,
   Loader2,
   Mail,
+  MapPin,
   MessageSquarePlus,
+  Phone,
   RefreshCw,
   Send,
   Search,
   ShieldCheck,
   Sparkles,
+  Target,
   Trash2,
   Upload,
-  User,
   UserRoundSearch,
   X,
 } from "lucide-react";
@@ -295,6 +300,12 @@ function formatDateParts(value?: string | null) {
   };
 }
 
+function compactReportText(value: string, maxLength = 220) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength).trim()}...`;
+}
+
 function csvEscape(value: string) {
   if (/[",\r\n]/.test(value)) {
     return `"${value.replace(/"/g, '""')}"`;
@@ -541,25 +552,6 @@ function formatPatchValue(value: unknown) {
   return String(value ?? "");
 }
 
-function FieldRow({
-  label,
-  value,
-  className,
-  valueClassName,
-}: {
-  label: string;
-  value?: string | null;
-  className?: string;
-  valueClassName?: string;
-}) {
-  return (
-    <div className={cn("material-neu-inset grid gap-2 rounded-lg px-4 py-3 sm:grid-cols-[60px_1fr]", className)}>
-      <div className="text-sm font-medium text-slate-600">{label}</div>
-      <div className={cn("min-w-0 text-sm text-slate-800", valueClassName)}>{value?.trim() ? value : "-"}</div>
-    </div>
-  );
-}
-
 function OverflowTooltipText({
   text,
   className,
@@ -689,7 +681,9 @@ export function ResumeScreeningPage() {
   const [showFilterDialog, setShowFilterDialog] = useState(false);
   const [selectedCandidateId, setSelectedCandidateId] = useState<string>("");
   const [selectedCandidate, setSelectedCandidate] = useState<CandidateDetail | null>(null);
+  const [candidateDetailDialogOpen, setCandidateDetailDialogOpen] = useState(false);
   const [interviewQaExpanded, setInterviewQaExpanded] = useState(false);
+  const [screeningHistoryExpanded, setScreeningHistoryExpanded] = useState(false);
   const [loadingDetail, setLoadingDetail] = useState(false);
   const [candidateAiQuestion, setCandidateAiQuestion] = useState("");
   const [candidateAiMessagesById, setCandidateAiMessagesById] = useState<Record<string, CandidateAiChatMessage[]>>({});
@@ -937,6 +931,7 @@ export function ResumeScreeningPage() {
 
   useEffect(() => {
     setInterviewQaExpanded(false);
+    setScreeningHistoryExpanded(false);
     setCandidateAiQuestion("");
     if (!selectedCandidateId) {
       setSelectedCandidate(null);
@@ -1332,7 +1327,7 @@ export function ResumeScreeningPage() {
       }
       setSelectedCandidateId((current) => {
         if (current && next.some((item) => item.id === current)) return current;
-        return next[0]?.id ?? "";
+        return "";
       });
     } catch (error) {
       if (!options.silent) {
@@ -1578,6 +1573,16 @@ export function ResumeScreeningPage() {
     setCandidatePage(0);
   }
 
+  function openCandidateDetail(candidateId: string) {
+    setScreeningHistoryExpanded(false);
+    if (selectedCandidateId !== candidateId) {
+      setSelectedCandidate(null);
+      setInterviewQaExpanded(false);
+    }
+    setSelectedCandidateId(candidateId);
+    setCandidateDetailDialogOpen(true);
+  }
+
   async function handleExportCandidates() {
     setExportingCandidates(true);
     try {
@@ -1670,6 +1675,7 @@ export function ResumeScreeningPage() {
         setSelectedCandidateId("");
         setSelectedCandidate(null);
         setInterviewQaExpanded(false);
+        setScreeningHistoryExpanded(false);
       }
       if (candidateAiDialogId && succeeded.has(candidateAiDialogId)) {
         setCandidateAiDialogId(null);
@@ -1694,6 +1700,7 @@ export function ResumeScreeningPage() {
         setSelectedCandidateId("");
         setSelectedCandidate(null);
         setInterviewQaExpanded(false);
+        setScreeningHistoryExpanded(false);
       }
       if (candidateAiDialogId === candidateId) {
         setCandidateAiDialogId(null);
@@ -2003,6 +2010,136 @@ export function ResumeScreeningPage() {
   const activeScreening = selectedCandidate?.active_screening ?? selectedCandidate?.screenings?.[0];
   const activeScreeningTags = buildScreeningTags(activeScreening ?? null);
   const activeDimensionEntries = getDimensionEntries(activeScreening ?? null);
+  const selectedCandidateProfile = selectedCandidate?.parsed_candidate_profile;
+  const reportSummary =
+    selectedCandidateProfile?.work_summary?.trim() ||
+    activeScreening?.summary?.trim() ||
+    "暂无摘要";
+  const reportHighlights = reportSummary
+    .split(/[\n。；;]/)
+    .map((item) => item.trim())
+    .filter(Boolean)
+    .slice(0, 5);
+  const reportCompetencies = (
+    activeScreeningTags.length
+      ? activeScreeningTags
+      : (selectedCandidateProfile?.language_skills?.filter(Boolean) ?? [])
+  ).slice(0, 10);
+  const reportStrengths = activeScreening?.matched_points?.filter(Boolean).slice(0, 7) ?? [];
+  const reportGaps = activeScreening?.risks?.filter(Boolean).slice(0, 7) ?? [];
+  const reportScore = typeof activeScreening?.score === "number" ? Math.max(0, Math.min(100, Math.round(activeScreening.score))) : null;
+  const reportScoreTen = reportScore == null ? null : Math.max(0, Math.min(10, Math.round(reportScore / 10)));
+  const reportRole =
+    selectedCandidateProfile?.target_job ||
+    selectedCandidateProfile?.recent_title ||
+    activeScreening?.ai_job ||
+    "岗位待确认";
+  const reportCompany = selectedCandidateProfile?.recent_company || selectedCandidate?.source_subject || "最近经历待确认";
+  const reportLocation = selectedCandidateProfile?.city || selectedCandidateProfile?.target_city || selectedCandidateProfile?.hukou || "-";
+  const reportDecision = activeScreening?.decision ? decisionMeta[activeScreening.decision] : null;
+  const reportGrade =
+    reportScore == null
+      ? "待评估"
+      : reportScore >= 80
+        ? "优先沟通"
+        : reportScore >= 60
+          ? "建议复核"
+          : "谨慎推进";
+  const reportGradeClass =
+    reportScore == null
+      ? "border-slate-200 bg-slate-50 text-slate-600"
+      : reportScore >= 80
+        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+        : reportScore >= 60
+          ? "border-amber-200 bg-amber-50 text-amber-700"
+          : "border-rose-200 bg-rose-50 text-rose-700";
+  const reportBrief = compactReportText(reportSummary, 260);
+  const reportProfileRows = [
+    { label: "目标岗位", value: reportRole, Icon: Target },
+    { label: "最近职位", value: selectedCandidateProfile?.recent_title || "-", Icon: Briefcase },
+    { label: "最近公司", value: selectedCandidateProfile?.recent_company || "-", Icon: Database },
+    { label: "工作年限", value: selectedCandidateProfile?.years_experience || "-", Icon: Clock3 },
+    { label: "学历", value: selectedCandidateProfile?.education || "-", Icon: GraduationCap },
+    { label: "城市", value: reportLocation, Icon: MapPin },
+  ];
+  const reportContactRows = [
+    { label: "邮箱", value: selectedCandidateProfile?.email || "-", Icon: Mail },
+    { label: "电话", value: selectedCandidateProfile?.phone || "-", Icon: Phone },
+    { label: "来源", value: selectedCandidate?.source_sender_email || selectedCandidate?.source_sender_name || "-", Icon: FileUp },
+    { label: "收件", value: formatDate(selectedCandidate?.received_at), Icon: Clock3 },
+  ];
+  const reportDimensionRows = (
+    activeDimensionEntries.length
+      ? activeDimensionEntries
+      : [
+          { key: "target", label: "岗位匹配", score: reportScore ?? 0, reason: "待补充维度说明", valueLabel: "" },
+          { key: "experience", label: "经验匹配", score: reportScore ?? 0, reason: "待补充维度说明", valueLabel: "" },
+          { key: "risk", label: "风险控制", score: Math.max(0, 100 - reportGaps.length * 18), reason: "按当前风险条目粗略估算", valueLabel: "" },
+        ]
+  ).slice(0, 6);
+  const reportActionLabel =
+    activeScreening?.decision === "recommend"
+      ? "建议进入电话初筛"
+      : activeScreening?.decision === "hold"
+        ? "建议人工复核"
+        : activeScreening?.decision === "reject"
+          ? "建议暂不推进"
+          : "等待筛选结论";
+  const reportActionPanelClass =
+    activeScreening?.decision === "recommend"
+      ? "border-emerald-200 bg-emerald-50/75"
+      : activeScreening?.decision === "hold"
+        ? "border-amber-200 bg-amber-50/75"
+        : activeScreening?.decision === "reject"
+          ? "border-rose-200 bg-rose-50/75"
+          : "border-slate-200 bg-slate-50";
+  const reportActionTextClass =
+    activeScreening?.decision === "recommend"
+      ? "text-emerald-800"
+      : activeScreening?.decision === "hold"
+        ? "text-amber-800"
+        : activeScreening?.decision === "reject"
+          ? "text-rose-800"
+          : "text-slate-700";
+  const reportPrimaryReason =
+    reportGaps[0] ||
+    reportStrengths[0] ||
+    activeScreening?.summary?.trim() ||
+    "暂无明确原因";
+  const reportConstraintRows = [
+    { label: "年龄/出生", value: selectedCandidateProfile?.birth_or_age || "-" },
+    { label: "薪资期望", value: selectedCandidateProfile?.salary_expectation || "-" },
+    { label: "目标城市", value: selectedCandidateProfile?.target_city || reportLocation },
+    { label: "户籍", value: selectedCandidateProfile?.hukou || "-" },
+  ];
+  const reportJudgementCards = [
+    { label: "建议动作", value: reportActionLabel, helper: reportGrade, tone: reportActionTextClass },
+    { label: "主要依据", value: compactReportText(reportPrimaryReason, 54), helper: reportGaps.length ? "风险优先" : "命中优先", tone: "text-slate-800" },
+    { label: "下一步", value: activeScreening?.next_step ? "可继续沟通" : "先复核硬性条件", helper: activeScreening?.next_step ? "进入流程" : "暂停推进", tone: "text-blue-800" },
+  ];
+  const reportMissingInfo = [
+    !selectedCandidateProfile?.phone ? "电话号码" : "",
+    !selectedCandidateProfile?.email ? "邮箱" : "",
+    !selectedCandidateProfile?.salary_expectation ? "薪资期望" : "",
+    !selectedCandidateProfile?.years_experience ? "工作年限" : "",
+    !selectedCandidateProfile?.target_city ? "目标城市" : "",
+  ].filter(Boolean);
+  const reportReviewQuestions = [
+    reportGaps[0] ? `确认：${reportGaps[0]}` : `${reportRole} 的硬性筛选条件是否必须满足？`,
+    reportStrengths[0] ? `追问：${reportStrengths[0]} 是否有可验证项目案例？` : "最近一段经历中有哪些可量化交付？",
+    "电话沟通到岗时间、薪资区间与工作地点接受度。",
+  ];
+  const reportDecisionStats = [
+    { label: "评分", value: reportScore ?? "--", helper: "AI 初筛", tone: "text-blue-800" },
+    { label: "风险", value: reportGaps.length, helper: "需优先核实", tone: "text-rose-700" },
+    { label: "命中", value: reportStrengths.length, helper: "可验证亮点", tone: "text-emerald-700" },
+  ];
+  const reportTopFacts = [
+    { label: "目标岗位", value: reportRole },
+    { label: "最近公司", value: reportCompany },
+    { label: "城市", value: reportLocation },
+    { label: "薪资期望", value: selectedCandidateProfile?.salary_expectation || "-" },
+  ];
   const candidateAiTarget =
     (candidateAiDialogId ? candidates.find((candidate) => candidate.id === candidateAiDialogId) : null) ??
     selectedCandidate;
@@ -2648,7 +2785,7 @@ export function ResumeScreeningPage() {
         </DialogContent>
       </Dialog>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(400px,0.85fr)]">
+      <div className="grid gap-5">
         <section className="material-panel material-neu-panel flex flex-col overflow-hidden !px-0 !py-6">
           <div className="flex flex-wrap items-start justify-between gap-4 px-5">
             <div>
@@ -2842,7 +2979,7 @@ export function ResumeScreeningPage() {
                 <MuiTable
                   stickyHeader
                   sx={{
-                    minWidth: canDeleteCandidate ? 1158 : 1042,
+                    minWidth: canDeleteCandidate ? 1248 : 1110,
                     tableLayout: "fixed",
                     "& .MuiTableCell-root": {
                       boxSizing: "border-box",
@@ -2868,7 +3005,7 @@ export function ResumeScreeningPage() {
                     <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 178 }}>基本信息</MuiTableCell>
                     <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 104 }}>状态</MuiTableCell>
                     <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: 124 }}>收件时间</MuiTableCell>
-                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: canDeleteCandidate ? 200 : 132, pr: 2.5 }}>操作</MuiTableCell>
+                    <MuiTableCell sx={{ ...muiTableHeaderCellSx, width: canDeleteCandidate ? 280 : 210, pr: 2.5 }}>操作</MuiTableCell>
                   </MuiTableRow>
                 </MuiTableHead>
                 <MuiTableBody>
@@ -2889,16 +3026,7 @@ export function ResumeScreeningPage() {
                     return (
                       <MuiTableRow
                         key={candidate.id}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => setSelectedCandidateId(candidate.id)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault();
-                            setSelectedCandidateId(candidate.id);
-                          }
-                        }}
-                        className="cursor-pointer transition-colors"
+                        className="transition-colors"
                         sx={{
                           background: selected
                             ? "linear-gradient(145deg, rgba(216,234,253,0.92), rgba(246,250,255,0.96))"
@@ -2997,6 +3125,17 @@ export function ResumeScreeningPage() {
                               type="button"
                               onClick={(event) => {
                                 event.stopPropagation();
+                                openCandidateDetail(candidate.id);
+                              }}
+                              className="material-table-button inline-flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-[4px] px-3 text-xs font-semibold transition"
+                            >
+                              <UserRoundSearch className="h-3.5 w-3.5" />
+                              详情
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
                                 setSelectedCandidateId(candidate.id);
                                 setCandidateAiDialogId(candidate.id);
                                 setCandidateAiQuestion("");
@@ -3082,254 +3221,507 @@ export function ResumeScreeningPage() {
             ) : null}
           </div>
         </section>
+      </div>
 
-        <section className="material-panel material-neu-panel rounded-[var(--m3-shape-extra-large)] px-5 py-6 xl:sticky xl:top-5 xl:self-start">
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-semibold tracking-tight text-slate-950">候选人详情</h2>
-              <p className="mt-2 text-base text-slate-500">查看解析画像、筛选结论、命中点和风险说明。</p>
-            </div>
-            <div className="material-neu-chip rounded-[4px] px-4 py-2 text-sm font-medium text-slate-700">
-              <UserRoundSearch className="mr-2 inline h-4 w-4" />
-              详情面板
+      <Dialog
+        open={candidateDetailDialogOpen}
+        onOpenChange={(open) => {
+          setCandidateDetailDialogOpen(open);
+          if (!open) {
+            setScreeningHistoryExpanded(false);
+          }
+        }}
+      >
+        <DialogContent className="resume-screening-surface flex h-[88vh] w-[calc(100vw-28px)] sm:max-w-[1180px] grid-rows-none flex-col overflow-hidden rounded-[var(--m3-shape-extra-large)] border border-slate-200 bg-[#f6f8fb] p-0 shadow-[0_24px_72px_rgba(15,23,42,0.22)] [&>button]:right-5 [&>button]:top-5 [&>button]:rounded-[4px] [&>button]:bg-white [&>button]:p-2 [&>button]:shadow-sm">
+          <div className="border-b border-slate-200 bg-white px-5 py-4 sm:px-6">
+            <div className="min-w-0 pr-12">
+              <div className="text-xs font-semibold tracking-[0.16em] text-slate-400">候选人评估报告</div>
+              <DialogTitle className="mt-1 text-xl font-semibold tracking-tight text-slate-950">
+                {selectedCandidateProfile?.name || "候选人详情"}
+              </DialogTitle>
+              <DialogDescription className="mt-1 text-sm text-slate-500">
+                聚合简历解析、AI 初筛结论、命中点与风险，用于快速复核是否推进下一步。
+              </DialogDescription>
             </div>
           </div>
 
-          <div className="material-scrollbar mt-6 max-h-[920px] space-y-4 overflow-y-auto pr-2">
+          <div className="material-scrollbar min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-5">
             {loadingDetail ? (
-              <div className="rounded-xl border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
-                <Loader2 className="mx-auto mb-2 h-4 w-4 animate-spin" />
+              <div className="flex h-full min-h-[420px] flex-col items-center justify-center rounded-[8px] border border-dashed border-slate-300 bg-white text-sm text-slate-400">
+                <Loader2 className="mb-2 h-4 w-4 animate-spin" />
                 正在加载候选人详情...
               </div>
-            ) : !selectedCandidate ? (
-              <div className="rounded-xl border border-dashed border-slate-200 px-4 py-12 text-center text-sm text-slate-400">
-                请选择左侧候选人查看详情
+            ) : !selectedCandidate || !selectedCandidateProfile ? (
+              <div className="flex h-full min-h-[420px] items-center justify-center rounded-[8px] border border-dashed border-slate-300 bg-white text-sm text-slate-400">
+                请从候选人列表点击“详情”查看画像报告
               </div>
             ) : (
-              <>
-                <div className="material-neu-card rounded-lg px-5 py-5">
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div className="flex items-start gap-4">
-                      <div className="material-neu-icon-surface flex h-18 w-18 shrink-0 items-center justify-center overflow-hidden rounded-lg text-2xl font-semibold text-indigo-700">
-                        {selectedCandidate.parsed_candidate_profile.avatar_url ? (
+              <article className="mx-auto flex max-w-[1120px] flex-col gap-4">
+                <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+                  <section className="rounded-[8px] border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                      <div className="h-24 w-24 shrink-0 overflow-hidden rounded-[8px] border border-slate-200 bg-slate-100">
+                        {selectedCandidateProfile.avatar_url ? (
                           <ImageWithFallback
-                            src={selectedCandidate.parsed_candidate_profile.avatar_url}
-                            alt={selectedCandidate.parsed_candidate_profile.name || "候选人头像"}
+                            src={selectedCandidateProfile.avatar_url}
+                            alt={selectedCandidateProfile.name || "候选人头像"}
                             className="h-full w-full object-cover"
                           />
                         ) : (
-                          <User className="h-8 w-8 text-indigo-500" />
+                          <div className="flex h-full w-full items-center justify-center bg-blue-50 text-3xl font-semibold text-blue-800">
+                            {(selectedCandidateProfile.name || "?").slice(0, 1)}
+                          </div>
                         )}
                       </div>
-                      <div>
-                        <div className="text-2xl font-semibold text-slate-900">
-                          {selectedCandidate.parsed_candidate_profile.name || "未命名候选人"}
+                      <div className="min-w-0 flex-1">
+                        <div className="text-xs font-semibold tracking-[0.14em] text-slate-400">候选人画像</div>
+                        <div className="mt-1 flex flex-wrap items-center gap-2">
+                          <h2 className="truncate text-2xl font-semibold tracking-tight text-slate-950">
+                            {selectedCandidateProfile.name || "未命名候选人"}
+                          </h2>
+                          <span className={cn("inline-flex rounded-[4px] border px-2.5 py-1 text-xs font-semibold", reportGradeClass)}>
+                            {reportGrade}
+                          </span>
                         </div>
-                        <div className="mt-2 text-sm text-slate-500">
-                          {selectedCandidate.source_sender_name || selectedCandidate.source_sender_email ? "招聘专员：" : ""} {selectedCandidate.source_sender_name || selectedCandidate.source_sender_email || "-"}
-                        </div>
-                        <div className="mt-1 text-xs text-slate-400">{selectedCandidate.source_subject || "-"}</div>
+                        <p className="mt-1 text-sm font-semibold text-blue-700">{reportRole}</p>
+                        <p className="mt-1 truncate text-xs text-slate-400">{reportCompany}</p>
+                        <p className="mt-3 line-clamp-3 text-sm leading-6 text-slate-600">{reportBrief}</p>
                       </div>
                     </div>
-                    {activeScreening?.decision ? (
-                      <span className={cn("inline-flex rounded-[4px] px-3 py-1 text-xs font-semibold", decisionMeta[activeScreening.decision].classes)}>
-                        {decisionMeta[activeScreening.decision].label}
-                      </span>
-                    ) : null}
-                  </div>
-
-                  <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                    <FieldRow label="目标岗位" value={selectedCandidate.parsed_candidate_profile.target_job} />
-                    <FieldRow label="目标城市" value={selectedCandidate.parsed_candidate_profile.target_city} />
-                    <FieldRow label="学历" value={selectedCandidate.parsed_candidate_profile.education} />
-                    <FieldRow label="工作年限" value={selectedCandidate.parsed_candidate_profile.years_experience} />
-                    <FieldRow label="最近公司" value={selectedCandidate.parsed_candidate_profile.recent_company} />
-                    <FieldRow label="最近职位" value={selectedCandidate.parsed_candidate_profile.recent_title} />
-                  </div>
-                </div>
-
-                <div className="material-neu-card rounded-lg px-5 py-5">
-                  <div className="text-sm font-semibold text-slate-500">候选人摘要</div>
-                  <div className="mt-3 whitespace-pre-wrap text-sm leading-7 text-slate-700">
-                    {selectedCandidate.parsed_candidate_profile.work_summary?.trim() || activeScreening?.summary?.trim() || "暂无摘要"}
-                  </div>
-                </div>
-
-                <div className="material-neu-card rounded-lg px-5 py-5">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-slate-500">标签化画像</div>
-                      <div className="mt-1 text-xs text-slate-400">从 AI 初筛中提取的筛选结论、能力短板和匹配标签。</div>
+                    <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                      {reportTopFacts.map((item) => (
+                        <div key={item.label} className="min-w-0 rounded-[6px] bg-slate-50 px-3 py-2">
+                          <div className="text-[11px] text-slate-400">{item.label}</div>
+                          <div className="mt-1 truncate text-sm font-semibold text-slate-800">{item.value}</div>
+                        </div>
+                      ))}
                     </div>
-                    <div className="material-neu-chip rounded-[4px] px-3 py-1 text-xs font-medium text-slate-500">
-                      {activeScreeningTags.length} 个标签
-                    </div>
-                  </div>
+                  </section>
 
-                  <div className="mt-4 flex flex-wrap gap-2">
-                    {activeScreeningTags.length ? (
-                      activeScreeningTags.map((tag) => (
-                        <span key={tag} className="inline-flex rounded-[4px] bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">
-                          {tag}
+                  <section className={cn("rounded-[8px] border p-4 shadow-sm", reportActionPanelClass)}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-semibold tracking-[0.14em] text-slate-400">当前判断</span>
+                      {reportDecision ? (
+                        <span className={cn("inline-flex rounded-[4px] px-2.5 py-1 text-xs font-semibold", reportDecision.classes)}>
+                          {reportDecision.label}
                         </span>
-                      ))
-                    ) : (
-                      <span className="text-sm text-slate-400">暂无标签，后续筛选结果会自动生成。</span>
-                    )}
-                  </div>
-
-                  <div className="mt-5 grid gap-3 md:grid-cols-2">
-                    {activeDimensionEntries.length ? (
-                      activeDimensionEntries.map((item) => (
-                        <div key={item.key} className="material-neu-inset rounded-lg px-4 py-3">
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="text-sm font-semibold text-slate-700">{item.label}</div>
-                            <div className="text-sm font-semibold text-slate-900">{item.score}</div>
-                          </div>
-                          <div className="mt-2 h-2 overflow-hidden rounded-[4px] bg-white shadow-[inset_2px_2px_5px_rgba(148,163,184,0.22)]">
-                            <div className="h-full rounded-[4px] bg-indigo-500" style={{ width: `${Math.max(0, Math.min(100, item.score))}%` }} />
-                          </div>
-                          <div className="mt-2 text-xs leading-5 text-slate-500">
-                            {item.valueLabel ? `${item.valueLabel}：` : ""}{item.reason || "暂无说明"}
-                          </div>
+                      ) : null}
+                      {activeScreening?.model_name ? (
+                        <span className="inline-flex rounded-[4px] border border-white/80 bg-white/70 px-2.5 py-1 text-xs font-medium text-slate-500">
+                          {activeScreening.model_name}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div className={cn("mt-2 text-2xl font-semibold tracking-tight", reportActionTextClass)}>
+                      {reportActionLabel}
+                    </div>
+                    <p className="mt-2 line-clamp-3 text-sm leading-6 text-slate-600">
+                      {activeScreening?.summary?.trim() || reportBrief}
+                    </p>
+                    <div className="mt-4 grid grid-cols-3 overflow-hidden rounded-[6px] border border-slate-100 bg-white/80">
+                      {reportDecisionStats.map((item, index) => (
+                        <div key={item.label} className={cn("px-3 py-3 text-center", index > 0 && "border-l border-slate-100")}>
+                          <div className={cn("text-xl font-semibold", item.tone)}>{item.value}</div>
+                          <div className="mt-0.5 text-xs text-slate-400">{item.label}</div>
+                          <div className="mt-1 truncate text-[11px] text-slate-400">{item.helper}</div>
                         </div>
-                      ))
-                    ) : (
-                      <div className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-sm text-slate-400 md:col-span-2">
-                        暂无维度评分，后续筛选结果会自动生成。
+                      ))}
+                    </div>
+                    <div className="mt-3 grid grid-cols-[64px_minmax(0,1fr)] items-center gap-3 rounded-[6px] bg-white/65 px-3 py-2.5">
+                      <div
+                        className="flex h-12 w-12 items-center justify-center rounded-full"
+                        style={{ background: `conic-gradient(#2563eb ${reportScore ?? 0}%, #dbeafe 0)` }}
+                      >
+                        <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-sm font-semibold text-blue-950">
+                          {reportScoreTen ?? "-"}<span className="text-[10px]">/10</span>
+                        </div>
                       </div>
-                    )}
-                  </div>
-                </div>
+                      <div className="min-w-0">
+                        <div className="text-xs text-slate-500">综合匹配度</div>
+                        <div className="mt-0.5 text-lg font-semibold text-slate-950">{reportScore ?? "--"}</div>
+                      </div>
+                    </div>
+                  </section>
+                </section>
 
-                <div className="material-neu-card rounded-lg px-5 py-5">
-                  <button
-                    type="button"
-                    onClick={() => setInterviewQaExpanded((current) => !current)}
-                    className="flex w-full flex-wrap items-center justify-between gap-3 text-left"
-                  >
-                    <div>
-                      <div className="text-sm font-semibold text-slate-500">追问准备</div>
-                      <div className="mt-1 text-xs text-slate-400">结合当前 JD 和候选人简历自动生成 5 条面试问答</div>
+                <div className="grid gap-4 lg:grid-cols-[284px_minmax(0,1fr)]">
+                  <aside className="space-y-4">
+                    <section className="rounded-[8px] border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-950">
+                      <UserRoundSearch className="h-4 w-4 text-blue-700" />
+                      基础画像
                     </div>
-                    <div className="inline-flex items-center gap-2 text-xs font-medium text-slate-500">
-                      {interviewQaExpanded ? "收起" : "展开"}
-                      {interviewQaExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    <div className="space-y-1.5">
+                      {reportProfileRows.map((item) => (
+                        <div key={item.label} className="grid grid-cols-[18px_72px_minmax(0,1fr)] items-start gap-2 rounded-[6px] px-2 py-1.5 hover:bg-slate-50">
+                          <item.Icon className="mt-0.5 h-3.5 w-3.5 text-slate-400" />
+                          <span className="text-xs text-slate-400">{item.label}</span>
+                          <span className="min-w-0 break-words text-xs font-medium leading-5 text-slate-700">{item.value}</span>
+                        </div>
+                      ))}
                     </div>
-                  </button>
-                  <div className={cn("overflow-hidden transition-all duration-200", interviewQaExpanded ? "mt-4 max-h-[2200px] opacity-100" : "max-h-0 opacity-0")}>
-                    {selectedCandidate.interview_qa?.length ? (
-                      <div className="space-y-3">
-                        {selectedCandidate.interview_qa.map((item, index) => (
-                          <div key={`${item.question}-${index}`} className="material-neu-inset rounded-lg px-4 py-4">
-                            <div className="text-sm font-semibold text-slate-900">
-                              Q{index + 1}. {item.question}
-                            </div>
-                            <div className="mt-3 rounded-lg bg-white/80 px-4 py-3 text-sm leading-7 text-slate-700 shadow-[inset_2px_2px_6px_rgba(148,163,184,0.12)]">
-                              <span className="mr-2 font-semibold text-slate-500">参考答</span>
-                              {item.answer}
-                            </div>
+                  </section>
+
+                  <section className="rounded-[8px] border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-950">
+                      <Target className="h-4 w-4 text-blue-700" />
+                      关键约束
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      {reportConstraintRows.map((item) => (
+                        <div key={item.label} className="min-w-0 rounded-[6px] bg-slate-50 px-3 py-2">
+                          <div className="text-[11px] text-slate-400">{item.label}</div>
+                          <div className="mt-1 truncate text-sm font-semibold text-slate-800">{item.value}</div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="rounded-[8px] border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-950">
+                      <Mail className="h-4 w-4 text-blue-700" />
+                      联系与来源
+                    </div>
+                    <div className="space-y-1.5">
+                      {reportContactRows.map((item) => (
+                        <div key={item.label} className="grid grid-cols-[18px_48px_minmax(0,1fr)] items-start gap-2 rounded-[6px] px-2 py-1.5 hover:bg-slate-50">
+                          <item.Icon className="mt-0.5 h-3.5 w-3.5 text-slate-400" />
+                          <span className="text-xs text-slate-400">{item.label}</span>
+                          <span className="min-w-0 break-words text-xs font-medium leading-5 text-slate-700">{item.value}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="rounded-[8px] border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-950">
+                      <AlertCircle className="h-4 w-4 text-amber-600" />
+                      待补充信息
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {(reportMissingInfo.length ? reportMissingInfo : ["暂无明显缺口"]).map((item) => (
+                        <span key={item} className="rounded-[4px] border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600">
+                          {item}
+                        </span>
+                      ))}
+                    </div>
+                  </section>
+                </aside>
+
+                <main className="min-w-0 space-y-4">
+                  <div className="grid gap-4 xl:grid-cols-2">
+                    <section className="rounded-[8px] border border-rose-200 bg-white p-4 shadow-sm">
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-rose-800">
+                          <AlertCircle className="h-4 w-4" />
+                          风险缺口
+                        </div>
+                        <span className="rounded-[4px] bg-rose-50 px-2 py-1 text-xs font-medium text-rose-700">
+                          优先核实
+                        </span>
+                      </div>
+                      <div className="space-y-2">
+                        {(reportGaps.length ? reportGaps : ["暂无风险提示"]).map((item, index) => (
+                          <div key={`${item}-${index}`} className="flex gap-2 rounded-[6px] bg-rose-50/60 px-3 py-2 text-sm leading-6 text-slate-700">
+                            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-rose-500" />
+                            <span className="min-w-0">{item}</span>
                           </div>
                         ))}
                       </div>
-                    ) : (
-                      <div className="text-sm text-slate-400">暂无问答建议</div>
-                    )}
-                  </div>
-                </div>
+                    </section>
 
-                <div className="grid gap-4 lg:grid-cols-2">
-                  <div className="material-neu-card rounded-lg px-5 py-5">
-                    <div className="text-sm font-semibold text-slate-500">命中点</div>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {activeScreening?.matched_points?.length ? (
-                        activeScreening.matched_points.map((item) => (
-                          <span key={item} className="inline-flex rounded-[4px] bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-                            {item}
-                          </span>
-                        ))
+                    <section className="rounded-[8px] border border-emerald-200 bg-white p-4 shadow-sm">
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 text-sm font-semibold text-emerald-800">
+                          <CheckCircle2 className="h-4 w-4" />
+                          关键命中
+                        </div>
+                        <span className="rounded-[4px] bg-emerald-50 px-2 py-1 text-xs font-medium text-emerald-700">
+                          可验证亮点
+                        </span>
+                      </div>
+                      <div className="space-y-2">
+                        {(reportStrengths.length ? reportStrengths : ["暂无命中点"]).map((item, index) => (
+                          <div key={`${item}-${index}`} className="flex gap-2 rounded-[6px] bg-emerald-50/60 px-3 py-2 text-sm leading-6 text-slate-700">
+                            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />
+                            <span className="min-w-0">{item}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </section>
+                  </div>
+
+                  <section className="rounded-[8px] border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
+                        <Sparkles className="h-4 w-4 text-blue-700" />
+                        判断依据
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        {activeScreening?.model_name || "当前筛选版本"}
+                      </div>
+                    </div>
+                    <div className="mt-3 grid gap-2 md:grid-cols-3">
+                      {reportJudgementCards.map((item) => (
+                        <div key={item.label} className="min-w-0 rounded-[6px] bg-slate-50 px-3 py-2.5">
+                          <div className="text-[11px] text-slate-400">{item.label}</div>
+                          <div className={cn("mt-1 truncate text-sm font-semibold", item.tone)}>{item.value}</div>
+                          <div className="mt-1 truncate text-xs text-slate-400">{item.helper}</div>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-3 text-sm leading-6 text-slate-600">{activeScreening?.summary?.trim() || reportBrief}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {(reportCompetencies.length ? reportCompetencies : ["暂无标签"]).slice(0, 8).map((tag, index) => (
+                        <span key={`${tag}-${index}`} className="inline-flex items-center gap-1 rounded-[4px] border border-blue-100 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
+                          <ShieldCheck className="h-3 w-3" />
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </section>
+
+                  <section className="rounded-[8px] border border-blue-100 bg-white p-4 shadow-sm">
+                    <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-950">
+                      <MessageSquarePlus className="h-4 w-4 text-blue-700" />
+                      复核建议
+                    </div>
+                    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_240px]">
+                      <div>
+                        <div className="mb-2 text-xs font-semibold text-slate-400">电话/面试优先确认</div>
+                        <div className="space-y-2">
+                          {reportReviewQuestions.map((item, index) => (
+                            <div key={item} className="grid grid-cols-[22px_minmax(0,1fr)] gap-2 text-sm leading-6 text-slate-700">
+                              <span className="mt-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-blue-50 text-xs font-semibold text-blue-700">
+                                {index + 1}
+                              </span>
+                              <span>{item}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="rounded-[6px] bg-slate-50 px-3 py-3">
+                        <div className="text-xs font-semibold text-slate-400">推进条件</div>
+                        <div className="mt-2 space-y-2 text-sm leading-6 text-slate-700">
+                          <div className="flex gap-2">
+                            <CheckCircle2 className="mt-1 h-3.5 w-3.5 shrink-0 text-emerald-600" />
+                            <span>{activeScreening?.next_step ? "可进入下一轮沟通" : "先确认硬性条件后再决定"}</span>
+                          </div>
+                          <div className="flex gap-2">
+                            <ShieldCheck className="mt-1 h-3.5 w-3.5 shrink-0 text-blue-600" />
+                            <span>{reportMissingInfo.length ? `补齐 ${reportMissingInfo.slice(0, 2).join("、")}` : "资料完整度可接受"}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="rounded-[8px] border border-slate-200 bg-white p-4 shadow-sm">
+                    <button
+                      type="button"
+                      onClick={() => setInterviewQaExpanded((current) => !current)}
+                      className="flex w-full cursor-pointer flex-wrap items-center justify-between gap-3 text-left"
+                    >
+                      <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
+                        <MessageSquarePlus className="h-4 w-4 text-blue-700" />
+                        追问准备
+                        <span className="rounded-[4px] bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-500">
+                          {selectedCandidate.interview_qa?.length ?? 0} 条
+                        </span>
+                      </div>
+                      <div className="inline-flex items-center gap-2 text-xs font-medium text-slate-500">
+                        {interviewQaExpanded ? "收起问答" : "展开问答"}
+                        {interviewQaExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                      </div>
+                    </button>
+                    <div className="mt-1 text-xs text-slate-400">结合当前 JD 和候选人简历生成的电话/面试参考问答。</div>
+                    <div className={cn("overflow-hidden transition-all duration-200", interviewQaExpanded ? "mt-4 max-h-[2400px] opacity-100" : "max-h-0 opacity-0")}>
+                      {selectedCandidate.interview_qa?.length ? (
+                        <div className="space-y-3">
+                          {selectedCandidate.interview_qa.map((item, index) => (
+                            <div key={`${item.question}-${index}`} className="rounded-[6px] border border-slate-100 bg-slate-50 px-3 py-3">
+                              <div className="grid grid-cols-[28px_minmax(0,1fr)] gap-2">
+                                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-blue-50 text-xs font-semibold text-blue-700">
+                                  Q{index + 1}
+                                </span>
+                                <div className="min-w-0 text-sm font-semibold leading-6 text-slate-900">{item.question}</div>
+                              </div>
+                              <div className="mt-3 rounded-[6px] bg-white px-3 py-3 text-sm leading-7 text-slate-700">
+                                <span className="mr-2 font-semibold text-slate-500">参考答</span>
+                                {item.answer}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
                       ) : (
-                        <span className="text-sm text-slate-400">暂无命中点</span>
+                        <div className="rounded-[6px] border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-400">
+                          暂无问答建议
+                        </div>
                       )}
                     </div>
-                  </div>
+                  </section>
 
-                  <div className="material-neu-card rounded-lg px-5 py-5">
-                    <div className="text-sm font-semibold text-slate-500">风险提示</div>
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      {activeScreening?.risks?.length ? (
-                        activeScreening.risks.map((item) => (
-                          <span key={item} className="inline-flex rounded-[4px] bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
-                            {item}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-sm text-slate-400">暂无风险提示</span>
-                      )}
+                  <section className="rounded-[8px] border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-950">
+                      <Award className="h-4 w-4 text-blue-700" />
+                      能力评分
                     </div>
-                  </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {reportDimensionRows.map((item) => {
+                        const score = typeof item.score === "number" ? Math.max(0, Math.min(100, Math.round(item.score))) : null;
+                        return (
+                          <div key={item.key} className="rounded-[6px] border border-slate-100 bg-slate-50 px-3 py-3">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="truncate text-sm font-semibold text-slate-800">{item.label}</span>
+                              <span className="text-sm font-semibold text-slate-600">{score ?? "-"}%</span>
+                            </div>
+                            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white">
+                              <div className="h-full rounded-full bg-blue-600" style={{ width: `${score ?? 0}%` }} />
+                            </div>
+                            {item.reason ? <p className="mt-2 line-clamp-2 text-xs leading-5 text-slate-500">{item.reason}</p> : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+
+                  <section className="rounded-[8px] border border-slate-200 bg-white p-4 shadow-sm">
+                    <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-950">
+                      <Briefcase className="h-4 w-4 text-blue-700" />
+                      经历线索
+                    </div>
+                    <div className="space-y-3">
+                      {[
+                        {
+                          title: selectedCandidateProfile.recent_title || reportRole,
+                          meta: reportCompany,
+                          items: reportHighlights.length ? reportHighlights : ["暂无结构化经历，当前使用简历摘要作为经历线索。"],
+                        },
+                        {
+                          title: "筛选记录",
+                          meta: activeScreening?.created_at ? formatDate(activeScreening.created_at) : "当前版本",
+                          items: [activeScreening?.summary || "暂无筛选摘要"].filter(Boolean),
+                        },
+                      ].map((group, index) => (
+                        <div key={`${group.title}-${index}`} className="grid gap-3 border-t border-slate-100 pt-3 first:border-t-0 first:pt-0 md:grid-cols-[136px_minmax(0,1fr)]">
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-slate-800">{group.title}</div>
+                            <div className="mt-1 truncate text-xs text-slate-400">{group.meta}</div>
+                          </div>
+                          <ul className="space-y-1.5 text-sm leading-6 text-slate-600">
+                            {group.items.slice(0, 4).map((item) => (
+                              <li key={item} className="flex gap-2">
+                                <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-300" />
+                                <span>{item}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                  </main>
                 </div>
 
-                <div className="material-neu-card rounded-lg px-5 py-5">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="text-sm font-semibold text-slate-500">筛选历史</div>
-                    <div className="text-xs text-slate-400">
-                      共 {selectedCandidate.screenings.length} 条记录
+                <section className="rounded-[8px] border border-slate-200 bg-white p-4 shadow-sm">
+                  <button
+                    type="button"
+                    onClick={() => setScreeningHistoryExpanded((current) => !current)}
+                    className="flex w-full cursor-pointer flex-wrap items-center justify-between gap-3 text-left"
+                  >
+                    <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
+                      <Clock3 className="h-4 w-4 text-blue-700" />
+                      筛选历史
+                      <span className="rounded-[4px] bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-500">
+                        {selectedCandidate.screenings.length} 条
+                      </span>
                     </div>
-                  </div>
+                    <div className="inline-flex items-center gap-2 text-xs font-medium text-slate-500">
+                      {screeningHistoryExpanded ? "收起历史" : "展开历史"}
+                      {screeningHistoryExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </div>
+                  </button>
 
-                  <div className="mt-4 space-y-3">
+                  <div className={cn("overflow-hidden transition-all duration-200", screeningHistoryExpanded ? "mt-4 max-h-[3200px] opacity-100" : "max-h-0 opacity-0")}>
+                    <div className="space-y-3">
                     {selectedCandidate.screenings.length ? (
                       selectedCandidate.screenings.map((item) => (
-                        <div key={item.id} className="material-neu-inset rounded-lg px-4 py-4">
+                        <div key={item.id} className="rounded-[6px] border border-slate-100 bg-slate-50 px-3 py-3">
                           <div className="flex flex-wrap items-center justify-between gap-3">
                             <div className="flex flex-wrap items-center gap-2">
                               {item.decision ? (
-                                <span className={cn("inline-flex rounded-[4px] px-3 py-1 text-xs font-semibold", decisionMeta[item.decision].classes)}>
+                                <span className={cn("inline-flex rounded-[4px] px-2.5 py-1 text-xs font-semibold", decisionMeta[item.decision].classes)}>
                                   {decisionMeta[item.decision].label}
                                 </span>
                               ) : null}
-                              <span className="text-xs text-slate-500">{item.model_name || "-"}</span>
+                              <span className="rounded-[4px] bg-white px-2.5 py-1 text-xs font-medium text-slate-500">{item.model_name || "-"}</span>
                               <span className="text-xs text-slate-400">{formatDate(item.created_at)}</span>
                             </div>
                             <div className="text-xs text-slate-500">
                               分数：{typeof item.score === "number" ? item.score : "-"} / 耗时：{item.duration_ms ?? "-"} ms
                             </div>
                           </div>
-                          <div className="mt-3 text-sm leading-7 text-slate-600">{item.summary?.trim() || "暂无摘要"}</div>
+                          <div className="mt-3 text-sm leading-6 text-slate-600">{item.summary?.trim() || "暂无摘要"}</div>
                           {item.error_message ? (
-                            <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-600">
+                            <div className="mt-3 rounded-[6px] border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-600">
                               错误：{item.error_message}
                             </div>
                           ) : null}
-                          {item.request_payload ? (
-                            <details className="mt-3">
-                              <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-600">查看 AI 请求</summary>
-                              <pre className="mt-2 max-h-60 overflow-auto rounded-md border border-slate-200 bg-slate-100 p-3 text-xs text-slate-700 whitespace-pre-wrap break-all">
-                                {JSON.stringify(item.request_payload, null, 2)}
-                              </pre>
-                            </details>
-                          ) : null}
-                          {item.response_payload ? (
-                            <details className="mt-2">
-                              <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-600">查看 AI 原始响应</summary>
-                              <pre className="mt-2 max-h-60 overflow-auto rounded-md border border-slate-200 bg-slate-100 p-3 text-xs text-slate-700 whitespace-pre-wrap break-all">
-                                {JSON.stringify(item.response_payload, null, 2)}
-                              </pre>
-                            </details>
-                          ) : null}
+                          <div className="mt-3 flex flex-wrap gap-3">
+                            {item.request_payload ? (
+                              <details className="min-w-[220px] flex-1">
+                                <summary className="cursor-pointer text-xs font-medium text-slate-400 hover:text-slate-600">查看 AI 请求</summary>
+                                <pre className="material-scrollbar mt-2 max-h-60 overflow-auto rounded-[6px] border border-slate-200 bg-white p-3 text-xs whitespace-pre-wrap break-all text-slate-700">
+                                  {JSON.stringify(item.request_payload, null, 2)}
+                                </pre>
+                              </details>
+                            ) : null}
+                            {item.response_payload ? (
+                              <details className="min-w-[220px] flex-1">
+                                <summary className="cursor-pointer text-xs font-medium text-slate-400 hover:text-slate-600">查看 AI 原始响应</summary>
+                                <pre className="material-scrollbar mt-2 max-h-60 overflow-auto rounded-[6px] border border-slate-200 bg-white p-3 text-xs whitespace-pre-wrap break-all text-slate-700">
+                                  {JSON.stringify(item.response_payload, null, 2)}
+                                </pre>
+                              </details>
+                            ) : null}
+                          </div>
                         </div>
                       ))
                     ) : (
-                      <div className="text-sm text-slate-400">暂无筛选历史</div>
+                      <div className="rounded-[6px] border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-400">
+                        暂无筛选历史
+                      </div>
                     )}
+                    </div>
                   </div>
-                </div>
-              </>
+                </section>
+
+                <section className="rounded-[8px] border border-slate-200 bg-white p-4 shadow-sm">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
+                      <FileUp className="h-4 w-4 text-blue-700" />
+                      原始材料
+                    </div>
+                    <div className="text-xs text-slate-400">{selectedCandidate.source_subject || "来源邮件/简历"}</div>
+                  </div>
+                  {selectedCandidate.raw_email_text?.trim() ? (
+                    <details className="mt-3">
+                      <summary className="cursor-pointer text-xs font-medium text-slate-400 hover:text-slate-600">展开原始邮件/简历文本</summary>
+                      <pre className="material-scrollbar mt-2 max-h-72 overflow-auto rounded-[6px] border border-slate-200 bg-slate-50 p-3 text-xs leading-6 whitespace-pre-wrap break-words text-slate-700">
+                        {selectedCandidate.raw_email_text}
+                      </pre>
+                    </details>
+                  ) : (
+                    <div className="mt-3 rounded-[6px] border border-dashed border-slate-200 px-3 py-4 text-sm text-slate-400">
+                      暂无原始邮件/简历文本
+                    </div>
+                  )}
+                </section>
+              </article>
             )}
           </div>
-        </section>
-      </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={showFilterDialog} onOpenChange={setShowFilterDialog}>
         <DialogContent className="resume-screening-surface material-neu-panel flex h-[78vh] w-[calc(100vw-32px)] sm:max-w-[900px] grid-rows-none flex-col overflow-hidden rounded-[var(--m3-shape-extra-large)] p-0">
@@ -3649,5 +4041,3 @@ function getErrorMessage(error: unknown, fallback: string) {
   if (error instanceof Error && error.message.trim()) return error.message;
   return fallback;
 }
-
-
