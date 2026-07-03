@@ -37,8 +37,10 @@ import {
   UserPlus,
   RefreshCw,
   RotateCcw,
+  FileSearch,
   Search,
   Send,
+  ShoppingCart,
   Sparkles,
   Target,
   TimerReset,
@@ -48,6 +50,8 @@ import {
   Settings2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { createHttpIssueService } from "./lib/issue/issueHttpService";
+import { AttachmentBlockModal, PROC_LINK_MAP, ProcurementActivitySection, ProcurementLinkChip, TransferToProcurementModal } from "./procurement/components/rdInsertion";
 import { Input } from "./components/ui/input";
 import { NativeSelect } from "./components/ui/native-select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
@@ -111,6 +115,7 @@ import {
   type RdProductDef,
   type RdProductStatus,
   getAttachmentUrl,
+  getAttachmentPreviewUrl,
 } from "./lib/rdApi";
 import { ProgressAttachmentGrid } from "./RDProgressEvidence";
 import { RDReportsPanel } from "./RDReportsPanel";
@@ -4028,6 +4033,16 @@ function prettyJsonOrText(raw: string): string {
   }
 }
 
+/** Blob → dataURL（生成问题时把留痕附件字节转 dataURL，喂给问题模块的 uploadAttachment）。 */
+function blobToDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error ?? new Error("读取附件失败"));
+    reader.readAsDataURL(blob);
+  });
+}
+
 function TaskDetailDrawer({
   task,
   onClose,
@@ -4053,12 +4068,19 @@ function TaskDetailDrawer({
 }) {
   const RD_ADMIN_AUDIT_ACTOR = useAuditActor("研发管理员");
   const shouldReduceMotion = useReducedMotion();
+  const navigate = useNavigate();
+  const issueService = useMemo(() => createHttpIssueService(), []);
+  const [generatingIssue, setGeneratingIssue] = useState(false);
+  const [transferOpen, setTransferOpen] = useState(false);
+  const [blockOpen, setBlockOpen] = useState(false);
+  const procLink = PROC_LINK_MAP[task.title];
   const { user } = useAuth();
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
   const canReviewProjectL1 = usePermission(PERMISSIONS.RD_PROJECT_REVIEW_L1);
   const canReviewProjectL2 = usePermission(PERMISSIONS.RD_PROJECT_REVIEW_L2);
   const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
   const canReassignTasks = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
+  const canCreateIssue = usePermission("issue:create");
   const [editingDesc, setEditingDesc] = useState(false);
   const [descDraft, setDescDraft] = useState(task.description ?? "");
   const [savingDesc, setSavingDesc] = useState(false);
@@ -4167,7 +4189,75 @@ function TaskDetailDrawer({
   const canCompleteDirectly = task.status === "in_progress" && canManageTaskFlow;
   const canReviewPendingTask = task.status === "pending_review" && canManageTaskFlow;
   const canHandoverTask = task.status === "in_progress" && canManageTaskFlow;
-  const showActionBar = !task.archived && (canSubmitForReview || canCompleteDirectly || canReviewPendingTask || canHandoverTask);
+  // 生成问题：把当前任务内容（描述+进度留痕+附件名）一键在「问题记录与 AI 定位」建成一条问题，省去手动新建。
+  const canGenerateIssue = !task.archived && canCreateIssue;
+  // 非归档任务始终显示操作栏（至少含「转采购」/「生成问题」）
+  const showActionBar = !task.archived;
+
+  const handleGenerateIssue = async () => {
+    if (generatingIssue) return;
+    setGeneratingIssue(true);
+    try {
+      const parts: string[] = [];
+      if (task.description?.trim()) parts.push(task.description.trim());
+      const noteTexts = progressNotes.map((n) => (n.text ?? "").trim()).filter(Boolean);
+      if (noteTexts.length > 0) parts.push("【进展 / 问题记录】\n" + noteTexts.map((t, i) => `${i + 1}. ${t}`).join("\n"));
+      parts.push(`（自研发任务生成：${task.task_id}${task.category_path ? "｜" + task.category_path : ""}）`);
+
+      // 二期：把任务进度留痕里的附件（图片/文档）真正搬到问题模块——经同源 preview_url 取回字节，
+      // 走问题模块现有 uploadAttachment（落 OSS/FileAsset 并归属当前用户）拿 fileId，随问题入库。
+      const seen = new Set<string>();
+      const srcAtts = progressNotes
+        .flatMap((n) => n.attachments)
+        .filter((a) => {
+          const k = a.id || `${a.name}-${a.size}`;
+          if (seen.has(k)) return false;
+          seen.add(k);
+          return true;
+        });
+      if (srcAtts.length > 0) toast.info(`正在搬运 ${srcAtts.length} 个附件到问题…`);
+      const issueAttachments: NonNullable<Parameters<typeof issueService.create>[0]["attachments"]> = [];
+      for (const a of srcAtts) {
+        try {
+          const url = getAttachmentPreviewUrl(a) || getAttachmentUrl(a);
+          if (!url) continue;
+          const resp = await fetch(url);
+          if (!resp.ok) continue;
+          const blob = await resp.blob();
+          const raw = await issueService.uploadAttachment({
+            fileName: a.name,
+            fileType: a.mime || blob.type || "application/octet-stream",
+            size: a.size ?? blob.size,
+            dataUrl: await blobToDataUrl(blob),
+          });
+          const processed = await issueService.processAttachment(raw, "ai").catch(() => raw);
+          // 关键：图片在问题侧 processAttachment 不做 OCR（返回空），必须回传 RD 侧已抽取的 OCR/视觉/文档文本，
+          // 否则 AI（尤其 OCR 模式）看不到附件内容。优先问题侧解析结果，回退 RD 侧 extracted_text。
+          const extractedText = (processed.extractedText && processed.extractedText.trim()) || (a.extracted_text && a.extracted_text.trim()) || undefined;
+          issueAttachments.push({ id: processed.id, fileName: processed.fileName, fileType: processed.fileType, fileUrl: processed.fileUrl, extractedText });
+        } catch {
+          // 单个附件搬运失败不阻断整体生成
+        }
+      }
+      // 搬运有缺失时，把附件名补进描述作兜底记录
+      if (issueAttachments.length < srcAtts.length) {
+        const names = srcAtts.map((a) => a.name).join("、");
+        if (names) parts.splice(parts.length - 1, 0, "【相关附件】" + names);
+      }
+
+      const issue = await issueService.create({
+        title: task.title,
+        description: parts.join("\n\n"),
+        source: "rd",
+        attachments: issueAttachments.length > 0 ? issueAttachments : undefined,
+      });
+      toast.success(`已生成问题${issueAttachments.length > 0 ? `（含 ${issueAttachments.length} 个附件）` : ""}，正在跳转…`);
+      navigate(`/issue-ai?issue=${encodeURIComponent(issue.id)}`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "生成问题失败，请重试");
+      setGeneratingIssue(false);
+    }
+  };
   useEffect(() => {
     let cancelled = false;
     setProgressNotesLoading(true);
@@ -4719,6 +4809,12 @@ function TaskDetailDrawer({
             />
           )}
 
+          {procLink && (
+            <div className="mb-3">
+              <ProcurementActivitySection title={task.title} />
+            </div>
+          )}
+
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="mb-2 flex items-center justify-between">
               <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">操作留痕</div>
@@ -4831,6 +4927,33 @@ function TaskDetailDrawer({
                 )}
               </>
             )}
+            {!task.archived && (
+              procLink ? (
+                <ProcurementLinkChip title={task.title} onJump={(procTaskId) => navigate(`/proc-cockpit?task=${encodeURIComponent(procTaskId)}`)} />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => ((task.attachments ?? 0) > 0 ? setTransferOpen(true) : setBlockOpen(true))}
+                  title="把本任务转为采购任务（需携带图纸附件）"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100"
+                >
+                  <ShoppingCart className="h-3.5 w-3.5" />
+                  转采购
+                </button>
+              )
+            )}
+            {canGenerateIssue && (
+              <button
+                type="button"
+                onClick={handleGenerateIssue}
+                disabled={generatingIssue}
+                title="把本任务内容（描述/进度留痕/附件名）一键在「问题记录与 AI 定位」建成问题"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 transition-colors hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <FileSearch className="h-3.5 w-3.5" />
+                {generatingIssue ? "生成中…" : "生成问题"}
+              </button>
+            )}
             {canReviewPendingTask && (
               <>
                 <button
@@ -4909,6 +5032,9 @@ function TaskDetailDrawer({
           />
         )}
       </AnimatePresence>
+
+      {transferOpen && <TransferToProcurementModal taskTitle={task.title} owner={task.primary_owner} onClose={() => setTransferOpen(false)} />}
+      {blockOpen && <AttachmentBlockModal onClose={() => setBlockOpen(false)} />}
 
       <AlertDialog open={showCloseConfirm} onOpenChange={(open) => { if (!open) setShowCloseConfirm(false); }}>
         <AlertDialogContent>

@@ -57,12 +57,9 @@ const InventoryManagementPage = lazyNamed(() => import("./order-processing"), "I
 const OrderWorkbenchPage = lazyNamed(() => import("./order-processing"), "OrderWorkbenchPage");
 const PurchaseOrderDetailPage = lazyNamed(() => import("./order-processing"), "PurchaseOrderDetailPage");
 const PurchaseOrdersPage = lazyNamed(() => import("./order-processing"), "PurchaseOrdersPage");
-// 采购与研发协同 · 演示原型（4 页共享一个内存 store）
-const ProcOverviewPage = lazyNamed(() => import("./procurement-rd"), "ProcOverviewPage");
-const ProcRdDashboardPage = lazyNamed(() => import("./procurement-rd"), "ProcRdDashboardPage");
-const ProcWorkbenchPage = lazyNamed(() => import("./procurement-rd"), "ProcWorkbenchPage");
-const ProcContractsPage = lazyNamed(() => import("./procurement-rd"), "ProcContractsPage");
-const ProcSupplierPage = lazyNamed(() => import("./procurement-rd"), "ProcSupplierPage");
+// 采购管理（静态流程页面）
+const ProcurementCockpitPage = lazyNamed(() => import("./procurement"), "ProcurementCockpitPage");
+const MaterialWorkbenchPage = lazyNamed(() => import("./procurement"), "MaterialWorkbenchPage");
 const PersonalCenterPage = lazyNamed(() => import("./PersonalCenterPage"), "PersonalCenterPage");
 const ContractReviewPage = lazyNamed(() => import("./ContractReviewPage"), "ContractReviewPage");
 const QualityDMSPage = lazyNamed(() => import("./QualityDMSPage"), "QualityDMSPage");
@@ -327,11 +324,8 @@ const router = createBrowserRouter([
       { path: "purchase-orders", element: makeLazyProtected(<PurchaseOrdersPage />, "page:purchase-orders") },
       { path: "purchase-orders/:id", element: makeLazyProtected(<PurchaseOrderDetailPage />, "page:purchase-order-detail") },
       { path: "inventory-management", element: makeLazyProtected(<InventoryManagementPage />, "page:inventory-management") },
-      { path: "proc-overview", element: makeLazyProtected(<ProcOverviewPage />, "page:proc-overview") },
-      { path: "proc-rd-dashboard", element: makeLazyProtected(<ProcRdDashboardPage />, "page:proc-rd-dashboard") },
-      { path: "proc-workbench", element: makeLazyProtected(<ProcWorkbenchPage />, "page:proc-workbench") },
-      { path: "proc-contracts", element: makeLazyProtected(<ProcContractsPage />, "page:proc-contracts") },
-      { path: "proc-suppliers", element: makeLazyProtected(<ProcSupplierPage />, "page:proc-suppliers") },
+      { path: "proc-cockpit", element: makeLazyProtected(<ProcurementCockpitPage />, "page:proc-cockpit") },
+      { path: "proc-materials", element: makeLazyProtected(<MaterialWorkbenchPage />, "page:proc-materials") },
       { path: "resume-screening", element: makeLazyProtected(<ResumeScreeningPage />, "page:resume-screening") },
       { path: "employee-archive", element: makeLazyProtected(<EmployeeArchivePage />, "page:employee-archive") },
       { path: "quick-capture", element: makeLazyProtected(<QuickCapturePage />, "page:quick-capture") },

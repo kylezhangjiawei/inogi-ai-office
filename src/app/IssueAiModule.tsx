@@ -3,7 +3,8 @@
  * 单一数据源、单页：清单 ↔ 详情用模块内状态切换（非独立路由），用面包屑返回。
  * 数据全部经 IssueService 抽象；已接入真实后端（apps/api 的 issue 模块）。
  */
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
+import { useSearchParams } from "react-router";
 
 import { createHttpIssueService } from "./lib/issue/issueHttpService";
 import { ListView } from "./issue-ai/ListView";
@@ -12,7 +13,19 @@ import { DetailView } from "./issue-ai/DetailView";
 export function IssueAiModule() {
   // 共享一个 HTTP service 实例（无状态，仅复用引用避免子组件 effect 反复重建）。
   const service = useMemo(() => createHttpIssueService(), []);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // 选中项由 URL ?issue= 驱动：既支持模块内清单↔详情切换，也支持外部（如研发任务「生成问题」）直达某条问题。
+  const [params, setParams] = useSearchParams();
+  const selectedId = params.get("issue");
+  const setSelectedId = (id: string | null) =>
+    setParams(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        if (id) p.set("issue", id);
+        else p.delete("issue");
+        return p;
+      },
+      { replace: true },
+    );
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden  text-slate-900   ring-slate-200/70 dark:bg-slate-950 dark:bg-none dark:text-slate-100 dark:ring-slate-800">

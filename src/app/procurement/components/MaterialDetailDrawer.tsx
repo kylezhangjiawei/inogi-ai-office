@@ -1,0 +1,103 @@
+// 物料详情抽屉：基本信息 + 库存与到货时间线 + 历史价格对比 + 关联采购任务列表。
+import { useState } from "react";
+import { HelpCircle, X } from "lucide-react";
+import { cn } from "../../components/ui/utils";
+import { materialAggregates, PROCUREMENT_TASKS, type Material } from "../../../mock/procurement";
+import { PriceHistoryModal } from "./PriceHistoryModal";
+import { StatusPill, fmtMoney } from "./common";
+
+function Info({ label, value }: { label: string; value: React.ReactNode }) {
+  return <div className="flex gap-2 py-0.5 text-sm"><span className="w-24 shrink-0 text-slate-400">{label}</span><span className="text-slate-700">{value}</span></div>;
+}
+
+export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { material: Material; onClose: () => void; onOpenTask: (taskId: string) => void }) {
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const { inTransit, taskCount } = materialAggregates(material.name);
+  const related = PROCUREMENT_TASKS.filter((t) => t.materialName === material.name);
+  // 到货时间线（从关联任务的到货聚合，V1 单边只增）
+  const arrivals = related.filter((t) => t.arrivedQty > 0).map((t) => ({ code: t.code, qty: t.arrivedQty, date: t.expectedArrivalDate ?? t.needDate }));
+
+  return (
+    <div className="fixed inset-0 z-[70] flex justify-end bg-slate-900/30" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="flex h-full w-[640px] flex-col bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between border-b border-slate-100 px-6 py-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <h3 className="text-lg font-bold text-slate-900">{material.name}</h3>
+              {material.isSpecial && <span className="rounded border border-purple-200 bg-purple-50 px-1.5 py-0.5 text-[11px] text-purple-600">特殊物料</span>}
+              {material.reviewStatus === "pending" ? <span className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700">待审核</span> : <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-700">已审核</span>}
+            </div>
+            <div className="mt-0.5 text-sm text-slate-500">{material.spec} · {material.category} · {material.productLine}</div>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-50"><X className="h-5 w-5" /></button>
+        </div>
+
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
+          {/* 基本信息 */}
+          <div className="rounded-xl border border-slate-100 p-4">
+            <div className="mb-1 text-sm font-semibold text-slate-700">基本信息</div>
+            <div className="grid grid-cols-2 gap-x-6">
+              <div>
+                <Info label="ERP 编码" value={material.erpCode} />
+                <Info label="单位" value={material.unit} />
+                <Info label="分类" value={material.category} />
+                <Info label="产品线" value={material.productLine} />
+              </div>
+              <div>
+                <Info label="是否特殊" value={material.isSpecial ? "是" : "否"} />
+                <Info label="审核状态" value={material.reviewStatus === "pending" ? `待审核（来源：${material.reviewSource === "import" ? "导入" : "任务沉淀"}）` : "已审核"} />
+                <Info label="最新报价" value={`${fmtMoney(material.latestPrice)}${material.latestSupplier ? ` · ${material.latestSupplier}` : ""}`} />
+                <Info label="报价日期" value={material.latestQuoteDate ?? "—"} />
+              </div>
+            </div>
+          </div>
+
+          {/* 库存与到货时间线 */}
+          <div className="rounded-xl border border-slate-100 p-4">
+            <div className="mb-2 flex items-center gap-1 text-sm font-semibold text-slate-700">
+              库存与到货
+              <span className="group relative">
+                <HelpCircle className="h-3.5 w-3.5 text-slate-300" />
+                <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 hidden w-56 -translate-x-1/2 rounded bg-slate-800 px-2 py-1 text-[10px] leading-4 text-white group-hover:block">V1 单边统计只增不减，不含领用扣减；V2 接 ERP 同步。</span>
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-1 rounded-lg bg-slate-50/70 py-2 text-center">
+              <div><div className="text-lg font-bold tabular-nums text-slate-900">{material.stockQty.toLocaleString()}</div><div className="text-[10px] text-slate-400">当前库存</div></div>
+              <div><div className="text-lg font-bold tabular-nums text-indigo-600">{inTransit.toLocaleString()}</div><div className="text-[10px] text-slate-400">在途</div></div>
+              <div><div className="text-lg font-bold tabular-nums text-slate-900">{taskCount}</div><div className="text-[10px] text-slate-400">关联任务</div></div>
+            </div>
+            <ul className="mt-3 space-y-1.5">
+              {arrivals.length === 0 ? <li className="text-xs text-slate-400">暂无到货记录</li> : arrivals.map((a, i) => (
+                <li key={i} className="flex items-center gap-3 text-xs text-slate-600"><span className="h-2 w-2 rounded-full bg-emerald-500" /><span className="tabular-nums">{a.date}</span><span>{a.code}</span><span className="tabular-nums font-medium">+{a.qty.toLocaleString()}</span></li>
+              ))}
+            </ul>
+          </div>
+
+          {/* 历史价格对比入口 */}
+          <div className="flex items-center justify-between rounded-xl border border-indigo-100 bg-indigo-50/50 px-4 py-2.5 text-xs text-slate-600">
+            <span>历史价格对比（跨供应商 / 趋势）</span>
+            <button type="button" onClick={() => setHistoryOpen(true)} className="font-medium text-indigo-600 hover:underline">打开对比 →</button>
+          </div>
+
+          {/* 关联采购任务 */}
+          <div className="rounded-xl border border-slate-100 p-4">
+            <div className="mb-2 text-sm font-semibold text-slate-700">关联采购任务（{related.length}）</div>
+            {related.length === 0 ? <div className="text-xs text-slate-400">暂无关联任务</div> : (
+              <ul className="space-y-1.5">
+                {related.map((t) => (
+                  <li key={t.id}>
+                    <button type="button" onClick={() => onOpenTask(t.id)} className={cn("flex w-full items-center justify-between rounded-lg border border-slate-100 px-3 py-2 text-left text-sm transition hover:border-indigo-200 hover:bg-indigo-50/40")}>
+                      <span className="flex items-center gap-2"><span className="text-slate-600">{t.code}</span><span className="text-xs text-slate-400">× {t.quantity}{t.unit}</span></span>
+                      <StatusPill status={t.status} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      </div>
+      <PriceHistoryModal materialName={material.name} open={historyOpen} onClose={() => setHistoryOpen(false)} />
+    </div>
+  );
+}

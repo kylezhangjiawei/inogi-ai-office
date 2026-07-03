@@ -76,6 +76,13 @@ export const navGroups: NavGroup[] = [
     items: [{ label: "系统首页", path: "/", icon: LayoutDashboard, requiredPermission: "page:dashboard" }],
   },
   {
+    label: "采购管理",
+    items: [
+      { label: "采购任务驾驶舱", path: "/proc-cockpit", icon: ShoppingCart, requiredPermission: "page:proc-cockpit" },
+      { label: "采购工作台", path: "/proc-materials", icon: Warehouse, requiredPermission: "page:proc-materials" },
+    ],
+  },
+  {
     label: "研发任务管理",
     items: [
       { label: "研发任务驾驶舱", path: "/rd-task-management", icon: LayoutGrid, requiredPermission: "page:rd-task-management" },
@@ -131,16 +138,6 @@ export const navGroups: NavGroup[] = [
       { label: "订货单处理工作台", path: "/order-workbench", icon: PackageCheck, requiredPermission: "page:order-workbench" },
       { label: "采购订单", path: "/purchase-orders", icon: ShoppingCart, requiredPermission: "page:purchase-orders" },
       { label: "库存管理", path: "/inventory-management", icon: Warehouse, requiredPermission: "page:inventory-management" },
-    ],
-  },
-  {
-    label: "采购与研发协同",
-    items: [
-      { label: "流程总览", path: "/proc-overview", icon: Waypoints, requiredPermission: "page:proc-overview" },
-      { label: "研发任务驾驶舱（演示版）", path: "/proc-rd-dashboard", icon: LayoutDashboard, requiredPermission: "page:proc-rd-dashboard" },
-      { label: "采购工作台", path: "/proc-workbench", icon: ShoppingCart, requiredPermission: "page:proc-workbench" },
-      { label: "采购合同台账", path: "/proc-contracts", icon: ScrollText, requiredPermission: "page:proc-contracts" },
-      { label: "供应商档案", path: "/proc-suppliers", icon: Building2, requiredPermission: "page:proc-suppliers" },
     ],
   },
   {
