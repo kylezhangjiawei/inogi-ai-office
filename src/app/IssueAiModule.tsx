@@ -15,7 +15,7 @@ export function IssueAiModule() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[var(--m3-shape-large)] bg-[linear-gradient(180deg,#f8fbff_0%,#eef4fb_100%)] text-slate-900 ring-1 ring-slate-200/70 dark:bg-slate-950 dark:bg-none dark:text-slate-100 dark:ring-slate-800">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden  text-slate-900   ring-slate-200/70 dark:bg-slate-950 dark:bg-none dark:text-slate-100 dark:ring-slate-800">
       {selectedId ? (
         // 详情：窄屏整页滚动；xl+ 两栏各自定高、内部滚动（不超出视口）
         <div className="material-scrollbar min-h-0 flex-1 overflow-y-auto xl:overflow-hidden">

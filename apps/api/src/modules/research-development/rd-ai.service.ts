@@ -1689,14 +1689,26 @@ export class RdAiService {
     return config ? this.toRuntimeModelConfig(config) : null;
   }
 
+  /**
+   * 按模型名判断是否为对话（chat）模型。用于默认兜底时排除图像/向量/语音/重排等
+   * 无法处理 chat.completions 的模型——否则未绑定模型的场景会掉到这类模型上必然失败。
+   */
+  private isChatCapableModel(name: string | null | undefined): boolean {
+    return !/image|embedding|whisper|tts|audio|rerank|vision|ocr|moderation/i.test(name ?? '');
+  }
+
   private async resolveDefaultConfiguredModel(): Promise<AiModelRuntimeConfig | null> {
     const configs = await this.prisma.integrationConfig.findMany({
       where: { kind: 'openai', isActive: true },
       orderBy: [{ updatedAt: 'desc' }, { name: 'asc' }],
     });
+    // 只在对话模型里挑默认兜底：先取标记为默认启用者，否则取最近更新的一个。
+    // 排除图像/向量等模型，避免未配置场景回退到 gpt-image-2 之类导致 chat 调用失败。
+    const chatConfigs = configs.filter((config) => this.isChatCapableModel(config.model));
+    const pool = chatConfigs.length > 0 ? chatConfigs : configs;
     const selected =
-      configs.find((config) => this.parseAiModelMetadata(config.metadata).is_default_enabled) ??
-      configs[0] ??
+      pool.find((config) => this.parseAiModelMetadata(config.metadata).is_default_enabled) ??
+      pool[0] ??
       null;
     return selected ? this.toRuntimeModelConfig(selected) : null;
   }
@@ -2909,6 +2921,266 @@ export class RdAiService {
     } catch (error) {
       // eslint-disable-next-line no-console
       console.warn('[assessPerformance] AI call failed:', error instanceof Error ? error.message : error);
+      return null;
+    }
+  }
+
+  /**
+   * 为绩效考核表逐项填写「具体业务事项」「评价标准」。支持两类：
+   * - category='item'（事项指标）：把本月任务归入各考核项目并概括；
+   * - category='behavior'（行为指标）：结合本月任务描述该成员如何体现某项行为素质，
+   *   可携带 hintItem/hintStandard 作为默认释义与评分规则的锚点。
+   * 结果与入参 items 对齐返回；AI 未配置/失败/解析异常时返回 null，由调用方回退。
+   */
+  async assessKpiItems(input: {
+    userName: string;
+    monthLabel: string;
+    position?: string | null;
+    category: 'item' | 'behavior';
+    items: Array<{ name: string; weight: string; hintItem?: string; hintStandard?: string }>;
+    tasks: Array<{
+      title: string;
+      role: '主责' | '协作';
+      statusLabel: string;
+      group: 'completed' | 'progressed' | 'stalled' | 'blocked';
+      progress?: number | null;
+      monthExcerpt?: string | null;
+      blockedReason?: string | null;
+    }>;
+  }): Promise<Array<{ name: string; business: string; standard: string }> | null> {
+    const selectedModel = await this.resolveSceneModelConfig('performance_review').catch(() => null);
+    if (!selectedModel?.apiKey) return null;
+    if (input.items.length === 0) return null;
+
+    const provider: AiProvider = selectedModel.provider;
+    const model = selectedModel.model;
+    const baseUrl = selectedModel.baseUrl;
+
+    const { userName, monthLabel, position, category, items, tasks } = input;
+    const groupLabels: Record<string, string> = {
+      completed: '本月完成',
+      progressed: '本月推进',
+      blocked: '月末仍阻塞',
+      stalled: '长期停滞',
+    };
+    const tasksBlock =
+      tasks.length === 0
+        ? '本月无可统计的任务动态。'
+        : tasks
+            .map((t) => {
+              const roleTag = t.role === '协作' ? '[协作] ' : '';
+              const progress = typeof t.progress === 'number' ? ` 进度${t.progress}%` : '';
+              const detail =
+                t.group === 'blocked' && t.blockedReason
+                  ? ` — 阻塞：${t.blockedReason}`
+                  : t.monthExcerpt
+                    ? ` — ${t.monthExcerpt.trim().slice(0, 220)}`
+                    : '';
+              return `· ${roleTag}《${t.title}》(${groupLabels[t.group] ?? t.statusLabel}${progress})${detail}`;
+            })
+            .join('\n');
+
+    // 行为指标携带默认释义/评分规则作为锚点，事项指标仅列名称与权重。
+    const itemsList = items
+      .map((it, i) => {
+        const hint = [
+          it.hintItem ? `释义：${it.hintItem}` : '',
+          it.hintStandard ? `参考评价标准：${it.hintStandard.replace(/\n/g, ' ')}` : '',
+        ]
+          .filter(Boolean)
+          .join('；');
+        return `${i + 1}. ${it.name}（权重${it.weight}）${hint ? ` —— ${hint}` : ''}`;
+      })
+      .join('\n');
+    const systemPrompt =
+      category === 'behavior'
+        ? '你是一名研发主管，正在填写团队成员《月度绩效考核表》的「行为指标」部分。' +
+          '针对给定的每一项行为素质（含释义），结合该成员本月的真实任务，产出两段正式的中文：' +
+          'business=「具体业务事项」——结合本月真实任务，具体说明其如何体现该项行为素质（80~150字）；' +
+          '要落到具体事情：点名相关任务/项目名称、其中的关键动作与承担的责任，并尽量给出可量化细节（数量、进度、结果、时间节点）；' +
+          '语气保持客观中性：只陈述事实与进度状态，不做「严重不足 / 执行力差 / 缺乏担当」等主观贬义定性，也不作情绪化评判或拔高褒扬；' +
+          '严禁只写空泛套话（如「工作认真、积极主动」），必须有可核对的事实支撑；若确无明显体现，再依释义客观概述；' +
+          'standard=「评价标准」——该项行为的评价标准（20~50字，正式；若给定「参考评价标准」含明确评分规则如频率对应分数，必须完整保留该规则原文）。' +
+          '严格只输出 JSON 数组，元素形如 {"name":"行为项原文","business":"...","standard":"..."}，' +
+          'name 必须与给定行为项完全一致、数量一致、顺序一致，不要输出 JSON 以外的任何文字或代码块标记。'
+        : '你是一名研发主管，正在填写团队成员《月度绩效考核表》的「事项指标」部分。' +
+          '针对给定的每个考核项目，结合该成员本月的真实任务，产出正式的中文：' +
+          'business=「具体业务事项」——用【概括、汇总性的书面语言】提炼该成员本月在该考核项目下的工作，整理成编号分条列表' +
+          '（格式「1.……\n2.……」，条目之间用真实换行符 \\n 分隔，一般 2~5 条）；' +
+          '核心要求：按主题/类别归纳，把多个相关任务【合并成一条进行总结陈述】，而不是把每个任务机械地逐条罗列、也不要对每条重复相同句式（如反复写"处于停滞状态"）；' +
+          '每条用一句概括性的话说明"围绕某方向做了哪类工作、取得什么结果"，可点名 1~2 个代表性任务/项目/版本作为例证并带关键量化细节；' +
+          '参考写法（示范这种"归并总结"的风格，勿照抄内容）：「1.围绕压缩机散热与微压性能开展多项测试验证，完成9A18/9A19版本软件功能确认及电子流量计对比测试（偏差超1.5L，判定方案不可用）；2.完成双铝膜、储气罐螺丝等多份ECN的编写与发布，保证变更受控。」；' +
+          '语气客观中性、正式：只陈述事实与整体进展（如"完成/推进中/多项待启动或停滞"），不做「严重不足 / 执行力差 / 滞后严重 / 有待加强 / 不足 / 薄弱」等任何褒贬评价定性，也不拔高褒扬（评价交由打分栏），避免机械枯燥的流水账；' +
+          '若确无相关任务，写「本月无相关任务记录」（此时可不分条）；' +
+          'standard=「评价标准」——该考核项目可衡量的评价标准（20~50字，正式、通用，如按期交付、质量达标、闭环率等）。' +
+          '严格只输出 JSON 数组，元素形如 {"name":"考核项目原文","business":"...","standard":"..."}，' +
+          'name 必须与给定考核项目完全一致、数量一致、顺序一致，不要输出 JSON 以外的任何文字或代码块标记。';
+    const userMessage = [
+      `被考核人：${userName}`,
+      position ? `岗位：${position}` : '',
+      `考核周期：${monthLabel}`,
+      '',
+      category === 'behavior' ? '【行为指标（需逐项填写）】' : '【考核项目（需逐项填写）】',
+      itemsList,
+      '',
+      '【本月任务明细】',
+      tasksBlock,
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const client = this.createClient(selectedModel.apiKey, provider, baseUrl);
+    try {
+      const response = await client.chat.completions.create({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage },
+        ],
+        ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+      });
+      const raw = (response.choices[0]?.message?.content ?? '').trim();
+      if (!raw) return null;
+      // 容错：剥离可能的 ```json 代码块围栏，再截取首个 [...] 数组片段解析。
+      const stripped = raw.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+      const start = stripped.indexOf('[');
+      const end = stripped.lastIndexOf(']');
+      if (start < 0 || end <= start) return null;
+      const parsed: unknown = JSON.parse(stripped.slice(start, end + 1));
+      if (!Array.isArray(parsed)) return null;
+      const byName = new Map<string, { business: string; standard: string }>();
+      for (const el of parsed) {
+        if (!el || typeof el !== 'object') continue;
+        const rec = el as Record<string, unknown>;
+        const name = typeof rec.name === 'string' ? rec.name.trim() : '';
+        if (!name) continue;
+        byName.set(name, {
+          business: typeof rec.business === 'string' ? rec.business.trim().slice(0, 200) : '',
+          standard: typeof rec.standard === 'string' ? rec.standard.trim().slice(0, 200) : '',
+        });
+      }
+      // 以入参 items 为准对齐输出，保证名称/顺序/数量与考核表一致。
+      return items.map((it) => ({
+        name: it.name,
+        business: byName.get(it.name)?.business ?? '',
+        standard: byName.get(it.name)?.standard ?? '',
+      }));
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn('[assessKpiItems] AI call failed:', error instanceof Error ? error.message : error);
+      return null;
+    }
+  }
+
+  /**
+   * 事项指标（80分）——由 AI 根据本月真实任务【动态归纳考核项目(title)】并逐项填写。
+   * 返回 4~6 条 {name(考核项目), weight(整数,合计=80), business(编号分条汇总), standard}；
+   * 权重合计会在此校正为 80。AI 未配置/失败/解析异常时返回 null，由调用方回退到固定项。
+   */
+  async generatePerformanceItemKpis(input: {
+    userName: string;
+    monthLabel: string;
+    position?: string | null;
+    tasks: Array<{
+      title: string;
+      role: '主责' | '协作';
+      statusLabel: string;
+      group: 'completed' | 'progressed' | 'stalled' | 'blocked';
+      progress?: number | null;
+      monthExcerpt?: string | null;
+      blockedReason?: string | null;
+    }>;
+  }): Promise<Array<{ name: string; weight: string; business: string; standard: string }> | null> {
+    const selectedModel = await this.resolveSceneModelConfig('performance_review').catch(() => null);
+    if (!selectedModel?.apiKey) return null;
+    if (input.tasks.length === 0) return null; // 无任务则回退固定项（避免 AI 凭空编造考核项目）
+
+    const provider: AiProvider = selectedModel.provider;
+    const { userName, monthLabel, position, tasks } = input;
+    const groupLabels: Record<string, string> = {
+      completed: '本月完成',
+      progressed: '本月推进',
+      blocked: '月末仍阻塞',
+      stalled: '长期停滞',
+    };
+    const tasksBlock = tasks
+      .map((t) => {
+        const roleTag = t.role === '协作' ? '[协作] ' : '';
+        const progress = typeof t.progress === 'number' ? ` 进度${t.progress}%` : '';
+        const detail =
+          t.group === 'blocked' && t.blockedReason
+            ? ` — 阻塞：${t.blockedReason}`
+            : t.monthExcerpt
+              ? ` — ${t.monthExcerpt.trim().slice(0, 220)}`
+              : '';
+        return `· ${roleTag}《${t.title}》(${groupLabels[t.group] ?? t.statusLabel}${progress})${detail}`;
+      })
+      .join('\n');
+
+    const systemPrompt =
+      '你是一名研发主管，正在填写团队成员《月度绩效考核表》的「一、事项指标（80分）」部分。' +
+      '请根据该成员本月的真实任务，把工作【归纳为若干核心工作类别】作为"考核项目"，并逐项填写。要求：' +
+      '1) 归纳出 4~6 个考核项目，name 要概括、专业、贴合其本月实际工作（示例风格如「产品测试与参数验证」「工装设计、3D打印与结构验证」「异常问题分析与改善验证」「ECN文件管理与技术文档输出」「研发协同、供应商对接与项目推进」「团队支持与领导交办事项」——按实际工作命名，不要照抄这些示例）；' +
+      '2) weight=分值权重，为正整数，按各类工作的重要性与工作量分配，且【所有项 weight 之和必须正好等于 80】；' +
+      '3) business=具体业务事项：用概括、汇总性的书面语言，整理成编号分条列表（格式「1.……\n2.……」，用真实换行符 \\n 分隔，一般 4~7 条，内容要充实丰富）；' +
+      '要尽量把该类别下本月涉及的相关任务都归纳覆盖进来，勿遗漏主要工作、也不要过度合并成一两条；' +
+      '每条不只写"做了什么"，还要写清楚：具体对象（点名任务/项目/版本/文件/物料等）、关键动作、以及产出或结果/进展状态，可带量化细节（数量、版本号、指标、偏差值等），使每条信息饱满、可核对；' +
+      '语气客观中性、只陈述事实与进展状态，不做「严重不足/执行力差/有待加强」等褒贬评价定性，也不拔高，但避免每条都干巴巴的一句话，力求内容具体、有信息量；' +
+      '4) standard=评价标准：该类工作可衡量的评价标准（20~50字，正式、通用）。' +
+      '严格只输出 JSON 数组，元素形如 {"name":"考核项目","weight":30,"business":"1.…\\n2.…","standard":"…"}，4~6 个元素，不要输出 JSON 以外的任何文字或代码块标记。';
+    const userMessage = [
+      `被考核人：${userName}`,
+      position ? `岗位：${position}` : '',
+      `考核周期：${monthLabel}`,
+      '',
+      '【本月任务明细】',
+      tasksBlock,
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    const client = this.createClient(selectedModel.apiKey, provider, selectedModel.baseUrl);
+    try {
+      const response = await client.chat.completions.create({
+        model: selectedModel.model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage },
+        ],
+        ...(provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+      });
+      const raw = (response.choices[0]?.message?.content ?? '').trim();
+      if (!raw) return null;
+      const stripped = raw.replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+      const start = stripped.indexOf('[');
+      const end = stripped.lastIndexOf(']');
+      if (start < 0 || end <= start) return null;
+      const parsed: unknown = JSON.parse(stripped.slice(start, end + 1));
+      if (!Array.isArray(parsed)) return null;
+
+      const rows = parsed
+        .filter((el): el is Record<string, unknown> => Boolean(el) && typeof el === 'object' && !Array.isArray(el))
+        .map((rec) => ({
+          name: typeof rec.name === 'string' ? rec.name.trim().slice(0, 40) : '',
+          weight: Math.max(0, Math.round(Number(rec.weight))) || 0,
+          business: typeof rec.business === 'string' ? rec.business.trim().slice(0, 700) : '',
+          standard: typeof rec.standard === 'string' ? rec.standard.trim().slice(0, 200) : '',
+        }))
+        .filter((r) => r.name)
+        .slice(0, 6);
+      if (rows.length < 2) return null; // 项目太少视为无效，回退固定项
+
+      // 校正权重合计=80：把差额并入权重最大的一项，保证考核表分值自洽。
+      const sum = rows.reduce((acc, r) => acc + r.weight, 0);
+      if (sum !== 80 && rows.length > 0) {
+        let maxIdx = 0;
+        for (let i = 1; i < rows.length; i++) if (rows[i].weight > rows[maxIdx].weight) maxIdx = i;
+        rows[maxIdx].weight = Math.max(1, rows[maxIdx].weight + (80 - sum));
+      }
+      return rows.map((r) => ({ ...r, weight: String(r.weight) }));
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn('[generatePerformanceItemKpis] AI call failed:', error instanceof Error ? error.message : error);
       return null;
     }
   }
