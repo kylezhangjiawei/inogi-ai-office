@@ -1,4 +1,4 @@
-import React, { useDeferredValue, useEffect, useMemo, useState } from "react";
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import {
   Activity,
@@ -548,7 +548,7 @@ function toneForCode(status: number): Tone {
   return "healthy";
 }
 
-function Hero({ section }: { section: OpsSection }) {
+function Hero({ section, refreshing, onRefresh, onExport }: { section: OpsSection; refreshing: boolean; onRefresh: () => void; onExport: () => void }) {
   const meta = sectionMeta[section];
   return (
     <section className="material-card relative overflow-hidden p-6 md:p-8">
@@ -563,15 +563,16 @@ function Hero({ section }: { section: OpsSection }) {
           <button
             type="button"
             className="material-button-secondary"
-            onClick={() => toast.success("已刷新当前运维视图")}
+            disabled={refreshing}
+            onClick={onRefresh}
           >
-            <RefreshCw className="h-4 w-4" />
-            刷新
+            <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+            {refreshing ? "刷新中…" : "刷新"}
           </button>
           <button
             type="button"
             className="material-button-primary"
-            onClick={() => toast.success("已生成导出任务")}
+            onClick={onExport}
           >
             <Download className="h-4 w-4" />
             导出
@@ -772,7 +773,7 @@ function AiAnalysisBlock({ requestId, aiReady }: { requestId: string; aiReady?: 
   };
 
   return (
-    <div className="rounded border border-indigo-200 bg-indigo-50/50 p-3">
+    <div className="min-w-0 rounded border border-indigo-200 bg-indigo-50/50 p-3">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 text-xs font-semibold text-indigo-700">
           <Sparkles className="h-3.5 w-3.5" />
@@ -791,7 +792,7 @@ function AiAnalysisBlock({ requestId, aiReady }: { requestId: string; aiReady?: 
         <p className="mt-2 text-xs text-amber-600">未配置可用 AI 模型，请到「集成管理 → AI 模型」启用后再试。</p>
       ) : null}
       {result && result.generated_by === "ai" ? (
-        <div className="mt-3 space-y-2 text-xs leading-5 text-slate-700">
+        <div className="mt-3 space-y-2 text-xs leading-5 text-slate-700 [overflow-wrap:anywhere]">
           {result.summary ? <div className="rounded bg-white p-2 font-semibold text-slate-800">{result.summary}</div> : null}
           {result.probable_causes.length ? <AiList title="可能原因" items={result.probable_causes} /> : null}
           {result.impact ? <div><span className="font-semibold text-slate-800">影响面：</span>{result.impact}</div> : null}
@@ -865,7 +866,7 @@ function EndpointStatsPanel() {
                 <TableCell className={cn("tabular-nums", row.errorRate >= 5 ? "text-rose-600 font-semibold" : "text-slate-600")}>{row.errorRate}%</TableCell>
                 <TableCell className="tabular-nums text-slate-600">{row.avgDuration}ms</TableCell>
                 <TableCell className={cn("tabular-nums", row.maxDuration > 2000 ? "text-amber-700 font-semibold" : "text-slate-600")}>{row.maxDuration}ms</TableCell>
-                <TableCell className="whitespace-nowrap text-xs text-slate-500">{row.lastError ?? "—"}</TableCell>
+                <TableCell className="max-w-[220px] truncate text-xs text-slate-500" title={row.lastError ?? undefined}>{row.lastError ?? "—"}</TableCell>
               </TableRow>
             ))}
           </TableBody>
@@ -877,11 +878,21 @@ function EndpointStatsPanel() {
 }
 
 function ApiErrorsPage({ data }: { data: OpsCenterSectionData | null }) {
+  // 「关联日志」：把错误聚合的接口路径下发给请求记录做关键字过滤，并滚动到该面板
+  const [linkedLog, setLinkedLog] = useState<{ keyword: string; ts: number } | null>(null);
   return (
     <div className="space-y-5">
       <EndpointStatsPanel />
-      <ApiLogsPage data={data} />
-      <ErrorsPage data={data} />
+      <div id="ops-api-logs-anchor" className="scroll-mt-24">
+        <ApiLogsPage data={data} linked={linkedLog} />
+      </div>
+      <ErrorsPage
+        data={data}
+        onLinkLogs={(path) => {
+          setLinkedLog({ keyword: path, ts: Date.now() });
+          document.getElementById("ops-api-logs-anchor")?.scrollIntoView({ behavior: "smooth", block: "start" });
+        }}
+      />
     </div>
   );
 }
@@ -1028,12 +1039,37 @@ function DatabaseMonitoringPage({ data }: { data: OpsCenterSectionData | null })
 function ServicesTasksPage({ data }: { data: OpsCenterSectionData | null }) {
   const services = getArray(data, "service_monitors", serviceMonitors);
   const cloudRows = getArray(data, "cloud_integrations", cloudIntegrations);
+  // 「测试连接」= 重新拉取服务端聚合数据并回报该服务最新状态；本地维护一份可更新的行数据
+  const [serviceRows, setServiceRows] = useState<any[]>(services);
+  const [testingName, setTestingName] = useState<string | null>(null);
+  useEffect(() => { setServiceRows(getArray(data, "service_monitors", serviceMonitors)); }, [data]);
+
+  const handleTestConnection = async (name: string) => {
+    setTestingName(name);
+    try {
+      const fresh = await opsCenterApi.getSection("services-tasks");
+      const list = getArray<any>(fresh, "service_monitors", []);
+      if (list.length) setServiceRows(list);
+      const hit = list.find((row: any) => row.name === name);
+      if (hit) {
+        const rate = hit.successRate && hit.successRate !== "-" ? ` · 成功率 ${hit.successRate}` : "";
+        toast.success(`${name} 最新状态：${hit.status}${rate}`);
+      } else {
+        toast.info(`已重新采样，未获取到「${name}」的最新状态`);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : `${name} 连接测试失败`);
+    } finally {
+      setTestingName(null);
+    }
+  };
+
   return (
     <div className="space-y-5">
       <section className="material-card p-5">
         <PanelTitle icon={PlugZap} title="第三方服务监控" action="AI / 邮箱 / 阿里云" />
         <div className="mt-5 grid gap-4 lg:grid-cols-3">
-          {services.map((item: any) => (
+          {serviceRows.map((item: any) => (
             <div key={item.name} className="rounded border border-slate-200 bg-white p-5">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -1046,9 +1082,14 @@ function ServicesTasksPage({ data }: { data: OpsCenterSectionData | null }) {
                 <MiniMetric label="成功率" value={item.successRate} />
                 <MiniMetric label="平均耗时" value={item.latency} />
               </div>
-              <button type="button" className="material-button-secondary mt-4 w-full !py-2" onClick={() => toast.success(`${item.name} 连接测试已提交`)}>
-                <RefreshCw className="h-4 w-4" />
-                测试连接
+              <button
+                type="button"
+                className="material-button-secondary mt-4 w-full !py-2"
+                disabled={testingName === item.name}
+                onClick={() => handleTestConnection(item.name)}
+              >
+                <RefreshCw className={cn("h-4 w-4", testingName === item.name && "animate-spin")} />
+                {testingName === item.name ? "检测中…" : "测试连接"}
               </button>
             </div>
           ))}
@@ -1078,10 +1119,21 @@ function ServicesTasksPage({ data }: { data: OpsCenterSectionData | null }) {
   );
 }
 
+const ALERT_RULE_OVERRIDES_KEY = "ops-alert-rule-overrides";
+
 function AlertsAuditSettingsPage({ data }: { data: OpsCenterSectionData | null }) {
   const [ruleKeyword, setRuleKeyword] = useState("");
   const [ruleLevelFilter, setRuleLevelFilter] = useState("全部");
   const [policyKeyword, setPolicyKeyword] = useState("");
+  // 告警规则启停：本地可切换，「保存策略」持久化到 localStorage（后端暂无写端点）
+  const [ruleOverrides, setRuleOverrides] = useState<Record<string, boolean>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(ALERT_RULE_OVERRIDES_KEY) ?? "{}") as Record<string, boolean>;
+    } catch {
+      return {};
+    }
+  });
+  const ruleEnabled = (row: any) => ruleOverrides[row.name] ?? Boolean(row.enabled);
   const rules = getArray(data, "alert_rules", alertRules);
   const policies = getArray(data, "log_policies", logPolicies);
   const deferredRuleKeyword = useDeferredValue(ruleKeyword);
@@ -1163,7 +1215,16 @@ function AlertsAuditSettingsPage({ data }: { data: OpsCenterSectionData | null }
                     <TableCell>{row.condition}</TableCell>
                     <TableCell>{row.channel}</TableCell>
                     <TableCell><span className={cn("material-chip", statusColors[toneForStatus(row.level)])}>{row.level}</span></TableCell>
-                    <TableCell><span className={cn("material-chip", row.enabled ? statusColors.healthy : statusColors.neutral)}>{row.enabled ? "启用" : "停用"}</span></TableCell>
+                    <TableCell>
+                      <button
+                        type="button"
+                        title="点击切换启停，保存策略后生效"
+                        className={cn("material-chip cursor-pointer transition hover:opacity-80", ruleEnabled(row) ? statusColors.healthy : statusColors.neutral)}
+                        onClick={() => setRuleOverrides((overrides) => ({ ...overrides, [row.name]: !ruleEnabled(row) }))}
+                      >
+                        {ruleEnabled(row) ? "启用" : "停用"}
+                      </button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -1178,11 +1239,23 @@ function AlertsAuditSettingsPage({ data }: { data: OpsCenterSectionData | null }
             {settings.map((item: string) => (
               <div key={item} className="rounded border border-slate-200 bg-white p-4 text-sm font-semibold text-slate-700">{item}</div>
             ))}
-            <button type="button" className="material-button-primary w-full" onClick={() => toast.success("日志策略已保存")}>
+            <button
+              type="button"
+              className="material-button-primary w-full"
+              onClick={() => {
+                localStorage.setItem(ALERT_RULE_OVERRIDES_KEY, JSON.stringify(ruleOverrides));
+                const changed = Object.keys(ruleOverrides).length;
+                toast.success(changed ? `已保存 ${changed} 条告警规则的启停状态（本地生效）` : "当前无改动，配置保持不变");
+              }}
+            >
               <Settings2 className="h-4 w-4" />
               保存策略
             </button>
-            <button type="button" className="material-button-secondary w-full text-red-600 hover:border-red-200 hover:bg-red-50" onClick={() => toast.success("已创建过期日志清理任务")}>
+            <button
+              type="button"
+              className="material-button-secondary w-full text-red-600 hover:border-red-200 hover:bg-red-50"
+              onClick={() => toast.info("日志清理需要后端定时任务支持，当前环境暂未接入")}
+            >
               <Trash2 className="h-4 w-4" />
               清理过期日志
             </button>
@@ -1241,7 +1314,7 @@ const OPS_RANGE_PRESETS: Array<{ label: string; value: string; ms: number }> = [
   { label: "近 30 天", value: "30d", ms: 30 * 24 * 3600_000 },
 ];
 
-function ApiLogsPage(_props: { data: OpsCenterSectionData | null }) {
+function ApiLogsPage({ linked }: { data: OpsCenterSectionData | null; linked?: { keyword: string; ts: number } | null }) {
   const [keyword, setKeyword] = useState("");
   const [statusFilter, setStatusFilter] = useState("全部");
   const [methodFilter, setMethodFilter] = useState("全部");
@@ -1257,6 +1330,11 @@ function ApiLogsPage(_props: { data: OpsCenterSectionData | null }) {
 
   // 过滤条件变化时回到第 1 页
   useEffect(() => { setPage(1); }, [deferredKeyword, statusFilter, methodFilter, range]);
+
+  // 「关联日志」下发的接口路径 → 填入搜索框触发过滤（带 ts，重复点击同一路径也能重新触发）
+  useEffect(() => {
+    if (linked?.keyword) setKeyword(linked.keyword);
+  }, [linked]);
 
   // 服务端查询：时间范围 + 状态类 + 方法 + 关键字 + 分页（突破"只看最近 80 条"的限制）。
   useEffect(() => {
@@ -1374,16 +1452,16 @@ function ApiLogsPage(_props: { data: OpsCenterSectionData | null }) {
             <KeyValue label="请求耗时" value={`${selected.duration}ms`} />
             <KeyValue label="触发用户" value={selected.user} />
             <KeyValue label="来源 IP" value={selected.ip} />
-            <div className={cn("rounded border p-3 text-sm leading-6", selectedHasError ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-800")}>
+            <div className={cn("rounded border p-3 text-sm leading-6 [overflow-wrap:anywhere]", selectedHasError ? "border-rose-200 bg-rose-50 text-rose-800" : "border-emerald-200 bg-emerald-50 text-emerald-800")}>
               <div className="mb-1 text-xs font-semibold uppercase tracking-[0.12em] opacity-80">{selectedHasError ? "错误信息" : "响应摘要"}</div>
               {selected.message}
             </div>
             {selectedHasError ? <AiAnalysisBlock requestId={selected.id} aiReady={aiReady} /> : null}
             {selected.errorName ? <KeyValue label="错误类型" value={selected.errorName} mono /> : null}
             {selected.errorStack ? (
-              <div className="rounded border border-slate-200 bg-slate-950 p-3 text-xs leading-5 text-slate-100">
+              <div className="min-w-0 rounded border border-slate-200 bg-slate-950 p-3 text-xs leading-5 text-slate-100">
                 <div className="mb-2 font-semibold text-slate-300">错误堆栈</div>
-                <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words font-mono">{selected.errorStack}</pre>
+                <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-all font-mono">{selected.errorStack}</pre>
               </div>
             ) : null}
             <div className="grid gap-3">
@@ -1399,10 +1477,14 @@ function ApiLogsPage(_props: { data: OpsCenterSectionData | null }) {
   );
 }
 
-function ErrorsPage({ data }: { data: OpsCenterSectionData | null }) {
+const ISSUE_NEXT_STATUS: Record<string, string> = { 待处理: "处理中", 处理中: "已解决", 已解决: "待处理" };
+
+function ErrorsPage({ data, onLinkLogs }: { data: OpsCenterSectionData | null; onLinkLogs?: (path: string) => void }) {
   const [keyword, setKeyword] = useState("");
   const [severityFilter, setSeverityFilter] = useState("全部");
   const [selectedIssueId, setSelectedIssueId] = useState("");
+  // 「标记处理」本地状态流转：待处理 → 处理中 → 已解决（后端暂无写端点，仅本页生效）
+  const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({});
   const rows = getArray(data, "error_groups", errorGroups);
   const deferredKeyword = useDeferredValue(keyword);
   const filteredRows = useMemo(() => {
@@ -1477,16 +1559,35 @@ function ErrorsPage({ data }: { data: OpsCenterSectionData | null }) {
               <div className="mt-5 grid grid-cols-3 gap-3">
                 <MiniMetric label="次数" value={String(item.count)} />
                 <MiniMetric label="用户" value={String(item.users)} />
-                <MiniMetric label="状态" value={item.status} />
+                <MiniMetric label="状态" value={statusOverrides[item.id] ?? item.status} />
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
-                <button type="button" className="material-button-secondary !px-3 !py-2" onClick={(event) => { event.stopPropagation(); setSelectedIssueId(item.id); toast.success("已在右侧展示关联错误"); }}>
+                <button
+                  type="button"
+                  className="material-button-secondary !px-3 !py-2"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setSelectedIssueId(item.id);
+                    onLinkLogs?.(item.path);
+                    toast.success(`已按 ${item.path} 过滤上方请求记录`);
+                  }}
+                >
                   <FileSearch className="h-4 w-4" />
                   关联日志
                 </button>
-                <button type="button" className="material-button-secondary !px-3 !py-2" onClick={(event) => { event.stopPropagation(); toast.success("已更新处理状态"); }}>
+                <button
+                  type="button"
+                  className="material-button-secondary !px-3 !py-2"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    const current = statusOverrides[item.id] ?? item.status;
+                    const next = ISSUE_NEXT_STATUS[current] ?? "处理中";
+                    setStatusOverrides((overrides) => ({ ...overrides, [item.id]: next }));
+                    toast.success(`处理状态已更新为「${next}」`);
+                  }}
+                >
                   <CheckCircle2 className="h-4 w-4" />
-                  标记处理
+                  {(statusOverrides[item.id] ?? item.status) === "已解决" ? "重新打开" : "标记处理"}
                 </button>
               </div>
             </div>
@@ -1502,7 +1603,7 @@ function ErrorsPage({ data }: { data: OpsCenterSectionData | null }) {
             <p className="mt-2 text-sm leading-6 text-rose-700">
               最近 {selectedIssue.count} 次，影响 {selectedIssue.users} 位用户；最后出现于 {selectedIssue.lastSeen}。优先检查 {selectedIssue.service} 对应接口和上游依赖。
             </p>
-            <div className="mt-3 rounded bg-white/70 p-2 font-mono text-xs text-rose-700">{selectedIssue.path}</div>
+            <div className="mt-3 break-all rounded bg-white/70 p-2 font-mono text-xs text-rose-700">{selectedIssue.path}</div>
           </div>
         ) : null}
         {selectedIssue?.id ? <AiAnalysisBlock requestId={selectedIssue.id} /> : null}
@@ -1744,9 +1845,9 @@ function DetailPanel({
   children: React.ReactNode;
 }) {
   return (
-    <aside className="material-card h-fit p-5">
+    <aside className="material-card h-fit min-w-0 p-5">
       <PanelTitle icon={icon} title={title} />
-      <div className="mt-5 space-y-4">{children}</div>
+      <div className="mt-5 min-w-0 space-y-4">{children}</div>
     </aside>
   );
 }
@@ -1763,9 +1864,10 @@ function KeyValue({ label, value, mono }: { label: string; value: string; mono?:
 function JsonBlock({ title, value }: { title: string; value: unknown }) {
   const content = value ? JSON.stringify(value, null, 2) : "-";
   return (
-    <div className="rounded border border-slate-200 bg-slate-50 p-3">
+    <div className="min-w-0 rounded border border-slate-200 bg-slate-50 p-3">
       <div className="mb-2 text-xs font-semibold text-slate-500">{title}</div>
-      <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words font-mono text-xs leading-5 text-slate-700">{content}</pre>
+      {/* break-all：超长无空格 JSON 字符串的 min-content 会撑开 grid 详情栏，break-words 治不了 */}
+      <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-all font-mono text-xs leading-5 text-slate-700">{content}</pre>
     </div>
   );
 }
@@ -1791,6 +1893,10 @@ export function OpsCenterPage({ section }: OpsCenterPageProps) {
   const [data, setData] = useState<OpsCenterSectionData | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState("");
+  // 刷新按钮：+1 触发重新拉取，并通过 SectionContent 的 key 重挂载子面板（其内部请求随之重发）
+  const [reloadKey, setReloadKey] = useState(0);
+  // 仅手动点刷新时置位：切换分区也会触发拉取，但不应弹「已刷新」提示
+  const manualRefreshRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1798,7 +1904,13 @@ export function OpsCenterPage({ section }: OpsCenterPageProps) {
     setLoadError("");
     opsCenterApi.getSection(section)
       .then((payload) => {
-        if (!cancelled) setData(payload);
+        if (!cancelled) {
+          setData(payload);
+          if (manualRefreshRef.current) {
+            manualRefreshRef.current = false;
+            toast.success("运维数据已刷新");
+          }
+        }
       })
       .catch((error) => {
         if (!cancelled) {
@@ -1815,11 +1927,30 @@ export function OpsCenterPage({ section }: OpsCenterPageProps) {
     return () => {
       cancelled = true;
     };
-  }, [section]);
+  }, [section, reloadKey]);
+
+  const handleExport = () => {
+    if (!data) {
+      toast.info("暂无服务端数据可导出");
+      return;
+    }
+    const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const blob = new Blob(
+      [JSON.stringify({ section, title: sectionMeta[section].title, exported_at: new Date().toISOString(), data }, null, 2)],
+      { type: "application/json" },
+    );
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `ops-${section}-${stamp}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    toast.success("已导出当前视图数据（JSON）");
+  };
 
   return (
     <div className="min-w-[960px] space-y-5">
-      <Hero section={section} />
+      <Hero section={section} refreshing={loading} onRefresh={() => { manualRefreshRef.current = true; setReloadKey((key) => key + 1); }} onExport={handleExport} />
       {(loading || loadError) ? (
         <div className={cn("material-card px-4 py-3 text-sm font-semibold", loadError ? "text-amber-700" : "text-slate-600")}>
           {loading ? "正在加载真实运维数据..." : `已使用页面降级数据：${loadError}`}
@@ -1827,7 +1958,7 @@ export function OpsCenterPage({ section }: OpsCenterPageProps) {
       ) : null}
       <div className="relative">
         <div className="pointer-events-none absolute -left-3 top-6 h-20 w-1 rounded-full bg-primary" />
-        <SectionContent section={section} data={data} />
+        <SectionContent key={`${section}-${reloadKey}`} section={section} data={data} />
       </div>
     </div>
   );
