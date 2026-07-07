@@ -6,6 +6,7 @@ import { OssService } from '../oss/oss.service';
 import { RagService } from '../rag/rag.service';
 import { DEPT_KB_DEFAULT_CATEGORIES } from './dept-knowledge.constants';
 import { RdAiService } from './rd-ai.service';
+import { resolveRdStoreKey } from './rd-workspace.context';
 
 type JsonRecord = Record<string, unknown>;
 /**
@@ -98,7 +99,9 @@ type RdStoreKey =
   | 'rd.sheets'
   // 部门知识库：复用知识库 CRUD，按 kbId 切换存储键（缺省 kbId = 研发库走上面的 rd.* 键）
   | `deptkb.${string}.knowledgeCategories`
-  | `deptkb.${string}.knowledgeEntries`;
+  | `deptkb.${string}.knowledgeEntries`
+  // 部门库成员分值表（仅分值过滤启用的库使用，见 LEVEL_FILTERED_DEPT_KB_IDS）
+  | `deptkb.${string}.memberLevels`;
 
 const CATEGORY = 'research-development';
 const MAX_AUDIT_LOGS = 1000;
@@ -2712,6 +2715,31 @@ export class ResearchDevelopmentService {
     }
   }
 
+  /** 图片附件缩略图的 OSS 实时处理参数：等比缩到 480px + webp 压缩，网格缩略位不再加载原图。 */
+  private static readonly ATTACHMENT_THUMB_PROCESS = 'image/resize,m_lfit,w_480/format,webp/quality,q_80';
+  /** 缩略图签名 URL 记忆化（24h 复用同一 URL，保证浏览器缓存可命中；签名 TTL 48h 留余量）。 */
+  private readonly attachmentThumbCache = new Map<string, { url: string; freshUntil: number }>();
+
+  /** 为图片附件生成稳定的缩略图签名 URL（非图片 / OSS 未启用 / 解析失败返回 null）。 */
+  private buildAttachmentThumbUrl(ossUrl: string, mime: unknown): string | null {
+    if (typeof mime !== 'string' || !mime.startsWith('image/')) return null;
+    try {
+      const objectKey = decodeURIComponent(new URL(ossUrl).pathname).replace(/^\/+/, '');
+      if (!objectKey) return null;
+      const cached = this.attachmentThumbCache.get(objectKey);
+      const now = Date.now();
+      if (cached && cached.freshUntil > now) return cached.url;
+      const url = this.ossService.getSignedUrl(objectKey, 48 * 3600, ResearchDevelopmentService.ATTACHMENT_THUMB_PROCESS);
+      if (!url) return null;
+      // 上限防泄漏：长期运行进程只保留活跃工作集，超限整体清空（重建成本仅为一次签名）
+      if (this.attachmentThumbCache.size >= 5000) this.attachmentThumbCache.clear();
+      this.attachmentThumbCache.set(objectKey, { url, freshUntil: now + 24 * 3600 * 1000 });
+      return url;
+    } catch {
+      return null;
+    }
+  }
+
   /** Decorate progress-note attachments with `preview_url` (same-origin inline proxy) so the client can iframe-preview OSS files. */
   private decorateNotesWithPreview(notes: JsonRecord[]): JsonRecord[] {
     if (!Array.isArray(notes)) return notes;
@@ -2721,7 +2749,12 @@ export class ResearchDevelopmentService {
       const decorated = attachments.map((att) => {
         if (!isRecord(att) || typeof att.oss_url !== 'string' || !att.oss_url) return att;
         const previewUrl = this.buildAttachmentPreviewUrl(att.oss_url);
-        return previewUrl ? { ...att, preview_url: previewUrl } : att;
+        const thumbUrl = this.buildAttachmentThumbUrl(att.oss_url, att.mime);
+        return {
+          ...att,
+          ...(previewUrl ? { preview_url: previewUrl } : {}),
+          ...(thumbUrl ? { thumb_url: thumbUrl } : {}),
+        };
       });
       return { ...note, attachments: decorated };
     });
@@ -5990,6 +6023,66 @@ export class ResearchDevelopmentService {
     return kbId ? `deptkb/${kbId}` : 'rd/knowledge';
   }
 
+  // ── 部门库成员分值表（仅 LEVEL_FILTERED_DEPT_KB_IDS 内的库启用按人过滤）────────
+
+  private deptKbMemberLevelsKey(kbId: string): RdStoreKey {
+    return `deptkb.${kbId}.memberLevels`;
+  }
+
+  private normalizeDeptKbMemberLevels(payload: unknown): Array<{ user_id: string; name: string; level: number }> {
+    const seen = new Map<string, { user_id: string; name: string; level: number }>();
+    for (const item of asArray(payload)) {
+      if (!isRecord(item)) continue;
+      const userId = cleanText(item.user_id);
+      if (!userId) continue;
+      // 同一用户多条时保留最后一条
+      seen.set(userId, {
+        user_id: userId,
+        name: cleanText(item.name),
+        level: ResearchDevelopmentService.clampLevel(item.level),
+      });
+    }
+    return [...seen.values()];
+  }
+
+  /** 成员分值表读取缓存（60s TTL，保存时立即失效）：条目列表/详情是热路径，避免每次请求都整表读库。 */
+  private readonly deptKbMemberLevelsCache = new Map<string, { data: Array<{ user_id: string; name: string; level: number }>; freshUntil: number }>();
+
+  /** 读取部门库成员分值表：[{ user_id, name, level(0-100) }]。 */
+  async getDeptKbMemberLevels(kbId: string) {
+    const cached = this.deptKbMemberLevelsCache.get(kbId);
+    if (cached && cached.freshUntil > Date.now()) return cached.data;
+    const data = this.normalizeDeptKbMemberLevels(await this.readValue(this.deptKbMemberLevelsKey(kbId)));
+    this.deptKbMemberLevelsCache.set(kbId, { data, freshUntil: Date.now() + 60_000 });
+    return data;
+  }
+
+  /** 全量保存部门库成员分值表（库管理员维护）。 */
+  async saveDeptKbMemberLevels(kbId: string, payload: unknown) {
+    const normalized = this.normalizeDeptKbMemberLevels(payload);
+    await this.writeValue(this.deptKbMemberLevelsKey(kbId), normalized);
+    this.deptKbMemberLevelsCache.delete(kbId);
+    return normalized;
+  }
+
+  /** 部门库 viewer 分值：命中成员表取其分值，未登记按 0（拒绝式默认，仅可见完全公开条目）。 */
+  async resolveDeptKbViewerLevel(kbId: string, userId?: string | null): Promise<number> {
+    if (!userId) return 0;
+    const levels = await this.getDeptKbMemberLevels(kbId);
+    const hit = levels.find((item) => item.user_id === userId);
+    return hit ? hit.level : 0;
+  }
+
+  /** 成员分值配置的候选用户：全部启用中的账号（供库管理员挑选）。 */
+  async listDeptKbMemberCandidates() {
+    const users = await this.prisma.user.findMany({
+      where: { status: { not: 'DISABLED' } },
+      select: { id: true, name: true, username: true, department: true },
+      orderBy: { name: 'asc' },
+    });
+    return users.map((u) => ({ id: u.id, name: u.name, username: u.username ?? '', department: u.department ?? '' }));
+  }
+
   private cloneKnowledgeCategories(source: unknown): JsonRecord[] {
     return JSON.parse(JSON.stringify(source)) as JsonRecord[];
   }
@@ -6309,7 +6402,7 @@ export class ResearchDevelopmentService {
       visibility?: string;
       permissionLevel?: number;
     },
-    viewer?: { userId?: string; hasFullAccess?: boolean },
+    viewer?: { userId?: string; hasFullAccess?: boolean; levelOverride?: number },
     kbId?: string,
   ) {
     const raw = await this.readValue(this.kbEntriesKey(kbId));
@@ -6321,8 +6414,11 @@ export class ResearchDevelopmentService {
     // ── Viewer-level access control ──────────────────────────────────────
     // 「看全部」仅限 KB 管理员（* / rd-kb:manage，由 controller 的 buildKbViewer 判定）；
     // 其余成员一律按本人 kb_level 过滤，确保「个人权限」对所有非 KB 管理员真正生效。
+    // levelOverride：部门库按人过滤时由 controller 传入（成员分值表），跳过研发人员池查询。
     if (viewer && !viewer.hasFullAccess) {
-      const viewerLevel = await this.resolveViewerKbLevel(viewer.userId);
+      const viewerLevel = typeof viewer.levelOverride === 'number'
+        ? viewer.levelOverride
+        : await this.resolveViewerKbLevel(viewer.userId);
       entries = entries.filter(e => (e.permission_level as number) <= viewerLevel);
     }
 
@@ -6387,7 +6483,7 @@ export class ResearchDevelopmentService {
   /** Return a single KB entry including its data_url (used for download). */
   async getKnowledgeEntryById(
     id: string,
-    viewer?: { userId?: string; hasFullAccess?: boolean },
+    viewer?: { userId?: string; hasFullAccess?: boolean; levelOverride?: number },
     kbId?: string,
   ): Promise<JsonRecord | null> {
     const raw = await this.readValue(this.kbEntriesKey(kbId));
@@ -6399,7 +6495,9 @@ export class ResearchDevelopmentService {
     // 与列表一致的 kb_level 鉴权：非 KB 管理员不得越权读取高于自身分值的条目，
     // 堵住「详情接口绕过列表过滤」的口子。返回 null → 404，避免泄露条目是否存在。
     if (viewer && !viewer.hasFullAccess) {
-      const viewerLevel = await this.resolveViewerKbLevel(viewer.userId);
+      const viewerLevel = typeof viewer.levelOverride === 'number'
+        ? viewer.levelOverride
+        : await this.resolveViewerKbLevel(viewer.userId);
       if ((entry.permission_level as number) > viewerLevel) return null;
     }
     const previewUrl = typeof entry.oss_url === 'string' && entry.oss_url
@@ -6706,9 +6804,11 @@ export class ResearchDevelopmentService {
     return asArray(await this.readValue(key));
   }
 
+  // 存储咽喉点：所有 rd.* 键经 resolveRdStoreKey 按当前工作区改写（默认研发池原样，
+  // us-collab 协同池改写为 rdws.us-collab.*），实现任务/人员/审批流/AI 策略/留痕的池级隔离。
   private async readValue(key: RdStoreKey) {
     const setting = await this.prisma.systemSetting.findUnique({
-      where: { key },
+      where: { key: resolveRdStoreKey(key) },
       select: { value: true },
     });
     return setting?.value ?? null;
@@ -6716,13 +6816,14 @@ export class ResearchDevelopmentService {
 
   /** 构造单个 store 的 upsert 操作（不执行），供 writeValue 与 $transaction 批量原子写复用。 */
   private buildSettingUpsert(key: RdStoreKey, value: unknown) {
+    const storeKey = resolveRdStoreKey(key);
     return this.prisma.systemSetting.upsert({
-      where: { key },
+      where: { key: storeKey },
       create: {
         category: CATEGORY,
-        key,
+        key: storeKey,
         value: value as any,
-        description: `R&D module data store: ${key}`,
+        description: `R&D module data store: ${storeKey}`,
       },
       update: {
         category: CATEGORY,

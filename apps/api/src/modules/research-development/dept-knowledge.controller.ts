@@ -17,7 +17,7 @@ import {
 import { FilesInterceptor } from '@nestjs/platform-express';
 
 import { OssService } from '../oss/oss.service';
-import { DEPT_KB_OPS } from './dept-knowledge.constants';
+import { DEPT_KB_OPS, LEVEL_FILTERED_DEPT_KB_IDS } from './dept-knowledge.constants';
 import { DeptKbGuard, DeptKbOp } from './dept-kb.guard';
 import { ResearchDevelopmentService } from './research-development.service';
 
@@ -29,8 +29,9 @@ type AuthedRequest = { user?: { id?: string; name?: string; role?: string; permi
  * 与研发知识库控制器（research-development.controller.ts 的 /knowledge/*）完全隔离——
  * 研发库端点一行不动；这里走独立路由 + DeptKbGuard 动态鉴权（见 dept-kb.guard.ts）。
  *
- * 可见性（一期决策）：部门成员默认全可见，故 viewer 一律 hasFullAccess=true，不做按人分值的行级过滤；
- * 但保留 permission_level 字段——dept-kb 管理员可在上传/编辑时设定（为后续启用过滤预留）。
+ * 可见性：默认部门成员全可见（viewer hasFullAccess=true）；LEVEL_FILTERED_DEPT_KB_IDS 内的库
+ * （协同 us-collab、采购 purchasing）启用按人分值过滤——库管理员维护成员分值表，
+ * 普通成员仅可见 permission_level ≤ 本人分值的条目。
  */
 @Controller('research-development/dept-knowledge/:kbId')
 @UseGuards(DeptKbGuard)
@@ -40,8 +41,21 @@ export class DeptKnowledgeController {
     private readonly ossService: OssService,
   ) {}
 
-  /** 部门库 viewer：成员默认全可见（不做行级密级裁剪）。 */
-  private viewer(req: AuthedRequest) {
+  /**
+   * 部门库 viewer：
+   * - 分值过滤启用的库（LEVEL_FILTERED_DEPT_KB_IDS）：管理员全可见；普通成员按
+   *   成员分值表过滤（未登记按 0，仅可见完全公开条目）；
+   * - 其余库维持一期「成员全可见」。
+   */
+  private async viewer(req: AuthedRequest, kbId: string) {
+    if (this.isManager(req)) return { userId: req.user?.id, hasFullAccess: true };
+    if (LEVEL_FILTERED_DEPT_KB_IDS.has(kbId)) {
+      return {
+        userId: req.user?.id,
+        hasFullAccess: false,
+        levelOverride: await this.rdService.resolveDeptKbViewerLevel(kbId, req.user?.id),
+      };
+    }
     return { userId: req.user?.id, hasFullAccess: true };
   }
 
@@ -103,7 +117,7 @@ export class DeptKnowledgeController {
   // ── Entries ─────────────────────────────────────────────────────────────────
 
   @Get('entries')
-  getEntries(
+  async getEntries(
     @Param('kbId') kbId: string,
     @Query('category_id') categoryId?: string,
     @Query('keyword') keyword?: string,
@@ -116,9 +130,30 @@ export class DeptKnowledgeController {
     const permissionLevel = permissionLevelStr ? Number(permissionLevelStr) : undefined;
     return this.rdService.getKnowledgeEntries(
       { categoryId, keyword, source, fileType, visibility, permissionLevel: Number.isFinite(permissionLevel) ? permissionLevel : undefined },
-      this.viewer(req ?? {}),
+      await this.viewer(req ?? {}, kbId),
       kbId,
     );
+  }
+
+  // ── 成员分值表（仅分值过滤启用的库；库管理员维护）─────────────────────────────
+
+  @Get('member-levels')
+  @DeptKbOp(DEPT_KB_OPS.MANAGE)
+  getMemberLevels(@Param('kbId') kbId: string) {
+    return this.rdService.getDeptKbMemberLevels(kbId);
+  }
+
+  @Put('member-levels')
+  @DeptKbOp(DEPT_KB_OPS.MANAGE)
+  saveMemberLevels(@Param('kbId') kbId: string, @Body() body: { members?: unknown }) {
+    return this.rdService.saveDeptKbMemberLevels(kbId, body?.members);
+  }
+
+  /** 成员分值配置的候选用户（全部启用账号，仅库管理员可读）。 */
+  @Get('member-levels/candidates')
+  @DeptKbOp(DEPT_KB_OPS.MANAGE)
+  listMemberCandidates() {
+    return this.rdService.listDeptKbMemberCandidates();
   }
 
   @Post('classify-files')
@@ -246,7 +281,7 @@ export class DeptKnowledgeController {
 
   @Get('entries/:id')
   async getEntry(@Param('kbId') kbId: string, @Param('id') id: string, @Request() req: AuthedRequest) {
-    const entry = await this.rdService.getKnowledgeEntryById(id, this.viewer(req), kbId);
+    const entry = await this.rdService.getKnowledgeEntryById(id, await this.viewer(req, kbId), kbId);
     if (!entry) throw new NotFoundException('条目不存在');
     return entry;
   }

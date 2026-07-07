@@ -6,6 +6,7 @@ import { Response } from 'express';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { OssService } from '../oss/oss.service';
+import { RdWorkspaceInterceptor } from './rd-workspace.context';
 import { ResearchDevelopmentService } from './research-development.service';
 
 const RD_READ_PERMISSIONS = [
@@ -15,6 +16,9 @@ const RD_READ_PERMISSIONS = [
   'page:rd-approval-flow',
   'page:rd-audit-log',
   'page:rd-ai-settings',
+  // 中美协同页面复用研发接口（协同驾驶舱 / 协同工作台），读权限等同研发页面
+  'page:us-collab-cockpit',
+  'page:us-collab-workspace',
 ];
 
 type AuthedRequest = { user?: { id?: string; name?: string; role?: string; permissions?: string[] } };
@@ -43,6 +47,8 @@ function buildKbViewer(req: AuthedRequest): { userId?: string; hasFullAccess: bo
 
 @Controller('research-development')
 @Permissions(...RD_READ_PERMISSIONS)
+// 工作区隔离：?workspace=us-collab 走协同池（独立任务/人员/审批流/AI 策略/留痕），缺省走研发池
+@UseInterceptors(RdWorkspaceInterceptor)
 export class ResearchDevelopmentController {
   constructor(
     private readonly rdService: ResearchDevelopmentService,
@@ -78,7 +84,7 @@ export class ResearchDevelopmentController {
   }
 
   @Patch('task-categories/tasks/:taskId')
-  @Permissions('page:rd-my-workspace', 'rd-task:edit', 'rd-task:create', 'rd-task:reassign')
+  @Permissions('page:rd-my-workspace', 'page:us-collab-workspace', 'rd-task:edit', 'rd-task:create', 'rd-task:reassign')
   updateTask(
     @Param('taskId') taskId: string,
     @Body() payload: Record<string, unknown>,
@@ -107,7 +113,7 @@ export class ResearchDevelopmentController {
   }
 
   @Post('task-categories/tasks/move')
-  @Permissions('rd-task:move', 'rd-task:edit', 'rd-task:reassign', 'page:rd-my-workspace')
+  @Permissions('rd-task:move', 'rd-task:edit', 'rd-task:reassign', 'page:rd-my-workspace', 'page:us-collab-workspace')
   moveTasks(
     @Body()
     payload: {
@@ -205,7 +211,8 @@ export class ResearchDevelopmentController {
 
     res.setHeader('Content-Type', obj.contentType || 'application/octet-stream');
     res.setHeader('Content-Disposition', 'inline');
-    res.setHeader('Cache-Control', 'private, max-age=600');
+    // OSS 对象按 key 内容不变，token 已按天稳定 → 允许浏览器缓存一整天，避免附件反复重下
+    res.setHeader('Cache-Control', 'private, max-age=86400, immutable');
     if (obj.size > 0) res.setHeader('Content-Length', String(obj.size));
 
     obj.stream.on('error', () => {
@@ -246,7 +253,7 @@ export class ResearchDevelopmentController {
   }
 
   @Post('task-progress-notes')
-  @Permissions('page:rd-my-workspace', 'rd-task:edit', 'rd-task:create')
+  @Permissions('page:rd-my-workspace', 'page:us-collab-workspace', 'rd-task:edit', 'rd-task:create')
   @UseInterceptors(FilesInterceptor('files', 10))
   createTaskProgressNote(
     @UploadedFiles() files: Array<{ originalname: string; mimetype?: string; size?: number; buffer: Buffer }> | undefined,
@@ -310,7 +317,7 @@ export class ResearchDevelopmentController {
   }
 
   @Post('daily-reports')
-  @Permissions('page:rd-my-workspace', 'rd-task:edit', 'rd-task:create')
+  @Permissions('page:rd-my-workspace', 'page:us-collab-workspace', 'rd-task:edit', 'rd-task:create')
   createDailyReport(
     @Body() body: { user_id?: string; user_name?: string; date?: string },
     @Request() req: { user?: { id?: string; name?: string } },
@@ -348,7 +355,7 @@ export class ResearchDevelopmentController {
   }
 
   @Post('monthly-reports')
-  @Permissions('page:rd-my-workspace', 'rd-task:edit', 'rd-task:create')
+  @Permissions('page:rd-my-workspace', 'page:us-collab-workspace', 'rd-task:edit', 'rd-task:create')
   createMonthlyReport(
     @Body() body: { user_id?: string; user_name?: string; month?: string },
     @Request() req: { user?: { id?: string; name?: string } },
@@ -487,7 +494,7 @@ export class ResearchDevelopmentController {
   }
 
   @Post('messages')
-  @Permissions('page:rd-director-dashboard', 'rd-people:manage', 'rd-task:reassign', 'rd-task:edit', 'page:rd-my-workspace')
+  @Permissions('page:rd-director-dashboard', 'rd-people:manage', 'rd-task:reassign', 'rd-task:edit', 'page:rd-my-workspace', 'page:us-collab-workspace')
   createMessage(
     @Body()
     body: {

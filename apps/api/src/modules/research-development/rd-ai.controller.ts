@@ -10,6 +10,7 @@ import {
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 
 import { Permissions } from '../auth/decorators/permissions.decorator';
+import { RdWorkspaceInterceptor } from './rd-workspace.context';
 import {
   RdAiService,
   type RdAiPersonContext,
@@ -113,6 +114,8 @@ function toOptionalNumber(value: unknown): number | undefined {
 
 @Controller('research-development/ai')
 @Permissions('rd-project:propose', 'rd-project:direct', 'page:rd-director-dashboard')
+// 工作区隔离：与主控制器一致，?workspace=us-collab 时 AI 场景/工件读写协同池
+@UseInterceptors(RdWorkspaceInterceptor)
 export class RdAiController {
   constructor(private readonly rdAiService: RdAiService) {}
 
@@ -195,7 +198,7 @@ export class RdAiController {
   }
 
   @Post('assess-progress')
-  @Permissions('page:rd-my-workspace', 'rd-task:edit', 'rd-task:create', 'page:rd-director-dashboard')
+  @Permissions('page:rd-my-workspace', 'page:us-collab-workspace', 'rd-task:edit', 'rd-task:create', 'page:rd-director-dashboard')
   @UseInterceptors(FilesInterceptor('files', 10))
   async assessProgress(
     @UploadedFiles() files: Array<{ originalname: string; buffer: Buffer; mimetype?: string }> | undefined,

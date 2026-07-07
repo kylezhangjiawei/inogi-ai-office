@@ -24,9 +24,18 @@ export const DEPT_KBS: DeptKbDef[] = [
   { id: 'production', label: '生产部' },
   { id: 'quality', label: '质量部' },
   { id: 'sales', label: '销售部' },
+  // 中美协同知识库：给美国团队协同页面配套的独立库（前端入口在「中美协同」分组，不在部门知识库分组展示）
+  { id: 'us-collab', label: '协同' },
 ];
 
 export const DEPT_KB_IDS: ReadonlySet<string> = new Set(DEPT_KBS.map((d) => d.id));
+
+/**
+ * 启用「按人分值过滤」的部门库：库管理员（dept-kb:manage）在知识库页面维护成员分值表
+ * （deptkb.{id}.memberLevels），普通成员只能看到 permission_level ≤ 本人分值的条目；
+ * 未登记成员按 0 处理（仅可见完全公开条目）。其余部门库维持一期「成员全可见」。
+ */
+export const LEVEL_FILTERED_DEPT_KB_IDS: ReadonlySet<string> = new Set(['us-collab', 'purchasing']);
 
 export const isDeptKbId = (id: string | undefined | null): boolean =>
   typeof id === 'string' && DEPT_KB_IDS.has(id);

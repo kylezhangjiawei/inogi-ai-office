@@ -59,6 +59,11 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   // 技术研发部不单设部门库：研发团队统一用「研发知识库」(page:rd-knowledge-base)，故此处不再有 page:dept-kb-tech-rd。
   { code: 'page:dept-kb-quality', label: '质量部知识库', description: '质量部门知识沉淀与分级查阅', groupLabel: '页面访问 · 部门知识库', type: 'page', routePath: '/dept-kb/quality', sortOrder: 666 },
   { code: 'page:dept-kb-sales', label: '销售部知识库', description: '销售部门知识沉淀与分级查阅', groupLabel: '页面访问 · 部门知识库', type: 'page', routePath: '/dept-kb/sales', sortOrder: 667 },
+
+  // ─── 中美协同（美国团队使用，中国研发团队支持；驾驶舱/工作台复用研发页面，知识库为独立 dept KB 库 us-collab）────
+  { code: 'page:us-collab-cockpit', label: '协同任务驾驶舱', description: '中美协同任务驾驶舱（复用研发驾驶舱能力，不含子系统全景）', groupLabel: '页面访问 · 中美协同', type: 'page', routePath: '/us-collab-cockpit', sortOrder: 690 },
+  { code: 'page:us-collab-workspace', label: '协同工作台', description: '中美协同个人工作台（复用研发个人工作台能力）', groupLabel: '页面访问 · 中美协同', type: 'page', routePath: '/us-collab-workspace', sortOrder: 691 },
+  { code: 'page:dept-kb-us-collab', label: '协同知识库', description: '中美协同独立知识库（与部门知识库同机制，存储隔离）', groupLabel: '页面访问 · 中美协同', type: 'page', routePath: '/us-collab-kb', sortOrder: 692 },
   // 操作权限：8 个部门库共用同一套操作码（归属由页面码决定）
   { code: 'dept-kb:upload', label: '上传部门知识库文件', description: '向所属部门知识库上传文件（含拖拽 / 文件选择）', groupLabel: '操作权限 · 部门知识库', type: 'action', sortOrder: 670 },
   { code: 'dept-kb:entry:edit', label: '编辑部门知识库文件', description: '修改已上传文件的名称、描述、标签、权限分值', groupLabel: '操作权限 · 部门知识库', type: 'action', sortOrder: 671 },
@@ -95,7 +100,8 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
 
   // 采购管理（静态流程页面）
   { code: 'page:proc-cockpit', label: '采购任务驾驶舱', description: '采购任务全流程视角：询价/打样/测试/下单/到货', groupLabel: '页面访问 · 采购管理', type: 'page', routePath: '/proc-cockpit', sortOrder: 45 },
-  { code: 'page:proc-materials', label: '采购工作台', description: '物料库资产视角：物料主数据、库存/在途、审核与历史价格', groupLabel: '页面访问 · 采购管理', type: 'page', routePath: '/proc-materials', sortOrder: 46 },
+  { code: 'page:proc-category', label: '采购分类详情', description: '分类看板二级页：分类下任务与物料清单（无侧边栏入口）', groupLabel: '页面访问 · 采购管理', type: 'page', routePath: '/proc-category', sortOrder: 46 },
+  { code: 'page:proc-materials', label: '采购工作台', description: '物料库资产视角：物料主数据、库存/在途、审核与历史价格', groupLabel: '页面访问 · 采购管理', type: 'page', routePath: '/proc-materials', sortOrder: 47 },
 
   { code: 'page:ui-design', label: 'AI 图像生成', groupLabel: '页面访问 · AI 创作', type: 'page', routePath: '/ui-design', sortOrder: 300 },
   { code: 'page:image-library', label: '图像作品库', description: '历史创作、收藏作品与上游用量统计', groupLabel: '页面访问 · AI 创作', type: 'page', routePath: '/image-library', sortOrder: 305 },

@@ -5,6 +5,7 @@ import OpenAI, { toFile } from 'openai';
 import { PrismaService } from '../../prisma/prisma.service';
 import { OcrService } from '../ocr/ocr.service';
 import { SecureConfigService } from '../security/secure-config.service';
+import { resolveRdStoreKey } from './rd-workspace.context';
 
 const TASK_EXTRACTION_SCHEMA_DESC =
   '{"tasks": [{"title": string, "description"?: string, "owner": string, "due_date": string YYYY-MM-DD, ' +
@@ -14,6 +15,8 @@ const TASK_EXTRACTION_SCHEMA_DESC =
   '"owner_reason": string}], "suggested_category"?: string, "suggested_product"?: string, "summary"?: string}';
 
 const QWEN_DOC_MODEL = 'qwen-doc-turbo';
+/** qwen-doc-turbo 的 max_tokens 硬上限，超过会被 DashScope 以 400 拒绝（Range of max_tokens should be [1, 32768]） */
+const QWEN_DOC_MODEL_MAX_TOKENS = 32_768;
 const DEFAULT_QWEN_BASE_URL = 'https://dashscope.aliyuncs.com/compatible-mode/v1';
 const DEFAULT_TEXT_MODEL = 'gpt-4.1-mini';
 
@@ -267,7 +270,9 @@ export class RdAiService {
     this.timeoutMs = Number(this.config.get('OPENAI_TIMEOUT_MS') ?? 120_000);
     // 立项提取场景允许更长等待，可通过 RD_EXTRACT_TIMEOUT_MS 覆盖，默认 5 分钟
     this.extractTimeoutMs = Number(this.config.get('RD_EXTRACT_TIMEOUT_MS') ?? 300_000);
-    this.extractMaxTokens = Number(this.config.get('RD_EXTRACT_MAX_TOKENS') ?? 12_000);
+    // 空串/非数字/非正数（如误配 RD_EXTRACT_MAX_TOKENS=）一律回退默认值，避免把 0/NaN 透传给上游
+    const configuredMaxTokens = Number(this.config.get('RD_EXTRACT_MAX_TOKENS') ?? 12_000);
+    this.extractMaxTokens = Number.isFinite(configuredMaxTokens) && configuredMaxTokens >= 1 ? configuredMaxTokens : 12_000;
   }
 
   /**
@@ -648,7 +653,7 @@ export class RdAiService {
             { role: 'user', content: userMessage },
           ],
           response_format: { type: 'json_object' },
-          max_tokens: this.extractMaxTokens,
+          max_tokens: Math.min(this.extractMaxTokens, QWEN_DOC_MODEL_MAX_TOKENS),
         });
       } catch (error) {
         if (this.isExternalAiTimeout(error)) {
@@ -1661,7 +1666,7 @@ export class RdAiService {
 
   private async readAiScenes(): Promise<Array<{ id: string; enabled: boolean; model_id: string; fallback_model_id: string }>> {
     const setting = await this.prisma.systemSetting.findUnique({
-      where: { key: 'rd.aiSettings' },
+      where: { key: resolveRdStoreKey('rd.aiSettings') },
       select: { value: true },
     });
     const value = this.asRecord(setting?.value, {});
@@ -1778,7 +1783,7 @@ export class RdAiService {
 
   private async readFilePolicyRuntime(): Promise<RdAiFilePolicyRuntime> {
     const setting = await this.prisma.systemSetting.findUnique({
-      where: { key: 'rd.aiSettings' },
+      where: { key: resolveRdStoreKey('rd.aiSettings') },
       select: { value: true },
     });
     const value = this.asRecord(setting?.value, {});
@@ -1830,18 +1835,19 @@ export class RdAiService {
       ocr_text: filePolicy.save_ocr_text ? payload.ocr_text ?? null : null,
       ai_result: filePolicy.save_ai_result ? payload.ai_result ?? null : null,
     };
+    const artifactsKey = resolveRdStoreKey('rd.aiArtifacts');
     const setting = await this.prisma.systemSetting.findUnique({
-      where: { key: 'rd.aiArtifacts' },
+      where: { key: artifactsKey },
       select: { value: true },
     });
     const existing = Array.isArray(setting?.value)
       ? setting.value.filter((item) => item && typeof item === 'object')
       : [];
     await this.prisma.systemSetting.upsert({
-      where: { key: 'rd.aiArtifacts' },
+      where: { key: artifactsKey },
       create: {
         category: 'research-development',
-        key: 'rd.aiArtifacts',
+        key: artifactsKey,
         value: [artifact] as any,
         description: 'R&D AI parsing artifacts',
       },

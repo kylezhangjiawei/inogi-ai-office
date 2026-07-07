@@ -283,7 +283,11 @@ export class OssService implements OnModuleInit {
 
   /** Sign a time-limited HMAC token authorizing inline preview of an object via the proxy. */
   signPreviewToken(objectKey: string, expiresSeconds = 24 * 3600): { exp: number; sig: string } {
-    const exp = Math.floor(Date.now() / 1000) + expiresSeconds;
+    // exp 对齐到 UTC 天界（向上取整）：同一天内对同一对象产出完全相同的 exp/sig，
+    // 使 preview URL 稳定 → 浏览器缓存可命中（否则每次拉取都换 query，图片/PDF 反复重下）。
+    // 实际有效期 ≥ expiresSeconds 且 < expiresSeconds + 24h。
+    const DAY = 24 * 3600;
+    const exp = Math.ceil((Math.floor(Date.now() / 1000) + expiresSeconds) / DAY) * DAY;
     const sig = createHmac('sha256', this.previewSecret()).update(`${objectKey}|${exp}`).digest('hex');
     return { exp, sig };
   }
