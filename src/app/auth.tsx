@@ -4,6 +4,7 @@ import {
   apiFetch,
   authFetch,
   clearAuthSession,
+  canUseBrowserEncryption,
   encryptLoginPassword,
   getAccessToken as getStoredAccessToken,
   getRefreshToken,
@@ -117,6 +118,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
               resetLoginPublicKeyCache();
             }
 
+            // 局域网 http 访问（非安全上下文）没有 crypto.subtle，降级为明文提交；
+            // 后端 resolveLoginPassword 原生兼容 password 字段。http 传输本身无加密，此回退不额外扩大风险面。
+            if (!canUseBrowserEncryption()) {
+              // 显式留痕：若在本应安全的环境（如被代理破坏了安全上下文）看到此警告，说明链路配置有问题
+              console.warn("[auth] 非安全上下文，登录密码以明文提交（http 链路本身无传输加密）。生产环境请使用 HTTPS。");
+              return apiFetch("/api/auth/login", {
+                method: "POST",
+                body: JSON.stringify({ account: payload.account, password: payload.password }),
+              });
+            }
             const encryptedPassword = await encryptLoginPassword(payload.password);
             return apiFetch("/api/auth/login", {
               method: "POST",

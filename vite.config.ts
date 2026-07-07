@@ -48,6 +48,8 @@ export default defineConfig({
     ],
   },
   server: {
+    // 监听所有网卡，允许局域网同事通过 http://<本机IP>:5173 访问（/api 仍由下方代理转发到本机后端）
+    host: true,
     proxy: {
       '/api': {
         target: 'http://localhost:3000',

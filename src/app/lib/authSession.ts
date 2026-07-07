@@ -124,6 +124,11 @@ export function ensureBrowserEncryptionAvailable() {
   }
 }
 
+/** 浏览器端加密是否可用（HTTPS 或 localhost 的安全上下文才有 crypto.subtle）。 */
+export function canUseBrowserEncryption() {
+  return getBrowserEncryptionUnavailableMessage() === null;
+}
+
 async function getLoginPublicKey() {
   if (!loginPublicKeyPromise) {
     loginPublicKeyPromise = (async () => {
