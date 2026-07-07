@@ -33,6 +33,7 @@ import {
   Tag,
   Trash2,
   Upload,
+  Users,
   Wrench,
   X,
 } from "lucide-react";
@@ -87,6 +88,11 @@ import {
   classifyKbFiles,
   recordKbView,
   repairKbFilenames,
+  LEVEL_FILTERED_DEPT_KB_IDS,
+  fetchDeptKbMemberLevels,
+  saveDeptKbMemberLevels,
+  fetchDeptKbMemberCandidates,
+  type DeptKbMemberCandidate,
   type KbCategory,
   type KbEntry,
   type KbVisibility,
@@ -2186,6 +2192,112 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
+/** 部门库成员分值管理弹窗（仅分值过滤启用的库；库管理员维护，成员只能看到密级 ≤ 本人分值的文件）。 */
+function MemberLevelsDialog({ kbId, onClose }: { kbId: string; onClose: () => void }) {
+  const [candidates, setCandidates] = useState<DeptKbMemberCandidate[]>([]);
+  /** 服务器上已保存的成员分值原始记录（含已停用账号的成员，保存时原样保留，防止静默丢配置）。 */
+  const [savedMembers, setSavedMembers] = useState<{ user_id: string; name: string; level: number }[]>([]);
+  const [levels, setLevels] = useState<Record<string, number>>({});
+  const [loading, setLoading] = useState(true);
+  /** 加载失败时禁用保存：否则空 candidates 全量覆盖会把整张成员分值表清空。 */
+  const [loadFailed, setLoadFailed] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [members, users] = await Promise.all([
+          fetchDeptKbMemberLevels(kbId),
+          fetchDeptKbMemberCandidates(kbId),
+        ]);
+        if (cancelled) return;
+        setCandidates(users);
+        setSavedMembers(members);
+        setLevels(Object.fromEntries(members.map((m) => [m.user_id, m.level])));
+      } catch (error) {
+        if (!cancelled) {
+          setLoadFailed(true);
+          toast.error(error instanceof Error ? error.message : "加载成员分值失败，请关闭后重试");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [kbId]);
+
+  const kw = search.trim().toLowerCase();
+  const rows = candidates.filter((c) => !kw || `${c.name} ${c.username} ${c.department}`.toLowerCase().includes(kw));
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const candidateIds = new Set(candidates.map((c) => c.id));
+      // 候选列表内按当前编辑值持久化（只存分值 > 0 的，未配置与显式 0 语义相同）；
+      // 不在候选列表的已保存成员（如账号已停用）原样保留，避免一次保存把别人的配置抹掉。
+      const members = [
+        ...candidates
+          .filter((c) => (levels[c.id] ?? 0) > 0)
+          .map((c) => ({ user_id: c.id, name: c.name, level: Math.max(0, Math.min(100, Math.round(levels[c.id]))) })),
+        ...savedMembers.filter((m) => !candidateIds.has(m.user_id)),
+      ];
+      await saveDeptKbMemberLevels(kbId, members);
+      toast.success(`已保存 ${members.length} 名成员的知识库分值`);
+      onClose();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>成员权限分值</DialogTitle>
+          <DialogDescription>
+            成员只能看到密级分值 ≤ 本人分值（0-100）的文件；未配置的成员按 0 处理，仅可见完全公开文件。库管理员不受限制。
+          </DialogDescription>
+        </DialogHeader>
+        <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索姓名 / 账号 / 部门" className="h-9" />
+        <div className="max-h-80 space-y-1.5 overflow-y-auto pr-1">
+          {loading ? (
+            <div className="py-8 text-center text-sm text-slate-400">加载中…</div>
+          ) : rows.length === 0 ? (
+            <div className="py-8 text-center text-sm text-slate-400">没有匹配的成员</div>
+          ) : rows.map((c) => (
+            <div key={c.id} className="flex items-center gap-3 rounded-lg border border-slate-100 px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium text-slate-800">{c.name}</div>
+                <div className="truncate text-xs text-slate-400">{c.username}{c.department ? ` · ${c.department}` : ""}</div>
+              </div>
+              <Input
+                type="number"
+                min={0}
+                max={100}
+                value={Number.isFinite(levels[c.id]) ? levels[c.id] : 0}
+                onChange={(e) => {
+                  const parsed = Number(e.target.value);
+                  const next = Number.isFinite(parsed) ? Math.max(0, Math.min(100, Math.round(parsed))) : 0;
+                  setLevels((cur) => ({ ...cur, [c.id]: next }));
+                }}
+                className="h-8 w-20 text-right tabular-nums"
+              />
+            </div>
+          ))}
+        </div>
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>取消</Button>
+          <Button type="button" onClick={handleSave} disabled={saving || loading || loadFailed}>{saving ? "保存中…" : "保存"}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
   const { user } = useAuth();
 
@@ -2240,6 +2352,8 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
   /** Entry whose preview modal is open. */
   const [previewEntry, setPreviewEntry] = useState<KbEntry | null>(null);
   const [showUpload, setShowUpload] = useState(false);
+  /** 部门库成员分值管理弹窗（仅分值过滤启用的库 + 库管理员可见）。 */
+  const [showMemberLevels, setShowMemberLevels] = useState(false);
   const [pendingUploadFiles, setPendingUploadFiles] = useState<File[]>([]);
   const [pageDragActive, setPageDragActive] = useState(false);
   const pageDragDepthRef = useRef(0);
@@ -2816,6 +2930,19 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
             </DropdownMenu>
           )}
 
+          {/* 成员权限分值（仅分值过滤启用的部门库 + 库管理员） */}
+          {kbId && LEVEL_FILTERED_DEPT_KB_IDS.has(kbId) && hasLegacyManage && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowMemberLevels(true)}
+              className="h-9 gap-2 rounded-lg border-slate-200 bg-white text-sm text-slate-700 hover:bg-slate-50"
+            >
+              <Users className="h-4 w-4" />
+              成员权限
+            </Button>
+          )}
+
           {/* 上传文件 */}
           {canUpload && (
             <Button
@@ -3004,6 +3131,11 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
           onUploaded={handleUploaded}
           canSetPermissionLevel={hasLegacyManage}
         />
+      )}
+
+      {/* 部门库成员分值管理 */}
+      {showMemberLevels && kbId && (
+        <MemberLevelsDialog kbId={kbId} onClose={() => setShowMemberLevels(false)} />
       )}
 
       {categoryDialog && (

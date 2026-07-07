@@ -9,6 +9,22 @@ const RD_AI_TIMEOUT_MS = 360_000;
 
 type RequestJsonOptions = RequestInit & { timeoutMs?: number };
 
+/**
+ * 任务工作区：中美协同路由（/us-collab-*）下所有研发接口自动带 ?workspace=us-collab，
+ * 后端据此切换到独立的协同任务池（任务/人员/审批流/AI 策略/留痕与研发池完全隔离）。
+ * 研发原路由不带参数 → 默认研发池，行为不变。
+ */
+function currentRdWorkspace(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.location.pathname.startsWith("/us-collab") ? "us-collab" : null;
+}
+
+function withWorkspace(path: string): string {
+  const workspace = currentRdWorkspace();
+  if (!workspace) return path;
+  return `${path}${path.includes("?") ? "&" : "?"}workspace=${encodeURIComponent(workspace)}`;
+}
+
 async function fetchWithTimeout(
   path: string,
   init: RequestInit,
@@ -23,7 +39,7 @@ async function fetchWithTimeout(
     else callerSignal.addEventListener("abort", () => controller.abort(), { once: true });
   }
   try {
-    const response = await authFetch(`${RD_API_BASE}${path}`, { ...rest, signal: controller.signal });
+    const response = await authFetch(`${RD_API_BASE}${withWorkspace(path)}`, { ...rest, signal: controller.signal });
     if (!response.ok) {
       throw new Error(await readErrorMessage(response, fallbackErrorMessage));
     }
@@ -907,6 +923,8 @@ export type RdTaskProgressAttachment = {
   preview_url?: string;
   /** base64 data URI（OSS 未配置时的降级方案）。 */
   data_url?: string;
+  /** 图片附件的 OSS 实时缩放缩略图（480px webp），网格缩略位优先使用，避免加载原图。 */
+  thumb_url?: string;
   /** AI 抽取出的文本内容（OCR/文档抽取/视觉模型），用于 AI 评分上下文。上传后由后台异步填充。 */
   extracted_text?: string;
   /** 抽取来源：ocr / vision / doc_extract / doc_model / text / failed。 */
@@ -916,9 +934,44 @@ export type RdTaskProgressAttachment = {
 };
 
 /** 取附件的可用 URL：OSS 签名链接 > base64 data URI > 空串 */
+// ── OSS 域名预连接：首次遇到外域附件 URL 时注入 <link rel="preconnect">，省去后续图片的 DNS+TLS 握手 ──
+const preconnectedOrigins = new Set<string>();
+/** 已处理过的完整 URL（渲染热路径高频重复调用，先按字符串短路，避免每次 new URL 解析） */
+const preconnectSeenUrls = new Set<string>();
+export function ensurePreconnect(url: string): void {
+  if (typeof document === "undefined" || !url.startsWith("http")) return;
+  if (preconnectSeenUrls.has(url)) return;
+  preconnectSeenUrls.add(url);
+  if (preconnectSeenUrls.size > 2000) preconnectSeenUrls.clear();
+  try {
+    const origin = new URL(url).origin;
+    if (origin === window.location.origin || preconnectedOrigins.has(origin)) return;
+    preconnectedOrigins.add(origin);
+    for (const rel of ["preconnect", "dns-prefetch"]) {
+      const link = document.createElement("link");
+      link.rel = rel;
+      link.href = origin;
+      if (rel === "preconnect") link.crossOrigin = "anonymous";
+      document.head.appendChild(link);
+    }
+  } catch { /* URL 解析失败忽略 */ }
+}
+
 export function getAttachmentUrl(att: { oss_url?: string; data_url?: string } | null | undefined): string {
   if (!att) return "";
-  return att.oss_url ?? att.data_url ?? "";
+  const url = att.oss_url ?? att.data_url ?? "";
+  if (url) ensurePreconnect(url);
+  return url;
+}
+
+/** 取附件缩略图 URL：图片附件优先用 OSS 实时缩放图（480px webp），否则回退原图/内嵌数据。 */
+export function getAttachmentThumbUrl(att: { thumb_url?: string; oss_url?: string; data_url?: string } | null | undefined): string {
+  if (!att) return "";
+  if (att.thumb_url) {
+    ensurePreconnect(att.thumb_url);
+    return att.thumb_url;
+  }
+  return getAttachmentUrl(att);
 }
 
 /**
@@ -1541,6 +1594,29 @@ export function saveKbCategories(categories: KbCategory[], kbId?: string): Promi
   });
 }
 
+// ── 部门库成员分值（按人分级可见，仅下列库启用）──────────────────────────────────
+
+/** 启用「按人分值过滤」的部门库（与后端 LEVEL_FILTERED_DEPT_KB_IDS 保持一致）。 */
+export const LEVEL_FILTERED_DEPT_KB_IDS: ReadonlySet<string> = new Set(['us-collab', 'purchasing']);
+
+export type DeptKbMemberLevel = { user_id: string; name: string; level: number };
+export type DeptKbMemberCandidate = { id: string; name: string; username: string; department: string };
+
+export function fetchDeptKbMemberLevels(kbId: string): Promise<DeptKbMemberLevel[]> {
+  return requestJson<DeptKbMemberLevel[]>(`${kbBase(kbId)}/member-levels`);
+}
+
+export function saveDeptKbMemberLevels(kbId: string, members: DeptKbMemberLevel[]): Promise<DeptKbMemberLevel[]> {
+  return requestJson<DeptKbMemberLevel[]>(`${kbBase(kbId)}/member-levels`, {
+    method: 'PUT',
+    body: JSON.stringify({ members }),
+  });
+}
+
+export function fetchDeptKbMemberCandidates(kbId: string): Promise<DeptKbMemberCandidate[]> {
+  return requestJson<DeptKbMemberCandidate[]>(`${kbBase(kbId)}/member-levels/candidates`);
+}
+
 export type KbCategoryMutationResult = {
   ok: boolean;
   categories: KbCategory[];
@@ -1718,7 +1794,7 @@ export async function uploadKbFiles(params: {
   if (typeof params.permission_level === 'number') fd.append('permission_level', String(params.permission_level));
   if (params.tags) fd.append('tags', params.tags);
   // authFetch/readErrorMessage 顶部已经 import，无需 dynamic import（之前的写法会触发 Rollup 警告）
-  const response = await authFetch(`${RD_API_BASE}${kbBase(kbId)}/entries`, { method: 'POST', body: fd });
+  const response = await authFetch(`${RD_API_BASE}${withWorkspace(`${kbBase(kbId)}/entries`)}`, { method: 'POST', body: fd });
   if (!response.ok) throw new Error(await readErrorMessage(response, '上传失败'));
   return (await response.json()) as KbEntry[];
 }

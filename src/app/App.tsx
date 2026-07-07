@@ -59,6 +59,7 @@ const PurchaseOrderDetailPage = lazyNamed(() => import("./order-processing"), "P
 const PurchaseOrdersPage = lazyNamed(() => import("./order-processing"), "PurchaseOrdersPage");
 // 采购管理（静态流程页面）
 const ProcurementCockpitPage = lazyNamed(() => import("./procurement"), "ProcurementCockpitPage");
+const ProcCategoryDetailPage = lazyNamed(() => import("./procurement"), "ProcCategoryDetailPage");
 const MaterialWorkbenchPage = lazyNamed(() => import("./procurement"), "MaterialWorkbenchPage");
 const PersonalCenterPage = lazyNamed(() => import("./PersonalCenterPage"), "PersonalCenterPage");
 const ContractReviewPage = lazyNamed(() => import("./ContractReviewPage"), "ContractReviewPage");
@@ -305,6 +306,12 @@ const router = createBrowserRouter([
         path: `dept-kb/${d.id}`,
         element: makeLazyProtected(<RDKnowledgeBasePage kbScope={{ kbId: d.id, label: d.label }} />, `page:dept-kb-${d.id}`),
       })),
+      // 中美协同：复用研发驾驶舱（隐藏子系统全景）/ 个人工作台 / 知识库（独立 us-collab 库），独立权限码
+      { path: "us-collab-cockpit", element: makeLazyProtected(<RDTaskManagementPage hideSystemPanorama />, "page:us-collab-cockpit") },
+      { path: "us-collab-workspace", element: makeLazyProtected(<RDMyWorkspacePage />, "page:us-collab-workspace") },
+      // 协同人员管理：路径保持 /us-collab 前缀，rdApi 据此路由到独立的协同人员池
+      { path: "us-collab-people-management", element: makeLazyProtected(<RDPeopleManagementPage onBack={() => window.history.back()} />, "rd-people:manage") },
+      { path: "us-collab-kb", element: makeLazyProtected(<RDKnowledgeBasePage kbScope={{ kbId: "us-collab", label: "协同" }} />, "page:dept-kb-us-collab") },
       // 研发主管驾驶舱 — 导航可见性由页面路由管理中的「导航」开关控制（默认隐藏）
       { path: "rd-director-dashboard", element: makeLazyProtected(<RDDirectorDashboardPage />, "page:rd-director-dashboard") },
       { path: "rd-approval-flow", element: makeLazyProtected(<RDApprovalFlowPage />, "page:rd-approval-flow") },
@@ -325,6 +332,8 @@ const router = createBrowserRouter([
       { path: "purchase-orders/:id", element: makeLazyProtected(<PurchaseOrderDetailPage />, "page:purchase-order-detail") },
       { path: "inventory-management", element: makeLazyProtected(<InventoryManagementPage />, "page:inventory-management") },
       { path: "proc-cockpit", element: makeLazyProtected(<ProcurementCockpitPage />, "page:proc-cockpit") },
+      // 采购分类详情二级页：注册路由与权限，但不进侧边栏菜单（routesConfig 未收录即不显示）
+      { path: "proc-category", element: makeLazyProtected(<ProcCategoryDetailPage />, "page:proc-category") },
       { path: "proc-materials", element: makeLazyProtected(<MaterialWorkbenchPage />, "page:proc-materials") },
       { path: "resume-screening", element: makeLazyProtected(<ResumeScreeningPage />, "page:resume-screening") },
       { path: "employee-archive", element: makeLazyProtected(<EmployeeArchivePage />, "page:employee-archive") },

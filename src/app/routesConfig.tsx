@@ -98,6 +98,15 @@ export const navGroups: NavGroup[] = [
     ],
   },
   {
+    // 中美协同：美国团队使用、中国研发团队支持。驾驶舱/工作台复用研发页面（驾驶舱不含子系统全景），知识库为独立 us-collab 库。
+    label: "中美协同",
+    items: [
+      { label: "协同任务驾驶舱", path: "/us-collab-cockpit", icon: LayoutGrid, requiredPermission: "page:us-collab-cockpit" },
+      { label: "协同工作台", path: "/us-collab-workspace", icon: GanttChartSquare, requiredPermission: "page:us-collab-workspace" },
+      { label: "协同知识库", path: "/us-collab-kb", icon: BookOpen, requiredPermission: "page:dept-kb-us-collab" },
+    ],
+  },
+  {
     label: "部门知识库",
     items: [
       ...DEPT_KBS.map((d) => ({

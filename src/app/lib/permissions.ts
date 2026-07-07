@@ -18,6 +18,7 @@ export const PERMISSIONS = {
   PAGE_PURCHASE_ORDER_DETAIL: 'page:purchase-order-detail',
   PAGE_INVENTORY_MANAGEMENT: 'page:inventory-management',
   PAGE_PROC_COCKPIT: 'page:proc-cockpit',
+  PAGE_PROC_CATEGORY: 'page:proc-category',
   PAGE_PROC_MATERIALS: 'page:proc-materials',
   PAGE_RESUME_SCREENING: 'page:resume-screening',
   PAGE_EMPLOYEE_ARCHIVE: 'page:employee-archive',
@@ -49,6 +50,9 @@ export const PERMISSIONS = {
   // ─── R&D Task Management ─────────────────────────────────────────
   PAGE_RD_TASK_MANAGEMENT: 'page:rd-task-management',
   PAGE_RD_MY_WORKSPACE: 'page:rd-my-workspace',
+  PAGE_US_COLLAB_COCKPIT: 'page:us-collab-cockpit',
+  PAGE_US_COLLAB_WORKSPACE: 'page:us-collab-workspace',
+  PAGE_US_COLLAB_KB: 'page:dept-kb-us-collab',
   PAGE_RD_SHEET: 'page:rd-sheet',
   PAGE_RD_DIRECTOR_DASHBOARD: 'page:rd-director-dashboard',
   PAGE_RD_APPROVAL_FLOW: 'page:rd-approval-flow',
@@ -217,6 +221,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     label: '页面访问 · 采购管理',
     permissions: [
       { code: 'page:proc-cockpit', label: '采购任务驾驶舱', description: '采购任务全流程视角：询价/打样/测试/下单/到货' },
+      { code: 'page:proc-category', label: '采购分类详情', description: '分类看板二级页：分类下任务与物料清单（无侧边栏入口）' },
       { code: 'page:proc-materials', label: '采购工作台', description: '物料库资产视角：物料主数据、库存/在途、审核与历史价格' },
     ],
   },
@@ -308,6 +313,14 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     label: '页面访问 · 研发知识库',
     permissions: [
       { code: 'page:rd-knowledge-base', label: '研发知识库', description: '查看研发知识库页面' },
+    ],
+  },
+  {
+    label: '页面访问 · 中美协同',
+    permissions: [
+      { code: 'page:us-collab-cockpit', label: '协同任务驾驶舱', description: '中美协同任务驾驶舱（复用研发驾驶舱能力，不含子系统全景）' },
+      { code: 'page:us-collab-workspace', label: '协同工作台', description: '中美协同个人工作台（复用研发个人工作台能力）' },
+      { code: 'page:dept-kb-us-collab', label: '协同知识库', description: '中美协同独立知识库（与部门知识库同机制，存储隔离）' },
     ],
   },
   {

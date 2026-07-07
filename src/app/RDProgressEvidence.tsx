@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Download, FileText, ImageIcon, Loader2, Paperclip, Table2, X } from "lucide-react";
 import { cn } from "./components/ui/utils";
-import { getAttachmentPreviewUrl, getAttachmentUrl, type RdTaskProgressAttachment, type RdTaskProgressNote } from "./lib/rdApi";
+import { getAttachmentPreviewUrl, getAttachmentThumbUrl, getAttachmentUrl, type RdTaskProgressAttachment, type RdTaskProgressNote } from "./lib/rdApi";
 import { parseXlsxForPreview, type XlsxPreviewSheet } from "./lib/xlsxPreview";
 
 /** 文件名/MIME 判断是否为 Excel 表格（xlsx/xls）。 */
@@ -56,10 +56,11 @@ export function ProgressAttachmentGrid({
               >
                 <div className={cn("relative bg-slate-100", compact ? "h-20" : "h-32")}>
                   <img
-                    src={getAttachmentUrl(att)}
+                    src={getAttachmentThumbUrl(att)}
                     alt={att.name}
                     className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
                     loading="lazy"
+                    decoding="async"
                   />
                   <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-md bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 shadow-sm">
                     <ImageIcon className="h-3 w-3 text-blue-500" />

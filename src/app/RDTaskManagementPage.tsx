@@ -116,6 +116,7 @@ import {
   type RdProductStatus,
   getAttachmentUrl,
   getAttachmentPreviewUrl,
+  getAttachmentThumbUrl,
 } from "./lib/rdApi";
 import { ProgressAttachmentGrid } from "./RDProgressEvidence";
 import { RDReportsPanel } from "./RDReportsPanel";
@@ -4168,6 +4169,11 @@ function TaskDetailDrawer({
     () => progressNotes.reduce((sum, note) => sum + note.attachments.length, 0),
     [progressNotes],
   );
+  // 转采购弹窗默认带入的任务附件（全部进度留痕附件拍平）
+  const transferAttachments = useMemo(
+    () => progressNotes.flatMap((note) => note.attachments.map((a) => ({ id: a.id, name: a.name, size: a.size }))),
+    [progressNotes],
+  );
   const canManageTaskFlow = canDirectProject || canReviewProjectL1 || canReviewProjectL2 || canManagePeople || canReassignTasks;
   const userIdentityKeys = new Set([
     normalizeIdentity(user?.name),
@@ -5033,7 +5039,7 @@ function TaskDetailDrawer({
         )}
       </AnimatePresence>
 
-      {transferOpen && <TransferToProcurementModal taskTitle={task.title} owner={task.primary_owner} onClose={() => setTransferOpen(false)} />}
+      {transferOpen && <TransferToProcurementModal taskTitle={task.title} owner={task.primary_owner} attachments={transferAttachments} onClose={() => setTransferOpen(false)} />}
       {blockOpen && <AttachmentBlockModal onClose={() => setBlockOpen(false)} />}
 
       <AlertDialog open={showCloseConfirm} onOpenChange={(open) => { if (!open) setShowCloseConfirm(false); }}>
@@ -7425,7 +7431,7 @@ function ImageGallery({
                 i === idx ? "border-white scale-110" : "border-white/20 opacity-60 hover:opacity-90",
               )}
             >
-              <img src={getAttachmentUrl(img)} alt={img.name} className="h-full w-full object-cover" loading="lazy" />
+              <img src={getAttachmentThumbUrl(img)} alt={img.name} className="h-full w-full object-cover" loading="lazy" decoding="async" />
             </button>
           ))}
         </div>
@@ -7484,10 +7490,11 @@ function TaskAttachmentStrip({
             title={img.name}
           >
             <img
-              src={getAttachmentUrl(img)}
+              src={getAttachmentThumbUrl(img)}
               alt={img.name}
               className="h-full w-full object-cover transition-transform duration-300 group-hover/att:scale-[1.04]"
               loading="lazy"
+              decoding="async"
             />
           </button>
         ))}
@@ -9405,6 +9412,7 @@ function ExecutiveOverview({
   onManageProducts,
   canManageProducts,
   panoramaReloadToken,
+  hideSystemPanorama,
 }: {
   catStats: CatStat[];
   products: ProductDef[];
@@ -9432,6 +9440,8 @@ function ExecutiveOverview({
   onManageProducts?: () => void;
   canManageProducts?: boolean;
   panoramaReloadToken?: number;
+  /** 中美协同驾驶舱：隐藏「子系统全景」模块 */
+  hideSystemPanorama?: boolean;
 }) {
   const shouldReduceMotion = useReducedMotion();
   const totalActive = catStats.reduce((s, c) => s + c.total, 0);
@@ -9722,15 +9732,17 @@ function ExecutiveOverview({
               onHeaderCollapseChange={handleHeaderCollapseChange}
             />
 
-            <SystemPanorama
-              mainCatStats={catStats}
-              mainRisks={risks}
-              products={products}
-              onSelectSystem={onSelectSystem}
-              onManageProducts={onManageProducts ?? (() => {})}
-              canManage={canManageProducts ?? false}
-              reloadToken={panoramaReloadToken}
-            />
+            {!hideSystemPanorama && (
+              <SystemPanorama
+                mainCatStats={catStats}
+                mainRisks={risks}
+                products={products}
+                onSelectSystem={onSelectSystem}
+                onManageProducts={onManageProducts ?? (() => {})}
+                canManage={canManageProducts ?? false}
+                reloadToken={panoramaReloadToken}
+              />
+            )}
           </>
         )}
       </div>
@@ -10208,10 +10220,12 @@ function TaskCompletedCelebration({ task, onClose }: { task: Task; onClose: () =
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
-export function RDTaskManagementPage() {
+export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSystemPanorama?: boolean } = {}) {
   const shouldReduceMotion = useReducedMotion();
   const location = useLocation();
   const navigate = useNavigate();
+  // 协同路由下人员管理跳协同入口（rdApi 按 /us-collab 前缀路由到独立人员池）
+  const peopleManagementPath = location.pathname.startsWith("/us-collab") ? "/us-collab-people-management" : "/rd-people-management";
   const canCreateTask = usePermission(PERMISSIONS.RD_TASK_CREATE);
   const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
   const canReassignTasks = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
@@ -10669,7 +10683,7 @@ export function RDTaskManagementPage() {
           onSelectSystem={enterBoard}
           onSelectTask={setSelectedTask}
           onSelectPerson={openPersonDetail}
-          onOpenPeople={canManagePeople ? () => navigate("/rd-people-management") : undefined}
+          onOpenPeople={canManagePeople ? () => navigate(peopleManagementPath) : undefined}
           loading={loading}
           loadError={loadError}
           onRefresh={loadCategories}
@@ -10687,6 +10701,7 @@ export function RDTaskManagementPage() {
           onManageProducts={canCreateTask ? () => setShowProductManage(true) : undefined}
           canManageProducts={canCreateTask}
           panoramaReloadToken={panoramaReloadToken}
+          hideSystemPanorama={hideSystemPanorama}
         />
         <AlertDialog open={!!deleteTaskTarget} onOpenChange={(open) => { if (!open) setDeleteTaskTarget(null); }}>
           <AlertDialogContent>
@@ -10935,7 +10950,7 @@ export function RDTaskManagementPage() {
                     <PersonLoadPanel
                       loads={personLoads}
                       className="min-w-0"
-                      onManage={canManagePeople ? () => navigate("/rd-people-management") : undefined}
+                      onManage={canManagePeople ? () => navigate(peopleManagementPath) : undefined}
                       onSelectPerson={openPersonDetail}
                     />
                   </div>
