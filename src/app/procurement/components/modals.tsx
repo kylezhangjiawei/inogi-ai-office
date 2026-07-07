@@ -1,8 +1,8 @@
-// 采购模块弹窗/面板：AI建单 / 新建需求 / 批量导入 / 审核队列 / 今日到货与付款速览。均为静态展示 + stageToast。
+// 采购模块弹窗/面板：AI建单 / 新建需求 / 批量导入 / 审核队列 / 分类管理。均为静态展示 + stageToast。
 import { useState } from "react";
 import { Sparkles, Upload, X } from "lucide-react";
 import { cn } from "../../components/ui/utils";
-import { MATERIALS, daysFromDemoToday, type ProcurementTask } from "../../../mock/procurement";
+import { MATERIALS } from "../../../mock/procurement";
 import { stageToast } from "./common";
 
 function Shell({ title, onClose, children, footer, wide }: { title: string; onClose: () => void; children: React.ReactNode; footer?: React.ReactNode; wide?: boolean }) {
@@ -90,34 +90,6 @@ export function ReviewQueueDrawer({ onClose }: { onClose: () => void }) {
             </div>
           ))}
         </div>
-      </div>
-    </div>
-  );
-}
-
-/** 今日到货与付款速览（复用日报速览面板样式）。 */
-export function ArrivalPreviewPanel({ tasks }: { tasks: ProcurementTask[] }) {
-  const overdue = tasks.filter((t) => (t.status === "in_transit" || t.status === "partial_arrival") && (daysFromDemoToday(t.expectedArrivalDate) ?? 99) < 0);
-  const soon = tasks.filter((t) => { const d = daysFromDemoToday(t.expectedArrivalDate); return (t.status === "in_transit" || t.status === "partial_arrival") && d != null && d >= 0 && d <= 3; });
-  const payable = tasks.filter((t) => t.paymentStatus !== "paid" && ["priced", "in_transit", "partial_arrival", "pending_purchase"].includes(t.status));
-  const Group = ({ title, items, tone, render }: { title: string; items: ProcurementTask[]; tone: string; render: (t: ProcurementTask) => string }) => (
-    <div>
-      <div className={cn("text-xs font-semibold", tone)}>{title}（{items.length}）</div>
-      <ul className="mt-1 space-y-1">
-        {items.length === 0 ? <li className="text-[11px] text-slate-400">无</li> : items.slice(0, 4).map((t) => <li key={t.id} className="truncate text-[11px] text-slate-500">{render(t)}</li>)}
-      </ul>
-    </div>
-  );
-  return (
-    <div className="material-card p-4">
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-sm font-bold text-slate-900">今日到货与付款</h3>
-        <button type="button" onClick={stageToast} className="rounded-lg border border-indigo-200 px-2 py-1 text-[11px] font-medium text-indigo-600 hover:bg-indigo-50">立即汇总</button>
-      </div>
-      <div className="space-y-3">
-        <Group title="逾期未到货" tone="text-red-600" items={overdue} render={(t) => `${t.materialName} · 逾期 ${Math.abs(daysFromDemoToday(t.expectedArrivalDate) ?? 0)} 天`} />
-        <Group title="3 日内到货" tone="text-amber-600" items={soon} render={(t) => `${t.materialName} · ${t.expectedArrivalDate}`} />
-        <Group title="近期应付款" tone="text-slate-600" items={payable} render={(t) => `${t.materialName} · ${t.paymentStatus === "partial" ? "待付尾款" : "待付款"}`} />
       </div>
     </div>
   );

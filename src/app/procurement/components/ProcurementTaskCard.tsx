@@ -1,11 +1,12 @@
 // 采购任务卡（瀑布流）：复刻研发任务卡外壳——左彩边/附件预览/转派删除/主日期/进度条/下一步/负责人。
 import { ExternalLink } from "lucide-react";
 import { cn } from "../../components/ui/utils";
-import type { ProcurementTask } from "../../../mock/procurement";
+import { taskRequester, type ProcurementTask } from "../../../mock/procurement";
 import { BusinessLinePill, MainDateBadge, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, stageToast } from "./common";
 
 export function ProcurementTaskCard({ task, onOpen }: { task: ProcurementTask; onOpen: (t: ProcurementTask) => void }) {
   const meta = PROC_STATUS_META[task.status];
+  const requester = taskRequester(task);
   const pct = task.quantity > 0 ? Math.round((task.arrivedQty / task.quantity) * 100) : 0;
   const isPendingConfirm = task.status === "pending_confirm";
   const leftBar = task.priority === "high" ? "bg-red-400" : task.priority === "medium" ? "bg-amber-400" : "bg-slate-300";
@@ -89,9 +90,23 @@ export function ProcurementTaskCard({ task, onOpen }: { task: ProcurementTask; o
         ) : (
           <span className={cn("text-xs font-medium", task.status === "completed" ? "text-emerald-600" : "text-slate-400")}>{meta.label}</span>
         )}
+        {/* 需求提出人 → 采购负责人（同一人时只显示一个） */}
         <span className="flex items-center gap-1.5 text-xs text-slate-600">
-          <PersonAvatar name={task.status === "testing" ? task.rdContact ?? task.buyer : task.buyer} size="xs" />
-          {task.status === "testing" ? task.rdContact ?? task.buyer : task.buyer}
+          {requester.name !== task.buyer && (
+            <>
+              <span className="flex items-center gap-1" title={`需求提出 · ${requester.dept}`}>
+                <span className="text-[10px] text-slate-400">提出</span>
+                <PersonAvatar name={requester.name} size="xs" />
+                {requester.name}
+              </span>
+              <span className="text-slate-300">→</span>
+            </>
+          )}
+          <span className="flex items-center gap-1" title="采购负责人">
+            {requester.name !== task.buyer && <span className="text-[10px] text-slate-400">采购</span>}
+            <PersonAvatar name={task.buyer} size="xs" />
+            {task.buyer}
+          </span>
         </span>
       </div>
       {task.consumableNote && <div className="mt-1 text-[10px] text-slate-400">· {task.consumableNote}</div>}

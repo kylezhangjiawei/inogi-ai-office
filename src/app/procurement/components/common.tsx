@@ -1,6 +1,8 @@
 // 采购模块 · 共享展示组件与元数据（复刻研发驾驶舱同款视觉）。
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { cn } from "../../components/ui/utils";
+import { useAvatarDirectory } from "../../lib/userAvatar";
 import { taskMainDate, type BusinessLine, type ProcMethod, type ProcSource, type ProcStatus, type ProcurementTask } from "../../../mock/procurement";
 
 /** 数据变更类动作统一轻提示（本阶段不接逻辑）。 */
@@ -92,7 +94,25 @@ export function avatarColor(name: string): string {
   return PALETTE[h % PALETTE.length];
 }
 export function PersonAvatar({ name, size = "sm" }: { name: string; size?: "xs" | "sm" | "md" }) {
+  // 真实用户头像目录（/api/auth/avatars，按姓名兜底匹配）；命中显示图片，否则回退首字圆圈
+  const resolveAvatar = useAvatarDirectory();
+  const avatarUrl = resolveAvatar(name);
+  const [imgFailed, setImgFailed] = useState(false);
+  useEffect(() => { setImgFailed(false); }, [avatarUrl]);
+
   const dim = size === "xs" ? "h-6 w-6 text-[10px]" : size === "md" ? "h-9 w-9 text-sm" : "h-7 w-7 text-xs";
+  if (avatarUrl && !imgFailed) {
+    return (
+      <img
+        src={avatarUrl}
+        alt={name}
+        title={name}
+        loading="lazy"
+        onError={() => setImgFailed(true)}
+        className={cn("inline-block shrink-0 rounded-full object-cover", dim)}
+      />
+    );
+  }
   return <span className={cn("inline-flex shrink-0 items-center justify-center rounded-full font-semibold", dim, avatarColor(name))}>{name.slice(0, 1)}</span>;
 }
 

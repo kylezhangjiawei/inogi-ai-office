@@ -63,6 +63,8 @@ export interface ProcurementTask {
   rdTaskTitle?: string;
   buyer: string;
   rdContact?: string;
+  requester?: string; // 需求提出人
+  requesterDept?: string; // 提出人所在部门
   priority: "high" | "medium" | "low";
   needSample: boolean;
   attachments: number; // 占位数量
@@ -105,81 +107,89 @@ export const PROCUREMENT_TASKS: ProcurementTask[] = [
   {
     id: "PR-010", code: "PR-20260703-010", businessLine: "rd", materialName: "底盖模具镶件", spec: "SKD11 精加工", unit: "件", quantity: 4,
     method: "inquiry", needDate: "2026-07-16", deadline: "2026-07-14", paymentStatus: "unpaid", arrivedQty: 0,
-    source: "rd", rdTaskTitle: "底盖模具图完善", buyer: PROC_BUYER, rdContact: "刘至远", priority: "high", needSample: false, attachments: 2,
+    source: "rd", rdTaskTitle: "底盖模具图完善", buyer: PROC_BUYER, rdContact: "刘至远", requester: "刘至远", requesterDept: "研发部", priority: "high", needSample: false, attachments: 2,
     status: "pending_confirm",
     logs: [{ at: "2026-07-02", text: "由研发任务「底盖模具图完善」流转生成，待采购确认提交" }],
   },
   {
     id: "PR-007", code: "PR-20260703-007", businessLine: "production", materialName: "PU管 φ8", spec: "φ8×5 蓝色", unit: "米", quantity: 100,
     method: "inquiry", needDate: "2026-07-22", deadline: "2026-07-20", paymentStatus: "unpaid", arrivedQty: 0,
-    source: "self", buyer: PROC_BUYER, priority: "low", needSample: false, attachments: 0, consumableNote: "低值易耗品，按年用量备货",
+    source: "self", buyer: PROC_BUYER, requester: "王建军", requesterDept: "生产部", priority: "low", needSample: false, attachments: 0, consumableNote: "低值易耗品，按年用量备货",
     status: "pending_inquiry",
     logs: [{ at: "2026-07-02", text: "采购自建，待向供应商询价" }],
   },
   {
     id: "PR-002", code: "PR-20260703-002", businessLine: "rd", materialName: "分子筛筛筒 MS-30", spec: "Φ30×120mm 不锈钢", unit: "件", quantity: 200,
     method: "inquiry", needDate: "2026-07-12", deadline: "2026-07-10", paymentStatus: "unpaid", arrivedQty: 0,
-    source: "rd", rdTaskTitle: "分子筛筛筒装配间隙核查", buyer: PROC_BUYER, rdContact: "李松", priority: "high", needSample: false, attachments: 1,
+    source: "rd", rdTaskTitle: "分子筛筛筒装配间隙核查", buyer: PROC_BUYER, rdContact: "李松", requester: "李松", requesterDept: "研发部", priority: "high", needSample: false, attachments: 1,
     status: "inquiring",
     logs: [{ at: "2026-07-01", text: "研发流转生成" }, { at: "2026-07-02", text: "已录入 3 条供应商报价" }],
   },
   {
     id: "PR-003", code: "PR-20260703-003", businessLine: "rd", materialName: "电池盒上盖硅胶密封圈", spec: "定制 · 邵氏50A", unit: "件", quantity: 500,
     method: "inquiry", needDate: "2026-07-18", deadline: "2026-07-17", paymentStatus: "unpaid", arrivedQty: 0,
-    source: "rd", rdTaskTitle: "电池盒样件问题反馈", buyer: PROC_BUYER, rdContact: "包毓飞", priority: "medium", needSample: true, attachments: 2,
+    source: "rd", rdTaskTitle: "电池盒样件问题反馈", buyer: PROC_BUYER, rdContact: "包毓飞", requester: "包毓飞", requesterDept: "研发部", priority: "medium", needSample: true, attachments: 2,
     status: "pending_sample",
     logs: [{ at: "2026-06-30", text: "选定华东橡塑并发起打样，待到样" }],
   },
   {
     id: "PR-008", code: "PR-20260703-008", businessLine: "rd", materialName: "TOP板 PCB", spec: "4 层 · 沉金", unit: "件", quantity: 50,
     method: "inquiry", needDate: "2026-07-19", deadline: "2026-07-18", paymentStatus: "unpaid", arrivedQty: 0,
-    source: "rd", rdTaskTitle: "TOP板控制逻辑验证", buyer: PROC_BUYER, rdContact: "李松", priority: "medium", needSample: true, attachments: 1,
+    source: "rd", rdTaskTitle: "TOP板控制逻辑验证", buyer: PROC_BUYER, rdContact: "李松", requester: "李松", requesterDept: "研发部", priority: "medium", needSample: true, attachments: 1,
     status: "testing",
     logs: [{ at: "2026-06-28", text: "样品已到，研发测试中" }],
   },
   {
     id: "PR-004", code: "PR-20260703-004", businessLine: "rd", materialName: "无油活塞环", spec: "Φ42 · 石墨填充", unit: "件", quantity: 1000,
     method: "inquiry", needDate: "2026-07-24", deadline: "2026-07-25", paymentStatus: "unpaid", arrivedQty: 0,
-    source: "self", buyer: PROC_BUYER, priority: "medium", needSample: true, attachments: 0,
+    source: "self", buyer: PROC_BUYER, requester: PROC_BUYER, requesterDept: "采购部", priority: "medium", needSample: true, attachments: 0,
     status: "priced",
     logs: [{ at: "2026-06-26", text: "测试通过，已定价，待下单" }],
   },
   {
     id: "PR-006", code: "PR-20260703-006", businessLine: "production", materialName: "湿化瓶接头", spec: "PC 透明 · 快插", unit: "件", quantity: 300,
     method: "direct", purchaseLink: "https://mall.example.com/item/humidifier-joint", needDate: "2026-07-06", deadline: "2026-07-05", paymentStatus: "unpaid", arrivedQty: 0,
-    source: "self", buyer: PROC_BUYER, priority: "high", needSample: false, attachments: 0, consumableNote: "低值易耗品",
+    source: "self", buyer: PROC_BUYER, requester: "王建军", requesterDept: "生产部", priority: "high", needSample: false, attachments: 0, consumableNote: "低值易耗品",
     status: "pending_purchase",
     logs: [{ at: "2026-07-02", text: "电商直购，待下单购买" }],
   },
   {
     id: "PR-005", code: "PR-20260703-005", businessLine: "production", materialName: "散热风扇 9225", spec: "92×92×25mm 12V", unit: "个", quantity: 1000,
     method: "direct", purchaseLink: "https://mall.example.com/item/fan-9225", needDate: "2026-07-10", expectedArrivalDate: "2026-07-08", paymentDate: "2026-07-04", paymentStatus: "paid", arrivedQty: 0,
-    source: "self", buyer: PROC_BUYER, priority: "medium", needSample: false, attachments: 0,
+    source: "self", buyer: PROC_BUYER, requester: "赵天成", requesterDept: "生产部", priority: "medium", needSample: false, attachments: 0,
     status: "in_transit",
     logs: [{ at: "2026-07-03", text: "已下单，在途" }],
   },
   {
     id: "PR-011", code: "PR-20260703-011", businessLine: "production", materialName: "压缩机阀片", spec: "0.15mm 弹簧钢", unit: "件", quantity: 500,
     method: "inquiry", needDate: "2026-06-28", expectedArrivalDate: "2026-06-30", paymentDate: "2026-06-25", paymentStatus: "paid", arrivedQty: 0,
-    source: "self", buyer: PROC_BUYER, priority: "high", needSample: false, attachments: 0,
+    source: "self", buyer: PROC_BUYER, requester: "王建军", requesterDept: "生产部", priority: "high", needSample: false, attachments: 0,
     status: "in_transit",
     logs: [{ at: "2026-06-25", text: "已下单，在途（预计到货已逾期）" }],
   },
   {
     id: "PR-001", code: "PR-20260703-001", businessLine: "rd", materialName: "减震垫 DZC-950", spec: "50×20mm 橡胶", unit: "件", quantity: 2000,
     method: "inquiry", needDate: "2026-07-16", expectedArrivalDate: "2026-07-15", paymentDate: "2026-07-01", paymentStatus: "partial", paymentNote: "首付 30% 已付", arrivedQty: 800,
-    source: "rd", rdTaskTitle: "新压缩机950减震垫选型", buyer: PROC_BUYER, rdContact: "包毓飞", priority: "high", needSample: true, attachments: 2,
+    source: "rd", rdTaskTitle: "新压缩机950减震垫选型", buyer: PROC_BUYER, rdContact: "包毓飞", requester: "包毓飞", requesterDept: "研发部", priority: "high", needSample: true, attachments: 2,
     status: "partial_arrival",
     logs: [{ at: "2026-06-20", text: "选定苏州澎润并签约" }, { at: "2026-06-28", text: "第1批到货 +800" }],
   },
   {
     id: "PR-009", code: "PR-20260703-009", businessLine: "production", materialName: "硅胶管 φ6", spec: "φ6×2 医用级", unit: "米", quantity: 5000,
     method: "inquiry", needDate: "2026-06-10", expectedArrivalDate: "2026-06-24", paymentDate: "2026-06-24", paymentStatus: "paid", arrivedQty: 5000,
-    source: "self", buyer: PROC_BUYER, priority: "low", needSample: false, attachments: 0,
+    source: "self", buyer: PROC_BUYER, requester: "赵天成", requesterDept: "生产部", priority: "low", needSample: false, attachments: 0,
     status: "completed",
     logs: [{ at: "2026-06-24", text: "全部到货，已完成" }],
   },
 ];
+
+/** 需求提出人：优先取显式 requester；研发流转回退研发对接人，自建回退采购负责人。 */
+export function taskRequester(task: ProcurementTask): { name: string; dept: string } {
+  return {
+    name: task.requester ?? task.rdContact ?? task.buyer,
+    dept: task.requesterDept ?? (task.source === "rd" ? "研发部" : "采购部"),
+  };
+}
 
 // ── 物料（跨分类，与任务数字自洽）─────────────────────────────────────────────
 export const MATERIALS: Material[] = [

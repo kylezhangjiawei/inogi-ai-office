@@ -1,8 +1,12 @@
 // 研发侧「转采购」静态插入组件：AI 预填弹窗 / 无附件阻断弹窗 / 关联采购 chip / 采购动态时间线。
 // 供 RDTaskManagementPage 挂载，全部静态 + stageToast，不改研发驾驶舱既有逻辑。
 import { useState } from "react";
-import { AlertTriangle, ExternalLink, Sparkles, Upload, X } from "lucide-react";
+import { AlertTriangle, ExternalLink, Paperclip, RotateCcw, Sparkles, Upload, X } from "lucide-react";
+import { formatRdFileSize } from "../../RDProgressEvidence";
 import { stageToast } from "./common";
+
+/** 转采购可携带的附件（结构化最小字段，避免耦合研发侧类型）。 */
+export type TransferAttachmentInput = { id: string; name: string; size?: number };
 
 /** 已关联采购的研发任务（按标题映射到采购任务，静态演示钩子）。 */
 export const PROC_LINK_MAP: Record<string, { procTaskId: string; code: string; statusLabel: string; events: { at: string; text: string }[] }> = {
@@ -74,9 +78,25 @@ export function AttachmentBlockModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-/** 转采购 AI 预填弹窗。 */
-export function TransferToProcurementModal({ taskTitle, owner, onClose }: { taskTitle: string; owner: string; onClose: () => void }) {
+type TransferAttachmentRow = { key: string; name: string; size?: number; source: "task" | "manual" };
+
+/** 转采购 AI 预填弹窗。attachments = 研发任务已有附件，默认全部带入。 */
+export function TransferToProcurementModal({ taskTitle, owner, attachments = [], onClose }: { taskTitle: string; owner: string; attachments?: TransferAttachmentInput[]; onClose: () => void }) {
   const [f, setF] = useState({ materialName: taskTitle.replace(/选型|测试|复核|反馈|核查|调整|完善|沟通/g, "").trim() || taskTitle, spec: "", quantity: "", needDate: "2026-07-20", deadline: "2026-07-18", link: "", rdContact: owner, note: "" });
+  // 附件列表：默认带入任务全部附件；可移除/新增；全部移除时阻断提交（转采购必须携带图纸）
+  const taskRows: TransferAttachmentRow[] = attachments.map((a) => ({ key: `task-${a.id}`, name: a.name, size: a.size, source: "task" }));
+  const [files, setFiles] = useState<TransferAttachmentRow[]>(taskRows);
+  const removedTaskCount = taskRows.filter((row) => !files.some((cur) => cur.key === row.key)).length;
+
+  const addManualFiles = (list: FileList | null) => {
+    if (!list?.length) return;
+    const added: TransferAttachmentRow[] = Array.from(list).map((file, i) => ({ key: `manual-${Date.now()}-${i}`, name: file.name, size: file.size, source: "manual" }));
+    setFiles((cur) => [...cur, ...added]);
+  };
+  const restoreTaskRows = () => {
+    // 恢复任务附件（保留手动上传的，不重复添加已在列表里的）
+    setFiles((cur) => [...taskRows.filter((row) => !cur.some((c) => c.key === row.key)), ...cur]);
+  };
   const field = (k: keyof typeof f, label: string, ph = "", hint?: string) => (
     <label className="block">
       <span className="text-xs font-medium text-slate-500">{label}</span>
@@ -98,17 +118,52 @@ export function TransferToProcurementModal({ taskTitle, owner, onClose }: { task
             {field("deadline", "Deadline")}
             {field("link", "购买链接（选填）", "https://…", "填写后自动转为电商直购")}
             {field("rdContact", "研发对接人")}
-            <label className="block">
-              <span className="text-xs font-medium text-slate-500">图纸附件</span>
-              <div className="mt-1 flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 text-xs text-slate-600"><input type="checkbox" checked readOnly className="accent-indigo-600" />已勾选带入图纸附件</div>
-            </label>
+            <div className="col-span-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-slate-500">图纸附件（{files.length}）<span className="ml-1 font-normal text-slate-400">默认带入任务全部附件，可移除或新增</span></span>
+                <div className="flex items-center gap-2">
+                  {removedTaskCount > 0 && (
+                    <button type="button" onClick={restoreTaskRows} className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 hover:text-indigo-600">
+                      <RotateCcw className="h-3 w-3" />恢复任务附件（{removedTaskCount}）
+                    </button>
+                  )}
+                  <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-indigo-200 px-2 py-1 text-[11px] font-medium text-indigo-600 hover:bg-indigo-50">
+                    <Upload className="h-3 w-3" />新增附件
+                    <input type="file" multiple className="hidden" onChange={(e) => { addManualFiles(e.target.files); e.target.value = ""; }} />
+                  </label>
+                </div>
+              </div>
+              {files.length > 0 ? (
+                <ul className="mt-1.5 max-h-36 space-y-1.5 overflow-y-auto">
+                  {files.map((row) => (
+                    <li key={row.key} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1.5 text-xs text-slate-600">
+                      <Paperclip className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                      <span className="min-w-0 flex-1 truncate" title={row.name}>{row.name}</span>
+                      {row.size ? <span className="shrink-0 text-[10px] text-slate-400">{formatRdFileSize(row.size)}</span> : null}
+                      <span className={row.source === "task" ? "shrink-0 rounded-full bg-indigo-50 px-1.5 text-[10px] text-indigo-500" : "shrink-0 rounded-full bg-emerald-50 px-1.5 text-[10px] text-emerald-600"}>{row.source === "task" ? "任务附件" : "手动上传"}</span>
+                      <button type="button" onClick={() => setFiles((cur) => cur.filter((c) => c.key !== row.key))} className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-white hover:text-rose-500" title="移除">
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <div className="mt-1.5 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                  转采购必须携带至少一份图纸附件，请恢复任务附件或上传新图纸
+                </div>
+              )}
+            </div>
             <label className="col-span-2 block">
               <span className="text-xs font-medium text-slate-500">低值易耗品备注</span>
               <input value={f.note} onChange={(e) => setF((p) => ({ ...p, note: e.target.value }))} placeholder="如为低值易耗品可备注按年用量备货" className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-indigo-300" />
             </label>
           </div>
         </div>
-        <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3"><button type="button" onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">取消</button><button type="button" onClick={() => { stageToast(); onClose(); }} className="material-button-primary px-4 py-2 text-sm">确认生成采购任务</button></div>
+        <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
+          <button type="button" onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">取消</button>
+          <button type="button" disabled={files.length === 0} onClick={() => { stageToast(); onClose(); }} className="material-button-primary px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50">确认生成采购任务</button>
+        </div>
       </div>
     </div>
   );
