@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   CalendarClock,
+  CheckCircle2,
   Download,
   FileText,
   Loader2,
@@ -14,23 +15,33 @@ import {
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
 import { useAnyPermission } from "./hooks/usePermission";
+import { useAuth } from "./auth";
+import { PERMISSIONS } from "./lib/permissions";
 import { AuditTimeline } from "./RDAuditTimeline";
-import { type AuditLog, useAuditLogs } from "./lib/auditLog";
+import { addAuditLogNote, recordAudit, useAuditActor, type AuditLog, useAuditLogs } from "./lib/auditLog";
 import { ProgressNoteList, TaskImageGallery, formatRdFileSize } from "./RDProgressEvidence";
 import {
   STATUS_CONFIG,
   PRIORITY_CONFIG,
   WorkItemsSection,
+  HandoverDialog,
+  AddCollaboratorsDialog,
+  CompleteConfirmDialog,
   downloadUsCollabTaskReport,
   flattenTasks,
   OwnerAvatar,
+  type PersonProfile,
 } from "./RDTaskManagementPage";
 import {
   blockedDaysOf,
   fetchMergedTaskCategories,
+  fetchRdPeople,
   fetchRdTaskProgressNotes,
   generateRdTaskBrief,
   getAttachmentUrl,
+  updateRdTask,
+  type RdCollaborator,
+  type RdPriority,
   type RdTask,
   type RdTaskBrief,
   type RdTaskProgressNote,
@@ -47,9 +58,20 @@ type DetailTab = "notes" | "attachments" | "audit";
 export default function UsCollabTaskDetailPage() {
   const { taskId = "" } = useParams();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const canView = useAnyPermission("page:us-collab-cockpit", "page:us-collab-workspace");
+  // 管理动作口径与驾驶舱抽屉的 canManageTaskFlow 一致
+  const canManage = useAnyPermission(
+    PERMISSIONS.RD_PROJECT_DIRECT,
+    PERMISSIONS.RD_PROJECT_REVIEW_L1,
+    PERMISSIONS.RD_PROJECT_REVIEW_L2,
+    PERMISSIONS.RD_PEOPLE_MANAGE,
+    PERMISSIONS.RD_TASK_REASSIGN,
+  );
+  const AUDIT_ACTOR = useAuditActor("研发管理员");
 
   const [task, setTask] = useState<RdTask | null>(null);
+  const [allTasks, setAllTasks] = useState<RdTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [notes, setNotes] = useState<RdTaskProgressNote[]>([]);
@@ -58,6 +80,14 @@ export default function UsCollabTaskDetailPage() {
   const [noteItemFilter, setNoteItemFilter] = useState<string>("all");
   const [brief, setBrief] = useState<RdTaskBrief | null>(null);
   const [briefLoading, setBriefLoading] = useState(false);
+  const [people, setPeople] = useState<PersonProfile[]>([]);
+  const [showHandover, setShowHandover] = useState(false);
+  const [showAddCollab, setShowAddCollab] = useState(false);
+  const [showComplete, setShowComplete] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [savingPriority, setSavingPriority] = useState(false);
+  /** 点击人员后展示其名下任务的弹层（点任务跳转到该任务的详情页） */
+  const [personTasksFor, setPersonTasksFor] = useState<string | null>(null);
   const auditLogs = useAuditLogs({ resourceType: "task", resourceId: taskId });
 
   const loadTask = useCallback(async () => {
@@ -66,6 +96,7 @@ export default function UsCollabTaskDetailPage() {
     try {
       const categories = await fetchMergedTaskCategories();
       const all = flattenTasks(categories.flatMap((c) => c.children.flatMap((s) => s.tasks)));
+      setAllTasks(all);
       const found = all.find((t) => t.task_id === taskId) ?? null;
       if (!found) setLoadError("任务不存在或已被删除");
       setTask(found);
@@ -79,6 +110,12 @@ export default function UsCollabTaskDetailPage() {
   useEffect(() => {
     void loadTask();
   }, [loadTask]);
+
+  useEffect(() => {
+    fetchRdPeople()
+      .then((data) => setPeople(data.map((p) => ({ id: p.id, user_id: p.user_id ?? null, name: p.name, position: p.position ?? "" }))))
+      .catch(() => setPeople([]));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -155,6 +192,113 @@ export default function UsCollabTaskDetailPage() {
     }
   };
 
+  // ── 管理动作（API 口径与驾驶舱抽屉完全一致） ──────────────────────────────
+
+  const savePriority = async (next: RdPriority) => {
+    if (!task || savingPriority || next === task.final_priority) return;
+    const prev = task.final_priority;
+    setSavingPriority(true);
+    try {
+      await updateRdTask(task.task_id, { final_priority: next });
+      recordAudit({
+        actor: AUDIT_ACTOR,
+        action: "task.updated",
+        resource: { type: "task", id: task.task_id, name: task.title },
+        changes: [{ field: "priority", before: PRIORITY_CONFIG[prev].label, after: PRIORITY_CONFIG[next].label }],
+        comment: "更新任务优先级",
+        source: "web",
+      });
+      setTask((prevTask) => (prevTask ? { ...prevTask, final_priority: next } : prevTask));
+      toast.success("优先级已更新");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "更新优先级失败");
+    } finally {
+      setSavingPriority(false);
+    }
+  };
+
+  const handleHandover = async (newOwner: string) => {
+    if (!task) return;
+    setSubmitting(true);
+    try {
+      await updateRdTask(task.task_id, {
+        primary_owner: newOwner,
+        _actor_name: user?.name || "管理员",
+      } as Partial<Omit<RdTask, "task_id">> & { _actor_name?: string });
+      recordAudit({
+        actor: AUDIT_ACTOR,
+        action: "task.updated",
+        resource: { type: "task", id: task.task_id, name: task.title },
+        changes: [{ field: "primary_owner", before: task.primary_owner, after: newOwner }],
+        comment: `移交任务给 ${newOwner}`,
+        source: "web",
+      });
+      toast.success(`任务已移交给 ${newOwner}`);
+      setShowHandover(false);
+      void loadTask();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "移交失败");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleAddCollaborators = async (newCollaborators: RdCollaborator[]) => {
+    if (!task) return;
+    try {
+      await updateRdTask(task.task_id, {
+        collaborators: [...(task.collaborators ?? []), ...newCollaborators],
+        _actor_name: user?.name || "管理员",
+      } as Partial<Omit<RdTask, "task_id">> & { _actor_name?: string });
+      recordAudit({
+        actor: AUDIT_ACTOR,
+        action: "task.updated",
+        resource: { type: "task", id: task.task_id, name: task.title },
+        comment: `管理员直接添加协作人：${newCollaborators.map((c) => c.name).join("、")}`,
+        source: "web",
+      });
+      toast.success(`已添加 ${newCollaborators.length} 位协作人`);
+      setShowAddCollab(false);
+      void loadTask();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "添加协作人失败");
+    }
+  };
+
+  const handleDirectComplete = async () => {
+    if (!task) return;
+    setSubmitting(true);
+    try {
+      await updateRdTask(task.task_id, { status: "completed", progress: 100 });
+      recordAudit({
+        actor: AUDIT_ACTOR,
+        action: "task.updated",
+        resource: { type: "task", id: task.task_id, name: task.title },
+        changes: [
+          { field: "status", before: task.status, after: "completed" },
+          { field: "progress", before: String(task.progress), after: "100" },
+        ],
+        comment: "管理员直接标记任务完成",
+        source: "web",
+      });
+      toast.success("任务已标记完成");
+      setShowComplete(false);
+      void loadTask();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "操作失败");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  /** 某人名下的活跃任务（供人员任务弹层展示，点击可跳到对应任务详情页） */
+  const tasksOfPerson = useMemo(() => {
+    if (!personTasksFor) return [];
+    return allTasks.filter(
+      (t) => t.primary_owner === personTasksFor && !t.archived && t.status !== "archived",
+    );
+  }, [allTasks, personTasksFor]);
+
   if (!canView) {
     return (
       <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-slate-500">
@@ -212,9 +356,23 @@ export default function UsCollabTaskDetailPage() {
           <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
           {sCfg.label}
         </span>
-        <span className={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold", pCfg.bg, pCfg.text)}>
-          {pCfg.label}优先
-        </span>
+        {canManage && !task.archived && task.status !== "completed" ? (
+          <select
+            value={task.final_priority}
+            disabled={savingPriority}
+            onChange={(e) => void savePriority(e.target.value as RdPriority)}
+            className={cn("cursor-pointer rounded-full border px-2.5 py-1 text-xs font-semibold outline-none", pCfg.bg, pCfg.text)}
+            title="调整任务优先级"
+          >
+            <option value="high">高优先</option>
+            <option value="medium">中优先</option>
+            <option value="low">低优先</option>
+          </select>
+        ) : (
+          <span className={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold", pCfg.bg, pCfg.text)}>
+            {pCfg.label}优先
+          </span>
+        )}
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
@@ -258,23 +416,45 @@ export default function UsCollabTaskDetailPage() {
             </div>
           )}
 
-          {/* 人员 */}
+          {/* 人员（点击查看其名下任务，可跳转到对应任务详情） */}
           <div className="material-card px-4 py-3">
-            <div className="mb-2 text-xs font-semibold text-slate-500">主责人</div>
-            <div className="flex items-center gap-2">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-500">主责人</span>
+              {canManage && !task.archived && (
+                <button
+                  type="button"
+                  onClick={() => setShowAddCollab(true)}
+                  className="cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-semibold text-indigo-600 hover:bg-indigo-50"
+                >
+                  + 添加协作人
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setPersonTasksFor(task.primary_owner)}
+              className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-1 py-0.5 text-left hover:bg-slate-50"
+              title={`查看 ${task.primary_owner} 名下的任务`}
+            >
               <OwnerAvatar name={task.primary_owner} userId={task.primary_owner_user_id} size="sm" />
               <span className="text-sm font-medium text-slate-800">{task.primary_owner}</span>
-            </div>
+            </button>
             {(task.collaborators ?? []).length > 0 && (
               <>
                 <div className="mb-2 mt-3 text-xs font-semibold text-slate-500">协作人</div>
-                <div className="space-y-1.5">
+                <div className="space-y-1">
                   {(task.collaborators ?? []).map((c) => (
-                    <div key={c.id} className="flex items-center gap-2">
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setPersonTasksFor(c.name)}
+                      className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-1 py-0.5 text-left hover:bg-slate-50"
+                      title={`查看 ${c.name} 名下的任务`}
+                    >
                       <OwnerAvatar name={c.name} userId={c.user_id} size="xs" />
                       <span className="text-sm text-slate-700">{c.name}</span>
                       <span className="text-[11px] text-slate-400">{c.role}</span>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </>
@@ -300,6 +480,26 @@ export default function UsCollabTaskDetailPage() {
               <Download className="h-3.5 w-3.5" />
               导出过程报告
             </button>
+            {canManage && !task.archived && task.status !== "completed" && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowHandover(true)}
+                  className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  <ArrowLeft className="h-3.5 w-3.5 rotate-180" />
+                  移交任务
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowComplete(true)}
+                  className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  标记完成
+                </button>
+              </>
+            )}
           </div>
         </div>
 
@@ -451,12 +651,100 @@ export default function UsCollabTaskDetailPage() {
 
             {tab === "audit" && (
               <div className="max-h-[560px] overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/40 px-2 py-2">
-                <AuditTimeline logs={auditLogs} showResource={false} emptyText="暂无操作记录" />
+                <AuditTimeline
+                  logs={auditLogs}
+                  showResource={false}
+                  emptyText="暂无操作记录"
+                  canAddNote={canManage}
+                  onAddNote={async (logId, text) => {
+                    await addAuditLogNote(logId, { text, actor: AUDIT_ACTOR });
+                  }}
+                />
               </div>
             )}
           </div>
         </div>
       </div>
+
+      {/* ── 管理弹窗 ── */}
+      {showHandover && (
+        <HandoverDialog
+          taskId={task.task_id}
+          taskTitle={task.title}
+          currentOwner={task.primary_owner}
+          people={people}
+          onConfirm={handleHandover}
+          onCancel={() => setShowHandover(false)}
+        />
+      )}
+      {showAddCollab && (
+        <AddCollaboratorsDialog
+          taskTitle={task.title}
+          currentOwner={task.primary_owner}
+          existingCollaborators={task.collaborators ?? []}
+          people={people}
+          onConfirm={handleAddCollaborators}
+          onCancel={() => setShowAddCollab(false)}
+        />
+      )}
+      {showComplete && (
+        <CompleteConfirmDialog
+          taskTitle={task.title}
+          submitting={submitting}
+          onConfirm={() => void handleDirectComplete()}
+          onCancel={() => setShowComplete(false)}
+        />
+      )}
+
+      {/* 人员名下任务弹层：点任务跳转到该任务的详情页 */}
+      {personTasksFor && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
+          <button type="button" className="absolute inset-0 cursor-default" onClick={() => setPersonTasksFor(null)} aria-label="关闭" />
+          <div className="relative w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
+            <div className="mb-3 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <OwnerAvatar name={personTasksFor} size="sm" />
+                <div>
+                  <div className="text-sm font-semibold text-slate-800">{personTasksFor}</div>
+                  <div className="text-[11px] text-slate-400">名下活跃任务 {tasksOfPerson.length} 条</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPersonTasksFor(null)}
+                className="cursor-pointer rounded-lg p-1.5 hover:bg-slate-100"
+              >
+                <X className="h-4 w-4 text-slate-500" />
+              </button>
+            </div>
+            <div className="max-h-[50vh] space-y-1.5 overflow-y-auto">
+              {tasksOfPerson.length === 0 ? (
+                <p className="py-6 text-center text-sm text-slate-400">暂无活跃任务</p>
+              ) : (
+                tasksOfPerson.map((t) => {
+                  const tCfg = STATUS_CONFIG[t.status] ?? STATUS_CONFIG.in_progress;
+                  return (
+                    <button
+                      key={t.task_id}
+                      type="button"
+                      onClick={() => {
+                        setPersonTasksFor(null);
+                        if (t.task_id !== taskId) navigate(`/us-collab-task/${encodeURIComponent(t.task_id)}`);
+                      }}
+                      className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg border border-slate-100 px-3 py-2 text-left transition hover:border-indigo-200 hover:bg-indigo-50/40"
+                    >
+                      <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", tCfg.dot)} />
+                      <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{t.title}</span>
+                      <span className={cn("shrink-0 text-[11px] font-medium", tCfg.text)}>{tCfg.label}</span>
+                      <span className="shrink-0 text-[11px] tabular-nums text-slate-400">{t.progress}%</span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -171,7 +171,7 @@ async function mapWithConcurrency<T, R>(
 }
 type Category = RdCategory;
 type ProductDef = RdProductDef;
-type PersonProfile = {
+export type PersonProfile = {
   id: string;
   user_id?: string | null;
   name: string;
@@ -3133,7 +3133,7 @@ function SubmitConfirmDialog({
 }
 
 // ─── HandoverDialog ───────────────────────────────────────────────────────────
-function CompleteConfirmDialog({
+export function CompleteConfirmDialog({
   taskTitle,
   onConfirm,
   onCancel,
@@ -3199,7 +3199,7 @@ function CompleteConfirmDialog({
   );
 }
 
-function HandoverDialog({
+export function HandoverDialog({
   taskTitle,
   currentOwner,
   people,
@@ -3304,7 +3304,7 @@ function HandoverDialog({
 }
 
 // ─── AddCollaboratorsDialog（管理员专用：直接添加，不走审核流程）──────────────
-function AddCollaboratorsDialog({
+export function AddCollaboratorsDialog({
   taskTitle,
   currentOwner,
   existingCollaborators,
