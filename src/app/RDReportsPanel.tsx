@@ -16,7 +16,7 @@ const TABS: Array<{ key: ReportTab; label: string; icon: typeof CalendarDays }> 
  * Tab 渲染在子面板速览卡片「内部」顶部（tabSlot 注入），使右侧整体为单张卡片、
  * 顶端与左侧模块对齐。两个子面板各自独立取数；月报 Tab 内含「月绩效报表」入口。
  */
-export function RDReportsPanel({ canRegenerate }: { canRegenerate: boolean }) {
+export function RDReportsPanel({ canRegenerate, spacious = false }: { canRegenerate: boolean; spacious?: boolean }) {
   const [tab, setTab] = useState<ReportTab>("daily");
 
   // Tab 注入到子面板速览卡片「内部」顶部：右侧整体即为单张卡片，顶端与左侧模块对齐。
@@ -47,8 +47,8 @@ export function RDReportsPanel({ canRegenerate }: { canRegenerate: boolean }) {
   );
 
   return tab === "daily" ? (
-    <RDDailyReportPanel canRegenerate={canRegenerate} tabSlot={tabBar} />
+    <RDDailyReportPanel canRegenerate={canRegenerate} tabSlot={tabBar} spacious={spacious} />
   ) : (
-    <RDMonthlyReportPanel canRegenerate={canRegenerate} tabSlot={tabBar} />
+    <RDMonthlyReportPanel canRegenerate={canRegenerate} tabSlot={tabBar} spacious={spacious} />
   );
 }

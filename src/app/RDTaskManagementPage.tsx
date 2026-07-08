@@ -8055,6 +8055,8 @@ function PersonTaskCockpit({
 }) {
   const shouldReduceMotion = useReducedMotion();
   const masonryColumns = useMasonryColumns();
+  // 协同侧信息密度降一档：卡片内边距与卡片间距放宽（欧美工具风的呼吸感）；研发侧维持紧凑
+  const spaciousCards = isUsCollabWorkspace();
   // 跨用户头像解析（人员 Stories 头像 = 文字 → 真实头像，按姓名兜底匹配）
   const resolveAvatar = useAvatarDirectory();
 
@@ -8552,7 +8554,7 @@ function PersonTaskCockpit({
             : `linear-gradient(to bottom, ${grad.from}, ${grad.to})` }}
         />
 
-        <div className="flex min-w-0 flex-col gap-2 px-4 py-3.5">
+        <div className={cn("flex min-w-0 flex-col", spaciousCards ? "gap-2.5 px-5 py-4" : "gap-2 px-4 py-3.5")}>
           {/* ─── 关键指标条（顶部、左对齐）：时间戳（主） + AI 评分（次） ─── */}
           {(completionScore || showPendingScoreBadge || relativeUpdate) && (
             <div className="flex flex-wrap items-center gap-2">
@@ -9110,9 +9112,9 @@ function PersonTaskCockpit({
                           style={{ height: headerCollapsed ? "84vh" : "65vh" }}
                           onScroll={(e) => handleTaskScroll(e, "all", allActiveTasks.length)}
                         >
-                          <div className="flex items-start gap-2.5 px-4 py-3">
+                          <div className={cn("flex items-start", spaciousCards ? "gap-4 px-4 py-4" : "gap-2.5 px-4 py-3")}>
                             {distributeIntoColumns(shownTasks, masonryColumns).map((column, colIdx) => (
-                              <div key={colIdx} className="flex min-w-0 flex-1 flex-col gap-2.5">
+                              <div key={colIdx} className={cn("flex min-w-0 flex-1 flex-col", spaciousCards ? "gap-4" : "gap-2.5")}>
                                 <AnimatePresence>
                                   {column.map((task, rowIdx) =>
                                     renderTaskCard(task, colIdx + rowIdx * masonryColumns, allGrad, { showOwner: true }),
@@ -9210,9 +9212,9 @@ function PersonTaskCockpit({
                           style={{ height: headerCollapsed ? "84vh" : "65vh" }}
                           onScroll={(e) => handleTaskScroll(e, p.name, tasks.length)}
                         >
-                          <div className="flex items-start gap-2.5 px-4 py-3">
+                          <div className={cn("flex items-start", spaciousCards ? "gap-4 px-4 py-4" : "gap-2.5 px-4 py-3")}>
                             {distributeIntoColumns(shownTasks, masonryColumns).map((column, colIdx) => (
-                              <div key={colIdx} className="flex min-w-0 flex-1 flex-col gap-2.5">
+                              <div key={colIdx} className={cn("flex min-w-0 flex-1 flex-col", spaciousCards ? "gap-4" : "gap-2.5")}>
                                 <AnimatePresence>
                                   {column.map((task, rowIdx) =>
                                     renderTaskCard(task, colIdx + rowIdx * masonryColumns, grad),
@@ -10091,8 +10093,9 @@ function ExecutiveOverview({
           aria-hidden={headerCollapsed}
           inert={headerCollapsed ? "" : undefined}
         >
-        <div className={catStats.length > 0 ? "grid items-stretch gap-6 xl:grid-cols-5" : undefined}>
-        <section className={cn("rounded-2xl border border-slate-200/70 bg-white px-5 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]", catStats.length > 0 && "min-w-0 xl:col-span-3")}>
+        {/* 协同侧：KPI 与日报 1:1 平分（日报面板告别 2/5 窄列的拥挤），研发侧维持 3:2 */}
+        <div className={catStats.length > 0 ? cn("grid items-stretch gap-6", isUsCollabWorkspace() ? "xl:grid-cols-2" : "xl:grid-cols-5") : undefined}>
+        <section className={cn("rounded-2xl border border-slate-200/70 bg-white px-5 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]", catStats.length > 0 && (isUsCollabWorkspace() ? "min-w-0 xl:col-span-1" : "min-w-0 xl:col-span-3"))}>
           <div className="grid gap-4 lg:grid-cols-[minmax(280px,1fr)_auto]">
             <div className="order-1 flex min-w-0 items-center gap-3">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-[0_6px_16px_-4px_rgba(79,70,229,0.45)]">
@@ -10106,7 +10109,7 @@ function ExecutiveOverview({
               </div>
             </div>
 
-            <div className="order-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:col-span-2 lg:grid-cols-6">
+            <div className={cn("order-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:col-span-2", isUsCollabWorkspace() ? "gap-3.5 lg:grid-cols-3" : "lg:grid-cols-6")}>
               {([
                 { label: "活跃", value: totalActive, Icon: Target, tone: "text-indigo-700", bg: "from-indigo-50 to-white", filterKey: null, activeRing: "ring-indigo-300" },
                 { label: "完成率", value: `${rate}%`, Icon: Gauge, tone: "text-slate-900", bg: "from-slate-50 to-white", filterKey: null, activeRing: "ring-slate-300" },
@@ -10222,8 +10225,8 @@ function ExecutiveOverview({
           </div>
         </section>
         {catStats.length > 0 && (
-          <div className="min-w-0 xl:col-span-2">
-            <RDReportsPanel canRegenerate={(canReassign ?? false) || (canCreateTask ?? false)} />
+          <div className={cn("min-w-0", isUsCollabWorkspace() ? "xl:col-span-1" : "xl:col-span-2")}>
+            <RDReportsPanel canRegenerate={(canReassign ?? false) || (canCreateTask ?? false)} spacious={isUsCollabWorkspace()} />
           </div>
         )}
         </div>

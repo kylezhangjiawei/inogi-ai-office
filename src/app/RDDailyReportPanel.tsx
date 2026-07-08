@@ -189,7 +189,7 @@ const REPORT_PAGE_SIZE = 5; // date groups per page (history layer)
  * 研发日报面板（共享）。顶部「今日速览」始终可见，供领导一眼掌握当日团队状态；
  * 「查看全部」展开历史详情层（按日期分组 + 成员筛选 + 分页）。自带数据获取，可在任意页面挂载。
  */
-export function RDDailyReportPanel({ canRegenerate, tabSlot }: { canRegenerate: boolean; tabSlot?: ReactNode }) {
+export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }: { canRegenerate: boolean; tabSlot?: ReactNode; spacious?: boolean }) {
   const isMountedRef = useRef(true);
   useEffect(() => () => { isMountedRef.current = false; }, []);
 
@@ -339,9 +339,9 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot }: { canRegenerate: 
   return (
     <div className="flex h-full flex-col gap-3">
       {/* ── 今日速览（始终可见；flex-1 让它在宽屏并排时撑满到与左侧 KPI 卡等高） ──── */}
-      <div className="flex-1 rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-indigo-50/40 p-4 shadow-sm">
+      <div className={cn("flex-1 rounded-2xl border border-violet-200 bg-gradient-to-br from-violet-50 to-indigo-50/40 shadow-sm", spacious ? "p-6" : "p-4")}>
         {tabSlot}
-        <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className={cn("flex flex-wrap items-center justify-between", spacious ? "gap-3" : "gap-2")}>
           <div className="flex items-center gap-2.5">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-violet-600 text-white shadow-sm">
               <CalendarDays className="h-4 w-4" />
@@ -387,14 +387,14 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot }: { canRegenerate: 
         </div>
 
         {/* 聚合徽章（当日任务级汇总） */}
-        <div className="mt-3 flex flex-wrap items-center gap-2">
+        <div className={cn("flex flex-wrap items-center", spacious ? "mt-5 gap-2.5" : "mt-3 gap-2")}>
           {([
             { label: "完成", value: agg.completed, cls: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
             { label: "推进中", value: agg.progressed, cls: "bg-blue-50 text-blue-700 ring-blue-200" },
             { label: "停滞", value: agg.stalled, cls: "bg-amber-50 text-amber-700 ring-amber-200" },
             { label: "阻塞", value: agg.blocked, cls: "bg-red-50 text-red-700 ring-red-200" },
           ] as const).map((b) => (
-            <span key={b.label} className={cn("inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ring-1", b.cls)}>
+            <span key={b.label} className={cn("inline-flex items-center gap-1 rounded-full font-semibold ring-1", spacious ? "px-3 py-1.5 text-xs" : "px-2.5 py-1 text-xs", b.cls)}>
               {b.label}
               <span className="tabular-nums">{b.value}</span>
             </span>
@@ -403,7 +403,7 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot }: { canRegenerate: 
 
         {/* 成员胶囊（按当日最差状态着色） */}
         {todayMembers.length > 0 ? (
-          <div className="mt-3 flex flex-wrap gap-1.5">
+          <div className={cn("flex flex-wrap", spacious ? "mt-4 gap-2" : "mt-3 gap-1.5")}>
             {todayMembers.map((report) => {
               const key = report.user_id ?? report.user_name;
               const chip = STATUS_CHIP[worstStatusOfReport(report)];

@@ -132,7 +132,7 @@ const REPORT_PAGE_SIZE = 5; // month groups per page (history layer)
  * 「查看全部」展开历史详情层（按月份分组 + 成员筛选 + 分页）。
  * 每位成员可一键打开「月绩效报表」（AI 评估 + 正式 Word 文件）。自带数据获取，可在任意页面挂载。
  */
-export function RDMonthlyReportPanel({ canRegenerate, tabSlot }: { canRegenerate: boolean; tabSlot?: ReactNode }) {
+export function RDMonthlyReportPanel({ canRegenerate, tabSlot, spacious = false }: { canRegenerate: boolean; tabSlot?: ReactNode; spacious?: boolean }) {
   const isMountedRef = useRef(true);
   useEffect(() => () => { isMountedRef.current = false; }, []);
 
@@ -267,7 +267,7 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot }: { canRegenerate
   return (
     <div className="flex h-full flex-col gap-3">
       {/* ── 月报速览（始终可见；flex-1 让它在宽屏并排时撑满到与左侧 KPI 卡等高） ──── */}
-      <div className="flex-1 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50/40 p-4 shadow-sm">
+      <div className={cn("flex-1 rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50/40 shadow-sm", spacious ? "p-6" : "p-4")}>
         {tabSlot}
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2.5">
@@ -322,7 +322,7 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot }: { canRegenerate
         </div>
 
         {/* 聚合徽章（当月任务级汇总） */}
-        <div className="mt-3 flex flex-wrap items-center gap-2">
+        <div className={cn("flex flex-wrap items-center", spacious ? "mt-5 gap-2.5" : "mt-3 gap-2")}>
           {([
             { label: "完成", value: agg.completed, cls: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
             { label: "推进", value: agg.progressed, cls: "bg-blue-50 text-blue-700 ring-blue-200" },
@@ -338,7 +338,7 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot }: { canRegenerate
 
         {/* 成员胶囊（按当月最差状态着色） */}
         {monthMembers.length > 0 ? (
-          <div className="mt-3 flex flex-wrap gap-1.5">
+          <div className={cn("flex flex-wrap", spacious ? "mt-4 gap-2" : "mt-3 gap-1.5")}>
             {monthMembers.map((report) => {
               const key = report.user_id ?? report.user_name;
               const chip = STATUS_CHIP[worstStatusOfMonthly(report)];
