@@ -14,8 +14,6 @@ import {
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
 import { useAnyPermission } from "./hooks/usePermission";
-import { useAuth } from "./auth";
-import { PERMISSIONS } from "./lib/permissions";
 import { AuditTimeline } from "./RDAuditTimeline";
 import { type AuditLog, useAuditLogs } from "./lib/auditLog";
 import { ProgressNoteList, TaskImageGallery, formatRdFileSize } from "./RDProgressEvidence";
@@ -49,14 +47,7 @@ type DetailTab = "notes" | "attachments" | "audit";
 export default function UsCollabTaskDetailPage() {
   const { taskId = "" } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
   const canView = useAnyPermission("page:us-collab-cockpit", "page:us-collab-workspace");
-  const canManage = useAnyPermission(
-    PERMISSIONS.RD_TASK_EDIT,
-    PERMISSIONS.RD_TASK_REASSIGN,
-    PERMISSIONS.RD_PEOPLE_MANAGE,
-    PERMISSIONS.RD_PROJECT_DIRECT,
-  );
 
   const [task, setTask] = useState<RdTask | null>(null);
   const [loading, setLoading] = useState(true);
@@ -98,14 +89,6 @@ export default function UsCollabTaskDetailPage() {
       .finally(() => { if (!cancelled) setNotesLoading(false); });
     return () => { cancelled = true; };
   }, [taskId]);
-
-  const isParticipant = useMemo(() => {
-    if (!task || !user) return false;
-    if (task.primary_owner_user_id && task.primary_owner_user_id === user.id) return true;
-    if (task.primary_owner && task.primary_owner === user.name) return true;
-    return (task.collaborators ?? []).some((c) => c.user_id === user.id || c.name === user.name);
-  }, [task, user]);
-  const canEditWorkItems = Boolean(task && !task.archived && (canManage || isParticipant));
 
   const noteCountByItem = useMemo(() => {
     const m = new Map<string, number>();
@@ -346,10 +329,10 @@ export default function UsCollabTaskDetailPage() {
             </div>
           )}
 
-          {/* 工作项 */}
+          {/* 工作项（只读展示）：创建/勾选/删除入口在协同工作台，成员按需自建 */}
           <WorkItemsSection
             task={task}
-            canEdit={canEditWorkItems}
+            canEdit={false}
             noteCountByItem={noteCountByItem}
             onTaskPatched={(_, patch) => setTask((prev) => (prev ? { ...prev, ...patch } : prev))}
           />

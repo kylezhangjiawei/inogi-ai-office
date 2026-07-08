@@ -5146,12 +5146,12 @@ function TaskDetailDrawer({
 
           <TaskLifecycleTimeline task={task} />
 
-          {/* 工作项清单：任务内部轻量拆分（如不同类型文档各一项），留痕按工作项分 Tab 见下方。
-              受 workItemsFeatureEnabled 开关控制（当前仅协同模块），其他驾驶舱隐藏、数据保留 */}
+          {/* 工作项清单（只读展示）：驾驶舱只看不建——创建/勾选/删除入口在协同工作台，
+              由成员按需自建。受 workItemsFeatureEnabled 开关控制（当前仅协同模块） */}
           {workItemsFeatureEnabled() && (
             <WorkItemsSection
               task={task}
-              canEdit={!task.archived && (canManageTaskFlow || isCurrentOwner || isCurrentCollaborator)}
+              canEdit={false}
               noteCountByItem={noteCountByItem}
               onTaskPatched={onTaskPatched}
               onTaskMutated={onTaskMutated}
@@ -10782,6 +10782,17 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   const [showClearData, setShowClearData] = useState(false);
   const [showProposalDialog, setShowProposalDialog] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  // 打开任务详情的统一入口：协同驾驶舱直接进全屏双栏详情页（不走抽屉）；研发驾驶舱维持抽屉
+  const openTaskDetail = useCallback(
+    (task: Task) => {
+      if (isUsCollabWorkspace()) {
+        navigate(`/us-collab-task/${encodeURIComponent(task.task_id)}`);
+        return;
+      }
+      setSelectedTask(task);
+    },
+    [navigate],
+  );
   const [moveTaskTarget, setMoveTaskTarget] = useState<Task | null>(null);
   const [selectedPersonName, setSelectedPersonName] = useState<string | null>(null);
   const [selectedCatId, setSelectedCatId] = useState<string | null>(null);
@@ -11221,7 +11232,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
           // 其余系统/分类统计仍按主库 catStats 不变。
           allTasks={peopleAllTasks}
           onSelectSystem={enterBoard}
-          onSelectTask={setSelectedTask}
+          onSelectTask={openTaskDetail}
           onSelectPerson={openPersonDetail}
           onOpenPeople={canManagePeople ? () => navigate(peopleManagementPath) : undefined}
           loading={loading}
@@ -11327,7 +11338,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
               onClose={() => setSelectedPersonName(null)}
               onOpenTask={(task) => {
                 setSelectedPersonName(null);
-                setSelectedTask(task);
+                openTaskDetail(task);
               }}
             />
           )}
@@ -11475,14 +11486,14 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
                   <UpcomingMilestonesSection
                     scope={null}
                     tasks={allTasks.filter((task) => !task.archived)}
-                    onOpen={setSelectedTask}
+                    onOpen={openTaskDetail}
                   />
 
                   <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,0.75fr)]">
                     <RiskHotspot
                       risks={risks}
                       totalTasks={totalActive}
-                      onSelectTask={setSelectedTask}
+                      onSelectTask={openTaskDetail}
                       className="min-w-0"
                       title="需要决策"
                       subtitle="按严重度排序 · 点击查看详情"
@@ -11523,7 +11534,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
                     <RiskHotspot
                       risks={scopedRisks}
                       totalTasks={detailActiveTasks.length}
-                      onSelectTask={setSelectedTask}
+                      onSelectTask={openTaskDetail}
                       className="min-w-0"
                       title={selectedLabel ? `${selectedLabel} · 需要决策` : "需要决策"}
                       subtitle="按严重度排序 · 点击查看详情"
@@ -11538,14 +11549,14 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
                   {/* Upcoming milestones */}
                   <UpcomingMilestonesSection
                     scope={selectedSub ?? selectedCategory}
-                    onOpen={setSelectedTask}
+                    onOpen={openTaskDetail}
                   />
 
                   {/* Full task list: show every task in the selected system */}
                   <TasksByPartSection
                     category={selectedCategory ?? null}
                     sub={selectedSub}
-                    onOpen={setSelectedTask}
+                    onOpen={openTaskDetail}
                   />
                 </>
               )}
@@ -11623,7 +11634,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
               onClose={() => setSelectedPersonName(null)}
               onOpenTask={(task) => {
                 setSelectedPersonName(null);
-                setSelectedTask(task);
+                openTaskDetail(task);
               }}
             />
           )}
