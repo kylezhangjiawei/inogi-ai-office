@@ -1176,7 +1176,8 @@ export class ResearchDevelopmentService {
 
   async saveTaskCategories(payload: unknown[]) {
     const normalized = ensurePocBomTaskCategories(payload);
-    const saved = await this.writeValue('rd.taskCategories', normalized);
+    // 整树 PUT 与锁内单任务读改写互斥，避免旧快照整体覆盖刚落库的任务更新（仅 controller 调用，无锁内重入）
+    const saved = await this.withTaskTreeLock(() => this.writeValue('rd.taskCategories', normalized));
     await this.recomputeDirectorDashboard();
     return saved;
   }
@@ -1630,6 +1631,11 @@ export class ResearchDevelopmentService {
       identity.users,
     );
 
+    // 直建即阻塞的任务也要打阻塞起点，否则「已阻塞 N 天」对其永远不显示（与 updateTask 的状态钩子对齐）
+    if (newTask.status === 'paused_blocked' && !cleanText(newTask.blocked_since)) {
+      (newTask as JsonRecord).blocked_since = new Date().toISOString();
+    }
+
     const fallbackCategory = categories.find((cat) => isRecord(cat) && cat.id === categoryId);
     if (!fallbackCategory || !isRecord(fallbackCategory)) {
       throw new NotFoundException('指定的分类不存在');
@@ -1697,6 +1703,21 @@ export class ResearchDevelopmentService {
       _actor_name?: string;
     };
     void _protected;
+
+    // work_items 在写入口统一归一化：任意客户端 PATCH 非法形状（对象/字符串/缺字段项）
+    // 一律清洗为合法数组，防止污染后所有消费端（任务卡/详情页/AI prompt/报告导出）崩溃
+    if (Object.prototype.hasOwnProperty.call(persistPatch, 'work_items')) {
+      (persistPatch as JsonRecord).work_items = asArray(persistPatch.work_items)
+        .filter(isRecord)
+        .map((it) => ({
+          id: cleanText(it.id),
+          title: cleanText(it.title),
+          owner_name: cleanText(it.owner_name) || null,
+          done: it.done === true,
+        }))
+        .filter((it) => it.id && it.title)
+        .slice(0, 100);
+    }
 
     // When _review_action is provided but no explicit status is in the patch,
     // auto-derive the new task status so the downstream notification fires correctly.
@@ -4809,11 +4830,22 @@ export class ResearchDevelopmentService {
    * 单任务 AI 小结（纵向视角，协同模块使用）：读任务 + 工作项 + 留痕时间线，
    * 交给 AI 浓缩成几句话；AI 未配置/失败时用本地拼接兜底，接口不失败。
    */
-  async generateTaskBrief(taskId: string) {
+  async generateTaskBrief(
+    taskId: string,
+    options?: { requesterUserId?: string; requesterName?: string; canViewAny?: boolean },
+  ) {
     const id = cleanText(taskId);
     if (!id) throw new BadRequestException('taskId 不能为空');
     const task = await this.findTaskAcrossStores(id);
     if (!task) throw new NotFoundException('任务不存在');
+
+    // 越权防护：小结会把留痕内容交给 AI 汇总并回显，可见性必须与留痕接口同口径——
+    // 驾驶舱/管理员级可看全部；仅工作台权限的普通成员只能看自己参与（主责/协作）的任务
+    if (options && !options.canViewAny) {
+      if (!isTaskParticipant(task, options.requesterUserId, options.requesterName)) {
+        throw new ForbiddenException('只能查看自己参与任务的小结');
+      }
+    }
 
     const noteMap = await this.getProgressNoteMap();
     const workItems = asArray(task.work_items)

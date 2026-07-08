@@ -178,8 +178,21 @@ export class ResearchDevelopmentController {
 
   /** 单任务 AI 小结（协同模块纵向视图）：任务近况浓缩成几句话；AI 未配置时本地兜底，不失败。 */
   @Post('tasks/:taskId/brief')
-  generateTaskBrief(@Param('taskId') taskId: string) {
-    return this.rdService.generateTaskBrief(taskId);
+  generateTaskBrief(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
+    // 可见性与留痕接口同口径：驾驶舱/管理员级页面码可看全部，仅工作台码的普通成员限本人参与任务
+    const perms = req.user?.permissions ?? [];
+    const canViewAny =
+      perms.includes('*') ||
+      perms.includes('page:rd-task-management') ||
+      perms.includes('page:us-collab-cockpit') ||
+      perms.includes('page:rd-director-dashboard') ||
+      perms.includes('rd-task:edit') ||
+      perms.includes('rd-task:reassign');
+    return this.rdService.generateTaskBrief(taskId, {
+      requesterUserId: req.user?.id,
+      requesterName: req.user?.name,
+      canViewAny,
+    });
   }
 
   @Get('task-progress-notes/:taskId')

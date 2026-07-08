@@ -683,6 +683,14 @@ function TaskOperationDrawer({
       setSavingWorkItems(false);
     }
   };
+  /** 添加工作项（回车与按钮共用同一实现，避免两处构造代码分叉） */
+  const addWorkItem = () => {
+    const title = workItemDraft.trim();
+    if (!title) return;
+    const item = { id: `wi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, title, done: false };
+    void persistWorkItems([...workItems, item], `添加了工作项《${title}》`, item.id)
+      .then((ok) => { if (ok) setWorkItemDraft(""); });
+  };
   // 本次进展关联的工作项（任务内部轻量拆分）；空串 = 不关联（挂主任务）
   const [noteWorkItemId, setNoteWorkItemId] = useState("");
   const [noteDragOver, setNoteDragOver] = useState(false);
@@ -1538,11 +1546,7 @@ function TaskOperationDrawer({
                       onKeyDown={(event) => {
                         if (event.key !== "Enter") return;
                         event.preventDefault();
-                        const title = workItemDraft.trim();
-                        if (!title) return;
-                        const item = { id: `wi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, title, done: false };
-                        void persistWorkItems([...workItems, item], `添加了工作项《${title}》`, item.id)
-                          .then((ok) => { if (ok) setWorkItemDraft(""); });
+                        addWorkItem();
                       }}
                       placeholder="输入工作项标题，回车添加（如：用户手册 · 英文版）"
                       className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
@@ -1550,13 +1554,7 @@ function TaskOperationDrawer({
                     <button
                       type="button"
                       disabled={savingWorkItems || !workItemDraft.trim()}
-                      onClick={() => {
-                        const title = workItemDraft.trim();
-                        if (!title) return;
-                        const item = { id: `wi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, title, done: false };
-                        void persistWorkItems([...workItems, item], `添加了工作项《${title}》`, item.id)
-                          .then((ok) => { if (ok) setWorkItemDraft(""); });
-                      }}
+                      onClick={addWorkItem}
                       className="cursor-pointer rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-40"
                     >
                       添加

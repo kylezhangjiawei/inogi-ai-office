@@ -33,11 +33,13 @@ import {
   HandoverDialog,
   AddCollaboratorsDialog,
   CompleteConfirmDialog,
+  ApprovalActionDialog,
   downloadUsCollabTaskReport,
   flattenTasks,
   OwnerAvatar,
   type PersonProfile,
 } from "./RDTaskManagementPage";
+import { getReviewTypeMeta } from "./lib/reviewTypes";
 import {
   blockedDaysOf,
   fetchMergedTaskCategories,
@@ -90,26 +92,32 @@ export default function UsCollabTaskDetailPage() {
   const [showHandover, setShowHandover] = useState(false);
   const [showAddCollab, setShowAddCollab] = useState(false);
   const [showComplete, setShowComplete] = useState(false);
+  const [showApproval, setShowApproval] = useState<"approve" | "reject" | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [savingPriority, setSavingPriority] = useState(false);
   /** 点击人员后展示其名下任务的弹层（点任务跳转到该任务的详情页） */
   const [personTasksFor, setPersonTasksFor] = useState<string | null>(null);
   const auditLogs = useAuditLogs({ resourceType: "task", resourceId: taskId });
 
+  // 竞态守卫：人员弹层跳转会快速切换 taskId，旧请求晚到不得覆盖新任务的状态
+  const loadSeqRef = React.useRef(0);
   const loadTask = useCallback(async () => {
+    const seq = ++loadSeqRef.current;
     setLoading(true);
     setLoadError("");
     try {
       const categories = await fetchMergedTaskCategories();
+      if (seq !== loadSeqRef.current) return;
       const all = flattenTasks(categories.flatMap((c) => c.children.flatMap((s) => s.tasks)));
       setAllTasks(all);
       const found = all.find((t) => t.task_id === taskId) ?? null;
       if (!found) setLoadError("任务不存在或已被删除");
       setTask(found);
     } catch (error) {
+      if (seq !== loadSeqRef.current) return;
       setLoadError(error instanceof Error ? error.message : "任务加载失败");
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) setLoading(false);
     }
   }, [taskId]);
 
@@ -143,9 +151,13 @@ export default function UsCollabTaskDetailPage() {
 
   const filteredNotes = useMemo(() => {
     if (noteItemFilter === "all") return notes;
-    if (noteItemFilter === "main") return notes.filter((n) => !n.work_item_id);
+    if (noteItemFilter === "main") {
+      // 「未关联」含孤儿留痕：关联的工作项被删除后，其留痕归入这里（承诺"删除工作项后留痕保留在主任务"）
+      const existingItemIds = new Set((task?.work_items ?? []).map((it) => it.id));
+      return notes.filter((n) => !n.work_item_id || !existingItemIds.has(n.work_item_id));
+    }
     return notes.filter((n) => n.work_item_id === noteItemFilter);
-  }, [notes, noteItemFilter]);
+  }, [notes, noteItemFilter, task?.work_items]);
 
   const docAttachments = useMemo(
     () =>
@@ -210,16 +222,54 @@ export default function UsCollabTaskDetailPage() {
         actor: AUDIT_ACTOR,
         action: "task.updated",
         resource: { type: "task", id: task.task_id, name: task.title },
-        changes: [{ field: "priority", before: PRIORITY_CONFIG[prev].label, after: PRIORITY_CONFIG[next].label }],
+        // 脏数据兜底：库里可能存在枚举外的优先级值，直接取 label 会在写库成功后抛错误导用户重试
+        changes: [{ field: "priority", before: PRIORITY_CONFIG[prev]?.label ?? String(prev), after: PRIORITY_CONFIG[next]?.label ?? String(next) }],
         comment: "更新任务优先级",
         source: "web",
       });
       setTask((prevTask) => (prevTask ? { ...prevTask, final_priority: next } : prevTask));
+      // 同步 allTasks，保证人员任务弹层等派生视图显示新值（task 与 allTasks 双源须一起更新）
+      setAllTasks((prevAll) => prevAll.map((t) => (t.task_id === task.task_id ? { ...t, final_priority: next } : t)));
       toast.success("优先级已更新");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "更新优先级失败");
     } finally {
       setSavingPriority(false);
+    }
+  };
+
+  /** 审批（通过/驳回）：口径与驾驶舱抽屉 handleApproval 一致——状态裁决完全交给后端 _review_action。 */
+  const handleApproval = async (reason?: string, rollbackProgress?: number) => {
+    if (!task || !showApproval) return;
+    setSubmitting(true);
+    try {
+      const isApprove = showApproval === "approve";
+      const meta = getReviewTypeMeta(task.pending_review_type);
+      if (!meta) {
+        toast.error("无法识别该任务的审核类型，请刷新后重试");
+        return;
+      }
+      await updateRdTask(task.task_id, {
+        _review_action: isApprove ? "approve" : "reject",
+        _reviewer_name: AUDIT_ACTOR.name,
+        ...(isApprove ? {} : { _reject_reason: reason ?? `驳回${meta.label}` }),
+        ...(!isApprove && typeof rollbackProgress === "number" ? { progress: rollbackProgress } : {}),
+      } as Parameters<typeof updateRdTask>[1]);
+      recordAudit({
+        actor: AUDIT_ACTOR,
+        action: isApprove ? meta.approveAction : meta.rejectAction,
+        resource: { type: "task", id: task.task_id, name: task.title },
+        comment: `${isApprove ? "审核通过" : "驳回"}了${meta.label}${reason ? `：${reason}` : ""}`,
+        metadata: { task_id: task.task_id, pending_review_type: task.pending_review_type },
+        source: "web",
+      });
+      toast.success(`${meta.label}${isApprove ? "已通过" : "已驳回"}`);
+      setShowApproval(null);
+      void loadTask();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "操作失败");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -252,8 +302,22 @@ export default function UsCollabTaskDetailPage() {
   const handleAddCollaborators = async (newCollaborators: RdCollaborator[]) => {
     if (!task) return;
     try {
+      // 全屏页可能停留很久，页面快照的 collaborators 会过期——提交前取服务器最新值再合并，
+      // 避免全量覆盖把期间他端新增的协作人静默挤掉
+      let baseCollaborators = task.collaborators ?? [];
+      try {
+        const categories = await fetchMergedTaskCategories();
+        const fresh = flattenTasks(categories.flatMap((c) => c.children.flatMap((s) => s.tasks))).find(
+          (t) => t.task_id === task.task_id,
+        );
+        if (fresh) baseCollaborators = fresh.collaborators ?? [];
+      } catch {
+        // 取最新失败时退回页面快照（后端 normalizeCollaboratorList 仍会去重）
+      }
+      const existingKeys = new Set(baseCollaborators.map((c) => c.user_id || c.name));
+      const merged = [...baseCollaborators, ...newCollaborators.filter((c) => !existingKeys.has(c.user_id || c.name))];
       await updateRdTask(task.task_id, {
-        collaborators: [...(task.collaborators ?? []), ...newCollaborators],
+        collaborators: merged,
         _actor_name: user?.name || "管理员",
       } as Partial<Omit<RdTask, "task_id">> & { _actor_name?: string });
       recordAudit({
@@ -484,7 +548,34 @@ export default function UsCollabTaskDetailPage() {
               <Download className="h-3.5 w-3.5" />
               导出过程报告
             </Button>
-            {canManage && !task.archived && task.status !== "completed" && (
+            {/* 审批：待审核任务的通过/驳回（协同侧唯一审批入口——驾驶舱直达本页，抽屉不再打开） */}
+            {canManage && task.status === "pending_review" && getReviewTypeMeta(task.pending_review_type) && (
+              <>
+                <div className="rounded-lg bg-purple-50 px-3 py-2 text-xs text-purple-700">
+                  待审核：{getReviewTypeMeta(task.pending_review_type)!.label}
+                </div>
+                <Button
+                  type="button"
+                  onClick={() => setShowApproval("approve")}
+                  className="w-full gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  审核通过
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowApproval("reject")}
+                  className="w-full gap-1.5 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                >
+                  <X className="h-3.5 w-3.5" />
+                  驳回
+                </Button>
+              </>
+            )}
+            {/* 移交/直接完成仅对进行中任务开放（对齐抽屉 canCompleteDirectly 口径）：
+                待审核任务必须走上方审批，避免绕过后端 _review_action 仲裁残留待审字段 */}
+            {canManage && !task.archived && task.status === "in_progress" && (
               <>
                 <Button type="button" variant="outline" onClick={() => setShowHandover(true)} className="w-full gap-1.5">
                   <ArrowLeft className="h-3.5 w-3.5 rotate-180" />
@@ -693,6 +784,15 @@ export default function UsCollabTaskDetailPage() {
           submitting={submitting}
           onConfirm={() => void handleDirectComplete()}
           onCancel={() => setShowComplete(false)}
+        />
+      )}
+      {showApproval && (
+        <ApprovalActionDialog
+          mode={showApproval}
+          task={task}
+          submitting={submitting}
+          onConfirm={handleApproval}
+          onCancel={() => setShowApproval(null)}
         />
       )}
 

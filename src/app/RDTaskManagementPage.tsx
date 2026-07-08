@@ -3453,7 +3453,7 @@ export function AddCollaboratorsDialog({
 }
 
 // ─── ApprovalActionDialog ─────────────────────────────────────────────────────
-function ApprovalActionDialog({
+export function ApprovalActionDialog({
   mode,
   task,
   onConfirm,
@@ -4604,7 +4604,12 @@ function TaskDetailDrawer({
     const hasItems = (task.work_items ?? []).length > 0;
     if (!hasItems || traceTab === "all") return mergedTaskLogs;
     if (traceTab === "main") {
-      return mergedTaskLogs.filter((log) => !workItemOfLog(log));
+      // 「未关联」含孤儿：关联的工作项被删除后（Tab 已不存在），其历史留痕归入这里而不是凭空消失
+      const existingItemIds = new Set((task.work_items ?? []).map((it) => it.id));
+      return mergedTaskLogs.filter((log) => {
+        const wid = workItemOfLog(log);
+        return !wid || !existingItemIds.has(wid);
+      });
     }
     return mergedTaskLogs.filter((log) => workItemOfLog(log) === traceTab);
   }, [traceTab, mergedTaskLogs, workItemOfLog, task.work_items]);
