@@ -1238,6 +1238,22 @@ export class ResearchDevelopmentService {
     targetCategoryLabel: string;
     targetSubLabel: string;
   }> {
+    // 跨库移动同为「读树→改→写回」，纳入任务树写锁
+    return this.withTaskTreeLock(() => this.moveTasksUnlocked(taskIds, target, options));
+  }
+
+  private async moveTasksUnlocked(
+    taskIds: unknown,
+    target: { productId: unknown; categoryId: unknown; subId: unknown },
+    options?: { requesterUserId?: string; requesterName?: string; canMoveAny?: boolean },
+  ): Promise<{
+    ok: true;
+    movedCount: number;
+    categories: JsonRecord[];
+    targetProductId: string;
+    targetCategoryLabel: string;
+    targetSubLabel: string;
+  }> {
     const ids = Array.from(
       new Set(asArray(taskIds).map((v) => cleanText(v)).filter(Boolean)),
     );
@@ -1418,23 +1434,43 @@ export class ResearchDevelopmentService {
   private async mutateTaskAcrossStores(
     transform: (categories: JsonRecord[]) => { categories: unknown[]; found: boolean },
   ): Promise<{ found: boolean; productId: string | null }> {
-    const mainCats = await this.readNormalizedTaskCategories();
-    const mainResult = transform(mainCats);
-    if (mainResult.found) {
-      await this.writeValue('rd.taskCategories', mainResult.categories);
-      return { found: true, productId: RD_MAIN_PRODUCT_ID };
-    }
-    const store = await this.readProductCategoryStore();
-    for (const [pid, raw] of Object.entries(store)) {
-      if (pid === RD_MAIN_PRODUCT_ID) continue;
-      const cats = ensurePocBomTaskCategories(asArray(raw));
-      const result = transform(cats);
-      if (result.found) {
-        await this.saveProductCategoryStore({ ...store, [pid]: result.categories });
-        return { found: true, productId: pid };
+    // 任务树写锁：读-改-写整体串行化。否则并发 PATCH（如批量转派对每个任务并发 updateTask）
+    // 会各自基于同一份旧树写回、后写覆盖先写，批量操作只有最后一条生效（lost update）。
+    return this.withTaskTreeLock(async () => {
+      const mainCats = await this.readNormalizedTaskCategories();
+      const mainResult = transform(mainCats);
+      if (mainResult.found) {
+        await this.writeValue('rd.taskCategories', mainResult.categories);
+        return { found: true, productId: RD_MAIN_PRODUCT_ID };
       }
-    }
-    return { found: false, productId: null };
+      const store = await this.readProductCategoryStore();
+      for (const [pid, raw] of Object.entries(store)) {
+        if (pid === RD_MAIN_PRODUCT_ID) continue;
+        const cats = ensurePocBomTaskCategories(asArray(raw));
+        const result = transform(cats);
+        if (result.found) {
+          await this.saveProductCategoryStore({ ...store, [pid]: result.categories });
+          return { found: true, productId: pid };
+        }
+      }
+      return { found: false, productId: null };
+    });
+  }
+
+  /**
+   * 任务树写锁（与 withProgressNoteLock 同模式）：所有「读树→改→写回」的路径必须整体串行，
+   * 否则并发写互相覆盖。仅进程内串行（与现有单实例假设一致）。
+   * ⚠️ 不可重入：锁内回调禁止再调用任何加锁方法（mutateTaskAcrossStores / mutateAllStores /
+   * createTask / moveTasks），否则 promise 链自等待死锁。
+   */
+  private taskTreeWriteLock: Promise<unknown> = Promise.resolve();
+  private withTaskTreeLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.taskTreeWriteLock.then(fn, fn);
+    this.taskTreeWriteLock = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
   }
 
   /**
@@ -1497,26 +1533,29 @@ export class ResearchDevelopmentService {
   private async mutateAllStores(
     transform: (categories: JsonRecord[]) => { categories: unknown[]; changed: boolean },
   ): Promise<void> {
-    const ops: Array<Promise<unknown>> = [];
-    const mainCats = await this.readNormalizedTaskCategories();
-    const mainResult = transform(mainCats);
-    if (mainResult.changed) {
-      ops.push(this.writeValue('rd.taskCategories', mainResult.categories));
-    }
-    const store = await this.readProductCategoryStore();
-    const nextStore: Record<string, unknown> = { ...store };
-    let storeChanged = false;
-    for (const [pid, raw] of Object.entries(store)) {
-      if (pid === RD_MAIN_PRODUCT_ID) continue;
-      const cats = ensurePocBomTaskCategories(asArray(raw));
-      const result = transform(cats);
-      if (result.changed) {
-        nextStore[pid] = result.categories;
-        storeChanged = true;
+    // 与 mutateTaskAcrossStores 共用任务树写锁，防并发读改写互相覆盖
+    return this.withTaskTreeLock(async () => {
+      const ops: Array<Promise<unknown>> = [];
+      const mainCats = await this.readNormalizedTaskCategories();
+      const mainResult = transform(mainCats);
+      if (mainResult.changed) {
+        ops.push(this.writeValue('rd.taskCategories', mainResult.categories));
       }
-    }
-    if (storeChanged) ops.push(this.saveProductCategoryStore(nextStore));
-    await Promise.all(ops);
+      const store = await this.readProductCategoryStore();
+      const nextStore: Record<string, unknown> = { ...store };
+      let storeChanged = false;
+      for (const [pid, raw] of Object.entries(store)) {
+        if (pid === RD_MAIN_PRODUCT_ID) continue;
+        const cats = ensurePocBomTaskCategories(asArray(raw));
+        const result = transform(cats);
+        if (result.changed) {
+          nextStore[pid] = result.categories;
+          storeChanged = true;
+        }
+      }
+      if (storeChanged) ops.push(this.saveProductCategoryStore(nextStore));
+      await Promise.all(ops);
+    });
   }
 
   private buildDefaultProducts(): JsonRecord[] {
@@ -1542,6 +1581,11 @@ export class ResearchDevelopmentService {
   }
 
   async createTask(payload: JsonRecord) {
+    // 建任务同为「读树→插入→写回」，纳入任务树写锁防并发互相覆盖
+    return this.withTaskTreeLock(() => this.createTaskUnlocked(payload));
+  }
+
+  private async createTaskUnlocked(payload: JsonRecord) {
     const productId = cleanText(payload.product_id) || RD_MAIN_PRODUCT_ID;
     const [categories, identity] = await Promise.all([
       this.readTaskCategoriesForProduct(productId),
