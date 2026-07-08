@@ -409,7 +409,7 @@ export default function UsCollabTaskDetailPage() {
   const workItems = task.work_items ?? [];
 
   return (
-    <div className="mx-auto max-w-[1400px] space-y-4 px-4 py-4">
+    <div className="mx-auto max-w-[1200px] space-y-4 px-2 py-4 sm:px-4">
       {/* ── 顶部：返回 + 标题 + 徽章 ── */}
       <div className="flex flex-wrap items-center gap-3">
         <Button type="button" variant="outline" size="sm" onClick={() => navigate(-1)} className="gap-1">

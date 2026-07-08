@@ -11231,6 +11231,8 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   if (mode === "overview") {
     return (
       <TooltipProvider delayDuration={150}>
+        {/* 协同驾驶舱：任务量小，内容列约束最大宽度居中、两侧留白（欧美工具风），小屏自适应收窄；研发驾驶舱维持全宽 */}
+        <div className={cn(isUsCollabWorkspace() && "mx-auto w-full max-w-[1200px] px-1 sm:px-3 2xl:px-0")}>
         <ExecutiveOverview
           catStats={catStats}
           products={products}
@@ -11399,6 +11401,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
           onClose={() => setShowProductManage(false)}
           onSave={handleSaveProducts}
         />
+        </div>
       </TooltipProvider>
     );
   }
