@@ -9073,6 +9073,29 @@ function TaskReassignModal({
   const [peopleError, setPeopleError] = useState(false);
   const [confirmed, setConfirmed] = useState(false);
   const [saving, setSaving] = useState(false);
+  // 任务过滤：关键字 + 当前负责人 + 优先级（任务多时可快速定位）；已勾选项不受过滤影响
+  const [taskKeyword, setTaskKeyword] = useState("");
+  const [ownerFilter, setOwnerFilter] = useState<string>("all");
+  const [priorityFilter, setPriorityFilter] = useState<"all" | "high" | "medium" | "low">("all");
+
+  const taskOwners = Array.from(new Set(assignableTasks.map((t) => t.owner))).sort((a, b) =>
+    a === "待指派" ? -1 : b === "待指派" ? 1 : a.localeCompare(b, "zh-CN"),
+  );
+  const keyword = taskKeyword.trim().toLowerCase();
+  const visibleTasks = assignableTasks.filter(
+    (t) =>
+      (!keyword || t.title.toLowerCase().includes(keyword)) &&
+      (ownerFilter === "all" || t.owner === ownerFilter) &&
+      (priorityFilter === "all" || t.priority === priorityFilter),
+  );
+  const allVisibleSelected = visibleTasks.length > 0 && visibleTasks.every((t) => selectedTasks.has(t.task_id));
+  const toggleSelectVisible = () =>
+    setSelectedTasks((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) visibleTasks.forEach((t) => next.delete(t.task_id));
+      else visibleTasks.forEach((t) => next.add(t.task_id));
+      return next;
+    });
 
   useEffect(() => {
     fetchRdPeople()
@@ -9157,11 +9180,75 @@ function TaskReassignModal({
           {!confirmed ? (
             <>
               <div>
-                <div className="mb-2 text-sm font-medium text-slate-700">选择任务</div>
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-sm font-medium text-slate-700">选择任务</span>
+                  {selectedTasks.size > 0 && (
+                    <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-600">已选 {selectedTasks.size} 个</span>
+                  )}
+                </div>
+                {/* 过滤工具行：任务多时按关键字/负责人/优先级快速定位；勾选状态不随过滤丢失 */}
+                {assignableTasks.length > 5 && (
+                  <div className="mb-2 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <div className="relative flex-1">
+                        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                        <input
+                          value={taskKeyword}
+                          onChange={(e) => setTaskKeyword(e.target.value)}
+                          placeholder="搜索任务标题…"
+                          className="w-full rounded-lg border border-slate-200 py-1.5 pl-8 pr-2 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                        />
+                      </div>
+                      <select
+                        value={ownerFilter}
+                        onChange={(e) => setOwnerFilter(e.target.value)}
+                        className="max-w-[140px] cursor-pointer rounded-lg border border-slate-200 py-1.5 pl-2 pr-6 text-sm text-slate-600 outline-none focus:border-indigo-300"
+                      >
+                        <option value="all">全部负责人</option>
+                        {taskOwners.map((name) => (
+                          <option key={name} value={name}>{name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      {([
+                        { key: "all", label: "全部" },
+                        { key: "high", label: "高优先" },
+                        { key: "medium", label: "中优先" },
+                        { key: "low", label: "低优先" },
+                      ] as const).map((p) => (
+                        <button
+                          key={p.key}
+                          type="button"
+                          onClick={() => setPriorityFilter(p.key)}
+                          className={cn(
+                            "cursor-pointer rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                            priorityFilter === p.key
+                              ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                              : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50",
+                          )}
+                        >
+                          {p.label}
+                        </button>
+                      ))}
+                      <span className="ml-auto text-[11px] text-slate-400">{visibleTasks.length} / {assignableTasks.length} 个</span>
+                      <button
+                        type="button"
+                        onClick={toggleSelectVisible}
+                        disabled={visibleTasks.length === 0}
+                        className="cursor-pointer rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        {allVisibleSelected ? "取消全选" : "全选当前"}
+                      </button>
+                    </div>
+                  </div>
+                )}
                 <div className="cockpit-scroll space-y-2 overflow-y-auto" style={{ maxHeight: "min(280px, 40vh)" }}>
                   {assignableTasks.length === 0 ? (
                     <p className="py-4 text-center text-sm text-slate-400">暂无可转派任务</p>
-                  ) : assignableTasks.map((t) => (
+                  ) : visibleTasks.length === 0 ? (
+                    <p className="py-4 text-center text-sm text-slate-400">没有匹配的任务，试试调整筛选条件</p>
+                  ) : visibleTasks.map((t) => (
                     <label key={t.task_id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-100 px-3 py-2 hover:bg-slate-50">
                       <Checkbox
                         checked={selectedTasks.has(t.task_id)}
