@@ -125,7 +125,7 @@ import {
   getAttachmentPreviewUrl,
   getAttachmentThumbUrl,
 } from "./lib/rdApi";
-import { ProgressAttachmentGrid } from "./RDProgressEvidence";
+import { ProgressAttachmentGrid, TaskImageGallery } from "./RDProgressEvidence";
 import { RDReportsPanel } from "./RDReportsPanel";
 import { getGradeTone } from "./lib/taskCompletionScore";
 import { openTaskCompletionReport, openBatchCompletionReport } from "./lib/taskCompletionReport";
@@ -5169,6 +5169,9 @@ function TaskDetailDrawer({
               </div>
             </div>
           )}
+
+          {/* 任务图片聚合相册：全部留痕的图片收拢一处，按日期分组横滑 + 全屏大图左右切换 */}
+          <TaskImageGallery notes={progressNotes} />
 
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="mb-2 flex items-center justify-between">

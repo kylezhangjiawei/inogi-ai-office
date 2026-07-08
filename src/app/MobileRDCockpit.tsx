@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeft, Clock, History, ImageIcon, Inbox, Loader2, RefreshCw, Send, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
-import { ProgressNoteList } from "./RDProgressEvidence";
+import { ProgressNoteList, TaskImageGallery } from "./RDProgressEvidence";
 import { recordAudit, useAuditActor } from "./lib/auditLog";
 import { useRDCockpitData } from "./hooks/useRDCockpitData";
 import {
@@ -739,6 +739,8 @@ function MobileTaskDetail({
 
       {/* 内容：操作留痕（图片附件可点击放大预览）*/}
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        {/* 任务图片聚合相册：全部留痕的图片收拢一处，按日期分组横滑（移动端触摸横滑），点开大图左右切换 */}
+        <TaskImageGallery notes={notes} className="mb-3" />
         <div className="mb-2.5 flex items-center gap-1.5 text-[13px] font-bold text-slate-900">
           <History size={15} className="text-slate-400" />
           操作留痕
