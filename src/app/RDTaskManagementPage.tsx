@@ -17,6 +17,7 @@ import {
   CircleDot,
   Code2,
   Cpu,
+  Download,
   FileUp,
   Flame,
   FolderPlus,
@@ -112,6 +113,10 @@ import {
   type RdTaskProgressAttachment,
   type RdTaskProgressNote,
   type RdWorkItem,
+  type RdTaskBrief,
+  isUsCollabWorkspace,
+  generateRdTaskBrief,
+  blockedDaysOf,
   type RdTaskStatus,
   type RdProductDef,
   type RdProductStatus,
@@ -4046,6 +4051,72 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 /**
+ * 单任务过程报告导出（协同模块）：任务概要 + 工作项 + 完整留痕时间线（含附件清单）
+ * 生成 Word 兼容 HTML 并下载为 .doc——跨团队交接/领导汇报直接可发。
+ */
+function downloadUsCollabTaskReport(
+  task: Task,
+  logs: AuditLog[],
+  noteOf: (logId: string) => RdTaskProgressNote | undefined,
+) {
+  const esc = (s: unknown) =>
+    String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const workItems = task.work_items ?? [];
+  const doneCount = workItems.filter((it) => it.done).length;
+  const fmtTime = (iso: string) => {
+    const d = new Date(iso);
+    return Number.isNaN(d.getTime()) ? esc(iso) : `${d.toLocaleDateString("zh-CN")} ${d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`;
+  };
+  const statusLabel = STATUS_CONFIG[task.status]?.label ?? task.status;
+  const blockedDays = blockedDaysOf(task);
+
+  const timelineRows = [...logs]
+    .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+    .map((log) => {
+      const note = noteOf(log.id);
+      const attachments = note?.attachments?.length
+        ? `<div style="color:#64748b;font-size:12px;">附件：${note.attachments.map((a) => esc(a.name)).join("、")}</div>`
+        : "";
+      return `<tr>
+        <td style="white-space:nowrap;vertical-align:top;color:#64748b;">${fmtTime(log.timestamp)}</td>
+        <td style="white-space:nowrap;vertical-align:top;">${esc(log.actor?.name ?? "")}</td>
+        <td>${esc(log.comment ?? "")}${attachments}</td>
+      </tr>`;
+    })
+    .join("");
+
+  const workItemsBlock = workItems.length
+    ? `<h2>工作项（${doneCount}/${workItems.length}）</h2>
+       <ul>${workItems.map((it) => `<li>${it.done ? "☑" : "☐"} ${esc(it.title)}${it.owner_name ? `（${esc(it.owner_name)}）` : ""}</li>`).join("")}</ul>`
+    : "";
+
+  const html = `<html xmlns:w="urn:schemas-microsoft-com:office:word"><head><meta charset="utf-8"><title>${esc(task.title)}</title>
+<style>body{font-family:"Microsoft YaHei",sans-serif;font-size:13px;color:#0f172a;line-height:1.7;}h1{font-size:20px;}h2{font-size:15px;border-bottom:1px solid #cbd5e1;padding-bottom:4px;margin-top:18px;}table{border-collapse:collapse;width:100%;}td,th{border:1px solid #cbd5e1;padding:6px 8px;font-size:12px;text-align:left;}</style></head><body>
+<h1>${esc(task.title)}</h1>
+<p style="color:#64748b;">任务过程报告 · 生成于 ${new Date().toLocaleString("zh-CN")} · ${esc(task.task_id)}</p>
+<h2>任务概要</h2>
+<table>
+<tr><th>状态</th><td>${esc(statusLabel)}${blockedDays != null ? `（已阻塞 ${blockedDays} 天）` : ""}</td><th>进度</th><td>${task.progress}%</td></tr>
+<tr><th>主责人</th><td>${esc(task.primary_owner)}</td><th>优先级</th><td>${esc(PRIORITY_CONFIG[task.final_priority]?.label ?? task.final_priority)}</td></tr>
+<tr><th>协作人</th><td>${esc((task.collaborators ?? []).map((c) => c.name).join("、") || "—")}</td><th>截止日期</th><td>${esc(task.due_date || "—")}</td></tr>
+<tr><th>分类路径</th><td colspan="3">${esc(task.category_path || "—")}</td></tr>
+</table>
+${task.description ? `<h2>任务描述</h2><p>${esc(task.description).replace(/\n/g, "<br/>")}</p>` : ""}
+${workItemsBlock}
+<h2>过程时间线（${logs.length} 条）</h2>
+<table><tr><th style="width:130px;">时间</th><th style="width:80px;">操作人</th><th>内容</th></tr>${timelineRows || '<tr><td colspan="3">暂无记录</td></tr>'}</table>
+</body></html>`;
+
+  const blob = new Blob(["﻿", html], { type: "application/msword;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `任务过程报告-${task.title.slice(0, 40).replace(/[\\/:*?"<>|]/g, "_")}-${new Date().toISOString().slice(0, 10)}.doc`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/**
  * 工作项清单（任务详情内）：任务内部的轻量拆分——如文档类任务的各个文件。
  * 工作项不是任务：无独立审批/优先级/截止日，不进任务树，驾驶舱/统计/负载/AI 立项对其零感知。
  * 数据存于任务对象的 work_items 字段（PATCH 持久化）；进度留痕可关联工作项，留痕区按 Tab 分组查看。
@@ -4287,6 +4358,25 @@ function TaskDetailDrawer({
   const [progressNotesLoading, setProgressNotesLoading] = useState(false);
   // 留痕 Tab：'all' 全部 / 'main' 主任务（未关联工作项） / 工作项 id
   const [traceTab, setTraceTab] = useState<string>("all");
+  // ── 中美协同专属（按路由条件启用，研发驾驶舱不受影响）：AI 小结 / 导出报告 / 阻塞天数 ──
+  const usCollab = isUsCollabWorkspace();
+  const [taskBrief, setTaskBrief] = useState<RdTaskBrief | null>(null);
+  const [briefLoading, setBriefLoading] = useState(false);
+  const collabBlockedDays = usCollab ? blockedDaysOf(task) : null;
+  const handleGenerateBrief = async () => {
+    if (briefLoading) return;
+    setBriefLoading(true);
+    try {
+      setTaskBrief(await generateRdTaskBrief(task.task_id));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "生成任务小结失败");
+    } finally {
+      setBriefLoading(false);
+    }
+  };
+  useEffect(() => {
+    setTaskBrief(null);
+  }, [task.task_id]);
   // 进度留痕已并入操作留痕：把每条「更新了任务进度」的留痕附件挂到对应的操作记录下。
   // 关联优先用 metadata.note_id（新数据精确）；老数据回退「同进度值 + 2 分钟内」启发式，并保证一条留痕只挂一处。
   const logNoteMatches = useMemo(() => {
@@ -5065,13 +5155,68 @@ function TaskDetailDrawer({
             </div>
           )}
 
+          {/* 协同专属：阻塞时长显性化——跨时区协作里阻塞最容易被静默拖着 */}
+          {usCollab && task.status === "paused_blocked" && (
+            <div className="flex items-start gap-2 rounded-[8px] border border-red-100 bg-red-50 px-4 py-3">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
+              <div className="text-sm text-red-700">
+                <span className="font-semibold">任务阻塞中{collabBlockedDays != null ? `，已阻塞 ${collabBlockedDays} 天` : ""}</span>
+                {collabBlockedDays != null && collabBlockedDays >= 3 && <span>，建议尽快协调对方团队解除依赖。</span>}
+              </div>
+            </div>
+          )}
+
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="mb-2 flex items-center justify-between">
-              <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">操作留痕</div>
+              <div className="flex items-center gap-2">
+                <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">操作留痕</div>
+                {/* 协同专属：AI 小结 + 单任务过程报告导出 */}
+                {usCollab && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => void handleGenerateBrief()}
+                      disabled={briefLoading}
+                      className="flex cursor-pointer items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-600 hover:bg-indigo-100 disabled:opacity-50"
+                    >
+                      {briefLoading ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Sparkles className="h-2.5 w-2.5" />}
+                      AI 小结
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => downloadUsCollabTaskReport(task, mergedTaskLogs, noteOfLog)}
+                      className="flex cursor-pointer items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50"
+                      title="导出本任务的完整过程报告（Word），可直接发给对方团队"
+                    >
+                      <Download className="h-2.5 w-2.5" />
+                      导出报告
+                    </button>
+                  </div>
+                )}
+              </div>
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
                 {displayTraceLogs.length} 条{taskAttachmentTotal > 0 ? ` · ${taskAttachmentTotal} 个附件` : ""}
               </span>
             </div>
+            {/* 协同专属：AI 小结卡片 */}
+            {usCollab && taskBrief && (
+              <div className="mb-2 rounded-lg border border-indigo-100 bg-indigo-50/60 px-3 py-2.5">
+                <div className="mb-1 flex items-center justify-between">
+                  <span className="flex items-center gap-1 text-[11px] font-semibold text-indigo-700">
+                    <Sparkles className="h-3 w-3" />
+                    任务小结{taskBrief.source === "local" ? "（AI 未配置，基础事实版）" : ""}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setTaskBrief(null)}
+                    className="cursor-pointer rounded p-0.5 text-indigo-300 hover:bg-indigo-100 hover:text-indigo-500"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
+                <p className="whitespace-pre-wrap text-xs leading-relaxed text-slate-700">{taskBrief.text}</p>
+              </div>
+            )}
             {/* 工作项留痕 Tab：全部 / 主任务（未关联工作项） / 各工作项；无工作项时不显示，行为不变 */}
             {(task.work_items ?? []).length > 0 && (
               <div className="mb-2 flex flex-wrap items-center gap-1">
@@ -8535,6 +8680,12 @@ function PersonTaskCockpit({
               <span className="inline-flex items-center gap-0.5 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
                 <AlertTriangle className="h-3 w-3" />
                 风险
+              </span>
+            )}
+            {/* 协同专属：阻塞时长显性化（其他驾驶舱不显示） */}
+            {isUsCollabWorkspace() && task.status === "paused_blocked" && blockedDaysOf(task) != null && (
+              <span className="inline-flex items-center gap-0.5 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
+                已阻塞 {blockedDaysOf(task)} 天
               </span>
             )}
             {(task.work_items ?? []).length > 0 && (

@@ -176,6 +176,12 @@ export class ResearchDevelopmentController {
     return this.rdService.listAllTaskProgressNotes(buildViewer(req));
   }
 
+  /** 单任务 AI 小结（协同模块纵向视图）：任务近况浓缩成几句话；AI 未配置时本地兜底，不失败。 */
+  @Post('tasks/:taskId/brief')
+  generateTaskBrief(@Param('taskId') taskId: string) {
+    return this.rdService.generateTaskBrief(taskId);
+  }
+
   @Get('task-progress-notes/:taskId')
   getTaskProgressNotes(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
     // 单任务读取额外带上 userName：参与人（含历史仅按姓名指派的任务）可见该任务全部进展。

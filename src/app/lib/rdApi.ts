@@ -14,6 +14,11 @@ type RequestJsonOptions = RequestInit & { timeoutMs?: number };
  * 后端据此切换到独立的协同任务池（任务/人员/审批流/AI 策略/留痕与研发池完全隔离）。
  * 研发原路由不带参数 → 默认研发池，行为不变。
  */
+/** 当前是否处于中美协同工作区（/us-collab-* 路由）。协同专属 UI（AI 小结/导出报告/阻塞天数等）据此条件渲染，避免波及其他驾驶舱。 */
+export function isUsCollabWorkspace(): boolean {
+  return currentRdWorkspace() === "us-collab";
+}
+
 function currentRdWorkspace(): string | null {
   if (typeof window === "undefined") return null;
   return window.location.pathname.startsWith("/us-collab") ? "us-collab" : null;
@@ -142,6 +147,8 @@ export type RdTask = {
   subtasks?: RdTask[];
   /** 任务内部的轻量工作项清单（见 RdWorkItem）：随任务对象持久化，全系统统计对其零感知。 */
   work_items?: RdWorkItem[];
+  /** 进入 paused_blocked 的时间点（离开时清除），协同模块显示"已阻塞 N 天"。 */
+  blocked_since?: string | null;
   updated_at?: string;
   /** 后端派生：max(updated_at, 最新进度留痕时间)。排序与「最近更新」显示共用此口径，避免逆序。 */
   last_activity_at?: string;
@@ -226,6 +233,8 @@ export type RdWorkspaceTask = {
   latest_progress_summary?: RdLatestProgressSummary | null;
   /** 工作项清单（任务内部轻量拆分），留痕表单据此提供「关联工作项」选择。 */
   work_items?: RdWorkItem[];
+  /** 进入 paused_blocked 的时间点（离开时清除），协同工作台显示"已阻塞 N 天"。 */
+  blocked_since?: string | null;
   description: string;
   next_action: string;
   deliverables: string[];
@@ -1188,6 +1197,29 @@ export async function createRdTaskProgressNote(payload: {
   // 新增留痕后失效聚合缓存，保证新附件在驾驶舱/日报等处即时可见。
   clearRdTaskProgressNoteMapCache();
   return (await response.json()) as RdTaskProgressNote;
+}
+
+// ── 单任务 AI 小结（协同模块纵向视图） ────────────────────────────────────────
+
+export type RdTaskBrief = {
+  text: string;
+  model: string;
+  provider: string;
+  /** 'ai' = 模型生成；'local' = AI 未配置/失败时的本地事实兜底 */
+  source: "ai" | "local";
+  generated_at: string;
+};
+
+export function generateRdTaskBrief(taskId: string) {
+  return requestJson<RdTaskBrief>(`/tasks/${encodeURIComponent(taskId)}/brief`, { method: "POST" });
+}
+
+/** 已阻塞天数：status=paused_blocked 且有 blocked_since 时返回天数，否则 null。 */
+export function blockedDaysOf(task: { status?: string; blocked_since?: string | null }): number | null {
+  if (task.status !== "paused_blocked" || !task.blocked_since) return null;
+  const start = new Date(task.blocked_since).getTime();
+  if (!Number.isFinite(start)) return null;
+  return Math.max(0, Math.floor((Date.now() - start) / 86_400_000));
 }
 
 // ── 每日工作日报 ─────────────────────────────────────────────────────────────

@@ -69,6 +69,8 @@ import {
   type RdSubProject,
   type RdTaskProgressNote,
   type RdWorkItem,
+  isUsCollabWorkspace,
+  blockedDaysOf,
   type RdTaskStatus,
   type RdWorkspacePayload,
   type RdWorkspaceTask,
@@ -263,10 +265,13 @@ function PriorityBadge({ priority }: { priority: Priority }) {
 
 function StatusPill({ task }: { task: WorkspaceTask }) {
   const cfg = STATUS_CONFIG[task.status] ?? STATUS_CONFIG.draft;
+  // 协同专属：阻塞状态直接显示已阻塞天数（跨时区协作里阻塞最容易被静默拖着）；其他工作台不变
+  const blockedDays = isUsCollabWorkspace() ? blockedDaysOf(task) : null;
   return (
     <span className={cn("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium", cfg.className)}>
       <span className={cn("h-1.5 w-1.5 rounded-full", cfg.dot)} />
       {task.status_label}
+      {blockedDays != null && <span className="font-semibold">· {blockedDays} 天</span>}
     </span>
   );
 }

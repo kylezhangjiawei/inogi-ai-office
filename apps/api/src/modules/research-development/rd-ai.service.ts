@@ -2702,6 +2702,78 @@ export class RdAiService {
   }
 
   /**
+   * 单任务 AI 小结（纵向视角）：把一条任务的近况（工作项 + 留痕时间线 + 阻塞信息）
+   * 浓缩成几句话，供领导在详情页快速了解「这件事推进到哪、卡在哪、下一步是什么」。
+   * 复用 daily_report_summary 场景模型；未配置/失败返回 null 让调用方走本地兜底。
+   */
+  async summarizeTaskBrief(input: {
+    title: string;
+    statusLabel: string;
+    progress: number;
+    owner: string;
+    dueDate?: string | null;
+    description?: string | null;
+    blockedReason?: string | null;
+    blockedDays?: number | null;
+    workItems: Array<{ title: string; done: boolean; owner?: string | null }>;
+    notes: Array<{ actorName: string; createdAt: string; text: string; progress?: number | null; workItemTitle?: string | null; attachments: number }>;
+  }): Promise<{ text: string; model: string; provider: AiProvider } | null> {
+    const selectedModel = await this.resolveSceneModelConfig('daily_report_summary').catch(() => null);
+    if (!selectedModel?.apiKey) return null;
+
+    const systemPrompt =
+      '你是一名研发主管的智能助理。请把一条任务的近况浓缩成精炼中文小结，供领导快速了解。' +
+      '要求：(1) 全文不超过 200 字；(2) 结构为三小段：当前状态一句话 → 近期推进要点（1-3 条）→ 风险与下一步（1-2 句）；' +
+      '(3) 只依据提供的事实，不编造；(4) 有阻塞必须点明阻塞原因与已阻塞天数；(5) 工作项有明确完成/未完成态时给出完成度。';
+
+    const workItemsBlock = input.workItems.length
+      ? input.workItems.map((it) => `- [${it.done ? '已完成' : '进行中'}] ${it.title}${it.owner ? `（${it.owner}）` : ''}`).join('\n')
+      : '（无工作项拆分）';
+    const notesBlock = input.notes.length
+      ? input.notes
+          .map((n) => {
+            const wi = n.workItemTitle ? `【${n.workItemTitle}】` : '';
+            const p = typeof n.progress === 'number' ? ` 进度${n.progress}%` : '';
+            const att = n.attachments > 0 ? ` ·${n.attachments}附件` : '';
+            return `- ${n.createdAt.slice(0, 10)} ${n.actorName}${p}${att}：${wi}${n.text.trim().slice(0, 160)}`;
+          })
+          .join('\n')
+      : '（暂无进展留痕）';
+
+    const userMessage = [
+      `任务：《${input.title}》`,
+      `状态：${input.statusLabel} · 进度 ${input.progress}% · 主责 ${input.owner}${input.dueDate ? ` · 截止 ${input.dueDate}` : ''}`,
+      input.blockedReason ? `阻塞：${input.blockedReason}${typeof input.blockedDays === 'number' ? `（已阻塞 ${input.blockedDays} 天）` : ''}` : '',
+      input.description ? `描述：${input.description.slice(0, 300)}` : '',
+      '',
+      '【工作项】',
+      workItemsBlock,
+      '',
+      '【进展留痕（新→旧）】',
+      notesBlock,
+    ].filter((line) => line !== '').join('\n');
+
+    const client = this.createClient(selectedModel.apiKey, selectedModel.provider, selectedModel.baseUrl);
+    try {
+      const response = await client.chat.completions.create({
+        model: selectedModel.model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userMessage },
+        ],
+        ...(selectedModel.provider === 'qwen' ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+      });
+      const text = (response.choices[0]?.message?.content ?? '').trim();
+      if (!text) return null;
+      return { text, model: selectedModel.model, provider: selectedModel.provider };
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.warn('[summarizeTaskBrief] AI call failed:', error instanceof Error ? error.message : error);
+      return null;
+    }
+  }
+
+  /**
    * 月报智能汇总：把某成员当月的全部任务画像汇总成主题化、可读的中文月报。
    * 复用 daily_report_summary 的模型解析与 qwen 分支；未配置/失败返回 null 让调用方走本地兜底。
    */

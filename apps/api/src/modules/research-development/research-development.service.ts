@@ -1836,9 +1836,20 @@ export class ResearchDevelopmentService {
             dueDateOnlyChange && typeof (t as JsonRecord).updated_at === 'string'
               ? ((t as JsonRecord).updated_at as string)
               : nowIso;
+          // 阻塞时长跟踪：状态切入 paused_blocked 记起点（blocked_since），离开时清除。
+          // 字段随任务对象静默持久化，仅协同模块前端消费展示（其他驾驶舱不读不显示）。
+          const prevStatus = String((t as JsonRecord).status ?? '');
+          const nextStatus = String((identityPatch.status ?? prevStatus) ?? '');
+          const blockedPatch =
+            nextStatus === 'paused_blocked' && prevStatus !== 'paused_blocked'
+              ? { blocked_since: nowIso }
+              : nextStatus !== 'paused_blocked' && prevStatus === 'paused_blocked'
+                ? { blocked_since: null }
+                : {};
           const merged = {
             ...t,
             ...identityPatch,
+            ...blockedPatch,
             task_id: taskId,
             updated_at: preservedUpdatedAt,
             ...(enteringReview ? { submitted_for_review_at: nowIso } : {}),
@@ -4794,6 +4805,81 @@ export class ResearchDevelopmentService {
     }
   }
 
+  /**
+   * 单任务 AI 小结（纵向视角，协同模块使用）：读任务 + 工作项 + 留痕时间线，
+   * 交给 AI 浓缩成几句话；AI 未配置/失败时用本地拼接兜底，接口不失败。
+   */
+  async generateTaskBrief(taskId: string) {
+    const id = cleanText(taskId);
+    if (!id) throw new BadRequestException('taskId 不能为空');
+    const task = await this.findTaskAcrossStores(id);
+    if (!task) throw new NotFoundException('任务不存在');
+
+    const noteMap = await this.getProgressNoteMap();
+    const workItems = asArray(task.work_items)
+      .filter(isRecord)
+      .map((it) => ({
+        id: cleanText(it.id),
+        title: cleanText(it.title),
+        done: it.done === true,
+        owner: cleanText(it.owner_name) || null,
+      }))
+      .filter((it) => it.title);
+    const itemTitleById = new Map(workItems.map((it) => [it.id, it.title] as const));
+    const notes = asArray(noteMap[id])
+      .filter(isRecord)
+      .slice(0, 30)
+      .map((n) => ({
+        actorName: cleanText((n.actor as JsonRecord | undefined)?.name) || '成员',
+        createdAt: cleanText(n.created_at),
+        text: cleanText(n.text),
+        progress: typeof n.progress === 'number' ? n.progress : null,
+        workItemTitle: itemTitleById.get(cleanText(n.work_item_id)) ?? null,
+        attachments: asArray(n.attachments).length,
+      }));
+
+    const blockedSince = cleanText(task.blocked_since);
+    const isBlocked = task.status === 'paused_blocked';
+    const blockedDays = isBlocked && blockedSince
+      ? Math.max(0, Math.floor((Date.now() - new Date(blockedSince).getTime()) / 86_400_000))
+      : null;
+    const statusLabel = this.taskStatusLabel(task.status);
+    const progress = typeof task.progress === 'number' ? task.progress : 0;
+    const owner = cleanText(task.primary_owner) || '未指派';
+    const title = cleanText(task.title) || '未命名任务';
+    const dueDate = cleanText(task.due_date) || null;
+    const blockedReason = isBlocked ? cleanText(task.blocked_reason) || '存在阻塞' : null;
+
+    const ai = await this.rdAiService.summarizeTaskBrief({
+      title,
+      statusLabel,
+      progress,
+      owner,
+      dueDate,
+      description: cleanText(task.description) || null,
+      blockedReason,
+      blockedDays,
+      workItems: workItems.map(({ title: t, done, owner: o }) => ({ title: t, done, owner: o })),
+      notes,
+    });
+    if (ai) {
+      return { text: ai.text, model: ai.model, provider: ai.provider, source: 'ai', generated_at: new Date().toISOString() };
+    }
+
+    // 本地兜底：AI 未配置/失败时拼一段基础事实小结
+    const doneCount = workItems.filter((w) => w.done).length;
+    const latest = notes[0];
+    const lines = [
+      `《${title}》当前${statusLabel}，进度 ${progress}%，主责 ${owner}${dueDate ? `，截止 ${dueDate}` : ''}。`,
+      workItems.length > 0 ? `工作项完成 ${doneCount}/${workItems.length}。` : '',
+      latest
+        ? `最近进展（${latest.createdAt.slice(0, 10)} ${latest.actorName}）：${latest.text.slice(0, 80) || '更新了任务进度'}`
+        : '暂无进展留痕。',
+      blockedReason ? `⚠️ ${blockedReason}${blockedDays != null ? `，已阻塞 ${blockedDays} 天` : ''}。` : '',
+    ].filter(Boolean);
+    return { text: lines.join('\n'), model: 'local', provider: 'local', source: 'local', generated_at: new Date().toISOString() };
+  }
+
   private toWorkspaceTask(task: JsonRecord, role: 'primary' | 'collaborator', collabRole?: string) {
     const dueDate = cleanText(task.due_date);
     return {
@@ -4829,6 +4915,8 @@ export class ResearchDevelopmentService {
       pending_abandon_requested_at: cleanText(task.pending_abandon_requested_at) || null,
       collab_role: collabRole,
       on_leave: task.status === 'paused_leave',
+      // 阻塞起点（进入 paused_blocked 时由 updateTask 记录），协同工作台显示"已阻塞 N 天"
+      blocked_since: cleanText(task.blocked_since) || null,
       ai_pending: task.ai_modified === true,
       latest_progress_summary: this.normalizeLatestProgressSummary(task.latest_progress_summary),
       // 工作项清单（任务内部轻量拆分）：工作台留痕表单据此提供「关联工作项」选择
