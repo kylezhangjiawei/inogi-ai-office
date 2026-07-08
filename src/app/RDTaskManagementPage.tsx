@@ -8187,6 +8187,9 @@ function PersonTaskCockpit({
   }, [extractionBackfillBusy]);
 
   // ── Per-tab visible counts (for infinite scroll pagination) ──
+  // 协同驾驶舱任务量小：首屏直接全量渲染（上限 96 防极端；留痕预取有并发 4 保护不会打爆限流），
+  // 滚动加载机制自然不触发；研发驾驶舱维持每批 4 条的分批渲染，行为不变
+  const taskPageSize = isUsCollabWorkspace() ? 96 : TASK_PAGE_SIZE;
   const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({});
   // 当前激活 tab 的滚动容器。用 callback-ref 把节点存进 state，而不是 useRef：
   // AnimatePresence mode="wait" 下切 tab 时旧容器会先退场动画(~220ms)再卸载、新容器随后才挂载；
@@ -8207,7 +8210,7 @@ function PersonTaskCockpit({
       const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
       if (nearBottom) {
         setVisibleCounts((prev) => {
-          const current = prev[tabKey] ?? TASK_PAGE_SIZE;
+          const current = prev[tabKey] ?? taskPageSize;
           if (current >= totalTasks) return prev;
           return { ...prev, [tabKey]: Math.min(current + TASK_PAGE_SIZE, totalTasks) };
         });
@@ -8384,7 +8387,7 @@ function PersonTaskCockpit({
   useEffect(() => {
     if (activeTab === "all") return;
     const personTasks = personTasksMap.get(activeTab) ?? [];
-    const visibleCount = visibleCounts[activeTab] ?? TASK_PAGE_SIZE;
+    const visibleCount = visibleCounts[activeTab] ?? taskPageSize;
     const toFetch = personTasks.slice(0, visibleCount).filter((t) => t.attachments > 0 && !(t.task_id in notesMap));
     if (toFetch.length === 0) return;
     let cancelled = false;
@@ -8402,7 +8405,7 @@ function PersonTaskCockpit({
   // Lazy-fetch notes for "全部" tab — fetch attachments of visible tasks
   useEffect(() => {
     if (activeTab !== "all") return;
-    const visibleCount = visibleCounts["all"] ?? TASK_PAGE_SIZE;
+    const visibleCount = visibleCounts["all"] ?? taskPageSize;
     const visibleTasks = allActiveTasks.slice(0, visibleCount);
     const toFetch = visibleTasks.filter((t) => t.attachments > 0 && !(t.task_id in notesMap));
     if (toFetch.length === 0) return;
@@ -8422,8 +8425,8 @@ function PersonTaskCockpit({
   // Lazy-fetch AI completion scores — 仅针对可见的已完成任务
   useEffect(() => {
     const visibleCount = activeTab === "all"
-      ? (visibleCounts["all"] ?? TASK_PAGE_SIZE)
-      : (visibleCounts[activeTab] ?? TASK_PAGE_SIZE);
+      ? (visibleCounts["all"] ?? taskPageSize)
+      : (visibleCounts[activeTab] ?? taskPageSize);
     const sourceTasks = activeTab === "all"
       ? allActiveTasks
       : (personTasksMap.get(activeTab) ?? []);
@@ -8452,11 +8455,11 @@ function PersonTaskCockpit({
     const total = activeTab === "all"
       ? allActiveTasks.length
       : (personTasksMap.get(activeTab)?.length ?? 0);
-    const shown = visibleCounts[activeTab] ?? TASK_PAGE_SIZE;
+    const shown = visibleCounts[activeTab] ?? taskPageSize;
     if (shown >= total) return;
     if (scrollEl.scrollHeight - scrollEl.clientHeight >= 120) return;
     setVisibleCounts((prev) => {
-      const current = prev[activeTab] ?? TASK_PAGE_SIZE;
+      const current = prev[activeTab] ?? taskPageSize;
       if (current >= total) return prev;
       return { ...prev, [activeTab]: Math.min(current + TASK_PAGE_SIZE, total) };
     });
@@ -9050,7 +9053,7 @@ function PersonTaskCockpit({
 
                 {/* ── "全部" Tab — 全部活跃任务，按更新时间倒序 ── */}
                 {activeTab === "all" && (() => {
-                  const visibleCount = visibleCounts["all"] ?? TASK_PAGE_SIZE;
+                  const visibleCount = visibleCounts["all"] ?? taskPageSize;
                   const shownTasks = allActiveTasks.slice(0, visibleCount);
                   const hasMore = visibleCount < allActiveTasks.length;
                   const allGrad = { from: "#4f46e5", to: "#6366f1" };
@@ -9146,7 +9149,7 @@ function PersonTaskCockpit({
                   const p = personLoads.find((x) => x.name === activeTab);
                   if (!p) return null;
                   const tasks = personTasksMap.get(p.name) ?? [];
-                  const visibleCount = visibleCounts[p.name] ?? TASK_PAGE_SIZE;
+                  const visibleCount = visibleCounts[p.name] ?? taskPageSize;
                   const shownTasks = tasks.slice(0, visibleCount);
                   const hasMore = visibleCount < tasks.length;
                   const ratio = p.max > 0 ? p.count / p.max : 0;
