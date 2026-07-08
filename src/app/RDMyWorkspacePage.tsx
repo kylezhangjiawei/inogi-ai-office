@@ -70,6 +70,7 @@ import {
   type RdTaskProgressNote,
   type RdWorkItem,
   isUsCollabWorkspace,
+  workItemsFeatureEnabled,
   blockedDaysOf,
   type RdTaskStatus,
   type RdWorkspacePayload,
@@ -935,8 +936,8 @@ function TaskOperationDrawer({
           category_path: task.category_path,
           current_progress: task.progress,
           current_status: task.status_label,
-          // 带上工作项清单：AI 顺带判断本次进展归属哪个工作项（预选，人工可改）
-          work_items: workItems.length > 0 ? workItems : undefined,
+          // 带上工作项清单：AI 顺带判断本次进展归属哪个工作项（预选，人工可改）；功能未启用时不传
+          work_items: workItemsFeatureEnabled() && workItems.length > 0 ? workItems : undefined,
         },
       });
       // AI 归属建议 → 预选「关联工作项」下拉（人工可改）；返回 null 保持用户当前选择
@@ -1482,8 +1483,9 @@ function TaskOperationDrawer({
               <div className="mt-3 rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-700">{task.next_action}</div>
             </div>
 
-            {/* 工作项清单：任务内部轻量拆分（如不同类型文档各一项）。参与人直接增删勾选，无需审批 */}
-            {(workItems.length > 0 || !isTaskCompleted) && (
+            {/* 工作项清单：任务内部轻量拆分（如不同类型文档各一项）。参与人直接增删勾选，无需审批。
+                受 workItemsFeatureEnabled 开关控制（当前仅协同模块），其他工作台隐藏、数据保留 */}
+            {workItemsFeatureEnabled() && (workItems.length > 0 || !isTaskCompleted) && (
               <div className="rounded-xl border border-slate-200 p-4">
                 <div className="mb-2 flex items-center justify-between">
                   <span className="text-sm font-semibold text-slate-900">
@@ -1767,7 +1769,7 @@ function TaskOperationDrawer({
                 <span>完成</span>
               </div>
             </div>
-            {workItems.length > 0 && (
+            {workItemsFeatureEnabled() && workItems.length > 0 && (
               <label className="block">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-semibold text-slate-900">关联工作项</span>

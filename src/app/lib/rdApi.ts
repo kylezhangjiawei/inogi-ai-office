@@ -19,6 +19,16 @@ export function isUsCollabWorkspace(): boolean {
   return currentRdWorkspace() === "us-collab";
 }
 
+/**
+ * 工作项功能开关：控制「工作项区块 / 留痕分 Tab / 卡片完成度徽标 / 留痕关联下拉 / AI 归属预选」
+ * 的所有 UI 入口。当前仅中美协同模块启用；其他模块需要时改这一个函数即可放开
+ * （return true 全模块启用）。数据层无需迁移：隐藏期间已有的 work_items 字段与
+ * 带标签的留痕原样保留，重新放开即恢复展示。
+ */
+export function workItemsFeatureEnabled(): boolean {
+  return isUsCollabWorkspace();
+}
+
 function currentRdWorkspace(): string | null {
   if (typeof window === "undefined") return null;
   return window.location.pathname.startsWith("/us-collab") ? "us-collab" : null;

@@ -115,6 +115,7 @@ import {
   type RdWorkItem,
   type RdTaskBrief,
   isUsCollabWorkspace,
+  workItemsFeatureEnabled,
   generateRdTaskBrief,
   blockedDaysOf,
   type RdTaskStatus,
@@ -5131,14 +5132,17 @@ function TaskDetailDrawer({
 
           <TaskLifecycleTimeline task={task} />
 
-          {/* 工作项清单：任务内部轻量拆分（如不同类型文档各一项），留痕按工作项分 Tab 见下方 */}
-          <WorkItemsSection
-            task={task}
-            canEdit={!task.archived && (canManageTaskFlow || isCurrentOwner || isCurrentCollaborator)}
-            noteCountByItem={noteCountByItem}
-            onTaskPatched={onTaskPatched}
-            onTaskMutated={onTaskMutated}
-          />
+          {/* 工作项清单：任务内部轻量拆分（如不同类型文档各一项），留痕按工作项分 Tab 见下方。
+              受 workItemsFeatureEnabled 开关控制（当前仅协同模块），其他驾驶舱隐藏、数据保留 */}
+          {workItemsFeatureEnabled() && (
+            <WorkItemsSection
+              task={task}
+              canEdit={!task.archived && (canManageTaskFlow || isCurrentOwner || isCurrentCollaborator)}
+              noteCountByItem={noteCountByItem}
+              onTaskPatched={onTaskPatched}
+              onTaskMutated={onTaskMutated}
+            />
+          )}
 
           {task.status === "completed" && (
             <TaskCompletionScoreCard
@@ -5217,8 +5221,8 @@ function TaskDetailDrawer({
                 <p className="whitespace-pre-wrap text-xs leading-relaxed text-slate-700">{taskBrief.text}</p>
               </div>
             )}
-            {/* 工作项留痕 Tab：全部 / 主任务（未关联工作项） / 各工作项；无工作项时不显示，行为不变 */}
-            {(task.work_items ?? []).length > 0 && (
+            {/* 工作项留痕 Tab：全部 / 未关联 / 各工作项；无工作项或功能未启用时不显示，行为不变 */}
+            {workItemsFeatureEnabled() && (task.work_items ?? []).length > 0 && (
               <div className="mb-2 flex flex-wrap items-center gap-1">
                 {[
                   { key: "all", label: "全部" },
@@ -8688,7 +8692,7 @@ function PersonTaskCockpit({
                 已阻塞 {blockedDaysOf(task)} 天
               </span>
             )}
-            {(task.work_items ?? []).length > 0 && (
+            {workItemsFeatureEnabled() && (task.work_items ?? []).length > 0 && (
               <span
                 className="inline-flex items-center gap-0.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500"
                 title={`工作项 ${task.work_items!.filter((it) => it.done).length}/${task.work_items!.length}`}
