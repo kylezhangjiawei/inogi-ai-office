@@ -5037,7 +5037,7 @@ function TaskDetailDrawer({
               <div className="mb-2 flex flex-wrap items-center gap-1">
                 {[
                   { key: "all", label: "全部" },
-                  { key: "main", label: "主任务" },
+                  { key: "main", label: "未关联" },
                   ...(task.work_items ?? []).map((it) => ({
                     key: it.id,
                     label: `${it.title}${(noteCountByItem.get(it.id) ?? 0) > 0 ? ` ${noteCountByItem.get(it.id)}` : ""}`,

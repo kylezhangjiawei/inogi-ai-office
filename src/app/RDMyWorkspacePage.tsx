@@ -68,6 +68,7 @@ import {
   type RdProductDef,
   type RdSubProject,
   type RdTaskProgressNote,
+  type RdWorkItem,
   type RdTaskStatus,
   type RdWorkspacePayload,
   type RdWorkspaceTask,
@@ -643,6 +644,28 @@ function TaskOperationDrawer({
   const [aiAssessment, setAiAssessment] = useState<ProgressAssessment | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [noteAttachments, setNoteAttachments] = useState<File[]>([]);
+  // 工作项清单（任务内部轻量拆分）：本地镜像即时反映增删勾选，父级数据下次刷新自然同步。
+  // 参与人（主责/协作）可直接增删勾选，无需审批——工作项不是任务、不走立项审批流。
+  const [workItems, setWorkItems] = useState<RdWorkItem[]>(task.work_items ?? []);
+  const [workItemDraft, setWorkItemDraft] = useState("");
+  const [savingWorkItems, setSavingWorkItems] = useState(false);
+  useEffect(() => {
+    setWorkItems(task.work_items ?? []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task.task_id]);
+  const persistWorkItems = async (next: RdWorkItem[]) => {
+    setSavingWorkItems(true);
+    try {
+      await updateRdTask(task.task_id, { work_items: next });
+      setWorkItems(next);
+      return true;
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "保存工作项失败");
+      return false;
+    } finally {
+      setSavingWorkItems(false);
+    }
+  };
   // 本次进展关联的工作项（任务内部轻量拆分）；空串 = 不关联（挂主任务）
   const [noteWorkItemId, setNoteWorkItemId] = useState("");
   const [noteDragOver, setNoteDragOver] = useState(false);
@@ -1437,6 +1460,81 @@ function TaskOperationDrawer({
               <div className="mt-3 rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-700">{task.next_action}</div>
             </div>
 
+            {/* 工作项清单：任务内部轻量拆分（如不同类型文档各一项）。参与人直接增删勾选，无需审批 */}
+            {(workItems.length > 0 || !isTaskCompleted) && (
+              <div className="rounded-xl border border-slate-200 p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-sm font-semibold text-slate-900">
+                    工作项{workItems.length > 0 ? ` ${workItems.filter((it) => it.done).length}/${workItems.length}` : ""}
+                  </span>
+                  <span className="text-[10px] text-slate-400">拆分任务的小块，进展留痕可关联到工作项</span>
+                </div>
+                {workItems.length > 0 && (
+                  <ul className="space-y-1.5">
+                    {workItems.map((it) => (
+                      <li key={it.id} className="group flex items-center gap-2.5 rounded-lg border border-slate-100 bg-slate-50/60 px-2.5 py-1.5 text-sm">
+                        <Checkbox
+                          checked={it.done}
+                          disabled={isTaskCompleted || savingWorkItems}
+                          onCheckedChange={() =>
+                            void persistWorkItems(workItems.map((w) => (w.id === it.id ? { ...w, done: !w.done } : w)))
+                          }
+                          className="border-slate-300"
+                        />
+                        <span className={cn("min-w-0 flex-1 truncate", it.done ? "text-slate-400 line-through" : "text-slate-700")}>{it.title}</span>
+                        {it.owner_name && <span className="shrink-0 text-[11px] text-slate-400">{it.owner_name}</span>}
+                        {!isTaskCompleted && (
+                          <button
+                            type="button"
+                            onClick={() => void persistWorkItems(workItems.filter((w) => w.id !== it.id))}
+                            className="shrink-0 cursor-pointer rounded p-0.5 text-slate-300 opacity-0 transition-opacity hover:bg-slate-200 hover:text-slate-500 group-hover:opacity-100"
+                            title="删除工作项（已关联的留痕保留在主任务）"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {!isTaskCompleted && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <input
+                      value={workItemDraft}
+                      onChange={(event) => setWorkItemDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key !== "Enter") return;
+                        event.preventDefault();
+                        const title = workItemDraft.trim();
+                        if (!title) return;
+                        void persistWorkItems([
+                          ...workItems,
+                          { id: `wi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, title, done: false },
+                        ]).then((ok) => { if (ok) setWorkItemDraft(""); });
+                      }}
+                      placeholder="输入工作项标题，回车添加（如：用户手册 · 英文版）"
+                      className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                    />
+                    <button
+                      type="button"
+                      disabled={savingWorkItems || !workItemDraft.trim()}
+                      onClick={() => {
+                        const title = workItemDraft.trim();
+                        if (!title) return;
+                        void persistWorkItems([
+                          ...workItems,
+                          { id: `wi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, title, done: false },
+                        ]).then((ok) => { if (ok) setWorkItemDraft(""); });
+                      }}
+                      className="cursor-pointer rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-40"
+                    >
+                      添加
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/*<div className="grid gap-4 sm:grid-cols-2">*/}
             {/*  <div className="rounded-xl border border-slate-200 p-4">*/}
             {/*    <div className="mb-3 text-sm font-semibold text-slate-900">交付物</div>*/}
@@ -1640,7 +1738,7 @@ function TaskOperationDrawer({
                 <span>完成</span>
               </div>
             </div>
-            {(task.work_items ?? []).length > 0 && (
+            {workItems.length > 0 && (
               <label className="block">
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-semibold text-slate-900">关联工作项</span>
@@ -1652,7 +1750,7 @@ function TaskOperationDrawer({
                   className="mt-2 w-full cursor-pointer rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none transition-colors focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
                 >
                   <option value="">不关联（记到主任务）</option>
-                  {(task.work_items ?? []).map((it) => (
+                  {workItems.map((it) => (
                     <option key={it.id} value={it.id}>
                       {it.done ? "✓ " : ""}{it.title}
                     </option>
