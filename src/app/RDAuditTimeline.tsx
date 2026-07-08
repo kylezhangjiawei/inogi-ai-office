@@ -37,6 +37,7 @@ const ACTION_ICONS: Partial<Record<AuditAction, React.ComponentType<{ className?
   "task.archived": Lock,
   "task.unarchived": RefreshCw,
   "task.progress_updated": TrendingUp,
+  "task.work_item_updated": ClipboardCheck,
   "task.comment_added": MessageSquare,
   "task.attachment_added": Paperclip,
   "task.evidence_uploaded": Paperclip,

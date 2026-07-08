@@ -653,11 +653,22 @@ function TaskOperationDrawer({
     setWorkItems(task.work_items ?? []);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task.task_id]);
-  const persistWorkItems = async (next: RdWorkItem[]) => {
+  const persistWorkItems = async (next: RdWorkItem[], auditComment?: string, workItemId?: string) => {
     setSavingWorkItems(true);
     try {
       await updateRdTask(task.task_id, { work_items: next });
       setWorkItems(next);
+      // 工作项动作写入操作留痕（带 work_item_id），驾驶舱详情按工作项 Tab 可见完整时间线
+      if (auditComment) {
+        recordAudit({
+          actor: WORKSPACE_AUDIT_ACTOR,
+          action: "task.work_item_updated",
+          resource: { type: "task", id: task.task_id, name: task.title },
+          comment: auditComment,
+          metadata: workItemId ? { work_item_id: workItemId } : {},
+          source: "web",
+        });
+      }
       return true;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "保存工作项失败");
@@ -1477,7 +1488,11 @@ function TaskOperationDrawer({
                           checked={it.done}
                           disabled={isTaskCompleted || savingWorkItems}
                           onCheckedChange={() =>
-                            void persistWorkItems(workItems.map((w) => (w.id === it.id ? { ...w, done: !w.done } : w)))
+                            void persistWorkItems(
+                              workItems.map((w) => (w.id === it.id ? { ...w, done: !w.done } : w)),
+                              it.done ? `重新打开了工作项《${it.title}》` : `完成了工作项《${it.title}》`,
+                              it.id,
+                            )
                           }
                           className="border-slate-300"
                         />
@@ -1486,7 +1501,12 @@ function TaskOperationDrawer({
                         {!isTaskCompleted && (
                           <button
                             type="button"
-                            onClick={() => void persistWorkItems(workItems.filter((w) => w.id !== it.id))}
+                            onClick={() =>
+                              void persistWorkItems(
+                                workItems.filter((w) => w.id !== it.id),
+                                `删除了工作项《${it.title}》`,
+                              )
+                            }
                             className="shrink-0 cursor-pointer rounded p-0.5 text-slate-300 opacity-0 transition-opacity hover:bg-slate-200 hover:text-slate-500 group-hover:opacity-100"
                             title="删除工作项（已关联的留痕保留在主任务）"
                           >
@@ -1507,10 +1527,9 @@ function TaskOperationDrawer({
                         event.preventDefault();
                         const title = workItemDraft.trim();
                         if (!title) return;
-                        void persistWorkItems([
-                          ...workItems,
-                          { id: `wi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, title, done: false },
-                        ]).then((ok) => { if (ok) setWorkItemDraft(""); });
+                        const item = { id: `wi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, title, done: false };
+                        void persistWorkItems([...workItems, item], `添加了工作项《${title}》`, item.id)
+                          .then((ok) => { if (ok) setWorkItemDraft(""); });
                       }}
                       placeholder="输入工作项标题，回车添加（如：用户手册 · 英文版）"
                       className="flex-1 rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
@@ -1521,10 +1540,9 @@ function TaskOperationDrawer({
                       onClick={() => {
                         const title = workItemDraft.trim();
                         if (!title) return;
-                        void persistWorkItems([
-                          ...workItems,
-                          { id: `wi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, title, done: false },
-                        ]).then((ok) => { if (ok) setWorkItemDraft(""); });
+                        const item = { id: `wi-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, title, done: false };
+                        void persistWorkItems([...workItems, item], `添加了工作项《${title}》`, item.id)
+                          .then((ok) => { if (ok) setWorkItemDraft(""); });
                       }}
                       className="cursor-pointer rounded-lg bg-indigo-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-40"
                     >

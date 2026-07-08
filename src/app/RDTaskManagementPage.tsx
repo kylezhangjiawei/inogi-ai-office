@@ -4069,6 +4069,19 @@ function WorkItemsSection({
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
+  const auditActor = useAuditActor("研发成员");
+
+  /** 工作项动作 → 操作留痕（带 work_item_id，留痕区按工作项 Tab 呈现完整时间线：创建→进展→完成） */
+  const auditWorkItem = (comment: string, workItemId?: string) => {
+    recordAudit({
+      actor: auditActor,
+      action: "task.work_item_updated",
+      resource: { type: "task", id: task.task_id, name: task.title },
+      comment,
+      metadata: workItemId ? { work_item_id: workItemId } : {},
+      source: "web",
+    });
+  };
 
   const persist = async (next: RdWorkItem[], successText?: string) => {
     setSaving(true);
@@ -4099,19 +4112,28 @@ function WorkItemsSection({
       done: false,
     }));
     if (await persist([...items, ...created], `已添加 ${created.length} 个工作项`)) {
+      created.forEach((it) => auditWorkItem(`添加了工作项《${it.title}》`, it.id));
       setDraft("");
       setAdding(false);
     }
   };
 
-  const toggleDone = (id: string) => {
+  const toggleDone = async (id: string) => {
     if (!canEdit || saving) return;
-    void persist(items.map((it) => (it.id === id ? { ...it, done: !it.done } : it)));
+    const target = items.find((it) => it.id === id);
+    if (!target) return;
+    if (await persist(items.map((it) => (it.id === id ? { ...it, done: !it.done } : it)))) {
+      auditWorkItem(target.done ? `重新打开了工作项《${target.title}》` : `完成了工作项《${target.title}》`, id);
+    }
   };
 
-  const removeItem = (id: string) => {
+  const removeItem = async (id: string) => {
     if (!canEdit || saving) return;
-    void persist(items.filter((it) => it.id !== id));
+    const target = items.find((it) => it.id === id);
+    if (await persist(items.filter((it) => it.id !== id))) {
+      // 删除记录不带 work_item_id：该工作项 Tab 已不存在，归入「未关联」保证可见
+      auditWorkItem(`删除了工作项《${target?.title ?? id}》`);
+    }
   };
 
   if (items.length === 0 && !canEdit) return null;
@@ -4143,7 +4165,7 @@ function WorkItemsSection({
                 <Checkbox
                   checked={it.done}
                   disabled={!canEdit || saving}
-                  onCheckedChange={() => toggleDone(it.id)}
+                  onCheckedChange={() => void toggleDone(it.id)}
                   className="border-slate-300"
                 />
                 <span className={cn("min-w-0 flex-1 truncate", it.done ? "text-slate-400 line-through" : "text-slate-700")}>{it.title}</span>
@@ -4154,7 +4176,7 @@ function WorkItemsSection({
                 {canEdit && (
                   <button
                     type="button"
-                    onClick={() => removeItem(it.id)}
+                    onClick={() => void removeItem(it.id)}
                     className="shrink-0 cursor-pointer rounded p-0.5 text-slate-300 opacity-0 transition-opacity hover:bg-slate-100 hover:text-slate-500 group-hover:opacity-100"
                     title="删除工作项（已关联的留痕保留在主任务）"
                   >
@@ -4458,7 +4480,7 @@ function TaskDetailDrawer({
     [logNoteMatches, orphanNoteById],
   );
 
-  // 各工作项已关联的留痕数（工作项区块徽标 + 留痕 Tab 计数共用）
+  // 各工作项已关联的进展留痕数（工作项区块「N 条留痕」徽标）
   const noteCountByItem = useMemo(() => {
     const m = new Map<string, number>();
     for (const n of progressNotes) {
@@ -4467,15 +4489,33 @@ function TaskDetailDrawer({
     return m;
   }, [progressNotes]);
 
-  // 留痕区按 Tab 展示：全部 / 主任务（未关联工作项的条目） / 单个工作项（关联该项的留痕）
+  // 留痕条目 → 所属工作项：进展留痕看 note.work_item_id，工作项操作记录（创建/完成/删除）看 metadata.work_item_id
+  const workItemOfLog = useCallback(
+    (log: AuditLog): string | undefined =>
+      noteOfLog(log.id)?.work_item_id ??
+      (typeof log.metadata?.work_item_id === "string" ? log.metadata.work_item_id : undefined),
+    [noteOfLog],
+  );
+
+  // 留痕 Tab 徽标计数：该工作项的全部记录数（进展留痕 + 操作记录）
+  const traceCountByItem = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const log of mergedTaskLogs) {
+      const wid = workItemOfLog(log);
+      if (wid) m.set(wid, (m.get(wid) ?? 0) + 1);
+    }
+    return m;
+  }, [mergedTaskLogs, workItemOfLog]);
+
+  // 留痕区按 Tab 展示：全部 / 未关联工作项的条目 / 单个工作项的完整时间线（创建→进展→完成）
   const displayTraceLogs = useMemo(() => {
     const hasItems = (task.work_items ?? []).length > 0;
     if (!hasItems || traceTab === "all") return mergedTaskLogs;
     if (traceTab === "main") {
-      return mergedTaskLogs.filter((log) => !noteOfLog(log.id)?.work_item_id);
+      return mergedTaskLogs.filter((log) => !workItemOfLog(log));
     }
-    return mergedTaskLogs.filter((log) => noteOfLog(log.id)?.work_item_id === traceTab);
-  }, [traceTab, mergedTaskLogs, noteOfLog, task.work_items]);
+    return mergedTaskLogs.filter((log) => workItemOfLog(log) === traceTab);
+  }, [traceTab, mergedTaskLogs, workItemOfLog, task.work_items]);
 
   const saveDescription = async () => {
     if (savingDesc) return;
@@ -5040,7 +5080,7 @@ function TaskDetailDrawer({
                   { key: "main", label: "未关联" },
                   ...(task.work_items ?? []).map((it) => ({
                     key: it.id,
-                    label: `${it.title}${(noteCountByItem.get(it.id) ?? 0) > 0 ? ` ${noteCountByItem.get(it.id)}` : ""}`,
+                    label: `${it.title}${(traceCountByItem.get(it.id) ?? 0) > 0 ? ` ${traceCountByItem.get(it.id)}` : ""}`,
                   })),
                 ].map((tab) => (
                   <button

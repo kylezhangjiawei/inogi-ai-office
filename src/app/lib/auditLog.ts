@@ -35,6 +35,7 @@ export type AuditAction =
   | "task.archived"
   | "task.unarchived"
   | "task.progress_updated"
+  | "task.work_item_updated"
   | "task.comment_added"
   | "task.attachment_added"
   | "task.evidence_uploaded"
@@ -183,6 +184,7 @@ export const AUDIT_ACTION_META: Record<AuditAction, AuditActionMeta> = {
   "task.archived": { category: "task", label: "封存任务", verb: "封存了任务", tone: "slate" },
   "task.unarchived": { category: "task", label: "解封任务", verb: "解封了任务", tone: "emerald" },
   "task.progress_updated": { category: "task", label: "进度更新", verb: "更新了任务进度", tone: "blue" },
+  "task.work_item_updated": { category: "task", label: "工作项", verb: "更新了工作项", tone: "blue" },
   "task.comment_added": { category: "task", label: "添加评论", verb: "评论了任务", tone: "slate" },
   "task.attachment_added": { category: "task", label: "添加附件", verb: "上传了附件", tone: "slate" },
   "task.evidence_uploaded": { category: "task", label: "上传依据", verb: "上传了任务依据", tone: "slate" },
