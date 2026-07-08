@@ -75,6 +75,7 @@ const ResumeScreeningPage = lazyNamed(() => import("./ResumeScreeningPage"), "Re
 const RoleManagement = lazyNamed(() => import("./RoleManagement"), "RoleManagement");
 const RDTaskManagementPage = lazyNamed(() => import("./RDTaskManagementPage"), "RDTaskManagementPage");
 const RDMyWorkspacePage = lazyNamed(() => import("./RDMyWorkspacePage"), "RDMyWorkspacePage");
+const UsCollabTaskDetailPage = React.lazy(() => import("./UsCollabTaskDetailPage"));
 const RDKnowledgeBasePage = lazyNamed(() => import("./RDKnowledgeBasePage"), "RDKnowledgeBasePage");
 const RDPeopleManagementPage = lazyNamed(() => import("./RDPeopleManagementPage"), "RDPeopleManagementPage");
 const RDDirectorDashboardPage = lazyNamed(() => import("./RDDirectorDashboardPage"), "RDDirectorDashboardPage");
@@ -311,6 +312,8 @@ const router = createBrowserRouter([
       { path: "us-collab-workspace", element: makeLazyProtected(<RDMyWorkspacePage />, "page:us-collab-workspace") },
       // 协同人员管理：路径保持 /us-collab 前缀，rdApi 据此路由到独立的协同人员池
       { path: "us-collab-people-management", element: makeLazyProtected(<RDPeopleManagementPage onBack={() => window.history.back()} />, "rd-people:manage") },
+      // 协同任务全屏详情（双栏）：页面内部按协同页面码任一做门禁，不进侧边栏
+      { path: "us-collab-task/:taskId", element: lazyWrap(<UsCollabTaskDetailPage />) },
       { path: "us-collab-kb", element: makeLazyProtected(<RDKnowledgeBasePage kbScope={{ kbId: "us-collab", label: "协同" }} />, "page:dept-kb-us-collab") },
       // 研发主管驾驶舱 — 导航可见性由页面路由管理中的「导航」开关控制（默认隐藏）
       { path: "rd-director-dashboard", element: makeLazyProtected(<RDDirectorDashboardPage />, "page:rd-director-dashboard") },

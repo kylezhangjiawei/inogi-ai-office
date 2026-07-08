@@ -27,6 +27,7 @@ import {
   ListChecks,
   Loader2,
   Lock,
+  Maximize2,
   Paperclip,
   FileText,
   Pencil,
@@ -248,7 +249,7 @@ function getTheme(id: string): CategoryTheme {
 
 // ─── Status / Priority config ────────────────────────────────────────────────
 
-const STATUS_CONFIG: Record<TaskStatus, { label: string; dot: string; text: string; bg: string }> = {
+export const STATUS_CONFIG: Record<TaskStatus, { label: string; dot: string; text: string; bg: string }> = {
   draft: { label: "草稿", dot: "bg-slate-400", text: "text-slate-600", bg: "bg-slate-100" },
   in_progress: { label: "进行中", dot: "bg-indigo-500", text: "text-indigo-700", bg: "bg-indigo-50" },
   paused_leave: { label: "暂停·请假", dot: "bg-amber-500", text: "text-amber-700", bg: "bg-amber-50" },
@@ -260,7 +261,7 @@ const STATUS_CONFIG: Record<TaskStatus, { label: string; dot: string; text: stri
   archived: { label: "已封存", dot: "bg-slate-400", text: "text-slate-500", bg: "bg-slate-100" },
 };
 
-const PRIORITY_CONFIG: Record<Priority, { label: string; text: string; bg: string }> = {
+export const PRIORITY_CONFIG: Record<Priority, { label: string; text: string; bg: string }> = {
   high: { label: "高", text: "text-white", bg: "border-red-600 bg-red-600" },
   medium: { label: "中", text: "text-amber-700", bg: "border-amber-200 bg-amber-50" },
   low: { label: "低", text: "text-slate-500", bg: "border-slate-200 bg-slate-50" },
@@ -483,7 +484,7 @@ function PriorityPill({ priority, aiPriority }: { priority: Priority; aiPriority
   );
 }
 
-function OwnerAvatar({
+export function OwnerAvatar({
   name,
   size = "sm",
   userId,
@@ -4055,7 +4056,7 @@ function blobToDataUrl(blob: Blob): Promise<string> {
  * 单任务过程报告导出（协同模块）：任务概要 + 工作项 + 完整留痕时间线（含附件清单）
  * 生成 Word 兼容 HTML 并下载为 .doc——跨团队交接/领导汇报直接可发。
  */
-function downloadUsCollabTaskReport(
+export function downloadUsCollabTaskReport(
   task: Task,
   logs: AuditLog[],
   noteOf: (logId: string) => RdTaskProgressNote | undefined,
@@ -4122,7 +4123,7 @@ ${workItemsBlock}
  * 工作项不是任务：无独立审批/优先级/截止日，不进任务树，驾驶舱/统计/负载/AI 立项对其零感知。
  * 数据存于任务对象的 work_items 字段（PATCH 持久化）；进度留痕可关联工作项，留痕区按 Tab 分组查看。
  */
-function WorkItemsSection({
+export function WorkItemsSection({
   task,
   canEdit,
   noteCountByItem,
@@ -4948,9 +4949,22 @@ function TaskDetailDrawer({
               </div>
             )}
           </div>
-          <button type="button" onClick={requestClose} className="shrink-0 cursor-pointer rounded-lg p-1.5 hover:bg-slate-100">
-            <X className="h-4 w-4 text-slate-500" />
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            {/* 协同专属：进入全屏双栏详情页（Velzon 任务详情式布局），其他驾驶舱不显示 */}
+            {usCollab && (
+              <button
+                type="button"
+                onClick={() => navigate(`/us-collab-task/${encodeURIComponent(task.task_id)}`)}
+                title="全屏查看任务详情"
+                className="cursor-pointer rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              >
+                <Maximize2 className="h-4 w-4" />
+              </button>
+            )}
+            <button type="button" onClick={requestClose} className="cursor-pointer rounded-lg p-1.5 hover:bg-slate-100">
+              <X className="h-4 w-4 text-slate-500" />
+            </button>
+          </div>
         </div>
 
         <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-6">
