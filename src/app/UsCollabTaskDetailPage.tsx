@@ -361,7 +361,13 @@ export default function UsCollabTaskDetailPage() {
         {canManage && !task.archived && task.status !== "completed" ? (
           <Select value={task.final_priority} disabled={savingPriority} onValueChange={(value) => void savePriority(value as RdPriority)}>
             <SelectTrigger
-              className={cn("h-auto w-auto shrink-0 gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold shadow-none", pCfg.bg, pCfg.text)}
+              className={cn(
+                // 与旁边的状态胶囊完全同构：覆盖 shadcn 默认的 h-9/px-3/text-sm/size-4 箭头
+                "w-auto shrink-0 gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold shadow-none",
+                "min-h-0 data-[size=default]:h-auto data-[size=sm]:h-auto [&_svg:not([class*='size-'])]:size-3 [&_svg:not([class*='text-'])]:text-current",
+                pCfg.bg,
+                pCfg.text,
+              )}
               title="调整任务优先级"
             >
               <SelectValue />
