@@ -4044,6 +4044,138 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
+/**
+ * 子任务集区块（任务详情内）：展示子任务清单 + 批量生成子任务。
+ * 场景：文档类任务拆成多个文件编写等小子任务，各子任务有独立留痕（见留痕区 Tab）。
+ * 子任务继承主任务的负责人/优先级/截止日，负责人在个人工作台可直接对子任务留痕。
+ */
+function SubtaskSetSection({
+  task,
+  canEdit,
+  onTaskPatched,
+  onTaskMutated,
+}: {
+  task: Task;
+  canEdit: boolean;
+  onTaskPatched?: (taskId: string, patch: Partial<Task>) => void;
+  onTaskMutated?: () => void;
+}) {
+  const subtasks = task.subtasks ?? [];
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const handleCreate = async () => {
+    const titles = draft.split("\n").map((t) => t.trim()).filter(Boolean);
+    if (titles.length === 0) {
+      toast.error("请每行输入一个子任务标题");
+      return;
+    }
+    const stamp = Date.now();
+    const created: Task[] = titles.map((title, index) => ({
+      task_id: `subtask-${stamp}-${index}-${Math.random().toString(36).slice(2, 6)}`,
+      title,
+      description: "",
+      primary_owner: task.primary_owner,
+      primary_owner_user_id: task.primary_owner_user_id ?? null,
+      collaborators: [],
+      status: "in_progress",
+      progress: 0,
+      ai_priority: task.final_priority,
+      final_priority: task.final_priority,
+      category_path: task.category_path,
+      archived: false,
+      attachments: 0,
+      due_date: task.due_date,
+      subtasks: [],
+    } as Task));
+    const next = [...subtasks, ...created];
+    setSaving(true);
+    try {
+      await updateRdTask(task.task_id, { subtasks: next } as Partial<Task>);
+      toast.success(`已生成 ${created.length} 个子任务`);
+      setDraft("");
+      setAdding(false);
+      onTaskPatched?.(task.task_id, { subtasks: next } as Partial<Task>);
+      onTaskMutated?.();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "生成子任务失败");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (subtasks.length === 0 && !canEdit) return null;
+
+  return (
+    <div className="rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold text-slate-500">子任务集{subtasks.length > 0 ? `（${subtasks.length}）` : ""}</span>
+        {canEdit && !adding && (
+          <button
+            type="button"
+            onClick={() => setAdding(true)}
+            className="flex cursor-pointer items-center gap-1 rounded px-2 py-0.5 text-[11px] text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+          >
+            <Plus className="h-2.5 w-2.5" />
+            生成子任务
+          </button>
+        )}
+      </div>
+
+      {subtasks.length > 0 && (
+        <ul className="space-y-1.5">
+          {subtasks.map((sub) => (
+            <li key={sub.task_id} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm">
+              <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", sub.status === "completed" ? "bg-emerald-500" : sub.status === "in_progress" ? "bg-indigo-500" : "bg-slate-300")} />
+              <span className="min-w-0 flex-1 truncate text-slate-700">{sub.title}</span>
+              <span className="shrink-0 text-[11px] text-slate-400">{sub.primary_owner}</span>
+              <span className="shrink-0 text-[11px] tabular-nums text-slate-400">{sub.progress}%</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {adding ? (
+        <div className="mt-2">
+          <Textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            rows={4}
+            placeholder={"每行一个子任务标题，例如：\n用户手册（英文版）\nFDA 提交材料 · 附录B\n装配 SOP 文档"}
+            className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+            autoFocus
+          />
+          <div className="mt-2 flex items-center justify-end gap-1.5">
+            <button
+              type="button"
+              onClick={() => { setAdding(false); setDraft(""); }}
+              className="cursor-pointer rounded px-2 py-1 text-[11px] text-slate-500 hover:bg-slate-200"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={handleCreate}
+              disabled={saving}
+              className="flex cursor-pointer items-center gap-1 rounded bg-indigo-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+            >
+              {saving ? <RefreshCw className="h-2.5 w-2.5 animate-spin" /> : <Plus className="h-2.5 w-2.5" />}
+              批量生成
+            </button>
+          </div>
+        </div>
+      ) : (
+        subtasks.length === 0 && (
+          <div className="rounded-lg border border-dashed border-slate-200 py-3 text-center text-xs text-slate-400">
+            暂无子任务，可将任务拆解为多个子任务（如不同类型文档各一个），各子任务留痕独立可查
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
 function TaskDetailDrawer({
   task,
   onClose,
@@ -4100,6 +4232,9 @@ function TaskDetailDrawer({
   const taskLogs = useAuditLogs({ resourceType: "task", resourceId: task.task_id });
   const [progressNotes, setProgressNotes] = useState<RdTaskProgressNote[]>([]);
   const [progressNotesLoading, setProgressNotesLoading] = useState(false);
+  // 留痕 Tab：'all' 全部 / 'main' 主任务 / 子任务 task_id；子任务留痕按 id 懒取缓存
+  const [traceTab, setTraceTab] = useState<string>("all");
+  const [subNotesMap, setSubNotesMap] = useState<Record<string, RdTaskProgressNote[]>>({});
   // 进度留痕已并入操作留痕：把每条「更新了任务进度」的留痕附件挂到对应的操作记录下。
   // 关联优先用 metadata.note_id（新数据精确）；老数据回退「同进度值 + 2 分钟内」启发式，并保证一条留痕只挂一处。
   const logNoteMatches = useMemo(() => {
@@ -4165,6 +4300,19 @@ function TaskDetailDrawer({
       ),
     [taskLogs, orphanNoteLogs],
   );
+  // 留痕区按 Tab 展示：全部（主任务 + 各子任务合并）/ 主任务 / 单个子任务
+  const displayTraceLogs = useMemo(() => {
+    const hasSubs = (task.subtasks ?? []).length > 0;
+    if (!hasSubs || traceTab === "main") return mergedTaskLogs;
+    if (traceTab === "all") {
+      return [...mergedTaskLogs, ...subNoteLogs].sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+      );
+    }
+    return subNoteLogs
+      .filter((log) => (log.metadata as { subtask_id?: string } | undefined)?.subtask_id === traceTab)
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  }, [traceTab, mergedTaskLogs, subNoteLogs, task.subtasks]);
   const taskAttachmentTotal = useMemo(
     () => progressNotes.reduce((sum, note) => sum + note.attachments.length, 0),
     [progressNotes],
@@ -4281,6 +4429,51 @@ function TaskDetailDrawer({
       cancelled = true;
     };
   }, [task.task_id]);
+
+  // 子任务留痕预取（供留痕区 Tab 与「全部」聚合视图使用）；切换任务时重置 Tab 与缓存
+  const subtaskIdsKey = (task.subtasks ?? []).map((s) => s.task_id).join(",");
+  useEffect(() => {
+    setTraceTab("all");
+    setSubNotesMap({});
+    const subs = task.subtasks ?? [];
+    if (subs.length === 0) return undefined;
+    let cancelled = false;
+    Promise.all(
+      subs.map((sub) =>
+        fetchRdTaskProgressNotes(sub.task_id)
+          .then((notes) => [sub.task_id, notes] as const)
+          .catch(() => [sub.task_id, []] as const),
+      ),
+    ).then((entries) => {
+      if (!cancelled) setSubNotesMap(Object.fromEntries(entries));
+    });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task.task_id, subtaskIdsKey]);
+
+  // 子任务留痕 → 合成时间轴条目（形态与 orphanNoteLogs 一致），并注册附件映射
+  const subNoteLogs = useMemo<AuditLog[]>(() => {
+    const subs = task.subtasks ?? [];
+    return subs.flatMap((sub) =>
+      (subNotesMap[sub.task_id] ?? []).map((n) => ({
+        id: `subnote-log-${n.id}`,
+        timestamp: n.created_at,
+        actor: { id: n.actor?.id ?? null, name: n.actor?.name ?? "研发成员", role: n.actor?.role ?? "研发成员" },
+        action: "task.progress_updated" as const,
+        resource: { type: "task" as const, id: sub.task_id, name: sub.title },
+        comment: `【${sub.title}】${n.text || "更新任务进度"}`,
+        metadata: { note_id: n.id, synthetic: true, subtask_id: sub.task_id },
+        source: "web" as const,
+      })),
+    );
+  }, [task.subtasks, subNotesMap]);
+  const subNoteById = useMemo(() => {
+    const m = new Map<string, RdTaskProgressNote>();
+    for (const sub of task.subtasks ?? []) {
+      for (const n of subNotesMap[sub.task_id] ?? []) m.set(`subnote-log-${n.id}`, n);
+    }
+    return m;
+  }, [task.subtasks, subNotesMap]);
 
   const saveDescription = async () => {
     if (savingDesc) return;
@@ -4806,6 +4999,14 @@ function TaskDetailDrawer({
 
           <TaskLifecycleTimeline task={task} />
 
+          {/* 子任务集：拆解为多个小子任务（如不同类型文档各一个），各子任务留痕见下方 Tab */}
+          <SubtaskSetSection
+            task={task}
+            canEdit={!task.archived && (canManageTaskFlow || isCurrentOwner || isCurrentCollaborator)}
+            onTaskPatched={onTaskPatched}
+            onTaskMutated={onTaskMutated}
+          />
+
           {task.status === "completed" && (
             <TaskCompletionScoreCard
               task={task}
@@ -4825,21 +5026,49 @@ function TaskDetailDrawer({
             <div className="mb-2 flex items-center justify-between">
               <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">操作留痕</div>
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
-                {mergedTaskLogs.length} 条{taskAttachmentTotal > 0 ? ` · ${taskAttachmentTotal} 个附件` : ""}
+                {displayTraceLogs.length} 条{taskAttachmentTotal > 0 ? ` · ${taskAttachmentTotal} 个附件` : ""}
               </span>
             </div>
+            {/* 子任务留痕 Tab：全部（主+子合并）/ 主任务 / 各子任务；无子任务时不显示，行为不变 */}
+            {(task.subtasks ?? []).length > 0 && (
+              <div className="mb-2 flex flex-wrap items-center gap-1">
+                {[
+                  { key: "all", label: "全部" },
+                  { key: "main", label: "主任务" },
+                  ...(task.subtasks ?? []).map((sub) => ({
+                    key: sub.task_id,
+                    label: `${sub.title}${(subNotesMap[sub.task_id]?.length ?? 0) > 0 ? ` ${subNotesMap[sub.task_id]!.length}` : ""}`,
+                  })),
+                ].map((tab) => (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setTraceTab(tab.key)}
+                    className={cn(
+                      "max-w-[180px] cursor-pointer truncate rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
+                      traceTab === tab.key
+                        ? "border-indigo-300 bg-indigo-50 text-indigo-700"
+                        : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700",
+                    )}
+                    title={tab.label}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+            )}
             {/* 占满剩余高度 + 内部滚动：留痕区自适应填满详情面板的剩余空间，内容超出时仅在区内滚动 */}
             <div className="min-h-[220px] flex-1 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/40 px-2 py-2">
               <AuditTimeline
-                logs={mergedTaskLogs}
+                logs={displayTraceLogs}
                 showResource={false}
-                emptyText="暂无此任务的操作记录"
+                emptyText={traceTab === "all" || traceTab === "main" ? "暂无此任务的操作记录" : "该子任务暂无留痕，负责人可在个人工作台对子任务更新进度"}
                 canAddNote={canManageTaskFlow}
                 onAddNote={async (logId, text) => {
                   await addAuditLogNote(logId, { text, actor: RD_ADMIN_AUDIT_ACTOR });
                 }}
                 renderExtra={(log) => {
-                  const note = logNoteMatches.get(log.id) ?? orphanNoteById.get(log.id);
+                  const note = logNoteMatches.get(log.id) ?? orphanNoteById.get(log.id) ?? subNoteById.get(log.id);
                   if (!note || note.attachments.length === 0) return null;
                   return <ProgressAttachmentGrid attachments={note.attachments} compact />;
                 }}
