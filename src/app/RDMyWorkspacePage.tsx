@@ -930,8 +930,13 @@ function TaskOperationDrawer({
           category_path: task.category_path,
           current_progress: task.progress,
           current_status: task.status_label,
+          // 带上工作项清单：AI 顺带判断本次进展归属哪个工作项（预选，人工可改）
+          work_items: workItems.length > 0 ? workItems : undefined,
         },
       });
+      // AI 归属建议 → 预选「关联工作项」下拉（人工可改）；返回 null 保持用户当前选择
+      const suggestedItem = result.work_item_id ? workItems.find((it) => it.id === result.work_item_id) : undefined;
+      if (suggestedItem) setNoteWorkItemId(suggestedItem.id);
       const assessment: ProgressAssessment = {
         progress: result.progress,
         stage: result.stage,
@@ -964,6 +969,7 @@ function TaskOperationDrawer({
         confirmLabel: "回显到进度条",
         details: [
           assessment.recommendation ? `AI 建议：${assessment.recommendation}` : "",
+          suggestedItem ? `AI 判断本次进展属于工作项《${suggestedItem.title}》，已预选关联（可在表单中修改）。` : "",
           "确认后只把该进度填入下方进度条，你可再手动微调；点「保存进度」才真正写入。",
         ].filter(Boolean),
         onConfirm: () => {

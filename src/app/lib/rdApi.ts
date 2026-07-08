@@ -877,6 +877,8 @@ export type RdAiProgressAssessment = {
   model: string;
   source: "text" | "file_text" | "file_ocr" | "file_doc_model";
   raw_text_length: number;
+  /** AI 判断本次进展归属的工作项 id（任务带 work_items 时才有）；仅作预选建议，人工可改。 */
+  work_item_id?: string | null;
 };
 
 export async function assessRdTaskProgress(payload: {
@@ -889,6 +891,8 @@ export async function assessRdTaskProgress(payload: {
     category_path?: string;
     current_progress?: number;
     current_status?: string;
+    /** 工作项清单：传入后 AI 会顺带判断本次进展归属哪一项（work_item_id 返回） */
+    work_items?: RdWorkItem[];
   };
 }): Promise<RdAiProgressAssessment> {
   const form = new FormData();
@@ -900,6 +904,7 @@ export async function assessRdTaskProgress(payload: {
   form.append("title", payload.task.title);
   if (payload.task.description) form.append("description", payload.task.description);
   if (payload.task.category_path) form.append("category_path", payload.task.category_path);
+  if (payload.task.work_items?.length) form.append("work_items", JSON.stringify(payload.task.work_items));
   if (typeof payload.task.current_progress === "number") {
     form.append("current_progress", String(payload.task.current_progress));
   }

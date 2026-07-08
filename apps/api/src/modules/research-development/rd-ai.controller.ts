@@ -211,6 +211,8 @@ export class RdAiController {
       category_path?: string;
       current_progress?: string | number;
       current_status?: string;
+      /** 工作项清单 JSON 字符串（FormData 传输），AI 判断本次进展归属哪个工作项 */
+      work_items?: string;
     },
   ) {
     const title = (body.title ?? '').toString().trim();
@@ -223,6 +225,27 @@ export class RdAiController {
         ? currentProgressRaw
         : Number(currentProgressRaw) || 0;
 
+    // 工作项清单：解析失败/非数组一律忽略（归属判断是可选增强，不影响进度判断主流程）
+    let workItems: Array<{ id: string; title: string; done?: boolean }> | undefined;
+    if (typeof body.work_items === 'string' && body.work_items.trim()) {
+      try {
+        const parsed = JSON.parse(body.work_items);
+        if (Array.isArray(parsed)) {
+          workItems = parsed
+            .filter((it) => it && typeof it === 'object')
+            .map((it) => ({
+              id: String((it as { id?: unknown }).id ?? ''),
+              title: String((it as { title?: unknown }).title ?? ''),
+              done: (it as { done?: unknown }).done === true,
+            }))
+            .filter((it) => it.id && it.title)
+            .slice(0, 50);
+        }
+      } catch {
+        // ignore malformed work_items
+      }
+    }
+
     return this.rdAiService.assessProgress({
       files: files ?? [],
       text: body.text,
@@ -233,6 +256,7 @@ export class RdAiController {
         category_path: body.category_path?.toString(),
         current_progress: currentProgress,
         current_status: body.current_status?.toString(),
+        work_items: workItems,
       },
     });
   }

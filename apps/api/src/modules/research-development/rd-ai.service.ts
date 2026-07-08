@@ -136,7 +136,12 @@ type RdAiProgressAssessmentResult = {
   model: string;
   source: 'text' | 'file_text' | 'file_ocr' | 'file_doc_model';
   raw_text_length: number;
+  /** AI 判断本次进展归属的工作项 id（任务传入 work_items 时才有；null = 不属于任何工作项/无法判断）。仅作前端预选建议，人工可改。 */
+  work_item_id?: string | null;
 };
+
+/** 任务的工作项清单（AI 归属判断用）：id + 标题 + 完成态 */
+type RdAiWorkItemRef = { id: string; title: string; done?: boolean };
 
 export type RdTaskCompletionScoreDimensionKey =
   | 'timeliness'
@@ -1868,6 +1873,7 @@ export class RdAiService {
       category_path?: string;
       current_progress?: number;
       current_status?: string;
+      work_items?: RdAiWorkItemRef[];
     };
   }): Promise<RdAiProgressAssessmentResult> {
     const files = input.files ?? [];
@@ -1922,7 +1928,7 @@ export class RdAiService {
       .join('\n\n')
       .slice(0, 32000);
 
-    const systemPrompt = this.buildProgressSystemPrompt();
+    const systemPrompt = this.buildProgressSystemPrompt((input.task.work_items?.length ?? 0) > 0);
     const userMessage = this.buildProgressUserMessage(combinedEvidence, input);
 
     // Text path — AI 模型管理优先（scene → default），不从 .env 读取模型 key。
@@ -2062,7 +2068,7 @@ export class RdAiService {
   private async assessProgressFromImageFile(
     file: RdAiUploadedFile,
     input: {
-      task: { task_id: string; title: string; description?: string; category_path?: string; current_progress?: number; current_status?: string };
+      task: { task_id: string; title: string; description?: string; category_path?: string; current_progress?: number; current_status?: string; work_items?: RdAiWorkItemRef[] };
     },
     filePolicy: RdAiFilePolicyRuntime,
   ): Promise<RdAiProgressAssessmentResult> {
@@ -2083,7 +2089,7 @@ export class RdAiService {
       return this.assessProgressViaVision(file, input, filePolicy, `ocr_low_confidence:${confidence}`);
     }
 
-    const systemPrompt = this.buildProgressSystemPrompt();
+    const systemPrompt = this.buildProgressSystemPrompt((input.task.work_items?.length ?? 0) > 0);
     const userMessage = this.buildProgressUserMessage(evidenceText, input);
 
     const selectedModel = await this.resolveSceneModelConfig('progress_summary').catch(() => null);
@@ -2146,7 +2152,7 @@ export class RdAiService {
   private async assessProgressViaVision(
     file: RdAiUploadedFile,
     input: {
-      task: { title: string; description?: string; category_path?: string; current_progress?: number; current_status?: string };
+      task: { title: string; description?: string; category_path?: string; current_progress?: number; current_status?: string; work_items?: RdAiWorkItemRef[] };
     },
     filePolicy: RdAiFilePolicyRuntime,
     reason: string,
@@ -2163,7 +2169,7 @@ export class RdAiService {
       response = await client.chat.completions.create({
         model: selectedModel.model,
         messages: [
-          { role: 'system', content: this.buildProgressSystemPrompt() },
+          { role: 'system', content: this.buildProgressSystemPrompt((input.task.work_items?.length ?? 0) > 0) },
           {
             role: 'user',
             content: [
@@ -2207,7 +2213,7 @@ export class RdAiService {
     };
   }
 
-  private buildProgressSystemPrompt(): string {
+  private buildProgressSystemPrompt(hasWorkItems = false): string {
     return [
       '你是一名研发项目经理助手。用户会上传一份"任务进度依据"文件（方案、测试记录、实验数据、评审纪要、邮件等）或粘贴文字，',
       '请结合任务标题、描述和当前进度，判断这份依据能把任务推进到哪个阶段。',
@@ -2220,7 +2226,9 @@ export class RdAiService {
       '- 完成 (100)：评审通过、闭环交付',
       '',
       '必须返回严格 JSON，结构：',
-      '{"progress": integer 0-100, "stage": string, "confidence": integer 0-100, "basis": [string,...], "recommendation": string}',
+      hasWorkItems
+        ? '{"progress": integer 0-100, "stage": string, "confidence": integer 0-100, "basis": [string,...], "recommendation": string, "work_item_id": string|null}'
+        : '{"progress": integer 0-100, "stage": string, "confidence": integer 0-100, "basis": [string,...], "recommendation": string}',
       '',
       '规则：',
       '1) progress 是最终绝对进度，不是相对增量；不要把当前进度与本次判断相加，也不要因为当前进度较高而自动取更大值。依据不足或无关时返回当前进度；依据表明回退时可返回更低进度。',
@@ -2229,13 +2237,18 @@ export class RdAiService {
       '4) confidence 反映你对推断的把握，依据越具体越高。',
       '5) recommendation 给出下一步建议动作，30 字以内。',
       '6) 如果依据与任务无关，progress 不变，stage 写"依据与任务匹配度低"，confidence 低于 50。',
+      ...(hasWorkItems
+        ? [
+            '7) 任务信息中列出了「工作项清单」（任务内部的小块拆分，各有 id）。请判断本次依据主要在讲哪个工作项：明确对应某一项时返回其 id；内容跨多项或属于任务整体时返回 null。不要编造清单之外的 id。',
+          ]
+        : []),
     ].join('\n');
   }
 
   private buildProgressUserMessage(
     evidenceText: string,
     input: {
-      task: { title: string; description?: string; category_path?: string; current_progress?: number; current_status?: string };
+      task: { title: string; description?: string; category_path?: string; current_progress?: number; current_status?: string; work_items?: RdAiWorkItemRef[] };
     },
   ): string {
     const lines: string[] = [];
@@ -2245,6 +2258,14 @@ export class RdAiService {
     if (input.task.category_path) lines.push(`分类：${input.task.category_path}`);
     lines.push(`当前进度：${input.task.current_progress ?? 0}%`);
     if (input.task.current_status) lines.push(`当前状态：${input.task.current_status}`);
+    const workItems = input.task.work_items ?? [];
+    if (workItems.length > 0) {
+      lines.push('');
+      lines.push('===== 工作项清单（判断本次依据归属哪一项，返回其 id；不确定返回 null）=====');
+      for (const it of workItems) {
+        lines.push(`- id: ${it.id} | 标题: ${it.title}${it.done ? '（已完成）' : ''}`);
+      }
+    }
     lines.push('');
     lines.push('===== 依据内容 =====');
     lines.push(evidenceText || '（请直接根据上传文件分析）');
@@ -2255,8 +2276,8 @@ export class RdAiService {
 
   private parseProgressPayload(
     rawJson: string,
-    task: { current_progress?: number },
-  ): { progress: number; stage: string; confidence: number; basis: string[]; recommendation: string } {
+    task: { current_progress?: number; work_items?: RdAiWorkItemRef[] },
+  ): { progress: number; stage: string; confidence: number; basis: string[]; recommendation: string; work_item_id: string | null } {
     let obj: Record<string, unknown> = {};
     try {
       const cleaned = (rawJson || '').trim().replace(/^```(?:json)?\s*/i, '').replace(/```$/i, '').trim();
@@ -2278,7 +2299,11 @@ export class RdAiService {
     const recommendation = typeof obj.recommendation === 'string' && obj.recommendation.trim()
       ? obj.recommendation.trim()
       : '建议人工核对依据并确认进度。';
-    return { progress, stage, confidence, basis, recommendation };
+    // 工作项归属建议：只接受清单内的 id（防模型编造），无清单/不匹配一律 null
+    const validItemIds = new Set((task.work_items ?? []).map((it) => it.id));
+    const rawWorkItemId = typeof obj.work_item_id === 'string' ? obj.work_item_id.trim() : '';
+    const work_item_id = rawWorkItemId && validItemIds.has(rawWorkItemId) ? rawWorkItemId : null;
+    return { progress, stage, confidence, basis, recommendation, work_item_id };
   }
 
   private defaultBaseUrlForProvider(provider: AiProvider): string | undefined {
