@@ -82,7 +82,7 @@ export default function UsCollabTaskDetailPage() {
   const [loadError, setLoadError] = useState("");
   const [notes, setNotes] = useState<RdTaskProgressNote[]>([]);
   const [notesLoading, setNotesLoading] = useState(true);
-  const [tab, setTab] = useState<DetailTab>("notes");
+  const [tab, setTab] = useState<DetailTab>("audit");
   const [noteItemFilter, setNoteItemFilter] = useState<string>("all");
   const [brief, setBrief] = useState<RdTaskBrief | null>(null);
   const [briefLoading, setBriefLoading] = useState(false);
@@ -361,7 +361,7 @@ export default function UsCollabTaskDetailPage() {
         {canManage && !task.archived && task.status !== "completed" ? (
           <Select value={task.final_priority} disabled={savingPriority} onValueChange={(value) => void savePriority(value as RdPriority)}>
             <SelectTrigger
-              className={cn("h-auto gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold shadow-none", pCfg.bg, pCfg.text)}
+              className={cn("h-auto w-auto shrink-0 gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold shadow-none", pCfg.bg, pCfg.text)}
               title="调整任务优先级"
             >
               <SelectValue />
@@ -537,9 +537,9 @@ export default function UsCollabTaskDetailPage() {
             <Tabs value={tab} onValueChange={(value) => setTab(value as DetailTab)}>
               <TabsList className="mb-3 h-auto w-full justify-start gap-1 rounded-none border-b border-slate-100 bg-transparent p-0 pb-2">
                 {([
-                  { key: "notes", label: `进展留痕 ${notes.length}` },
-                  { key: "attachments", label: "附件库" },
                   { key: "audit", label: `操作记录 ${auditLogs.length}` },
+                  { key: "attachments", label: "附件库" },
+                  { key: "notes", label: `进展留痕 ${notes.length}` },
                 ] as const).map((t) => (
                   <TabsTrigger
                     key={t.key}
@@ -651,6 +651,7 @@ export default function UsCollabTaskDetailPage() {
                   onAddNote={async (logId, text) => {
                     await addAuditLogNote(logId, { text, actor: AUDIT_ACTOR });
                   }}
+                  notePlaceholder="填写备注（最多 200 字），仅主管可添加…"
                 />
               </div>
               </TabsContent>

@@ -259,6 +259,7 @@ function AuditLogEntry({
   renderExtra,
   canAddNote = false,
   onAddNote,
+  notePlaceholder,
 }: {
   log: AuditLog;
   showResource?: boolean;
@@ -268,6 +269,8 @@ function AuditLogEntry({
   canAddNote?: boolean;
   /** 提交一条备注。由调用方负责持久化并刷新留痕数据。 */
   onAddNote?: (logId: string, text: string) => Promise<void>;
+  /** 备注输入框占位文案（不同模块角色叫法不同）。 */
+  notePlaceholder?: string;
 }) {
   const meta = getAuditActionMeta(log.action);
   const tone = TONE_STYLES[meta.tone];
@@ -422,7 +425,7 @@ function AuditLogEntry({
                   rows={2}
                   maxLength={200}
                   autoFocus
-                  placeholder="填写备注（最多 200 字），仅研发管理员可添加…"
+                  placeholder={notePlaceholder ?? "填写备注（最多 200 字），仅研发管理员可添加…"}
                   className="w-full resize-none rounded border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none focus:border-amber-300 focus:ring-1 focus:ring-amber-200"
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -506,6 +509,7 @@ export function AuditTimeline({
   renderExtra,
   canAddNote = false,
   onAddNote,
+  notePlaceholder,
 }: {
   logs: AuditLog[];
   showResource?: boolean;
@@ -516,6 +520,8 @@ export function AuditTimeline({
   canAddNote?: boolean;
   /** 提交一条备注。由调用方负责持久化并刷新留痕数据。 */
   onAddNote?: (logId: string, text: string) => Promise<void>;
+  /** 备注输入框占位文案（不同模块的角色叫法不同，如协同模块为「主管」）。 */
+  notePlaceholder?: string;
 }) {
   if (logs.length === 0) {
     return (
@@ -537,6 +543,7 @@ export function AuditTimeline({
           renderExtra={renderExtra}
           canAddNote={canAddNote}
           onAddNote={onAddNote}
+          notePlaceholder={notePlaceholder}
         />
       ))}
     </div>
