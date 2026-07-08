@@ -128,6 +128,7 @@ import {
 } from "./lib/rdApi";
 import { ProgressAttachmentGrid, TaskImageGallery } from "./RDProgressEvidence";
 import { RDReportsPanel } from "./RDReportsPanel";
+import { fetchRdDailyReports, type RdDailyReport } from "./lib/rdApi";
 import { getGradeTone } from "./lib/taskCompletionScore";
 import { openTaskCompletionReport, openBatchCompletionReport } from "./lib/taskCompletionReport";
 import { useAvatarDirectory } from "./lib/userAvatar";
@@ -9935,6 +9936,93 @@ function ProductManageDialog({
   );
 }
 
+/**
+ * 协同驾驶舱专用：日报/月报摘要条（渐进披露）。
+ * 常驻一行（今日日报关键数字 + 成员胶囊），点击才展开完整报表面板——
+ * 把页头高度还给任务区，报表只在需要时占屏。
+ */
+function UsCollabReportsDigest({ canRegenerate }: { canRegenerate: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  const [reports, setReports] = useState<RdDailyReport[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const d = new Date();
+    const today = new Date(d.getTime() - d.getTimezoneOffset() * 60_000).toISOString().slice(0, 10);
+    fetchRdDailyReports({ date: today })
+      .then((data) => { if (!cancelled) setReports(data); })
+      .catch(() => { if (!cancelled) setReports([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, []);
+
+  // 当日任务级聚合（与日报面板同口径：按 summary.tasks 的分组计数）
+  const agg = useMemo(() => {
+    const counts = { completed: 0, progressed: 0, stalled: 0, blocked: 0 };
+    for (const report of reports) {
+      for (const t of report.summary.tasks ?? []) {
+        if (t.group === "completed_today") counts.completed += 1;
+        else if (t.group === "progressed") counts.progressed += 1;
+        else if (t.group === "stalled") counts.stalled += 1;
+        else if (t.group === "blocked") counts.blocked += 1;
+      }
+    }
+    return counts;
+  }, [reports]);
+
+  const chips = [
+    { label: "完成", value: agg.completed, cls: "bg-emerald-50 text-emerald-700" },
+    { label: "推进", value: agg.progressed, cls: "bg-blue-50 text-blue-700" },
+    { label: "停滞", value: agg.stalled, cls: "bg-amber-50 text-amber-700" },
+    { label: "阻塞", value: agg.blocked, cls: "bg-red-50 text-red-700" },
+  ].filter((c) => c.value > 0);
+
+  return (
+    <div className="rounded-2xl border border-slate-200/70 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+      <button
+        type="button"
+        onClick={() => setExpanded((prev) => !prev)}
+        aria-expanded={expanded}
+        className="flex w-full cursor-pointer flex-wrap items-center gap-2.5 px-4 py-2.5 text-left transition-colors hover:bg-slate-50/60"
+      >
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600 ring-1 ring-violet-100">
+          <CalendarDays className="h-3.5 w-3.5" />
+        </span>
+        <span className="text-sm font-semibold text-slate-700">今日日报</span>
+        {loading ? (
+          <span className="text-xs text-slate-400">读取中…</span>
+        ) : reports.length > 0 ? (
+          <>
+            <span className="text-xs text-slate-400">{reports.length} 位成员已生成</span>
+            {chips.map((c) => (
+              <span key={c.label} className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold", c.cls)}>
+                {c.label}
+                <span className="tabular-nums">{c.value}</span>
+              </span>
+            ))}
+            <span className="hidden items-center gap-1 text-xs text-slate-400 md:inline-flex">
+              {reports.slice(0, 4).map((r) => r.user_name).join("、")}
+              {reports.length > 4 ? ` 等 ${reports.length} 人` : ""}
+            </span>
+          </>
+        ) : (
+          <span className="text-xs text-slate-400">今日暂无日报{canRegenerate ? " · 展开后可立即汇总" : ""}</span>
+        )}
+        <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-indigo-600">
+          {expanded ? "收起报表" : "展开报表"}
+          <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-180")} />
+        </span>
+      </button>
+      {expanded && (
+        <div className="border-t border-slate-100 p-4">
+          <RDReportsPanel canRegenerate={canRegenerate} spacious />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ExecutiveOverview({
   catStats,
   products,
@@ -10198,9 +10286,9 @@ function ExecutiveOverview({
               })}
             </div>
 
-            {/* ③ 日报/月报：独占全宽一行，不再与 KPI 挤半屏 */}
+            {/* ③ 日报/月报：常驻一行摘要条，点击才展开完整面板——页头高度还给任务区 */}
             {catStats.length > 0 && (
-              <RDReportsPanel canRegenerate={(canReassign ?? false) || (canCreateTask ?? false)} spacious />
+              <UsCollabReportsDigest canRegenerate={(canReassign ?? false) || (canCreateTask ?? false)} />
             )}
           </div>
         ) : (
