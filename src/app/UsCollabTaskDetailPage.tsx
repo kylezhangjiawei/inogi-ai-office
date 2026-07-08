@@ -14,6 +14,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
+import { Button } from "./components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./components/ui/dialog";
+import { Progress } from "./components/ui/progress";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { useAnyPermission } from "./hooks/usePermission";
 import { useAuth } from "./auth";
 import { PERMISSIONS } from "./lib/permissions";
@@ -342,14 +348,10 @@ export default function UsCollabTaskDetailPage() {
     <div className="mx-auto max-w-[1400px] space-y-4 px-4 py-4">
       {/* ── 顶部：返回 + 标题 + 徽章 ── */}
       <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={() => navigate(-1)}
-          className="flex cursor-pointer items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
-        >
+        <Button type="button" variant="outline" size="sm" onClick={() => navigate(-1)} className="gap-1">
           <ArrowLeft className="h-3.5 w-3.5" />
           返回
-        </button>
+        </Button>
         <span className="font-mono text-xs text-slate-400">{task.task_id}</span>
         <h1 className="min-w-0 flex-1 truncate text-xl font-bold text-slate-900">{task.title}</h1>
         <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold", sCfg.bg, sCfg.text)}>
@@ -357,17 +359,19 @@ export default function UsCollabTaskDetailPage() {
           {sCfg.label}
         </span>
         {canManage && !task.archived && task.status !== "completed" ? (
-          <select
-            value={task.final_priority}
-            disabled={savingPriority}
-            onChange={(e) => void savePriority(e.target.value as RdPriority)}
-            className={cn("cursor-pointer rounded-full border px-2.5 py-1 text-xs font-semibold outline-none", pCfg.bg, pCfg.text)}
-            title="调整任务优先级"
-          >
-            <option value="high">高优先</option>
-            <option value="medium">中优先</option>
-            <option value="low">低优先</option>
-          </select>
+          <Select value={task.final_priority} disabled={savingPriority} onValueChange={(value) => void savePriority(value as RdPriority)}>
+            <SelectTrigger
+              className={cn("h-auto gap-1 rounded-full border px-2.5 py-1 text-xs font-semibold shadow-none", pCfg.bg, pCfg.text)}
+              title="调整任务优先级"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+              <SelectItem value="high">高优先</SelectItem>
+              <SelectItem value="medium">中优先</SelectItem>
+              <SelectItem value="low">低优先</SelectItem>
+            </SelectContent>
+          </Select>
         ) : (
           <span className={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold", pCfg.bg, pCfg.text)}>
             {pCfg.label}优先
@@ -383,9 +387,7 @@ export default function UsCollabTaskDetailPage() {
             {[
               { label: "完成进度", value: (
                 <span className="flex items-center gap-2">
-                  <span className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-100">
-                    <span className="block h-full rounded-full bg-indigo-500" style={{ width: `${task.progress}%` }} />
-                  </span>
+                  <Progress value={task.progress} className="h-1.5 w-24" />
                   <span className="tabular-nums">{task.progress}%</span>
                 </span>
               ) },
@@ -463,41 +465,34 @@ export default function UsCollabTaskDetailPage() {
 
           {/* 快捷操作 */}
           <div className="material-card space-y-2 px-4 py-3">
-            <button
-              type="button"
-              onClick={() => void handleGenerateBrief()}
-              disabled={briefLoading}
-              className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"
-            >
+            <Button type="button" onClick={() => void handleGenerateBrief()} disabled={briefLoading} className="w-full gap-1.5">
               {briefLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               AI 任务小结
-            </button>
-            <button
+            </Button>
+            <Button
               type="button"
+              variant="outline"
               onClick={() => downloadUsCollabTaskReport(task, reportLogs, reportNoteOf)}
-              className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+              className="w-full gap-1.5"
             >
               <Download className="h-3.5 w-3.5" />
               导出过程报告
-            </button>
+            </Button>
             {canManage && !task.archived && task.status !== "completed" && (
               <>
-                <button
-                  type="button"
-                  onClick={() => setShowHandover(true)}
-                  className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                >
+                <Button type="button" variant="outline" onClick={() => setShowHandover(true)} className="w-full gap-1.5">
                   <ArrowLeft className="h-3.5 w-3.5 rotate-180" />
                   移交任务
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
+                  variant="outline"
                   onClick={() => setShowComplete(true)}
-                  className="flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100"
+                  className="w-full gap-1.5 border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800"
                 >
                   <CheckCircle2 className="h-3.5 w-3.5" />
                   标记完成
-                </button>
+                </Button>
               </>
             )}
           </div>
@@ -539,27 +534,24 @@ export default function UsCollabTaskDetailPage() {
 
           {/* Tab：留痕 / 附件库 / 操作记录 */}
           <div className="material-card px-4 py-3">
-            <div className="mb-3 flex items-center gap-1 border-b border-slate-100 pb-2">
-              {([
-                { key: "notes", label: `进展留痕 ${notes.length}` },
-                { key: "attachments", label: "附件库" },
-                { key: "audit", label: `操作记录 ${auditLogs.length}` },
-              ] as const).map((t) => (
-                <button
-                  key={t.key}
-                  type="button"
-                  onClick={() => setTab(t.key)}
-                  className={cn(
-                    "cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium transition-colors",
-                    tab === t.key ? "bg-indigo-50 text-indigo-700" : "text-slate-500 hover:bg-slate-50 hover:text-slate-700",
-                  )}
-                >
-                  {t.label}
-                </button>
-              ))}
-            </div>
+            <Tabs value={tab} onValueChange={(value) => setTab(value as DetailTab)}>
+              <TabsList className="mb-3 h-auto w-full justify-start gap-1 rounded-none border-b border-slate-100 bg-transparent p-0 pb-2">
+                {([
+                  { key: "notes", label: `进展留痕 ${notes.length}` },
+                  { key: "attachments", label: "附件库" },
+                  { key: "audit", label: `操作记录 ${auditLogs.length}` },
+                ] as const).map((t) => (
+                  <TabsTrigger
+                    key={t.key}
+                    value={t.key}
+                    className="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium text-slate-500 shadow-none transition-colors hover:bg-slate-50 hover:text-slate-700 data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-700 data-[state=active]:shadow-none"
+                  >
+                    {t.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
 
-            {tab === "notes" && (
+              <TabsContent value="notes">
               <div>
                 {workItems.length > 0 && (
                   <div className="mb-3 flex flex-wrap items-center gap-1">
@@ -594,9 +586,9 @@ export default function UsCollabTaskDetailPage() {
                   emptyText={noteItemFilter === "all" ? "暂无进展留痕" : "该工作项暂无留痕"}
                 />
               </div>
-            )}
+              </TabsContent>
 
-            {tab === "attachments" && (
+              <TabsContent value="attachments">
               <div className="space-y-3">
                 <TaskImageGallery notes={notes} />
                 <div>
@@ -605,29 +597,29 @@ export default function UsCollabTaskDetailPage() {
                     <p className="py-4 text-center text-sm text-slate-400">暂无文档附件</p>
                   ) : (
                     <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="border-b border-slate-100 text-left text-xs text-slate-400">
-                            <th className="py-2 pr-3 font-medium">文件名</th>
-                            <th className="px-3 py-2 font-medium">大小</th>
-                            <th className="px-3 py-2 font-medium">上传时间</th>
-                            <th className="px-3 py-2 font-medium">上传人</th>
-                            <th className="px-3 py-2 font-medium">操作</th>
-                          </tr>
-                        </thead>
-                        <tbody>
+                      <Table>
+                        <TableHeader>
+                          <TableRow className="border-slate-100 hover:bg-transparent">
+                            <TableHead className="text-xs text-slate-400">文件名</TableHead>
+                            <TableHead className="text-xs text-slate-400">大小</TableHead>
+                            <TableHead className="text-xs text-slate-400">上传时间</TableHead>
+                            <TableHead className="text-xs text-slate-400">上传人</TableHead>
+                            <TableHead className="text-xs text-slate-400">操作</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
                           {docAttachments.map(({ att, createdAt, actor }) => (
-                            <tr key={att.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
-                              <td className="max-w-[320px] py-2 pr-3">
+                            <TableRow key={att.id} className="border-slate-50 hover:bg-slate-50/60">
+                              <TableCell className="max-w-[320px]">
                                 <span className="flex items-center gap-1.5">
                                   <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                                  <span className="min-w-0 truncate text-slate-700">{att.name}</span>
+                                  <span className="min-w-0 truncate text-sm text-slate-700">{att.name}</span>
                                 </span>
-                              </td>
-                              <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-500">{formatRdFileSize(att.size)}</td>
-                              <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-500">{(createdAt ?? "").slice(0, 10)}</td>
-                              <td className="whitespace-nowrap px-3 py-2 text-xs text-slate-500">{actor || "—"}</td>
-                              <td className="whitespace-nowrap px-3 py-2">
+                              </TableCell>
+                              <TableCell className="whitespace-nowrap text-xs text-slate-500">{formatRdFileSize(att.size)}</TableCell>
+                              <TableCell className="whitespace-nowrap text-xs text-slate-500">{(createdAt ?? "").slice(0, 10)}</TableCell>
+                              <TableCell className="whitespace-nowrap text-xs text-slate-500">{actor || "—"}</TableCell>
+                              <TableCell className="whitespace-nowrap">
                                 <a
                                   href={getAttachmentUrl(att)}
                                   download={att.name}
@@ -638,18 +630,18 @@ export default function UsCollabTaskDetailPage() {
                                   <Download className="h-3 w-3" />
                                   下载
                                 </a>
-                              </td>
-                            </tr>
+                              </TableCell>
+                            </TableRow>
                           ))}
-                        </tbody>
-                      </table>
+                        </TableBody>
+                      </Table>
                     </div>
                   )}
                 </div>
               </div>
-            )}
+              </TabsContent>
 
-            {tab === "audit" && (
+              <TabsContent value="audit">
               <div className="max-h-[560px] overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/40 px-2 py-2">
                 <AuditTimeline
                   logs={auditLogs}
@@ -661,7 +653,8 @@ export default function UsCollabTaskDetailPage() {
                   }}
                 />
               </div>
-            )}
+              </TabsContent>
+            </Tabs>
           </div>
         </div>
       </div>
@@ -696,55 +689,45 @@ export default function UsCollabTaskDetailPage() {
         />
       )}
 
-      {/* 人员名下任务弹层：点任务跳转到该任务的详情页 */}
-      {personTasksFor && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/30 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
-          <button type="button" className="absolute inset-0 cursor-default" onClick={() => setPersonTasksFor(null)} aria-label="关闭" />
-          <div className="relative w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl">
-            <div className="mb-3 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <OwnerAvatar name={personTasksFor} size="sm" />
-                <div>
-                  <div className="text-sm font-semibold text-slate-800">{personTasksFor}</div>
-                  <div className="text-[11px] text-slate-400">名下活跃任务 {tasksOfPerson.length} 条</div>
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setPersonTasksFor(null)}
-                className="cursor-pointer rounded-lg p-1.5 hover:bg-slate-100"
-              >
-                <X className="h-4 w-4 text-slate-500" />
-              </button>
-            </div>
-            <div className="max-h-[50vh] space-y-1.5 overflow-y-auto">
-              {tasksOfPerson.length === 0 ? (
-                <p className="py-6 text-center text-sm text-slate-400">暂无活跃任务</p>
-              ) : (
-                tasksOfPerson.map((t) => {
-                  const tCfg = STATUS_CONFIG[t.status] ?? STATUS_CONFIG.in_progress;
-                  return (
-                    <button
-                      key={t.task_id}
-                      type="button"
-                      onClick={() => {
-                        setPersonTasksFor(null);
-                        if (t.task_id !== taskId) navigate(`/us-collab-task/${encodeURIComponent(t.task_id)}`);
-                      }}
-                      className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg border border-slate-100 px-3 py-2 text-left transition hover:border-indigo-200 hover:bg-indigo-50/40"
-                    >
-                      <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", tCfg.dot)} />
-                      <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{t.title}</span>
-                      <span className={cn("shrink-0 text-[11px] font-medium", tCfg.text)}>{tCfg.label}</span>
-                      <span className="shrink-0 text-[11px] tabular-nums text-slate-400">{t.progress}%</span>
-                    </button>
-                  );
-                })
-              )}
-            </div>
+      {/* 人员名下任务弹层（Radix Dialog）：点任务跳转到该任务的详情页 */}
+      <Dialog open={Boolean(personTasksFor)} onOpenChange={(open) => { if (!open) setPersonTasksFor(null); }}>
+        <DialogContent className="max-w-md rounded-2xl border-slate-200 bg-white p-5 shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-sm font-semibold text-slate-800">
+              {personTasksFor && <OwnerAvatar name={personTasksFor} size="sm" />}
+              <span>
+                {personTasksFor}
+                <span className="ml-2 text-[11px] font-normal text-slate-400">名下活跃任务 {tasksOfPerson.length} 条</span>
+              </span>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[50vh] space-y-1.5 overflow-y-auto">
+            {tasksOfPerson.length === 0 ? (
+              <p className="py-6 text-center text-sm text-slate-400">暂无活跃任务</p>
+            ) : (
+              tasksOfPerson.map((t) => {
+                const tCfg = STATUS_CONFIG[t.status] ?? STATUS_CONFIG.in_progress;
+                return (
+                  <button
+                    key={t.task_id}
+                    type="button"
+                    onClick={() => {
+                      setPersonTasksFor(null);
+                      if (t.task_id !== taskId) navigate(`/us-collab-task/${encodeURIComponent(t.task_id)}`);
+                    }}
+                    className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg border border-slate-100 px-3 py-2 text-left transition hover:border-indigo-200 hover:bg-indigo-50/40"
+                  >
+                    <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", tCfg.dot)} />
+                    <span className="min-w-0 flex-1 truncate text-sm text-slate-700">{t.title}</span>
+                    <span className={cn("shrink-0 text-[11px] font-medium", tCfg.text)}>{tCfg.label}</span>
+                    <span className="shrink-0 text-[11px] tabular-nums text-slate-400">{t.progress}%</span>
+                  </button>
+                );
+              })
+            )}
           </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
