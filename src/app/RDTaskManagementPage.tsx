@@ -4300,19 +4300,6 @@ function TaskDetailDrawer({
       ),
     [taskLogs, orphanNoteLogs],
   );
-  // 留痕区按 Tab 展示：全部（主任务 + 各子任务合并）/ 主任务 / 单个子任务
-  const displayTraceLogs = useMemo(() => {
-    const hasSubs = (task.subtasks ?? []).length > 0;
-    if (!hasSubs || traceTab === "main") return mergedTaskLogs;
-    if (traceTab === "all") {
-      return [...mergedTaskLogs, ...subNoteLogs].sort(
-        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
-      );
-    }
-    return subNoteLogs
-      .filter((log) => (log.metadata as { subtask_id?: string } | undefined)?.subtask_id === traceTab)
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-  }, [traceTab, mergedTaskLogs, subNoteLogs, task.subtasks]);
   const taskAttachmentTotal = useMemo(
     () => progressNotes.reduce((sum, note) => sum + note.attachments.length, 0),
     [progressNotes],
@@ -4474,6 +4461,21 @@ function TaskDetailDrawer({
     }
     return m;
   }, [task.subtasks, subNotesMap]);
+
+  // 留痕区按 Tab 展示：全部（主任务 + 各子任务合并）/ 主任务 / 单个子任务
+  // 注意：必须声明在 subNoteLogs 之后（const TDZ），渲染期 useMemo 同步执行会立刻取值
+  const displayTraceLogs = useMemo(() => {
+    const hasSubs = (task.subtasks ?? []).length > 0;
+    if (!hasSubs || traceTab === "main") return mergedTaskLogs;
+    if (traceTab === "all") {
+      return [...mergedTaskLogs, ...subNoteLogs].sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+      );
+    }
+    return subNoteLogs
+      .filter((log) => (log.metadata as { subtask_id?: string } | undefined)?.subtask_id === traceTab)
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  }, [traceTab, mergedTaskLogs, subNoteLogs, task.subtasks]);
 
   const saveDescription = async () => {
     if (savingDesc) return;
