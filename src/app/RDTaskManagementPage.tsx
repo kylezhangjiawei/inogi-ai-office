@@ -10006,6 +10006,19 @@ function ExecutiveOverview({
     setKpiFilter((prev) => (prev === key ? "all" : key));
   }, []);
 
+  // KPI 定义（研发的格子卡与协同的 stat strip 共享同一份数据与筛选交互）
+  const kpiItems = [
+    { label: "活跃", value: totalActive, Icon: Target, tone: "text-indigo-700", bg: "from-indigo-50 to-white", filterKey: null, activeRing: "ring-indigo-300" },
+    { label: "完成率", value: `${rate}%`, Icon: Gauge, tone: "text-slate-900", bg: "from-slate-50 to-white", filterKey: null, activeRing: "ring-slate-300" },
+    { label: "进行中", value: inProgress, Icon: CircleDot, tone: "text-indigo-600", bg: "from-indigo-50 to-white", filterKey: "in_progress" as KpiFilter, activeRing: "ring-indigo-400" },
+    { label: "完成", value: done, Icon: CheckCircle2, tone: "text-emerald-700", bg: "from-emerald-50 to-white", filterKey: "completed" as KpiFilter, activeRing: "ring-emerald-400" },
+    { label: "阻塞/待派", value: blocked, Icon: Users, tone: blocked > 0 ? "text-amber-700" : "text-slate-400", bg: blocked > 0 ? "from-amber-50 to-white" : "from-slate-50 to-white", filterKey: "blocked" as KpiFilter, activeRing: "ring-amber-400" },
+    { label: "风险", value: risks.length, Icon: AlertTriangle, tone: risks.length > 0 ? "text-red-700" : "text-slate-400", bg: risks.length > 0 ? "from-red-50 to-white" : "from-slate-50 to-white", filterKey: "risk" as KpiFilter, activeRing: "ring-red-400" },
+  ] as const;
+
+  // 协同侧页头采用三层结构（页头条 / stat strip / 报表全宽），研发侧维持原两卡布局
+  const usCollabLayout = isUsCollabWorkspace();
+
   // 沉浸模式（整屏看任务）：把顶部概览的收起信号上报给 Root，联动隐藏全局顶栏 + 滑出侧边栏。
   const { setImmersive } = useLayoutChromeActions();
 
@@ -10093,9 +10106,106 @@ function ExecutiveOverview({
           aria-hidden={headerCollapsed}
           inert={headerCollapsed ? "" : undefined}
         >
-        {/* 协同侧：KPI 与日报 1:1 平分（日报面板告别 2/5 窄列的拥挤），研发侧维持 3:2 */}
-        <div className={catStats.length > 0 ? cn("grid items-stretch gap-6", isUsCollabWorkspace() ? "xl:grid-cols-2" : "xl:grid-cols-5") : undefined}>
-        <section className={cn("rounded-2xl border border-slate-200/70 bg-white px-5 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]", catStats.length > 0 && (isUsCollabWorkspace() ? "min-w-0 xl:col-span-1" : "min-w-0 xl:col-span-3"))}>
+        {usCollabLayout ? (
+          /* ══ 协同页头：三层信息架构（页头条=身份+动作 / Stat Strip=纯数据 / 报表=独占全宽），
+             动作、数据、报表各归其位，替代原来两张大杂烩卡 ══ */
+          <div className="flex flex-col gap-5">
+            {/* ① 页头条（无卡片框）：标题+日期 在左，全局动作按钮组 在右 */}
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-bold tracking-tight text-slate-900">协同任务驾驶舱</h2>
+                <p className="mt-1 text-sm text-slate-400">
+                  {new Date().toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "long" })} · {totalActive} 个活跃任务
+                  {risks.length > 0 && <span className="ml-2 font-semibold text-red-500">{risks.length} 个风险</span>}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <RdTaskExportButton allTasks={allTasks} />
+                {canReassign && onReassign && (
+                  <button
+                    type="button"
+                    onClick={onReassign}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                  >
+                    <UserCog className="h-3.5 w-3.5" />
+                    批量转派
+                  </button>
+                )}
+                {onOpenPeople && (
+                  <button
+                    type="button"
+                    onClick={onOpenPeople}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
+                  >
+                    <UserPlus className="h-3.5 w-3.5" />
+                    人员管理
+                  </button>
+                )}
+                {canClearData && onClearData && (
+                  <button
+                    type="button"
+                    onClick={onClearData}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-red-500 transition-colors hover:border-red-200 hover:bg-red-50"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                    清空数据
+                  </button>
+                )}
+                {canDirectProject && onAiProject && (
+                  <button
+                    type="button"
+                    onClick={onAiProject}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 text-xs font-semibold text-white shadow-[0_6px_14px_-4px_rgba(79,70,229,0.4)] transition-colors hover:bg-indigo-700"
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    AI 立项
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* ② Stat Strip：一行大数字，竖分隔线，点击即筛选（去掉每格的小盒子，数字本身是主体） */}
+            <div className="grid grid-cols-3 divide-slate-100 rounded-2xl border border-slate-200/70 bg-white py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04)] sm:grid-cols-6 sm:divide-x">
+              {kpiItems.map((item) => {
+                const clickable = item.filterKey !== null;
+                const active = clickable && kpiFilter === item.filterKey;
+                const Wrapper: React.ElementType = clickable ? "button" : "div";
+                return (
+                  <Wrapper
+                    key={item.label}
+                    {...(clickable
+                      ? {
+                          type: "button" as const,
+                          onClick: () => toggleKpiFilter(item.filterKey as KpiFilter),
+                          "aria-pressed": active,
+                          title: active ? `已筛选「${item.label}」· 再次点击取消` : `按「${item.label}」筛选任务列表`,
+                        }
+                      : {})}
+                    className={cn(
+                      "flex flex-col items-start px-5 py-1 text-left transition-colors",
+                      clickable && "cursor-pointer hover:bg-slate-50/80",
+                    )}
+                  >
+                    <span className={cn("text-2xl font-bold leading-none tabular-nums tracking-tight", active ? "text-indigo-600" : item.tone)}>
+                      {item.value}
+                    </span>
+                    <span className={cn("mt-1.5 text-xs font-medium", active ? "font-semibold text-indigo-600" : "text-slate-400")}>
+                      {item.label}
+                      {active && " · 筛选中"}
+                    </span>
+                  </Wrapper>
+                );
+              })}
+            </div>
+
+            {/* ③ 日报/月报：独占全宽一行，不再与 KPI 挤半屏 */}
+            {catStats.length > 0 && (
+              <RDReportsPanel canRegenerate={(canReassign ?? false) || (canCreateTask ?? false)} spacious />
+            )}
+          </div>
+        ) : (
+        <div className={catStats.length > 0 ? "grid items-stretch gap-6 xl:grid-cols-5" : undefined}>
+        <section className={cn("rounded-2xl border border-slate-200/70 bg-white px-5 py-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]", catStats.length > 0 && "min-w-0 xl:col-span-3")}>
           <div className="grid gap-4 lg:grid-cols-[minmax(280px,1fr)_auto]">
             <div className="order-1 flex min-w-0 items-center gap-3">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-[0_6px_16px_-4px_rgba(79,70,229,0.45)]">
@@ -10109,15 +10219,8 @@ function ExecutiveOverview({
               </div>
             </div>
 
-            <div className={cn("order-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:col-span-2", isUsCollabWorkspace() ? "gap-3.5 lg:grid-cols-3" : "lg:grid-cols-6")}>
-              {([
-                { label: "活跃", value: totalActive, Icon: Target, tone: "text-indigo-700", bg: "from-indigo-50 to-white", filterKey: null, activeRing: "ring-indigo-300" },
-                { label: "完成率", value: `${rate}%`, Icon: Gauge, tone: "text-slate-900", bg: "from-slate-50 to-white", filterKey: null, activeRing: "ring-slate-300" },
-                { label: "进行中", value: inProgress, Icon: CircleDot, tone: "text-indigo-600", bg: "from-indigo-50 to-white", filterKey: "in_progress" as KpiFilter, activeRing: "ring-indigo-400" },
-                { label: "完成", value: done, Icon: CheckCircle2, tone: "text-emerald-700", bg: "from-emerald-50 to-white", filterKey: "completed" as KpiFilter, activeRing: "ring-emerald-400" },
-                { label: "阻塞/待派", value: blocked, Icon: Users, tone: blocked > 0 ? "text-amber-700" : "text-slate-400", bg: blocked > 0 ? "from-amber-50 to-white" : "from-slate-50 to-white", filterKey: "blocked" as KpiFilter, activeRing: "ring-amber-400" },
-                { label: "风险", value: risks.length, Icon: AlertTriangle, tone: risks.length > 0 ? "text-red-700" : "text-slate-400", bg: risks.length > 0 ? "from-red-50 to-white" : "from-slate-50 to-white", filterKey: "risk" as KpiFilter, activeRing: "ring-red-400" },
-              ] as const).map((item) => {
+            <div className="order-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:col-span-2 lg:grid-cols-6">
+              {kpiItems.map((item) => {
                 const clickable = item.filterKey !== null;
                 const active = clickable && kpiFilter === item.filterKey;
                 const Wrapper: React.ElementType = clickable ? "button" : "div";
@@ -10225,11 +10328,12 @@ function ExecutiveOverview({
           </div>
         </section>
         {catStats.length > 0 && (
-          <div className={cn("min-w-0", isUsCollabWorkspace() ? "xl:col-span-1" : "xl:col-span-2")}>
-            <RDReportsPanel canRegenerate={(canReassign ?? false) || (canCreateTask ?? false)} spacious={isUsCollabWorkspace()} />
+          <div className="min-w-0 xl:col-span-2">
+            <RDReportsPanel canRegenerate={(canReassign ?? false) || (canCreateTask ?? false)} />
           </div>
         )}
         </div>
+        )}
         </motion.div>
         </div>
 
