@@ -111,6 +111,7 @@ import {
   type RdTaskCompletionScoreDebug,
   type RdTaskProgressAttachment,
   type RdTaskProgressNote,
+  type RdWorkItem,
   type RdTaskStatus,
   type RdProductDef,
   type RdProductStatus,
@@ -4045,72 +4046,82 @@ function blobToDataUrl(blob: Blob): Promise<string> {
 }
 
 /**
- * 子任务集区块（任务详情内）：展示子任务清单 + 批量生成子任务。
- * 场景：文档类任务拆成多个文件编写等小子任务，各子任务有独立留痕（见留痕区 Tab）。
- * 子任务继承主任务的负责人/优先级/截止日，负责人在个人工作台可直接对子任务留痕。
+ * 工作项清单（任务详情内）：任务内部的轻量拆分——如文档类任务的各个文件。
+ * 工作项不是任务：无独立审批/优先级/截止日，不进任务树，驾驶舱/统计/负载/AI 立项对其零感知。
+ * 数据存于任务对象的 work_items 字段（PATCH 持久化）；进度留痕可关联工作项，留痕区按 Tab 分组查看。
  */
-function SubtaskSetSection({
+function WorkItemsSection({
   task,
   canEdit,
+  noteCountByItem,
   onTaskPatched,
   onTaskMutated,
 }: {
   task: Task;
   canEdit: boolean;
+  /** 各工作项已关联的留痕数（work_item_id → count），来自主任务 progressNotes */
+  noteCountByItem: Map<string, number>;
   onTaskPatched?: (taskId: string, patch: Partial<Task>) => void;
   onTaskMutated?: () => void;
 }) {
-  const subtasks = task.subtasks ?? [];
+  const items = task.work_items ?? [];
+  const doneCount = items.filter((it) => it.done).length;
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const handleCreate = async () => {
-    const titles = draft.split("\n").map((t) => t.trim()).filter(Boolean);
-    if (titles.length === 0) {
-      toast.error("请每行输入一个子任务标题");
-      return;
-    }
-    const stamp = Date.now();
-    const created: Task[] = titles.map((title, index) => ({
-      task_id: `subtask-${stamp}-${index}-${Math.random().toString(36).slice(2, 6)}`,
-      title,
-      description: "",
-      primary_owner: task.primary_owner,
-      primary_owner_user_id: task.primary_owner_user_id ?? null,
-      collaborators: [],
-      status: "in_progress",
-      progress: 0,
-      ai_priority: task.final_priority,
-      final_priority: task.final_priority,
-      category_path: task.category_path,
-      archived: false,
-      attachments: 0,
-      due_date: task.due_date,
-      subtasks: [],
-    } as Task));
-    const next = [...subtasks, ...created];
+  const persist = async (next: RdWorkItem[], successText?: string) => {
     setSaving(true);
     try {
-      await updateRdTask(task.task_id, { subtasks: next } as Partial<Task>);
-      toast.success(`已生成 ${created.length} 个子任务`);
-      setDraft("");
-      setAdding(false);
-      onTaskPatched?.(task.task_id, { subtasks: next } as Partial<Task>);
+      await updateRdTask(task.task_id, { work_items: next } as Partial<Task>);
+      if (successText) toast.success(successText);
+      onTaskPatched?.(task.task_id, { work_items: next } as Partial<Task>);
       onTaskMutated?.();
+      return true;
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "生成子任务失败");
+      toast.error(error instanceof Error ? error.message : "保存工作项失败");
+      return false;
     } finally {
       setSaving(false);
     }
   };
 
-  if (subtasks.length === 0 && !canEdit) return null;
+  const handleCreate = async () => {
+    const titles = draft.split("\n").map((t) => t.trim()).filter(Boolean);
+    if (titles.length === 0) {
+      toast.error("请每行输入一个工作项标题");
+      return;
+    }
+    const stamp = Date.now();
+    const created: RdWorkItem[] = titles.map((title, index) => ({
+      id: `wi-${stamp}-${index}-${Math.random().toString(36).slice(2, 6)}`,
+      title,
+      done: false,
+    }));
+    if (await persist([...items, ...created], `已添加 ${created.length} 个工作项`)) {
+      setDraft("");
+      setAdding(false);
+    }
+  };
+
+  const toggleDone = (id: string) => {
+    if (!canEdit || saving) return;
+    void persist(items.map((it) => (it.id === id ? { ...it, done: !it.done } : it)));
+  };
+
+  const removeItem = (id: string) => {
+    if (!canEdit || saving) return;
+    void persist(items.filter((it) => it.id !== id));
+  };
+
+  if (items.length === 0 && !canEdit) return null;
 
   return (
     <div className="rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <span className="text-xs font-semibold text-slate-500">子任务集{subtasks.length > 0 ? `（${subtasks.length}）` : ""}</span>
+        <span className="text-xs font-semibold text-slate-500">
+          工作项{items.length > 0 ? ` ${doneCount}/${items.length}` : ""}
+        </span>
         {canEdit && !adding && (
           <button
             type="button"
@@ -4118,21 +4129,41 @@ function SubtaskSetSection({
             className="flex cursor-pointer items-center gap-1 rounded px-2 py-0.5 text-[11px] text-slate-400 hover:bg-slate-200 hover:text-slate-700"
           >
             <Plus className="h-2.5 w-2.5" />
-            生成子任务
+            添加工作项
           </button>
         )}
       </div>
 
-      {subtasks.length > 0 && (
+      {items.length > 0 && (
         <ul className="space-y-1.5">
-          {subtasks.map((sub) => (
-            <li key={sub.task_id} className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm">
-              <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", sub.status === "completed" ? "bg-emerald-500" : sub.status === "in_progress" ? "bg-indigo-500" : "bg-slate-300")} />
-              <span className="min-w-0 flex-1 truncate text-slate-700">{sub.title}</span>
-              <span className="shrink-0 text-[11px] text-slate-400">{sub.primary_owner}</span>
-              <span className="shrink-0 text-[11px] tabular-nums text-slate-400">{sub.progress}%</span>
-            </li>
-          ))}
+          {items.map((it) => {
+            const noteCount = noteCountByItem.get(it.id) ?? 0;
+            return (
+              <li key={it.id} className="group flex items-center gap-2.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm">
+                <Checkbox
+                  checked={it.done}
+                  disabled={!canEdit || saving}
+                  onCheckedChange={() => toggleDone(it.id)}
+                  className="border-slate-300"
+                />
+                <span className={cn("min-w-0 flex-1 truncate", it.done ? "text-slate-400 line-through" : "text-slate-700")}>{it.title}</span>
+                {it.owner_name && <span className="shrink-0 text-[11px] text-slate-400">{it.owner_name}</span>}
+                {noteCount > 0 && (
+                  <span className="shrink-0 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-500">{noteCount} 条留痕</span>
+                )}
+                {canEdit && (
+                  <button
+                    type="button"
+                    onClick={() => removeItem(it.id)}
+                    className="shrink-0 cursor-pointer rounded p-0.5 text-slate-300 opacity-0 transition-opacity hover:bg-slate-100 hover:text-slate-500 group-hover:opacity-100"
+                    title="删除工作项（已关联的留痕保留在主任务）"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
 
@@ -4142,7 +4173,7 @@ function SubtaskSetSection({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             rows={4}
-            placeholder={"每行一个子任务标题，例如：\n用户手册（英文版）\nFDA 提交材料 · 附录B\n装配 SOP 文档"}
+            placeholder={"每行一个工作项，例如：\n用户手册（英文版）\nFDA 提交材料 · 附录B\n装配 SOP 文档"}
             className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             autoFocus
           />
@@ -4161,14 +4192,14 @@ function SubtaskSetSection({
               className="flex cursor-pointer items-center gap-1 rounded bg-indigo-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
             >
               {saving ? <RefreshCw className="h-2.5 w-2.5 animate-spin" /> : <Plus className="h-2.5 w-2.5" />}
-              批量生成
+              批量添加
             </button>
           </div>
         </div>
       ) : (
-        subtasks.length === 0 && (
+        items.length === 0 && (
           <div className="rounded-lg border border-dashed border-slate-200 py-3 text-center text-xs text-slate-400">
-            暂无子任务，可将任务拆解为多个子任务（如不同类型文档各一个），各子任务留痕独立可查
+            暂无工作项，可把任务拆成几个小块（如不同类型文档各一项），进度留痕可关联到工作项分组查看
           </div>
         )
       )}
@@ -4232,9 +4263,8 @@ function TaskDetailDrawer({
   const taskLogs = useAuditLogs({ resourceType: "task", resourceId: task.task_id });
   const [progressNotes, setProgressNotes] = useState<RdTaskProgressNote[]>([]);
   const [progressNotesLoading, setProgressNotesLoading] = useState(false);
-  // 留痕 Tab：'all' 全部 / 'main' 主任务 / 子任务 task_id；子任务留痕按 id 懒取缓存
+  // 留痕 Tab：'all' 全部 / 'main' 主任务（未关联工作项） / 工作项 id
   const [traceTab, setTraceTab] = useState<string>("all");
-  const [subNotesMap, setSubNotesMap] = useState<Record<string, RdTaskProgressNote[]>>({});
   // 进度留痕已并入操作留痕：把每条「更新了任务进度」的留痕附件挂到对应的操作记录下。
   // 关联优先用 metadata.note_id（新数据精确）；老数据回退「同进度值 + 2 分钟内」启发式，并保证一条留痕只挂一处。
   const logNoteMatches = useMemo(() => {
@@ -4417,65 +4447,35 @@ function TaskDetailDrawer({
     };
   }, [task.task_id]);
 
-  // 子任务留痕预取（供留痕区 Tab 与「全部」聚合视图使用）；切换任务时重置 Tab 与缓存
-  const subtaskIdsKey = (task.subtasks ?? []).map((s) => s.task_id).join(",");
+  // 切换任务时重置留痕 Tab
   useEffect(() => {
     setTraceTab("all");
-    setSubNotesMap({});
-    const subs = task.subtasks ?? [];
-    if (subs.length === 0) return undefined;
-    let cancelled = false;
-    Promise.all(
-      subs.map((sub) =>
-        fetchRdTaskProgressNotes(sub.task_id)
-          .then((notes) => [sub.task_id, notes] as const)
-          .catch(() => [sub.task_id, []] as const),
-      ),
-    ).then((entries) => {
-      if (!cancelled) setSubNotesMap(Object.fromEntries(entries));
-    });
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [task.task_id, subtaskIdsKey]);
+  }, [task.task_id]);
 
-  // 子任务留痕 → 合成时间轴条目（形态与 orphanNoteLogs 一致），并注册附件映射
-  const subNoteLogs = useMemo<AuditLog[]>(() => {
-    const subs = task.subtasks ?? [];
-    return subs.flatMap((sub) =>
-      (subNotesMap[sub.task_id] ?? []).map((n) => ({
-        id: `subnote-log-${n.id}`,
-        timestamp: n.created_at,
-        actor: { id: n.actor?.id ?? null, name: n.actor?.name ?? "研发成员", role: n.actor?.role ?? "研发成员" },
-        action: "task.progress_updated" as const,
-        resource: { type: "task" as const, id: sub.task_id, name: sub.title },
-        comment: `【${sub.title}】${n.text || "更新任务进度"}`,
-        metadata: { note_id: n.id, synthetic: true, subtask_id: sub.task_id },
-        source: "web" as const,
-      })),
-    );
-  }, [task.subtasks, subNotesMap]);
-  const subNoteById = useMemo(() => {
-    const m = new Map<string, RdTaskProgressNote>();
-    for (const sub of task.subtasks ?? []) {
-      for (const n of subNotesMap[sub.task_id] ?? []) m.set(`subnote-log-${n.id}`, n);
+  // 留痕条目 → 关联的进度留痕（metadata.note_id 精确匹配 / 老数据启发式，与附件挂载同一张映射）
+  const noteOfLog = useCallback(
+    (logId: string) => logNoteMatches.get(logId) ?? orphanNoteById.get(logId),
+    [logNoteMatches, orphanNoteById],
+  );
+
+  // 各工作项已关联的留痕数（工作项区块徽标 + 留痕 Tab 计数共用）
+  const noteCountByItem = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const n of progressNotes) {
+      if (n.work_item_id) m.set(n.work_item_id, (m.get(n.work_item_id) ?? 0) + 1);
     }
     return m;
-  }, [task.subtasks, subNotesMap]);
+  }, [progressNotes]);
 
-  // 留痕区按 Tab 展示：全部（主任务 + 各子任务合并）/ 主任务 / 单个子任务
-  // 注意：必须声明在 subNoteLogs 之后（const TDZ），渲染期 useMemo 同步执行会立刻取值
+  // 留痕区按 Tab 展示：全部 / 主任务（未关联工作项的条目） / 单个工作项（关联该项的留痕）
   const displayTraceLogs = useMemo(() => {
-    const hasSubs = (task.subtasks ?? []).length > 0;
-    if (!hasSubs || traceTab === "main") return mergedTaskLogs;
-    if (traceTab === "all") {
-      return [...mergedTaskLogs, ...subNoteLogs].sort(
-        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
-      );
+    const hasItems = (task.work_items ?? []).length > 0;
+    if (!hasItems || traceTab === "all") return mergedTaskLogs;
+    if (traceTab === "main") {
+      return mergedTaskLogs.filter((log) => !noteOfLog(log.id)?.work_item_id);
     }
-    return subNoteLogs
-      .filter((log) => (log.metadata as { subtask_id?: string } | undefined)?.subtask_id === traceTab)
-      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-  }, [traceTab, mergedTaskLogs, subNoteLogs, task.subtasks]);
+    return mergedTaskLogs.filter((log) => noteOfLog(log.id)?.work_item_id === traceTab);
+  }, [traceTab, mergedTaskLogs, noteOfLog, task.work_items]);
 
   const saveDescription = async () => {
     if (savingDesc) return;
@@ -5001,10 +5001,11 @@ function TaskDetailDrawer({
 
           <TaskLifecycleTimeline task={task} />
 
-          {/* 子任务集：拆解为多个小子任务（如不同类型文档各一个），各子任务留痕见下方 Tab */}
-          <SubtaskSetSection
+          {/* 工作项清单：任务内部轻量拆分（如不同类型文档各一项），留痕按工作项分 Tab 见下方 */}
+          <WorkItemsSection
             task={task}
             canEdit={!task.archived && (canManageTaskFlow || isCurrentOwner || isCurrentCollaborator)}
+            noteCountByItem={noteCountByItem}
             onTaskPatched={onTaskPatched}
             onTaskMutated={onTaskMutated}
           />
@@ -5031,15 +5032,15 @@ function TaskDetailDrawer({
                 {displayTraceLogs.length} 条{taskAttachmentTotal > 0 ? ` · ${taskAttachmentTotal} 个附件` : ""}
               </span>
             </div>
-            {/* 子任务留痕 Tab：全部（主+子合并）/ 主任务 / 各子任务；无子任务时不显示，行为不变 */}
-            {(task.subtasks ?? []).length > 0 && (
+            {/* 工作项留痕 Tab：全部 / 主任务（未关联工作项） / 各工作项；无工作项时不显示，行为不变 */}
+            {(task.work_items ?? []).length > 0 && (
               <div className="mb-2 flex flex-wrap items-center gap-1">
                 {[
                   { key: "all", label: "全部" },
                   { key: "main", label: "主任务" },
-                  ...(task.subtasks ?? []).map((sub) => ({
-                    key: sub.task_id,
-                    label: `${sub.title}${(subNotesMap[sub.task_id]?.length ?? 0) > 0 ? ` ${subNotesMap[sub.task_id]!.length}` : ""}`,
+                  ...(task.work_items ?? []).map((it) => ({
+                    key: it.id,
+                    label: `${it.title}${(noteCountByItem.get(it.id) ?? 0) > 0 ? ` ${noteCountByItem.get(it.id)}` : ""}`,
                   })),
                 ].map((tab) => (
                   <button
@@ -5064,13 +5065,13 @@ function TaskDetailDrawer({
               <AuditTimeline
                 logs={displayTraceLogs}
                 showResource={false}
-                emptyText={traceTab === "all" || traceTab === "main" ? "暂无此任务的操作记录" : "该子任务暂无留痕，负责人可在个人工作台对子任务更新进度"}
+                emptyText={traceTab === "all" || traceTab === "main" ? "暂无此任务的操作记录" : "该工作项暂无留痕，成员在工作台更新进度时可关联工作项"}
                 canAddNote={canManageTaskFlow}
                 onAddNote={async (logId, text) => {
                   await addAuditLogNote(logId, { text, actor: RD_ADMIN_AUDIT_ACTOR });
                 }}
                 renderExtra={(log) => {
-                  const note = logNoteMatches.get(log.id) ?? orphanNoteById.get(log.id) ?? subNoteById.get(log.id);
+                  const note = noteOfLog(log.id);
                   if (!note || note.attachments.length === 0) return null;
                   return <ProgressAttachmentGrid attachments={note.attachments} compact />;
                 }}
@@ -8494,6 +8495,15 @@ function PersonTaskCockpit({
               <span className="inline-flex items-center gap-0.5 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
                 <AlertTriangle className="h-3 w-3" />
                 风险
+              </span>
+            )}
+            {(task.work_items ?? []).length > 0 && (
+              <span
+                className="inline-flex items-center gap-0.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500"
+                title={`工作项 ${task.work_items!.filter((it) => it.done).length}/${task.work_items!.length}`}
+              >
+                <ListChecks className="h-3 w-3" />
+                {task.work_items!.filter((it) => it.done).length}/{task.work_items!.length}
               </span>
             )}
             {task.attachments > 0 && !hasLoadedAttachments && (

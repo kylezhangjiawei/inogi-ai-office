@@ -643,6 +643,8 @@ function TaskOperationDrawer({
   const [aiAssessment, setAiAssessment] = useState<ProgressAssessment | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [noteAttachments, setNoteAttachments] = useState<File[]>([]);
+  // 本次进展关联的工作项（任务内部轻量拆分）；空串 = 不关联（挂主任务）
+  const [noteWorkItemId, setNoteWorkItemId] = useState("");
   const [noteDragOver, setNoteDragOver] = useState(false);
   const [savingNote, setSavingNote] = useState(false);
   const [peopleOptions, setPeopleOptions] = useState<RdPersonLoad[]>([]);
@@ -823,6 +825,7 @@ function TaskOperationDrawer({
               text: note.trim(),
               progress: progressToSave,
               files: noteAttachments,
+              work_item_id: noteWorkItemId || undefined,
             });
             savedNoteId = savedNote?.id;
           }
@@ -847,6 +850,7 @@ function TaskOperationDrawer({
           setNoteAttachments([]);
           setAiAssessment(null);
           setNote("");
+          setNoteWorkItemId("");
           setDraftProgress(progressToSave);
           // 刷新进度留痕，让本次上传的附件/照片立即出现在操作留痕里（无需重开任务）。
           setProgressNotesReloadKey((k) => k + 1);
@@ -1636,6 +1640,26 @@ function TaskOperationDrawer({
                 <span>完成</span>
               </div>
             </div>
+            {(task.work_items ?? []).length > 0 && (
+              <label className="block">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-semibold text-slate-900">关联工作项</span>
+                  <span className="text-[10px] text-slate-400">可选，本条进展归属到任务的哪个子块</span>
+                </div>
+                <select
+                  value={noteWorkItemId}
+                  onChange={(event) => setNoteWorkItemId(event.target.value)}
+                  className="mt-2 w-full cursor-pointer rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none transition-colors focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                >
+                  <option value="">不关联（记到主任务）</option>
+                  {(task.work_items ?? []).map((it) => (
+                    <option key={it.id} value={it.id}>
+                      {it.done ? "✓ " : ""}{it.title}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
             <label className="block">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-slate-900">进展说明</span>

@@ -264,6 +264,8 @@ export class ResearchDevelopmentController {
       progress?: string | number;
       actor_name?: string;
       actor_role?: string;
+      /** 可选：关联到任务的哪个工作项（任务内部轻量拆分），留痕区按此分组查看 */
+      work_item_id?: string;
     },
     @Request() req: AuthedRequest,
   ) {
@@ -285,6 +287,7 @@ export class ResearchDevelopmentController {
       taskId: body.task_id ?? '',
       text: body.text ?? '',
       progress: Number.isFinite(progress) ? (progress as number) : undefined,
+      workItemId: typeof body.work_item_id === 'string' ? body.work_item_id.trim() : undefined,
       actor: {
         id: req.user?.id,
         name: body.actor_name || req.user?.name,

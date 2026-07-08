@@ -2859,6 +2859,8 @@ export class ResearchDevelopmentService {
     requesterUserId?: string;
     requesterName?: string;
     canEditAny?: boolean;
+    /** 可选：关联到任务的哪个工作项（任务内部轻量拆分，不校验存在性——工作项可被改名/删除，留痕保留原关联） */
+    workItemId?: string;
   }) {
     const taskId = (payload.taskId ?? '').trim();
     if (!taskId) throw new BadRequestException('taskId 不能为空');
@@ -2924,6 +2926,7 @@ export class ResearchDevelopmentService {
       task_id: taskId,
       text,
       progress: typeof payload.progress === 'number' ? Math.max(0, Math.min(100, Math.round(payload.progress))) : undefined,
+      ...(payload.workItemId ? { work_item_id: payload.workItemId } : {}),
       attachments,
       actor: {
         id: payload.actor?.id ?? null,
@@ -4828,6 +4831,16 @@ export class ResearchDevelopmentService {
       on_leave: task.status === 'paused_leave',
       ai_pending: task.ai_modified === true,
       latest_progress_summary: this.normalizeLatestProgressSummary(task.latest_progress_summary),
+      // 工作项清单（任务内部轻量拆分）：工作台留痕表单据此提供「关联工作项」选择
+      work_items: asArray(task.work_items)
+        .filter(isRecord)
+        .map((it) => ({
+          id: cleanText(it.id),
+          title: cleanText(it.title),
+          owner_name: cleanText(it.owner_name) || null,
+          done: it.done === true,
+        }))
+        .filter((it) => it.id && it.title),
       description: cleanText(task.description),
       next_action: role === 'primary' ? '推进当前节点并同步最新进展。' : '配合主责人完成协作事项。',
       deliverables: asArray(task.deliverables).map((item) => cleanText(item)).filter(Boolean),

@@ -140,6 +140,8 @@ export type RdTask = {
   ai_modified?: boolean;
   latest_progress_summary?: RdLatestProgressSummary | null;
   subtasks?: RdTask[];
+  /** 任务内部的轻量工作项清单（见 RdWorkItem）：随任务对象持久化，全系统统计对其零感知。 */
+  work_items?: RdWorkItem[];
   updated_at?: string;
   /** 后端派生：max(updated_at, 最新进度留痕时间)。排序与「最近更新」显示共用此口径，避免逆序。 */
   last_activity_at?: string;
@@ -222,6 +224,8 @@ export type RdWorkspaceTask = {
   on_leave?: boolean;
   ai_pending?: boolean;
   latest_progress_summary?: RdLatestProgressSummary | null;
+  /** 工作项清单（任务内部轻量拆分），留痕表单据此提供「关联工作项」选择。 */
+  work_items?: RdWorkItem[];
   description: string;
   next_action: string;
   deliverables: string[];
@@ -993,6 +997,20 @@ export type RdTaskProgressNote = {
   attachments: RdTaskProgressAttachment[];
   actor: { id: string | null; name: string; role: string };
   created_at: string;
+  /** 可选：关联的工作项 id（任务内部拆分的小子集，如某个文档），详情留痕区按此分 Tab。 */
+  work_item_id?: string | null;
+};
+
+/**
+ * 工作项：任务内部的轻量拆分（如文档类任务的各个文件），不是独立任务——
+ * 无独立审批/优先级/截止日，不进任务树，统计/驾驶舱/负载对其零感知。
+ * 存于任务对象的 work_items 字段，随 PATCH 持久化（后端 spread 保留未知字段）。
+ */
+export type RdWorkItem = {
+  id: string;
+  title: string;
+  owner_name?: string | null;
+  done: boolean;
 };
 
 export function fetchRdTaskProgressNotes(taskId: string) {
@@ -1146,11 +1164,14 @@ export async function createRdTaskProgressNote(payload: {
   text: string;
   progress?: number;
   files?: File[];
+  /** 可选：本条进展关联到任务的哪个工作项（详情留痕区按工作项分 Tab 查看）。 */
+  work_item_id?: string;
 }): Promise<RdTaskProgressNote> {
   const form = new FormData();
   form.append("task_id", payload.task_id);
   form.append("text", payload.text);
   if (typeof payload.progress === "number") form.append("progress", String(payload.progress));
+  if (payload.work_item_id) form.append("work_item_id", payload.work_item_id);
   (payload.files ?? []).forEach((file) => form.append("files", file));
 
   const response = await fetchWithTimeout(
