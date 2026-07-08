@@ -380,6 +380,16 @@ const router = createBrowserRouter([
       { path: "*", element: <Navigate to="/m" replace /> },
     ],
   },
+  {
+    // 协同移动端：完整复用研发移动驾驶舱组件。路由必须以 /us-collab 开头——
+    // rdApi 按该前缀自动给所有请求带 ?workspace=us-collab，数据即协同池，组件零改动。
+    path: "/us-collab-m",
+    Component: MobileLayout,
+    children: [
+      { index: true, element: <MobileRDCockpit /> },
+      { path: "*", element: <Navigate to="/us-collab-m" replace /> },
+    ],
+  },
 ]);
 
 /**

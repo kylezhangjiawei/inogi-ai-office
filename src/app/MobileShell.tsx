@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Navigate, Outlet, useLocation, useNavigate } from "react-router";
 import { LogOut, Menu } from "lucide-react";
 import { useAuth } from "./auth";
+import { isUsCollabWorkspace } from "./lib/rdApi";
 import { cn } from "./components/ui/utils";
 import { Toaster } from "./components/ui/sonner";
 
@@ -57,11 +58,11 @@ export function MobileLayout() {
       <header className="flex items-center justify-between border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur-md">
         <div className="flex min-w-0 items-center gap-2.5">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-600 font-black text-white shadow-[0_4px_12px_-4px_rgba(79,70,229,0.5)]">
-            <span className="text-base">研</span>
+            <span className="text-base">{isUsCollabWorkspace() ? "协" : "研"}</span>
           </span>
           <div className="min-w-0 leading-tight">
             <div className="truncate text-[17px] font-bold text-slate-900">
-              研发任务驾驶舱
+              {isUsCollabWorkspace() ? "协同任务驾驶舱" : "研发任务驾驶舱"}
             </div>
             <div className="text-[11px] font-medium text-slate-400">
               移动只读视图
