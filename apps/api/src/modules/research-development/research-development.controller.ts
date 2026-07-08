@@ -577,7 +577,10 @@ export class ResearchDevelopmentController {
     return this.rdService.getPerformanceAssessment();
   }
 
+  // 人员列表：除研发/协同页面码外，专职人员管理员（仅 rd-people:manage，无任何页面码）也必须能读，
+  // 否则其人员管理页只能写不能读（写端点有专属码、读端点走类级 RD_READ 缺该码）。QA 套件覆盖此回归。
   @Get('people')
+  @Permissions(...RD_READ_PERMISSIONS, 'rd-people:manage')
   people() {
     return this.rdService.getPeople();
   }
