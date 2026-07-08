@@ -10117,9 +10117,11 @@ function ExecutiveOverview({
   const handleHeaderCollapseChange = useCallback(
     (collapsed: boolean) => {
       if (headerPinned) return;
+      // 协同页头只有两行矮条（Stat Strip + 日报摘要），滚动收起收益为零，机制整体停用
+      if (usCollabLayout) return;
       setHeaderCollapsed(collapsed);
     },
-    [headerPinned],
+    [headerPinned, usCollabLayout],
   );
 
   // 顶部概览收起（滚动下滑且未钉住）即进入沉浸模式：Root 据此隐藏全局顶栏 + 滑出侧边栏，整屏看任务。
@@ -10142,7 +10144,8 @@ function ExecutiveOverview({
             宽屏并排可省下一整块纵向高度，留给下方的人员任务驾驶舱。
             随任务流下滑自动收起（上滑/回顶展开）以最大化任务可视区；可「钉住」常显。 */}
         <div className="relative">
-        {/* 收起/钉住控制条：始终可见。收起态=整条可点(展开并钉住)并保留风险态势感知；展开态=右对齐钉住开关 */}
+        {/* 收起/钉住控制条：仅研发侧（协同页头两行矮条无需收起，控制条整体隐藏） */}
+        {!usCollabLayout && (
         <div className="mb-2">
           {headerCollapsed ? (
             <button
@@ -10186,6 +10189,7 @@ function ExecutiveOverview({
             </div>
           )}
         </div>
+        )}
         <motion.div
           initial={false}
           animate={{ height: headerCollapsed ? 0 : "auto", opacity: headerCollapsed ? 0 : 1 }}
