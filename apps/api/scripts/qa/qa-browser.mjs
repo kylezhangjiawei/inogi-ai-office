@@ -82,12 +82,14 @@ async function newPage(c, { mobile = false } = {}) {
     await s("Page.navigate", { url });
     await sleep(settleMs);
   };
+  /** 在后续每次新文档注入额外脚本（须在 goto 前调用） */
+  const evalOnNew = (source) => s("Page.addScriptToEvaluateOnNewDocument", { source });
   const evalJs = async (expr) => {
     const { result } = await s("Runtime.evaluate", { expression: expr, returnByValue: true });
     return result?.result?.value;
   };
   const close = () => c.send("Target.closeTarget", { targetId });
-  return { goto, evalJs, close };
+  return { goto, evalJs, evalOnNew, close };
 }
 
 const BASE = "http://localhost:5173";
@@ -203,7 +205,21 @@ try {
     // 内容分池：协同移动端应出现协同池任务（Boston/FDA），研发移动端不应出现
     check("协同移动端渲染协同池任务", /Boston|FDA|Field failure/.test(co?.body ?? ""), (co?.body ?? "").slice(0, 200));
     check("研发移动端不含协同池任务", !/Boston office demo|Field failure triage/.test(rd?.body ?? ""));
+
     await p.close();
+
+    // L2 自动跳的工作区感知：移动视口访问协同桌面路由必须落到 /us-collab-m（曾有跳错研发移动端的 bug）。
+    // headless 下全局 min-width:1024 会把 innerWidth 撑到 1024（真机 viewport meta 下是 390），
+    // 强制 override innerWidth 模拟真实手机的视口判定。
+    const pr = await newPage(c, { mobile: true });
+    await pr.evalOnNew(`Object.defineProperty(window, "innerWidth", { get: () => 390, configurable: true });`);
+    await pr.goto(`${BASE}/us-collab-cockpit`, 5000);
+    const redirect = await pr.evalJs(`(() => ({ url: location.pathname, title: document.body.innerText.includes("协同任务驾驶舱") }))()`);
+    check("移动视口访问协同驾驶舱 → 跳协同移动端", redirect?.url === "/us-collab-m" && redirect?.title, `url=${redirect?.url}`);
+    await pr.goto(`${BASE}/rd-task-management`, 5000);
+    const redirect2 = await pr.evalJs(`location.pathname`);
+    check("移动视口访问研发驾驶舱 → 跳研发移动端", redirect2 === "/m", `url=${redirect2}`);
+    await pr.close();
   }
 
   const fails = results.filter((r) => !r.pass);

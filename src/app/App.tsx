@@ -228,10 +228,13 @@ function ProtectedLayout() {
     return <Navigate to="/login" replace state={{ from: location.pathname + location.search + location.hash }} />;
   }
 
-  // L2 自动跳：移动视口直接进入移动只读视图（/m）。
+  // L2 自动跳：移动视口直接进入移动只读视图。
   // 已移除「切换到电脑版」偏好开关——领导用手机即看移动版；如需桌面版改用宽屏访问。
+  // 工作区感知：协同路由（/us-collab-*）跳协同移动端，其余跳研发移动端——否则协同用户
+  // 会被甩到研发池的移动驾驶舱（数据完全对不上）。
   if (isMobile) {
-    return <Navigate to="/m" replace />;
+    const target = location.pathname.startsWith("/us-collab") ? "/us-collab-m" : "/m";
+    return <Navigate to={target} replace />;
   }
 
   return <Root />;
