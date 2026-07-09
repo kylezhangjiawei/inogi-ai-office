@@ -120,6 +120,13 @@ try {
     check("无「自动收起」控制条", state?.noAutoCollapse);
     check("无子系统全景", state?.noPanorama);
     check(`任务卡已渲染（${state?.taskCards} 张）`, (state?.taskCards ?? 0) > 0);
+    // 视口内布局：卡片流滚动容器底边不得超出视口（否则最外层出滚动条、底部被裁）
+    const flow = await p.evalJs(`(() => {
+      const el = document.querySelector(".cockpit-scroll");
+      if (!el) return { found: false };
+      return { found: true, bottom: Math.round(el.getBoundingClientRect().bottom), viewport: window.innerHeight };
+    })()`);
+    check("协同驾驶舱卡片流锁定视口内", flow?.found && flow.bottom <= flow.viewport + 4, `bottom=${flow?.bottom} viewport=${flow?.viewport}`);
 
     // 点击第一张任务卡 → 直达全屏详情
     await p.evalJs(`document.querySelector('[role="button"][tabindex="0"]')?.click()`);

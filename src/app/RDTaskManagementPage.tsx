@@ -8205,6 +8205,27 @@ function PersonTaskCockpit({
   // 用 useRef + 仅依赖 activeTab 的 effect 会在退场期测到旧容器、且新容器挂载后不再重跑 effect，
   // 导致少卡片的新 tab 永不自动填充。把节点放进 state 后，节点挂载/卸载即触发 effect 重跑，时序正确。
   const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
+  // 协同侧卡片流高度实测（视口内布局）：页头三层 + 固定 65vh 会超出视口产生页面滚动、
+  // 底部被裁。按滚动容器到视口顶的真实距离精确锁高；研发侧维持 65vh/84vh 不变。
+  // ⚠️ 必须声明在 scrollEl 之后（const TDZ）。
+  const [collabFlowHeight, setCollabFlowHeight] = useState<number | null>(null);
+  useEffect(() => {
+    if (!spaciousCards || !scrollEl) {
+      setCollabFlowHeight(null);
+      return;
+    }
+    const measure = () => {
+      const top = scrollEl.getBoundingClientRect().top + window.scrollY;
+      setCollabFlowHeight(Math.max(320, window.innerHeight - top - 24));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scrollEl, spaciousCards]);
+  const flowHeightStyle = (collapsed: boolean): React.CSSProperties => ({
+    height: spaciousCards && collabFlowHeight ? collabFlowHeight : collapsed ? "84vh" : "65vh",
+  });
   const setScrollRef = useCallback((node: HTMLDivElement | null) => setScrollEl(node), []);
   // 上一次滚动位置：用于判滚动方向(下滑收起/上滑展开)，带滞回阈值防抖动
   const lastScrollTopRef = useRef(0);
@@ -9116,7 +9137,7 @@ function PersonTaskCockpit({
                         <div
                           ref={setScrollRef}
                           className="cockpit-scroll overflow-y-auto transition-[height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
-                          style={{ height: headerCollapsed ? "84vh" : "65vh" }}
+                          style={flowHeightStyle(headerCollapsed)}
                           onScroll={(e) => handleTaskScroll(e, "all", allActiveTasks.length)}
                         >
                           <div className={cn("flex items-start", spaciousCards ? "gap-4 px-4 py-4" : "gap-2.5 px-4 py-3")}>
@@ -9216,7 +9237,7 @@ function PersonTaskCockpit({
                         <div
                           ref={setScrollRef}
                           className="cockpit-scroll overflow-y-auto transition-[height] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none"
-                          style={{ height: headerCollapsed ? "84vh" : "65vh" }}
+                          style={flowHeightStyle(headerCollapsed)}
                           onScroll={(e) => handleTaskScroll(e, p.name, tasks.length)}
                         >
                           <div className={cn("flex items-start", spaciousCards ? "gap-4 px-4 py-4" : "gap-2.5 px-4 py-3")}>
