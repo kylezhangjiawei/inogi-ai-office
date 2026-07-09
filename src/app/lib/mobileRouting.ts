@@ -10,8 +10,14 @@
  */
 export const MOBILE_BREAKPOINT = 768;
 
-/** 当前是否为移动视口（宽度 < 768px）。SSR / 非浏览器环境一律返回 false。 */
+/**
+ * 当前是否为移动视口（宽度 < 768px）。SSR / 非浏览器环境一律返回 false。
+ * 取 innerWidth 与 screen.width 的较小值：全局 min-width:1024 会把移动浏览器/设备模拟器的
+ * layout viewport（innerWidth）撑到 1024 导致判定失效，而 screen.width 是设备逻辑宽不受
+ * 内容影响（真机=设备宽、DevTools 模拟=模拟宽、桌面=显示器宽——桌面缩窗仍由 innerWidth 判定）。
+ */
 export function isMobileViewport(): boolean {
   if (typeof window === "undefined") return false;
-  return window.innerWidth < MOBILE_BREAKPOINT;
+  const effectiveWidth = Math.min(window.innerWidth, window.screen?.width ?? Number.POSITIVE_INFINITY);
+  return effectiveWidth < MOBILE_BREAKPOINT;
 }

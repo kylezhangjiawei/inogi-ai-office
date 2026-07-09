@@ -236,10 +236,9 @@ try {
     await p.close();
 
     // L2 自动跳的工作区感知：移动视口访问协同桌面路由必须落到 /us-collab-m（曾有跳错研发移动端的 bug）。
-    // headless 下全局 min-width:1024 会把 innerWidth 撑到 1024（真机 viewport meta 下是 390），
-    // 强制 override innerWidth 模拟真实手机的视口判定。
+    // 视口判定用 min(innerWidth, screen.width)：全局 min-width:1024 会把 innerWidth 撑到 1024，
+    // 判定靠 Emulation 模拟的 screen.width=390 生效——不再需要 override，验证的是真实逻辑。
     const pr = await newPage(c, { mobile: true });
-    await pr.evalOnNew(`Object.defineProperty(window, "innerWidth", { get: () => 390, configurable: true });`);
     await pr.goto(`${BASE}/us-collab-cockpit`, 5000);
     const redirect = await pr.evalJs(`(() => ({ url: location.pathname, title: document.body.innerText.includes("协同任务驾驶舱") }))()`);
     check("移动视口访问协同驾驶舱 → 跳协同移动端", redirect?.url === "/us-collab-m" && redirect?.title, `url=${redirect?.url}`);
