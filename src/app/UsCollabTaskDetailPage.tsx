@@ -25,7 +25,7 @@ import { useAuth } from "./auth";
 import { PERMISSIONS } from "./lib/permissions";
 import { AuditTimeline } from "./RDAuditTimeline";
 import { addAuditLogNote, recordAudit, useAuditActor, type AuditLog, useAuditLogs } from "./lib/auditLog";
-import { ProgressNoteList, TaskImageGallery, formatRdFileSize } from "./RDProgressEvidence";
+import { ProgressAttachmentGrid, ProgressNoteList, TaskImageGallery, formatRdFileSize } from "./RDProgressEvidence";
 import {
   STATUS_CONFIG,
   PRIORITY_CONFIG,
@@ -214,6 +214,11 @@ export default function UsCollabTaskDetailPage() {
       return noteId ? noteById.get(noteId) : undefined;
     },
     [reportLogs, noteById],
+  );
+  // 操作记录 Tab 的完整时间线（动作 + 进展合成，时间倒序）——与驾驶舱抽屉/导出报告同一份口径
+  const timelineLogs = useMemo(
+    () => [...reportLogs].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
+    [reportLogs],
   );
 
   const handleGenerateBrief = async () => {
@@ -666,7 +671,7 @@ export default function UsCollabTaskDetailPage() {
             <Tabs value={tab} onValueChange={(value) => setTab(value as DetailTab)} className="flex min-h-0 flex-1 flex-col">
               <TabsList className="h-auto w-full shrink-0 justify-start gap-6 rounded-none border-b border-slate-200/80 bg-transparent p-0 px-4">
                 {([
-                  { key: "audit", label: "操作记录", count: auditLogs.length },
+                  { key: "audit", label: "操作记录", count: timelineLogs.length },
                   { key: "notes", label: "进展留痕", count: notes.length },
                   { key: "attachments", label: "附件库", count: null },
                 ] as const).map((t) => (
@@ -775,8 +780,9 @@ export default function UsCollabTaskDetailPage() {
 
               <TabsContent value="audit" className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
               <div className="px-1 py-1">
+                {/* 完整时间线：操作动作 + 进展留痕合成，进展条目下挂附件缩略图（与抽屉口径一致） */}
                 <AuditTimeline
-                  logs={auditLogs}
+                  logs={timelineLogs}
                   showResource={false}
                   emptyText="暂无操作记录"
                   canAddNote={canManage}
@@ -784,6 +790,11 @@ export default function UsCollabTaskDetailPage() {
                     await addAuditLogNote(logId, { text, actor: AUDIT_ACTOR });
                   }}
                   notePlaceholder="填写备注（最多 200 字），仅主管可添加…"
+                  renderExtra={(log) => {
+                    const note = reportNoteOf(log.id);
+                    if (!note || note.attachments.length === 0) return null;
+                    return <ProgressAttachmentGrid attachments={note.attachments} compact />;
+                  }}
                 />
               </div>
               </TabsContent>
