@@ -9451,24 +9451,25 @@ function TaskReassignModal({
                   <div className="mb-2 space-y-2">
                     <div className="flex items-center gap-2">
                       <div className="relative flex-1">
-                        <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
-                        <input
+                        <Search className="pointer-events-none absolute left-2.5 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+                        <Input
                           value={taskKeyword}
                           onChange={(e) => setTaskKeyword(e.target.value)}
                           placeholder="搜索任务标题…"
-                          className="w-full rounded-lg border border-slate-200 py-1.5 pl-8 pr-2 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                          className="h-8 rounded-lg pl-8 text-sm"
                         />
                       </div>
-                      <select
-                        value={ownerFilter}
-                        onChange={(e) => setOwnerFilter(e.target.value)}
-                        className="max-w-[140px] cursor-pointer rounded-lg border border-slate-200 py-1.5 pl-2 pr-6 text-sm text-slate-600 outline-none focus:border-indigo-300"
-                      >
-                        <option value="all">全部负责人</option>
-                        {taskOwners.map((name) => (
-                          <option key={name} value={name}>{name}</option>
-                        ))}
-                      </select>
+                      <Select value={ownerFilter} onValueChange={setOwnerFilter}>
+                        <SelectTrigger size="sm" className="h-8 w-auto max-w-[160px] shrink-0 rounded-lg text-sm text-slate-600">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+                          <SelectItem value="all">全部负责人</SelectItem>
+                          {taskOwners.map((name) => (
+                            <SelectItem key={name} value={name}>{name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </div>
                     <div className="flex items-center gap-1.5">
                       {([
