@@ -597,10 +597,11 @@ export class ChatService {
       // 内部命中场景：并行的联网检索此刻通常已完成 → 作为「互联网参考」附录给用户对照选择。
       // 附录并入 content 落库，历史回放/复制分享都保留；来源列表以追加事件推给前端引用卡。
       if (hasInternal) {
-        // 附录是锦上添花：主回答完成后最多再等 15s，避免为附录拖住对话结束/触发网关空闲超时
+        // 附录是锦上添花：主回答完成后最多再等 20s（联网检索全程 ~35s，与主回答并行，
+        // 此刻通常只差尾巴几秒），拿不到就放弃，不为附录拖住对话结束
         const extra = await Promise.race([
           webSearchPromise,
-          new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000)),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 20_000)),
         ]);
         const extraSummary = extra?.summary?.trim() ?? '';
         // 搜索代理没找到有效资料时（各种「未检索到/未找到」表述）不附加，避免给用户塞噪音

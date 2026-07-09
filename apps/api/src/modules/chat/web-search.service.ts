@@ -61,8 +61,8 @@ export class WebSearchService {
     const agent = await this.resolveSearchAgent();
     if (!agent) return null;
 
-    // 30s×(1+1 次重试)：容忍限流/抖动，同时最坏等待可控；彻底失败由调用方降级
-    //（千问主模型自带 enable_search 直连兜底，非阿里主模型退回通用知识 = 旧行为）
+    // 必须走流式：百炼端点对带 enable_search 的非流式请求要等「检索+完整生成」才返回
+    // （实测 30~60s，必撞超时）；流式首包 ~2s，timeout 只需覆盖首包。
     const client = new OpenAI({
       apiKey: agent.apiKey,
       baseURL: agent.baseUrl,
@@ -70,7 +70,7 @@ export class WebSearchService {
       maxRetries: 1,
     });
     try {
-      const completion = await client.chat.completions.create({
+      const stream = await client.chat.completions.create({
         model: agent.model,
         messages: [
           {
@@ -84,13 +84,22 @@ export class WebSearchService {
           { role: 'user', content: query },
         ],
         temperature: 0.3,
+        stream: true,
         // DashScope 扩展参数：强制联网并要求返回来源列表
         ...({ enable_search: true, search_options: { forced_search: true, enable_source: true } } as Record<string, unknown>),
       });
 
-      const summary = completion.choices[0]?.message?.content?.trim() ?? '';
+      let summary = '';
+      let searchInfo: unknown = null;
+      for await (const chunk of stream) {
+        summary += chunk.choices?.[0]?.delta?.content ?? '';
+        // DashScope 流式时 search_info 挂在 chunk 扩展字段上（部分端点不返回）
+        const si = (chunk as { search_info?: unknown }).search_info;
+        if (si) searchInfo = si;
+      }
+      summary = summary.trim();
       if (!summary) return null;
-      return { summary, sources: this.extractSources(completion) };
+      return { summary, sources: this.extractSources({ search_info: searchInfo }) };
     } catch (err) {
       this.logger.warn(
         `联网检索失败(model=${agent.model}): ${err instanceof Error ? err.message : err}`,
