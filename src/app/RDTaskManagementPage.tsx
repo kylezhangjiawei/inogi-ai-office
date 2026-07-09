@@ -301,17 +301,17 @@ function formatRelativeUpdate(iso?: string | null): {
   tone: "fresh" | "recent" | "aging" | "stale";
 } | null {
   if (!iso) return null;
-  const t = new Date(iso).getTime();
-  if (!Number.isFinite(t)) return null;
+  const timestamp = new Date(iso).getTime();
+  if (!Number.isFinite(timestamp)) return null;
   const now = Date.now();
-  const diffMs = now - t;
+  const diffMs = now - timestamp;
   if (diffMs < 0) {
     // 未来时间（数据脏）按"刚刚"处理
-    return { label: "刚刚", tone: "fresh" };
+    return { label: t("刚刚"), tone: "fresh" };
   }
   const min = Math.floor(diffMs / 60000);
-  if (min < 1) return { label: "刚刚", tone: "fresh" };
-  if (min < 60) return { label: `${min} 分钟前`, tone: "fresh" };
+  if (min < 1) return { label: t("刚刚"), tone: "fresh" };
+  if (min < 60) return { label: t("{n} 分钟前", { n: min }), tone: "fresh" };
 
   // 按"自然日"计算今天/昨天，不是 24 小时
   const dt = new Date(iso);
@@ -321,12 +321,11 @@ function formatRelativeUpdate(iso?: string | null): {
   const dayDiff = Math.floor((todayDay.getTime() - dtDay.getTime()) / 86_400_000);
 
   const hhmm = `${String(dt.getHours()).padStart(2, "0")}:${String(dt.getMinutes()).padStart(2, "0")}`;
-  if (dayDiff === 0) return { label: `今天 ${hhmm}`, tone: "fresh" };
-  if (dayDiff === 1) return { label: `昨天 ${hhmm}`, tone: "recent" };
-  if (dayDiff <= 7) return { label: `${dayDiff} 天前`, tone: "aging" };
-  if (dayDiff <= 30) return { label: `${dayDiff} 天前`, tone: "stale" };
-  if (dayDiff <= 365) return { label: `${Math.floor(dayDiff / 30)} 个月前`, tone: "stale" };
-  return { label: `${Math.floor(dayDiff / 365)} 年前`, tone: "stale" };
+  if (dayDiff === 0) return { label: t("今天 {time}", { time: hhmm }), tone: "fresh" };
+  if (dayDiff === 1) return { label: t("昨天 {time}", { time: hhmm }), tone: "recent" };
+  if (dayDiff <= 30) return { label: t("{n} 天前", { n: dayDiff }), tone: dayDiff <= 7 ? "aging" : "stale" };
+  if (dayDiff <= 365) return { label: t("{n} 个月前", { n: Math.floor(dayDiff / 30) }), tone: "stale" };
+  return { label: t("{n} 年前", { n: Math.floor(dayDiff / 365) }), tone: "stale" };
 }
 
 const RELATIVE_UPDATE_TONE: Record<
@@ -7919,7 +7918,7 @@ function TaskAttachmentStrip({
           <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-md bg-white text-indigo-600 ring-1 ring-indigo-100">
             <Paperclip className="h-3 w-3" />
           </span>
-          <span className="truncate">附件</span>
+          <span className="truncate">{t("附件")}</span>
           <span className="rounded-full bg-white px-1.5 py-0.5 tabular-nums text-indigo-700 ring-1 ring-indigo-200 shadow-[0_4px_12px_rgba(79,70,229,0.06)]">
             {attachments.length}
           </span>
@@ -7931,7 +7930,7 @@ function TaskAttachmentStrip({
             className="shrink-0 rounded-md border border-indigo-200 bg-white px-2 py-1 text-[10px] font-semibold text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-800"
           >
             <ImageIcon className="mr-1 inline h-3 w-3 align-[-2px]" />
-            查看图片
+            {t("查看图片")}
           </button>
         )}
       </div>
@@ -8067,6 +8066,7 @@ function PersonTaskCockpit({
   onHeaderCollapseChange?: (collapsed: boolean) => void;
 }) {
   const shouldReduceMotion = useReducedMotion();
+  useI18n(); // 订阅语言切换（卡片流文案已 t() 化）
   const masonryColumns = useMasonryColumns();
   // 协同侧信息密度降一档：卡片内边距与卡片间距放宽（欧美工具风的呼吸感）；研发侧维持紧凑
   const spaciousCards = isUsCollabWorkspace();
@@ -8683,18 +8683,18 @@ function PersonTaskCockpit({
                       className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
                     >
                       <UserCog className="h-3 w-3" />
-                      转派
+                      {t("转派")}
                     </button>
                   )}
                   {canDelete && onDeleteTask && (
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onDeleteTask(task); }}
-                      title="删除任务（不可恢复）"
+                      title={t("删除任务（不可恢复）")}
                       className="inline-flex h-7 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-500 transition-colors hover:border-red-300 hover:bg-red-50 hover:text-red-600"
                     >
                       <Trash2 className="h-3 w-3" />
-                      删除
+                      {t("删除")}
                     </button>
                   )}
                 </div>
@@ -8730,29 +8730,29 @@ function PersonTaskCockpit({
             )}
             <span className="inline-flex items-center gap-1">
               <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.text.replace("text-", "bg-"))} />
-              {sCfg.label}
+              {t(sCfg.label)}
             </span>
             <span className="text-slate-300">·</span>
-            <span className={cn("font-medium", PRIORITY_INLINE_TEXT[priorityKey] ?? PRIORITY_INLINE_TEXT.medium)}>{pCfg.label}优先</span>
+            <span className={cn("font-medium", PRIORITY_INLINE_TEXT[priorityKey] ?? PRIORITY_INLINE_TEXT.medium)}>{t(`${pCfg.label}优先`)}</span>
             {task.due_date && (
               <>
                 <span className="text-slate-300">·</span>
                 <span className="inline-flex items-center gap-1">
                   <CalendarClock className="h-3 w-3 text-amber-500" />
-                  止 {task.due_date.slice(5)}
+                  {t("止 {date}", { date: task.due_date.slice(5) })}
                 </span>
               </>
             )}
             {isRisk && (
               <span className="inline-flex items-center gap-0.5 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
                 <AlertTriangle className="h-3 w-3" />
-                风险
+                {t("风险")}
               </span>
             )}
             {/* 协同专属：阻塞时长显性化（其他驾驶舱不显示） */}
             {isUsCollabWorkspace() && task.status === "paused_blocked" && blockedDaysOf(task) != null && (
               <span className="inline-flex items-center gap-0.5 rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-700">
-                已阻塞 {blockedDaysOf(task)} 天
+                {t("已阻塞 {n} 天", { n: blockedDaysOf(task) })}
               </span>
             )}
             {workItemsFeatureEnabled() && (task.work_items ?? []).length > 0 && (
@@ -8860,7 +8860,7 @@ function PersonTaskCockpit({
                 )}
               </div>
               <span className={cn("text-[10px] font-semibold leading-none", activeTab === "all" ? "text-indigo-800" : "text-slate-500")}>
-                全部
+                {t("全部")}
               </span>
             </TabsTrigger>
 
@@ -10002,6 +10002,7 @@ function AnimatedNumber({ value }: { value: number | string }) {
  * 把页头高度还给任务区，报表只在需要时占屏。
  */
 function UsCollabReportsDigest({ canRegenerate }: { canRegenerate: boolean }) {
+  useI18n(); // 订阅语言切换（文案已 t() 化）
   const [expanded, setExpanded] = useState(false);
   const [reports, setReports] = useState<RdDailyReport[]>([]);
   const [loading, setLoading] = useState(true);
@@ -10032,10 +10033,10 @@ function UsCollabReportsDigest({ canRegenerate }: { canRegenerate: boolean }) {
   }, [reports]);
 
   const chips = [
-    { label: "完成", value: agg.completed, cls: "bg-emerald-50 text-emerald-700" },
-    { label: "推进", value: agg.progressed, cls: "bg-blue-50 text-blue-700" },
-    { label: "停滞", value: agg.stalled, cls: "bg-amber-50 text-amber-700" },
-    { label: "阻塞", value: agg.blocked, cls: "bg-red-50 text-red-700" },
+    { label: t("完成"), value: agg.completed, cls: "bg-emerald-50 text-emerald-700" },
+    { label: t("推进"), value: agg.progressed, cls: "bg-blue-50 text-blue-700" },
+    { label: t("停滞"), value: agg.stalled, cls: "bg-amber-50 text-amber-700" },
+    { label: t("阻塞"), value: agg.blocked, cls: "bg-red-50 text-red-700" },
   ].filter((c) => c.value > 0);
 
   return (
@@ -10049,12 +10050,12 @@ function UsCollabReportsDigest({ canRegenerate }: { canRegenerate: boolean }) {
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-violet-50 text-violet-600 ring-1 ring-violet-100">
           <CalendarDays className="h-3.5 w-3.5" />
         </span>
-        <span className="text-sm font-semibold text-slate-700">今日日报</span>
+        <span className="text-sm font-semibold text-slate-700">{t("今日日报")}</span>
         {loading ? (
-          <span className="text-xs text-slate-400">读取中…</span>
+          <span className="text-xs text-slate-400">{t("读取中…")}</span>
         ) : reports.length > 0 ? (
           <>
-            <span className="text-xs text-slate-400">{reports.length} 位成员已生成</span>
+            <span className="text-xs text-slate-400">{t("{n} 位成员已生成", { n: reports.length })}</span>
             {chips.map((c) => (
               <span key={c.label} className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold", c.cls)}>
                 {c.label}
@@ -10063,14 +10064,14 @@ function UsCollabReportsDigest({ canRegenerate }: { canRegenerate: boolean }) {
             ))}
             <span className="hidden items-center gap-1 text-xs text-slate-400 md:inline-flex">
               {reports.slice(0, 4).map((r) => r.user_name).join("、")}
-              {reports.length > 4 ? ` 等 ${reports.length} 人` : ""}
+              {reports.length > 4 ? ` ${t("等 {n} 人", { n: reports.length })}` : ""}
             </span>
           </>
         ) : (
-          <span className="text-xs text-slate-400">今日暂无日报{canRegenerate ? " · 展开后可立即汇总" : ""}</span>
+          <span className="text-xs text-slate-400">{t("今日暂无日报")}{canRegenerate ? ` · ${t("展开后可立即汇总")}` : ""}</span>
         )}
         <span className="ml-auto inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-indigo-600">
-          {expanded ? "收起报表" : "展开报表"}
+          {expanded ? t("收起报表") : t("展开报表")}
           <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-180")} />
         </span>
       </button>
