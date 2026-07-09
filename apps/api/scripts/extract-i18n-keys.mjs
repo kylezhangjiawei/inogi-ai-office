@@ -45,6 +45,26 @@ function moduleOf(file) {
 
 const keys = {};
 let files = 0;
+
+// 专项：动态 t(x.label) 消费的常量表——正则抓不到调用点，从定义源提取
+// 1) routesConfig 菜单/分组 label；2) auditLog 动作 verb（时间线动词）；
+// 3) RDAuditTimeline 字段/值标签表（FIELD_LABELS / VALUE_LABELS）
+{
+  const sources = [
+    { file: "routesConfig.tsx", module: "routesConfig", re: /label:\s*"([^"]+)"/g },
+    { file: "lib/auditLog.ts", module: "auditLog", re: /verb:\s*"([^"]+)"/g },
+    { file: "RDAuditTimeline.tsx", module: "RDAuditTimeline", re: /^\s+[\w.]+:\s*"([^"]+)",\s*$/gm },
+  ];
+  for (const src of sources) {
+    const text = readFileSync(join(srcRoot, src.file), "utf8");
+    let m;
+    while ((m = src.re.exec(text))) {
+      const key = m[1].trim();
+      if (key && /[一-鿿]/.test(key) && !keys[key]) keys[key] = src.module;
+    }
+  }
+}
+
 for (const file of walk(srcRoot)) {
   const text = readFileSync(file, "utf8");
   if (!text.includes("t(")) continue;

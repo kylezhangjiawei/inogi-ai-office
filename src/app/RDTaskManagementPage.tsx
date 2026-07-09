@@ -3168,13 +3168,13 @@ export function CompleteConfirmDialog({
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-600">
             <CheckCircle2 className="h-4 w-4" />
           </div>
-          <h3 className="text-base font-semibold text-slate-900">标记任务完成</h3>
+          <h3 className="text-base font-semibold text-slate-900">{t("标记任务完成")}</h3>
         </div>
         <div className="space-y-3 px-6 py-5">
           <p className="text-sm text-slate-700">
-            确认将「<span className="font-semibold text-slate-900">{taskTitle}</span>」直接标记为已完成？
+            {t("确认将「")}<span className="font-semibold text-slate-900">{taskTitle}</span>{t("」直接标记为已完成？")}
           </p>
-          <p className="text-xs text-slate-500">管理员/主管操作会跳过提交审核，任务进度将设为 100%。</p>
+          <p className="text-xs text-slate-500">{t("管理员/主管操作会跳过提交审核，任务进度将设为 100%。")}</p>
         </div>
         <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
           <button
@@ -3183,7 +3183,7 @@ export function CompleteConfirmDialog({
             onClick={onCancel}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
-            取消
+            {t("取消")}
           </button>
           <button
             type="button"
@@ -3192,7 +3192,7 @@ export function CompleteConfirmDialog({
             className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 disabled:opacity-60"
           >
             {submitting ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
-            确认完成
+            {t("确认完成")}
           </button>
         </div>
       </motion.div>
@@ -3221,8 +3221,8 @@ export function HandoverDialog({
   const options = people.filter((p) => p.name !== currentOwner);
 
   const handleConfirm = async () => {
-    if (!newOwner) { toast.error("请选择新责任人"); return; }
-    if (newOwner === currentOwner) { toast.error("新责任人与当前负责人相同"); return; }
+    if (!newOwner) { toast.error(t("请选择新责任人")); return; }
+    if (newOwner === currentOwner) { toast.error(t("新责任人与当前负责人相同")); return; }
     setSaving(true);
     try {
       await onConfirm(newOwner);
@@ -3252,25 +3252,25 @@ export function HandoverDialog({
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
             <ArrowRight className="h-4 w-4" />
           </div>
-          <h3 className="text-base font-semibold text-slate-900">移交任务</h3>
+          <h3 className="text-base font-semibold text-slate-900">{t("移交任务")}</h3>
         </div>
         <div className="space-y-4 px-6 py-5">
           <p className="text-sm text-slate-700">
-            将「<span className="font-semibold text-slate-900">{taskTitle}</span>」移交给新责任人
+            {t("将「")}<span className="font-semibold text-slate-900">{taskTitle}</span>{t("」移交给新责任人")}
           </p>
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-slate-700">当前负责人</label>
+            <label className="mb-1.5 block text-xs font-medium text-slate-700">{t("当前负责人")}</label>
             <div className="rounded-md border border-slate-100 bg-slate-50 px-3 py-2 text-sm text-slate-500">{currentOwner}</div>
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-slate-700">新责任人</label>
+            <label className="mb-1.5 block text-xs font-medium text-slate-700">{t("新责任人")}</label>
             <Select value={newOwner} onValueChange={setNewOwner} disabled={saving}>
               <SelectTrigger className="w-full">
-                <SelectValue placeholder="请选择新责任人" />
+                <SelectValue placeholder={t("请选择新责任人")} />
               </SelectTrigger>
               <SelectContent>
                 {options.length === 0 ? (
-                  <div className="px-3 py-4 text-center text-xs text-slate-400">暂无可选人员</div>
+                  <div className="px-3 py-4 text-center text-xs text-slate-400">{t("暂无可选人员")}</div>
                 ) : (
                   options.map((p) => (
                     <SelectItem key={p.name} value={p.name}>{p.name}</SelectItem>
@@ -3287,7 +3287,7 @@ export function HandoverDialog({
             onClick={onCancel}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
-            取消
+            {t("取消")}
           </button>
           <button
             type="button"
@@ -3296,7 +3296,7 @@ export function HandoverDialog({
             className="inline-flex items-center gap-1.5 rounded-md bg-slate-700 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-slate-800 disabled:opacity-60"
           >
             {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
-            确认移交
+            {t("确认移交")}
           </button>
         </div>
       </motion.div>
@@ -3345,7 +3345,7 @@ export function AddCollaboratorsDialog({
   };
 
   const handleConfirm = async () => {
-    if (selected.size === 0) { toast.error("请至少选择一位协作人"); return; }
+    if (selected.size === 0) { toast.error(t("请至少选择一位协作人")); return; }
     const additions: RdCollaborator[] = candidates
       .filter((p) => selected.has(p.id))
       .map((p) => ({
@@ -3384,18 +3384,18 @@ export function AddCollaboratorsDialog({
             <UserPlus className="h-4 w-4" />
           </div>
           <div className="min-w-0 flex-1">
-            <h3 className="text-base font-semibold text-slate-900">添加协作人</h3>
+            <h3 className="text-base font-semibold text-slate-900">{t("添加协作人")}</h3>
             <p className="mt-0.5 truncate text-[11px] text-slate-500">{taskTitle}</p>
           </div>
         </div>
         <div className="space-y-3 px-6 py-4">
           <p className="text-xs leading-relaxed text-slate-500">
-            管理员直接添加将<span className="font-semibold text-indigo-700">立即生效</span>，不需要走审核流程。
-            已选 <span className="font-semibold text-slate-700 tabular-nums">{selected.size}</span> / {candidates.length} 人
+            {t("管理员直接添加将")}<span className="font-semibold text-indigo-700">{t("立即生效")}</span>{t("，不需要走审核流程。")}
+            {t("已选")} <span className="font-semibold text-slate-700 tabular-nums">{selected.size}</span> / {candidates.length}
           </p>
           <div className="max-h-72 overflow-y-auto rounded-md border border-slate-200">
             {candidates.length === 0 ? (
-              <div className="px-3 py-6 text-center text-xs text-slate-400">无可添加的人员（其他人都已在协作或主责）</div>
+              <div className="px-3 py-6 text-center text-xs text-slate-400">{t("无可添加的人员（其他人都已在协作或主责）")}</div>
             ) : (
               <ul className="divide-y divide-slate-100">
                 {candidates.map((p) => {
@@ -3436,7 +3436,7 @@ export function AddCollaboratorsDialog({
             onClick={onCancel}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
-            取消
+            {t("取消")}
           </button>
           <button
             type="button"
@@ -3445,7 +3445,7 @@ export function AddCollaboratorsDialog({
             className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-60"
           >
             {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <UserPlus className="h-3 w-3" />}
-            确认添加 {selected.size > 0 ? `(${selected.size})` : ""}
+            {t("确认添加")} {selected.size > 0 ? `(${selected.size})` : ""}
           </button>
         </div>
       </motion.div>
@@ -3474,7 +3474,7 @@ export function ApprovalActionDialog({
   const isApprove = mode === "approve";
 
   const handleConfirm = async () => {
-    if (!isApprove && !reason.trim()) { toast.error("请填写打回原因"); return; }
+    if (!isApprove && !reason.trim()) { toast.error(t("请填写打回原因")); return; }
     await onConfirm(reason.trim() || undefined, isApprove ? undefined : rollbackProgress);
   };
 
@@ -3506,37 +3506,37 @@ export function ApprovalActionDialog({
             {isApprove ? <CheckCircle2 className="h-4 w-4" /> : <RotateCcw className="h-4 w-4" />}
           </div>
           <h3 className="text-base font-semibold text-slate-900">
-            {isApprove ? "审核通过" : "打回修改"}
+            {isApprove ? t("审核通过") : t("打回修改")}
           </h3>
         </div>
         <div className="space-y-4 px-6 py-5">
           <p className="text-sm text-slate-700">
             {isApprove
               ? task.pending_review_type === "proposal"
-                ? <>确认通过「<span className="font-semibold text-slate-900">{task.title}</span>」的立项审核？通过后任务将正式立项并进入进行中状态。</>
+                ? <>{t("确认通过「")}<span className="font-semibold text-slate-900">{task.title}</span>{t("」的立项审核？通过后任务将正式立项并进入进行中状态。")}</>
                 : task.pending_review_type === "collaboration"
-                ? <>确认通过「<span className="font-semibold text-slate-900">{task.title}</span>」的协作变更审核？通过后协同人变更将生效，任务回到进行中。</>
+                ? <>{t("确认通过「")}<span className="font-semibold text-slate-900">{task.title}</span>{t("」的协作变更审核？通过后协同人变更将生效，任务回到进行中。")}</>
                 : task.pending_review_type === "due_date"
-                ? <>确认通过「<span className="font-semibold text-slate-900">{task.title}</span>」的截止日期变更审核？通过后任务的截止日期将更新为申请值，并回到进行中。</>
-                : <>确认通过「<span className="font-semibold text-slate-900">{task.title}</span>」的审核？任务将标记为已完成，进度设为 100%。</>
-              : <>将「<span className="font-semibold text-slate-900">{task.title}</span>」打回给负责人重新修改。</>
+                ? <>{t("确认通过「")}<span className="font-semibold text-slate-900">{task.title}</span>{t("」的截止日期变更审核？通过后任务的截止日期将更新为申请值，并回到进行中。")}</>
+                : <>{t("确认通过「")}<span className="font-semibold text-slate-900">{task.title}</span>{t("」的审核？任务将标记为已完成，进度设为 100%。")}</>
+              : <>{t("将「")}<span className="font-semibold text-slate-900">{task.title}</span>{t("」打回给负责人重新修改。")}</>
             }
           </p>
           {!isApprove && (
             <>
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-slate-700">打回原因 <span className="text-red-500">*</span></label>
+                <label className="mb-1.5 block text-xs font-medium text-slate-700">{t("打回原因")} <span className="text-red-500">*</span></label>
                 <Textarea
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   rows={3}
-                  placeholder="请说明需要修改的原因…"
+                  placeholder={t("请说明需要修改的原因…")}
                   className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
                   autoFocus
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-xs font-medium text-slate-700">回退进度（%）</label>
+                <label className="mb-1.5 block text-xs font-medium text-slate-700">{t("回退进度（%）")}</label>
                 <Input
                   type="number"
                   min={0}
@@ -3545,7 +3545,7 @@ export function ApprovalActionDialog({
                   onChange={(e) => setRollbackProgress(Math.min(99, Math.max(0, Number(e.target.value))))}
                   className="w-24"
                 />
-                <span className="ml-2 text-xs text-slate-400">当前进度 {task.progress}%</span>
+                <span className="ml-2 text-xs text-slate-400">{t("当前进度")} {task.progress}%</span>
               </div>
             </>
           )}
@@ -3557,7 +3557,7 @@ export function ApprovalActionDialog({
             onClick={onCancel}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
-            取消
+            {t("取消")}
           </button>
           <button
             type="button"
@@ -3569,7 +3569,7 @@ export function ApprovalActionDialog({
             )}
           >
             {submitting ? <Loader2 className="h-3 w-3 animate-spin" /> : isApprove ? <CheckCircle2 className="h-3 w-3" /> : <RotateCcw className="h-3 w-3" />}
-            {isApprove ? "确认通过" : "确认打回"}
+            {isApprove ? t("确认通过") : t("确认打回")}
           </button>
         </div>
       </motion.div>

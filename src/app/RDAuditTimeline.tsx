@@ -23,6 +23,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { cn } from "./components/ui/utils";
+import { t } from "./lib/i18n";
 import { AuditAction, AuditLog, getAuditActionMeta } from "./lib/auditLog";
 
 // ─── Icon mapping ────────────────────────────────────────────────────────────
@@ -206,14 +207,15 @@ const LOG_SOURCE_LABELS: Record<string, string> = {
 const HIDDEN_META_KEYS = new Set(["note_id", "notification_id", "work_item_id", "synthetic"]);
 
 function labelForField(key: string): string {
-  return FIELD_LABELS[key] ?? key;
+  // 中文即 key：字段标签表原样保留，展示时过 t() 本地化
+  return t(FIELD_LABELS[key] ?? key);
 }
 
 function labelForValue(field: string, value: unknown): string {
   if (value === null || value === undefined) return "—";
   const raw = typeof value === "string" ? value : typeof value === "number" || typeof value === "boolean" ? String(value) : "";
-  if (raw && VALUE_LABELS[field]?.[raw]) return VALUE_LABELS[field][raw];
-  // 没匹配到映射时走通用格式化
+  if (raw && VALUE_LABELS[field]?.[raw]) return t(VALUE_LABELS[field][raw]);
+  // 没匹配到映射时走通用格式化（用户输入的值原样显示，不翻）
   return formatChangeValue(value);
 }
 
@@ -222,12 +224,12 @@ function labelForValue(field: string, value: unknown): string {
 function formatRelative(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
   const min = Math.floor(diffMs / 60000);
-  if (min < 1) return "刚刚";
-  if (min < 60) return `${min} 分钟前`;
+  if (min < 1) return t("刚刚");
+  if (min < 60) return t("{n} 分钟前", { n: min });
   const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr} 小时前`;
+  if (hr < 24) return t("{n} 小时前", { n: hr });
   const day = Math.floor(hr / 24);
-  if (day < 7) return `${day} 天前`;
+  if (day < 7) return t("{n} 天前", { n: day });
   return new Date(iso).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
 }
 
@@ -297,7 +299,7 @@ function AuditLogEntry({
       setAdding(false);
     } catch {
       // 写入失败：保留草稿与输入框，给出明确提示让用户重试（不再「假装成功」）。
-      setError("备注保存失败，请检查网络后重试");
+      setError(t("备注保存失败，请检查网络后重试"));
     } finally {
       setSaving(false);
     }
@@ -326,9 +328,10 @@ function AuditLogEntry({
         <div className="flex flex-wrap items-baseline gap-x-1.5 gap-y-1 text-sm">
           <span className="font-semibold text-slate-900">{log.actor.name}</span>
           {log.actor.role && (
-            <span className="text-[10px] text-slate-400">{log.actor.role}</span>
+            <span className="text-[10px] text-slate-400">{t(log.actor.role)}</span>
           )}
-          <span className="text-slate-600">{meta.verb}</span>
+          {/* 动作动词表（auditLog META）中文即 key，展示时本地化 */}
+          <span className="text-slate-600">{t(meta.verb)}</span>
           {showResource && log.resource.name && (
             <span
               className={cn(
@@ -426,7 +429,7 @@ function AuditLogEntry({
                   rows={2}
                   maxLength={200}
                   autoFocus
-                  placeholder={notePlaceholder ?? "填写备注（最多 200 字），仅研发管理员可添加…"}
+                  placeholder={notePlaceholder ?? t("填写备注（最多 200 字），仅研发管理员可添加…")}
                   className="w-full resize-none rounded border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-700 outline-none focus:border-amber-300 focus:ring-1 focus:ring-amber-200"
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -475,7 +478,7 @@ function AuditLogEntry({
                 className="inline-flex items-center gap-1 rounded-md bg-amber-500 px-2.5 py-1 text-[11px] font-semibold text-white shadow-sm transition-colors hover:bg-amber-600"
               >
                 <StickyNote className="h-3 w-3" />
-                添加备注
+                {t("添加备注")}
               </button>
             )}
           </div>
@@ -505,7 +508,7 @@ function AuditLogEntry({
 export function AuditTimeline({
   logs,
   showResource = true,
-  emptyText = "暂无操作记录",
+  emptyText,
   className,
   renderExtra,
   canAddNote = false,
@@ -528,7 +531,7 @@ export function AuditTimeline({
     return (
       <div className={cn("rounded-lg border border-dashed border-slate-200 bg-white/70 py-8 text-center", className)}>
         <History className="mx-auto mb-2 h-5 w-5 text-slate-300" />
-        <p className="text-xs text-slate-400">{emptyText}</p>
+        <p className="text-xs text-slate-400">{emptyText ?? t("暂无操作记录")}</p>
       </div>
     );
   }

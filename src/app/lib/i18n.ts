@@ -26,12 +26,13 @@ let currentLang: I18nLang = (() => {
 })();
 let dict: Record<string, string> = {};
 let dictLoaded = false;
-/** 快照对象：lang 变化时替换引用，驱动 useSyncExternalStore 重渲染 */
-let snapshot = { lang: currentLang };
+let dictVersion = 0;
+/** 快照对象：语言或字典变化时替换引用，驱动 useSyncExternalStore 重渲染 */
+let snapshot = { lang: currentLang, dictVersion };
 const listeners = new Set<() => void>();
 
 function emit() {
-  snapshot = { lang: currentLang };
+  snapshot = { lang: currentLang, dictVersion };
   for (const fn of listeners) fn();
 }
 
@@ -70,6 +71,10 @@ async function loadDict(lang: I18nLang): Promise<void> {
     if (res.ok) {
       dict = (await res.json()) as Record<string, string>;
       dictLoaded = true;
+      // 字典异步就绪必须广播：localStorage 缓存 en 时首屏在字典到位前已渲染（回退中文），
+      // 没有数据加载的静态组件（如侧边栏）不会自行重渲染，会永远停在中文
+      dictVersion += 1;
+      emit();
     }
   } catch {
     // 字典拉取失败 → 全量回退中文，不影响使用
@@ -121,6 +126,5 @@ export async function setI18nLang(lang: I18nLang): Promise<void> {
 /** 供翻译管理页/AI 初翻脚本刷新本地字典缓存（保存字典后调用） */
 export async function reloadI18nDict(): Promise<void> {
   dictLoaded = false;
-  await loadDict("en");
-  emit();
+  await loadDict("en"); // 成功路径内部已 emit
 }

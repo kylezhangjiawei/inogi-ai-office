@@ -5,11 +5,13 @@ import { useAuth } from "../auth";
 import { hasPermission } from "../lib/permissions";
 import { permissionCatalogApi } from "../lib/permissionCatalogApi";
 import { navGroups } from "../routesConfig";
+import { t, useI18n } from "../lib/i18n";
 import { useLayoutChromeActions, useLayoutChromeState } from "../lib/layoutChrome";
 import { cn } from "./ui/utils";
 import logo from '../../assets/logo.png'
 
 export function Sidebar() {
+  useI18n(); // 订阅语言切换（菜单 label 走 t()，中文即 key 全站菜单一处生效）
   const { user } = useAuth();
   const { immersive, sidebarCollapsed: collapsed } = useLayoutChromeState();
   const { toggleSidebar } = useLayoutChromeActions();
@@ -93,7 +95,7 @@ export function Sidebar() {
               {collapsed ? (
                 groupIndex > 0 ? <div className="mx-auto mb-2 h-px w-8 bg-slate-200/80" /> : null
               ) : (
-                <div className="mb-2 px-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{group.label}</div>
+                <div className="mb-2 px-2 text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">{t(group.label)}</div>
               )}
               <div className="space-y-2">
                 {group.items.map((item) => (
@@ -101,7 +103,7 @@ export function Sidebar() {
                     key={item.path}
                     to={item.path}
                     end={item.path === "/" || item.path === "/ops-center"}
-                    title={collapsed ? item.label : undefined}
+                    title={collapsed ? t(item.label) : undefined}
                     className={({ isActive }) =>
                       collapsed
                         ? "flex items-center justify-center rounded-2xl py-0.5"
@@ -135,7 +137,7 @@ export function Sidebar() {
                           >
                             <item.icon className="h-5 w-5" />
                           </div>
-                          <span className="truncate font-medium">{item.label}</span>
+                          <span className="truncate font-medium">{t(item.label)}</span>
                         </div>
                       )
                     }

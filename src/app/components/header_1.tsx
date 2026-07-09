@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from "react-router";
 import { getRoleLabel, useAuth } from "../auth";
 import { routeTitleMap } from "../routesConfig";
 import { useUserAvatar } from "../lib/userAvatar";
-import { setI18nLang, useI18n } from "../lib/i18n";
+import { setI18nLang, t, useI18n } from "../lib/i18n";
 import { fetchRdMessages, patchRdMessage, type RdMessage } from "../lib/rdApi";
 import { useLayoutChromeState } from "../lib/layoutChrome";
 import { cn } from "./ui/utils";
@@ -121,12 +121,12 @@ export function Header() {
           <div className="hidden h-14 w-1 rounded-full bg-[linear-gradient(180deg,#42a5f5_0%,#1976d2_100%)] xl:block" />
           <div className="min-w-0 space-y-2">
             <div className="flex min-w-0 items-center gap-2 text-sm text-slate-500">
-              <span>{breadcrumb[0]}</span>
+              <span>{t(breadcrumb[0])}</span>
               <span>/</span>
-              <span className="truncate font-medium text-slate-700">{breadcrumb[1]}</span>
+              <span className="truncate font-medium text-slate-700">{t(breadcrumb[1])}</span>
             </div>
             <div>
-              <h1 className="truncate text-[1.65rem] font-bold tracking-tight text-slate-900">{title}</h1>
+              <h1 className="truncate text-[1.65rem] font-bold tracking-tight text-slate-900">{t(title)}</h1>
             </div>
           </div>
         </div>
@@ -134,7 +134,7 @@ export function Header() {
         <div className="flex min-w-0 flex-col gap-3 xl:flex-1 xl:flex-row xl:items-center xl:justify-end">
           <div className="relative min-w-0 flex-1 xl:max-w-[340px]">
             <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input type="text" placeholder="搜索工单、文档、人员、项目..." className="material-input pl-11 pr-4" />
+            <input type="text" placeholder={t("搜索工单、文档、人员、项目...")} className="material-input pl-11 pr-4" />
           </div>
 
           <div className="flex min-w-0 flex-wrap items-center gap-3 xl:shrink-0 xl:flex-nowrap">
@@ -195,11 +195,11 @@ export function Header() {
               <DropdownMenuContent align="end" sideOffset={10} className="w-72 rounded-[4px] border-slate-200 bg-white/98 p-2 shadow-[0_18px_42px_rgba(15,23,42,0.16)] backdrop-blur-xl">
                 <DropdownMenuItem className="cursor-pointer rounded-xl px-3 py-2.5 text-slate-700 focus:bg-blue-50 focus:text-blue-700" onSelect={() => navigate("/profile")}>
                   <UserRound className="h-4 w-4" />
-                  <span>个人中心</span>
+                  <span>{t("个人中心")}</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem className="cursor-pointer rounded-xl px-3 py-2.5 text-slate-700 focus:bg-blue-50 focus:text-blue-700" onSelect={() => navigate("/message-center")}>
                   <MessageSquareText className="h-4 w-4" />
-                  <span>消息中心</span>
+                  <span>{t("消息中心")}</span>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator className="bg-slate-100" />
                 <DropdownMenuItem
@@ -210,7 +210,7 @@ export function Header() {
                   }}
                 >
                   <LogOut className="h-4 w-4" />
-                  <span>退出登录</span>
+                  <span>{t("退出登录")}</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
@@ -222,7 +222,7 @@ export function Header() {
         <div className="absolute right-3 top-full z-[90] mt-2 w-[min(380px,calc(100vw-24px))] rounded-[18px] border border-slate-200 bg-white/98 p-4 shadow-[0_24px_54px_rgba(15,23,42,0.18)] backdrop-blur-xl md:right-6 md:rounded-[24px]">
           <div className="mb-3 flex items-center justify-between">
             <span className="text-sm font-semibold text-slate-900">
-              消息通知
+              {t("消息通知")}
               {unreadCount > 0 && (
                 <span className="ml-2 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
                   {unreadCount}
@@ -232,7 +232,7 @@ export function Header() {
           </div>
           <div className="space-y-2">
             {previewMessages.length === 0 ? (
-              <div className="py-4 text-center text-sm text-slate-400">暂无消息</div>
+              <div className="py-4 text-center text-sm text-slate-400">{t("暂无消息")}</div>
             ) : (
               previewMessages.map((msg) => (
                 <button
@@ -251,7 +251,7 @@ export function Header() {
                       msg.read ? "bg-slate-100 text-slate-500" : "bg-red-50 text-red-600 ring-1 ring-red-100",
                     ].join(" ")}
                   >
-                    {msg.read ? "已读" : "未读"}
+                    {msg.read ? t("已读") : t("未读")}
                   </span>
                   <span className={msg.read ? "min-w-0 flex-1 text-slate-500" : "min-w-0 flex-1 font-medium text-slate-800"}>
                     {getMsgSummary(msg)}
@@ -271,7 +271,7 @@ export function Header() {
             }}
             className="mt-3 w-full cursor-pointer rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100"
           >
-            查看全部消息
+            {t("查看全部消息")}
           </button>
         </div>
       ) : null}
