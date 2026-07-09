@@ -61,7 +61,14 @@ export class WebSearchService {
     const agent = await this.resolveSearchAgent();
     if (!agent) return null;
 
-    const client = new OpenAI({ apiKey: agent.apiKey, baseURL: agent.baseUrl, timeout: 60_000 });
+    // 30s×(1+1 次重试)：容忍限流/抖动，同时最坏等待可控；彻底失败由调用方降级
+    //（千问主模型自带 enable_search 直连兜底，非阿里主模型退回通用知识 = 旧行为）
+    const client = new OpenAI({
+      apiKey: agent.apiKey,
+      baseURL: agent.baseUrl,
+      timeout: 30_000,
+      maxRetries: 1,
+    });
     try {
       const completion = await client.chat.completions.create({
         model: agent.model,
