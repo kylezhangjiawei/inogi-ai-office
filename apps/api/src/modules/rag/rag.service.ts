@@ -21,7 +21,9 @@ export type RagSourceType =
   | 'candidate'
   | 'image'
   | 'file_asset'
-  | 'issue';
+  | 'issue'
+  /** 联网检索兜底来源（不入向量库，仅作为 citation 类型） */
+  | 'web';
 
 export type RagPermissionMetadata = {
   /** KB 分值制：用户 kb_level >= 此值方可访问 */

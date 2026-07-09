@@ -80,8 +80,10 @@ type ModelOption = { id: string; label: string; provider: string; model: string;
 
 type SseEvent =
   | { type: "userMessage"; messageId: string }
-  | { type: "context"; fromDb: boolean }
+  | { type: "context"; fromDb: boolean; fromWeb?: boolean }
   | { type: "citations"; citations: RagCitation[]; filteredByPermission: number }
+  /** 回答完成后追加的引用（如「互联网参考」附录的联网来源），合并进已有引用卡 */
+  | { type: "citations_extra"; citations: RagCitation[] }
   | { type: "delta"; delta: string }
   | { type: "modelSwitched"; from: string; to: string; reason: string }
   | { type: "done"; messageId: string; title?: string }
@@ -326,8 +328,8 @@ export function MateChatBubble() {
   const [isRenaming, setIsRenaming] = useState(false);
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirm>(null);
-  // key = message id, value = 'db' | 'ai'
-  const [msgSources, setMsgSources] = useState<Record<string, "db" | "ai">>({});
+  // key = message id, value = 'db'(内部数据) | 'web'(联网检索兜底) | 'ai'(通用知识)
+  const [msgSources, setMsgSources] = useState<Record<string, "db" | "web" | "ai">>({});
   // key = message id, value = 引用数据（命中知识库时由后端 SSE 推送）
   const [msgCitations, setMsgCitations] = useState<Record<string, MessageCitations>>({});
   // RAG 探活状态（embedding 配置 + 索引文档数）
@@ -802,6 +804,7 @@ export function MateChatBubble() {
         let buf = "";
         let streamedContent = "";
         let currentFromDb = false;
+        let currentFromWeb = false;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -824,6 +827,7 @@ export function MateChatBubble() {
 
               if (event.type === "context") {
                 currentFromDb = event.fromDb;
+                currentFromWeb = Boolean(event.fromWeb);
               }
 
               if (event.type === "citations") {
@@ -832,6 +836,20 @@ export function MateChatBubble() {
                   ...prev,
                   [tempAiId]: { citations: event.citations, filteredByPermission: event.filteredByPermission },
                 }));
+              }
+
+              if (event.type === "citations_extra") {
+                // 回答完成后追加的联网来源：合并进已有引用卡（无则新建）
+                setMsgCitations((prev) => {
+                  const cur = prev[tempAiId];
+                  return {
+                    ...prev,
+                    [tempAiId]: {
+                      citations: [...(cur?.citations ?? []), ...event.citations],
+                      filteredByPermission: cur?.filteredByPermission ?? 0,
+                    },
+                  };
+                });
               }
 
               if (event.type === "modelSwitched") {
@@ -852,7 +870,10 @@ export function MateChatBubble() {
                 setMessages((prev) =>
                   prev.map((m) => (m.id === tempAiId ? { ...m, id: realAiId } : m)),
                 );
-                setMsgSources((prev) => ({ ...prev, [realAiId]: currentFromDb ? "db" : "ai" }));
+                setMsgSources((prev) => ({
+                  ...prev,
+                  [realAiId]: currentFromDb ? "db" : currentFromWeb ? "web" : "ai",
+                }));
                 setMsgCitations((prev) => {
                   if (!prev[tempAiId]) return prev;
                   const { [tempAiId]: pulled, ...rest } = prev;
@@ -1402,9 +1423,15 @@ export function MateChatBubble() {
                                     系统数据
                                   </span>
                                 )}
+                                {!isUser && !isStreaming && msgSources[msg.id] === "web" && (
+                                  <span className="flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-700">
+                                    <Globe className="h-2.5 w-2.5" />
+                                    联网检索
+                                  </span>
+                                )}
                                 {!isUser && !isStreaming && msgSources[msg.id] === "ai" && (
                                   <span className="flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-600">
-                                    <Globe className="h-2.5 w-2.5" />
+                                    <Sparkles className="h-2.5 w-2.5" />
                                     通用知识
                                   </span>
                                 )}

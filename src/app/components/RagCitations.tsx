@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { createPortal } from "react-dom";
-import { BookOpen, ChevronDown, ChevronUp, Download, Eye, ExternalLink, FileText, Sparkles, X } from "lucide-react";
+import { BookOpen, ChevronDown, ChevronUp, Download, Eye, ExternalLink, FileText, Globe, Sparkles, X } from "lucide-react";
 import { cn } from "./ui/utils";
 import { RagCitation, RagChunk, SOURCE_TYPE_LABELS, type RagSourceType } from "../lib/ragApi";
 
@@ -18,6 +18,7 @@ const SOURCE_TINT: Record<string, { bg: string; text: string; border: string }> 
   candidate: { bg: "bg-indigo-50", text: "text-indigo-700", border: "border-indigo-200" },
   image: { bg: "bg-pink-50", text: "text-pink-700", border: "border-pink-200" },
   file_asset: { bg: "bg-slate-50", text: "text-slate-700", border: "border-slate-200" },
+  web: { bg: "bg-sky-50", text: "text-sky-700", border: "border-sky-200" },
 };
 
 function tintFor(type: string) {
@@ -83,7 +84,12 @@ export function RagCitations({
                     tint.border,
                   )}
                 >
-                  <FileText className="h-2.5 w-2.5" />[{idx + 1}] {SOURCE_TYPE_LABELS[c.sourceType] ?? c.sourceType}
+                  {c.sourceType === "web" ? (
+                    <Globe className="h-2.5 w-2.5" />
+                  ) : (
+                    <FileText className="h-2.5 w-2.5" />
+                  )}
+                  [{idx + 1}] {SOURCE_TYPE_LABELS[c.sourceType] ?? c.sourceType}
                 </span>
                 {c.title && (
                   <button
@@ -99,9 +105,11 @@ export function RagCitations({
                     {c.title}
                   </button>
                 )}
-                <span className="ml-auto shrink-0 text-[10px] tabular-nums text-slate-400">
-                  {(c.similarity * 100).toFixed(0)}%
-                </span>
+                {c.sourceType !== "web" && (
+                  <span className="ml-auto shrink-0 text-[10px] tabular-nums text-slate-400">
+                    {(c.similarity * 100).toFixed(0)}%
+                  </span>
+                )}
                 {imgUrl && (
                   <button
                     type="button"

@@ -12,6 +12,7 @@ import { Response } from 'express';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecureConfigService } from '../security/secure-config.service';
+import { WebSearchService, type WebSearchResult } from './web-search.service';
 import { RagService, type RagUserContext, type RagChatCitation } from '../rag/rag.service';
 import { ChatAttachmentService } from './chat-attachment.service';
 import { CreateConversationDto } from './dto/create-conversation.dto';
@@ -67,6 +68,7 @@ export class ChatService {
     private readonly secureConfigService: SecureConfigService,
     private readonly ragService: RagService,
     private readonly attachmentService: ChatAttachmentService,
+    private readonly webSearchService: WebSearchService,
   ) {
     this.openaiApiKey = this.config.get<string>('OPENAI_API_KEY') ?? null;
     this.openaiBaseUrl =
@@ -399,8 +401,15 @@ export class ChatService {
       content: m.content,
     }));
 
+    // ── 联网兜底（与内部检索并行发起，不拖慢首答；模型无关，任何主模型都能用检索结果）──
+    // 内部未命中 → 等联网结果融合作答；命中 → 主回答完成后作为「互联网参考」附录，供用户对照选择
+    const webSearchPromise: Promise<WebSearchResult | null> =
+      content && attachments.length === 0
+        ? this.webSearchService.search(content)
+        : Promise.resolve(null);
+
     // ── 智能检索：并行做"结构化关键词搜索"+"向量语义检索"，结果合并进 system prompt ──
-    // 用户无需切换模式；命中内部资料 → 优先用；没命中 → LLM 走通用知识兜底
+    // 用户无需切换模式；命中内部资料 → 优先用；没命中 → 联网检索兜底，最后才是 LLM 通用知识
     const [dbContext, ragResponse] = await Promise.all([
       this.searchDatabase(content, userContext).catch((err) => {
         this.logger.warn(`searchDatabase 失败: ${err instanceof Error ? err.message : err}`);
@@ -452,13 +461,34 @@ export class ChatService {
         '以下是从公司知识库中检索到的相关参考资料，用于补充背景或回答知识性问题；若与上方结构化数据冲突，以结构化数据为准。引用资料时请在对应结论后用方括号编号如 [1] [2]：\n\n' + ragContext,
       );
     }
+
+    // ── 联网兜底融合：内部完全未命中时，等联网结果注入 context（模型无关）──
+    const hasInternal = Boolean(dbContext) || ragChunks.length > 0;
+    let webResult: WebSearchResult | null = null;
+    if (!hasInternal) {
+      webResult = await webSearchPromise;
+      if (webResult) {
+        contextParts.push(
+          '内部数据库与知识库均未检索到相关内容。以下是联网检索到的互联网资料（兜底来源）。若资料与用户问题相关：直接基于资料作答，保留具体数字/日期，并注明信息来自联网检索、可能存在延迟；若资料与问题无关（如用户是创作/起草类请求）：忽略资料正常作答，不要提及联网检索：\n\n' +
+            webResult.summary,
+        );
+      }
+    }
+    const webCitations: RagChatCitation[] = (webResult?.sources ?? []).map((s) => ({
+      sourceType: 'web',
+      sourceId: s.url,
+      title: s.siteName ? `${s.title} — ${s.siteName}` : s.title,
+      excerpt: s.url,
+      url: s.url,
+      similarity: 1,
+    }));
     const systemContent = contextParts.join('\n\n');
 
-    // 通知前端命中情况：是否走了结构化数据 / 知识库引用
-    send({ type: 'context', fromDb: Boolean(dbContext) || ragChunks.length > 0 });
+    // 通知前端命中情况：是否走了结构化数据 / 知识库引用 / 联网检索
+    send({ type: 'context', fromDb: hasInternal, fromWeb: Boolean(webResult) });
 
-    // 推送引用卡片数据（前端在 assistant 消息下方渲染）
-    if (ragChunks.length > 0 || ragResponse.filteredByPermission > 0) {
+    // 推送引用卡片数据（前端在 assistant 消息下方渲染）；联网兜底来源与内部引用同卡展示
+    if (ragChunks.length > 0 || ragResponse.filteredByPermission > 0 || webCitations.length > 0) {
       // 对 kb 源的 citation 反查 rd.knowledgeEntries 拿 oss_url，附加为 downloadUrl
       const kbIds: string[] = [];
       for (const c of ragChunks) {
@@ -476,7 +506,7 @@ export class ChatService {
       }));
       send({
         type: 'citations',
-        citations,
+        citations: [...citations, ...webCitations],
         filteredByPermission: ragResponse.filteredByPermission,
       });
     }
@@ -559,6 +589,37 @@ export class ChatService {
         if (delta) {
           fullContent += delta;
           send({ type: 'delta', delta });
+        }
+      }
+
+      // 内部命中场景：并行的联网检索此刻通常已完成 → 作为「互联网参考」附录给用户对照选择。
+      // 附录并入 content 落库，历史回放/复制分享都保留；来源列表以追加事件推给前端引用卡。
+      if (hasInternal) {
+        const extra = await webSearchPromise;
+        const extraSummary = extra?.summary?.trim() ?? '';
+        // 搜索代理没找到有效资料时（各种「未检索到/未找到」表述）不附加，避免给用户塞噪音
+        const isEmptyResult = /未检索到|未找到|没有(检索|搜索|找)到|无相关(结果|信息|资料)/.test(
+          extraSummary.slice(0, 80),
+        );
+        if (extraSummary && !isEmptyResult) {
+          const clipped =
+            extraSummary.length > 1200 ? extraSummary.slice(0, 1200) + '…' : extraSummary;
+          const appendix = `\n\n────────\n🌐 互联网参考（联网检索，内容可能有延迟，请以官方信息为准）\n${clipped}`;
+          fullContent += appendix;
+          send({ type: 'delta', delta: appendix });
+          if (extra && extra.sources.length > 0) {
+            send({
+              type: 'citations_extra',
+              citations: extra.sources.map((s) => ({
+                sourceType: 'web' as const,
+                sourceId: s.url,
+                title: s.siteName ? `${s.title} — ${s.siteName}` : s.title,
+                excerpt: s.url,
+                url: s.url,
+                similarity: 1,
+              })),
+            });
+          }
         }
       }
 
@@ -715,7 +776,8 @@ export class ChatService {
     // 的模型优先采信：很多统一多模态模型（如 qwen3.6-plus、kimi-k2.6）名字里并不带
     // vl/vision，光靠命名正则识别不出来，必须靠 usage_kind 兜底，否则图片会被丢弃。
     if (usageKind === 'multimodal') return true;
-    return /vl|vision|gpt-4o|gpt-4\.1|omni|claude-3|claude-opus|claude-sonnet|gemini|glm-4v|internvl|llava|step-1v|pixtral/i.test(
+    // gpt-5.x 与 qwen3.x 系列是原生统一多模态（无 vl/vision 命名），直接采信
+    return /vl|vision|gpt-4o|gpt-4\.1|gpt-5|qwen[.-]?3(?![\d.]*-(?:embed|coder))|kimi-k2|omni|claude-3|claude-opus|claude-sonnet|gemini|glm-4v|internvl|llava|step-1v|pixtral/i.test(
       model ?? '',
     );
   }

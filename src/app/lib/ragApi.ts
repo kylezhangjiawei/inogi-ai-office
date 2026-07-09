@@ -13,7 +13,9 @@ export type RagSourceType =
   | "audit_log"
   | "candidate"
   | "image"
-  | "file_asset";
+  | "file_asset"
+  /** 联网检索兜底来源（外部网页） */
+  | "web";
 
 export type RagCitation = {
   sourceType: RagSourceType;
@@ -106,4 +108,5 @@ export const SOURCE_TYPE_LABELS: Record<RagSourceType, string> = {
   candidate: "简历",
   image: "AI 生图",
   file_asset: "文件",
+  web: "互联网",
 };
