@@ -299,25 +299,28 @@ const router = createBrowserRouter([
       { path: "after-sales", element: makeLazyProtected(<AfterSalesList />, "page:after-sales") },
       { path: "after-sales/new", element: makeLazyProtected(<AfterSalesForm />, "page:after-sales") },
       { path: "after-sales/:id", element: makeLazyProtected(<AfterSalesDetails />, "page:after-sales") },
-      { path: "rd-task-management", element: makeLazyProtected(<RDTaskManagementPage />, "page:rd-task-management") },
+      // ⚠️ 跨工作区共用组件的路由必须带 key：React 对同类型组件在路由切换时会复用实例
+      // （不重挂载、不重跑 effect），协同页的任务/人员 state 会原样留在研发页上——数据串池。
+      // key 强制两个工作区各自独立实例，切换即重挂载重拉数据。
+      { path: "rd-task-management", element: makeLazyProtected(<RDTaskManagementPage key="ws-rd" />, "page:rd-task-management") },
       { path: "issue-ai", element: makeLazyProtected(<IssueAiModule />, "page:issue-ai") },
-      { path: "rd-people-management", element: makeLazyProtected(<RDPeopleManagementPage onBack={() => window.history.back()} />, "rd-people:manage") },
-      { path: "rd-my-workspace", element: makeLazyProtected(<RDMyWorkspacePage />, "page:rd-my-workspace") },
+      { path: "rd-people-management", element: makeLazyProtected(<RDPeopleManagementPage key="ws-rd" onBack={() => window.history.back()} />, "rd-people:manage") },
+      { path: "rd-my-workspace", element: makeLazyProtected(<RDMyWorkspacePage key="ws-rd" />, "page:rd-my-workspace") },
       { path: "rd-sheet", element: makeLazyProtected(<RDSheetPage />, "page:rd-sheet") },
-      { path: "rd-knowledge-base", element: makeLazyProtected(<RDKnowledgeBasePage />, "page:rd-knowledge-base") },
+      { path: "rd-knowledge-base", element: makeLazyProtected(<RDKnowledgeBasePage key="kb-rd" />, "page:rd-knowledge-base") },
       // 部门知识库：8 个部门各一条路由，复用 RDKnowledgeBasePage（kbScope 切到部门库）
       ...DEPT_KBS.map((d) => ({
         path: `dept-kb/${d.id}`,
-        element: makeLazyProtected(<RDKnowledgeBasePage kbScope={{ kbId: d.id, label: d.label }} />, `page:dept-kb-${d.id}`),
+        element: makeLazyProtected(<RDKnowledgeBasePage key={`kb-${d.id}`} kbScope={{ kbId: d.id, label: d.label }} />, `page:dept-kb-${d.id}`),
       })),
       // 中美协同：复用研发驾驶舱（隐藏子系统全景）/ 个人工作台 / 知识库（独立 us-collab 库），独立权限码
-      { path: "us-collab-cockpit", element: makeLazyProtected(<RDTaskManagementPage hideSystemPanorama />, "page:us-collab-cockpit") },
-      { path: "us-collab-workspace", element: makeLazyProtected(<RDMyWorkspacePage />, "page:us-collab-workspace") },
+      { path: "us-collab-cockpit", element: makeLazyProtected(<RDTaskManagementPage key="ws-us" hideSystemPanorama />, "page:us-collab-cockpit") },
+      { path: "us-collab-workspace", element: makeLazyProtected(<RDMyWorkspacePage key="ws-us" />, "page:us-collab-workspace") },
       // 协同人员管理：路径保持 /us-collab 前缀，rdApi 据此路由到独立的协同人员池
-      { path: "us-collab-people-management", element: makeLazyProtected(<RDPeopleManagementPage onBack={() => window.history.back()} />, "rd-people:manage") },
+      { path: "us-collab-people-management", element: makeLazyProtected(<RDPeopleManagementPage key="ws-us" onBack={() => window.history.back()} />, "rd-people:manage") },
       // 协同任务全屏详情（双栏）：页面内部按协同页面码任一做门禁，不进侧边栏
       { path: "us-collab-task/:taskId", element: lazyWrap(<UsCollabTaskDetailPage />) },
-      { path: "us-collab-kb", element: makeLazyProtected(<RDKnowledgeBasePage kbScope={{ kbId: "us-collab", label: "协同" }} />, "page:dept-kb-us-collab") },
+      { path: "us-collab-kb", element: makeLazyProtected(<RDKnowledgeBasePage key="kb-us-collab" kbScope={{ kbId: "us-collab", label: "协同" }} />, "page:dept-kb-us-collab") },
       // 研发主管驾驶舱 — 导航可见性由页面路由管理中的「导航」开关控制（默认隐藏）
       { path: "rd-director-dashboard", element: makeLazyProtected(<RDDirectorDashboardPage />, "page:rd-director-dashboard") },
       { path: "rd-approval-flow", element: makeLazyProtected(<RDApprovalFlowPage />, "page:rd-approval-flow") },

@@ -147,6 +147,33 @@ try {
     await p.close();
   }
 
+  // ── D1.5 跨工作区 SPA 切换不串池（曾发生组件实例复用导致协同数据留在研发页）──
+  console.log("\n══ D1.5 跨工作区切换隔离 ══");
+  {
+    const p = await newPage(c);
+    await p.goto(`${BASE}/us-collab-cockpit`, 5000);
+    const before = await p.evalJs(`document.body.innerText.includes("Field failure triage")`);
+    check("切换前：协同驾驶舱已载入协同任务", before === true);
+    // SPA 内点击侧边栏切到研发驾驶舱（不整页刷新，才能复现实例复用问题）
+    await p.evalJs(`[...document.querySelectorAll("a,button,[role=button]")].find((el) => el.textContent.trim() === "研发任务驾驶舱")?.click()`);
+    await sleep(4500);
+    const after = await p.evalJs(`(() => ({
+      url: location.pathname,
+      leaked: /Field failure triage|Boston office demo|FDA 510\\(k\\)/.test(document.body.innerText),
+    }))()`);
+    check("SPA 切到研发驾驶舱（URL 正确）", after?.url === "/rd-task-management", `url=${after?.url}`);
+    check("研发驾驶舱无协同池任务泄漏", after?.leaked === false, "协同任务标题出现在研发页");
+    // 反向：再切回协同，不应残留研发任务
+    await p.evalJs(`[...document.querySelectorAll("a,button,[role=button]")].find((el) => el.textContent.trim() === "协同任务驾驶舱")?.click()`);
+    await sleep(4500);
+    const back = await p.evalJs(`(() => ({
+      url: location.pathname,
+      hasCollab: document.body.innerText.includes("Field failure triage"),
+    }))()`);
+    check("切回协同驾驶舱数据正确", back?.url === "/us-collab-cockpit" && back?.hasCollab === true, `url=${back?.url}`);
+    await p.close();
+  }
+
   // ── D2 研发驾驶舱对照（必须零变化）──
   console.log("\n══ D2 研发驾驶舱（对照，须维持原样）══");
   {

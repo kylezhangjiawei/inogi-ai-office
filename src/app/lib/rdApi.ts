@@ -1051,31 +1051,36 @@ export function fetchRdTaskProgressNotes(taskId: string) {
  * clearRdTaskProgressNoteMapCache() 失效缓存，保证新附件即时可见。
  */
 const NOTE_MAP_CACHE_TTL_MS = 15_000;
-let noteMapCache: { at: number; data: Record<string, RdTaskProgressNote[]> } | null = null;
-let noteMapInflight: Promise<Record<string, RdTaskProgressNote[]>> | null = null;
+// ⚠️ 缓存必须按工作区分键：研发池与协同池的留痕 map 完全不同，共享单例缓存会导致
+// 跨驾驶舱切换时数据互相污染（曾发生：协同页拉的留痕在研发页 60s 内被复用）。
+const noteMapCacheByWs = new Map<string, { at: number; data: Record<string, RdTaskProgressNote[]> }>();
+const noteMapInflightByWs = new Map<string, Promise<Record<string, RdTaskProgressNote[]>>>();
 
 export function clearRdTaskProgressNoteMapCache() {
-  noteMapCache = null;
-  noteMapInflight = null;
+  noteMapCacheByWs.clear();
+  noteMapInflightByWs.clear();
 }
 
 export function fetchRdTaskProgressNoteMap(options?: { force?: boolean }) {
+  const wsKey = currentRdWorkspace() ?? "rd";
   const now = Date.now();
-  if (!options?.force && noteMapCache && now - noteMapCache.at < NOTE_MAP_CACHE_TTL_MS) {
-    return Promise.resolve(noteMapCache.data);
+  const cached = noteMapCacheByWs.get(wsKey);
+  if (!options?.force && cached && now - cached.at < NOTE_MAP_CACHE_TTL_MS) {
+    return Promise.resolve(cached.data);
   }
   // 同发去重：多个组件同帧调用时只发一个请求。
-  if (!options?.force && noteMapInflight) return noteMapInflight;
+  const inflight = noteMapInflightByWs.get(wsKey);
+  if (!options?.force && inflight) return inflight;
 
   const p = requestJson<Record<string, RdTaskProgressNote[]>>(`/task-progress-notes`)
     .then((data) => {
-      noteMapCache = { at: Date.now(), data };
+      noteMapCacheByWs.set(wsKey, { at: Date.now(), data });
       return data;
     })
     .finally(() => {
-      if (noteMapInflight === p) noteMapInflight = null;
+      if (noteMapInflightByWs.get(wsKey) === p) noteMapInflightByWs.delete(wsKey);
     });
-  noteMapInflight = p;
+  noteMapInflightByWs.set(wsKey, p);
   return p;
 }
 
