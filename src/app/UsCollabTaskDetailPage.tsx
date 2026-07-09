@@ -449,11 +449,13 @@ export default function UsCollabTaskDetailPage() {
         )}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
-        {/* ══ 左栏：任务档案 ══ */}
-        <div className="space-y-3">
-          {/* 字段表 */}
-          <div className="material-card space-y-0 divide-y divide-slate-100 px-4 py-1">
+      {/* 美式 content-first 布局：主内容（描述/工作项/时间线）居左，Properties 侧栏居右（GitHub issue / Linear 范式） */}
+      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+        {/* ══ 右侧 Properties 栏（单一面板，分节细线分隔）══ */}
+        <div className="lg:order-2">
+        <div className="material-card divide-y divide-slate-100">
+          {/* 字段节 */}
+          <div className="space-y-2.5 px-4 py-3.5">
             {[
               { label: "完成进度", value: (
                 <span className="flex items-center gap-2">
@@ -470,16 +472,16 @@ export default function UsCollabTaskDetailPage() {
               ) },
               { label: "分类路径", value: task.category_path || "—" },
             ].map((row) => (
-              <div key={row.label} className="flex items-center justify-between gap-3 py-2.5 text-sm">
+              <div key={row.label} className="flex items-center justify-between gap-3 text-sm">
                 <span className="shrink-0 text-xs text-slate-400">{row.label}</span>
                 <span className="min-w-0 truncate text-right font-medium text-slate-700">{row.value}</span>
               </div>
             ))}
           </div>
 
-          {/* 阻塞提示 */}
+          {/* 阻塞提示节 */}
           {task.status === "paused_blocked" && (
-            <div className="flex items-start gap-2 rounded-xl border border-red-100 bg-red-50 px-4 py-3">
+            <div className="flex items-start gap-2 bg-red-50/70 px-4 py-3">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
               <div className="text-sm text-red-700">
                 <span className="font-semibold">任务阻塞中{blockedDays != null ? `，已阻塞 ${blockedDays} 天` : ""}</span>
@@ -488,8 +490,8 @@ export default function UsCollabTaskDetailPage() {
             </div>
           )}
 
-          {/* 人员（点击查看其名下任务，可跳转到对应任务详情） */}
-          <div className="material-card px-4 py-3">
+          {/* 人员节（点击查看其名下任务，可跳转到对应任务详情） */}
+          <div className="px-4 py-3.5">
             <div className="mb-2 flex items-center justify-between">
               <span className="text-xs font-semibold text-slate-500">主责人</span>
               {canManage && !task.archived && (
@@ -533,17 +535,18 @@ export default function UsCollabTaskDetailPage() {
             )}
           </div>
 
-          {/* 快捷操作 */}
-          <div className="material-card space-y-2 px-4 py-3">
-            <Button type="button" onClick={() => void handleGenerateBrief()} disabled={briefLoading} className="w-full gap-1.5">
+          {/* 操作节（紧凑列表式，Linear 风） */}
+          <div className="space-y-1.5 px-4 py-3.5">
+            <Button type="button" size="sm" onClick={() => void handleGenerateBrief()} disabled={briefLoading} className="h-8 w-full gap-1.5 text-xs">
               {briefLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
               AI 任务小结
             </Button>
             <Button
               type="button"
               variant="outline"
+              size="sm"
               onClick={() => downloadUsCollabTaskReport(task, reportLogs, reportNoteOf)}
-              className="w-full gap-1.5"
+              className="h-8 w-full gap-1.5 text-xs"
             >
               <Download className="h-3.5 w-3.5" />
               导出过程报告
@@ -556,8 +559,9 @@ export default function UsCollabTaskDetailPage() {
                 </div>
                 <Button
                   type="button"
+                  size="sm"
                   onClick={() => setShowApproval("approve")}
-                  className="w-full gap-1.5 bg-emerald-600 hover:bg-emerald-700"
+                  className="h-8 w-full gap-1.5 bg-emerald-600 text-xs hover:bg-emerald-700"
                 >
                   <CheckCircle2 className="h-3.5 w-3.5" />
                   审核通过
@@ -565,8 +569,9 @@ export default function UsCollabTaskDetailPage() {
                 <Button
                   type="button"
                   variant="outline"
+                  size="sm"
                   onClick={() => setShowApproval("reject")}
-                  className="w-full gap-1.5 border-red-200 text-red-600 hover:bg-red-50 hover:text-red-700"
+                  className="h-8 w-full gap-1.5 border-red-200 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
                 >
                   <X className="h-3.5 w-3.5" />
                   驳回
@@ -577,15 +582,16 @@ export default function UsCollabTaskDetailPage() {
                 待审核任务必须走上方审批，避免绕过后端 _review_action 仲裁残留待审字段 */}
             {canManage && !task.archived && task.status === "in_progress" && (
               <>
-                <Button type="button" variant="outline" onClick={() => setShowHandover(true)} className="w-full gap-1.5">
+                <Button type="button" variant="outline" size="sm" onClick={() => setShowHandover(true)} className="h-8 w-full gap-1.5 text-xs">
                   <ArrowLeft className="h-3.5 w-3.5 rotate-180" />
                   移交任务
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
+                  size="sm"
                   onClick={() => setShowComplete(true)}
-                  className="w-full gap-1.5 border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800"
+                  className="h-8 w-full gap-1.5 border-emerald-200 text-xs text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
                 >
                   <CheckCircle2 className="h-3.5 w-3.5" />
                   标记完成
@@ -594,9 +600,10 @@ export default function UsCollabTaskDetailPage() {
             )}
           </div>
         </div>
+        </div>
 
-        {/* ══ 右主栏：纵向过程叙事 ══ */}
-        <div className="min-w-0 space-y-3">
+        {/* ══ 主内容列（左）：纵向过程叙事 ══ */}
+        <div className="min-w-0 space-y-4 lg:order-1">
           {/* AI 小结卡 */}
           {brief && (
             <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3">
@@ -632,18 +639,22 @@ export default function UsCollabTaskDetailPage() {
           {/* Tab：留痕 / 附件库 / 操作记录 */}
           <div className="material-card px-4 py-3">
             <Tabs value={tab} onValueChange={(value) => setTab(value as DetailTab)}>
-              <TabsList className="mb-3 h-auto w-full justify-start gap-1 rounded-none border-b border-slate-100 bg-transparent p-0 pb-2">
+              {/* 下划线式 Tab（GitHub/Linear 范式），顺序：操作记录 → 进展留痕 → 附件库 */}
+              <TabsList className="mb-4 h-auto w-full justify-start gap-5 rounded-none border-b border-slate-200/80 bg-transparent p-0">
                 {([
-                  { key: "audit", label: `操作记录 ${auditLogs.length}` },
-                  { key: "attachments", label: "附件库" },
-                  { key: "notes", label: `进展留痕 ${notes.length}` },
+                  { key: "audit", label: "操作记录", count: auditLogs.length },
+                  { key: "notes", label: "进展留痕", count: notes.length },
+                  { key: "attachments", label: "附件库", count: null },
                 ] as const).map((t) => (
                   <TabsTrigger
                     key={t.key}
                     value={t.key}
-                    className="cursor-pointer rounded-lg px-3 py-1.5 text-sm font-medium text-slate-500 shadow-none transition-colors hover:bg-slate-50 hover:text-slate-700 data-[state=active]:bg-indigo-50 data-[state=active]:text-indigo-700 data-[state=active]:shadow-none"
+                    className="-mb-px cursor-pointer gap-1.5 rounded-none border-0 border-b-2 border-transparent bg-transparent px-1 pb-2.5 pt-1 text-sm font-medium text-slate-500 shadow-none transition-colors hover:text-slate-800 data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent data-[state=active]:text-slate-900 data-[state=active]:shadow-none"
                   >
                     {t.label}
+                    {t.count != null && t.count > 0 && (
+                      <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-500">{t.count}</span>
+                    )}
                   </TabsTrigger>
                 ))}
               </TabsList>
