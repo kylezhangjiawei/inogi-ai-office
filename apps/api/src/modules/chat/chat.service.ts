@@ -390,6 +390,10 @@ export class ChatService {
       activeConfig.baseUrl || (isQwen ? this.qwenBaseUrl : (this.openaiBaseUrl ?? undefined));
     const client = new OpenAI({ apiKey, ...(baseURL ? { baseURL } : {}) });
 
+    // 阿里 compatible-mode（DashScope / 百炼 MaaS）原生支持 enable_search（模型按需联网检索外部实时信息）。
+    // 仅对走阿里端点的千问开启：OpenAI 官方端点会拒绝未知参数，自定义部署（vLLM 等）也不认。
+    const webSearchEnabled = isQwen && /dashscope|aliyuncs\.com/i.test(baseURL ?? '');
+
     const history = conv.messages.map((m) => ({
       role: m.role as 'user' | 'assistant',
       content: m.content,
@@ -430,6 +434,13 @@ export class ChatService {
     const personaBlock = this.buildUserPersonaBlock(userContext);
     if (personaBlock) {
       contextParts.push(personaBlock);
+    }
+
+    // 只有真正开启了联网检索才告知该能力，避免无联网的模型据此幻觉
+    if (webSearchEnabled) {
+      contextParts.push(
+        '【联网检索】本会话已开启联网搜索（只读检索，不违反上述"无法执行写操作"的边界）。涉及天气、新闻、汇率、市场行情、行业动态等外部实时信息时，直接基于联网检索结果作答，并在必要时注明信息可能存在延迟；不要回答"我无法联网"。公司内部事务仍以上方内部检索数据为准。',
+      );
     }
 
     // 结构化数据是精确事实，优先级高于向量召回的知识库资料 → 先注入；KB 资料降级为补充参考，冲突时以结构化为准
@@ -539,6 +550,8 @@ export class ChatService {
           userMessage,
         ],
         stream: true,
+        // DashScope 扩展参数：模型自行判断是否需要联网（forced_search=false），非 DashScope 端点不传
+        ...(webSearchEnabled ? { enable_search: true, search_options: { forced_search: false } } : {}),
       });
 
       for await (const chunk of stream) {
