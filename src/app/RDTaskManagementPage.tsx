@@ -8555,6 +8555,8 @@ function PersonTaskCockpit({
     return (
       <motion.div
         key={task.task_id}
+        // 协同侧：筛选/切换泳道时卡片平滑重排归位（layout 动画）；研发侧维持原进场行为
+        layout={spaciousCards && !shouldReduceMotion ? "position" : undefined}
         initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ ...RD_LIST_TRANSITION, delay: taskIdx * 0.03 }}
@@ -9964,6 +9966,30 @@ function ProductManageDialog({
   );
 }
 
+/** 数字滚动（count-up）：进场时从 0 缓动到目标值，带 % 等后缀的字符串自动保留后缀 */
+function AnimatedNumber({ value }: { value: number | string }) {
+  const shouldReduceMotion = useReducedMotion();
+  const num = typeof value === "number" ? value : Number.parseFloat(value);
+  const suffix = typeof value === "string" && Number.isFinite(num) ? value.slice(String(num).length) : "";
+  const [display, setDisplay] = useState(0);
+  useEffect(() => {
+    if (!Number.isFinite(num) || shouldReduceMotion) return;
+    const start = performance.now();
+    const duration = 700;
+    let raf = 0;
+    const tick = (t: number) => {
+      const p = Math.min(1, (t - start) / duration);
+      const eased = 1 - Math.pow(1 - p, 3);
+      setDisplay(Math.round(num * eased));
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [num, shouldReduceMotion]);
+  if (!Number.isFinite(num)) return <>{value}</>;
+  return <>{shouldReduceMotion ? num : display}{suffix}</>;
+}
+
 /**
  * 协同驾驶舱专用：日报/月报摘要条（渐进披露）。
  * 常驻一行（今日日报关键数字 + 成员胶囊），点击才展开完整报表面板——
@@ -10307,7 +10333,7 @@ function ExecutiveOverview({
                     )}
                   >
                     <span className={cn("text-2xl font-bold leading-none tabular-nums tracking-tight", active ? "text-indigo-600" : item.tone)}>
-                      {item.value}
+                      <AnimatedNumber value={item.value} />
                     </span>
                     <span className={cn("mt-1.5 text-xs font-medium", active ? "font-semibold text-indigo-600" : "text-slate-400")}>
                       {item.label}

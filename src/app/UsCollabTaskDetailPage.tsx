@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { motion, useReducedMotion } from "motion/react";
 import { cn } from "./components/ui/utils";
 import { Button } from "./components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "./components/ui/dialog";
@@ -95,6 +96,7 @@ function LocalClock({ name, role }: { name: string; role?: string }) {
 export default function UsCollabTaskDetailPage() {
   const { taskId = "" } = useParams();
   const navigate = useNavigate();
+  const shouldReduceMotion = useReducedMotion();
   const { user } = useAuth();
   const canView = useAnyPermission("page:us-collab-cockpit", "page:us-collab-workspace");
   // 管理动作口径与驾驶舱抽屉的 canManageTaskFlow 一致
@@ -547,8 +549,11 @@ export default function UsCollabTaskDetailPage() {
 
   // 大屏（lg+）视口内布局：整页不滚，AI 小结/时间线各自内滚；窄屏维持自然文档流
   return (
-    <div
+    <motion.div
       ref={rootRef}
+      initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       style={viewportHeight ? { height: viewportHeight } : undefined}
       className="mx-auto flex max-w-[1200px] flex-col gap-4 px-2 pt-4 sm:px-4"
     >
@@ -834,7 +839,7 @@ export default function UsCollabTaskDetailPage() {
               </TabsList>
 
               <TabsContent value="notes" className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
-              <div>
+              <motion.div initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.16 }}>
                 {workItems.length > 0 && (
                   <div className="mb-3 flex flex-wrap items-center gap-1">
                     {[
@@ -867,11 +872,11 @@ export default function UsCollabTaskDetailPage() {
                   loading={notesLoading}
                   emptyText={noteItemFilter === "all" ? "暂无进展留痕" : "该工作项暂无留痕"}
                 />
-              </div>
+              </motion.div>
               </TabsContent>
 
               <TabsContent value="attachments" className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
-              <div className="space-y-3">
+              <motion.div initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.16 }} className="space-y-3">
                 <TaskImageGallery notes={notes} />
                 <div>
                   <div className="mb-2 text-xs font-semibold text-slate-500">文档附件（{docAttachments.length}）</div>
@@ -920,11 +925,11 @@ export default function UsCollabTaskDetailPage() {
                     </div>
                   )}
                 </div>
-              </div>
+              </motion.div>
               </TabsContent>
 
               <TabsContent value="audit" className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
-              <div className="px-1 py-1">
+              <motion.div initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.16 }} className="px-1 py-1">
                 {/* 完整时间线：操作动作 + 进展留痕合成，进展条目下挂附件缩略图（与抽屉口径一致） */}
                 <AuditTimeline
                   logs={timelineLogs}
@@ -941,7 +946,7 @@ export default function UsCollabTaskDetailPage() {
                     return <ProgressAttachmentGrid attachments={note.attachments} compact />;
                   }}
                 />
-              </div>
+              </motion.div>
               </TabsContent>
             </Tabs>
 
@@ -1100,6 +1105,6 @@ export default function UsCollabTaskDetailPage() {
           </div>
         </DialogContent>
       </Dialog>
-    </div>
+    </motion.div>
   );
 }
