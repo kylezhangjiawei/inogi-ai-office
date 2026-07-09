@@ -2,40 +2,99 @@
 import {
   Archive,
   ArrowDownToLine,
+  Award,
+  BadgeCheck,
+  BarChart3,
+  Battery,
+  BookMarked,
   BookOpen,
+  Box,
+  Boxes,
+  Braces,
+  Briefcase,
+  Bug,
+  Calendar,
+  Camera,
   Check,
   ChevronLeft,
   ChevronRight,
+  CircuitBoard,
+  ClipboardCheck,
+  ClipboardList,
+  Clock,
+  Cloud,
   Code2,
+  Cog,
   Cpu,
+  Database,
   DatabaseZap,
   Edit3,
   Eye,
+  Factory,
+  Fan,
   File,
+  FileCheck,
   FileImage,
+  Files,
   FileSpreadsheet,
   FileText,
   FileVideo,
   Filter,
-  FolderPlus,
+  Flag,
   FlaskConical,
   FolderOpen,
+  FolderPlus,
+  Gauge,
+  GitBranch,
+  Globe,
+  GraduationCap,
+  Hammer,
+  HardDrive,
+  KeyRound,
+  Layers,
   LayoutGrid,
+  Library,
+  Lightbulb,
   Link,
   List,
   Loader2,
+  Lock,
+  Mail,
+  MapPin,
+  MessageSquare,
   MoreHorizontal,
   MoveRight,
+  Newspaper,
+  Package,
+  PieChart,
+  Plug,
   Plus,
   RefreshCw,
+  Rocket,
+  Ruler,
+  Scale,
+  ScrollText,
   Search,
+  Server,
+  Share2,
+  Shield,
   ShieldCheck,
+  ShoppingCart,
+  Sparkles,
+  Star,
   Tag,
+  Target,
+  Terminal,
+  TestTube,
+  Thermometer,
   Trash2,
+  TrendingUp,
+  Truck,
   Upload,
   Users,
   Wrench,
   X,
+  Zap,
 } from "lucide-react";
 import { toast } from "sonner";
 import { Avatar, AvatarFallback } from "./components/ui/avatar";
@@ -160,15 +219,94 @@ const SOURCE_CONFIG = {
   import: { label: '批量导入', className: 'bg-sky-50 text-sky-700' },
 };
 
-const CAT_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = {
-  Cpu,
-  Code2,
-  FlaskConical,
-  ShieldCheck,
-  Archive,
-  FolderOpen,
-  BookOpen,
-};
+/**
+ * 类目图标精选库：value 是 lucide 组件名（随类目持久化），label 供选择器搜索。
+ * 渲染映射 CAT_ICON_MAP 由本表生成——扩充图标只加一行，且 bundle 仅含精选集（不引全量 lucide）。
+ */
+export const KB_ICON_LIBRARY: Array<{ value: string; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+  // 文档知识
+  { value: "BookOpen", label: "通用", icon: BookOpen },
+  { value: "FolderOpen", label: "其他", icon: FolderOpen },
+  { value: "FileText", label: "文档", icon: FileText },
+  { value: "Files", label: "文件集", icon: Files },
+  { value: "Library", label: "资料库", icon: Library },
+  { value: "Newspaper", label: "资讯", icon: Newspaper },
+  { value: "ScrollText", label: "条款", icon: ScrollText },
+  { value: "ClipboardList", label: "清单", icon: ClipboardList },
+  { value: "BookMarked", label: "手册", icon: BookMarked },
+  { value: "GraduationCap", label: "培训", icon: GraduationCap },
+  // 工程硬件
+  { value: "Cpu", label: "硬件", icon: Cpu },
+  { value: "CircuitBoard", label: "电路", icon: CircuitBoard },
+  { value: "HardDrive", label: "存储", icon: HardDrive },
+  { value: "Wrench", label: "维修", icon: Wrench },
+  { value: "Hammer", label: "工装", icon: Hammer },
+  { value: "Cog", label: "机械", icon: Cog },
+  { value: "Factory", label: "产线", icon: Factory },
+  { value: "Zap", label: "电气", icon: Zap },
+  { value: "Battery", label: "电池", icon: Battery },
+  { value: "Plug", label: "电源", icon: Plug },
+  { value: "Fan", label: "风冷", icon: Fan },
+  { value: "Gauge", label: "仪表", icon: Gauge },
+  { value: "Thermometer", label: "温控", icon: Thermometer },
+  { value: "Ruler", label: "测量", icon: Ruler },
+  // 软件测试
+  { value: "Code2", label: "软件", icon: Code2 },
+  { value: "Terminal", label: "终端", icon: Terminal },
+  { value: "Bug", label: "缺陷", icon: Bug },
+  { value: "FlaskConical", label: "测试", icon: FlaskConical },
+  { value: "TestTube", label: "实验", icon: TestTube },
+  { value: "GitBranch", label: "版本", icon: GitBranch },
+  { value: "Database", label: "数据", icon: Database },
+  { value: "Server", label: "服务器", icon: Server },
+  { value: "Cloud", label: "云端", icon: Cloud },
+  { value: "Braces", label: "代码", icon: Braces },
+  // 质量法规
+  { value: "ShieldCheck", label: "规范", icon: ShieldCheck },
+  { value: "Shield", label: "安全", icon: Shield },
+  { value: "BadgeCheck", label: "认证", icon: BadgeCheck },
+  { value: "Scale", label: "法务", icon: Scale },
+  { value: "FileCheck", label: "审核", icon: FileCheck },
+  { value: "ClipboardCheck", label: "验收", icon: ClipboardCheck },
+  { value: "Award", label: "资质", icon: Award },
+  { value: "Lock", label: "保密", icon: Lock },
+  { value: "KeyRound", label: "密钥", icon: KeyRound },
+  // 业务流程
+  { value: "Briefcase", label: "商务", icon: Briefcase },
+  { value: "Target", label: "目标", icon: Target },
+  { value: "Rocket", label: "立项", icon: Rocket },
+  { value: "TrendingUp", label: "增长", icon: TrendingUp },
+  { value: "BarChart3", label: "报表", icon: BarChart3 },
+  { value: "PieChart", label: "分析", icon: PieChart },
+  { value: "Calendar", label: "计划", icon: Calendar },
+  { value: "Clock", label: "时效", icon: Clock },
+  { value: "Flag", label: "里程碑", icon: Flag },
+  { value: "Layers", label: "架构", icon: Layers },
+  // 协作沟通
+  { value: "Users", label: "团队", icon: Users },
+  { value: "MessageSquare", label: "沟通", icon: MessageSquare },
+  { value: "Mail", label: "邮件", icon: Mail },
+  { value: "Globe", label: "国际", icon: Globe },
+  { value: "Share2", label: "共享", icon: Share2 },
+  // 物料供应
+  { value: "Package", label: "物料", icon: Package },
+  { value: "Box", label: "包装", icon: Box },
+  { value: "Boxes", label: "库存", icon: Boxes },
+  { value: "Truck", label: "物流", icon: Truck },
+  { value: "ShoppingCart", label: "采购", icon: ShoppingCart },
+  { value: "Archive", label: "归档", icon: Archive },
+  // 其他
+  { value: "Lightbulb", label: "创意", icon: Lightbulb },
+  { value: "Sparkles", label: "AI", icon: Sparkles },
+  { value: "Tag", label: "标签", icon: Tag },
+  { value: "Star", label: "重点", icon: Star },
+  { value: "MapPin", label: "站点", icon: MapPin },
+  { value: "Camera", label: "影像", icon: Camera },
+];
+
+const CAT_ICON_MAP: Record<string, React.ComponentType<{ className?: string }>> = Object.fromEntries(
+  KB_ICON_LIBRARY.map((item) => [item.value, item.icon]),
+);
 
 // ── Helper functions ──────────────────────────────────────────────────────────
 
@@ -1114,16 +1252,6 @@ type CategorySubmitPayload = {
   color?: string;
 };
 
-const CATEGORY_ICON_OPTIONS = [
-  { value: 'BookOpen', label: '通用', icon: BookOpen },
-  { value: 'Cpu', label: '硬件', icon: Cpu },
-  { value: 'Code2', label: '软件', icon: Code2 },
-  { value: 'FlaskConical', label: '测试', icon: FlaskConical },
-  { value: 'ShieldCheck', label: '规范', icon: ShieldCheck },
-  { value: 'Archive', label: '归档', icon: Archive },
-  { value: 'FolderOpen', label: '其他', icon: FolderOpen },
-];
-
 const CATEGORY_COLOR_OPTIONS = ['#3b82f6', '#8b5cf6', '#10b981', '#f59e0b', '#6366f1', '#0ea5e9', '#64748b'];
 
 function CategoryFormDialog({
@@ -1143,6 +1271,12 @@ function CategoryFormDialog({
   const [label, setLabel] = useState(isEdit ? state.category.label : '');
   const [icon, setIcon] = useState(isEdit ? (state.category.icon ?? 'FolderOpen') : 'FolderOpen');
   const [color, setColor] = useState(isEdit ? (state.category.color ?? '#3b82f6') : '#3b82f6');
+  const [iconSearch, setIconSearch] = useState('');
+  const iconKeyword = iconSearch.trim().toLowerCase();
+  const iconChoices = iconKeyword
+    ? KB_ICON_LIBRARY.filter((item) => item.label.toLowerCase().includes(iconKeyword) || item.value.toLowerCase().includes(iconKeyword))
+    : KB_ICON_LIBRARY;
+  const selectedIconMeta = KB_ICON_LIBRARY.find((item) => item.value === icon);
   const parentCategory = state.mode === 'create' ? findCategoryById(categories, state.parentId) : null;
   const ParentIcon = getCatIcon(parentCategory?.icon);
 
@@ -1191,29 +1325,51 @@ function CategoryFormDialog({
           </div>
 
           <div className="space-y-2">
-            <Label className="text-xs font-semibold text-slate-600">图标</Label>
-            <div className="grid grid-cols-4 gap-2">
-              {CATEGORY_ICON_OPTIONS.map((option) => {
-                const Icon = option.icon;
-                const selected = icon === option.value;
-                return (
-                  <Button
-                    key={option.value}
-                    type="button"
-                    variant={selected ? "default" : "outline"}
-                    onClick={() => setIcon(option.value)}
-                    className={cn(
-                      "h-10 rounded-lg px-2 text-xs",
-                      selected
-                        ? "bg-indigo-600 text-white hover:bg-indigo-700"
-                        : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
-                    )}
-                  >
-                    <Icon className="h-3.5 w-3.5" />
-                    {option.label}
-                  </Button>
-                );
-              })}
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-semibold text-slate-600">图标</Label>
+              {selectedIconMeta && (
+                <span className="flex items-center gap-1 text-[11px] text-slate-400">
+                  已选
+                  <selectedIconMeta.icon className="h-3.5 w-3.5 text-indigo-600" />
+                  {selectedIconMeta.label}
+                </span>
+              )}
+            </div>
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+              <Input
+                value={iconSearch}
+                onChange={(event) => setIconSearch(event.target.value)}
+                placeholder="搜索图标（如：硬件 / 采购 / cloud…）"
+                className="h-8 rounded-lg pl-8 text-sm"
+              />
+            </div>
+            <div className="grid max-h-40 grid-cols-8 gap-1.5 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/60 p-2">
+              {iconChoices.length === 0 ? (
+                <p className="col-span-8 py-4 text-center text-xs text-slate-400">没有匹配的图标</p>
+              ) : (
+                iconChoices.map((option) => {
+                  const Icon = option.icon;
+                  const selected = icon === option.value;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => setIcon(option.value)}
+                      title={option.label}
+                      aria-pressed={selected}
+                      className={cn(
+                        "flex h-9 cursor-pointer items-center justify-center rounded-lg border transition-colors",
+                        selected
+                          ? "border-indigo-300 bg-indigo-600 text-white shadow-sm"
+                          : "border-transparent bg-white text-slate-500 hover:border-indigo-200 hover:text-indigo-600",
+                      )}
+                    >
+                      <Icon className="h-4 w-4" />
+                    </button>
+                  );
+                })
+              )}
             </div>
           </div>
 
