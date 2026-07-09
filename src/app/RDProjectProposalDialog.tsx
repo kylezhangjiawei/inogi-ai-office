@@ -42,6 +42,9 @@ import {
   extractRdTasksFromText,
   fetchProductTaskCategories,
   isUsCollabWorkspace,
+} from "./lib/rdApi";
+import { t, useI18n } from "./lib/i18n";
+import {
   fetchRdPeople,
   fetchRdProducts,
   fetchRdTaskCategories,
@@ -887,12 +890,12 @@ function StepInput({
     <div className="space-y-4 px-6 py-5">
       <div>
         <label className="mb-1.5 block text-xs font-medium text-slate-700">
-          立项标题（可选，AI 会自动生成）
+          {t("立项标题（可选，AI 会自动生成）")}
         </label>
         <Input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="例：电磁阀工艺升级 v2.1"
+          placeholder={t("例：电磁阀工艺升级 v2.1")}
           className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
         />
       </div>
@@ -923,7 +926,7 @@ function StepInput({
       <div className="flex items-start gap-2 rounded-md border border-indigo-100 bg-indigo-50/50 px-3 py-2 text-[11px] text-indigo-700">
         <Sparkles className="mt-0.5 h-3 w-3 shrink-0" />
         <span>
-          <span className="font-semibold">立项描述</span> 与 <span className="font-semibold">附件</span> 二选其一即可，提供任一项 AI 都能开始解析；同时提供则 AI 会综合两者。
+          <span className="font-semibold">{t("立项描述")}</span> {t("与")} <span className="font-semibold">{t("附件")}</span> {t("二选其一即可，提供任一项 AI 都能开始解析；同时提供则 AI 会综合两者。")}
         </span>
       </div>
 
@@ -931,23 +934,23 @@ function StepInput({
       <div className={cn("transition-opacity", !descPrimary && "opacity-60")}>
         <div className="mb-1.5 flex items-center justify-between">
           <label className="text-xs font-medium text-slate-700">
-            立项描述
+            {t("立项描述")}
             {hasDescription && (
               <span className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] font-semibold text-indigo-600">
                 <CheckCircle2 className="h-3 w-3" />
-                已填写
+                {t("已填写")}
               </span>
             )}
           </label>
           <span className="text-[10px] text-slate-400">
-            {hasFiles && !hasDescription ? "可省略（附件已提供）" : "或粘贴文本"}
+            {hasFiles && !hasDescription ? t("可省略（附件已提供）") : t("或粘贴文本")}
           </span>
         </div>
         <Textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           rows={5}
-          placeholder="粘贴会议纪要、邮件正文，或直接描述立项目标、范围与关键节点。"
+          placeholder={t("粘贴会议纪要、邮件正文，或直接描述立项目标、范围与关键节点。")}
           className="w-full resize-none rounded-md border border-slate-200 bg-slate-50/40 px-3 py-2.5 text-sm leading-relaxed outline-none transition-all focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-100"
         />
       </div>
@@ -956,7 +959,7 @@ function StepInput({
       <div className="relative flex items-center">
         <div className="flex-1 border-t border-dashed border-slate-200" />
         <span className="mx-3 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-          或
+          {t("或")}
         </span>
         <div className="flex-1 border-t border-dashed border-slate-200" />
       </div>
@@ -965,16 +968,16 @@ function StepInput({
       <div className={cn("transition-opacity", !filesPrimary && "opacity-60")}>
         <div className="mb-1.5 flex items-center justify-between">
           <label className="text-xs font-medium text-slate-700">
-            上传附件
+            {t("上传附件")}
             {hasFiles && (
               <span className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] font-semibold text-indigo-600">
                 <CheckCircle2 className="h-3 w-3" />
-                已选 {files.length} 个
+                {t("已选")} {files.length}
               </span>
             )}
           </label>
           <span className="text-[10px] text-slate-400">
-            {hasDescription && !hasFiles ? "可省略（描述已提供）" : "或拖入文件"}
+            {hasDescription && !hasFiles ? t("可省略（描述已提供）") : t("或拖入文件")}
           </span>
         </div>
         <label
@@ -991,8 +994,8 @@ function StepInput({
         >
           <FileUp className="h-4 w-4" />
           {hasFiles
-            ? `已选 ${files.length} 个文件，点击继续添加`
-            : "拖入或点击上传 Excel / Word / PDF / 图片"}
+            ? t("已选 {n} 个文件，点击继续添加", { n: files.length })
+            : t("拖入或点击上传 Excel / Word / PDF / 图片")}
           <Input
             type="file"
             className="hidden"
@@ -1031,11 +1034,11 @@ function StepInput({
         <span className="text-[11px] text-slate-400">
           {canSubmit
             ? hasDescription && hasFiles
-              ? "✓ 描述 + 附件 已就绪，AI 将综合两者解析"
+              ? t("✓ 描述 + 附件 已就绪，AI 将综合两者解析")
               : hasDescription
-                ? "✓ 描述已就绪，可继续"
-                : "✓ 附件已就绪，可继续"
-            : "请提供描述或附件中的任一项"}
+                ? t("✓ 描述已就绪，可继续")
+                : t("✓ 附件已就绪，可继续")
+            : t("请提供描述或附件中的任一项")}
         </span>
         <div className="flex items-center gap-2">
           <button
@@ -1043,7 +1046,7 @@ function StepInput({
             onClick={onClose}
             className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 active:scale-[0.98]"
           >
-            取消
+            {t("取消")}
           </button>
           <button
             type="button"
@@ -1052,7 +1055,7 @@ function StepInput({
             className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.22)] transition-all hover:bg-indigo-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Sparkles className="h-3.5 w-3.5" />
-            {catLoading ? "加载分类中…" : "AI 解析"}
+            {catLoading ? t("加载分类中…") : t("AI 解析")}
             <ArrowRight className="h-3.5 w-3.5" />
           </button>
         </div>
@@ -1073,7 +1076,7 @@ function StepProcessing({ progress, label }: { progress: number; label: string }
         </span>
       </div>
       <div className="text-center">
-        <h3 className="text-base font-semibold text-slate-900">AI 正在解析您的立项</h3>
+        <h3 className="text-base font-semibold text-slate-900">{t("AI 正在解析您的立项")}</h3>
         <p className="mt-1 text-xs text-slate-500">{label}</p>
       </div>
       <div className="w-full max-w-xs">
@@ -1207,7 +1210,7 @@ function TaskEditRow({
       {expanded && (
         <div className="space-y-3 border-t border-slate-100 bg-slate-50/40 px-3.5 py-3">
           <div>
-            <label className="mb-1 block text-[11px] font-medium text-slate-500">描述</label>
+            <label className="mb-1 block text-[11px] font-medium text-slate-500">{t("描述")}</label>
             <Textarea
               value={task.description ?? ""}
               onChange={(e) => onChange({ ...task, description: e.target.value })}
@@ -1218,7 +1221,7 @@ function TaskEditRow({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-[11px] font-medium text-slate-500">
-                主责人{ownerLocked && <span className="ml-1 text-[10px] text-indigo-500">· 已锁定为本人</span>}
+                {t("主责人")}{ownerLocked && <span className="ml-1 text-[10px] text-indigo-500">· {t("已锁定为本人")}</span>}
               </label>
               {ownerLocked ? (
                 <div
@@ -1261,10 +1264,10 @@ function TaskEditRow({
             </div>
             <div>
               <label className="mb-1 block text-[11px] font-medium text-slate-500">
-                截止日期
+                {t("截止日期")}
                 {task.due_date_original && (
-                  <span className="ml-1 text-[10px] text-amber-600" title={`AI 从原文识别的时间节点：${task.due_date_original}`}>
-                    · AI 识别
+                  <span className="ml-1 text-[10px] text-amber-600" title={`${t("AI 从原文识别的时间节点：")}${task.due_date_original}`}>
+                    · {t("AI 识别")}
                   </span>
                 )}
               </label>
@@ -1279,7 +1282,7 @@ function TaskEditRow({
               )}
             </div>
             <div>
-              <label className="mb-1 block text-[11px] font-medium text-slate-500">优先级</label>
+              <label className="mb-1 block text-[11px] font-medium text-slate-500">{t("优先级")}</label>
               <Select
                 value={task.priority}
                 onValueChange={(priority) => onChange({ ...task, priority: priority as Priority })}
@@ -1411,7 +1414,7 @@ function TaskEditRow({
               </div>
             </div>
             <div>
-              <label className="mb-1 block text-[11px] font-medium text-slate-500">人工调整工时（天）</label>
+              <label className="mb-1 block text-[11px] font-medium text-slate-500">{t("人工调整工时（天）")}</label>
               <div className="flex items-center gap-1">
                 <input
                   type="number"
@@ -2043,7 +2046,7 @@ function StepReview({
           className="group inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 active:scale-[0.98]"
         >
           <ChevronLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
-          返回修改
+          {t("返回修改")}
         </button>
         <div className="flex items-center gap-2">
           <button
@@ -2052,7 +2055,7 @@ function StepReview({
             onClick={onNext}
             className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
           >
-            手动审核流程
+            {t("手动审核流程")}
             <ArrowRight className="h-3.5 w-3.5" />
           </button>
           {onQuickSubmit && quickSubmitLabel && (
@@ -2142,7 +2145,7 @@ function StepSubmit({
       <div className="space-y-5 overflow-auto px-6 py-5">
         {/* Summary */}
         <section className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
-          <div className="mb-2 text-xs font-medium text-slate-500">立项摘要</div>
+          <div className="mb-2 text-xs font-medium text-slate-500">{t("立项摘要")}</div>
           <h3 className="text-base font-semibold text-slate-900">{title || "未命名立项"}</h3>
           <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
             <div>
@@ -2250,29 +2253,29 @@ function StepSubmit({
               </div>
               <div className="flex items-center justify-center gap-1.5 rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2 text-emerald-700">
                 <CheckCircle2 className="h-3.5 w-3.5" />
-                <span className="text-xs font-semibold">通过 · 任务自动分配</span>
+                <span className="text-xs font-semibold">{t("通过 · 任务自动分配")}</span>
               </div>
             </div>
           )}
           <p className="mt-1.5 text-[11px] text-slate-400">
             {directOnly
-              ? "研发主管可直接立项，无需审核"
+              ? t("研发主管可直接立项，无需审核")
               : canDirect
-                ? "你有「直接立项」权限，可选择跳过审核（适用于紧急/已对齐过的立项）"
-                : "提交后进入审核队列。或签模式下任一审核人通过即转下一级，会签则需池内全部通过"}
+                ? t("你有「直接立项」权限，可选择跳过审核（适用于紧急/已对齐过的立项）")
+                : t("提交后进入审核队列。或签模式下任一审核人通过即转下一级，会签则需池内全部通过")}
           </p>
         </section>
 
         {/* Comment */}
         <section>
           <label className="mb-1.5 block text-xs font-medium text-slate-700">
-            备注 / 提交说明（可选）
+            {t("备注 / 提交说明（可选）")}
           </label>
           <Textarea
             value={comment}
             onChange={(e) => setComment(e.target.value)}
             rows={3}
-            placeholder="例：本立项已与研发主管口头对齐，关键节点请尽快推进。"
+            placeholder={t("例：本立项已与研发主管口头对齐，关键节点请尽快推进。")}
             className="w-full resize-none rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
           />
         </section>
@@ -2296,7 +2299,7 @@ function StepSubmit({
           className="group inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 active:scale-[0.98] disabled:opacity-40"
         >
           <ChevronLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
-          返回
+          {t("返回")}
         </button>
         <div className="flex items-center gap-2">
           <button
@@ -2305,7 +2308,7 @@ function StepSubmit({
             disabled={submitting}
             className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 active:scale-[0.98] disabled:opacity-40"
           >
-            保存草稿
+            {t("保存草稿")}
           </button>
           {userRole === "user" && reviewNodes.length > 0 && canSubmitProposal && (
             <button
@@ -2315,7 +2318,7 @@ function StepSubmit({
               className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.22)] transition-all hover:bg-indigo-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
             >
               {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
-              提交审核
+              {t("提交审核")}
             </button>
           )}
           {canDirect && (
@@ -2326,7 +2329,7 @@ function StepSubmit({
               className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(5,150,105,0.25)] transition-all hover:bg-emerald-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
             >
               {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              {directOnly ? "立项并分配" : "直接立项并分配"}
+              {directOnly ? t("立项并分配") : t("直接立项并分配")}
             </button>
           )}
         </div>
@@ -2354,6 +2357,7 @@ export function RDProjectProposalDialog({
    */
   forceOwnerToCurrentUser?: boolean;
 }) {
+  useI18n(); // 订阅语言切换（弹窗步骤/表单文案已 t() 化）
   const [step, setStep] = useState<Step>(1);
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -2421,10 +2425,10 @@ export function RDProjectProposalDialog({
   }, [open, productId]);
 
   const STEP_LABELS: Record<Step, string> = {
-    1: "描述内容",
-    2: "AI 解析中",
-    3: "审阅 AI 输出",
-    4: "提交审核",
+    1: t("描述内容"),
+    2: t("AI 解析中"),
+    3: t("审阅 AI 输出"),
+    4: t("提交审核"),
   };
 
   const reset = () => {
@@ -3008,9 +3012,9 @@ export function RDProjectProposalDialog({
             }
             quickSubmitLabel={
               canDirectProject
-                ? "AI 一键立项"
+                ? t("AI 一键立项")
                 : canSubmitProposal
-                  ? "AI 一键提交审核"
+                  ? t("AI 一键提交审核")
                   : undefined
             }
             quickSubmitDisabled={tasks.some((t) => !t.title.trim())}
