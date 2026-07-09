@@ -67,7 +67,7 @@ type DetailTab = "notes" | "attachments" | "audit";
 // 时区启发：名字含中文或角色含「中方/中国」→ 北京；否则按美东（波士顿团队）。
 function personTimeZone(name: string, role?: string): { tz: string; label: string } {
   const isChina = /[一-鿿]/.test(name) || /中方|中国/.test(role ?? "");
-  return isChina ? { tz: "Asia/Shanghai", label: "北京" } : { tz: "America/New_York", label: "波士顿" };
+  return isChina ? { tz: "Asia/Shanghai", label: t("北京") } : { tz: "America/New_York", label: t("波士顿") };
 }
 
 /** 成员当地时间小徽标（每分钟刷新）：跨时区找人前先看对方那边几点 */
@@ -707,7 +707,7 @@ export default function UsCollabTaskDetailPage() {
                     >
                       <OwnerAvatar name={c.name} userId={c.user_id} size="xs" />
                       <span className="text-sm text-slate-700">{c.name}</span>
-                      <span className="text-[11px] text-slate-400">{c.role}</span>
+                      <span className="text-[11px] text-slate-400">{t(c.role)}</span>
                       <LocalClock name={c.name} role={c.role} />
                     </button>
                   ))}

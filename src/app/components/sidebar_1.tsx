@@ -74,10 +74,10 @@ export function Sidebar() {
             </div>
 
             <div className="rounded-[24px] bg-[linear-gradient(145deg,#eef2ff_0%,#f9fbff_55%,#f3f0ff_100%)] px-4 py-4">
-              <div className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">当前用户</div>
+              <div className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">{t("当前用户")}</div>
               <div className="flex items-end justify-between gap-3">
                 <div className="truncate text-sm font-bold tracking-tight text-slate-900">{user?.name ?? "—"}</div>
-                <span className="material-chip shrink-0 bg-white/85 text-primary shadow-sm">{user?.roleName ?? "无角色"}</span>
+                <span className="material-chip shrink-0 bg-white/85 text-primary shadow-sm">{user?.roleName ? t(user.roleName) : t("无角色")}</span>
               </div>
               <p className="mt-2 text-xs text-slate-500 truncate">{user?.email ?? ""}</p>
             </div>

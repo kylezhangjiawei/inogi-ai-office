@@ -4215,7 +4215,7 @@ export function WorkItemsSection({
     <div className="rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="text-xs font-semibold text-slate-500">
-          工作项{items.length > 0 ? ` ${doneCount}/${items.length}` : ""}
+          {t("工作项")}{items.length > 0 ? ` ${doneCount}/${items.length}` : ""}
         </span>
         {canEdit && !adding && (
           <button
@@ -4224,7 +4224,7 @@ export function WorkItemsSection({
             className="flex cursor-pointer items-center gap-1 rounded px-2 py-0.5 text-[11px] text-slate-400 hover:bg-slate-200 hover:text-slate-700"
           >
             <Plus className="h-2.5 w-2.5" />
-            添加工作项
+            {t("添加工作项")}
           </button>
         )}
       </div>
@@ -4251,7 +4251,7 @@ export function WorkItemsSection({
                 <span className={cn("min-w-0 flex-1 truncate", it.done ? "text-slate-400 line-through" : "text-slate-700")}>{it.title}</span>
                 {it.owner_name && <span className="shrink-0 text-[11px] text-slate-400">{it.owner_name}</span>}
                 {noteCount > 0 && (
-                  <span className="shrink-0 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-500">{noteCount} 条留痕</span>
+                  <span className="shrink-0 rounded-full bg-indigo-50 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-500">{t("{n} 条留痕", { n: noteCount })}</span>
                 )}
                 {canEdit && (
                   <button

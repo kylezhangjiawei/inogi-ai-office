@@ -187,7 +187,7 @@ export function Header() {
                   </div>
                   <div className="min-w-0 text-left">
                     <div className="truncate text-sm font-semibold text-slate-800">{user?.name ?? "访客"}</div>
-                    <div className="truncate text-xs text-slate-500">{user ? getRoleLabel(user.roleName) : "未登录"}</div>
+                    <div className="truncate text-xs text-slate-500">{user ? t(getRoleLabel(user.roleName)) : t("未登录")}</div>
                   </div>
                   <ChevronDown className="h-4 w-4 text-slate-400" />
                 </button>
