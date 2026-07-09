@@ -1176,7 +1176,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
                 )}
               >
                 <span className="flex items-center gap-2 min-w-0">
-                  <CatIcon className="w-4 h-4 shrink-0" />
+                  <CatIcon className="w-4 h-4 shrink-0" style={isSelected ? undefined : { color: cat.color || undefined }} />
                   <span className="truncate">{cat.label}</span>
                 </span>
                 <div className="flex h-5 w-5 shrink-0 items-center justify-end">
@@ -1220,7 +1220,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
                         )}
                       >
                         <span className="flex items-center gap-1.5 min-w-0">
-                          <ChildIcon className="w-3.5 h-3.5 shrink-0" />
+                          <ChildIcon className="w-3.5 h-3.5 shrink-0" style={isChildSelected ? undefined : { color: child.color || undefined }} />
                           <span className="truncate">{child.label}</span>
                         </span>
                       </Button>
@@ -1330,7 +1330,7 @@ function CategoryFormDialog({
               {selectedIconMeta && (
                 <span className="flex items-center gap-1 text-[11px] text-slate-400">
                   已选
-                  <selectedIconMeta.icon className="h-3.5 w-3.5 text-indigo-600" />
+                  <selectedIconMeta.icon className="h-3.5 w-3.5" style={{ color }} />
                   {selectedIconMeta.label}
                 </span>
               )}
@@ -1374,7 +1374,10 @@ function CategoryFormDialog({
           </div>
 
           <div className="space-y-2">
-            <Label className="text-xs font-semibold text-slate-600">颜色</Label>
+            <div className="flex items-center justify-between">
+              <Label className="text-xs font-semibold text-slate-600">颜色</Label>
+              <span className="text-[11px] text-slate-400">用于左侧类目树的图标颜色</span>
+            </div>
             <div className="flex flex-wrap gap-2">
               {CATEGORY_COLOR_OPTIONS.map((value) => {
                 const selected = color === value;
@@ -1544,7 +1547,7 @@ function MoveEntryDialog({
                 >
                   {(() => {
                     const Icon = getCatIcon(category.icon);
-                    return <Icon className="h-3.5 w-3.5" />;
+                    return <Icon className="h-3.5 w-3.5" style={targetId === category.id ? undefined : { color: category.color || undefined }} />;
                   })()}
                   <span className={cn("truncate", !categories.some((parent) => parent.id === category.id) && "pl-3")}>
                     {category.label}
