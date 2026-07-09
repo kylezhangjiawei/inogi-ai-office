@@ -531,10 +531,10 @@ export default function UsCollabTaskDetailPage() {
         <p className="text-sm">{loadError || "任务不存在"}</p>
         <button
           type="button"
-          onClick={() => navigate(-1)}
+          onClick={() => navigate("/us-collab-cockpit")}
           className="cursor-pointer rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
         >
-          返回
+          返回驾驶舱
         </button>
       </div>
     );
@@ -554,7 +554,8 @@ export default function UsCollabTaskDetailPage() {
     >
       {/* ── 顶部：返回 + 标题 + 徽章 ── */}
       <div className="flex shrink-0 flex-wrap items-center gap-3">
-        <Button type="button" variant="outline" size="sm" onClick={() => navigate(-1)} className="gap-1">
+        {/* 直接回驾驶舱（不用 navigate(-1)：序列导航翻过 N 条任务后逐条回退历史体验极差） */}
+        <Button type="button" variant="outline" size="sm" onClick={() => navigate("/us-collab-cockpit")} className="gap-1">
           <ArrowLeft className="h-3.5 w-3.5" />
           返回
         </Button>
