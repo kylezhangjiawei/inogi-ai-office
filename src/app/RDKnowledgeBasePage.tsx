@@ -157,6 +157,7 @@ import {
   type KbVisibility,
   type KbClassifyResult,
 } from "./lib/rdApi";
+import { t, useI18n } from "./lib/i18n";
 import { backfillKbToRag } from "./lib/ragApi";
 
 // ── 知识库作用域（研发库 / 部门库共用本页面）────────────────────────────────────
@@ -1019,6 +1020,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
   onDelete,
   categoryFileCounts,
 }: CategorySidebarProps) {
+  useI18n(); // memo 组件不随父级重渲染，须自行订阅语言切换（「知识域/全部」等文案）
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const toggleExpand = (id: string) => {
@@ -1110,7 +1112,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
   return (
     <Card className="w-full lg:w-80 lg:shrink-0 lg:min-h-0 bg-white rounded-lg border border-slate-200/80 p-2.5 flex flex-row lg:flex-col gap-1 overflow-x-auto lg:overflow-y-auto shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
       <div className="hidden lg:flex items-center justify-between px-3 pb-2 pt-1 text-[11px] font-semibold uppercase text-slate-400">
-        <span>知识域</span>
+        <span>{t("知识域")}</span>
         <div className="flex items-center gap-2">
           {canCreate && (
             <Button
@@ -1141,7 +1143,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
       >
         <span className="flex items-center gap-2">
           <BookOpen className="w-4 h-4" />
-          全部
+          {t("全部")}
         </span>
       </Button>
 
@@ -2458,6 +2460,7 @@ function MemberLevelsDialog({ kbId, onClose }: { kbId: string; onClose: () => vo
 }
 
 export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
+  useI18n(); // 订阅语言切换（工具栏/上传按钮等文案已 t() 化）
   const { user } = useAuth();
 
   // 作用域：研发库 kbId=undefined（rd-kb:* 权限 + /knowledge 接口）；部门库 kbId=部门 id（dept-kb:* 权限 + /dept-knowledge 接口）
@@ -2975,7 +2978,7 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
             type="text"
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
-            placeholder="按标题、描述、标签筛选…"
+            placeholder={t("按标题、描述、标签筛选…")}
             className="h-9 w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-8 text-sm text-slate-800 outline-none transition-shadow placeholder-slate-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
           />
           {keyword && (
@@ -2998,7 +3001,7 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
         >
           {FILE_TYPE_FILTER_OPTIONS.map((option) => (
             <option key={option.value} value={option.value}>
-              {option.label === '全部' ? '全部类型' : option.label}
+              {option.label === '全部' ? t('全部类型') : t(option.label)}
             </option>
           ))}
         </NativeSelect>
@@ -3009,20 +3012,20 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
           onValueChange={(v) => setLevelFilter(Number(v))}
           className="h-9 w-auto min-w-[9rem] rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-shadow focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
         >
-          <option value="100">权限分 ≤ 100（全部）</option>
-          <option value="75">权限分 ≤ 75（受限）</option>
-          <option value="50">权限分 ≤ 50（内部）</option>
-          <option value="25">权限分 ≤ 25（公开）</option>
+          <option value="100">{t("权限分 ≤ 100（全部）")}</option>
+          <option value="75">{t("权限分 ≤ 75（受限）")}</option>
+          <option value="50">{t("权限分 ≤ 50（内部）")}</option>
+          <option value="25">{t("权限分 ≤ 25（公开）")}</option>
         </NativeSelect>
 
         {/* 右侧：计数 + 视图切换 + 同步 + 更多 + 上传 */}
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {/* 计数（纯展示） */}
           <div className="hidden items-center gap-1.5 md:flex">
-            <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">共 <span className="tabular-nums">{entries.length}</span></span>
-            <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-600">文档 <span className="tabular-nums">{docCount}</span></span>
+            <span className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-600">{t("共")} <span className="tabular-nums">{entries.length}</span></span>
+            <span className="inline-flex items-center gap-1 rounded-md bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-600">{t("文档")} <span className="tabular-nums">{docCount}</span></span>
             <span className="inline-flex items-center gap-1 rounded-md bg-red-50 px-2 py-1 text-[11px] font-semibold text-red-600">PDF <span className="tabular-nums">{pdfCount}</span></span>
-            <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-600">图片 <span className="tabular-nums">{imageCount}</span></span>
+            <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-600">{t("图片")} <span className="tabular-nums">{imageCount}</span></span>
           </div>
 
           {/* 网格 / 列表 视图切换 */}
@@ -3057,7 +3060,7 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
             title="同步（保留当前筛选条件）"
           >
             <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
-            同步
+            {t("同步")}
           </Button>
 
           {/* 更多：修复文件名 / RAG 回填（仅研发库管理员） */}
@@ -3098,7 +3101,7 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
               className="h-9 gap-2 rounded-lg border-slate-200 bg-white text-sm text-slate-700 hover:bg-slate-50"
             >
               <Users className="h-4 w-4" />
-              成员权限
+              {t("成员权限")}
             </Button>
           )}
 
@@ -3110,7 +3113,7 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
               className="h-9 gap-2 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(79,70,229,0.20)] transition-all duration-200 hover:bg-indigo-700 focus-visible:ring-2 focus-visible:ring-indigo-200 focus-visible:ring-offset-2"
             >
               <Plus className="h-4 w-4" />
-              上传文件
+              {t("上传文件")}
             </Button>
           )}
         </div>
