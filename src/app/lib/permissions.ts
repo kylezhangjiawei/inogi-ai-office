@@ -324,6 +324,22 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     ],
   },
   {
+    // 协同池内操作与研发共用同一套操作码（页面码决定能进哪个池、操作码只在所进池内生效）。
+    // 这里把协同驾驶舱/工作台顶部按钮对应的操作码单独列出，配置协同角色时不必再去研发分组里找；
+    // 与研发分组勾选状态天然同步（同一个码）。
+    label: '操作权限 · 中美协同（池内，与研发共用操作码）',
+    permissions: [
+      { code: 'rd-task:create', label: '新建任务（协同池）', description: '在协同驾驶舱/工作台创建任务；与研发「新建任务」同码，仅在有权进入的池内生效' },
+      { code: 'rd-task:edit', label: '编辑与审批任务（协同池）', description: '修改协同任务字段/状态、处理成果与协作审批；与研发同码' },
+      { code: 'rd-task:reassign', label: '批量转派（协同池）', description: '协同驾驶舱顶部「批量转派」按钮；与研发同码' },
+      { code: 'rd-task:move', label: '移动任务归类（协同池）', description: '协同任务移动到其他分组；与研发同码' },
+      { code: 'rd-task:override-priority', label: '覆盖优先级（协同池）', description: '协同任务详情页修改优先级；与研发同码' },
+      { code: 'rd-people:manage', label: '人员管理（协同池）', description: '协同驾驶舱顶部「人员管理」按钮，维护协同成员；与研发同码' },
+      { code: 'rd-data:clear', label: '清空数据（协同池）', description: '协同驾驶舱顶部「清空数据」按钮；与研发同码，高危' },
+      { code: 'rd-project:direct', label: 'AI 立项（协同池）', description: '协同驾驶舱顶部「AI 立项」按钮，直接建任务免审；与研发同码' },
+    ],
+  },
+  {
     label: '操作权限 · 研发知识库',
     permissions: [
       { code: 'rd-kb:upload', label: '上传知识库文件', description: '向知识库上传文件（含拖拽 / 文件选择）' },

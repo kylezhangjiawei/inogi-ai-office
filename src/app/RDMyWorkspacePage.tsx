@@ -505,7 +505,10 @@ function TaskCardUI({
             <Clock className="h-3 w-3" />
             {task.due_date}
           </span>
-          <span className="min-w-0 truncate text-slate-400">{task.category_path}</span>
+          {/* 协同任务没有「分类路径」概念（复用研发数据结构的残留字段），协同工作台不展示 */}
+          {!isUsCollabWorkspace() && (
+            <span className="min-w-0 truncate text-slate-400">{task.category_path}</span>
+          )}
         </div>
 
         <div className="mt-2 flex items-center gap-2">
@@ -1336,7 +1339,7 @@ function TaskOperationDrawer({
   return (
     <DrawerShell
       title={task.title}
-      subtitle={`${task.task_id} / ${task.category_path}`}
+      subtitle={isUsCollabWorkspace() ? task.task_id : `${task.task_id} / ${task.category_path}`}
       icon={ClipboardCheck}
       onClose={onClose}
     >
@@ -3020,7 +3023,7 @@ function WorkspaceTaskCard({
                 {isOverdue ? `逾期 ${taskOverdueDays(task)} 天` : days === 0 ? "今天到期" : `止 ${task.due_date}`}
               </span>
             )}
-            {task.category_path && (
+            {!isUsCollabWorkspace() && task.category_path && (
               <span className="truncate">{task.category_path}</span>
             )}
           </div>

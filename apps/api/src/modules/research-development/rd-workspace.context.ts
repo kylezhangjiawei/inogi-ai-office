@@ -25,7 +25,7 @@ export const RD_WORKSPACE_IDS: ReadonlySet<string> = new Set([RD_DEFAULT_WORKSPA
  * 的守卫就是这一个操作码，存在「只配它、不配任何页面码」的合法角色，两池都需放行，
  * 否则该角色的人员管理接口全 403（历史行为回归）。
  */
-const WORKSPACE_PAGE_CODES: Record<string, string[]> = {
+export const WORKSPACE_PAGE_CODES: Record<string, string[]> = {
   rd: [
     'page:rd-task-management',
     'page:rd-my-workspace',

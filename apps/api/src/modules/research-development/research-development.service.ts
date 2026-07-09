@@ -6,7 +6,7 @@ import { OssService } from '../oss/oss.service';
 import { RagService } from '../rag/rag.service';
 import { DEPT_KB_DEFAULT_CATEGORIES } from './dept-knowledge.constants';
 import { RdAiService } from './rd-ai.service';
-import { resolveRdStoreKey } from './rd-workspace.context';
+import { WORKSPACE_PAGE_CODES, currentRdWorkspace, resolveRdStoreKey } from './rd-workspace.context';
 
 type JsonRecord = Record<string, unknown>;
 /**
@@ -2003,6 +2003,15 @@ export class ResearchDevelopmentService {
   }
 
   private async getUsersWithAnyPermission(codes: string[]): Promise<Array<{ id: string; name: string }>> {
+    // 收件人须同时具备：指定操作码之一 + 当前工作区的页面码（超管 '*' 通行）。
+    // 操作码跨池共享（协同角色同样持有 rd-task:edit 等），只按操作码捞人会把
+    // 研发池的审核通知发给协同角色用户——rd.messages 是全局消息流（用户级过滤、
+    // 有意豁免池隔离），一旦发错人，对方在任何工作台都能看到研发通知。
+    // 页面码定池：用「page:」前缀的页面码约束收件人所属池（rd-people:manage 等
+    // 双池准入特殊码不作为归属依据）。
+    const workspacePages = (WORKSPACE_PAGE_CODES[currentRdWorkspace()] ?? []).filter((code) =>
+      code.startsWith('page:'),
+    );
     const users = await this.prisma.user.findMany({
       where: { status: 'ACTIVE' },
       select: { id: true, name: true, role: { select: { permissions: true } } },
@@ -2010,7 +2019,11 @@ export class ResearchDevelopmentService {
     return users
       .filter((u) => {
         const perms = Array.isArray(u.role?.permissions) ? (u.role!.permissions as string[]) : [];
-        return perms.includes('*') || codes.some((c) => perms.includes(c));
+        if (perms.includes('*')) return true;
+        return (
+          codes.some((c) => perms.includes(c)) &&
+          workspacePages.some((page) => perms.includes(page))
+        );
       })
       .map((u) => ({ id: u.id, name: u.name }));
   }
