@@ -96,13 +96,20 @@ async function pollTask<T>(
   }
 }
 
-/** 把前端 Attachment 精简成后端入参（只回传 id + 展示元信息）。 */
-function toAttachmentInput(attachments?: Attachment[]) {
+/** 把前端 Attachment 精简成后端入参（只回传 id + 展示元信息）。
+ *  fileUrl 可能是本地预览用的 base64 dataURL（几十 KB 起），后端存储/展示按 id 重签、
+ *  不采用该值——提交前清洗掉，否则白白撑大请求体还会撞 2000 字符校验。 */
+function toAttachmentInput(
+  attachments?: Array<Pick<Attachment, "id" | "fileName" | "fileType"> & { fileUrl?: string; extractedText?: string }>,
+) {
   return (attachments ?? []).map((a) => ({
     id: a.id,
     fileName: a.fileName,
     fileType: a.fileType,
-    fileUrl: a.fileUrl,
+    fileUrl:
+      a.fileUrl && !a.fileUrl.startsWith("data:") && a.fileUrl.length <= 2000
+        ? a.fileUrl
+        : undefined,
     extractedText: a.extractedText,
   }));
 }
@@ -115,12 +122,15 @@ export function createHttpIssueService(): IssueService {
     request<Issue>(`/api/issues/${encodeURIComponent(id)}`);
 
   const create = (input: NewIssueInput): Promise<Issue> =>
-    request<Issue>(`/api/issues`, { method: "POST", body: JSON.stringify(input) });
+    request<Issue>(`/api/issues`, {
+      method: "POST",
+      body: JSON.stringify({ ...input, attachments: toAttachmentInput(input.attachments) }),
+    });
 
   const findSimilar = (input: NewIssueInput): Promise<SimilarMatch[]> =>
     request<SimilarMatch[]>(`/api/issues/find-similar`, {
       method: "POST",
-      body: JSON.stringify(input),
+      body: JSON.stringify({ ...input, attachments: toAttachmentInput(input.attachments) }),
     });
 
   // analyze/adjust/chat 为长耗时 AI 操作：后端立即返回 taskId，这里内部轮询到完成，

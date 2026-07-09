@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
@@ -24,9 +24,17 @@ export class IssueAttachmentInputDto {
   @MaxLength(128)
   fileType!: string;
 
+  // fileUrl 仅作展示透传，存储/展示实际按 id(fileId) 回查重签。
+  // 客户端可能把本地预览用的 base64 dataURL 原样带上来（动辄几十 KB），
+  // 静默丢弃而不是 400 拒绝：该值本来就不会被采用。
   @IsOptional()
   @IsString()
   @MaxLength(2000)
+  @Transform(({ value }) =>
+    typeof value === 'string' && (value.startsWith('data:') || value.length > 2000)
+      ? undefined
+      : value,
+  )
   fileUrl?: string;
 
   @IsOptional()
