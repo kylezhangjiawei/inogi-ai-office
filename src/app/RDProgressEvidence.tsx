@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, Download, FileText, ImageIcon, Loader2, Paperclip, Table2, X } from "lucide-react";
 import { cn } from "./components/ui/utils";
+import { t } from "./lib/i18n";
 import { getAttachmentPreviewUrl, getAttachmentThumbUrl, getAttachmentUrl, type RdTaskProgressAttachment, type RdTaskProgressNote } from "./lib/rdApi";
 import { parseXlsxForPreview, type XlsxPreviewSheet } from "./lib/xlsxPreview";
 
@@ -88,8 +89,8 @@ export function TaskImageGallery({
       >
         <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-600">
           <ImageIcon className="h-3.5 w-3.5 text-blue-500" />
-          任务图片
-          <span className="rounded-full bg-slate-200/80 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">{images.length} 张</span>
+          {t("任务图片")}
+          <span className="rounded-full bg-slate-200/80 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">{t("{n} 张", { n: images.length })}</span>
         </span>
         <ChevronDown className={cn("h-3.5 w-3.5 text-slate-400 transition-transform", collapsed && "-rotate-90")} />
       </button>
@@ -99,7 +100,7 @@ export function TaskImageGallery({
           {groups.map((group) => (
             <div key={group.date}>
               <div className="mb-1 text-[10px] font-semibold text-slate-400">
-                {group.date} · {group.items.length} 张
+                {group.date} · {t("{n} 张", { n: group.items.length })}
               </div>
               {/* 横向滑动缩略条：图片多也不撑开布局，PC 滚轮/拖动、移动端触摸横滑 */}
               <div className="flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:thin]">
@@ -484,7 +485,7 @@ function XlsxTablePreview({ attachment }: { attachment: RdTaskProgressAttachment
 export function ProgressNoteList({
   notes,
   loading = false,
-  emptyText = "暂无进度记录",
+  emptyText,
   compact = false,
 }: {
   notes: RdTaskProgressNote[];
@@ -495,7 +496,7 @@ export function ProgressNoteList({
   if (loading) {
     return (
       <div className="rounded-[8px] border border-dashed border-slate-200 bg-slate-50/70 px-3 py-4 text-center text-xs text-slate-400">
-        正在读取进度留痕...
+        {t("正在读取进度留痕...")}
       </div>
     );
   }
@@ -503,7 +504,7 @@ export function ProgressNoteList({
   if (notes.length === 0) {
     return (
       <div className="rounded-[8px] border border-dashed border-slate-200 bg-slate-50/70 px-3 py-4 text-center text-xs text-slate-400">
-        {emptyText}
+        {emptyText ?? t("暂无进度记录")}
       </div>
     );
   }
@@ -515,20 +516,20 @@ export function ProgressNoteList({
           <div className="flex items-start justify-between gap-2 text-[11px] text-slate-500">
             <span className="min-w-0 font-medium text-slate-700">
               {note.actor.name}
-              {note.actor.role ? <span className="ml-1 text-slate-400">· {note.actor.role}</span> : null}
+              {note.actor.role ? <span className="ml-1 text-slate-400">· {t(note.actor.role)}</span> : null}
             </span>
             <span className="shrink-0 tabular-nums">{new Date(note.created_at).toLocaleString("zh-CN")}</span>
           </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             {typeof note.progress === "number" && (
               <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
-                进度更新至 {note.progress}%
+                {t("进度更新至 {n}%", { n: note.progress })}
               </span>
             )}
             {note.attachments.length > 0 && (
               <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">
                 <Paperclip className="h-3 w-3" />
-                {note.attachments.length} 个附件
+                {t("{n} 个附件", { n: note.attachments.length })}
               </span>
             )}
           </div>
