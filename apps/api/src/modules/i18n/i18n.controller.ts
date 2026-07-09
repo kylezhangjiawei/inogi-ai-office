@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Put, Query, Request } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, Request } from '@nestjs/common';
 
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { I18nService } from './i18n.service';
@@ -24,6 +24,27 @@ export class I18nController {
     @Query('mode') mode?: string,
   ) {
     return this.i18nService.saveDict(lang, entries, mode === 'replace' ? 'replace' : 'merge');
+  }
+
+  /** 翻译管理页总览：key 全集 + 英文 + 状态（ai/human/missing）+ 模块 */
+  @Get('overview/:lang')
+  @Permissions('i18n:manage')
+  overview(@Param('lang') lang: string, @Query('missing') missing?: string) {
+    return this.i18nService.overview(lang, missing === '1');
+  }
+
+  /** 登记源码扫描出的文案 key 全集（extract 脚本上报，replace 语义） */
+  @Put('keys')
+  @Permissions('i18n:manage')
+  saveKeys(@Body() keys: Record<string, string>) {
+    return this.i18nService.saveKeys(keys);
+  }
+
+  /** AI 双轮翻译（初翻+UX Writer 校对）。keys 缺省 = 全部缺英文的登记 key */
+  @Post('translate/:lang')
+  @Permissions('i18n:manage')
+  aiTranslate(@Param('lang') lang: string, @Body() body: { keys?: string[] } = {}) {
+    return this.i18nService.aiTranslate(lang, body?.keys);
   }
 
   /** 当前用户语言偏好 */

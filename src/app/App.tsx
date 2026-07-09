@@ -33,6 +33,7 @@ const AfterSalesDetails = lazyNamed(() => import("./AfterSalesDetails"), "AfterS
 const AfterSalesForm = lazyNamed(() => import("./AfterSalesForm"), "AfterSalesForm");
 const AfterSalesList = lazyNamed(() => import("./AfterSalesList"), "AfterSalesList");
 const AiModelManagementPage = lazyNamed(() => import("./AiModelManagementPage"), "AiModelManagementPage");
+const I18nManagementPage = lazyNamed(() => import("./I18nManagementPage"), "I18nManagementPage");
 const BOMArchive = lazyNamed(() => import("./BOMArchive"), "BOMArchive");
 const BugLogPage = lazyNamed(() => import("./BugLogPage"), "BugLogPage");
 const CustomsAI = lazyNamed(() => import("./CustomsAI"), "CustomsAI");
@@ -354,6 +355,7 @@ const router = createBrowserRouter([
       { path: "contract-review", element: makeLazyProtected(<ContractReviewPage />, "page:contract-review") },
       { path: "mailbox-management", element: makeLazyProtected(<MailboxManagementPage />, "page:mailbox-management") },
       { path: "ai-model-management", element: makeLazyProtected(<AiModelManagementPage />, "page:ai-model-management") },
+      { path: "i18n-management", element: makeLazyProtected(<I18nManagementPage />, "i18n:manage") },
       { path: "ocr-config-management", element: makeLazyProtected(<OcrConfigManagementPage />, "page:ocr-config-management") },
       { path: "ops-center", element: makeLazyProtected(<OpsCenterPage section="overview" />, "page:ops-center") },
       { path: "ops-center/api-errors", element: makeLazyProtected(<OpsCenterPage section="api-errors" />, "page:ops-api-errors") },

@@ -1,12 +1,17 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { ChatService } from '../chat/chat.service';
 
 /** 支持的界面语言。中文是源语言（文案以中文原文为 key），字典只存非中文语言。 */
 export const I18N_LANGS = ['zh', 'en'] as const;
 export type I18nLang = (typeof I18N_LANGS)[number];
 
 const DICT_KEY = (lang: string) => `i18n.dict.${lang}`;
+/** 译文状态元数据：{ 中文key: { status: 'ai' | 'human', updatedAt } } */
+const META_KEY = (lang: string) => `i18n.meta.${lang}`;
+/** 已登记的文案 key 全集（extract 脚本扫源码 t() 上报）：{ 中文key: { module } } */
+const KEYS_KEY = 'i18n.keys';
 const USER_LANGS_KEY = 'i18n.user-langs';
 const CATEGORY = 'i18n';
 /** 单条译文长度上限（防误存长文/攻击性数据） */
@@ -22,7 +27,32 @@ const MAX_ENTRIES = 20_000;
  */
 @Injectable()
 export class I18nService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(I18nService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly chatService: ChatService,
+  ) {}
+
+  /** 读任意 i18n KV（对象形态），异常/缺失返回 {} */
+  private async readKv(key: string): Promise<Record<string, unknown>> {
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { key },
+      select: { value: true },
+    });
+    const value = setting?.value;
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : {};
+  }
+
+  private async writeKv(key: string, value: unknown, description: string): Promise<void> {
+    await this.prisma.systemSetting.upsert({
+      where: { key },
+      create: { category: CATEGORY, key, value: value as never, description },
+      update: { value: value as never },
+    });
+  }
 
   private assertLang(lang: string): asserts lang is I18nLang {
     if (!I18N_LANGS.includes(lang as I18nLang)) {
@@ -51,6 +81,8 @@ export class I18nService {
     lang: string,
     entries: Record<string, string | null>,
     mode: 'merge' | 'replace' = 'merge',
+    /** 状态标记：管理页人工编辑传 human（默认），AI 初翻链路传 ai */
+    markStatus: 'ai' | 'human' = 'human',
   ): Promise<{ ok: true; count: number }> {
     this.assertLang(lang);
     if (lang === 'zh') throw new BadRequestException('中文是源语言，不存字典');
@@ -74,13 +106,175 @@ export class I18nService {
       throw new BadRequestException(`字典条数超过上限 ${MAX_ENTRIES}`);
     }
 
-    const storeKey = DICT_KEY(lang);
-    await this.prisma.systemSetting.upsert({
-      where: { key: storeKey },
-      create: { category: CATEGORY, key: storeKey, value: base, description: `i18n dictionary: ${lang}` },
-      update: { value: base },
-    });
+    await this.writeKv(DICT_KEY(lang), base, `i18n dictionary: ${lang}`);
+
+    // 同步译文状态元数据：新增/覆盖的 key 打标，删除的 key 清理；replace 模式整体重建
+    const now = new Date().toISOString();
+    const meta = mode === 'replace' ? {} : await this.readKv(META_KEY(lang));
+    for (const [key, value] of Object.entries(entries)) {
+      const k = key.trim();
+      if (!k) continue;
+      if (value === null || (typeof value === 'string' && !value.trim())) delete meta[k];
+      else if (typeof value === 'string') meta[k] = { status: markStatus, updatedAt: now };
+    }
+    if (mode === 'replace') {
+      for (const k of Object.keys(base)) {
+        if (!meta[k]) meta[k] = { status: markStatus, updatedAt: now };
+      }
+    }
+    await this.writeKv(META_KEY(lang), meta, `i18n translation status: ${lang}`);
+
     return { ok: true, count };
+  }
+
+  /** 登记文案 key 全集（extract 脚本上报）：{ 中文key: module }。replace 语义（以最新扫描为准）。 */
+  async saveKeys(keys: Record<string, string>): Promise<{ ok: true; count: number }> {
+    if (!keys || typeof keys !== 'object' || Array.isArray(keys)) {
+      throw new BadRequestException('keys 必须是 { 中文原文: 模块名 } 对象');
+    }
+    const clean: Record<string, { module: string }> = {};
+    for (const [key, module] of Object.entries(keys)) {
+      const k = key.trim();
+      if (!k || k.length > MAX_ENTRY_LEN) continue;
+      clean[k] = { module: typeof module === 'string' ? module.slice(0, 80) : '' };
+    }
+    if (Object.keys(clean).length > MAX_ENTRIES) {
+      throw new BadRequestException(`key 数超过上限 ${MAX_ENTRIES}`);
+    }
+    await this.writeKv(KEYS_KEY, clean, 'i18n registered source keys');
+    return { ok: true, count: Object.keys(clean).length };
+  }
+
+  /**
+   * 翻译管理页总览：key 全集（登记 ∪ 字典）+ 英文 + 状态 + 模块。
+   * missingOnly=true 只返回缺英文的条目（AI 初翻的输入清单）。
+   */
+  async overview(lang: string, missingOnly = false) {
+    this.assertLang(lang);
+    const [dict, meta, keys] = await Promise.all([
+      this.getDict(lang),
+      this.readKv(META_KEY(lang)),
+      this.readKv(KEYS_KEY),
+    ]);
+    const allKeys = new Set([...Object.keys(keys), ...Object.keys(dict)]);
+    const rows = [...allKeys]
+      .map((zh) => {
+        const m = meta[zh] as { status?: string; updatedAt?: string } | undefined;
+        const k = keys[zh] as { module?: string } | undefined;
+        return {
+          zh,
+          en: dict[zh] ?? '',
+          status: dict[zh] ? (m?.status === 'human' ? 'human' : 'ai') : 'missing',
+          module: k?.module ?? '',
+          updatedAt: m?.updatedAt ?? '',
+        };
+      })
+      .filter((row) => !missingOnly || row.status === 'missing')
+      .sort((a, b) => a.module.localeCompare(b.module) || a.zh.localeCompare(b.zh, 'zh-CN'));
+    return { total: rows.length, rows };
+  }
+
+  /**
+   * AI 双轮翻译（初翻 + UX Writer 校对），结果入库并标记 status=ai。
+   * keys 为空时自动取全部「缺英文」的登记 key。分批调用，单批失败跳过不阻断。
+   */
+  async aiTranslate(lang: string, keys?: string[]): Promise<{ ok: true; translated: number; failed: number }> {
+    this.assertLang(lang);
+    if (lang === 'zh') throw new BadRequestException('中文是源语言');
+
+    let targets = (keys ?? []).map((k) => k.trim()).filter(Boolean);
+    if (targets.length === 0) {
+      const { rows } = await this.overview(lang, true);
+      targets = rows.map((r) => r.zh);
+    }
+    if (targets.length === 0) return { ok: true, translated: 0, failed: 0 };
+
+    // 术语基准：现有字典里人工校准 + 已入库条目（AI 必须保持一致）
+    const dict = await this.getDict(lang);
+    const glossary = Object.entries(dict)
+      .slice(0, 120)
+      .map(([zh, en]) => `${zh} = ${en}`)
+      .join('\n');
+
+    const BATCH = 40;
+    let translated = 0;
+    let failed = 0;
+    for (let i = 0; i < targets.length; i += BATCH) {
+      const batch = targets.slice(i, i + BATCH);
+      try {
+        const draft = await this.translateBatch(batch, glossary);
+        const reviewed = await this.reviewBatch(draft, glossary).catch(() => draft);
+        const entries: Record<string, string> = {};
+        for (const key of batch) {
+          const value = reviewed[key] ?? draft[key];
+          if (typeof value === 'string' && value.trim()) entries[key] = value.trim();
+        }
+        if (Object.keys(entries).length > 0) {
+          await this.saveDict(lang, entries, 'merge', 'ai');
+          translated += Object.keys(entries).length;
+        }
+        failed += batch.length - Object.keys(entries).length;
+      } catch (err) {
+        this.logger.warn(`AI 翻译批次失败(${i / BATCH + 1}): ${err instanceof Error ? err.message : err}`);
+        failed += batch.length;
+      }
+    }
+    return { ok: true, translated, failed };
+  }
+
+  /** 第一轮：带术语基准与 UI 语境的批量初翻，输出 JSON 字典 */
+  private async translateBatch(keys: string[], glossary: string): Promise<Record<string, string>> {
+    const result = await this.chatService.complete({
+      system: [
+        '你是企业办公系统的 UI 本地化译者，把中文界面文案翻译成简洁地道的英文。',
+        '规则：',
+        '1) 按钮/标签类短文案 ≤3 个词，用主流英文 SaaS 的惯用表达（如 Save / Batch Reassign）；',
+        '2) 文案中的 {name} {n} 等花括号占位符必须原样保留在英文中；',
+        '3) 下面的术语基准必须严格沿用，不得另造译法；',
+        '4) 只输出 JSON 对象 { "中文原文": "English" }，key 与输入完全一致，不要输出其他内容。',
+        '',
+        '【术语基准】',
+        glossary || '（暂无）',
+      ].join('\n'),
+      messages: [{ role: 'user', content: `翻译以下界面文案：\n${JSON.stringify(keys, null, 2)}` }],
+      json: true,
+      temperature: 0.2,
+    });
+    return this.parseJsonDict(result.content);
+  }
+
+  /** 第二轮：换 UX Writer 视角校对（术语一致性/母语语感/长度），输出修正后的完整 JSON */
+  private async reviewBatch(
+    draft: Record<string, string>,
+    glossary: string,
+  ): Promise<Record<string, string>> {
+    const result = await this.chatService.complete({
+      system: [
+        'You are a senior UX writer for an English-first SaaS product.',
+        'Review the machine-translated UI strings below. Fix: terminology inconsistency (must follow the glossary), unnatural phrasing, button labels longer than 3 words, and any lost {placeholder} tokens.',
+        'Output ONLY the corrected full JSON object with identical keys.',
+        '',
+        '[Glossary]',
+        glossary || '(none)',
+      ].join('\n'),
+      messages: [{ role: 'user', content: JSON.stringify(draft, null, 2) }],
+      json: true,
+      temperature: 0.2,
+    });
+    return this.parseJsonDict(result.content);
+  }
+
+  private parseJsonDict(content: string): Record<string, string> {
+    const raw = content.trim().replace(/^```(?:json)?/i, '').replace(/```$/, '').trim();
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new BadRequestException('AI 输出不是 JSON 对象');
+    }
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(parsed as Record<string, unknown>)) {
+      if (typeof v === 'string') out[k] = v;
+    }
+    return out;
   }
 
   async getUserLang(userId: string): Promise<I18nLang> {
