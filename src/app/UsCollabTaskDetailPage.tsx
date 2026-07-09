@@ -408,10 +408,11 @@ export default function UsCollabTaskDetailPage() {
   const blockedDays = blockedDaysOf(task);
   const workItems = task.work_items ?? [];
 
+  // 大屏（lg+）视口内布局：整页不滚，AI 小结/时间线各自内滚；窄屏维持自然文档流
   return (
-    <div className="mx-auto max-w-[1200px] space-y-4 px-2 py-4 sm:px-4">
+    <div className="mx-auto flex max-w-[1200px] flex-col gap-4 px-2 py-4 sm:px-4 lg:h-[calc(100vh-6rem)]">
       {/* ── 顶部：返回 + 标题 + 徽章 ── */}
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex shrink-0 flex-wrap items-center gap-3">
         <Button type="button" variant="outline" size="sm" onClick={() => navigate(-1)} className="gap-1">
           <ArrowLeft className="h-3.5 w-3.5" />
           返回
@@ -450,9 +451,9 @@ export default function UsCollabTaskDetailPage() {
       </div>
 
       {/* 美式 content-first 布局：主内容（描述/工作项/时间线）居左，Properties 侧栏居右（GitHub issue / Linear 范式） */}
-      <div className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
-        {/* ══ 右侧 Properties 栏（单一面板，分节细线分隔）══ */}
-        <div className="lg:order-2">
+      <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+        {/* ══ 右侧 Properties 栏（单一面板，分节细线分隔；超高自身内滚）══ */}
+        <div className="min-h-0 lg:order-2 lg:overflow-y-auto">
         <div className="material-card divide-y divide-slate-100">
           {/* 字段节 */}
           <div className="space-y-2.5 px-4 py-3.5">
@@ -602,11 +603,11 @@ export default function UsCollabTaskDetailPage() {
         </div>
         </div>
 
-        {/* ══ 主内容列（左）：纵向过程叙事 ══ */}
-        <div className="min-w-0 space-y-4 lg:order-1">
-          {/* AI 小结卡 */}
+        {/* ══ 主内容列（左）：纵向过程叙事——Tab 卡吃掉剩余高度，内容内滚 ══ */}
+        <div className="flex min-h-0 min-w-0 flex-col gap-4 lg:order-1">
+          {/* AI 小结卡：限最大高度，超出内滚 */}
           {brief && (
-            <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3">
+            <div className="shrink-0 rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3">
               <div className="mb-1 flex items-center justify-between">
                 <span className="flex items-center gap-1 text-xs font-semibold text-indigo-700">
                   <Sparkles className="h-3.5 w-3.5" />
@@ -616,30 +617,32 @@ export default function UsCollabTaskDetailPage() {
                   <X className="h-3.5 w-3.5" />
                 </button>
               </div>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{brief.text}</p>
+              <p className="max-h-52 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{brief.text}</p>
             </div>
           )}
 
           {/* 任务描述 */}
           {task.description && (
-            <div className="material-card px-4 py-3">
+            <div className="shrink-0 material-card px-4 py-3">
               <div className="mb-1.5 text-xs font-semibold text-slate-500">任务描述</div>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{task.description}</p>
+              <p className="max-h-40 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{task.description}</p>
             </div>
           )}
 
           {/* 工作项（只读展示）：创建/勾选/删除入口在协同工作台，成员按需自建 */}
-          <WorkItemsSection
-            task={task}
-            canEdit={false}
-            noteCountByItem={noteCountByItem}
-            onTaskPatched={(_, patch) => setTask((prev) => (prev ? { ...prev, ...patch } : prev))}
-          />
+          <div className="shrink-0">
+            <WorkItemsSection
+              task={task}
+              canEdit={false}
+              noteCountByItem={noteCountByItem}
+              onTaskPatched={(_, patch) => setTask((prev) => (prev ? { ...prev, ...patch } : prev))}
+            />
+          </div>
 
-          {/* Tab：操作记录 / 进展留痕 / 附件库 —— Tab 行作为卡头顶满卡片上部（GitHub 式） */}
-          <div className="material-card overflow-hidden p-0">
-            <Tabs value={tab} onValueChange={(value) => setTab(value as DetailTab)}>
-              <TabsList className="h-auto w-full justify-start gap-6 rounded-none border-b border-slate-200/80 bg-transparent p-0 px-4">
+          {/* Tab：操作记录 / 进展留痕 / 附件库 —— 卡片吃掉主列剩余高度，内容区各自内滚 */}
+          <div className="material-card flex min-h-0 flex-1 flex-col overflow-hidden p-0 lg:min-h-[280px]">
+            <Tabs value={tab} onValueChange={(value) => setTab(value as DetailTab)} className="flex min-h-0 flex-1 flex-col">
+              <TabsList className="h-auto w-full shrink-0 justify-start gap-6 rounded-none border-b border-slate-200/80 bg-transparent p-0 px-4">
                 {([
                   { key: "audit", label: "操作记录", count: auditLogs.length },
                   { key: "notes", label: "进展留痕", count: notes.length },
@@ -658,7 +661,7 @@ export default function UsCollabTaskDetailPage() {
                 ))}
               </TabsList>
 
-              <TabsContent value="notes" className="px-4 pb-4 pt-3">
+              <TabsContent value="notes" className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
               <div>
                 {workItems.length > 0 && (
                   <div className="mb-3 flex flex-wrap items-center gap-1">
@@ -695,7 +698,7 @@ export default function UsCollabTaskDetailPage() {
               </div>
               </TabsContent>
 
-              <TabsContent value="attachments" className="px-4 pb-4 pt-3">
+              <TabsContent value="attachments" className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
               <div className="space-y-3">
                 <TaskImageGallery notes={notes} />
                 <div>
@@ -748,8 +751,8 @@ export default function UsCollabTaskDetailPage() {
               </div>
               </TabsContent>
 
-              <TabsContent value="audit" className="px-4 pb-4 pt-3">
-              <div className="max-h-[640px] overflow-y-auto px-1 py-1">
+              <TabsContent value="audit" className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
+              <div className="px-1 py-1">
                 <AuditTimeline
                   logs={auditLogs}
                   showResource={false}

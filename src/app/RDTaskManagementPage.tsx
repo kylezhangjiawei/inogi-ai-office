@@ -4231,7 +4231,7 @@ export function WorkItemsSection({
       </div>
 
       {items.length > 0 && (
-        <ul className={cn(canEdit ? "space-y-1.5" : "space-y-0.5")}>
+        <ul className={cn("max-h-52 overflow-y-auto", canEdit ? "space-y-1.5" : "space-y-0.5")}>
           {items.map((it) => {
             const noteCount = noteCountByItem.get(it.id) ?? 0;
             return (
