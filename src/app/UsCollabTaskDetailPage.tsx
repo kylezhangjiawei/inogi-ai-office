@@ -22,6 +22,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { useAnyPermission } from "./hooks/usePermission";
 import { useAuth } from "./auth";
+import { Textarea } from "./components/ui/textarea";
 import { PERMISSIONS } from "./lib/permissions";
 import { AuditTimeline } from "./RDAuditTimeline";
 import { addAuditLogNote, recordAudit, useAuditActor, type AuditLog, useAuditLogs } from "./lib/auditLog";
@@ -42,6 +43,7 @@ import {
 import { getReviewTypeMeta } from "./lib/reviewTypes";
 import {
   blockedDaysOf,
+  createRdTaskProgressNote,
   fetchMergedTaskCategories,
   fetchRdPeople,
   fetchRdTaskProgressNotes,
@@ -56,6 +58,31 @@ import {
 } from "./lib/rdApi";
 
 type DetailTab = "notes" | "attachments" | "audit";
+
+// ── 跨时区协同：成员当地时间 ──────────────────────────────────────────────────
+// 时区启发：名字含中文或角色含「中方/中国」→ 北京；否则按美东（波士顿团队）。
+function personTimeZone(name: string, role?: string): { tz: string; label: string } {
+  const isChina = /[一-鿿]/.test(name) || /中方|中国/.test(role ?? "");
+  return isChina ? { tz: "Asia/Shanghai", label: "北京" } : { tz: "America/New_York", label: "波士顿" };
+}
+
+/** 成员当地时间小徽标（每分钟刷新）：跨时区找人前先看对方那边几点 */
+function LocalClock({ name, role }: { name: string; role?: string }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+  const { tz, label } = personTimeZone(name, role);
+  const time = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: tz }).format(now);
+  const hour = Number(new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: tz }).format(now));
+  const emoji = hour >= 7 && hour < 19 ? "☀️" : "🌙";
+  return (
+    <span className="ml-auto shrink-0 text-[11px] tabular-nums text-slate-400" title={`${name} 当地时间（${label}）`}>
+      {label} {time} {emoji}
+    </span>
+  );
+}
 
 /**
  * 中美协同 · 任务全屏详情页（双栏布局，Velzon 任务详情式）：
@@ -97,6 +124,11 @@ export default function UsCollabTaskDetailPage() {
   const [savingPriority, setSavingPriority] = useState(false);
   /** 点击人员后展示其名下任务的弹层（点任务跳转到该任务的详情页） */
   const [personTasksFor, setPersonTasksFor] = useState<string | null>(null);
+  // ── 评论式留痕框（时间线底部常驻，「在哪看就在哪写」）──
+  const [composerText, setComposerText] = useState("");
+  const [composerFiles, setComposerFiles] = useState<File[]>([]);
+  const [composerItemId, setComposerItemId] = useState("");
+  const [sendingNote, setSendingNote] = useState(false);
   const auditLogs = useAuditLogs({ resourceType: "task", resourceId: taskId });
 
   // 视口内布局的可用高度：实测容器到视口顶的距离（覆盖全局顶栏/面包屑/内边距的任意组合），
@@ -220,6 +252,46 @@ export default function UsCollabTaskDetailPage() {
     () => [...reportLogs].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
     [reportLogs],
   );
+
+  // 参与人（主责/协作）或管理员可在时间线底部直接记进展（后端同口径校验兜底）
+  const isParticipant = useMemo(() => {
+    if (!task || !user) return false;
+    if (task.primary_owner_user_id === user.id || task.primary_owner === user.name) return true;
+    return (task.collaborators ?? []).some((c) => c.user_id === user.id || c.name === user.name);
+  }, [task, user]);
+  const canComposeNote = Boolean(task && !task.archived && task.status !== "completed" && (canManage || isParticipant));
+
+  const submitComposerNote = async () => {
+    if (!task || sendingNote) return;
+    const text = composerText.trim();
+    if (!text && composerFiles.length === 0) {
+      toast.error("写点什么或附上文件再发送");
+      return;
+    }
+    setSendingNote(true);
+    try {
+      await createRdTaskProgressNote({
+        task_id: task.task_id,
+        text,
+        files: composerFiles,
+        work_item_id: composerItemId || undefined,
+      });
+      setComposerText("");
+      setComposerFiles([]);
+      setComposerItemId("");
+      toast.success("进展已记录");
+      // 重拉留痕让时间线/附件库即时可见
+      try {
+        setNotes(await fetchRdTaskProgressNotes(task.task_id));
+      } catch {
+        /* 拉取失败不影响已提交结果 */
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "记录进展失败");
+    } finally {
+      setSendingNote(false);
+    }
+  };
 
   const handleGenerateBrief = async () => {
     if (briefLoading) return;
@@ -540,6 +612,7 @@ export default function UsCollabTaskDetailPage() {
             >
               <OwnerAvatar name={task.primary_owner} userId={task.primary_owner_user_id} size="sm" />
               <span className="text-sm font-medium text-slate-800">{task.primary_owner}</span>
+              <LocalClock name={task.primary_owner} />
             </button>
             {(task.collaborators ?? []).length > 0 && (
               <>
@@ -556,6 +629,7 @@ export default function UsCollabTaskDetailPage() {
                       <OwnerAvatar name={c.name} userId={c.user_id} size="xs" />
                       <span className="text-sm text-slate-700">{c.name}</span>
                       <span className="text-[11px] text-slate-400">{c.role}</span>
+                      <LocalClock name={c.name} role={c.role} />
                     </button>
                   ))}
                 </div>
@@ -799,6 +873,80 @@ export default function UsCollabTaskDetailPage() {
               </div>
               </TabsContent>
             </Tabs>
+
+            {/* 评论式留痕框：卡底常驻（仅操作记录 Tab、任务参与人/管理员可见），在哪看就在哪写 */}
+            {tab === "audit" && canComposeNote && (
+              <div className="shrink-0 border-t border-slate-200/80 px-4 py-3">
+                <Textarea
+                  value={composerText}
+                  onChange={(e) => setComposerText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                      e.preventDefault();
+                      void submitComposerNote();
+                    }
+                  }}
+                  rows={2}
+                  placeholder="写一条进展…（Ctrl+Enter 发送）"
+                  className="w-full resize-none rounded-lg border-slate-200 text-sm"
+                />
+                {composerFiles.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {composerFiles.map((f, i) => (
+                      <span key={`${f.name}-${i}`} className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">
+                        {f.name}
+                        <button
+                          type="button"
+                          onClick={() => setComposerFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                          className="cursor-pointer text-slate-400 hover:text-slate-600"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="mt-2 flex items-center gap-2">
+                  <label className="flex cursor-pointer items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50">
+                    <FileText className="h-3.5 w-3.5" />
+                    附件
+                    <input
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        const picked = Array.from(e.target.files ?? []);
+                        if (picked.length) setComposerFiles((prev) => [...prev, ...picked].slice(0, 10));
+                        e.target.value = "";
+                      }}
+                    />
+                  </label>
+                  {workItems.length > 0 && (
+                    <Select value={composerItemId || "none"} onValueChange={(v) => setComposerItemId(v === "none" ? "" : v)}>
+                      <SelectTrigger size="sm" className="h-7 w-auto max-w-[200px] rounded-lg text-xs text-slate-500">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+                        <SelectItem value="none">不关联工作项</SelectItem>
+                        {workItems.map((it) => (
+                          <SelectItem key={it.id} value={it.id}>{it.title}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    onClick={() => void submitComposerNote()}
+                    disabled={sendingNote || (!composerText.trim() && composerFiles.length === 0)}
+                    className="ml-auto h-7 gap-1 px-3 text-xs"
+                  >
+                    {sendingNote ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+                    发送
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>

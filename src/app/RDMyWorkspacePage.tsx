@@ -660,10 +660,12 @@ function TaskOperationDrawer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [task.task_id]);
   const persistWorkItems = async (next: RdWorkItem[], auditComment?: string, workItemId?: string) => {
+    // 乐观更新：先立即反映到 UI（跨太平洋网络延迟下勾选零等待），失败回滚并提示
+    const prev = workItems;
+    setWorkItems(next);
     setSavingWorkItems(true);
     try {
       await updateRdTask(task.task_id, { work_items: next });
-      setWorkItems(next);
       // 工作项动作写入操作留痕（带 work_item_id），驾驶舱详情按工作项 Tab 可见完整时间线
       if (auditComment) {
         recordAudit({
@@ -677,7 +679,8 @@ function TaskOperationDrawer({
       }
       return true;
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "保存工作项失败");
+      setWorkItems(prev);
+      toast.error(error instanceof Error ? error.message : "保存工作项失败，已还原");
       return false;
     } finally {
       setSavingWorkItems(false);
@@ -1507,7 +1510,7 @@ function TaskOperationDrawer({
                       <li key={it.id} className="group flex items-center gap-2.5 rounded-lg border border-slate-100 bg-slate-50/60 px-2.5 py-1.5 text-sm">
                         <Checkbox
                           checked={it.done}
-                          disabled={isTaskCompleted || savingWorkItems}
+                          disabled={isTaskCompleted}
                           onCheckedChange={() =>
                             void persistWorkItems(
                               workItems.map((w) => (w.id === it.id ? { ...w, done: !w.done } : w)),
