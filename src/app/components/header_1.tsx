@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bell, ChevronDown, LogOut, MessageSquareText, Search, Settings, UserRound } from "lucide-react";
+import { Bell, ChevronDown, Languages, LogOut, MessageSquareText, Search, UserRound } from "lucide-react";
 import { useLocation, useNavigate } from "react-router";
 import { getRoleLabel, useAuth } from "../auth";
 import { routeTitleMap } from "../routesConfig";
@@ -143,19 +143,16 @@ export function Header() {
               <div className="text-sm font-semibold text-slate-700">{today}</div>
             </div>
 
-            {/* 语言切换：按用户偏好持久化（中方看中文、美方看英文，同页面各看各的） */}
+            {/* 语言切换（原设置按钮位）：按用户偏好持久化（中方看中文、美方看英文，同页面各看各的） */}
             <button
               type="button"
               onClick={() => void setI18nLang(lang === "en" ? "zh" : "en")}
               title={lang === "en" ? "Switch to Chinese" : "切换为英文界面"}
               aria-label={lang === "en" ? "Switch to Chinese" : "切换为英文界面"}
-              className="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white/92 text-xs font-bold tracking-wide text-slate-600 shadow-sm transition hover:-translate-y-0.5 hover:text-primary"
+              className="flex h-11 items-center justify-center gap-1.5 rounded-2xl border border-slate-200 bg-white/92 px-3 text-xs font-bold tracking-wide text-slate-600 shadow-sm transition hover:-translate-y-0.5 hover:text-primary"
             >
-              {lang === "en" ? "中" : "EN"}
-            </button>
-
-            <button className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white/92 text-slate-600 shadow-sm transition hover:-translate-y-0.5 hover:text-primary">
-              <Settings className="h-5 w-5" />
+              <Languages className="h-4 w-4" />
+              {lang === "en" ? "中文" : "EN"}
             </button>
 
             <button

@@ -80,6 +80,7 @@ import {
   type RdWorkspaceNotification,
   type RdPerformanceReport,
 } from "./lib/rdApi";
+import { t, useI18n } from "./lib/i18n";
 import { RDPerformanceScoreDialog } from "./RDPerformanceScoreDialog";
 import { toast } from "sonner";
 
@@ -260,7 +261,7 @@ function PriorityBadge({ priority }: { priority: Priority }) {
   const cfg = PRIORITY_CONFIG[priority] ?? PRIORITY_CONFIG.medium;
   return (
     <span className={cn("inline-flex items-center rounded-md border px-1.5 py-0.5 text-xs font-semibold", cfg.className)}>
-      {cfg.label}
+      {t(cfg.label)}
     </span>
   );
 }
@@ -272,8 +273,9 @@ function StatusPill({ task }: { task: WorkspaceTask }) {
   return (
     <span className={cn("inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-medium", cfg.className)}>
       <span className={cn("h-1.5 w-1.5 rounded-full", cfg.dot)} />
-      {task.status_label}
-      {blockedDays != null && <span className="font-semibold">· {blockedDays} 天</span>}
+      {/* status_label 是后端下发的中文文案：中文即 key，直接过 t() 本地化 */}
+      {t(task.status_label)}
+      {blockedDays != null && <span className="font-semibold">· {t("{n} 天", { n: blockedDays })}</span>}
     </span>
   );
 }
@@ -486,7 +488,7 @@ function TaskCardUI({
               {task.ai_pending && (
                 <span className="inline-flex items-center gap-1 rounded-md border border-violet-100 bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-600">
                   <Sparkles className="h-2.5 w-2.5" />
-                  AI 待确认
+                  {t("AI 待确认")}
                 </span>
               )}
             </div>
@@ -499,7 +501,7 @@ function TaskCardUI({
         <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-slate-500">
           <span className="flex items-center gap-1">
             {task.role === "primary" ? <User className="h-3 w-3" /> : <Users className="h-3 w-3" />}
-            {task.role === "primary" ? "我主责" : `协作 / ${task.collab_role}`}
+            {task.role === "primary" ? t("我主责") : `${t("协作")} / ${task.collab_role}`}
           </span>
           <span className="flex items-center gap-1">
             <Clock className="h-3 w-3" />
@@ -3058,20 +3060,20 @@ function WorkspaceTaskCard({
                 className="inline-flex cursor-pointer items-center gap-0.5 rounded-lg border border-transparent px-2 py-1 text-[11px] font-medium text-indigo-500 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
               >
                 <FolderInput className="h-3 w-3" />
-                移动
+                {t("移动")}
               </button>
             )}
             {canAbandon && (
               <button
                 type="button"
-                title="申请放弃此任务（需管理员审核）"
+                title={t("申请放弃此任务（需管理员审核）")}
                 onClick={(e) => {
                   e.stopPropagation();
                   onOpen(task, "detail", { abandon: true });
                 }}
                 className="cursor-pointer rounded-lg border border-transparent px-2 py-1 text-[11px] font-medium text-slate-400 transition-colors hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600"
               >
-                申请放弃
+                {t("申请放弃")}
               </button>
             )}
             {moveEnabled && onToggleSelect ? (
@@ -3223,6 +3225,7 @@ function SubsystemPanorama({
 }
 
 export function RDMyWorkspacePage() {
+  useI18n(); // 订阅语言切换（页头/过滤条/任务卡/通知中心文案已 t() 化）
   const { user } = useAuth();
   const canProposeProject = usePermission(PERMISSIONS.RD_PROJECT_PROPOSE);
   const WORKSPACE_AUDIT_ACTOR = useAuditActor("研发成员");
@@ -3632,37 +3635,37 @@ export function RDMyWorkspacePage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             {/* Left group: title + date + stat chips */}
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h1 className="text-base font-semibold text-slate-950 shrink-0">个人工作台</h1>
-              <span className="text-xs text-slate-400 shrink-0">今日 {TODAY_LABEL}</span>
+              <h1 className="text-base font-semibold text-slate-950 shrink-0">{t("个人工作台")}</h1>
+              <span className="text-xs text-slate-400 shrink-0">{t("今日")} {TODAY_LABEL}</span>
               {/* Stat chips — always shown */}
               <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700">
-                主责 {activeMyCount}
+                {t("主责")} {activeMyCount}
               </span>
               <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-semibold text-slate-600">
-                协作 {activeCollabCount}
+                {t("协作")} {activeCollabCount}
               </span>
               <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
-                完成率 {averageProgress}%
+                {t("完成率")} {averageProgress}%
               </span>
               {completedCount > 0 && (
                 <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">
-                  已完成 {completedCount}
+                  {t("已完成")} {completedCount}
                 </span>
               )}
               {/* Conditional chips */}
               {overdueCount > 0 && (
                 <span className="rounded-full bg-red-50 px-2.5 py-0.5 text-xs font-semibold text-red-600">
-                  逾期 {overdueCount}
+                  {t("逾期")} {overdueCount}
                 </span>
               )}
               {dueTodayCount > 0 && (
                 <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
-                  今日到期 {dueTodayCount}
+                  {t("今日到期")} {dueTodayCount}
                 </span>
               )}
               {visibleNotifications.length + visibleSuggestions.length > 0 && (
                 <span className="rounded-full bg-violet-50 px-2.5 py-0.5 text-xs font-semibold text-violet-700">
-                  待处理 {visibleNotifications.length + visibleSuggestions.length}
+                  {t("待处理")} {visibleNotifications.length + visibleSuggestions.length}
                 </span>
               )}
               {/* Inline error */}
@@ -3681,7 +3684,7 @@ export function RDMyWorkspacePage() {
                 title="AI 立项 · 上传文档或写描述，自动拆任务"
               >
                 <Sparkles className="h-3.5 w-3.5 transition-transform group-hover:rotate-12" />
-                AI 立项
+                {t("AI 立项")}
                 <ChevronRight className="h-3 w-3 transition-transform duration-200 group-hover:translate-x-0.5" />
               </button>
             )}
@@ -3700,7 +3703,7 @@ export function RDMyWorkspacePage() {
                   <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                   <Input
                     className="h-8 w-full rounded-[8px] border border-slate-200 bg-slate-50 pl-8 pr-3 text-xs text-slate-700 outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-50"
-                    placeholder="搜索任务、负责人…"
+                    placeholder={t("搜索任务、负责人…")}
                     value={taskKeyword}
                     onChange={(event) => setTaskKeyword(event.target.value)}
                   />
@@ -3720,7 +3723,7 @@ export function RDMyWorkspacePage() {
                       title="平铺列表"
                     >
                       <List className="h-3.5 w-3.5" />
-                      列表
+                      {t("列表")}
                     </button>
                     <button
                       type="button"
@@ -3732,7 +3735,7 @@ export function RDMyWorkspacePage() {
                       title="按子系统归类查看（仅我的任务）"
                     >
                       <Layers className="h-3.5 w-3.5" />
-                      全景
+                      {t("全景")}
                     </button>
                   </div>
                   <NativeSelect
@@ -3740,34 +3743,34 @@ export function RDMyWorkspacePage() {
                     value={taskPriorityFilter}
                     onChange={(event) => setTaskPriorityFilter(event.target.value as Priority | "all")}
                   >
-                    <option value="all">优先级</option>
-                    <option value="high">高</option>
-                    <option value="medium">中</option>
-                    <option value="low">低</option>
+                    <option value="all">{t("优先级")}</option>
+                    <option value="high">{t("高")}</option>
+                    <option value="medium">{t("中")}</option>
+                    <option value="low">{t("低")}</option>
                   </NativeSelect>
                   <NativeSelect
                     className="h-8 rounded-[8px] border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
                     value={taskStatusFilter}
                     onChange={(event) => setTaskStatusFilter(event.target.value as TaskStatus | "all")}
                   >
-                    <option value="all">状态</option>
-                    <option value="in_progress">进行中</option>
-                    <option value="pending_review">待评审</option>
-                    <option value="paused_blocked">阻塞</option>
-                    <option value="paused_leave">请假暂停</option>
-                    <option value="completed">已完成</option>
+                    <option value="all">{t("状态")}</option>
+                    <option value="in_progress">{t("进行中")}</option>
+                    <option value="pending_review">{t("待评审")}</option>
+                    <option value="paused_blocked">{t("阻塞")}</option>
+                    <option value="paused_leave">{t("请假暂停")}</option>
+                    <option value="completed">{t("已完成")}</option>
                   </NativeSelect>
                   <NativeSelect
                     className="h-8 rounded-[8px] border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
                     value={taskDueFilter}
                     onChange={(event) => setTaskDueFilter(event.target.value as WorkspaceDueFilter)}
                   >
-                    <option value="all">时间</option>
-                    <option value="overdue">已逾期</option>
-                    <option value="today">今天到期</option>
-                    <option value="3d">3 天内</option>
-                    <option value="7d">7 天内</option>
-                    <option value="no_due">无截止日</option>
+                    <option value="all">{t("时间")}</option>
+                    <option value="overdue">{t("已逾期")}</option>
+                    <option value="today">{t("今天到期")}</option>
+                    <option value="3d">{t("3 天内")}</option>
+                    <option value="7d">{t("7 天内")}</option>
+                    <option value="no_due">{t("无截止日")}</option>
                   </NativeSelect>
                   {/*<button*/}
                   {/*  type="button"*/}
@@ -3783,7 +3786,7 @@ export function RDMyWorkspacePage() {
                   {/*  清空*/}
                   {/*</button>*/}
                   <span className="whitespace-nowrap pl-1 text-[11px] text-slate-400">
-                    {loading ? "加载中…" : `${filteredAllTasks.length} / ${allTasks.length} 个`}
+                    {loading ? t("加载中…") : `${filteredAllTasks.length} / ${allTasks.length}`}
                   </span>
                 </div>
               </div>
@@ -3801,7 +3804,7 @@ export function RDMyWorkspacePage() {
                 <div className="flex min-h-[260px] flex-col items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 py-12 text-center">
                   <CheckCircle2 className="mb-2 h-8 w-8 text-slate-300" />
                   <p className="text-sm font-medium text-slate-500">
-                    {taskFiltersActive ? "没有匹配的任务" : "当前没有分配给我的任务"}
+                    {taskFiltersActive ? t("没有匹配的任务") : t("当前没有分配给我的任务")}
                   </p>
                 </div>
               ) : taskView === "panorama" ? (
@@ -3843,7 +3846,7 @@ export function RDMyWorkspacePage() {
           {/* ── RIGHT column ── */}
           <aside className="material-scrollbar min-h-0 space-y-4 overflow-y-auto pr-1">
             {/* 通知中心 */}
-            <SectionCard title="通知中心" icon={Bell} count={visibleNotifications.length}>
+            <SectionCard title={t("通知中心")} icon={Bell} count={visibleNotifications.length}>
               {visibleNotifications.length === 0 ? (
                 <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">暂无新通知</p>
               ) : (
@@ -3945,9 +3948,9 @@ export function RDMyWorkspacePage() {
                         onClick={() => setNotifVisibleCount((prev) => prev + NOTIF_PAGE_SIZE)}
                         className="font-semibold text-slate-500 underline underline-offset-2 hover:text-slate-700"
                       >
-                        加载更多
-                      </button>
-                      <span>· 已显示 {shownNotifications.length} / 共 {visibleNotifications.length} 条</span>
+                        {t("加载更多")}
+</button>
+                      <span>· {t("已显示 {shown} / 共 {total} 条", { shown: shownNotifications.length, total: visibleNotifications.length })}</span>
                     </div>
                   ) : visibleNotifications.length > NOTIF_PAGE_SIZE ? (
                     <div className="mt-2 flex items-center justify-center gap-1.5 py-1.5 text-[11px] text-slate-400">
