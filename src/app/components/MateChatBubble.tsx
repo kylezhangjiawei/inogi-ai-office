@@ -301,6 +301,8 @@ export function MateChatBubble() {
   const movedRef = useRef(false);
   const [bubblePos, setBubblePos] = useState({ x: 0, y: 0 });
   const [bubbleReady, setBubbleReady] = useState(false);
+  // 球在右半屏时右缘锚定，hover 文字向左展开，避免展开部分超出视口被裁
+  const [anchorRight, setAnchorRight] = useState(true);
 
   // 对话框
   const [open, setOpen] = useState(false);
@@ -356,7 +358,20 @@ export function MateChatBubble() {
   useEffect(() => {
     if (!bubbleReady) return;
     const el = bubbleRef.current;
-    if (el) { el.style.left = `${bubblePos.x}px`; el.style.top = `${bubblePos.y}px`; }
+    if (!el) return;
+    // 水平定位完全由这里管理（button 的 style 属性不写 left/right），
+    // 否则 React 重渲染会把 left 写回，与 right 同时生效将把 fixed 元素拉宽。
+    const w = el.offsetWidth;
+    const toRight = bubblePos.x + w / 2 > window.innerWidth / 2;
+    el.style.top = `${bubblePos.y}px`;
+    if (toRight) {
+      el.style.left = "auto";
+      el.style.right = `${Math.max(FLOATING_MARGIN, window.innerWidth - bubblePos.x - w)}px`;
+    } else {
+      el.style.right = "auto";
+      el.style.left = `${bubblePos.x}px`;
+    }
+    setAnchorRight(toRight);
   }, [bubblePos, bubbleReady]);
 
   useEffect(() => {
@@ -1022,7 +1037,8 @@ export function MateChatBubble() {
           const h = el.offsetHeight;
           const x = Math.min(Math.max(FLOATING_MARGIN, dragStartRef.current.x + dx), window.innerWidth - w - FLOATING_MARGIN);
           const y = Math.min(Math.max(FLOATING_MARGIN, dragStartRef.current.y + dy), window.innerHeight - h - FLOATING_MARGIN);
-          // 直接操作 DOM，零 React 渲染
+          // 直接操作 DOM，零 React 渲染；拖拽期间临时切回左锚，松手后由 effect 重新决定锚定方向
+          el.style.right = "auto";
           el.style.left = `${x}px`;
           el.style.top = `${y}px`;
         }}
@@ -1041,10 +1057,11 @@ export function MateChatBubble() {
           setBubblePos({ x, y });
         }}
         onClick={() => { if (!movedRef.current) setOpen(true); movedRef.current = false; }}
-        style={{ left: bubblePos.x, top: bubblePos.y }}
         className={cn(
           // 默认收成圆形（只露头像）；hover 时文字平滑展开，减少占位。
+          // 定位（left/right/top）由 effect 写 inline style，靠右时右缘锚定向左展开。
           "group fixed z-50 flex items-center rounded-full border border-white/70 bg-indigo-600 p-2 text-white shadow-[0_18px_38px_rgba(79,70,229,0.28)] transition-all duration-200 cursor-grab hover:-translate-y-1 will-change-[left,top]",
+          anchorRight && "flex-row-reverse",
           bubbleReady ? "opacity-100" : "opacity-0",
         )}
       >
@@ -1052,8 +1069,13 @@ export function MateChatBubble() {
           <img src={AI_AVATAR} alt="MateChat" className="h-7 w-7 object-contain" />
           <span className="absolute inset-[-5px] rounded-full border border-indigo-300/30 animate-pulse" />
         </span>
-        {/* 文字：收起态宽度为 0 隐藏，hover 展开 */}
-        <span className="flex max-w-0 flex-col overflow-hidden whitespace-nowrap opacity-0 transition-all duration-200 group-hover:ml-2 group-hover:max-w-[180px] group-hover:pr-2 group-hover:opacity-100">
+        {/* 文字：收起态宽度为 0 隐藏，hover 展开；展开方向跟随锚定侧 */}
+        <span
+          className={cn(
+            "flex max-w-0 flex-col overflow-hidden whitespace-nowrap opacity-0 transition-all duration-200 group-hover:max-w-[180px] group-hover:opacity-100",
+            anchorRight ? "group-hover:mr-2 group-hover:pl-2" : "group-hover:ml-2 group-hover:pr-2",
+          )}
+        >
           <span className="block text-xs font-semibold uppercase tracking-[0.22em] text-white/72">AI Assistant</span>
           <span className="flex items-center gap-1 text-sm font-semibold">
             <Sparkles className="h-4 w-4" />
