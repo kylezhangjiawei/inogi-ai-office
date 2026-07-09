@@ -27,6 +27,7 @@ import { useAnyPermission } from "./hooks/usePermission";
 import { useAuth } from "./auth";
 import { Textarea } from "./components/ui/textarea";
 import { PERMISSIONS } from "./lib/permissions";
+import { t, useI18n } from "./lib/i18n";
 import { AuditTimeline } from "./RDAuditTimeline";
 import { addAuditLogNote, recordAudit, useAuditActor, type AuditLog, useAuditLogs } from "./lib/auditLog";
 import { ProgressAttachmentGrid, ProgressNoteList, TaskImageGallery, formatRdFileSize } from "./RDProgressEvidence";
@@ -97,6 +98,8 @@ export default function UsCollabTaskDetailPage() {
   const { taskId = "" } = useParams();
   const navigate = useNavigate();
   const shouldReduceMotion = useReducedMotion();
+  const { lang } = useI18n(); // i18n：订阅语言切换（本页文案已 t() 化）
+  void lang;
   const { user } = useAuth();
   const canView = useAnyPermission("page:us-collab-cockpit", "page:us-collab-workspace");
   // 管理动作口径与驾驶舱抽屉的 canManageTaskFlow 一致
@@ -521,7 +524,7 @@ export default function UsCollabTaskDetailPage() {
     return (
       <div className="flex min-h-[40vh] items-center justify-center gap-2 text-sm text-slate-400">
         <Loader2 className="h-4 w-4 animate-spin" />
-        正在加载任务…
+        {t("正在加载任务…")}
       </div>
     );
   }
@@ -530,13 +533,13 @@ export default function UsCollabTaskDetailPage() {
     return (
       <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-slate-500">
         <AlertTriangle className="h-8 w-8 text-amber-400" />
-        <p className="text-sm">{loadError || "任务不存在"}</p>
+        <p className="text-sm">{loadError || t("任务不存在")}</p>
         <button
           type="button"
           onClick={() => navigate("/us-collab-cockpit")}
           className="cursor-pointer rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
         >
-          返回驾驶舱
+          {t("返回驾驶舱")}
         </button>
       </div>
     );
@@ -562,7 +565,7 @@ export default function UsCollabTaskDetailPage() {
         {/* 直接回驾驶舱（不用 navigate(-1)：序列导航翻过 N 条任务后逐条回退历史体验极差） */}
         <Button type="button" variant="outline" size="sm" onClick={() => navigate("/us-collab-cockpit")} className="gap-1">
           <ArrowLeft className="h-3.5 w-3.5" />
-          返回
+          {t("返回")}
         </Button>
         {/* 序列导航：按驾驶舱同口径顺序穿行任务（j/k 快捷键同效） */}
         {seqIndex >= 0 && taskSeq.length > 1 && (
@@ -573,7 +576,7 @@ export default function UsCollabTaskDetailPage() {
               size="sm"
               onClick={() => gotoSeq(-1)}
               disabled={seqIndex <= 0}
-              title="上一条任务（k）"
+              title={t("上一条任务（k）")}
               className="h-8 w-8 p-0"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -585,7 +588,7 @@ export default function UsCollabTaskDetailPage() {
               size="sm"
               onClick={() => gotoSeq(1)}
               disabled={seqIndex >= taskSeq.length - 1}
-              title="下一条任务（j）"
+              title={t("下一条任务（j）")}
               className="h-8 w-8 p-0"
             >
               <ChevronRight className="h-4 w-4" />
@@ -596,7 +599,7 @@ export default function UsCollabTaskDetailPage() {
         <h1 className="min-w-0 flex-1 truncate text-xl font-bold text-slate-900">{task.title}</h1>
         <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold", sCfg.bg, sCfg.text)}>
           <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
-          {sCfg.label}
+          {t(sCfg.label)}
         </span>
         {canManage && !task.archived && task.status !== "completed" ? (
           <Select value={task.final_priority} disabled={savingPriority} onValueChange={(value) => void savePriority(value as RdPriority)}>
@@ -613,14 +616,14 @@ export default function UsCollabTaskDetailPage() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
-              <SelectItem value="high">高优先</SelectItem>
-              <SelectItem value="medium">中优先</SelectItem>
-              <SelectItem value="low">低优先</SelectItem>
+              <SelectItem value="high">{t("高优先")}</SelectItem>
+              <SelectItem value="medium">{t("中优先")}</SelectItem>
+              <SelectItem value="low">{t("低优先")}</SelectItem>
             </SelectContent>
           </Select>
         ) : (
           <span className={cn("inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold", pCfg.bg, pCfg.text)}>
-            {pCfg.label}优先
+            {t(`${pCfg.label}优先`)}
           </span>
         )}
       </div>
@@ -633,14 +636,14 @@ export default function UsCollabTaskDetailPage() {
           {/* 字段节 */}
           <div className="space-y-2.5 px-4 py-3.5">
             {[
-              { label: "完成进度", value: (
+              { label: t("完成进度"), value: (
                 <span className="flex items-center gap-2">
                   <Progress value={task.progress} className="h-1.5 w-24" />
                   <span className="tabular-nums">{task.progress}%</span>
                 </span>
               ) },
-              { label: "开始日期", value: task.start_date || "—" },
-              { label: "截止日期", value: (
+              { label: t("开始日期"), value: task.start_date || "—" },
+              { label: t("截止日期"), value: (
                 <span className="flex items-center gap-1">
                   <CalendarClock className="h-3.5 w-3.5 text-amber-500" />
                   {task.due_date || "—"}
@@ -660,8 +663,8 @@ export default function UsCollabTaskDetailPage() {
             <div className="flex items-start gap-2 bg-red-50/70 px-4 py-3">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
               <div className="text-sm text-red-700">
-                <span className="font-semibold">任务阻塞中{blockedDays != null ? `，已阻塞 ${blockedDays} 天` : ""}</span>
-                {blockedDays != null && blockedDays >= 3 && <div className="mt-0.5 text-xs">建议尽快协调对方团队解除依赖。</div>}
+                <span className="font-semibold">{t("任务阻塞中")}{blockedDays != null ? t("，已阻塞 {n} 天", { n: blockedDays }) : ""}</span>
+                {blockedDays != null && blockedDays >= 3 && <div className="mt-0.5 text-xs">{t("建议尽快协调对方团队解除依赖。")}</div>}
               </div>
             </div>
           )}
@@ -669,14 +672,14 @@ export default function UsCollabTaskDetailPage() {
           {/* 人员节（点击查看其名下任务，可跳转到对应任务详情） */}
           <div className="px-4 py-3.5">
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-500">主责人</span>
+              <span className="text-xs font-semibold text-slate-500">{t("主责人")}</span>
               {canManage && !task.archived && (
                 <button
                   type="button"
                   onClick={() => setShowAddCollab(true)}
                   className="cursor-pointer rounded px-1.5 py-0.5 text-[11px] font-semibold text-indigo-600 hover:bg-indigo-50"
                 >
-                  + 添加协作人
+                  + {t("添加协作人")}
                 </button>
               )}
             </div>
@@ -692,7 +695,7 @@ export default function UsCollabTaskDetailPage() {
             </button>
             {(task.collaborators ?? []).length > 0 && (
               <>
-                <div className="mb-2 mt-3 text-xs font-semibold text-slate-500">协作人</div>
+                <div className="mb-2 mt-3 text-xs font-semibold text-slate-500">{t("协作人")}</div>
                 <div className="space-y-1">
                   {(task.collaborators ?? []).map((c) => (
                     <button
@@ -717,7 +720,7 @@ export default function UsCollabTaskDetailPage() {
           <div className="space-y-1.5 px-4 py-3.5">
             <Button type="button" size="sm" onClick={() => void handleGenerateBrief()} disabled={briefLoading} className="h-8 w-full gap-1.5 text-xs">
               {briefLoading ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              AI 任务小结
+              {t("AI 任务小结")}
             </Button>
             <Button
               type="button"
@@ -727,13 +730,13 @@ export default function UsCollabTaskDetailPage() {
               className="h-8 w-full gap-1.5 text-xs"
             >
               <Download className="h-3.5 w-3.5" />
-              导出过程报告
+              {t("导出过程报告")}
             </Button>
             {/* 审批：待审核任务的通过/驳回（协同侧唯一审批入口——驾驶舱直达本页，抽屉不再打开） */}
             {canManage && task.status === "pending_review" && getReviewTypeMeta(task.pending_review_type) && (
               <>
                 <div className="rounded-lg bg-purple-50 px-3 py-2 text-xs text-purple-700">
-                  待审核：{getReviewTypeMeta(task.pending_review_type)!.label}
+                  {t("待审核")}：{t(getReviewTypeMeta(task.pending_review_type)!.label)}
                 </div>
                 <Button
                   type="button"
@@ -742,7 +745,7 @@ export default function UsCollabTaskDetailPage() {
                   className="h-8 w-full gap-1.5 bg-emerald-600 text-xs hover:bg-emerald-700"
                 >
                   <CheckCircle2 className="h-3.5 w-3.5" />
-                  审核通过
+                  {t("审核通过")}
                 </Button>
                 <Button
                   type="button"
@@ -752,7 +755,7 @@ export default function UsCollabTaskDetailPage() {
                   className="h-8 w-full gap-1.5 border-red-200 text-xs text-red-600 hover:bg-red-50 hover:text-red-700"
                 >
                   <X className="h-3.5 w-3.5" />
-                  驳回
+                  {t("驳回")}
                 </Button>
               </>
             )}
@@ -762,7 +765,7 @@ export default function UsCollabTaskDetailPage() {
               <>
                 <Button type="button" variant="outline" size="sm" onClick={() => setShowHandover(true)} className="h-8 w-full gap-1.5 text-xs">
                   <ArrowLeft className="h-3.5 w-3.5 rotate-180" />
-                  移交任务
+                  {t("移交任务")}
                 </Button>
                 <Button
                   type="button"
@@ -772,7 +775,7 @@ export default function UsCollabTaskDetailPage() {
                   className="h-8 w-full gap-1.5 border-emerald-200 text-xs text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
                 >
                   <CheckCircle2 className="h-3.5 w-3.5" />
-                  标记完成
+                  {t("标记完成")}
                 </Button>
               </>
             )}
@@ -788,7 +791,7 @@ export default function UsCollabTaskDetailPage() {
               <div className="mb-1 flex items-center justify-between">
                 <span className="flex items-center gap-1 text-xs font-semibold text-indigo-700">
                   <Sparkles className="h-3.5 w-3.5" />
-                  任务小结{brief.source === "local" ? "（AI 未配置，基础事实版）" : ""}
+                  {t("任务小结")}{brief.source === "local" ? t("（AI 未配置，基础事实版）") : ""}
                 </span>
                 <button type="button" onClick={() => setBrief(null)} className="cursor-pointer rounded p-0.5 text-indigo-300 hover:bg-indigo-100 hover:text-indigo-500">
                   <X className="h-3.5 w-3.5" />
@@ -801,7 +804,7 @@ export default function UsCollabTaskDetailPage() {
           {/* 任务描述 */}
           {task.description && (
             <div className="shrink-0 material-card px-4 py-3">
-              <div className="mb-1.5 text-xs font-semibold text-slate-500">任务描述</div>
+              <div className="mb-1.5 text-xs font-semibold text-slate-500">{t("任务描述")}</div>
               <p className="cockpit-scroll max-h-40 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{task.description}</p>
             </div>
           )}
@@ -821,18 +824,18 @@ export default function UsCollabTaskDetailPage() {
             <Tabs value={tab} onValueChange={(value) => setTab(value as DetailTab)} className="flex min-h-0 flex-1 flex-col">
               <TabsList className="h-auto w-full shrink-0 justify-start gap-6 rounded-none border-b border-slate-200/80 bg-transparent p-0 px-4">
                 {([
-                  { key: "audit", label: "操作记录", count: timelineLogs.length },
-                  { key: "notes", label: "进展留痕", count: notes.length },
-                  { key: "attachments", label: "附件库", count: null },
-                ] as const).map((t) => (
+                  { key: "audit", label: t("操作记录"), count: timelineLogs.length },
+                  { key: "notes", label: t("进展留痕"), count: notes.length },
+                  { key: "attachments", label: t("附件库"), count: null },
+                ] as const).map((tabItem) => (
                   <TabsTrigger
-                    key={t.key}
-                    value={t.key}
+                    key={tabItem.key}
+                    value={tabItem.key}
                     className="-mb-px flex-none cursor-pointer gap-1.5 rounded-none border-0 border-b-2 border-transparent bg-transparent px-1 pb-3 pt-3.5 text-sm font-medium text-slate-500 shadow-none transition-colors hover:text-slate-800 data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent data-[state=active]:font-semibold data-[state=active]:text-slate-900 data-[state=active]:shadow-none"
                   >
-                    {t.label}
-                    {t.count != null && t.count > 0 && (
-                      <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-500">{t.count}</span>
+                    {tabItem.label}
+                    {tabItem.count != null && tabItem.count > 0 && (
+                      <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-500">{tabItem.count}</span>
                     )}
                   </TabsTrigger>
                 ))}
@@ -843,8 +846,8 @@ export default function UsCollabTaskDetailPage() {
                 {workItems.length > 0 && (
                   <div className="mb-3 flex flex-wrap items-center gap-1">
                     {[
-                      { key: "all", label: "全部" },
-                      { key: "main", label: "未关联" },
+                      { key: "all", label: t("全部") },
+                      { key: "main", label: t("未关联") },
                       ...workItems.map((it) => ({
                         key: it.id,
                         label: `${it.title}${(noteCountByItem.get(it.id) ?? 0) > 0 ? ` ${noteCountByItem.get(it.id)}` : ""}`,
@@ -870,7 +873,7 @@ export default function UsCollabTaskDetailPage() {
                 <ProgressNoteList
                   notes={filteredNotes}
                   loading={notesLoading}
-                  emptyText={noteItemFilter === "all" ? "暂无进展留痕" : "该工作项暂无留痕"}
+                  emptyText={noteItemFilter === "all" ? t("暂无进展留痕") : t("该工作项暂无留痕")}
                 />
               </motion.div>
               </TabsContent>
@@ -879,19 +882,19 @@ export default function UsCollabTaskDetailPage() {
               <motion.div initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.16 }} className="space-y-3">
                 <TaskImageGallery notes={notes} />
                 <div>
-                  <div className="mb-2 text-xs font-semibold text-slate-500">文档附件（{docAttachments.length}）</div>
+                  <div className="mb-2 text-xs font-semibold text-slate-500">{t("文档附件（{n}）", { n: docAttachments.length })}</div>
                   {docAttachments.length === 0 ? (
-                    <p className="py-4 text-center text-sm text-slate-400">暂无文档附件</p>
+                    <p className="py-4 text-center text-sm text-slate-400">{t("暂无文档附件")}</p>
                   ) : (
                     <div className="overflow-x-auto">
                       <Table>
                         <TableHeader>
                           <TableRow className="border-slate-100 hover:bg-transparent">
-                            <TableHead className="text-xs text-slate-400">文件名</TableHead>
-                            <TableHead className="text-xs text-slate-400">大小</TableHead>
-                            <TableHead className="text-xs text-slate-400">上传时间</TableHead>
-                            <TableHead className="text-xs text-slate-400">上传人</TableHead>
-                            <TableHead className="text-xs text-slate-400">操作</TableHead>
+                            <TableHead className="text-xs text-slate-400">{t("文件名")}</TableHead>
+                            <TableHead className="text-xs text-slate-400">{t("大小")}</TableHead>
+                            <TableHead className="text-xs text-slate-400">{t("上传时间")}</TableHead>
+                            <TableHead className="text-xs text-slate-400">{t("上传人")}</TableHead>
+                            <TableHead className="text-xs text-slate-400">{t("操作")}</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -915,7 +918,7 @@ export default function UsCollabTaskDetailPage() {
                                   className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 hover:text-indigo-700"
                                 >
                                   <Download className="h-3 w-3" />
-                                  下载
+                                  {t("下载")}
                                 </a>
                               </TableCell>
                             </TableRow>
@@ -934,12 +937,12 @@ export default function UsCollabTaskDetailPage() {
                 <AuditTimeline
                   logs={timelineLogs}
                   showResource={false}
-                  emptyText="暂无操作记录"
+                  emptyText={t("暂无操作记录")}
                   canAddNote={canManage}
                   onAddNote={async (logId, text) => {
                     await addAuditLogNote(logId, { text, actor: AUDIT_ACTOR });
                   }}
-                  notePlaceholder="填写备注（最多 200 字），仅主管可添加…"
+                  notePlaceholder={t("填写备注（最多 200 字），仅主管可添加…")}
                   renderExtra={(log) => {
                     const note = reportNoteOf(log.id);
                     if (!note || note.attachments.length === 0) return null;
@@ -963,7 +966,7 @@ export default function UsCollabTaskDetailPage() {
                     }
                   }}
                   rows={2}
-                  placeholder="写一条进展…（Ctrl+Enter 发送）"
+                  placeholder={t("写一条进展…（Ctrl+Enter 发送）")}
                   className="cockpit-scroll w-full resize-none rounded-lg border-slate-200 text-sm"
                 />
                 {composerFiles.length > 0 && (
@@ -985,7 +988,7 @@ export default function UsCollabTaskDetailPage() {
                 <div className="mt-2 flex items-center gap-2">
                   <label className="flex cursor-pointer items-center gap-1 rounded-lg border border-slate-200 px-2 py-1 text-xs text-slate-500 hover:bg-slate-50">
                     <FileText className="h-3.5 w-3.5" />
-                    附件
+                    {t("附件")}
                     <input
                       type="file"
                       multiple
@@ -1003,7 +1006,7 @@ export default function UsCollabTaskDetailPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
-                        <SelectItem value="none">不关联工作项</SelectItem>
+                        <SelectItem value="none">{t("不关联工作项")}</SelectItem>
                         {workItems.map((it) => (
                           <SelectItem key={it.id} value={it.id}>{it.title}</SelectItem>
                         ))}
@@ -1018,7 +1021,7 @@ export default function UsCollabTaskDetailPage() {
                     className="ml-auto h-7 gap-1 px-3 text-xs"
                   >
                     {sendingNote ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
-                    发送
+                    {t("发送")}
                   </Button>
                 </div>
               </div>
