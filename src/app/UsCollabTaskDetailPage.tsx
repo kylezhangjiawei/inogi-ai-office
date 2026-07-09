@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useLocation, useNavigate, useParams } from "react-router";
 import {
   AlertTriangle,
   ArrowLeft,
   CalendarClock,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Download,
   FileText,
   Loader2,
@@ -151,9 +153,9 @@ export default function UsCollabTaskDetailPage() {
 
   // 竞态守卫：人员弹层跳转会快速切换 taskId，旧请求晚到不得覆盖新任务的状态
   const loadSeqRef = React.useRef(0);
-  const loadTask = useCallback(async () => {
+  const loadTask = useCallback(async (opts?: { silent?: boolean }) => {
     const seq = ++loadSeqRef.current;
-    setLoading(true);
+    if (!opts?.silent) setLoading(true);
     setLoadError("");
     try {
       const categories = await fetchMergedTaskCategories();
@@ -171,9 +173,18 @@ export default function UsCollabTaskDetailPage() {
     }
   }, [taskId]);
 
+  // 秒开：驾驶舱/序列导航经 location.state 带来任务快照，先渲染再后台静默拉最新覆盖
+  const location = useLocation();
   useEffect(() => {
-    void loadTask();
-  }, [loadTask]);
+    const seeded = (location.state as { task?: RdTask } | null)?.task;
+    const hasSeed = Boolean(seeded && seeded.task_id === taskId);
+    if (hasSeed) {
+      setTask(seeded!);
+      setLoading(false);
+    }
+    void loadTask({ silent: hasSeed });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadTask, taskId]);
 
   useEffect(() => {
     fetchRdPeople()
@@ -464,6 +475,37 @@ export default function UsCollabTaskDetailPage() {
     );
   }, [allTasks, personTasksFor]);
 
+  // ── 上一条/下一条任务导航（j/k 快捷键 + 页头按钮）：领导逐条过任务不用来回跳驾驶舱 ──
+  // 序列按最近活动倒序（与驾驶舱「全部」卡片流同口径）
+  const taskSeq = useMemo(
+    () =>
+      allTasks
+        .filter((t) => !t.archived && t.status !== "archived")
+        .sort((a, b) =>
+          String(b.last_activity_at ?? b.updated_at ?? "").localeCompare(String(a.last_activity_at ?? a.updated_at ?? "")),
+        ),
+    [allTasks],
+  );
+  const seqIndex = useMemo(() => taskSeq.findIndex((t) => t.task_id === taskId), [taskSeq, taskId]);
+  const gotoSeq = useCallback(
+    (offset: number) => {
+      const target = taskSeq[seqIndex + offset];
+      if (target) navigate(`/us-collab-task/${encodeURIComponent(target.task_id)}`, { state: { task: target } });
+    },
+    [taskSeq, seqIndex, navigate],
+  );
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      // 输入场景不劫持按键
+      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
+      if (e.key === "j") gotoSeq(1);
+      if (e.key === "k") gotoSeq(-1);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [gotoSeq]);
+
   if (!canView) {
     return (
       <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-slate-500">
@@ -516,6 +558,34 @@ export default function UsCollabTaskDetailPage() {
           <ArrowLeft className="h-3.5 w-3.5" />
           返回
         </Button>
+        {/* 序列导航：按驾驶舱同口径顺序穿行任务（j/k 快捷键同效） */}
+        {seqIndex >= 0 && taskSeq.length > 1 && (
+          <div className="flex items-center gap-0.5">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => gotoSeq(-1)}
+              disabled={seqIndex <= 0}
+              title="上一条任务（k）"
+              className="h-8 w-8 p-0"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <span className="px-1 text-xs tabular-nums text-slate-400">{seqIndex + 1} / {taskSeq.length}</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => gotoSeq(1)}
+              disabled={seqIndex >= taskSeq.length - 1}
+              title="下一条任务（j）"
+              className="h-8 w-8 p-0"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </Button>
+          </div>
+        )}
         <span className="font-mono text-xs text-slate-400">{task.task_id}</span>
         <h1 className="min-w-0 flex-1 truncate text-xl font-bold text-slate-900">{task.title}</h1>
         <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold", sCfg.bg, sCfg.text)}>

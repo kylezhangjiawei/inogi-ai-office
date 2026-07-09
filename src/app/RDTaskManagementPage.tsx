@@ -11017,11 +11017,12 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   const [showClearData, setShowClearData] = useState(false);
   const [showProposalDialog, setShowProposalDialog] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  // 打开任务详情的统一入口：协同驾驶舱直接进全屏双栏详情页（不走抽屉）；研发驾驶舱维持抽屉
+  // 打开任务详情的统一入口：协同驾驶舱直接进全屏双栏详情页（不走抽屉）；研发驾驶舱维持抽屉。
+  // 任务对象随 location.state 带给详情页 → 秒开渲染（详情页后台再拉最新覆盖）
   const openTaskDetail = useCallback(
     (task: Task) => {
       if (isUsCollabWorkspace()) {
-        navigate(`/us-collab-task/${encodeURIComponent(task.task_id)}`);
+        navigate(`/us-collab-task/${encodeURIComponent(task.task_id)}`, { state: { task } });
         return;
       }
       setSelectedTask(task);
