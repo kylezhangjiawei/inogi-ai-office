@@ -130,6 +130,14 @@ try {
       noWorkItemAdd: !document.body.innerText.includes("添加工作项"),
     }))()`);
     check("点任务卡直达 /us-collab-task/", after?.url?.startsWith("/us-collab-task/"), `url=${after?.url}`);
+    // 视口内布局回归：详情页根容器（inline height）底边不得超出视口（整页无滚动）
+    const layout = await p.evalJs(`(() => {
+      const el = document.querySelector('div[style*="height"]');
+      if (!el) return { found: false };
+      const rect = el.getBoundingClientRect();
+      return { found: true, bottom: Math.round(rect.bottom), viewport: window.innerHeight };
+    })()`);
+    check("详情页锁定视口内（无页面滚动）", layout?.found && layout.bottom <= layout.viewport + 4, `bottom=${layout?.bottom} viewport=${layout?.viewport}`);
     check("详情页含操作记录 Tab", after?.hasAudit);
     check("详情页含 AI 任务小结按钮", after?.hasBrief);
     check("详情页含导出过程报告", after?.hasExport);

@@ -99,6 +99,24 @@ export default function UsCollabTaskDetailPage() {
   const [personTasksFor, setPersonTasksFor] = useState<string | null>(null);
   const auditLogs = useAuditLogs({ resourceType: "task", resourceId: taskId });
 
+  // 视口内布局的可用高度：实测容器到视口顶的距离（覆盖全局顶栏/面包屑/内边距的任意组合），
+  // 不猜固定偏移。lg 以下返回 null 走自然文档流。
+  const rootRef = React.useRef<HTMLDivElement | null>(null);
+  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
+  useEffect(() => {
+    const measure = () => {
+      if (!rootRef.current || window.innerWidth < 1024) {
+        setViewportHeight(null);
+        return;
+      }
+      const top = rootRef.current.getBoundingClientRect().top + window.scrollY;
+      setViewportHeight(Math.max(480, window.innerHeight - top - 24));
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [loading]);
+
   // 竞态守卫：人员弹层跳转会快速切换 taskId，旧请求晚到不得覆盖新任务的状态
   const loadSeqRef = React.useRef(0);
   const loadTask = useCallback(async () => {
@@ -410,7 +428,11 @@ export default function UsCollabTaskDetailPage() {
 
   // 大屏（lg+）视口内布局：整页不滚，AI 小结/时间线各自内滚；窄屏维持自然文档流
   return (
-    <div className="mx-auto flex max-w-[1200px] flex-col gap-4 px-2 py-4 sm:px-4 lg:h-[calc(100vh-6rem)]">
+    <div
+      ref={rootRef}
+      style={viewportHeight ? { height: viewportHeight } : undefined}
+      className="mx-auto flex max-w-[1200px] flex-col gap-4 px-2 pt-4 sm:px-4"
+    >
       {/* ── 顶部：返回 + 标题 + 徽章 ── */}
       <div className="flex shrink-0 flex-wrap items-center gap-3">
         <Button type="button" variant="outline" size="sm" onClick={() => navigate(-1)} className="gap-1">
