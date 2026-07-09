@@ -3808,7 +3808,8 @@ export function RDMyWorkspacePage() {
                 <SubsystemPanorama
                   groups={subsystemGroups}
                   onOpen={openTask}
-                  move={{ selectedIds: selectedTaskIds, onToggleSelect: toggleTaskSelected, onMoveTask: openSingleMove }}
+                  // 协同池无分类概念：移动归类（勾选/单移/批量）整体不提供
+                  move={isUsCollabWorkspace() ? undefined : { selectedIds: selectedTaskIds, onToggleSelect: toggleTaskSelected, onMoveTask: openSingleMove }}
                 />
               ) : (
                 <>

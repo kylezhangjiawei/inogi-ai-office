@@ -6844,8 +6844,13 @@ function UpcomingMilestonesSection({
                       {task.title}
                     </span>
                     <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-400">
-                      <span className="max-w-[180px] truncate text-slate-500">{path || "未分类"}</span>
-                      <span className="text-slate-300">·</span>
+                      {/* 协同池无分类概念，不显示路径段 */}
+                      {!isUsCollabWorkspace() && (
+                        <>
+                          <span className="max-w-[180px] truncate text-slate-500">{path || "未分类"}</span>
+                          <span className="text-slate-300">·</span>
+                        </>
+                      )}
                       <span>{task.primary_owner}</span>
                       <span className="text-slate-300">·</span>
                       <span className="font-mono">{task.task_id}</span>

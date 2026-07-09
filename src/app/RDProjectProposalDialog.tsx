@@ -41,6 +41,7 @@ import {
   extractRdTasksFromFile,
   extractRdTasksFromText,
   fetchProductTaskCategories,
+  isUsCollabWorkspace,
   fetchRdPeople,
   fetchRdProducts,
   fetchRdTaskCategories,
@@ -896,8 +897,8 @@ function StepInput({
         />
       </div>
 
-      {/* 归属产品：整份立项归属同一个产品；AI 会按原文推断，用户可手动调整 */}
-      {products.length > 1 && (
+      {/* 归属产品：整份立项归属同一个产品；AI 会按原文推断，用户可手动调整。协同池无产品概念，隐藏 */}
+      {!isUsCollabWorkspace() && products.length > 1 && (
         <div>
           <label className="mb-1.5 block text-xs font-medium text-slate-700">
             归属产品
@@ -1295,36 +1296,39 @@ function TaskEditRow({
                 </SelectContent>
               </Select>
             </div>
-            <div>
-              <label className="mb-1 block text-[11px] font-medium text-slate-500">分类路径</label>
-              <Select
-                value={task.category_path}
-                onValueChange={(category_path) => onChange({ ...task, category_path })}
-              >
-                <SelectTrigger className={REVIEW_SELECT_TRIGGER_CLASS}>
-                  <SelectValue placeholder="选择分类路径" />
-                </SelectTrigger>
-                <SelectContent className="max-h-80 rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
-                  {categoryGroups.map((group) => (
-                    <SelectGroup key={group.label}>
-                      <SelectLabel className="px-2 py-1.5 text-[11px] font-semibold text-slate-400">
-                        {group.label}
-                      </SelectLabel>
-                      {group.options.map((option) => (
-                        <SelectItem
-                          key={option.value}
-                          value={option.value}
-                          className="rounded-lg py-2 pl-3 pr-9 text-sm text-slate-700"
-                          description={option.description}
-                        >
-                          {option.label}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {/* 协同池无「分类路径」概念：隐藏选择器，提交时任务统一落「协同任务」默认分组 */}
+            {!isUsCollabWorkspace() && (
+              <div>
+                <label className="mb-1 block text-[11px] font-medium text-slate-500">分类路径</label>
+                <Select
+                  value={task.category_path}
+                  onValueChange={(category_path) => onChange({ ...task, category_path })}
+                >
+                  <SelectTrigger className={REVIEW_SELECT_TRIGGER_CLASS}>
+                    <SelectValue placeholder="选择分类路径" />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-80 rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
+                    {categoryGroups.map((group) => (
+                      <SelectGroup key={group.label}>
+                        <SelectLabel className="px-2 py-1.5 text-[11px] font-semibold text-slate-400">
+                          {group.label}
+                        </SelectLabel>
+                        {group.options.map((option) => (
+                          <SelectItem
+                            key={option.value}
+                            value={option.value}
+                            className="rounded-lg py-2 pl-3 pr-9 text-sm text-slate-700"
+                            description={option.description}
+                          >
+                            {option.label}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
           {/* 协作人：多选，与主责人合并为"任务一对多"指派关系 */}
           {!ownerLocked && (
@@ -1797,7 +1801,7 @@ function StepReview({
             />
           </div>
 
-          {products.length > 1 && (
+          {!isUsCollabWorkspace() && products.length > 1 && (
             <div>
               <label className="mb-1.5 block text-xs font-medium text-slate-700">
                 归属产品
@@ -1818,6 +1822,8 @@ function StepReview({
             </div>
           )}
 
+          {/* 协同池无分类树概念：任务统一落「协同任务」默认分组，不展示项目节点选择 */}
+          {!isUsCollabWorkspace() && (
           <div>
             <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-slate-700">
               <FolderPlus className="h-3 w-3" />
@@ -1850,6 +1856,7 @@ function StepReview({
                 : "任务将归属到此项目下，仍按各自分类路径散落到分类树。"}
             </p>
           </div>
+          )}
         </section>
 
         {/* AI refine */}
@@ -2686,20 +2693,53 @@ export function RDProjectProposalDialog({
     return { target: { categoryId: parentProjectId, subProjectId: firstChild.id }, categories: baseCategories };
   };
 
+  /**
+   * 协同池无分类概念：所有立项任务统一落「协同任务 / 默认」容器（存储层仍是分类树结构，
+   * 只是用户永远不用选）。容器不存在时创建一次并以后端归一化后的权威树重新定位 id。
+   */
+  const resolveUsCollabTarget = async (
+    baseCategories: RdCategory[],
+  ): Promise<{ target: { categoryId: string; subProjectId: string } | null; categories: RdCategory[] }> => {
+    const findContainer = (cats: RdCategory[]) =>
+      cats.find((c) => c.id === "us-collab-general") ?? cats.find((c) => c.label === "协同任务");
+    let container = findContainer(baseCategories);
+    let cats = baseCategories;
+    if (!container) {
+      await persistCategoriesForProduct([
+        ...baseCategories,
+        { id: "us-collab-general", label: "协同任务", children: [{ id: "us-collab-general-sub", label: "默认", tasks: [] }] },
+      ]);
+      cats = await fetchRdTaskCategories();
+      setCategories(cats);
+      container = findContainer(cats) ?? cats[0];
+    }
+    const child = container?.children[0];
+    if (!container || !child) {
+      toast.error("无法初始化协同任务分组，请重试");
+      return { target: null, categories: cats };
+    }
+    return { target: { categoryId: container.id, subProjectId: child.id }, categories: cats };
+  };
+
   const createTasksFromProposal = async (status: "pending_review" | "in_progress") => {
+    const usCollab = isUsCollabWorkspace();
     let workingCategories = await ensurePersistentCategoryTree();
     let fallbackTarget: { categoryId: string; subProjectId: string } | null = null;
 
     const getFallbackTarget = async () => {
       if (fallbackTarget) return fallbackTarget;
-      const resolved = await resolveFallbackTargetIds(workingCategories);
+      const resolved = usCollab
+        ? await resolveUsCollabTarget(workingCategories)
+        : await resolveFallbackTargetIds(workingCategories);
       workingCategories = resolved.categories;
       fallbackTarget = resolved.target;
       return fallbackTarget;
     };
 
     for (const task of tasks) {
-      const target = resolveCategoryTargetFromPath(task, workingCategories) ?? await getFallbackTarget();
+      const target = usCollab
+        ? await getFallbackTarget()
+        : (resolveCategoryTargetFromPath(task, workingCategories) ?? await getFallbackTarget());
       if (!target) return false;
 
       // 个人工作台模式：save 时再做一次防御性 override，杜绝用户在 review 步骤手改 owner 的情况
@@ -2731,7 +2771,8 @@ export function RDProjectProposalDialog({
         ai_priority: task.priority,
         due_date: task.due_date,
         description: task.description,
-        category_path: task.category_path,
+        // 协同池不写分类路径（无此概念，避免 UI/报告出现无意义的路径文案）
+        category_path: usCollab ? "" : task.category_path,
         ...(collaborators.length > 0 ? { collaborators } : {}),
         // 标记为"立项"审核类型：管理员审批通过后任务进入 in_progress 而非 completed，
         // 避免发起人任务列表里这条数据被"已完成"过滤掉而消失。
