@@ -202,7 +202,8 @@ const LOG_SOURCE_LABELS: Record<string, string> = {
 
 // 仅用于内部关联、不应作为文本展示给用户的 metadata 键。
 // note_id：把进度留痕挂到对应操作留痕上（见 logNoteMatches）；notification_id：内部消息 id。
-const HIDDEN_META_KEYS = new Set(["note_id", "notification_id"]);
+// work_item_id / synthetic 是内部关联键（留痕↔工作项、合成条目标记），对用户是噪音，不渲染
+const HIDDEN_META_KEYS = new Set(["note_id", "notification_id", "work_item_id", "synthetic"]);
 
 function labelForField(key: string): string {
   return FIELD_LABELS[key] ?? key;

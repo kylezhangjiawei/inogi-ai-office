@@ -636,11 +636,10 @@ export default function UsCollabTaskDetailPage() {
             onTaskPatched={(_, patch) => setTask((prev) => (prev ? { ...prev, ...patch } : prev))}
           />
 
-          {/* Tab：留痕 / 附件库 / 操作记录 */}
-          <div className="material-card px-4 py-3">
+          {/* Tab：操作记录 / 进展留痕 / 附件库 —— Tab 行作为卡头顶满卡片上部（GitHub 式） */}
+          <div className="material-card overflow-hidden p-0">
             <Tabs value={tab} onValueChange={(value) => setTab(value as DetailTab)}>
-              {/* 下划线式 Tab（GitHub/Linear 范式），顺序：操作记录 → 进展留痕 → 附件库 */}
-              <TabsList className="mb-4 h-auto w-full justify-start gap-5 rounded-none border-b border-slate-200/80 bg-transparent p-0">
+              <TabsList className="h-auto w-full justify-start gap-6 rounded-none border-b border-slate-200/80 bg-transparent p-0 px-4">
                 {([
                   { key: "audit", label: "操作记录", count: auditLogs.length },
                   { key: "notes", label: "进展留痕", count: notes.length },
@@ -649,7 +648,7 @@ export default function UsCollabTaskDetailPage() {
                   <TabsTrigger
                     key={t.key}
                     value={t.key}
-                    className="-mb-px cursor-pointer gap-1.5 rounded-none border-0 border-b-2 border-transparent bg-transparent px-1 pb-2.5 pt-1 text-sm font-medium text-slate-500 shadow-none transition-colors hover:text-slate-800 data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent data-[state=active]:text-slate-900 data-[state=active]:shadow-none"
+                    className="-mb-px flex-none cursor-pointer gap-1.5 rounded-none border-0 border-b-2 border-transparent bg-transparent px-1 pb-3 pt-3.5 text-sm font-medium text-slate-500 shadow-none transition-colors hover:text-slate-800 data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent data-[state=active]:font-semibold data-[state=active]:text-slate-900 data-[state=active]:shadow-none"
                   >
                     {t.label}
                     {t.count != null && t.count > 0 && (
@@ -659,7 +658,7 @@ export default function UsCollabTaskDetailPage() {
                 ))}
               </TabsList>
 
-              <TabsContent value="notes">
+              <TabsContent value="notes" className="px-4 pb-4 pt-3">
               <div>
                 {workItems.length > 0 && (
                   <div className="mb-3 flex flex-wrap items-center gap-1">
@@ -696,7 +695,7 @@ export default function UsCollabTaskDetailPage() {
               </div>
               </TabsContent>
 
-              <TabsContent value="attachments">
+              <TabsContent value="attachments" className="px-4 pb-4 pt-3">
               <div className="space-y-3">
                 <TaskImageGallery notes={notes} />
                 <div>
@@ -749,8 +748,8 @@ export default function UsCollabTaskDetailPage() {
               </div>
               </TabsContent>
 
-              <TabsContent value="audit">
-              <div className="max-h-[560px] overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/40 px-2 py-2">
+              <TabsContent value="audit" className="px-4 pb-4 pt-3">
+              <div className="max-h-[640px] overflow-y-auto px-1 py-1">
                 <AuditTimeline
                   logs={auditLogs}
                   showResource={false}

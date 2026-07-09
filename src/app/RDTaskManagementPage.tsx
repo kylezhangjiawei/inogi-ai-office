@@ -4231,11 +4231,18 @@ export function WorkItemsSection({
       </div>
 
       {items.length > 0 && (
-        <ul className="space-y-1.5">
+        <ul className={cn(canEdit ? "space-y-1.5" : "space-y-0.5")}>
           {items.map((it) => {
             const noteCount = noteCountByItem.get(it.id) ?? 0;
             return (
-              <li key={it.id} className="group flex items-center gap-2.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-sm">
+              // 只读展示（驾驶舱/详情页）用无框简洁行（美式 checklist）；编辑态（工作台入口）保留框行
+              <li
+                key={it.id}
+                className={cn(
+                  "group flex items-center gap-2.5 text-sm",
+                  canEdit ? "rounded-lg border border-slate-200 bg-white px-2.5 py-1.5" : "px-1 py-1",
+                )}
+              >
                 <Checkbox
                   checked={it.done}
                   disabled={!canEdit || saving}
