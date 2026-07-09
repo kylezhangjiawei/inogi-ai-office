@@ -4102,7 +4102,6 @@ export function downloadUsCollabTaskReport(
 <tr><th>状态</th><td>${esc(statusLabel)}${blockedDays != null ? `（已阻塞 ${blockedDays} 天）` : ""}</td><th>进度</th><td>${task.progress}%</td></tr>
 <tr><th>主责人</th><td>${esc(task.primary_owner)}</td><th>优先级</th><td>${esc(PRIORITY_CONFIG[task.final_priority]?.label ?? task.final_priority)}</td></tr>
 <tr><th>协作人</th><td>${esc((task.collaborators ?? []).map((c) => c.name).join("、") || "—")}</td><th>截止日期</th><td>${esc(task.due_date || "—")}</td></tr>
-<tr><th>分类路径</th><td colspan="3">${esc(task.category_path || "—")}</td></tr>
 </table>
 ${task.description ? `<h2>任务描述</h2><p>${esc(task.description).replace(/\n/g, "<br/>")}</p>` : ""}
 ${workItemsBlock}

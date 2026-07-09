@@ -498,7 +498,7 @@ export default function UsCollabTaskDetailPage() {
                   {task.due_date || "—"}
                 </span>
               ) },
-              { label: "分类路径", value: task.category_path || "—" },
+              // 注：「分类路径」是研发侧 BOM 系统概念，协同任务不展示
             ].map((row) => (
               <div key={row.label} className="flex items-center justify-between gap-3 text-sm">
                 <span className="shrink-0 text-xs text-slate-400">{row.label}</span>
