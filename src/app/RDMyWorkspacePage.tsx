@@ -36,6 +36,7 @@ import { Checkbox } from "./components/ui/checkbox";
 import { Input } from "./components/ui/input";
 import { NativeSelect } from "./components/ui/native-select";
 import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
 import { usePermission } from "./hooks/usePermission";
@@ -1776,18 +1777,19 @@ function TaskOperationDrawer({
                   <span className="text-sm font-semibold text-slate-900">关联工作项</span>
                   <span className="text-[10px] text-slate-400">可选，本条进展归属到任务的哪个子块</span>
                 </div>
-                <select
-                  value={noteWorkItemId}
-                  onChange={(event) => setNoteWorkItemId(event.target.value)}
-                  className="mt-2 w-full cursor-pointer rounded-xl border border-slate-200 px-3 py-2 text-sm text-slate-700 outline-none transition-colors focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
-                >
-                  <option value="">不关联（记到主任务）</option>
-                  {workItems.map((it) => (
-                    <option key={it.id} value={it.id}>
-                      {it.done ? "✓ " : ""}{it.title}
-                    </option>
-                  ))}
-                </select>
+                <Select value={noteWorkItemId || "none"} onValueChange={(v) => setNoteWorkItemId(v === "none" ? "" : v)}>
+                  <SelectTrigger className="mt-2 w-full rounded-xl border-slate-200 text-sm text-slate-700">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+                    <SelectItem value="none">不关联（记到主任务）</SelectItem>
+                    {workItems.map((it) => (
+                      <SelectItem key={it.id} value={it.id}>
+                        {it.done ? "✓ " : ""}{it.title}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </label>
             )}
             <label className="block">
