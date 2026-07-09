@@ -628,7 +628,7 @@ export default function UsCollabTaskDetailPage() {
       {/* 美式 content-first 布局：主内容（描述/工作项/时间线）居左，Properties 侧栏居右（GitHub issue / Linear 范式） */}
       <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
         {/* ══ 右侧 Properties 栏（单一面板，分节细线分隔；超高自身内滚）══ */}
-        <div className="min-h-0 lg:order-2 lg:overflow-y-auto">
+        <div className="cockpit-scroll min-h-0 lg:order-2 lg:overflow-y-auto">
         <div className="material-card divide-y divide-slate-100">
           {/* 字段节 */}
           <div className="space-y-2.5 px-4 py-3.5">
@@ -794,7 +794,7 @@ export default function UsCollabTaskDetailPage() {
                   <X className="h-3.5 w-3.5" />
                 </button>
               </div>
-              <p className="max-h-52 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{brief.text}</p>
+              <p className="cockpit-scroll max-h-52 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{brief.text}</p>
             </div>
           )}
 
@@ -802,7 +802,7 @@ export default function UsCollabTaskDetailPage() {
           {task.description && (
             <div className="shrink-0 material-card px-4 py-3">
               <div className="mb-1.5 text-xs font-semibold text-slate-500">任务描述</div>
-              <p className="max-h-40 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{task.description}</p>
+              <p className="cockpit-scroll max-h-40 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{task.description}</p>
             </div>
           )}
 
@@ -838,7 +838,7 @@ export default function UsCollabTaskDetailPage() {
                 ))}
               </TabsList>
 
-              <TabsContent value="notes" className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
+              <TabsContent value="notes" className="cockpit-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
               <motion.div initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.16 }}>
                 {workItems.length > 0 && (
                   <div className="mb-3 flex flex-wrap items-center gap-1">
@@ -875,7 +875,7 @@ export default function UsCollabTaskDetailPage() {
               </motion.div>
               </TabsContent>
 
-              <TabsContent value="attachments" className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
+              <TabsContent value="attachments" className="cockpit-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
               <motion.div initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.16 }} className="space-y-3">
                 <TaskImageGallery notes={notes} />
                 <div>
@@ -928,7 +928,7 @@ export default function UsCollabTaskDetailPage() {
               </motion.div>
               </TabsContent>
 
-              <TabsContent value="audit" className="min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
+              <TabsContent value="audit" className="cockpit-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
               <motion.div initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.16 }} className="px-1 py-1">
                 {/* 完整时间线：操作动作 + 进展留痕合成，进展条目下挂附件缩略图（与抽屉口径一致） */}
                 <AuditTimeline
@@ -964,7 +964,7 @@ export default function UsCollabTaskDetailPage() {
                   }}
                   rows={2}
                   placeholder="写一条进展…（Ctrl+Enter 发送）"
-                  className="w-full resize-none rounded-lg border-slate-200 text-sm"
+                  className="cockpit-scroll w-full resize-none rounded-lg border-slate-200 text-sm"
                 />
                 {composerFiles.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
@@ -1078,7 +1078,7 @@ export default function UsCollabTaskDetailPage() {
               </span>
             </DialogTitle>
           </DialogHeader>
-          <div className="max-h-[50vh] space-y-1.5 overflow-y-auto">
+          <div className="cockpit-scroll max-h-[50vh] space-y-1.5 overflow-y-auto">
             {tasksOfPerson.length === 0 ? (
               <p className="py-6 text-center text-sm text-slate-400">暂无活跃任务</p>
             ) : (
