@@ -140,6 +140,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { code: 'page:ai-model-management', label: 'AI 模型管理', description: 'AI 模型配置页面' },
       { code: 'page:ocr-config-management', label: '腾讯OCR配置', description: '腾讯 OCR 凭证配置页面' },
       { code: 'page:downloads', label: '下载和教程', description: '查看下载与教程页面' },
+      { code: 'i18n:manage', label: '翻译管理', description: '维护界面双语字典（AI 初翻入库 / 行内编辑 / JSON 导入导出）' },
     ],
   },
   {

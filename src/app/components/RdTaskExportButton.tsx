@@ -9,6 +9,7 @@ import { Download, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { exportRdTasksXlsx } from "../lib/rdTaskExport";
+import { t, useI18n } from "../lib/i18n";
 import type { RdTask } from "../lib/rdApi";
 
 function toYmd(d: Date): string {
@@ -17,6 +18,7 @@ function toYmd(d: Date): string {
 }
 
 export function RdTaskExportButton({ allTasks }: { allTasks: RdTask[] }) {
+  useI18n(); // 订阅语言切换（按钮文案 t()）
   const [open, setOpen] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   // 默认本月初 → 今天
@@ -65,7 +67,7 @@ export function RdTaskExportButton({ allTasks }: { allTasks: RdTask[] }) {
         <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-50 text-sky-600 ring-1 ring-sky-100">
           <Download className="h-4 w-4" />
         </span>
-        <span className="min-w-0">导出</span>
+        <span className="min-w-0">{t("导出")}</span>
       </button>
 
       {open && createPortal(

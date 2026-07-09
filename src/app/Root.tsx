@@ -1,6 +1,7 @@
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Outlet } from "react-router";
 import { Header } from "./components/header_1";
+import { initI18n } from "./lib/i18n";
 import { MateChatBubble } from "./components/MateChatBubble";
 import { Toaster } from "./components/ui/sonner";
 import { Sidebar } from "./components/sidebar_1";
@@ -13,6 +14,11 @@ import {
 } from "./lib/layoutChrome";
 
 export function Root() {
+  // i18n：登录后拉一次用户语言偏好与英文字典（失败静默回退中文缓存，不阻塞启动）
+  useEffect(() => {
+    void initI18n();
+  }, []);
+
   // 沉浸模式：研发驾驶舱滚动收起顶部概览时上报，联动隐藏全局顶栏 + 滑出侧边栏。
   const [immersive, setImmersive] = useState(false);
   // 侧栏手动收起（图标轨道）：用户偏好，初值读 localStorage、变更即回写。

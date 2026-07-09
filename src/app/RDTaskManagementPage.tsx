@@ -132,6 +132,7 @@ import { fetchRdDailyReports, type RdDailyReport } from "./lib/rdApi";
 import { getGradeTone } from "./lib/taskCompletionScore";
 import { openTaskCompletionReport, openBatchCompletionReport } from "./lib/taskCompletionReport";
 import { useAvatarDirectory } from "./lib/userAvatar";
+import { t, useI18n } from "./lib/i18n";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
 import { RdTaskExportButton } from "./components/RdTaskExportButton";
 import { Button } from "./components/ui/button";
@@ -10141,6 +10142,8 @@ function ExecutiveOverview({
   hideSystemPanorama?: boolean;
 }) {
   const shouldReduceMotion = useReducedMotion();
+  // i18n 试点（P0 验证链路）：订阅语言切换；t() 中文态原样返回，研发侧零影响
+  const { lang } = useI18n();
   const totalActive = catStats.reduce((s, c) => s + c.total, 0);
   const inProgress = catStats.reduce((s, c) => s + c.inProgress, 0);
   const done = catStats.reduce((s, c) => s + c.done, 0);
@@ -10155,12 +10158,12 @@ function ExecutiveOverview({
 
   // KPI 定义（研发的格子卡与协同的 stat strip 共享同一份数据与筛选交互）
   const kpiItems = [
-    { label: "活跃", value: totalActive, Icon: Target, tone: "text-indigo-700", bg: "from-indigo-50 to-white", filterKey: null, activeRing: "ring-indigo-300" },
-    { label: "完成率", value: `${rate}%`, Icon: Gauge, tone: "text-slate-900", bg: "from-slate-50 to-white", filterKey: null, activeRing: "ring-slate-300" },
-    { label: "进行中", value: inProgress, Icon: CircleDot, tone: "text-indigo-600", bg: "from-indigo-50 to-white", filterKey: "in_progress" as KpiFilter, activeRing: "ring-indigo-400" },
-    { label: "完成", value: done, Icon: CheckCircle2, tone: "text-emerald-700", bg: "from-emerald-50 to-white", filterKey: "completed" as KpiFilter, activeRing: "ring-emerald-400" },
-    { label: "阻塞/待派", value: blocked, Icon: Users, tone: blocked > 0 ? "text-amber-700" : "text-slate-400", bg: blocked > 0 ? "from-amber-50 to-white" : "from-slate-50 to-white", filterKey: "blocked" as KpiFilter, activeRing: "ring-amber-400" },
-    { label: "风险", value: risks.length, Icon: AlertTriangle, tone: risks.length > 0 ? "text-red-700" : "text-slate-400", bg: risks.length > 0 ? "from-red-50 to-white" : "from-slate-50 to-white", filterKey: "risk" as KpiFilter, activeRing: "ring-red-400" },
+    { label: t("活跃"), value: totalActive, Icon: Target, tone: "text-indigo-700", bg: "from-indigo-50 to-white", filterKey: null, activeRing: "ring-indigo-300" },
+    { label: t("完成率"), value: `${rate}%`, Icon: Gauge, tone: "text-slate-900", bg: "from-slate-50 to-white", filterKey: null, activeRing: "ring-slate-300" },
+    { label: t("进行中"), value: inProgress, Icon: CircleDot, tone: "text-indigo-600", bg: "from-indigo-50 to-white", filterKey: "in_progress" as KpiFilter, activeRing: "ring-indigo-400" },
+    { label: t("完成"), value: done, Icon: CheckCircle2, tone: "text-emerald-700", bg: "from-emerald-50 to-white", filterKey: "completed" as KpiFilter, activeRing: "ring-emerald-400" },
+    { label: t("阻塞/待派"), value: blocked, Icon: Users, tone: blocked > 0 ? "text-amber-700" : "text-slate-400", bg: blocked > 0 ? "from-amber-50 to-white" : "from-slate-50 to-white", filterKey: "blocked" as KpiFilter, activeRing: "ring-amber-400" },
+    { label: t("风险"), value: risks.length, Icon: AlertTriangle, tone: risks.length > 0 ? "text-red-700" : "text-slate-400", bg: risks.length > 0 ? "from-red-50 to-white" : "from-slate-50 to-white", filterKey: "risk" as KpiFilter, activeRing: "ring-red-400" },
   ] as const;
 
   // 协同侧页头采用三层结构（页头条 / stat strip / 报表全宽），研发侧维持原两卡布局
@@ -10264,10 +10267,10 @@ function ExecutiveOverview({
             {/* ① 页头条（无卡片框）：标题+日期 在左，全局动作按钮组 在右 */}
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>
-                <h2 className="text-xl font-bold tracking-tight text-slate-900">协同任务驾驶舱</h2>
+                <h2 className="text-xl font-bold tracking-tight text-slate-900">{t("协同任务驾驶舱")}</h2>
                 <p className="mt-1 text-sm text-slate-400">
-                  {new Date().toLocaleDateString("zh-CN", { month: "long", day: "numeric", weekday: "long" })} · {totalActive} 个活跃任务
-                  {risks.length > 0 && <span className="ml-2 font-semibold text-red-500">{risks.length} 个风险</span>}
+                  {new Date().toLocaleDateString(lang === "en" ? "en-US" : "zh-CN", { month: "long", day: "numeric", weekday: "long" })} · {t("{n} 个活跃任务", { n: totalActive })}
+                  {risks.length > 0 && <span className="ml-2 font-semibold text-red-500">{t("{n} 个风险", { n: risks.length })}</span>}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -10279,7 +10282,7 @@ function ExecutiveOverview({
                     className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
                   >
                     <UserCog className="h-3.5 w-3.5" />
-                    批量转派
+                    {t("批量转派")}
                   </button>
                 )}
                 {onOpenPeople && (
@@ -10289,7 +10292,7 @@ function ExecutiveOverview({
                     className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
                   >
                     <UserPlus className="h-3.5 w-3.5" />
-                    人员管理
+                    {t("人员管理")}
                   </button>
                 )}
                 {canClearData && onClearData && (
@@ -10299,7 +10302,7 @@ function ExecutiveOverview({
                     className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-red-500 transition-colors hover:border-red-200 hover:bg-red-50"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
-                    清空数据
+                    {t("清空数据")}
                   </button>
                 )}
                 {canDirectProject && onAiProject && (
@@ -10309,7 +10312,7 @@ function ExecutiveOverview({
                     className="inline-flex h-9 items-center gap-1.5 rounded-lg bg-indigo-600 px-3.5 text-xs font-semibold text-white shadow-[0_6px_14px_-4px_rgba(79,70,229,0.4)] transition-colors hover:bg-indigo-700"
                   >
                     <Sparkles className="h-3.5 w-3.5" />
-                    AI 立项
+                    {t("AI 立项")}
                   </button>
                 )}
               </div>

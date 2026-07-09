@@ -29,6 +29,7 @@ import { FilesModule } from './modules/files/files.module';
 import { RagModule } from './modules/rag/rag.module';
 import { OrderProcessingModule } from './modules/order-processing/order-processing.module';
 import { IssueModule } from './modules/issue/issue.module';
+import { I18nModule } from './modules/i18n/i18n.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
 import { UserThrottlerGuard } from './common/user-throttler.guard';
@@ -72,6 +73,7 @@ const envFilePath = [
     RagModule,
     ResearchDevelopmentModule,
     IssueModule,
+    I18nModule,
   ],
   providers: [
     // 全局兜底异常过滤器：HttpException 原样透传（前端契约不变），其余未捕获异常统一 500 + 日志、不泄露堆栈。

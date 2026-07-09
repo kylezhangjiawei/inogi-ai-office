@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from "react-router";
 import { getRoleLabel, useAuth } from "../auth";
 import { routeTitleMap } from "../routesConfig";
 import { useUserAvatar } from "../lib/userAvatar";
+import { setI18nLang, useI18n } from "../lib/i18n";
 import { fetchRdMessages, patchRdMessage, type RdMessage } from "../lib/rdApi";
 import { useLayoutChromeState } from "../lib/layoutChrome";
 import { cn } from "./ui/utils";
@@ -49,6 +50,7 @@ export function Header() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const { lang } = useI18n();
   const { immersive } = useLayoutChromeState();
   const avatar = useUserAvatar(user?.id);
   const [open, setOpen] = useState(false);
@@ -140,6 +142,17 @@ export function Header() {
               <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-slate-400">Today</div>
               <div className="text-sm font-semibold text-slate-700">{today}</div>
             </div>
+
+            {/* 语言切换：按用户偏好持久化（中方看中文、美方看英文，同页面各看各的） */}
+            <button
+              type="button"
+              onClick={() => void setI18nLang(lang === "en" ? "zh" : "en")}
+              title={lang === "en" ? "Switch to Chinese" : "切换为英文界面"}
+              aria-label={lang === "en" ? "Switch to Chinese" : "切换为英文界面"}
+              className="flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white/92 text-xs font-bold tracking-wide text-slate-600 shadow-sm transition hover:-translate-y-0.5 hover:text-primary"
+            >
+              {lang === "en" ? "中" : "EN"}
+            </button>
 
             <button className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white/92 text-slate-600 shadow-sm transition hover:-translate-y-0.5 hover:text-primary">
               <Settings className="h-5 w-5" />
