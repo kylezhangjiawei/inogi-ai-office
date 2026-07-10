@@ -10,6 +10,7 @@ import {
   Download,
   FileText,
   Loader2,
+  Pencil,
   RefreshCw,
   Sparkles,
   X,
@@ -25,6 +26,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { useAnyPermission } from "./hooks/usePermission";
 import { useAuth } from "./auth";
+import { Input } from "./components/ui/input";
 import { Textarea } from "./components/ui/textarea";
 import { PERMISSIONS } from "./lib/permissions";
 import { t, useI18n } from "./lib/i18n";
@@ -125,6 +127,7 @@ export default function UsCollabTaskDetailPage() {
   const [briefLoading, setBriefLoading] = useState(false);
   const [people, setPeople] = useState<PersonProfile[]>([]);
   const [showHandover, setShowHandover] = useState(false);
+  const [showEditInfo, setShowEditInfo] = useState(false);
   const [showAddCollab, setShowAddCollab] = useState(false);
   const [showComplete, setShowComplete] = useState(false);
   const [showApproval, setShowApproval] = useState<"approve" | "reject" | null>(null);
@@ -323,6 +326,38 @@ export default function UsCollabTaskDetailPage() {
   };
 
   // ── 管理动作（API 口径与驾驶舱抽屉完全一致） ──────────────────────────────
+
+  /** 编辑标题/描述（主管）：PATCH 后乐观更新双数据源并留审计 diff */
+  const handleEditInfo = async (nextTitle: string, nextDescription: string) => {
+    if (!task) return;
+    const title = nextTitle.trim();
+    if (!title) {
+      toast.error(t("标题不能为空"));
+      return;
+    }
+    const changes: { field: string; before: string; after: string }[] = [];
+    if (title !== task.title) changes.push({ field: "title", before: task.title, after: title });
+    if (nextDescription !== (task.description ?? "")) {
+      changes.push({ field: "description", before: (task.description ?? "").slice(0, 120), after: nextDescription.slice(0, 120) });
+    }
+    if (changes.length === 0) {
+      setShowEditInfo(false);
+      return;
+    }
+    await updateRdTask(task.task_id, { title, description: nextDescription });
+    recordAudit({
+      actor: AUDIT_ACTOR,
+      action: "task.edited",
+      resource: { type: "task", id: task.task_id, name: title },
+      changes,
+      comment: t("协同详情页编辑任务信息"),
+      source: "web",
+    });
+    setTask((prev) => (prev ? { ...prev, title, description: nextDescription } : prev));
+    setAllTasks((prev) => prev.map((item) => (item.task_id === task.task_id ? { ...item, title, description: nextDescription } : item)));
+    setShowEditInfo(false);
+    toast.success(t("任务信息已更新"));
+  };
 
   const savePriority = async (next: RdPriority) => {
     if (!task || savingPriority || next === task.final_priority) return;
@@ -597,7 +632,19 @@ export default function UsCollabTaskDetailPage() {
           </div>
         )}
         <span className="font-mono text-xs text-slate-400">{task.task_id}</span>
-        <h1 className="min-w-0 flex-1 truncate text-xl font-bold text-slate-900">{task.title}</h1>
+        <h1 className="min-w-0 flex-1 truncate text-xl font-bold text-slate-900">
+          {task.title}
+          {canManage && !task.archived && (
+            <button
+              type="button"
+              onClick={() => setShowEditInfo(true)}
+              title={t("编辑标题与描述")}
+              className="ml-2 inline-flex cursor-pointer items-center rounded p-1 align-middle text-slate-300 transition-colors hover:bg-slate-100 hover:text-slate-600"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </h1>
         <span className={cn("inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold", sCfg.bg, sCfg.text)}>
           <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
           {t(sCfg.label)}
@@ -1035,6 +1082,14 @@ export default function UsCollabTaskDetailPage() {
       </div>
 
       {/* ── 管理弹窗 ── */}
+      {showEditInfo && (
+        <EditTaskInfoDialog
+          initialTitle={task.title}
+          initialDescription={task.description ?? ""}
+          onConfirm={handleEditInfo}
+          onCancel={() => setShowEditInfo(false)}
+        />
+      )}
       {showHandover && (
         <HandoverDialog
           taskId={task.task_id}
@@ -1113,5 +1168,88 @@ export default function UsCollabTaskDetailPage() {
         </DialogContent>
       </Dialog>
     </motion.div>
+  );
+}
+
+/** 编辑任务标题/描述（主管）：与移交/协作人弹窗同风格的轻量弹窗 */
+function EditTaskInfoDialog({
+  initialTitle,
+  initialDescription,
+  onConfirm,
+  onCancel,
+}: {
+  initialTitle: string;
+  initialDescription: string;
+  onConfirm: (title: string, description: string) => Promise<void>;
+  onCancel: () => void;
+}) {
+  useI18n();
+  const [title, setTitle] = useState(initialTitle);
+  const [description, setDescription] = useState(initialDescription);
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await onConfirm(title, description);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("保存失败，请重试"));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={onCancel}>
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">
+            <Pencil className="h-4 w-4" />
+          </div>
+          <h3 className="text-base font-semibold text-slate-900">{t("编辑任务信息")}</h3>
+        </div>
+        <div className="space-y-4 px-6 py-5">
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-slate-700">{t("任务标题")} <span className="text-red-500">*</span></label>
+            <Input
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              maxLength={120}
+              autoFocus
+              className="h-9 rounded-lg border-slate-200 text-sm"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-slate-700">{t("任务描述")}</label>
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={5}
+              placeholder={t("补充任务背景、目标与交付要求…")}
+              className="cockpit-scroll w-full resize-none rounded-lg border-slate-200 text-sm"
+            />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
+          <button
+            type="button"
+            disabled={saving}
+            onClick={onCancel}
+            className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+          >
+            {t("取消")}
+          </button>
+          <button
+            type="button"
+            disabled={saving || !title.trim()}
+            onClick={() => void handleSave()}
+            className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-60"
+          >
+            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCircle2 className="h-3 w-3" />}
+            {t("保存")}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
