@@ -23,7 +23,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { cn } from "./components/ui/utils";
-import { t, useI18n } from "./lib/i18n";
+import { i18nLocale, t, useI18n } from "./lib/i18n";
 import { AuditAction, AuditLog, getAuditActionMeta } from "./lib/auditLog";
 
 // ─── Icon mapping ────────────────────────────────────────────────────────────
@@ -230,11 +230,11 @@ function formatRelative(iso: string): string {
   if (hr < 24) return t("{n} 小时前", { n: hr });
   const day = Math.floor(hr / 24);
   if (day < 7) return t("{n} 天前", { n: day });
-  return new Date(iso).toLocaleDateString("zh-CN", { month: "2-digit", day: "2-digit" });
+  return new Date(iso).toLocaleDateString(i18nLocale(), { month: "2-digit", day: "2-digit" });
 }
 
 function formatAbsolute(iso: string): string {
-  return new Date(iso).toLocaleString("zh-CN", {
+  return new Date(iso).toLocaleString(i18nLocale(), {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",

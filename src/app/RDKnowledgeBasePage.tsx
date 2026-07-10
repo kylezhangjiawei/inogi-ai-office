@@ -886,7 +886,7 @@ function EditEntryDialog({
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
               <Edit3 className="h-4 w-4" />
             </span>
-            编辑文件信息
+            {t("编辑文件信息")}
           </DialogTitle>
           <DialogDescription className="sr-only">
             修改已上传文件的元数据，包括标题、描述、分类、标签和权限分值。
@@ -898,27 +898,27 @@ function EditEntryDialog({
           <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5">
             <FileTypeIcon entry={entry} className="h-4 w-4 shrink-0" />
             <div className="min-w-0 flex-1">
-              <p className="truncate text-xs font-medium text-slate-500">原文件名</p>
+              <p className="truncate text-xs font-medium text-slate-500">{t("原文件名")}</p>
               <p className="mt-0.5 truncate text-xs text-slate-700">{entry.file_name ?? '—'}</p>
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-slate-600">标题 <span className="text-red-500">*</span></Label>
+            <Label className="text-xs font-semibold text-slate-600">{t("标题")} <span className="text-red-500">*</span></Label>
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="文件标题"
+              placeholder={t("文件标题")}
               className="h-9 rounded-md border-slate-200 text-sm"
             />
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-slate-600">描述</Label>
+            <Label className="text-xs font-semibold text-slate-600">{t("描述")}</Label>
             <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="文件描述（可选）"
+              placeholder={t("文件描述（可选）")}
               rows={2}
               className="rounded-md border-slate-200 text-sm"
             />
@@ -926,24 +926,24 @@ function EditEntryDialog({
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label className="text-xs font-semibold text-slate-600">分类 <span className="text-red-500">*</span></Label>
+              <Label className="text-xs font-semibold text-slate-600">{t("分类")} <span className="text-red-500">*</span></Label>
               <NativeSelect
                 value={categoryId}
                 onChange={(e) => setCategoryId(e.target.value)}
                 className="w-full h-9 cursor-pointer rounded-md border border-slate-200 bg-white px-3 text-sm text-slate-900 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
               >
-                <option value="">请选择</option>
+                <option value="">{t("请选择")}</option>
                 {flatCats.map((c) => (
                   <option key={c.id} value={c.id}>{c.label}</option>
                 ))}
               </NativeSelect>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs font-semibold text-slate-600">标签</Label>
+              <Label className="text-xs font-semibold text-slate-600">{t("标签")}</Label>
               <Input
                 value={tags}
                 onChange={(e) => setTags(e.target.value)}
-                placeholder="逗号分隔，如：研发,规范"
+                placeholder={t("逗号分隔，如：研发,规范")}
                 className="h-9 rounded-md border-slate-200 text-sm"
               />
             </div>
@@ -951,10 +951,10 @@ function EditEntryDialog({
 
           <div className="space-y-2">
             <div className="flex items-center justify-between gap-3">
-              <Label className="text-xs font-semibold text-slate-600">权限分值（0–100）</Label>
+              <Label className="text-xs font-semibold text-slate-600">{t("权限分值（0–100）")}</Label>
               <Badge className={cn('shrink-0 gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold', permCfg.badgeClass)}>
                 <ShieldCheck className="h-3 w-3" />
-                {permissionLevel}/100 · {permCfg.label}
+                {permissionLevel}/100 · {t(permCfg.label)}
               </Badge>
             </div>
             <Slider
@@ -966,14 +966,14 @@ function EditEntryDialog({
               className={cn('w-full [&_[data-slot=slider-track]]:h-2 [&_[data-slot=slider-thumb]]:size-4', permCfg.sliderClass)}
             />
             <p className="text-[11px] leading-relaxed text-slate-400">
-              用户分值 ≥ 文件分值才可访问。0 = 完全公开，100 = 最高密级。
+              {t("用户分值 ≥ 文件分值才可访问。0 = 完全公开，100 = 最高密级。")}
             </p>
           </div>
         </div>
 
         <DialogFooter className="border-t border-slate-100 px-5 py-4">
           <Button type="button" variant="ghost" onClick={onClose} disabled={saving} className="h-9 rounded-lg px-4 text-slate-600">
-            取消
+            {t("取消")}
           </Button>
           <Button
             type="button"
@@ -982,7 +982,7 @@ function EditEntryDialog({
             className="h-9 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
           >
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            保存修改
+            {t("保存修改")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1310,28 +1310,28 @@ function CategoryFormDialog({
               <Label className="text-xs font-semibold text-slate-600">所属层级</Label>
               <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
                 <ParentIcon className="h-4 w-4 text-slate-500" />
-                <span>{parentCategory ? `${parentCategory.label} / 子类目` : '一级类目'}</span>
+                <span>{parentCategory ? `${parentCategory.label} / ${t('子类目')}` : t('一级类目')}</span>
               </div>
             </div>
           )}
 
           <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-slate-600">类目名称 *</Label>
+            <Label className="text-xs font-semibold text-slate-600">{t("类目名称")} *</Label>
             <Input
               value={label}
               onChange={(event) => setLabel(event.target.value)}
               maxLength={40}
-              placeholder="例如：硬件研发"
+              placeholder={t("例如：硬件研发")}
               className="h-10 rounded-lg border-slate-200 bg-white text-sm focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             />
           </div>
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label className="text-xs font-semibold text-slate-600">图标</Label>
+              <Label className="text-xs font-semibold text-slate-600">{t("图标")}</Label>
               {selectedIconMeta && (
                 <span className="flex items-center gap-1 text-[11px] text-slate-400">
-                  已选
+                  {t("已选")}
                   <selectedIconMeta.icon className="h-3.5 w-3.5" style={{ color }} />
                   {selectedIconMeta.label}
                 </span>
@@ -1342,13 +1342,13 @@ function CategoryFormDialog({
               <Input
                 value={iconSearch}
                 onChange={(event) => setIconSearch(event.target.value)}
-                placeholder="搜索图标（如：硬件 / 采购 / cloud…）"
+                placeholder={t("搜索图标（如：硬件 / 采购 / cloud…）")}
                 className="h-8 rounded-lg pl-8 text-sm"
               />
             </div>
             <div className="grid max-h-40 grid-cols-8 gap-1.5 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/60 p-2">
               {iconChoices.length === 0 ? (
-                <p className="col-span-8 py-4 text-center text-xs text-slate-400">没有匹配的图标</p>
+                <p className="col-span-8 py-4 text-center text-xs text-slate-400">{t("没有匹配的图标")}</p>
               ) : (
                 iconChoices.map((option) => {
                   const Icon = option.icon;
@@ -1378,7 +1378,7 @@ function CategoryFormDialog({
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <Label className="text-xs font-semibold text-slate-600">颜色</Label>
-              <span className="text-[11px] text-slate-400">用于左侧类目树的图标颜色</span>
+              <span className="text-[11px] text-slate-400">{t("用于左侧类目树的图标颜色")}</span>
             </div>
             <div className="flex flex-wrap gap-2">
               {CATEGORY_COLOR_OPTIONS.map((value) => {
@@ -1407,13 +1407,13 @@ function CategoryFormDialog({
 
           {isEdit && getCategoryTotalEntryCount(state.category) > 0 && (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-700">
-              该类目下已有文件，后端会拒绝编辑。请先将文件移动到其他类目后再修改。
+              {t("该类目下已有文件，后端会拒绝编辑。请先将文件移动到其他类目后再修改。")}
             </div>
           )}
         </div>
         <DialogFooter className="border-t border-slate-100 px-5 py-4">
           <Button type="button" variant="ghost" onClick={onClose} disabled={saving} className="h-9 rounded-lg px-4 text-slate-600">
-            取消
+            {t("取消")}
           </Button>
           <Button
             type="button"
@@ -1467,16 +1467,16 @@ function DeleteCategoryDialog({
             {category.label}
           </div>
           <p className="text-xs leading-5 text-slate-500">
-            删除后该类目会从知识域导航移除；如果类目下存在文件，接口会拒绝删除。
+            {t("删除后该类目会从知识域导航移除；如果类目下存在文件，接口会拒绝删除。")}
           </p>
         </div>
         <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-6 py-4">
           <Button type="button" variant="ghost" onClick={onCancel} disabled={loading} className="h-8 rounded-lg px-4 text-sm text-slate-600">
-            取消
+            {t("取消")}
           </Button>
           <Button type="button" onClick={onConfirm} disabled={loading} className="h-8 rounded-lg bg-red-500 px-4 text-sm font-semibold text-white hover:bg-red-600 disabled:opacity-60">
             {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            确认删除
+            {t("确认删除")}
           </Button>
         </div>
       </DialogContent>
@@ -1515,7 +1515,7 @@ function MoveEntryDialog({
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
               <MoveRight className="h-4 w-4" />
             </span>
-            移动文件类目
+            {t("移动文件类目")}
           </DialogTitle>
           <DialogDescription className="sr-only">
             选择目标类目并将当前知识库文件移动过去。
@@ -1527,12 +1527,12 @@ function MoveEntryDialog({
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold text-slate-900">{entry.title}</p>
               <p className="mt-0.5 truncate text-xs text-slate-400">
-                当前：{currentCategory?.label ?? entry.category_id}
+                {t("当前：")}{currentCategory?.label ?? entry.category_id}
               </p>
             </div>
           </div>
           <div className="space-y-1.5">
-            <Label className="text-xs font-semibold text-slate-600">目标类目</Label>
+            <Label className="text-xs font-semibold text-slate-600">{t("目标类目")}</Label>
             <div className="grid max-h-56 grid-cols-1 gap-1 overflow-y-auto rounded-lg border border-slate-200 bg-white p-1">
               {flatCats.map((category) => (
                 <Button
@@ -1559,13 +1559,13 @@ function MoveEntryDialog({
               ))}
             </div>
             <p className="text-[11px] text-slate-400">
-              {targetCategory ? `将移动到：${targetCategory.label}` : '请选择目标类目'}
+              {targetCategory ? `${t('将移动到：')}${targetCategory.label}` : t('请选择目标类目')}
             </p>
           </div>
         </div>
         <DialogFooter className="border-t border-slate-100 px-5 py-4">
           <Button type="button" variant="ghost" onClick={onCancel} disabled={loading} className="h-9 rounded-lg px-4 text-slate-600">
-            取消
+            {t("取消")}
           </Button>
           <Button
             type="button"
@@ -1574,7 +1574,7 @@ function MoveEntryDialog({
             className="h-9 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
           >
             {loading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            确认移动
+            {t("确认移动")}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1621,7 +1621,7 @@ function DeleteConfirmDialog({ entry, loading, onConfirm, onCancel }: DeleteConf
             </div>
           </div>
           <p className="text-xs text-slate-500 leading-relaxed">
-            删除后文件数据将被永久移除，相关访问链接同步失效，无法恢复。
+            {t("删除后文件数据将被永久移除，相关访问链接同步失效，无法恢复。")}
           </p>
         </div>
         <div className="border-t border-slate-100 px-6 py-4 flex items-center justify-end gap-2.5">
@@ -1632,7 +1632,7 @@ function DeleteConfirmDialog({ entry, loading, onConfirm, onCancel }: DeleteConf
             disabled={loading}
             className="h-8 px-4 text-sm text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg"
           >
-            取消
+            {t("取消")}
           </Button>
           <Button
             type="button"
@@ -1641,7 +1641,7 @@ function DeleteConfirmDialog({ entry, loading, onConfirm, onCancel }: DeleteConf
             className="h-8 px-4 text-sm font-semibold bg-red-500 hover:bg-red-600 disabled:opacity-60 text-white rounded-lg shadow-[0_4px_12px_rgba(239,68,68,0.28)] focus-visible:ring-2 focus-visible:ring-red-300 focus-visible:ring-offset-1"
           >
             {loading && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-            确认删除
+            {t("确认删除")}
           </Button>
         </div>
       </DialogContent>
@@ -2333,7 +2333,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
             disabled={uploading}
             className="px-4 py-2 text-sm font-medium text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg outline-none transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-indigo-200"
           >
-            取消
+            {t("取消")}
           </Button>
           <Button
             type="button"
@@ -2418,17 +2418,17 @@ function MemberLevelsDialog({ kbId, onClose }: { kbId: string; onClose: () => vo
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>成员权限分值</DialogTitle>
+          <DialogTitle>{t("成员权限分值")}</DialogTitle>
           <DialogDescription>
-            成员只能看到密级分值 ≤ 本人分值（0-100）的文件；未配置的成员按 0 处理，仅可见完全公开文件。库管理员不受限制。
+            {t("成员只能看到密级分值 ≤ 本人分值（0-100）的文件；未配置的成员按 0 处理，仅可见完全公开文件。库管理员不受限制。")}
           </DialogDescription>
         </DialogHeader>
-        <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索姓名 / 账号 / 部门" className="h-9" />
+        <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("搜索姓名 / 账号 / 部门")} className="h-9" />
         <div className="max-h-80 space-y-1.5 overflow-y-auto pr-1">
           {loading ? (
             <div className="py-8 text-center text-sm text-slate-400">加载中…</div>
           ) : rows.length === 0 ? (
-            <div className="py-8 text-center text-sm text-slate-400">没有匹配的成员</div>
+            <div className="py-8 text-center text-sm text-slate-400">{t("没有匹配的成员")}</div>
           ) : rows.map((c) => (
             <div key={c.id} className="flex items-center gap-3 rounded-lg border border-slate-100 px-3 py-2">
               <div className="min-w-0 flex-1">

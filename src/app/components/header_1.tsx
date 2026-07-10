@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from "react-router";
 import { getRoleLabel, useAuth } from "../auth";
 import { routeTitleMap } from "../routesConfig";
 import { useUserAvatar } from "../lib/userAvatar";
-import { setI18nLang, t, useI18n } from "../lib/i18n";
+import { i18nLocale, setI18nLang, t, useI18n } from "../lib/i18n";
 import { fetchRdMessages, patchRdMessage, type RdMessage } from "../lib/rdApi";
 import { useLayoutChromeState } from "../lib/layoutChrome";
 import { cn } from "./ui/utils";
@@ -56,7 +56,7 @@ export function Header() {
   const [open, setOpen] = useState(false);
   const [rdMessages, setRdMessages] = useState<RdMessage[]>([]);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const today = new Date().toLocaleDateString("zh-CN", { year: "numeric", month: "2-digit", day: "2-digit" });
+  const today = new Date().toLocaleDateString(i18nLocale(), { year: "numeric", month: "2-digit", day: "2-digit" });
 
   const loadRdMessages = useCallback(async () => {
     if (!user?.id) return;

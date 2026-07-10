@@ -46,6 +46,11 @@ export function currentI18nLang(): I18nLang {
   return currentLang;
 }
 
+/** 日期/时间格式化用的 locale（toLocaleDateString 等传参）：随界面语言切换 */
+export function i18nLocale(): string {
+  return currentLang === "en" ? "en-US" : "zh-CN";
+}
+
 /**
  * 翻译函数。zhText 是中文原文（即字典 key），vars 做 {name} 模板插值。
  * 英文态查字典，缺 key（含字典未加载完）回退中文。

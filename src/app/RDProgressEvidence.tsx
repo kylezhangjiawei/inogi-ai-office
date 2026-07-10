@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, Download, FileText, ImageIcon, Loader2, Paperclip, Table2, X } from "lucide-react";
 import { cn } from "./components/ui/utils";
-import { t, useI18n } from "./lib/i18n";
+import { i18nLocale, t, useI18n } from "./lib/i18n";
 import { getAttachmentPreviewUrl, getAttachmentThumbUrl, getAttachmentUrl, type RdTaskProgressAttachment, type RdTaskProgressNote } from "./lib/rdApi";
 import { parseXlsxForPreview, type XlsxPreviewSheet } from "./lib/xlsxPreview";
 
@@ -520,7 +520,7 @@ export function ProgressNoteList({
               {note.actor.name}
               {note.actor.role ? <span className="ml-1 text-slate-400">· {t(note.actor.role)}</span> : null}
             </span>
-            <span className="shrink-0 tabular-nums">{new Date(note.created_at).toLocaleString("zh-CN")}</span>
+            <span className="shrink-0 tabular-nums">{new Date(note.created_at).toLocaleString(i18nLocale())}</span>
           </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             {typeof note.progress === "number" && (

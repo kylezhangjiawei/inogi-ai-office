@@ -183,11 +183,11 @@ async function compressImageToLimit(file: File, maxBytes: number): Promise<File 
 }
 
 function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString(i18nLocale(), { hour: "2-digit", minute: "2-digit" });
 }
 
 function fmtDateTime(iso: string) {
-  return new Date(iso).toLocaleString("zh-CN", {
+  return new Date(iso).toLocaleString(i18nLocale(), {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
