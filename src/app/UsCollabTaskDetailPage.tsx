@@ -336,15 +336,27 @@ export default function UsCollabTaskDetailPage() {
       return;
     }
     const changes: { field: string; before: string; after: string }[] = [];
-    if (title !== task.title) changes.push({ field: "title", before: task.title, after: title });
-    if (nextDescription !== (task.description ?? "")) {
-      changes.push({ field: "description", before: (task.description ?? "").slice(0, 120), after: nextDescription.slice(0, 120) });
+    const titleChanged = title !== task.title;
+    const descChanged = nextDescription !== (task.description ?? "");
+    if (titleChanged) changes.push({ field: "title", before: task.title, after: title });
+    if (descChanged) {
+      // 从首个差异处截取摘要：长描述只改结尾时，头 120 字相同会记出 before===after 的无效 diff
+      const before = task.description ?? "";
+      let diffAt = 0;
+      while (diffAt < before.length && diffAt < nextDescription.length && before[diffAt] === nextDescription[diffAt]) diffAt += 1;
+      const from = Math.max(0, diffAt - 30);
+      const clip = (s: string) => (from > 0 ? "…" : "") + s.slice(from, from + 120) + (s.length > from + 120 ? "…" : "");
+      changes.push({ field: "description", before: clip(before), after: clip(nextDescription) });
     }
     if (changes.length === 0) {
       setShowEditInfo(false);
       return;
     }
-    await updateRdTask(task.task_id, { title, description: nextDescription });
+    // 只提交实际变更的字段，避免把 undefined 描述静默覆写成空串
+    await updateRdTask(task.task_id, {
+      ...(titleChanged ? { title } : {}),
+      ...(descChanged ? { description: nextDescription } : {}),
+    });
     recordAudit({
       actor: AUDIT_ACTOR,
       action: "task.edited",
@@ -1200,7 +1212,7 @@ function EditTaskInfoDialog({
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={onCancel}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={saving ? undefined : onCancel}>
       <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center gap-3 border-b border-slate-100 px-6 py-4">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-slate-600">

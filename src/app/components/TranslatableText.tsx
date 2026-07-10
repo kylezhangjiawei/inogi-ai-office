@@ -5,6 +5,7 @@
  */
 import React, { useEffect, useState } from "react";
 import { Languages, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { authFetch } from "../lib/authSession";
 import { t, useI18n } from "../lib/i18n";
 import { cn } from "./ui/utils";
@@ -92,6 +93,8 @@ export function AutoTranslatedText({
       setTranslated(cached);
       return;
     }
+    // source 变化（同实例换文本，如编辑标题后）先清旧译文，等待期回退显示新原文
+    setTranslated(null);
     let alive = true;
     void fetchTranslation(source).then((result) => {
       if (alive && result) setTranslated(result);
@@ -126,7 +129,8 @@ export function TranslatableText({
   const [loading, setLoading] = useState(false);
 
   const source = (text ?? "").trim();
-  const canTranslate = lang === "en" && /[一-鿿]/.test(source);
+  // 4000 字是服务端上限，超长必 400——不渲染注定失败的按钮
+  const canTranslate = lang === "en" && /[一-鿿]/.test(source) && source.length <= 4000;
 
   const handleTranslate = async () => {
     if (translated) {
@@ -145,7 +149,8 @@ export function TranslatableText({
       setTranslated(data.text);
       setShowTranslated(true);
     } catch {
-      // 静默失败：保持原文，按钮可重试
+      // 保持原文，按钮可重试；给一句反馈避免"点了没反应"
+      toast.error(t("翻译失败，请稍后重试"));
     } finally {
       setLoading(false);
     }

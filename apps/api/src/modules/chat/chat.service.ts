@@ -304,10 +304,12 @@ export class ChatService {
     const userId = userContext.userId;
     const conv = await this.prisma.chatConversation.findUnique({
       where: { id: conversationId },
-      include: { messages: { orderBy: { createdAt: 'asc' }, take: 40 } },
+      // 取最新 40 条再翻回时间正序（asc+take 会取到最旧 40 条，长会话上下文全错位）
+      include: { messages: { orderBy: { createdAt: 'desc' }, take: 40 } },
     });
     if (!conv) throw new NotFoundException('会话不存在');
     if (conv.userId !== userId) throw new ForbiddenException();
+    conv.messages.reverse(); // desc 查询结果翻回时间正序，供 history 组装
 
     // 解析附件：只信任 fileId，回查 FileAsset 拿权威 name/mime/size/objectKey，并过滤越权文件
     const attachments = dto.attachments?.length

@@ -45,6 +45,8 @@ const MAX_DOC_BYTES = 20 * 1024 * 1024;
 const SCANNED_PDF_TEXT_THRESHOLD = 40;
 /** 扫描 PDF OCR 的页数上限（渲染+识别成本随页数线性增长） */
 const SCANNED_PDF_MAX_PAGES = 3;
+/** 扫描 PDF OCR 全程硬超时：腾讯 OCR fetch 无 AbortSignal，卡顿时会拖死同步调用方（issue 附件解析等） */
+const SCANNED_PDF_OCR_TIMEOUT_MS = 60_000;
 
 @Injectable()
 export class ChatAttachmentService {
@@ -261,6 +263,21 @@ export class ChatAttachmentService {
   private async ocrScannedPdf(parser: PDFParse): Promise<string> {
     const ocrReady = await this.ocrService.hasTencentConfig().catch(() => false);
     if (!ocrReady) return '';
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<string>((resolve) => {
+      timer = setTimeout(() => {
+        this.logger.warn(`扫描 PDF OCR 超时(${SCANNED_PDF_OCR_TIMEOUT_MS}ms)，放弃识别`);
+        resolve('');
+      }, SCANNED_PDF_OCR_TIMEOUT_MS);
+    });
+    try {
+      return await Promise.race([this.ocrScannedPdfInner(parser), timeout]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  private async ocrScannedPdfInner(parser: PDFParse): Promise<string> {
     try {
       const shot = await parser.getScreenshot({ first: SCANNED_PDF_MAX_PAGES, scale: 2 });
       const parts: string[] = [];

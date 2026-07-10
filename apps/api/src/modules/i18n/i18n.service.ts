@@ -299,6 +299,9 @@ export class I18nService {
     const translated = (result.content ?? '').trim();
     if (!translated) throw new BadRequestException('翻译失败，请重试');
 
+    // 超长内容不入缓存：2000 条长译文会把 KV 行撑到数 MB，每次请求整行读写线性变慢
+    if (source.length > 1500) return { text: translated, cached: false };
+
     // 写缓存（FIFO：超上限丢最早写入的条目）
     const entries = Object.entries(cache);
     if (entries.length >= CONTENT_CACHE_MAX) {
