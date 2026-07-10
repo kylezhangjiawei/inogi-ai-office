@@ -958,4 +958,11 @@ export class ResearchDevelopmentController {
   backfillKbToRag() {
     return this.rdService.backfillAllKbToRag();
   }
+
+  /** 全量重建两池任务+留痕向量索引（先清池内旧 chunks 再重建）。高危管理码守卫。 */
+  @Post('tasks/rag-backfill')
+  @Permissions('rd-data:clear')
+  backfillTasksToRag() {
+    return this.rdService.backfillTasksToRag();
+  }
 }

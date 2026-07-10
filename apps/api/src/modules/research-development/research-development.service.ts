@@ -6,7 +6,7 @@ import { OssService } from '../oss/oss.service';
 import { RagService } from '../rag/rag.service';
 import { DEPT_KBS, DEPT_KB_DEFAULT_CATEGORIES, deptKbPageCode } from './dept-knowledge.constants';
 import { RdAiService } from './rd-ai.service';
-import { WORKSPACE_PAGE_CODES, currentRdWorkspace, resolveRdStoreKey } from './rd-workspace.context';
+import { RD_WORKSPACE_IDS, WORKSPACE_PAGE_CODES, currentRdWorkspace, resolveRdStoreKey, runInRdWorkspace } from './rd-workspace.context';
 
 type JsonRecord = Record<string, unknown>;
 /**
@@ -931,6 +931,148 @@ export class ResearchDevelopmentService {
     }
   }
 
+  // ─── 任务 / 留痕 → RAG 同步（best-effort，失败不影响业务） ────────────────
+  // 池隔离：sourceId 带 `${workspace}:` 前缀防两池 task_id 撞车；metadata 用池页面码做检索门槛，
+  // 与 RdWorkspaceInterceptor 的池准入同一集合，凭操作码无法跨池检索。
+
+  private async syncTaskToRag(taskId: string): Promise<void> {
+    try {
+      const workspace = currentRdWorkspace();
+      const task = await this.findTaskAcrossStores(taskId);
+      if (!task) return;
+      const sourceId = `${workspace}:${taskId}`;
+      if (task.archived === true) {
+        await this.ragService.removeChunksForSource('rd_task', sourceId);
+        return;
+      }
+      const title = cleanText(task.title) ?? '';
+      const description = cleanText(task.description) ?? '';
+      const owner = cleanText(task.primary_owner) ?? '';
+      const categoryPath = cleanText(task.category_path) ?? '';
+      if (!title && !description) return;
+      const text = [
+        title && `【任务】${title}`,
+        description && `【描述】${description}`,
+        owner && `【主责人】${owner}`,
+        categoryPath && `【分类】${categoryPath}`,
+        cleanText(task.status) && `【状态】${cleanText(task.status)}`,
+        cleanText(task.due_date) && `【截止】${cleanText(task.due_date)}`,
+      ]
+        .filter(Boolean)
+        .join('\n');
+      await this.ragService.syncDocument({
+        sourceType: 'rd_task',
+        sourceId,
+        title,
+        text,
+        metadata: {
+          title,
+          workspace,
+          task_id: taskId,
+          required_any_permissions: WORKSPACE_PAGE_CODES[workspace] ?? [],
+          author_name: owner || undefined,
+          url:
+            workspace === 'us-collab'
+              ? `/us-collab-workspace?task=${encodeURIComponent(taskId)}`
+              : `/rd-my-workspace?task=${encodeURIComponent(taskId)}`,
+        },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[RAG] syncTaskToRag 失败 (task=${taskId}): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  private async syncProgressNoteToRag(taskId: string, note: JsonRecord): Promise<void> {
+    try {
+      const workspace = currentRdWorkspace();
+      const text = cleanText(note.text) ?? '';
+      if (!text) return;
+      const task = await this.findTaskAcrossStores(taskId);
+      const taskTitle = task ? (cleanText(task.title) ?? '') : '';
+      const actorName = isRecord(note.actor) ? (cleanText(note.actor.name) ?? '') : '';
+      await this.ragService.syncDocument({
+        sourceType: 'rd_progress_note',
+        sourceId: `${workspace}:note:${String(note.id ?? '')}`,
+        title: taskTitle ? `${taskTitle} · 进展留痕` : '进展留痕',
+        text: [taskTitle && `【任务】${taskTitle}`, `【进展】${text}`].filter(Boolean).join('\n'),
+        metadata: {
+          title: taskTitle || undefined,
+          workspace,
+          task_id: taskId,
+          required_any_permissions: WORKSPACE_PAGE_CODES[workspace] ?? [],
+          author_name: actorName || undefined,
+          created_at: cleanText(note.created_at) || undefined,
+          url:
+            workspace === 'us-collab'
+              ? `/us-collab-workspace?task=${encodeURIComponent(taskId)}`
+              : `/rd-my-workspace?task=${encodeURIComponent(taskId)}`,
+        },
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[RAG] syncProgressNoteToRag 失败 (task=${taskId}): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  /**
+   * 全量回填两池任务与留痕到向量库：先清池内旧 chunks 再重建（顺带清掉已删任务的遗留索引）。
+   * 适用于：首次接入任务源 / 清空数据后 / 切换 embedding 模型。
+   */
+  async backfillTasksToRag(): Promise<{
+    byWorkspace: Record<string, { tasks: number; notes: number; failed: number }>;
+  }> {
+    const byWorkspace: Record<string, { tasks: number; notes: number; failed: number }> = {};
+    for (const workspace of RD_WORKSPACE_IDS) {
+      await runInRdWorkspace(workspace, async () => {
+        const stat = { tasks: 0, notes: 0, failed: 0 };
+        byWorkspace[workspace] = stat;
+        await this.ragService.removeChunksBySourcePrefix(
+          ['rd_task', 'rd_progress_note'],
+          `${workspace}:`,
+        );
+        const categories = await this.readMergedTaskCategories();
+        const taskIds: string[] = [];
+        const walk = (tasks: unknown): void => {
+          for (const t of asArray(tasks)) {
+            if (!isRecord(t)) continue;
+            const id = cleanText(t.task_id);
+            if (id && t.archived !== true) taskIds.push(id);
+            if (Array.isArray(t.subtasks)) walk(t.subtasks);
+          }
+        };
+        for (const cat of categories) {
+          for (const sub of asArray(cat.children)) {
+            if (isRecord(sub)) walk(sub.tasks);
+          }
+        }
+        for (const id of taskIds) {
+          try {
+            await this.syncTaskToRag(id);
+            stat.tasks += 1;
+          } catch {
+            stat.failed += 1;
+          }
+        }
+        const noteMap = await this.getProgressNoteMap();
+        for (const [taskId, notes] of Object.entries(noteMap)) {
+          for (const note of asArray(notes)) {
+            if (!isRecord(note)) continue;
+            try {
+              await this.syncProgressNoteToRag(taskId, note);
+              stat.notes += 1;
+            } catch {
+              stat.failed += 1;
+            }
+          }
+        }
+      });
+    }
+    return { byWorkspace };
+  }
+
   private async listIdentityUsers(): Promise<IdentityUser[]> {
     const users = await this.prisma.user.findMany({
       orderBy: { updatedAt: 'desc' },
@@ -1705,6 +1847,8 @@ export class ResearchDevelopmentService {
     if (newTask.status === 'pending_review') {
       void this.notifyAdminsOfPendingReview(newTask, {});
     }
+    // 任务入向量索引（fire-and-forget）：AI 问答可按语义检索到任务
+    void this.syncTaskToRag(String(newTask.task_id ?? ''));
     return newTask;
   }
 
@@ -2024,6 +2168,8 @@ export class ResearchDevelopmentService {
       }
     }
 
+    // 任务字段变更后刷新向量索引（fire-and-forget；archived 时内部转为删除 chunks）
+    void this.syncTaskToRag(taskId);
     return { ok: true, task_id: taskId };
   }
 
@@ -3033,6 +3179,8 @@ export class ResearchDevelopmentService {
       await this.writeValue('rd.taskProgressNotes', map);
     });
     await this.incrementTaskAttachmentCount(taskId, attachments.length);
+    // 留痕入向量索引（fire-and-forget）：AI 问答可语义检索到进展内容
+    void this.syncProgressNoteToRag(taskId, note as unknown as JsonRecord);
 
     // L1+L2+L3 异步抽取附件文本：图片走 OCR/vision，文档走 ExtractDocBasic/doc-turbo。
     // fire-and-forget，失败不影响留痕主流程。结果会回写到 rd.taskProgressNotes 对应附件的 extracted_text 字段。

@@ -214,6 +214,17 @@ export class RagService {
     return { deleted: result.count };
   }
 
+  /** 按 sourceId 前缀批量清理（任务池全量重建前清空该池旧 chunks） */
+  async removeChunksBySourcePrefix(
+    sourceTypes: RagSourceType[],
+    sourceIdPrefix: string,
+  ): Promise<{ deleted: number }> {
+    const result = await this.prisma.knowledgeChunk.deleteMany({
+      where: { sourceType: { in: sourceTypes }, sourceId: { startsWith: sourceIdPrefix } },
+    });
+    return { deleted: result.count };
+  }
+
   /** 软删除（作者撤回）：保留 chunk 但标记 archived，检索时跳过 */
   async archiveChunk(chunkId: string): Promise<void> {
     await this.prisma.knowledgeChunk.update({
