@@ -29,6 +29,8 @@ import {
   type RdPerformanceReport,
 } from "./lib/rdApi";
 import { RDPerformanceScoreDialog } from "./RDPerformanceScoreDialog";
+import { i18nLocale, t, useI18n } from "./lib/i18n";
+import { AutoTranslatedText } from "./components/TranslatableText";
 
 // ── Parsed message body types ────────────────────────────────────────────────
 
@@ -92,6 +94,7 @@ function RejectDialog({
   onConfirm: (reason: string) => void;
   onClose: () => void;
 }) {
+  useI18n();
   const [reason, setReason] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -112,16 +115,16 @@ function RejectDialog({
         >
           <X className="h-4 w-4" />
         </button>
-        <h3 className="text-base font-bold text-slate-900">打回审核</h3>
+        <h3 className="text-base font-bold text-slate-900">{t("打回审核")}</h3>
         <p className="mt-1 text-sm text-slate-500">
-          任务：<span className="font-medium text-slate-700">{taskTitle}</span>
+          {t("任务：")}<AutoTranslatedText className="font-medium text-slate-700" text={taskTitle} />
         </p>
         <div className="mt-4">
-          <label className="block text-sm font-medium text-slate-700">打回原因 <span className="text-red-500">*</span></label>
+          <label className="block text-sm font-medium text-slate-700">{t("打回原因")} <span className="text-red-500">*</span></label>
           <textarea
             ref={textareaRef}
             className="material-input mt-1.5 min-h-[100px] resize-y"
-            placeholder="请填写打回原因，申请人将收到通知..."
+            placeholder={t("请填写打回原因，申请人将收到通知...")}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
           />
@@ -132,7 +135,7 @@ function RejectDialog({
             className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
             onClick={onClose}
           >
-            取消
+            {t("取消")}
           </button>
           <button
             type="button"
@@ -140,7 +143,7 @@ function RejectDialog({
             className="rounded-lg bg-red-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={() => { if (reason.trim()) onConfirm(reason.trim()); }}
           >
-            确认打回
+            {t("确认打回")}
           </button>
         </div>
       </div>
@@ -171,16 +174,17 @@ function ApproveDialog({
   onConfirm: () => void;
   onClose: () => void;
 }) {
+  useI18n();
   const reviewTypeLabel =
     reviewType === "collaboration"
-      ? "协作变更审核"
+      ? t("协作变更审核")
       : reviewType === "proposal"
-      ? "立项审核"
+      ? t("立项审核")
       : reviewType === "due_date"
-      ? "截止日期变更审核"
+      ? t("截止日期变更审核")
       : reviewType === "abandon"
-      ? "放弃任务审核"
-      : "成果审核";
+      ? t("放弃任务审核")
+      : t("成果审核");
 
   return (
     <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={submitting ? undefined : onClose}>
@@ -196,7 +200,7 @@ function ApproveDialog({
           disabled={submitting}
           className="absolute right-4 top-4 rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
           onClick={onClose}
-          aria-label="关闭确认弹窗"
+          aria-label={t("关闭确认弹窗")}
         >
           <X className="h-4 w-4" />
         </button>
@@ -206,31 +210,31 @@ function ApproveDialog({
               <ShieldCheck className="h-5 w-5" />
             </span>
             <div>
-              <h3 id="message-center-approve-title" className="text-base font-bold text-slate-900">确认审核通过</h3>
+              <h3 id="message-center-approve-title" className="text-base font-bold text-slate-900">{t("确认审核通过")}</h3>
               <p className="mt-1 text-sm text-slate-500">{reviewTypeLabel}</p>
             </div>
           </div>
         </div>
         <div className="space-y-3 px-6 py-5">
           <p className="text-sm leading-6 text-slate-700">
-            确认通过「<span className="font-semibold text-slate-900">{taskTitle}</span>」？
+            {t("确认通过「")}<AutoTranslatedText className="font-semibold text-slate-900" text={taskTitle} />{t("」？")}
           </p>
           <div className="rounded-xl bg-slate-50 px-4 py-3 text-xs leading-5 text-slate-600">
-            <div>任务编号：{taskId}</div>
-            <div>提交人：{submitterName || "未识别"}</div>
+            <div>{t("任务编号：")}{taskId}</div>
+            <div>{t("提交人：")}{submitterName || t("未识别")}</div>
             {reviewType === "due_date" && pendingDueDate && (
-              <div>截止日期：{currentDueDate || "未设置"} → {pendingDueDate}</div>
+              <div>{t("截止日期：")}{currentDueDate || t("未设置")} → {pendingDueDate}</div>
             )}
             <div>
               {reviewType === "collaboration"
-                ? "通过后协作变更会立即生效，并通知申请人员。"
+                ? t("通过后协作变更会立即生效，并通知申请人员。")
                 : reviewType === "proposal"
-                ? "通过后任务将正式立项并进入进行中状态，同时通知发起人。"
+                ? t("通过后任务将正式立项并进入进行中状态，同时通知发起人。")
                 : reviewType === "due_date"
-                ? "通过后任务的截止日期将更新为申请值，并回到进行中状态。"
+                ? t("通过后任务的截止日期将更新为申请值，并回到进行中状态。")
                 : reviewType === "abandon"
-                ? "通过后该任务将被移除（等同删除），不可恢复，并通知申请人。"
-                : "通过后任务会进入审核通过状态，并通知对应申请人员。"}
+                ? t("通过后该任务将被移除（等同删除），不可恢复，并通知申请人。")
+                : t("通过后任务会进入审核通过状态，并通知对应申请人员。")}
             </div>
           </div>
         </div>
@@ -241,7 +245,7 @@ function ApproveDialog({
             className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
             onClick={onClose}
           >
-            再看看
+            {t("再看看")}
           </button>
           <button
             type="button"
@@ -250,7 +254,7 @@ function ApproveDialog({
             onClick={onConfirm}
           >
             {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ThumbsUp className="h-4 w-4" />}
-            {submitting ? "处理中" : "确认通过"}
+            {submitting ? t("处理中") : t("确认通过")}
           </button>
         </div>
       </div>
@@ -275,6 +279,7 @@ function MessageCard({
   onReject: (msg: RdMessage, body: ReviewRequestBody) => void;
   onSelfAssess: (msg: RdMessage, body: PerfSelfAssessmentBody) => void;
 }) {
+  const { lang } = useI18n();
   const body = useMemo(() => parseBody(msg.body), [msg.body]);
 
   const timeLabel = useMemo(() => {
@@ -283,22 +288,23 @@ function MessageCard({
       const now = new Date();
       const diff = now.getTime() - d.getTime();
       const mins = Math.floor(diff / 60000);
-      if (mins < 1) return "刚刚";
-      if (mins < 60) return `${mins} 分钟前`;
+      if (mins < 1) return t("刚刚");
+      if (mins < 60) return t("{n} 分钟前", { n: mins });
       const hours = Math.floor(mins / 60);
-      if (hours < 24) return `${hours} 小时前`;
+      if (hours < 24) return t("{n} 小时前", { n: hours });
       const days = Math.floor(hours / 24);
-      if (days === 1) return "昨天";
-      if (days < 7) return `${days} 天前`;
-      return d.toLocaleDateString("zh-CN");
+      if (days === 1) return t("昨天");
+      if (days < 7) return t("{n} 天前", { n: days });
+      return d.toLocaleDateString(i18nLocale());
     } catch {
       return "";
     }
-  }, [msg.created_at]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [msg.created_at, lang]);
 
   if (body.type === "review_request") {
     const rb = body;
-    const reviewTypeLabel = rb.review_type === "collaboration" ? "协作申请" : rb.review_type === "proposal" ? "立项申请" : rb.review_type === "due_date" ? "截止日期变更" : rb.review_type === "abandon" ? "放弃任务" : "成果提交";
+    const reviewTypeLabel = rb.review_type === "collaboration" ? t("协作申请") : rb.review_type === "proposal" ? t("立项申请") : rb.review_type === "due_date" ? t("截止日期变更") : rb.review_type === "abandon" ? t("放弃任务") : t("成果提交");
     const isHandled = msg.handled === true;
 
     return (
@@ -317,17 +323,17 @@ function MessageCard({
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <span className={cn("material-chip", msg.read ? "bg-slate-100 text-slate-500" : "bg-red-50 text-red-600")}>
-              {msg.read ? "已读" : "未读"}
+              {msg.read ? t("已读") : t("未读")}
             </span>
-            <span className="material-chip bg-blue-100 text-blue-700">审核申请</span>
+            <span className="material-chip bg-blue-100 text-blue-700">{t("审核申请")}</span>
             <span className={cn("material-chip", rb.review_type === "collaboration" ? "bg-purple-50 text-purple-700" : rb.review_type === "proposal" ? "bg-indigo-50 text-indigo-700" : rb.review_type === "due_date" ? "bg-sky-50 text-sky-700" : rb.review_type === "abandon" ? "bg-rose-50 text-rose-700" : "bg-amber-50 text-amber-700")}>
               {reviewTypeLabel}
             </span>
             {!msg.read && !isHandled && (
-              <span className="inline-block h-2 w-2 rounded-full bg-red-500" title="未读" />
+              <span className="inline-block h-2 w-2 rounded-full bg-red-500" title={t("未读")} />
             )}
             {isHandled && (
-              <span className="material-chip bg-emerald-50 text-emerald-600">已处理</span>
+              <span className="material-chip bg-emerald-50 text-emerald-600">{t("已处理")}</span>
             )}
           </div>
           <span className="flex items-center gap-1 text-xs text-slate-400">
@@ -336,26 +342,24 @@ function MessageCard({
           </span>
         </div>
 
-        <div className="mb-1 font-semibold text-slate-900">{rb.task_title}</div>
+        <AutoTranslatedText as="div" className="mb-1 font-semibold text-slate-900" text={rb.task_title} />
         <div className="mb-3 text-sm text-slate-600">
-          <span className="text-slate-500">提交人：</span>{rb.submitter_name}
+          <span className="text-slate-500">{t("提交人：")}</span>{rb.submitter_name}
           {rb.review_type === "result" && typeof rb.current_progress === "number" && (
-            <span className="ml-3 text-slate-500">完成度：<span className="font-medium text-slate-700">{rb.current_progress}%</span></span>
+            <span className="ml-3 text-slate-500">{t("完成度：")}<span className="font-medium text-slate-700">{rb.current_progress}%</span></span>
           )}
           {rb.review_type === "due_date" && rb.pending_due_date && (
-            <span className="ml-3 text-slate-500">截止日期：<span className="font-medium text-slate-700">{rb.current_due_date || "未设置"} → {rb.pending_due_date}</span></span>
+            <span className="ml-3 text-slate-500">{t("截止日期：")}<span className="font-medium text-slate-700">{rb.current_due_date || t("未设置")} → {rb.pending_due_date}</span></span>
           )}
         </div>
 
         {rb.note && (
-          <p className="mb-3 rounded-lg bg-white/80 px-3 py-2 text-sm text-slate-600 ring-1 ring-slate-200">
-            {rb.note}
-          </p>
+          <AutoTranslatedText as="p" className="mb-3 rounded-lg bg-white/80 px-3 py-2 text-sm text-slate-600 ring-1 ring-slate-200" text={rb.note} />
         )}
 
         {Array.isArray(rb.pending_collaborators) && rb.pending_collaborators.length > 0 && (
           <div className="mb-3 text-sm text-slate-600">
-            <span className="text-slate-500">申请协作者：</span>
+            <span className="text-slate-500">{t("申请协作者：")}</span>
             {rb.pending_collaborators.map((c, i) => (
               <span key={i} className="ml-1 font-medium text-slate-700">{c.name}{c.role ? `（${c.role}）` : ""}</span>
             ))}
@@ -374,8 +378,8 @@ function MessageCard({
               }}
             >
               {isApproving
-                ? <><Loader2 className="h-4 w-4 animate-spin" />处理中</>
-                : <><ThumbsUp className="h-4 w-4" />批准</>
+                ? <><Loader2 className="h-4 w-4 animate-spin" />{t("处理中")}</>
+                : <><ThumbsUp className="h-4 w-4" />{t("批准")}</>
               }
             </button>
             <button
@@ -387,7 +391,7 @@ function MessageCard({
               }}
             >
               <ThumbsDown className="h-4 w-4" />
-              打回
+              {t("打回")}
             </button>
           </div>
         )}
@@ -415,14 +419,14 @@ function MessageCard({
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <span className={cn("material-chip", msg.read ? "bg-slate-100 text-slate-500" : "bg-red-50 text-red-600")}>
-              {msg.read ? "已读" : "未读"}
+              {msg.read ? t("已读") : t("未读")}
             </span>
             <span className={cn("material-chip", approved ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700")}>
-              {approved ? "已批准" : "已打回"}
+              {approved ? t("已批准") : t("已打回")}
             </span>
-            <span className="material-chip bg-slate-100 text-slate-600">审核结果</span>
+            <span className="material-chip bg-slate-100 text-slate-600">{t("审核结果")}</span>
             {!msg.read && (
-              <span className="inline-block h-2 w-2 rounded-full bg-red-500" title="未读" />
+              <span className="inline-block h-2 w-2 rounded-full bg-red-500" title={t("未读")} />
             )}
           </div>
           <span className="flex items-center gap-1 text-xs text-slate-400">
@@ -431,14 +435,14 @@ function MessageCard({
           </span>
         </div>
 
-        <div className="mb-1 font-semibold text-slate-900">{rb.task_title}</div>
+        <AutoTranslatedText as="div" className="mb-1 font-semibold text-slate-900" text={rb.task_title} />
         <div className="mb-2 text-sm text-slate-600">
-          <span className="text-slate-500">审核人：</span>{rb.reviewer_name}
+          <span className="text-slate-500">{t("审核人：")}</span>{rb.reviewer_name}
         </div>
 
         {rb.reason && (
           <p className={cn("rounded-lg px-3 py-2 text-sm ring-1", approved ? "bg-white/80 text-slate-600 ring-slate-200" : "bg-white/80 text-red-700 ring-red-200")}>
-            <span className="font-medium">{approved ? "备注：" : "打回原因："}</span>{rb.reason}
+            <span className="font-medium">{approved ? t("备注：") : t("打回原因：")}</span><AutoTranslatedText text={rb.reason} />
           </p>
         )}
       </article>
@@ -464,19 +468,19 @@ function MessageCard({
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex flex-wrap items-center gap-2">
             <span className={cn("material-chip", msg.read ? "bg-slate-100 text-slate-500" : "bg-red-50 text-red-600")}>
-              {msg.read ? "已读" : "未读"}
+              {msg.read ? t("已读") : t("未读")}
             </span>
-            <span className="material-chip bg-violet-100 text-violet-700">绩效自评</span>
-            {!msg.read && !isHandled && <span className="inline-block h-2 w-2 rounded-full bg-red-500" title="未读" />}
-            {isHandled && <span className="material-chip bg-emerald-50 text-emerald-600">已提交</span>}
+            <span className="material-chip bg-violet-100 text-violet-700">{t("绩效自评")}</span>
+            {!msg.read && !isHandled && <span className="inline-block h-2 w-2 rounded-full bg-red-500" title={t("未读")} />}
+            {isHandled && <span className="material-chip bg-emerald-50 text-emerald-600">{t("已提交")}</span>}
           </div>
           <span className="flex items-center gap-1 text-xs text-slate-400">
             <Clock3 className="h-3.5 w-3.5" />
             {timeLabel}
           </span>
         </div>
-        <div className="mb-1 font-semibold text-slate-900">{pb.period_label}月度绩效自评</div>
-        <div className="mb-3 text-sm text-slate-600">你的 {pb.period_label} 月度绩效已生成，请完成 5 维自评（交付 / 质量 / 协作 / 主动性 / 规范）。</div>
+        <div className="mb-1 font-semibold text-slate-900">{pb.period_label}{t("月度绩效自评")}</div>
+        <div className="mb-3 text-sm text-slate-600">{t("你的 {p} 月度绩效已生成，请完成 5 维自评（交付 / 质量 / 协作 / 主动性 / 规范）。", { p: pb.period_label })}</div>
         <div className="mt-2 flex border-t border-slate-100 pt-4">
           <button
             type="button"
@@ -486,7 +490,7 @@ function MessageCard({
               onSelfAssess(msg, pb);
             }}
           >
-            {isHandled ? "查看 / 修改自评" : "去自评"}
+            {isHandled ? t("查看 / 修改自评") : t("去自评")}
           </button>
         </div>
       </article>
@@ -511,11 +515,11 @@ function MessageCard({
       <div className="mb-3 flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <span className={cn("material-chip", msg.read ? "bg-slate-100 text-slate-500" : "bg-red-50 text-red-600")}>
-            {msg.read ? "已读" : "未读"}
+            {msg.read ? t("已读") : t("未读")}
           </span>
-          <span className="material-chip bg-slate-100 text-slate-600">系统消息</span>
+          <span className="material-chip bg-slate-100 text-slate-600">{t("系统消息")}</span>
           {!msg.read && (
-            <span className="inline-block h-2 w-2 rounded-full bg-red-500" title="未读" />
+            <span className="inline-block h-2 w-2 rounded-full bg-red-500" title={t("未读")} />
           )}
         </div>
         <span className="flex items-center gap-1 text-xs text-slate-400">
@@ -523,8 +527,8 @@ function MessageCard({
           {timeLabel}
         </span>
       </div>
-      {msg.subject && <div className="mb-1 font-semibold text-slate-900">{msg.subject}</div>}
-      <p className="text-sm text-slate-600">{rb.raw || msg.body}</p>
+      {msg.subject && <AutoTranslatedText as="div" className="mb-1 font-semibold text-slate-900" text={msg.subject} />}
+      <AutoTranslatedText as="p" className="text-sm text-slate-600" text={rb.raw || msg.body} />
     </article>
   );
 }
@@ -544,6 +548,7 @@ const filterLabels: Record<FilterType, string> = {
 const MESSAGE_PAGE_SIZE = 8;
 
 export function MessageCenterPage() {
+  useI18n();
   const { user } = useAuth();
   const [messages, setMessages] = useState<RdMessage[]>([]);
   const [loading, setLoading] = useState(false);
@@ -574,7 +579,7 @@ export function MessageCenterPage() {
       // Sort newest first
       setMessages(data.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "加载消息失败");
+      toast.error(err instanceof Error ? err.message : t("加载消息失败"));
     } finally {
       setLoading(false);
     }
@@ -640,12 +645,12 @@ export function MessageCenterPage() {
         const list = await fetchRdPerformanceReports({ user_id: user.id, month: body.month, limit: 1 });
         const r = list[0] ?? null;
         if (!r) {
-          toast.error("未找到对应的绩效报表，可能已被重新生成");
+          toast.error(t("未找到对应的绩效报表，可能已被重新生成"));
           return;
         }
         setSelfAssessReport(r);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "读取绩效失败，请稍后重试");
+        toast.error(err instanceof Error ? err.message : t("读取绩效失败，请稍后重试"));
       } finally {
         setSelfAssessLoading(false);
       }
@@ -715,10 +720,10 @@ export function MessageCenterPage() {
           prev.map((m) => (m.id === msg.id ? { ...m, handled: true, read: true } : m)),
         );
         window.dispatchEvent(new CustomEvent("rd:review-submitted"));
-        toast.success(`任务「${body.task_title}」审核已批准`);
+        toast.success(`${t("任务「")}${body.task_title}${t("」审核已批准")}`);
         setApproveTarget(null);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "操作失败");
+        toast.error(err instanceof Error ? err.message : t("操作失败"));
       } finally {
         setApproving(null);
       }
@@ -743,9 +748,9 @@ export function MessageCenterPage() {
           prev.map((m) => (m.id === msg.id ? { ...m, handled: true, read: true } : m)),
         );
         window.dispatchEvent(new CustomEvent("rd:review-submitted"));
-        toast.success(`任务「${body.task_title}」已打回`);
+        toast.success(`${t("任务「")}${body.task_title}${t("」已打回")}`);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "操作失败");
+        toast.error(err instanceof Error ? err.message : t("操作失败"));
       }
     },
     [rejectTarget, user?.name],
@@ -757,9 +762,9 @@ export function MessageCenterPage() {
         <div className="flex flex-wrap items-start justify-between gap-5">
           <div>
             <span className="material-chip bg-blue-50 text-blue-700">Message Center</span>
-            <h2 className="mt-5 text-2xl font-bold tracking-tight text-slate-950">消息中心</h2>
+            <h2 className="mt-5 text-2xl font-bold tracking-tight text-slate-950">{t("消息中心")}</h2>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-              汇总审核申请、审核结果和系统通知，管理员可在此直接批准或打回审核请求。
+              {t("汇总审核申请、审核结果和系统通知，管理员可在此直接批准或打回审核请求。")}
             </p>
           </div>
           <div className="grid w-full grid-cols-3 gap-2.5 sm:w-auto">
@@ -775,7 +780,7 @@ export function MessageCenterPage() {
                   type="button"
                   onClick={() => setFilter((cur) => (cur === item.filterValue ? "all" : item.filterValue))}
                   aria-pressed={active}
-                  title={`按「${item.label}」筛选列表`}
+                  title={t("按「{label}」筛选列表", { label: t(item.label) })}
                   className={cn(
                     "group flex items-center gap-3 rounded-xl border px-3.5 py-2.5 text-left transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300/60 sm:min-w-[118px]",
                     active ? item.activeCls : "border-slate-200/80 bg-white shadow-sm hover:border-slate-300",
@@ -786,7 +791,7 @@ export function MessageCenterPage() {
                   </span>
                   <span className="min-w-0">
                     <span className="block text-2xl font-bold leading-none tabular-nums text-slate-900">{item.value}</span>
-                    <span className="mt-1 block text-[11px] font-medium text-slate-500">{item.label}</span>
+                    <span className="mt-1 block text-[11px] font-medium text-slate-500">{t(item.label)}</span>
                   </span>
                 </button>
               );
@@ -804,7 +809,7 @@ export function MessageCenterPage() {
               className="material-input pl-11"
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
-              placeholder="搜索消息标题、任务名称..."
+              placeholder={t("搜索消息标题、任务名称...")}
             />
           </label>
           <label className="relative block w-[180px]">
@@ -815,7 +820,7 @@ export function MessageCenterPage() {
               onChange={(e) => setFilter(e.target.value as FilterType)}
             >
               {(Object.keys(filterLabels) as FilterType[]).map((k) => (
-                <option key={k} value={k}>{filterLabels[k]}</option>
+                <option key={k} value={k}>{t(filterLabels[k])}</option>
               ))}
             </select>
           </label>
@@ -825,7 +830,7 @@ export function MessageCenterPage() {
             onClick={() => void loadMessages()}
           >
             <RefreshCw className={cn("h-4 w-4", loading && "animate-spin")} />
-            刷新
+            {t("刷新")}
           </button>
         </div>
 
@@ -833,11 +838,11 @@ export function MessageCenterPage() {
         {loading ? (
           <div className="flex items-center justify-center gap-2 py-16 text-slate-400">
             <Loader2 className="h-5 w-5 animate-spin" />
-            <span className="text-sm">加载中...</span>
+            <span className="text-sm">{t("加载中...")}</span>
           </div>
         ) : filteredMessages.length === 0 ? (
           <div className="py-12 text-center text-sm text-slate-400">
-            {messages.length === 0 ? "暂无消息" : "没有匹配的消息"}
+            {messages.length === 0 ? t("暂无消息") : t("没有匹配的消息")}
           </div>
         ) : (
           <div className="space-y-3">
@@ -860,9 +865,9 @@ export function MessageCenterPage() {
         {!loading && filteredMessages.length > 0 && (
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
             <div className="text-xs tabular-nums text-slate-500">
-              显示 {visibleStart}-{visibleEnd}
+              {t("显示")} {visibleStart}-{visibleEnd}
               <span className="mx-1 text-slate-300">/</span>
-              共 {filteredMessages.length} 条
+              {t("共 {n} 条", { n: filteredMessages.length })}
             </div>
             <div className="flex items-center gap-1">
               <button
@@ -870,7 +875,7 @@ export function MessageCenterPage() {
                 onClick={() => setPage((current) => Math.max(1, current - 1))}
                 disabled={safePage === 1}
                 className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-all hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-35"
-                aria-label="上一页"
+                aria-label={t("上一页")}
               >
                 <ChevronLeft className="h-4 w-4" />
               </button>
@@ -882,7 +887,7 @@ export function MessageCenterPage() {
                 onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
                 disabled={safePage === totalPages}
                 className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-all hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-35"
-                aria-label="下一页"
+                aria-label={t("下一页")}
               >
                 <ChevronRight className="h-4 w-4" />
               </button>
@@ -895,7 +900,7 @@ export function MessageCenterPage() {
         <section className="material-card-flat flex items-start gap-3 p-4">
           <ShieldCheck className="mt-0.5 h-5 w-5 text-blue-500 shrink-0" />
           <p className="text-sm leading-6 text-slate-600">
-            作为审核员，您可以在此直接批准或打回研发团队提交的审核申请。打回时请填写原因，申请人将收到通知。
+            {t("作为审核员，您可以在此直接批准或打回研发团队提交的审核申请。打回时请填写原因，申请人将收到通知。")}
           </p>
         </section>
       )}
@@ -929,7 +934,7 @@ export function MessageCenterPage() {
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/40">
           <div className="flex items-center gap-2 rounded-xl bg-white px-4 py-3 text-sm text-slate-600 shadow-lg">
             <Loader2 className="h-4 w-4 animate-spin" />
-            正在读取绩效…
+            {t("正在读取绩效…")}
           </div>
         </div>
       )}

@@ -54,6 +54,8 @@ let files = 0;
     { file: "routesConfig.tsx", module: "routesConfig", re: /label:\s*"([^"]+)"/g },
     { file: "lib/auditLog.ts", module: "auditLog", re: /verb:\s*"([^"]+)"/g },
     { file: "RDAuditTimeline.tsx", module: "RDAuditTimeline", re: /^\s+[\w.]+:\s*"([^"]+)",\s*$/gm },
+    // 4) MessageCenterPage filterLabels 常量表 + 统计卡 label（渲染点是 t(变量)）
+    { file: "MessageCenterPage.tsx", module: "MessageCenterPage", re: /(?:all|unread|review_request|review_result|label):\s*"([^"]+)"/g },
   ];
   for (const src of sources) {
     const text = readFileSync(join(srcRoot, src.file), "utf8");

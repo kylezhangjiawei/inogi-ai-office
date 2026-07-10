@@ -5,6 +5,7 @@ import { getRoleLabel, useAuth } from "../auth";
 import { routeTitleMap } from "../routesConfig";
 import { useUserAvatar } from "../lib/userAvatar";
 import { i18nLocale, setI18nLang, t, useI18n } from "../lib/i18n";
+import { AutoTranslatedText } from "./TranslatableText";
 import { fetchRdMessages, patchRdMessage, type RdMessage } from "../lib/rdApi";
 import { useLayoutChromeState } from "../lib/layoutChrome";
 import { cn } from "./ui/utils";
@@ -253,9 +254,10 @@ export function Header() {
                   >
                     {msg.read ? t("已读") : t("未读")}
                   </span>
-                  <span className={msg.read ? "min-w-0 flex-1 text-slate-500" : "min-w-0 flex-1 font-medium text-slate-800"}>
-                    {getMsgSummary(msg)}
-                  </span>
+                  <AutoTranslatedText
+                    text={getMsgSummary(msg)}
+                    className={msg.read ? "min-w-0 flex-1 text-slate-500" : "min-w-0 flex-1 font-medium text-slate-800"}
+                  />
                   {!msg.read ? (
                     <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-red-500" aria-hidden="true" />
                   ) : null}

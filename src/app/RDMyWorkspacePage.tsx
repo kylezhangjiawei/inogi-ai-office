@@ -81,6 +81,7 @@ import {
   type RdPerformanceReport,
 } from "./lib/rdApi";
 import { t, useI18n } from "./lib/i18n";
+import { AutoTranslatedText } from "./components/TranslatableText";
 import { RDPerformanceScoreDialog } from "./RDPerformanceScoreDialog";
 import { toast } from "sonner";
 
@@ -492,7 +493,7 @@ function TaskCardUI({
                 </span>
               )}
             </div>
-            <h3 className="mt-1 truncate text-sm font-semibold text-slate-900">{task.title}</h3>
+            <h3 className="mt-1 truncate text-sm font-semibold text-slate-900"><AutoTranslatedText text={task.title} /></h3>
             <p className="mt-0.5 line-clamp-1 text-xs text-slate-500">{task.next_action}</p>
           </div>
           <PriorityBadge priority={task.priority} />
@@ -3010,7 +3011,7 @@ function WorkspaceTaskCard({
 
           {/* Title */}
           <div className="truncate text-[13px] font-semibold leading-snug text-slate-800 group-hover:text-slate-900">
-            {task.title}
+            <AutoTranslatedText text={task.title} />
           </div>
           {task.latest_progress_summary?.text ? (
             <div className="line-clamp-2 rounded-lg bg-slate-50 px-2 py-1 text-[11px] leading-4 text-slate-600 ring-1 ring-slate-100">

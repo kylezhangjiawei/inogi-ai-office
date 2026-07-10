@@ -133,6 +133,7 @@ import { getGradeTone } from "./lib/taskCompletionScore";
 import { openTaskCompletionReport, openBatchCompletionReport } from "./lib/taskCompletionReport";
 import { useAvatarDirectory } from "./lib/userAvatar";
 import { t, useI18n } from "./lib/i18n";
+import { AutoTranslatedText } from "./components/TranslatableText";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
 import { RdTaskExportButton } from "./components/RdTaskExportButton";
 import { Button } from "./components/ui/button";
@@ -859,7 +860,7 @@ function TaskItem({
               )}
               title={task.title}
             >
-              {task.title}
+              <AutoTranslatedText text={task.title} />
             </span>
             {hasSubtasks && (
               <span className="shrink-0 rounded bg-slate-200 px-1.5 text-xs font-semibold text-slate-600">
@@ -1120,7 +1121,7 @@ function SubtaskRow({
             task.archived ? "text-slate-400 line-through" : "font-medium text-slate-700",
           )}
         >
-          {task.title}
+          <AutoTranslatedText text={task.title} />
         </span>
 
         {/* Child count badge */}
@@ -1213,7 +1214,7 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
                 task.archived ? "text-slate-500 line-through" : "text-slate-950",
               )}
             >
-              {task.title}
+              <AutoTranslatedText text={task.title} />
             </h4>
             <span className={cn("inline-flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-semibold", statusCfg.bg, statusCfg.text)}>
               <StatusDot status={task.status} />
@@ -6163,7 +6164,7 @@ function PersonDetailDrawer({
                     >
                       <span className={cn("h-2 w-2 shrink-0 rounded-full", taskAccentClass(task))} />
                       <div className="min-w-0 flex-1">
-                        <div className="truncate text-sm font-medium text-slate-800">{task.title}</div>
+                        <AutoTranslatedText as="div" text={task.title} className="truncate text-sm font-medium text-slate-800" />
                         <div className="mt-0.5 text-[11px] text-slate-400">{task.task_id} · {task.progress}%</div>
                       </div>
                       <ChevronRight className="h-3.5 w-3.5 text-slate-300" />
@@ -6841,7 +6842,7 @@ function UpcomingMilestonesSection({
                   <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", bucket?.dot ?? "bg-slate-300")} />
                   <span className="min-w-0 flex-1">
                     <span className="line-clamp-2 text-sm font-semibold leading-5 text-slate-800 group-hover:text-slate-950">
-                      {task.title}
+                      <AutoTranslatedText text={task.title} />
                     </span>
                     <span className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-400">
                       {/* 协同池无分类概念，不显示路径段 */}
@@ -8705,7 +8706,7 @@ function PersonTaskCockpit({
           {/* ─── 标题（释放全宽、字号 16px） ─── */}
           <div className="flex items-start gap-2">
             <h3 className="line-clamp-2 min-w-0 flex-1 text-base font-semibold leading-snug text-slate-900">
-              {task.title}
+              <AutoTranslatedText text={task.title} />
             </h3>
             <ChevronRight className="h-4 w-4 shrink-0 self-center text-slate-300 opacity-0 transition-all duration-150 group-hover:translate-x-0.5 group-hover:opacity-100" />
           </div>

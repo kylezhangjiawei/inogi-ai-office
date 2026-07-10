@@ -30,7 +30,7 @@ import { Input } from "./components/ui/input";
 import { Textarea } from "./components/ui/textarea";
 import { PERMISSIONS } from "./lib/permissions";
 import { t, useI18n } from "./lib/i18n";
-import { TranslatableText } from "./components/TranslatableText";
+import { AutoTranslatedText, TranslatableText } from "./components/TranslatableText";
 import { AuditTimeline } from "./RDAuditTimeline";
 import { addAuditLogNote, recordAudit, useAuditActor, type AuditLog, useAuditLogs } from "./lib/auditLog";
 import { ProgressAttachmentGrid, ProgressNoteList, TaskImageGallery, formatRdFileSize } from "./RDProgressEvidence";
@@ -633,7 +633,7 @@ export default function UsCollabTaskDetailPage() {
         )}
         <span className="font-mono text-xs text-slate-400">{task.task_id}</span>
         <h1 className="min-w-0 flex-1 truncate text-xl font-bold text-slate-900">
-          {task.title}
+          <AutoTranslatedText text={task.title} />
           {canManage && !task.archived && (
             <button
               type="button"
