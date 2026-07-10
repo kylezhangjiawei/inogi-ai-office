@@ -3,6 +3,7 @@ import { Navigate, Outlet, useLocation, useNavigate } from "react-router";
 import { LogOut, Menu } from "lucide-react";
 import { useAuth } from "./auth";
 import { isUsCollabWorkspace } from "./lib/rdApi";
+import { initI18n, t, useI18n } from "./lib/i18n";
 import { cn } from "./components/ui/utils";
 import { Toaster } from "./components/ui/sonner";
 
@@ -15,10 +16,16 @@ import { Toaster } from "./components/ui/sonner";
  *  - 横向间距用固定 px：顶栏 `px-4`(16px) 与内容区 gutter 完全一致，标题与正文同一条左边线。
  */
 export function MobileLayout() {
+  useI18n(); // 订阅语言切换（移动壳文案已 t() 化）
   const { user, hydrated, logout } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const [menuOpen, setMenuOpen] = useState(false);
+
+  // 移动路由树不经过桌面 Root：自行初始化 i18n（拉用户语言偏好 + 英文字典）
+  useEffect(() => {
+    void initI18n();
+  }, []);
 
   // 给 <html> 打上路由标记：解除全局 theme.css 对桌面强加的 min-width:1024 与 body 锁滚动。
   // 仅在 /m 挂载期间生效，离开即还原，桌面端零影响（详见 theme.css 末尾 .mobile-route 覆盖）。
@@ -62,10 +69,10 @@ export function MobileLayout() {
           </span>
           <div className="min-w-0 leading-tight">
             <div className="truncate text-[17px] font-bold text-slate-900">
-              {isUsCollabWorkspace() ? "协同任务驾驶舱" : "研发任务驾驶舱"}
+              {isUsCollabWorkspace() ? t("协同任务驾驶舱") : t("研发任务驾驶舱")}
             </div>
             <div className="text-[11px] font-medium text-slate-400">
-              移动只读视图
+              {t("移动只读视图")}
             </div>
           </div>
         </div>
@@ -121,7 +128,7 @@ export function MobileLayout() {
               )}
             >
               <LogOut size={19} className="shrink-0" />
-              退出登录
+              {t("退出登录")}
             </button>
           </div>
         </div>

@@ -378,14 +378,14 @@ async function downloadKbEntry(entry: KbEntry, kbId?: string): Promise<void> {
         a.click();
         document.body.removeChild(a);
       } else {
-        toast.error('文件内容不可用');
+        toast.error(t('文件内容不可用'));
       }
     } catch {
-      toast.error('获取文件内容失败');
+      toast.error(t('获取文件内容失败'));
     }
     return;
   }
-  toast.error('该条目没有可下载的文件');
+  toast.error(t('该条目没有可下载的文件'));
 }
 
 function flattenCategories(cats: KbCategory[]): KbCategory[] {
@@ -849,11 +849,11 @@ function EditEntryDialog({
   async function handleSave() {
     const trimmedTitle = title.trim();
     if (!trimmedTitle) {
-      toast.error('标题不能为空');
+      toast.error(t('标题不能为空'));
       return;
     }
     if (!categoryId) {
-      toast.error('请选择分类');
+      toast.error(t('请选择分类'));
       return;
     }
     const tagsArray = tags
@@ -869,7 +869,7 @@ function EditEntryDialog({
         tags: tagsArray,
         permission_level: Math.max(0, Math.min(100, Math.round(permissionLevel))),
       }, kbId);
-      toast.success('文件已更新');
+      toast.success(t('文件已更新'));
       onSaved(updated);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '保存失败');
@@ -2029,11 +2029,11 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
 
   async function handleUpload() {
     if (selectedFiles.length === 0) {
-      toast.error('请选择至少一个文件');
+      toast.error(t('请选择至少一个文件'));
       return;
     }
     if (!categoryId) {
-      toast.error('请选择知识库分类');
+      toast.error(t('请选择知识库分类'));
       return;
     }
     setUploading(true);
@@ -2096,7 +2096,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
         {/* Dialog header */}
         <DialogHeader className="relative overflow-hidden border-b border-slate-100 bg-white px-6 py-4 pr-12 text-left">
           <div className="absolute inset-0 bg-slate-50/60" />
-          <DialogTitle className="relative text-base font-semibold text-slate-950">上传知识库文件</DialogTitle>
+          <DialogTitle className="relative text-base font-semibold text-slate-950">{t("上传知识库文件")}</DialogTitle>
           <DialogDescription className="sr-only">
             选择文件、分类和访问权限后上传到知识库。
           </DialogDescription>
@@ -2145,7 +2145,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
               <Upload className="w-7 h-7" />
             </span>
             <p className="relative text-sm font-semibold text-slate-800 text-center">
-              {dragging ? '释放文件添加到上传队列' : '点击或拖拽文件到此处'}
+              {dragging ? t('释放文件添加到上传队列') : t('点击或拖拽文件到此处')}
             </p>
             <p className="relative text-xs text-slate-500">支持图片、PDF、文档等多种格式</p>
             {/* Native input — label click activates it without any programmatic .click() needed */}
@@ -2235,7 +2235,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
               placeholder="请选择分类"
               className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 outline-none transition-shadow focus:ring-2 focus:ring-indigo-200"
             >
-              <option value="">请选择分类</option>
+              <option value="">{t("请选择分类")}</option>
               {flatCats.map((cat) => (
                 <option key={cat.id} value={cat.id}>
                   {categories.some((parent) => parent.id === cat.id) ? cat.label : `  ${cat.label}`}
@@ -2247,7 +2247,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
           {/* Permission Score */}
           <div className="flex flex-col gap-3">
             <div className="flex items-center justify-between">
-              <Label className="text-xs font-semibold text-slate-600">访问权限分值</Label>
+              <Label className="text-xs font-semibold text-slate-600">{t("访问权限分值")}</Label>
               {(() => {
                 const cfg = getPermissionScoreConfig(permissionLevel);
                 return (
@@ -2286,39 +2286,39 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
             </div>
             {/* Scale marks */}
             <div className="flex items-center justify-between text-[10px] text-slate-400 px-0.5 select-none">
-              <span>0 · 完全公开</span>
+              <span>0 · {t("完全公开")}</span>
               <span>25</span>
               <span>50</span>
               <span>75</span>
-              <span>100 · 绝密</span>
+              <span>100 · {t("绝密")}</span>
             </div>
             <p className="text-[11px] leading-relaxed text-slate-400">
               {canSetPermissionLevel
-                ? "仅用户知识库分值 ≥ 此值的成员方可查看。分值越高，访问限制越严格。"
-                : "权限分值按你在「人员管理」中配置的等级自动设定，研发成员不可调整。"}
+                ? t("仅用户知识库分值 ≥ 此值的成员方可查看。分值越高，访问限制越严格。")
+                : t("权限分值按你在「人员管理」中配置的等级自动设定，研发成员不可调整。")}
             </p>
           </div>
 
           {/* Description */}
           <div className="flex flex-col gap-1.5">
-            <Label className="text-xs font-semibold text-slate-600">描述（可选）</Label>
+            <Label className="text-xs font-semibold text-slate-600">{t("描述（可选）")}</Label>
             <Textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
-              placeholder="对文件的简要说明..."
+              placeholder={t("对文件的简要说明...")}
               className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 outline-none transition-shadow focus:ring-2 focus:ring-indigo-200 resize-none"
             />
           </div>
 
           {/* Tags */}
           <div className="flex flex-col gap-1.5">
-            <Label className="text-xs font-semibold text-slate-600">标签（逗号分隔，可选）</Label>
+            <Label className="text-xs font-semibold text-slate-600">{t("标签（逗号分隔，可选）")}</Label>
             <Input
               type="text"
               value={tags}
               onChange={(e) => setTags(e.target.value)}
-              placeholder="例如：API设计, 架构图"
+              placeholder={t("例如：API设计, 架构图")}
               className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 outline-none transition-shadow focus:ring-2 focus:ring-indigo-200"
             />
           </div>
@@ -2343,7 +2343,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
           >
             {uploading && <Loader2 className="w-4 h-4 animate-spin" />}
             <Upload className="w-4 h-4" />
-            {uploading ? '上传中...' : `上传 ${selectedFiles.length > 0 ? `(${selectedFiles.length})` : ''}`}
+            {uploading ? t('上传中...') : `${t('上传')} ${selectedFiles.length > 0 ? `(${selectedFiles.length})` : ''}`}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -2557,7 +2557,7 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
         setEntries(ents);
         setPage(1);
       })
-      .catch(() => toast.error('知识库数据加载失败'))
+      .catch(() => toast.error(t('知识库数据加载失败')))
       .finally(() => setLoading(false));
   }, [kbId]);
 
@@ -2582,7 +2582,7 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
           setPage(1);
         });
       })
-      .catch(() => { if (!cancelled) toast.error('知识库数据加载失败'); })
+      .catch(() => { if (!cancelled) toast.error(t('知识库数据加载失败')); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [buildParams, kbId]);
@@ -2599,7 +2599,7 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
           setPage(1);
         });
       })
-      .catch(() => toast.error('知识库数据加载失败'))
+      .catch(() => toast.error(t('知识库数据加载失败')))
       .finally(() => setLoading(false));
   }, [buildParams, kbId]);
 
@@ -2721,7 +2721,7 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
     setDeleteLoading(true);
     try {
       await deleteKbEntry(deletingEntry.id, kbId);
-      toast.success('已删除');
+      toast.success(t('已删除'));
       recordAudit({
         actor: kbAuditActor,
         action: "kb.entry.deleted",
@@ -2814,7 +2814,7 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
       });
       if (selectedCatId && deletedIds.has(selectedCatId)) setSelectedCatId(null);
       setDeletingCategory(null);
-      toast.success('类目已删除');
+      toast.success(t('类目已删除'));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '类目删除失败');
     } finally {
@@ -2847,7 +2847,7 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
         source: "web",
       });
       setMovingEntry(null);
-      toast.success('文件已移动');
+      toast.success(t('文件已移动'));
       void Promise.all([fetchKbCategories(kbId), fetchKbEntries(buildParams(), kbId)])
         .then(([nextCats, nextEntries]) => {
           React.startTransition(() => {

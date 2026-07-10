@@ -858,7 +858,7 @@ function StepInput({
     setFiles(nextFiles);
     setDragActive(false);
     if (nextFiles.length === files.length) {
-      toast.info("文件已在上传列表中");
+      toast.info(t("文件已在上传列表中"));
     }
   };
 
@@ -1688,18 +1688,18 @@ function StepReview({
   }) => {
     const instruction = (options?.instruction ?? refineInstruction).trim();
     if (!instruction) {
-      toast.error("请先写清楚希望 AI 如何微调");
+      toast.error(t("请先写清楚希望 AI 如何微调"));
       return;
     }
     if (tasks.length === 0) {
-      toast.error("当前没有可微调的任务");
+      toast.error(t("当前没有可微调的任务"));
       return;
     }
 
     const scope = options?.scope ?? refineScope;
     const selectedIds = options?.selectedIds ?? selectedTaskIds;
     if ((scope === "selected" || scope === "single") && selectedIds.length === 0) {
-      toast.error("请先勾选要微调的任务");
+      toast.error(t("请先勾选要微调的任务"));
       return;
     }
 
@@ -1771,7 +1771,7 @@ function StepReview({
       metadata: { proposal_id: proposalId, task_count: refinePreview.tasks.length },
       source: "web",
     });
-    toast.success("已应用 AI 微调结果");
+    toast.success(t("已应用 AI 微调结果"));
   };
 
   const undoLastRefine = () => {
@@ -1779,7 +1779,7 @@ function StepReview({
     setTasks(previousTasks);
     setPreviousTasks(null);
     setRefinePreview(null);
-    toast.success("已撤回上次 AI 微调应用");
+    toast.success(t("已撤回上次 AI 微调应用"));
   };
 
   const requestAiHelpForTask = (id: string) => {
@@ -1866,9 +1866,9 @@ function StepReview({
         <section className="space-y-3 rounded-xl border border-violet-100 bg-violet-50/40 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h4 className="text-xs font-semibold text-slate-800">AI 微调立项草稿</h4>
+              <h4 className="text-xs font-semibold text-slate-800">{t("AI 微调立项草稿")}</h4>
               <p className="mt-0.5 text-[11px] text-slate-500">
-                先生成预览，确认后再应用；已手工调整的内容不会被立即覆盖。
+                {t("先生成预览，确认后再应用；已手工调整的内容不会被立即覆盖。")}
               </p>
             </div>
             {previousTasks && (
@@ -1878,7 +1878,7 @@ function StepReview({
                 className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-all hover:bg-slate-50 active:scale-95"
               >
                 <RefreshCw className="h-3 w-3" />
-                撤回上次应用
+                {t("撤回上次应用")}
               </button>
             )}
           </div>
@@ -1887,7 +1887,7 @@ function StepReview({
             value={refineInstruction}
             onChange={(event) => setRefineInstruction(event.target.value)}
             rows={3}
-            placeholder="例如：把测试类任务拆得更细；优先安排给低负载人员；把交付日期压缩到 6 月 10 日前；不要改动采购跟进任务。"
+            placeholder={t("例如：把测试类任务拆得更细；优先安排给低负载人员；把交付日期压缩到 6 月 10 日前；不要改动采购跟进任务。")}
             className="w-full resize-none rounded-lg border border-violet-100 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
           />
 
@@ -1897,8 +1897,8 @@ function StepReview({
               onChange={(event) => setRefineScope(event.target.value as RdAiProposalRefineScope)}
               className="h-9 min-w-36 cursor-pointer rounded-md border border-violet-100 bg-white px-2.5 text-xs text-slate-700 outline-none focus:border-violet-300 focus:ring-2 focus:ring-violet-100"
             >
-              <option value="all">微调全部任务</option>
-              <option value="selected">只微调已选任务</option>
+              <option value="all">{t("微调全部任务")}</option>
+              <option value="selected">{t("只微调已选任务")}</option>
             </NativeSelect>
             <button
               type="button"
@@ -1912,30 +1912,30 @@ function StepReview({
               className="inline-flex items-center gap-1.5 rounded-md bg-violet-600 px-3 py-2 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(124,58,237,0.18)] transition-all hover:bg-violet-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45"
             >
               {refining ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-              生成微调预览
+              {t("生成微调预览")}
             </button>
             <span className="text-[11px] text-slate-500">
-              已选 {selectedCount} / {tasks.length} 个
+              {t("已选")} {selectedCount} / {tasks.length}
             </span>
           </div>
 
           {refinePreview && previewDiff && (
             <div className="rounded-lg border border-violet-100 bg-white p-3 shadow-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-xs font-semibold text-slate-800">微调预览</div>
+                <div className="text-xs font-semibold text-slate-800">{t("微调预览")}</div>
                 <div className="text-[11px] text-slate-400">
                   {refinePreview.provider} / {refinePreview.model}
                 </div>
               </div>
               <div className="mt-2 flex flex-wrap gap-2 text-[11px]">
                 <span className="rounded bg-emerald-50 px-2 py-1 font-medium text-emerald-700">
-                  新增 {previewDiff.added.length}
+                  {t("新增")} {previewDiff.added.length}
                 </span>
                 <span className="rounded bg-blue-50 px-2 py-1 font-medium text-blue-700">
-                  调整 {previewDiff.changed.length}
+                  {t("调整")} {previewDiff.changed.length}
                 </span>
                 <span className="rounded bg-rose-50 px-2 py-1 font-medium text-rose-700">
-                  移除 {previewDiff.removed.length}
+                  {t("移除")} {previewDiff.removed.length}
                 </span>
               </div>
               {refinePreview.changeSummary.length > 0 && (
@@ -1959,14 +1959,14 @@ function StepReview({
                   onClick={() => setRefinePreview(null)}
                   className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 transition-all hover:bg-slate-50 active:scale-95"
                 >
-                  放弃预览
+                  {t("放弃预览")}
                 </button>
                 <button
                   type="button"
                   onClick={applyRefinePreview}
                   className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white transition-all hover:bg-slate-800 active:scale-95"
                 >
-                  应用这次微调
+                  {t("应用这次微调")}
                 </button>
               </div>
             </div>
@@ -2680,7 +2680,7 @@ export function RDProjectProposalDialog({
       const resolvedChild =
         resolvedCat?.children.find((ch) => ch.id === tempSubId) ?? resolvedCat?.children[0];
       if (!resolvedCat || !resolvedChild) {
-        toast.error("无法创建立项分类，请重试");
+        toast.error(t("无法创建立项分类，请重试"));
         return { target: null, categories: persisted };
       }
       return {
@@ -2691,7 +2691,7 @@ export function RDProjectProposalDialog({
     const cat = baseCategories.find((c) => c.id === parentProjectId);
     const firstChild = cat?.children[0];
     if (!firstChild) {
-      toast.error("所选分类下暂无子项目，请先添加子项目");
+      toast.error(t("所选分类下暂无子项目，请先添加子项目"));
       return { target: null, categories: baseCategories };
     }
     return { target: { categoryId: parentProjectId, subProjectId: firstChild.id }, categories: baseCategories };
@@ -2719,7 +2719,7 @@ export function RDProjectProposalDialog({
     }
     const child = container?.children[0];
     if (!container || !child) {
-      toast.error("无法初始化协同任务分组，请重试");
+      toast.error(t("无法初始化协同任务分组，请重试"));
       return { target: null, categories: cats };
     }
     return { target: { categoryId: container.id, subProjectId: child.id }, categories: cats };
@@ -2789,11 +2789,11 @@ export function RDProjectProposalDialog({
 
   const handleSubmit = async () => {
     if (effectiveUserRole !== "user") {
-      toast.error("只有研发成员需要提交立项审核，当前角色请使用直接立项流程");
+      toast.error(t("只有研发成员需要提交立项审核，当前角色请使用直接立项流程"));
       return;
     }
     if (!canSubmitProposal) {
-      toast.error("当前账号没有立项申请权限");
+      toast.error(t("当前账号没有立项申请权限"));
       return;
     }
     setSubmitting(true);
@@ -2860,7 +2860,7 @@ export function RDProjectProposalDialog({
 
   const handleDirectDispatch = async () => {
     if (!canDirectProject) {
-      toast.error("当前账号没有直接立项权限");
+      toast.error(t("当前账号没有直接立项权限"));
       return;
     }
     setSubmitting(true);

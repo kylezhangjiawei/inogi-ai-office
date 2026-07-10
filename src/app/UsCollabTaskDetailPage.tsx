@@ -281,7 +281,7 @@ export default function UsCollabTaskDetailPage() {
     if (!task || sendingNote) return;
     const text = composerText.trim();
     if (!text && composerFiles.length === 0) {
-      toast.error("写点什么或附上文件再发送");
+      toast.error(t("写点什么或附上文件再发送"));
       return;
     }
     setSendingNote(true);
@@ -295,7 +295,7 @@ export default function UsCollabTaskDetailPage() {
       setComposerText("");
       setComposerFiles([]);
       setComposerItemId("");
-      toast.success("进展已记录");
+      toast.success(t("进展已记录"));
       // 重拉留痕让时间线/附件库即时可见
       try {
         setNotes(await fetchRdTaskProgressNotes(task.task_id));
@@ -341,7 +341,7 @@ export default function UsCollabTaskDetailPage() {
       setTask((prevTask) => (prevTask ? { ...prevTask, final_priority: next } : prevTask));
       // 同步 allTasks，保证人员任务弹层等派生视图显示新值（task 与 allTasks 双源须一起更新）
       setAllTasks((prevAll) => prevAll.map((t) => (t.task_id === task.task_id ? { ...t, final_priority: next } : t)));
-      toast.success("优先级已更新");
+      toast.success(t("优先级已更新"));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "更新优先级失败");
     } finally {
@@ -357,7 +357,7 @@ export default function UsCollabTaskDetailPage() {
       const isApprove = showApproval === "approve";
       const meta = getReviewTypeMeta(task.pending_review_type);
       if (!meta) {
-        toast.error("无法识别该任务的审核类型，请刷新后重试");
+        toast.error(t("无法识别该任务的审核类型，请刷新后重试"));
         return;
       }
       await updateRdTask(task.task_id, {
@@ -374,7 +374,7 @@ export default function UsCollabTaskDetailPage() {
         metadata: { task_id: task.task_id, pending_review_type: task.pending_review_type },
         source: "web",
       });
-      toast.success(`${meta.label}${isApprove ? "已通过" : "已驳回"}`);
+      toast.success(`${t(meta.label)}${isApprove ? t("已通过") : t("已驳回")}`);
       setShowApproval(null);
       void loadTask();
     } catch (error) {
@@ -400,7 +400,7 @@ export default function UsCollabTaskDetailPage() {
         comment: `移交任务给 ${newOwner}`,
         source: "web",
       });
-      toast.success(`任务已移交给 ${newOwner}`);
+      toast.success(t("任务已移交给 {name}", { name: newOwner }));
       setShowHandover(false);
       void loadTask();
     } catch (error) {
@@ -438,7 +438,7 @@ export default function UsCollabTaskDetailPage() {
         comment: `管理员直接添加协作人：${newCollaborators.map((c) => c.name).join("、")}`,
         source: "web",
       });
-      toast.success(`已添加 ${newCollaborators.length} 位协作人`);
+      toast.success(t("已添加 {n} 位协作人", { n: newCollaborators.length }));
       setShowAddCollab(false);
       void loadTask();
     } catch (error) {
@@ -462,7 +462,7 @@ export default function UsCollabTaskDetailPage() {
         comment: "管理员直接标记任务完成",
         source: "web",
       });
-      toast.success("任务已标记完成");
+      toast.success(t("任务已标记完成"));
       setShowComplete(false);
       void loadTask();
     } catch (error) {

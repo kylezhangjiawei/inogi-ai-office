@@ -851,7 +851,7 @@ function TaskOperationDrawer({
     }
     const totalAttachmentSize = noteAttachments.reduce((sum, file) => sum + file.size, 0);
     if (totalAttachmentSize > NOTE_ATTACHMENT_MAX_TOTAL_BYTES) {
-      toast.error("附件总大小不能超过 50MB");
+      toast.error(t("附件总大小不能超过 50MB"));
       return;
     }
     // 纯保存：直接写入「人工确认进度」滑块的当前值，绝不再跑 AI 覆盖。AI 解析请点「AI 解析」按钮。
@@ -929,7 +929,7 @@ function TaskOperationDrawer({
     const hasNote = note.trim().length > 0;
     const hasFiles = noteAttachments.length > 0;
     if (!hasNote && !hasFiles) {
-      toast.error("请先填写进展说明或上传附件，再用 AI 解析");
+      toast.error(t("请先填写进展说明或上传附件，再用 AI 解析"));
       return;
     }
     const oversized = noteAttachments.find((file) => file.size > NOTE_ATTACHMENT_MAX_FILE_BYTES);
@@ -938,7 +938,7 @@ function TaskOperationDrawer({
       return;
     }
     if (noteAttachments.reduce((sum, file) => sum + file.size, 0) > NOTE_ATTACHMENT_MAX_TOTAL_BYTES) {
-      toast.error("附件总大小不能超过 50MB");
+      toast.error(t("附件总大小不能超过 50MB"));
       return;
     }
     setAiLoading(true);
@@ -1010,11 +1010,11 @@ function TaskOperationDrawer({
 
   const submitHandoff = () => {
     if (selectedCollaborators.length === 0) {
-      toast.error("请选择至少一名协同人");
+      toast.error(t("请选择至少一名协同人"));
       return;
     }
     if (!canApplyCollaborationDirectly && !handoffReason.trim()) {
-      toast.error("请填写协作原因和影响说明");
+      toast.error(t("请填写协作原因和影响说明"));
       return;
     }
     const collaboratorNames = selectedCollaborators.map((collaborator) => collaborator.name).join("、");
@@ -1112,15 +1112,15 @@ function TaskOperationDrawer({
     const next = draftDueDate.trim();
     const current = toDateInputValue(task.due_date);
     if (!next) {
-      toast.error("请选择新的截止日期");
+      toast.error(t("请选择新的截止日期"));
       return;
     }
     if (next === current) {
-      toast.error("新的截止日期与当前一致，无需提交");
+      toast.error(t("新的截止日期与当前一致，无需提交"));
       return;
     }
     if (!dueDateReason.trim()) {
-      toast.error("请填写修改原因，便于管理员审核");
+      toast.error(t("请填写修改原因，便于管理员审核"));
       return;
     }
     onRequestConfirm({
@@ -1168,7 +1168,7 @@ function TaskOperationDrawer({
   const submitAbandon = async () => {
     const reason = abandonReason.trim();
     if (!reason) {
-      toast.error("请填写放弃原因，便于管理员审核");
+      toast.error(t("请填写放弃原因，便于管理员审核"));
       return;
     }
     setAbandonSubmitting(true);
@@ -1242,7 +1242,7 @@ function TaskOperationDrawer({
 
   const submitMergeRequest = async () => {
     if (!mergeTargetId) {
-      toast.error("请选择要合并到的目标任务");
+      toast.error(t("请选择要合并到的目标任务"));
       return;
     }
     setMergeSubmitting(true);
@@ -1292,7 +1292,7 @@ function TaskOperationDrawer({
     }
     const merged = [...noteAttachments, ...files].slice(0, NOTE_ATTACHMENT_MAX_FILES);
     if (merged.reduce((sum, f) => sum + f.size, 0) > NOTE_ATTACHMENT_MAX_TOTAL_BYTES) {
-      toast.error("附件总大小不能超过 50MB");
+      toast.error(t("附件总大小不能超过 50MB"));
       return;
     }
     const added = merged.length - noteAttachments.length;
@@ -2703,7 +2703,7 @@ function useWorkspaceMoveTargetTree() {
         setMainTree(mainCats);
       })
       .catch(() => {
-        if (!cancelled) toast.error("移动目标加载失败，请重试");
+        if (!cancelled) toast.error(t("移动目标加载失败，请重试"));
       })
       .finally(() => {
         if (!cancelled) setLoadingBase(false);
@@ -2726,7 +2726,7 @@ function useWorkspaceMoveTargetTree() {
       .catch(() => {
         if (!cancelled) {
           setTreeCache((prev) => ({ ...prev, [targetProductId]: [] }));
-          toast.error("目标产品分类加载失败，请重试");
+          toast.error(t("目标产品分类加载失败，请重试"));
         }
       })
       .finally(() => {
@@ -2792,12 +2792,12 @@ function WorkspaceMoveDialog({
 
   const handleConfirm = async () => {
     if (!targetSubId) {
-      toast.error("请选择目标子项");
+      toast.error(t("请选择目标子项"));
       return;
     }
     const chosen = allTargetOptions.find((o) => o.sub.id === targetSubId);
     if (!chosen) {
-      toast.error("目标子项无效，请重新选择");
+      toast.error(t("目标子项无效，请重新选择"));
       return;
     }
     setSaving(true);
@@ -3471,7 +3471,7 @@ export function RDMyWorkspacePage() {
 
   const openBatchMove = React.useCallback(() => {
     if (selectedTasks.length === 0) {
-      toast.error("请先勾选要移动的任务");
+      toast.error(t("请先勾选要移动的任务"));
       return;
     }
     setMoveDialogTasks(selectedTasks);
@@ -3525,14 +3525,14 @@ export function RDMyWorkspacePage() {
         month = "";
       }
       if (!month) {
-        toast.error("通知缺少月份信息");
+        toast.error(t("通知缺少月份信息"));
         return;
       }
       try {
         const list = await fetchRdPerformanceReports({ user_id: user.id, month, limit: 1 });
         const r = list[0] ?? null;
         if (!r) {
-          toast.error("未找到对应的绩效报表，可能已被重新生成");
+          toast.error(t("未找到对应的绩效报表，可能已被重新生成"));
           return;
         }
         setPerfSelfNotifId(notification.id);
@@ -3546,7 +3546,7 @@ export function RDMyWorkspacePage() {
 
   const approveNotificationReview = React.useCallback((notification: WorkspaceNotification) => {
     if (!notification.raw_body) {
-      toast.error("通知内容缺少审核任务信息");
+      toast.error(t("通知内容缺少审核任务信息"));
       return;
     }
 
@@ -3554,7 +3554,7 @@ export function RDMyWorkspacePage() {
     try {
       body = JSON.parse(notification.raw_body) as Record<string, unknown>;
     } catch {
-      toast.error("通知内容解析失败，无法审核");
+      toast.error(t("通知内容解析失败，无法审核"));
       return;
     }
 
@@ -3575,7 +3575,7 @@ export function RDMyWorkspacePage() {
         ? "放弃任务审核"
         : "成果审核";
     if (!taskId) {
-      toast.error("通知内容缺少任务 ID，无法审核");
+      toast.error(t("通知内容缺少任务 ID，无法审核"));
       return;
     }
 

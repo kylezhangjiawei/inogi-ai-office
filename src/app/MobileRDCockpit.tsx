@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AlertTriangle, ArrowLeft, Clock, History, ImageIcon, Inbox, Loader2, RefreshCw, Send, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
+import { t, useI18n } from "./lib/i18n";
 import { ProgressNoteList, TaskImageGallery } from "./RDProgressEvidence";
 import { recordAudit, useAuditActor } from "./lib/auditLog";
 import { useRDCockpitData } from "./hooks/useRDCockpitData";
@@ -50,11 +51,11 @@ function formatDue(due?: string): { text: string; overdue: boolean } | null {
   if (!due) return null;
   const md = due.slice(5, 10);
   const left = daysLeft(due);
-  if (left === null) return { text: `止 ${md}`, overdue: false };
-  if (left < 0) return { text: `逾期 ${-left} 天`, overdue: true };
-  if (left === 0) return { text: `今日截止`, overdue: false };
-  if (left <= 2) return { text: `${left} 天内`, overdue: false };
-  return { text: `止 ${md}`, overdue: false };
+  if (left === null) return { text: t("止 {date}", { date: md }), overdue: false };
+  if (left < 0) return { text: t("逾期 {n} 天", { n: -left }), overdue: true };
+  if (left === 0) return { text: t("今日截止"), overdue: false };
+  if (left <= 2) return { text: t("{n} 天内", { n: left }), overdue: false };
+  return { text: t("止 {date}", { date: md }), overdue: false };
 }
 
 function progressColor(status: RdTaskStatus): string {
@@ -64,8 +65,8 @@ function progressColor(status: RdTaskStatus): string {
 }
 
 function ownerInitial(owner: string): string {
-  const t = owner.trim();
-  return t ? t[0].toUpperCase() : "?";
+  const trimmed = owner.trim();
+  return trimmed ? trimmed[0].toUpperCase() : "?";
 }
 
 /** 取分类路径最后一级作为话题标签（小红书风格的 # 标签）。 */
@@ -81,19 +82,20 @@ function lastCategory(path?: string): string {
 /** 相对时间（刚刚 / N 分钟前 / N 小时前 / N 天前 / N 个月前），供卡片显示最近活动时间。 */
 function formatRelativeTime(iso?: string): string {
   if (!iso) return "";
-  const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return "";
-  const diff = Date.now() - t;
-  if (diff < 60_000) return "刚刚";
+  // 局部变量不可命名为 t：会遮蔽 import 的翻译函数导致运行时崩溃
+  const timestamp = new Date(iso).getTime();
+  if (Number.isNaN(timestamp)) return "";
+  const diff = Date.now() - timestamp;
+  if (diff < 60_000) return t("刚刚");
   const min = Math.floor(diff / 60_000);
-  if (min < 60) return `${min} 分钟前`;
+  if (min < 60) return t("{n} 分钟前", { n: min });
   const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr} 小时前`;
+  if (hr < 24) return t("{n} 小时前", { n: hr });
   const day = Math.floor(hr / 24);
-  if (day < 30) return `${day} 天前`;
+  if (day < 30) return t("{n} 天前", { n: day });
   const mon = Math.floor(day / 30);
-  if (mon < 12) return `${mon} 个月前`;
-  return `${Math.floor(mon / 12)} 年前`;
+  if (mon < 12) return t("{n} 个月前", { n: mon });
+  return t("{n} 年前", { n: Math.floor(mon / 12) });
 }
 
 /**
@@ -213,7 +215,7 @@ function MobileFeedCard({
 }) {
   const status = STATUS_META[task.status] ?? STATUS_META.draft;
   const due = formatDue(task.due_date);
-  const owner = (task.primary_owner || "").trim() || "未指派";
+  const owner = (task.primary_owner || "").trim() || t("未指派");
   const progress = Math.max(0, Math.min(100, task.progress));
   const summary = task.latest_progress_summary?.text?.trim();
   const cat = lastCategory(task.category_path);
@@ -249,7 +251,7 @@ function MobileFeedCard({
           )}
         >
           <span className={cn("h-1.5 w-1.5 rounded-full", status.dot)} />
-          {status.label}
+          {t(status.label)}
         </span>
         <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-slate-400">
           {cat ? `# ${cat}` : ""}
@@ -267,7 +269,7 @@ function MobileFeedCard({
         {isRisk && (
           <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-bold text-red-600">
             <AlertTriangle size={10} />
-            风险
+            {t("风险")}
           </span>
         )}
       </div>
@@ -331,7 +333,7 @@ function MobileFeedCard({
           </span>
           <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-slate-500">{owner}</span>
           {isHigh && (
-            <span className="shrink-0 rounded bg-red-50 px-1 text-[10px] font-bold text-red-500">高</span>
+            <span className="shrink-0 rounded bg-red-50 px-1 text-[10px] font-bold text-red-500">{t("高")}</span>
           )}
           {due && (
             <span className={cn("shrink-0 text-[11px]", due.overdue ? "font-bold text-red-500" : "text-slate-400")}>
@@ -348,7 +350,7 @@ function MobileFeedCard({
               )}
             >
               <Clock size={11} />
-              {freshness.text}更新
+              {freshness.text}{t("更新")}
             </span>
           </div>
         )}
@@ -359,6 +361,7 @@ function MobileFeedCard({
 
 // ─── 主页面 ───────────────────────────────────────────────────────────────────
 export function MobileRDCockpit() {
+  useI18n(); // 订阅语言切换（移动端文案已 t() 化）
   const { loading, error, reload, risks, allTasks } = useRDCockpitData();
 
   const [filter, setFilter] = useState<MobileFilter>("all");
@@ -466,7 +469,7 @@ export function MobileRDCockpit() {
     return (
       <div className="flex min-h-[70dvh] flex-col items-center justify-center gap-3 text-slate-400">
         <Loader2 className="animate-spin" size={28} />
-        <span className="text-sm">正在加载驾驶舱…</span>
+        <span className="text-sm">{t("正在加载驾驶舱…")}</span>
       </div>
     );
   }
@@ -480,7 +483,7 @@ export function MobileRDCockpit() {
           onClick={reload}
           className="rounded-full bg-indigo-600 px-7 py-2.5 text-sm font-semibold text-white active:bg-indigo-700"
         >
-          重试
+          {t("重试")}
         </button>
       </div>
     );
@@ -505,7 +508,7 @@ export function MobileRDCockpit() {
                     : "bg-white text-slate-500 ring-1 ring-slate-200/70 active:bg-slate-50",
                 )}
               >
-                {f.label}
+                {t(f.label)}
               </button>
             ))}
           </div>
@@ -531,7 +534,7 @@ export function MobileRDCockpit() {
             )}
           >
             <Users size={13} />
-            全部
+            {t("全部")}
             <span
               className={cn(
                 "ml-0.5 rounded-full px-1 text-[10px] font-bold",
@@ -561,7 +564,8 @@ export function MobileRDCockpit() {
                 >
                   {ownerInitial(o.name)}
                 </span>
-                <span className="max-w-[5rem] truncate">{o.name}</span>
+                {/* 「未指派/待指派」是系统占位（比较逻辑用原文），仅显示层本地化；真人名不翻 */}
+                <span className="max-w-[5rem] truncate">{o.name === "未指派" || o.name === "待指派" ? t(o.name) : o.name}</span>
                 <span
                   className={cn(
                     "rounded-full px-1 text-[10px] font-bold",
@@ -580,15 +584,15 @@ export function MobileRDCockpit() {
       <div className="px-4 pt-3">
         <div className="mb-2.5 flex items-center justify-between">
           <span className="text-[13px] font-bold text-slate-900">
-            {filter === "all" && !person ? "全部任务" : "筛选结果"}
+            {filter === "all" && !person ? t("全部任务") : t("筛选结果")}
           </span>
-          <span className="text-[11px] font-semibold text-slate-400">{filteredTasks.length} 条</span>
+          <span className="text-[11px] font-semibold text-slate-400">{filteredTasks.length}</span>
         </div>
 
         {shownTasks.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-2.5 rounded-2xl border border-dashed border-slate-200 bg-white/60 py-14 text-slate-300">
             <Inbox size={30} />
-            <span className="text-xs font-medium text-slate-400">没有符合条件的任务</span>
+            <span className="text-xs font-medium text-slate-400">{t("没有符合条件的任务")}</span>
           </div>
         ) : (
           <div className="grid grid-cols-2 items-start gap-3">
@@ -653,7 +657,7 @@ function MobileTaskDetail({
   const auditActor = useAuditActor("研发成员");
 
   const status = STATUS_META[task.status] ?? STATUS_META.draft;
-  const owner = (task.primary_owner || "").trim() || "未指派";
+  const owner = (task.primary_owner || "").trim() || t("未指派");
 
   const loadNotes = useCallback(async () => {
     setLoading(true);
@@ -661,7 +665,7 @@ function MobileTaskDetail({
     try {
       setNotes(await fetchRdTaskProgressNotes(task.task_id));
     } catch (e) {
-      setLoadError(e instanceof Error ? e.message : "加载操作留痕失败");
+      setLoadError(e instanceof Error ? e.message : t("加载操作留痕失败"));
     } finally {
       setLoading(false);
     }
@@ -697,11 +701,11 @@ function MobileTaskDetail({
         source: "web",
       });
       setDraft("");
-      toast.success("备注已提交");
+      toast.success(t("备注已提交"));
       await loadNotes();
       onAfterSubmit?.();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "提交失败，请重试");
+      toast.error(e instanceof Error ? e.message : t("提交失败，请重试"));
     } finally {
       setSubmitting(false);
     }
@@ -730,8 +734,8 @@ function MobileTaskDetail({
             {isRisk && (
               <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-red-50 px-1.5 py-0.5 font-bold text-red-600">
                 <AlertTriangle size={10} />
-                风险
-              </span>
+                {t("风险")}
+</span>
             )}
           </div>
         </div>
@@ -743,8 +747,8 @@ function MobileTaskDetail({
         <TaskImageGallery notes={notes} className="mb-3" />
         <div className="mb-2.5 flex items-center gap-1.5 text-[13px] font-bold text-slate-900">
           <History size={15} className="text-slate-400" />
-          操作留痕
-        </div>
+          {t("操作留痕")}
+</div>
         {loadError ? (
           <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-red-200 bg-white py-10 text-center">
             <AlertTriangle className="text-red-400" size={24} />
@@ -754,11 +758,11 @@ function MobileTaskDetail({
               onClick={() => void loadNotes()}
               className="rounded-full bg-indigo-600 px-5 py-1.5 text-xs font-semibold text-white active:bg-indigo-700"
             >
-              重试
+              {t("重试")}
             </button>
           </div>
         ) : (
-          <ProgressNoteList notes={notes} loading={loading} compact emptyText="暂无操作留痕" />
+          <ProgressNoteList notes={notes} loading={loading} compact emptyText={t("暂无操作留痕")} />
         )}
       </div>
 
@@ -769,7 +773,7 @@ function MobileTaskDetail({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             rows={1}
-            placeholder="添加备注…"
+            placeholder={t("添加备注…")}
             className="max-h-28 min-h-[2.5rem] flex-1 resize-none rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-[14px] leading-snug text-slate-800 outline-none placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white"
           />
           <button
@@ -779,8 +783,8 @@ function MobileTaskDetail({
             className="flex h-10 shrink-0 items-center gap-1 rounded-full bg-indigo-600 px-4 text-sm font-semibold text-white transition active:bg-indigo-700 disabled:opacity-40"
           >
             {submitting ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-            提交
-          </button>
+            {t("提交")}
+</button>
         </div>
       </div>
     </div>
