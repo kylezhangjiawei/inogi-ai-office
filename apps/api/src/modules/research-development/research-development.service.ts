@@ -4,7 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { OcrService } from '../ocr/ocr.service';
 import { OssService } from '../oss/oss.service';
 import { RagService } from '../rag/rag.service';
-import { DEPT_KB_DEFAULT_CATEGORIES } from './dept-knowledge.constants';
+import { DEPT_KBS, DEPT_KB_DEFAULT_CATEGORIES, deptKbPageCode } from './dept-knowledge.constants';
 import { RdAiService } from './rd-ai.service';
 import { WORKSPACE_PAGE_CODES, currentRdWorkspace, resolveRdStoreKey } from './rd-workspace.context';
 
@@ -829,29 +829,45 @@ export class ResearchDevelopmentService {
    * 适用于：首次开启 RAG / 切换 embedding 模型后 / 清理脏数据后。
    * 失败会跳过单条继续，最后返回成功/失败计数。
    */
-  async backfillAllKbToRag(): Promise<{ total: number; succeeded: number; failed: number; failedIds: string[] }> {
-    const raw = await this.readValue('rd.knowledgeEntries');
-    const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
-    const active = entries.filter((e) => !e.archived);
+  async backfillAllKbToRag(): Promise<{
+    total: number;
+    succeeded: number;
+    failed: number;
+    failedIds: string[];
+    byKb: Record<string, { total: number; succeeded: number }>;
+  }> {
     let succeeded = 0;
     let failed = 0;
     const failedIds: string[] = [];
-    for (const entry of active) {
-      try {
-        await this.syncKbEntryToRag(entry);
-        succeeded += 1;
-      } catch (err) {
-        failed += 1;
-        failedIds.push(String(entry.id ?? ''));
-        this.logger.warn(
-          `[RAG backfill] 失败 entry=${String(entry.id)}: ${err instanceof Error ? err.message : String(err)}`,
-        );
+    const byKb: Record<string, { total: number; succeeded: number }> = {};
+    // 研发库（kbId=undefined）+ 全部部门/协同库
+    const kbIds: Array<string | undefined> = [undefined, ...DEPT_KBS.map((d) => d.id)];
+    let total = 0;
+    for (const kbId of kbIds) {
+      const raw = await this.readValue(this.kbEntriesKey(kbId));
+      const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
+      const active = entries.filter((e) => !e.archived);
+      const kbKey = kbId ?? 'rd';
+      byKb[kbKey] = { total: active.length, succeeded: 0 };
+      total += active.length;
+      for (const entry of active) {
+        try {
+          await this.syncKbEntryToRag(entry, kbId);
+          succeeded += 1;
+          byKb[kbKey].succeeded += 1;
+        } catch (err) {
+          failed += 1;
+          failedIds.push(String(entry.id ?? ''));
+          this.logger.warn(
+            `[RAG backfill] 失败 kb=${kbKey} entry=${String(entry.id)}: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
       }
     }
-    return { total: active.length, succeeded, failed, failedIds };
+    return { total, succeeded, failed, failedIds, byKb };
   }
 
-  private async syncKbEntryToRag(entry: JsonRecord): Promise<void> {
+  private async syncKbEntryToRag(entry: JsonRecord, kbId?: string): Promise<void> {
     try {
       const id = String(entry.id ?? '').trim();
       if (!id) return;
@@ -883,6 +899,14 @@ export class ResearchDevelopmentService {
         ? Math.max(0, Math.min(100, Math.round(entry.permission_level)))
         : ResearchDevelopmentService.visibilityToLevel(entry.visibility as string | undefined);
 
+      // 部门/协同库：页面码做检索隔离硬门槛（没有进库资格就检索不到）；
+      // 分值过滤库（us-collab/purchasing）的库内成员分值表检索侧拿不到，permission_level
+      // 对用户全局 kbLevel 判定是"偏严"近似——未配全局分值的用户看不到带分值条目，不会泄露。
+      const entryUrl = kbId
+        ? kbId === 'us-collab'
+          ? `/us-collab-kb?entry=${encodeURIComponent(id)}`
+          : `/dept-kb/${kbId}?entry=${encodeURIComponent(id)}`
+        : `/rd-knowledge-base?entry=${encodeURIComponent(id)}`;
       await this.ragService.syncDocument({
         sourceType: 'kb',
         sourceId: id,
@@ -891,10 +915,11 @@ export class ResearchDevelopmentService {
         metadata: {
           title,
           permission_level: permissionLevel,
+          ...(kbId ? { kb_id: kbId, required_any_permissions: [deptKbPageCode(kbId)] } : {}),
           category_id: String(entry.category_id ?? '') || undefined,
           author_id: String(entry.created_by_id ?? '') || undefined,
           author_name: String(entry.created_by_name ?? '') || undefined,
-          url: `/rd-knowledge-base?entry=${encodeURIComponent(id)}`,
+          url: entryUrl,
           file_name: fileName || undefined,
           tags: tags.length > 0 ? tags : undefined,
         },
@@ -6790,8 +6815,8 @@ export class ResearchDevelopmentService {
     entries.unshift(entry);
     // Cap at 2000 entries to avoid unbounded growth
     await this.writeValue(this.kbEntriesKey(kbId), entries.slice(0, 2000));
-    // RAG 同步（best-effort，不阻塞返回）；部门库一期不接 RAG，仅研发库同步向量
-    if (!kbId) void this.syncKbEntryToRag(entry);
+    // RAG 同步（best-effort，不阻塞返回）：研发库与部门/协同库全部入向量索引，部门库带页面码隔离
+    void this.syncKbEntryToRag(entry, kbId);
     return entry;
   }
 
@@ -6864,8 +6889,8 @@ export class ResearchDevelopmentService {
     if (!found) throw new NotFoundException('知识条目不存在');
     await this.writeValue(this.kbEntriesKey(kbId), updated);
     const next = updated.find(e => e.id === id);
-    // RAG 同步：内容变更需要重新 embedding；部门库不接 RAG
-    if (next && !kbId) void this.syncKbEntryToRag(next);
+    // RAG 同步：内容变更需要重新 embedding（研发库与部门/协同库一视同仁）
+    if (next) void this.syncKbEntryToRag(next, kbId);
     return next;
   }
 
@@ -6878,12 +6903,10 @@ export class ResearchDevelopmentService {
     const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
     const updated = entries.map(e => e.id === id ? { ...e, archived: true, updated_at: new Date().toISOString() } : e);
     await this.writeValue(this.kbEntriesKey(kbId), updated);
-    // RAG 同步：archived=true 触发 chunk 删除；部门库不接 RAG
-    if (!kbId) {
-      void this.ragService.removeChunksForSource('kb', id).catch((err) => {
-        this.logger.warn(`[RAG] removeChunksForSource 失败 (entry=${id}): ${err instanceof Error ? err.message : String(err)}`);
-      });
-    }
+    // RAG 同步：archived=true 触发 chunk 删除（各库同机制）
+    void this.ragService.removeChunksForSource('kb', id).catch((err) => {
+      this.logger.warn(`[RAG] removeChunksForSource 失败 (entry=${id}): ${err instanceof Error ? err.message : String(err)}`);
+    });
     return { ok: true };
   }
 

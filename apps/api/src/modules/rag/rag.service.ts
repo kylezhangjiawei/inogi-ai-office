@@ -34,6 +34,11 @@ export type RagPermissionMetadata = {
   visible_role_codes?: string[];
   /** 按部门限制（保留字段，Phase 1 不强制使用） */
   department_ids?: string[];
+  /**
+   * 权限码门槛：非空时用户 permissions 须命中其中任意一个（超管直通）。
+   * 用于部门知识库（页面码定库）与研发/协同任务池（页面码定池）的检索隔离。
+   */
+  required_any_permissions?: string[];
 };
 
 export type RagChunkMetadata = RagPermissionMetadata & {
@@ -412,6 +417,12 @@ export class RagService {
     // 2. 私聊 / 显式可见列表
     if (Array.isArray(meta.visible_user_ids) && meta.visible_user_ids.length > 0) {
       return meta.visible_user_ids.includes(user.userId);
+    }
+
+    // 2.5 权限码门槛（部门库页面码 / 任务池页面码）：非空时须命中任意一个
+    if (Array.isArray(meta.required_any_permissions) && meta.required_any_permissions.length > 0) {
+      const perms = user.permissions ?? [];
+      if (!meta.required_any_permissions.some((code) => perms.includes(code))) return false;
     }
 
     // 3. KB 分值制

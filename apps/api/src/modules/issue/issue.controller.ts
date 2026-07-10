@@ -88,6 +88,16 @@ export class IssueController {
     return this.issueService.processAttachment(dto, actor);
   }
 
+  /** 全量重建问题向量索引（存量问题在接入 RAG 前创建时使用）。仅超管。 */
+  @Post('rag-backfill')
+  async ragBackfill(@Request() req: AuthedRequest) {
+    const perms = req.user.permissions ?? [];
+    if (!perms.includes(SUPER_ADMIN_PERMISSION)) {
+      throw new ForbiddenException('仅超级管理员可重建索引');
+    }
+    return this.issueService.backfillAllIssuesToRag();
+  }
+
   // ── 创建 / 相似 ─────────────────────────────────────────────────────────────
 
   @Post('find-similar')

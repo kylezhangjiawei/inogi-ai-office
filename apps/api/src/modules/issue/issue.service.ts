@@ -292,6 +292,26 @@ export class IssueService {
    * best-effort：无嵌入模型或索引失败只告警，绝不影响 adopt/resolve 主流程。
    * issue 不设权限元数据 → 模块内对所有有页面权限的人可见。
    */
+  /**
+   * 全量回填：把所有可复用状态的问题重新 embedding 写入向量库。
+   * 适用于：首次开启 RAG / 切换 embedding 模型 / 存量问题在接入索引前创建。
+   */
+  async backfillAllIssuesToRag(): Promise<{ total: number; succeeded: number; failed: number }> {
+    const rows = await this.prisma.issue.findMany({ select: { id: true, status: true } });
+    const targets = rows.filter((r) => isReusableStatus(r.status));
+    let succeeded = 0;
+    let failed = 0;
+    for (const row of targets) {
+      try {
+        await this.indexIssue(row.id);
+        succeeded += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    return { total: targets.length, succeeded, failed };
+  }
+
   private async indexIssue(issueId: string): Promise<void> {
     try {
       const row = await this.prisma.issue.findUnique({
