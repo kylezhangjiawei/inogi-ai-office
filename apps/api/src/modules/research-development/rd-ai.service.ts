@@ -280,6 +280,25 @@ export class RdAiService {
     this.extractMaxTokens = Number.isFinite(configuredMaxTokens) && configuredMaxTokens >= 1 ? configuredMaxTokens : 12_000;
   }
 
+  /** 用户界面语言偏好（i18n.user-langs KV，与 i18n 模块同源）：AI 输出文本字段据此定语言 */
+  private async getUserLang(userId?: string): Promise<'zh' | 'en'> {
+    const id = (userId ?? '').trim();
+    if (!id) return 'zh';
+    try {
+      const setting = await this.prisma.systemSetting.findUnique({
+        where: { key: 'i18n.user-langs' },
+        select: { value: true },
+      });
+      const map =
+        setting?.value && typeof setting.value === 'object' && !Array.isArray(setting.value)
+          ? (setting.value as Record<string, string>)
+          : {};
+      return map[id] === 'en' ? 'en' : 'zh';
+    } catch {
+      return 'zh';
+    }
+  }
+
   /**
    * Main entry — accepts either a text body or a file upload, returns AI-extracted tasks.
    */
@@ -1866,6 +1885,8 @@ export class RdAiService {
   async assessProgress(input: {
     files?: RdAiUploadedFile[];
     text?: string;
+    /** 请求者 userId：查界面语言偏好，AI 输出文本字段（stage/basis/recommendation）跟随该语言 */
+    requesterUserId?: string;
     task: {
       task_id: string;
       title: string;
@@ -1881,12 +1902,13 @@ export class RdAiService {
     if (files.length === 0 && !userText) {
       throw new BadRequestException('files 或 text 至少需要提供一项');
     }
+    const lang = await this.getUserLang(input.requesterUserId);
 
     const filePolicy = await this.readFilePolicyRuntime();
 
     // 单文件 + 无用户文本 + 图片：保留原 OCR / Vision 兜底路径，结果更稳
     if (files.length === 1 && !userText && IMAGE_EXT.has(this.extOf(files[0].originalname))) {
-      return this.assessProgressFromImageFile(files[0], input, filePolicy);
+      return this.assessProgressFromImageFile(files[0], input, filePolicy, lang);
     }
 
     // 统一抽取每个文件的 evidence 文本，再与用户文本拼合，最后走文本判断
@@ -1928,7 +1950,7 @@ export class RdAiService {
       .join('\n\n')
       .slice(0, 32000);
 
-    const systemPrompt = this.buildProgressSystemPrompt((input.task.work_items?.length ?? 0) > 0);
+    const systemPrompt = this.buildProgressSystemPrompt((input.task.work_items?.length ?? 0) > 0, lang);
     const userMessage = this.buildProgressUserMessage(combinedEvidence, input);
 
     // Text path — AI 模型管理优先（scene → default），不从 .env 读取模型 key。
@@ -2071,10 +2093,11 @@ export class RdAiService {
       task: { task_id: string; title: string; description?: string; category_path?: string; current_progress?: number; current_status?: string; work_items?: RdAiWorkItemRef[] };
     },
     filePolicy: RdAiFilePolicyRuntime,
+    lang: 'zh' | 'en' = 'zh',
   ): Promise<RdAiProgressAssessmentResult> {
     const tencentReady = await this.ocrService.hasTencentConfig();
     if (!tencentReady && filePolicy.allow_vision_fallback) {
-      return this.assessProgressViaVision(file, input, filePolicy, 'ocr_not_configured');
+      return this.assessProgressViaVision(file, input, filePolicy, 'ocr_not_configured', lang);
     }
     if (!tencentReady) {
       throw new BadRequestException('图片识别需要配置腾讯 OCR（请在系统设置 → 集成配置中绑定 tencent_ocr 凭据）');
@@ -2086,10 +2109,10 @@ export class RdAiService {
     const confidence = typeof ocr.confidence === 'number' ? ocr.confidence : 1;
     const evidenceText = (ocr.text || ocr.lines.join('\n')).slice(0, 24000);
     if ((!evidenceText.trim() || confidence < filePolicy.ocr_confidence_threshold) && filePolicy.allow_vision_fallback) {
-      return this.assessProgressViaVision(file, input, filePolicy, `ocr_low_confidence:${confidence}`);
+      return this.assessProgressViaVision(file, input, filePolicy, `ocr_low_confidence:${confidence}`, lang);
     }
 
-    const systemPrompt = this.buildProgressSystemPrompt((input.task.work_items?.length ?? 0) > 0);
+    const systemPrompt = this.buildProgressSystemPrompt((input.task.work_items?.length ?? 0) > 0, lang);
     const userMessage = this.buildProgressUserMessage(evidenceText, input);
 
     const selectedModel = await this.resolveSceneModelConfig('progress_summary').catch(() => null);
@@ -2156,6 +2179,7 @@ export class RdAiService {
     },
     filePolicy: RdAiFilePolicyRuntime,
     reason: string,
+    lang: 'zh' | 'en' = 'zh',
   ): Promise<RdAiProgressAssessmentResult> {
     const selectedModel = await this.resolveSceneModelConfig('ocr_cleanup').catch(() => null);
     if (!selectedModel) {
@@ -2169,7 +2193,7 @@ export class RdAiService {
       response = await client.chat.completions.create({
         model: selectedModel.model,
         messages: [
-          { role: 'system', content: this.buildProgressSystemPrompt((input.task.work_items?.length ?? 0) > 0) },
+          { role: 'system', content: this.buildProgressSystemPrompt((input.task.work_items?.length ?? 0) > 0, lang) },
           {
             role: 'user',
             content: [
@@ -2213,7 +2237,7 @@ export class RdAiService {
     };
   }
 
-  private buildProgressSystemPrompt(hasWorkItems = false): string {
+  private buildProgressSystemPrompt(hasWorkItems = false, lang: 'zh' | 'en' = 'zh'): string {
     return [
       '你是一名研发项目经理助手。用户会上传一份"任务进度依据"文件（方案、测试记录、实验数据、评审纪要、邮件等）或粘贴文字，',
       '请结合任务标题、描述和当前进度，判断这份依据能把任务推进到哪个阶段。',
@@ -2241,6 +2265,10 @@ export class RdAiService {
         ? [
             '7) 任务信息中列出了「工作项清单」（任务内部的小块拆分，各有 id）。请判断本次依据主要在讲哪个工作项：明确对应某一项时返回其 id；内容跨多项或属于任务整体时返回 null。不要编造清单之外的 id。',
           ]
+        : []),
+      // 请求者界面语言为英文：文本型输出字段（stage/basis/recommendation）改用英文（源头生成，非翻译）
+      ...(lang === 'en'
+        ? ['', 'IMPORTANT: The requester reads English. Write the string values of "stage", "basis" and "recommendation" in English. Keep the JSON structure unchanged.']
         : []),
     ].join('\n');
   }
@@ -2717,14 +2745,21 @@ export class RdAiService {
     blockedDays?: number | null;
     workItems: Array<{ title: string; done: boolean; owner?: string | null }>;
     notes: Array<{ actorName: string; createdAt: string; text: string; progress?: number | null; workItemTitle?: string | null; attachments: number }>;
+    /** 输出语言（跟随请求者的界面语言偏好）：'en' 输出英文，缺省中文 */
+    lang?: 'zh' | 'en';
   }): Promise<{ text: string; model: string; provider: AiProvider } | null> {
     const selectedModel = await this.resolveSceneModelConfig('daily_report_summary').catch(() => null);
     if (!selectedModel?.apiKey) return null;
 
     const systemPrompt =
-      '你是一名研发主管的智能助理。请把一条任务的近况浓缩成精炼中文小结，供领导快速了解。' +
-      '要求：(1) 全文不超过 200 字；(2) 结构为三小段：当前状态一句话 → 近期推进要点（1-3 条）→ 风险与下一步（1-2 句）；' +
-      '(3) 只依据提供的事实，不编造；(4) 有阻塞必须点明阻塞原因与已阻塞天数；(5) 工作项有明确完成/未完成态时给出完成度。';
+      input.lang === 'en'
+        ? 'You are an executive assistant to an R&D director. Condense the status of one task into a crisp English brief for leadership. ' +
+          'Requirements: (1) under 150 words; (2) three short sections: one-line current status → recent progress highlights (1-3 bullets) → risks & next step (1-2 sentences); ' +
+          '(3) stick strictly to the facts provided, never fabricate; (4) if blocked, state the blocking reason and days blocked; (5) give work-item completion count when available. ' +
+          'The source material is in Chinese — translate names of things naturally but keep person names as-is.'
+        : '你是一名研发主管的智能助理。请把一条任务的近况浓缩成精炼中文小结，供领导快速了解。' +
+          '要求：(1) 全文不超过 200 字；(2) 结构为三小段：当前状态一句话 → 近期推进要点（1-3 条）→ 风险与下一步（1-2 句）；' +
+          '(3) 只依据提供的事实，不编造；(4) 有阻塞必须点明阻塞原因与已阻塞天数；(5) 工作项有明确完成/未完成态时给出完成度。';
 
     const workItemsBlock = input.workItems.length
       ? input.workItems.map((it) => `- [${it.done ? '已完成' : '进行中'}] ${it.title}${it.owner ? `（${it.owner}）` : ''}`).join('\n')

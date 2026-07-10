@@ -3,11 +3,14 @@ import {
   Body,
   Controller,
   Post,
+  Request,
   UploadedFile,
   UploadedFiles,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
+
+type AuthedRequest = { user?: { id?: string } };
 
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { RdWorkspaceInterceptor } from './rd-workspace.context';
@@ -214,6 +217,7 @@ export class RdAiController {
       /** 工作项清单 JSON 字符串（FormData 传输），AI 判断本次进展归属哪个工作项 */
       work_items?: string;
     },
+    @Request() req: AuthedRequest,
   ) {
     const title = (body.title ?? '').toString().trim();
     if (!title) {
@@ -249,6 +253,7 @@ export class RdAiController {
     return this.rdAiService.assessProgress({
       files: files ?? [],
       text: body.text,
+      requesterUserId: req.user?.id,
       task: {
         task_id: (body.task_id ?? '').toString(),
         title,

@@ -2002,6 +2002,25 @@ export class ResearchDevelopmentService {
     return { ok: true, task_id: taskId };
   }
 
+  /** 请求者的界面语言偏好（i18n.user-langs KV，与 i18n 模块同源）：AI 生成内容据此定输出语言 */
+  private async getRequesterLang(userId?: string): Promise<'zh' | 'en'> {
+    const id = cleanText(userId);
+    if (!id) return 'zh';
+    try {
+      const setting = await this.prisma.systemSetting.findUnique({
+        where: { key: 'i18n.user-langs' },
+        select: { value: true },
+      });
+      const map =
+        setting?.value && typeof setting.value === 'object' && !Array.isArray(setting.value)
+          ? (setting.value as Record<string, string>)
+          : {};
+      return map[id] === 'en' ? 'en' : 'zh';
+    } catch {
+      return 'zh';
+    }
+  }
+
   private async getUsersWithAnyPermission(codes: string[]): Promise<Array<{ id: string; name: string }>> {
     // 收件人须同时具备：指定操作码之一 + 当前工作区的页面码（超管 '*' 通行）。
     // 操作码跨池共享（协同角色同样持有 rd-task:edit 等），只按操作码捞人会把
@@ -4895,6 +4914,9 @@ export class ResearchDevelopmentService {
     const dueDate = cleanText(task.due_date) || null;
     const blockedReason = isBlocked ? cleanText(task.blocked_reason) || '存在阻塞' : null;
 
+    // AI 输出语言跟随请求者界面语言（i18n 用户偏好）：美方成员拿到英文小结，源头即英文比翻译质量高
+    const lang = await this.getRequesterLang(options?.requesterUserId);
+
     const ai = await this.rdAiService.summarizeTaskBrief({
       title,
       statusLabel,
@@ -4906,22 +4928,33 @@ export class ResearchDevelopmentService {
       blockedDays,
       workItems: workItems.map(({ title: t, done, owner: o }) => ({ title: t, done, owner: o })),
       notes,
+      lang,
     });
     if (ai) {
       return { text: ai.text, model: ai.model, provider: ai.provider, source: 'ai', generated_at: new Date().toISOString() };
     }
 
-    // 本地兜底：AI 未配置/失败时拼一段基础事实小结
+    // 本地兜底：AI 未配置/失败时拼一段基础事实小结（同样按请求者语言输出）
     const doneCount = workItems.filter((w) => w.done).length;
     const latest = notes[0];
-    const lines = [
-      `《${title}》当前${statusLabel}，进度 ${progress}%，主责 ${owner}${dueDate ? `，截止 ${dueDate}` : ''}。`,
-      workItems.length > 0 ? `工作项完成 ${doneCount}/${workItems.length}。` : '',
-      latest
-        ? `最近进展（${latest.createdAt.slice(0, 10)} ${latest.actorName}）：${latest.text.slice(0, 80) || '更新了任务进度'}`
-        : '暂无进展留痕。',
-      blockedReason ? `⚠️ ${blockedReason}${blockedDays != null ? `，已阻塞 ${blockedDays} 天` : ''}。` : '',
-    ].filter(Boolean);
+    const lines =
+      lang === 'en'
+        ? [
+            `"${title}" is currently ${statusLabel} at ${progress}%, owned by ${owner}${dueDate ? `, due ${dueDate}` : ''}.`,
+            workItems.length > 0 ? `Work items completed: ${doneCount}/${workItems.length}.` : '',
+            latest
+              ? `Latest update (${latest.createdAt.slice(0, 10)} by ${latest.actorName}): ${latest.text.slice(0, 80) || 'progress updated'}`
+              : 'No progress notes yet.',
+            blockedReason ? `⚠️ ${blockedReason}${blockedDays != null ? ` (blocked for ${blockedDays} days)` : ''}.` : '',
+          ].filter(Boolean)
+        : [
+            `《${title}》当前${statusLabel}，进度 ${progress}%，主责 ${owner}${dueDate ? `，截止 ${dueDate}` : ''}。`,
+            workItems.length > 0 ? `工作项完成 ${doneCount}/${workItems.length}。` : '',
+            latest
+              ? `最近进展（${latest.createdAt.slice(0, 10)} ${latest.actorName}）：${latest.text.slice(0, 80) || '更新了任务进度'}`
+              : '暂无进展留痕。',
+            blockedReason ? `⚠️ ${blockedReason}${blockedDays != null ? `，已阻塞 ${blockedDays} 天` : ''}。` : '',
+          ].filter(Boolean);
     return { text: lines.join('\n'), model: 'local', provider: 'local', source: 'local', generated_at: new Date().toISOString() };
   }
 
