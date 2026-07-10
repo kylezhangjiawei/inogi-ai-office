@@ -14,7 +14,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SecureConfigService } from '../security/secure-config.service';
 import { WebSearchService, type WebSearchResult } from './web-search.service';
 import { RagService, type RagUserContext, type RagChatCitation } from '../rag/rag.service';
-import { ChatAttachmentService } from './chat-attachment.service';
+import { ChatAttachmentService, type StoredChatAttachment } from './chat-attachment.service';
+import { ChatFileExportService, FILE_EXPORT_MARKER } from './chat-file-export.service';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { UpdateConversationDto } from './dto/update-conversation.dto';
@@ -78,6 +79,7 @@ export class ChatService {
     private readonly secureConfigService: SecureConfigService,
     private readonly ragService: RagService,
     private readonly attachmentService: ChatAttachmentService,
+    private readonly fileExportService: ChatFileExportService,
     private readonly webSearchService: WebSearchService,
   ) {
     this.openaiApiKey = this.config.get<string>('OPENAI_API_KEY') ?? null;
@@ -425,11 +427,11 @@ export class ChatService {
     );
 
     // ── 联网兜底（与内部检索并行发起，不拖慢首答；模型无关，任何主模型都能用检索结果）──
-    // 内部未命中 → 等联网结果融合作答；命中 → 主回答完成后作为「互联网参考」附录，供用户对照选择
-    const webSearchPromise: Promise<WebSearchResult | null> =
-      content && attachments.length === 0
-        ? this.webSearchService.search(searchQuery)
-        : Promise.resolve(null);
+    // 内部未命中 → 等联网结果融合作答；命中 → 主回答完成后作为「互联网参考」附录，供用户对照选择。
+    // 带附件的提问同样发起联网（如"结合这份报告查下最新行业标准"），但只走附录路径不阻塞首答。
+    const webSearchPromise: Promise<WebSearchResult | null> = content
+      ? this.webSearchService.search(searchQuery)
+      : Promise.resolve(null);
 
     // ── 智能检索：并行做"结构化关键词搜索"+"向量语义检索"，结果合并进 system prompt ──
     // 用户无需切换模式；命中内部资料 → 优先用；没命中 → 联网检索兜底，最后才是 LLM 通用知识
@@ -468,6 +470,11 @@ export class ChatService {
       contextParts.push(personaBlock);
     }
 
+    // 文件生成能力：模型按协议在回答末尾输出 file-export 块，服务端渲染成真实文件挂到消息附件
+    contextParts.push(
+      '【文件生成】当用户明确要求把内容生成/导出为 Excel 或 Word 文件时（如"整理成表格文件发我""导出成 Word 文档"），在回答正文之后另起一行输出一个 file-export 代码块；正文只需一两句说明文件内容，不要把全部数据在正文重复。Excel 格式示例：\n```file-export\n{"type":"xlsx","filename":"名称.xlsx","sheets":[{"name":"Sheet1","rows":[["表头A","表头B"],["值1","值2"]]}]}\n```\nWord 格式：{"type":"docx","filename":"名称.docx","blocks":[{"kind":"heading","text":"标题"},{"kind":"paragraph","text":"正文段落"},{"kind":"table","rows":[["表头1","表头2"],["值1","值2"]]}]}\n规则：JSON 必须合法（键与字符串用双引号）；rows 是二维数组且首行为表头；文件会自动生成并作为附件出现在回答下方。用户没有明确要求生成文件时，绝对不要输出 file-export 块。',
+    );
+
     // 只有真正开启了联网检索才告知该能力，避免无联网的模型据此幻觉
     if (webSearchEnabled) {
       contextParts.push(
@@ -485,10 +492,11 @@ export class ChatService {
       );
     }
 
-    // ── 联网兜底融合：内部完全未命中时，等联网结果注入 context（模型无关）──
+    // ── 联网兜底融合：纯文本提问且内部完全未命中时，等联网结果注入 context（模型无关）。
+    //    带附件时不等（附件内容就是主要上下文，融合等待会白拖首答数十秒），联网走回答后的附录路径 ──
     const hasInternal = Boolean(dbContext) || ragChunks.length > 0;
     let webResult: WebSearchResult | null = null;
-    if (!hasInternal) {
+    if (!hasInternal && attachments.length === 0) {
       // 等待期间可能静默数十秒：先推一个事件保活 SSE 连接（网关空闲超时保险），前端未知类型安全忽略
       send({ type: 'web_searching' });
       webResult = await webSearchPromise;
@@ -623,17 +631,23 @@ export class ChatService {
         ...(webSearchEnabled ? { enable_search: true, search_options: { forced_search: false } } : {}),
       });
 
+      // file-export 块出现后停止转发 delta（JSON 数据不该滚屏），结束后由 content_final 统一修正
+      let deltaSuppressed = false;
       for await (const chunk of stream) {
         const delta = chunk.choices[0]?.delta?.content ?? '';
         if (delta) {
           fullContent += delta;
-          send({ type: 'delta', delta });
+          if (!deltaSuppressed && fullContent.includes(FILE_EXPORT_MARKER)) {
+            deltaSuppressed = true;
+          }
+          if (!deltaSuppressed) send({ type: 'delta', delta });
         }
       }
 
-      // 内部命中场景：并行的联网检索此刻通常已完成 → 作为「互联网参考」附录给用户对照选择。
-      // 附录并入 content 落库，历史回放/复制分享都保留；来源列表以追加事件推给前端引用卡。
-      if (hasInternal) {
+      // 未走融合注入的场景（内部命中 / 带附件提问）：并行的联网检索此刻通常已完成
+      // → 作为「互联网参考」附录给用户对照选择。附录并入 content 落库，历史回放/复制分享都保留。
+      // 模型输出了 file-export 块 = 明确的创作/导出类请求，联网结果必是噪音，跳过附录。
+      if (!webResult && !fullContent.includes(FILE_EXPORT_MARKER)) {
         // 附录是锦上添花：主回答完成后最多再等 20s（联网检索全程 ~35s，与主回答并行，
         // 此刻通常只差尾巴几秒），拿不到就放弃，不为附录拖住对话结束
         const extra = await Promise.race([
@@ -650,7 +664,7 @@ export class ChatService {
             extraSummary.length > 1200 ? extraSummary.slice(0, 1200) + '…' : extraSummary;
           const appendix = `\n\n────────\n🌐 互联网参考（联网检索，内容可能有延迟，请以官方信息为准）\n${clipped}`;
           fullContent += appendix;
-          send({ type: 'delta', delta: appendix });
+          if (!deltaSuppressed) send({ type: 'delta', delta: appendix });
           if (extra && extra.sources.length > 0) {
             send({
               type: 'citations_extra',
@@ -667,8 +681,47 @@ export class ChatService {
         }
       }
 
+      // ── 对话内文件生成：解析 file-export 块 → 渲染 xlsx/docx → 挂到 assistant 消息附件 ──
+      let generatedAtts: StoredChatAttachment[] = [];
+      const exported = this.fileExportService.parse(fullContent);
+      if (exported) {
+        fullContent = exported.cleaned;
+        // 模型偶发输出坏 JSON（缺括号/尾逗号）：再调一次模型只修语法，修不好才认失败
+        const spec =
+          exported.spec ?? (await this.repairFileExportJson(client, model, isQwen, exported.rawJson));
+        if (spec) {
+          try {
+            const file = await this.fileExportService.render(spec);
+            const stored = await this.fileExportService.persist(userId, file);
+            generatedAtts = [stored];
+          } catch (err) {
+            fullContent += `\n\n（文件生成失败：${err instanceof Error ? err.message : '未知错误'}，请调整要求后重试）`;
+          }
+        } else {
+          fullContent += '\n\n（文件生成失败：数据格式有误，请重新发送要求再试一次）';
+        }
+      }
+      // 流式期间块被抑制（或开头字符已泄漏半行）：用最终正文覆盖前端显示
+      if (deltaSuppressed || exported) {
+        send({ type: 'content_final', content: fullContent });
+      }
+      if (generatedAtts.length > 0) {
+        send({
+          type: 'files_generated',
+          attachments: this.attachmentService.signForDisplay(generatedAtts),
+        });
+      }
+
       const assistantMsg = await this.prisma.chatMessage.create({
-        data: { conversationId, role: 'assistant', content: fullContent, model },
+        data: {
+          conversationId,
+          role: 'assistant',
+          content: fullContent,
+          model,
+          ...(generatedAtts.length > 0
+            ? { attachments: generatedAtts as unknown as Prisma.InputJsonValue }
+            : {}),
+        },
       });
 
       await this.prisma.chatConversation.update({
@@ -815,6 +868,41 @@ export class ChatService {
    * 含 vl/vision 的（qwen-vl、qwen2.5-vl、internvl 等）、GPT-4o/4.1、Claude 3+、Gemini、GLM-4V、LLaVA、Pixtral 等。
    * 仅用于决定"是否内联 base64 图片"；判断失误时退化为文字提示，不会报错。
    */
+  /** file-export 块 JSON 非法时的修复通道：让模型只修语法不动数据，15s 超时放弃。 */
+  private async repairFileExportJson(
+    client: OpenAI,
+    model: string,
+    isQwen: boolean,
+    rawJson: string,
+  ): Promise<import('./chat-file-export.service').FileExportSpec | null> {
+    try {
+      const repaired = await Promise.race([
+        client.chat.completions
+          .create({
+            model,
+            messages: [
+              {
+                role: 'system',
+                content:
+                  '修复下面这段 JSON 使其语法合法（引号/括号/逗号）。保持数据内容不变，只输出修复后的 JSON 本身，不要解释、不要代码块围栏。',
+              },
+              { role: 'user', content: rawJson.slice(0, 8000) },
+            ],
+            temperature: 0,
+            max_tokens: 4000,
+            ...(isQwen ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+          })
+          .then((r) => (r.choices[0]?.message?.content ?? '').trim()),
+        new Promise<string>((resolve) => setTimeout(() => resolve(''), 15_000)),
+      ]);
+      const jsonText = repaired.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '').trim();
+      return jsonText ? this.fileExportService.parseSpec(jsonText) : null;
+    } catch (err) {
+      this.logger.warn(`file-export JSON 修复失败: ${err instanceof Error ? err.message : err}`);
+      return null;
+    }
+  }
+
   /**
    * 多轮查询改写：会话有历史且本轮问题是短句/含指代词时，用主模型把它改写成
    * 独立完整的检索查询（只影响内部检索与联网检索的 query，不改用户消息本身）。

@@ -86,6 +86,10 @@ type SseEvent =
   | { type: "citations_extra"; citations: RagCitation[] }
   | { type: "delta"; delta: string }
   | { type: "modelSwitched"; from: string; to: string; reason: string }
+  /** 流式期间有内容被服务端抑制（file-export 块）时，回答结束推最终正文覆盖显示 */
+  | { type: "content_final"; content: string }
+  /** 对话内生成的文件（Excel/Word），挂到 assistant 消息下方复用附件卡展示 */
+  | { type: "files_generated"; attachments: AttachmentView[] }
   | { type: "done"; messageId: string; title?: string }
   | { type: "error"; message: string };
 
@@ -863,6 +867,27 @@ export function MateChatBubble() {
                 setMessages((prev) =>
                   prev.map((m) => (m.id === tempAiId ? { ...m, content: captured } : m)),
                 );
+              }
+
+              if (event.type === "content_final") {
+                // 服务端抑制了 file-export 块的流式输出：用最终正文整体覆盖
+                streamedContent = event.content;
+                const captured = streamedContent;
+                setMessages((prev) =>
+                  prev.map((m) => (m.id === tempAiId ? { ...m, content: captured } : m)),
+                );
+              }
+
+              if (event.type === "files_generated") {
+                const atts = event.attachments;
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === tempAiId
+                      ? { ...m, attachments: [...(m.attachments ?? []), ...atts] }
+                      : m,
+                  ),
+                );
+                toast.success("文件已生成，点击附件卡片下载");
               }
 
               if (event.type === "done") {
