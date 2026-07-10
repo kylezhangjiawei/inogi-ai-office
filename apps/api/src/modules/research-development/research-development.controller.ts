@@ -21,6 +21,24 @@ const RD_READ_PERMISSIONS = [
   'page:us-collab-workspace',
 ];
 
+/**
+ * 任务管理动作的统一权限集合。
+ * 前端驾驶舱、协同详情与后端写接口必须共用同一口径，避免“看得到按钮但提交后 403”。
+ */
+const RD_TASK_MANAGER_PERMISSIONS = [
+  'rd-task:edit',
+  'rd-task:create',
+  'rd-task:reassign',
+  'rd-project:direct',
+  'rd-project:review-l1',
+  'rd-project:review-l2',
+  'rd-people:manage',
+] as const;
+
+function canManageAnyTask(permissions: string[]): boolean {
+  return permissions.includes('*') || RD_TASK_MANAGER_PERMISSIONS.some((code) => permissions.includes(code));
+}
+
 type AuthedRequest = { user?: { id?: string; name?: string; role?: string; permissions?: string[] } };
 
 /** Determines if the current request belongs to a manager who can view all cross-user data. */
@@ -84,21 +102,16 @@ export class ResearchDevelopmentController {
   }
 
   @Patch('task-categories/tasks/:taskId')
-  @Permissions('page:rd-my-workspace', 'page:us-collab-workspace', 'rd-task:edit', 'rd-task:create', 'rd-task:reassign')
+  @Permissions('page:rd-my-workspace', 'page:us-collab-workspace', ...RD_TASK_MANAGER_PERMISSIONS)
   updateTask(
     @Param('taskId') taskId: string,
     @Body() payload: Record<string, unknown>,
     @Request() req: AuthedRequest,
   ) {
-    // 越权防护：管理员级权限（* / rd-task:edit / rd-task:reassign / rd-task:create）可改任意任务，
-    // 行为不变；仅持 page:rd-my-workspace 的普通成员由服务层按 owner/协作人兜底校验，且禁止审批/移交。
-    // canEditAny 覆盖了「审核人集合」(rd-task:edit ∪ rd-task:reassign)，故合法审批不受影响。
+    // 越权防护：任务管理员、立项审核人和人员管理员可改任意任务；
+    // 仅持工作台页面权限的普通成员由服务层按 owner/协作人兜底校验，且禁止审批/移交。
     const perms = req.user?.permissions ?? [];
-    const canEditAny =
-      perms.includes('*') ||
-      perms.includes('rd-task:edit') ||
-      perms.includes('rd-task:reassign') ||
-      perms.includes('rd-task:create');
+    const canEditAny = canManageAnyTask(perms);
     return this.rdService.updateTask(taskId, payload, {
       requesterUserId: req.user?.id,
       requesterName: req.user?.name,
@@ -272,7 +285,7 @@ export class ResearchDevelopmentController {
   }
 
   @Post('task-progress-notes')
-  @Permissions('page:rd-my-workspace', 'page:us-collab-workspace', 'rd-task:edit', 'rd-task:create')
+  @Permissions('page:rd-my-workspace', 'page:us-collab-workspace', ...RD_TASK_MANAGER_PERMISSIONS)
   @UseInterceptors(FilesInterceptor('files', 10))
   createTaskProgressNote(
     @UploadedFiles() files: Array<{ originalname: string; mimetype?: string; size?: number; buffer: Buffer }> | undefined,
@@ -297,11 +310,7 @@ export class ResearchDevelopmentController {
           : undefined;
     // 越权防护：管理员级权限可为任意任务记进展，普通成员由服务层按 owner/协作人兜底校验。
     const perms = req.user?.permissions ?? [];
-    const canEditAny =
-      perms.includes('*') ||
-      perms.includes('rd-task:edit') ||
-      perms.includes('rd-task:reassign') ||
-      perms.includes('rd-task:create');
+    const canEditAny = canManageAnyTask(perms);
     return this.rdService.createTaskProgressNote({
       taskId: body.task_id ?? '',
       text: body.text ?? '',

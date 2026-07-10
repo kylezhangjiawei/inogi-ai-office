@@ -48,6 +48,11 @@ function NativeSelect({
   onValueChange,
   placeholder,
   name,
+  id,
+  required,
+  "aria-label": ariaLabel,
+  "aria-labelledby": ariaLabelledBy,
+  "aria-describedby": ariaDescribedBy,
 }: NativeSelectProps) {
   const options = React.Children.toArray(children).filter(React.isValidElement);
   const selectedOption = options.find((option) => {
@@ -79,7 +84,14 @@ function NativeSelect({
         disabled={disabled}
         onValueChange={handleValueChange}
       >
-        <SelectTrigger className={className}>
+        <SelectTrigger
+          id={id}
+          className={className}
+          aria-label={ariaLabel}
+          aria-labelledby={ariaLabelledBy}
+          aria-describedby={ariaDescribedBy}
+          aria-required={required || undefined}
+        >
           <SelectValue placeholder={fallbackPlaceholder} />
         </SelectTrigger>
         <SelectContent>

@@ -24,6 +24,35 @@ let currentLang: I18nLang = (() => {
     return "zh";
   }
 })();
+
+/**
+ * 发布关键路径的内置英文兜底。线上字典仍拥有最高优先级；这里仅防止新页面文案在
+ * 字典 seed 尚未同步或请求暂时失败时回退成中文，保证中美协同核心导航和操作可用。
+ */
+const BUILTIN_EN_FALLBACKS: Record<string, string> = {
+  "协同任务详情": "Collaboration Task Details",
+  "待指派": "Unassigned",
+  "未指派": "Unassigned",
+  "任务小结": "Task Brief",
+  "（AI 未配置，基础事实版）": " (Basic summary — AI not configured)",
+  "刷新": "Refresh",
+  "上传知识库文件": "Upload Knowledge Base Files",
+  "选择或拖拽知识库文件": "Choose or drag knowledge base files",
+  "选择知识库文件": "Choose knowledge base files",
+  "知识库分类": "Knowledge Base Category",
+  "访问权限分值": "Access Level",
+  "关闭上传弹窗": "Close upload dialog",
+  "删除任务？": "Delete task?",
+  "确认删除「{title}」？该操作不可恢复": "Delete “{title}”? This action cannot be undone",
+  "，且会一并删除其 {n} 个子任务": ", including its {n} subtasks",
+  "确认删除": "Delete",
+  "任务已删除": "Task deleted",
+  "已选文件（{n}）": "Selected Files ({n})",
+  "没有符合条件的条目": "No matching items",
+  "知识库暂无内容": "The knowledge base is empty",
+  "尝试修改搜索词或筛选条件": "Try changing your search or filters",
+  "上传第一个文件开始构建知识库": "Upload the first file to start building the knowledge base",
+};
 let dict: Record<string, string> = {};
 let dictLoaded = false;
 let dictVersion = 0;
@@ -56,7 +85,7 @@ export function i18nLocale(): string {
  * 英文态查字典，缺 key（含字典未加载完）回退中文。
  */
 export function t(zhText: string, vars?: Record<string, string | number>): string {
-  const template = currentLang === "en" ? (dict[zhText] ?? zhText) : zhText;
+  const template = currentLang === "en" ? (dict[zhText] ?? BUILTIN_EN_FALLBACKS[zhText] ?? zhText) : zhText;
   if (!vars) return template;
   return template.replace(/\{(\w+)\}/g, (match, name: string) =>
     name in vars ? String(vars[name]) : match,
