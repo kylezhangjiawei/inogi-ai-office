@@ -23,7 +23,7 @@ import {
   XCircle,
 } from "lucide-react";
 import { cn } from "./components/ui/utils";
-import { t } from "./lib/i18n";
+import { t, useI18n } from "./lib/i18n";
 import { AuditAction, AuditLog, getAuditActionMeta } from "./lib/auditLog";
 
 // ─── Icon mapping ────────────────────────────────────────────────────────────
@@ -527,6 +527,7 @@ export function AuditTimeline({
   /** 备注输入框占位文案（不同模块的角色叫法不同，如协同模块为「主管」）。 */
   notePlaceholder?: string;
 }) {
+  useI18n(); // 共享组件自行订阅语言切换（不依赖父级是否订阅）
   if (logs.length === 0) {
     return (
       <div className={cn("rounded-lg border border-dashed border-slate-200 bg-white/70 py-8 text-center", className)}>

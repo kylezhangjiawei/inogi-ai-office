@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, Download, FileText, ImageIcon, Loader2, Paperclip, Table2, X } from "lucide-react";
 import { cn } from "./components/ui/utils";
-import { t } from "./lib/i18n";
+import { t, useI18n } from "./lib/i18n";
 import { getAttachmentPreviewUrl, getAttachmentThumbUrl, getAttachmentUrl, type RdTaskProgressAttachment, type RdTaskProgressNote } from "./lib/rdApi";
 import { parseXlsxForPreview, type XlsxPreviewSheet } from "./lib/xlsxPreview";
 
@@ -70,6 +70,7 @@ export function TaskImageGallery({
     return Array.from(byDate.entries()).map(([date, items]) => ({ date, items }));
   }, [images]);
 
+  useI18n(); // 共享组件自行订阅语言切换
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
   const indexOf = useMemo(() => {
@@ -493,6 +494,7 @@ export function ProgressNoteList({
   emptyText?: string;
   compact?: boolean;
 }) {
+  useI18n(); // 共享组件自行订阅语言切换（不依赖父级是否订阅）
   if (loading) {
     return (
       <div className="rounded-[8px] border border-dashed border-slate-200 bg-slate-50/70 px-3 py-4 text-center text-xs text-slate-400">
