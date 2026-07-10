@@ -414,21 +414,31 @@ export class ChatService {
       this.modelSupportsVision(model, usageKind),
     );
 
+    // ── 多轮查询改写：指代性追问（"它的截止时间？""第二条呢"）本身没有检索信息量，
+    //    结合近几轮对话先改写成独立完整的检索词再查（4s 超时/失败回退原文；用户消息本身不变）──
+    const searchQuery = await this.maybeRewriteQuery(
+      client,
+      model,
+      isQwen,
+      conv.messages,
+      content,
+    );
+
     // ── 联网兜底（与内部检索并行发起，不拖慢首答；模型无关，任何主模型都能用检索结果）──
     // 内部未命中 → 等联网结果融合作答；命中 → 主回答完成后作为「互联网参考」附录，供用户对照选择
     const webSearchPromise: Promise<WebSearchResult | null> =
       content && attachments.length === 0
-        ? this.webSearchService.search(content)
+        ? this.webSearchService.search(searchQuery)
         : Promise.resolve(null);
 
     // ── 智能检索：并行做"结构化关键词搜索"+"向量语义检索"，结果合并进 system prompt ──
     // 用户无需切换模式；命中内部资料 → 优先用；没命中 → 联网检索兜底，最后才是 LLM 通用知识
     const [dbContext, ragResponse] = await Promise.all([
-      this.searchDatabase(content, userContext).catch((err) => {
+      this.searchDatabase(searchQuery, userContext).catch((err) => {
         this.logger.warn(`searchDatabase 失败: ${err instanceof Error ? err.message : err}`);
         return '';
       }),
-      this.ragService.search(content, userContext, { topK: 5 }).catch((err) => {
+      this.ragService.search(searchQuery, userContext, { topK: 5 }).catch((err) => {
         this.logger.warn(`ragService.search 失败: ${err instanceof Error ? err.message : err}`);
         return { results: [], filteredByPermission: 0 };
       }),
@@ -805,6 +815,61 @@ export class ChatService {
    * 含 vl/vision 的（qwen-vl、qwen2.5-vl、internvl 等）、GPT-4o/4.1、Claude 3+、Gemini、GLM-4V、LLaVA、Pixtral 等。
    * 仅用于决定"是否内联 base64 图片"；判断失误时退化为文字提示，不会报错。
    */
+  /**
+   * 多轮查询改写：会话有历史且本轮问题是短句/含指代词时，用主模型把它改写成
+   * 独立完整的检索查询（只影响内部检索与联网检索的 query，不改用户消息本身）。
+   * 4 秒超时或改写失败一律回退原文，绝不阻塞主流程。
+   */
+  private async maybeRewriteQuery(
+    client: OpenAI,
+    model: string,
+    isQwen: boolean,
+    historyMessages: Array<{ role: string; content: string }>,
+    content: string,
+  ): Promise<string> {
+    const text = (content ?? '').trim();
+    if (!text || historyMessages.length === 0) return content;
+    const referential =
+      text.length <= 12 ||
+      /它|他们|这个|那个|这些|那些|上面|刚才|之前|上述|第[一二三四五六七八九十\d]+[条项个]|还有|继续|再说|呢[?？]?$/.test(
+        text,
+      );
+    if (!referential) return content;
+
+    const recent = historyMessages
+      .slice(-6)
+      .map((m) => `${m.role === 'user' ? '用户' : '助手'}：${(m.content ?? '').slice(0, 300)}`)
+      .join('\n');
+    try {
+      const rewritten = await Promise.race([
+        client.chat.completions
+          .create({
+            model,
+            messages: [
+              {
+                role: 'system',
+                content:
+                  '把用户最新的问题结合对话上下文改写成一个独立、完整、包含关键实体名称的中文检索查询。只输出改写后的查询本身，不要解释、不要引号。若最新问题本身已经自足，原样输出。',
+              },
+              { role: 'user', content: `对话：\n${recent}\n\n最新问题：${text}` },
+            ],
+            max_tokens: 100,
+            temperature: 0,
+            ...(isQwen ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+          })
+          .then((resp) => (resp.choices[0]?.message?.content ?? '').trim()),
+        new Promise<string>((resolve) => setTimeout(() => resolve(''), 4000)),
+      ]);
+      if (rewritten && rewritten.length <= 200 && rewritten !== text) {
+        this.logger.debug(`查询改写：「${text}」→「${rewritten}」`);
+        return rewritten;
+      }
+    } catch (err) {
+      this.logger.warn(`查询改写失败（回退原文）: ${err instanceof Error ? err.message : err}`);
+    }
+    return content;
+  }
+
   /**
    * 多轮附件记忆：把历史消息组装成 LLM messages 时，重放近几轮用户上传的附件内容——
    * 文档用发送轮回写的 extractedText（新轮优先、总预算封顶），图片在视觉模型下重新下载注入；
