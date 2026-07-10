@@ -55,6 +55,16 @@ export class ChatService {
   private static readonly KB_INLINE_DOWNLOAD_MAX_LEN = 3_000_000;
   /** 所有文档附件抽取文本注入 LLM 的总字符上限（每个文档自身已先截断，这里再做整体兜底）。 */
   private static readonly MAX_TOTAL_DOC_CHARS = 16000;
+  /** 多轮附件记忆：最近几条带附件的用户消息重放文档抽取文本 */
+  private static readonly HISTORY_DOC_MSG_WINDOW = 4;
+  /** 多轮附件记忆：最近几条带图片的用户消息重新注入图片（仅视觉模型） */
+  private static readonly HISTORY_IMG_MSG_WINDOW = 2;
+  /** 历史重放时单个文档的字符上限（低于本轮的 6000，历史轮次只需保留要点） */
+  private static readonly HISTORY_PER_DOC_CHARS = 2000;
+  /** 历史重放文档文本的总预算（新轮次优先分配） */
+  private static readonly HISTORY_DOC_CHAR_BUDGET = 8000;
+  /** 历史重新注入图片的总张数上限（每张都要重新下载并 base64 内联，控制成本） */
+  private static readonly HISTORY_MAX_IMAGES = 4;
 
   private readonly logger = new Logger(ChatService.name);
   private readonly openaiApiKey: string | null;
@@ -396,10 +406,11 @@ export class ChatService {
     // 仅对走阿里端点的千问开启：OpenAI 官方端点会拒绝未知参数，自定义部署（vLLM 等）也不认。
     const webSearchEnabled = isQwen && /dashscope|aliyuncs\.com/i.test(baseURL ?? '');
 
-    const history = conv.messages.map((m) => ({
-      role: m.role as 'user' | 'assistant',
-      content: m.content,
-    }));
+    // 多轮附件记忆：近几轮用户消息里的文档抽取文本/图片重新注入，支持"针对刚上传的附件继续追问"
+    const history = await this.buildHistoryWithAttachments(
+      conv.messages,
+      this.modelSupportsVision(model, usageKind),
+    );
 
     // ── 联网兜底（与内部检索并行发起，不拖慢首答；模型无关，任何主模型都能用检索结果）──
     // 内部未命中 → 等联网结果融合作答；命中 → 主回答完成后作为「互联网参考」附录，供用户对照选择
@@ -523,6 +534,7 @@ export class ChatService {
       const docTexts = await Promise.all(
         docAttachments.map(async (a) => {
           const text = await this.attachmentService.extractDocumentText(a);
+          if (text) a.extractedText = text; // 就地标注，随下方回写落库供后续轮次追问
           return text
             ? `【附件：${a.name}】\n${text}`
             : `【附件：${a.name}】（该文件无法自动提取文本，请提示用户改用可解析的格式或直接粘贴内容）`;
@@ -533,6 +545,19 @@ export class ChatService {
         combined.length > ChatService.MAX_TOTAL_DOC_CHARS
           ? combined.slice(0, ChatService.MAX_TOTAL_DOC_CHARS) + '\n…（文档内容过长，已整体截断）'
           : combined;
+      // 抽取文本回写消息记录（不阻塞流）：后续轮次组装 history 时据此重放文档内容
+      if (docAttachments.some((a) => a.extractedText)) {
+        void this.prisma.chatMessage
+          .update({
+            where: { id: userMsg.id },
+            data: { attachments: attachments as unknown as Prisma.InputJsonValue },
+          })
+          .catch((err) =>
+            this.logger.warn(
+              `附件抽取文本回写失败: ${err instanceof Error ? err.message : err}`,
+            ),
+          );
+      }
     }
 
     const visionOk = imageAttachments.length > 0 && this.modelSupportsVision(model, usageKind);
@@ -778,6 +803,103 @@ export class ChatService {
    * 含 vl/vision 的（qwen-vl、qwen2.5-vl、internvl 等）、GPT-4o/4.1、Claude 3+、Gemini、GLM-4V、LLaVA、Pixtral 等。
    * 仅用于决定"是否内联 base64 图片"；判断失误时退化为文字提示，不会报错。
    */
+  /**
+   * 多轮附件记忆：把历史消息组装成 LLM messages 时，重放近几轮用户上传的附件内容——
+   * 文档用发送轮回写的 extractedText（新轮优先、总预算封顶），图片在视觉模型下重新下载注入；
+   * 窗口外或无抽取文本的附件降级为一行文件名提示，让模型知道该轮上传过什么。
+   */
+  private async buildHistoryWithAttachments(
+    messages: Array<{ role: string; content: string; attachments?: Prisma.JsonValue | null }>,
+    visionCapable: boolean,
+  ): Promise<OpenAI.Chat.Completions.ChatCompletionMessageParam[]> {
+    // 带附件的用户消息索引，新 → 旧
+    const attachedIdx: number[] = [];
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const m = messages[i];
+      if (m.role === 'user' && m.attachments) attachedIdx.push(i);
+    }
+    const docWindow = new Set(attachedIdx.slice(0, ChatService.HISTORY_DOC_MSG_WINDOW));
+    const imgWindow = new Set(attachedIdx.slice(0, ChatService.HISTORY_IMG_MSG_WINDOW));
+
+    let docBudget = ChatService.HISTORY_DOC_CHAR_BUDGET;
+    let imgQuota = ChatService.HISTORY_MAX_IMAGES;
+    const docBlocks = new Map<number, string[]>();
+    const imageParts = new Map<number, OpenAI.Chat.Completions.ChatCompletionContentPart[]>();
+    const plainNotes = new Map<number, string>();
+
+    // 按新 → 旧分配预算（越近的轮次越可能被追问，优先保全）
+    for (const idx of attachedIdx) {
+      const atts = this.attachmentService.normalizeStored(messages[idx].attachments);
+      if (atts.length === 0) continue;
+      const blocks: string[] = [];
+      const leftoverNames: string[] = [];
+
+      for (const att of atts) {
+        if (this.attachmentService.isImage(att.mime)) continue;
+        const text = (att.extractedText ?? '').trim();
+        if (docWindow.has(idx) && text && docBudget > 0) {
+          const clipped =
+            text.length > ChatService.HISTORY_PER_DOC_CHARS
+              ? text.slice(0, ChatService.HISTORY_PER_DOC_CHARS) + '…（历史附件内容已截断）'
+              : text;
+          const taken = clipped.slice(0, docBudget);
+          docBudget -= taken.length;
+          blocks.push(`【历史附件：${att.name}】\n${taken}`);
+        } else {
+          leftoverNames.push(att.name);
+        }
+      }
+
+      const images = atts.filter((a) => this.attachmentService.isImage(a.mime));
+      if (images.length > 0) {
+        if (visionCapable && imgWindow.has(idx) && imgQuota > 0) {
+          const parts: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [];
+          for (const img of images.slice(0, 2)) {
+            if (imgQuota <= 0) break;
+            const dataUrl = await this.attachmentService
+              .buildImageDataUrl(img)
+              .catch(() => null);
+            if (dataUrl) {
+              parts.push({ type: 'image_url', image_url: { url: dataUrl } });
+              imgQuota -= 1;
+            } else {
+              leftoverNames.push(img.name);
+            }
+          }
+          leftoverNames.push(...images.slice(2).map((i) => i.name));
+          if (parts.length > 0) imageParts.set(idx, parts);
+        } else {
+          leftoverNames.push(...images.map((i) => i.name));
+        }
+      }
+
+      if (blocks.length > 0) docBlocks.set(idx, blocks);
+      if (leftoverNames.length > 0) {
+        plainNotes.set(idx, `（此轮用户还上传了附件：${leftoverNames.join('、')}）`);
+      }
+    }
+
+    return messages.map((m, idx) => {
+      const role = m.role as 'user' | 'assistant';
+      if (role !== 'user' || (!docBlocks.has(idx) && !imageParts.has(idx) && !plainNotes.has(idx))) {
+        return { role, content: m.content };
+      }
+      const extras: string[] = [];
+      const blocks = docBlocks.get(idx);
+      if (blocks) {
+        extras.push(`以下是该轮上传文档此前自动提取的内容（供延续追问参考）：\n\n${blocks.join('\n\n')}`);
+      }
+      const note = plainNotes.get(idx);
+      if (note) extras.push(note);
+      const text = extras.length > 0 ? `${m.content}\n\n${extras.join('\n\n')}`.trim() : m.content;
+      const parts = imageParts.get(idx);
+      if (parts?.length) {
+        return { role: 'user', content: [{ type: 'text', text }, ...parts] };
+      }
+      return { role, content: text };
+    });
+  }
+
   private modelSupportsVision(model: string, usageKind?: string): boolean {
     // 管理员在「AI 模型管理」显式标记为「文本/图片 — 多模态理解」(usage_kind=multimodal)
     // 的模型优先采信：很多统一多模态模型（如 qwen3.6-plus、kimi-k2.6）名字里并不带

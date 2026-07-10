@@ -3,6 +3,7 @@ import mammoth from 'mammoth';
 import { PDFParse } from 'pdf-parse';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { OcrService } from '../ocr/ocr.service';
 import { OssService } from '../oss/oss.service';
 
 /** 前端发送时携带的附件入参（只信任 fileId） */
@@ -20,6 +21,8 @@ export type StoredChatAttachment = {
   mime: string;
   size: number;
   objectKey: string;
+  /** 文档抽取出的纯文本（发送轮抽取后回写），供后续轮次"记住"附件内容继续追问 */
+  extractedText?: string;
 };
 
 /** 返回给前端展示用：在 stored 基础上附带一个新鲜签名 URL */
@@ -38,6 +41,10 @@ export const CHAT_DOC_TEXT_MAX_CHARS = 6000;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 /** 文档下载上限 */
 const MAX_DOC_BYTES = 20 * 1024 * 1024;
+/** PDF 文本层低于该字符数视为扫描件（纯图 PDF），转 OCR 兜底 */
+const SCANNED_PDF_TEXT_THRESHOLD = 40;
+/** 扫描 PDF OCR 的页数上限（渲染+识别成本随页数线性增长） */
+const SCANNED_PDF_MAX_PAGES = 3;
 
 @Injectable()
 export class ChatAttachmentService {
@@ -46,6 +53,7 @@ export class ChatAttachmentService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly oss: OssService,
+    private readonly ocrService: OcrService,
   ) {}
 
   isImage(mime: string): boolean {
@@ -96,12 +104,15 @@ export class ChatAttachmentService {
       const fileId = typeof o.fileId === 'string' ? o.fileId : '';
       const objectKey = typeof o.objectKey === 'string' ? o.objectKey : '';
       if (!fileId || !objectKey) continue;
+      const extractedText =
+        typeof o.extractedText === 'string' && o.extractedText ? o.extractedText : undefined;
       out.push({
         fileId,
         objectKey,
         name: typeof o.name === 'string' ? o.name : '附件',
         mime: typeof o.mime === 'string' ? o.mime : 'application/octet-stream',
         size: typeof o.size === 'number' ? o.size : 0,
+        ...(extractedText ? { extractedText } : {}),
       });
     }
     return out;
@@ -202,10 +213,20 @@ export class ChatAttachmentService {
       const parser = new PDFParse({ data: buffer });
       try {
         const parsed = await parser.getText();
-        return parsed.text ?? '';
+        // 去掉 pdf-parse 的页码分隔标记（"-- 1 of 3 --"），避免纯图 PDF 被误判为有文本层
+        const text = this.normalizeText(
+          (parsed.text ?? '').replace(/^-+\s*\d+\s+of\s+\d+\s*-+\s*$/gm, ''),
+        );
+        // 文本层过薄 → 大概率是扫描件（整页是图片）：渲染前几页转 OCR 兜底
+        if (text.length >= SCANNED_PDF_TEXT_THRESHOLD) return text;
+        const ocrText = await this.ocrScannedPdf(parser);
+        return ocrText || text;
       } finally {
         await parser.destroy();
       }
+    }
+    if (ext === 'pptx') {
+      return this.extractPptxText(buffer);
     }
     if (ext === 'docx') {
       const parsed = await mammoth.extractRawText({ buffer });
@@ -233,8 +254,76 @@ export class ChatAttachmentService {
     return buffer.toString('utf8');
   }
 
+  /**
+   * 扫描版 PDF 兜底：渲染前几页为 PNG，走腾讯 OCR 识别文本（模型无关，任何主模型都能用）。
+   * 未配置 OCR 或识别失败返回空串，调用方回退到原始文本层。
+   */
+  private async ocrScannedPdf(parser: PDFParse): Promise<string> {
+    const ocrReady = await this.ocrService.hasTencentConfig().catch(() => false);
+    if (!ocrReady) return '';
+    try {
+      const shot = await parser.getScreenshot({ first: SCANNED_PDF_MAX_PAGES, scale: 2 });
+      const parts: string[] = [];
+      for (const page of shot.pages ?? []) {
+        const dataUrl = (page as { dataUrl?: string }).dataUrl ?? '';
+        const base64 = dataUrl.includes(',') ? dataUrl.slice(dataUrl.indexOf(',') + 1) : '';
+        if (!base64) continue;
+        const pageNo =
+          (page as { pageNumber?: number }).pageNumber ?? parts.length + 1;
+        const ocr = await this.ocrService.recognizeImageText({
+          originalname: `pdf-page-${pageNo}.png`,
+          buffer: Buffer.from(base64, 'base64'),
+          mimetype: 'image/png',
+        });
+        const text = (ocr.text || ocr.lines.join('\n')).trim();
+        if (text) parts.push(`# 第 ${pageNo} 页\n${text}`);
+      }
+      return parts.length
+        ? `（扫描版 PDF，以下为 OCR 识别文本，可能存在识别误差）\n\n${parts.join('\n\n')}`
+        : '';
+    } catch (err) {
+      this.logger.warn(`扫描 PDF OCR 失败: ${err instanceof Error ? err.message : err}`);
+      return '';
+    }
+  }
+
+  /** PPTX 是 zip 包：解出 ppt/slides/slideN.xml，抽取 <a:t> 文本节点，按幻灯片顺序拼接 */
+  private async extractPptxText(buffer: Buffer): Promise<string> {
+    // jszip 是 `export =` 的 CJS 模块：编译到 CommonJS 后动态 import 拿到的就是类本身（无 default）
+    const jszipModule = (await import('jszip')) as unknown as {
+      default?: typeof import('jszip');
+    };
+    const JSZip = jszipModule.default ?? (jszipModule as unknown as typeof import('jszip'));
+    const zip = await JSZip.loadAsync(buffer);
+    const slidePaths = Object.keys(zip.files)
+      .filter((p) => /^ppt\/slides\/slide\d+\.xml$/.test(p))
+      .sort((a, b) => Number(a.match(/(\d+)/)?.[1] ?? 0) - Number(b.match(/(\d+)/)?.[1] ?? 0));
+    const parts: string[] = [];
+    for (const path of slidePaths.slice(0, 60)) {
+      const xml = await zip.files[path].async('string');
+      const texts = [...xml.matchAll(/<a:t(?:\s[^>]*)?>([^<]*)<\/a:t>/g)]
+        .map((m) => this.decodeXmlEntities(m[1]))
+        .filter((s) => s.trim());
+      if (texts.length) {
+        parts.push(`# 幻灯片 ${path.match(/(\d+)/)?.[1]}\n${texts.join('\n')}`);
+      }
+    }
+    return parts.join('\n\n');
+  }
+
+  private decodeXmlEntities(text: string): string {
+    return text
+      .replace(/&#x([0-9a-fA-F]+);/g, (_, hex: string) => String.fromCodePoint(parseInt(hex, 16)))
+      .replace(/&#(\d+);/g, (_, dec: string) => String.fromCodePoint(Number(dec)))
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/&amp;/g, '&');
+  }
+
   private isExtractableExt(ext: string): boolean {
-    return ['pdf', 'docx', 'xlsx', 'xls', 'txt', 'csv', 'tsv', 'md', 'log', 'json'].includes(ext);
+    return ['pdf', 'docx', 'pptx', 'xlsx', 'xls', 'txt', 'csv', 'tsv', 'md', 'log', 'json'].includes(ext);
   }
 
   private extOf(name: string, mime: string): string {
@@ -242,6 +331,7 @@ export class ChatAttachmentService {
     if (fromName) return fromName;
     if (mime.includes('pdf')) return 'pdf';
     if (mime.includes('wordprocessingml')) return 'docx';
+    if (mime.includes('presentationml')) return 'pptx';
     if (mime.includes('spreadsheetml') || mime.includes('ms-excel')) return 'xlsx';
     if (mime.startsWith('text/')) return 'txt';
     return '';
