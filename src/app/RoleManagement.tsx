@@ -106,6 +106,40 @@ function moduleOf(label: string): string {
   return (idx >= 0 ? label.slice(idx + 1) : label).trim();
 }
 
+// ── 中美协同：展示层合成「操作权限」分组 ─────────────────────────────────────
+// 协同池内操作与研发共用同一套操作码（页面码决定能进哪个池、操作码只在所进池内生效），
+// 而权限目录表 code 唯一、同一码无法归属两个分组——服务端目录里这些码都挂在研发相关分组下。
+// 这里在展示层为「中美协同」模块合成一个共享操作码分组，配置协同角色时不必去研发分组里找；
+// 勾选状态与研发分组天然同步（同一个码）。label/description 覆盖为协同语境说明。
+const US_COLLAB_SHARED_ACTIONS: Array<{ code: string; label: string; description: string }> = [
+  { code: "rd-task:create", label: "新建任务（协同池）", description: "在协同驾驶舱/工作台创建任务；与研发「新建任务」同码，仅在有权进入的池内生效" },
+  { code: "rd-task:edit", label: "编辑与审批任务（协同池）", description: "修改协同任务字段/状态、处理成果与协作审批；与研发同码" },
+  { code: "rd-task:reassign", label: "批量转派（协同池）", description: "协同驾驶舱顶部「批量转派」按钮；与研发同码" },
+  { code: "rd-task:move", label: "移动任务归类（协同池）", description: "协同任务移动到其他分组；与研发同码" },
+  { code: "rd-task:override-priority", label: "覆盖优先级（协同池）", description: "协同任务详情页修改优先级；与研发同码" },
+  { code: "rd-people:manage", label: "人员管理（协同池）", description: "协同驾驶舱顶部「人员管理」按钮，维护协同成员；与研发同码" },
+  { code: "rd-project:direct", label: "直接立项（协同池）", description: "协同驾驶舱「立项」免审直接生效；与研发「直接立项」同码" },
+  { code: "rd-project:review-l1", label: "立项一审（协同池）", description: "审核协同池立项申请（多级第一级）；与研发同码" },
+  { code: "rd-project:review-l2", label: "立项终审（协同池）", description: "协同池立项终审通过；与研发同码" },
+  { code: "rd-data:clear", label: "清空数据（协同池）", description: "协同驾驶舱顶部「清空数据」按钮；与研发同码，高危" },
+];
+const US_COLLAB_PAGE_GROUP_LABEL = "页面访问 · 中美协同";
+const US_COLLAB_ACTION_GROUP_LABEL = "操作权限 · 中美协同";
+
+/** 在中美协同页面组后插入合成操作组；目录里码不存在（被管理员停用/删除）则跳过该条 */
+function withUsCollabActionGroup(groups: PermissionCatalogGroup[]): PermissionCatalogGroup[] {
+  const idx = groups.findIndex((g) => g.label === US_COLLAB_PAGE_GROUP_LABEL);
+  if (idx < 0 || groups.some((g) => g.label === US_COLLAB_ACTION_GROUP_LABEL)) return groups;
+  const catalogCodes = new Set(groups.flatMap((g) => g.permissions.map((p) => p.code)));
+  const permissions = US_COLLAB_SHARED_ACTIONS.filter((p) => catalogCodes.has(p.code)).map((p) => ({
+    ...p,
+    type: "action" as const,
+  }));
+  if (permissions.length === 0) return groups;
+  const synth: PermissionCatalogGroup = { label: US_COLLAB_ACTION_GROUP_LABEL, permissions };
+  return [...groups.slice(0, idx + 1), synth, ...groups.slice(idx + 1)];
+}
+
 function computeInitialCollapsed(
   groups: PermissionCatalogGroup[],
   selected: string[],
@@ -131,8 +165,10 @@ function PermissionMatrix({
   isWildcard: boolean;
   groups: PermissionCatalogGroup[];
 }) {
+  // 展示层注入中美协同共享操作码分组（勾选与研发分组同码联动）
+  const displayGroups = useMemo(() => withUsCollabActionGroup(groups), [groups]);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() =>
-    computeInitialCollapsed(groups, selected, isWildcard),
+    computeInitialCollapsed(displayGroups, selected, isWildcard),
   );
 
   function toggleGroup(label: string) {
@@ -161,7 +197,7 @@ function PermissionMatrix({
   const orderedModules = useMemo(() => {
     const order: string[] = [];
     const byModule = new Map<string, PermissionCatalogGroup[]>();
-    for (const g of groups) {
+    for (const g of displayGroups) {
       const mod = moduleOf(g.label);
       if (!byModule.has(mod)) {
         byModule.set(mod, []);
@@ -175,7 +211,7 @@ function PermissionMatrix({
       name,
       groups: [...(byModule.get(name) ?? [])].sort((a, b) => kindRank(a.label) - kindRank(b.label)),
     }));
-  }, [groups]);
+  }, [displayGroups]);
 
   return (
     <div className="space-y-5">
