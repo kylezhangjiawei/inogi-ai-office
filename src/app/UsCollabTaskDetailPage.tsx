@@ -28,6 +28,7 @@ import { useAuth } from "./auth";
 import { Textarea } from "./components/ui/textarea";
 import { PERMISSIONS } from "./lib/permissions";
 import { t, useI18n } from "./lib/i18n";
+import { TranslatableText } from "./components/TranslatableText";
 import { AuditTimeline } from "./RDAuditTimeline";
 import { addAuditLogNote, recordAudit, useAuditActor, type AuditLog, useAuditLogs } from "./lib/auditLog";
 import { ProgressAttachmentGrid, ProgressNoteList, TaskImageGallery, formatRdFileSize } from "./RDProgressEvidence";
@@ -805,7 +806,10 @@ export default function UsCollabTaskDetailPage() {
           {task.description && (
             <div className="shrink-0 material-card px-4 py-3">
               <div className="mb-1.5 text-xs font-semibold text-slate-500">{t("任务描述")}</div>
-              <p className="cockpit-scroll max-h-40 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{task.description}</p>
+              <TranslatableText
+                text={task.description}
+                className="cockpit-scroll max-h-40 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
+              />
             </div>
           )}
 

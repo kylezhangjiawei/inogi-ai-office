@@ -47,6 +47,12 @@ export class I18nController {
     return this.i18nService.aiTranslate(lang, body?.keys);
   }
 
+  /** 用户内容按需翻译（留痕/日报/描述等中文原文 → 英文，AI 即时翻译+缓存）：任何登录用户 */
+  @Post('translate-content')
+  translateContent(@Body() body: { text?: string }) {
+    return this.i18nService.translateContent(String(body?.text ?? ''));
+  }
+
   /** 当前用户语言偏好 */
   @Get('preference')
   async getPreference(@Request() req: AuthedRequest) {

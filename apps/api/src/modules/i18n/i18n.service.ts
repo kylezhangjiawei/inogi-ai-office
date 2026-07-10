@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -13,6 +15,10 @@ const META_KEY = (lang: string) => `i18n.meta.${lang}`;
 /** 已登记的文案 key 全集（extract 脚本扫源码 t() 上报）：{ 中文key: { module } } */
 const KEYS_KEY = 'i18n.keys';
 const USER_LANGS_KEY = 'i18n.user-langs';
+/** 用户内容按需翻译缓存：{ sha16(text): { en, at } }，FIFO 上限裁剪 */
+const CONTENT_CACHE_KEY = 'i18n.content-cache';
+const CONTENT_CACHE_MAX = 2000;
+const CONTENT_MAX_CHARS = 4000;
 const CATEGORY = 'i18n';
 /** 单条译文长度上限（防误存长文/攻击性数据） */
 const MAX_ENTRY_LEN = 500;
@@ -262,6 +268,49 @@ export class I18nService {
       temperature: 0.2,
     });
     return this.parseJsonDict(result.content);
+  }
+
+  /**
+   * 用户内容按需翻译（方案 P3/C：留痕正文、日报正文、任务描述等存库中文，英文用户点「翻译」时
+   * 用系统内 AI 模型即时翻译并缓存——历史数据零迁移，不改变存库原文）。
+   * 命中缓存直接返回；缓存 FIFO 上限裁剪防膨胀。
+   */
+  async translateContent(text: string): Promise<{ text: string; cached: boolean }> {
+    const source = (text ?? '').trim();
+    if (!source) throw new BadRequestException('text 不能为空');
+    if (source.length > CONTENT_MAX_CHARS) {
+      throw new BadRequestException(`内容超过 ${CONTENT_MAX_CHARS} 字上限`);
+    }
+    // 已是纯英文/无中文内容：原样返回，不浪费一次 AI 调用
+    if (!/[一-鿿]/.test(source)) return { text: source, cached: true };
+
+    const hash = createHash('sha256').update(source).digest('hex').slice(0, 16);
+    const cache = await this.readKv(CONTENT_CACHE_KEY);
+    const hit = cache[hash] as { en?: string } | undefined;
+    if (hit?.en) return { text: hit.en, cached: true };
+
+    const result = await this.chatService.complete({
+      system:
+        'You are a professional translator for an enterprise collaboration tool. Translate the user-generated content below from Chinese to natural English. ' +
+        'Preserve line breaks, numbers, file names, person names and technical identifiers as-is. Output ONLY the translation, no preamble.',
+      messages: [{ role: 'user', content: source }],
+      temperature: 0.2,
+    });
+    const translated = (result.content ?? '').trim();
+    if (!translated) throw new BadRequestException('翻译失败，请重试');
+
+    // 写缓存（FIFO：超上限丢最早写入的条目）
+    const entries = Object.entries(cache);
+    if (entries.length >= CONTENT_CACHE_MAX) {
+      entries
+        .sort((a, b) => String((a[1] as { at?: string })?.at ?? '').localeCompare(String((b[1] as { at?: string })?.at ?? '')))
+        .slice(0, entries.length - CONTENT_CACHE_MAX + 1)
+        .forEach(([k]) => delete cache[k]);
+    }
+    cache[hash] = { en: translated, at: new Date().toISOString() };
+    await this.writeKv(CONTENT_CACHE_KEY, cache, 'i18n on-demand content translation cache');
+
+    return { text: translated, cached: false };
   }
 
   private parseJsonDict(content: string): Record<string, string> {
