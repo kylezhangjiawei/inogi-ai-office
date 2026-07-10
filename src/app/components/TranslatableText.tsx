@@ -33,6 +33,22 @@ function releaseSlot() {
   waiters.shift()?.();
 }
 
+/**
+ * 供导出报告等非组件场景复用的翻译通道（同一份缓存/去重/限流）。
+ * 超时或失败返回 null，调用方回退原文。
+ */
+export async function fetchContentTranslation(
+  source: string,
+  timeoutMs = 10_000,
+): Promise<string | null> {
+  const text = (source ?? "").trim();
+  if (!text || !/[一-鿿]/.test(text)) return null;
+  return Promise.race([
+    fetchTranslation(text),
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+  ]);
+}
+
 async function fetchTranslation(source: string): Promise<string | null> {
   const cached = autoCache.get(source);
   if (cached) return cached;

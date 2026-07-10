@@ -786,7 +786,7 @@ export default function UsCollabTaskDetailPage() {
               type="button"
               variant="outline"
               size="sm"
-              onClick={() => downloadUsCollabTaskReport(task, reportLogs, reportNoteOf)}
+              onClick={() => void downloadUsCollabTaskReport(task, reportLogs, reportNoteOf)}
               className="h-8 w-full gap-1.5 text-xs"
             >
               <Download className="h-3.5 w-3.5" />
