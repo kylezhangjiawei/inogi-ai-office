@@ -56,6 +56,11 @@ export class ChatService {
   private static readonly KB_INLINE_DOWNLOAD_MAX_LEN = 3_000_000;
   /** 所有文档附件抽取文本注入 LLM 的总字符上限（每个文档自身已先截断，这里再做整体兜底）。 */
   private static readonly MAX_TOTAL_DOC_CHARS = 16000;
+  /** 对话上下文窗口（最新 N 条消息进 LLM）；更早消息由滚动摘要覆盖 */
+  private static readonly HISTORY_WINDOW = 40;
+  /** 滚动摘要 KV 键与会话数上限（FIFO 淘汰最旧） */
+  private static readonly CONV_MEMORY_KEY = 'chat.conv-memory';
+  private static readonly CONV_MEMORY_MAX = 300;
   /** 多轮附件记忆：最近几条带附件的用户消息重放文档抽取文本 */
   private static readonly HISTORY_DOC_MSG_WINDOW = 4;
   /** 多轮附件记忆：最近几条带图片的用户消息重新注入图片（仅视觉模型） */
@@ -306,12 +311,22 @@ export class ChatService {
     const userId = userContext.userId;
     const conv = await this.prisma.chatConversation.findUnique({
       where: { id: conversationId },
-      // 取最新 40 条再翻回时间正序（asc+take 会取到最旧 40 条，长会话上下文全错位）
-      include: { messages: { orderBy: { createdAt: 'desc' }, take: 40 } },
+      // 取最新 N 条再翻回时间正序（asc+take 会取到最旧 N 条，长会话上下文全错位）
+      include: { messages: { orderBy: { createdAt: 'desc' }, take: ChatService.HISTORY_WINDOW } },
     });
     if (!conv) throw new NotFoundException('会话不存在');
     if (conv.userId !== userId) throw new ForbiddenException();
     conv.messages.reverse(); // desc 查询结果翻回时间正序，供 history 组装
+
+    // 超长会话记忆：窗口装满时查总数，溢出的早期消息用滚动摘要补上下文（摘要滞后一轮，可接受）
+    let totalMessages = conv.messages.length;
+    let convMemory = '';
+    if (conv.messages.length >= ChatService.HISTORY_WINDOW) {
+      totalMessages = await this.prisma.chatMessage.count({ where: { conversationId } });
+      if (totalMessages > ChatService.HISTORY_WINDOW) {
+        convMemory = await this.readConvMemory(conversationId);
+      }
+    }
 
     // 解析附件：只信任 fileId，回查 FileAsset 拿权威 name/mime/size/objectKey，并过滤越权文件
     const attachments = dto.attachments?.length
@@ -468,6 +483,13 @@ export class ChatService {
     const personaBlock = this.buildUserPersonaBlock(userContext);
     if (personaBlock) {
       contextParts.push(personaBlock);
+    }
+
+    // 超长会话记忆：窗口外的早期对话摘要（滚动更新），让模型"记得"最早聊过什么
+    if (convMemory) {
+      contextParts.push(
+        `【本会话更早内容的摘要】以下是当前上下文窗口之外的早期对话摘要，延续话题时以此为准：\n${convMemory}`,
+      );
     }
 
     // 文件生成能力：模型按协议在回答末尾输出 file-export 块，服务端渲染成真实文件挂到消息附件
@@ -734,11 +756,118 @@ export class ChatService {
       });
 
       send({ type: 'done', messageId: assistantMsg.id, title: isFirstUserMsg ? titleSeed.slice(0, 30) : undefined });
+
+      // 滚动摘要更新（fire-and-forget）：本轮新增 2 条后仍有窗口外未覆盖的消息则补摘要
+      if (totalMessages + 2 > ChatService.HISTORY_WINDOW) {
+        void this.updateConvMemory(conversationId, client, model, isQwen, totalMessages + 2).catch(
+          (err) =>
+            this.logger.warn(
+              `会话摘要更新失败(${conversationId}): ${err instanceof Error ? err.message : err}`,
+            ),
+        );
+      }
     } catch (err) {
       send({ type: 'error', message: err instanceof Error ? err.message : 'AI 调用失败' });
     } finally {
       res.end();
     }
+  }
+
+  // ── 超长会话记忆（滚动摘要，存 systemSetting KV 免 migration） ────────────────
+
+  private async readConvMemory(conversationId: string): Promise<string> {
+    try {
+      const kv = await this.readMemoryKv();
+      const entry = kv[conversationId] as { summary?: string } | undefined;
+      return typeof entry?.summary === 'string' ? entry.summary : '';
+    } catch {
+      return '';
+    }
+  }
+
+  /** 把窗口外未覆盖的溢出消息合并进滚动摘要（每次最多消化 60 条，滞后一轮无妨）。 */
+  private async updateConvMemory(
+    conversationId: string,
+    client: OpenAI,
+    model: string,
+    isQwen: boolean,
+    totalNow: number,
+  ): Promise<void> {
+    const kv = await this.readMemoryKv();
+    const entry = (kv[conversationId] ?? { summary: '', coveredCount: 0 }) as {
+      summary: string;
+      coveredCount: number;
+    };
+    const overflow = totalNow - ChatService.HISTORY_WINDOW;
+    if (overflow <= (entry.coveredCount ?? 0)) return;
+    const take = Math.min(overflow - (entry.coveredCount ?? 0), 60);
+    const msgs = await this.prisma.chatMessage.findMany({
+      where: { conversationId },
+      orderBy: { createdAt: 'asc' },
+      skip: entry.coveredCount ?? 0,
+      take,
+      select: { role: true, content: true },
+    });
+    if (msgs.length === 0) return;
+    const transcript = msgs
+      .map((m) => `${m.role === 'user' ? '用户' : '助手'}：${(m.content ?? '').slice(0, 400)}`)
+      .join('\n');
+    const resp = await client.chat.completions.create({
+      model,
+      messages: [
+        {
+          role: 'system',
+          content:
+            '把"已有摘要"与"新增对话"合并压缩成一段不超过 1000 字的中文会话摘要。保留：讨论主题、关键结论与数据、提到的文件/任务/人名、未决事项。只输出摘要本身。',
+        },
+        {
+          role: 'user',
+          content: `已有摘要：\n${entry.summary || '（无）'}\n\n新增对话：\n${transcript}`,
+        },
+      ],
+      temperature: 0.2,
+      max_tokens: 1400,
+      ...(isQwen ? ({ enable_thinking: false } as Record<string, unknown>) : {}),
+    });
+    const summary = (resp.choices[0]?.message?.content ?? '').trim().slice(0, 2000);
+    if (!summary) return;
+    // 重读合并后写回（并发丢一次更新可接受）；FIFO 淘汰最旧会话防 KV 膨胀
+    const latest = await this.readMemoryKv();
+    const nextCovered = (entry.coveredCount ?? 0) + msgs.length;
+    latest[conversationId] = { summary, coveredCount: nextCovered, at: new Date().toISOString() };
+    const keys = Object.keys(latest);
+    if (keys.length > ChatService.CONV_MEMORY_MAX) {
+      keys
+        .sort((a, b) =>
+          String((latest[a] as { at?: string })?.at ?? '').localeCompare(
+            String((latest[b] as { at?: string })?.at ?? ''),
+          ),
+        )
+        .slice(0, keys.length - ChatService.CONV_MEMORY_MAX)
+        .forEach((k) => delete latest[k]);
+    }
+    await this.prisma.systemSetting.upsert({
+      where: { key: ChatService.CONV_MEMORY_KEY },
+      create: {
+        key: ChatService.CONV_MEMORY_KEY,
+        value: latest as unknown as Prisma.InputJsonValue,
+        category: 'chat',
+        description: '超长会话滚动摘要（窗口外历史记忆）',
+      },
+      update: { value: latest as unknown as Prisma.InputJsonValue },
+    });
+    this.logger.debug(`会话摘要已更新(${conversationId})：覆盖 ${nextCovered} 条`);
+  }
+
+  private async readMemoryKv(): Promise<Record<string, unknown>> {
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { key: ChatService.CONV_MEMORY_KEY },
+      select: { value: true },
+    });
+    const value = setting?.value;
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? { ...(value as Record<string, unknown>) }
+      : {};
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
