@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { cn } from "./components/ui/utils";
 import { i18nLocale, t, useI18n } from "./lib/i18n";
-import { TranslatableText } from "./components/TranslatableText";
+import { AutoTranslatedText } from "./components/TranslatableText";
 import { AuditAction, AuditLog, getAuditActionMeta } from "./lib/auditLog";
 
 // ─── Icon mapping ────────────────────────────────────────────────────────────
@@ -391,7 +391,7 @@ function AuditLogEntry({
         {log.comment && (
           <div className="mt-1.5 rounded-md border border-slate-100 bg-white px-2.5 py-1.5 text-xs leading-relaxed text-slate-600">
             <MessageSquare className="mr-1 inline h-3 w-3 text-slate-400" />
-            <TranslatableText text={log.comment} as="span" className="align-middle" />
+            <AutoTranslatedText text={log.comment} as="span" className="align-middle" />
           </div>
         )}
 

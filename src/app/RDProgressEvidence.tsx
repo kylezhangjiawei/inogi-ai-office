@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { ChevronDown, ChevronLeft, ChevronRight, Download, FileText, ImageIcon, Loader2, Paperclip, Table2, X } from "lucide-react";
 import { cn } from "./components/ui/utils";
 import { i18nLocale, t, useI18n } from "./lib/i18n";
-import { TranslatableText } from "./components/TranslatableText";
+import { AutoTranslatedText } from "./components/TranslatableText";
 import { getAttachmentPreviewUrl, getAttachmentThumbUrl, getAttachmentUrl, type RdTaskProgressAttachment, type RdTaskProgressNote } from "./lib/rdApi";
 import { parseXlsxForPreview, type XlsxPreviewSheet } from "./lib/xlsxPreview";
 
@@ -537,7 +537,8 @@ export function ProgressNoteList({
             )}
           </div>
           {note.text && (
-            <TranslatableText
+            <AutoTranslatedText
+              as="p"
               text={note.text}
               className={cn("mt-2 whitespace-pre-wrap text-slate-800", compact ? "text-xs leading-5" : "text-sm leading-relaxed")}
             />

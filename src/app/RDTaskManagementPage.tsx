@@ -495,13 +495,15 @@ export function OwnerAvatar({
   size?: "sm" | "xs";
   userId?: string | null;
 }) {
+  useI18n(); // 占位名（待指派）经 t() 显示，须订阅语言切换
   const resolveAvatar = useAvatarDirectory();
   const avatarUrl = resolveAvatar(name, userId);
   const [imgFailed, setImgFailed] = useState(false);
   // 头像 URL 变化（目录加载完成 / 失效重取）时重置失败态，允许新 URL 重新尝试
   useEffect(() => { setImgFailed(false); }, [avatarUrl]);
 
-  const initial = name.replace(/\(.+?\)/g, "").trim().slice(0, 1) || "?";
+  // 系统占位名（待指派等）走字典翻译后再取首字，英文态头像显示 "U" 而非 "待"
+  const initial = t(name).replace(/\(.+?\)/g, "").trim().slice(0, 1) || "?";
   const dim = size === "xs" ? "h-5 w-5" : "h-6 w-6";
   const textSize = size === "xs" ? "text-[10px]" : "text-xs";
 
@@ -802,7 +804,7 @@ function TaskItem({
           depth > 0 && "text-sm",
         )}
         style={{ paddingLeft: `${indent}px` }}
-        title={statusCfg.label}
+        title={t(statusCfg.label)}
       >
         {depth === 0 ? (
           <span className={cn("absolute bottom-1.5 left-0 top-1.5 w-1 rounded-full", taskAccentClass(task))} />
@@ -889,7 +891,7 @@ function TaskItem({
           </div>
           {task.latest_progress_summary?.text ? (
             <div className="line-clamp-1 text-[11px] leading-4 text-slate-500">
-              最新进度：{task.latest_progress_summary.text}
+              {t("最新进度：")}<AutoTranslatedText text={task.latest_progress_summary.text} />
             </div>
           ) : null}
         </div>
@@ -1218,7 +1220,7 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
             </h4>
             <span className={cn("inline-flex shrink-0 items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-semibold", statusCfg.bg, statusCfg.text)}>
               <StatusDot status={task.status} />
-              {statusCfg.label}
+              {t(statusCfg.label)}
             </span>
             <PriorityPill priority={task.final_priority} aiPriority={task.ai_priority} />
           </div>
@@ -1416,7 +1418,7 @@ function SubProjectSection({
                     <TooltipTrigger asChild>
                       <span className="inline-flex cursor-help items-center gap-1 rounded bg-red-50 px-1.5 py-0.5 text-xs font-semibold text-red-700">
                         <AlertTriangle className="h-3.5 w-3.5" />
-                        {riskCount} 个风险
+                        {t("{n} 个风险", { n: riskCount })}
                       </span>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" align="start">
@@ -4071,7 +4073,7 @@ export function downloadUsCollabTaskReport(
     const d = new Date(iso);
     return Number.isNaN(d.getTime()) ? esc(iso) : `${d.toLocaleDateString("zh-CN")} ${d.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`;
   };
-  const statusLabel = STATUS_CONFIG[task.status]?.label ?? task.status;
+  const statusLabel = t(STATUS_CONFIG[task.status]?.label ?? task.status);
   const blockedDays = blockedDaysOf(task);
 
   const timelineRows = [...logs]
@@ -4993,7 +4995,7 @@ function TaskDetailDrawer({
               <div className="mb-1 text-xs text-slate-400">状态</div>
               <span className={cn("inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium", statusCfg.bg, statusCfg.text)}>
                 <StatusDot status={task.status} />
-                {statusCfg.label}
+                {t(statusCfg.label)}
               </span>
             </div>
             <div>
@@ -6977,7 +6979,7 @@ function TasksByPartSection({
         >
           <option value="all">状态</option>
           {(Object.keys(STATUS_CONFIG) as TaskStatus[]).map((status) => (
-            <option key={status} value={status}>{STATUS_CONFIG[status].label}</option>
+            <option key={status} value={status}>{t(STATUS_CONFIG[status].label)}</option>
           ))}
         </NativeSelect>
         <NativeSelect
@@ -8671,7 +8673,7 @@ function PersonTaskCockpit({
                   title={aiScoreFetched ? "AI 评分尚未生成，可在「完成」筛选中点击「AI 复盘评分」按钮批量生成" : "正在读取 AI 评分…"}
                 >
                   <Sparkles className="h-3 w-3 opacity-50" />
-                  <span className="text-[10px] font-semibold">{aiScoreFetched ? "评分待生成" : "评分加载中"}</span>
+                  <span className="text-[10px] font-semibold">{aiScoreFetched ? t("评分待生成") : t("评分加载中")}</span>
                 </div>
               )}
 
@@ -8713,9 +8715,7 @@ function PersonTaskCockpit({
 
           {/* ─── 最新进度（如有） ─── */}
           {task.latest_progress_summary?.text && (
-            <p className="line-clamp-2 rounded-md bg-indigo-50/60 px-2.5 py-1.5 text-xs leading-relaxed text-indigo-800/90">
-              {task.latest_progress_summary.text}
-            </p>
+            <AutoTranslatedText as="p" text={task.latest_progress_summary.text} className="line-clamp-2 rounded-md bg-indigo-50/60 px-2.5 py-1.5 text-xs leading-relaxed text-indigo-800/90" />
           )}
 
           {/* ─── 元数据单行：人 · 状态 · 优先级 · 截止 · 风险 · 附件 ─── */}
@@ -8724,7 +8724,7 @@ function PersonTaskCockpit({
               <>
                 <span className="inline-flex items-center gap-1.5">
                   <OwnerAvatar name={task.primary_owner} userId={task.primary_owner_user_id} size="xs" />
-                  <span className="font-medium text-slate-700">{task.primary_owner}</span>
+                  <span className="font-medium text-slate-700">{t(task.primary_owner)}</span>
                 </span>
                 <span className="text-slate-300">·</span>
               </>
@@ -9164,15 +9164,15 @@ function PersonTaskCockpit({
                           {hasMore ? (
                             <div className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400">
                               <ChevronDown className="h-3 w-3 animate-bounce" />
-                              <span>继续向下滚动 · 已显示 <span className="font-semibold tabular-nums text-slate-500">{shownTasks.length}</span> / 共 <span className="font-semibold tabular-nums text-slate-500">{allActiveTasks.length}</span> 个任务</span>
+                              <span>{t("继续向下滚动 · 已显示")} <span className="font-semibold tabular-nums text-slate-500">{shownTasks.length}</span> / {t("共")} <span className="font-semibold tabular-nums text-slate-500">{allActiveTasks.length}</span> {t("个任务")}</span>
                             </div>
                           ) : (
                             <div className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400">
                               <CheckCircle2 className="h-3 w-3 text-emerald-400" />
                               <span>
-                                已显示全部 <span className="font-semibold tabular-nums text-slate-500">{allActiveTasks.length}</span> 个任务
+                                {t("已显示全部")} <span className="font-semibold tabular-nums text-slate-500">{allActiveTasks.length}</span> {t("个任务")}
                                 {kpiFilter === "all" && !cockpitSearch && risks.length > 0 && (
-                                  <> · <span className="text-red-500 font-semibold">{risks.length} 个风险</span></>
+                                  <> · <span className="text-red-500 font-semibold">{t("{n} 个风险", { n: risks.length })}</span></>
                                 )}
                               </span>
                             </div>
@@ -9265,13 +9265,13 @@ function PersonTaskCockpit({
                           {hasMore ? (
                             <div className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400">
                               <ChevronDown className="h-3 w-3 animate-bounce" />
-                              <span>继续向下滚动 · 已显示 <span className="font-semibold tabular-nums text-slate-500">{shownTasks.length}</span> / 共 <span className="font-semibold tabular-nums text-slate-500">{tasks.length}</span> 个任务</span>
+                              <span>{t("继续向下滚动 · 已显示")} <span className="font-semibold tabular-nums text-slate-500">{shownTasks.length}</span> / {t("共")} <span className="font-semibold tabular-nums text-slate-500">{tasks.length}</span> {t("个任务")}</span>
                             </div>
                           ) : tasks.length > 0 ? (
                             <div className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400">
                               <CheckCircle2 className="h-3 w-3 text-emerald-400" />
                               <span>
-                                已显示全部 <span className="font-semibold tabular-nums text-slate-500">{tasks.length}</span> 个任务
+                                {t("已显示全部")} <span className="font-semibold tabular-nums text-slate-500">{tasks.length}</span> {t("个任务")}
                                 {/* 角标=主责进行中(与个人工作台「主责」同口径)；此列表是超集，另含协作 / 已完成，故两数不同属正常 */}
                                 {kpiFilter === "all" && !cockpitSearch && (
                                   <> · 其中主责进行中 <span className="font-semibold tabular-nums text-indigo-500">{p.count}</span> 个<span className="text-slate-300">（= 头像角标，余为协作 / 已完成）</span></>

@@ -30,7 +30,7 @@ import { Input } from "./components/ui/input";
 import { Textarea } from "./components/ui/textarea";
 import { PERMISSIONS } from "./lib/permissions";
 import { t, useI18n } from "./lib/i18n";
-import { AutoTranslatedText, TranslatableText } from "./components/TranslatableText";
+import { AutoTranslatedText } from "./components/TranslatableText";
 import { AuditTimeline } from "./RDAuditTimeline";
 import { addAuditLogNote, recordAudit, useAuditActor, type AuditLog, useAuditLogs } from "./lib/auditLog";
 import { ProgressAttachmentGrid, ProgressNoteList, TaskImageGallery, formatRdFileSize } from "./RDProgressEvidence";
@@ -750,7 +750,7 @@ export default function UsCollabTaskDetailPage() {
               title={`查看 ${task.primary_owner} 名下的任务`}
             >
               <OwnerAvatar name={task.primary_owner} userId={task.primary_owner_user_id} size="sm" />
-              <span className="text-sm font-medium text-slate-800">{task.primary_owner}</span>
+              <span className="text-sm font-medium text-slate-800">{t(task.primary_owner)}</span>
               <LocalClock name={task.primary_owner} />
             </button>
             {(task.collaborators ?? []).length > 0 && (
@@ -865,7 +865,8 @@ export default function UsCollabTaskDetailPage() {
           {task.description && (
             <div className="shrink-0 material-card px-4 py-3">
               <div className="mb-1.5 text-xs font-semibold text-slate-500">{t("任务描述")}</div>
-              <TranslatableText
+              <AutoTranslatedText
+                as="p"
                 text={task.description}
                 className="cockpit-scroll max-h-40 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
               />

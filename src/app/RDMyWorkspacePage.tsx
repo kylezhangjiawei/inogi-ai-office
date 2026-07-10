@@ -240,6 +240,19 @@ const EMPTY_WORKSPACE: RdWorkspacePayload<WorkspaceTask, AiSuggestion, Workspace
   notifications: [],
 };
 
+/** 语言感知的相对时间（后端 time 字段是拼好的中文，英文态用 created_at 重算） */
+function relativeTimeLabel(iso: string | null | undefined, fallback: string): string {
+  if (!iso) return fallback;
+  const thenMs = new Date(iso).getTime();
+  if (!Number.isFinite(thenMs)) return fallback;
+  const diff = Date.now() - thenMs;
+  if (diff < 60_000) return t("刚刚");
+  if (diff < 3_600_000) return t("{n} 分钟前", { n: Math.floor(diff / 60_000) });
+  if (diff < 86_400_000) return t("{n} 小时前", { n: Math.floor(diff / 3_600_000) });
+  if (diff < 30 * 86_400_000) return t("{n} 天前", { n: Math.floor(diff / 86_400_000) });
+  return iso.slice(0, 10);
+}
+
 const PRIORITY_CONFIG: Record<Priority, { label: string; className: string }> = {
   high: { label: "高", className: "border-red-100 bg-red-50 text-red-600" },
   medium: { label: "中", className: "border-amber-100 bg-amber-50 text-amber-700" },
@@ -2257,7 +2270,7 @@ function AISuggestionDrawer({
                   <div className="truncate text-sm font-medium text-slate-800">{task.title}</div>
                   <div className="mt-0.5 text-xs text-slate-400">建议责任人：{task.owner}</div>
                 </div>
-                <span className="text-xs text-slate-500">截止 {task.due}</span>
+                <span className="text-xs text-slate-500">{t("截止")} {task.due}</span>
                 <PriorityBadge priority={task.priority} />
                 <ActionButton variant="ghost">调整</ActionButton>
               </div>
@@ -2521,7 +2534,7 @@ function NotificationDrawer({
               <MessageSquare className="h-3.5 w-3.5" />
               <span className="font-semibold">{notification.sender_name ?? "未知发件人"}</span>
               {notification.sender_role && <span className="text-indigo-500">· {notification.sender_role}</span>}
-              <span className="ml-auto text-indigo-400">{notification.time}</span>
+              <span className="ml-auto text-indigo-400">{relativeTimeLabel((notification as { created_at?: string }).created_at, notification.time)}</span>
             </div>
             <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700">{notification.message}</p>
           </div>
@@ -2990,21 +3003,21 @@ function WorkspaceTaskCard({
           {/* Badges */}
           <div className="flex flex-wrap items-center gap-1.5">
             <span className={cn("inline-flex shrink-0 rounded-full px-1.5 py-0.5 text-[10px] font-semibold", sCfg.bg, sCfg.text)}>
-              {sCfg.label}
+              {t(sCfg.label)}
             </span>
             <span className={cn("inline-flex shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] font-semibold", pCfg.bg, pCfg.text)}>
-              {pCfg.label}
+              {t(pCfg.label)}
             </span>
             <span className={cn(
               "inline-flex shrink-0 items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
               task.role === "primary" ? "bg-blue-50 text-blue-600" : "bg-slate-100 text-slate-500"
             )}>
-              {task.role === "primary" ? "主责" : `协作${task.collab_role ? ` · ${task.collab_role}` : ""}`}
+              {task.role === "primary" ? t("主责") : `${t("协作")}${task.collab_role ? ` · ${task.collab_role}` : ""}`}
             </span>
             {task.ai_pending && (
               <span className="inline-flex items-center gap-0.5 rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-600">
                 <Sparkles className="h-2.5 w-2.5" />
-                AI待确认
+                {t("AI待确认")}
               </span>
             )}
           </div>
@@ -3015,7 +3028,7 @@ function WorkspaceTaskCard({
           </div>
           {task.latest_progress_summary?.text ? (
             <div className="line-clamp-2 rounded-lg bg-slate-50 px-2 py-1 text-[11px] leading-4 text-slate-600 ring-1 ring-slate-100">
-              最新进度：{task.latest_progress_summary.text}
+              {t("最新进度：")}<AutoTranslatedText text={task.latest_progress_summary.text} />
             </div>
           ) : null}
 
@@ -3024,7 +3037,7 @@ function WorkspaceTaskCard({
             {task.due_date && (
               <span className={cn("flex items-center gap-0.5", isOverdue && "text-red-400 font-semibold")}>
                 <CalendarClock className="h-2.5 w-2.5 shrink-0" />
-                {isOverdue ? `逾期 ${taskOverdueDays(task)} 天` : days === 0 ? "今天到期" : `止 ${task.due_date}`}
+                {isOverdue ? t("逾期 {n} 天", { n: taskOverdueDays(task) }) : days === 0 ? t("今天到期") : `${t("止")} ${task.due_date}`}
               </span>
             )}
             {!isUsCollabWorkspace() && task.category_path && (
@@ -3831,7 +3844,7 @@ export function RDMyWorkspacePage() {
                     {hasMoreTasks ? (
                       <div className="mt-3 flex items-center justify-center gap-1.5 py-2 text-[11px] text-slate-400">
                         <ChevronDown className="h-3 w-3 animate-bounce" />
-                        <span>滚动加载更多 · 已显示 <span className="tabular-nums">{shownTasks.length}</span> / 共 <span className="tabular-nums">{filteredAllTasks.length}</span> 个</span>
+                        <span>{t("滚动加载更多 · 已显示")} <span className="tabular-nums">{shownTasks.length}</span> / {t("共")} <span className="tabular-nums">{filteredAllTasks.length}</span> {t("个")}</span>
                       </div>
                     ) : filteredAllTasks.length > WORKSPACE_PAGE_SIZE ? (
                       <div className="mt-3 flex items-center justify-center gap-1.5 py-2 text-[11px] text-slate-400">
@@ -3889,7 +3902,7 @@ export function RDMyWorkspacePage() {
                               )}
                               <span className="min-w-0 flex-1">
                                 <span className="flex min-w-0 items-center gap-2">
-                                  <span className="truncate text-xs font-semibold text-slate-800">{notification.title}</span>
+                                  <AutoTranslatedText className="truncate text-xs font-semibold text-slate-800" text={notification.title} />
                                   {isMessage ? (
                                     <span
                                       className={cn(
@@ -3897,12 +3910,12 @@ export function RDMyWorkspacePage() {
                                         notification.read ? "bg-slate-100 text-slate-500" : "bg-red-50 text-red-600 ring-1 ring-red-100",
                                       )}
                                     >
-                                      {notification.read ? "已读" : "未读"}
+                                      {notification.read ? t("已读") : t("未读")}
                                     </span>
                                   ) : null}
                                 </span>
-                                <span className="mt-0.5 line-clamp-2 block text-xs leading-5 text-slate-600">{notification.message}</span>
-                                <span className="mt-1 block text-[10px] text-slate-400">{notification.time}</span>
+                                <AutoTranslatedText as="div" className="mt-0.5 line-clamp-2 text-xs leading-5 text-slate-600" text={notification.message} />
+                                <span className="mt-1 block text-[10px] text-slate-400">{relativeTimeLabel((notification as { created_at?: string }).created_at, notification.time)}</span>
                               </span>
                             </button>
                             <button

@@ -56,6 +56,9 @@ let files = 0;
     { file: "RDAuditTimeline.tsx", module: "RDAuditTimeline", re: /^\s+[\w.]+:\s*"([^"]+)",\s*$/gm },
     // 4) MessageCenterPage filterLabels 常量表 + 统计卡 label（渲染点是 t(变量)）
     { file: "MessageCenterPage.tsx", module: "MessageCenterPage", re: /(?:all|unread|review_request|review_result|label):\s*"([^"]+)"/g },
+    // 5) 驾驶舱/工作台状态与优先级配置表（渲染点 t(cfg.label)）
+    { file: "RDTaskManagementPage.tsx", module: "RDTaskManagementPage", re: /label:\s*"([^"]+)"/g },
+    { file: "RDMyWorkspacePage.tsx", module: "RDMyWorkspacePage", re: /label:\s*"([^"]+)"/g },
   ];
   for (const src of sources) {
     const text = readFileSync(join(srcRoot, src.file), "utf8");
