@@ -59,6 +59,7 @@ import { NativeSelect } from "./components/ui/native-select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
+import { CollapseTransition } from "./components/CollapseTransition";
 import { useAuth } from "./auth";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./components/ui/tooltip";
 import { usePermission, useAnyPermission } from "./hooks/usePermission";
@@ -3081,7 +3082,7 @@ function TaskLifecycleTimeline({ task }: { task: Task }) {
 }
 
 // ─── SubmitConfirmDialog ──────────────────────────────────────────────────────
-function SubmitConfirmDialog({
+export function SubmitConfirmDialog({
   taskTitle,
   onConfirm,
   onCancel,
@@ -3590,7 +3591,7 @@ export function ApprovalActionDialog({
   );
 }
 
-function TaskCompletionScoreCard({
+export function TaskCompletionScoreCard({
   task,
   notes,
   loading,
@@ -4057,7 +4058,7 @@ function prettyJsonOrText(raw: string): string {
 }
 
 /** Blob → dataURL（生成问题时把留痕附件字节转 dataURL，喂给问题模块的 uploadAttachment）。 */
-function blobToDataUrl(blob: Blob): Promise<string> {
+export function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
@@ -10118,11 +10119,11 @@ function UsCollabReportsDigest({ canRegenerate }: { canRegenerate: boolean }) {
           <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-180")} />
         </span>
       </button>
-      {expanded && (
+      <CollapseTransition open={expanded}>
         <div className="border-t border-slate-100 p-4">
           <RDReportsPanel canRegenerate={canRegenerate} spacious />
         </div>
-      )}
+      </CollapseTransition>
     </div>
   );
 }
@@ -10640,7 +10641,7 @@ function useMoveTargetTree(mainCategories: Category[], _products: ProductDef[]) 
 }
 
 // ─── MoveTaskDialog (single task) ────────────────────────────────────────────
-function MoveTaskDialog({
+export function MoveTaskDialog({
   task,
   categories,
   products,
@@ -11098,7 +11099,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   const [showClearData, setShowClearData] = useState(false);
   const [showProposalDialog, setShowProposalDialog] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
-  // 打开任务详情的统一入口：协同驾驶舱直接进全屏双栏详情页（不走抽屉）；研发驾驶舱维持抽屉。
+  // 打开任务详情的统一入口：协同/研发驾驶舱均进各自的全屏双栏详情页（不走抽屉）。
   // 任务对象随 location.state 带给详情页 → 秒开渲染（详情页后台再拉最新覆盖）
   const openTaskDetail = useCallback(
     (task: Task) => {
@@ -11106,7 +11107,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
         navigate(`/us-collab-task/${encodeURIComponent(task.task_id)}`, { state: { task } });
         return;
       }
-      setSelectedTask(task);
+      navigate(`/rd-task/${encodeURIComponent(task.task_id)}`, { state: { task } });
     },
     [navigate],
   );
