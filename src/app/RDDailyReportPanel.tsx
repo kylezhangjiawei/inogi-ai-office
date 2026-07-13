@@ -16,6 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover
 import { Calendar } from "./components/ui/calendar";
 import { cn } from "./components/ui/utils";
 import { CollapseTransition } from "./components/CollapseTransition";
+import { ReportDetailDrawer } from "./components/ReportDetailDrawer";
 import { ProgressAttachmentGrid } from "./RDProgressEvidence";
 import {
   fetchRdDailyReports,
@@ -433,32 +434,24 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
           </p>
         )}
 
-        {/* 就地展开某成员当日四分组详情 */}
-        <CollapseTransition open={!!expandedTodayReport}>
-          {expandedTodayReport && (
-          <div className="mt-3 rounded-xl border border-violet-100 bg-white p-3.5">
-            <div className="mb-1 flex items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-violet-100 text-xs font-bold text-violet-700">
-                {expandedTodayReport.user_name.slice(0, 1)}
-              </span>
-              <span className="text-sm font-semibold text-slate-800">{expandedTodayReport.user_name}</span>
-              <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
-                {expandedTodayReport.trigger === "cron" ? "自动" : "手动"}
-              </span>
-            </div>
-            <div className="max-h-[60vh] overflow-y-auto pr-1">
-              <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-6 text-slate-700">
-                {expandedTodayReport.summary.text}
-              </pre>
-              <DailyReportGroupedTasks report={expandedTodayReport} progressNoteById={progressNoteById} />
-            </div>
-          </div>
-          )}
-        </CollapseTransition>
+        {/* 点开某成员当日详情：右侧抽屉展示，长报告在抽屉内滚动，不撑长页面 */}
+        {expandedTodayReport && (
+          <ReportDetailDrawer
+            onClose={() => setExpandedTodayKey(null)}
+            userName={expandedTodayReport.user_name}
+            dateLabel={expandedTodayReport.date}
+            trigger={expandedTodayReport.trigger}
+          >
+            <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-6 text-slate-700">
+              {expandedTodayReport.summary.text}
+            </pre>
+            <DailyReportGroupedTasks report={expandedTodayReport} progressNoteById={progressNoteById} />
+          </ReportDetailDrawer>
+        )}
       </div>
 
-      {/* ── 历史详情层（默认收起） ───────────────────────────────────────── */}
-      {showHistory && (
+      {/* ── 历史详情层（默认收起，带高度过渡） ─────────────────────────── */}
+      <CollapseTransition open={showHistory}>
         <div className="rounded-2xl border border-violet-100 bg-violet-50/40 p-5 shadow-sm">
           <div className="mb-4 flex items-center justify-between gap-2">
             <div>
@@ -620,23 +613,22 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
                                 <span>进度记录 {s.notes_count}</span>
                               </div>
                             </div>
-                            <ChevronRight
-                              className={cn(
-                                "h-4 w-4 shrink-0 text-slate-400 transition-transform",
-                                expanded && "rotate-90",
-                              )}
-                            />
+                            <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
                           </button>
-                          <CollapseTransition open={expanded}>
-                            <div className="border-t border-violet-100 bg-violet-50/30 px-4 py-3">
-                              <div className="max-h-[60vh] overflow-y-auto pr-1">
-                                <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-6 text-slate-700">
-                                  {report.summary.text}
-                                </pre>
-                                <DailyReportGroupedTasks report={report} progressNoteById={progressNoteById} />
-                              </div>
-                            </div>
-                          </CollapseTransition>
+                          {/* 详情改为右侧抽屉：长报告在抽屉内滚动，历史列表保持紧凑 */}
+                          {expanded && (
+                            <ReportDetailDrawer
+                              onClose={() => setExpandedReportId(null)}
+                              userName={report.user_name}
+                              dateLabel={report.date}
+                              trigger={report.trigger}
+                            >
+                              <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-6 text-slate-700">
+                                {report.summary.text}
+                              </pre>
+                              <DailyReportGroupedTasks report={report} progressNoteById={progressNoteById} />
+                            </ReportDetailDrawer>
+                          )}
                         </li>
                       );
                     })}
@@ -687,7 +679,7 @@ export function RDDailyReportPanel({ canRegenerate, tabSlot, spacious = false }:
             </div>
           )}
         </div>
-      )}
+      </CollapseTransition>
     </div>
   );
 }

@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { NativeSelect } from "./components/ui/native-select";
 import { cn } from "./components/ui/utils";
 import { CollapseTransition } from "./components/CollapseTransition";
+import { ReportDetailDrawer } from "./components/ReportDetailDrawer";
 import { RDPerformanceReportDialog } from "./RDPerformanceReportDialog";
 import {
   fetchRdMonthlyReports,
@@ -368,19 +369,16 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot, spacious = false 
           </p>
         )}
 
-        {/* 就地展开某成员当月四分组详情 + 月绩效报表入口 */}
-        <CollapseTransition open={!!expandedMonthReport}>
-          {expandedMonthReport && (
-          <div className="mt-3 rounded-xl border border-amber-100 bg-white p-3.5">
-            <div className="mb-1 flex flex-wrap items-center gap-2">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-amber-100 text-xs font-bold text-amber-700">
-                {expandedMonthReport.user_name.slice(0, 1)}
-              </span>
-              <span className="text-sm font-semibold text-slate-800">{expandedMonthReport.user_name}</span>
-              <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] text-slate-500">
-                {expandedMonthReport.trigger === "cron" ? "自动" : "手动"}
-              </span>
-              {canRegenerate && (
+        {/* 点开某成员当月详情：右侧抽屉展示（月绩效报表入口在抽屉头部），不撑长页面 */}
+        {expandedMonthReport && (
+          <ReportDetailDrawer
+            onClose={() => setExpandedMonthKey(null)}
+            userName={expandedMonthReport.user_name}
+            dateLabel={monthStr}
+            trigger={expandedMonthReport.trigger}
+            tone="amber"
+            headerExtra={
+              canRegenerate ? (
                 <button
                   type="button"
                   onClick={() =>
@@ -390,26 +388,24 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot, spacious = false 
                       month: monthStr,
                     })
                   }
-                  className="ml-auto inline-flex items-center gap-1 rounded-md bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white shadow-sm transition-all hover:bg-amber-600"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white shadow-sm transition-all hover:bg-amber-600"
                 >
                   <Award className="h-3.5 w-3.5" />
                   月绩效报表
                 </button>
-              )}
-            </div>
-            <div className="max-h-[60vh] overflow-y-auto pr-1">
-              <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-6 text-slate-700">
-                {expandedMonthReport.summary.text}
-              </pre>
-              <MonthlyReportGroupedTasks report={expandedMonthReport} />
-            </div>
-          </div>
-          )}
-        </CollapseTransition>
+              ) : undefined
+            }
+          >
+            <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-6 text-slate-700">
+              {expandedMonthReport.summary.text}
+            </pre>
+            <MonthlyReportGroupedTasks report={expandedMonthReport} />
+          </ReportDetailDrawer>
+        )}
       </div>
 
-      {/* ── 历史详情层（默认收起） ───────────────────────────────────────── */}
-      {showHistory && (
+      {/* ── 历史详情层（默认收起，带高度过渡） ─────────────────────────── */}
+      <CollapseTransition open={showHistory}>
         <div className="rounded-2xl border border-amber-100 bg-amber-50/40 p-5 shadow-sm">
           <div className="mb-4 flex items-center justify-between gap-2">
             <div>
@@ -543,35 +539,35 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot, spacious = false 
                                 <span>进度记录 {s.notes_count}</span>
                               </div>
                             </div>
-                            <ChevronRight
-                              className={cn(
-                                "h-4 w-4 shrink-0 text-slate-400 transition-transform",
-                                expanded && "rotate-90",
-                              )}
-                            />
+                            <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" />
                           </button>
-                          <CollapseTransition open={expanded}>
-                            <div className="border-t border-amber-100 bg-amber-50/30 px-4 py-3">
-                              <div className="mb-2 flex flex-wrap items-center justify-end gap-2">
-                                {canRegenerate && (
+                          {/* 详情改为右侧抽屉：长报告在抽屉内滚动，历史列表保持紧凑 */}
+                          {expanded && (
+                            <ReportDetailDrawer
+                              onClose={() => setExpandedReportId(null)}
+                              userName={report.user_name}
+                              dateLabel={report.month}
+                              trigger={report.trigger}
+                              tone="amber"
+                              headerExtra={
+                                canRegenerate ? (
                                   <button
                                     type="button"
                                     onClick={() => setPerfTarget({ userId: report.user_id, userName: report.user_name, month: report.month })}
-                                    className="inline-flex items-center gap-1 rounded-md bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white shadow-sm transition-all hover:bg-amber-600"
+                                    className="inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white shadow-sm transition-all hover:bg-amber-600"
                                   >
                                     <Award className="h-3.5 w-3.5" />
                                     月绩效报表
                                   </button>
-                                )}
-                              </div>
-                              <div className="max-h-[60vh] overflow-y-auto pr-1">
-                                <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-6 text-slate-700">
-                                  {report.summary.text}
-                                </pre>
-                                <MonthlyReportGroupedTasks report={report} />
-                              </div>
-                            </div>
-                          </CollapseTransition>
+                                ) : undefined
+                              }
+                            >
+                              <pre className="whitespace-pre-wrap break-words font-sans text-[12.5px] leading-6 text-slate-700">
+                                {report.summary.text}
+                              </pre>
+                              <MonthlyReportGroupedTasks report={report} />
+                            </ReportDetailDrawer>
+                          )}
                         </li>
                       );
                     })}
@@ -622,7 +618,7 @@ export function RDMonthlyReportPanel({ canRegenerate, tabSlot, spacious = false 
             </div>
           )}
         </div>
-      )}
+      </CollapseTransition>
 
       {/* 月绩效报表弹窗（AI 评估 + 正式 Word 文件下载） */}
       <RDPerformanceReportDialog
