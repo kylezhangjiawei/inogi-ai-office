@@ -945,7 +945,9 @@ export type RdTaskProgressAttachment = {
   name: string;
   mime: string;
   size: number;
-  /** OSS 签名 URL（OSS 已配置时使用）。优先级高于 data_url。 */
+  /** OSS 永久对象标识；新附件直接保存，旧附件由后端从历史 URL 自动恢复。 */
+  object_key?: string;
+  /** 历史兼容用 OSS 签名 URL；可能过期，展示时优先使用后端动态 preview_url。 */
   oss_url?: string;
   /** 同源内联预览代理 URL（后端 HMAC 签名）。iframe 预览用，规避 OSS 强制下载。 */
   preview_url?: string;
@@ -961,7 +963,7 @@ export type RdTaskProgressAttachment = {
   extracted_at?: string;
 };
 
-/** 取附件的可用 URL：OSS 签名链接 > base64 data URI > 空串 */
+/** 取附件的可用 URL：后端动态代理 > 历史 OSS 签名链接 > base64 data URI > 空串。 */
 // ── OSS 域名预连接：首次遇到外域附件 URL 时注入 <link rel="preconnect">，省去后续图片的 DNS+TLS 握手 ──
 const preconnectedOrigins = new Set<string>();
 /** 已处理过的完整 URL（渲染热路径高频重复调用，先按字符串短路，避免每次 new URL 解析） */
@@ -985,15 +987,22 @@ export function ensurePreconnect(url: string): void {
   } catch { /* URL 解析失败忽略 */ }
 }
 
-export function getAttachmentUrl(att: { oss_url?: string; data_url?: string } | null | undefined): string {
+export function getAttachmentUrl(
+  att: { preview_url?: string; oss_url?: string; data_url?: string } | null | undefined,
+): string {
   if (!att) return "";
-  const url = att.oss_url ?? att.data_url ?? "";
+  // `oss_url` stored in historical progress notes expires after 30 days. Every
+  // notes response includes a newly signed same-origin `preview_url`, so all
+  // image/fullscreen/download call sites must prefer it as well as iframes do.
+  const url = att.preview_url ?? att.oss_url ?? att.data_url ?? "";
   if (url) ensurePreconnect(url);
   return url;
 }
 
 /** 取附件缩略图 URL：图片附件优先用 OSS 实时缩放图（480px webp），否则回退原图/内嵌数据。 */
-export function getAttachmentThumbUrl(att: { thumb_url?: string; oss_url?: string; data_url?: string } | null | undefined): string {
+export function getAttachmentThumbUrl(
+  att: { thumb_url?: string; preview_url?: string; oss_url?: string; data_url?: string } | null | undefined,
+): string {
   if (!att) return "";
   if (att.thumb_url) {
     ensurePreconnect(att.thumb_url);

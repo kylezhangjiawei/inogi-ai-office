@@ -52,7 +52,7 @@ export class AuthController {
   @Patch('me')
   updateMe(
     @Request() req: { user: { id: string } },
-    @Body() body: { name?: string; email?: string },
+    @Body() body: { name?: string; englishName?: string; email?: string },
   ) {
     return this.authService.updateCurrentUser(req.user.id, body);
   }

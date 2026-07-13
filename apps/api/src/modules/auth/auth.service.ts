@@ -10,6 +10,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'crypto';
 
+import { resolveEnglishName } from '../../common/english-name';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecureConfigService } from '../security/secure-config.service';
 import { OssService } from '../oss/oss.service';
@@ -21,6 +22,7 @@ const ACCESS_TOKEN_TTL = '15m';
 type AuthUserProfile = {
   id: string;
   name: string;
+  englishName: string;
   username: string | null;
   email: string;
   roleId: string | null;
@@ -333,7 +335,7 @@ export class AuthService implements OnModuleInit {
 
   async updateCurrentUser(
     userId: string,
-    payload: { name?: string; email?: string },
+    payload: { name?: string; englishName?: string; email?: string },
   ) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
@@ -343,16 +345,22 @@ export class AuthService implements OnModuleInit {
       throw new UnauthorizedException();
     }
 
-    if (this.isSuperAdminRole(user.role?.permissions)) {
-      throw new ForbiddenException('超级管理员仅允许修改头像，名称、邮箱和密码不允许在个人中心修改');
+    const name = payload.name?.trim() ?? user.name;
+    const email = payload.email?.trim() ?? user.email;
+    if (this.isSuperAdminRole(user.role?.permissions) && (name !== user.name || email !== user.email)) {
+      throw new ForbiddenException('超级管理员仅允许修改头像和英文名，中文名称、邮箱和密码不允许在个人中心修改');
     }
 
-    const name = payload.name?.trim();
-    const email = payload.email?.trim();
     if (!name) throw new BadRequestException('名称不能为空');
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw new BadRequestException('邮箱格式不正确');
     }
+    if (typeof payload.englishName === 'string' && payload.englishName.trim().length > 80) {
+      throw new BadRequestException('英文名不能超过 80 个字符');
+    }
+    const englishName = payload.englishName === undefined
+      ? user.englishName
+      : resolveEnglishName(payload.englishName);
 
     if (email !== user.email) {
       const existing = await this.prisma.user.findUnique({ where: { email } });
@@ -363,7 +371,7 @@ export class AuthService implements OnModuleInit {
 
     const updated = await this.prisma.user.update({
       where: { id: userId },
-      data: { name, email },
+      data: { name, englishName, email },
       include: { role: true },
     });
 
@@ -442,6 +450,7 @@ export class AuthService implements OnModuleInit {
   private async toAuthUserProfile(user: {
     id: string;
     name: string;
+    englishName: string;
     username?: string | null;
     email: string;
     roleId: string | null;
@@ -453,6 +462,7 @@ export class AuthService implements OnModuleInit {
     return {
       id: user.id,
       name: user.name,
+      englishName: user.englishName,
       username: user.username ?? null,
       email: user.email,
       roleId: user.roleId,

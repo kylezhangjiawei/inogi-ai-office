@@ -286,6 +286,7 @@ export function RDSheetPage() {
               ref={handleRef}
               snapshot={snapshot as never}
               readOnly={!canEdit}
+              recentColorOwnerKey={user?.id}
               onDirty={() => setDirty(true)}
             />
           </Suspense>

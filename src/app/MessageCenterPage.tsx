@@ -83,6 +83,11 @@ function parseBody(raw: string): ParsedBody {
   }
 }
 
+/** “待审核”在统计卡片和列表筛选中必须使用完全相同的口径。 */
+function isPendingReviewMessage(message: RdMessage): boolean {
+  return message.handled !== true && parseBody(message.body).type === "review_request";
+}
+
 // ── Reject reason dialog ─────────────────────────────────────────────────────
 
 function RejectDialog({
@@ -613,16 +618,7 @@ export function MessageCenterPage() {
   // Derived counts
   const unreadCount = useMemo(() => messages.filter((m) => !m.read).length, [messages]);
   const pendingReviewCount = useMemo(
-    () =>
-      messages.filter((m) => {
-        if (m.handled) return false;
-        try {
-          const b = JSON.parse(m.body) as Record<string, unknown>;
-          return b.type === "review_request";
-        } catch {
-          return false;
-        }
-      }).length,
+    () => messages.filter(isPendingReviewMessage).length,
     [messages],
   );
 
@@ -665,7 +661,7 @@ export function MessageCenterPage() {
       const parsed = parseBody(m.body);
       // Filter tab
       if (filter === "unread" && m.read) return false;
-      if (filter === "review_request" && parsed.type !== "review_request") return false;
+      if (filter === "review_request" && !isPendingReviewMessage(m)) return false;
       if (filter === "review_result" && parsed.type !== "review_result") return false;
 
       if (!q) return true;

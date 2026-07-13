@@ -20,6 +20,7 @@ type Role = {
 type User = {
   id: string;
   name: string;
+  englishName: string;
   username: string | null;
   email: string;
   department: string | null;
@@ -33,6 +34,7 @@ type User = {
 type UserFormData = {
   id?: string;
   name: string;
+  englishName: string;
   username: string;
   department: string;
   roleId: string;
@@ -49,6 +51,7 @@ type DepartmentOption = {
 
 const EMPTY_FORM: UserFormData = {
   name: "",
+  englishName: "",
   username: "",
   department: "",
   roleId: "",
@@ -170,6 +173,7 @@ async function apiSaveUser(payload: UserFormData): Promise<User> {
     body: JSON.stringify({
       id: payload.id,
       name: payload.name,
+      englishName: payload.englishName,
       username: payload.username || undefined,
       department: payload.department || undefined,
       roleId: payload.roleId || undefined,
@@ -304,6 +308,7 @@ export function UserManagement() {
         const matchKeyword =
           !keyword ||
           u.name.toLowerCase().includes(q) ||
+          u.englishName.toLowerCase().includes(q) ||
           (u.username ?? "").toLowerCase().includes(q) ||
           (u.department ?? "").toLowerCase().includes(q) ||
           (u.role?.name ?? "").toLowerCase().includes(q);
@@ -335,6 +340,7 @@ export function UserManagement() {
     setForm({
       id: user.id,
       name: user.name,
+      englishName: user.englishName,
       username: user.username ?? "",
       department: user.department ?? "",
       roleId: user.roleId ?? "",
@@ -506,7 +512,7 @@ export function UserManagement() {
               className="material-input pl-11"
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
-              placeholder="搜索姓名、账号、角色、部门..."
+              placeholder="搜索姓名、英文名、账号、角色、部门..."
             />
           </div>
           <div className="flex flex-wrap items-center gap-3">
@@ -538,7 +544,7 @@ export function UserManagement() {
             </colgroup>
             <thead className="bg-slate-50/90">
               <tr>
-                {["姓名 / 账号", "角色", "部门", "状态", "密码", "操作"].map((col) => (
+                {["姓名 / 英文名 / 账号", "角色", "部门", "状态", "密码", "操作"].map((col) => (
                   <th key={col} className={cn(TABLE_HEADER_CLASS, col === "操作" && "text-right")}>
                     {col}
                   </th>
@@ -575,8 +581,9 @@ export function UserManagement() {
                           </span>
                         )}
                       </div>
+                      <div className="mt-0.5 truncate text-xs font-medium text-slate-500">{user.englishName}</div>
                       {user.username && (
-                        <div className="mt-0.5 truncate text-xs text-slate-400">{user.username}</div>
+                        <div className="mt-0.5 truncate text-xs text-slate-400">@{user.username}</div>
                       )}
                     </td>
                     {/* 角色 */}
@@ -703,10 +710,11 @@ export function UserManagement() {
       >
           <div className="space-y-4 pt-1">
             <div>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+              <label htmlFor="user-name" className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                 姓名 <span className="text-red-500">*</span>
               </label>
               <input
+                id="user-name"
                 className="material-input w-full"
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
@@ -714,10 +722,25 @@ export function UserManagement() {
               />
             </div>
             <div>
-              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+              <label htmlFor="user-english-name" className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                英文名
+              </label>
+              <input
+                id="user-english-name"
+                className="material-input w-full"
+                value={form.englishName}
+                maxLength={80}
+                onChange={(e) => setForm((f) => ({ ...f, englishName: e.target.value }))}
+                placeholder="可选，留空后系统自动生成"
+              />
+              <p className="mt-1.5 text-xs text-slate-400">可随时修改；清空后保存会重新生成英文名。</p>
+            </div>
+            <div>
+              <label htmlFor="user-account" className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
                 账号
               </label>
               <input
+                id="user-account"
                 className="material-input w-full"
                 value={form.username}
                 onChange={(e) => setForm((f) => ({ ...f, username: e.target.value }))}

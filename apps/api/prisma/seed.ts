@@ -12,6 +12,7 @@ async function main() {
   }
 
   const adminName = process.env.SEED_ADMIN_NAME || 'System Administrator';
+  const adminEnglishName = process.env.SEED_ADMIN_ENGLISH_NAME || 'System Administrator';
   const adminUsername = process.env.SEED_ADMIN_USERNAME || 'admin';
   const adminEmail = process.env.SEED_ADMIN_EMAIL || 'admin@system.local';
   const roleName = process.env.SEED_ADMIN_ROLE_NAME || 'Super Admin';
@@ -37,6 +38,7 @@ async function main() {
     where: { username: adminUsername },
     update: {
       name: adminName,
+      englishName: adminEnglishName,
       email: adminEmail,
       passwordHash,
       status: 'ACTIVE',
@@ -44,6 +46,7 @@ async function main() {
     },
     create: {
       name: adminName,
+      englishName: adminEnglishName,
       username: adminUsername,
       email: adminEmail,
       passwordHash,

@@ -2,12 +2,14 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'crypto';
 
+import { resolveEnglishName } from '../../common/english-name';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SaveUserDto } from './dto/save-user.dto';
 
 const USER_SELECT = {
   id: true,
   name: true,
+  englishName: true,
   username: true,
   email: true,
   department: true,
@@ -56,6 +58,9 @@ export class UsersService {
         where: { id: payload.id },
         data: {
           name: payload.name,
+          englishName: payload.englishName === undefined
+            ? existing?.englishName
+            : resolveEnglishName(payload.englishName),
           ...(payload.email ? { email: payload.email } : {}),
           username: payload.username ?? undefined,
           department: payload.department ?? undefined,
@@ -73,6 +78,7 @@ export class UsersService {
 
     const createData: Parameters<typeof this.prisma.user.create>[0]['data'] = {
       name: payload.name,
+      englishName: resolveEnglishName(payload.englishName),
       email,
       username: payload.username ?? undefined,
       department: payload.department ?? undefined,

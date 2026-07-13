@@ -53,7 +53,7 @@ function getPasswordStrength(password: string): { level: 0 | 1 | 2 | 3; label: s
   return { level: 3, label: "强", barClass: "bg-emerald-500", textClass: "text-emerald-600" };
 }
 
-async function updateProfile(payload: { name: string; email: string }) {
+async function updateProfile(payload: { name: string; englishName: string; email: string }) {
   const response = await authFetch("/api/auth/me", {
     method: "PATCH",
     body: JSON.stringify(payload),
@@ -109,6 +109,7 @@ export function PersonalCenterPage() {
   const avatar = useUserAvatar(user?.id);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [email, setEmail] = useState(user?.email ?? "");
+  const [englishName, setEnglishName] = useState(user?.englishName ?? "");
   const [passwordForm, setPasswordForm] = useState({ oldPassword: "", password: "", confirmPassword: "" });
   const [savingProfile, setSavingProfile] = useState(false);
   const [savingPassword, setSavingPassword] = useState(false);
@@ -125,19 +126,24 @@ export function PersonalCenterPage() {
 
   const isSuperAdmin = Boolean(user?.permissions.includes("*"));
   const canEditAccountFields = Boolean(user) && !isSuperAdmin;
+  const canEditEnglishName = Boolean(user);
   const roleLabel = getRoleLabel(user?.roleName);
   const permissionSummary = useMemo(() => {
     if (!user) return "0";
     if (user.permissions.includes("*")) return "全部";
     return String(user.permissions.length);
   }, [user]);
-  const saveEmailDisabled = !canEditAccountFields || savingProfile || email.trim() === (user?.email ?? "");
+  const profileUnchanged =
+    email.trim() === (user?.email ?? "") &&
+    englishName.trim() === (user?.englishName ?? "");
+  const saveProfileDisabled = !canEditEnglishName || savingProfile || profileUnchanged;
   const pwdStrength = getPasswordStrength(passwordForm.password);
   const pwdMismatch = Boolean(passwordForm.confirmPassword && passwordForm.password !== passwordForm.confirmPassword);
 
   React.useEffect(() => {
     setEmail(user?.email ?? "");
-  }, [user?.email]);
+    setEnglishName(user?.englishName ?? "");
+  }, [user?.email, user?.englishName]);
 
   async function handleAvatarFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -195,16 +201,21 @@ export function PersonalCenterPage() {
   }
 
   async function handleSaveProfile() {
-    if (!canEditAccountFields || !user) { toast.error("超级管理员只允许修改头像"); return; }
+    if (!canEditEnglishName || !user) return;
     const nextEmail = email.trim();
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail)) { toast.error("邮箱格式不正确"); return; }
+    const nextEnglishName = englishName.trim();
+    if (nextEnglishName.length > 80) { toast.error("英文名不能超过 80 个字符"); return; }
+    if (canEditAccountFields && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nextEmail)) {
+      toast.error("邮箱格式不正确");
+      return;
+    }
     setSavingProfile(true);
     try {
-      await updateProfile({ name: user.name, email: nextEmail });
+      await updateProfile({ name: user.name, englishName: nextEnglishName, email: user.permissions.includes("*") ? user.email : nextEmail });
       await refreshUser();
-      toast.success("邮箱已保存");
+      toast.success("个人资料已保存");
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "邮箱保存失败");
+      toast.error(error instanceof Error ? error.message : "个人资料保存失败");
     } finally {
       setSavingProfile(false);
     }
@@ -376,8 +387,8 @@ export function PersonalCenterPage() {
                   </div>
                   <p className="mt-1.5 text-xs leading-[1.6] text-on-surface-variant">
                     {isSuperAdmin
-                      ? "该账号仅允许修改头像。邮箱和密码在个人中心保持锁定，名称作为身份标识只读展示。"
-                      : "名称作为身份标识只读展示，你可以维护头像、邮箱和登录密码。"}
+                      ? "该账号可修改头像和英文名。中文姓名、邮箱和密码在个人中心保持锁定。"
+                      : "中文姓名作为身份标识只读展示，你可以维护英文名、头像、邮箱和登录密码。"}
                   </p>
                 </div>
               </div>
@@ -394,7 +405,7 @@ export function PersonalCenterPage() {
 
             {/* note */}
             <div className="rounded-[8px] border border-primary/13 bg-primary-container/52 px-4 py-3 text-xs leading-[1.6] text-on-primary-container">
-              个人中心只处理个人资料；超级管理员敏感字段需通过账号治理流程变更。
+              英文名可由本人维护；留空保存时系统会自动生成。超级管理员的其他敏感字段仍需通过账号治理流程变更。
             </div>
 
             {/* reset avatar btn —— 仅当用户设过自定义头像时显示（清掉后回到自动派发的默认头像） */}
@@ -467,6 +478,23 @@ export function PersonalCenterPage() {
               </span>
             </div>
 
+            {/* editable English name */}
+            <div className="space-y-1.5">
+              <FieldLabel htmlFor="profile-english-name">英文名</FieldLabel>
+              <input
+                id="profile-english-name"
+                type="text"
+                className={inputClass}
+                value={englishName}
+                maxLength={80}
+                disabled={!canEditEnglishName || savingProfile}
+                onChange={(event) => setEnglishName(event.target.value)}
+                placeholder="留空保存后由系统自动生成"
+                autoComplete="name"
+              />
+              <p className="text-xs text-on-surface-variant">用于英文界面和对外资料展示，可随时修改</p>
+            </div>
+
             {/* email */}
             <div className="space-y-1.5">
               <FieldLabel htmlFor="profile-email">邮箱地址</FieldLabel>
@@ -495,11 +523,11 @@ export function PersonalCenterPage() {
                 type="button"
                 whileTap={shouldReduceMotion ? undefined : { scale: 0.98 }}
                 onClick={() => void handleSaveProfile()}
-                disabled={saveEmailDisabled}
+                disabled={saveProfileDisabled}
                 className={primaryButtonClass}
               >
                 <Save className="h-4 w-4" />
-                {savingProfile ? "保存中…" : "保存邮箱"}
+                {savingProfile ? "保存中…" : "保存资料"}
               </motion.button>
             </div>
           </div>

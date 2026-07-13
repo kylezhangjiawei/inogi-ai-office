@@ -13,6 +13,11 @@ export class SaveUserDto {
   name!: string;
 
   @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  englishName?: string;
+
+  @IsOptional()
   @IsEmail()
   email?: string;
 

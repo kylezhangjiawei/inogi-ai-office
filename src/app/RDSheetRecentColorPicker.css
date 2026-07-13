@@ -1,0 +1,76 @@
+.rd-sheet-color-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* 把最近颜色放在预设色板与“更多颜色”之间，同时保留 Univer 原组件的全部行为。 */
+.rd-sheet-color-picker > [data-u-comp="color-picker"] {
+  display: contents;
+}
+
+.rd-sheet-color-picker > [data-u-comp="color-picker"] > .univer-h-7 {
+  order: 3;
+}
+
+.rd-sheet-recent-colors {
+  order: 2;
+  border-top: 1px solid #e5e7eb;
+  padding-top: 8px;
+}
+
+.rd-sheet-recent-colors__title {
+  margin-bottom: 6px;
+  color: #4b5563;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.rd-sheet-recent-colors__grid {
+  display: grid;
+  min-height: 20px;
+  grid-template-columns: repeat(9, 20px);
+  gap: 8px;
+}
+
+.rd-sheet-recent-colors__swatch {
+  box-sizing: border-box;
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  border: 1px solid rgb(15 23 42 / 16%);
+  border-radius: 9999px;
+  padding: 0;
+  transition: box-shadow 160ms ease, border-color 160ms ease;
+}
+
+.rd-sheet-recent-colors__swatch:hover {
+  border-color: rgb(79 70 229 / 55%);
+  box-shadow: 0 0 0 2px rgb(79 70 229 / 18%);
+}
+
+.rd-sheet-recent-colors__swatch:focus-visible {
+  outline: 2px solid #4f46e5;
+  outline-offset: 2px;
+}
+
+.rd-sheet-recent-colors__swatch[data-selected="true"] {
+  border-color: #4f46e5;
+  box-shadow: 0 0 0 2px rgb(79 70 229 / 24%);
+}
+
+.dark .rd-sheet-recent-colors {
+  border-top-color: #4b5563;
+}
+
+.dark .rd-sheet-recent-colors__title {
+  color: #e5e7eb;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rd-sheet-recent-colors__swatch {
+    transition: none;
+  }
+}
+
