@@ -71,6 +71,12 @@ export class ChatService {
   private static readonly HISTORY_DOC_CHAR_BUDGET = 8000;
   /** 历史重新注入图片的总张数上限（每张都要重新下载并 base64 内联，控制成本） */
   private static readonly HISTORY_MAX_IMAGES = 4;
+  /**
+   * "看不到图"式拒答的识别正则（视觉去毒用）：命中的历史 assistant 消息在
+   * 视觉模型的上下文里会被替换成作废占位，防止新模型沿用旧模型的拒答口径。
+   */
+  private static readonly VISION_REFUSAL_RE =
+    /(无法|不能|没办法|不支持)[^。！？\n]{0,16}(查看|看到|识别|解析|读取|处理)[^。！？\n]{0,10}(图片|图像)|不具备[^。！？\n]{0,10}(图像|图片|视觉)|文本型\s*AI/;
 
   private readonly logger = new Logger(ChatService.name);
   private readonly openaiApiKey: string | null;
@@ -383,8 +389,22 @@ export class ChatService {
     //    找不到任何可用多模态模型时，保持原模型不变，后面会降级为「文字提示」兜底。
     let activeConfig = selectedConfig;
     const hasImageAttachment = attachments.some((a) => this.attachmentService.isImage(a.mime));
+    // 会话上下文里出现过图片（含刷新页面后的任意后续追问）：同样视为需要视觉能力，
+    // 与 buildHistoryWithAttachments 的历史图片重放对齐——重放窗口是「最近 N 条带附件
+    // 的消息」而非按轮次衰减，所以只要图还会被重放，就必须路由到多模态模型，
+    // 否则图片降级成文件名提示，模型会回答「看不到图」。切换对用户无感（不弹提示）。
+    const hasRecentHistoryImage =
+      !hasImageAttachment &&
+      conv.messages.some(
+        (m) =>
+          m.role === 'user' &&
+          m.attachments != null &&
+          this.attachmentService
+            .normalizeStored(m.attachments)
+            .some((a) => this.attachmentService.isImage(a.mime)),
+      );
     if (
-      hasImageAttachment &&
+      (hasImageAttachment || hasRecentHistoryImage) &&
       !this.modelSupportsVision(selectedConfig.model, selectedConfig.usageKind)
     ) {
       const visionConfig = await this.resolveVisionModelConfig();
@@ -496,6 +516,18 @@ export class ChatService {
     contextParts.push(
       '【文件生成】当用户明确要求把内容生成/导出为 Excel 或 Word 文件时（如"整理成表格文件发我""导出成 Word 文档"），在回答正文之后另起一行输出一个 file-export 代码块；正文只需一两句说明文件内容，不要把全部数据在正文重复。Excel 格式示例：\n```file-export\n{"type":"xlsx","filename":"名称.xlsx","sheets":[{"name":"Sheet1","rows":[["表头A","表头B"],["值1","值2"]]}]}\n```\nWord 格式：{"type":"docx","filename":"名称.docx","blocks":[{"kind":"heading","text":"标题"},{"kind":"paragraph","text":"正文段落"},{"kind":"table","rows":[["表头1","表头2"],["值1","值2"]]}]}\n规则：JSON 必须合法（键与字符串用双引号）；rows 是二维数组且首行为表头；文件会自动生成并作为附件出现在回答下方。用户没有明确要求生成文件时，绝对不要输出 file-export 块。',
     );
+
+    // 视觉纠偏：会话里有图片且当前模型具备视觉能力时明确告知，并否定历史回复中
+    // "无法查看图片"的说法——那些是此前纯文本模型的回答，会污染上下文让视觉模型
+    // 也跟着装瞎（实测 kimi 看得到图仍沿用历史口径拒答）。
+    if (
+      (hasImageAttachment || hasRecentHistoryImage) &&
+      this.modelSupportsVision(model, usageKind)
+    ) {
+      contextParts.push(
+        '【图片能力】你具备图像理解能力。本对话中用户上传过的图片已随对应消息重新提供给你，请直接查看并分析。若历史回复中出现"我是文本型AI助手""无法查看图片"等说法，那是之前不支持视觉的模型的回答，与你无关——不要沿用或重复这些说法，直接基于图片内容作答。',
+      );
+    }
 
     // 只有真正开启了联网检索才告知该能力，避免无联网的模型据此幻觉
     if (webSearchEnabled) {
@@ -1135,6 +1167,9 @@ export class ChatService {
     const imageParts = new Map<number, OpenAI.Chat.Completions.ChatCompletionContentPart[]>();
     const plainNotes = new Map<number, string>();
 
+    // 会话中是否出现过图片附件：决定是否对历史拒答做"视觉去毒"（见下方 map）
+    let sawImage = false;
+
     // 按新 → 旧分配预算（越近的轮次越可能被追问，优先保全）
     for (const idx of attachedIdx) {
       const atts = this.attachmentService.normalizeStored(messages[idx].attachments);
@@ -1159,6 +1194,7 @@ export class ChatService {
       }
 
       const images = atts.filter((a) => this.attachmentService.isImage(a.mime));
+      if (images.length > 0) sawImage = true;
       if (images.length > 0) {
         if (visionCapable && imgWindow.has(idx) && imgQuota > 0) {
           const parts: OpenAI.Chat.Completions.ChatCompletionContentPart[] = [];
@@ -1187,8 +1223,21 @@ export class ChatService {
       }
     }
 
-    return messages.map((m, idx) => {
+    // 视觉去毒：会话里有图且当前模型支持视觉时，把历史上纯文本模型"看不到图"的
+    // 拒答整条剔除。这类回复零信息量，留在上下文里会让视觉模型跟着沿用"我看不到"
+    // 的口径拒答；替换成占位文本也不行——占位本身又会被模型鹦鹉学舌（均已实测）。
+    // 剔除后可能出现连续 user 消息，OpenAI 兼容端点均可接受。
+    const sanitizeRefusals = visionCapable && sawImage;
+
+    const mapped = messages.map((m, idx): OpenAI.Chat.Completions.ChatCompletionMessageParam | null => {
       const role = m.role as 'user' | 'assistant';
+      if (
+        role === 'assistant' &&
+        sanitizeRefusals &&
+        ChatService.VISION_REFUSAL_RE.test(m.content)
+      ) {
+        return null;
+      }
       if (role !== 'user' || (!docBlocks.has(idx) && !imageParts.has(idx) && !plainNotes.has(idx))) {
         return { role, content: m.content };
       }
@@ -1206,6 +1255,9 @@ export class ChatService {
       }
       return { role, content: text };
     });
+    return mapped.filter(
+      (m): m is OpenAI.Chat.Completions.ChatCompletionMessageParam => m !== null,
+    );
   }
 
   private modelSupportsVision(model: string, usageKind?: string): boolean {

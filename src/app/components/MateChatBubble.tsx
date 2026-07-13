@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { authFetch } from "../lib/authSession";
+import { i18nLocale } from "../lib/i18n";
 import { useAuth } from "../auth";
 import { cn } from "./ui/utils";
 import { backfillKbToRag, ragStatus, type RagCitation, type RagStatus } from "../lib/ragApi";
@@ -857,8 +858,11 @@ export function MateChatBubble() {
               }
 
               if (event.type === "modelSwitched") {
-                // 当前模型不支持图片，后端已自动切到多模态模型识别本轮图片，提示用户
-                toast.info(`当前模型不支持图片，已自动切换到「${event.to}」识别本次图片`);
+                // 后端为图片场景静默路由到多模态模型：不弹提示打扰用户，
+                // 只把本轮气泡的模型标签改为实际作答模型，保持如实。
+                setMessages((prev) =>
+                  prev.map((m) => (m.id === tempAiId ? { ...m, model: event.to } : m)),
+                );
               }
 
               if (event.type === "delta") {
