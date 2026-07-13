@@ -508,8 +508,9 @@ export function OwnerAvatar({
   // 头像 URL 变化（目录加载完成 / 失效重取）时重置失败态，允许新 URL 重新尝试
   useEffect(() => { setImgFailed(false); }, [avatarUrl]);
 
-  // 系统占位名（待指派等）走字典翻译后再取首字，英文态头像显示 "U" 而非 "待"
-  const initial = displayPersonName(name).replace(/\(.+?\)/g, "").trim().slice(0, 1) || "?";
+  // 系统占位名（待指派等）走字典翻译后再显示/取首字，英文态头像显示 "U" 而非 "待"
+  const displayName = displayPersonName(name);
+  const initial = displayName.replace(/\(.+?\)/g, "").trim().slice(0, 1) || "?";
   const dim = size === "xs" ? "h-5 w-5" : "h-6 w-6";
   const textSize = size === "xs" ? "text-[10px]" : "text-xs";
 
