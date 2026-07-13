@@ -10,13 +10,15 @@ import {
   Clock,
   CreditCard,
   Download,
+  Eye,
+  EyeOff,
   FileCheck2,
   IdCard,
   Image as ImageIcon,
   MapPin,
+  Loader2,
   Move,
   Pencil,
-  Printer,
   RotateCcw,
   Save,
   Search,
@@ -37,6 +39,7 @@ type DocStatus = "done" | "review" | "missing";
 type FieldGroupKey = "employment" | "identity" | "contact" | "payroll";
 type BadgeTemplateKey = "official" | "intern" | "labor";
 type BadgeOverlayKey = "name" | "departmentCaption" | "department" | "title" | "photo" | "employeeId";
+type BadgeTextFieldKey = Exclude<BadgeOverlayKey, "photo">;
 type BadgeRequirementStatus = "ready" | "warning" | "missing";
 
 interface DocItem {
@@ -134,6 +137,8 @@ interface BadgeAvatarDraft {
 
 type BadgeOverlayPositions = Record<BadgeOverlayKey, BadgeOverlayPosition>;
 type BadgeLayoutPositions = Record<BadgeTemplateKey, BadgeOverlayPositions>;
+type BadgeTextVisibility = Record<BadgeTextFieldKey, boolean>;
+type BadgeTextVisibilityByTemplate = Record<BadgeTemplateKey, BadgeTextVisibility>;
 
 const archiveEmployees: EmployeeArchive[] = [
   {
@@ -641,7 +646,18 @@ const sheetFields = [
 ];
 
 const BADGE_PRINT_SIZE = "154 x 245";
+const BADGE_EXPORT_WIDTH = 642;
+const BADGE_EXPORT_HEIGHT = 1020;
 const BADGE_AVATAR_STORAGE_KEY = "employee-archive-badge-avatar-drafts";
+const BADGE_TEXT_VISIBILITY_STORAGE_KEY = "employee-archive-badge-text-visibility";
+
+const badgeTextFieldOptions: Array<{ key: BadgeTextFieldKey; label: string }> = [
+  { key: "name", label: "姓名" },
+  { key: "departmentCaption", label: "所属部门标签" },
+  { key: "department", label: "部门英文" },
+  { key: "title", label: "职位" },
+  { key: "employeeId", label: "员工编号" },
+];
 
 const badgeTemplates: BadgeTemplate[] = [
   {
@@ -691,6 +707,20 @@ const createBadgePositionConfirmed = (): Record<BadgeTemplateKey, boolean> => ({
   labor: false,
 });
 
+const createBadgeTextVisibility = (): BadgeTextVisibility => ({
+  name: true,
+  departmentCaption: true,
+  department: true,
+  title: true,
+  employeeId: true,
+});
+
+const createBadgeTextVisibilityByTemplate = (): BadgeTextVisibilityByTemplate => ({
+  official: createBadgeTextVisibility(),
+  intern: createBadgeTextVisibility(),
+  labor: createBadgeTextVisibility(),
+});
+
 const createBadgeAvatarDraft = (): BadgeAvatarDraft => ({
   imageWidth: 100,
   imageHeight: 100,
@@ -731,6 +761,33 @@ const persistBadgeAvatarDrafts = (drafts: Record<string, BadgeAvatarDraft>) => {
   if (typeof window === "undefined") return true;
   try {
     window.localStorage.setItem(BADGE_AVATAR_STORAGE_KEY, JSON.stringify(drafts));
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const loadBadgeTextVisibility = (): BadgeTextVisibilityByTemplate => {
+  const defaults = createBadgeTextVisibilityByTemplate();
+  if (typeof window === "undefined") return defaults;
+  try {
+    const raw = window.localStorage.getItem(BADGE_TEXT_VISIBILITY_STORAGE_KEY);
+    if (!raw) return defaults;
+    const stored = JSON.parse(raw) as Partial<Record<BadgeTemplateKey, Partial<BadgeTextVisibility>>>;
+    return {
+      official: { ...defaults.official, ...stored.official },
+      intern: { ...defaults.intern, ...stored.intern },
+      labor: { ...defaults.labor, ...stored.labor },
+    };
+  } catch {
+    return defaults;
+  }
+};
+
+const persistBadgeTextVisibility = (visibility: BadgeTextVisibilityByTemplate) => {
+  if (typeof window === "undefined") return true;
+  try {
+    window.localStorage.setItem(BADGE_TEXT_VISIBILITY_STORAGE_KEY, JSON.stringify(visibility));
     return true;
   } catch {
     return false;
@@ -786,6 +843,232 @@ const getValueTone = (employee: EmployeeArchive, label: string, value: string | 
 
 const getInitial = (name: string) => name.slice(0, 1);
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+function loadCanvasImage(src: string) {
+  return new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.crossOrigin = "anonymous";
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("胸牌图片资源加载失败"));
+    image.src = src;
+  });
+}
+
+function roundedRectPath(
+  context: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  radius: number,
+) {
+  const safeRadius = Math.max(0, Math.min(radius, width / 2, height / 2));
+  context.beginPath();
+  context.moveTo(x + safeRadius, y);
+  context.lineTo(x + width - safeRadius, y);
+  context.quadraticCurveTo(x + width, y, x + width, y + safeRadius);
+  context.lineTo(x + width, y + height - safeRadius);
+  context.quadraticCurveTo(x + width, y + height, x + width - safeRadius, y + height);
+  context.lineTo(x + safeRadius, y + height);
+  context.quadraticCurveTo(x, y + height, x, y + height - safeRadius);
+  context.lineTo(x, y + safeRadius);
+  context.quadraticCurveTo(x, y, x + safeRadius, y);
+  context.closePath();
+}
+
+function drawCoverImage(
+  context: CanvasRenderingContext2D,
+  image: HTMLImageElement,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+) {
+  const scale = Math.max(width / image.naturalWidth, height / image.naturalHeight);
+  const sourceWidth = width / scale;
+  const sourceHeight = height / scale;
+  const sourceX = (image.naturalWidth - sourceWidth) / 2;
+  const sourceY = (image.naturalHeight - sourceHeight) / 2;
+  context.drawImage(image, sourceX, sourceY, sourceWidth, sourceHeight, x, y, width, height);
+}
+
+function drawDefaultBadgeAvatar(
+  context: CanvasRenderingContext2D,
+  employee: EmployeeArchive,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+) {
+  const isFemale = employee.gender === "女";
+  const gradient = context.createLinearGradient(x, y, x + width, y + height);
+  if (isFemale) {
+    gradient.addColorStop(0, "#fff7fb");
+    gradient.addColorStop(0.5, "#fce7f3");
+    gradient.addColorStop(1, "#dbeafe");
+  } else {
+    gradient.addColorStop(0, "#eff6ff");
+    gradient.addColorStop(0.5, "#e0f2fe");
+    gradient.addColorStop(1, "#f1f5f9");
+  }
+  context.fillStyle = gradient;
+  context.fillRect(x, y, width, height);
+
+  const centerX = x + width / 2;
+  context.fillStyle = isFemale ? "#fda4af" : "#334155";
+  context.beginPath();
+  context.ellipse(centerX, y + height * 0.38, width * 0.26, height * 0.3, 0, 0, Math.PI * 2);
+  context.fill();
+
+  context.fillStyle = "#f4c7b2";
+  context.beginPath();
+  context.ellipse(centerX, y + height * 0.45, width * 0.18, height * 0.18, 0, 0, Math.PI * 2);
+  context.fill();
+
+  context.fillStyle = isFemale ? "#e11d48" : "#2563eb";
+  context.beginPath();
+  context.ellipse(centerX, y + height * 0.94, width * 0.42, height * 0.3, 0, Math.PI, Math.PI * 2);
+  context.fill();
+
+  context.fillStyle = "#334155";
+  for (const eyeX of [centerX - width * 0.07, centerX + width * 0.07]) {
+    context.beginPath();
+    context.arc(eyeX, y + height * 0.44, Math.max(2, width * 0.012), 0, Math.PI * 2);
+    context.fill();
+  }
+  context.strokeStyle = "#fb7185";
+  context.lineWidth = Math.max(2, width * 0.012);
+  context.beginPath();
+  context.moveTo(centerX - width * 0.05, y + height * 0.53);
+  context.lineTo(centerX + width * 0.05, y + height * 0.53);
+  context.stroke();
+}
+
+function drawBadgeText(
+  context: CanvasRenderingContext2D,
+  text: string,
+  position: BadgeOverlayPosition,
+  options: { color: string; fontSize: number; minFontSize: number; weight: number },
+) {
+  const x = (position.left / 100) * BADGE_EXPORT_WIDTH;
+  const y = (position.top / 100) * BADGE_EXPORT_HEIGHT;
+  const width = (position.width / 100) * BADGE_EXPORT_WIDTH;
+  const height = (position.height / 100) * BADGE_EXPORT_HEIGHT;
+  let fontSize = options.fontSize;
+  context.save();
+  context.beginPath();
+  context.rect(x, y, width, height);
+  context.clip();
+  context.fillStyle = options.color;
+  context.textBaseline = "top";
+  while (fontSize > options.minFontSize) {
+    context.font = `${options.weight} ${fontSize}px "PingFang SC", "Microsoft YaHei", Arial, sans-serif`;
+    if (context.measureText(text).width <= width) break;
+    fontSize -= 1;
+  }
+  context.fillText(text, x, y);
+  context.restore();
+}
+
+async function renderBadgePng({
+  employee,
+  template,
+  positions,
+  avatarDraft,
+  textVisibility,
+}: {
+  employee: EmployeeArchive;
+  template: BadgeTemplate;
+  positions: BadgeOverlayPositions;
+  avatarDraft: BadgeAvatarDraft;
+  textVisibility: BadgeTextVisibility;
+}) {
+  const canvas = document.createElement("canvas");
+  canvas.width = BADGE_EXPORT_WIDTH;
+  canvas.height = BADGE_EXPORT_HEIGHT;
+  const context = canvas.getContext("2d");
+  if (!context) throw new Error("当前浏览器无法创建胸牌图片");
+
+  const templateImage = await loadCanvasImage(template.frontImage);
+  context.fillStyle = template.primary;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(templateImage, 0, 0, canvas.width, canvas.height);
+
+  const photo = positions.photo;
+  const photoX = (photo.left / 100) * canvas.width;
+  const photoY = (photo.top / 100) * canvas.height;
+  const photoWidth = (photo.width / 100) * canvas.width;
+  const photoHeight = (photo.height / 100) * canvas.height;
+  const frameRadius = (18 / 300) * canvas.width;
+  context.save();
+  roundedRectPath(context, photoX, photoY, photoWidth, photoHeight, frameRadius);
+  context.clip();
+
+  if (avatarDraft.dataUrl) {
+    const avatarImage = await loadCanvasImage(avatarDraft.dataUrl);
+    const imageWidth = photoWidth * (avatarDraft.imageWidth / 100);
+    const imageHeight = photoHeight * (avatarDraft.imageHeight / 100);
+    const centerX = photoX + photoWidth / 2 + imageWidth * (avatarDraft.offsetX / 100);
+    const centerY = photoY + photoHeight / 2 + imageHeight * (avatarDraft.offsetY / 100);
+    context.save();
+    context.translate(centerX, centerY);
+    context.rotate((avatarDraft.rotate * Math.PI) / 180);
+    roundedRectPath(
+      context,
+      -imageWidth / 2,
+      -imageHeight / 2,
+      imageWidth,
+      imageHeight,
+      (avatarDraft.radius / 300) * canvas.width,
+    );
+    context.clip();
+    drawCoverImage(context, avatarImage, -imageWidth / 2, -imageHeight / 2, imageWidth, imageHeight);
+    context.restore();
+  } else {
+    drawDefaultBadgeAvatar(context, employee, photoX, photoY, photoWidth, photoHeight);
+  }
+  context.restore();
+
+  const departmentEn = departmentEnglish[employee.department] ?? "Office";
+  if (textVisibility.name) {
+    drawBadgeText(context, employee.name, positions.name, { color: "#ffffff", fontSize: 40, minFontSize: 24, weight: 700 });
+  }
+  if (textVisibility.departmentCaption) {
+    drawBadgeText(context, "所属部门", positions.departmentCaption, { color: "rgba(255,255,255,0.72)", fontSize: 21, minFontSize: 14, weight: 600 });
+  }
+  if (textVisibility.department) {
+    drawBadgeText(context, departmentEn, positions.department, { color: "#ffffff", fontSize: 24, minFontSize: 14, weight: 600 });
+  }
+  if (textVisibility.title) {
+    drawBadgeText(context, employee.title, positions.title, { color: "rgba(255,255,255,0.92)", fontSize: 24, minFontSize: 14, weight: 600 });
+  }
+  if (textVisibility.employeeId) {
+    const idPosition = positions.employeeId;
+    const idX = (idPosition.left / 100) * canvas.width;
+    const idY = (idPosition.top / 100) * canvas.height;
+    const idWidth = (idPosition.width / 100) * canvas.width;
+    const idHeight = (idPosition.height / 100) * canvas.height;
+    context.fillStyle = "#ffffff";
+    context.fillRect(idX, idY, idWidth, idHeight);
+    drawBadgeText(context, getBadgeEmployeeId(employee), idPosition, { color: template.primary, fontSize: 29, minFontSize: 18, weight: 900 });
+  }
+
+  const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
+  if (!blob) throw new Error("胸牌图片生成失败");
+  return blob;
+}
+
+function downloadBadgeBlob(blob: Blob, employee: EmployeeArchive, template: BadgeTemplate) {
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const safeName = `${employee.name}-${template.name}`.replace(/[\\/:*?"<>|]/g, "_");
+  link.href = objectUrl;
+  link.download = `胸牌-${safeName}-${BADGE_EXPORT_WIDTH}x${BADGE_EXPORT_HEIGHT}.png`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+}
 
 const TABLE_HEADER_CLASS = "px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 whitespace-nowrap";
 const TABLE_CELL_CLASS = "px-5 py-3 align-middle text-sm text-slate-700";
@@ -942,6 +1225,7 @@ function BadgePreview({
   template,
   positions,
   avatarDraft,
+  textVisibility,
   isPositionEditing,
   isPositionConfirmed,
   onMovePosition,
@@ -951,6 +1235,7 @@ function BadgePreview({
   template: BadgeTemplate;
   positions: BadgeOverlayPositions;
   avatarDraft: BadgeAvatarDraft;
+  textVisibility: BadgeTextVisibility;
   isPositionEditing: boolean;
   isPositionConfirmed: boolean;
   onMovePosition: (key: BadgeOverlayKey, position: BadgeOverlayPosition) => void;
@@ -1071,6 +1356,7 @@ function BadgePreview({
     <div className={cn("mx-auto w-full", compact ? "max-w-[210px]" : "max-w-[300px]")}>
       <div
         ref={previewRef}
+        data-badge-preview={compact ? "compact" : "editor"}
         className="relative aspect-[154/245] w-full overflow-hidden rounded-[28px] shadow-[0_24px_54px_rgba(15,23,42,0.28)] ring-1 ring-slate-200"
         style={{ backgroundColor: template.primary }}
       >
@@ -1081,53 +1367,65 @@ function BadgePreview({
           draggable={false}
         />
 
-        <div
-          className={cn(movableClassName("name"), "text-white")}
-          style={overlayStyle("name")}
-          onPointerDown={(event) => startDrag(event, "name")}
-          onPointerMove={(event) => moveDrag(event, "name")}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
-        >
-          {editLabel("姓名")}
-          <div className="truncate text-[1.18rem] font-bold leading-tight tracking-wide">{employee.name}</div>
-        </div>
+        {textVisibility.name ? (
+          <div
+            data-badge-field="name"
+            className={cn(movableClassName("name"), "text-white")}
+            style={overlayStyle("name")}
+            onPointerDown={(event) => startDrag(event, "name")}
+            onPointerMove={(event) => moveDrag(event, "name")}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+          >
+            {editLabel("姓名")}
+            <div className="truncate text-[1.18rem] font-bold leading-tight tracking-wide">{employee.name}</div>
+          </div>
+        ) : null}
 
-        <div
-          className={cn(movableClassName("departmentCaption"), "text-white/70")}
-          style={overlayStyle("departmentCaption")}
-          onPointerDown={(event) => startDrag(event, "departmentCaption")}
-          onPointerMove={(event) => moveDrag(event, "departmentCaption")}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
-        >
-          {editLabel("标签")}
-          <div className="truncate text-[10px] font-semibold leading-none">所属部门</div>
-        </div>
+        {textVisibility.departmentCaption ? (
+          <div
+            data-badge-field="departmentCaption"
+            className={cn(movableClassName("departmentCaption"), "text-white/70")}
+            style={overlayStyle("departmentCaption")}
+            onPointerDown={(event) => startDrag(event, "departmentCaption")}
+            onPointerMove={(event) => moveDrag(event, "departmentCaption")}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+          >
+            {editLabel("标签")}
+            <div className="truncate text-[10px] font-semibold leading-none">所属部门</div>
+          </div>
+        ) : null}
 
-        <div
-          className={cn(movableClassName("department"), "text-white")}
-          style={overlayStyle("department")}
-          onPointerDown={(event) => startDrag(event, "department")}
-          onPointerMove={(event) => moveDrag(event, "department")}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
-        >
-          {editLabel("部门")}
-          <div className="truncate text-[11px] font-semibold leading-tight">{departmentEn}</div>
-        </div>
+        {textVisibility.department ? (
+          <div
+            data-badge-field="department"
+            className={cn(movableClassName("department"), "text-white")}
+            style={overlayStyle("department")}
+            onPointerDown={(event) => startDrag(event, "department")}
+            onPointerMove={(event) => moveDrag(event, "department")}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+          >
+            {editLabel("部门")}
+            <div className="truncate text-[11px] font-semibold leading-tight">{departmentEn}</div>
+          </div>
+        ) : null}
 
-        <div
-          className={cn(movableClassName("title"), "text-white/90")}
-          style={overlayStyle("title")}
-          onPointerDown={(event) => startDrag(event, "title")}
-          onPointerMove={(event) => moveDrag(event, "title")}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
-        >
-          {editLabel("职位")}
-          <div className="truncate text-[11px] font-semibold leading-tight">{employee.title}</div>
-        </div>
+        {textVisibility.title ? (
+          <div
+            data-badge-field="title"
+            className={cn(movableClassName("title"), "text-white/90")}
+            style={overlayStyle("title")}
+            onPointerDown={(event) => startDrag(event, "title")}
+            onPointerMove={(event) => moveDrag(event, "title")}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
+          >
+            {editLabel("职位")}
+            <div className="truncate text-[11px] font-semibold leading-tight">{employee.title}</div>
+          </div>
+        ) : null}
 
         <div
           className={cn(movableClassName("photo"), "flex items-center justify-center overflow-hidden rounded-[18px]")}
@@ -1173,23 +1471,26 @@ function BadgePreview({
           ) : null}
         </div>
 
-        <div
-          className={cn(movableClassName("employeeId"), "overflow-hidden")}
-          style={overlayStyle("employeeId")}
-          onPointerDown={(event) => startDrag(event, "employeeId")}
-          onPointerMove={(event) => moveDrag(event, "employeeId")}
-          onPointerUp={endDrag}
-          onPointerCancel={endDrag}
-        >
-          {editLabel("编号")}
-          <div className="absolute inset-0 bg-white" />
+        {textVisibility.employeeId ? (
           <div
-            className="absolute left-0 top-[7%] text-[0.86rem] font-black leading-none tracking-[0.08em]"
-            style={{ color: template.primary }}
+            data-badge-field="employeeId"
+            className={cn(movableClassName("employeeId"), "overflow-hidden")}
+            style={overlayStyle("employeeId")}
+            onPointerDown={(event) => startDrag(event, "employeeId")}
+            onPointerMove={(event) => moveDrag(event, "employeeId")}
+            onPointerUp={endDrag}
+            onPointerCancel={endDrag}
           >
-            {badgeId}
+            {editLabel("编号")}
+            <div className="absolute inset-0 bg-white" />
+            <div
+              className="absolute left-0 top-[7%] text-[0.86rem] font-black leading-none tracking-[0.08em]"
+              style={{ color: template.primary }}
+            >
+              {badgeId}
+            </div>
           </div>
-        </div>
+        ) : null}
       </div>
 
       <div className="mt-3 flex items-center justify-center gap-2 text-xs font-semibold text-slate-500">
@@ -1439,8 +1740,12 @@ export function EmployeeArchivePage() {
   const [badgeAvatarDrafts, setBadgeAvatarDrafts] = useState<Record<string, BadgeAvatarDraft>>(
     () => loadBadgeAvatarDrafts(),
   );
+  const [badgeTextVisibility, setBadgeTextVisibility] = useState<BadgeTextVisibilityByTemplate>(
+    () => loadBadgeTextVisibility(),
+  );
   const [isBadgePositionEditing, setIsBadgePositionEditing] = useState(false);
   const [isBadgeEditorOpen, setIsBadgeEditorOpen] = useState(false);
+  const [isBadgeExporting, setIsBadgeExporting] = useState(false);
   const [view, setView] = useState<"list" | "detail">("list");
   const [listPage, setListPage] = useState(1);
 
@@ -1513,6 +1818,10 @@ export function EmployeeArchivePage() {
   const activeBadgePositions = badgePositions[badgeTemplateKey];
   const isActiveBadgePositionConfirmed = badgePositionConfirmed[badgeTemplateKey];
   const activeBadgeAvatarDraft = badgeAvatarDrafts[selected.id] ?? createBadgeAvatarDraft();
+  const activeBadgeTextVisibility = badgeTextVisibility[badgeTemplateKey];
+  const visibleBadgeTextCount = badgeTextFieldOptions.filter(
+    (field) => activeBadgeTextVisibility[field.key],
+  ).length;
   const badgeRequirements = useMemo<BadgeRequirement[]>(
     () => {
       const departmentEn = departmentEnglish[selected.department];
@@ -1592,14 +1901,21 @@ export function EmployeeArchivePage() {
         },
         {
           label: "导出设置",
-          value: "待接入打印导出 / 出血边距",
-          status: "warning",
+          value: `PNG · ${BADGE_EXPORT_WIDTH} x ${BADGE_EXPORT_HEIGHT}`,
+          status: "ready",
           required: false,
-          helper: "正式打印前建议补齐",
+          helper: `按当前预览导出，显示 ${visibleBadgeTextCount}/${badgeTextFieldOptions.length} 个文本字段`,
         },
       ];
     },
-    [activeBadgeAvatarDraft, activeBadgeTemplate, badgeEmployeeId, isActiveBadgePositionConfirmed, selected],
+    [
+      activeBadgeAvatarDraft,
+      activeBadgeTemplate,
+      badgeEmployeeId,
+      isActiveBadgePositionConfirmed,
+      selected,
+      visibleBadgeTextCount,
+    ],
   );
   const requiredBadgeItems = badgeRequirements.filter((item) => item.required);
   const badgeBlockingItems = requiredBadgeItems.filter((item) => item.status === "missing");
@@ -1652,6 +1968,20 @@ export function EmployeeArchivePage() {
       },
     }));
     setBadgePositionConfirmed((current) => ({ ...current, [badgeTemplateKey]: false }));
+  };
+
+  const toggleBadgeTextVisibility = (fieldKey: BadgeTextFieldKey) => {
+    const nextVisibility: BadgeTextVisibilityByTemplate = {
+      ...badgeTextVisibility,
+      [badgeTemplateKey]: {
+        ...activeBadgeTextVisibility,
+        [fieldKey]: !activeBadgeTextVisibility[fieldKey],
+      },
+    };
+    setBadgeTextVisibility(nextVisibility);
+    if (!persistBadgeTextVisibility(nextVisibility)) {
+      toast.error("文本显示设置保存失败");
+    }
   };
 
   const resetBadgePositions = () => {
@@ -1748,24 +2078,24 @@ export function EmployeeArchivePage() {
     toast.success("头像草稿已保存到本地，后续保存时再上传 OSS");
   };
 
-  const handleGenerateBadgePrint = () => {
-    if (isBadgePositionEditing) {
-      toast.warning("请先确认当前胸牌元素位置");
-      return;
+  const handleExportBadgeImage = async () => {
+    if (isBadgeExporting) return;
+    setIsBadgeExporting(true);
+    try {
+      const blob = await renderBadgePng({
+        employee: selected,
+        template: activeBadgeTemplate,
+        positions: activeBadgePositions,
+        avatarDraft: activeBadgeAvatarDraft,
+        textVisibility: activeBadgeTextVisibility,
+      });
+      downloadBadgeBlob(blob, selected, activeBadgeTemplate);
+      toast.success(`胸牌 PNG 已导出（${BADGE_EXPORT_WIDTH} × ${BADGE_EXPORT_HEIGHT}）`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "胸牌图片导出失败，请重试");
+    } finally {
+      setIsBadgeExporting(false);
     }
-    if (!isActiveBadgePositionConfirmed) {
-      toast.warning("请先点击确认位置，固定当前胸牌排版");
-      return;
-    }
-    if (badgeBlockingItems.length > 0) {
-      toast.warning(`请先补齐：${badgeBlockingItems.map((item) => item.label).join("、")}`);
-      return;
-    }
-    if (activeBadgeAvatarDraft.dataUrl && !activeBadgeAvatarDraft.savedLocal) {
-      toast.warning("请先保存头像到本地草稿");
-      return;
-    }
-    toast.success("胸牌打印稿已生成（模拟）");
   };
 
   const removeBadgeAvatarDraft = () => {
@@ -2286,6 +2616,7 @@ export function EmployeeArchivePage() {
                     template={activeBadgeTemplate}
                     positions={activeBadgePositions}
                     avatarDraft={activeBadgeAvatarDraft}
+                    textVisibility={activeBadgeTextVisibility}
                     isPositionEditing={false}
                     isPositionConfirmed={isActiveBadgePositionConfirmed}
                     onMovePosition={updateBadgePosition}
@@ -2311,14 +2642,25 @@ export function EmployeeArchivePage() {
                     );
                   })}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setIsBadgeEditorOpen(true)}
-                  className="material-button-primary mt-3 w-full justify-center"
-                >
-                  <CreditCard className="h-4 w-4" />
-                  编辑胸牌
-                </button>
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleExportBadgeImage()}
+                    disabled={isBadgeExporting}
+                    className="material-button-secondary justify-center disabled:cursor-wait disabled:opacity-60"
+                  >
+                    {isBadgeExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                    {isBadgeExporting ? "导出中" : "导出图片"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setIsBadgeEditorOpen(true)}
+                    className="material-button-primary justify-center"
+                  >
+                    <CreditCard className="h-4 w-4" />
+                    编辑胸牌
+                  </button>
+                </div>
               </section>
             </aside>
           </div>
@@ -2381,11 +2723,47 @@ export function EmployeeArchivePage() {
                       </ActionIconButton>
                     </div>
 
+                    <div className="mb-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">文本显示</p>
+                          <p className="mt-0.5 text-xs text-slate-500">控制当前模板导出的文字内容</p>
+                        </div>
+                        <span aria-live="polite" className="material-chip bg-blue-50 text-blue-700">
+                          {visibleBadgeTextCount}/{badgeTextFieldOptions.length}
+                        </span>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        {badgeTextFieldOptions.map((field) => {
+                          const visible = activeBadgeTextVisibility[field.key];
+                          return (
+                            <button
+                              key={field.key}
+                              type="button"
+                              aria-pressed={visible}
+                              data-badge-visibility-toggle={field.key}
+                              onClick={() => toggleBadgeTextVisibility(field.key)}
+                              className={cn(
+                                "flex min-w-0 cursor-pointer items-center gap-2 rounded-lg border px-2.5 py-2 text-left text-xs font-semibold transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2",
+                                visible
+                                  ? "border-blue-200 bg-blue-50 text-blue-700 hover:bg-blue-100"
+                                  : "border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100",
+                              )}
+                            >
+                              {visible ? <Eye className="h-3.5 w-3.5 shrink-0" /> : <EyeOff className="h-3.5 w-3.5 shrink-0" />}
+                              <span className="truncate">{field.label}</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
                     <BadgePreview
                       employee={selected}
                       template={activeBadgeTemplate}
                       positions={activeBadgePositions}
                       avatarDraft={activeBadgeAvatarDraft}
+                      textVisibility={activeBadgeTextVisibility}
                       isPositionEditing={isBadgePositionEditing}
                       isPositionConfirmed={isActiveBadgePositionConfirmed}
                       onMovePosition={updateBadgePosition}
@@ -2487,9 +2865,14 @@ export function EmployeeArchivePage() {
                           })}
                         </div>
 
-                        <button type="button" onClick={handleGenerateBadgePrint} className="material-button-primary w-full justify-center">
-                          <Printer className="h-4 w-4" />
-                          生成打印稿
+                        <button
+                          type="button"
+                          onClick={() => void handleExportBadgeImage()}
+                          disabled={isBadgeExporting}
+                          className="material-button-primary w-full justify-center disabled:cursor-wait disabled:opacity-60"
+                        >
+                          {isBadgeExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                          {isBadgeExporting ? "正在生成 PNG" : "导出胸牌 PNG"}
                         </button>
                       </div>
                     </div>
