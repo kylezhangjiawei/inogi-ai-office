@@ -661,6 +661,8 @@ export class ChatService {
           fullContent += delta;
           if (!deltaSuppressed && fullContent.includes(FILE_EXPORT_MARKER)) {
             deltaSuppressed = true;
+            // 抑制期 + 后续修复/渲染/上传可达数十秒，推保活事件防网关空闲超时掐断 SSE
+            send({ type: 'file_generating' });
           }
           if (!deltaSuppressed) send({ type: 'delta', delta });
         }
@@ -714,14 +716,21 @@ export class ChatService {
         if (spec) {
           try {
             const file = await this.fileExportService.render(spec);
-            const stored = await this.fileExportService.persist(userId, file);
+            const stored = await this.fileExportService.persist(userId, file, conversationId);
             generatedAtts = [stored];
           } catch (err) {
-            fullContent += `\n\n（文件生成失败：${err instanceof Error ? err.message : '未知错误'}，请调整要求后重试）`;
+            // 原始错误只进日志：OSS/DB 错误串含内部细节（endpoint/bucket/表结构），不入对话
+            this.logger.warn(`文件生成失败: ${err instanceof Error ? err.message : err}`);
+            fullContent += '\n\n（文件生成失败，请稍后重试或减少数据量）';
           }
         } else {
           fullContent += '\n\n（文件生成失败：数据格式有误，请重新发送要求再试一次）';
         }
+      } else if (fullContent.includes(FILE_EXPORT_MARKER)) {
+        // 输出被截断（finish_reason=length/断流）导致协议块没有闭合围栏：剁掉残缺 JSON，绝不裸露
+        fullContent =
+          fullContent.slice(0, fullContent.indexOf(FILE_EXPORT_MARKER)).trimEnd() +
+          '\n\n（文件数据输出被截断，生成失败——请减少数据量或让我重新生成）';
       }
       // 流式期间块被抑制（或开头字符已泄漏半行）：用最终正文覆盖前端显示
       if (deltaSuppressed || exported) {
@@ -785,7 +794,11 @@ export class ChatService {
     }
   }
 
-  /** 把窗口外未覆盖的溢出消息合并进滚动摘要（每次最多消化 60 条，滞后一轮无妨）。 */
+  /**
+   * 把窗口外未覆盖的溢出消息合并进滚动摘要（每次最多消化 60 条，滞后一轮无妨）。
+   * 用时间锚点（coveredUntil）而非条数偏移定位：用户"重新生成"会真删历史消息，
+   * offset 分页在删除后会永久跳过前移进 skip 范围的消息（漏摘要），时间锚点不受影响。
+   */
   private async updateConvMemory(
     conversationId: string,
     client: OpenAI,
@@ -794,19 +807,30 @@ export class ChatService {
     totalNow: number,
   ): Promise<void> {
     const kv = await this.readMemoryKv();
-    const entry = (kv[conversationId] ?? { summary: '', coveredCount: 0 }) as {
+    const entry = (kv[conversationId] ?? { summary: '', coveredUntil: '' }) as {
       summary: string;
-      coveredCount: number;
+      coveredUntil?: string;
     };
-    const overflow = totalNow - ChatService.HISTORY_WINDOW;
-    if (overflow <= (entry.coveredCount ?? 0)) return;
-    const take = Math.min(overflow - (entry.coveredCount ?? 0), 60);
-    const msgs = await this.prisma.chatMessage.findMany({
+    // 只摘要"滑出窗口"的消息：取最新 WINDOW 条中最早一条的时间做窗口下界
+    const windowEdge = await this.prisma.chatMessage.findMany({
       where: { conversationId },
-      orderBy: { createdAt: 'asc' },
-      skip: entry.coveredCount ?? 0,
-      take,
-      select: { role: true, content: true },
+      orderBy: { createdAt: 'desc' },
+      take: ChatService.HISTORY_WINDOW,
+      select: { createdAt: true },
+    });
+    const edgeAt = windowEdge[windowEdge.length - 1]?.createdAt;
+    if (!edgeAt || totalNow <= ChatService.HISTORY_WINDOW) return;
+    const msgs = await this.prisma.chatMessage.findMany({
+      where: {
+        conversationId,
+        createdAt: {
+          lt: edgeAt,
+          ...(entry.coveredUntil ? { gt: new Date(entry.coveredUntil) } : {}),
+        },
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: 60,
+      select: { role: true, content: true, createdAt: true },
     });
     if (msgs.length === 0) return;
     const transcript = msgs
@@ -833,8 +857,8 @@ export class ChatService {
     if (!summary) return;
     // 重读合并后写回（并发丢一次更新可接受）；FIFO 淘汰最旧会话防 KV 膨胀
     const latest = await this.readMemoryKv();
-    const nextCovered = (entry.coveredCount ?? 0) + msgs.length;
-    latest[conversationId] = { summary, coveredCount: nextCovered, at: new Date().toISOString() };
+    const nextCovered = msgs[msgs.length - 1].createdAt.toISOString();
+    latest[conversationId] = { summary, coveredUntil: nextCovered, at: new Date().toISOString() };
     const keys = Object.keys(latest);
     if (keys.length > ChatService.CONV_MEMORY_MAX) {
       keys
@@ -856,7 +880,7 @@ export class ChatService {
       },
       update: { value: latest as unknown as Prisma.InputJsonValue },
     });
-    this.logger.debug(`会话摘要已更新(${conversationId})：覆盖 ${nextCovered} 条`);
+    this.logger.debug(`会话摘要已更新(${conversationId})：覆盖至 ${nextCovered}`);
   }
 
   private async readMemoryKv(): Promise<Record<string, unknown>> {
@@ -1046,11 +1070,11 @@ export class ChatService {
   ): Promise<string> {
     const text = (content ?? '').trim();
     if (!text || historyMessages.length === 0) return content;
+    // 只对短句或含强指代词的问题触发（"还有/继续"这类弱信号会误伤自足长问题，已收紧）
     const referential =
       text.length <= 12 ||
-      /它|他们|这个|那个|这些|那些|上面|刚才|之前|上述|第[一二三四五六七八九十\d]+[条项个]|还有|继续|再说|呢[?？]?$/.test(
-        text,
-      );
+      (text.length <= 30 &&
+        /它|他们|这个|那个|这些|那些|上面|刚才|上述|第[一二三四五六七八九十\d]+[条项个]/.test(text));
     if (!referential) return content;
 
     const recent = historyMessages

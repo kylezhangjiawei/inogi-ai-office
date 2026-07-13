@@ -486,6 +486,12 @@ function PriorityPill({ priority, aiPriority }: { priority: Priority; aiPriority
   );
 }
 
+/** 只翻译系统占位名（待指派等），真人名原样返回——防止人名恰好撞上字典 key 被误翻（如单字名「高」→High）。 */
+export function displayPersonName(name: string): string {
+  const raw = name ?? "";
+  return /^待指派$|^未指派$|^外部机构$|已离职/.test(raw) ? t(raw) : raw;
+}
+
 export function OwnerAvatar({
   name,
   size = "sm",
@@ -503,7 +509,7 @@ export function OwnerAvatar({
   useEffect(() => { setImgFailed(false); }, [avatarUrl]);
 
   // 系统占位名（待指派等）走字典翻译后再取首字，英文态头像显示 "U" 而非 "待"
-  const initial = t(name).replace(/\(.+?\)/g, "").trim().slice(0, 1) || "?";
+  const initial = displayPersonName(name).replace(/\(.+?\)/g, "").trim().slice(0, 1) || "?";
   const dim = size === "xs" ? "h-5 w-5" : "h-6 w-6";
   const textSize = size === "xs" ? "text-[10px]" : "text-xs";
 
@@ -786,6 +792,7 @@ function TaskItem({
     dleft <= 2 &&
     task.status !== "completed" &&
     task.status !== "paused_leave";
+  useI18n(); // 状态徽标/标题等经 t()，须订阅语言切换
   const hasSubtasks = !!task.subtasks && task.subtasks.length > 0;
   const attention = taskNeedsAttention(task);
   const [expanded, setExpanded] = useState(depth === 0 && hasSubtasks && attention);
@@ -1190,6 +1197,7 @@ function SubtaskCardRow({
 }
 
 function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
+  useI18n();
   const hasSubtasks = Boolean(task.subtasks?.length);
   const attention = taskNeedsAttention(task);
   const [expanded, setExpanded] = useState(attention && hasSubtasks);
@@ -1372,6 +1380,7 @@ function SubProjectSection({
   dueFilter: TaskDueFilter;
   onOpen: (t: Task) => void;
 }) {
+  useI18n();
   const [open, setOpen] = useState(true);
   const filteredTasks = useMemo(
     () => sub.tasks.filter((t) => taskMatches(t, keyword, statusFilter, priorityFilter, dueFilter)),
@@ -4073,7 +4082,8 @@ export async function downloadUsCollabTaskReport(
   const tr = async (text: string | null | undefined): Promise<string> => {
     const raw = (text ?? "").trim();
     if (!raw || !isEn) return raw;
-    return (await fetchContentTranslation(raw)) ?? raw;
+    // 30s 上限：超时计时含 4 并发队列排队时间，留痕多的报告排队较长（超时静默回退原文）
+    return (await fetchContentTranslation(raw, 30_000)) ?? raw;
   };
   if (isEn) toast.info(t("正在生成报告，动态内容翻译中…"));
 
@@ -4104,7 +4114,7 @@ export async function downloadUsCollabTaskReport(
         : "";
       return `<tr>
         <td style="white-space:nowrap;vertical-align:top;color:#64748b;">${fmtTime(log.timestamp)}</td>
-        <td style="white-space:nowrap;vertical-align:top;">${esc(t(log.actor?.name ?? ""))}</td>
+        <td style="white-space:nowrap;vertical-align:top;">${esc(displayPersonName(log.actor?.name ?? ""))}</td>
         <td>${esc(trComments[i])}${attachments}</td>
       </tr>`;
     })
@@ -4122,7 +4132,7 @@ export async function downloadUsCollabTaskReport(
 <h2>${t("任务概要")}</h2>
 <table>
 <tr><th>${t("状态")}</th><td>${esc(statusLabel)}${blockedDays != null ? `（${t("已阻塞 {n} 天", { n: blockedDays })}）` : ""}</td><th>${t("进度")}</th><td>${task.progress}%</td></tr>
-<tr><th>${t("主责人")}</th><td>${esc(t(task.primary_owner))}</td><th>${t("优先级")}</th><td>${esc(t(PRIORITY_CONFIG[task.final_priority]?.label ?? task.final_priority))}</td></tr>
+<tr><th>${t("主责人")}</th><td>${esc(displayPersonName(task.primary_owner))}</td><th>${t("优先级")}</th><td>${esc(t(PRIORITY_CONFIG[task.final_priority]?.label ?? task.final_priority))}</td></tr>
 <tr><th>${t("协作人")}</th><td>${esc((task.collaborators ?? []).map((c) => c.name).join("、") || "—")}</td><th>${t("截止日期")}</th><td>${esc(task.due_date || "—")}</td></tr>
 </table>
 ${trDescription ? `<h2>${t("任务描述")}</h2><p>${esc(trDescription).replace(/\n/g, "<br/>")}</p>` : ""}
@@ -4355,6 +4365,7 @@ function TaskDetailDrawer({
   onMoveTask?: () => void;
   people?: PersonProfile[];
 }) {
+  useI18n();
   const RD_ADMIN_AUDIT_ACTOR = useAuditActor("研发管理员");
   const shouldReduceMotion = useReducedMotion();
   const navigate = useNavigate();
@@ -6952,6 +6963,7 @@ function TasksByPartSection({
   sub: SubProject | null;
   onOpen: (t: Task) => void;
 }) {
+  useI18n();
   const [keyword, setKeyword] = useState("");
   const [statusFilter, setStatusFilter] = useState<TaskStatus | "all">("all");
   const [priorityFilter, setPriorityFilter] = useState<Priority | "all">("all");
@@ -8744,7 +8756,7 @@ function PersonTaskCockpit({
               <>
                 <span className="inline-flex items-center gap-1.5">
                   <OwnerAvatar name={task.primary_owner} userId={task.primary_owner_user_id} size="xs" />
-                  <span className="font-medium text-slate-700">{t(task.primary_owner)}</span>
+                  <span className="font-medium text-slate-700">{displayPersonName(task.primary_owner)}</span>
                 </span>
                 <span className="text-slate-300">·</span>
               </>
@@ -11052,6 +11064,7 @@ function TaskCompletedCelebration({ task, onClose }: { task: Task; onClose: () =
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSystemPanorama?: boolean } = {}) {
+  useI18n(); // 根组件订阅：切语言带动整棵任务树重渲染
   const shouldReduceMotion = useReducedMotion();
   const location = useLocation();
   const navigate = useNavigate();

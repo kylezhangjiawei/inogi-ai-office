@@ -214,6 +214,18 @@ export class RagService {
     return { deleted: result.count };
   }
 
+  /** 按 metadata.task_id 清理某任务关联的全部 chunks（任务硬删除时清任务+留痕索引） */
+  async removeChunksForTask(sourceIdPrefix: string, taskId: string): Promise<{ deleted: number }> {
+    const result = await this.prisma.knowledgeChunk.deleteMany({
+      where: {
+        sourceType: { in: ['rd_task', 'rd_progress_note'] },
+        sourceId: { startsWith: sourceIdPrefix },
+        metadata: { path: ['task_id'], equals: taskId },
+      },
+    });
+    return { deleted: result.count };
+  }
+
   /** 按 sourceId 前缀批量清理（任务池全量重建前清空该池旧 chunks） */
   async removeChunksBySourcePrefix(
     sourceTypes: RagSourceType[],
@@ -425,9 +437,10 @@ export class RagService {
     // 1. 超管直通
     if (user.permissions?.includes(SUPER_ADMIN_PERMISSION)) return true;
 
-    // 2. 私聊 / 显式可见列表
+    // 2. 私聊 / 显式可见列表：非空时用户必须在列表内。注意命中只是"过了这一关"，
+    //    不短路后续门槛——否则未来某 producer 同时写白名单+页面码时，白名单会静默变成"绕过页面码"
     if (Array.isArray(meta.visible_user_ids) && meta.visible_user_ids.length > 0) {
-      return meta.visible_user_ids.includes(user.userId);
+      if (!meta.visible_user_ids.includes(user.userId)) return false;
     }
 
     // 2.5 权限码门槛（部门库页面码 / 任务池页面码）：非空时须命中任意一个

@@ -2394,7 +2394,7 @@ function NotificationDrawer({
   return (
     <DrawerShell
       title={notification.title}
-      subtitle={`${notification.time} / 通知处理`}
+      subtitle={`${relativeTimeLabel((notification as { created_at?: string }).created_at, notification.time)} / ${t("通知处理")}`}
       icon={Bell}
       onClose={onClose}
     >

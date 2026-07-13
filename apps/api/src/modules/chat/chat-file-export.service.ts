@@ -91,10 +91,13 @@ export class ChatFileExportService {
   async persist(
     userId: string,
     file: { buffer: Buffer; filename: string; mime: string },
+    conversationId?: string,
   ): Promise<StoredChatAttachment> {
+    // 专属 businessType：这是聊天历史的永久附件，不能与 uploads-temp（待清理语义）混池——
+    // 将来任何按 temp 前缀做的清理/OSS 生命周期规则都会把历史消息附件打成 404
     const objectKey = await this.oss.uploadBuffer(
       file.buffer,
-      'uploads-temp',
+      'chat-generated',
       file.filename,
       file.mime,
     );
@@ -107,8 +110,8 @@ export class ChatFileExportService {
         mimeType: file.mime,
         fileSize: file.buffer.length,
         fileHash: createHash('sha256').update(file.buffer).digest('hex'),
-        businessType: 'uploads-temp',
-        businessId: null,
+        businessType: 'chat-generated',
+        businessId: conversationId ?? null,
         uploadedBy: userId,
         status: 'active',
       },
@@ -214,7 +217,8 @@ export class ChatFileExportService {
   private safeFilename(raw: string, ext: string, fallback: string): string {
     const base = String(raw ?? '')
       .replace(/\.[a-z0-9]+$/i, '')
-      .replace(/[\\/:*?"<>|\r\n]/g, ' ')
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\\/:*?"<>|\x00-\x1f]/g, ' ')
       .trim()
       .slice(0, 80);
     return `${base || fallback}${ext}`;

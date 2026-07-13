@@ -4,7 +4,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { OcrService } from '../ocr/ocr.service';
 import { OssService } from '../oss/oss.service';
 import { RagService } from '../rag/rag.service';
-import { DEPT_KBS, DEPT_KB_DEFAULT_CATEGORIES, deptKbPageCode } from './dept-knowledge.constants';
+import { DEPT_KBS, DEPT_KB_DEFAULT_CATEGORIES, LEVEL_FILTERED_DEPT_KB_IDS, deptKbPageCode } from './dept-knowledge.constants';
 import { RdAiService } from './rd-ai.service';
 import { RD_WORKSPACE_IDS, WORKSPACE_PAGE_CODES, currentRdWorkspace, resolveRdStoreKey, runInRdWorkspace } from './rd-workspace.context';
 
@@ -899,9 +899,14 @@ export class ResearchDevelopmentService {
         ? Math.max(0, Math.min(100, Math.round(entry.permission_level)))
         : ResearchDevelopmentService.visibilityToLevel(entry.visibility as string | undefined);
 
-      // 部门/协同库：页面码做检索隔离硬门槛（没有进库资格就检索不到）；
-      // 分值过滤库（us-collab/purchasing）的库内成员分值表检索侧拿不到，permission_level
-      // 对用户全局 kbLevel 判定是"偏严"近似——未配全局分值的用户看不到带分值条目，不会泄露。
+      // 分值过滤库（us-collab/purchasing）：库内成员分值表（deptkb.{id}.memberLevels）检索侧
+      // 拿不到，若用全局 kbLevel 近似判定，"有页面码+全局分值高、但库内未授权"的用户会越权
+      // 检索到受限条目 → 受限条目（permission_level>0）一律不入向量索引，只索引完全公开的。
+      if (kbId && LEVEL_FILTERED_DEPT_KB_IDS.has(kbId) && permissionLevel > 0) {
+        await this.ragService.removeChunksForSource('kb', id);
+        return;
+      }
+      // 部门/协同库：页面码做检索隔离硬门槛（没有进库资格就检索不到）。
       const entryUrl = kbId
         ? kbId === 'us-collab'
           ? `/us-collab-kb?entry=${encodeURIComponent(id)}`
@@ -1057,7 +1062,9 @@ export class ResearchDevelopmentService {
           }
         }
         const noteMap = await this.getProgressNoteMap();
+        const aliveTaskIds = new Set(taskIds); // 已删/已归档任务的残留留痕不重建（noteMap 不随删除清理）
         for (const [taskId, notes] of Object.entries(noteMap)) {
+          if (!aliveTaskIds.has(taskId)) continue;
           for (const note of asArray(notes)) {
             if (!isRecord(note)) continue;
             try {
@@ -2554,6 +2561,15 @@ export class ResearchDevelopmentService {
     });
 
     if (!found) throw new NotFoundException('任务不存在');
+    // 连带清理向量索引：任务与其全部进展留痕的 chunks（否则已删任务仍可被 AI 检索到）
+    {
+      const workspace = currentRdWorkspace();
+      for (const removedId of removedTaskIds) {
+        void this.ragService.removeChunksForTask(`${workspace}:`, removedId).catch((err) => {
+          this.logger.warn(`[RAG] 删除任务清理 chunks 失败(${removedId}): ${err instanceof Error ? err.message : err}`);
+        });
+      }
+    }
     // 连带清理：删除任务（含子任务）后，把它们关联的"待审核"通知标记为已处理，
     // 避免管理员收件箱残留指向已删任务的孤儿待审核卡片（清理立项脏数据时常见）。
     for (const removedId of removedTaskIds) {
@@ -2750,6 +2766,9 @@ export class ResearchDevelopmentService {
 
     await this.notifyTaskMerged(source, target, initiator).catch(() => {});
     await this.recomputeDirectorDashboard();
+    // 向量索引：源任务已归档（syncTaskToRag 内部转删除）、目标任务字段/留痕已变（刷新）
+    void this.syncTaskToRag(sourceId);
+    void this.syncTaskToRag(targetId);
   }
 
   /** 合并后通知：源任务负责人/协作人 + 目标任务原负责人（主责已换为发起人，原负责人需知悉）。 */

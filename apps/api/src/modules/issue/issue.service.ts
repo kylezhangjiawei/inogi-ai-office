@@ -332,6 +332,8 @@ export class IssueService {
           source: row.source,
           ...(row.product ? { product: row.product } : {}),
           severity: row.severity,
+          // 检索门槛：与页面访问同口径——没有问题模块页面码的用户不应通过 AI 检索到问题库内容
+          required_any_permissions: ['page:issue-ai'],
         },
       });
     } catch (e) {

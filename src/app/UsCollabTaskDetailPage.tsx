@@ -42,6 +42,7 @@ import {
   AddCollaboratorsDialog,
   CompleteConfirmDialog,
   ApprovalActionDialog,
+  displayPersonName,
   downloadUsCollabTaskReport,
   flattenTasks,
   OwnerAvatar,
@@ -750,7 +751,7 @@ export default function UsCollabTaskDetailPage() {
               title={`查看 ${task.primary_owner} 名下的任务`}
             >
               <OwnerAvatar name={task.primary_owner} userId={task.primary_owner_user_id} size="sm" />
-              <span className="text-sm font-medium text-slate-800">{t(task.primary_owner)}</span>
+              <span className="text-sm font-medium text-slate-800">{displayPersonName(task.primary_owner)}</span>
               <LocalClock name={task.primary_owner} />
             </button>
             {(task.collaborators ?? []).length > 0 && (
