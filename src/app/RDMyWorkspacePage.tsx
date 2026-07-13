@@ -3650,7 +3650,9 @@ export function RDMyWorkspacePage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             {/* Left group: title + date + stat chips */}
             <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h1 className="text-base font-semibold text-slate-950 shrink-0">{t("个人工作台")}</h1>
+              <h1 className="text-base font-semibold text-slate-950 shrink-0">
+                {t(isUsCollabWorkspace() ? "协同工作台" : "个人工作台")}
+              </h1>
               <span className="text-xs text-slate-400 shrink-0">{t("今日")} {TODAY_LABEL}</span>
               {/* Stat chips — always shown */}
               <span className="rounded-full bg-indigo-50 px-2.5 py-0.5 text-xs font-semibold text-indigo-700">

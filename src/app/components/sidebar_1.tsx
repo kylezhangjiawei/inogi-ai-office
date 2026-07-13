@@ -11,7 +11,7 @@ import { cn } from "./ui/utils";
 import logo from '../../assets/logo.png'
 
 export function Sidebar() {
-  useI18n(); // 订阅语言切换（菜单 label 走 t()，中文即 key 全站菜单一处生效）
+  const { lang } = useI18n(); // 订阅语言切换（菜单 label 走 t()，中文即 key 全站菜单一处生效）
   const { user } = useAuth();
   const { immersive, sidebarCollapsed: collapsed } = useLayoutChromeState();
   const { toggleSidebar } = useLayoutChromeActions();
@@ -156,8 +156,12 @@ export function Sidebar() {
         <button
           type="button"
           onClick={toggleSidebar}
-          aria-label={collapsed ? "展开侧边栏" : "收起侧边栏"}
-          title={collapsed ? "展开侧边栏" : "收起侧边栏"}
+          aria-label={collapsed
+            ? (lang === "en" ? "Expand sidebar" : "展开侧边栏")
+            : (lang === "en" ? "Collapse sidebar" : "收起侧边栏")}
+          title={collapsed
+            ? (lang === "en" ? "Expand sidebar" : "展开侧边栏")
+            : (lang === "en" ? "Collapse sidebar" : "收起侧边栏")}
           className="group absolute -right-3 top-1/2 z-40 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full border border-slate-200 bg-white text-slate-400 shadow-[0_2px_10px_rgba(15,23,42,0.12)] transition-all duration-200 hover:scale-105 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-600 hover:shadow-[0_4px_14px_rgba(79,70,229,0.28)] active:scale-90"
         >
           {collapsed ? (

@@ -518,8 +518,8 @@ export function OwnerAvatar({
     return (
       <img
         src={avatarUrl}
-        alt={name}
-        title={name}
+        alt={displayName}
+        title={displayName}
         loading="lazy"
         onError={() => setImgFailed(true)}
         className={cn("inline-block shrink-0 rounded-full object-cover ring-2 ring-white", dim)}
@@ -535,7 +535,7 @@ export function OwnerAvatar({
         textSize,
         hashColor(name),
       )}
-      title={name}
+      title={displayName}
     >
       {initial}
     </span>
@@ -9635,7 +9635,10 @@ function TaskReassignModal({
 
 // ─── ClearDataDialog ──────────────────────────────────────────────────────────
 function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleared: () => void }) {
-  const AUDIT_ACTOR = useAuditActor("研发管理员");
+  const usCollab = isUsCollabWorkspace();
+  const moduleName = usCollab ? "协同任务模块" : "研发任务模块";
+  const workspaceName = usCollab ? "协同" : "研发";
+  const AUDIT_ACTOR = useAuditActor(usCollab ? "协同管理员" : "研发管理员");
   const shouldReduceMotion = useReducedMotion();
   const [confirmText, setConfirmText] = useState("");
   const [clearing, setClearing] = useState(false);
@@ -9672,11 +9675,11 @@ function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleare
       recordAudit({
         actor: AUDIT_ACTOR,
         action: "task.data.cleared",
-        resource: { type: "system", id: "rd-task-data", name: "研发任务模块数据" },
-        comment: "清空研发任务模块全部数据",
+        resource: { type: "system", id: usCollab ? "us-collab-task-data" : "rd-task-data", name: `${moduleName}数据` },
+        comment: `清空${moduleName}全部数据`,
         source: "web",
       });
-      toast.success("研发任务模块数据已全部清空");
+      toast.success(`${moduleName}数据已全部清空`);
       onCleared();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "清空失败");
@@ -9701,13 +9704,16 @@ function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleare
         transition={RD_PANEL_TRANSITION}
         className="w-full max-w-md rounded-2xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="clear-task-data-title"
       >
         <div className="flex items-center gap-3 border-b border-red-100 bg-red-50/60 px-6 py-4">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-red-100">
             <Trash2 className="h-5 w-5 text-red-600" />
           </div>
           <div>
-            <div className="font-semibold text-red-800">清空研发任务模块数据</div>
+            <div id="clear-task-data-title" className="font-semibold text-red-800">清空{moduleName}数据</div>
             <div className="text-xs text-red-600">此操作不可恢复，需拥有数据清空权限</div>
           </div>
         </div>
@@ -9715,17 +9721,20 @@ function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleare
           <div className="rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-red-700 leading-relaxed">
             <p className="font-semibold mb-1">将被清空的数据：</p>
             <ul className="list-disc pl-4 space-y-0.5 text-xs">
-              <li>所有研发任务分类、子项目及任务</li>
-              <li>个人工作台任务数据</li>
-              <li>驾驶舱看板数据（分类进度、人员负载）</li>
+              <li>所有{workspaceName}任务分类、子项目及任务</li>
+              <li>{workspaceName}工作台任务数据与进展留痕</li>
+              <li>{workspaceName}驾驶舱看板、日报与立项草稿</li>
             </ul>
-            <p className="mt-2 text-xs text-red-500">注：人员档案、审批流、AI 策略、操作留痕不受影响。</p>
+            <p className="mt-2 text-xs text-red-500">
+              注：消息历史保留，相关审核待办会自动标记为已处理；人员档案、审批流、AI 策略和操作审计日志不受影响。
+            </p>
           </div>
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-700">
+            <label htmlFor="clear-task-data-confirm" className="mb-1.5 block text-sm font-medium text-slate-700">
               请输入「<span className="font-bold text-red-600">{KEYWORD}</span>」以继续
             </label>
             <Input
+              id="clear-task-data-confirm"
               type="text"
               value={confirmText}
               onChange={(e) => setConfirmText(e.target.value)}
@@ -11068,8 +11077,10 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   const shouldReduceMotion = useReducedMotion();
   const location = useLocation();
   const navigate = useNavigate();
+  const { lang } = useI18n();
+  const usCollab = location.pathname.startsWith("/us-collab");
   // 协同路由下人员管理跳协同入口（rdApi 按 /us-collab 前缀路由到独立人员池）
-  const peopleManagementPath = location.pathname.startsWith("/us-collab") ? "/us-collab-people-management" : "/rd-people-management";
+  const peopleManagementPath = usCollab ? "/us-collab-people-management" : "/rd-people-management";
   const canCreateTask = usePermission(PERMISSIONS.RD_TASK_CREATE);
   const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
   const canReassignTasks = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
@@ -11078,7 +11089,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   // 「移动到其他类目」按钮门控：专职移动权限，或具备转派/编辑的高级角色（与后端 move 接口一致）。
   const canMoveTask = useAnyPermission(PERMISSIONS.RD_TASK_MOVE, PERMISSIONS.RD_TASK_REASSIGN, PERMISSIONS.RD_TASK_EDIT);
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
-  const RD_ADMIN_AUDIT_ACTOR = useAuditActor("研发管理员");
+  const RD_ADMIN_AUDIT_ACTOR = useAuditActor(usCollab ? "协同管理员" : "研发管理员");
   const [showCreate, setShowCreate] = useState(false);
   const [showReassign, setShowReassign] = useState(false);
   const [reassignTaskId, setReassignTaskId] = useState<string | null>(null);
@@ -11564,17 +11575,17 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
         <AlertDialog open={!!deleteTaskTarget} onOpenChange={(open) => { if (!open) setDeleteTaskTarget(null); }}>
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>删除任务？</AlertDialogTitle>
+              <AlertDialogTitle>{t("删除任务？")}</AlertDialogTitle>
               <AlertDialogDescription>
-                确认删除「{deleteTaskTarget?.title}」？该操作不可恢复
+                {t("确认删除「{title}」？该操作不可恢复", { title: deleteTaskTarget?.title ?? "" })}
                 {(deleteTaskTarget?.subtasks?.length ?? 0) > 0
-                  ? `，且会一并删除其 ${deleteTaskTarget?.subtasks?.length} 个子任务`
+                  ? t("，且会一并删除其 {n} 个子任务", { n: deleteTaskTarget?.subtasks?.length ?? 0 })
                   : ""}
-                。
+                {lang === "zh" ? "。" : "."}
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>取消</AlertDialogCancel>
+              <AlertDialogCancel>{t("取消")}</AlertDialogCancel>
               <AlertDialogAction
                 className="bg-red-600 text-white hover:bg-red-700 focus:ring-red-600"
                 onClick={async () => {
@@ -11586,10 +11597,10 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
                       actor: RD_ADMIN_AUDIT_ACTOR,
                       action: "task.edited",
                       resource: { type: "task", id: target.task_id, name: target.title },
-                      comment: "从研发任务驾驶舱删除任务",
+                      comment: `从${usCollab ? "协同" : "研发"}任务驾驶舱删除任务`,
                       source: "web",
                     });
-                    toast.success("任务已删除");
+                    toast.success(t("任务已删除"));
                     loadCategories();
                   } catch (err) {
                     toast.error(err instanceof Error ? err.message : "删除失败");
@@ -11598,7 +11609,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
                   }
                 }}
               >
-                确认删除
+                {t("确认删除")}
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>

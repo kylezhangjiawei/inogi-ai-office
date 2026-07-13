@@ -159,7 +159,7 @@ export function Header() {
             <button
               className="relative flex h-11 w-11 items-center justify-center rounded-2xl border border-slate-200 bg-white/92 text-slate-600 shadow-sm transition hover:-translate-y-0.5 hover:text-primary"
               onClick={() => setOpen((value) => !value)}
-              aria-label="打开通知预览"
+              aria-label={lang === "en" ? "Open notification preview" : "打开通知预览"}
             >
               <Bell className="h-5 w-5" />
               {unreadCount > 0 && (
@@ -174,7 +174,7 @@ export function Header() {
                 <button
                   type="button"
                   className="flex min-w-0 cursor-pointer items-center gap-3 rounded-[4px] border border-slate-200 bg-white/94 px-3 py-2 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:bg-blue-50/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-200"
-                  aria-label="打开用户菜单"
+                  aria-label={lang === "en" ? "Open user menu" : "打开用户菜单"}
                 >
                   <div className="h-11 w-11 overflow-hidden rounded-[4px] ring-2 ring-blue-50">
                     {avatar ? (

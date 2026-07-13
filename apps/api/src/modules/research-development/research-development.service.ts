@@ -1914,7 +1914,7 @@ export class ResearchDevelopmentService {
 
           // 越权防护（与 moveTasks 同口径）：仅持页面权限 page:rd-my-workspace 的普通成员
           // 只能修改"自己负责"的任务（主责人或协作人），且不得审批(_review_action)或移交(primary_owner)
-          // ——审批/移交是研发主管/审核人专属。管理员级权限(canEditAny)完全跳过，行为不变。
+          // ——审批/移交是任务管理员/审核人专属。管理员级权限(canEditAny)完全跳过，行为不变。
           // 此处仅改了内存工作副本、尚未写库（见 mutateTaskAcrossStores 先 transform 后 write），
           // 抛错即安全回滚，无任何副作用。
           if (!options?.canEditAny) {
@@ -2440,7 +2440,11 @@ export class ResearchDevelopmentService {
     }
   }
 
-  private async markReviewRequestMessagesHandled(taskId: string, reviewType: string): Promise<void> {
+  private async markReviewRequestMessagesHandledForTasks(
+    taskIds: ReadonlySet<string>,
+    reviewType = '',
+  ): Promise<void> {
+    if (taskIds.size === 0) return;
     const all = (await this.readArray('rd.messages')).filter(isRecord);
     let changed = false;
     const next = all.map((message) => {
@@ -2456,7 +2460,7 @@ export class ResearchDevelopmentService {
 
       const sameTask =
         parsed.type === 'review_request' &&
-        cleanText(parsed.task_id) === taskId &&
+        taskIds.has(cleanText(parsed.task_id)) &&
         (!reviewType || cleanText(parsed.review_type || 'result') === reviewType);
       if (!sameTask) return message;
 
@@ -2467,6 +2471,12 @@ export class ResearchDevelopmentService {
     if (changed) {
       await this.writeValue('rd.messages', next);
     }
+  }
+
+  private async markReviewRequestMessagesHandled(taskId: string, reviewType: string): Promise<void> {
+    const normalizedTaskId = cleanText(taskId);
+    if (!normalizedTaskId) return;
+    await this.markReviewRequestMessagesHandledForTasks(new Set([normalizedTaskId]), reviewType);
   }
 
   async patchMessage(
@@ -2570,14 +2580,25 @@ export class ResearchDevelopmentService {
         });
       }
     }
+
+    // 任务及子任务删除后同步清理进展留痕，避免留下不可见的文本、附件引用和孤儿数据。
+    await this.withProgressNoteLock(async () => {
+      const noteMap = await this.getProgressNoteMap();
+      let changed = false;
+      for (const removedId of removedTaskIds) {
+        if (!Object.prototype.hasOwnProperty.call(noteMap, removedId)) continue;
+        delete noteMap[removedId];
+        changed = true;
+      }
+      if (changed) await this.writeValue('rd.taskProgressNotes', noteMap);
+    });
+
     // 连带清理：删除任务（含子任务）后，把它们关联的"待审核"通知标记为已处理，
     // 避免管理员收件箱残留指向已删任务的孤儿待审核卡片（清理立项脏数据时常见）。
-    for (const removedId of removedTaskIds) {
-      try {
-        await this.markReviewRequestMessagesHandled(removedId, '');
-      } catch {
-        // best-effort：任务已删除成功，通知清理失败不应阻断本次删除
-      }
+    try {
+      await this.markReviewRequestMessagesHandledForTasks(new Set(removedTaskIds));
+    } catch {
+      // best-effort：任务已删除成功，通知清理失败不应阻断本次删除
     }
     // 通知被删任务的负责人与协作人（best-effort，失败不阻断删除）。
     if (removedTask) {
@@ -4994,6 +5015,13 @@ export class ResearchDevelopmentService {
   }
 
   async clearAllTaskData() {
+    // 消息中心是研发/协同共享的全局数据，绝不能随当前工作区任务一起清空。
+    // 先记录当前池全部任务 id，清理任务后只把相应审核待办标记为已处理，历史消息仍保留。
+    const removedTaskIds = new Set(
+      this.collectAllCategoryTasks(await this.readMergedTaskCategories())
+        .map((task) => cleanText(task.task_id))
+        .filter(Boolean),
+    );
     await Promise.all([
       this.writeValue('rd.taskCategories', []),
       this.writeValue('rd.productTaskCategories', {}),
@@ -5001,9 +5029,13 @@ export class ResearchDevelopmentService {
       this.writeValue('rd.directorDashboard', EMPTY_DIRECTOR_DASHBOARD),
       this.writeValue('rd.taskProgressNotes', {}),
       this.writeValue('rd.dailyReports', []),
-      this.writeValue('rd.messages', []),
       this.writeValue('rd.proposalDrafts', []),
     ]);
+    try {
+      await this.markReviewRequestMessagesHandledForTasks(removedTaskIds);
+    } catch {
+      // best-effort：核心任务数据已经清空，不因消息状态刷新失败把成功操作报告为失败。
+    }
     return { ok: true };
   }
 

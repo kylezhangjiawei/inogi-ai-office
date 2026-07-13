@@ -12,7 +12,9 @@ import {
   Loader2,
   Pencil,
   RefreshCw,
+  Moon,
   Sparkles,
+  Sun,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -75,19 +77,25 @@ function personTimeZone(name: string, role?: string): { tz: string; label: strin
 }
 
 /** 成员当地时间小徽标（每分钟刷新）：跨时区找人前先看对方那边几点 */
-function LocalClock({ name, role }: { name: string; role?: string }) {
+function LocalClock({ name, role, lang }: { name: string; role?: string; lang: "zh" | "en" }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 60_000);
     return () => window.clearInterval(id);
   }, []);
   const { tz, label } = personTimeZone(name, role);
-  const time = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: tz }).format(now);
+  const displayName = name === "待指派" || name === "未指派" ? t(name) : name;
+  const displayLocation = lang === "en" ? (tz === "America/New_York" ? "Boston" : "Beijing") : label;
+  const time = new Intl.DateTimeFormat(lang === "en" ? "en-US" : "zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: tz }).format(now);
   const hour = Number(new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: tz }).format(now));
-  const emoji = hour >= 7 && hour < 19 ? "☀️" : "🌙";
+  const isDaytime = hour >= 7 && hour < 19;
   return (
-    <span className="ml-auto shrink-0 text-[11px] tabular-nums text-slate-400" title={`${name} 当地时间（${label}）`}>
-      {label} {time} {emoji}
+    <span
+      className="ml-auto inline-flex shrink-0 items-center gap-1 text-[11px] tabular-nums text-slate-400"
+      title={`${displayName} ${lang === "en" ? "local time" : "当地时间"}（${displayLocation}）`}
+    >
+      {displayLocation} {time}
+      {isDaytime ? <Sun className="h-3 w-3" aria-hidden="true" /> : <Moon className="h-3 w-3" aria-hidden="true" />}
     </span>
   );
 }
@@ -672,7 +680,7 @@ export default function UsCollabTaskDetailPage() {
                 pCfg.bg,
                 pCfg.text,
               )}
-              title="调整任务优先级"
+              title={lang === "en" ? "Change task priority" : "调整任务优先级"}
             >
               <SelectValue />
             </SelectTrigger>
@@ -752,7 +760,7 @@ export default function UsCollabTaskDetailPage() {
             >
               <OwnerAvatar name={task.primary_owner} userId={task.primary_owner_user_id} size="sm" />
               <span className="text-sm font-medium text-slate-800">{displayPersonName(task.primary_owner)}</span>
-              <LocalClock name={task.primary_owner} />
+              <LocalClock name={task.primary_owner} lang={lang} />
             </button>
             {(task.collaborators ?? []).length > 0 && (
               <>
@@ -769,7 +777,7 @@ export default function UsCollabTaskDetailPage() {
                       <OwnerAvatar name={c.name} userId={c.user_id} size="xs" />
                       <span className="text-sm text-slate-700">{c.name}</span>
                       <span className="text-[11px] text-slate-400">{t(c.role)}</span>
-                      <LocalClock name={c.name} role={c.role} />
+                      <LocalClock name={c.name} role={c.role} lang={lang} />
                     </button>
                   ))}
                 </div>
@@ -854,11 +862,20 @@ export default function UsCollabTaskDetailPage() {
                   <Sparkles className="h-3.5 w-3.5" />
                   {t("任务小结")}{brief.source === "local" ? t("（AI 未配置，基础事实版）") : ""}
                 </span>
-                <button type="button" onClick={() => setBrief(null)} className="cursor-pointer rounded p-0.5 text-indigo-300 hover:bg-indigo-100 hover:text-indigo-500">
+                <button
+                  type="button"
+                  onClick={() => setBrief(null)}
+                  aria-label={lang === "en" ? "Close task brief" : "关闭任务小结"}
+                  className="cursor-pointer rounded p-0.5 text-indigo-300 hover:bg-indigo-100 hover:text-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+                >
                   <X className="h-3.5 w-3.5" />
                 </button>
               </div>
-              <p className="cockpit-scroll max-h-52 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{brief.text}</p>
+              <AutoTranslatedText
+                as="p"
+                text={brief.text}
+                className="cockpit-scroll max-h-52 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-slate-700"
+              />
             </div>
           )}
 

@@ -493,90 +493,93 @@ export function MobileRDCockpit() {
     <div className="w-full pb-10">
       {/* ── 页头过滤区（吸顶）────────────────────────────────────────────── */}
       <div className="sticky top-0 z-20 border-b border-slate-200/70 bg-slate-50/95 backdrop-blur-md">
-        {/* 状态过滤 + 刷新 */}
-        <div className="flex items-center gap-2 px-4 pt-3">
-          <div className="flex flex-1 gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-            {FILTERS.map((f) => (
-              <button
-                key={f.key}
-                type="button"
-                onClick={() => pickStatus(f.key)}
+        {/* 状态过滤：手机宽度固定五等分，避免末项被刷新按钮挤出视口。 */}
+        <div className="grid grid-cols-5 gap-1.5 px-3 pt-3 sm:flex sm:gap-2 sm:px-4">
+          {FILTERS.map((f) => (
+            <button
+              key={f.key}
+              type="button"
+              onClick={() => pickStatus(f.key)}
+              aria-pressed={filter === f.key}
+              className={cn(
+                "min-w-0 whitespace-nowrap rounded-full px-1 py-1.5 text-[11px] font-semibold transition active:scale-[0.97] sm:shrink-0 sm:px-3.5 sm:text-[13px]",
+                filter === f.key
+                  ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-sm"
+                  : "bg-white text-slate-500 ring-1 ring-slate-200/70 active:bg-slate-50",
+              )}
+            >
+              {t(f.label)}
+            </button>
+          ))}
+        </div>
+
+        {/* 人员过滤 + 刷新 */}
+        <div className="flex items-center gap-2 px-4 pb-2.5 pt-2">
+          <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            <button
+              type="button"
+              onClick={() => pickPerson(null)}
+              aria-pressed={person === null}
+              className={cn(
+                "flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-[12px] font-semibold transition active:scale-[0.97]",
+                person === null ? "bg-slate-900 text-white" : "bg-white text-slate-500 ring-1 ring-slate-200/70",
+              )}
+            >
+              <Users size={13} />
+              {t("全部")}
+              <span
                 className={cn(
-                  "shrink-0 rounded-full px-3.5 py-1.5 text-[13px] font-semibold transition active:scale-[0.97]",
-                  filter === f.key
-                    ? "bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-sm"
-                    : "bg-white text-slate-500 ring-1 ring-slate-200/70 active:bg-slate-50",
+                  "ml-0.5 rounded-full px-1 text-[10px] font-bold",
+                  person === null ? "bg-white/20 text-white" : "bg-slate-100 text-slate-400",
                 )}
               >
-                {t(f.label)}
-              </button>
-            ))}
+                {activeCount}
+              </span>
+            </button>
+            {owners.map((o) => {
+              const active = person === o.name;
+              return (
+                <button
+                  key={o.name}
+                  type="button"
+                  onClick={() => pickPerson(o.name)}
+                  aria-pressed={active}
+                  className={cn(
+                    "flex shrink-0 items-center gap-1.5 rounded-full py-1 pl-1 pr-2.5 text-[12px] font-semibold transition active:scale-[0.97]",
+                    active ? "bg-slate-900 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200/70",
+                  )}
+                >
+                  <span
+                    className={cn(
+                      "flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold",
+                      active ? "bg-white/20 text-white" : "bg-indigo-50 text-indigo-600",
+                    )}
+                  >
+                    {ownerInitial(o.name)}
+                  </span>
+                  {/* 「未指派/待指派」是系统占位（比较逻辑用原文），仅显示层本地化；真人名不翻 */}
+                  <span className="max-w-[5rem] truncate">{o.name === "未指派" || o.name === "待指派" ? t(o.name) : o.name}</span>
+                  <span
+                    className={cn(
+                      "rounded-full px-1 text-[10px] font-bold",
+                      active ? "bg-white/20 text-white" : "bg-slate-100 text-slate-400",
+                    )}
+                  >
+                    {o.count}
+                  </span>
+                </button>
+              );
+            })}
           </div>
           <button
             type="button"
             onClick={reload}
             disabled={loading}
-            aria-label="刷新"
+            aria-label={t("刷新")}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white text-slate-500 ring-1 ring-slate-200/70 active:bg-slate-50 disabled:opacity-60"
           >
             <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
           </button>
-        </div>
-
-        {/* 人员过滤 */}
-        <div className="flex gap-2 overflow-x-auto px-4 pb-2.5 pt-2 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-          <button
-            type="button"
-            onClick={() => pickPerson(null)}
-            className={cn(
-              "flex shrink-0 items-center gap-1 rounded-full px-3 py-1 text-[12px] font-semibold transition active:scale-[0.97]",
-              person === null ? "bg-slate-900 text-white" : "bg-white text-slate-500 ring-1 ring-slate-200/70",
-            )}
-          >
-            <Users size={13} />
-            {t("全部")}
-            <span
-              className={cn(
-                "ml-0.5 rounded-full px-1 text-[10px] font-bold",
-                person === null ? "bg-white/20 text-white" : "bg-slate-100 text-slate-400",
-              )}
-            >
-              {activeCount}
-            </span>
-          </button>
-          {owners.map((o) => {
-            const active = person === o.name;
-            return (
-              <button
-                key={o.name}
-                type="button"
-                onClick={() => pickPerson(o.name)}
-                className={cn(
-                  "flex shrink-0 items-center gap-1.5 rounded-full py-1 pl-1 pr-2.5 text-[12px] font-semibold transition active:scale-[0.97]",
-                  active ? "bg-slate-900 text-white" : "bg-white text-slate-600 ring-1 ring-slate-200/70",
-                )}
-              >
-                <span
-                  className={cn(
-                    "flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold",
-                    active ? "bg-white/20 text-white" : "bg-indigo-50 text-indigo-600",
-                  )}
-                >
-                  {ownerInitial(o.name)}
-                </span>
-                {/* 「未指派/待指派」是系统占位（比较逻辑用原文），仅显示层本地化；真人名不翻 */}
-                <span className="max-w-[5rem] truncate">{o.name === "未指派" || o.name === "待指派" ? t(o.name) : o.name}</span>
-                <span
-                  className={cn(
-                    "rounded-full px-1 text-[10px] font-bold",
-                    active ? "bg-white/20 text-white" : "bg-slate-100 text-slate-400",
-                  )}
-                >
-                  {o.count}
-                </span>
-              </button>
-            );
-          })}
         </div>
       </div>
 
