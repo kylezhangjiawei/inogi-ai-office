@@ -249,11 +249,13 @@ export class ResumeScreeningService implements OnModuleInit {
           updated_at: c.updatedAt.toISOString(),
         };
       })
-      // 简历筛选属于文本任务，图片生成模型不适用
+      // 简历筛选属于文本任务：图片生成、向量（embedding）模型都不能对话，不适用。
+      // 文档解析模型有意保留——简历筛选本身就是读文档的场景。
       .filter((c) => {
-        if (c.usage_kind === 'image') return false;
+        if (c.usage_kind === 'image' || c.usage_kind === 'embedding') return false;
         if (c.usage_kind !== 'auto') return true;
         const n = c.model.toLowerCase();
+        if (n.includes('embedding') || /(^|[-_/])embed(?:ding)?s?($|[-_/])/.test(n)) return false;
         return !(n.includes('gpt-image') || n.includes('image-to-image') || n === 'dall-e-2' || n.startsWith('dall-e-'));
       });
   }
