@@ -1,5 +1,5 @@
-import React, { useCallback, useDeferredValue, useEffect, useState } from "react";
-import { Pencil, Plus, Search, Trash2, Wifi } from "lucide-react";
+import React, { useCallback, useDeferredValue, useEffect, useRef, useState } from "react";
+import { Download, PackagePlus, Pencil, Plus, Search, Trash2, Upload, Wifi } from "lucide-react";
 import { Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material";
 import { toast } from "sonner";
 
@@ -16,6 +16,126 @@ const AI_PROVIDER_DICT_KEY = "ai_provider";
 const PAGE_SIZE = 8;
 
 type DialogMode = "create" | "edit" | "delete" | null;
+
+// ── 百炼 Token Plan 预设模型目录 ──────────────────────────────────────────────
+// 与阿里云百炼「可使用模型」页面一一对应；usageKind 按页面标注的模型能力显式指定
+// （含视觉理解 → multimodal，图片生成 → image，其余 → text），避免自动推断漂移。
+
+const BAILIAN_BASE_URL = "https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1";
+
+type PresetModel = {
+  brand: string;
+  provider: string;
+  model: string;
+  capability: string;
+  usageKind: "text" | "multimodal" | "image";
+};
+
+const BAILIAN_PRESET_MODELS: PresetModel[] = [
+  { brand: "千问", provider: "Qwen", model: "qwen3.7-plus", capability: "文本生成、推理模型、视觉理解", usageKind: "multimodal" },
+  { brand: "千问", provider: "Qwen", model: "qwen3.7-max", capability: "推理模型、文本生成", usageKind: "text" },
+  { brand: "千问", provider: "Qwen", model: "qwen3.6-plus", capability: "推理模型、视觉理解、文本生成", usageKind: "multimodal" },
+  { brand: "千问", provider: "Qwen", model: "qwen3.6-flash", capability: "推理模型、视觉理解、文本生成", usageKind: "multimodal" },
+  { brand: "千问", provider: "Qwen", model: "qwen-image-2.0", capability: "图片生成", usageKind: "image" },
+  { brand: "千问", provider: "Qwen", model: "qwen-image-2.0-pro", capability: "图片生成", usageKind: "image" },
+  { brand: "万相", provider: "Wanx", model: "wan2.7-image", capability: "图片生成", usageKind: "image" },
+  { brand: "万相", provider: "Wanx", model: "wan2.7-image-pro", capability: "图片生成", usageKind: "image" },
+  { brand: "DeepSeek", provider: "DeepSeek", model: "deepseek-v4-pro", capability: "推理模型、文本生成", usageKind: "text" },
+  { brand: "DeepSeek", provider: "DeepSeek", model: "deepseek-v4-flash", capability: "文本生成、推理模型", usageKind: "text" },
+  { brand: "DeepSeek", provider: "DeepSeek", model: "deepseek-v3.2", capability: "推理模型、文本生成", usageKind: "text" },
+  { brand: "月之暗面", provider: "Moonshot", model: "kimi-k2.7-code", capability: "文本生成、视觉理解、推理模型", usageKind: "multimodal" },
+  { brand: "月之暗面", provider: "Moonshot", model: "kimi-k2.6", capability: "推理模型、视觉理解、文本生成", usageKind: "multimodal" },
+  { brand: "月之暗面", provider: "Moonshot", model: "kimi-k2.5", capability: "推理模型、视觉理解、文本生成", usageKind: "multimodal" },
+  { brand: "智谱AI", provider: "Zhipu", model: "glm-5.2", capability: "文本生成、推理模型", usageKind: "text" },
+  { brand: "智谱AI", provider: "Zhipu", model: "glm-5.1", capability: "文本生成、推理模型", usageKind: "text" },
+  { brand: "智谱AI", provider: "Zhipu", model: "glm-5", capability: "文本生成、推理模型", usageKind: "text" },
+  { brand: "MiniMax", provider: "MiniMax", model: "MiniMax-M2.5", capability: "推理模型、文本生成", usageKind: "text" },
+];
+
+const PRESET_BRANDS = Array.from(new Set(BAILIAN_PRESET_MODELS.map((item) => item.brand)));
+
+// ── 导入 / 导出 ───────────────────────────────────────────────────────────────
+// 导出文件不含 API Key（密文不可回读）；导入时可统一补一个 Key，或导入后逐条编辑。
+
+const EXPORT_USAGE_KINDS = new Set(["auto", "text", "multimodal", "image", "embedding", "document"]);
+
+type ExportedModel = {
+  name: string;
+  provider: string;
+  model: string;
+  base_url?: string;
+  usage_kind?: string;
+  enabled?: boolean;
+};
+
+type ImportEntry = ExportedModel & { duplicate: boolean };
+
+/** 翻页拉全量模型配置（列表接口 page_size 上限 100），用于导出与去重 */
+async function fetchAllAiModels(): Promise<AiModelItem[]> {
+  const all: AiModelItem[] = [];
+  let page = 1;
+  for (;;) {
+    const response = await integrationManagementApi.listAiModels({ page, pageSize: 100 });
+    all.push(...response.items);
+    if (page >= response.total_pages || response.items.length === 0) break;
+    page += 1;
+  }
+  return all;
+}
+
+function parseImportedModels(raw: string): ExportedModel[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error("文件不是合法的 JSON");
+  }
+  const list = Array.isArray(parsed)
+    ? parsed
+    : parsed && typeof parsed === "object" && Array.isArray((parsed as { models?: unknown }).models)
+      ? ((parsed as { models: unknown[] }).models)
+      : null;
+  if (!list) {
+    throw new Error("JSON 结构不符合导出格式（应为数组或 { models: [...] }）");
+  }
+
+  const entries: ExportedModel[] = [];
+  for (const item of list) {
+    if (!item || typeof item !== "object") continue;
+    const record = item as Record<string, unknown>;
+    const name = typeof record.name === "string" ? record.name.trim() : "";
+    const provider = typeof record.provider === "string" ? record.provider.trim() : "";
+    const model = typeof record.model === "string" ? record.model.trim() : "";
+    if (!name || !provider || !model) continue;
+    const usageKind = typeof record.usage_kind === "string" && EXPORT_USAGE_KINDS.has(record.usage_kind)
+      ? record.usage_kind
+      : "auto";
+    entries.push({
+      name,
+      provider,
+      model,
+      base_url: typeof record.base_url === "string" ? record.base_url.trim() : undefined,
+      usage_kind: usageKind,
+      enabled: typeof record.enabled === "boolean" ? record.enabled : true,
+    });
+  }
+  if (entries.length === 0) {
+    throw new Error("文件中没有可导入的模型配置（每条至少需要 name / provider / model）");
+  }
+  return entries;
+}
+
+function downloadJsonFile(filename: string, payload: unknown) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
 
 function formatDate(value?: string | null) {
   if (!value) return "-";
@@ -49,6 +169,7 @@ export function AiModelManagementPage() {
   const [rows, setRows] = useState<AiModelItem[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [totalPages, setTotalPages] = useState(1);
   const [keyword, setKeyword] = useState("");
   const [jumpInput, setJumpInput] = useState("");
@@ -74,12 +195,32 @@ export function AiModelManagementPage() {
   const deferredKeyword = useDeferredValue(keyword);
   const normalizedKeyword = deferredKeyword.trim();
 
+  // ── 百炼预设 / 导入 / 导出 ──────────────────────────────────────────────────
+  const [presetOpen, setPresetOpen] = useState(false);
+  const [presetSelected, setPresetSelected] = useState<Set<string>>(new Set());
+  const [presetExisting, setPresetExisting] = useState<Set<string>>(new Set());
+  const [presetApiKey, setPresetApiKey] = useState("");
+  const [presetBaseUrl, setPresetBaseUrl] = useState(BAILIAN_BASE_URL);
+  const [presetSaving, setPresetSaving] = useState(false);
+
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportRows, setExportRows] = useState<AiModelItem[]>([]);
+  const [exportSelected, setExportSelected] = useState<Set<string>>(new Set());
+  const [exportLoading, setExportLoading] = useState(false);
+
+  const [importOpen, setImportOpen] = useState(false);
+  const [importEntries, setImportEntries] = useState<ImportEntry[]>([]);
+  const [importSelected, setImportSelected] = useState<Set<number>>(new Set());
+  const [importApiKey, setImportApiKey] = useState("");
+  const [importSaving, setImportSaving] = useState(false);
+  const importFileRef = useRef<HTMLInputElement>(null);
+
   const loadRows = useCallback(async (targetPage = page) => {
     setLoading(true);
     try {
       const response = await integrationManagementApi.listAiModels({
         page: targetPage,
-        pageSize: PAGE_SIZE,
+        pageSize,
         keyword: normalizedKeyword,
       });
       setRows(response.items);
@@ -93,11 +234,11 @@ export function AiModelManagementPage() {
     } finally {
       setLoading(false);
     }
-  }, [normalizedKeyword, page]);
+  }, [normalizedKeyword, page, pageSize]);
 
   useEffect(() => {
     setPage(1);
-  }, [normalizedKeyword]);
+  }, [normalizedKeyword, pageSize]);
 
   useEffect(() => {
     void loadRows();
@@ -324,6 +465,228 @@ export function AiModelManagementPage() {
     }
   }
 
+  // ── 百炼预设新增 ────────────────────────────────────────────────────────────
+
+  async function openPresetDialog() {
+    setPresetApiKey("");
+    setPresetBaseUrl(BAILIAN_BASE_URL);
+    setPresetSelected(new Set());
+    try {
+      const all = await fetchAllAiModels();
+      setPresetExisting(new Set(all.map((item) => item.model.trim().toLowerCase())));
+    } catch (error) {
+      // 拉全量失败时降级为不去重（只影响"已存在"标记，不影响新增本身）
+      setPresetExisting(new Set());
+      toast.error(error instanceof Error ? error.message : "读取现有模型列表失败");
+    }
+    setPresetOpen(true);
+  }
+
+  function togglePresetModel(model: string) {
+    setPresetSelected((current) => {
+      const next = new Set(current);
+      if (next.has(model)) next.delete(model);
+      else next.add(model);
+      return next;
+    });
+  }
+
+  function selectAllPresetModels() {
+    setPresetSelected(new Set(
+      BAILIAN_PRESET_MODELS
+        .filter((item) => !presetExisting.has(item.model.toLowerCase()))
+        .map((item) => item.model),
+    ));
+  }
+
+  async function handlePresetCreate() {
+    const targets = BAILIAN_PRESET_MODELS.filter((item) => presetSelected.has(item.model));
+    if (targets.length === 0) {
+      toast.error("请先勾选要新增的模型");
+      return;
+    }
+    if (!presetApiKey.trim()) {
+      toast.error("请填写 API Key（百炼 Token Plan 的令牌）");
+      return;
+    }
+    if (!presetBaseUrl.trim()) {
+      toast.error("请填写 Base URL");
+      return;
+    }
+
+    setPresetSaving(true);
+    const failures: string[] = [];
+    try {
+      for (const item of targets) {
+        try {
+          await integrationManagementApi.saveAiModel({
+            name: `${item.brand} ${item.model}`,
+            provider: item.provider,
+            model: item.model,
+            base_url: presetBaseUrl.trim(),
+            api_key: presetApiKey.trim(),
+            usage_kind: item.usageKind,
+            enabled: true,
+            current_status: "未配置",
+            // 只做新增：不抢默认模型，避免影响现有配置
+            is_default_enabled: false,
+          });
+        } catch (error) {
+          failures.push(`${item.model}：${error instanceof Error ? error.message : "保存失败"}`);
+        }
+      }
+      const successCount = targets.length - failures.length;
+      if (successCount > 0) {
+        toast.success(`已新增 ${successCount} 个模型配置`);
+      }
+      if (failures.length > 0) {
+        toast.error(`有 ${failures.length} 个模型新增失败：${failures[0]}`);
+      }
+      if (successCount > 0) {
+        setPresetOpen(false);
+        setPresetApiKey("");
+        if (page !== 1) setPage(1);
+        else await loadRows(1);
+      }
+    } finally {
+      setPresetSaving(false);
+    }
+  }
+
+  // ── 导出 ────────────────────────────────────────────────────────────────────
+
+  async function openExportDialog() {
+    setExportLoading(true);
+    try {
+      const all = await fetchAllAiModels();
+      if (all.length === 0) {
+        toast.error("暂无可导出的模型配置");
+        return;
+      }
+      setExportRows(all);
+      setExportSelected(new Set(all.map((item) => item.id)));
+      setExportOpen(true);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "读取模型列表失败");
+    } finally {
+      setExportLoading(false);
+    }
+  }
+
+  function toggleExportRow(id: string) {
+    setExportSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function handleExport() {
+    const selected = exportRows.filter((row) => exportSelected.has(row.id));
+    if (selected.length === 0) {
+      toast.error("请先勾选要导出的模型配置");
+      return;
+    }
+    const now = new Date();
+    const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+    downloadJsonFile(`ai-models-export-${stamp}.json`, {
+      version: 1,
+      exported_at: now.toISOString(),
+      models: selected.map((row) => ({
+        name: row.name,
+        provider: row.provider,
+        model: row.model,
+        base_url: row.base_url || undefined,
+        usage_kind: row.usage_kind || "auto",
+        enabled: row.enabled,
+      }) satisfies ExportedModel),
+    });
+    toast.success(`已导出 ${selected.length} 个模型配置（不含 API Key）`);
+    setExportOpen(false);
+  }
+
+  // ── 导入 ────────────────────────────────────────────────────────────────────
+
+  async function handleImportFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    try {
+      const [entries, all] = await Promise.all([
+        file.text().then(parseImportedModels),
+        fetchAllAiModels().catch(() => [] as AiModelItem[]),
+      ]);
+      const existing = new Set(all.map((item) => item.model.trim().toLowerCase()));
+      const marked = entries.map((entry) => ({
+        ...entry,
+        duplicate: existing.has(entry.model.toLowerCase()),
+      }));
+      setImportEntries(marked);
+      // 与现有模型标识重复的条目默认不勾选，避免无意间导入重复配置
+      setImportSelected(new Set(marked.map((entry, index) => (entry.duplicate ? -1 : index)).filter((index) => index >= 0)));
+      setImportApiKey("");
+      setImportOpen(true);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "解析导入文件失败");
+    }
+  }
+
+  function toggleImportEntry(index: number) {
+    setImportSelected((current) => {
+      const next = new Set(current);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
+      return next;
+    });
+  }
+
+  async function handleImportCreate() {
+    const targets = importEntries.filter((_, index) => importSelected.has(index));
+    if (targets.length === 0) {
+      toast.error("请先勾选要导入的模型配置");
+      return;
+    }
+
+    setImportSaving(true);
+    const failures: string[] = [];
+    try {
+      for (const entry of targets) {
+        try {
+          await integrationManagementApi.saveAiModel({
+            name: entry.name,
+            provider: entry.provider,
+            model: entry.model,
+            base_url: entry.base_url || undefined,
+            api_key: importApiKey.trim() || undefined,
+            usage_kind: entry.usage_kind || "auto",
+            enabled: entry.enabled ?? true,
+            current_status: "未配置",
+            // 只做新增：导入不抢默认模型，避免清掉现有默认项
+            is_default_enabled: false,
+          });
+        } catch (error) {
+          failures.push(`${entry.model}：${error instanceof Error ? error.message : "保存失败"}`);
+        }
+      }
+      const successCount = targets.length - failures.length;
+      if (successCount > 0) {
+        toast.success(`已导入 ${successCount} 个模型配置`);
+      }
+      if (failures.length > 0) {
+        toast.error(`有 ${failures.length} 个模型导入失败：${failures[0]}`);
+      }
+      if (successCount > 0) {
+        setImportOpen(false);
+        setImportEntries([]);
+        if (page !== 1) setPage(1);
+        else await loadRows(1);
+      }
+    } finally {
+      setImportSaving(false);
+    }
+  }
+
   function handleJump() {
     const value = Number.parseInt(jumpInput, 10);
     if (Number.isNaN(value)) {
@@ -338,15 +701,45 @@ export function AiModelManagementPage() {
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <section className="material-card p-6 md:p-8">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <span className="material-chip bg-indigo-50 text-indigo-700">AI Model Management</span>
-            <h2 className="mt-3 text-[2rem] font-bold tracking-tight text-slate-900">AI 模型管理</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-7 text-slate-600">
-              维护模型服务商、Base URL、运行状态、延迟和自动统计信息，支持按不同模型独立切换网关或代理地址。
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
+        <span className="material-chip bg-indigo-50 text-indigo-700">AI Model Management</span>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+          <h2 className="text-[2rem] font-bold tracking-tight text-slate-900">AI 模型管理</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className="material-button-secondary w-fit"
+              onClick={() => importFileRef.current?.click()}
+              title="从 JSON 文件导入模型配置（只新增，不修改现有配置）"
+            >
+              <Upload className="h-4 w-4" />
+              导入
+            </button>
+            <button
+              type="button"
+              className="material-button-secondary w-fit disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={() => void openExportDialog()}
+              disabled={exportLoading}
+              title="勾选现有模型配置并导出为 JSON 文件（不含 API Key）"
+            >
+              <Download className="h-4 w-4" />
+              {exportLoading ? "读取中..." : "导出"}
+            </button>
+            <button
+              type="button"
+              className="material-button-secondary w-fit"
+              onClick={() => void openPresetDialog()}
+              title="从阿里云百炼 Token Plan 可使用模型目录中批量新增"
+            >
+              <PackagePlus className="h-4 w-4" />
+              百炼预设
+            </button>
+            <input
+              ref={importFileRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(event) => void handleImportFile(event)}
+            />
             <button
               type="button"
               className="material-button-secondary w-fit"
@@ -362,6 +755,9 @@ export function AiModelManagementPage() {
             </button>
           </div>
         </div>
+        <p className="mt-2 text-sm leading-7 text-slate-600">
+          维护模型服务商、Base URL、运行状态、延迟和自动统计信息，支持按不同模型独立切换网关或代理地址。
+        </p>
       </section>
 
       <section className="material-card p-6">
@@ -379,10 +775,11 @@ export function AiModelManagementPage() {
         </div>
 
         <div className="material-scrollbar overflow-x-auto">
-          <Table className="min-w-[1480px] text-left">
+          <Table className="min-w-[1560px] text-left">
             <TableHeader className="bg-slate-50">
               <TableRow>
                 {[
+                  "供应商",
                   "模型名称",
                   "服务商",
                   "适用场景",
@@ -407,13 +804,13 @@ export function AiModelManagementPage() {
             <TableBody className="divide-y divide-slate-100">
             {loading ? (
               <TableRow>
-                <TableCell colSpan={14} className="px-4 py-8 text-center text-sm text-slate-400">
+                <TableCell colSpan={15} className="px-4 py-8 text-center text-sm text-slate-400">
                   正在加载 AI 模型...
                 </TableCell>
               </TableRow>
             ) : rows.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={14} className="px-4 py-8 text-center text-sm text-slate-400">
+                <TableCell colSpan={15} className="px-4 py-8 text-center text-sm text-slate-400">
                   暂无数据
                 </TableCell>
               </TableRow>
@@ -427,13 +824,17 @@ export function AiModelManagementPage() {
                     <TableRow key={row.id} className="hover:bg-slate-50/70">
                       <TableCell className="px-4 py-3 text-sm font-medium text-slate-800">
                         <div>{row.name}</div>
-                        <div className="mt-1 text-xs text-slate-400">{row.model}</div>
                         <div
-                          className="mt-1 max-w-[280px] truncate text-xs text-slate-400"
+                          className="mt-1 max-w-[260px] truncate text-xs text-slate-400"
                           title={row.base_url || "未配置 Base URL，默认走官方地址"}
                         >
                           {row.base_url || "默认官方地址"}
                         </div>
+                      </TableCell>
+                      <TableCell className="px-4 py-3 text-sm">
+                        <span className="inline-flex max-w-[220px] items-center rounded-lg bg-indigo-50 px-2.5 py-1 font-mono text-xs font-semibold text-indigo-700">
+                          <span className="truncate" title={row.model}>{row.model}</span>
+                        </span>
                       </TableCell>
                       <TableCell className="px-4 py-3 text-sm text-slate-700">{row.provider}</TableCell>
                       <TableCell className="px-4 py-3 text-sm w-[220px] max-w-[220px]">
@@ -507,8 +908,21 @@ export function AiModelManagementPage() {
         </div>
 
         <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
-          <div className="text-sm text-slate-500">
-            共 {total} 条，当前第 {page} / {totalPages} 页
+          <div className="flex flex-wrap items-center gap-3 text-sm text-slate-500">
+            <span>共 {total} 条，当前第 {page} / {totalPages} 页</span>
+            <span className="flex items-center gap-1.5">
+              每页
+              <select
+                className="material-input !w-auto !px-2 !py-1.5 text-sm"
+                value={pageSize}
+                onChange={(event) => setPageSize(Number(event.target.value))}
+              >
+                {[8, 20, 50, 100].map((size) => (
+                  <option key={size} value={size}>{size}</option>
+                ))}
+              </select>
+              条
+            </span>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button className="material-button-secondary !px-3 !py-2" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1 || loading}>
@@ -660,6 +1074,202 @@ export function AiModelManagementPage() {
           </button>
           <button type="button" className="material-button-primary !bg-red-500 hover:!bg-red-600" onClick={() => void handleDelete()} disabled={deleting}>
             删除
+          </button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 百炼预设批量新增 */}
+      <Dialog open={presetOpen} onClose={() => !presetSaving && setPresetOpen(false)} fullWidth maxWidth="md">
+        <DialogTitle>从百炼预设新增模型</DialogTitle>
+        <DialogContent dividers>
+          <div className="space-y-4 pt-1">
+            <p className="text-sm leading-6 text-slate-600">
+              以下目录与阿里云百炼 Token Plan「可使用模型」页面对应。勾选后将逐条<span className="font-semibold text-slate-800">新增</span>为独立模型配置，不会修改或覆盖任何现有配置；API Key 与 Base URL 应用到本次勾选的全部模型，保存后可逐条再编辑。
+            </p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">API Key（Token）</label>
+                <input
+                  className="material-input w-full"
+                  type="password"
+                  value={presetApiKey}
+                  onChange={(event) => setPresetApiKey(event.target.value)}
+                  placeholder="请输入百炼 Token Plan 的 API Key"
+                />
+              </div>
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Base URL</label>
+                <input
+                  className="material-input w-full"
+                  value={presetBaseUrl}
+                  onChange={(event) => setPresetBaseUrl(event.target.value)}
+                  placeholder={BAILIAN_BASE_URL}
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-slate-500">已选 {presetSelected.size} 个模型</div>
+              <div className="flex gap-2">
+                <button type="button" className="material-button-secondary !px-3 !py-2" onClick={selectAllPresetModels}>
+                  全选未添加
+                </button>
+                <button type="button" className="material-button-secondary !px-3 !py-2" onClick={() => setPresetSelected(new Set())}>
+                  清空
+                </button>
+              </div>
+            </div>
+            <div className="material-scrollbar max-h-[360px] space-y-4 overflow-y-auto rounded-2xl border border-slate-200 p-4">
+              {PRESET_BRANDS.map((brand) => (
+                <div key={brand}>
+                  <div className="mb-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{brand}</div>
+                  <div className="grid gap-2 md:grid-cols-2">
+                    {BAILIAN_PRESET_MODELS.filter((item) => item.brand === brand).map((item) => {
+                      const exists = presetExisting.has(item.model.toLowerCase());
+                      const checked = presetSelected.has(item.model);
+                      return (
+                        <label
+                          key={item.model}
+                          className={cn(
+                            "flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5",
+                            exists
+                              ? "cursor-not-allowed border-slate-100 bg-slate-50 opacity-60"
+                              : checked
+                                ? "border-indigo-200 bg-indigo-50/60"
+                                : "border-slate-200 hover:bg-slate-50",
+                          )}
+                        >
+                          <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={checked}
+                            disabled={exists}
+                            onChange={() => togglePresetModel(item.model)}
+                          />
+                          <span className="min-w-0">
+                            <span className="flex items-center gap-2 text-sm font-medium text-slate-800">
+                              <span className="truncate">{item.model}</span>
+                              {exists && <span className="material-chip shrink-0 bg-slate-100 text-slate-500">已存在</span>}
+                            </span>
+                            <span className="mt-0.5 block text-xs text-slate-400">{item.capability}</span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </DialogContent>
+        <DialogActions>
+          <button type="button" className="material-button-secondary" onClick={() => setPresetOpen(false)} disabled={presetSaving}>
+            取消
+          </button>
+          <button type="button" className="material-button-primary" onClick={() => void handlePresetCreate()} disabled={presetSaving}>
+            {presetSaving ? "新增中..." : `新增所选（${presetSelected.size}）`}
+          </button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 导出模型配置 */}
+      <Dialog open={exportOpen} onClose={() => setExportOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>导出模型配置</DialogTitle>
+        <DialogContent dividers>
+          <div className="space-y-4 pt-1">
+            <p className="text-sm leading-6 text-slate-600">
+              勾选要导出的模型配置，导出为 JSON 文件。出于安全考虑，<span className="font-semibold text-slate-800">API Key 不会包含在导出文件中</span>，导入时可统一补填。
+            </p>
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-slate-500">已选 {exportSelected.size} / {exportRows.length}</div>
+              <div className="flex gap-2">
+                <button type="button" className="material-button-secondary !px-3 !py-2" onClick={() => setExportSelected(new Set(exportRows.map((row) => row.id)))}>
+                  全选
+                </button>
+                <button type="button" className="material-button-secondary !px-3 !py-2" onClick={() => setExportSelected(new Set())}>
+                  清空
+                </button>
+              </div>
+            </div>
+            <div className="material-scrollbar max-h-[320px] space-y-2 overflow-y-auto rounded-2xl border border-slate-200 p-3">
+              {exportRows.map((row) => (
+                <label
+                  key={row.id}
+                  className={cn(
+                    "flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5",
+                    exportSelected.has(row.id) ? "border-indigo-200 bg-indigo-50/60" : "border-slate-200 hover:bg-slate-50",
+                  )}
+                >
+                  <input type="checkbox" className="mt-1" checked={exportSelected.has(row.id)} onChange={() => toggleExportRow(row.id)} />
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-medium text-slate-800">{row.name}</span>
+                    <span className="mt-0.5 block truncate text-xs text-slate-400">
+                      {row.provider} / {row.model}{row.base_url ? ` · ${row.base_url}` : ""}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </DialogContent>
+        <DialogActions>
+          <button type="button" className="material-button-secondary" onClick={() => setExportOpen(false)}>
+            取消
+          </button>
+          <button type="button" className="material-button-primary" onClick={handleExport}>
+            导出所选（{exportSelected.size}）
+          </button>
+        </DialogActions>
+      </Dialog>
+
+      {/* 导入模型配置 */}
+      <Dialog open={importOpen} onClose={() => !importSaving && setImportOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>导入模型配置</DialogTitle>
+        <DialogContent dividers>
+          <div className="space-y-4 pt-1">
+            <p className="text-sm leading-6 text-slate-600">
+              导入只会<span className="font-semibold text-slate-800">新增</span>模型配置，不会修改或覆盖任何现有配置。与现有模型标识相同的条目已标记为「重复」并默认不勾选。
+            </p>
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">统一 API Key（可选）</label>
+              <input
+                className="material-input w-full"
+                type="password"
+                value={importApiKey}
+                onChange={(event) => setImportApiKey(event.target.value)}
+                placeholder="留空则导入后逐条编辑补填"
+              />
+            </div>
+            <div className="text-sm text-slate-500">已选 {importSelected.size} / {importEntries.length}</div>
+            <div className="material-scrollbar max-h-[300px] space-y-2 overflow-y-auto rounded-2xl border border-slate-200 p-3">
+              {importEntries.map((entry, index) => (
+                <label
+                  key={`${entry.model}-${index}`}
+                  className={cn(
+                    "flex cursor-pointer items-start gap-2.5 rounded-xl border px-3 py-2.5",
+                    importSelected.has(index) ? "border-indigo-200 bg-indigo-50/60" : "border-slate-200 hover:bg-slate-50",
+                  )}
+                >
+                  <input type="checkbox" className="mt-1" checked={importSelected.has(index)} onChange={() => toggleImportEntry(index)} />
+                  <span className="min-w-0">
+                    <span className="flex items-center gap-2 text-sm font-medium text-slate-800">
+                      <span className="truncate">{entry.name}</span>
+                      {entry.duplicate && <span className="material-chip shrink-0 bg-amber-50 text-amber-700">重复</span>}
+                    </span>
+                    <span className="mt-0.5 block truncate text-xs text-slate-400">
+                      {entry.provider} / {entry.model}{entry.base_url ? ` · ${entry.base_url}` : ""}
+                    </span>
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </DialogContent>
+        <DialogActions>
+          <button type="button" className="material-button-secondary" onClick={() => setImportOpen(false)} disabled={importSaving}>
+            取消
+          </button>
+          <button type="button" className="material-button-primary" onClick={() => void handleImportCreate()} disabled={importSaving}>
+            {importSaving ? "导入中..." : `导入所选（${importSelected.size}）`}
           </button>
         </DialogActions>
       </Dialog>
