@@ -66,7 +66,7 @@ const PersonalCenterPage = lazyNamed(() => import("./PersonalCenterPage"), "Pers
 const ContractReviewPage = lazyNamed(() => import("./ContractReviewPage"), "ContractReviewPage");
 const QualityDMSPage = lazyNamed(() => import("./QualityDMSPage"), "QualityDMSPage");
 const QATraceability = lazyNamed(() => import("./QATraceability"), "QATraceability");
-const QuickCapturePage = lazyNamed(() => import("./QuickCapturePage"), "QuickCapturePage");
+const AttendancePage = lazyNamed(() => import("./AttendancePage"), "AttendancePage");
 const RAKnowledgePage = lazyNamed(() => import("./RAKnowledgePage"), "RAKnowledgePage");
 const RDIssues = lazyNamed(() => import("./RDIssues"), "RDIssues");
 const IssueAiModule = lazyNamed(() => import("./IssueAiModule"), "IssueAiModule");
@@ -350,7 +350,8 @@ const router = createBrowserRouter([
       { path: "proc-materials", element: makeLazyProtected(<MaterialWorkbenchPage />, "page:proc-materials") },
       { path: "resume-screening", element: makeLazyProtected(<ResumeScreeningPage />, "page:resume-screening") },
       { path: "employee-archive", element: makeLazyProtected(<EmployeeArchivePage />, "page:employee-archive") },
-      { path: "quick-capture", element: makeLazyProtected(<QuickCapturePage />, "page:quick-capture") },
+      { path: "attendance", element: makeLazyProtected(<AttendancePage />, "page:quick-capture") },
+      { path: "quick-capture", element: makeLazyProtected(<Navigate to="/attendance" replace />, "page:quick-capture") },
       { path: "expense-center", element: makeLazyProtected(<ExpenseCenterPage />, "page:expense-center") },
       { path: "ebpr", element: makeLazyProtected(<EBPRPage />, "page:ebpr") },
       { path: "inspection-release", element: makeLazyProtected(<InspectionReleasePage />, "page:inspection-release") },

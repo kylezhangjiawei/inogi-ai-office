@@ -9,6 +9,7 @@ export const OSS_BUSINESS_TYPES = {
   RD_SHEET_IMAGES: 'rd/sheet-images',
   RECRUITMENT_RESUMES: 'recruitment/resumes',
   ISSUE_ATTACHMENTS: 'issue/attachments',
+  EMPLOYEE_BADGE_AVATAR: 'employee-archive/badge-avatar',
   ASSETS: 'assets',
 } as const;
 
@@ -25,6 +26,7 @@ export const OSS_MAX_FILE_SIZE: Record<OssBusinessType, number> = {
   'rd/sheet-images': 10 * 1024 * 1024,
   'recruitment/resumes': 10 * 1024 * 1024,
   'issue/attachments': 20 * 1024 * 1024,
+  'employee-archive/badge-avatar': 5 * 1024 * 1024,
   'assets': 50 * 1024 * 1024,
 };
 
@@ -56,6 +58,7 @@ export const OSS_ALLOWED_MIME_TYPES: Record<OssBusinessType, string[]> = {
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   ],
   'issue/attachments': ['*/*'],
+  'employee-archive/badge-avatar': ['image/jpeg', 'image/png', 'image/webp'],
   'assets': ['*/*'],
 };
 

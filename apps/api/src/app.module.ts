@@ -30,6 +30,8 @@ import { RagModule } from './modules/rag/rag.module';
 import { OrderProcessingModule } from './modules/order-processing/order-processing.module';
 import { IssueModule } from './modules/issue/issue.module';
 import { I18nModule } from './modules/i18n/i18n.module';
+import { EmployeeArchiveModule } from './modules/employee-archive/employee-archive.module';
+import { AttendanceModule } from './modules/attendance/attendance.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
 import { UserThrottlerGuard } from './common/user-throttler.guard';
@@ -73,6 +75,8 @@ const envFilePath = [
     RagModule,
     ResearchDevelopmentModule,
     IssueModule,
+    EmployeeArchiveModule,
+    AttendanceModule,
     I18nModule,
   ],
   providers: [

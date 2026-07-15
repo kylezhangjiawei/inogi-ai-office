@@ -22,6 +22,8 @@ export const PERMISSIONS = {
   PAGE_PROC_MATERIALS: 'page:proc-materials',
   PAGE_RESUME_SCREENING: 'page:resume-screening',
   PAGE_EMPLOYEE_ARCHIVE: 'page:employee-archive',
+  PAGE_ATTENDANCE: 'page:quick-capture',
+  /** @deprecated 使用 PAGE_ATTENDANCE；保留旧名称以兼容现有调用。 */
   PAGE_QUICK_CAPTURE: 'page:quick-capture',
   PAGE_EXPENSE_CENTER: 'page:expense-center',
   PAGE_EBPR: 'page:ebpr',
