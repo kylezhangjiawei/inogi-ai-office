@@ -23,6 +23,26 @@ if (!process.env.DATABASE_URL) {
   process.env.DATABASE_URL = match[1];
 }
 
+// ── 生产闸门 ────────────────────────────────────────────────────────────────
+// 本脚本写入的是**虚构演示数据**（假任务/假人名），只该进本地开发库。
+// 在哪台机器跑就写哪台机器 .env 指向的库——为防在服务器上误执行，这里硬性要求
+// 数据库必须是本机（localhost/127.0.0.1），且 NODE_ENV 不能是 production。
+// 真有演示环境需要灌数据时，显式带 ALLOW_DEMO_SEED=1 放行。
+{
+  const dbHost = (() => {
+    try { return new URL(process.env.DATABASE_URL).hostname; } catch { return ""; }
+  })();
+  const isLocalDb = dbHost === "localhost" || dbHost === "127.0.0.1" || dbHost === "::1";
+  if (process.env.ALLOW_DEMO_SEED !== "1" && (!isLocalDb || process.env.NODE_ENV === "production")) {
+    console.error(
+      `✗ 拒绝执行：这是演示数据脚本，检测到数据库主机为「${dbHost || "未知"}」` +
+        `${process.env.NODE_ENV === "production" ? "（且 NODE_ENV=production）" : ""}。\n` +
+        "  它只应写本地开发库。确认要在当前环境灌演示数据，请显式加 ALLOW_DEMO_SEED=1。",
+    );
+    process.exit(1);
+  }
+}
+
 const require = createRequire(join(apiRoot, "package.json"));
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();

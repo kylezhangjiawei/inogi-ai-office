@@ -19,6 +19,18 @@ if (!process.env.DATABASE_URL) {
   const env = readFileSync(join(apiRoot, ".env"), "utf8");
   process.env.DATABASE_URL = env.match(/^DATABASE_URL\s*=\s*"?([^"\r\n]+)"?/m)[1];
 }
+// 生产闸门：演示数据只进本地库（同 seed-us-collab-demo.mjs，说明见彼处）
+{
+  const dbHost = (() => {
+    try { return new URL(process.env.DATABASE_URL).hostname; } catch { return ""; }
+  })();
+  const isLocalDb = dbHost === "localhost" || dbHost === "127.0.0.1" || dbHost === "::1";
+  if (process.env.ALLOW_DEMO_SEED !== "1" && (!isLocalDb || process.env.NODE_ENV === "production")) {
+    console.error(`✗ 拒绝执行：演示数据脚本只应写本地开发库（当前数据库主机「${dbHost || "未知"}」）。确认请加 ALLOW_DEMO_SEED=1。`);
+    process.exit(1);
+  }
+}
+
 const require = createRequire(join(apiRoot, "package.json"));
 const { PrismaClient } = require("@prisma/client");
 const prisma = new PrismaClient();
