@@ -38,6 +38,8 @@ export type AuditAction =
   | "task.work_item_updated"
   | "task.comment_added"
   | "task.attachment_added"
+  | "task.attachment_removed"
+  | "task.attachment_replaced"
   | "task.evidence_uploaded"
   | "task.handoff_requested"
   | "task.abandon_requested"
@@ -187,6 +189,8 @@ export const AUDIT_ACTION_META: Record<AuditAction, AuditActionMeta> = {
   "task.work_item_updated": { category: "task", label: "工作项", verb: "更新了工作项", tone: "blue" },
   "task.comment_added": { category: "task", label: "添加评论", verb: "评论了任务", tone: "slate" },
   "task.attachment_added": { category: "task", label: "添加附件", verb: "上传了附件", tone: "slate" },
+  "task.attachment_removed": { category: "task", label: "删除附件", verb: "删除了附件", tone: "red" },
+  "task.attachment_replaced": { category: "task", label: "替换附件", verb: "替换了附件", tone: "amber" },
   "task.evidence_uploaded": { category: "task", label: "上传依据", verb: "上传了任务依据", tone: "slate" },
   "task.handoff_requested": { category: "task", label: "提交移交", verb: "提交了任务移交流程", tone: "violet" },
   "task.abandon_requested": { category: "task", label: "申请放弃", verb: "申请放弃了任务", tone: "amber" },
@@ -294,6 +298,19 @@ function saveRaw(logs: AuditLog[], emit = true): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(logs));
   if (emit) {
     window.dispatchEvent(new CustomEvent(AUDIT_EVENT));
+  }
+}
+
+/**
+ * 从服务端拉取最新审计流并广播刷新（供「服务端落审计」的操作在成功后调用，
+ * 让当前页面的时间线立即看到服务端新写入的记录，无需等下次挂载）。
+ */
+export async function syncAuditLogsFromRemote(): Promise<void> {
+  try {
+    const remoteLogs = await fetchRdAuditLogs<AuditLog>();
+    saveRaw(remoteLogs.slice(0, MAX_LOGS), true);
+  } catch {
+    // 拉取失败不打扰用户：下次组件挂载会自然刷新
   }
 }
 

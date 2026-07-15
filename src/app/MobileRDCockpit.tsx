@@ -8,11 +8,15 @@ import { recordAudit, useAuditActor } from "./lib/auditLog";
 import { useRDCockpitData } from "./hooks/useRDCockpitData";
 import {
   createRdTaskProgressNote,
+  fetchRdNoteUnreadSummary,
+  fetchRdPeople,
   fetchRdTaskProgressNotes,
+  markRdTaskNotesRead,
   type RdTask,
   type RdTaskProgressNote,
   type RdTaskStatus,
 } from "./lib/rdApi";
+import { MentionSuggestionPanel, useMentions, type MentionCandidate } from "./components/MentionInput";
 
 // ─── 文案 / 配色映射（移动端自带一份，与桌面同口径、样式独立）────────────────────
 const STATUS_META: Record<RdTaskStatus, { label: string; dot: string; tint: string }> = {
@@ -207,11 +211,14 @@ function MobileFeedCard({
   isRisk,
   onOpen,
   onPreview,
+  unreadCount = 0,
 }: {
   task: RdTask;
   isRisk: boolean;
   onOpen: () => void;
   onPreview: (images: string[], index: number) => void;
+  /** 未读评论数（微信式红点，>0 才显示） */
+  unreadCount?: number;
 }) {
   const status = STATUS_META[task.status] ?? STATUS_META.draft;
   const due = formatDue(task.due_date);
@@ -256,6 +263,14 @@ function MobileFeedCard({
         <span className="min-w-0 flex-1 truncate text-[11px] font-medium text-slate-400">
           {cat ? `# ${cat}` : ""}
         </span>
+        {unreadCount > 0 && (
+          <span
+            className="inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold leading-none text-white shadow-sm"
+            title={t("有 {n} 条未读评论", { n: unreadCount })}
+          >
+            {unreadCount > 99 ? "99+" : unreadCount}
+          </span>
+        )}
         {score && (
           <span
             className={cn(
@@ -458,10 +473,29 @@ export function MobileRDCockpit() {
     scrollTop();
   };
 
+  // ── 评论未读红点（微信式）：任务级未读数，点开详情即标记已读（全端同步消失）──
+  const [noteUnread, setNoteUnread] = useState<Record<string, number>>({});
+  useEffect(() => {
+    let cancelled = false;
+    fetchRdNoteUnreadSummary()
+      .then((summary) => { if (!cancelled) setNoteUnread(summary); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
   // 打开任务详情：压入一条 history，使「系统返回键 / 详情内返回」都只关详情、不退出 /m。
   const openTask = (task: RdTask) => {
     window.history.pushState({ mobileTaskDetail: true }, "");
     setActiveTask(task);
+    // 点开即读：乐观清除本地红点 + 上报服务端位点
+    if (noteUnread[task.task_id]) {
+      setNoteUnread((prev) => {
+        const next = { ...prev };
+        delete next[task.task_id];
+        return next;
+      });
+    }
+    void markRdTaskNotesRead(task.task_id).catch(() => {});
   };
 
   // 首屏加载 / 错误（仅当还没有任何数据时占满）
@@ -606,6 +640,7 @@ export function MobileRDCockpit() {
                 isRisk={riskTaskIds.has(t.task_id)}
                 onOpen={() => openTask(t)}
                 onPreview={(images, index) => setLightbox({ images, index })}
+                unreadCount={noteUnread[t.task_id] ?? 0}
               />
             ))}
           </div>
@@ -659,6 +694,33 @@ function MobileTaskDetail({
   const [submitting, setSubmitting] = useState(false);
   const auditActor = useAuditActor("研发成员");
 
+  // ── 评论 @ 提及（移动端呈现：输入框上方横向候选条，点选插入）──────────────
+  const draftInputRef = useRef<HTMLTextAreaElement>(null);
+  const [people, setPeople] = useState<Array<{ name: string; user_id?: string | null }>>([]);
+  useEffect(() => {
+    let cancelled = false;
+    // 懒加载全员候选：失败静默（仍有任务参与人候选可用）
+    fetchRdPeople()
+      .then((list) => { if (!cancelled) setPeople(list.map((p) => ({ name: p.name, user_id: p.user_id ?? null }))); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  const mentionCandidates = useMemo<MentionCandidate[]>(() => {
+    const seen = new Set<string>();
+    const out: MentionCandidate[] = [];
+    const push = (name?: string | null, userId?: string | null, hint?: string) => {
+      const n = (name ?? "").trim();
+      if (!n || seen.has(n)) return;
+      seen.add(n);
+      out.push({ user_id: userId ?? null, name: n, hint });
+    };
+    push(task.primary_owner, task.primary_owner_user_id, t("主责人"));
+    for (const c of task.collaborators ?? []) push(c.name, c.user_id, t("协作人"));
+    for (const p of people) push(p.name, p.user_id ?? null);
+    return out;
+  }, [task.primary_owner, task.primary_owner_user_id, task.collaborators, people]);
+  const mention = useMentions({ value: draft, setValue: setDraft, inputRef: draftInputRef, candidates: mentionCandidates });
+
   const status = STATUS_META[task.status] ?? STATUS_META.draft;
   const owner = (task.primary_owner || "").trim() || t("未指派");
 
@@ -692,7 +754,13 @@ function MobileTaskDetail({
     if (!text || submitting) return;
     setSubmitting(true);
     try {
-      const savedNote = await createRdTaskProgressNote({ task_id: task.task_id, text });
+      const savedNote = await createRdTaskProgressNote({
+        task_id: task.task_id,
+        text,
+        // @ 提及：仅正文仍包含 @姓名 的才生效
+        mentions: mention.mentionsForSubmit(text),
+      });
+      mention.resetMentions();
       // 同步记一条「进度更新」操作留痕，使 PC 端 rd-task-management 的操作留痕时间线能看到该备注
       // （PC 添加进展时也是这样记的；移动端此前只建了 note、漏了这条 audit，导致 PC 看不到）。
       recordAudit({
@@ -769,14 +837,27 @@ function MobileTaskDetail({
         )}
       </div>
 
-      {/* 底部：备注输入（纯文本，其余从简）*/}
+      {/* 底部：备注输入（输入 @ 唤出候选条提及成员）*/}
       <div className="border-t border-slate-200 bg-white px-3 py-2.5 [padding-bottom:calc(0.625rem+env(safe-area-inset-bottom))]">
+        <MentionSuggestionPanel
+          open={mention.open}
+          candidates={mention.filtered}
+          highlightIndex={mention.highlightIndex}
+          onPick={mention.pick}
+          variant="mobile"
+        />
         <div className="flex items-end gap-2">
           <textarea
+            ref={draftInputRef}
             value={draft}
-            onChange={(e) => setDraft(e.target.value)}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              mention.syncActiveQuery();
+            }}
+            onKeyUp={mention.syncActiveQuery}
+            onClick={mention.syncActiveQuery}
             rows={1}
-            placeholder={t("添加备注…")}
+            placeholder={t("添加备注…输入 @ 可提及成员")}
             className="max-h-28 min-h-[2.5rem] flex-1 resize-none rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-[14px] leading-snug text-slate-800 outline-none placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white"
           />
           <button

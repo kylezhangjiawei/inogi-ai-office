@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   AlertTriangle,
@@ -44,12 +44,17 @@ import { useAuth } from "./auth";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
 import { AuditTimeline } from "./RDAuditTimeline";
 import { ProgressAttachmentGrid, ProgressNoteList } from "./RDProgressEvidence";
-import { AuditActor, recordAudit, useAuditActor, useAuditLogs } from "./lib/auditLog";
+import { AuditActor, recordAudit, syncAuditLogsFromRemote, useAuditActor, useAuditLogs } from "./lib/auditLog";
 import { PERMISSIONS } from "./lib/permissions";
 import { isTaskOverdue, taskOverdueDays } from "./lib/taskDue";
 import {
+  addRdNoteAttachments,
   assessRdTaskProgress,
   createRdTaskProgressNote,
+  deleteRdNoteAttachment,
+  fetchRdNoteUnreadSummary,
+  markRdTaskNotesRead,
+  replaceRdNoteAttachment,
   fetchProductTaskCategories,
   fetchRdPeople,
   fetchRdProducts,
@@ -68,6 +73,7 @@ import {
   type RdPriority,
   type RdProductDef,
   type RdSubProject,
+  type RdTaskProgressAttachment,
   type RdTaskProgressNote,
   type RdWorkItem,
   isUsCollabWorkspace,
@@ -80,7 +86,8 @@ import {
   type RdWorkspaceNotification,
   type RdPerformanceReport,
 } from "./lib/rdApi";
-import { t, useI18n } from "./lib/i18n";
+import { i18nLocale, t, useI18n } from "./lib/i18n";
+import { MentionSuggestionPanel, useMentions, type MentionCandidate } from "./components/MentionInput";
 import { AutoTranslatedText } from "./components/TranslatableText";
 import { RDPerformanceScoreDialog } from "./RDPerformanceScoreDialog";
 import { toast } from "sonner";
@@ -117,6 +124,13 @@ type ConfirmDialogConfig = {
 };
 
 const TODAY_LABEL = new Date().toISOString().split("T")[0]!;
+/** 附件操作类审计动作（时间线上归位展示到所属进展条目下，不再顶层平铺） */
+const ATTACHMENT_OP_ACTIONS: ReadonlySet<string> = new Set([
+  "task.attachment_added",
+  "task.attachment_removed",
+  "task.attachment_replaced",
+]);
+
 const NOTE_ATTACHMENT_MAX_FILES = 10;
 const NOTE_ATTACHMENT_MAX_FILE_BYTES = 25 * 1024 * 1024;
 const NOTE_ATTACHMENT_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
@@ -720,6 +734,23 @@ function TaskOperationDrawer({
   const [noteDragOver, setNoteDragOver] = useState(false);
   const [savingNote, setSavingNote] = useState(false);
   const [peopleOptions, setPeopleOptions] = useState<RdPersonLoad[]>([]);
+  // ── 评论 @ 提及：候选 = 任务参与人置顶 + 本池全员；一套逻辑（useMentions）+ 桌面下拉呈现 ──
+  const noteInputRef = useRef<HTMLTextAreaElement>(null);
+  const mentionCandidates = useMemo<MentionCandidate[]>(() => {
+    const seen = new Set<string>();
+    const out: MentionCandidate[] = [];
+    const push = (name?: string | null, userId?: string | null, hint?: string) => {
+      const n = (name ?? "").trim();
+      if (!n || seen.has(n)) return;
+      seen.add(n);
+      out.push({ user_id: userId ?? null, name: n, hint });
+    };
+    push(task.primary_owner, task.primary_owner_user_id, t("主责人"));
+    for (const c of task.collaborators ?? []) push(c.name, c.user_id, t("协作人"));
+    for (const p of peopleOptions) push(p.name, p.user_id ?? null);
+    return out;
+  }, [task.primary_owner, task.primary_owner_user_id, task.collaborators, peopleOptions]);
+  const mention = useMentions({ value: note, setValue: setNote, inputRef: noteInputRef, candidates: mentionCandidates });
   const [peopleLoading, setPeopleLoading] = useState(false);
   const [peopleError, setPeopleError] = useState(false);
   const [handoffReason, setHandoffReason] = useState(task.pending_collaboration_reason ?? "");
@@ -791,6 +822,122 @@ function TaskOperationDrawer({
     () => progressNotes.reduce((sum, note) => sum + note.attachments.length, 0),
     [progressNotes],
   );
+
+  // ── 留痕附件管理（新增/替换/删除）──────────────────────────────────────────
+  // 权限完全以服务端随留痕下发的 note.can_edit_attachments 为准（作者/主责人/管理员
+  // + 任务未完成未归档，与写接口锁内校验同一实现），前端不再自行推断，杜绝口径漂移。
+  const canEditNoteAttachments = useCallback(
+    (note: RdTaskProgressNote) => note.can_edit_attachments === true,
+    [],
+  );
+
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
+  const [deleteAttTarget, setDeleteAttTarget] = useState<{ note: RdTaskProgressNote; att: RdTaskProgressAttachment } | null>(null);
+  const addFilesInputRef = useRef<HTMLInputElement>(null);
+  const replaceFileInputRef = useRef<HTMLInputElement>(null);
+  /** 隐藏文件选择器共享的目标留痕/附件（打开选择器前设置） */
+  const attachmentTargetRef = useRef<{ note: RdTaskProgressNote; att?: RdTaskProgressAttachment } | null>(null);
+
+  /**
+   * 变更成功后的统一收尾：原位更新留痕（写接口返回的留痕不带可编辑标记，沿用旧值），
+   * 并从服务端拉取审计流刷新时间线——审计由服务端随变更写入，前端不再另记一份。
+   */
+  const applyUpdatedNote = (updated: RdTaskProgressNote) => {
+    setProgressNotes((prev) => prev.map((n) => (
+      n.id === updated.id
+        ? { ...updated, can_edit_attachments: updated.can_edit_attachments ?? n.can_edit_attachments }
+        : n
+    )));
+    void syncAuditLogsFromRemote();
+  };
+
+  const handleAddAttachmentFiles = async (note: RdTaskProgressNote, files: File[]) => {
+    if (files.length === 0 || attachmentBusy) return;
+    if (note.attachments.length + files.length > NOTE_ATTACHMENT_MAX_FILES) {
+      toast.error(t("单条留痕附件最多 {n} 个", { n: NOTE_ATTACHMENT_MAX_FILES }));
+      return;
+    }
+    const oversized = files.find((f) => f.size > NOTE_ATTACHMENT_MAX_FILE_BYTES);
+    if (oversized) {
+      toast.error(t("附件 {name} 超过单文件 25MB 限制", { name: oversized.name }));
+      return;
+    }
+    const totalBytes = note.attachments.reduce((sum, a) => sum + (a.size ?? 0), 0) + files.reduce((sum, f) => sum + f.size, 0);
+    if (totalBytes > NOTE_ATTACHMENT_MAX_TOTAL_BYTES) {
+      toast.error(t("附件总大小超过单条留痕 50MB 限制"));
+      return;
+    }
+    setAttachmentBusy(true);
+    try {
+      const updated = await addRdNoteAttachments(task.task_id, note.id, files);
+      applyUpdatedNote(updated);
+      toast.success(t("已新增 {n} 个附件", { n: files.length }));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "附件新增失败");
+    } finally {
+      setAttachmentBusy(false);
+    }
+  };
+
+  const handleReplaceAttachmentFile = async (note: RdTaskProgressNote, att: RdTaskProgressAttachment, file: File) => {
+    if (attachmentBusy) return;
+    if (file.size > NOTE_ATTACHMENT_MAX_FILE_BYTES) {
+      toast.error(t("附件 {name} 超过单文件 25MB 限制", { name: file.name }));
+      return;
+    }
+    setAttachmentBusy(true);
+    try {
+      const updated = await replaceRdNoteAttachment(task.task_id, note.id, att.id, file);
+      applyUpdatedNote(updated);
+      toast.success(t("附件已替换"));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "附件替换失败");
+    } finally {
+      setAttachmentBusy(false);
+    }
+  };
+
+  const confirmDeleteAttachment = async () => {
+    const target = deleteAttTarget;
+    if (!target || attachmentBusy) return;
+    setAttachmentBusy(true);
+    try {
+      const updated = await deleteRdNoteAttachment(task.task_id, target.note.id, target.att.id);
+      applyUpdatedNote(updated);
+      toast.success(t("附件已删除"));
+      setDeleteAttTarget(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "附件删除失败");
+    } finally {
+      setAttachmentBusy(false);
+    }
+  };
+
+  // ── 附件操作记录「归位」：不在时间线平铺，而是嵌到所属进展条目的附件区下方。
+  //    审计数据本身不动（操作留痕页仍是完整流），只改任务视角的展示归组；
+  //    找不到所属进展的附件操作（note 被裁剪等边缘情况）仍平铺，不丢记录。──
+  const attachmentOpsByNoteId = useMemo(() => {
+    const map = new Map<string, typeof taskLogs>();
+    for (const log of taskLogs) {
+      if (!ATTACHMENT_OP_ACTIONS.has(log.action)) continue;
+      const noteId = typeof log.metadata?.note_id === "string" ? log.metadata.note_id : "";
+      if (!noteId) continue;
+      const list = map.get(noteId) ?? [];
+      list.push(log);
+      map.set(noteId, list);
+    }
+    return map;
+  }, [taskLogs]);
+  /** 时间线顶层过滤：已归位到某条进展下的附件操作不再平铺 */
+  const timelineTaskLogs = useMemo(() => {
+    const renderedNoteIds = new Set(Array.from(logNoteMatches.values()).map((n) => n.id));
+    return taskLogs.filter((log) => {
+      if (!ATTACHMENT_OP_ACTIONS.has(log.action)) return true;
+      const noteId = typeof log.metadata?.note_id === "string" ? log.metadata.note_id : "";
+      return !(noteId && renderedNoteIds.has(noteId));
+    });
+  }, [taskLogs, logNoteMatches]);
+
   const canApplyCollaborationDirectly = canDirectProject || canReviewProjectL1 || canReviewProjectL2 || canReassignTask || canManagePeople;
   const dueDateChangePending = task.status === "pending_review" && task.pending_review_type === "due_date";
 
@@ -898,8 +1045,11 @@ function TaskOperationDrawer({
               progress: progressToSave,
               files: noteAttachments,
               work_item_id: noteWorkItemId || undefined,
+              // @ 提及：仅正文仍包含 @姓名 的才生效（手动删除即不通知）
+              mentions: mention.mentionsForSubmit(note),
             });
             savedNoteId = savedNote?.id;
+            mention.resetMentions();
           }
           await onProgressSave(task.task_id, progressToSave);
           recordAudit({
@@ -1650,16 +1800,126 @@ function TaskOperationDrawer({
                 </span>
               </div>
               <AuditTimeline
-                logs={taskLogs}
+                logs={timelineTaskLogs}
                 showResource={false}
                 emptyText={t("暂无此任务的操作记录")}
                 renderExtra={(log) => {
                   const note = logNoteMatches.get(log.id);
-                  if (!note || note.attachments.length === 0) return null;
-                  return <ProgressAttachmentGrid attachments={note.attachments} compact />;
+                  if (!note) return null;
+                  const editable = canEditNoteAttachments(note);
+                  const noteOps = attachmentOpsByNoteId.get(note.id) ?? [];
+                  if (note.attachments.length === 0 && !editable && noteOps.length === 0) return null;
+                  return (
+                    <div className="space-y-1.5">
+                      {note.attachments.length > 0 && (
+                        <ProgressAttachmentGrid
+                          attachments={note.attachments}
+                          compact
+                          {...(editable
+                            ? {
+                                onDeleteAttachment: (att: RdTaskProgressAttachment) => setDeleteAttTarget({ note, att }),
+                                onReplaceAttachment: (att: RdTaskProgressAttachment) => {
+                                  attachmentTargetRef.current = { note, att };
+                                  replaceFileInputRef.current?.click();
+                                },
+                              }
+                            : {})}
+                        />
+                      )}
+                      {editable && (
+                        <button
+                          type="button"
+                          disabled={attachmentBusy}
+                          onClick={() => {
+                            attachmentTargetRef.current = { note };
+                            addFilesInputRef.current?.click();
+                          }}
+                          className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-dashed border-slate-300 px-2 py-1 text-[11px] text-slate-500 transition-colors hover:border-indigo-300 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <UploadCloud className="h-3 w-3" />
+                          {attachmentBusy ? t("处理中…") : t("添加附件")}
+                        </button>
+                      )}
+                      {/* 附件变更历史（归位展示）：谁在什么时候增/删/换了本条进展的附件 */}
+                      {noteOps.length > 0 && (
+                        <div className="space-y-0.5 border-l-2 border-slate-100 pl-2">
+                          {[...noteOps]
+                            .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+                            .map((op) => (
+                              <div key={op.id} className="flex flex-wrap items-baseline gap-x-1.5 text-[11px] leading-5 text-slate-400">
+                                <AutoTranslatedText
+                                  as="span"
+                                  text={op.comment || "变更了附件"}
+                                  className={cn(
+                                    "font-medium",
+                                    op.action === "task.attachment_removed" && "text-red-500/80",
+                                    op.action === "task.attachment_replaced" && "text-amber-600/90",
+                                    op.action === "task.attachment_added" && "text-slate-500",
+                                  )}
+                                />
+                                <span>· {op.actor.name}</span>
+                                <span className="tabular-nums">
+                                  · {new Date(op.timestamp).toLocaleString(i18nLocale(), { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", hour12: false })}
+                                </span>
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }}
+              />
+              {/* 隐藏文件选择器：新增（多选）/ 替换（单选），目标留痕存于 attachmentTargetRef */}
+              <input
+                ref={addFilesInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  const files = Array.from(e.target.files ?? []);
+                  e.target.value = "";
+                  const target = attachmentTargetRef.current;
+                  if (target && files.length > 0) void handleAddAttachmentFiles(target.note, files);
+                }}
+              />
+              <input
+                ref={replaceFileInputRef}
+                type="file"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  const target = attachmentTargetRef.current;
+                  if (target?.att && file) void handleReplaceAttachmentFile(target.note, target.att, file);
                 }}
               />
             </div>
+
+            {/* 删除附件确认弹层 */}
+            {deleteAttTarget && (
+              <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/50 px-4" role="dialog" aria-modal="true">
+                <div className="w-full max-w-sm rounded-xl bg-white p-5 shadow-2xl">
+                  <div className="text-sm font-semibold text-slate-900">{t("删除附件")}</div>
+                  <p className="mt-2 break-all text-sm leading-6 text-slate-600">
+                    {t("确认删除附件「{name}」吗？删除后 AI 解析与知识检索将不再包含此文件。", { name: deleteAttTarget.att.name })}
+                  </p>
+                  <div className="mt-4 flex justify-end gap-2">
+                    <Button type="button" variant="outline" size="sm" onClick={() => setDeleteAttTarget(null)} disabled={attachmentBusy}>
+                      {t("取消")}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={() => void confirmDeleteAttachment()}
+                      disabled={attachmentBusy}
+                      className="bg-red-600 hover:bg-red-700"
+                    >
+                      {attachmentBusy ? t("删除中…") : t("确认删除")}
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* 方案2：低强调的次级文字按钮，置于详情底部，点击打开聚焦的放弃原因弹窗。
                 仅主责人 + 活跃状态可见（待审核/已完成等不显示）。 */}
@@ -1815,16 +2075,32 @@ function TaskOperationDrawer({
             <label className="block">
               <div className="flex items-center justify-between">
                 <span className="text-sm font-semibold text-slate-900">{t("进展说明")}</span>
-                <span className="text-[10px] text-slate-400">{t("文本与附件均会送 AI 分析")}</span>
+                <span className="text-[10px] text-slate-400">{t("输入 @ 可提及成员 · 文本与附件均会送 AI 分析")}</span>
               </div>
-              <Textarea
-                value={note}
-                onChange={(event) => setNote(event.target.value)}
-                onPaste={handleNotePaste}
-                rows={4}
-                placeholder={t("说明本次进度变化、上传文件依据、产出内容、仍需支持的事项（可直接 Ctrl/⌘+V 粘贴截图）")}
-                className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none transition-colors focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
-              />
+              <div className="relative">
+                <MentionSuggestionPanel
+                  open={mention.open}
+                  candidates={mention.filtered}
+                  highlightIndex={mention.highlightIndex}
+                  onPick={mention.pick}
+                  variant="desktop"
+                />
+                <Textarea
+                  ref={noteInputRef}
+                  value={note}
+                  onChange={(event) => {
+                    setNote(event.target.value);
+                    mention.syncActiveQuery();
+                  }}
+                  onKeyDown={(event) => { mention.handleKeyDown(event); }}
+                  onKeyUp={mention.syncActiveQuery}
+                  onClick={mention.syncActiveQuery}
+                  onPaste={handleNotePaste}
+                  rows={4}
+                  placeholder={t("说明本次进度变化、上传文件依据、产出内容、仍需支持的事项（可直接 Ctrl/⌘+V 粘贴截图）")}
+                  className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none transition-colors focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                />
+              </div>
             </label>
 
             <div
@@ -2952,6 +3228,7 @@ function WorkspaceTaskCard({
   selected = false,
   onToggleSelect,
   onMove,
+  unreadCount = 0,
 }: {
   task: WorkspaceTask;
   onOpen: (task: WorkspaceTask, tab: OperationTab, opts?: { abandon?: boolean }) => void;
@@ -2960,6 +3237,8 @@ function WorkspaceTaskCard({
   selected?: boolean;
   onToggleSelect?: (task: WorkspaceTask) => void;
   onMove?: (task: WorkspaceTask) => void;
+  /** 未读评论数（微信式红点，>0 才显示） */
+  unreadCount?: number;
 }) {
   const grad = WS_PRIORITY_GRAD[task.priority] ?? WS_PRIORITY_GRAD.medium!;
   const sCfg = WS_STATUS_CONFIG[task.status] ?? WS_STATUS_CONFIG.draft!;
@@ -3018,6 +3297,14 @@ function WorkspaceTaskCard({
               <span className="inline-flex items-center gap-0.5 rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-600">
                 <Sparkles className="h-2.5 w-2.5" />
                 {t("AI待确认")}
+              </span>
+            )}
+            {unreadCount > 0 && (
+              <span
+                className="ml-auto inline-flex h-[18px] min-w-[18px] shrink-0 items-center justify-center rounded-full bg-red-500 px-1.5 text-[10px] font-bold leading-none text-white shadow-sm"
+                title={t("有 {n} 条未读评论", { n: unreadCount })}
+              >
+                {unreadCount > 99 ? "99+" : unreadCount}
               </span>
             )}
           </div>
@@ -3144,10 +3431,12 @@ function SubsystemGroupBlock({
   group,
   onOpen,
   move,
+  unreadByTask,
 }: {
   group: SubsystemGroup;
   onOpen: (task: WorkspaceTask, tab: OperationTab, opts?: { abandon?: boolean }) => void;
   move?: PanoramaMoveProps;
+  unreadByTask?: Record<string, number>;
 }) {
   // 没有进行中任务时（整组都已完成），默认展开已完成，避免分组看起来空白。
   const [doneOpen, setDoneOpen] = useState(group.active.length === 0);
@@ -3185,6 +3474,7 @@ function SubsystemGroupBlock({
               selected={move?.selectedIds.has(task.task_id) ?? false}
               onToggleSelect={move?.onToggleSelect}
               onMove={move?.onMoveTask}
+            unreadCount={unreadByTask?.[task.task_id] ?? 0}
             />
           ))}
         </div>
@@ -3211,6 +3501,7 @@ function SubsystemGroupBlock({
                   selected={move?.selectedIds.has(task.task_id) ?? false}
                   onToggleSelect={move?.onToggleSelect}
                   onMove={move?.onMoveTask}
+                unreadCount={unreadByTask?.[task.task_id] ?? 0}
                 />
               ))}
             </div>
@@ -3225,15 +3516,17 @@ function SubsystemPanorama({
   groups,
   onOpen,
   move,
+  unreadByTask,
 }: {
   groups: SubsystemGroup[];
   onOpen: (task: WorkspaceTask, tab: OperationTab, opts?: { abandon?: boolean }) => void;
   move?: PanoramaMoveProps;
+  unreadByTask?: Record<string, number>;
 }) {
   return (
     <div className="space-y-3">
       {groups.map((group) => (
-        <SubsystemGroupBlock key={group.key} group={group} onOpen={onOpen} move={move} />
+        <SubsystemGroupBlock key={group.key} group={group} onOpen={onOpen} move={move} unreadByTask={unreadByTask} />
       ))}
     </div>
   );
@@ -3456,8 +3749,29 @@ export function RDMyWorkspacePage() {
   }, [filteredAllTasks.length, hasMoreTasks, loading]);
 
   const findTask = (taskId?: string) => allTasks.find((task) => task.task_id === taskId);
-  const openTask = (task: WorkspaceTask, tab: OperationTab, opts?: { abandon?: boolean }) =>
+
+  // ── 评论未读红点（微信式）：任务级未读数，打开任务即标记已读（全端同步消失）──
+  const [noteUnread, setNoteUnread] = useState<Record<string, number>>({});
+  useEffect(() => {
+    let cancelled = false;
+    fetchRdNoteUnreadSummary()
+      .then((summary) => { if (!cancelled) setNoteUnread(summary); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+
+  const openTask = (task: WorkspaceTask, tab: OperationTab, opts?: { abandon?: boolean }) => {
     setActivePanel({ kind: "task", task, tab, openedAt: Date.now(), abandon: opts?.abandon });
+    // 点开即读：乐观清除本地红点 + 上报服务端位点（失败不打扰，下次拉取自然校正）
+    if (noteUnread[task.task_id]) {
+      setNoteUnread((prev) => {
+        const next = { ...prev };
+        delete next[task.task_id];
+        return next;
+      });
+    }
+    void markRdTaskNotesRead(task.task_id).catch(() => {});
+  };
 
   // 离开全景视图时清空勾选，避免切回列表后残留选择态。
   useEffect(() => {
@@ -3828,6 +4142,7 @@ export function RDMyWorkspacePage() {
                 <SubsystemPanorama
                   groups={subsystemGroups}
                   onOpen={openTask}
+                  unreadByTask={noteUnread}
                   // 协同池无分类概念：移动归类（勾选/单移/批量）整体不提供
                   move={isUsCollabWorkspace() ? undefined : { selectedIds: selectedTaskIds, onToggleSelect: toggleTaskSelected, onMoveTask: openSingleMove }}
                 />
@@ -3836,7 +4151,7 @@ export function RDMyWorkspacePage() {
                   <div className="space-y-2">
                     <AnimatePresence>
                       {shownTasks.map((task) => (
-                        <WorkspaceTaskCard key={task.task_id} task={task} onOpen={openTask} />
+                        <WorkspaceTaskCard key={task.task_id} task={task} onOpen={openTask} unreadCount={noteUnread[task.task_id] ?? 0} />
                       ))}
                     </AnimatePresence>
                   </div>

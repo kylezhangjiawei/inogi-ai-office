@@ -1032,6 +1032,14 @@ export type RdTaskProgressNote = {
   created_at: string;
   /** 可选：关联的工作项 id（任务内部拆分的小子集，如某个文档），详情留痕区按此分 Tab。 */
   work_item_id?: string | null;
+  /** 可选：评论中 @ 提及的成员（结构化，渲染高亮与通知均以此为准） */
+  mentions?: Array<{ user_id: string | null; name: string | null }>;
+  /**
+   * 当前登录人是否可管理本条留痕的附件（新增/替换/删除）。由服务端按
+   * 「留痕作者/任务主责人/管理员 + 任务未完成未归档」统一计算下发，
+   * 前端只认此标记渲染入口，避免前后端权限口径漂移。
+   */
+  can_edit_attachments?: boolean;
 };
 
 /**
@@ -1204,12 +1212,15 @@ export async function createRdTaskProgressNote(payload: {
   files?: File[];
   /** 可选：本条进展关联到任务的哪个工作项（详情留痕区按工作项分 Tab 查看）。 */
   work_item_id?: string;
+  /** 可选：@ 提及的成员（服务端存结构化字段并给每人发站内消息）。 */
+  mentions?: Array<{ user_id?: string; name: string }>;
 }): Promise<RdTaskProgressNote> {
   const form = new FormData();
   form.append("task_id", payload.task_id);
   form.append("text", payload.text);
   if (typeof payload.progress === "number") form.append("progress", String(payload.progress));
   if (payload.work_item_id) form.append("work_item_id", payload.work_item_id);
+  if (payload.mentions && payload.mentions.length > 0) form.append("mentions", JSON.stringify(payload.mentions));
   (payload.files ?? []).forEach((file) => form.append("files", file));
 
   const response = await fetchWithTimeout(
@@ -1219,6 +1230,71 @@ export async function createRdTaskProgressNote(payload: {
     "进度记录保存失败",
   );
   // 新增留痕后失效聚合缓存，保证新附件在驾驶舱/日报等处即时可见。
+  clearRdTaskProgressNoteMapCache();
+  return (await response.json()) as RdTaskProgressNote;
+}
+
+// ── 评论未读红点（微信式）────────────────────────────────────────────────────
+
+/** 我的全部任务未读评论数（仅含 >0 的项）；工作台/移动端列表据此渲染角标。 */
+export function fetchRdNoteUnreadSummary() {
+  return requestJson<Record<string, number>>("/note-unread-summary");
+}
+
+/** 标记某任务的评论已读（任何入口打开留痕区都调用，全端红点同步消失）。 */
+export function markRdTaskNotesRead(taskId: string) {
+  return requestJson<{ ok: boolean }>(`/task-progress-notes/${encodeURIComponent(taskId)}/read`, { method: "POST" });
+}
+
+/** 驾驶舱备注回执：管理员/他人给任务留的备注，目标人是否已查看/已跟进（三态：待查看/已查看/已闭环隐藏）。 */
+export type RdTaskNoteReceipt = {
+  author_name: string;
+  target_name: string;
+  state: "unread" | "read";
+  excerpt: string;
+  created_at: string;
+};
+export function fetchRdTaskNoteReceipts() {
+  return requestJson<Record<string, RdTaskNoteReceipt>>("/task-note-receipts");
+}
+
+// ── 留痕附件管理（工作台）：新增 / 替换 / 删除 ────────────────────────────────
+// 权限与锁定口径由后端收口（留痕作者/任务主责人/管理员；已完成或归档任务锁定）。
+// 三个操作都返回更新后的完整留痕，调用方据此原位更新本地状态。
+
+export async function addRdNoteAttachments(taskId: string, noteId: string, files: File[]): Promise<RdTaskProgressNote> {
+  const form = new FormData();
+  files.forEach((file) => form.append("files", file));
+  const response = await fetchWithTimeout(
+    `/task-progress-notes/${encodeURIComponent(taskId)}/${encodeURIComponent(noteId)}/attachments`,
+    { method: "POST", body: form },
+    60_000,
+    "附件新增失败",
+  );
+  clearRdTaskProgressNoteMapCache();
+  return (await response.json()) as RdTaskProgressNote;
+}
+
+export async function replaceRdNoteAttachment(taskId: string, noteId: string, attachmentId: string, file: File): Promise<RdTaskProgressNote> {
+  const form = new FormData();
+  form.append("file", file);
+  const response = await fetchWithTimeout(
+    `/task-progress-notes/${encodeURIComponent(taskId)}/${encodeURIComponent(noteId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    { method: "PUT", body: form },
+    60_000,
+    "附件替换失败",
+  );
+  clearRdTaskProgressNoteMapCache();
+  return (await response.json()) as RdTaskProgressNote;
+}
+
+export async function deleteRdNoteAttachment(taskId: string, noteId: string, attachmentId: string): Promise<RdTaskProgressNote> {
+  const response = await fetchWithTimeout(
+    `/task-progress-notes/${encodeURIComponent(taskId)}/${encodeURIComponent(noteId)}/attachments/${encodeURIComponent(attachmentId)}`,
+    { method: "DELETE" },
+    30_000,
+    "附件删除失败",
+  );
   clearRdTaskProgressNoteMapCache();
   return (await response.json()) as RdTaskProgressNote;
 }

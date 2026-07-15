@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Put, Query, Request, Res, UploadedFiles, UseInterceptors } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Put, Query, Request, Res, UploadedFiles, UseInterceptors } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { SkipThrottle } from '@nestjs/throttler';
 import { Response } from 'express';
@@ -189,6 +189,25 @@ export class ResearchDevelopmentController {
     return this.rdService.listAllTaskProgressNotes(buildViewer(req));
   }
 
+  // ── 评论未读红点：任务级未读数与已读上报 ────────────────────────────────────
+  // 路径刻意不放在 task-progress-notes/:taskId 之下，避免被参数路由捕获
+
+  @Get('note-unread-summary')
+  getNoteUnreadSummary(@Request() req: AuthedRequest) {
+    return this.rdService.getNoteUnreadSummary({ userId: req.user?.id, userName: req.user?.name });
+  }
+
+  // 驾驶舱备注回执：所有有驾驶舱页面权限者可见（类级 @Permissions 已含 page:rd-task-management / us-collab-cockpit）
+  @Get('task-note-receipts')
+  getTaskNoteReceipts() {
+    return this.rdService.getTaskNoteReceipts();
+  }
+
+  @Post('task-progress-notes/:taskId/read')
+  markTaskNotesRead(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
+    return this.rdService.markTaskNotesRead(taskId, { userId: req.user?.id });
+  }
+
   /** 单任务 AI 小结（协同模块纵向视图）：任务近况浓缩成几句话；AI 未配置时本地兜底，不失败。 */
   @Post('tasks/:taskId/brief')
   generateTaskBrief(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
@@ -215,6 +234,8 @@ export class ResearchDevelopmentController {
     return this.rdService.getTaskProgressNotes(taskId, {
       ...buildViewer(req),
       userName: req.user?.name,
+      // 附件可编辑标记的管理员口径与写接口 canEditAny 完全一致（同一函数）
+      canEditAttachments: canManageAnyTask(req.user?.permissions ?? []),
     });
   }
 
@@ -298,9 +319,21 @@ export class ResearchDevelopmentController {
       actor_role?: string;
       /** 可选：关联到任务的哪个工作项（任务内部轻量拆分），留痕区按此分组查看 */
       work_item_id?: string;
+      /** 可选：@ 提及的成员，multipart 里以 JSON 字符串传输：[{user_id,name}] */
+      mentions?: string;
     },
     @Request() req: AuthedRequest,
   ) {
+    // mentions 防御式解析：非法 JSON 静默忽略（@ 是增强能力，不应让留痕主流程失败）
+    let mentions: Array<{ user_id?: string; name?: string }> | undefined;
+    if (typeof body.mentions === 'string' && body.mentions.trim()) {
+      try {
+        const parsed = JSON.parse(body.mentions);
+        if (Array.isArray(parsed)) mentions = parsed;
+      } catch {
+        // ignore
+      }
+    }
     const progressRaw = body.progress;
     const progress =
       typeof progressRaw === 'number'
@@ -316,6 +349,7 @@ export class ResearchDevelopmentController {
       text: body.text ?? '',
       progress: Number.isFinite(progress) ? (progress as number) : undefined,
       workItemId: typeof body.work_item_id === 'string' ? body.work_item_id.trim() : undefined,
+      mentions,
       actor: {
         id: req.user?.id,
         name: body.actor_name || req.user?.name,
@@ -326,6 +360,72 @@ export class ResearchDevelopmentController {
       requesterUserId: req.user?.id,
       requesterName: req.user?.name,
       canEditAny,
+    });
+  }
+
+  // ── 留痕附件管理（工作台）：新增 / 替换 / 删除 ────────────────────────────
+  // 权限口径在服务层收口：留痕作者本人 / 任务主责人 / 管理员；已完成或归档任务锁定。
+
+  @Post('task-progress-notes/:taskId/:noteId/attachments')
+  @Permissions('page:rd-my-workspace', 'page:us-collab-workspace', ...RD_TASK_MANAGER_PERMISSIONS)
+  @UseInterceptors(FilesInterceptor('files', 10))
+  addTaskProgressNoteAttachments(
+    @Param('taskId') taskId: string,
+    @Param('noteId') noteId: string,
+    @UploadedFiles() files: Array<{ originalname: string; mimetype?: string; size?: number; buffer: Buffer }> | undefined,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.rdService.addTaskProgressNoteAttachments({
+      taskId,
+      noteId,
+      files: files ?? [],
+      requesterUserId: req.user?.id,
+      requesterName: req.user?.name,
+      requesterRole: req.user?.role,
+      canEditAny: canManageAnyTask(req.user?.permissions ?? []),
+    });
+  }
+
+  @Put('task-progress-notes/:taskId/:noteId/attachments/:attachmentId')
+  @Permissions('page:rd-my-workspace', 'page:us-collab-workspace', ...RD_TASK_MANAGER_PERMISSIONS)
+  @UseInterceptors(FilesInterceptor('file', 1))
+  replaceTaskProgressNoteAttachment(
+    @Param('taskId') taskId: string,
+    @Param('noteId') noteId: string,
+    @Param('attachmentId') attachmentId: string,
+    @UploadedFiles() files: Array<{ originalname: string; mimetype?: string; size?: number; buffer: Buffer }> | undefined,
+    @Request() req: AuthedRequest,
+  ) {
+    const file = files?.[0];
+    if (!file) throw new BadRequestException('替换附件不能为空');
+    return this.rdService.replaceTaskProgressNoteAttachment({
+      taskId,
+      noteId,
+      attachmentId,
+      file,
+      requesterUserId: req.user?.id,
+      requesterName: req.user?.name,
+      requesterRole: req.user?.role,
+      canEditAny: canManageAnyTask(req.user?.permissions ?? []),
+    });
+  }
+
+  @Delete('task-progress-notes/:taskId/:noteId/attachments/:attachmentId')
+  @Permissions('page:rd-my-workspace', 'page:us-collab-workspace', ...RD_TASK_MANAGER_PERMISSIONS)
+  deleteTaskProgressNoteAttachment(
+    @Param('taskId') taskId: string,
+    @Param('noteId') noteId: string,
+    @Param('attachmentId') attachmentId: string,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.rdService.deleteTaskProgressNoteAttachment({
+      taskId,
+      noteId,
+      attachmentId,
+      requesterUserId: req.user?.id,
+      requesterName: req.user?.name,
+      requesterRole: req.user?.role,
+      canEditAny: canManageAnyTask(req.user?.permissions ?? []),
     });
   }
 

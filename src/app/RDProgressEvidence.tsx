@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ChevronDown, ChevronLeft, ChevronRight, Download, FileText, ImageIcon, Loader2, Paperclip, Table2, X } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Download, FileText, ImageIcon, Loader2, Paperclip, RefreshCw, Table2, Trash2, X } from "lucide-react";
 import { cn } from "./components/ui/utils";
-import { i18nLocale, t, useI18n } from "./lib/i18n";
+import { currentI18nLang, i18nLocale, t, useI18n } from "./lib/i18n";
+import { renderTextWithMentions } from "./components/MentionInput";
 import { AutoTranslatedText } from "./components/TranslatableText";
 import { getAttachmentPreviewUrl, getAttachmentThumbUrl, getAttachmentUrl, type RdTaskProgressAttachment, type RdTaskProgressNote } from "./lib/rdApi";
 import { parseXlsxForPreview, type XlsxPreviewSheet } from "./lib/xlsxPreview";
@@ -236,12 +237,18 @@ export function ProgressAttachmentGrid({
   attachments,
   compact = false,
   className,
+  onDeleteAttachment,
+  onReplaceAttachment,
 }: {
   attachments: RdTaskProgressAttachment[];
   compact?: boolean;
   className?: string;
+  /** 可选：附件管理回调（工作台传入）。不传时纯展示，其他页面行为不变。 */
+  onDeleteAttachment?: (att: RdTaskProgressAttachment) => void;
+  onReplaceAttachment?: (att: RdTaskProgressAttachment) => void;
 }) {
   const [preview, setPreview] = useState<RdTaskProgressAttachment | null>(null);
+  const managed = Boolean(onDeleteAttachment || onReplaceAttachment);
 
   useEffect(() => {
     if (!preview) return undefined;
@@ -254,6 +261,36 @@ export function ProgressAttachmentGrid({
 
   if (!attachments.length) return null;
 
+  // 悬停/聚焦角标工具条（替换/删除）：与展示按钮平级绝对定位，避免 button 嵌套。
+  // group-focus-within 保证键盘可达：Tab 聚焦到格子的主按钮即显示工具条，继续 Tab 可触达角标。
+  const renderActions = (att: RdTaskProgressAttachment) =>
+    managed ? (
+      <span className="absolute right-1.5 top-1.5 z-10 hidden items-center gap-1 group-hover/att:flex group-focus-within/att:flex">
+        {onReplaceAttachment && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onReplaceAttachment(att); }}
+            title={t("替换附件")}
+            aria-label={t("替换附件")}
+            className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md bg-white/95 text-slate-500 shadow-sm ring-1 ring-slate-200 transition-colors hover:bg-amber-50 hover:text-amber-600"
+          >
+            <RefreshCw className="h-3 w-3" />
+          </button>
+        )}
+        {onDeleteAttachment && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onDeleteAttachment(att); }}
+            title={t("删除附件")}
+            aria-label={t("删除附件")}
+            className="flex h-6 w-6 cursor-pointer items-center justify-center rounded-md bg-white/95 text-slate-500 shadow-sm ring-1 ring-slate-200 transition-colors hover:bg-red-50 hover:text-red-600"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        )}
+      </span>
+    ) : null;
+
   return (
     <>
       <div className={cn("grid gap-2", compact ? "grid-cols-1 sm:grid-cols-2" : "sm:grid-cols-2", className)}>
@@ -261,46 +298,50 @@ export function ProgressAttachmentGrid({
           const isImage = att.mime.startsWith("image/");
           if (isImage) {
             return (
-              <button
-                key={att.id}
-                type="button"
-                onClick={() => setPreview(att)}
-                title={`${att.name} · ${formatRdFileSize(att.size)}`}
-                className="group block cursor-pointer overflow-hidden rounded-[8px] border border-slate-200 bg-slate-50 text-left transition hover:border-indigo-200 hover:shadow-[0_8px_18px_rgba(79,70,229,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
-              >
-                <div className={cn("relative bg-slate-100", compact ? "h-20" : "h-32")}>
-                  <img
-                    src={getAttachmentThumbUrl(att)}
-                    alt={att.name}
-                    className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
-                    loading="lazy"
-                    decoding="async"
-                  />
-                  <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-md bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 shadow-sm">
-                    <ImageIcon className="h-3 w-3 text-blue-500" />
-                    图片
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-2 px-2 py-1.5">
-                  <span className="min-w-0 truncate text-[11px] font-medium text-slate-700">{att.name}</span>
-                  <span className="shrink-0 text-[10px] text-slate-400">{formatRdFileSize(att.size)}</span>
-                </div>
-              </button>
+              <div key={att.id} className="group/att relative">
+                {renderActions(att)}
+                <button
+                  type="button"
+                  onClick={() => setPreview(att)}
+                  title={`${att.name} · ${formatRdFileSize(att.size)}`}
+                  className="group block w-full cursor-pointer overflow-hidden rounded-[8px] border border-slate-200 bg-slate-50 text-left transition hover:border-indigo-200 hover:shadow-[0_8px_18px_rgba(79,70,229,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+                >
+                  <div className={cn("relative bg-slate-100", compact ? "h-20" : "h-32")}>
+                    <img
+                      src={getAttachmentThumbUrl(att)}
+                      alt={att.name}
+                      className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                    <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-md bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 shadow-sm">
+                      <ImageIcon className="h-3 w-3 text-blue-500" />
+                      图片
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 px-2 py-1.5">
+                    <span className="min-w-0 truncate text-[11px] font-medium text-slate-700">{att.name}</span>
+                    <span className="shrink-0 text-[10px] text-slate-400">{formatRdFileSize(att.size)}</span>
+                  </div>
+                </button>
+              </div>
             );
           }
 
           return (
-            <button
-              key={att.id}
-              type="button"
-              onClick={() => setPreview(att)}
-              title={`${att.name} · ${formatRdFileSize(att.size)}`}
-              className="flex min-w-0 cursor-pointer items-center gap-2 rounded-[8px] border border-slate-200 bg-slate-50 px-2.5 py-2 text-left text-xs text-slate-700 transition hover:border-blue-200 hover:bg-blue-50/60 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
-            >
-              <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-              <span className="min-w-0 flex-1 truncate">{att.name}</span>
-              <span className="shrink-0 text-[10px] text-slate-400">{formatRdFileSize(att.size)}</span>
-            </button>
+            <div key={att.id} className="group/att relative">
+              {renderActions(att)}
+              <button
+                type="button"
+                onClick={() => setPreview(att)}
+                title={`${att.name} · ${formatRdFileSize(att.size)}`}
+                className="flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-[8px] border border-slate-200 bg-slate-50 px-2.5 py-2 text-left text-xs text-slate-700 transition hover:border-blue-200 hover:bg-blue-50/60 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300"
+              >
+                <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+                <span className="min-w-0 flex-1 truncate">{att.name}</span>
+                <span className="shrink-0 text-[10px] text-slate-400">{formatRdFileSize(att.size)}</span>
+              </button>
+            </div>
           );
         })}
       </div>
@@ -537,11 +578,19 @@ export function ProgressNoteList({
             )}
           </div>
           {note.text && (
-            <AutoTranslatedText
-              as="p"
-              text={note.text}
-              className={cn("mt-2 whitespace-pre-wrap text-slate-800", compact ? "text-xs leading-5" : "text-sm leading-relaxed")}
-            />
+            // 含 @ 提及的评论在中文态用高亮渲染（@姓名 蓝色）；英文态人名不参与翻译、
+            // 高亮与整段自动翻译不可兼得，保持 AutoTranslatedText 原行为
+            (note.mentions?.length ?? 0) > 0 && currentI18nLang() === "zh" ? (
+              <p className={cn("mt-2 whitespace-pre-wrap text-slate-800", compact ? "text-xs leading-5" : "text-sm leading-relaxed")}>
+                {renderTextWithMentions(note.text, note.mentions)}
+              </p>
+            ) : (
+              <AutoTranslatedText
+                as="p"
+                text={note.text}
+                className={cn("mt-2 whitespace-pre-wrap text-slate-800", compact ? "text-xs leading-5" : "text-sm leading-relaxed")}
+              />
+            )
           )}
           <ProgressAttachmentGrid attachments={note.attachments} compact={compact} className="mt-3" />
         </li>

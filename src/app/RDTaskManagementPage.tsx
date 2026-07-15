@@ -129,7 +129,7 @@ import {
 } from "./lib/rdApi";
 import { ProgressAttachmentGrid, TaskImageGallery } from "./RDProgressEvidence";
 import { RDReportsPanel } from "./RDReportsPanel";
-import { fetchRdDailyReports, type RdDailyReport } from "./lib/rdApi";
+import { fetchRdDailyReports, fetchRdTaskNoteReceipts, markRdTaskNotesRead, type RdDailyReport, type RdTaskNoteReceipt } from "./lib/rdApi";
 import { getGradeTone } from "./lib/taskCompletionScore";
 import { openTaskCompletionReport, openBatchCompletionReport } from "./lib/taskCompletionReport";
 import { useAvatarDirectory } from "./lib/userAvatar";
@@ -1198,8 +1198,13 @@ function SubtaskCardRow({
   return <SubtaskRow task={task} depth={depth} onOpen={onOpen} />;
 }
 
+/** 备注回执 map：驾驶舱深层卡片经 context 读取（管理视角：他人给任务留的备注是否被目标人查看/跟进）。 */
+const NoteReceiptContext = React.createContext<Record<string, RdTaskNoteReceipt>>({});
+
 function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
   useI18n();
+  const receiptMap = React.useContext(NoteReceiptContext);
+  const receipt = receiptMap[task.task_id];
   const hasSubtasks = Boolean(task.subtasks?.length);
   const attention = taskNeedsAttention(task);
   const [expanded, setExpanded] = useState(attention && hasSubtasks);
@@ -1234,6 +1239,22 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
             </span>
             <PriorityPill priority={task.final_priority} aiPriority={task.ai_priority} />
           </div>
+
+          {/* 备注回执状态条（与瀑布流卡片同款配色：待查看浅红 / 已查看浅琥珀） */}
+          {receipt && (
+            <div
+              className={cn(
+                "mt-1 flex items-center gap-1.5 rounded-md border-l-[3px] px-2 py-1 text-[11px] font-medium",
+                receipt.state === "unread" ? "border-red-400 bg-red-50 text-red-700" : "border-amber-400 bg-amber-50 text-amber-700",
+              )}
+              title={`${receipt.author_name}${t("的备注")}：${receipt.excerpt}`}
+            >
+              <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", receipt.state === "unread" ? "bg-red-500" : "bg-amber-500")} />
+              <span className="truncate">
+                {receipt.author_name}{t("的备注")} · {receipt.state === "unread" ? t("待查看") : t("已查看")} · {t("给")}{receipt.target_name}
+              </span>
+            </div>
+          )}
 
           {task.description && (
             <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-500">{task.description}</p>
@@ -8104,6 +8125,7 @@ function PersonTaskCockpit({
 }) {
   const shouldReduceMotion = useReducedMotion();
   useI18n(); // 订阅语言切换（卡片流文案已 t() 化）
+  const noteReceipts = React.useContext(NoteReceiptContext); // 备注回执 map（父级驾驶舱下发）
   const masonryColumns = useMasonryColumns();
   // 协同侧信息密度降一档：卡片内边距与卡片间距放宽（欧美工具风的呼吸感）；研发侧维持紧凑
   const spaciousCards = isUsCollabWorkspace();
@@ -8746,6 +8768,27 @@ function PersonTaskCockpit({
             </h3>
             <ChevronRight className="h-4 w-4 shrink-0 self-center text-slate-300 opacity-0 transition-all duration-150 group-hover:translate-x-0.5 group-hover:opacity-100" />
           </div>
+
+          {/* ─── 备注回执状态条（管理视角：他人给任务留的备注是否被目标人查看/跟进） ─── */}
+          {(() => {
+            const receipt = noteReceipts[task.task_id];
+            if (!receipt) return null;
+            const unread = receipt.state === "unread";
+            return (
+              <div
+                className={cn(
+                  "flex items-center gap-1.5 rounded-md border-l-[3px] px-2.5 py-1.5 text-xs font-medium",
+                  unread ? "border-red-400 bg-red-50 text-red-700" : "border-amber-400 bg-amber-50 text-amber-700",
+                )}
+                title={`${receipt.author_name}${t("的备注")}：${receipt.excerpt}`}
+              >
+                <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", unread ? "bg-red-500" : "bg-amber-500")} />
+                <span className="truncate">
+                  {receipt.author_name}{t("的备注")} · {unread ? t("待查看") : t("已查看")} · {t("给")}{receipt.target_name}
+                </span>
+              </div>
+            );
+          })()}
 
           {/* ─── 最新进度（如有） ─── */}
           {task.latest_progress_summary?.text && (
@@ -11099,10 +11142,24 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   const [showClearData, setShowClearData] = useState(false);
   const [showProposalDialog, setShowProposalDialog] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  // 驾驶舱备注回执（管理视角）：他人给任务留的备注是否被目标人查看/跟进，经 NoteReceiptContext 下发。
+  const [noteReceipts, setNoteReceipts] = useState<Record<string, RdTaskNoteReceipt>>({});
+  const reloadReceipts = useCallback(() => {
+    fetchRdTaskNoteReceipts().then(setNoteReceipts).catch(() => {});
+  }, []);
+  useEffect(() => { reloadReceipts(); }, [reloadReceipts]);
   // 打开任务详情的统一入口：协同/研发驾驶舱均进各自的全屏双栏详情页（不走抽屉）。
   // 任务对象随 location.state 带给详情页 → 秒开渲染（详情页后台再拉最新覆盖）
   const openTaskDetail = useCallback(
     (task: Task) => {
+      // 打开即上报已读：若当前用户正是备注目标人，回执会从「待查看」转「已查看」。
+      // 乐观本地更新该任务回执为已读（服务端下次拉取校正）。
+      setNoteReceipts((prev) => {
+        const r = prev[task.task_id];
+        if (!r || r.state === "read") return prev;
+        return { ...prev, [task.task_id]: { ...r, state: "read" } };
+      });
+      void markRdTaskNotesRead(task.task_id).catch(() => {});
       if (isUsCollabWorkspace()) {
         navigate(`/us-collab-task/${encodeURIComponent(task.task_id)}`, { state: { task } });
         return;
@@ -11540,6 +11597,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   // ───── Overview mode (leadership landing) ────────────────────────────────
   if (mode === "overview") {
     return (
+      <NoteReceiptContext.Provider value={noteReceipts}>
       <TooltipProvider delayDuration={150}>
         {/* 协同驾驶舱：任务量小，内容列约束最大宽度居中、两侧留白（欧美工具风），小屏自适应收窄；研发驾驶舱维持全宽 */}
         <div className={cn(isUsCollabWorkspace() && "mx-auto w-full max-w-[1200px] px-1 sm:px-3 2xl:px-0")}>
@@ -11713,6 +11771,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
         />
         </div>
       </TooltipProvider>
+      </NoteReceiptContext.Provider>
     );
   }
 

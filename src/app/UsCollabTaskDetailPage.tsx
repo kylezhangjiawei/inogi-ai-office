@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MentionSuggestionPanel, useMentions, type MentionCandidate } from "./components/MentionInput";
 import { useLocation, useNavigate, useParams } from "react-router";
 import {
   AlertTriangle,
@@ -59,6 +60,7 @@ import {
   fetchRdTaskProgressNotes,
   generateRdTaskBrief,
   getAttachmentUrl,
+  markRdTaskNotesRead,
   updateRdTask,
   type RdCollaborator,
   type RdPriority,
@@ -149,6 +151,24 @@ export default function UsCollabTaskDetailPage() {
   const [composerFiles, setComposerFiles] = useState<File[]>([]);
   const [composerItemId, setComposerItemId] = useState("");
   const [sendingNote, setSendingNote] = useState(false);
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const mentionCandidates = useMemo<MentionCandidate[]>(() => {
+    const seen = new Set<string>();
+    const out: MentionCandidate[] = [];
+    const push = (name?: string | null, userId?: string | null, hint?: string) => {
+      const nm = (name ?? "").trim();
+      if (!nm || seen.has(nm)) return;
+      seen.add(nm);
+      out.push({ user_id: userId ?? null, name: nm, hint });
+    };
+    if (task) {
+      push(task.primary_owner, task.primary_owner_user_id, t("主责人"));
+      for (const c of task.collaborators ?? []) push(c.name, c.user_id, c.role ? t(c.role) : t("协作人"));
+    }
+    for (const p of people) push(p.name, p.user_id ?? null);
+    return out;
+  }, [task, people]);
+  const mention = useMentions({ value: composerText, setValue: setComposerText, inputRef: composerRef, candidates: mentionCandidates });
   const auditLogs = useAuditLogs({ resourceType: "task", resourceId: taskId });
 
   // 视口内布局的可用高度：实测容器到视口顶的距离（覆盖全局顶栏/面包屑/内边距的任意组合），
@@ -192,6 +212,7 @@ export default function UsCollabTaskDetailPage() {
   }, [taskId]);
 
   // 秒开：驾驶舱/序列导航经 location.state 带来任务快照，先渲染再后台静默拉最新覆盖
+
   const location = useLocation();
   useEffect(() => {
     const seeded = (location.state as { task?: RdTask } | null)?.task;
@@ -214,7 +235,7 @@ export default function UsCollabTaskDetailPage() {
     let cancelled = false;
     setNotesLoading(true);
     fetchRdTaskProgressNotes(taskId)
-      .then((data) => { if (!cancelled) setNotes(data); })
+      .then((data) => { if (!cancelled) { setNotes(data); void markRdTaskNotesRead(taskId).catch(() => {}); } })
       .catch(() => { if (!cancelled) setNotes([]); })
       .finally(() => { if (!cancelled) setNotesLoading(false); });
     return () => { cancelled = true; };
@@ -304,7 +325,9 @@ export default function UsCollabTaskDetailPage() {
         text,
         files: composerFiles,
         work_item_id: composerItemId || undefined,
+        mentions: mention.mentionsForSubmit(text),
       });
+      mention.resetMentions();
       setComposerText("");
       setComposerFiles([]);
       setComposerItemId("");
@@ -1038,19 +1061,32 @@ export default function UsCollabTaskDetailPage() {
             {/* 评论式留痕框：卡底常驻（仅操作记录 Tab、任务参与人/管理员可见），在哪看就在哪写 */}
             {tab === "audit" && canComposeNote && (
               <div className="shrink-0 border-t border-slate-200/80 px-4 py-3">
-                <Textarea
-                  value={composerText}
-                  onChange={(e) => setComposerText(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                      e.preventDefault();
-                      void submitComposerNote();
-                    }
-                  }}
-                  rows={2}
-                  placeholder={t("写一条进展…（Ctrl+Enter 发送）")}
-                  className="cockpit-scroll w-full resize-none rounded-lg border-slate-200 text-sm"
-                />
+                <div className="relative">
+                  <MentionSuggestionPanel
+                    open={mention.open}
+                    candidates={mention.filtered}
+                    highlightIndex={mention.highlightIndex}
+                    onPick={mention.pick}
+                    variant="desktop"
+                  />
+                  <Textarea
+                    ref={composerRef}
+                    value={composerText}
+                    onChange={(e) => { setComposerText(e.target.value); mention.syncActiveQuery(); }}
+                    onKeyUp={mention.syncActiveQuery}
+                    onClick={mention.syncActiveQuery}
+                    onKeyDown={(e) => {
+                      if (mention.handleKeyDown(e)) return;
+                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                        e.preventDefault();
+                        void submitComposerNote();
+                      }
+                    }}
+                    rows={2}
+                    placeholder={t("写一条进展…（输入 @ 提及成员，Ctrl+Enter 发送）")}
+                    className="cockpit-scroll w-full resize-none rounded-lg border-slate-200 text-sm"
+                  />
+                </div>
                 {composerFiles.length > 0 && (
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {composerFiles.map((f, i) => (

@@ -86,6 +86,8 @@ type RdStoreKey =
   | 'rd.auditLogs'
   | 'rd.aiSettings'
   | 'rd.taskProgressNotes'
+  // 留痕评论的任务级已读位点：{ [userId]: { [taskId]: lastReadAt } }，未读红点据此计算
+  | 'rd.noteReads'
   | 'rd.dailyReports'
   | 'rd.monthlyReports'
   | 'rd.performanceReports'
@@ -3081,24 +3083,39 @@ export class ResearchDevelopmentService {
 
   async getTaskProgressNotes(
     taskId: string,
-    viewer?: { userId?: string; hasFullAccess?: boolean; canReadAll?: boolean; userName?: string },
+    viewer?: { userId?: string; hasFullAccess?: boolean; canReadAll?: boolean; userName?: string; canEditAttachments?: boolean },
   ) {
     const map = await this.getProgressNoteMap();
     const notes = map[taskId] ?? [];
-    if (viewer?.hasFullAccess || viewer?.canReadAll) return this.decorateNotesWithPreview(notes);
+    // 任务取一次：既用于参与人可见性判断，也用于附件可编辑标记（锁定/主责人判定）
+    const task = await this.findTaskAcrossStores(taskId);
+    // 附件可编辑标记由服务端统一计算随留痕下发：前端只认此标记渲染管理入口，
+    // 与写接口锁内的 canUserMutateNoteAttachments 同一实现，杜绝前后端口径漂移。
+    const withEditFlag = (rawNotes: JsonRecord[]) => {
+      const decorated = this.decorateNotesWithPreview(rawNotes);
+      if (!task || !this.taskAttachmentsMutable(task)) return decorated;
+      return decorated.map((decoratedNote, i) => ({
+        ...decoratedNote,
+        can_edit_attachments: this.canUserMutateNoteAttachments(task, rawNotes[i] as JsonRecord, {
+          userId: viewer?.userId,
+          userName: viewer?.userName,
+          canEditAny: viewer?.canEditAttachments,
+        }),
+      }));
+    };
+    if (viewer?.hasFullAccess || viewer?.canReadAll) return withEditFlag(notes);
     const userId = viewer?.userId;
     const userName = viewer?.userName;
     if (!userId && !userName) return [];
     // 参与人（主责人或协作人）可查看该任务的「全部」进展留痕——否则协作人/主管在审核时写下的
     // 进展对本人不可见，造成同一条任务进展线被割裂。仅作用于「单任务读取」，不改动
     // listAllTaskProgressNotes（日报/看板聚合仍按「仅本人撰写」口径，避免放大聚合可见范围）。
-    const task = await this.findTaskAcrossStores(taskId);
     if (task && isTaskParticipant(task, userId, userName)) {
-      return this.decorateNotesWithPreview(notes);
+      return withEditFlag(notes);
     }
     // 非参与人（且非管理员）退化为「仅本人撰写」。
     if (!userId) return [];
-    return this.decorateNotesWithPreview(notes.filter((note) => {
+    return withEditFlag(notes.filter((note) => {
       const actor = isRecord(note.actor) ? note.actor : null;
       return Boolean(actor && actor.id === userId);
     }));
@@ -3136,6 +3153,8 @@ export class ResearchDevelopmentService {
     canEditAny?: boolean;
     /** 可选：关联到任务的哪个工作项（任务内部轻量拆分，不校验存在性——工作项可被改名/删除，留痕保留原关联） */
     workItemId?: string;
+    /** 可选：评论中 @ 的成员（结构化存储，不靠正文正则反解析；创建后给每人发站内消息） */
+    mentions?: Array<{ user_id?: string; name?: string }>;
   }) {
     const taskId = (payload.taskId ?? '').trim();
     if (!taskId) throw new BadRequestException('taskId 不能为空');
@@ -3170,31 +3189,19 @@ export class ResearchDevelopmentService {
       throw new BadRequestException('附件总大小超过 50MB 限制');
     }
 
-    // 保留 buffer 引用，附件保存后用于异步 AI 抽取
-    const attachmentsWithBuffers = await Promise.all(files.map(async (f, i) => {
-      // 同一批附件在同一同步 tick 生成，Date.now() 相同 —— 加索引 i 杜绝 id 撞车（否则前端按 id 作 key 可能错渲染）。
-      const id = `att-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`;
-      const objectKey = await this.ossService.uploadBuffer(
-        f.buffer,
-        'rd/progress-notes',
-        f.originalname,
-        f.mimetype,
-      );
-      const ossUrl = objectKey ? this.ossService.getSignedUrl(objectKey, 30 * 24 * 3600) : null;
-      const attachment = {
-        id,
-        name: f.originalname,
-        mime: f.mimetype ?? 'application/octet-stream',
-        size: f.size ?? f.buffer.length,
-        // 优先使用 OSS 签名 URL，OSS 未配置时降级存 base64
-        ...(ossUrl
-          ? { oss_url: ossUrl }
-          : { data_url: `data:${f.mimetype ?? 'application/octet-stream'};base64,${f.buffer.toString('base64')}` }
-        ),
-      };
-      return { attachment, buffer: f.buffer, mimetype: f.mimetype, originalname: f.originalname };
-    }));
+    // 保留 buffer 引用，附件保存后用于异步 AI 抽取。
+    // 附件对象构造与「追加/替换附件」共用 buildNoteAttachments 单一实现，格式不允许分叉。
+    const attachmentsWithBuffers = await this.buildNoteAttachments(files);
     const attachments = attachmentsWithBuffers.map((a) => a.attachment);
+
+    // @ 提及：结构化清洗（至少要有 user_id 或 name），封顶 20 人防滥用
+    const mentions = (Array.isArray(payload.mentions) ? payload.mentions : [])
+      .map((m) => ({
+        user_id: cleanUserId(m?.user_id) || null,
+        name: cleanText(m?.name) || null,
+      }))
+      .filter((m) => m.user_id || m.name)
+      .slice(0, 20);
 
     const note = {
       id: `note-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
@@ -3202,6 +3209,7 @@ export class ResearchDevelopmentService {
       text,
       progress: typeof payload.progress === 'number' ? Math.max(0, Math.min(100, Math.round(payload.progress))) : undefined,
       ...(payload.workItemId ? { work_item_id: payload.workItemId } : {}),
+      ...(mentions.length > 0 ? { mentions } : {}),
       attachments,
       actor: {
         id: payload.actor?.id ?? null,
@@ -3221,6 +3229,18 @@ export class ResearchDevelopmentService {
     await this.incrementTaskAttachmentCount(taskId, attachments.length);
     // 留痕入向量索引（fire-and-forget）：AI 问答可语义检索到进展内容
     void this.syncProgressNoteToRag(taskId, note as unknown as JsonRecord);
+
+    // @ 提及通知（fire-and-forget）：给每个被 @ 的人发站内消息——
+    // 顶栏铃铛 / 消息中心 / 工作台通知读同一条 rd.messages 流，一次投递多处到位
+    if (mentions.length > 0) {
+      void this.notifyNoteMentions({
+        taskId,
+        noteText: text,
+        mentions,
+        actorName: payload.actor?.name ?? '同事',
+        actorId: cleanUserId(payload.actor?.id) || null,
+      }).catch(() => {});
+    }
 
     // L1+L2+L3 异步抽取附件文本：图片走 OCR/vision，文档走 ExtractDocBasic/doc-turbo。
     // fire-and-forget，失败不影响留痕主流程。结果会回写到 rd.taskProgressNotes 对应附件的 extracted_text 字段。
@@ -3259,6 +3279,577 @@ export class ResearchDevelopmentService {
       }
     }
 
+    return this.decorateNotesWithPreview([note])[0];
+  }
+
+  /** @ 提及通知：给被 @ 的成员发站内消息（含任务标题与评论摘录），失败仅告警不阻断留痕主流程。 */
+  private async notifyNoteMentions(params: {
+    taskId: string;
+    noteText: string;
+    mentions: Array<{ user_id: string | null; name: string | null }>;
+    actorName: string;
+    actorId: string | null;
+  }): Promise<void> {
+    const task = await this.findTaskAcrossStores(params.taskId);
+    const title = task ? String(task.title ?? params.taskId) : params.taskId;
+    const excerpt = params.noteText.length > 200 ? `${params.noteText.slice(0, 200)}…` : params.noteText;
+
+    // 解析每个 mention 到唯一 user_id：优先客户端给的 user_id；否则按姓名在人员表精确解析。
+    // 姓名解析到 0 个或 >1 个 user_id 都不发——避免把评论内容泄露给重名的无关用户（隐私）。
+    const people = (await this.readArray('rd.people')).filter(isRecord);
+    const resolveUserId = (m: { user_id: string | null; name: string | null }): string | null => {
+      if (m.user_id) return m.user_id;
+      const nameKey = personNameLookupKey(m.name);
+      if (!nameKey) return null;
+      const matched = people
+        .map((p) => cleanUserId(p.user_id))
+        .filter((uid): uid is string => Boolean(uid) && people.some((p) => cleanUserId(p.user_id) === uid && personNameLookupKey(p.name) === nameKey));
+      const unique = Array.from(new Set(matched));
+      return unique.length === 1 ? unique[0] : null;
+    };
+
+    // 去重（同一 user_id 只发一条）+ 排除作者本人
+    const targets = new Set<string>();
+    for (const m of params.mentions) {
+      const uid = resolveUserId(m);
+      if (!uid || (params.actorId && uid === params.actorId)) continue;
+      targets.add(uid);
+    }
+    for (const uid of targets) {
+      await this.createMessage({
+        sender: { id: params.actorId, name: params.actorName, role: null },
+        recipient_id: uid,
+        subject: `评论提及：${title}`,
+        body: `${params.actorName} 在任务《${title}》的评论中提到了你：\n${excerpt}`,
+      }).catch((err) => {
+        this.logger.warn(`[评论@通知] 发送失败 (task=${params.taskId}, to=${uid}): ${err instanceof Error ? err.message : err}`);
+      });
+    }
+  }
+
+  // ── 评论未读红点（微信式）：任务级已读位点 rd.noteReads ──────────────────────
+  // { [userId]: { [taskId]: lastReadAt } }；未读数 = 该任务中他人新增且晚于位点的留痕数。
+  // 只统计「本人参与（主责/协作）的任务」——与工作台/移动端列表的展示范围一致。
+
+  /** 当前用户的全部任务未读评论数（仅返回 >0 的项）。 */
+  async getNoteUnreadSummary(viewer: { userId?: string; userName?: string }): Promise<Record<string, number>> {
+    const userId = cleanUserId(viewer.userId);
+    if (!userId) return {};
+    const [map, readsRaw, categories] = await Promise.all([
+      this.getProgressNoteMap(),
+      this.readValue('rd.noteReads'),
+      this.getMergedTaskCategories(),
+    ]);
+    const reads = isRecord(readsRaw) && isRecord(readsRaw[userId]) ? (readsRaw[userId] as Record<string, unknown>) : {};
+    // 上线基线：用户首次访问且无任何位点时，把「此刻」写为基线——上线前的历史评论一律
+    // 视为已读，避免老任务的存量评论在上线首日全量爆红点（懒初始化，只写一次）。
+    let baseline = typeof reads._baseline === 'string' ? (reads._baseline as string) : '';
+    if (!baseline) {
+      baseline = new Date().toISOString();
+      await this.withProgressNoteLock(async () => {
+        const raw = await this.readValue('rd.noteReads');
+        const all: Record<string, unknown> = isRecord(raw) ? { ...raw } : {};
+        const mine: Record<string, unknown> = isRecord(all[userId]) ? { ...(all[userId] as Record<string, unknown>) } : {};
+        if (typeof mine._baseline !== 'string') {
+          mine._baseline = baseline;
+          all[userId] = mine;
+          await this.writeValue('rd.noteReads', all as unknown as JsonRecord);
+        }
+      });
+    }
+    const taskById = new Map<string, JsonRecord>();
+    for (const cat of asArray(categories).filter(isRecord)) {
+      for (const sub of asArray(cat.children).filter(isRecord)) {
+        for (const t of asArray(sub.tasks).filter(isRecord)) {
+          taskById.set(String(t.task_id ?? ''), t);
+          for (const st of asArray(t.subtasks).filter(isRecord)) taskById.set(String(st.task_id ?? ''), st);
+        }
+      }
+    }
+    const summary: Record<string, number> = {};
+    for (const [taskId, notes] of Object.entries(map)) {
+      const task = taskById.get(taskId);
+      if (!task || !isTaskParticipant(task, viewer.userId, viewer.userName)) continue;
+      // 有效已读线 = max(任务位点, 用户基线)：任务级已读优先，未打开过则以上线基线兜底
+      const taskRead = typeof reads[taskId] === 'string' ? (reads[taskId] as string) : '';
+      const lastRead = taskRead > baseline ? taskRead : baseline;
+      const count = notes.filter((n) => {
+        if (!isRecord(n)) return false;
+        const actor = isRecord(n.actor) ? n.actor : null;
+        // 自己发的不算未读（有 user_id 时按 id；早期无 id 的本人留痕按姓名兜底，避免幽灵红点）
+        if (actor && cleanUserId(actor.id) === userId) return false;
+        if (actor && !cleanUserId(actor.id) && personNameLookupKey(actor.name) === personNameLookupKey(viewer.userName)) return false;
+        const createdAt = String(n.created_at ?? '');
+        return createdAt > lastRead; // ISO 字符串可直接字典序比较
+      }).length;
+      if (count > 0) summary[taskId] = count;
+    }
+    return summary;
+  }
+
+  /** 标记某任务的评论已读（任何入口打开留痕区都调用；写入当前时刻位点）。 */
+  async markTaskNotesRead(taskId: string, viewer: { userId?: string }): Promise<{ ok: boolean }> {
+    const userId = cleanUserId(viewer.userId);
+    const cleanTaskId = taskId.trim();
+    if (!userId || !cleanTaskId) return { ok: false };
+    // 校验任务存在，防止任意字符串 taskId 污染 rd.noteReads 无界增长
+    const task = await this.findTaskAcrossStores(cleanTaskId);
+    if (!task) return { ok: false };
+    // 复用留痕锁串行化读改写，避免并发标记互相覆盖
+    await this.withProgressNoteLock(async () => {
+      const raw = await this.readValue('rd.noteReads');
+      const all: Record<string, unknown> = isRecord(raw) ? { ...raw } : {};
+      const mine: Record<string, unknown> = isRecord(all[userId]) ? { ...(all[userId] as Record<string, unknown>) } : {};
+      mine[cleanTaskId] = new Date().toISOString();
+      all[userId] = mine;
+      await this.writeValue('rd.noteReads', all as unknown as JsonRecord);
+    });
+    return { ok: true };
+  }
+
+  // ── 驾驶舱「备注回执」：管理员/他人给某任务留的备注，其目标人是否已查看/已跟进 ──
+  // 所有有驾驶舱权限者可见（不按参与人过滤）；带留备注人姓名。三态：
+  //   待查看(unread)：目标人在备注之后还没打开过该任务；
+  //   已查看(read)  ：目标人打开过（已读），但还没在该备注之后提交新进展；
+  //   （已跟进）    ：目标人在备注之后提交了新进展 → 该备注已闭环，不再返回。
+  // 目标人以「备注 @ 的人」为准；未 @ 则取任务主责人。每个任务返回其最新一条未闭环备注。
+
+  async getTaskNoteReceipts(): Promise<Record<string, {
+    author_name: string;
+    target_name: string;
+    state: 'unread' | 'read';
+    excerpt: string;
+    created_at: string;
+  }>> {
+    const [map, readsRaw, categories] = await Promise.all([
+      this.getProgressNoteMap(),
+      this.readValue('rd.noteReads'),
+      this.getMergedTaskCategories(),
+    ]);
+    const readsAll = isRecord(readsRaw) ? readsRaw : {};
+    /** 某用户对某任务的有效已读线 = max(任务位点, 该用户基线) */
+    const lastReadOf = (uid: string, taskId: string): string => {
+      const mine = isRecord(readsAll[uid]) ? (readsAll[uid] as Record<string, unknown>) : {};
+      const baseline = typeof mine._baseline === 'string' ? mine._baseline : '';
+      const taskRead = typeof mine[taskId] === 'string' ? (mine[taskId] as string) : '';
+      return taskRead > baseline ? taskRead : baseline;
+    };
+    const taskById = new Map<string, JsonRecord>();
+    for (const cat of asArray(categories).filter(isRecord)) {
+      for (const sub of asArray(cat.children).filter(isRecord)) {
+        for (const t of asArray(sub.tasks).filter(isRecord)) {
+          taskById.set(String(t.task_id ?? ''), t);
+          for (const st of asArray(t.subtasks).filter(isRecord)) taskById.set(String(st.task_id ?? ''), st);
+        }
+      }
+    }
+
+    const out: Record<string, { author_name: string; target_name: string; state: 'unread' | 'read'; excerpt: string; created_at: string }> = {};
+    for (const [taskId, notes] of Object.entries(map)) {
+      const task = taskById.get(taskId);
+      if (!task) continue;
+      const ownerId = cleanUserId(task.primary_owner_user_id ?? task.owner_user_id);
+      const ownerName = cleanText(task.primary_owner ?? task.owner) ?? '';
+      const sorted = notes.filter(isRecord).slice().sort((a, b) => String(a.created_at ?? '').localeCompare(String(b.created_at ?? '')));
+
+      // 从最新往旧找第一条「未闭环的他人备注」，作为该任务当前待办
+      for (let i = sorted.length - 1; i >= 0; i -= 1) {
+        const note = sorted[i];
+        const actor = isRecord(note.actor) ? note.actor : null;
+        const authorId = cleanUserId(actor?.id);
+        const authorName = cleanText(actor?.name) ?? '';
+        const noteAt = String(note.created_at ?? '');
+        if (!noteAt) continue;
+
+        // 目标人：备注 @ 的人（可多个）；未 @ 则取主责人
+        const mentions = asArray(note.mentions).filter(isRecord);
+        const targets = mentions.length > 0
+          ? mentions.map((m) => ({ id: cleanUserId(m.user_id), name: cleanText(m.name) ?? '' })).filter((tg) => tg.id || tg.name)
+          : (ownerId || ownerName ? [{ id: ownerId, name: ownerName }] : []);
+        if (targets.length === 0) continue;
+
+        // 「他人备注」：作者不是任一目标人本人（避免把自己写给自己的进展算作待办备注）
+        const authoredBySelf = targets.some((tg) =>
+          (tg.id && authorId && tg.id === authorId) ||
+          (!authorId && tg.name && personNameLookupKey(tg.name) === personNameLookupKey(authorName)));
+        if (authoredBySelf) continue;
+
+        // 闭环判定：任一目标人在该备注之后提交过新进展留痕 → 已跟进，跳过本备注继续找更旧的
+        const followedUp = targets.some((tg) => sorted.some((n2) => {
+          const a2 = isRecord(n2.actor) ? n2.actor : null;
+          const a2id = cleanUserId(a2?.id);
+          const isTargetAuthor = (tg.id && a2id && tg.id === a2id) ||
+            (!a2id && tg.name && personNameLookupKey(cleanText(a2?.name)) === personNameLookupKey(tg.name));
+          return isTargetAuthor && String(n2.created_at ?? '') > noteAt;
+        }));
+        if (followedUp) continue;
+
+        // 未闭环：判定已读/未读——任一目标人在备注之后打开过任务即视为「已查看」
+        const anyRead = targets.some((tg) => tg.id && lastReadOf(tg.id, taskId) >= noteAt);
+        const text = cleanText(note.text) ?? '';
+        out[taskId] = {
+          author_name: authorName || '同事',
+          target_name: targets.map((tg) => tg.name || '成员').join('、'),
+          state: anyRead ? 'read' : 'unread',
+          excerpt: text.length > 60 ? `${text.slice(0, 60)}…` : text,
+          created_at: noteAt,
+        };
+        break; // 每个任务只返回最新一条未闭环备注
+      }
+    }
+    return out;
+  }
+
+  // ── 留痕附件的新增 / 替换 / 删除（工作台附件管理） ─────────────────────────
+  // 口径：留痕作者本人 / 任务主责人 / 管理员可操作；已完成或已归档任务锁定
+  // （附件是完成质量评分的「交付证据」，完成后可改会让评分与审计失去可信度）。
+  // 并发安全：上限 / 锁定 / 存在性 / 权限的最终校验全部在留痕锁内完成；
+  // OSS 上传在锁外先行（不能持锁做数分钟大文件上传），锁内校验失败时新对象
+  // 成为无引用孤儿（沿用「OSS 只解除关联不物理删除」的既有口径，罕见且可接受）。
+  // 审计：三个操作均在服务端写入审计流（不依赖前端回调），绕过前端直调 API 也留痕。
+
+  /** 任务是否允许修改留痕附件（未完成且未归档） */
+  private taskAttachmentsMutable(task: JsonRecord): boolean {
+    const status = String(task.status ?? '');
+    return !(task.archived === true || status === 'archived' || status === 'completed');
+  }
+
+  /** 操作人是否可修改某条留痕的附件：管理员 / 留痕作者本人 / 任务主责人（id 优先、姓名归一化兜底） */
+  private canUserMutateNoteAttachments(
+    task: JsonRecord,
+    note: JsonRecord,
+    viewer: { userId?: string; userName?: string; canEditAny?: boolean },
+  ): boolean {
+    if (viewer.canEditAny) return true;
+    const uid = cleanUserId(viewer.userId);
+    const actor = isRecord(note.actor) ? note.actor : null;
+    if (uid && actor && cleanUserId(actor.id) === uid) return true;
+    const nameKey = personNameLookupKey(viewer.userName);
+    const ownerId = cleanUserId(task.primary_owner_user_id ?? task.owner_user_id);
+    if (ownerId) return Boolean(uid) && ownerId === uid;
+    return Boolean(nameKey) && personNameLookupKey(task.primary_owner ?? task.owner) === nameKey;
+  }
+
+  /** 上传前的快速失败预检（只查任务级状态，不读留痕 map；权限等最终校验在锁内） */
+  private async precheckTaskAttachmentMutation(taskId: string): Promise<void> {
+    const task = await this.findTaskAcrossStores(taskId);
+    if (!task) throw new NotFoundException('任务不存在');
+    if (!this.taskAttachmentsMutable(task)) {
+      throw new ForbiddenException('已完成或已归档任务的附件已锁定，不可修改');
+    }
+  }
+
+  /**
+   * 附件变更的统一咽喉：锁内完成 状态锁定 / 权限 / 存在性 校验与写回，
+   * mutator 在锁内基于最新附件列表计算变更（上限校验也在其中），杜绝 TOCTOU。
+   */
+  private async mutateNoteAttachments<T>(params: {
+    taskId: string;
+    noteId: string;
+    requesterUserId?: string;
+    requesterName?: string;
+    canEditAny?: boolean;
+    mutator: (attachments: JsonRecord[]) => { attachments: JsonRecord[]; result: T };
+  }): Promise<{ task: JsonRecord; note: JsonRecord; result: T }> {
+    return this.withProgressNoteLock(async () => {
+      const task = await this.findTaskAcrossStores(params.taskId);
+      if (!task) throw new NotFoundException('任务不存在');
+      if (!this.taskAttachmentsMutable(task)) {
+        throw new ForbiddenException('已完成或已归档任务的附件已锁定，不可修改');
+      }
+      const map = await this.getProgressNoteMap();
+      const notes = map[params.taskId] ?? [];
+      const note = notes.find((n) => isRecord(n) && String(n.id) === params.noteId) as JsonRecord | undefined;
+      if (!note) throw new NotFoundException('进展留痕不存在');
+      if (!this.canUserMutateNoteAttachments(task, note, {
+        userId: params.requesterUserId,
+        userName: params.requesterName,
+        canEditAny: params.canEditAny,
+      })) {
+        throw new ForbiddenException('只有留痕作者本人或任务主责人可以修改附件');
+      }
+      const { attachments, result } = params.mutator(asArray(note.attachments).filter(isRecord) as JsonRecord[]);
+      note.attachments = attachments;
+      await this.writeValue('rd.taskProgressNotes', map);
+      return { task, note, result };
+    });
+  }
+
+  /** 上传文件并构造留痕附件对象（创建留痕与追加/替换共用同一实现，格式不允许分叉）。 */
+  private async buildNoteAttachments(
+    files: Array<{ originalname: string; mimetype?: string; size?: number; buffer: Buffer }>,
+  ) {
+    return Promise.all(files.map(async (f, i) => {
+      const id = `att-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`;
+      const objectKey = await this.ossService.uploadBuffer(f.buffer, 'rd/progress-notes', f.originalname, f.mimetype);
+      const ossUrl = objectKey ? this.ossService.getSignedUrl(objectKey, 30 * 24 * 3600) : null;
+      const attachment = {
+        id,
+        name: f.originalname,
+        mime: f.mimetype ?? 'application/octet-stream',
+        size: f.size ?? f.buffer.length,
+        ...(ossUrl
+          ? { oss_url: ossUrl }
+          : { data_url: `data:${f.mimetype ?? 'application/octet-stream'};base64,${f.buffer.toString('base64')}` }
+        ),
+      };
+      return { attachment, buffer: f.buffer, mimetype: f.mimetype, originalname: f.originalname };
+    }));
+  }
+
+  /** 追加/替换共用的文件尺寸校验（单文件 25MB；变更后单条留痕总量 50MB 由锁内 mutator 校验） */
+  private assertAttachmentFilesValid(files: Array<{ originalname: string; size?: number; buffer: Buffer }>) {
+    const oversized = files.find((f) => (f.size ?? f.buffer.length) > PROGRESS_NOTE_MAX_FILE_BYTES);
+    if (oversized) throw new BadRequestException(`附件 ${oversized.originalname} 超过单文件 25MB 限制`);
+  }
+
+  private sumAttachmentBytes(attachments: JsonRecord[]): number {
+    return attachments.reduce((sum, a) => sum + (typeof a.size === 'number' ? a.size : 0), 0);
+  }
+
+  /** 服务端审计：附件增/删/换与数据变更同路径写入，绕过前端直调 API 同样留痕。 */
+  private async recordNoteAttachmentAudit(entry: {
+    action: 'task.attachment_added' | 'task.attachment_removed' | 'task.attachment_replaced';
+    task: JsonRecord;
+    noteId: string;
+    comment: string;
+    changes?: Array<{ field: string; before: string; after: string }>;
+    metadata?: JsonRecord;
+    actor: { id?: string; name?: string; role?: string };
+  }): Promise<void> {
+    try {
+      await this.createAuditLog({
+        actor: {
+          id: entry.actor.id ?? null,
+          name: entry.actor.name ?? '未知用户',
+          role: entry.actor.role ?? '研发成员',
+        },
+        action: entry.action,
+        resource: { type: 'task', id: String(entry.task.task_id ?? ''), name: String(entry.task.title ?? '') },
+        ...(entry.changes ? { changes: entry.changes } : {}),
+        comment: entry.comment,
+        metadata: { note_id: entry.noteId, ...(entry.metadata ?? {}) },
+        source: 'web',
+      });
+    } catch (err) {
+      // 审计写失败不回滚业务变更（KV 单点故障场景），但必须告警可追查
+      this.logger.error(`[附件审计] 写入失败 (${entry.action}, task=${entry.task.task_id}): ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  /**
+   * 附件变更后的统一善后：知识库同步（先删旧、后入新）在请求内 await 完成——
+   * fire-and-forget 会造成跨请求竞态（替换后立刻删除时，删除的清理跑在替换的
+   * 入库之前，新条目漏归档，实测复现）。抽取与留痕向量重建仍异步（慢且幂等）。
+   */
+  private async afterNoteAttachmentsMutated(params: {
+    taskId: string;
+    noteId: string;
+    updatedNote: JsonRecord;
+    added?: Array<{ attachment: JsonRecord; buffer: Buffer; mimetype?: string; originalname: string }>;
+    removed?: JsonRecord[];
+    actorId?: string;
+    actorName?: string;
+  }): Promise<void> {
+    // 留痕向量重建：syncProgressNoteToRag 按 note 幂等覆盖写入
+    void this.syncProgressNoteToRag(params.taskId, params.updatedNote).catch(() => {});
+    // 新附件：异步抽取文本（OCR/vision/doc，可达数十秒，不阻塞响应）
+    if (params.added && params.added.length > 0) {
+      void this.backfillAttachmentExtractedTexts(
+        params.taskId,
+        params.noteId,
+        params.added as Parameters<typeof this.backfillAttachmentExtractedTexts>[2],
+      );
+    }
+    // 知识库同步：请求内完成，前端 busy 门闩串行化用户操作后即无跨请求乱序
+    if (params.removed && params.removed.length > 0) {
+      await this.removeIngestedAttachmentKbEntries(params.taskId, params.removed).catch((err) => {
+        this.logger.warn(`[附件KB清理] 失败 (task=${params.taskId}): ${err instanceof Error ? err.message : err}`);
+      });
+    }
+    if (params.added && params.added.length > 0) {
+      // 补 taskTitle/categoryPath：否则追加/替换的附件入库时落到兜底分类、描述只剩裸 taskId，
+      // 与创建留痕路径分叉（同一任务附件在知识库出现在两个分类，按分类检索漏新附件）。
+      const task = await this.findTaskAcrossStores(params.taskId);
+      await this.ingestProgressNoteAttachments({
+        taskId: params.taskId,
+        taskTitle: task ? String(task.title ?? '') || undefined : undefined,
+        categoryPath: task ? String(task.category_path ?? '') || undefined : undefined,
+        attachments: params.added.map((a) => a.attachment) as Array<{ id: string; name: string; mime: string; size: number; data_url?: string; oss_url?: string }>,
+        actorId: params.actorId,
+        actorName: params.actorName,
+      }).catch((err) => {
+        this.logger.warn(`[附件KB入库] 失败 (task=${params.taskId}): ${err instanceof Error ? err.message : err}`);
+      });
+    }
+  }
+
+  /**
+   * 清理「任务附件自动入库」产生的知识条目：按 source_attachment_id 精确匹配（入库时持久化），
+   * 单次读写完成批量归档，随后逐条清理向量索引。
+   * 历史条目（无 source_attachment_id 字段）不自动清理——按文件名模糊匹配会误删同任务
+   * 其他留痕中同名附件的条目（此前实测风险），宁可留存也不误删。
+   */
+  private async removeIngestedAttachmentKbEntries(taskId: string, removedAttachments: JsonRecord[]) {
+    const ids = new Set(removedAttachments.map((a) => String(a.id ?? '')).filter(Boolean));
+    if (ids.size === 0) return;
+    const raw = await this.readValue('rd.knowledgeEntries');
+    const entries: JsonRecord[] = Array.isArray(raw) ? (raw as JsonRecord[]) : [];
+    const matchedIds: string[] = [];
+    const updated = entries.map((entry) => {
+      if (!isRecord(entry) || entry.archived === true) return entry;
+      if (String(entry.source ?? '') !== 'task_attachment') return entry;
+      if (String(entry.source_task_id ?? '') !== taskId) return entry;
+      if (!ids.has(String(entry.source_attachment_id ?? ''))) return entry;
+      matchedIds.push(String(entry.id));
+      return { ...entry, archived: true, updated_at: new Date().toISOString() };
+    });
+    if (matchedIds.length === 0) return;
+    await this.writeValue('rd.knowledgeEntries', updated);
+    for (const id of matchedIds) {
+      void this.ragService.removeChunksForSource('kb', id).catch(() => {});
+    }
+  }
+
+  /** 向已有留痕追加附件。 */
+  async addTaskProgressNoteAttachments(params: {
+    taskId: string;
+    noteId: string;
+    files: Array<{ originalname: string; mimetype?: string; size?: number; buffer: Buffer }>;
+    requesterUserId?: string;
+    requesterName?: string;
+    requesterRole?: string;
+    canEditAny?: boolean;
+  }) {
+    const files = Array.isArray(params.files) ? params.files : [];
+    if (files.length === 0) throw new BadRequestException('至少需要提供一个附件');
+    this.assertAttachmentFilesValid(files);
+    await this.precheckTaskAttachmentMutation(params.taskId);
+
+    const added = await this.buildNoteAttachments(files);
+    const { task, note } = await this.mutateNoteAttachments({
+      ...params,
+      mutator: (attachments) => {
+        if (attachments.length + added.length > PROGRESS_NOTE_MAX_FILES) {
+          throw new BadRequestException(`单条留痕附件最多 ${PROGRESS_NOTE_MAX_FILES} 个（已有 ${attachments.length} 个）`);
+        }
+        const totalBytes = this.sumAttachmentBytes(attachments) + this.sumAttachmentBytes(added.map((a) => a.attachment));
+        if (totalBytes > PROGRESS_NOTE_MAX_TOTAL_BYTES) {
+          throw new BadRequestException('附件总大小超过单条留痕 50MB 限制');
+        }
+        return { attachments: [...attachments, ...added.map((a) => a.attachment)], result: null };
+      },
+    });
+    await this.incrementTaskAttachmentCount(params.taskId, added.length);
+    await this.recordNoteAttachmentAudit({
+      action: 'task.attachment_added',
+      task,
+      noteId: params.noteId,
+      comment: `新增附件：${added.map((a) => a.attachment.name).join('、')}`,
+      metadata: { attachment_ids: added.map((a) => a.attachment.id) },
+      actor: { id: params.requesterUserId, name: params.requesterName, role: params.requesterRole },
+    });
+    await this.afterNoteAttachmentsMutated({
+      taskId: params.taskId,
+      noteId: params.noteId,
+      updatedNote: note,
+      added,
+      actorId: params.requesterUserId,
+      actorName: params.requesterName,
+    });
+    return this.decorateNotesWithPreview([note])[0];
+  }
+
+  /** 删除留痕中的单个附件（OSS 对象保留，只解除关联）。 */
+  async deleteTaskProgressNoteAttachment(params: {
+    taskId: string;
+    noteId: string;
+    attachmentId: string;
+    requesterUserId?: string;
+    requesterName?: string;
+    requesterRole?: string;
+    canEditAny?: boolean;
+  }) {
+    const { task, note, result: removed } = await this.mutateNoteAttachments<JsonRecord>({
+      ...params,
+      mutator: (attachments) => {
+        const idx = attachments.findIndex((a) => String(a.id) === params.attachmentId);
+        if (idx < 0) throw new NotFoundException('附件不存在或已被删除');
+        return {
+          attachments: [...attachments.slice(0, idx), ...attachments.slice(idx + 1)],
+          result: attachments[idx],
+        };
+      },
+    });
+    await this.incrementTaskAttachmentCount(params.taskId, -1);
+    await this.recordNoteAttachmentAudit({
+      action: 'task.attachment_removed',
+      task,
+      noteId: params.noteId,
+      comment: `删除附件：${removed.name}`,
+      metadata: { attachment_id: params.attachmentId },
+      actor: { id: params.requesterUserId, name: params.requesterName, role: params.requesterRole },
+    });
+    await this.afterNoteAttachmentsMutated({
+      taskId: params.taskId,
+      noteId: params.noteId,
+      updatedNote: note,
+      removed: [removed],
+    });
+    return this.decorateNotesWithPreview([note])[0];
+  }
+
+  /** 原位替换留痕中的单个附件（位置保持不变；旧文件解除关联，新文件走完整抽取/入库管线）。 */
+  async replaceTaskProgressNoteAttachment(params: {
+    taskId: string;
+    noteId: string;
+    attachmentId: string;
+    file: { originalname: string; mimetype?: string; size?: number; buffer: Buffer };
+    requesterUserId?: string;
+    requesterName?: string;
+    requesterRole?: string;
+    canEditAny?: boolean;
+  }) {
+    const file = params.file;
+    if (!file || !file.buffer) throw new BadRequestException('替换附件不能为空');
+    this.assertAttachmentFilesValid([file]);
+    await this.precheckTaskAttachmentMutation(params.taskId);
+
+    const [added] = await this.buildNoteAttachments([file]);
+    const { task, note, result: removed } = await this.mutateNoteAttachments<JsonRecord>({
+      ...params,
+      mutator: (attachments) => {
+        const idx = attachments.findIndex((a) => String(a.id) === params.attachmentId);
+        if (idx < 0) throw new NotFoundException('附件不存在或已被删除');
+        const next = [...attachments];
+        const old = next[idx];
+        next[idx] = added.attachment;
+        const totalBytes = this.sumAttachmentBytes(next);
+        if (totalBytes > PROGRESS_NOTE_MAX_TOTAL_BYTES) {
+          throw new BadRequestException('附件总大小超过单条留痕 50MB 限制');
+        }
+        return { attachments: next, result: old };
+      },
+    });
+    // 数量不变，无需调整附件计数
+    await this.recordNoteAttachmentAudit({
+      action: 'task.attachment_replaced',
+      task,
+      noteId: params.noteId,
+      comment: `替换附件：${removed.name} → ${added.attachment.name}`,
+      changes: [{ field: 'attachment', before: String(removed.name ?? ''), after: String(added.attachment.name) }],
+      metadata: { attachment_id: params.attachmentId, new_attachment_id: added.attachment.id },
+      actor: { id: params.requesterUserId, name: params.requesterName, role: params.requesterRole },
+    });
+    await this.afterNoteAttachmentsMutated({
+      taskId: params.taskId,
+      noteId: params.noteId,
+      updatedNote: note,
+      added: [added],
+      removed: [removed],
+      actorId: params.requesterUserId,
+      actorName: params.requesterName,
+    });
     return this.decorateNotesWithPreview([note])[0];
   }
 
@@ -3468,7 +4059,8 @@ export class ResearchDevelopmentService {
   }
 
   private async incrementTaskAttachmentCount(taskId: string, delta: number): Promise<void> {
-    if (!taskId || delta <= 0) return;
+    // 支持负增量（删除留痕附件时 -1），计数保底不为负
+    if (!taskId || delta === 0) return;
     let found = false;
 
     const updateInTasks = (tasks: unknown[]): unknown[] =>
@@ -3477,7 +4069,7 @@ export class ResearchDevelopmentService {
         if (task.task_id === taskId) {
           found = true;
           const current = typeof task.attachments === 'number' ? task.attachments : 0;
-          return { ...task, attachments: current + delta };
+          return { ...task, attachments: Math.max(0, current + delta) };
         }
         if (Array.isArray(task.subtasks)) {
           return { ...task, subtasks: updateInTasks(task.subtasks) };
@@ -6969,6 +7561,8 @@ export class ResearchDevelopmentService {
     permission_level?: number;
     source?: string;
     source_task_id?: string;
+    /** 任务留痕附件的稳定 id（att-…）：删除/替换附件时按此精确回溯清理条目 */
+    source_attachment_id?: string;
     source_task_title?: string;
     file_name?: string;
     file_type?: string;
@@ -6996,6 +7590,7 @@ export class ResearchDevelopmentService {
       visibility: payload.visibility ?? 'internal',
       source: payload.source ?? 'manual',
       source_task_id: payload.source_task_id ?? null,
+      source_attachment_id: payload.source_attachment_id ?? null,
       source_task_title: payload.source_task_title ?? null,
       file_name: payload.file_name ?? null,
       file_type: payload.file_type ?? null,
@@ -7139,6 +7734,7 @@ export class ResearchDevelopmentService {
           visibility: 'internal',
           source: 'task_attachment',
           source_task_id: payload.taskId,
+          source_attachment_id: att.id,
           source_task_title: payload.taskTitle ?? payload.taskId,
           file_name: att.name,
           file_type: ext,
