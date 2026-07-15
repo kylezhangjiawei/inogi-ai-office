@@ -124,7 +124,11 @@ function buildImageEntry(unitId: string, subUnitId: string, source: string, from
 }
 
 type ImgAnchor = { nativeCol?: number; nativeColOff?: number; nativeRow?: number; nativeRowOff?: number; col?: number; row?: number };
-function anchorToCell(a: ImgAnchor): Anchor {
+// br 可能缺失：ExcelJS 对「单锚点图片」（oneCellAnchor：只有 tl + ext 尺寸）不返回 br，
+// 直接解引用会抛 Cannot read properties of undefined。此处对 undefined 容错返回原点锚，
+// 由调用方用 ext 推导实际 br，保证含此类图片的 xlsx 也能正常导入。
+function anchorToCell(a: ImgAnchor | undefined | null): Anchor {
+  if (!a) return { column: 0, columnOffset: 0, row: 0, rowOffset: 0 };
   return {
     column: a.nativeCol ?? Math.floor(a.col ?? 0),
     columnOffset: Math.round((a.nativeColOff ?? 0) / EMU_PER_PX),
@@ -267,13 +271,29 @@ export async function xlsxToUniverSnapshot(buf: ArrayBuffer, unitId: string): Pr
       });
     });
 
-    // 标准浮动图锚点（含设备大图），用于扩展维度
-    const wsImages = (ws as unknown as { getImages?: () => Array<{ imageId: string; range: { tl: ImgAnchor; br: ImgAnchor } }> }).getImages?.() ?? [];
+    // 标准浮动图锚点（含设备大图），用于扩展维度。
+    // br 可缺失（oneCellAnchor 单锚点图片：只有 tl + ext 尺寸），此时用 ext(EMU) 从 tl 推导右下角，
+    // 再退回 tl；全程可选链，杜绝 im.range.br.nativeRow 空指针（含图片的 xlsx 导入崩溃根因）。
+    const wsImages = (ws as unknown as { getImages?: () => Array<{ imageId: string; range: { tl?: ImgAnchor; br?: ImgAnchor; ext?: { width?: number; height?: number } } }> }).getImages?.() ?? [];
+    /** 缺 br 时用 tl + ext(EMU→格) 推导一个近似右下角锚点，供扩展维度与图片落位使用 */
+    const resolveBr = (range: { tl?: ImgAnchor; br?: ImgAnchor; ext?: { width?: number; height?: number } }): ImgAnchor => {
+      if (range.br) return range.br;
+      const tl = range.tl ?? {};
+      const tlRow = tl.nativeRow ?? Math.floor(tl.row ?? 0);
+      const tlCol = tl.nativeCol ?? Math.floor(tl.col ?? 0);
+      // ext 是图片像素/EMU 尺寸；粗略换算成跨行列数，保证图片有可见范围而非塌成 0 尺寸
+      const extW = range.ext?.width ?? 0;
+      const extH = range.ext?.height ?? 0;
+      const spanCols = Math.max(1, Math.round(extW / EMU_PER_PX / DEFAULT_COL_PX));
+      const spanRows = Math.max(1, Math.round(extH / EMU_PER_PX / DEFAULT_ROW_PX));
+      return { nativeRow: tlRow + spanRows, nativeCol: tlCol + spanCols };
+    };
     let extentRow = dataMaxRow;
     let extentCol = dataMaxCol;
     for (const im of wsImages) {
-      extentRow = Math.max(extentRow, im.range.br.nativeRow ?? 0);
-      extentCol = Math.max(extentCol, im.range.br.nativeCol ?? 0);
+      const br = resolveBr(im.range);
+      extentRow = Math.max(extentRow, br.nativeRow ?? 0);
+      extentCol = Math.max(extentCol, br.nativeCol ?? 0);
     }
     const maxCol = Math.min(extentCol + 1, CAP_COLS);
     const maxRow = Math.min(extentRow + 1, CAP_ROWS);
@@ -306,7 +326,8 @@ export async function xlsxToUniverSnapshot(buf: ArrayBuffer, unitId: string): Pr
     for (const im of wsImages) {
       const src = media.get(Number(im.imageId));
       if (!src) continue;
-      imageEntries.push(buildImageEntry(unitId, sheetId, src, anchorToCell(im.range.tl), anchorToCell(im.range.br), colEdges, rowEdges));
+      // br 缺失时用 resolveBr 从 tl+ext 推导，anchorToCell 也已对 undefined 容错（双保险）
+      imageEntries.push(buildImageEntry(unitId, sheetId, src, anchorToCell(im.range.tl), anchorToCell(resolveBr(im.range)), colEdges, rowEdges));
     }
     if (imageEntries.length) {
       const data: Record<string, unknown> = {};
