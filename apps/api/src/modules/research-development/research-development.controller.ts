@@ -16,9 +16,14 @@ const RD_READ_PERMISSIONS = [
   'page:rd-approval-flow',
   'page:rd-audit-log',
   'page:rd-ai-settings',
-  // 中美协同页面复用研发接口（协同驾驶舱 / 协同工作台），读权限等同研发页面
+  // 中美协同页面复用研发接口（协同驾驶舱 / 工作台 / 审批流 / 留痕 / AI 策略），读权限等同研发页面。
+  // 三个配置页的码必须在列：存在「只配某个配置页、不配驾驶舱」的角色，漏配会让其接口全 403。
+  // 跨池读写仍被 RdWorkspaceInterceptor 的池级准入挡住——这里只决定「能读研发接口」，不决定「能读哪个池」。
   'page:us-collab-cockpit',
   'page:us-collab-workspace',
+  'page:us-collab-approval-flow',
+  'page:us-collab-audit-log',
+  'page:us-collab-ai-settings',
 ];
 
 /**

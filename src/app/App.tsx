@@ -42,6 +42,8 @@ const DepartmentManagement = lazyNamed(() => import("./DepartmentManagement"), "
 const DesignChangesPage = lazyNamed(() => import("./DesignChangesPage"), "DesignChangesPage");
 const DownloadTutorialPage = lazyNamed(() => import("./DownloadTutorialPage"), "DownloadTutorialPage");
 const PlatformTutorialPage = lazyNamed(() => import("./DownloadTutorialPage"), "PlatformTutorialPage");
+const ManualPage = lazyNamed(() => import("./ManualPage"), "ManualPage");
+const ManualTopicPage = lazyNamed(() => import("./ManualPage"), "ManualTopicPage");
 const EBPRPage = lazyNamed(() => import("./EBPRPage"), "EBPRPage");
 const EmailAIPage = lazyNamed(() => import("./EmailAIPage"), "EmailAIPage");
 const EmployeeArchivePage = lazyNamed(() => import("./EmployeeArchivePage"), "EmployeeArchivePage");
@@ -325,6 +327,12 @@ const router = createBrowserRouter([
       // 研发任务全屏详情（双栏，协同同款范式的独立复刻）：路径无 /us-collab 前缀 → rdApi 落研发池；页面内部按研发驾驶舱页面码门禁
       { path: "rd-task/:taskId", element: lazyWrap(<RDTaskDetailPage />) },
       { path: "us-collab-kb", element: makeLazyProtected(<RDKnowledgeBasePage key="kb-us-collab" kbScope={{ kbId: "us-collab", label: "协同" }} />, "page:dept-kb-us-collab") },
+      // 协同审批流 / 留痕 / AI 策略：与上面三行一样是研发页面的原样复用，隔离全靠 /us-collab 路径前缀
+      // —— rdApi 据此给请求带 ?workspace=us-collab，后端把 rd.* 存储键改写成 rdws.us-collab.*。
+      // key="ws-us" 强制与研发路由分离组件实例，避免两池间切换时残留上一池的状态。
+      { path: "us-collab-approval-flow", element: makeLazyProtected(<RDApprovalFlowPage key="ws-us" />, "page:us-collab-approval-flow") },
+      { path: "us-collab-audit-log", element: makeLazyProtected(<RDAuditLogPage key="ws-us" />, "page:us-collab-audit-log") },
+      { path: "us-collab-ai-settings", element: makeLazyProtected(<RDAiSettingsPage key="ws-us" />, "page:us-collab-ai-settings") },
       // 研发主管驾驶舱 — 导航可见性由页面路由管理中的「导航」开关控制（默认隐藏）
       { path: "rd-director-dashboard", element: makeLazyProtected(<RDDirectorDashboardPage />, "page:rd-director-dashboard") },
       { path: "rd-approval-flow", element: makeLazyProtected(<RDApprovalFlowPage />, "page:rd-approval-flow") },
@@ -371,6 +379,9 @@ const router = createBrowserRouter([
       { path: "report-compression", element: makeLazyProtected(<ReportCompressionPage />, "page:report-compression") },
       { path: "downloads", element: makeLazyProtected(<DownloadTutorialPage />, "page:downloads") },
       { path: "downloads/:platformId", element: makeLazyProtected(<PlatformTutorialPage />, "page:downloads") },
+      // 操作手册：索引 + 分主题详情（同 downloads 的两级范式），详情页不进侧边栏
+      { path: "manual", element: makeLazyProtected(<ManualPage />, "page:manual") },
+      { path: "manual/:topicId", element: makeLazyProtected(<ManualTopicPage />, "page:manual") },
       { path: "departments", element: makeLazyProtected(<DepartmentManagement />, "page:departments") },
       { path: "users", element: makeLazyProtected(<UserManagement />, "page:users") },
       { path: "roles", element: makeLazyProtected(<RoleManagement />, "page:roles") },

@@ -10,7 +10,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../auth";
-import { addRdAuditLogNote, clearRdAuditLogs, createRdAuditLog, fetchRdAuditLogs } from "./rdApi";
+import { addRdAuditLogNote, clearRdAuditLogs, createRdAuditLog, fetchRdAuditLogs, isUsCollabWorkspace } from "./rdApi";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -277,14 +277,21 @@ export const CATEGORY_LABELS: Record<AuditCategory, string> = {
 
 // ─── Storage ─────────────────────────────────────────────────────────────────
 
-const STORAGE_KEY = "rd-audit-logs-v1";
+/**
+ * 离线回显缓存键按工作区分开：服务端已按 workspace 隔离留痕，但这份 localStorage 缓存
+ * 若两池共用，切到协同留痕页时会先渲染出研发池的旧记录（等远端拉取回来才被覆盖），
+ * 属于跨池串数据。研发池沿用原键 `rd-audit-logs-v1`（存量缓存零影响）。
+ */
+function storageKey(): string {
+  return isUsCollabWorkspace() ? "rd-audit-logs-v1.us-collab" : "rd-audit-logs-v1";
+}
 const AUDIT_EVENT = "rd-audit-log-changed";
 const MAX_LOGS = 1000;
 
 function loadRaw(): AuditLog[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey());
     if (!raw) return [];
     const parsed = JSON.parse(raw) as AuditLog[];
     return Array.isArray(parsed) ? parsed : [];
@@ -295,7 +302,7 @@ function loadRaw(): AuditLog[] {
 
 function saveRaw(logs: AuditLog[], emit = true): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(logs));
+  localStorage.setItem(storageKey(), JSON.stringify(logs));
   if (emit) {
     window.dispatchEvent(new CustomEvent(AUDIT_EVENT));
   }

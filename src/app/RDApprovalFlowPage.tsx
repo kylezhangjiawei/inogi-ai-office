@@ -37,7 +37,9 @@ import {
   saveFlows,
 } from "./lib/approvalFlowConfig";
 import { AuditActor, AuditChange, recordAudit, useAuditActor } from "./lib/auditLog";
+import { i18nLocale, t, useI18n } from "./lib/i18n";
 import { PERMISSIONS } from "./lib/permissions";
+import { isUsCollabWorkspace } from "./lib/rdApi";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -95,6 +97,7 @@ function ApprovalNodeCard({
   pools: Record<string, PoolMember[]>;
   readOnly?: boolean;
 }) {
+  useI18n(); // 订阅语言切换（本卡片文案全部经 t()）
   const pool = pools[node.permission_code] ?? getPoolForPermission(node.permission_code);
   const modeCfg = MODE_BADGE[node.mode];
 
@@ -112,7 +115,7 @@ function ApprovalNodeCard({
             value={node.label}
             onChange={(e) => onChange({ label: e.target.value })}
             readOnly={readOnly}
-            placeholder="节点名称"
+            placeholder={t("节点名称")}
             className={cn(
               "flex-1 rounded border-0 bg-transparent text-base font-semibold text-slate-900 outline-none focus:bg-slate-50 focus:px-2 focus:py-1",
               readOnly && "cursor-default text-slate-700 focus:bg-transparent focus:px-0 focus:py-0",
@@ -125,7 +128,7 @@ function ApprovalNodeCard({
               modeCfg.text,
             )}
           >
-            {modeCfg.label}
+            {t(modeCfg.label)}
           </span>
           <div className="flex shrink-0 items-center gap-0.5">
             <button
@@ -133,7 +136,7 @@ function ApprovalNodeCard({
               onClick={onMoveUp}
               disabled={readOnly || isFirst}
               className="rounded p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
-              title="上移"
+              title={t("上移")}
             >
               <ArrowUp className="h-3.5 w-3.5" />
             </button>
@@ -142,7 +145,7 @@ function ApprovalNodeCard({
               onClick={onMoveDown}
               disabled={readOnly || isLast}
               className="rounded p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
-              title="下移"
+              title={t("下移")}
             >
               <ArrowDown className="h-3.5 w-3.5" />
             </button>
@@ -151,7 +154,7 @@ function ApprovalNodeCard({
               onClick={onDelete}
               disabled={readOnly}
               className="rounded p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-slate-400"
-              title="删除节点"
+              title={t("删除节点")}
             >
               <Trash2 className="h-3.5 w-3.5" />
             </button>
@@ -163,7 +166,7 @@ function ApprovalNodeCard({
           value={node.description ?? ""}
           onChange={(e) => onChange({ description: e.target.value })}
           readOnly={readOnly}
-          placeholder="节点说明（可选）"
+          placeholder={t("节点说明（可选）")}
           className="mb-3 w-full rounded border border-slate-100 bg-slate-50/40 px-3 py-1.5 text-xs text-slate-600 outline-none transition-all focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-100"
         />
 
@@ -172,7 +175,7 @@ function ApprovalNodeCard({
           {/* Permission */}
           <div>
             <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-              关联权限
+              {t("关联权限")}
             </label>
             <NativeSelect
               value={node.permission_code}
@@ -182,19 +185,19 @@ function ApprovalNodeCard({
             >
               {APPROVAL_PERMISSION_OPTIONS.map((opt) => (
                 <option key={opt.code} value={opt.code}>
-                  {opt.label}
+                  {t(opt.label)}
                 </option>
               ))}
             </NativeSelect>
             <p className="mt-1 text-[10px] text-slate-400">
-              拥有此权限的所有用户自动入审核池
+              {t("拥有此权限的所有用户自动入审核池")}
             </p>
           </div>
 
           {/* Mode */}
           <div>
             <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-              审核模式
+              {t("审核模式")}
             </label>
             <div className="flex gap-1 rounded border border-slate-200 bg-slate-50 p-0.5">
               {APPROVAL_MODE_OPTIONS.map((opt) => (
@@ -209,14 +212,14 @@ function ApprovalNodeCard({
                       ? "bg-white text-slate-900 shadow-[0_2px_6px_rgba(15,23,42,0.08)]"
                       : "text-slate-500 hover:text-slate-700",
                   )}
-                  title={opt.helper}
+                  title={t(opt.helper)}
                 >
-                  {opt.label}
+                  {t(opt.label)}
                 </button>
               ))}
             </div>
             <p className="mt-1 text-[10px] text-slate-400">
-              {APPROVAL_MODE_OPTIONS.find((o) => o.value === node.mode)?.helper}
+              {t(APPROVAL_MODE_OPTIONS.find((o) => o.value === node.mode)?.helper ?? "")}
             </p>
           </div>
 
@@ -224,7 +227,7 @@ function ApprovalNodeCard({
           <div>
             <label className="mb-1 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
               <Clock className="h-3 w-3" />
-              SLA 时长（小时）
+              {t("SLA 时长（小时）")}
             </label>
             <Input
               type="number"
@@ -234,18 +237,18 @@ function ApprovalNodeCard({
                 onChange({ sla_hours: e.target.value ? Number(e.target.value) : undefined })
               }
               readOnly={readOnly}
-              placeholder="例：48"
+              placeholder={t("例：48")}
               className="w-full rounded border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-700 outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
             />
             <p className="mt-1 text-[10px] text-amber-600">
-              已预留，本期不触发自动催办
+              {t("已预留，本期不触发自动催办")}
             </p>
           </div>
 
           {/* Escalate */}
           <div>
             <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-              超时升级
+              {t("超时升级")}
             </label>
             <button
               type="button"
@@ -271,7 +274,7 @@ function ApprovalNodeCard({
                   )}
                 />
               </span>
-              {node.escalate_on_timeout ? "超时自动升级" : "超时不升级"}
+              {node.escalate_on_timeout ? t("超时自动升级") : t("超时不升级")}
             </button>
           </div>
         </div>
@@ -281,16 +284,16 @@ function ApprovalNodeCard({
           <div className="mb-2 flex items-center justify-between">
             <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600">
               <Users className="h-3 w-3" />
-              当前审核池
+              {t("当前审核池")}
               <span className="rounded-full bg-slate-200 px-1.5 text-[10px] font-bold text-slate-700">
                 {pool.length}
               </span>
             </span>
-            <span className="text-[10px] text-slate-400">由「角色权限」页面分配</span>
+            <span className="text-[10px] text-slate-400">{t("由「角色权限」页面分配")}</span>
           </div>
           {pool.length === 0 ? (
             <p className="text-[11px] italic text-slate-400">
-              暂无拥有此权限的用户，请到「角色权限」页面给某角色分配该权限
+              {t("暂无拥有此权限的用户，请到「角色权限」页面给某角色分配该权限")}
             </p>
           ) : (
             <div className="flex flex-wrap gap-2">
@@ -310,7 +313,7 @@ function PoolMemberChip({ member }: { member: PoolMember }) {
     <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700 transition-colors hover:bg-slate-50">
       <MiniAvatar name={member.name} />
       <span className="font-medium">{member.name}</span>
-      <span className="text-[10px] text-slate-400">{member.position}</span>
+      <span className="text-[10px] text-slate-400">{t(member.position)}</span>
     </span>
   );
 }
@@ -402,6 +405,7 @@ function recordFlowSaveAudit(previous: ApprovalFlow | undefined, next: ApprovalF
 // ─── Main Page ───────────────────────────────────────────────────────────────
 
 export function RDApprovalFlowPage() {
+  useI18n(); // 订阅语言切换：本页文案全部经 t()
   const flowAuditActor = useAuditActor("研发管理员");
   const [flows, setFlowsState] = useState<ApprovalFlow[]>([]);
   const [savedFlows, setSavedFlows] = useState<ApprovalFlow[]>([]);
@@ -430,7 +434,7 @@ export function RDApprovalFlowPage() {
         setFlowsState(fallback);
         setSavedFlows(fallback);
         setActiveFlowId(fallback[0]?.id ?? "");
-        setLoadError(error instanceof Error ? error.message : "审批流接口加载失败");
+        setLoadError(error instanceof Error ? error.message : t("审批流接口加载失败"));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -471,7 +475,7 @@ export function RDApprovalFlowPage() {
     return (
       <div className="min-h-full bg-slate-50/40 px-6 py-6 lg:px-8 lg:py-8">
         <div className="mx-auto max-w-4xl rounded-xl border border-slate-100 bg-white px-6 py-10 text-sm text-slate-500 shadow-[0_18px_45px_rgba(15,23,42,0.05)]">
-          正在从后端加载审批流配置…
+          {t("正在从后端加载审批流配置…")}
         </div>
       </div>
     );
@@ -479,7 +483,7 @@ export function RDApprovalFlowPage() {
 
   const createDefaultDraft = () => {
     if (!canManageFlow) {
-      toast.error("当前账号没有管理审批流权限");
+      toast.error(t("当前账号没有管理审批流权限"));
       return;
     }
     const now = new Date().toISOString();
@@ -498,9 +502,9 @@ export function RDApprovalFlowPage() {
           <span className="flex h-11 w-11 items-center justify-center rounded-lg bg-slate-900 text-white">
             <GitBranch className="h-5 w-5" />
           </span>
-          <h1 className="mt-4 text-lg font-semibold text-slate-950">暂无审批流配置</h1>
+          <h1 className="mt-4 text-lg font-semibold text-slate-950">{t("暂无审批流配置")}</h1>
           <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
-            后端当前没有任何研发审批流数据。可以从空白状态开始配置，或创建一份默认草稿后再保存到后端。
+            {t("后端当前没有任何研发审批流数据。可以从空白状态开始配置，或创建一份默认草稿后再保存到后端。")}
           </p>
           {loadError && (
             <p className="mt-3 rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
@@ -514,11 +518,11 @@ export function RDApprovalFlowPage() {
               className="mt-5 inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(15,23,42,0.18)] transition-all hover:bg-slate-800 active:scale-[0.98]"
             >
               <Plus className="h-4 w-4" />
-              创建默认草稿
+              {t("创建默认草稿")}
             </button>
           ) : (
             <span className="mt-5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-500">
-              只读账号无权创建审批流
+              {t("只读账号无权创建审批流")}
             </span>
           )}
         </div>
@@ -582,7 +586,7 @@ export function RDApprovalFlowPage() {
 
   const addNode = () => {
     if (!canManageFlow) {
-      toast.error("当前账号没有管理审批流权限");
+      toast.error(t("当前账号没有管理审批流权限"));
       return;
     }
     setFlowsState((prev) =>
@@ -595,7 +599,8 @@ export function RDApprovalFlowPage() {
                 {
                   id: `node-${Date.now()}`,
                   level: f.nodes.length + 1,
-                  label: `审核节点 ${f.nodes.length + 1}`,
+                  // 新节点默认名随创建者语言（节点名是用户数据，创建后可改）
+                  label: t("审核节点 {n}", { n: f.nodes.length + 1 }),
                   permission_code: APPROVAL_PERMISSION_OPTIONS[0].code,
                   mode: "any",
                   description: "",
@@ -612,7 +617,7 @@ export function RDApprovalFlowPage() {
 
   const save = () => {
     if (!canManageFlow) {
-      toast.error("当前账号没有管理审批流权限");
+      toast.error(t("当前账号没有管理审批流权限"));
       return;
     }
     const previousFlow = savedFlows.find((f) => f.id === activeFlow.id);
@@ -620,14 +625,14 @@ export function RDApprovalFlowPage() {
     saveFlows(flows);
     setSavedFlows(flows);
     setDirty(false);
-    toast.success("审批流配置已保存", {
-      description: `${activeFlow.name} · ${activeFlow.nodes.length} 个节点`,
+    toast.success(t("审批流配置已保存"), {
+      description: `${t(activeFlow.name)} · ${t("{n} 个节点", { n: activeFlow.nodes.length })}`,
     });
   };
 
   const reset = () => {
     if (!canManageFlow) {
-      toast.error("当前账号没有管理审批流权限");
+      toast.error(t("当前账号没有管理审批流权限"));
       return;
     }
     const previousFlow = activeFlow;
@@ -645,7 +650,7 @@ export function RDApprovalFlowPage() {
     saveFlows([DEFAULT_PROJECT_FLOW]);
     setConfirmReset(false);
     setDirty(false);
-    toast.info("已恢复默认审批流");
+    toast.info(t("已恢复默认审批流"));
   };
 
   return (
@@ -659,12 +664,11 @@ export function RDApprovalFlowPage() {
                 <GitBranch className="h-4 w-4" />
               </span>
               <h1 className="text-xl font-semibold tracking-tight text-slate-900">
-                审批流配置
+                {t(isUsCollabWorkspace() ? "协同审批流配置" : "审批流配置")}
               </h1>
             </div>
             <p className="mt-1.5 text-sm text-slate-500">
-              配置「立项 / 任务封存 / 转派」等流程的审核节点 ·
-              池成员由「角色权限」页分配
+              {t("配置「立项 / 任务封存 / 转派」等流程的审核节点 · 池成员由「角色权限」页分配")}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -676,7 +680,7 @@ export function RDApprovalFlowPage() {
                   className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 transition-all hover:bg-slate-50 active:scale-[0.98]"
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
-                  恢复默认
+                  {t("恢复默认")}
                 </button>
                 <button
                   type="button"
@@ -685,12 +689,12 @@ export function RDApprovalFlowPage() {
                   className="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(15,23,42,0.2)] transition-all hover:bg-slate-800 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-slate-900"
                 >
                   <Save className="h-3.5 w-3.5" />
-                  {dirty ? "保存配置" : "已保存"}
+                  {dirty ? t("保存配置") : t("已保存")}
                 </button>
               </>
             ) : (
               <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-500">
-                只读
+                {t("只读")}
               </span>
             )}
           </div>
@@ -700,18 +704,18 @@ export function RDApprovalFlowPage() {
         <section className="rounded-xl border border-slate-100 bg-white p-4">
           <div className="mb-3 flex items-center justify-between">
             <div>
-              <h2 className="text-sm font-semibold text-slate-900">{activeFlow.name}</h2>
+              <h2 className="text-sm font-semibold text-slate-900">{t(activeFlow.name)}</h2>
               <p className="mt-0.5 text-xs text-slate-500">
-                适用范围：
-                {activeFlow.scope === "project_proposal" ? "立项审批" : "任务流程"} ·
-                共 {activeFlow.nodes.length} 个节点 ·
-                最后修改 {new Date(activeFlow.updated_at).toLocaleDateString("zh-CN")}
+                {t("适用范围：")}
+                {activeFlow.scope === "project_proposal" ? t("立项审批") : t("任务流程")} ·
+                {t("共 {n} 个节点", { n: activeFlow.nodes.length })} ·
+                {t("最后修改")} {new Date(activeFlow.updated_at).toLocaleDateString(i18nLocale())}
               </p>
             </div>
             {activeFlow.is_default && (
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
                 <CheckCircle2 className="h-3 w-3" />
-                默认流程
+                {t("默认流程")}
               </span>
             )}
           </div>
@@ -720,8 +724,8 @@ export function RDApprovalFlowPage() {
           <div className="flex items-start gap-2 rounded-md border border-blue-100 bg-blue-50/50 px-3 py-2 text-[11px] text-blue-700">
             <Info className="mt-0.5 h-3 w-3 shrink-0" />
             <span>
-              <span className="font-semibold">如何添加审核人？</span> 在「角色权限」页面，给某角色勾选对应权限码（如
-              <code className="mx-1 rounded bg-white px-1 font-mono">rd-project:review-l1</code>），所有拥有该角色的用户会自动加入对应节点的审核池。
+              <span className="font-semibold">{t("如何添加审核人？")}</span> {t("在「角色权限」页面，给某角色勾选对应权限码（如")}
+              <code className="mx-1 rounded bg-white px-1 font-mono">rd-project:review-l1</code>{t("），所有拥有该角色的用户会自动加入对应节点的审核池。")}
             </span>
           </div>
         </section>
@@ -755,7 +759,7 @@ export function RDApprovalFlowPage() {
           </div>
           <div className="ml-3 flex items-center justify-center gap-2 rounded-xl border border-dashed border-emerald-200 bg-emerald-50/40 px-4 py-3">
             <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-            <span className="text-sm font-semibold text-emerald-700">通过 · 任务自动分配</span>
+            <span className="text-sm font-semibold text-emerald-700">{t("通过 · 任务自动分配")}</span>
           </div>
 
           {/* Add node button */}
@@ -767,7 +771,7 @@ export function RDApprovalFlowPage() {
               className="group flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-slate-300 bg-transparent px-4 py-3 text-sm font-medium text-slate-500 transition-all hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50/30 hover:text-blue-600"
             >
               <Plus className="h-4 w-4 transition-transform group-hover:rotate-90" />
-              添加审核节点
+              {t("添加审核节点")}
             </button>
           </div>
           )}
@@ -778,10 +782,10 @@ export function RDApprovalFlowPage() {
           <div className="flex items-start gap-2">
             <Sparkles className="mt-0.5 h-3 w-3 shrink-0" />
             <div>
-              <div className="font-semibold">关于 SLA 与超时升级</div>
+              <div className="font-semibold">{t("关于 SLA 与超时升级")}</div>
               <p className="mt-0.5 leading-relaxed">
-                字段已预留，本期不接入自动催办与升级。后端就绪后将开放定时任务：
-                <span className="font-mono">SLA 到期 → 站内信催办 → 升级到下一级</span>。
+                {t("字段已预留，本期不接入自动催办与升级。后端就绪后将开放定时任务：")}
+                <span className="font-mono">{t("SLA 到期 → 站内信催办 → 升级到下一级")}</span>。
               </p>
             </div>
           </div>
@@ -800,9 +804,9 @@ export function RDApprovalFlowPage() {
               <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-50">
                 <AlertTriangle className="h-6 w-6 text-amber-500" />
               </div>
-              <h3 className="text-base font-semibold text-slate-900">恢复默认审批流？</h3>
+              <h3 className="text-base font-semibold text-slate-900">{t("恢复默认审批流？")}</h3>
               <p className="mt-1.5 text-sm leading-relaxed text-slate-500">
-                这将丢弃当前所有配置，恢复为系统默认的「一审 → 终审」两级或签流程。
+                {t("这将丢弃当前所有配置，恢复为系统默认的「一审 → 终审」两级或签流程。")}
               </p>
             </div>
             <footer className="mt-5 flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/50 px-6 py-3">
@@ -811,7 +815,7 @@ export function RDApprovalFlowPage() {
                 onClick={() => setConfirmReset(false)}
                 className="rounded-md border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 active:scale-[0.98]"
               >
-                取消
+                {t("取消")}
               </button>
               <button
                 type="button"
@@ -819,7 +823,7 @@ export function RDApprovalFlowPage() {
                 className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-3.5 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(217,119,6,0.25)] transition-all hover:bg-amber-700 active:scale-[0.98]"
               >
                 <RotateCcw className="h-3.5 w-3.5" />
-                恢复默认
+                {t("恢复默认")}
               </button>
             </footer>
           </div>

@@ -26,6 +26,8 @@ import {
   type RdAiSettingsPayload,
 } from "./lib/rdApi";
 import { resolveExplicitUsage, resolveModelUsageKind } from "./lib/aiModelOptions";
+import { i18nLocale, t, useI18n } from "./lib/i18n";
+import { isUsCollabWorkspace } from "./lib/rdApi";
 
 type ModelRef = NonNullable<NonNullable<RdAiSettingsPayload["runtime"]>["models"]>[number];
 
@@ -86,10 +88,10 @@ const STRATEGY_LABELS: Record<string, string> = {
 };
 
 function formatDate(value?: string) {
-  if (!value) return "未保存";
+  if (!value) return t("未保存");
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("zh-CN", {
+  return new Intl.DateTimeFormat(i18nLocale(), {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -99,7 +101,7 @@ function formatDate(value?: string) {
 }
 
 function modelLabel(modelId: string, models: ModelRef[]) {
-  if (!modelId) return "未指定";
+  if (!modelId) return t("未指定");
   const model = models.find((item) => item.id === modelId);
   if (!model) return modelId;
   return `${model.name || model.model} / ${model.model}`;
@@ -116,8 +118,8 @@ function EmptyModelNotice({ hasModel }: { hasModel: boolean }) {
     <div className="flex items-start gap-3 rounded-[8px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
       <div>
-        <div className="font-semibold">当前没有可用模型</div>
-        <div className="mt-1 text-xs leading-5 text-amber-700">请先在 AI 模型管理中新增并启用模型，再回到这里绑定研发场景。</div>
+        <div className="font-semibold">{t("当前没有可用模型")}</div>
+        <div className="mt-1 text-xs leading-5 text-amber-700">{t("请先在 AI 模型管理中新增并启用模型，再回到这里绑定研发场景。")}</div>
       </div>
     </div>
   );
@@ -150,11 +152,11 @@ function ModelSelect({
       value={value}
       onChange={(event) => onChange(event.target.value)}
     >
-      <option value="">跟随默认模型</option>
+      <option value="">{t("跟随默认模型")}</option>
       {selectedMissing ? <option value={value}>{value}</option> : null}
       {sorted.map(({ model, usage }) => (
         <option key={model.id} value={model.id}>
-          {model.name || model.model} / {model.model} · {usage.label}
+          {model.name || model.model} / {model.model} · {t(usage.label)}
         </option>
       ))}
     </NativeSelect>
@@ -176,8 +178,8 @@ function SceneRow({
         <div className="flex items-center gap-2">
           <Switch checked={scene.enabled} onCheckedChange={(checked) => onChange({ enabled: checked })} />
           <div className="min-w-0">
-            <div className="truncate text-sm font-semibold text-slate-900">{scene.name}</div>
-            <div className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{scene.description}</div>
+            <div className="truncate text-sm font-semibold text-slate-900">{t(scene.name)}</div>
+            <div className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{t(scene.description)}</div>
           </div>
         </div>
       </div>
@@ -203,14 +205,14 @@ function SceneRow({
             checked={scene.require_human_review}
             onCheckedChange={(checked) => onChange({ require_human_review: Boolean(checked) })}
           />
-          复核
+          {t("复核")}
         </label>
         <label className="flex items-center gap-2">
           <Checkbox
             checked={scene.show_to_user}
             onCheckedChange={(checked) => onChange({ show_to_user: Boolean(checked) })}
           />
-          可见
+          {t("可见")}
         </label>
       </div>
     </div>
@@ -252,6 +254,7 @@ function FileRuleRow({
   rule: RdAiFileRule;
   onChange: (patch: Partial<RdAiFileRule>) => void;
 }) {
+  useI18n(); // 订阅语言切换（行内文案经 t()）
   const meta = FILE_RULE_META[rule.id] ?? {
     icon: FileText,
     accent: "bg-slate-100 text-slate-600 ring-slate-200",
@@ -270,8 +273,8 @@ function FileRuleRow({
               <Icon className="h-4 w-4" />
             </span>
             <div className="min-w-0">
-              <div className="text-sm font-semibold leading-5 text-slate-950">{rule.label}</div>
-              <div className="mt-1 text-xs leading-5 text-slate-500">{meta.description}</div>
+              <div className="text-sm font-semibold leading-5 text-slate-950">{t(rule.label)}</div>
+              <div className="mt-1 text-xs leading-5 text-slate-500">{t(meta.description)}</div>
             </div>
           </div>
           <div className="mt-3 flex flex-wrap gap-1.5">
@@ -288,17 +291,17 @@ function FileRuleRow({
 
         <div className="grid min-w-0 gap-3 lg:grid-cols-2">
           <label htmlFor={strategyInputId} className="block min-w-0">
-            <span className="text-xs font-semibold text-slate-500">处理策略</span>
+            <span className="text-xs font-semibold text-slate-500">{t("处理策略")}</span>
             <Input
               id={strategyInputId}
               className="mt-1.5 h-10 w-full rounded-[8px] border border-slate-200 bg-white px-3 font-mono text-sm text-slate-800 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
               value={rule.strategy}
               onChange={(event) => onChange({ strategy: event.target.value })}
             />
-            <span className="mt-1 block text-xs text-slate-400">{STRATEGY_LABELS[rule.strategy] ?? "自定义策略"}</span>
+            <span className="mt-1 block text-xs text-slate-400">{t(STRATEGY_LABELS[rule.strategy] ?? "自定义策略")}</span>
           </label>
           <label htmlFor={extensionsInputId} className="block min-w-0">
-            <span className="text-xs font-semibold text-slate-500">扩展名</span>
+            <span className="text-xs font-semibold text-slate-500">{t("扩展名")}</span>
             <Input
               id={extensionsInputId}
               className="mt-1.5 h-10 w-full rounded-[8px] border border-slate-200 bg-white px-3 font-mono text-sm text-slate-800 outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-50"
@@ -312,14 +315,14 @@ function FileRuleRow({
                 })
               }
             />
-            <span className="mt-1 block text-xs text-slate-400">用逗号分隔，不需要写点号。</span>
+            <span className="mt-1 block text-xs text-slate-400">{t("用逗号分隔，不需要写点号。")}</span>
           </label>
         </div>
 
         <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1">
-          <FileCapabilityToggle label="AI 结构化" checked={rule.ai_after_parse} onChange={(checked) => onChange({ ai_after_parse: checked })} />
-          <FileCapabilityToggle label="OCR 兜底" checked={rule.ocr_fallback} onChange={(checked) => onChange({ ocr_fallback: checked })} />
-          <FileCapabilityToggle label="直传 AI" checked={rule.direct_ai} onChange={(checked) => onChange({ direct_ai: checked })} />
+          <FileCapabilityToggle label={t("AI 结构化")} checked={rule.ai_after_parse} onChange={(checked) => onChange({ ai_after_parse: checked })} />
+          <FileCapabilityToggle label={t("OCR 兜底")} checked={rule.ocr_fallback} onChange={(checked) => onChange({ ocr_fallback: checked })} />
+          <FileCapabilityToggle label={t("直传 AI")} checked={rule.direct_ai} onChange={(checked) => onChange({ direct_ai: checked })} />
         </div>
       </div>
     </div>
@@ -327,6 +330,7 @@ function FileRuleRow({
 }
 
 export function RDAiSettingsPage() {
+  useI18n(); // 订阅语言切换：本页文案全部经 t()
   const [settings, setSettings] = useState<RdAiSettingsPayload | null>(null);
   const [savedSettings, setSavedSettings] = useState<RdAiSettingsPayload | null>(null);
   const [loading, setLoading] = useState(false);
@@ -339,7 +343,7 @@ export function RDAiSettingsPage() {
       setSettings(payload);
       setSavedSettings(payload);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "读取研发 AI 策略失败");
+      toast.error(error instanceof Error ? error.message : t("读取研发 AI 策略失败"));
     } finally {
       setLoading(false);
     }
@@ -384,7 +388,7 @@ export function RDAiSettingsPage() {
 
   const selectedFileScene = useMemo(() => {
     const scene = settings?.scenes.find((item) => item.id === "file_task_extract");
-    if (!scene) return "未配置";
+    if (!scene) return t("未配置");
     return modelLabel(scene.model_id, modelOptions);
   }, [modelOptions, settings?.scenes]);
 
@@ -442,9 +446,9 @@ export function RDAiSettingsPage() {
       const saved = await saveRdAiSettings(settings);
       setSettings(saved);
       setSavedSettings(saved);
-      toast.success("研发 AI 策略已保存");
+      toast.success(t("研发 AI 策略已保存"));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "保存研发 AI 策略失败");
+      toast.error(error instanceof Error ? error.message : t("保存研发 AI 策略失败"));
     } finally {
       setSaving(false);
     }
@@ -454,7 +458,7 @@ export function RDAiSettingsPage() {
     return (
       <div className="flex min-h-[50vh] items-center justify-center text-sm text-slate-500">
         <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-        正在加载研发 AI 策略...
+        {t("正在加载研发 AI 策略...")}
       </div>
     );
   }
@@ -462,7 +466,7 @@ export function RDAiSettingsPage() {
   if (!settings) {
     return (
       <div className="rounded-[8px] border border-dashed border-slate-200 bg-white px-6 py-10 text-center text-sm text-slate-500">
-        暂无研发 AI 策略配置
+        {t("暂无研发 AI 策略配置")}
       </div>
     );
   }
@@ -473,11 +477,11 @@ export function RDAiSettingsPage() {
         <div className="border-b border-slate-100 bg-white px-6 py-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <span className="material-chip bg-blue-50 text-blue-700">R&D AI Policy</span>
-              <h2 className="mt-3 text-[2rem] font-bold tracking-tight text-slate-900">研发 AI 策略</h2>
+              <span className="material-chip bg-blue-50 text-blue-700">{isUsCollabWorkspace() ? "Collab AI Policy" : "R&D AI Policy"}</span>
+              <h2 className="mt-3 text-[2rem] font-bold tracking-tight text-slate-900">{t(isUsCollabWorkspace() ? "协同 AI 策略" : "研发 AI 策略")}</h2>
               <div className="mt-2 flex flex-wrap gap-2 text-xs text-slate-500">
-                <span>最后保存：{formatDate(settings.updated_at)}</span>
-                <span>文件任务解析：{selectedFileScene}</span>
+                <span>{t("最后保存：")}{formatDate(settings.updated_at)}</span>
+                <span>{t("文件任务解析：")}{selectedFileScene}</span>
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -488,11 +492,11 @@ export function RDAiSettingsPage() {
                 disabled={saving || !savedSettings}
               >
                 <RefreshCw className="h-4 w-4" />
-                恢复
+                {t("恢复")}
               </button>
               <button type="button" className="material-button-primary" onClick={() => void handleSave()} disabled={saving}>
                 <Save className="h-4 w-4" />
-                {saving ? "保存中..." : "保存策略"}
+                {saving ? t("保存中...") : t("保存策略")}
               </button>
             </div>
           </div>
@@ -500,12 +504,12 @@ export function RDAiSettingsPage() {
 
         <div className="grid gap-0 divide-y divide-slate-100 bg-slate-50/50 md:grid-cols-4 md:divide-x md:divide-y-0">
           {[
-            { label: "启用场景", value: `${stats.enabledScenes}/${stats.totalScenes}`, tone: "text-blue-600" },
-            { label: "已绑定模型", value: stats.boundScenes, tone: "text-slate-900" },
-            { label: "人工复核", value: stats.reviewScenes, tone: "text-amber-600" },
+            { label: t("启用场景"), value: `${stats.enabledScenes}/${stats.totalScenes}`, tone: "text-blue-600" },
+            { label: t("已绑定模型"), value: stats.boundScenes, tone: "text-slate-900" },
+            { label: t("人工复核"), value: stats.reviewScenes, tone: "text-amber-600" },
             {
-              label: "腾讯 OCR",
-              value: settings.runtime?.ocr?.ready ? "就绪" : "未就绪",
+              label: t("腾讯 OCR"),
+              value: settings.runtime?.ocr?.ready ? t("就绪") : t("未就绪"),
               tone: settings.runtime?.ocr?.ready ? "text-emerald-600" : "text-rose-600",
             },
           ].map((item) => (
@@ -522,8 +526,8 @@ export function RDAiSettingsPage() {
       <section className="material-card p-6">
         <div className="mb-5 flex items-center justify-between gap-3">
           <div>
-            <h3 className="text-base font-semibold text-slate-900">文件处理链路</h3>
-            <p className="mt-1 text-sm text-slate-500">文件先解析或 OCR，再进入 AI 结构化与人工确认。</p>
+            <h3 className="text-base font-semibold text-slate-900">{t("文件处理链路")}</h3>
+            <p className="mt-1 text-sm text-slate-500">{t("文件先解析或 OCR，再进入 AI 结构化与人工确认。")}</p>
           </div>
           <SlidersHorizontal className="h-5 w-5 text-slate-400" />
         </div>
@@ -538,7 +542,7 @@ export function RDAiSettingsPage() {
                   </span>
                   <div>
                     <div className="text-xs font-semibold text-slate-400">0{index + 1}</div>
-                    <div className="text-sm font-semibold text-slate-900">{step.label}</div>
+                    <div className="text-sm font-semibold text-slate-900">{t(step.label)}</div>
                   </div>
                 </div>
               </div>
@@ -550,15 +554,15 @@ export function RDAiSettingsPage() {
       <section className="material-card p-6">
         <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
-            <h3 className="text-base font-semibold text-slate-900">AI 场景模型</h3>
-            <p className="mt-1 text-sm text-slate-500">主模型、兜底模型、提示词版本、置信度阈值和复核策略集中维护。</p>
+            <h3 className="text-base font-semibold text-slate-900">{t("AI 场景模型")}</h3>
+            <p className="mt-1 text-sm text-slate-500">{t("主模型、兜底模型、提示词版本、置信度阈值和复核策略集中维护。")}</p>
           </div>
           <div className="hidden grid-cols-[1fr_1fr_140px_120px_120px] gap-3 pr-4 text-xs font-semibold uppercase tracking-[0.12em] text-slate-400 xl:grid">
-            <span>主模型</span>
-            <span>兜底模型</span>
+            <span>{t("主模型")}</span>
+            <span>{t("兜底模型")}</span>
             <span>Prompt</span>
-            <span>阈值</span>
-            <span>复核/展示</span>
+            <span>{t("阈值")}</span>
+            <span>{t("复核/展示")}</span>
           </div>
         </div>
         <div className="space-y-3">
@@ -570,15 +574,15 @@ export function RDAiSettingsPage() {
 
       <section className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
         <div className="material-card p-6">
-          <h3 className="text-base font-semibold text-slate-900">OCR 与兜底</h3>
+          <h3 className="text-base font-semibold text-slate-900">{t("OCR 与兜底")}</h3>
           <div className="mt-5 space-y-4">
             <div className="rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">OCR 凭据</div>
-                  <div className="mt-1 text-sm font-semibold text-slate-900">由后端 .env 托管</div>
+                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{t("OCR 凭据")}</div>
+                  <div className="mt-1 text-sm font-semibold text-slate-900">{t("由后端 .env 托管")}</div>
                   <p className="mt-1 text-xs leading-5 text-slate-500">
-                    SecretId / SecretKey 不在系统页面展示或编辑，仅显示运行状态。
+                    {t("SecretId / SecretKey 不在系统页面展示或编辑，仅显示运行状态。")}
                   </p>
                 </div>
                 <span
@@ -589,20 +593,20 @@ export function RDAiSettingsPage() {
                       : "bg-amber-50 text-amber-700 ring-1 ring-amber-100",
                   )}
                 >
-                  {settings.runtime?.ocr?.ready ? "已配置" : "未就绪"}
+                  {settings.runtime?.ocr?.ready ? t("已配置") : t("未就绪")}
                 </span>
               </div>
               <div className="mt-3 grid gap-2 text-xs text-slate-500 sm:grid-cols-2">
                 <div className="rounded-md bg-white px-3 py-2 ring-1 ring-slate-200">
-                  服务：{settings.runtime?.ocr?.provider ?? "tencent_ocr"}
+                  {t("服务：")}{settings.runtime?.ocr?.provider ?? "tencent_ocr"}
                 </div>
                 <div className="rounded-md bg-white px-3 py-2 ring-1 ring-slate-200">
-                  服务 Key：系统默认策略
+                  {t("服务 Key：系统默认策略")}
                 </div>
               </div>
             </div>
             <label className="block">
-              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">OCR 置信度阈值</span>
+              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{t("OCR 置信度阈值")}</span>
               <Input
                 type="number"
                 min={0}
@@ -614,15 +618,15 @@ export function RDAiSettingsPage() {
               />
             </label>
             <label className="block">
-              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">低置信度动作</span>
+              <span className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{t("低置信度动作")}</span>
               <NativeSelect
                 className="material-input mt-1.5 w-full"
                 value={settings.file_policy.low_confidence_action}
                 onChange={(event) => patchFilePolicy({ low_confidence_action: event.target.value })}
               >
-                <option value="manual_review">人工确认</option>
-                <option value="reject">阻止落库</option>
-                <option value="allow_with_warning">允许但标警告</option>
+                <option value="manual_review">{t("人工确认")}</option>
+                <option value="reject">{t("阻止落库")}</option>
+                <option value="allow_with_warning">{t("允许但标警告")}</option>
               </NativeSelect>
             </label>
             <div className="space-y-3 rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
@@ -634,7 +638,7 @@ export function RDAiSettingsPage() {
                 ["require_confirmation_before_write", "写入前必须人工确认"],
               ].map(([key, label]) => (
                 <label key={key} className="flex items-center justify-between gap-3">
-                  <span>{label}</span>
+                  <span>{t(label)}</span>
                   <Switch
                     checked={Boolean(settings.file_policy[key as keyof RdAiSettingsPayload["file_policy"]])}
                     onCheckedChange={(checked) => patchFilePolicy({ [key]: checked } as Partial<RdAiSettingsPayload["file_policy"]>)}
@@ -649,15 +653,15 @@ export function RDAiSettingsPage() {
           <div className="border-b border-slate-100 px-6 py-5">
             <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-start 2xl:justify-between">
               <div className="min-w-0">
-                <h3 className="text-base font-semibold text-slate-900">文件类型策略</h3>
-                <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">按扩展名决定结构化解析、文本抽取、OCR 优先或兜底。每一行保留真实策略值，同时把扩展名和能力开关拆开显示，避免中等宽度下挤压变形。</p>
+                <h3 className="text-base font-semibold text-slate-900">{t("文件类型策略")}</h3>
+                <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">{t("按扩展名决定结构化解析、文本抽取、OCR 优先或兜底。每一行保留真实策略值，同时把扩展名和能力开关拆开显示，避免中等宽度下挤压变形。")}</p>
               </div>
               <div className="grid shrink-0 grid-cols-2 gap-2 sm:grid-cols-4">
                 {[
-                  ["规则", fileRuleStats.total],
+                  [t("规则"), fileRuleStats.total],
                   ["AI", fileRuleStats.ai],
                   ["OCR", fileRuleStats.ocr],
-                  ["直传", fileRuleStats.directAi],
+                  [t("直传"), fileRuleStats.directAi],
                 ].map(([label, value]) => (
                   <div key={label} className="rounded-[8px] border border-slate-200 bg-slate-50 px-3 py-2 text-center">
                     <div className="text-[10px] font-semibold uppercase tracking-[0.12em] text-slate-400">{label}</div>
@@ -678,7 +682,7 @@ export function RDAiSettingsPage() {
       <section className="material-card p-6">
         <div className="mb-4 flex items-center gap-2">
           <CheckCircle2 className="h-5 w-5 text-emerald-500" />
-          <h3 className="text-base font-semibold text-slate-900">用户侧披露</h3>
+          <h3 className="text-base font-semibold text-slate-900">{t("用户侧披露")}</h3>
         </div>
         <div className="grid gap-3 md:grid-cols-3">
           {[
@@ -690,7 +694,7 @@ export function RDAiSettingsPage() {
             ["show_source_document", "来源文件"],
           ].map(([key, label]) => (
             <label key={key} className="flex items-center justify-between rounded-[8px] border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700">
-              <span>{label}</span>
+              <span>{t(label)}</span>
               <Switch
                 checked={Boolean(settings.disclosure[key as keyof RdAiSettingsPayload["disclosure"]])}
                 onCheckedChange={(checked) => patchDisclosure({ [key]: checked } as Partial<RdAiSettingsPayload["disclosure"]>)}

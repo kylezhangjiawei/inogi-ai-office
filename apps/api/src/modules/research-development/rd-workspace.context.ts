@@ -37,7 +37,14 @@ export const WORKSPACE_PAGE_CODES: Record<string, string[]> = {
     'page:rd-knowledge-base',
     'rd-people:manage',
   ],
-  'us-collab': ['page:us-collab-cockpit', 'page:us-collab-workspace', 'rd-people:manage'],
+  'us-collab': [
+    'page:us-collab-cockpit',
+    'page:us-collab-workspace',
+    'page:us-collab-approval-flow',
+    'page:us-collab-audit-log',
+    'page:us-collab-ai-settings',
+    'rd-people:manage',
+  ],
 };
 
 /**

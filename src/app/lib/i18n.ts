@@ -52,6 +52,12 @@ const BUILTIN_EN_FALLBACKS: Record<string, string> = {
   "知识库暂无内容": "The knowledge base is empty",
   "尝试修改搜索词或筛选条件": "Try changing your search or filters",
   "上传第一个文件开始构建知识库": "Upload the first file to start building the knowledge base",
+  // 协同三配置页（2026-07-15）：导航与页头级兜底，完整词条在 seed-i18n-en.mjs
+  "协同审批流配置": "Collab Approval Flow",
+  "协同操作留痕": "Collab Activity Audit",
+  "协同 AI 策略": "Collab AI Policy",
+  "审计查询台 · 追责、复盘、抽查、异常定位": "Audit console · Accountability, review, spot checks, incident tracing",
+  "配置「立项 / 任务封存 / 转派」等流程的审核节点 · 池成员由「角色权限」页分配": "Configure review nodes for kickoff / archive / reassign flows · Pool members are assigned on the Role Permissions page",
 };
 let dict: Record<string, string> = {};
 let dictLoaded = false;

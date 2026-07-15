@@ -10,7 +10,7 @@
  * 持久化：通过研发模块 API；localStorage 仅作为离线编辑回显。
  */
 
-import { fetchRdApprovalFlows, fetchRdApprovalPools, saveRdApprovalFlows } from "./rdApi";
+import { fetchRdApprovalFlows, fetchRdApprovalPools, isUsCollabWorkspace, saveRdApprovalFlows } from "./rdApi";
 
 export type ApprovalMode = "single" | "any" | "all";
 
@@ -119,12 +119,20 @@ export const APPROVAL_MODE_OPTIONS: { value: ApprovalMode; label: string; helper
 
 // ─── Storage layer (localStorage now, API later) ─────────────────────────────
 
-const STORAGE_KEY = "rd-approval-flows-v1";
+/**
+ * 离线回显缓存键按工作区分开：服务端流程数据已按 workspace 隔离（rd.approvalFlows →
+ * rdws.us-collab.approvalFlows），但这份缓存若两池共用，协同审批流页首屏会回显研发的
+ * 流程配置；更严重的是立项弹窗的 getActiveFlow 同步读缓存——协同驾驶舱发起立项会
+ * 沿用研发池的审批流节点。研发池沿用原键（存量缓存零影响）。
+ */
+function storageKey(): string {
+  return isUsCollabWorkspace() ? "rd-approval-flows-v1.us-collab" : "rd-approval-flows-v1";
+}
 
 export function loadFlows(): ApprovalFlow[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey());
     if (!raw) return [];
     const parsed = JSON.parse(raw) as ApprovalFlow[];
     return Array.isArray(parsed) ? parsed : [];
@@ -135,7 +143,7 @@ export function loadFlows(): ApprovalFlow[] {
 
 export function saveFlows(flows: ApprovalFlow[]): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(flows));
+  localStorage.setItem(storageKey(), JSON.stringify(flows));
   void saveFlowsApi(flows).catch(() => {});
 }
 

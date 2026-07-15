@@ -23,6 +23,14 @@ const dry = process.argv.includes("--dry");
 /** 匹配 t("...") / t('...') / t(`...`)（无 ${} 插值的模板串）。含 {n} 占位符的模板 key 原样提取。 */
 const CALL_RE = /\bt\(\s*(?:"((?:[^"\\]|\\.)+)"|'((?:[^'\\]|\\.)+)'|`((?:[^`\\$]|\\.)+)`)/g;
 
+/**
+ * 不参与翻译登记的文件。
+ * ManualPage.tsx：操作手册正文当前锁中文，它的 `t` 是文件内的恒等函数、不查字典（原因见该文件顶部）。
+ * 语法上仍是 t("中文") 会被本脚本正则命中，登记进去会让翻译管理页凭空多出几百条「缺失英文」，
+ * 淹掉真正待翻的条目。内容定稿要做英文时，把这条移除即可。
+ */
+const SKIP_FILES = new Set(["ManualPage.tsx"]);
+
 function* walk(dir) {
   for (const name of readdirSync(dir)) {
     const full = join(dir, name);
@@ -30,7 +38,7 @@ function* walk(dir) {
     if (st.isDirectory()) {
       if (name === "node_modules" || name === "dist") continue;
       yield* walk(full);
-    } else if (/\.(tsx?|jsx?)$/.test(name)) {
+    } else if (/\.(tsx?|jsx?)$/.test(name) && !SKIP_FILES.has(name)) {
       yield full;
     }
   }

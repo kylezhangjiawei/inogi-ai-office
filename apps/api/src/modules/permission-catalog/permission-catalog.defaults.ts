@@ -64,6 +64,9 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'page:us-collab-cockpit', label: '协同任务驾驶舱', description: '中美协同任务驾驶舱（复用研发驾驶舱能力，不含子系统全景）', groupLabel: '页面访问 · 中美协同', type: 'page', routePath: '/us-collab-cockpit', sortOrder: 690 },
   { code: 'page:us-collab-workspace', label: '协同工作台', description: '中美协同个人工作台（复用研发个人工作台能力）', groupLabel: '页面访问 · 中美协同', type: 'page', routePath: '/us-collab-workspace', sortOrder: 691 },
   { code: 'page:dept-kb-us-collab', label: '协同知识库', description: '中美协同独立知识库（与部门知识库同机制，存储隔离）', groupLabel: '页面访问 · 中美协同', type: 'page', routePath: '/us-collab-kb', sortOrder: 692 },
+  { code: 'page:us-collab-approval-flow', label: '协同审批流配置', description: '中美协同审批流配置（复用研发审批流页面，流程数据与研发池隔离）', groupLabel: '页面访问 · 中美协同', type: 'page', routePath: '/us-collab-approval-flow', sortOrder: 693 },
+  { code: 'page:us-collab-audit-log', label: '协同操作留痕', description: '中美协同操作留痕（复用研发留痕页面，仅显示协同池的操作记录）', groupLabel: '页面访问 · 中美协同', type: 'page', routePath: '/us-collab-audit-log', sortOrder: 694 },
+  { code: 'page:us-collab-ai-settings', label: '协同 AI 策略', description: '中美协同 AI 策略配置（复用研发 AI 策略页面，配置与研发池隔离）', groupLabel: '页面访问 · 中美协同', type: 'page', routePath: '/us-collab-ai-settings', sortOrder: 695 },
   // 操作权限：8 个部门库共用同一套操作码（归属由页面码决定）
   { code: 'dept-kb:upload', label: '上传部门知识库文件', description: '向所属部门知识库上传文件（含拖拽 / 文件选择）', groupLabel: '操作权限 · 部门知识库', type: 'action', sortOrder: 670 },
   { code: 'dept-kb:entry:edit', label: '编辑部门知识库文件', description: '修改已上传文件的名称、描述、标签、权限分值', groupLabel: '操作权限 · 部门知识库', type: 'action', sortOrder: 671 },
@@ -136,6 +139,7 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'page:ai-model-management', label: 'AI 模型管理', description: 'AI 模型配置页面', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/ai-model-management', sortOrder: 910 },
   { code: 'page:ocr-config-management', label: '腾讯OCR配置', description: '腾讯 OCR 凭证配置页面', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/ocr-config-management', sortOrder: 915 },
   { code: 'page:downloads', label: '下载和教程', description: '查看下载与教程页面', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/downloads', sortOrder: 920 },
+  { code: 'page:manual', label: '操作手册', description: '按页面查看图文操作手册（当前含中美协同三页）', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/manual', sortOrder: 921 },
   { code: 'page:departments', label: '部门管理', description: '查看部门主数据页面', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/departments', sortOrder: 930 },
   { code: 'page:users', label: '用户管理', description: '查看用户列表页面', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/users', sortOrder: 940 },
   { code: 'page:roles', label: '角色权限', description: '查看角色权限页面', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/roles', sortOrder: 950 },

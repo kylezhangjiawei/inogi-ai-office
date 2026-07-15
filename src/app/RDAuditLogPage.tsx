@@ -31,6 +31,8 @@ import {
 import { Input } from "./components/ui/input";
 import { NativeSelect } from "./components/ui/native-select";
 import { cn } from "./components/ui/utils";
+import { i18nLocale, t, useI18n } from "./lib/i18n";
+import { isUsCollabWorkspace } from "./lib/rdApi";
 
 type FilterValue<T extends string> = T | "all";
 type AuditSource = AuditLog["source"];
@@ -120,12 +122,13 @@ const LEGACY_RESOURCE_LABELS: Record<string, string> = {
   "rd-task-module": "研发任务模块",
 };
 
+// 标签查表后过 t()：中文即字典 key，英文态翻译、缺词条回退中文
 function resourceLabel(type: string) {
-  return RESOURCE_LABELS[type as FilterValue<ResourceType>] ?? LEGACY_RESOURCE_LABELS[type] ?? type;
+  return t(RESOURCE_LABELS[type as FilterValue<ResourceType>] ?? LEGACY_RESOURCE_LABELS[type] ?? type);
 }
 
 function sourceLabel(source: string) {
-  return SOURCE_LABELS[source as FilterValue<AuditSource>] ?? source;
+  return t(SOURCE_LABELS[source as FilterValue<AuditSource>] ?? source);
 }
 
 function sourceBadgeClasses(source: string) {
@@ -133,11 +136,11 @@ function sourceBadgeClasses(source: string) {
 }
 
 function categoryLabel(category: FilterValue<AuditCategory>) {
-  return category === "all" ? "全部" : CATEGORY_LABELS[category];
+  return category === "all" ? t("全部") : t(CATEGORY_LABELS[category]);
 }
 
 function formatAbsolute(iso: string): string {
-  return new Date(iso).toLocaleString("zh-CN", {
+  return new Date(iso).toLocaleString(i18nLocale(), {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
@@ -147,7 +150,7 @@ function formatAbsolute(iso: string): string {
 }
 
 function formatDateTimeFull(iso: string): string {
-  return new Date(iso).toLocaleString("zh-CN", {
+  return new Date(iso).toLocaleString(i18nLocale(), {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
@@ -200,7 +203,7 @@ function logSearchText(log: AuditLog): string {
 function summarizeLog(log: AuditLog) {
   const meta = getAuditActionMeta(log.action);
   const target = log.resource.name ?? log.resource.id;
-  return `${log.actor.name} ${meta.verb}${target ? ` · ${target}` : ""}`;
+  return `${log.actor.name} ${t(meta.verb)}${target ? ` · ${target}` : ""}`;
 }
 
 function sameResource(a: AuditLog, b: AuditLog) {
@@ -208,6 +211,7 @@ function sameResource(a: AuditLog, b: AuditLog) {
 }
 
 export function RDAuditLogPage() {
+  useI18n(); // 订阅语言切换：本页文案全部经 t()，切语言即重渲染
   const shouldReduceMotion = useReducedMotion();
   const allLogs = useAuditLogs();
   const [keyword, setKeyword] = useState("");
@@ -363,18 +367,18 @@ export function RDAuditLogPage() {
                 <ShieldCheck className="h-4 w-4" />
               </span>
               <div>
-                <h1 className="text-xl font-semibold text-slate-950">研发操作留痕</h1>
-                <p className="mt-0.5 text-sm text-slate-500">审计查询台 · 追责、复盘、抽查、异常定位</p>
+                <h1 className="text-xl font-semibold text-slate-950">{t(isUsCollabWorkspace() ? "协同操作留痕" : "研发操作留痕")}</h1>
+                <p className="mt-0.5 text-sm text-slate-500">{t("审计查询台 · 追责、复盘、抽查、异常定位")}</p>
               </div>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {[
-              { label: "任务变更", onClick: () => applyPreset("task") },
-              { label: "立项审核", onClick: () => applyPreset("proposal") },
-              { label: "AI 记录", onClick: () => applyPreset("ai") },
-              { label: "风险动作", onClick: () => applyPreset("risk") },
-              { label: "今天", onClick: () => applyPreset("today") },
+              { label: t("任务变更"), onClick: () => applyPreset("task") },
+              { label: t("立项审核"), onClick: () => applyPreset("proposal") },
+              { label: t("AI 记录"), onClick: () => applyPreset("ai") },
+              { label: t("风险动作"), onClick: () => applyPreset("risk") },
+              { label: t("今天"), onClick: () => applyPreset("today") },
             ].map((item) => (
               <button
                 key={item.label}
@@ -391,18 +395,18 @@ export function RDAuditLogPage() {
               className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md bg-indigo-600 px-3 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.18)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-indigo-700 active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
             >
               <RotateCcw className="h-3.5 w-3.5" />
-              重置
+              {t("重置")}
             </button>
           </div>
         </header>
 
         <section className="grid shrink-0 grid-cols-2 gap-2 md:grid-cols-5">
           {[
-            { label: "匹配记录", value: stats.total, Icon: Database, tone: "text-slate-900" },
-            { label: "涉及对象", value: stats.uniqueResources, Icon: Activity, tone: "text-cyan-700" },
-            { label: "操作人员", value: stats.uniqueActors, Icon: UserRound, tone: "text-emerald-600" },
-            { label: "AI/自动", value: stats.aiCount, Icon: Bot, tone: "text-indigo-700" },
-            { label: "风险动作", value: stats.riskCount, Icon: ShieldCheck, tone: "text-amber-600" },
+            { label: t("匹配记录"), value: stats.total, Icon: Database, tone: "text-slate-900" },
+            { label: t("涉及对象"), value: stats.uniqueResources, Icon: Activity, tone: "text-cyan-700" },
+            { label: t("操作人员"), value: stats.uniqueActors, Icon: UserRound, tone: "text-emerald-600" },
+            { label: t("AI/自动"), value: stats.aiCount, Icon: Bot, tone: "text-indigo-700" },
+            { label: t("风险动作"), value: stats.riskCount, Icon: ShieldCheck, tone: "text-amber-600" },
           ].map(({ label, value, Icon, tone }, index) => (
             <motion.div
               key={label}
@@ -426,7 +430,7 @@ export function RDAuditLogPage() {
             <div className="flex items-center justify-between">
               <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                 <ListFilter className="h-4 w-4 text-slate-500" />
-                精准筛选
+                {t("精准筛选")}
               </h2>
               <span className={cn("rounded px-1.5 py-0.5 text-[10px] font-semibold", activeFilterCount > 0 ? "bg-indigo-50 text-indigo-800" : "bg-slate-100 text-slate-500")}>
                 {activeFilterCount} active
@@ -434,7 +438,7 @@ export function RDAuditLogPage() {
             </div>
 
             <label className="block">
-              <span className="mb-1 block text-xs font-medium text-slate-600">关键字</span>
+              <span className="mb-1 block text-xs font-medium text-slate-600">{t("关键字")}</span>
               <div className="flex items-center gap-2 rounded-md border border-slate-200 px-2.5 py-2 transition-all focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100">
                 <Search className={cn("h-3.5 w-3.5 transition-colors", keyword ? "text-indigo-700" : "text-slate-400")} />
                 <Input
@@ -443,14 +447,14 @@ export function RDAuditLogPage() {
                     setKeyword(event.target.value);
                     setPage(1);
                   }}
-                  placeholder="人 / 任务号 / 备注 / 字段"
+                  placeholder={t("人 / 任务号 / 备注 / 字段")}
                   className="min-w-0 flex-1 text-sm text-slate-900 outline-none placeholder:text-slate-400"
                 />
               </div>
             </label>
 
             <div>
-              <div className="mb-1.5 text-xs font-medium text-slate-600">类别</div>
+              <div className="mb-1.5 text-xs font-medium text-slate-600">{t("类别")}</div>
               <div className="grid grid-cols-2 gap-1">
                 {CATEGORY_FILTERS.map((item) => (
                   <button
@@ -476,7 +480,7 @@ export function RDAuditLogPage() {
             </div>
 
             <label className="block">
-              <span className="mb-1 block text-xs font-medium text-slate-600">动作类型</span>
+              <span className="mb-1 block text-xs font-medium text-slate-600">{t("动作类型")}</span>
               <NativeSelect
                 value={action}
                 onChange={(event) => {
@@ -485,10 +489,10 @@ export function RDAuditLogPage() {
                 }}
                   className="h-9 w-full cursor-pointer rounded-md border border-slate-200 bg-white px-2.5 text-sm text-slate-700 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
               >
-                <option value="all">全部动作</option>
+                <option value="all">{t("全部动作")}</option>
                 {actionOptions.map((item) => (
                   <option key={item} value={item}>
-                    {getAuditActionMeta(item).label}
+                    {t(getAuditActionMeta(item).label)}
                   </option>
                 ))}
               </NativeSelect>
@@ -496,7 +500,7 @@ export function RDAuditLogPage() {
 
             <div className="grid grid-cols-2 gap-2">
               <label className="block">
-                <span className="mb-1 block text-xs font-medium text-slate-600">对象</span>
+                <span className="mb-1 block text-xs font-medium text-slate-600">{t("对象")}</span>
                 <NativeSelect
                   value={resourceType}
                   onChange={(event) => {
@@ -513,7 +517,7 @@ export function RDAuditLogPage() {
                 </NativeSelect>
               </label>
               <label className="block">
-                <span className="mb-1 block text-xs font-medium text-slate-600">来源</span>
+                <span className="mb-1 block text-xs font-medium text-slate-600">{t("来源")}</span>
                 <NativeSelect
                   value={source}
                   onChange={(event) => {
@@ -524,7 +528,7 @@ export function RDAuditLogPage() {
                 >
                   {SOURCE_FILTERS.map((item) => (
                     <option key={item} value={item}>
-                      {SOURCE_LABELS[item]}
+                      {t(SOURCE_LABELS[item])}
                     </option>
                   ))}
                 </NativeSelect>
@@ -532,7 +536,7 @@ export function RDAuditLogPage() {
             </div>
 
             <label className="block">
-              <span className="mb-1 block text-xs font-medium text-slate-600">操作人</span>
+              <span className="mb-1 block text-xs font-medium text-slate-600">{t("操作人")}</span>
               <NativeSelect
                 value={actorId}
                 onChange={(event) => {
@@ -541,7 +545,7 @@ export function RDAuditLogPage() {
                 }}
                 className="h-9 w-full cursor-pointer rounded-md border border-slate-200 bg-white px-2.5 text-sm text-slate-700 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
               >
-                <option value="all">全部操作人</option>
+                <option value="all">{t("全部操作人")}</option>
                 {actorOptions.map((actor) => (
                   <option key={actor.id} value={actor.id}>
                     {actor.name}（{actor.count}）
@@ -554,7 +558,7 @@ export function RDAuditLogPage() {
               <label className="block">
                 <span className="mb-1 flex items-center gap-1 text-xs font-medium text-slate-600">
                   <CalendarDays className="h-3 w-3" />
-                  开始
+                  {t("开始")}
                 </span>
                 <Input
                   type="date"
@@ -569,7 +573,7 @@ export function RDAuditLogPage() {
               <label className="block">
                 <span className="mb-1 flex items-center gap-1 text-xs font-medium text-slate-600">
                   <CalendarDays className="h-3 w-3" />
-                  结束
+                  {t("结束")}
                 </span>
                 <Input
                   type="date"
@@ -589,10 +593,10 @@ export function RDAuditLogPage() {
               <div>
                 <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                   <History className="h-4 w-4 text-slate-500" />
-                  审计结果
+                  {t("审计结果")}
                 </h2>
                 <p className="mt-0.5 text-xs text-slate-500">
-                  当前显示 <span className="font-semibold tabular-nums text-slate-700">{visibleStart}-{visibleEnd}</span> / {filteredLogs.length}
+                  {t("当前显示")} <span className="font-semibold tabular-nums text-slate-700">{visibleStart}-{visibleEnd}</span> / {filteredLogs.length}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -602,7 +606,7 @@ export function RDAuditLogPage() {
                   className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition-all duration-150 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
                 >
                   {sortOrder === "newest" ? <ArrowDown className="h-3.5 w-3.5" /> : <ArrowUp className="h-3.5 w-3.5" />}
-                  {sortOrder === "newest" ? "最新优先" : "最早优先"}
+                  {sortOrder === "newest" ? t("最新优先") : t("最早优先")}
                 </button>
                 <NativeSelect
                   value={pageSize}
@@ -614,7 +618,7 @@ export function RDAuditLogPage() {
                 >
                   {PAGE_SIZE_OPTIONS.map((item) => (
                     <option key={item} value={item}>
-                      每页 {item}
+                      {t("每页 {n}", { n: item })}
                     </option>
                   ))}
                 </NativeSelect>
@@ -625,12 +629,12 @@ export function RDAuditLogPage() {
               <table className="w-full min-w-[920px]">
                 <thead>
                   <tr className="border-b border-slate-100 bg-[#f8fafb] text-left text-[11px] font-semibold text-slate-500">
-                    <th className="w-[132px] px-4 py-2.5">时间</th>
-                    <th className="w-[130px] px-3 py-2.5">操作人</th>
-                    <th className="w-[118px] px-3 py-2.5">动作</th>
-                    <th className="px-3 py-2.5">对象与摘要</th>
-                    <th className="w-[110px] px-3 py-2.5">来源</th>
-                    <th className="w-[120px] px-3 py-2.5">变更</th>
+                    <th className="w-[132px] px-4 py-2.5">{t("时间")}</th>
+                    <th className="w-[130px] px-3 py-2.5">{t("操作人")}</th>
+                    <th className="w-[118px] px-3 py-2.5">{t("动作")}</th>
+                    <th className="px-3 py-2.5">{t("对象与摘要")}</th>
+                    <th className="w-[110px] px-3 py-2.5">{t("来源")}</th>
+                    <th className="w-[120px] px-3 py-2.5">{t("变更")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -638,8 +642,8 @@ export function RDAuditLogPage() {
                     <tr>
                       <td colSpan={6} className="px-4 py-14 text-center">
                         <Filter className="mx-auto mb-2 h-5 w-5 text-slate-300" />
-                        <div className="text-sm font-medium text-slate-500">没有匹配的留痕记录</div>
-                        <div className="mt-1 text-xs text-slate-400">当前筛选条件下没有可显示数据。</div>
+                        <div className="text-sm font-medium text-slate-500">{t("没有匹配的留痕记录")}</div>
+                        <div className="mt-1 text-xs text-slate-400">{t("当前筛选条件下没有可显示数据。")}</div>
                       </td>
                     </tr>
                   ) : (
@@ -670,7 +674,7 @@ export function RDAuditLogPage() {
                             <div className="font-mono text-xs tabular-nums text-slate-700">{formatAbsolute(log.timestamp)}</div>
                             <div className="mt-0.5 flex items-center gap-1 text-[10px] text-slate-400">
                               <Clock3 className="h-3 w-3" />
-                              {new Date(log.timestamp).toLocaleDateString("zh-CN")}
+                              {new Date(log.timestamp).toLocaleDateString(i18nLocale())}
                             </div>
                           </td>
                           <td className="px-3 py-3 align-top">
@@ -679,7 +683,7 @@ export function RDAuditLogPage() {
                           </td>
                           <td className="px-3 py-3 align-top">
                             <span className={cn("inline-flex rounded-md border px-2 py-1 text-xs font-semibold", TONE_BADGE_CLASSES[meta.tone])}>
-                              {meta.label}
+                              {t(meta.label)}
                             </span>
                             <div className="mt-1 text-[10px] text-slate-400">{categoryLabel(meta.category)}</div>
                           </td>
@@ -700,7 +704,7 @@ export function RDAuditLogPage() {
                             </span>
                           </td>
                           <td className="px-3 py-3 align-top">
-                            <div className="text-xs font-semibold tabular-nums text-slate-700">{log.changes?.length ?? 0} 项</div>
+                            <div className="text-xs font-semibold tabular-nums text-slate-700">{t("{n} 项", { n: log.changes?.length ?? 0 })}</div>
                             {log.metadata && (
                               <div className="mt-0.5 text-[10px] text-slate-400">
                                 metadata {Object.keys(log.metadata).length}
@@ -717,7 +721,7 @@ export function RDAuditLogPage() {
 
             <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-4 py-3">
               <div className="text-xs tabular-nums text-slate-500">
-                显示 {filteredLogs.length === 0 ? 0 : (safePage - 1) * pageSize + 1}-
+                {t("显示")} {filteredLogs.length === 0 ? 0 : (safePage - 1) * pageSize + 1}-
                 {Math.min(safePage * pageSize, filteredLogs.length)}
                 <span className="mx-1 text-slate-300">/</span>
                 {filteredLogs.length}
@@ -728,7 +732,7 @@ export function RDAuditLogPage() {
                   onClick={() => setPage((current) => Math.max(1, current - 1))}
                   disabled={safePage === 1}
                   className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-all hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800 disabled:cursor-not-allowed disabled:opacity-35"
-                  aria-label="上一页"
+                  aria-label={t("上一页")}
                 >
                   <ChevronLeft className="h-4 w-4" />
                 </button>
@@ -740,7 +744,7 @@ export function RDAuditLogPage() {
                   onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
                   disabled={safePage === totalPages}
                   className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-all hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-800 disabled:cursor-not-allowed disabled:opacity-35"
-                  aria-label="下一页"
+                  aria-label={t("下一页")}
                 >
                   <ChevronRight className="h-4 w-4" />
                 </button>
@@ -764,7 +768,7 @@ export function RDAuditLogPage() {
                   <div className="mb-2 flex items-center justify-between gap-2">
                     <span className={cn("inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-semibold", TONE_BADGE_CLASSES[selectedMeta.tone])}>
                       <CheckCircle2 className="h-3.5 w-3.5" />
-                      {selectedMeta.label}
+                      {t(selectedMeta.label)}
                     </span>
                     <span className="font-mono text-[10px] text-slate-400">{selectedLog.id}</span>
                   </div>
@@ -774,14 +778,14 @@ export function RDAuditLogPage() {
 
                 <div className="min-h-0 flex-1 space-y-4 overflow-auto px-4 pb-6 pt-4">
                   <section>
-                    <h4 className="mb-2 text-xs font-semibold text-slate-500">基础信息</h4>
+                    <h4 className="mb-2 text-xs font-semibold text-slate-500">{t("基础信息")}</h4>
                     <div className="space-y-2 rounded-lg border border-slate-100 bg-slate-50/50 p-3 text-xs">
                       {[
-                        ["动作", selectedMeta.label],
-                        ["类别", categoryLabel(selectedMeta.category)],
-                        ["操作人", `${selectedLog.actor.name}${selectedLog.actor.role ? ` · ${selectedLog.actor.role}` : ""}`],
-                        ["对象", `${resourceLabel(selectedLog.resource.type)} · ${selectedLog.resource.name ?? selectedLog.resource.id}`],
-                        ["来源", sourceLabel(selectedLog.source)],
+                        [t("动作"), t(selectedMeta.label)],
+                        [t("类别"), categoryLabel(selectedMeta.category)],
+                        [t("操作人"), `${selectedLog.actor.name}${selectedLog.actor.role ? ` · ${selectedLog.actor.role}` : ""}`],
+                        [t("对象"), `${resourceLabel(selectedLog.resource.type)} · ${selectedLog.resource.name ?? selectedLog.resource.id}`],
+                        [t("来源"), sourceLabel(selectedLog.source)],
                       ].map(([label, value]) => (
                         <div key={label} className="flex items-start justify-between gap-3">
                           <span className="shrink-0 text-slate-400">{label}</span>
@@ -793,13 +797,13 @@ export function RDAuditLogPage() {
 
                   {selectedLog.comment && (
                     <section>
-                      <h4 className="mb-2 text-xs font-semibold text-slate-500">备注</h4>
+                      <h4 className="mb-2 text-xs font-semibold text-slate-500">{t("备注")}</h4>
                       <p className="rounded-lg border border-slate-100 bg-white px-3 py-2 text-sm leading-6 text-slate-700">{selectedLog.comment}</p>
                     </section>
                   )}
 
                   <section>
-                    <h4 className="mb-2 text-xs font-semibold text-slate-500">字段变更</h4>
+                    <h4 className="mb-2 text-xs font-semibold text-slate-500">{t("字段变更")}</h4>
                     {selectedLog.changes && selectedLog.changes.length > 0 ? (
                       <div className="space-y-2">
                         {selectedLog.changes.map((change, index) => (
@@ -814,13 +818,13 @@ export function RDAuditLogPage() {
                         ))}
                       </div>
                     ) : (
-                      <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 py-5 text-center text-xs text-slate-400">本记录没有字段变更</div>
+                      <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 py-5 text-center text-xs text-slate-400">{t("本记录没有字段变更")}</div>
                     )}
                   </section>
 
                   {selectedLog.metadata && Object.keys(selectedLog.metadata).length > 0 && (
                     <section>
-                      <h4 className="mb-2 text-xs font-semibold text-slate-500">元数据</h4>
+                      <h4 className="mb-2 text-xs font-semibold text-slate-500">{t("元数据")}</h4>
                       <div className="space-y-1 rounded-lg border border-slate-100 bg-slate-50/60 p-3">
                         {Object.entries(selectedLog.metadata).map(([key, value]) => (
                           <div key={key} className="grid grid-cols-[110px_minmax(0,1fr)] gap-2 text-xs">
@@ -834,12 +838,12 @@ export function RDAuditLogPage() {
 
                   <section>
                     <div className="mb-2 flex items-center justify-between">
-                      <h4 className="text-xs font-semibold text-slate-500">同对象时间线</h4>
+                      <h4 className="text-xs font-semibold text-slate-500">{t("同对象时间线")}</h4>
                       <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
                         {relatedLogs.length}
                       </span>
                     </div>
-                    <AuditTimeline logs={relatedLogs} showResource={false} emptyText="暂无同对象记录" />
+                    <AuditTimeline logs={relatedLogs} showResource={false} emptyText={t("暂无同对象记录")} />
                   </section>
                 </div>
               </motion.div>
@@ -853,7 +857,7 @@ export function RDAuditLogPage() {
                 className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center"
               >
                 <History className="mb-2 h-6 w-6 text-slate-300" />
-                <div className="text-sm font-medium text-slate-500">暂无选中记录</div>
+                <div className="text-sm font-medium text-slate-500">{t("暂无选中记录")}</div>
               </motion.div>
             )}
             </AnimatePresence>

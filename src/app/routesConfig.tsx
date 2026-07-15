@@ -105,6 +105,9 @@ export const navGroups: NavGroup[] = [
       { label: "协同任务驾驶舱", path: "/us-collab-cockpit", icon: LayoutGrid, requiredPermission: "page:us-collab-cockpit" },
       { label: "协同工作台", path: "/us-collab-workspace", icon: GanttChartSquare, requiredPermission: "page:us-collab-workspace" },
       { label: "协同知识库", path: "/us-collab-kb", icon: BookOpen, requiredPermission: "page:dept-kb-us-collab" },
+      { label: "协同审批流配置", path: "/us-collab-approval-flow", icon: GitBranch, requiredPermission: "page:us-collab-approval-flow" },
+      { label: "协同操作留痕", path: "/us-collab-audit-log", icon: ShieldCheck, requiredPermission: "page:us-collab-audit-log" },
+      { label: "协同 AI 策略", path: "/us-collab-ai-settings", icon: Bot, requiredPermission: "page:us-collab-ai-settings" },
     ],
   },
   {
@@ -207,6 +210,7 @@ export const navGroups: NavGroup[] = [
       { label: "翻译管理", path: "/i18n-management", icon: Languages, requiredPermission: "i18n:manage" },
       { label: "腾讯OCR配置", path: "/ocr-config-management", icon: ScanSearch, requiredPermission: "page:ocr-config-management" },
       { label: "下载和教程", path: "/downloads", icon: Download, requiredPermission: "page:downloads" },
+      { label: "操作手册", path: "/manual", icon: BookOpen, requiredPermission: "page:manual" },
       { label: "部门管理", path: "/departments", icon: Building2, requiredPermission: "page:departments" },
       { label: "用户管理", path: "/users", icon: UserSquare2, requiredPermission: "page:users" },
       { label: "角色权限", path: "/roles", icon: UserCog, requiredPermission: "page:roles" },
