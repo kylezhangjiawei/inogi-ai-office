@@ -1,6 +1,7 @@
 import React from "react";
 import {
   Activity,
+  BarChart3,
   Bot,
   BadgeCheck,
   BookOpen,
@@ -204,6 +205,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { label: "邮箱管理", path: "/mailbox-management", icon: Mail, requiredPermission: "page:mailbox-management" },
       { label: "AI模型管理", path: "/ai-model-management", icon: Bot, requiredPermission: "page:ai-model-management" },
+      { label: "AI使用与反馈", path: "/chat-analytics", icon: BarChart3, requiredPermission: "page:chat-analytics" },
       { label: "翻译管理", path: "/i18n-management", icon: Languages, requiredPermission: "i18n:manage" },
       { label: "腾讯OCR配置", path: "/ocr-config-management", icon: ScanSearch, requiredPermission: "page:ocr-config-management" },
       { label: "下载和教程", path: "/downloads", icon: Download, requiredPermission: "page:downloads" },

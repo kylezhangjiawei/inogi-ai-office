@@ -6,16 +6,22 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Request,
   Res,
 } from '@nestjs/common';
 import { Response } from 'express';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { Permissions } from '../auth/decorators/permissions.decorator';
+import { ChatAnalyticsService } from './chat-analytics.service';
 import { ChatService } from './chat.service';
+import { CreateUsageEventDto } from './dto/create-usage-event.dto';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { UpdateConversationDto } from './dto/update-conversation.dto';
+import { UpdateFeedbackStatusDto } from './dto/update-feedback-status.dto';
+import { UpdateReactionDto } from './dto/update-reaction.dto';
 import type { RagUserContext } from '../rag/rag.service';
 
 type AuthedRequest = { user: { id: string; permissions: string[] } };
@@ -26,6 +32,7 @@ const SUPER_ADMIN_PERMISSION = '*';
 export class ChatController {
   constructor(
     private readonly chatService: ChatService,
+    private readonly chatAnalyticsService: ChatAnalyticsService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -88,6 +95,31 @@ export class ChatController {
     return this.chatService.listModels();
   }
 
+  // ── Usage analytics ─────────────────────────────────────────────────────────
+
+  @Get('analytics')
+  @Permissions('page:chat-analytics')
+  getAnalytics(@Query('days') days?: string) {
+    return this.chatAnalyticsService.getDashboard(days ? Number(days) : undefined);
+  }
+
+  @Get('analytics/users/:userId')
+  @Permissions('page:chat-analytics')
+  getAnalyticsUser(@Param('userId') userId: string, @Query('days') days?: string) {
+    return this.chatAnalyticsService.getUserDetail(userId, days ? Number(days) : undefined);
+  }
+
+  @Post('events')
+  recordUsageEvent(@Body() dto: CreateUsageEventDto, @Request() req: AuthedRequest) {
+    return this.chatAnalyticsService.recordClientEvent(req.user.id, dto);
+  }
+
+  @Patch('feedback/:id')
+  @Permissions('chat-feedback:manage')
+  updateFeedbackStatus(@Param('id') id: string, @Body() dto: UpdateFeedbackStatusDto) {
+    return this.chatAnalyticsService.updateFeedbackStatus(id, dto);
+  }
+
   // ── Conversations ────────────────────────────────────────────────────────────
 
   @Get('conversations')
@@ -139,10 +171,10 @@ export class ChatController {
   @Patch('messages/:id/reaction')
   updateReaction(
     @Param('id') id: string,
-    @Body() body: { reaction: string | null },
+    @Body() body: UpdateReactionDto,
     @Request() req: AuthedRequest,
   ) {
-    return this.chatService.updateReaction(id, req.user.id, body.reaction ?? null);
+    return this.chatService.updateReaction(id, req.user.id, body);
   }
 
   @Delete('messages/:id')

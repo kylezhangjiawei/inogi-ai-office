@@ -32,6 +32,8 @@ export const PERMISSIONS = {
   PAGE_CONTRACT_REVIEW: 'page:contract-review',
   PAGE_MAILBOX_MANAGEMENT: 'page:mailbox-management',
   PAGE_AI_MODEL_MANAGEMENT: 'page:ai-model-management',
+  PAGE_CHAT_ANALYTICS: 'page:chat-analytics',
+  CHAT_FEEDBACK_MANAGE: 'chat-feedback:manage',
   PAGE_OCR_CONFIG_MANAGEMENT: 'page:ocr-config-management',
   PAGE_OPS_CENTER: 'page:ops-center',
   PAGE_OPS_API_ERRORS: 'page:ops-api-errors',

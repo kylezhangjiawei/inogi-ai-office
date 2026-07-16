@@ -57,6 +57,7 @@ model User {
   imageEditMessages       ImageEditMessage[]
   imagePromptChatSessions ImagePromptChatSession[]
   imagePromptChatMessages ImagePromptChatMessage[]
+  chatUsageEvents         ChatUsageEvent[]
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
 }
@@ -96,7 +97,46 @@ model ChatMessage {
   reaction       String?
   // 用户消息附带的图片/文件附件，结构：[{ fileId, name, mime, size, objectKey }]
   attachments    Json?
+  feedback       ChatFeedback?
   createdAt      DateTime         @default(now())
+}
+
+/// 用户对单条 AI 回答的显式反馈。reaction 仍同步保留在 ChatMessage，兼容旧客户端。
+model ChatFeedback {
+  id             String      @id @default(cuid())
+  messageId      String      @unique
+  message        ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  reaction       String
+  reasons        String[]    @default([])
+  comment        String      @default("")
+  status         String      @default("open")
+  resolutionNote String      @default("")
+  /// 用户最近一次提交或修改评价的时间；管理端处理状态变化不会改动它。
+  submittedAt    DateTime    @default(now())
+  resolvedAt     DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@index([reaction, createdAt])
+  @@index([status, createdAt])
+  @@index([submittedAt])
+}
+
+/// MateChat 的轻量行为埋点。对话正文不写入 metadata，只记录动作和质量指标。
+model ChatUsageEvent {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventType      String
+  conversationId String?
+  messageId      String?
+  model          String?
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([eventType, createdAt])
+  @@index([userId, createdAt])
 }
 
 model RefreshToken {
