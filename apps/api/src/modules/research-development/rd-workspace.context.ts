@@ -24,6 +24,7 @@ export const RD_WORKSPACE_IDS: ReadonlySet<string> = new Set([RD_DEFAULT_WORKSPA
  * rd-people:manage 特殊：人员管理页路由（/rd-people-management、/us-collab-people-management）
  * 的守卫就是这一个操作码，存在「只配它、不配任何页面码」的合法角色，两池都需放行，
  * 否则该角色的人员管理接口全 403（历史行为回归）。
+ * ⚠️ 但它只在「该用户不持有任何池的页面码」时才作为准入依据 —— 见 isWorkspaceAllowed。
  */
 export const WORKSPACE_PAGE_CODES: Record<string, string[]> = {
   rd: [
@@ -56,6 +57,59 @@ const WORKSPACE_EXEMPT_KEYS = new Set(['rd.messages']);
 
 /** 消息端点同样豁免池级准入（类级 @Permissions 仍生效）：任意可登录研发/协同页面的用户都能读写自己的消息。 */
 const WORKSPACE_EXEMPT_URL = /\/messages(\/|\?|$)/;
+
+/**
+ * 「归属」码 ≠「准入」码，必须分开：
+ * - 准入码（WORKSPACE_PAGE_CODES）：持有它能**进这个任务池**；
+ * - 归属码（这里）：持有它说明**这个人属于该侧**，用于判断跨池特殊码该不该放行。
+ *
+ * 协同知识库码是二者分家的原因：它不该给任务池准入（知识库另有 DeptKbGuard、
+ * 是另一套数据），但它足以证明持有者是协同侧的人 —— 否则「协同知识库 + 人员管理」
+ * 这种角色会被当成「无池归属」，被 rd-people:manage 放进研发池（实测越权）。
+ */
+const WORKSPACE_OWNERSHIP_CODES: Record<string, readonly string[]> = {
+  rd: WORKSPACE_PAGE_CODES.rd.filter((code) => code.startsWith('page:')),
+  'us-collab': [
+    ...WORKSPACE_PAGE_CODES['us-collab'].filter((code) => code.startsWith('page:')),
+    'page:dept-kb-us-collab',
+  ],
+};
+
+/**
+ * 池级准入判定（纯函数，便于复用与验证）。
+ *
+ * 规则：
+ * 1. 超管 '*' 通行；
+ * 2. 持有目标池的**准入页面码** → 放行（页面码定池的正常路径）；
+ * 3. 只持有 rd-people:manage 这类跨池特殊码时：仅当该用户**不属于其他池**才放行。
+ *
+ * 第 3 条的限定是关键 —— 协同管理员为了管协同人员必须持有 rd-people:manage，
+ * 若无限定，该码会同时成为**研发池**的准入凭据（实测越权：协同管理员 GET
+ * /research-development/snapshot 返回 200）。
+ *
+ * 四种角色的判定结果（已实测）：
+ * - 协同管理员（page:us-collab-* + rd-people:manage）：协同池放行（第 2 条）；研发池拒绝（属协同侧）
+ * - 研发管理员（page:rd-* + rd-people:manage）：研发池放行；协同池拒绝（属研发侧）
+ * - 协同知识库管理员（page:dept-kb-us-collab + rd-people:manage）：研发池拒绝（归属码认出他属协同）；
+ *   协同任务池放行 —— 他确实要管协同人员，且没有任何研发归属
+ * - 纯 rd-people:manage、不配任何页面码的历史角色：两池放行（历史行为不变，注释见上）
+ */
+export function isWorkspaceAllowed(workspace: string, permissions: string[]): boolean {
+  if (permissions.includes('*')) return true;
+
+  const codes = WORKSPACE_PAGE_CODES[workspace] ?? [];
+  const ownPages = codes.filter((code) => code.startsWith('page:'));
+  if (ownPages.some((code) => permissions.includes(code))) return true;
+
+  const specialCodes = codes.filter((code) => !code.startsWith('page:'));
+  if (!specialCodes.some((code) => permissions.includes(code))) return false;
+
+  // 特殊码只在「不属于其他池」时放行，避免它成为跨池后门
+  const otherWorkspacePages = Object.entries(WORKSPACE_OWNERSHIP_CODES)
+    .filter(([ws]) => ws !== workspace)
+    .flatMap(([, list]) => list);
+  return !otherWorkspacePages.some((code) => permissions.includes(code));
+}
 
 const rdWorkspaceAls = new AsyncLocalStorage<{ workspace: string }>();
 
@@ -110,11 +164,7 @@ export class RdWorkspaceInterceptor implements NestInterceptor {
     } else {
       // 池级准入：页面码决定「能进哪个池」，操作码只决定「池内能做什么」。
       // 这样即便操作码（rd-task:* 等）在两池共享，也无法凭操作码跨池读写。
-      const permissions = request.user.permissions ?? [];
-      const allowed =
-        permissions.includes('*') ||
-        (WORKSPACE_PAGE_CODES[workspace] ?? []).some((code) => permissions.includes(code));
-      if (!allowed) {
+      if (!isWorkspaceAllowed(workspace, request.user.permissions ?? [])) {
         throw new ForbiddenException('没有访问该任务工作区的权限');
       }
     }

@@ -728,6 +728,13 @@ export class ResearchDevelopmentController {
     return this.rdService.getApprovalFlows();
   }
 
+  // 「添加审核人」候选：仅审批流管理员可拉取；范围=本工作区持任一任务管理码的人（与审批授权同源）
+  @Get('approval-candidates')
+  @Permissions('rd-approval-flow:manage')
+  approvalCandidates() {
+    return this.rdService.getApprovalCandidates([...RD_TASK_MANAGER_PERMISSIONS]);
+  }
+
   @Get('approval-pools')
   approvalPools(@Query('permissions') permissions?: string) {
     const permissionCodes = String(permissions ?? '')
