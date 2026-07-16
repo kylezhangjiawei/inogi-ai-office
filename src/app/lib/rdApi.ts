@@ -1874,6 +1874,223 @@ type PresignResult = {
   files: Array<{ objectKey: string; putUrl: string | null; contentType: string }>;
 };
 
+// ── 大文件分片上传 ────────────────────────────────────────────────────────────
+//
+// 为什么需要：presign-upload 签出的单次 PUT 走 OSS「简单上传」，单个对象上限 5GB，
+// 超过会被 OSS 直接拒绝（EntityTooLarge），和网速快慢、超时设置都无关。超过阈值的
+// 文件改走分片：切片逐片直传，最后由服务端合并。小文件仍走原路径，行为一行未变。
+//
+// ETag：合并分片需要每片的 ETag，但浏览器要读到 PUT 响应的 ETag 头得靠 bucket CORS
+// 的 ExposeHeader（本 bucket 未配）。所以前端完全不碰 ETag，由服务端 listParts 取回。
+
+/**
+ * 超过此大小走分片。取 100MB 而非贴着 5GB 硬上限：大文件即便没到 5GB 也值得拥有
+ * 逐片重试和断点续传——单次 PUT 传到 90% 断一次，就得整个从头再来。
+ */
+export const KB_MULTIPART_THRESHOLD_BYTES = 100 * 1024 * 1024;
+/**
+ * 能接受的最大文件。与后端 pickPartSize 的真实上限逐字节对齐：分片数上限 10000 ×
+ * 单片最大 4GiB（32MB 翻倍到 4GiB 就到头，8GiB 超单片 5GB 上限）≈ 40TB。
+ * 超过这个数后端 init 必然抛错，选中时就该拦下，避免传很久才撞后端拒绝。
+ */
+export const KB_MAX_UPLOAD_BYTES = 10000 * 4 * 1024 ** 3;
+/** 同时在传的分片数 */
+const KB_PART_CONCURRENCY = 4;
+/** 每批向服务端签多少片的 URL。一次签几百个既慢、又可能没轮到传就先过期了 */
+const KB_SIGN_BATCH = 20;
+/** 单片失败重试次数 */
+const KB_PART_MAX_RETRY = 3;
+/** 断点续传记录的保留期 */
+const KB_CHECKPOINT_TTL_MS = 7 * 24 * 3600 * 1000;
+
+type KbMultipartInit = {
+  enabled: boolean;
+  objectKey?: string;
+  uploadId?: string;
+  partSize?: number;
+  partCount?: number;
+  contentType?: string;
+};
+
+type KbCheckpoint = { objectKey: string; uploadId: string; partSize: number; savedAt: number };
+
+/** 断点续传靠这个 key 认出「还是上次那个文件」 */
+function kbCheckpointKey(file: File, kbId?: string): string {
+  return `kb-multipart:${kbId ?? 'rd'}:${file.name}:${file.size}:${file.lastModified}`;
+}
+
+function readKbCheckpoint(file: File, kbId?: string): KbCheckpoint | null {
+  try {
+    const raw = localStorage.getItem(kbCheckpointKey(file, kbId));
+    if (!raw) return null;
+    const cp = JSON.parse(raw) as KbCheckpoint;
+    if (!cp?.uploadId || !cp?.objectKey || !cp?.partSize) return null;
+    if (Date.now() - (cp.savedAt ?? 0) > KB_CHECKPOINT_TTL_MS) {
+      localStorage.removeItem(kbCheckpointKey(file, kbId));
+      return null;
+    }
+    return cp;
+  } catch {
+    return null;
+  }
+}
+
+function writeKbCheckpoint(file: File, kbId: string | undefined, cp: KbCheckpoint): void {
+  try {
+    localStorage.setItem(kbCheckpointKey(file, kbId), JSON.stringify(cp));
+  } catch {
+    // localStorage 写不进去（隐私模式/配额满）只影响续传能力，不该让上传失败
+  }
+}
+
+function clearKbCheckpoint(file: File, kbId?: string): void {
+  try {
+    localStorage.removeItem(kbCheckpointKey(file, kbId));
+  } catch {
+    // 同上，忽略
+  }
+}
+
+const kbSleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** 固定并发地跑完一批任务。任一任务抛错即整体抛错。 */
+async function runWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  worker: (item: T) => Promise<void>,
+): Promise<void> {
+  let cursor = 0;
+  const runners = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    for (;;) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      await worker(items[index]!);
+    }
+  });
+  await Promise.all(runners);
+}
+
+/** 传一片，带退避重试。签名里不含 Content-Type，故这里也不能带，否则签名不匹配。 */
+async function putKbPartWithRetry(
+  url: string,
+  blob: Blob,
+  partNumber: number,
+  filename: string,
+): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= KB_PART_MAX_RETRY; attempt++) {
+    try {
+      const res = await fetch(url, { method: 'PUT', body: blob });
+      if (res.ok) return;
+      lastError = new Error(`HTTP ${res.status}`);
+      // 4xx 是签名/权限问题，重试多少次都一样
+      if (res.status >= 400 && res.status < 500) break;
+    } catch (err) {
+      lastError = err; // 网络抖动，值得重试
+    }
+    if (attempt < KB_PART_MAX_RETRY) await kbSleep(500 * 2 ** attempt);
+  }
+  const detail = lastError instanceof Error ? lastError.message : '未知错误';
+  throw new Error(`分片上传失败（${filename} 第 ${partNumber} 片）：${detail}`);
+}
+
+/**
+ * 分片上传单个大文件，返回 objectKey。
+ * 传到一半中断后，重新选同一个文件会自动跳过 OSS 上已存在的分片接着传。
+ */
+async function uploadKbFileInParts(
+  file: File,
+  kbId: string | undefined,
+  onProgress?: (loaded: number, total: number) => void,
+): Promise<{ objectKey: string; contentType: string }> {
+  const contentType = file.type || 'application/octet-stream';
+  let checkpoint = readKbCheckpoint(file, kbId);
+  let donePartNumbers = new Set<number>();
+
+  // 有存档就先问 OSS 已经传了哪些片
+  if (checkpoint) {
+    try {
+      const status = await requestJson<{ parts: Array<{ partNumber: number }> }>(
+        `${kbBase(kbId)}/multipart/status`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ object_key: checkpoint.objectKey, upload_id: checkpoint.uploadId }),
+        },
+      );
+      donePartNumbers = new Set(status.parts.map((p) => p.partNumber));
+      // listParts 对已失效的 uploadId（被 OSS 生命周期规则中止/清理）返回空而非报错，
+      // 所以上面的 catch 兜不住这种情况。续传发现一片都没有时，既无收益、又可能是拿着
+      // 废 uploadId 去传导致每片 404 卡死 —— 直接丢弃存档重新 init 才安全。
+      if (donePartNumbers.size === 0) {
+        clearKbCheckpoint(file, kbId);
+        checkpoint = null;
+      }
+    } catch {
+      // uploadId 可能已被中止或清理，丢掉存档重新开始
+      clearKbCheckpoint(file, kbId);
+      checkpoint = null;
+    }
+  }
+
+  if (!checkpoint) {
+    const init = await requestJson<KbMultipartInit>(`${kbBase(kbId)}/multipart/init`, {
+      method: 'POST',
+      body: JSON.stringify({ filename: file.name, content_type: contentType, file_size: file.size }),
+    });
+    if (!init.enabled || !init.objectKey || !init.uploadId || !init.partSize) {
+      throw new Error('服务器未配置 OSS，无法上传大文件');
+    }
+    checkpoint = {
+      objectKey: init.objectKey,
+      uploadId: init.uploadId,
+      partSize: init.partSize,
+      savedAt: Date.now(),
+    };
+    writeKbCheckpoint(file, kbId, checkpoint);
+  }
+
+  const { objectKey, uploadId, partSize } = checkpoint;
+  const partCount = Math.ceil(file.size / partSize);
+  let loaded = Math.min(donePartNumbers.size * partSize, file.size);
+  onProgress?.(loaded, file.size);
+
+  const pending: number[] = [];
+  for (let n = 1; n <= partCount; n++) {
+    if (!donePartNumbers.has(n)) pending.push(n);
+  }
+
+  // 分批签名 + 批内并发上传
+  for (let i = 0; i < pending.length; i += KB_SIGN_BATCH) {
+    const batch = pending.slice(i, i + KB_SIGN_BATCH);
+    const { urls } = await requestJson<{ urls: Array<{ partNumber: number; url: string | null }> }>(
+      `${kbBase(kbId)}/multipart/sign`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ object_key: objectKey, upload_id: uploadId, part_numbers: batch }),
+      },
+    );
+
+    await runWithConcurrency(urls, KB_PART_CONCURRENCY, async (item) => {
+      if (!item.url) throw new Error(`第 ${item.partNumber} 片签名失败`);
+      const start = (item.partNumber - 1) * partSize;
+      const blob = file.slice(start, Math.min(start + partSize, file.size));
+      await putKbPartWithRetry(item.url, blob, item.partNumber, file.name);
+      loaded = Math.min(loaded + blob.size, file.size);
+      onProgress?.(loaded, file.size);
+    });
+  }
+
+  // 合并。几百片的合并比普通接口慢，用长超时，别让 30s 默认值误杀。
+  await requestJson<{ ok: boolean; objectKey: string }>(`${kbBase(kbId)}/multipart/complete`, {
+    method: 'POST',
+    body: JSON.stringify({ object_key: objectKey, upload_id: uploadId, part_count: partCount }),
+    timeoutMs: RD_AI_TIMEOUT_MS,
+  });
+
+  clearKbCheckpoint(file, kbId);
+  return { objectKey, contentType };
+}
+
 /**
  * Upload KB files with automatic path selection:
  *
@@ -1881,6 +2098,9 @@ type PresignResult = {
  *   1. GET presigned PUT URLs from server (tiny JSON)
  *   2. PUT files directly from browser to OSS in parallel (single hop, no server bottleneck)
  *   3. POST object keys to server to create KB entries (tiny JSON)
+ *
+ * 超过 KB_MULTIPART_THRESHOLD_BYTES 的文件自动改走分片上传（见上方），因为单次 PUT
+ * 有 5GB 硬上限；其余文件维持原来的单次 PUT。
  *
  * When OSS is not configured → server-mediated fallback (original behavior):
  *   POST files as multipart/form-data to server → server stores as base64
@@ -1895,30 +2115,58 @@ export async function uploadKbFiles(params: {
   visibility?: string;
   permission_level?: number;
   tags?: string;
+  /** 分片上传的进度回调。小文件走单次 PUT，拿不到进度，不会触发。 */
+  onProgress?: (progress: { filename: string; loaded: number; total: number }) => void;
 }, kbId?: string): Promise<KbEntry[]> {
-  // ── Step 1: request presigned PUT URLs ──────────────────────────────────────
-  let presign: PresignResult;
-  try {
-    presign = await requestJson<PresignResult>(`${kbBase(kbId)}/presign-upload`, {
-      method: 'POST',
-      body: JSON.stringify({
-        files: params.files.map((f) => ({
-          filename: f.name,
-          content_type: f.type || 'application/octet-stream',
-        })),
-      }),
-    });
-  } catch {
-    // If presign endpoint fails, fall straight through to server-mediated upload
-    presign = { enabled: false, files: [] };
+  const largeIndexes: number[] = [];
+  const smallIndexes: number[] = [];
+  params.files.forEach((f, i) => {
+    (f.size > KB_MULTIPART_THRESHOLD_BYTES ? largeIndexes : smallIndexes).push(i);
+  });
+
+  // 每个文件传完后的 objectKey，下标与 params.files 对齐
+  const uploaded: Array<{ objectKey: string; contentType: string } | null> = params.files.map(() => null);
+
+  // ── 大文件：逐个分片传。单文件内部已并发 4 片，多个文件再并行只会互相抢带宽
+  for (const i of largeIndexes) {
+    const file = params.files[i]!;
+    uploaded[i] = await uploadKbFileInParts(file, kbId, (loaded, total) =>
+      params.onProgress?.({ filename: file.name, loaded, total }),
+    );
+  }
+
+  // ── Step 1: request presigned PUT URLs（仅小文件需要）─────────────────────────
+  let presign: PresignResult = { enabled: false, files: [] };
+  if (smallIndexes.length > 0) {
+    try {
+      presign = await requestJson<PresignResult>(`${kbBase(kbId)}/presign-upload`, {
+        method: 'POST',
+        body: JSON.stringify({
+          files: smallIndexes.map((i) => ({
+            filename: params.files[i]!.name,
+            content_type: params.files[i]!.type || 'application/octet-stream',
+          })),
+        }),
+      });
+    } catch (err) {
+      // 已有大文件传上 OSS 时不能再回退到服务端中转：两条路径没法在一次建条目里表达，
+      // 而且大文件本来就过不了 nginx 的 body 上限。直接把错误抛出去。
+      if (largeIndexes.length > 0) throw err;
+      // 纯小文件时维持原行为：presign 失败就走服务端中转
+      presign = { enabled: false, files: [] };
+    }
   }
 
   // ── Path A: browser direct upload to OSS ───────────────────────────────────
-  if (presign.enabled && presign.files.length > 0 && presign.files.every((pf) => pf.putUrl)) {
+  const canDirectUpload =
+    smallIndexes.length === 0 ||
+    (presign.enabled && presign.files.length === smallIndexes.length && presign.files.every((pf) => pf.putUrl));
+
+  if (canDirectUpload) {
     // Upload all files to OSS in parallel — one HTTP hop per file, no server involved
     await Promise.all(
-      presign.files.map((pf, i) => {
-        const file = params.files[i]!;
+      presign.files.map((pf, k) => {
+        const file = params.files[smallIndexes[k]!]!;
         return fetch(pf.putUrl!, {
           method: 'PUT',
           body: file,
@@ -1928,16 +2176,19 @@ export async function uploadKbFiles(params: {
         });
       }),
     );
+    presign.files.forEach((pf, k) => {
+      uploaded[smallIndexes[k]!] = { objectKey: pf.objectKey, contentType: pf.contentType };
+    });
 
     // Notify server to create KB entries for the already-uploaded objects
     return requestJson<KbEntry[]>(`${kbBase(kbId)}/entries/from-oss-keys`, {
       method: 'POST',
       body: JSON.stringify({
-        oss_files: presign.files.map((pf, i) => ({
-          oss_key: pf.objectKey,
+        oss_files: uploaded.map((u, i) => ({
+          oss_key: u!.objectKey,
           filename: params.files[i]!.name,
           file_size: params.files[i]!.size,
-          content_type: pf.contentType,
+          content_type: u!.contentType,
         })),
         category_id: params.category_id,
         description: params.description,
@@ -1949,6 +2200,9 @@ export async function uploadKbFiles(params: {
   }
 
   // ── Path B: server-mediated upload (OSS not configured, or presign failed) ──
+  if (largeIndexes.length > 0) {
+    throw new Error('服务器未配置 OSS，无法上传大文件');
+  }
   const fd = new FormData();
   for (const f of params.files) fd.append('files', f);
   fd.append('category_id', params.category_id);

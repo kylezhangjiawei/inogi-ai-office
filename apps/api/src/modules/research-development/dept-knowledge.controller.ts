@@ -19,6 +19,7 @@ import { FilesInterceptor } from '@nestjs/platform-express';
 import { OssService } from '../oss/oss.service';
 import { DEPT_KB_OPS, LEVEL_FILTERED_DEPT_KB_IDS } from './dept-knowledge.constants';
 import { DeptKbGuard, DeptKbOp } from './dept-kb.guard';
+import { KbMultipartService } from './kb-multipart.service';
 import { ResearchDevelopmentService } from './research-development.service';
 
 type AuthedRequest = { user?: { id?: string; name?: string; role?: string; permissions?: string[] } };
@@ -39,6 +40,7 @@ export class DeptKnowledgeController {
   constructor(
     private readonly rdService: ResearchDevelopmentService,
     private readonly ossService: OssService,
+    private readonly kbMultipart: KbMultipartService,
   ) {}
 
   /**
@@ -180,6 +182,82 @@ export class DeptKnowledgeController {
       return { objectKey, putUrl, contentType: ct };
     });
     return { enabled: true, files };
+  }
+
+  // ── 大文件分片上传（>5GB 的文件单次 PUT 会被 OSS 拒绝，必须走这里）───────────
+  // 门控与 presign-upload 一致（DeptKbOp UPLOAD），对象前缀同为 deptkb/{kbId}。
+
+  /** 分片第 1 步：初始化，拿 uploadId 与前端必须遵循的 partSize。 */
+  @Post('multipart/init')
+  @DeptKbOp(DEPT_KB_OPS.UPLOAD)
+  initMultipart(
+    @Param('kbId') kbId: string,
+    @Body() body: { filename: string; content_type?: string; file_size: number },
+  ) {
+    return this.kbMultipart.init(
+      this.rdService.buildKbOssPrefix(kbId),
+      body.filename,
+      body.content_type ?? '',
+      Number(body.file_size),
+    );
+  }
+
+  /** 分片第 2 步：为指定分片批量签 PUT URL。 */
+  @Post('multipart/sign')
+  @DeptKbOp(DEPT_KB_OPS.UPLOAD)
+  signMultipartParts(
+    @Param('kbId') kbId: string,
+    @Body() body: { object_key: string; upload_id: string; part_numbers: number[] },
+  ) {
+    return this.kbMultipart.sign(
+      this.rdService.buildKbOssPrefix(kbId),
+      body.object_key,
+      body.upload_id,
+      body.part_numbers,
+    );
+  }
+
+  /** 查询已传分片，供断点续传跳过。 */
+  @Post('multipart/status')
+  @DeptKbOp(DEPT_KB_OPS.UPLOAD)
+  getMultipartStatus(
+    @Param('kbId') kbId: string,
+    @Body() body: { object_key: string; upload_id: string },
+  ) {
+    return this.kbMultipart.status(
+      this.rdService.buildKbOssPrefix(kbId),
+      body.object_key,
+      body.upload_id,
+    );
+  }
+
+  /** 分片第 3 步：合并分片。 */
+  @Post('multipart/complete')
+  @DeptKbOp(DEPT_KB_OPS.UPLOAD)
+  completeMultipart(
+    @Param('kbId') kbId: string,
+    @Body() body: { object_key: string; upload_id: string; part_count?: number },
+  ) {
+    return this.kbMultipart.complete(
+      this.rdService.buildKbOssPrefix(kbId),
+      body.object_key,
+      body.upload_id,
+      body.part_count,
+    );
+  }
+
+  /** 放弃上传并清理已传分片。 */
+  @Post('multipart/abort')
+  @DeptKbOp(DEPT_KB_OPS.UPLOAD)
+  abortMultipart(
+    @Param('kbId') kbId: string,
+    @Body() body: { object_key: string; upload_id: string },
+  ) {
+    return this.kbMultipart.abort(
+      this.rdService.buildKbOssPrefix(kbId),
+      body.object_key,
+      body.upload_id,
+    );
   }
 
   /** 浏览器直传 OSS 第 2 步：用已上传的对象键建条目。 */

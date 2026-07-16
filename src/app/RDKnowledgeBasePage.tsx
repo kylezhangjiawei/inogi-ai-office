@@ -142,6 +142,8 @@ import {
   deleteKbEntry,
   moveKbEntry,
   uploadKbFiles,
+  KB_MAX_UPLOAD_BYTES,
+  KB_MULTIPART_THRESHOLD_BYTES,
   updateKbEntry,
   fetchMyKbPermissionLevel,
   classifyKbFiles,
@@ -347,7 +349,8 @@ function formatSize(bytes?: number | null): string {
   if (!bytes) return '';
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
 /** Imperatively download / open a KB entry — handles OSS URLs, lazy base64 fetch, and external links. */
@@ -1964,6 +1967,8 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
   const [description, setDescription] = useState('');
   const [tags, setTags] = useState('');
   const [uploading, setUploading] = useState(false);
+  /** 仅分片上传（大文件）会有进度；小文件走单次 PUT，拿不到进度 */
+  const [uploadProgress, setUploadProgress] = useState<{ filename: string; loaded: number; total: number } | null>(null);
   const [dragging, setDragging] = useState(false);
 
   // 挂载时拉当前用户的 kb_level 作为默认权限分值（仅研发库；部门库无此接口，跳过用初值 0）
@@ -2022,7 +2027,19 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
 
   function addFiles(files: FileList | null) {
     if (!files) return;
-    setSelectedFiles((prev) => mergeFiles(prev, Array.from(files)));
+    const incoming = Array.from(files);
+
+    // 超过分片上传能力上限的文件，选中时就拦下 —— 否则要等传很久才撞到 OSS 的拒绝
+    const tooLarge = incoming.filter((f) => f.size > KB_MAX_UPLOAD_BYTES);
+    if (tooLarge.length > 0) {
+      toast.error(t('{names} 超过 {limit} 上限，无法上传', {
+        names: tooLarge.map((f) => f.name).join('、'),
+        limit: formatSize(KB_MAX_UPLOAD_BYTES),
+      }));
+    }
+
+    const accepted = incoming.filter((f) => f.size <= KB_MAX_UPLOAD_BYTES);
+    if (accepted.length > 0) setSelectedFiles((prev) => mergeFiles(prev, accepted));
   }
 
   function removeFile(index: number) {
@@ -2039,6 +2056,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
       return;
     }
     setUploading(true);
+    setUploadProgress(null);
     try {
       const entries = await uploadKbFiles({
         files: selectedFiles,
@@ -2046,6 +2064,8 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
         description: description || undefined,
         permission_level: permissionLevel,
         tags: tags || undefined,
+        // 只有走分片的大文件会回调；小文件单次 PUT 拿不到进度
+        onProgress: (p) => setUploadProgress(p),
       }, kbId);
       toast.success(`成功上传 ${entries.length} 个文件`);
       onUploaded(entries);
@@ -2054,6 +2074,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
       toast.error(err instanceof Error ? err.message : '上传失败');
     } finally {
       setUploading(false);
+      setUploadProgress(null);
     }
   }
 
@@ -2204,6 +2225,14 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
                         )}
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
+                        {file.size > KB_MULTIPART_THRESHOLD_BYTES && (
+                          <span
+                            className="rounded bg-blue-50 px-1.5 py-0.5 text-[10px] text-blue-600"
+                            title={t('大文件将分片上传，中断后可续传')}
+                          >
+                            {t('分片上传')}
+                          </span>
+                        )}
                         <span className="text-[11px] text-slate-400">{formatSize(file.size)}</span>
                         <Button
                           type="button"
@@ -2350,7 +2379,24 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
         </div>
 
         {/* Dialog footer */}
-        <DialogFooter className="border-t border-slate-200 bg-white px-6 py-4">
+        <DialogFooter className="flex-col gap-3 border-t border-slate-200 bg-white px-6 py-4 sm:flex-row sm:items-center">
+          {/* 分片上传进度。小文件走单次 PUT 没有进度，此处不显示 */}
+          {uploadProgress && (
+            <div className="min-w-0 flex-1 sm:mr-auto">
+              <div className="mb-1 flex items-center justify-between gap-2 text-[11px] text-slate-500">
+                <span className="truncate">{uploadProgress.filename}</span>
+                <span className="shrink-0 tabular-nums">
+                  {formatSize(uploadProgress.loaded)} / {formatSize(uploadProgress.total)}
+                </span>
+              </div>
+              <div className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100">
+                <div
+                  className="h-full rounded-full bg-indigo-500 transition-[width] duration-200"
+                  style={{ width: `${Math.round((uploadProgress.loaded / uploadProgress.total) * 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
           <Button
             type="button"
             variant="ghost"

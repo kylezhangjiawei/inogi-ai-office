@@ -6,6 +6,7 @@ import { Response } from 'express';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { OssService } from '../oss/oss.service';
+import { KbMultipartService } from './kb-multipart.service';
 import { RdWorkspaceInterceptor } from './rd-workspace.context';
 import { ResearchDevelopmentService } from './research-development.service';
 
@@ -76,6 +77,7 @@ export class ResearchDevelopmentController {
   constructor(
     private readonly rdService: ResearchDevelopmentService,
     private readonly ossService: OssService,
+    private readonly kbMultipart: KbMultipartService,
   ) {}
 
   @Get('snapshot')
@@ -890,6 +892,60 @@ export class ResearchDevelopmentController {
       return { objectKey, putUrl, contentType: ct };
     });
     return { enabled: true, files };
+  }
+
+  // ── 大文件分片上传（>5GB 的文件单次 PUT 会被 OSS 拒绝，必须走这里）───────────
+  // 门控与 presign-upload 完全一致。对象前缀同为 rd/knowledge。
+
+  /** 分片第 1 步：初始化，拿 uploadId 与前端必须遵循的 partSize。 */
+  @Post('knowledge/multipart/init')
+  @Permissions('rd-kb:upload', 'rd-task:create')
+  initKbMultipart(
+    @Body() body: { filename: string; content_type?: string; file_size: number },
+  ) {
+    return this.kbMultipart.init(
+      'rd/knowledge',
+      body.filename,
+      body.content_type ?? '',
+      Number(body.file_size),
+    );
+  }
+
+  /** 分片第 2 步：为指定分片批量签 PUT URL。 */
+  @Post('knowledge/multipart/sign')
+  @Permissions('rd-kb:upload', 'rd-task:create')
+  signKbMultipartParts(
+    @Body() body: { object_key: string; upload_id: string; part_numbers: number[] },
+  ) {
+    return this.kbMultipart.sign('rd/knowledge', body.object_key, body.upload_id, body.part_numbers);
+  }
+
+  /** 查询已传分片，供断点续传跳过。 */
+  @Post('knowledge/multipart/status')
+  @Permissions('rd-kb:upload', 'rd-task:create')
+  getKbMultipartStatus(@Body() body: { object_key: string; upload_id: string }) {
+    return this.kbMultipart.status('rd/knowledge', body.object_key, body.upload_id);
+  }
+
+  /** 分片第 3 步：合并分片。 */
+  @Post('knowledge/multipart/complete')
+  @Permissions('rd-kb:upload', 'rd-task:create')
+  completeKbMultipart(
+    @Body() body: { object_key: string; upload_id: string; part_count?: number },
+  ) {
+    return this.kbMultipart.complete(
+      'rd/knowledge',
+      body.object_key,
+      body.upload_id,
+      body.part_count,
+    );
+  }
+
+  /** 放弃上传并清理已传分片。 */
+  @Post('knowledge/multipart/abort')
+  @Permissions('rd-kb:upload', 'rd-task:create')
+  abortKbMultipart(@Body() body: { object_key: string; upload_id: string }) {
+    return this.kbMultipart.abort('rd/knowledge', body.object_key, body.upload_id);
   }
 
   /**
