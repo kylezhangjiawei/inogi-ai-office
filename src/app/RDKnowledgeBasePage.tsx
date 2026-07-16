@@ -157,7 +157,7 @@ import {
   type KbVisibility,
   type KbClassifyResult,
 } from "./lib/rdApi";
-import { t, useI18n } from "./lib/i18n";
+import { i18nLocale, t, useI18n } from "./lib/i18n";
 import { backfillKbToRag } from "./lib/ragApi";
 
 // ── 知识库作用域（研发库 / 部门库共用本页面）────────────────────────────────────
@@ -334,13 +334,13 @@ function getCatIcon(iconName?: string) {
 function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60000);
-  if (mins < 1) return '刚刚';
-  if (mins < 60) return `${mins} 分钟前`;
+  if (mins < 1) return t('刚刚');
+  if (mins < 60) return t('{n} 分钟前', { n: mins });
   const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs} 小时前`;
+  if (hrs < 24) return t('{n} 小时前', { n: hrs });
   const days = Math.floor(hrs / 24);
-  if (days < 30) return `${days} 天前`;
-  return new Date(iso).toLocaleDateString('zh-CN');
+  if (days < 30) return t('{n} 天前', { n: days });
+  return new Date(iso).toLocaleDateString(i18nLocale());
 }
 
 function formatSize(bytes?: number | null): string {
@@ -631,6 +631,7 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
   { entry, canEdit, canMove, canDelete, onEdit, onDelete, onMove, onPreview },
   ref,
 ) {
+  useI18n(); // memo 组件不随父级重渲染，须自行订阅（卡片内 relativeTime/类型徽章等走 t()）
   const kbId = useKbId();
   const hasManage = canEdit || canMove || canDelete;
   const fileType = getFileType(entry.file_name, entry.file_type);
@@ -747,6 +748,7 @@ EntryCard.displayName = "EntryCard";
 const EntryRow = React.memo(function EntryRow({
   entry, canEdit, canMove, canDelete, onEdit, onDelete, onMove, onPreview,
 }: EntryCardProps) {
+  useI18n(); // 同 EntryCard：memo 组件须自行订阅语言切换
   const kbId = useKbId();
   const hasManage = canEdit || canMove || canDelete;
   const fileType = getFileType(entry.file_name, entry.file_type);
@@ -3165,10 +3167,10 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
           <div className="shrink-0 flex items-center justify-between rounded-lg border border-slate-200/80 bg-white px-3 py-2 text-xs text-slate-500 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
             <span>
               {loading
-                ? '加载中...'
+                ? t('加载中...')
                 : hasActiveFilters
-                  ? `筛选结果 ${entries.length} 条`
-                  : `共 ${entries.length} 条记录`}
+                  ? t('筛选结果 {n} 条', { n: entries.length })
+                  : t('共 {n} 条记录', { n: entries.length })}
             </span>
             <span className="hidden sm:flex items-center gap-1.5 font-mono text-[11px] text-indigo-700">
               <span className="h-1.5 w-1.5 rounded-full bg-indigo-500" />

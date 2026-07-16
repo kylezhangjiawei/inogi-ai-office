@@ -20,6 +20,7 @@ import {
   UserRound,
 } from "lucide-react";
 import { AuditTimeline } from "./RDAuditTimeline";
+import { AutoTranslatedText } from "./components/TranslatableText";
 import {
   AuditCategory,
   AuditLog,
@@ -695,7 +696,12 @@ export function RDAuditLogPage() {
                               <span className="font-mono text-[11px] text-slate-400">{log.resource.id}</span>
                             </div>
                             <div className="mt-1 line-clamp-1 text-sm font-medium text-slate-900">{summarizeLog(log)}</div>
-                            {log.comment && <div className="mt-0.5 line-clamp-1 text-xs text-slate-500">{log.comment}</div>}
+                            {/* 备注是存库的动态内容，走按需自动翻译（与 RDAuditTimeline 同口径） */}
+                            {log.comment && (
+                              <div className="mt-0.5 line-clamp-1 text-xs text-slate-500">
+                                <AutoTranslatedText text={log.comment} as="span" />
+                              </div>
+                            )}
                           </td>
                           <td className="px-3 py-3 align-top">
                             <span className={cn("inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-semibold", sourceBadgeClasses(log.source))}>
@@ -798,7 +804,9 @@ export function RDAuditLogPage() {
                   {selectedLog.comment && (
                     <section>
                       <h4 className="mb-2 text-xs font-semibold text-slate-500">{t("备注")}</h4>
-                      <p className="rounded-lg border border-slate-100 bg-white px-3 py-2 text-sm leading-6 text-slate-700">{selectedLog.comment}</p>
+                      <p className="rounded-lg border border-slate-100 bg-white px-3 py-2 text-sm leading-6 text-slate-700">
+                        <AutoTranslatedText text={selectedLog.comment} as="span" />
+                      </p>
                     </section>
                   )}
 

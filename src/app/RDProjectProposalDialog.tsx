@@ -28,6 +28,7 @@ import { useAuth } from "./auth";
 import { toast } from "sonner";
 import {
   ApprovalNode,
+  effectiveNodePool,
   fetchApprovalPoolsApi,
   getActiveFlow,
   getPoolForPermission,
@@ -1748,10 +1749,10 @@ function StepReview({
         },
         source: "web",
       });
-      toast.success("已生成 AI 微调预览", { description: "确认后再应用到当前任务草稿" });
+      toast.success(t("已生成 AI 微调预览"), { description: t("确认后再应用到当前任务草稿") });
     } catch (error) {
-      const message = error instanceof Error ? error.message : "AI 微调失败";
-      toast.error(message, { description: "当前任务草稿未被修改" });
+      const message = error instanceof Error ? error.message : t("AI 微调失败");
+      toast.error(message, { description: t("当前任务草稿未被修改") });
     } finally {
       setRefining(false);
     }
@@ -2189,7 +2190,8 @@ function StepSubmit({
               </div>
               {/* Chain of approval nodes */}
               {reviewNodes.map((node, idx) => {
-                const pool = approvalPools[node.permission_code] ?? getPoolForPermission(node.permission_code);
+                // 有效池口径与审批流页/后端通知一致：权限码派生 − 手动移出 + 手动增补
+                const pool = effectiveNodePool(node, approvalPools[node.permission_code] ?? getPoolForPermission(node.permission_code));
                 const modeCfg = MODE_LABEL[node.mode];
                 return (
                   <React.Fragment key={node.id}>
@@ -2587,8 +2589,8 @@ export function RDProjectProposalDialog({
         setAiProgress(100);
         setAiLabel(`${result.provider === "local" ? "本地解析" : "AI 解析"}完成，共 ${drafted.length} 个任务`);
         if (result.provider === "local") {
-          toast.warning("AI 未配置，已使用本地规则解析继续立项", {
-            description: "如需模型增强抽取，请在 AI 模型管理中配置可用模型。",
+          toast.warning(t("AI 未配置，已使用本地规则解析继续立项"), {
+            description: t("如需模型增强抽取，请在 AI 模型管理中配置可用模型。"),
           });
         }
         setTimeout(() => setStep(3), 250);
@@ -2615,8 +2617,8 @@ export function RDProjectProposalDialog({
               }
               setAiProgress(100);
               setAiLabel(`本地解析完成，共 ${drafted.length} 个任务`);
-              toast.warning("AI 未配置，已使用本地文件解析继续立项", {
-                description: "如需 AI 增强抽取，请在「AI 模型管理」中配置可用模型。",
+              toast.warning(t("AI 未配置，已使用本地文件解析继续立项"), {
+                description: t("如需 AI 增强抽取，请在「AI 模型管理」中配置可用模型。"),
               });
               setTimeout(() => setStep(3), 250);
               return;
@@ -2815,8 +2817,8 @@ export function RDProjectProposalDialog({
         },
         source: "web",
       });
-      toast.success("立项已提交审核", {
-        description: `共 ${tasks.length} 个任务，已进入主管驾驶舱待审核队列`,
+      toast.success(t("立项已提交审核"), {
+        description: t("共 {n} 个任务，已进入主管驾驶舱待审核队列", { n: tasks.length }),
       });
       handleClose();
     } catch (err) {
@@ -2847,8 +2849,8 @@ export function RDProjectProposalDialog({
         metadata: { task_count: tasks.length, attachment_count: files.length, draft_id: saved.id },
         source: "web",
       });
-      toast.success("立项已保存为草稿", {
-        description: `已存档 ${tasks.length} 个任务草案，可后续继续编辑或提交`,
+      toast.success(t("立项已保存为草稿"), {
+        description: t("已存档 {n} 个任务草案，可后续继续编辑或提交", { n: tasks.length }),
       });
       handleClose();
     } catch (err) {
@@ -2904,8 +2906,8 @@ export function RDProjectProposalDialog({
           description: "请到任务驾驶舱手动补录",
         });
       } else {
-        toast.success("立项已生效并自动分配", {
-          description: `${tasks.length} 个任务已下发至责任人，相关人员将收到通知`,
+        toast.success(t("立项已生效并自动分配"), {
+          description: t("{n} 个任务已下发至责任人，相关人员将收到通知", { n: tasks.length }),
         });
       }
       handleClose();

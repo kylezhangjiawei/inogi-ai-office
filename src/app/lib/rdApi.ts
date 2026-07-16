@@ -735,6 +735,11 @@ export function fetchRdApprovalPools<TMember = unknown>(permissionCodes: string[
   return requestJson<Record<string, TMember[]>>(`/approval-pools?${params.toString()}`);
 }
 
+/** 「添加审核人」候选（本工作区有审批能力的人；仅审批流管理员可拉取） */
+export function fetchRdApprovalCandidates<TMember = unknown>() {
+  return requestJson<TMember[]>("/approval-candidates");
+}
+
 export function saveRdApprovalFlows<TFlow>(payload: TFlow[]) {
   return requestJson<TFlow[]>("/approval-flows", {
     method: "PUT",
