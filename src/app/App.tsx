@@ -33,6 +33,8 @@ const AfterSalesDetails = lazyNamed(() => import("./AfterSalesDetails"), "AfterS
 const AfterSalesForm = lazyNamed(() => import("./AfterSalesForm"), "AfterSalesForm");
 const AfterSalesList = lazyNamed(() => import("./AfterSalesList"), "AfterSalesList");
 const AiModelManagementPage = lazyNamed(() => import("./AiModelManagementPage"), "AiModelManagementPage");
+const ChatAnalyticsPage = lazyNamed(() => import("./ChatAnalyticsPage"), "ChatAnalyticsPage");
+const MobileChatAnalyticsPage = lazyNamed(() => import("./MobileChatAnalyticsPage"), "MobileChatAnalyticsPage");
 const I18nManagementPage = lazyNamed(() => import("./I18nManagementPage"), "I18nManagementPage");
 const BOMArchive = lazyNamed(() => import("./BOMArchive"), "BOMArchive");
 const BugLogPage = lazyNamed(() => import("./BugLogPage"), "BugLogPage");
@@ -237,7 +239,9 @@ function ProtectedLayout() {
   // 工作区感知：协同路由（/us-collab-*）跳协同移动端，其余跳研发移动端——否则协同用户
   // 会被甩到研发池的移动驾驶舱（数据完全对不上）。
   if (isMobile) {
-    const target = location.pathname.startsWith("/us-collab") ? "/us-collab-m" : "/m";
+    const target = location.pathname === "/chat-analytics"
+      ? "/m/chat-analytics"
+      : location.pathname.startsWith("/us-collab") ? "/us-collab-m" : "/m";
     return <Navigate to={target} replace />;
   }
 
@@ -367,6 +371,7 @@ const router = createBrowserRouter([
       { path: "contract-review", element: makeLazyProtected(<ContractReviewPage />, "page:contract-review") },
       { path: "mailbox-management", element: makeLazyProtected(<MailboxManagementPage />, "page:mailbox-management") },
       { path: "ai-model-management", element: makeLazyProtected(<AiModelManagementPage />, "page:ai-model-management") },
+      { path: "chat-analytics", element: makeLazyProtected(<ChatAnalyticsPage />, "page:chat-analytics") },
       { path: "i18n-management", element: makeLazyProtected(<I18nManagementPage />, "i18n:manage") },
       { path: "ocr-config-management", element: makeLazyProtected(<OcrConfigManagementPage />, "page:ocr-config-management") },
       { path: "ops-center", element: makeLazyProtected(<OpsCenterPage section="overview" />, "page:ops-center") },
@@ -400,6 +405,7 @@ const router = createBrowserRouter([
     Component: MobileLayout,
     children: [
       { index: true, element: <MobileRDCockpit /> },
+      { path: "chat-analytics", element: makeLazyProtected(<MobileChatAnalyticsPage />, "page:chat-analytics") },
       { path: "*", element: <Navigate to="/m" replace /> },
     ],
   },

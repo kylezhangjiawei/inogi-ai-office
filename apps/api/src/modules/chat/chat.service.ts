@@ -15,10 +15,12 @@ import { SecureConfigService } from '../security/secure-config.service';
 import { WebSearchService, type WebSearchResult } from './web-search.service';
 import { RagService, type RagUserContext, type RagChatCitation } from '../rag/rag.service';
 import { ChatAttachmentService, type StoredChatAttachment } from './chat-attachment.service';
+import { ChatAnalyticsService } from './chat-analytics.service';
 import { ChatFileExportService, FILE_EXPORT_MARKER } from './chat-file-export.service';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { SendMessageDto } from './dto/send-message.dto';
 import { UpdateConversationDto } from './dto/update-conversation.dto';
+import { UpdateReactionDto } from './dto/update-reaction.dto';
 
 const SYSTEM_PROMPT = [
   '你是 MateChat，INOGI 智能办公助手。帮助用户处理文档整理、邮件起草、项目跟踪、业务分析等办公事务。',
@@ -86,6 +88,7 @@ export class ChatService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly chatAnalyticsService: ChatAnalyticsService,
     private readonly config: ConfigService,
     private readonly secureConfigService: SecureConfigService,
     private readonly ragService: RagService,
@@ -153,28 +156,116 @@ export class ChatService {
         content: true,
         model: true,
         reaction: true,
+        feedback: {
+          select: { reaction: true, reasons: true, comment: true, status: true },
+        },
         attachments: true,
         createdAt: true,
       },
     });
+    const answerEvents = messages.length > 0
+      ? await this.prisma.chatUsageEvent.findMany({
+          where: {
+            eventType: 'answer_completed',
+            messageId: { in: messages.filter((message) => message.role === 'assistant').map((message) => message.id) },
+          },
+          orderBy: { createdAt: 'desc' },
+          select: { messageId: true, metadata: true },
+        })
+      : [];
+    const sourcesByMessage = new Map<string, Array<'db' | 'rag' | 'web' | 'attachment' | 'ai'>>();
+    for (const event of answerEvents) {
+      if (!event.messageId || sourcesByMessage.has(event.messageId)) continue;
+      sourcesByMessage.set(event.messageId, this.answerSourcesFromMetadata(event.metadata));
+    }
     // attachments 列存的是 objectKey 等内部字段，回前端时统一换成带新鲜签名 URL 的视图
     return messages.map((m) => ({
       ...m,
       attachments: this.attachmentService.signForDisplay(m.attachments),
+      sources: m.role === 'assistant' ? (sourcesByMessage.get(m.id) ?? []) : [],
     }));
   }
 
-  async updateReaction(messageId: string, userId: string, reaction: string | null) {
+  async updateReaction(messageId: string, userId: string, dto: UpdateReactionDto) {
     const msg = await this.prisma.chatMessage.findUnique({
       where: { id: messageId },
-      select: { conversation: { select: { userId: true } } },
+      select: {
+        role: true,
+        reaction: true,
+        model: true,
+        conversationId: true,
+        conversation: { select: { userId: true } },
+      },
     });
     if (!msg) throw new NotFoundException('消息不存在');
     if (msg.conversation.userId !== userId) throw new ForbiddenException();
-    return this.prisma.chatMessage.update({
-      where: { id: messageId },
-      data: { reaction },
-      select: { id: true, reaction: true },
+    if (msg.role !== 'assistant') throw new BadRequestException('只能评价 AI 回答');
+
+    const reaction = dto.reaction ?? null;
+    const reasons = [...new Set((dto.reasons ?? []).map((reason) => reason.trim()).filter(Boolean))];
+    const comment = dto.comment?.trim() ?? '';
+    if (reaction === 'dislike' && reasons.length === 0) {
+      throw new BadRequestException('点踩时请至少选择一个原因');
+    }
+
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.chatMessage.update({
+        where: { id: messageId },
+        data: { reaction },
+        select: { id: true, reaction: true },
+      });
+      if (!reaction) {
+        await tx.chatFeedback.deleteMany({ where: { messageId } });
+        if (msg.reaction) {
+          await tx.chatUsageEvent.create({
+            data: {
+              userId,
+              eventType: 'feedback_removed',
+              conversationId: msg.conversationId,
+              messageId,
+              model: msg.model,
+              metadata: { previousReaction: msg.reaction },
+            },
+          });
+        }
+        return { ...updated, feedback: null };
+      }
+
+      const isPositive = reaction === 'like';
+      const submittedAt = new Date();
+      const feedback = await tx.chatFeedback.upsert({
+        where: { messageId },
+        create: {
+          messageId,
+          reaction,
+          reasons: isPositive ? [] : reasons,
+          comment: isPositive ? '' : comment,
+          status: isPositive ? 'resolved' : 'open',
+          submittedAt,
+          resolvedAt: isPositive ? new Date() : null,
+        },
+        update: {
+          reaction,
+          reasons: isPositive ? [] : reasons,
+          comment: isPositive ? '' : comment,
+          status: isPositive ? 'resolved' : 'open',
+          resolutionNote: '',
+          submittedAt,
+          resolvedAt: isPositive ? new Date() : null,
+        },
+        select: { reaction: true, reasons: true, comment: true, status: true, submittedAt: true },
+      });
+      await tx.chatUsageEvent.create({
+        data: {
+          userId,
+          eventType: 'feedback_submitted',
+          conversationId: msg.conversationId,
+          messageId,
+          model: msg.model,
+          metadata: { reaction, reasonCount: isPositive ? 0 : reasons.length },
+        },
+      });
+      return { ...updated, feedback };
     });
   }
 
@@ -314,6 +405,7 @@ export class ChatService {
     userContext: RagUserContext,
     res: Response,
   ) {
+    const requestStartedAt = Date.now();
     const userId = userContext.userId;
     const conv = await this.prisma.chatConversation.findUnique({
       where: { id: conversationId },
@@ -334,31 +426,90 @@ export class ChatService {
       }
     }
 
-    // 解析附件：只信任 fileId，回查 FileAsset 拿权威 name/mime/size/objectKey，并过滤越权文件
-    const attachments = dto.attachments?.length
-      ? await this.attachmentService.resolveOwned(userId, dto.attachments)
-      : [];
-    const content = (dto.content ?? '').trim();
-    // 文本与附件不能同时为空
-    if (!content && attachments.length === 0) {
-      throw new BadRequestException('消息内容不能为空');
-    }
+    const regenerateMessageId = dto.regenerateMessageId?.trim() || null;
+    let regenerateTarget: { id: string; model: string | null; createdAt: Date } | null = null;
+    let attachments: StoredChatAttachment[];
+    let content: string;
+    let userMsg: { id: string; content: string; attachments: Prisma.JsonValue | null; createdAt: Date };
+    let isFirstUserMsg = false;
 
-    // Save user message（附件以内部结构存入 attachments JSON 列）
-    const userMsg = await this.prisma.chatMessage.create({
-      data: {
-        conversationId,
-        role: 'user',
-        content,
-        ...(attachments.length
-          ? { attachments: attachments as unknown as Prisma.InputJsonValue }
-          : {}),
-      },
-    });
+    if (regenerateMessageId) {
+      const [target, latestMessage] = await Promise.all([
+        this.prisma.chatMessage.findFirst({
+          where: { id: regenerateMessageId, conversationId, role: 'assistant' },
+          select: { id: true, model: true, createdAt: true },
+        }),
+        this.prisma.chatMessage.findFirst({
+          where: { conversationId },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          select: { id: true },
+        }),
+      ]);
+      if (!target) throw new NotFoundException('需要重新回答的消息不存在');
+      if (latestMessage?.id !== target.id) {
+        throw new BadRequestException('只能重新生成当前会话的最新回答');
+      }
+      const previousUserMessage = await this.prisma.chatMessage.findFirst({
+        where: {
+          conversationId,
+          role: 'user',
+          createdAt: { lte: target.createdAt },
+        },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: { id: true, content: true, attachments: true, createdAt: true },
+      });
+      if (!previousUserMessage) throw new BadRequestException('找不到需要重新回答的原问题');
+
+      regenerateTarget = target;
+      userMsg = previousUserMessage;
+      content = previousUserMessage.content.trim();
+      attachments = this.attachmentService.normalizeStored(previousUserMessage.attachments);
+      // The old answer must not influence its replacement, but it remains in
+      // the database until the new answer is safely persisted.
+      conv.messages = conv.messages.filter((message) => message.id !== target.id);
+    } else {
+      // 解析附件：只信任 fileId，回查 FileAsset 拿权威 name/mime/size/objectKey，并过滤越权文件
+      attachments = dto.attachments?.length
+        ? await this.attachmentService.resolveOwned(userId, dto.attachments)
+        : [];
+      content = (dto.content ?? '').trim();
+      if (!content && attachments.length === 0) {
+        throw new BadRequestException('消息内容不能为空');
+      }
+
+      isFirstUserMsg = !conv.messages.some((message) => message.role === 'user');
+      const questionScenario = this.chatAnalyticsService.classifyQuestion(content, attachments.length > 0);
+      userMsg = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.chatMessage.create({
+          data: {
+            conversationId,
+            role: 'user',
+            content,
+            ...(attachments.length
+              ? { attachments: attachments as unknown as Prisma.InputJsonValue }
+              : {}),
+          },
+        });
+        await tx.chatUsageEvent.create({
+          data: {
+            userId,
+            eventType: 'question_submitted',
+            conversationId,
+            messageId: created.id,
+            model: dto.model,
+            metadata: {
+              hadAttachments: attachments.length > 0,
+              scenarioKey: questionScenario.key,
+              scenarioLabel: questionScenario.label,
+            },
+          },
+        });
+        return created;
+      });
+    }
 
     // Auto-set title from first user message（纯附件消息用首个附件名兜底）
     const titleSeed = content || attachments[0]?.name || '新对话';
-    const isFirstUserMsg = !conv.messages.some((m) => m.role === 'user');
     if (isFirstUserMsg) {
       await this.prisma.chatConversation.update({
         where: { id: conversationId },
@@ -374,11 +525,39 @@ export class ChatService {
 
     const send = (data: object) => res.write(`data: ${JSON.stringify(data)}\n\n`);
 
-    send({ type: 'userMessage', messageId: userMsg.id });
+    if (!regenerateTarget) {
+      send({ type: 'userMessage', messageId: userMsg.id });
+    } else {
+      await this.prisma.chatUsageEvent.create({
+        data: {
+          userId,
+          eventType: 'regenerate',
+          conversationId,
+          messageId: regenerateTarget.id,
+          model: regenerateTarget.model,
+          metadata: { originalUserMessageId: userMsg.id },
+        },
+      }).catch((error) => {
+        this.logger.warn(`重新回答埋点失败: ${error instanceof Error ? error.message : error}`);
+      });
+    }
 
     const selectedConfig = await this.resolveModelConfig(dto.model);
     if (!selectedConfig) {
       send({ type: 'error', message: '未配置可用 AI 模型，请先在 AI 模型管理中新增并启用模型' });
+      await this.chatAnalyticsService.recordSystemEvent({
+        userId,
+        eventType: 'answer_failed',
+        conversationId,
+        metadata: {
+          latencyMs: Date.now() - requestStartedAt,
+          failureType: 'model_unavailable',
+          userMessageId: userMsg.id,
+          regenerated: Boolean(regenerateTarget),
+        },
+      }).catch((error) => {
+        this.logger.warn(`回答失败埋点写入失败: ${error instanceof Error ? error.message : error}`);
+      });
       res.end();
       return;
     }
@@ -433,6 +612,20 @@ export class ChatService {
 
     if (!apiKey) {
       send({ type: 'error', message: 'AI 模型未配置 API Key，请先在 AI 模型管理中配置并启用模型' });
+      await this.chatAnalyticsService.recordSystemEvent({
+        userId,
+        eventType: 'answer_failed',
+        conversationId,
+        model,
+        metadata: {
+          latencyMs: Date.now() - requestStartedAt,
+          failureType: 'api_key_missing',
+          userMessageId: userMsg.id,
+          regenerated: Boolean(regenerateTarget),
+        },
+      }).catch((error) => {
+        this.logger.warn(`回答失败埋点写入失败: ${error instanceof Error ? error.message : error}`);
+      });
       res.end();
       return;
     }
@@ -548,13 +741,17 @@ export class ChatService {
 
     // ── 联网兜底融合：纯文本提问且内部完全未命中时，等联网结果注入 context（模型无关）。
     //    带附件时不等（附件内容就是主要上下文，融合等待会白拖首答数十秒），联网走回答后的附录路径 ──
-    const hasInternal = Boolean(dbContext) || ragChunks.length > 0;
+    const hasDatabaseContext = Boolean(dbContext);
+    const hasRagContext = ragChunks.length > 0;
+    const hasInternal = hasDatabaseContext || hasRagContext;
     let webResult: WebSearchResult | null = null;
+    let usedWeb = false;
     if (!hasInternal && attachments.length === 0) {
       // 等待期间可能静默数十秒：先推一个事件保活 SSE 连接（网关空闲超时保险），前端未知类型安全忽略
       send({ type: 'web_searching' });
       webResult = await webSearchPromise;
       if (webResult) {
+        usedWeb = true;
         contextParts.push(
           '内部数据库与知识库均未检索到相关内容。以下是联网检索到的互联网资料（兜底来源）。若资料与用户问题相关：直接基于资料作答，保留具体数字/日期，并注明信息来自联网检索、可能存在延迟；若资料与问题无关（如用户是创作/起草类请求）：忽略资料正常作答，不要提及联网检索：\n\n' +
             webResult.summary,
@@ -572,7 +769,13 @@ export class ChatService {
     const systemContent = contextParts.join('\n\n');
 
     // 通知前端命中情况：是否走了结构化数据 / 知识库引用 / 联网检索
-    send({ type: 'context', fromDb: hasInternal, fromWeb: Boolean(webResult) });
+    send({
+      type: 'context',
+      fromDb: hasDatabaseContext,
+      fromRag: hasRagContext,
+      fromWeb: usedWeb,
+      fromAttachment: attachments.length > 0,
+    });
 
     // 推送引用卡片数据（前端在 assistant 消息下方渲染）；联网兜底来源与内部引用同卡展示
     if (ragChunks.length > 0 || ragResponse.filteredByPermission > 0 || webCitations.length > 0) {
@@ -716,6 +919,7 @@ export class ChatService {
           extraSummary.slice(0, 80),
         );
         if (extraSummary && !isEmptyResult) {
+          usedWeb = true;
           const clipped =
             extraSummary.length > 1200 ? extraSummary.slice(0, 1200) + '…' : extraSummary;
           const appendix = `\n\n────────\n🌐 互联网参考（联网检索，内容可能有延迟，请以官方信息为准）\n${clipped}`;
@@ -775,32 +979,57 @@ export class ChatService {
         });
       }
 
-      const assistantMsg = await this.prisma.chatMessage.create({
-        data: {
-          conversationId,
-          role: 'assistant',
-          content: fullContent,
-          model,
-          ...(generatedAtts.length > 0
-            ? { attachments: generatedAtts as unknown as Prisma.InputJsonValue }
-            : {}),
-        },
-      });
-
-      await this.prisma.chatConversation.update({
-        where: { id: conversationId },
-        data: {
-          summary: fullContent.slice(0, 60),
-          updatedAt: new Date(),
-          ...(isFirstUserMsg ? {} : {}),
-        },
+      // Persist the answer, its provenance event and a regeneration replacement
+      // atomically. A telemetry failure can no longer leave an untracked answer,
+      // and a failed regeneration keeps the previous answer intact.
+      const assistantMsg = await this.prisma.$transaction(async (tx) => {
+        const created = await tx.chatMessage.create({
+          data: {
+            conversationId,
+            role: 'assistant',
+            content: fullContent,
+            model,
+            ...(generatedAtts.length > 0
+              ? { attachments: generatedAtts as unknown as Prisma.InputJsonValue }
+              : {}),
+          },
+        });
+        await tx.chatUsageEvent.create({
+          data: {
+            userId,
+            eventType: 'answer_completed',
+            conversationId,
+            messageId: created.id,
+            model,
+            metadata: {
+              latencyMs: Date.now() - requestStartedAt,
+              fromDb: hasDatabaseContext,
+              fromRag: hasRagContext,
+              fromWeb: usedWeb,
+              fromAttachment: attachments.length > 0,
+              ragHits: ragChunks.length,
+              userMessageId: userMsg.id,
+              regenerated: Boolean(regenerateTarget),
+              sourceSchemaVersion: 2,
+            },
+          },
+        });
+        if (regenerateTarget) {
+          await tx.chatMessage.delete({ where: { id: regenerateTarget.id } });
+        }
+        await tx.chatConversation.update({
+          where: { id: conversationId },
+          data: { summary: fullContent.slice(0, 60), updatedAt: new Date() },
+        });
+        return created;
       });
 
       send({ type: 'done', messageId: assistantMsg.id, title: isFirstUserMsg ? titleSeed.slice(0, 30) : undefined });
 
-      // 滚动摘要更新（fire-and-forget）：本轮新增 2 条后仍有窗口外未覆盖的消息则补摘要
-      if (totalMessages + 2 > ChatService.HISTORY_WINDOW) {
-        void this.updateConvMemory(conversationId, client, model, isQwen, totalMessages + 2).catch(
+      // 滚动摘要更新（fire-and-forget）：普通提问新增 2 条，重新回答只替换 1 条。
+      const totalAfterAnswer = regenerateTarget ? totalMessages : totalMessages + 2;
+      if (totalAfterAnswer > ChatService.HISTORY_WINDOW) {
+        void this.updateConvMemory(conversationId, client, model, isQwen, totalAfterAnswer).catch(
           (err) =>
             this.logger.warn(
               `会话摘要更新失败(${conversationId}): ${err instanceof Error ? err.message : err}`,
@@ -809,6 +1038,20 @@ export class ChatService {
       }
     } catch (err) {
       send({ type: 'error', message: err instanceof Error ? err.message : 'AI 调用失败' });
+      await this.chatAnalyticsService.recordSystemEvent({
+        userId,
+        eventType: 'answer_failed',
+        conversationId,
+        model,
+        metadata: {
+          latencyMs: Date.now() - requestStartedAt,
+          failureType: err instanceof Error ? err.name.slice(0, 120) : 'unknown',
+          userMessageId: userMsg.id,
+          regenerated: Boolean(regenerateTarget),
+        },
+      }).catch((eventError) => {
+        this.logger.warn(`回答失败埋点写入失败: ${eventError instanceof Error ? eventError.message : eventError}`);
+      });
     } finally {
       res.end();
     }
@@ -1715,5 +1958,31 @@ export class ChatService {
     } catch { /* ignore */ }
 
     return sections.join('\n');
+  }
+
+  /** Translate persisted answer provenance into the badges shown after reload. */
+  private answerSourcesFromMetadata(
+    metadata: Prisma.JsonValue,
+  ): Array<'db' | 'rag' | 'web' | 'attachment' | 'ai'> {
+    if (!metadata || Array.isArray(metadata) || typeof metadata !== 'object') return [];
+    const value = metadata as Prisma.JsonObject;
+    const version = typeof value.sourceSchemaVersion === 'number' ? value.sourceSchemaVersion : 1;
+    const ragHits = typeof value.ragHits === 'number' ? value.ragHits : 0;
+    const sources: Array<'db' | 'rag' | 'web' | 'attachment' | 'ai'> = [];
+
+    if (version >= 2) {
+      if (value.fromDb === true) sources.push('db');
+      if (value.fromRag === true) sources.push('rag');
+    } else if (ragHits > 0) {
+      // v1 used fromDb to mean any internal source; ragHits lets us distinguish
+      // knowledge retrieval, but mixed DB + RAG answers cannot be recovered.
+      sources.push('rag');
+    } else if (value.fromDb === true) {
+      sources.push('db');
+    }
+    if (value.fromWeb === true) sources.push('web');
+    if (value.fromAttachment === true || value.hadAttachments === true) sources.push('attachment');
+    if (sources.length === 0) sources.push('ai');
+    return sources;
   }
 }

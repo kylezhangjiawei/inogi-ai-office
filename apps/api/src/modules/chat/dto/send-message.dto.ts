@@ -48,6 +48,15 @@ export class SendMessageDto {
   @MaxLength(80)
   model?: string;
 
+  /**
+   * 重新回答时传入要替换的 assistant 消息。后端校验它属于当前用户、当前会话且是最新回答，
+   * 并复用原 user message，不重复创建问题记录。
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  regenerateMessageId?: string;
+
   @IsOptional()
   @IsArray()
   @ArrayMaxSize(10)

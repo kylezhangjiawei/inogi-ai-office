@@ -60,7 +60,14 @@ type ApiMessage = {
   content: string;
   model: string | null;
   reaction: string | null;
+  feedback?: {
+    reaction: string;
+    reasons: string[];
+    comment: string;
+    status: string;
+  } | null;
   attachments?: AttachmentView[];
+  sources?: Array<"db" | "rag" | "web" | "attachment" | "ai">;
   createdAt: string;
 };
 
@@ -81,7 +88,7 @@ type ModelOption = { id: string; label: string; provider: string; model: string;
 
 type SseEvent =
   | { type: "userMessage"; messageId: string }
-  | { type: "context"; fromDb: boolean; fromWeb?: boolean }
+  | { type: "context"; fromDb: boolean; fromRag?: boolean; fromWeb?: boolean; fromAttachment?: boolean }
   | { type: "citations"; citations: RagCitation[]; filteredByPermission: number }
   /** 回答完成后追加的引用（如「互联网参考」附录的联网来源），合并进已有引用卡 */
   | { type: "citations_extra"; citations: RagCitation[] }
@@ -102,6 +109,12 @@ type DeleteConfirm =
   | { kind: "message"; id: string }
   | null;
 
+type FeedbackDraft = {
+  messageId: string;
+  reasons: string[];
+  comment: string;
+} | null;
+
 // ─── 常量 ─────────────────────────────────────────────────────────────────────
 
 const FLOATING_MARGIN = 24;
@@ -114,6 +127,16 @@ const QUICK_PROMPTS = [
   "总结当前项目的风险点",
   "给我一份合同审查意见模板",
 ];
+
+const DISLIKE_REASONS = [
+  { value: "inaccurate", label: "回答不准确" },
+  { value: "unresolved", label: "没有解决问题" },
+  { value: "outdated", label: "数据不完整或过期" },
+  { value: "misunderstood", label: "没有理解问题" },
+  { value: "slow", label: "响应太慢" },
+  { value: "inconvenient", label: "操作不方便" },
+  { value: "other", label: "其他" },
+] as const;
 
 /** 附件数量与单文件大小上限（与后端 uploads-temp 的 20MB 对齐） */
 const ATTACH_MAX_COUNT = 10;
@@ -248,11 +271,26 @@ async function apiGetMessages(convId: string): Promise<ApiMessage[]> {
   return res.json() as Promise<ApiMessage[]>;
 }
 
-async function apiUpdateReaction(msgId: string, reaction: string | null): Promise<void> {
-  await authFetch(`/api/chat/messages/${msgId}/reaction`, {
+async function apiUpdateReaction(
+  msgId: string,
+  payload: { reaction: "like" | "dislike" | null; reasons?: string[]; comment?: string },
+): Promise<void> {
+  const res = await authFetch(`/api/chat/messages/${msgId}/reaction`, {
     method: "PATCH",
-    body: JSON.stringify({ reaction }),
+    body: JSON.stringify(payload),
   });
+  if (!res.ok) throw new Error("提交反馈失败");
+}
+
+async function apiRecordUsageEvent(payload: {
+  eventType: "chat_open" | "copy" | "share";
+  conversationId?: string;
+  messageId?: string;
+  model?: string;
+  metadata?: Record<string, string | number | boolean | null>;
+}): Promise<void> {
+  const res = await authFetch("/api/chat/events", { method: "POST", body: JSON.stringify(payload) });
+  if (!res.ok) throw new Error("使用行为记录失败");
 }
 
 async function apiDeleteMessage(msgId: string): Promise<void> {
@@ -333,8 +371,8 @@ export function MateChatBubble() {
   const [isRenaming, setIsRenaming] = useState(false);
   const [showModelMenu, setShowModelMenu] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState<DeleteConfirm>(null);
-  // key = message id, value = 'db'(内部数据) | 'web'(联网检索兜底) | 'ai'(通用知识)
-  const [msgSources, setMsgSources] = useState<Record<string, "db" | "web" | "ai">>({});
+  const [feedbackDraft, setFeedbackDraft] = useState<FeedbackDraft>(null);
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
   // key = message id, value = 引用数据（命中知识库时由后端 SSE 推送）
   const [msgCitations, setMsgCitations] = useState<Record<string, MessageCitations>>({});
   // RAG 探活状态（embedding 配置 + 索引文档数）
@@ -354,6 +392,14 @@ export function MateChatBubble() {
   const createdBlobUrlsRef = useRef<Set<string>>(new Set());
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!feedbackDraft) return;
+    const frame = window.requestAnimationFrame(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [feedbackDraft]);
 
   // ── 气泡位置初始化 + resize 归位 ───────────────────────────────────────────
 
@@ -461,6 +507,10 @@ export function MateChatBubble() {
   }, []);
 
   useEffect(() => { if (open) void loadInit(); }, [open, loadInit]);
+
+  useEffect(() => {
+    if (open) void apiRecordUsageEvent({ eventType: "chat_open" }).catch(() => undefined);
+  }, [open]);
 
   // ── KB→RAG 一键回填：embedding 已配置但索引为空时，KB 管理员可一键把知识库灌入向量索引 ──
   const handleBackfillRag = useCallback(async () => {
@@ -737,8 +787,10 @@ export function MateChatBubble() {
   // ── 发送消息（智能模式：自动并行检索内部数据库 + 走 LLM 流式回答）─────────────
 
   const handleSend = useCallback(
-    async (preset?: string) => {
+    async (preset?: string, options?: { regenerateMessage?: ApiMessage }) => {
       if (!activeId || sending) return;
+      const regenerateMessage = options?.regenerateMessage;
+      const isRegenerate = Boolean(regenerateMessage);
       const isPreset = preset !== undefined;
       const content = (preset ?? draft).trim();
       // 附件仅随手动发送提交；快捷提问 / 重新回答（preset）只发文本，不动托盘
@@ -782,12 +834,16 @@ export function MateChatBubble() {
       // 在函数作用域声明：finally 块要访问它，不能放进 try 块（块级作用域下 finally 取不到 → ReferenceError）。
       let realUserId = tempUserId;
 
-      // 乐观添加占位消息
-      setMessages((prev) => [
-        ...prev,
-        { id: tempUserId, role: "user", content, model: null, reaction: null, createdAt: now, attachments: optimisticAtts },
-        { id: tempAiId, role: "assistant", content: "", model: selectedModel || null, reaction: null, createdAt: now },
-      ]);
+      // 普通提问追加一问一答；重新回答只在原位置替换 AI 占位，不重复创建用户问题。
+      setMessages((prev) => isRegenerate && regenerateMessage
+        ? prev.map((message) => message.id === regenerateMessage.id
+          ? { id: tempAiId, role: "assistant", content: "", model: selectedModel || null, reaction: null, createdAt: now }
+          : message)
+        : [
+            ...prev,
+            { id: tempUserId, role: "user", content, model: null, reaction: null, createdAt: now, attachments: optimisticAtts },
+            { id: tempAiId, role: "assistant", content: "", model: selectedModel || null, reaction: null, createdAt: now },
+          ]);
 
       try {
         const res = await authFetch(`/api/chat/conversations/${activeId}/messages`, {
@@ -796,6 +852,7 @@ export function MateChatBubble() {
             content: content || undefined,
             model: selectedModel || undefined,
             attachments: attachPayload.length > 0 ? attachPayload : undefined,
+            regenerateMessageId: regenerateMessage?.id,
           }),
         });
 
@@ -809,7 +866,9 @@ export function MateChatBubble() {
         let buf = "";
         let streamedContent = "";
         let currentFromDb = false;
+        let currentFromRag = false;
         let currentFromWeb = false;
+        let currentFromAttachment = false;
 
         while (true) {
           const { done, value } = await reader.read();
@@ -832,7 +891,9 @@ export function MateChatBubble() {
 
               if (event.type === "context") {
                 currentFromDb = event.fromDb;
+                currentFromRag = Boolean(event.fromRag);
                 currentFromWeb = Boolean(event.fromWeb);
+                currentFromAttachment = Boolean(event.fromAttachment);
               }
 
               if (event.type === "citations") {
@@ -844,6 +905,7 @@ export function MateChatBubble() {
               }
 
               if (event.type === "citations_extra") {
+                currentFromWeb = true;
                 // 回答完成后追加的联网来源：合并进已有引用卡（无则新建）
                 setMsgCitations((prev) => {
                   const cur = prev[tempAiId];
@@ -896,13 +958,15 @@ export function MateChatBubble() {
 
               if (event.type === "done") {
                 const realAiId = event.messageId;
+                const sources: NonNullable<ApiMessage["sources"]> = [];
+                if (currentFromDb) sources.push("db");
+                if (currentFromRag) sources.push("rag");
+                if (currentFromWeb) sources.push("web");
+                if (currentFromAttachment) sources.push("attachment");
+                if (sources.length === 0) sources.push("ai");
                 setMessages((prev) =>
-                  prev.map((m) => (m.id === tempAiId ? { ...m, id: realAiId } : m)),
+                  prev.map((m) => (m.id === tempAiId ? { ...m, id: realAiId, sources } : m)),
                 );
-                setMsgSources((prev) => ({
-                  ...prev,
-                  [realAiId]: currentFromDb ? "db" : currentFromWeb ? "web" : "ai",
-                }));
                 setMsgCitations((prev) => {
                   if (!prev[tempAiId]) return prev;
                   const { [tempAiId]: pulled, ...rest } = prev;
@@ -924,10 +988,9 @@ export function MateChatBubble() {
 
               if (event.type === "error") {
                 toast.error(event.message);
-                // 清掉占位的用户消息 + AI 占位，避免用户看到"自己发了消息但永远没回复"的孤儿
-                setMessages((prev) =>
-                  prev.filter((m) => m.id !== tempUserId && m.id !== tempAiId),
-                );
+                setMessages((prev) => isRegenerate && regenerateMessage
+                  ? prev.map((message) => message.id === tempAiId ? regenerateMessage : message)
+                  : prev.filter((m) => m.id !== tempAiId && (realUserId !== tempUserId || m.id !== tempUserId)));
               }
             } catch {
               // ignore JSON parse errors
@@ -936,7 +999,9 @@ export function MateChatBubble() {
         }
       } catch (err) {
         toast.error(err instanceof Error ? err.message : "发送失败");
-        setMessages((prev) => prev.filter((m) => m.id !== tempUserId && m.id !== tempAiId));
+        setMessages((prev) => isRegenerate && regenerateMessage
+          ? prev.map((message) => message.id === tempAiId ? regenerateMessage : message)
+          : prev.filter((m) => m.id !== tempAiId && (realUserId !== tempUserId || m.id !== tempUserId)));
       } finally {
         setSending(false);
         void (realUserId); // suppress unused warning
@@ -953,11 +1018,7 @@ export function MateChatBubble() {
     if (idx <= 0) return;
     const prevUser = [...messages.slice(0, idx)].reverse().find((m) => m.role === "user");
     if (!prevUser) { toast.error("找不到上一条问题"); return; }
-    try {
-      await apiDeleteMessage(msgId);
-      setMessages((prev) => prev.filter((m) => m.id !== msgId));
-    } catch { /* ignore, still try to regenerate */ }
-    await handleSend(prevUser.content);
+    await handleSend(prevUser.content, { regenerateMessage: messages[idx] });
   };
 
   // ── 置顶 / 重命名 / 删除 ────────────────────────────────────────────────────
@@ -1003,11 +1064,61 @@ export function MateChatBubble() {
   const handleReaction = async (msgId: string, reaction: "like" | "dislike") => {
     const msg = messages.find((m) => m.id === msgId);
     if (!msg) return;
+    if (reaction === "dislike" && msg.reaction !== "dislike") {
+      setFeedbackDraft({
+        messageId: msgId,
+        reasons: msg.feedback?.reasons ?? [],
+        comment: msg.feedback?.comment ?? "",
+      });
+      return;
+    }
     const next = msg.reaction === reaction ? null : reaction;
-    setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, reaction: next } : m)));
-    await apiUpdateReaction(msgId, next).catch(() => {
-      setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, reaction: msg.reaction } : m)));
+    setFeedbackDraft(null);
+    setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, reaction: next, feedback: null } : m)));
+    await apiUpdateReaction(msgId, { reaction: next }).catch(() => {
+      setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, reaction: msg.reaction, feedback: msg.feedback } : m)));
+      toast.error("反馈提交失败，请稍后重试");
     });
+  };
+
+  const submitDislikeFeedback = async () => {
+    if (!feedbackDraft || submittingFeedback) return;
+    if (feedbackDraft.reasons.length === 0) {
+      toast.error("请选择至少一个原因");
+      return;
+    }
+    const previous = messages.find((message) => message.id === feedbackDraft.messageId);
+    setSubmittingFeedback(true);
+    try {
+      await apiUpdateReaction(feedbackDraft.messageId, {
+        reaction: "dislike",
+        reasons: feedbackDraft.reasons,
+        comment: feedbackDraft.comment,
+      });
+      setMessages((current) => current.map((message) =>
+        message.id === feedbackDraft.messageId
+          ? {
+              ...message,
+              reaction: "dislike",
+              feedback: {
+                reaction: "dislike",
+                reasons: feedbackDraft.reasons,
+                comment: feedbackDraft.comment.trim(),
+                status: "open",
+              },
+            }
+          : message,
+      ));
+      setFeedbackDraft(null);
+      toast.success("感谢反馈，我们会纳入问题分析");
+    } catch {
+      if (previous) {
+        setMessages((current) => current.map((message) => message.id === previous.id ? previous : message));
+      }
+      toast.error("反馈提交失败，请稍后重试");
+    } finally {
+      setSubmittingFeedback(false);
+    }
   };
 
   const handleDeleteMsg = (msgId: string) => {
@@ -1032,12 +1143,42 @@ export function MateChatBubble() {
     else void doDeleteMessage(deleteConfirm.id);
   };
 
-  const copyText = async (text: string) => {
+  const copyText = async (text: string, message: ApiMessage) => {
     try {
       await navigator.clipboard.writeText(text);
+      void apiRecordUsageEvent({
+        eventType: "copy",
+        conversationId: activeId ?? undefined,
+        messageId: message.id,
+        model: message.model ?? undefined,
+        metadata: { method: "clipboard" },
+      }).catch(() => undefined);
       toast.success("已复制");
     } catch {
       toast.error("复制失败，请手动选择内容");
+    }
+  };
+
+  const shareText = async (text: string, message: ApiMessage) => {
+    try {
+      let method = "clipboard";
+      if (typeof navigator.share === "function") {
+        await navigator.share({ title: "MateChat 回答", text });
+        method = "web_share";
+      } else {
+        await navigator.clipboard.writeText(text);
+      }
+      void apiRecordUsageEvent({
+        eventType: "share",
+        conversationId: activeId ?? undefined,
+        messageId: message.id,
+        model: message.model ?? undefined,
+        metadata: { method },
+      }).catch(() => undefined);
+      toast.success(method === "web_share" ? "已完成分享操作" : "内容已复制，可粘贴分享");
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      toast.error("分享失败，请稍后重试");
     }
   };
 
@@ -1053,6 +1194,7 @@ export function MateChatBubble() {
     !sending &&
     !hasPendingAttachment &&
     (draft.trim().length > 0 || readyAttachmentCount > 0);
+  const latestAssistantId = [...messages].reverse().find((message) => message.role === "assistant")?.id;
 
   // ── 渲染 ────────────────────────────────────────────────────────────────────
 
@@ -1446,19 +1588,31 @@ export function MateChatBubble() {
                                     {models.find((m) => m.id === msg.model)?.label ?? msg.model}
                                   </span>
                                 )}
-                                {!isUser && !isStreaming && msgSources[msg.id] === "db" && (
+                                {!isUser && !isStreaming && msg.sources?.includes("db") && (
                                   <span className="flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
                                     <Database className="h-2.5 w-2.5" />
                                     系统数据
                                   </span>
                                 )}
-                                {!isUser && !isStreaming && msgSources[msg.id] === "web" && (
+                                {!isUser && !isStreaming && msg.sources?.includes("rag") && (
+                                  <span className="flex items-center gap-1 rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-medium text-violet-700">
+                                    <FileText className="h-2.5 w-2.5" />
+                                    内部知识库
+                                  </span>
+                                )}
+                                {!isUser && !isStreaming && msg.sources?.includes("web") && (
                                   <span className="flex items-center gap-1 rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-medium text-sky-700">
                                     <Globe className="h-2.5 w-2.5" />
                                     联网检索
                                   </span>
                                 )}
-                                {!isUser && !isStreaming && msgSources[msg.id] === "ai" && (
+                                {!isUser && !isStreaming && msg.sources?.includes("attachment") && (
+                                  <span className="flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">
+                                    <Paperclip className="h-2.5 w-2.5" />
+                                    用户附件
+                                  </span>
+                                )}
+                                {!isUser && !isStreaming && msg.sources?.includes("ai") && (
                                   <span className="flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-600">
                                     <Sparkles className="h-2.5 w-2.5" />
                                     通用知识
@@ -1469,13 +1623,13 @@ export function MateChatBubble() {
                               {!isUser && !isStreaming && (
                                 <div className="mt-2 flex flex-wrap items-center gap-1.5 px-1">
                                   {[
-                                    { key: "copy", icon: Copy, label: "复制", onClick: () => void copyText(msg.content), active: false },
+                                    { key: "copy", icon: Copy, label: "复制", onClick: () => void copyText(msg.content, msg), active: false },
                                     { key: "refresh", icon: RefreshCw, label: "重新回答", onClick: () => void handleRefresh(msg.id), active: false },
                                     { key: "like", icon: ThumbsUp, label: "赞", onClick: () => void handleReaction(msg.id, "like"), active: msg.reaction === "like" },
-                                    { key: "dislike", icon: ThumbsDown, label: "踩", onClick: () => void handleReaction(msg.id, "dislike"), active: msg.reaction === "dislike" },
-                                    { key: "share", icon: Share2, label: "分享", onClick: () => void copyText(msg.content), active: false },
+                                    { key: "dislike", icon: ThumbsDown, label: msg.reaction === "dislike" ? "已反馈" : "踩", onClick: () => void handleReaction(msg.id, "dislike"), active: msg.reaction === "dislike" },
+                                    { key: "share", icon: Share2, label: "分享", onClick: () => void shareText(msg.content, msg), active: false },
                                     { key: "delete", icon: Trash2, label: "删除", onClick: () => void handleDeleteMsg(msg.id), active: false },
-                                  ].map(({ key, icon: Icon, label, onClick, active }) => (
+                                  ].filter((item) => item.key !== "refresh" || msg.id === latestAssistantId).map(({ key, icon: Icon, label, onClick, active }) => (
                                     <button
                                       key={key}
                                       type="button"
@@ -1492,6 +1646,88 @@ export function MateChatBubble() {
                                     </button>
                                   ))}
                                 </div>
+                              )}
+                              {!isUser && !isStreaming && feedbackDraft?.messageId === msg.id && (
+                                <form
+                                  className="mt-3 max-w-[640px] rounded-2xl border border-rose-200 bg-rose-50/70 p-4 shadow-sm"
+                                  onSubmit={(event) => {
+                                    event.preventDefault();
+                                    void submitDislikeFeedback();
+                                  }}
+                                >
+                                  <div className="flex items-start justify-between gap-4">
+                                    <div>
+                                      <p className="text-sm font-semibold text-slate-900">这条回答哪里需要改进？</p>
+                                      <p className="mt-1 text-xs text-slate-500">可多选，反馈只用于问题统计与后续分析。</p>
+                                    </div>
+                                    <button
+                                      type="button"
+                                      aria-label="关闭反馈"
+                                      onClick={() => setFeedbackDraft(null)}
+                                      className="cursor-pointer rounded-lg p-1 text-slate-400 transition-colors hover:bg-white hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                                    >
+                                      <X className="h-4 w-4" />
+                                    </button>
+                                  </div>
+                                  <fieldset className="mt-3">
+                                    <legend className="sr-only">选择反馈原因</legend>
+                                    <div className="flex flex-wrap gap-2">
+                                      {DISLIKE_REASONS.map((reason) => {
+                                        const selected = feedbackDraft.reasons.includes(reason.value);
+                                        return (
+                                          <button
+                                            key={reason.value}
+                                            type="button"
+                                            aria-pressed={selected}
+                                            onClick={() => setFeedbackDraft((current) => current ? {
+                                              ...current,
+                                              reasons: selected
+                                                ? current.reasons.filter((value) => value !== reason.value)
+                                                : [...current.reasons, reason.value],
+                                            } : current)}
+                                            className={cn(
+                                              "cursor-pointer rounded-full border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500",
+                                              selected
+                                                ? "border-rose-300 bg-white text-rose-700"
+                                                : "border-slate-200 bg-white/70 text-slate-600 hover:border-slate-300",
+                                            )}
+                                          >
+                                            {reason.label}
+                                          </button>
+                                        );
+                                      })}
+                                    </div>
+                                  </fieldset>
+                                  <label htmlFor={`feedback-comment-${msg.id}`} className="mt-3 block text-xs font-medium text-slate-700">
+                                    补充说明 <span className="font-normal text-slate-400">（选填）</span>
+                                  </label>
+                                  <textarea
+                                    id={`feedback-comment-${msg.id}`}
+                                    value={feedbackDraft.comment}
+                                    maxLength={500}
+                                    rows={2}
+                                    onChange={(event) => setFeedbackDraft((current) => current ? { ...current, comment: event.target.value } : current)}
+                                    placeholder="例如：正确数量应该是 12，不是 9"
+                                    className="mt-1.5 w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none transition focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                                  />
+                                  <div className="mt-3 flex items-center justify-end gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() => setFeedbackDraft(null)}
+                                      className="cursor-pointer rounded-lg px-3 py-2 text-xs font-medium text-slate-600 transition-colors hover:bg-white"
+                                    >
+                                      取消
+                                    </button>
+                                    <button
+                                      type="submit"
+                                      disabled={submittingFeedback}
+                                      className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-rose-700 disabled:cursor-wait disabled:opacity-60"
+                                    >
+                                      {submittingFeedback && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                                      提交反馈
+                                    </button>
+                                  </div>
+                                </form>
                               )}
                               {/* 知识库引用：命中内部资料时由后端 SSE 推送 */}
                               {!isUser && !isStreaming && msgCitations[msg.id] && (

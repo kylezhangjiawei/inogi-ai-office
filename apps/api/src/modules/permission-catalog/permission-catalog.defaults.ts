@@ -137,6 +137,8 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
 
   { code: 'page:mailbox-management', label: '邮箱管理', description: '邮箱集成管理页面', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/mailbox-management', sortOrder: 900 },
   { code: 'page:ai-model-management', label: 'AI 模型管理', description: 'AI 模型配置页面', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/ai-model-management', sortOrder: 910 },
+  { code: 'page:chat-analytics', label: 'AI 使用与反馈', description: '查看 MateChat 使用、质量、反馈与问题明细', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/chat-analytics', sortOrder: 912 },
+  { code: 'chat-feedback:manage', label: '处理 AI 反馈', description: '更新 MateChat 问题反馈的处理状态与处理结论', groupLabel: '操作权限 · AI 使用与反馈', type: 'action', sortOrder: 913 },
   { code: 'page:ocr-config-management', label: '腾讯OCR配置', description: '腾讯 OCR 凭证配置页面', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/ocr-config-management', sortOrder: 915 },
   { code: 'page:downloads', label: '下载和教程', description: '查看下载与教程页面', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/downloads', sortOrder: 920 },
   { code: 'page:manual', label: '操作手册', description: '按页面查看图文操作手册（当前含中美协同三页）', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/manual', sortOrder: 921 },
