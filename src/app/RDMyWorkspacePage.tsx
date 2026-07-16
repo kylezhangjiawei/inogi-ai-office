@@ -3604,7 +3604,11 @@ export function RDMyWorkspacePage() {
   const [taskStatusFilter, setTaskStatusFilter] = useState<TaskStatus | "all">("all");
   const [taskDueFilter, setTaskDueFilter] = useState<WorkspaceDueFilter>("all");
   // 任务区视图：list = 现有平铺列表；panorama = 子系统全景（按一级系统归类，仅看自己的任务）。
-  const [taskView, setTaskView] = useState<"list" | "panorama">("list");
+  const [taskViewRaw, setTaskView] = useState<"list" | "panorama">("list");
+  // 协同下全景无意义（任务无 category_path，全塌进「未分类」），切换器已隐藏。
+  // 这里再把值钉死：光藏按钮挡不住状态残留——同一组件实例在研发/协同路由间复用时，
+  // 之前选的 panorama 会带过来，导致协同用户看到一个只有「未分类」的空壳视图。
+  const taskView = isUsCollabWorkspace() ? "list" : taskViewRaw;
   // 子系统全景的「移动归类」：勾选集合 + 移动弹窗目标任务（单个 / 批量共用同一弹窗）。
   const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
   const [moveDialogTasks, setMoveDialogTasks] = useState<WorkspaceTask[] | null>(null);
@@ -4042,7 +4046,13 @@ export function RDMyWorkspacePage() {
 
                 {/* Selects + 清空 + count — always one row, never wrap */}
                 <div className="flex shrink-0 items-center gap-1.5">
-                  {/* 视图切换：列表 / 子系统全景（仅看自己的任务） */}
+                  {/* 视图切换：列表 / 子系统全景（仅看自己的任务）。
+                      协同下隐藏：全景按 category_path 的一级系统分组，而协同任务的
+                      category_path 恒为空串（立项时刻意不写，见 RDProjectProposalDialog
+                      的 resolveUsCollabTarget），所有任务会塌进同一个「未分类」组 ——
+                      比列表严格更差。同一理由下「移动归类」在协同也已关闭（见下方 move）。
+                      驾驶舱走的是 hideSystemPanorama prop，这里没有 prop 可传，直接按工作区判。 */}
+                  {!isUsCollabWorkspace() && (
                   <div className="flex items-center gap-0.5 rounded-[8px] border border-slate-200 bg-slate-50 p-0.5">
                     <button
                       type="button"
@@ -4069,6 +4079,7 @@ export function RDMyWorkspacePage() {
                       {t("全景")}
                     </button>
                   </div>
+                  )}
                   <NativeSelect
                     className="h-8 rounded-[8px] border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
                     value={taskPriorityFilter}
