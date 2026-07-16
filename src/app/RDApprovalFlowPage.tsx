@@ -29,6 +29,8 @@ import {
   APPROVAL_MODE_OPTIONS,
   APPROVAL_PERMISSION_OPTIONS,
   DEFAULT_PROJECT_FLOW,
+  effectiveNodePool,
+  fetchApprovalCandidatesApi,
   fetchApprovalPoolsApi,
   fetchFlowsApi,
   getPoolForPermission,
@@ -85,6 +87,7 @@ function ApprovalNodeCard({
   onMoveUp,
   onMoveDown,
   pools,
+  candidates,
   readOnly,
 }: {
   node: ApprovalNode;
@@ -95,10 +98,54 @@ function ApprovalNodeCard({
   onMoveUp: () => void;
   onMoveDown: () => void;
   pools: Record<string, PoolMember[]>;
+  /** 「添加审核人」候选（本工作区有审批能力的人；只读账号拿不到，传空数组） */
+  candidates: PoolMember[];
   readOnly?: boolean;
 }) {
   useI18n(); // 订阅语言切换（本卡片文案全部经 t()）
-  const pool = pools[node.permission_code] ?? getPoolForPermission(node.permission_code);
+  const derived = pools[node.permission_code] ?? getPoolForPermission(node.permission_code);
+  const excludedIds = new Set(node.excluded_member_ids ?? []);
+  const removedMembers = derived.filter((m) => excludedIds.has(m.id));
+  const pool = effectiveNodePool(node, derived);
+  const extraIds = new Set((node.extra_members ?? []).map((m) => m.id));
+  const [addOpen, setAddOpen] = useState(false);
+  const [candidateSearch, setCandidateSearch] = useState("");
+  const poolIds = new Set(pool.map((m) => m.id));
+  const keyword = candidateSearch.trim();
+  const addableCandidates = candidates.filter(
+    (c) => !poolIds.has(c.id) && (!keyword || c.name.includes(keyword) || (c.position ?? "").includes(keyword)),
+  );
+
+  /**
+   * 不变式：extra_members 与 excluded_member_ids **恒不相交**。
+   * 二者都能装同一个人时会自相矛盾——芯片区（走 effectiveNodePool，extras 兜住）显示在池里，
+   * 「已移出」区（只看 excluded）同时显示删除线，且 ✕ 按钮按 extraIds 分发，点一次只清掉
+   * extras、人还在派生池里 → 表现为「移除按钮失灵、要点两次」。故每次写入都把另一侧同 id 清掉。
+   */
+  const excludeMember = (id: string) =>
+    onChange({
+      excluded_member_ids: [...new Set([...(node.excluded_member_ids ?? []), id])],
+      extra_members: (node.extra_members ?? []).filter((m) => m.id !== id),
+    });
+  const restoreMember = (id: string) =>
+    onChange({
+      excluded_member_ids: (node.excluded_member_ids ?? []).filter((x) => x !== id),
+      extra_members: (node.extra_members ?? []).filter((m) => m.id !== id),
+    });
+  const removeExtra = (id: string) =>
+    onChange({ extra_members: (node.extra_members ?? []).filter((m) => m.id !== id) });
+  const addExtra = (c: PoolMember) => {
+    onChange({
+      // 派生池里被移出过的人重新添加：清掉 excluded 让他回归派生成员，而不是再塞一份 extras
+      excluded_member_ids: (node.excluded_member_ids ?? []).filter((x) => x !== c.id),
+      extra_members: derived.some((m) => m.id === c.id)
+        ? (node.extra_members ?? []).filter((m) => m.id !== c.id)
+        : [...(node.extra_members ?? []).filter((m) => m.id !== c.id), { id: c.id, name: c.name, position: c.position, email: c.email }],
+    });
+    setAddOpen(false);
+    setCandidateSearch("");
+  };
+
   const modeCfg = MODE_BADGE[node.mode];
 
   return (
@@ -279,7 +326,7 @@ function ApprovalNodeCard({
           </div>
         </div>
 
-        {/* Pool preview */}
+        {/* 审核池：权限码派生打底，支持手动增删（存进节点数据，随流程保存，两池各存各的） */}
         <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50/40 px-3 py-2.5">
           <div className="mb-2 flex items-center justify-between">
             <span className="flex items-center gap-1.5 text-[11px] font-medium text-slate-600">
@@ -289,17 +336,103 @@ function ApprovalNodeCard({
                 {pool.length}
               </span>
             </span>
-            <span className="text-[10px] text-slate-400">{t("由「角色权限」页面分配")}</span>
+            <span className="text-[10px] text-slate-400">{t("默认按「角色权限」自动入池，可在此手动增删")}</span>
           </div>
           {pool.length === 0 ? (
             <p className="text-[11px] italic text-slate-400">
-              {t("暂无拥有此权限的用户，请到「角色权限」页面给某角色分配该权限")}
+              {t("池为空：到「角色权限」给角色分配该权限码，或点下方「添加审核人」手动指定")}
             </p>
           ) : (
             <div className="flex flex-wrap gap-2">
               {pool.map((m) => (
-                <PoolMemberChip key={m.id} member={m} />
+                <PoolMemberChip
+                  key={m.id}
+                  member={m}
+                  manual={extraIds.has(m.id)}
+                  onRemove={
+                    readOnly ? undefined : () => (extraIds.has(m.id) ? removeExtra(m.id) : excludeMember(m.id))
+                  }
+                  removeTitle={t("移出此节点")}
+                />
               ))}
+            </div>
+          )}
+
+          {removedMembers.length > 0 && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-dashed border-slate-200 pt-2">
+              <span className="text-[10px] text-slate-400">{t("已移出 {n} 人：", { n: removedMembers.length })}</span>
+              {removedMembers.map((m) => (
+                <span key={m.id} className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-[10px] text-slate-400 line-through">
+                  {m.name}
+                  {!readOnly && (
+                    <button
+                      type="button"
+                      onClick={() => restoreMember(m.id)}
+                      className="cursor-pointer text-[10px] font-semibold text-indigo-600 no-underline hover:text-indigo-800"
+                      style={{ textDecoration: "none" }}
+                    >
+                      {t("恢复")}
+                    </button>
+                  )}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {!readOnly && (
+            <div className="mt-2">
+              {addOpen ? (
+                <div className="rounded-md border border-indigo-100 bg-white p-2 shadow-sm">
+                  <div className="mb-1.5 flex items-center gap-2">
+                    <Input
+                      autoFocus
+                      value={candidateSearch}
+                      onChange={(e) => setCandidateSearch(e.target.value)}
+                      placeholder={t("搜索姓名或角色…")}
+                      className="h-7 flex-1 rounded border border-slate-200 px-2 text-xs outline-none focus:border-indigo-300"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAddOpen(false);
+                        setCandidateSearch("");
+                      }}
+                      className="cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  {addableCandidates.length === 0 ? (
+                    <p className="px-1 py-1.5 text-[11px] text-slate-400">
+                      {t("没有可添加的人了。候选范围＝本工作区有审批权限的成员（保证加进来就能审）。")}
+                    </p>
+                  ) : (
+                    <div className="max-h-36 space-y-0.5 overflow-y-auto">
+                      {addableCandidates.slice(0, 20).map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => addExtra(c)}
+                          className="flex w-full cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-left text-xs text-slate-700 transition-colors hover:bg-indigo-50"
+                        >
+                          <MiniAvatar name={c.name} />
+                          <span className="font-medium">{c.name}</span>
+                          <span className="text-[10px] text-slate-400">{t(c.position)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setAddOpen(true)}
+                  className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-dashed border-slate-300 px-2 py-1 text-[11px] font-medium text-slate-500 transition-colors hover:border-indigo-300 hover:bg-indigo-50/40 hover:text-indigo-700"
+                >
+                  <Plus className="h-3 w-3" />
+                  {t("添加审核人")}
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -308,12 +441,41 @@ function ApprovalNodeCard({
   );
 }
 
-function PoolMemberChip({ member }: { member: PoolMember }) {
+function PoolMemberChip({
+  member,
+  manual,
+  onRemove,
+  removeTitle,
+}: {
+  member: PoolMember;
+  /** 手动增补的成员，样式与派生成员区分 */
+  manual?: boolean;
+  onRemove?: () => void;
+  removeTitle?: string;
+}) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[11px] text-slate-700 transition-colors hover:bg-slate-50">
+    <span
+      className={cn(
+        "group/chip inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] text-slate-700 transition-colors",
+        manual ? "border-indigo-200 bg-indigo-50/70" : "border-slate-200 bg-white hover:bg-slate-50",
+      )}
+    >
       <MiniAvatar name={member.name} />
       <span className="font-medium">{member.name}</span>
-      <span className="text-[10px] text-slate-400">{t(member.position)}</span>
+      {member.position ? <span className="text-[10px] text-slate-400">{t(member.position)}</span> : null}
+      {manual ? (
+        <span className="rounded bg-indigo-100 px-1 text-[9px] font-semibold leading-4 text-indigo-700">{t("手动")}</span>
+      ) : null}
+      {onRemove ? (
+        <button
+          type="button"
+          onClick={onRemove}
+          title={removeTitle}
+          className="ml-0.5 hidden h-3.5 w-3.5 cursor-pointer items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-rose-100 hover:text-rose-600 group-hover/chip:inline-flex"
+        >
+          <X className="h-2.5 w-2.5" />
+        </button>
+      ) : null}
     </span>
   );
 }
@@ -330,15 +492,42 @@ function FlowConnector() {
   );
 }
 
+/**
+ * 默认流程模板：协同池用自己的名字，与研发的默认流程在视觉上区分开。
+ * 节点结构相同是有意的起点——保存后两池各存各的（rdws.* 键隔离），可独立增删改。
+ */
+function defaultFlowTemplate(): ApprovalFlow {
+  return isUsCollabWorkspace()
+    ? { ...DEFAULT_PROJECT_FLOW, name: "协同立项审批 · 默认流程" }
+    : DEFAULT_PROJECT_FLOW;
+}
+
 function nodeSummary(node: ApprovalNode): string {
   return `${node.level}.${node.label}(${node.permission_code}/${node.mode})`;
 }
 
 function nodeEditChanges(before: ApprovalNode, after: ApprovalNode): AuditChange[] {
   const changes: AuditChange[] = [];
-  (["level", "label", "permission_code", "mode", "description", "sla_hours", "escalate_on_timeout"] as const).forEach((field) => {
-    if (before[field] !== after[field]) {
-      changes.push({ field, before: before[field], after: after[field] });
+  (
+    [
+      "level",
+      "label",
+      "permission_code",
+      "mode",
+      "description",
+      "sla_hours",
+      "escalate_on_timeout",
+      "extra_members",
+      "excluded_member_ids",
+    ] as const
+  ).forEach((field) => {
+    const b = before[field];
+    const a = after[field];
+    // 数组字段（手动增删名单）按内容比较——引用比较会把「没改」也记成变更
+    const changed =
+      Array.isArray(b) || Array.isArray(a) ? JSON.stringify(b ?? []) !== JSON.stringify(a ?? []) : b !== a;
+    if (changed) {
+      changes.push({ field, before: b, after: a });
     }
   });
   return changes;
@@ -415,7 +604,24 @@ export function RDApprovalFlowPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [approvalPools, setApprovalPools] = useState<Record<string, PoolMember[]>>({});
+  const [candidates, setCandidates] = useState<PoolMember[]>([]);
   const canManageFlow = usePermission(PERMISSIONS.RD_APPROVAL_FLOW_MANAGE);
+
+  // 「添加审核人」候选：仅管理员需要（端点也只对 rd-approval-flow:manage 开放）
+  useEffect(() => {
+    if (!canManageFlow) return;
+    let cancelled = false;
+    fetchApprovalCandidatesApi()
+      .then((list) => {
+        if (!cancelled) setCandidates(list);
+      })
+      .catch(() => {
+        if (!cancelled) setCandidates([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canManageFlow]);
 
   useEffect(() => {
     let cancelled = false;
@@ -487,7 +693,7 @@ export function RDApprovalFlowPage() {
       return;
     }
     const now = new Date().toISOString();
-    const draft = { ...DEFAULT_PROJECT_FLOW, created_at: now, updated_at: now };
+    const draft = { ...defaultFlowTemplate(), created_at: now, updated_at: now };
     setFlowsState([draft]);
     setSavedFlows([]);
     setActiveFlowId(draft.id);
@@ -636,18 +842,19 @@ export function RDApprovalFlowPage() {
       return;
     }
     const previousFlow = activeFlow;
+    const template = defaultFlowTemplate();
     recordAudit({
       actor: flowAuditActor,
       action: "flow.reset",
-      resource: { type: "flow", id: DEFAULT_PROJECT_FLOW.id, name: DEFAULT_PROJECT_FLOW.name },
-      changes: [{ field: "node_count", before: previousFlow.nodes.length, after: DEFAULT_PROJECT_FLOW.nodes.length }],
+      resource: { type: "flow", id: template.id, name: template.name },
+      changes: [{ field: "node_count", before: previousFlow.nodes.length, after: template.nodes.length }],
       comment: "恢复系统默认审批流",
       source: "web",
     });
-    setFlowsState([DEFAULT_PROJECT_FLOW]);
-    setSavedFlows([DEFAULT_PROJECT_FLOW]);
-    setActiveFlowId(DEFAULT_PROJECT_FLOW.id);
-    saveFlows([DEFAULT_PROJECT_FLOW]);
+    setFlowsState([template]);
+    setSavedFlows([template]);
+    setActiveFlowId(template.id);
+    saveFlows([template]);
     setConfirmReset(false);
     setDirty(false);
     toast.info(t("已恢复默认审批流"));
@@ -744,6 +951,7 @@ export function RDApprovalFlowPage() {
                   onMoveUp={() => moveNode(node.id, "up")}
                   onMoveDown={() => moveNode(node.id, "down")}
                   pools={approvalPools}
+                  candidates={candidates}
                   readOnly={!canManageFlow}
                 />
               </div>

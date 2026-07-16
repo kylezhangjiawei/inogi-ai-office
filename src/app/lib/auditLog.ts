@@ -288,10 +288,16 @@ function storageKey(): string {
 const AUDIT_EVENT = "rd-audit-log-changed";
 const MAX_LOGS = 1000;
 
-function loadRaw(): AuditLog[] {
+/**
+ * ⚠️ 异步回调里必须传 key 快照，不能让它重新求值。
+ * storageKey() 依赖当前 location.pathname：请求在途时用户切到另一个池的页面，
+ * 响应回来时求值就会把这条留痕写进**另一个池**的缓存并广播刷新（实测可复现）。
+ * 同步路径不传即可（此刻 pathname 就是发起时的 pathname）。
+ */
+function loadRaw(key: string = storageKey()): AuditLog[] {
   if (typeof window === "undefined") return [];
   try {
-    const raw = localStorage.getItem(storageKey());
+    const raw = localStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as AuditLog[];
     return Array.isArray(parsed) ? parsed : [];
@@ -300,9 +306,9 @@ function loadRaw(): AuditLog[] {
   }
 }
 
-function saveRaw(logs: AuditLog[], emit = true): void {
+function saveRaw(logs: AuditLog[], emit = true, key: string = storageKey()): void {
   if (typeof window === "undefined") return;
-  localStorage.setItem(storageKey(), JSON.stringify(logs));
+  localStorage.setItem(key, JSON.stringify(logs));
   if (emit) {
     window.dispatchEvent(new CustomEvent(AUDIT_EVENT));
   }
@@ -313,9 +319,10 @@ function saveRaw(logs: AuditLog[], emit = true): void {
  * 让当前页面的时间线立即看到服务端新写入的记录，无需等下次挂载）。
  */
 export async function syncAuditLogsFromRemote(): Promise<void> {
+  const key = storageKey(); // await 之前取，防响应回来时用户已切池（见 loadRaw 注释）
   try {
     const remoteLogs = await fetchRdAuditLogs<AuditLog>();
-    saveRaw(remoteLogs.slice(0, MAX_LOGS), true);
+    saveRaw(remoteLogs.slice(0, MAX_LOGS), true, key);
   } catch {
     // 拉取失败不打扰用户：下次组件挂载会自然刷新
   }
@@ -328,13 +335,15 @@ export function recordAudit(entry: Omit<AuditLog, "id" | "timestamp">): AuditLog
     id: `log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     timestamp: new Date().toISOString(),
   };
-  const logs = loadRaw();
+  // 发起时就把缓存键定死：响应回来时用户可能已切到另一个池的页面（见 loadRaw 注释）
+  const key = storageKey();
+  const logs = loadRaw(key);
   logs.unshift(full); // newest first
-  saveRaw(logs.slice(0, MAX_LOGS));
+  saveRaw(logs.slice(0, MAX_LOGS), true, key);
   void createRdAuditLog<AuditLog>(full)
     .then((saved) => {
-      const current = loadRaw().filter((log) => log.id !== saved.id);
-      saveRaw([saved, ...current].slice(0, MAX_LOGS));
+      const current = loadRaw(key).filter((log) => log.id !== saved.id);
+      saveRaw([saved, ...current].slice(0, MAX_LOGS), true, key);
     })
     .catch(() => {
       // Keep optimistic local copy; the next successful API read will reconcile.
@@ -352,9 +361,10 @@ export async function addAuditLogNote(
   logId: string,
   note: { text: string; actor: AuditActor },
 ): Promise<AuditLog> {
+  const key = storageKey(); // await 之前取，防响应回来时用户已切池
   const updated = await addRdAuditLogNote<AuditLog>(logId, note);
-  const current = loadRaw().map((log) => (log.id === updated.id ? updated : log));
-  saveRaw(current); // emit=true → 广播事件，触发各处 useAuditLogs 从本地刷新
+  const current = loadRaw(key).map((log) => (log.id === updated.id ? updated : log));
+  saveRaw(current, true, key); // emit=true → 广播事件，触发各处 useAuditLogs 从本地刷新
   return updated;
 }
 
@@ -439,10 +449,11 @@ export function useAuditLogs(filter?: AuditFilter): AuditLog[] {
     let cancelled = false;
     const refreshLocal = () => setLogs(queryLogs(filter));
     const refreshRemote = async () => {
+      const key = storageKey(); // await 之前取，防响应回来时用户已切池
       try {
         const remoteLogs = await fetchRdAuditLogs<AuditLog>();
         if (cancelled) return;
-        saveRaw(remoteLogs.slice(0, MAX_LOGS), false);
+        saveRaw(remoteLogs.slice(0, MAX_LOGS), false, key);
         setLogs(filterLogs(remoteLogs, filter));
       } catch {
         if (!cancelled) {

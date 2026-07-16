@@ -10,7 +10,7 @@
  * 持久化：通过研发模块 API；localStorage 仅作为离线编辑回显。
  */
 
-import { fetchRdApprovalFlows, fetchRdApprovalPools, isUsCollabWorkspace, saveRdApprovalFlows } from "./rdApi";
+import { fetchRdApprovalCandidates, fetchRdApprovalFlows, fetchRdApprovalPools, isUsCollabWorkspace, saveRdApprovalFlows } from "./rdApi";
 
 export type ApprovalMode = "single" | "any" | "all";
 
@@ -31,6 +31,15 @@ export type ApprovalNode = {
   sla_hours?: number;
   /** Whether to escalate after SLA timeout (reserved) */
   escalate_on_timeout?: boolean;
+  /**
+   * 手动增补的审核人（在权限码派生池之外单独点名）。存 {id,name} 快照：
+   * 展示不依赖候选接口可达；position 等细节渲染时从候选/派生池补齐。
+   * 候选范围由后端 approval-candidates 限定为「本工作区有审批能力的人」，
+   * 保证手动加进来的人一定通过操作码授权、能真正执行审批。
+   */
+  extra_members?: PoolMember[];
+  /** 手动移出的成员 id（对权限码派生池做点名排除；两清单叠加=节点有效池） */
+  excluded_member_ids?: string[];
 };
 
 export type ApprovalFlow = {
@@ -102,6 +111,24 @@ export function getPoolForPermission(permissionCode: string): PoolMember[] {
   return MOCK_USERS_BY_PERMISSION[permissionCode] ?? [];
 }
 
+/**
+ * 节点有效审核池 = (权限码派生池 − 手动移出) ∪ 手动增补。
+ * 审批流页与立项弹窗的池展示、后端立项审核通知捞人都按这个口径（后端有同构实现）。
+ */
+export function effectiveNodePool(node: ApprovalNode, derived: PoolMember[]): PoolMember[] {
+  const excluded = new Set(node.excluded_member_ids ?? []);
+  const kept = derived.filter((m) => !excluded.has(m.id));
+  const seen = new Set(kept.map((m) => m.id));
+  // extras 里若混进了已被 excluded 的 id（旧版本数据可能两个数组相交），以「移出」为准：
+  // 移出是显式的排除意图，不该被一条残留的 extras 记录悄悄翻案。
+  const extras = (node.extra_members ?? []).filter((m) => {
+    if (!m?.id || excluded.has(m.id) || seen.has(m.id)) return false;
+    seen.add(m.id);
+    return true;
+  });
+  return [...kept, ...extras];
+}
+
 /** All approval-related permission codes that can be wired to a node */
 export const APPROVAL_PERMISSION_OPTIONS: { code: string; label: string }[] = [
   { code: "rd-project:review-l1", label: "立项一审 (rd-project:review-l1)" },
@@ -158,6 +185,11 @@ export function fetchFlowsApi(): Promise<ApprovalFlow[]> {
 
 export function fetchApprovalPoolsApi(permissionCodes: string[]): Promise<Record<string, PoolMember[]>> {
   return fetchRdApprovalPools<PoolMember>(permissionCodes);
+}
+
+/** 「添加审核人」候选名单（本工作区有审批能力的人） */
+export function fetchApprovalCandidatesApi(): Promise<PoolMember[]> {
+  return fetchRdApprovalCandidates<PoolMember>();
 }
 
 export function saveFlowsApi(flows: ApprovalFlow[]): Promise<ApprovalFlow[]> {

@@ -2227,10 +2227,48 @@ export class ResearchDevelopmentService {
       .map((u) => ({ id: u.id, name: u.name }));
   }
 
+  /**
+   * 立项审核通知的收件人：优先按「审批流第一节点的有效池」捞人——
+   * 有效池 = 权限码派生（操作码 ∩ 当前工作区页面码，getUsersWithAnyPermission 口径）
+   *          − 节点手动移出(excluded_member_ids) ∪ 节点手动增补(extra_members)。
+   * 与前端 approvalFlowConfig.effectiveNodePool 同构；审批流未配置或池为空时返回 []，
+   * 调用方回退到固定管理员集，历史行为不变。
+   */
+  private async getProposalReviewRecipients(): Promise<Array<{ id: string; name: string }>> {
+    const flows = await this.readArray('rd.approvalFlows');
+    const flow =
+      flows.find((f) => isRecord(f) && f.scope === 'project_proposal' && f.is_default === true) ??
+      flows.find((f) => isRecord(f) && f.scope === 'project_proposal');
+    if (!isRecord(flow)) return [];
+    const firstNode = asArray(flow.nodes).find(isRecord);
+    if (!firstNode) return [];
+
+    const code = String(firstNode.permission_code ?? '').trim();
+    const derived = code ? await this.getUsersWithAnyPermission([code]) : [];
+    const excluded = new Set(asArray(firstNode.excluded_member_ids).map((id) => String(id)));
+    const kept = derived.filter((u) => !excluded.has(u.id));
+    const seen = new Set(kept.map((u) => u.id));
+    // 与前端 effectiveNodePool 同口径：excluded 优先于 extras（旧数据两数组可能相交），并去重
+    const extras = asArray(firstNode.extra_members)
+      .filter(isRecord)
+      .map((m) => ({ id: String(m.id ?? ''), name: String(m.name ?? '') }))
+      .filter((m) => {
+        if (!m.id || excluded.has(m.id) || seen.has(m.id)) return false;
+        seen.add(m.id);
+        return true;
+      });
+    return [...kept, ...extras];
+  }
+
   private async notifyAdminsOfPendingReview(task: JsonRecord, patch: JsonRecord): Promise<void> {
     try {
       const reviewType = String(patch.pending_review_type ?? task.pending_review_type ?? 'result');
-      const admins = await this.getUsersWithAnyPermission(['rd-task:edit', 'rd-task:reassign']);
+      let admins = await this.getUsersWithAnyPermission(['rd-task:edit', 'rd-task:reassign']);
+      if (reviewType === 'proposal') {
+        // 立项类：审批流配置了谁审，就通知谁（含手动增删的结果）；未配置回退管理员集
+        const poolRecipients = await this.getProposalReviewRecipients().catch(() => []);
+        if (poolRecipients.length > 0) admins = poolRecipients;
+      }
       const body = JSON.stringify({
         type: 'review_request',
         review_type: reviewType,
@@ -6216,11 +6254,57 @@ export class ResearchDevelopmentService {
     return this.readArray('rd.approvalFlows');
   }
 
+  /**
+   * 「添加审核人」候选名单：本工作区内持有任一审批相关操作码的用户（超管通行）。
+   * 刻意不开放全员——手动加进节点池的人会收到审核通知，若无操作码点审批会被拒，
+   * 把候选锁在「真的能审」的范围内才不会造成收到通知却无权处理的死角。
+   * codes 由 controller 传入（RD_TASK_MANAGER_PERMISSIONS，与审批授权同源）。
+   */
+  async getApprovalCandidates(codes: string[]) {
+    const workspacePages = (WORKSPACE_PAGE_CODES[currentRdWorkspace()] ?? []).filter((code) =>
+      code.startsWith('page:'),
+    );
+    const users = await this.prisma.user.findMany({
+      where: { status: 'ACTIVE' },
+      orderBy: { name: 'asc' },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        department: true,
+        role: { select: { name: true, permissions: true } },
+      },
+    });
+    return users
+      .filter((user) => {
+        const perms = Array.isArray(user.role?.permissions) ? (user.role.permissions as string[]) : [];
+        if (perms.includes('*')) return true;
+        return (
+          codes.some((c) => perms.includes(c)) &&
+          workspacePages.some((page) => perms.includes(page))
+        );
+      })
+      .map((user) => ({
+        id: user.id,
+        name: user.name,
+        position: user.role?.name ?? user.department ?? '未分配角色',
+        email: user.email,
+      }));
+  }
+
   async getApprovalPools(permissionCodes: string[]) {
     const requested = Array.from(
       new Set(permissionCodes.map((code) => code.trim()).filter(Boolean)),
     );
     if (requested.length === 0) return {};
+
+    // 池成员与审核通知收件人（getUsersWithAnyPermission）同口径：操作码 + 当前工作区页面码。
+    // 操作码两池共享，只按操作码捞人会把协同角色显示进研发池（反之亦然），
+    // 导致「审批流页显示的池」≠「实际收到审核通知的人」。页面码定池，这里补同一过滤；
+    // 想让某人只进协同池：给他协同页面码 + 审核操作码、不给研发页面码即可（超管 '*' 两池均显示）。
+    const workspacePages = (WORKSPACE_PAGE_CODES[currentRdWorkspace()] ?? []).filter((code) =>
+      code.startsWith('page:'),
+    );
 
     const users = await this.prisma.user.findMany({
       where: { status: 'ACTIVE' },
@@ -6240,6 +6324,9 @@ export class ResearchDevelopmentService {
       const permissions = Array.isArray(user.role?.permissions)
         ? (user.role.permissions as string[])
         : [];
+      const inWorkspace =
+        permissions.includes('*') || workspacePages.some((page) => permissions.includes(page));
+      if (!inWorkspace) return;
       requested.forEach((code) => {
         if (!permissions.includes('*') && !permissions.includes(code)) return;
         pools[code].push({
