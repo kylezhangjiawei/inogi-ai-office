@@ -457,6 +457,17 @@ export const expenseService = {
     }
   },
 
+  /**
+   * 与 getDashboard 使用同一份接口和映射，但把请求错误交给调用方处理。
+   * 首页等聚合视图需要区分“确实没有数据”和“接口加载失败”，因此不能静默回退成全 0。
+   */
+  async getDashboardStrict(department?: string): Promise<ExpenseDashboardData> {
+    const params = new URLSearchParams();
+    appendDepartment(params, department);
+    const qs = params.toString();
+    return toDashboard(await request<ApiDashboard>(`/api/expenses/dashboard${qs ? `?${qs}` : ""}`));
+  },
+
   async listDepartmentOptions(): Promise<ExpenseDepartmentOption[]> {
     try {
       return await request<ExpenseDepartmentOption[]>("/api/departments/options");

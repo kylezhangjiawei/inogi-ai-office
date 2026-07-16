@@ -37,28 +37,28 @@ model Role {
 }
 
 model User {
-  id            String             @id @default(cuid())
-  name          String
-  englishName   String             @db.VarChar(80)
-  username      String?            @unique
-  email         String             @unique
-  passwordHash  String?
-  department    String?
-  status        UserStatus         @default(ACTIVE)
-  roleId        String?
-  role          Role?              @relation(fields: [roleId], references: [id])
+  id                      String                   @id @default(cuid())
+  name                    String
+  englishName             String                   @db.VarChar(80)
+  username                String?                  @unique
+  email                   String                   @unique
+  passwordHash            String?
+  department              String?
+  status                  UserStatus               @default(ACTIVE)
+  roleId                  String?
+  role                    Role?                    @relation(fields: [roleId], references: [id])
   /// OSS 对象 key（如 "avatars/{userId}/{timestamp}.png"）。
   /// 每次 getCurrentUser 用 getSignedUrl 生成 30 天签名 URL 返回给前端。
-  avatarObjectKey String?           @db.VarChar(500)
-  refreshTokens   RefreshToken[]
-  auditLogs       AuditLog[]
-  conversations   ChatConversation[]
-  generatedImages GeneratedImage[]
-  imageEditMessages ImageEditMessage[]
+  avatarObjectKey         String?                  @db.VarChar(500)
+  refreshTokens           RefreshToken[]
+  auditLogs               AuditLog[]
+  conversations           ChatConversation[]
+  generatedImages         GeneratedImage[]
+  imageEditMessages       ImageEditMessage[]
   imagePromptChatSessions ImagePromptChatSession[]
   imagePromptChatMessages ImagePromptChatMessage[]
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
 }
 
 model Department {
@@ -179,20 +179,20 @@ model RuntimeState {
 }
 
 model OrderProcessingOrder {
-  id              String                         @id
-  customer        String
-  type            String
-  status          String
-  shipDate        DateTime
-  source          String                         @default("upload")
-  generated       Boolean                        @default(false)
-  invoiceExported Boolean                        @default(false)
+  id               String                        @id
+  customer         String
+  type             String
+  status           String
+  shipDate         DateTime
+  source           String                        @default("upload")
+  generated        Boolean                       @default(false)
+  invoiceExported  Boolean                       @default(false)
   originalFileName String?
-  metadata        Json                           @default("{}")
-  products        OrderProcessingOrderProduct[]
-  invoice         OrderProcessingInvoice?
-  createdAt       DateTime                       @default(now())
-  updatedAt       DateTime                       @updatedAt
+  metadata         Json                          @default("{}")
+  products         OrderProcessingOrderProduct[]
+  invoice          OrderProcessingInvoice?
+  createdAt        DateTime                      @default(now())
+  updatedAt        DateTime                      @updatedAt
 
   @@index([source, createdAt])
   @@index([status, createdAt])
@@ -200,9 +200,9 @@ model OrderProcessingOrder {
 }
 
 model OrderProcessingOrderProduct {
-  id         String                 @id @default(cuid())
+  id         String               @id @default(cuid())
   orderId    String
-  order      OrderProcessingOrder   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  order      OrderProcessingOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
   sku        String
   name       String
   category   String
@@ -210,14 +210,14 @@ model OrderProcessingOrderProduct {
   unit       String
   orderQty   Int
   stockQty   Int
-  orderPrice Decimal                @db.Decimal(12, 2)
-  sysPrice   Decimal                @db.Decimal(12, 2)
-  subtotal   Decimal                @db.Decimal(14, 2)
+  orderPrice Decimal              @db.Decimal(12, 2)
+  sysPrice   Decimal              @db.Decimal(12, 2)
+  subtotal   Decimal              @db.Decimal(14, 2)
   status     String
   remark     String
-  sortOrder  Int                    @default(0)
-  createdAt  DateTime               @default(now())
-  updatedAt  DateTime               @updatedAt
+  sortOrder  Int                  @default(0)
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
 
   @@index([orderId, sku])
   @@index([sku])
@@ -225,17 +225,17 @@ model OrderProcessingOrderProduct {
 }
 
 model OrderProcessingInvoice {
-  id          String                @id @default(cuid())
-  orderId     String                @unique
-  order       OrderProcessingOrder  @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  invoiceNo   String                @unique
-  amount      Decimal               @db.Decimal(14, 2)
+  id          String               @id @default(cuid())
+  orderId     String               @unique
+  order       OrderProcessingOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  invoiceNo   String               @unique
+  amount      Decimal              @db.Decimal(14, 2)
   generatedAt DateTime?
   exportedAt  DateTime?
   templateId  String?
-  metadata    Json                  @default("{}")
-  createdAt   DateTime              @default(now())
-  updatedAt   DateTime              @updatedAt
+  metadata    Json                 @default("{}")
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
 
   @@index([generatedAt])
   @@index([exportedAt])
@@ -309,8 +309,8 @@ model OrderProcessingInvoiceCounter {
 }
 
 model OrderProcessingPurchaseOrder {
-  id              String                              @id @default(cuid())
-  poNo            String                              @unique
+  id              String                             @id @default(cuid())
+  poNo            String                             @unique
   supplier        String
   supplierContact String?
   supplierPhone   String?
@@ -319,9 +319,9 @@ model OrderProcessingPurchaseOrder {
   status          String
   orderDate       DateTime
   etaDate         DateTime
-  itemCount       Int                                 @default(0)
-  amount          Decimal                             @db.Decimal(14, 2)
-  currency        String                              @default("CNY")
+  itemCount       Int                                @default(0)
+  amount          Decimal                            @db.Decimal(14, 2)
+  currency        String                             @default("CNY")
   warehouse       String
   owner           String
   paymentTerm     String?
@@ -330,10 +330,10 @@ model OrderProcessingPurchaseOrder {
   approvalStatus  String?
   remark          String?
   sourceFile      String?
-  metadata        Json                                @default("{}")
+  metadata        Json                               @default("{}")
   lines           OrderProcessingPurchaseOrderLine[]
-  createdAt       DateTime                            @default(now())
-  updatedAt       DateTime                            @updatedAt
+  createdAt       DateTime                           @default(now())
+  updatedAt       DateTime                           @updatedAt
 
   @@index([status, etaDate])
   @@index([supplier])
@@ -342,33 +342,33 @@ model OrderProcessingPurchaseOrder {
 }
 
 model OrderProcessingPurchaseOrderLine {
-  id              String                         @id @default(cuid())
+  id              String                       @id @default(cuid())
   purchaseOrderId String
-  purchaseOrder   OrderProcessingPurchaseOrder   @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  purchaseOrder   OrderProcessingPurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
   sku             String
   name            String
   spec            String
   unit            String
   qty             Int
-  receivedQty     Int                            @default(0)
-  unitPrice       Decimal                        @db.Decimal(12, 2)
-  sortOrder       Int                            @default(0)
-  createdAt       DateTime                       @default(now())
-  updatedAt       DateTime                       @updatedAt
+  receivedQty     Int                          @default(0)
+  unitPrice       Decimal                      @db.Decimal(12, 2)
+  sortOrder       Int                          @default(0)
+  createdAt       DateTime                     @default(now())
+  updatedAt       DateTime                     @updatedAt
 
   @@index([purchaseOrderId, sortOrder])
   @@index([sku])
 }
 
 model JobRule {
-  id         String                @id @default(cuid())
+  id         String               @id @default(cuid())
   name       String
   jdText     String
-  enabled    Boolean               @default(true)
+  enabled    Boolean              @default(true)
   candidates Candidate[]
   screenings CandidateScreening[]
-  createdAt  DateTime              @default(now())
-  updatedAt  DateTime              @updatedAt
+  createdAt  DateTime             @default(now())
+  updatedAt  DateTime             @updatedAt
 }
 
 model Candidate {
@@ -424,7 +424,7 @@ model CandidateScreening {
 
 model IntegrationConfig {
   id                String   @id @default(cuid())
-  kind              String   // mail | openai | sync_schedule
+  kind              String // mail | openai | sync_schedule
   name              String
   accountIdentifier String?
   provider          String?
@@ -437,60 +437,60 @@ model IntegrationConfig {
 }
 
 model GeneratedImage {
-  id            String   @id @default(cuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  prompt        String
-  revisedPrompt String   @default("")
-  style         String   @default("vivid")
-  size          String   @default("1024x1024")
-  quality       String   @default("standard")
-  imageData     String   // base64 data URL (保留用于编辑操作)
-  imageUrl      String   @default("")  // OSS 公网 URL，列表接口优先使用此字段
-  model         String   @default("dall-e-3")
-  isFavorite    Boolean  @default(false)
-  requestId          String?
-  parentImageId      String?
-  rootImageId        String?
-  editInstruction    String   @default("")
-  editDepth          Int      @default(0)
-  upstreamCallCount  Int      @default(0)
-  upstreamRetryCount Int      @default(0)
-  upstreamErrorCount Int      @default(0)
-  inputTokens        Int      @default(0)
-  inputTextTokens    Int      @default(0)
-  inputImageTokens   Int      @default(0)
-  outputTokens       Int      @default(0)
-  totalTokens        Int      @default(0)
-  estimatedCostUsd   Float    @default(0)
-  cumulativeEstimatedCostUsd Float @default(0)
-  usageDetails       Json     @default("{}")
-  createdAt     DateTime @default(now())
+  id                         String   @id @default(cuid())
+  userId                     String
+  user                       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  prompt                     String
+  revisedPrompt              String   @default("")
+  style                      String   @default("vivid")
+  size                       String   @default("1024x1024")
+  quality                    String   @default("standard")
+  imageData                  String // base64 data URL (保留用于编辑操作)
+  imageUrl                   String   @default("") // OSS 公网 URL，列表接口优先使用此字段
+  model                      String   @default("dall-e-3")
+  isFavorite                 Boolean  @default(false)
+  requestId                  String?
+  parentImageId              String?
+  rootImageId                String?
+  editInstruction            String   @default("")
+  editDepth                  Int      @default(0)
+  upstreamCallCount          Int      @default(0)
+  upstreamRetryCount         Int      @default(0)
+  upstreamErrorCount         Int      @default(0)
+  inputTokens                Int      @default(0)
+  inputTextTokens            Int      @default(0)
+  inputImageTokens           Int      @default(0)
+  outputTokens               Int      @default(0)
+  totalTokens                Int      @default(0)
+  estimatedCostUsd           Float    @default(0)
+  cumulativeEstimatedCostUsd Float    @default(0)
+  usageDetails               Json     @default("{}")
+  createdAt                  DateTime @default(now())
 
   @@index([userId, rootImageId, createdAt])
   @@index([parentImageId])
 }
 
 model ImageEditMessage {
-  id            String   @id @default(cuid())
-  userId        String
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  rootImageId   String
-  sourceImageId String?
-  resultImageId String?
-  role          String
-  content       String
-  model         String?
-  requestId     String?
-  inputTokens     Int   @default(0)
-  inputTextTokens Int   @default(0)
-  inputImageTokens Int  @default(0)
-  outputTokens    Int   @default(0)
-  totalTokens     Int   @default(0)
-  estimatedCostUsd Float @default(0)
-  cumulativeEstimatedCostUsd Float @default(0)
-  meta          Json     @default("{}")
-  createdAt     DateTime @default(now())
+  id                         String   @id @default(cuid())
+  userId                     String
+  user                       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rootImageId                String
+  sourceImageId              String?
+  resultImageId              String?
+  role                       String
+  content                    String
+  model                      String?
+  requestId                  String?
+  inputTokens                Int      @default(0)
+  inputTextTokens            Int      @default(0)
+  inputImageTokens           Int      @default(0)
+  outputTokens               Int      @default(0)
+  totalTokens                Int      @default(0)
+  estimatedCostUsd           Float    @default(0)
+  cumulativeEstimatedCostUsd Float    @default(0)
+  meta                       Json     @default("{}")
+  createdAt                  DateTime @default(now())
 
   @@index([userId, rootImageId, createdAt])
   @@index([sourceImageId])
@@ -529,11 +529,11 @@ model ImagePromptChatMessage {
 }
 
 model EmailIngestionLog {
-  id           String    @id @default(cuid())
+  id           String     @id @default(cuid())
   mailbox      String
   imapUid      Int?
   messageId    String?
-  uniqueKey    String    @unique
+  uniqueKey    String     @unique
   subject      String
   senderName   String
   senderEmail  String
@@ -542,7 +542,7 @@ model EmailIngestionLog {
   candidateId  String?
   candidate    Candidate? @relation(fields: [candidateId], references: [id])
   errorMessage String?
-  createdAt    DateTime  @default(now())
+  createdAt    DateTime   @default(now())
 }
 
 model FileAsset {
@@ -570,17 +570,17 @@ model FileAsset {
 ///     由 Node.js 在查询时计算余弦相似度。适合 ≤10k chunks 的规模；
 ///     超规模再切到 pgvector 即可（schema 转换简单：JS 数组 → vector(N)）。
 model KnowledgeChunk {
-  id              String   @id @default(cuid())
+  id             String   @id @default(cuid())
   /// 数据源类型：'kb' | 'rd_task' | 'rd_progress_note' | 'rd_proposal' | 'rd_daily_report' | 'chat_group' | 'chat_private' | 'audit_log' | 'candidate' | 'image' | 'file_asset'
-  sourceType      String
+  sourceType     String
   /// 原始资源 id（KB entry id / task id / chat message id ...）
-  sourceId        String
+  sourceId       String
   /// 同一资源被切成多块时的序号（0-based）
-  chunkIndex      Int      @default(0)
+  chunkIndex     Int      @default(0)
   /// chunk 原文（用于回展 + LLM 注入）
-  content         String
+  content        String
   /// 向量（通义 text-embedding-v3/v4 默认 1024 维），存为 Postgres float8[] 数组
-  embedding       Float[]
+  embedding      Float[]
   /// 权限元数据（参与权限预过滤）：
   ///  - permission_level: number   (KB 分值制)
   ///  - visible_user_ids: string[] (私聊参与者；空数组表示对所有人开放权限层)
@@ -590,13 +590,13 @@ model KnowledgeChunk {
   ///  - author_id / author_name: string
   ///  - title / file_name / tags 等业务字段（展示用）
   ///  - ai_classification: 'work_knowledge'|'work_chat'|'personal'|'sensitive'（聊天专用）
-  metadata        Json     @default("{}")
+  metadata       Json     @default("{}")
   /// 软删除标记：用于"作者撤回"
-  archived        Boolean  @default(false)
+  archived       Boolean  @default(false)
   /// 索引时使用的 embedding 模型，方便后续灰度迁移
-  embeddingModel  String   @default("text-embedding-v3")
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  embeddingModel String   @default("text-embedding-v3")
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   @@unique([sourceType, sourceId, chunkIndex])
   @@index([sourceType, sourceId])
@@ -609,11 +609,11 @@ model Issue {
   id          String   @id
   title       String
   description String
-  source      String   // 'rd' | 'production'
+  source      String // 'rd' | 'production'
   product     String?
   batch       String?
   station     String?
-  severity    String   // 'fatal' | 'major' | 'normal' | 'minor'
+  severity    String // 'fatal' | 'major' | 'normal' | 'minor'
   defectRate  String?
   status      String   @default("pending") // pending|analyzing|adjusting|adopted|archived
   /// { kind:'analysis', causeId, solutionId } | { kind:'reuse', reusedFrom }
@@ -623,8 +623,8 @@ model Issue {
   resolution  Json?
   /// Attachment[]（含 fileId / fileName / fileType / extractedText 等，展示用）
   attachments Json     @default("[]")
-  createdBy   String   // 创建人姓名（展示用）
-  createdById String?  // 创建人 user id（权限/我的）
+  createdBy   String // 创建人姓名（展示用）
+  createdById String? // 创建人 user id（权限/我的）
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
@@ -647,9 +647,9 @@ model IssueAnalysis {
   content        Json
   summary        String
   model          String
-  triggerType    String   // 'initial' | 'adjustment'
+  triggerType    String // 'initial' | 'adjustment'
   basedOnVersion Int?
-  createdBy      String   // 'system' / 'AI' / 操作人
+  createdBy      String // 'system' / 'AI' / 操作人
   isAdopted      Boolean  @default(false)
   createdAt      DateTime @default(now())
 
@@ -663,7 +663,7 @@ model IssueMessage {
   issueId           String
   issue             Issue    @relation(fields: [issueId], references: [id], onDelete: Cascade)
   seq               Int
-  role              String   // 'user' | 'assistant'
+  role              String // 'user' | 'assistant'
   content           String
   /// ChatUser：{ id, name, avatarUrl? }
   author            Json?
@@ -676,4 +676,135 @@ model IssueMessage {
 
   @@unique([issueId, seq])
   @@index([issueId])
+}
+
+/// 员工入职归档主档。身份证、手机号、银行卡等字段仅保存脱敏值；
+/// 原始身份证号只允许在接口入参中短暂用于派生出生日期、生肖、星座、年龄和性别，不落库。
+model EmployeeArchive {
+  id                       String                    @id @default(cuid())
+  rosterNo                 String                    @unique
+  company                  String                    @default("")
+  hireDate                 DateTime?
+  tenure                   String                    @default("")
+  employmentStatus         String                    @default("")
+  workLocation             String                    @default("")
+  department               String                    @default("")
+  title                    String                    @default("")
+  name                     String
+  idNoMasked               String                    @default("")
+  birthDate                DateTime?
+  birthMonthDay            String                    @default("")
+  zodiac                   String                    @default("")
+  constellation            String                    @default("")
+  gender                   String                    @default("")
+  age                      Int                       @default(0)
+  ethnicity                String                    @default("")
+  maritalStatus            String                    @default("")
+  phoneMasked              String                    @default("")
+  bankAccountMasked        String                    @default("")
+  bankBranch               String                    @default("")
+  education                String                    @default("")
+  school                   String                    @default("")
+  major                    String                    @default("")
+  hometown                 String                    @default("")
+  registeredAddress        String                    @default("")
+  currentAddress           String                    @default("")
+  emergencyContact         String                    @default("")
+  emergencyRelation        String                    @default("")
+  emergencyPhoneMasked     String                    @default("")
+  socialSecurityNo         String                    @default("")
+  socialSecurityFirstMonth String                    @default("")
+  note                     String                    @default("")
+  costCenter               String                    @default("")
+  archiveStatus            String                    @default("onboarding")
+  archiveScore             Int                       @default(0)
+  missingFields            String[]                  @default([])
+  alerts                   String[]                  @default([])
+  badgeConfig              Json                      @default("{}")
+  source                   String                    @default("manual")
+  createdById              String?
+  updatedById              String?
+  documents                EmployeeArchiveDocument[]
+  attendanceRecords        EmployeeAttendance[]
+  attendanceMonths         EmployeeAttendanceMonth[]
+  createdAt                DateTime                  @default(now())
+  updatedAt                DateTime                  @updatedAt
+
+  @@index([company])
+  @@index([department])
+  @@index([employmentStatus])
+  @@index([archiveStatus])
+  @@index([hireDate])
+}
+
+/// 员工每日考勤。人员基础信息来自 EmployeeArchive，本表只保存班次、打卡与异常结果。
+model EmployeeAttendance {
+  id                String          @id @default(cuid())
+  employeeId        String
+  employee          EmployeeArchive @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  attendanceDate    DateTime        @db.Date
+  shiftName         String          @default("标准班")
+  scheduledStart    String          @default("08:00")
+  scheduledEnd      String          @default("18:00")
+  checkInAt         DateTime?
+  checkOutAt        DateTime?
+  status            String          @default("missing")
+  workMinutes       Int             @default(0)
+  lateMinutes       Int             @default(0)
+  earlyLeaveMinutes Int             @default(0)
+  deductionMinutes  Int             @default(0)
+  overtimeMinutes   Int             @default(0)
+  overtimeType      String          @default("")
+  source            String          @default("manual")
+  note              String          @default("")
+  createdById       String?
+  updatedById       String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@unique([employeeId, attendanceDate])
+  @@index([attendanceDate, status])
+  @@index([employeeId, attendanceDate])
+}
+
+/// 月度考勤结余与审核字段。此类数据无法从每日打卡自动推导，按人员和月份单独维护。
+model EmployeeAttendanceMonth {
+  id                           String          @id @default(cuid())
+  employeeId                   String
+  employee                     EmployeeArchive @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  year                         Int
+  month                        Int
+  previousOvertimeBalance      Float           @default(0)
+  previousCompTimeBalanceHours Float           @default(0)
+  previousMonthSickLeaveDays   Float           @default(0)
+  entitledSickLeaveDays        Float           @default(0)
+  paidSickLeaveDays            Float           @default(0)
+  unpaidSickLeaveDays          Float           @default(0)
+  invertedHours                Float           @default(0)
+  recoveredHours               Float           @default(0)
+  signature                    String          @default("")
+  note                         String          @default("")
+  createdById                  String?
+  updatedById                  String?
+  createdAt                    DateTime        @default(now())
+  updatedAt                    DateTime        @updatedAt
+
+  @@unique([employeeId, year, month])
+  @@index([year, month])
+}
+
+model EmployeeArchiveDocument {
+  id           String          @id @default(cuid())
+  employeeId   String
+  employee     EmployeeArchive @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  title        String
+  source       String          @default("")
+  status       String          @default("review")
+  detail       String          @default("")
+  documentDate DateTime?
+  sortOrder    Int             @default(0)
+  createdAt    DateTime        @default(now())
+  updatedAt    DateTime        @updatedAt
+
+  @@index([employeeId, sortOrder])
 }

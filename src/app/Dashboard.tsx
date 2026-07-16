@@ -1,6 +1,7 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
+  AlertCircle,
   ArrowUpRight,
   BarChart3,
   CheckCircle2,
@@ -8,9 +9,10 @@ import {
   FileSearch,
   FileText,
   Folder,
-  MoreHorizontal,
+  PackageCheck,
   Plus,
   Receipt,
+  RefreshCw,
   Ticket,
   TrendingUp,
   Upload,
@@ -18,264 +20,515 @@ import {
 } from "lucide-react";
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Link } from "react-router";
-import { toast } from "sonner";
+
+import { useAuth } from "./auth";
 import { cn } from "./components/ui/utils";
+import { fetchDashboardData, type DashboardData, type DashboardSource } from "./lib/dashboardApi";
+import { hasPermission } from "./lib/permissions";
 
-const statCards = [
-  { title: "待处理工单", value: "12", helper: "较昨日 +2", icon: Ticket, tone: "text-red-600 bg-red-50" },
-  { title: "本月报关单", value: "8", helper: "流程正常", icon: FileText, tone: "text-blue-700 bg-blue-50" },
-  { title: "资料待更新", value: "3", helper: "需要复核", icon: Folder, tone: "text-amber-600 bg-amber-50" },
-  { title: "待审批任务", value: "5", helper: "两项超时", icon: CheckCircle2, tone: "text-emerald-600 bg-emerald-50" },
+type TodoStatus = "待处理" | "处理中" | "待审批";
+type TodoPriority = "高" | "中" | "低";
+
+type DashboardTodoItem = {
+  id: string;
+  name: string;
+  description: string;
+  module: string;
+  user: string;
+  date: string;
+  status: TodoStatus;
+  priority: TodoPriority;
+  path: string;
+};
+
+type DashboardActivityItem = {
+  id: string;
+  title: string;
+  helper: string;
+  time: string;
+  timestamp: number;
+  path: string;
+  source: string;
+};
+
+type ModuleCard = {
+  title: string;
+  value: string;
+  helper: string;
+  description: string;
+  path: string;
+  icon: React.ComponentType<{ className?: string }>;
+  tone: string;
+};
+
+const pageSize = 5;
+
+const sourceNames: Record<DashboardSource, string> = {
+  health: "系统健康检查",
+  rd: "研发个人工作台",
+  issues: "问题记录与 AI 定位",
+  expenses: "费用报销看板",
+  orders: "订货单处理工作台",
+};
+
+const issueStatusLabels = {
+  pending: "待分析",
+  analyzing: "分析中",
+  adjusting: "调整中",
+  adopted: "已采纳",
+  archived: "已归档",
+} as const;
+
+const quickActionCatalog = [
+  { title: "更新研发进度", icon: CheckCircle2, path: "/rd-my-workspace", permission: "page:rd-my-workspace" },
+  { title: "记录研发问题", icon: Ticket, path: "/issue-ai", permission: "page:issue-ai" },
+  { title: "处理订货单", icon: PackageCheck, path: "/order-workbench", permission: "page:order-workbench" },
+  { title: "发起费用报销", icon: Receipt, path: "/expense-center", permission: "page:expense-center" },
+  { title: "新建售后工单", icon: Plus, path: "/after-sales/new", permission: "page:after-sales" },
+  { title: "上传报关资料", icon: Upload, path: "/customs-ai", permission: "page:customs-ai" },
+  { title: "生成会议纪要", icon: FileSearch, path: "/meeting", permission: "page:meeting" },
+  { title: "查询注册进度", icon: Clock3, path: "/registration-projects", permission: "page:registration-projects" },
+  { title: "筛选候选人", icon: UserCheck, path: "/resume-screening", permission: "page:resume-screening" },
 ];
 
-const heroMetrics = [
-  { label: "今日新增", value: "24", helper: "较昨日提升", icon: Activity },
-  { label: "已完成", value: "156", helper: "本周累计", icon: CheckCircle2 },
-  { label: "响应率", value: "98%", helper: "SLA 达成", icon: TrendingUp },
-];
-
-const barData = [
-  { name: "新建", value: 4 },
-  { name: "处理中", value: 5 },
-  { name: "待客户", value: 2 },
-  { name: "已完成", value: 18 },
-];
-
-const quickActions = [
-  { title: "新建售后工单", icon: Plus, path: "/after-sales/new" },
-  { title: "上传报关资料", icon: Upload, path: "/customs-ai" },
-  { title: "生成会议纪要", icon: FileSearch, path: "/meeting" },
-  { title: "查询注册进度", icon: Clock3, path: "/registration-projects" },
-  { title: "筛选候选人", icon: UserCheck, path: "/resume-screening" },
-  { title: "发起费用报销", icon: Receipt, path: "/expense-center" },
-];
-
-const workspacePulse = [
-  { title: "售后与研发联动", helper: "3 个问题已同步进入紧急队列", tone: "bg-indigo-50 text-indigo-700" },
-  { title: "对外资料版本", helper: "OC-10 英文 IFU 等待法规确认", tone: "bg-indigo-50 text-indigo-700" },
-  { title: "质量闭环", helper: "2 条检验放行记录缺主管签批", tone: "bg-amber-50 text-amber-700" },
-];
-
-const activityFeed = [
-  {
-    id: "feed-01",
-    title: "售后异常 Case 已推送研发分流",
-    helper: "OC-10 启动重启问题自动匹配到历史方案",
-    time: "10:24",
-    path: "/rd-triage",
-  },
-  {
-    id: "feed-02",
-    title: "报关单证 AI 已完成 CI/PL 一致性检查",
-    helper: "发现 1 项数量字段待人工确认",
-    time: "11:10",
-    path: "/customs-ai",
-  },
-  {
-    id: "feed-03",
-    title: "合同审查生成高风险条款建议",
-    helper: "竞业限制条款建议补充适用范围说明",
-    time: "13:35",
-    path: "/contract-review",
-  },
-  {
-    id: "feed-04",
-    title: "员工归档模块发出补件提醒",
-    helper: "2 位新员工仍缺学历证明扫描件",
-    time: "15:00",
-    path: "/employee-archive",
-  },
-];
-
-const moduleSpotlights = [
-  {
-    title: "注册项目里程碑",
-    helper: "显示资料缺口、关键节点和风险提醒",
-    value: "6 个项目",
-    path: "/registration-projects",
-  },
-  {
-    title: "质量 DMS",
-    helper: "统一收口 SOP、审批状态和发放记录",
-    value: "18 份受控文件",
-    path: "/quality-dms",
-  },
-  {
-    title: "BUG 日志",
-    helper: "集中跟踪修复进度、回归动作与研发建议",
-    value: "7 条待修复",
-    path: "/bug-log",
-  },
-];
-
-const todoItems = [
-  {
-    id: "todo-001",
-    name: "Medline 氧浓度异常工单处理",
-    module: "售后工单",
-    user: "王工",
-    deadline: "2026-04-15",
-    status: "待处理",
-    priority: "高",
-    path: "/after-sales",
-  },
-  {
-    id: "todo-002",
-    name: "4 月海关资料复核归档",
-    module: "报关单证",
-    user: "李静",
-    deadline: "2026-04-16",
-    status: "处理中",
-    priority: "中",
-    path: "/customs-ai",
-  },
-  {
-    id: "todo-003",
-    name: "研发二部 Q2 质量评审",
-    module: "研发问题",
-    user: "陈健",
-    deadline: "2026-04-17",
-    status: "待审批",
-    priority: "高",
-    path: "/rd-triage",
-  },
-  {
-    id: "todo-004",
-    name: "新员工入职资料校验",
-    module: "人事行政",
-    user: "张雅",
-    deadline: "2026-04-18",
-    status: "处理中",
-    priority: "低",
-    path: "/employee-archive",
-  },
-  {
-    id: "todo-005",
-    name: "OC-10 产品手册更新",
-    module: "资料库",
-    user: "周伟",
-    deadline: "2026-04-19",
-    status: "待处理",
-    priority: "中",
-    path: "/external-docs",
-  },
-  {
-    id: "todo-006",
-    name: "合同条款 AI 复核",
-    module: "合同审查",
-    user: "赵倩",
-    deadline: "2026-04-20",
-    status: "待审批",
-    priority: "高",
-    path: "/contract-review",
-  },
-  {
-    id: "todo-007",
-    name: "研发缺陷回归验证",
-    module: "BUG 日志",
-    user: "刘畅",
-    deadline: "2026-04-21",
-    status: "处理中",
-    priority: "中",
-    path: "/bug-log",
-  },
-];
-
-const statusTone: Record<string, string> = {
+const statusTone: Record<TodoStatus, string> = {
   待处理: "bg-red-50 text-red-700",
   处理中: "bg-blue-50 text-blue-700",
   待审批: "bg-amber-50 text-amber-700",
 };
 
-const priorityTone: Record<string, string> = {
+const priorityTone: Record<TodoPriority, string> = {
   高: "bg-rose-50 text-rose-700",
   中: "bg-sky-50 text-sky-700",
   低: "bg-emerald-50 text-emerald-700",
 };
 
-const pageSize = 4;
+function toTimestamp(value?: string | null) {
+  if (!value) return 0;
+  const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(value) ? value.replace(" ", "T") : value;
+  const timestamp = new Date(normalized).getTime();
+  return Number.isFinite(timestamp) ? timestamp : 0;
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "—";
+  const timestamp = toTimestamp(value);
+  if (!timestamp) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(timestamp);
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return "—";
+  const timestamp = toTimestamp(value);
+  if (!timestamp) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(timestamp);
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("zh-CN", {
+    style: "currency",
+    currency: "CNY",
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function percent(value: number) {
+  return `${Math.max(0, Math.min(100, Math.round(value)))}%`;
+}
+
+function EmptyBlock({ title, helper }: { title: string; helper: string }) {
+  return (
+    <div className="flex min-h-36 flex-col items-center justify-center rounded-[22px] border border-dashed border-slate-200 bg-slate-50/60 px-6 text-center">
+      <Folder className="h-7 w-7 text-slate-300" />
+      <div className="mt-3 text-sm font-semibold text-slate-700">{title}</div>
+      <div className="mt-1 max-w-md text-xs leading-5 text-slate-500">{helper}</div>
+    </div>
+  );
+}
 
 export function Dashboard() {
+  const { user } = useAuth();
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [statusFilter, setStatusFilter] = useState("全部");
   const [page, setPage] = useState(1);
-  const [selectedFeedId, setSelectedFeedId] = useState(activityFeed[0].id);
-  const [analysisOpen, setAnalysisOpen] = useState(false);
-  const [reportOpen, setReportOpen] = useState(false);
+  const [selectedFeedId, setSelectedFeedId] = useState("");
   const [chartOpen, setChartOpen] = useState(false);
-  const [focusedTodo, setFocusedTodo] = useState<(typeof todoItems)[number] | null>(null);
+  const [focusedTodo, setFocusedTodo] = useState<DashboardTodoItem | null>(null);
 
-  const filteredTodos = useMemo(() => {
-    return todoItems.filter((item) => statusFilter === "全部" || item.status === statusFilter);
-  }, [statusFilter]);
+  const permissionKey = (user?.permissions ?? []).join("\u0001");
+  const userId = user?.id ?? "";
 
+  const loadData = useCallback(
+    async (initial = false) => {
+      if (initial) setLoading(true);
+      else setRefreshing(true);
+      try {
+        const next = await fetchDashboardData(user?.permissions ?? []);
+        setData(next);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    // permissionKey intentionally refreshes the aggregation after role/permission changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [permissionKey, userId],
+  );
+
+  useEffect(() => {
+    void loadData(true);
+    const interval = window.setInterval(() => void loadData(false), 60_000);
+    const refreshOnFocus = () => void loadData(false);
+    window.addEventListener("focus", refreshOnFocus);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refreshOnFocus);
+    };
+  }, [loadData]);
+
+  const rdTasks = useMemo(() => [...(data?.rd?.myTasks ?? []), ...(data?.rd?.collabTasks ?? [])], [data?.rd]);
+  const activeRdTasks = useMemo(
+    () => rdTasks.filter((task) => !["completed", "archived"].includes(task.status)),
+    [rdTasks],
+  );
+  const completedRdTasks = rdTasks.length - activeRdTasks.length;
+  const pendingReviewTasks = rdTasks.filter((task) => task.status === "pending_review").length;
+  const expensePending = (data?.expenses?.statusBreakdown ?? [])
+    .filter((item) => ["待识别", "待确认", "异常"].includes(item.status))
+    .reduce((sum, item) => sum + item.count, 0);
+
+  const loadedBusinessCount = [data?.rd, data?.issues, data?.expenses, data?.orders].filter(Boolean).length;
+  const expectedBusinessCount = Math.max(0, (data?.enabledSources.length ?? 1) - 1);
+  const totalPending =
+    activeRdTasks.length +
+    (data?.issues?.stats.pending ?? 0) +
+    expensePending +
+    (data?.orders?.stats.pending ?? 0);
+  const totalClosed = completedRdTasks + (data?.issues?.stats.solved ?? 0) + (data?.orders?.stats.generated ?? 0);
+  const currentTodos = (data?.rd?.todayTodos.length ?? 0) + (data?.expenses?.todos.length ?? 0);
+
+  const heroMetrics = [
+    {
+      label: "数据模块",
+      value: loading && !data ? "—" : `${loadedBusinessCount}/${expectedBusinessCount}`,
+      helper: "按当前权限实时接入",
+      icon: Activity,
+    },
+    { label: "待推进事项", value: loading && !data ? "—" : String(totalPending), helper: "跨已接入业务汇总", icon: Clock3 },
+    { label: "已闭环记录", value: loading && !data ? "—" : String(totalClosed), helper: "任务、问题与订单", icon: CheckCircle2 },
+    { label: "今日待办", value: loading && !data ? "—" : String(currentTodos), helper: "研发与费用接口", icon: TrendingUp },
+  ];
+
+  const moduleCards = useMemo<ModuleCard[]>(() => {
+    const cards: ModuleCard[] = [];
+    if (data?.rd) {
+      cards.push({
+        title: "研发待推进",
+        value: String(activeRdTasks.length),
+        helper: `${data.rd.myTasks.length} 项主责 · ${data.rd.collabTasks.length} 项协作`,
+        description: `${pendingReviewTasks} 项待审核，${data.rd.todayTodos.length} 项今日待办`,
+        path: "/rd-my-workspace",
+        icon: CheckCircle2,
+        tone: "text-indigo-700 bg-indigo-50",
+      });
+    }
+    if (data?.issues) {
+      cards.push({
+        title: "问题待处理",
+        value: String(data.issues.stats.pending),
+        helper: `${data.issues.stats.solved} 项已解决 · 共 ${data.issues.stats.total} 项`,
+        description: `平均定位 ${data.issues.stats.avgLocateHours} 小时，方案复用率 ${percent(data.issues.stats.reuseRate * 100)}`,
+        path: "/issue-ai",
+        icon: Ticket,
+        tone: "text-red-600 bg-red-50",
+      });
+    }
+    if (data?.expenses) {
+      cards.push({
+        title: "费用待处理",
+        value: String(expensePending),
+        helper: `本月 ${formatCurrency(data.expenses.monthAmount)}`,
+        description: `${data.expenses.todos.length} 条费用提醒，累计 ${formatCurrency(data.expenses.totalAmount)}`,
+        path: "/expense-center",
+        icon: Receipt,
+        tone: "text-amber-700 bg-amber-50",
+      });
+    }
+    if (data?.orders) {
+      cards.push({
+        title: "订单待处理",
+        value: String(data.orders.stats.pending),
+        helper: `${data.orders.stats.abnormal} 项异常 · ${data.orders.stats.unexported} 项待导出`,
+        description: `${data.orders.stats.generated} 项已生成单据，队列共 ${data.orders.queue.total} 项`,
+        path: "/order-workbench",
+        icon: PackageCheck,
+        tone: "text-emerald-700 bg-emerald-50",
+      });
+    }
+    return cards;
+  }, [activeRdTasks.length, data, expensePending, pendingReviewTasks]);
+
+  const quickActions = useMemo(
+    () => quickActionCatalog.filter((action) => hasPermission(user?.permissions ?? [], action.permission)).slice(0, 6),
+    [permissionKey, user?.permissions],
+  );
+
+  const pulseItems = moduleCards.map((card) => ({
+    title: card.title,
+    helper: `${card.helper}。${card.description}`,
+    path: card.path,
+    tone: card.tone,
+  }));
+
+  const activityItems = useMemo<DashboardActivityItem[]>(() => {
+    const items: DashboardActivityItem[] = [];
+
+    for (const notification of data?.rd?.notifications ?? []) {
+      const rawTime = notification.created_at ?? notification.time;
+      items.push({
+        id: `rd-${notification.id}`,
+        title: notification.title,
+        helper: notification.message,
+        time: formatDateTime(rawTime),
+        timestamp: toTimestamp(rawTime),
+        path: "/rd-my-workspace",
+        source: "研发工作台",
+      });
+    }
+
+    for (const issue of data?.issues?.recent ?? []) {
+      items.push({
+        id: `issue-${issue.id}`,
+        title: issue.title,
+        helper: `${issue.id} · ${issue.product || (issue.source === "rd" ? "研发" : "生产")} · ${issueStatusLabels[issue.status]}`,
+        time: formatDateTime(issue.updatedAt),
+        timestamp: toTimestamp(issue.updatedAt),
+        path: "/issue-ai",
+        source: "问题记录",
+      });
+    }
+
+    for (const activity of data?.expenses?.activities ?? []) {
+      items.push({
+        id: `expense-${activity.id}`,
+        title: activity.title,
+        helper: activity.detail,
+        time: formatDateTime(activity.time),
+        timestamp: toTimestamp(activity.time),
+        path: "/expense-center",
+        source: "费用报销",
+      });
+    }
+
+    for (const order of data?.orders?.queue.items ?? []) {
+      const rawTime = order.createdAt || order.date;
+      items.push({
+        id: `order-${order.id}`,
+        title: `${order.customer} · ${order.id}`,
+        helper: `${order.status}${order.generated ? " · 单据已生成" : " · 待生成单据"}`,
+        time: formatDateTime(rawTime),
+        timestamp: toTimestamp(rawTime),
+        path: "/order-workbench",
+        source: "订货单处理",
+      });
+    }
+
+    return items.sort((left, right) => right.timestamp - left.timestamp).slice(0, 8);
+  }, [data]);
+
+  useEffect(() => {
+    if (!activityItems.length) {
+      setSelectedFeedId("");
+      return;
+    }
+    if (!activityItems.some((item) => item.id === selectedFeedId)) {
+      setSelectedFeedId(activityItems[0].id);
+    }
+  }, [activityItems, selectedFeedId]);
+
+  const selectedFeed = activityItems.find((item) => item.id === selectedFeedId) ?? activityItems[0] ?? null;
+
+  const chartConfig = useMemo(() => {
+    if (data?.issues) {
+      return {
+        title: "问题处理状态",
+        helper: "来自问题记录与 AI 定位接口的实时统计",
+        path: "/issue-ai",
+        data: [
+          { name: "待分析", value: data.issues.distribution.pending },
+          { name: "分析中", value: data.issues.distribution.processing },
+          { name: "已解决", value: data.issues.distribution.solved },
+        ],
+      };
+    }
+    if (data?.orders) {
+      return {
+        title: "订单处理状态",
+        helper: "来自订货单处理工作台接口的实时统计",
+        path: "/order-workbench",
+        data: [
+          { name: "待处理", value: data.orders.stats.pending },
+          { name: "异常", value: data.orders.stats.abnormal },
+          { name: "已生成", value: data.orders.stats.generated },
+          { name: "待导出", value: data.orders.stats.unexported },
+        ],
+      };
+    }
+    return { title: "业务状态分布", helper: "暂无有权限且支持统计的业务接口", path: "/", data: [] };
+  }, [data]);
+
+  const todoItems = useMemo<DashboardTodoItem[]>(() => {
+    const items: DashboardTodoItem[] = [];
+
+    for (const task of activeRdTasks) {
+      const status: TodoStatus = task.status === "pending_review" ? "待审批" : task.status === "in_progress" ? "处理中" : "待处理";
+      items.push({
+        id: `rd-${task.task_id}`,
+        name: task.title,
+        description: task.next_action || task.description || "进入研发工作台查看任务详情",
+        module: "研发任务",
+        user: task.owner || user?.name || "—",
+        date: formatDate(task.due_date),
+        status,
+        priority: task.priority === "high" ? "高" : task.priority === "medium" ? "中" : "低",
+        path: "/rd-my-workspace",
+      });
+    }
+
+    for (const issue of data?.issues?.recent ?? []) {
+      if (["adopted", "archived"].includes(issue.status)) continue;
+      items.push({
+        id: `issue-${issue.id}`,
+        name: issue.title,
+        description: `${issue.id} · ${issue.description || "进入问题记录查看详情"}`,
+        module: "问题记录",
+        user: issue.createdBy || "—",
+        date: formatDate(issue.updatedAt),
+        status: issue.status === "pending" ? "待处理" : "处理中",
+        priority: ["fatal", "major"].includes(issue.severity) ? "高" : issue.severity === "normal" ? "中" : "低",
+        path: "/issue-ai",
+      });
+    }
+
+    for (const todo of data?.expenses?.todos ?? []) {
+      items.push({
+        id: `expense-${todo.id}`,
+        name: todo.title,
+        description: todo.detail,
+        module: "费用报销",
+        user: user?.name || "当前用户",
+        date: "—",
+        status: todo.severity === "info" ? "处理中" : "待处理",
+        priority: todo.severity === "error" ? "高" : todo.severity === "warning" ? "中" : "低",
+        path: "/expense-center",
+      });
+    }
+
+    for (const order of data?.orders?.queue.items ?? []) {
+      if (order.generated && order.type === "success") continue;
+      items.push({
+        id: `order-${order.id}`,
+        name: `${order.customer} · ${order.id}`,
+        description: order.status,
+        module: "订货单处理",
+        user: "订单处理人",
+        date: formatDate(order.date),
+        status: order.type === "error" ? "待处理" : "处理中",
+        priority: order.type === "error" ? "高" : order.type === "warning" ? "中" : "低",
+        path: "/order-workbench",
+      });
+    }
+
+    const priorityOrder: Record<TodoPriority, number> = { 高: 0, 中: 1, 低: 2 };
+    return items.sort((left, right) => priorityOrder[left.priority] - priorityOrder[right.priority]);
+  }, [activeRdTasks, data, user?.name]);
+
+  const filteredTodos = useMemo(
+    () => todoItems.filter((item) => statusFilter === "全部" || item.status === statusFilter),
+    [statusFilter, todoItems],
+  );
   const totalPages = Math.max(1, Math.ceil(filteredTodos.length / pageSize));
   const pagedTodos = filteredTodos.slice((page - 1) * pageSize, page * pageSize);
-  const selectedFeed = activityFeed.find((item) => item.id === selectedFeedId) ?? activityFeed[0];
+
+  useEffect(() => {
+    setPage((current) => Math.min(current, totalPages));
+  }, [totalPages]);
 
   const changeFilter = (nextFilter: string) => {
     setStatusFilter(nextFilter);
     setPage(1);
   };
 
-  const handlePromote = (name: string) => {
-    toast.success(`${name} 已加入今日重点跟进`);
-  };
-
-  const handleReport = () => {
-    toast.success("完整报表已生成到经营分析中心");
-  };
-
-  const handleAnalysis = () => {
-    toast.success("经营分析视图即将开放，当前先展示演示反馈");
-  };
+  const errorEntries = Object.entries(data?.errors ?? {}) as Array<[DashboardSource, string]>;
+  const enabledCount = data?.enabledSources.length ?? 1;
+  const loadedCount =
+    Number(Boolean(data?.health)) + Number(Boolean(data?.rd)) + Number(Boolean(data?.issues)) + Number(Boolean(data?.expenses)) + Number(Boolean(data?.orders));
+  const syncRate = enabledCount > 0 ? (loadedCount / enabledCount) * 100 : 0;
+  const closeRate = totalPending + totalClosed > 0 ? (totalClosed / (totalPending + totalClosed)) * 100 : 0;
+  const healthState = data?.health?.ok ? (errorEntries.length ? "partial" : "stable") : "offline";
+  const healthMetrics = [
+    { label: "核心接口健康度", value: data?.health?.ok ? 100 : 0, color: data?.health?.ok ? "bg-emerald-500" : "bg-red-500" },
+    { label: "数据源加载完整度", value: syncRate, color: "bg-indigo-500" },
+    { label: "当前事项闭环率", value: closeRate, color: "bg-indigo-500" },
+  ];
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">
       <section className="grid grid-cols-12 gap-6">
         <div className="col-span-12 xl:col-span-8">
-          <div className="material-card material-glow relative overflow-hidden p-7 md:p-8">
+          <div className="material-card material-glow relative h-full overflow-hidden p-7 md:p-8">
             <div className="absolute inset-y-0 right-0 hidden w-[42%] bg-[radial-gradient(circle_at_center,rgba(79,70,229,0.08),transparent_64%)] xl:block" />
-            <div className="absolute -right-14 top-8 hidden h-40 w-40 rounded-full border border-white/60 bg-white/20 xl:block" />
-            <div className="absolute right-20 top-16 hidden h-24 w-24 rounded-full border border-white/50 bg-white/10 xl:block" />
-
-            <div className="relative z-10 flex flex-col gap-8">
-              <div className="flex flex-col gap-6 xl:flex-row xl:items-start xl:justify-between">
+            <div className="relative z-10 flex h-full flex-col gap-8">
+              <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
                 <div className="max-w-2xl space-y-4">
-                  <span className="material-chip bg-indigo-50 text-indigo-700">Workspace Overview</span>
+                  <span className="material-chip bg-indigo-50 text-indigo-700">Realtime Workspace</span>
                   <div>
                     <h2 className="text-[2rem] font-bold tracking-tight text-slate-900 md:text-[2.35rem]">智能办公总览</h2>
                     <p className="mt-3 text-sm leading-7 text-slate-600 md:text-base">
-                      将售后、报关、知识、审批与人事入口聚合在同一工作台中，用更清晰的层级、柔和的表面与更接近
-                      Material 3 的节奏提升日常协同效率。
+                      首页已按当前账号权限汇总研发、问题、费用与订单模块；每个数字均来自对应业务接口，未接入模块不再展示演示数据。
                     </p>
                   </div>
-
-                  <div className="flex flex-wrap gap-3">
-                    <span className="material-chip bg-white/85 text-slate-700 shadow-sm">Material 3 Surface</span>
-                    <span className="material-chip bg-white/85 text-slate-700 shadow-sm">Vuetify Console</span>
-                    <span className="material-chip bg-white/85 text-slate-700 shadow-sm">Enterprise Flow</span>
+                  <div className="flex flex-wrap gap-3 text-xs text-slate-500">
+                    <span className="material-chip bg-white/85 text-slate-700 shadow-sm">当前用户：{user?.name || "—"}</span>
+                    <span className="material-chip bg-white/85 text-slate-700 shadow-sm">
+                      最近同步：{data ? formatDateTime(data.loadedAt) : "正在连接"}
+                    </span>
                   </div>
                 </div>
 
-                <button type="button" onClick={() => setAnalysisOpen(true)} className="material-button-secondary w-fit self-start">
-                  <ArrowUpRight className="h-4 w-4" />
-                  进入经营分析
+                <button
+                  type="button"
+                  onClick={() => void loadData(false)}
+                  disabled={refreshing}
+                  className="material-button-secondary w-fit shrink-0 self-start whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+                  {refreshing ? "同步中" : "刷新数据"}
                 </button>
               </div>
 
-              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+              <div className="grid grid-cols-2 gap-4">
                 {heroMetrics.map((item) => (
-                  <div
-                    key={item.label}
-                    className="rounded-[26px] border border-slate-200/70 bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_10px_24px_-14px_rgba(15,23,42,0.12)]"
-                  >
+                  <div key={item.label} className="rounded-[24px] border border-slate-200/70 bg-white p-4 shadow-sm">
                     <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-2">
-                        <div className="text-sm font-semibold text-slate-500">{item.label}</div>
-                        <div className="text-[2rem] font-bold leading-none tracking-tight text-slate-900">{item.value}</div>
+                      <div className="min-w-0 space-y-2">
+                        <div className="whitespace-nowrap text-sm font-semibold text-slate-500">{item.label}</div>
+                        <div className="text-[1.8rem] font-bold leading-none tracking-tight text-slate-900">{item.value}</div>
                         <div className="text-xs font-medium text-slate-500">{item.helper}</div>
                       </div>
-                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm">
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-indigo-600 text-white shadow-sm">
                         <item.icon className="h-5 w-5" />
                       </div>
                     </div>
@@ -293,90 +546,128 @@ export function Dashboard() {
                 <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">System Health</div>
                 <h3 className="mt-1 text-slate-900">运行概况</h3>
               </div>
-              <div className="rounded-2xl bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Stable</div>
+              <div
+                className={cn(
+                  "rounded-2xl px-3 py-1 text-xs font-semibold",
+                  healthState === "stable" && "bg-emerald-50 text-emerald-700",
+                  healthState === "partial" && "bg-amber-50 text-amber-700",
+                  healthState === "offline" && "bg-red-50 text-red-700",
+                )}
+              >
+                {healthState === "stable" ? "运行正常" : healthState === "partial" ? "部分可用" : "连接异常"}
+              </div>
             </div>
 
             <div className="space-y-4">
-              {[
-                { label: "工单处理效率", value: "92%", width: "w-[92%]", color: "bg-indigo-500" },
-                { label: "资料更新完成度", value: "76%", width: "w-[76%]", color: "bg-indigo-500" },
-                { label: "跨部门响应率", value: "88%", width: "w-[88%]", color: "bg-indigo-500" },
-              ].map((item) => (
+              {healthMetrics.map((item) => (
                 <div key={item.label} className="rounded-[20px] border border-slate-100 bg-slate-50/70 p-4">
                   <div className="mb-2 flex items-center justify-between text-sm">
                     <span className="font-medium text-slate-600">{item.label}</span>
-                    <span className="font-semibold text-slate-900">{item.value}</span>
+                    <span className="font-semibold text-slate-900">{percent(item.value)}</span>
                   </div>
-                  <div className="h-2 rounded-full bg-white">
-                    <div className={cn("h-2 rounded-full", item.width, item.color)} />
+                  <div className="h-2 overflow-hidden rounded-full bg-white">
+                    <div className={cn("h-2 rounded-full transition-[width] duration-300", item.color)} style={{ width: percent(item.value) }} />
                   </div>
                 </div>
               ))}
+            </div>
+            <div className="mt-4 text-xs leading-5 text-slate-500">
+              后端版本 {data?.health?.release || "—"} · 服务 {data?.health?.service || "未连接"}
             </div>
           </div>
         </div>
       </section>
 
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-        {statCards.map((card) => (
-          <div key={card.title} className="material-card-flat p-5">
-            <div className="flex items-start justify-between">
-              <div>
-                <div className="text-sm font-medium text-slate-500">{card.title}</div>
-                <div className="mt-3 text-4xl font-bold tracking-tight text-slate-900">{card.value}</div>
-                <div className="mt-2 text-sm text-slate-500">{card.helper}</div>
-              </div>
-              <div className={cn("flex h-12 w-12 items-center justify-center rounded-2xl", card.tone)}>
-                <card.icon className="h-6 w-6" />
+      {errorEntries.length ? (
+        <section role="alert" className="flex flex-col gap-3 rounded-[24px] border border-amber-200 bg-amber-50/80 px-5 py-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+            <div>
+              <div className="text-sm font-semibold text-amber-900">部分数据暂未同步</div>
+              <div className="mt-1 text-xs leading-5 text-amber-800">
+                {errorEntries.map(([source, message]) => `${sourceNames[source]}：${message}`).join("；")}
               </div>
             </div>
           </div>
-        ))}
+          <button type="button" onClick={() => void loadData(false)} className="material-button-secondary shrink-0 self-start md:self-auto">
+            重试失败项
+          </button>
+        </section>
+      ) : null}
+
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {loading && !data
+          ? Array.from({ length: 4 }, (_, index) => (
+              <div key={index} className="material-card-flat animate-pulse p-5">
+                <div className="h-4 w-24 rounded bg-slate-100" />
+                <div className="mt-4 h-10 w-16 rounded bg-slate-100" />
+                <div className="mt-3 h-3 w-40 rounded bg-slate-100" />
+              </div>
+            ))
+          : moduleCards.map((card) => (
+              <Link key={card.title} to={card.path} className="material-card-flat block p-5 transition hover:-translate-y-0.5 hover:border-indigo-200">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <div className="text-sm font-medium text-slate-500">{card.title}</div>
+                    <div className="mt-3 text-4xl font-bold tracking-tight text-slate-900">{card.value}</div>
+                    <div className="mt-2 truncate text-sm text-slate-500">{card.helper}</div>
+                  </div>
+                  <div className={cn("flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl", card.tone)}>
+                    <card.icon className="h-6 w-6" />
+                  </div>
+                </div>
+              </Link>
+            ))}
       </section>
+
+      {!loading && !moduleCards.length ? (
+        <EmptyBlock title="暂无可汇总的业务模块" helper="当前账号只有首页权限，或尚未开通支持首页汇总的研发、问题、费用与订单模块。" />
+      ) : null}
 
       <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.2fr)_360px]">
         <div className="material-card p-6">
           <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div>
               <h3 className="text-slate-900">工作台脉冲</h3>
-              <p className="mt-1 text-sm text-slate-500">把跨模块的关键进展浓缩成更容易扫描的状态条。</p>
+              <p className="mt-1 text-sm text-slate-500">按模块浓缩当前真实业务状态，点击可直接进入对应工作台。</p>
             </div>
-            <span className="material-chip bg-slate-100 text-slate-600">Live Summary</span>
+            <span className="material-chip bg-slate-100 text-slate-600">API Summary</span>
           </div>
-          <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
-            {workspacePulse.map((item) => (
-              <div key={item.title} className="material-panel">
-                <div className={cn("material-chip", item.tone)}>{item.title}</div>
-                <div className="mt-3 text-sm leading-6 text-slate-600">{item.helper}</div>
-              </div>
-            ))}
-          </div>
+          {pulseItems.length ? (
+            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+              {pulseItems.map((item) => (
+                <Link key={item.title} to={item.path} className="material-panel transition hover:border-indigo-200">
+                  <div className={cn("material-chip", item.tone)}>{item.title}</div>
+                  <div className="mt-3 text-sm leading-6 text-slate-600">{item.helper}</div>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-5"><EmptyBlock title="暂无模块摘要" helper="完成业务模块授权后，这里会显示对应接口的实时摘要。" /></div>
+          )}
         </div>
 
         <div className="material-card p-6">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-slate-900">今日节奏</h3>
-              <p className="mt-1 text-sm text-slate-500">给首页补一块更有产品感的运营提醒。</p>
+              <h3 className="text-slate-900">近期动态</h3>
+              <p className="mt-1 text-sm text-slate-500">最近更新的三条跨模块记录。</p>
             </div>
-            <span className="material-chip bg-emerald-50 text-emerald-700">On Track</span>
+            <span className="material-chip bg-emerald-50 text-emerald-700">Live</span>
           </div>
-          <div className="mt-5 space-y-4">
-            {[
-              ["09:30", "售后晨会已同步 4 条异常记录"],
-              ["13:00", "法规库新增 MDR 标签条款摘要"],
-              ["16:00", "质量放行记录建议完成主管签批"],
-            ].map(([time, text]) => (
-              <div key={time} className="flex gap-3 rounded-[20px] border border-slate-100 bg-slate-50/80 p-4">
+          <div className="mt-5 space-y-3">
+            {activityItems.slice(0, 3).map((item) => (
+              <Link key={item.id} to={item.path} className="flex gap-3 rounded-[20px] border border-slate-100 bg-slate-50/80 p-4 transition hover:border-indigo-200">
                 <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-primary shadow-sm">
                   <Activity className="h-4 w-4" />
                 </div>
-                <div>
-                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{time}</div>
-                  <div className="mt-1 text-sm text-slate-700">{text}</div>
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">{item.source} · {item.time}</div>
+                  <div className="mt-1 line-clamp-2 text-sm text-slate-700">{item.title}</div>
                 </div>
-              </div>
+              </Link>
             ))}
+            {!activityItems.length ? <EmptyBlock title="暂无近期动态" helper="已接入模块当前没有可展示的活动记录。" /> : null}
           </div>
         </div>
       </section>
@@ -386,49 +677,45 @@ export function Dashboard() {
           <div className="material-card h-full p-6">
             <div className="mb-6 flex items-center justify-between">
               <div>
-                <h3 className="text-slate-900">近期工单状态</h3>
-                <p className="mt-1 text-sm text-slate-500">用更有层次的图表卡强化处理趋势与状态对比。</p>
+                <h3 className="text-slate-900">{chartConfig.title}</h3>
+                <p className="mt-1 text-sm text-slate-500">{chartConfig.helper}</p>
               </div>
-              <button
-                type="button"
-                onClick={() => setChartOpen(true)}
-                className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-slate-500 transition hover:bg-slate-200"
-              >
-                <MoreHorizontal className="h-5 w-5" />
-              </button>
+              {chartConfig.data.length ? (
+                <button
+                  type="button"
+                  onClick={() => setChartOpen(true)}
+                  aria-label="查看状态明细"
+                  className="flex h-10 w-10 items-center justify-center rounded-2xl bg-slate-100 text-slate-500 transition hover:bg-slate-200"
+                >
+                  <BarChart3 className="h-5 w-5" />
+                </button>
+              ) : null}
             </div>
 
-            <div className="rounded-[24px] bg-slate-50/60 p-4">
-              <div className="h-[300px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={barData} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
-                    <CartesianGrid horizontal={false} stroke="#e5edf7" />
-                    <XAxis type="number" hide />
-                    <YAxis
-                      type="category"
-                      dataKey="name"
-                      axisLine={false}
-                      tickLine={false}
-                      width={68}
-                      tick={{ fill: "#5f6b7a", fontSize: 13 }}
-                    />
-                    <Tooltip
-                      cursor={{ fill: "rgba(79, 70, 229, 0.06)" }}
-                      contentStyle={{
-                        borderRadius: 16,
-                        border: "1px solid #d8e2ee",
-                        boxShadow: "0 12px 28px rgba(15, 23, 42, 0.12)",
-                      }}
-                    />
-                    <Bar dataKey="value" radius={[0, 10, 10, 0]} barSize={22}>
-                      {barData.map((_, index) => (
-                        <Cell key={index} fill={["#c7d2fe", "#a5b4fc", "#6366f1", "#4f46e5"][index]} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+            {chartConfig.data.length ? (
+              <div className="rounded-[24px] bg-slate-50/60 p-4">
+                <div className="h-[300px]">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={chartConfig.data} layout="vertical" margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
+                      <CartesianGrid horizontal={false} stroke="#e5edf7" />
+                      <XAxis type="number" allowDecimals={false} hide />
+                      <YAxis type="category" dataKey="name" axisLine={false} tickLine={false} width={68} tick={{ fill: "#5f6b7a", fontSize: 13 }} />
+                      <Tooltip
+                        cursor={{ fill: "rgba(79, 70, 229, 0.06)" }}
+                        contentStyle={{ borderRadius: 16, border: "1px solid #d8e2ee", boxShadow: "0 12px 28px rgba(15, 23, 42, 0.12)" }}
+                      />
+                      <Bar dataKey="value" radius={[0, 10, 10, 0]} barSize={22}>
+                        {chartConfig.data.map((item, index) => (
+                          <Cell key={item.name} fill={["#c7d2fe", "#a5b4fc", "#6366f1", "#4f46e5"][index]} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
               </div>
-            </div>
+            ) : (
+              <EmptyBlock title="暂无状态统计" helper="问题或订单模块开通后，这里会显示对应接口的状态分布。" />
+            )}
           </div>
         </div>
 
@@ -437,25 +724,25 @@ export function Dashboard() {
             <div className="mb-6 flex items-center justify-between">
               <div>
                 <h3 className="text-slate-900">快捷操作</h3>
-                <p className="mt-1 text-sm text-slate-500">让高频动作更像产品化功能入口，而不是普通按钮集合。</p>
+                <p className="mt-1 text-sm text-slate-500">仅展示当前账号有权限进入的高频功能。</p>
               </div>
-              <span className="material-chip bg-slate-100 text-slate-600">6 Actions</span>
+              <span className="material-chip bg-slate-100 text-slate-600">{quickActions.length} Actions</span>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              {quickActions.map((action) => (
-                <Link
-                  key={action.title}
-                  to={action.path}
-                  className="group rounded-[24px] border border-slate-200 bg-white p-4 transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_10px_22px_-8px_rgba(79,70,229,0.18)]"
-                >
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-primary transition group-hover:bg-indigo-100">
-                    <action.icon className="h-5 w-5" />
-                  </div>
-                  <div className="mt-4 text-sm font-semibold leading-6 text-slate-800">{action.title}</div>
-                </Link>
-              ))}
-            </div>
+            {quickActions.length ? (
+              <div className="grid grid-cols-2 gap-4">
+                {quickActions.map((action) => (
+                  <Link key={action.title} to={action.path} className="group rounded-[24px] border border-slate-200 bg-white p-4 transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_10px_22px_-8px_rgba(79,70,229,0.18)]">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-indigo-50 text-primary transition group-hover:bg-indigo-100">
+                      <action.icon className="h-5 w-5" />
+                    </div>
+                    <div className="mt-4 text-sm font-semibold leading-6 text-slate-800">{action.title}</div>
+                  </Link>
+                ))}
+              </div>
+            ) : (
+              <EmptyBlock title="暂无快捷操作" helper="快捷入口会依据当前账号的页面权限自动生成。" />
+            )}
           </div>
         </div>
       </section>
@@ -466,45 +753,47 @@ export function Dashboard() {
             <div className="mb-6 flex items-center justify-between">
               <div>
                 <h3 className="text-slate-900">跨模块动态</h3>
-                <p className="mt-1 text-sm text-slate-500">用点击列表快速切换查看今天最值得关注的系统动作。</p>
+                <p className="mt-1 text-sm text-slate-500">研发通知、问题更新、费用事件与订单队列的最近记录。</p>
               </div>
-              <span className="material-chip bg-slate-100 text-slate-600">{activityFeed.length} Events</span>
+              <span className="material-chip bg-slate-100 text-slate-600">{activityItems.length} Events</span>
             </div>
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
-              <div className="space-y-3">
-                {activityFeed.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setSelectedFeedId(item.id)}
-                    className={cn(
-                      "w-full rounded-[22px] border p-4 text-left transition",
-                      selectedFeedId === item.id ? "border-indigo-200 bg-indigo-50/50" : "border-slate-100 bg-slate-50/70 hover:border-slate-200",
-                    )}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-sm font-semibold text-slate-800">{item.title}</div>
-                      <span className="material-chip bg-white text-slate-500">{item.time}</span>
+            {activityItems.length && selectedFeed ? (
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_280px]">
+                <div className="space-y-3">
+                  {activityItems.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => setSelectedFeedId(item.id)}
+                      className={cn(
+                        "w-full rounded-[22px] border p-4 text-left transition",
+                        selectedFeedId === item.id ? "border-indigo-200 bg-indigo-50/50" : "border-slate-100 bg-slate-50/70 hover:border-slate-200",
+                      )}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="text-sm font-semibold text-slate-800">{item.title}</div>
+                        <span className="material-chip shrink-0 bg-white text-slate-500">{item.time}</span>
+                      </div>
+                      <div className="mt-2 line-clamp-2 text-sm text-slate-600">{item.helper}</div>
+                    </button>
+                  ))}
+                </div>
+                <div className="rounded-[24px] border border-slate-100 bg-slate-50/60 p-5">
+                  <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">{selectedFeed.source}</div>
+                  <div className="mt-3 text-lg font-semibold text-slate-900">{selectedFeed.title}</div>
+                  <div className="mt-3 text-sm leading-6 text-slate-600">{selectedFeed.helper}</div>
+                  <div className="mt-5 flex items-center justify-between rounded-2xl border border-slate-100 bg-white px-4 py-3">
+                    <div>
+                      <div className="text-xs text-slate-400">更新时间</div>
+                      <div className="mt-1 text-sm font-semibold text-slate-800">{selectedFeed.time}</div>
                     </div>
-                    <div className="mt-2 text-sm text-slate-600">{item.helper}</div>
-                  </button>
-                ))}
-              </div>
-              <div className="rounded-[24px] border border-slate-100 bg-slate-50/60 p-5">
-                <div className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Event Detail</div>
-                <div className="mt-3 text-lg font-semibold text-slate-900">{selectedFeed.title}</div>
-                <div className="mt-3 text-sm leading-6 text-slate-600">{selectedFeed.helper}</div>
-                <div className="mt-5 flex items-center justify-between rounded-2xl border border-slate-100 bg-white px-4 py-3">
-                  <div>
-                    <div className="text-xs text-slate-400">更新时间</div>
-                    <div className="mt-1 text-sm font-semibold text-slate-800">{selectedFeed.time}</div>
+                    <Link to={selectedFeed.path} className="material-button-secondary">打开模块</Link>
                   </div>
-                  <Link to={selectedFeed.path} className="material-button-secondary">
-                    打开模块
-                  </Link>
                 </div>
               </div>
-            </div>
+            ) : (
+              <EmptyBlock title="暂无动态记录" helper="已接入模块当前没有通知、活动或最近更新。" />
+            )}
           </div>
         </div>
 
@@ -513,25 +802,22 @@ export function Dashboard() {
             <div className="mb-6 flex items-center justify-between">
               <div>
                 <h3 className="text-slate-900">模块聚焦</h3>
-                <p className="mt-1 text-sm text-slate-500">让首页不只是总览，也能承担导航和引导角色。</p>
+                <p className="mt-1 text-sm text-slate-500">可直接下钻到产生首页数据的业务模块。</p>
               </div>
-              <span className="material-chip bg-indigo-50 text-indigo-700">Featured</span>
+              <span className="material-chip bg-indigo-50 text-indigo-700">Connected</span>
             </div>
             <div className="space-y-4">
-              {moduleSpotlights.map((item) => (
-                <Link
-                  key={item.title}
-                  to={item.path}
-                  className="block rounded-[24px] border border-slate-100 bg-white p-5 transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_10px_22px_-8px_rgba(79,70,229,0.18)]"
-                >
+              {moduleCards.slice(0, 3).map((item) => (
+                <Link key={item.title} to={item.path} className="block rounded-[24px] border border-slate-100 bg-white p-5 transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_10px_22px_-8px_rgba(79,70,229,0.18)]">
                   <div className="flex items-center justify-between gap-3">
                     <div className="text-base font-semibold text-slate-900">{item.title}</div>
                     <ArrowUpRight className="h-4 w-4 text-slate-400" />
                   </div>
-                  <div className="mt-2 text-sm leading-6 text-slate-600">{item.helper}</div>
-                  <div className="mt-4 text-sm font-semibold text-primary">{item.value}</div>
+                  <div className="mt-2 text-sm leading-6 text-slate-600">{item.description}</div>
+                  <div className="mt-4 text-sm font-semibold text-primary">{item.value} · {item.helper}</div>
                 </Link>
               ))}
+              {!moduleCards.length ? <EmptyBlock title="暂无已接入模块" helper="这里会列出首页数据的真实来源和当前摘要。" /> : null}
             </div>
           </div>
         </div>
@@ -542,11 +828,11 @@ export function Dashboard() {
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <h3 className="text-slate-900">待办事项</h3>
-              <p className="mt-1 text-sm text-slate-500">首页就能筛选、分页并快速把任务推进到对应模块。</p>
+              <p className="mt-1 text-sm text-slate-500">来自研发任务、待处理问题、费用提醒与订单队列。</p>
             </div>
-            <button type="button" onClick={() => setReportOpen(true)} className="material-button-primary w-fit">
-              <BarChart3 className="h-4 w-4" />
-              查看完整报表
+            <button type="button" onClick={() => void loadData(false)} disabled={refreshing} className="material-button-primary w-fit disabled:cursor-not-allowed disabled:opacity-60">
+              <RefreshCw className={cn("h-4 w-4", refreshing && "animate-spin")} />
+              同步待办
             </button>
           </div>
 
@@ -558,9 +844,7 @@ export function Dashboard() {
                 onClick={() => changeFilter(item)}
                 className={cn(
                   "rounded-full border px-4 py-2 text-sm font-semibold transition",
-                  statusFilter === item
-                    ? "border-indigo-200 bg-indigo-50 text-indigo-700"
-                    : "border-slate-200 bg-white text-slate-500 hover:border-slate-300",
+                  statusFilter === item ? "border-indigo-200 bg-indigo-50 text-indigo-700" : "border-slate-200 bg-white text-slate-500 hover:border-slate-300",
                 )}
               >
                 {item}
@@ -570,186 +854,96 @@ export function Dashboard() {
         </div>
 
         <div className="material-scrollbar overflow-x-auto">
-          <table className="min-w-[860px] text-left">
+          <table className="min-w-[900px] text-left">
             <thead className="bg-slate-50/90">
               <tr>
-                {["事项名称", "来源模块", "负责人", "截止日期", "状态", "优先级", "操作"].map((title) => (
-                  <th key={title} className="px-6 py-4 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                    {title}
-                  </th>
+                {["事项名称", "来源模块", "负责人", "截止/更新时间", "状态", "优先级", "操作"].map((title) => (
+                  <th key={title} className="px-6 py-4 text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{title}</th>
                 ))}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {pagedTodos.map((item) => (
                 <tr key={item.id} className="transition hover:bg-indigo-50/40">
-                  <td className="px-6 py-4 text-sm font-semibold text-slate-800">{item.name}</td>
+                  <td className="max-w-[280px] px-6 py-4">
+                    <div className="truncate text-sm font-semibold text-slate-800">{item.name}</div>
+                    <div className="mt-1 truncate text-xs text-slate-400">{item.description}</div>
+                  </td>
                   <td className="px-6 py-4 text-sm text-slate-500">{item.module}</td>
                   <td className="px-6 py-4 text-sm text-slate-700">{item.user}</td>
-                  <td className="px-6 py-4 text-sm text-slate-500">{item.deadline}</td>
-                  <td className="px-6 py-4">
-                    <span className={cn("material-chip", statusTone[item.status])}>{item.status}</span>
-                  </td>
-                  <td className="px-6 py-4">
-                    <span className={cn("material-chip", priorityTone[item.priority])}>{item.priority}</span>
-                  </td>
+                  <td className="px-6 py-4 text-sm text-slate-500">{item.date}</td>
+                  <td className="px-6 py-4"><span className={cn("material-chip", statusTone[item.status])}>{item.status}</span></td>
+                  <td className="px-6 py-4"><span className={cn("material-chip", priorityTone[item.priority])}>{item.priority}</span></td>
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2">
-                      <Link to={item.path} className="material-button-secondary px-3 py-2 text-xs">
-                        进入模块
-                      </Link>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFocusedTodo(item);
-                          handlePromote(item.name);
-                        }}
-                        className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-200"
-                      >
-                        标记重点
-                      </button>
+                      <Link to={item.path} className="material-button-secondary px-3 py-2 text-xs">进入模块</Link>
+                      <button type="button" onClick={() => setFocusedTodo(item)} className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600 transition hover:bg-slate-200">查看详情</button>
                     </div>
                   </td>
                 </tr>
               ))}
+              {!pagedTodos.length ? (
+                <tr><td colSpan={7} className="px-6 py-12 text-center text-sm text-slate-500">当前筛选条件下没有待办事项</td></tr>
+              ) : null}
             </tbody>
           </table>
         </div>
 
         <div className="flex flex-col gap-4 border-t border-slate-100 px-6 py-4 md:flex-row md:items-center md:justify-between">
-          <div className="text-sm text-slate-500">
-            共 {filteredTodos.length} 条待办，当前第 {page}/{totalPages} 页
-          </div>
+          <div className="text-sm text-slate-500">共 {filteredTodos.length} 条待办，当前第 {page}/{totalPages} 页</div>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setPage((current) => Math.max(1, current - 1))}
-              disabled={page === 1}
-              className="material-button-secondary disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              上一页
-            </button>
-            <button
-              type="button"
-              onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-              disabled={page === totalPages}
-              className="material-button-secondary disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              下一页
-            </button>
+            <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1} className="material-button-secondary disabled:cursor-not-allowed disabled:opacity-50">上一页</button>
+            <button type="button" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={page === totalPages} className="material-button-secondary disabled:cursor-not-allowed disabled:opacity-50">下一页</button>
           </div>
         </div>
       </section>
 
-      {analysisOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/28 px-4">
-          <div className="material-card w-full max-w-3xl p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-slate-900">经营分析视图</h3>
-                <p className="mt-1 text-sm text-slate-500">把首页入口改成真实可展开的分析面板。</p>
-              </div>
-              <button type="button" className="material-button-secondary px-3 py-2" onClick={() => setAnalysisOpen(false)}>
-                关闭
-              </button>
-            </div>
-            <div className="mt-5 grid gap-4 md:grid-cols-3">
-              {[
-                ["售后闭环效率", "92%", "高优先级工单平均 3.1 小时进入诊断"],
-                ["法规协同进度", "76%", "本周 4 个资料更新事项已关闭 3 个"],
-                ["质量放行稳定度", "88%", "2 条记录仍待主管签批"],
-              ].map(([label, value, helper]) => (
-                <div key={label} className="material-panel">
-                  <div className="text-xs uppercase tracking-[0.14em] text-slate-400">{label}</div>
-                  <div className="mt-3 text-3xl font-bold text-slate-900">{value}</div>
-                  <div className="mt-2 text-sm text-slate-600">{helper}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      ) : null}
-
-      {reportOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/28 px-4">
-          <div className="material-card w-full max-w-3xl p-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-slate-900">完整报表</h3>
-                <p className="mt-1 text-sm text-slate-500">这里先承接报表总览、导出和同步动作。</p>
-              </div>
-              <button type="button" className="material-button-secondary px-3 py-2" onClick={() => setReportOpen(false)}>
-                关闭
-              </button>
-            </div>
-            <div className="mt-5 space-y-3">
-              {[
-                "导出首页待办清单",
-                "生成跨模块周报摘要",
-                "同步高优先级事项到邮件摘要",
-              ].map((item) => (
-                <button key={item} type="button" className="material-panel w-full text-left text-sm text-slate-700 transition hover:border-indigo-200" onClick={() => toast.success(`${item} 已触发`)}>
-                  {item}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      ) : null}
-
       {chartOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/28 px-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/28 px-4" role="dialog" aria-modal="true" aria-label="状态统计明细">
           <div className="material-card w-full max-w-2xl p-6">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-slate-900">图表钻取</h3>
-                <p className="mt-1 text-sm text-slate-500">图表入口现在会展开状态明细，而不是只提示。</p>
+                <h3 className="text-slate-900">{chartConfig.title}明细</h3>
+                <p className="mt-1 text-sm text-slate-500">以下数字与首页图表使用同一份接口结果。</p>
               </div>
-              <button type="button" className="material-button-secondary px-3 py-2" onClick={() => setChartOpen(false)}>
-                关闭
-              </button>
+              <button type="button" className="material-button-secondary px-3 py-2" onClick={() => setChartOpen(false)}>关闭</button>
             </div>
             <div className="mt-5 grid gap-4 md:grid-cols-2">
-              {barData.map((item) => (
+              {chartConfig.data.map((item) => (
                 <div key={item.name} className="material-panel">
                   <div className="text-sm font-semibold text-slate-800">{item.name}</div>
                   <div className="mt-2 text-2xl font-bold text-slate-900">{item.value}</div>
-                  <div className="mt-2 text-sm text-slate-600">当前状态对应的工单数量和推进建议可继续联动到售后列表。</div>
                 </div>
               ))}
             </div>
+            {chartConfig.path !== "/" ? <Link to={chartConfig.path} className="material-button-primary mt-5 w-fit">进入数据来源模块</Link> : null}
           </div>
         </div>
       ) : null}
 
       {focusedTodo ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/28 px-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/28 px-4" role="dialog" aria-modal="true" aria-label="待办事项详情">
           <div className="material-card w-full max-w-2xl p-6">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-slate-900">重点事项详情</h3>
-                <p className="mt-1 text-sm text-slate-500">“标记重点”现在会展开当前待办的详情卡。</p>
+                <h3 className="text-slate-900">待办事项详情</h3>
+                <p className="mt-1 text-sm text-slate-500">数据来源：{focusedTodo.module}</p>
               </div>
-              <button type="button" className="material-button-secondary px-3 py-2" onClick={() => setFocusedTodo(null)}>
-                关闭
-              </button>
+              <button type="button" className="material-button-secondary px-3 py-2" onClick={() => setFocusedTodo(null)}>关闭</button>
             </div>
             <div className="mt-5 grid gap-4 md:grid-cols-2">
               <div className="material-panel">
                 <div className="text-base font-semibold text-slate-900">{focusedTodo.name}</div>
-                <div className="mt-3 text-sm text-slate-600">来源模块：{focusedTodo.module}</div>
-                <div className="mt-2 text-sm text-slate-600">负责人：{focusedTodo.user}</div>
-                <div className="mt-2 text-sm text-slate-600">截止日期：{focusedTodo.deadline}</div>
+                <div className="mt-3 text-sm leading-6 text-slate-600">{focusedTodo.description}</div>
               </div>
-              <div className="material-panel">
-                <div className="text-sm font-semibold text-slate-800">跟进建议</div>
-                <div className="mt-3 space-y-2 text-sm text-slate-600">
-                  <div>1. 先确认当前状态阻塞点。</div>
-                  <div>2. 必要时直接进入对应模块补录信息。</div>
-                  <div>3. 若超时风险较高，建议同步负责人并抄送部门主管。</div>
-                </div>
+              <div className="material-panel space-y-2 text-sm text-slate-600">
+                <div>负责人：{focusedTodo.user}</div>
+                <div>截止/更新时间：{focusedTodo.date}</div>
+                <div>状态：{focusedTodo.status}</div>
+                <div>优先级：{focusedTodo.priority}</div>
               </div>
             </div>
+            <Link to={focusedTodo.path} className="material-button-primary mt-5 w-fit">进入模块处理</Link>
           </div>
         </div>
       ) : null}

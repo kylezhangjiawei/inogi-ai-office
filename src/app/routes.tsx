@@ -23,7 +23,7 @@ import { ReportCompressionPage } from "./ReportCompressionPage";
 // 人事与行政
 import { ResumeScreeningPage } from "./ResumeScreeningPage";
 import { EmployeeArchivePage } from "./EmployeeArchivePage";
-import { QuickCapturePage } from "./QuickCapturePage";
+import { AttendancePage } from "./AttendancePage";
 import { ExpenseCenterPage } from "./ExpenseCenterPage";
 // 质量与生产
 import { EBPRPage } from "./EBPRPage";
@@ -63,7 +63,8 @@ export const router = createBrowserRouter([
       // 人事与行政
       { path: "resume-screening", Component: ResumeScreeningPage },
       { path: "employee-archive", Component: EmployeeArchivePage },
-      { path: "quick-capture", Component: QuickCapturePage },
+      { path: "attendance", Component: AttendancePage },
+      { path: "quick-capture", Component: AttendancePage },
       { path: "expense-center", Component: ExpenseCenterPage },
       // 质量与生产
       { path: "ebpr", Component: EBPRPage },
