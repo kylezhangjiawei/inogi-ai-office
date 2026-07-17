@@ -787,7 +787,7 @@ export function Dashboard() {
         </div>
 
         <div className="material-scrollbar overflow-x-auto">
-          <table className="min-w-[900px] text-left">
+          <table className="w-full min-w-[900px] text-left">
             <thead className="bg-slate-50/90">
               <tr>
                 {["事项名称", "来源模块", "负责人", "截止/更新时间", "状态", "优先级", "操作"].map((title) => (
