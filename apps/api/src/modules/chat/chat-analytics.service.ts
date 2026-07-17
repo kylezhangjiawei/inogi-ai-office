@@ -32,13 +32,6 @@ const OTHER_SCENARIO = { key: 'other', label: '其他办公问答' } as const;
 
 type EventMetadata = Record<string, string | number | boolean | null>;
 
-type DirectoryUser = {
-  id: string;
-  name: string;
-  department: string | null;
-  role: { name: string; permissions: Prisma.JsonValue } | null;
-};
-
 type PersonProfile = {
   userId: string;
   name: string;
@@ -46,6 +39,10 @@ type PersonProfile = {
   role: string;
   position: string;
 };
+
+// 部门以用户自己配置的 User.department 为准；未配置的统一归入「其他」，
+// 而不是被排除出人员名单。
+const OTHER_DEPARTMENT = '其他';
 
 @Injectable()
 export class ChatAnalyticsService {
@@ -394,15 +391,12 @@ export class ChatAnalyticsService {
       userId: string,
       fallback: { name: string; department: string | null; role: { name: string } | null },
     ) => personDirectory.get(userId) ?? this.fallbackPersonProfile(userId, fallback);
-    // Leadership reporting only includes accounts bound to an organization
-    // profile. Seed/demo accounts without a department stay out of adoption
-    // denominators and personnel lists instead of appearing as "unknown".
+    // 所有在用账号都纳入名单；部门取自 User.department 配置，未配置者归「其他」。
     const eligiblePeople = eligibleDirectoryUsers
       .map((user) => ({
         user,
         profile: personDirectory.get(user.id) ?? this.fallbackPersonProfile(user.id, user),
-      }))
-      .filter(({ profile }) => profile.department !== '组织档案待同步');
+      }));
     const eligibleUserIds = new Set(eligiblePeople.map(({ user }) => user.id));
 
     const activeUserIds = new Set(questionObservations.map((observation) => observation.userId));
@@ -1322,13 +1316,13 @@ export class ChatAnalyticsService {
     return new Map(users.map((user) => {
       const rdPerson = rdByUserId.get(user.id);
       const rdName = typeof rdPerson?.name === 'string' ? rdPerson.name.trim() : '';
-      const rdDepartment = typeof rdPerson?.department === 'string' ? rdPerson.department.trim() : '';
       const rdPosition = typeof rdPerson?.position === 'string' ? rdPerson.position.trim() : '';
       const role = user.role?.name?.trim() ?? '';
       const profile: PersonProfile = {
         userId: user.id,
         name: rdName || user.name.trim(),
-        department: rdDepartment || user.department?.trim() || this.departmentFromRole(user),
+        // 部门以用户配置为准，不再用 rd.people 覆盖；未配置归「其他」。
+        department: user.department?.trim() || OTHER_DEPARTMENT,
         role,
         position: rdPosition || role,
       };
@@ -1344,18 +1338,10 @@ export class ChatAnalyticsService {
     return {
       userId,
       name: user.name.trim(),
-      department: user.department?.trim() || this.departmentFromRole({ ...user, id: userId, role: user.role ? { ...user.role, permissions: [] } : null }),
+      department: user.department?.trim() || OTHER_DEPARTMENT,
       role,
       position: role,
     };
-  }
-
-  private departmentFromRole(user: DirectoryUser) {
-    const permissions = Array.isArray(user.role?.permissions) ? user.role.permissions : [];
-    // Technical super-admin accounts are owned by Information Systems; normal
-    // employees must come from an organization record rather than role guessing.
-    if (permissions.includes('*') || /super admin|系统管理员/i.test(user.role?.name ?? '')) return '信息系统部';
-    return '组织档案待同步';
   }
 
   private sourcesFromEvent(metadata: Prisma.JsonValue) {
