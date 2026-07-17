@@ -42,6 +42,21 @@ import {
 import { toast } from 'sonner';
 
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from './components/ui/dialog';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from './components/ui/select';
+import {
   Sheet,
   SheetContent,
   SheetDescription,
@@ -196,16 +211,17 @@ function ListPagination({
     <div className="flex flex-col gap-3 border-t border-slate-100 bg-slate-50/55 px-5 py-3.5 sm:flex-row sm:items-center sm:justify-between lg:px-6">
       <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500">
         <span>第 {firstItem}–{lastItem} 条，共 {totalItems} 条</span>
-        <label className="flex items-center gap-2">
+        <span className="flex items-center gap-2">
           每页
-          <select
-            value={pageSize}
-            onChange={(event) => onPageSizeChange(Number(event.target.value))}
-            className="h-8 rounded-lg border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
-          >
-            {pageSizeOptions.map((size) => <option key={size} value={size}>{size} 条</option>)}
-          </select>
-        </label>
+          <Select value={String(pageSize)} onValueChange={(value) => onPageSizeChange(Number(value))}>
+            <SelectTrigger size="sm" aria-label="每页条数" className="h-8 w-auto gap-1 rounded-lg text-xs text-slate-700">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {pageSizeOptions.map((size) => <SelectItem key={size} value={String(size)} className="text-xs">{size} 条</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </span>
       </div>
       <nav className="flex items-center gap-1" aria-label="列表分页">
         <button
@@ -252,6 +268,33 @@ function DetailMetric({ label, value }: { label: string; value: string }) {
       <p className="text-xs text-slate-500">{label}</p>
       <p className="mt-1 text-xl font-semibold text-slate-950">{value}</p>
     </div>
+  );
+}
+
+function FilterSelect({
+  value,
+  onValueChange,
+  options,
+  ariaLabel,
+  triggerClassName,
+}: {
+  value: string;
+  onValueChange: (value: string) => void;
+  options: Array<{ value: string; label: string }>;
+  ariaLabel: string;
+  triggerClassName?: string;
+}) {
+  return (
+    <Select value={value} onValueChange={onValueChange}>
+      <SelectTrigger size="sm" aria-label={ariaLabel} className={cn('h-9 w-full rounded-lg text-xs text-slate-700', triggerClassName)}>
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {options.map((option) => (
+          <SelectItem key={option.value} value={option.value} className="text-xs">{option.label}</SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   );
 }
 
@@ -775,14 +818,18 @@ export function ChatAnalyticsPage() {
                       <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                       <input value={userQuery} onChange={(event) => setUserQuery(event.target.value)} placeholder="搜索姓名、部门、职位或场景" className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-xs outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100" />
                     </label>
-                    <select value={departmentFilter ?? 'all'} onChange={(event) => setDepartmentFilter(event.target.value === 'all' ? null : event.target.value)} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100" aria-label="按部门筛选人员">
-                      <option value="all">全部部门</option>
-                      {departmentOptions.map((department) => <option key={department} value={department}>{department}</option>)}
-                    </select>
-                    <select value={scenarioFilter} onChange={(event) => setScenarioFilter(event.target.value)} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100" aria-label="按使用场景筛选人员">
-                      <option value="all">全部使用场景</option>
-                      {scenarioOptions.map((scenario) => <option key={scenario} value={scenario}>{scenario}</option>)}
-                    </select>
+                    <FilterSelect
+                      value={departmentFilter ?? 'all'}
+                      onValueChange={(value) => setDepartmentFilter(value === 'all' ? null : value)}
+                      ariaLabel="按部门筛选人员"
+                      options={[{ value: 'all', label: '全部部门' }, ...departmentOptions.map((department) => ({ value: department, label: department }))]}
+                    />
+                    <FilterSelect
+                      value={scenarioFilter}
+                      onValueChange={setScenarioFilter}
+                      ariaLabel="按使用场景筛选人员"
+                      options={[{ value: 'all', label: '全部使用场景' }, ...scenarioOptions.map((scenario) => ({ value: scenario, label: scenario }))]}
+                    />
                     <button type="button" onClick={resetPeopleFilters} disabled={!hasPeopleFilters} className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
                       <RefreshCw className="h-3.5 w-3.5" />重置
                     </button>
@@ -850,22 +897,30 @@ export function ChatAnalyticsPage() {
                         <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
                         <input value={feedbackQuery} onChange={(event) => setFeedbackQuery(event.target.value)} placeholder="搜索人员、问题、回答或反馈" className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-xs outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100" />
                       </label>
-                      <select value={feedbackReaction} onChange={(event) => setFeedbackReaction(event.target.value as FeedbackReactionFilter)} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100" aria-label="按反馈类型筛选">
-                        <option value="all">全部反馈类型</option>
-                        <option value="like">有帮助</option>
-                        <option value="dislike">需改进</option>
-                      </select>
-                      <select value={feedbackStatus} onChange={(event) => setFeedbackStatus(event.target.value as FeedbackFilter)} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100" aria-label="按处理状态筛选">
-                        <option value="all">全部处理状态</option>
-                        {Object.entries(STATUS_META).map(([status, meta]) => {
-                          const count = activeFeedbackStatuses.find((row) => row.status === status)?.count ?? 0;
-                          return <option key={status} value={status}>{meta.label}（{count}）</option>;
-                        })}
-                      </select>
-                      <select value={feedbackDepartment} onChange={(event) => setFeedbackDepartment(event.target.value)} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100" aria-label="按部门筛选反馈">
-                        <option value="all">全部部门</option>
-                        {feedbackDepartmentOptions.map((department) => <option key={department} value={department}>{department}</option>)}
-                      </select>
+                      <FilterSelect
+                        value={feedbackReaction}
+                        onValueChange={(value) => setFeedbackReaction(value as FeedbackReactionFilter)}
+                        ariaLabel="按反馈类型筛选"
+                        options={[{ value: 'all', label: '全部反馈类型' }, { value: 'like', label: '有帮助' }, { value: 'dislike', label: '需改进' }]}
+                      />
+                      <FilterSelect
+                        value={feedbackStatus}
+                        onValueChange={(value) => setFeedbackStatus(value as FeedbackFilter)}
+                        ariaLabel="按处理状态筛选"
+                        options={[
+                          { value: 'all', label: '全部处理状态' },
+                          ...Object.entries(STATUS_META).map(([status, meta]) => ({
+                            value: status,
+                            label: `${meta.label}（${activeFeedbackStatuses.find((row) => row.status === status)?.count ?? 0}）`,
+                          })),
+                        ]}
+                      />
+                      <FilterSelect
+                        value={feedbackDepartment}
+                        onValueChange={setFeedbackDepartment}
+                        ariaLabel="按部门筛选反馈"
+                        options={[{ value: 'all', label: '全部部门' }, ...feedbackDepartmentOptions.map((department) => ({ value: department, label: department }))]}
+                      />
                       <button type="button" onClick={resetFeedbackFilters} disabled={!hasFeedbackFilters} className="inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"><RefreshCw className="h-3.5 w-3.5" />重置</button>
                     </div>
                     <p className="mt-3 border-t border-slate-100 pt-3 text-right text-xs text-slate-400">共 {filteredFeedback.length} 条</p>
@@ -886,7 +941,14 @@ export function ChatAnalyticsPage() {
                             <TableCell><p className="line-clamp-2 text-xs leading-5 text-slate-700"><strong className="text-slate-500">问：</strong>{row.question || '—'}</p><p className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500"><strong>答：</strong>{row.answer || '—'}</p></TableCell>
                             <TableCell className="whitespace-nowrap text-xs text-slate-500">{formatDateTime(row.submittedAt)}</TableCell>
                             <TableCell>{row.reaction === 'like' ? <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700">正向信号</span> : canManageFeedback ? (
-                              <select aria-label={`更新 ${row.user} 的反馈状态`} value={row.status} disabled={updatingId === row.id} onChange={(event) => requestStatusUpdate(row, event.target.value as ChatFeedbackRow['status'])} className={cn('rounded-lg border px-2 py-1.5 text-xs font-medium outline-none focus:ring-2 focus:ring-indigo-100 disabled:opacity-60', STATUS_META[row.status].className)}>{Object.entries(STATUS_META).map(([value, meta]) => <option key={value} value={value}>{meta.label}</option>)}</select>
+                              <Select value={row.status} disabled={updatingId === row.id} onValueChange={(value) => requestStatusUpdate(row, value as ChatFeedbackRow['status'])}>
+                                <SelectTrigger size="sm" aria-label={`更新 ${row.user} 的反馈状态`} className={cn('h-8 w-auto gap-1 rounded-lg border px-2 text-xs font-medium', STATUS_META[row.status].className)}>
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {Object.entries(STATUS_META).map(([value, meta]) => <SelectItem key={value} value={value} className="text-xs">{meta.label}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
                             ) : <span className={cn('inline-flex rounded-full border px-2.5 py-1 text-xs font-medium', STATUS_META[row.status].className)}>{STATUS_META[row.status].label}</span>}</TableCell>
                           </TableRow>
                         ))}
@@ -964,7 +1026,12 @@ export function ChatAnalyticsPage() {
                         <SectionHeader title="近期使用记录" description="查看该人员在什么时间、用 AI 处理了什么问题。" />
                         <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px]">
                           <label className="relative block"><Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" /><input value={activityQuery} onChange={(event) => setActivityQuery(event.target.value)} placeholder="搜索问题、回答或模型" className="h-9 w-full rounded-lg border border-slate-200 bg-white pl-9 pr-3 text-xs outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100" /></label>
-                          <select value={activityScenario} onChange={(event) => setActivityScenario(event.target.value)} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100" aria-label="按个人使用场景筛选"><option value="all">全部使用场景</option>{activityScenarioOptions.map((scenario) => <option key={scenario} value={scenario}>{scenario}</option>)}</select>
+                          <FilterSelect
+                            value={activityScenario}
+                            onValueChange={setActivityScenario}
+                            ariaLabel="按个人使用场景筛选"
+                            options={[{ value: 'all', label: '全部使用场景' }, ...activityScenarioOptions.map((scenario) => ({ value: scenario, label: scenario }))]}
+                          />
                         </div>
                         <div className="mt-4 space-y-3">{pagedActivity.map((row) => <article key={row.id} className="rounded-xl border border-slate-200 p-3.5"><div className="flex flex-wrap items-center justify-between gap-2"><span className="rounded-full bg-indigo-50 px-2 py-1 text-[11px] font-medium text-indigo-700">{row.scenario}</span><span className="text-[11px] text-slate-400">{formatDateTime(row.createdAt)}</span></div><p className="mt-2 text-sm leading-6 text-slate-800">{row.question}</p>{row.hasAttachments && <p className="mt-1 flex items-center gap-1 text-[11px] text-slate-400"><Paperclip className="h-3 w-3" />含附件</p>}{row.answer && <p className="mt-2 line-clamp-3 rounded-lg bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-500">AI：{row.answer}</p>}{row.reaction && <div className="mt-2 flex justify-end text-[11px]">{row.reaction === 'like' ? <span className="flex items-center gap-1 text-emerald-600"><ThumbsUp className="h-3 w-3" />有帮助</span> : <span className="flex items-center gap-1 text-rose-600"><ThumbsDown className="h-3 w-3" />需改进</span>}</div>}</article>)}</div>
                         {filteredActivity.length === 0 && <p className="py-10 text-center text-sm text-slate-400">没有符合当前筛选条件的使用记录</p>}
@@ -977,8 +1044,18 @@ export function ChatAnalyticsPage() {
                       <div className="p-4">
                         <SectionHeader title="该人员提交的反馈" />
                         <div className="mt-3 grid grid-cols-2 gap-2">
-                          <select value={personFeedbackReaction} onChange={(event) => setPersonFeedbackReaction(event.target.value as FeedbackReactionFilter)} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100" aria-label="按个人反馈类型筛选"><option value="all">全部反馈类型</option><option value="like">有帮助</option><option value="dislike">需改进</option></select>
-                          <select value={personFeedbackStatus} onChange={(event) => setPersonFeedbackStatus(event.target.value as FeedbackFilter)} className="h-9 rounded-lg border border-slate-200 bg-white px-3 text-xs text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100" aria-label="按个人反馈状态筛选"><option value="all">全部处理状态</option>{Object.entries(STATUS_META).map(([value, meta]) => <option key={value} value={value}>{meta.label}</option>)}</select>
+                          <FilterSelect
+                            value={personFeedbackReaction}
+                            onValueChange={(value) => setPersonFeedbackReaction(value as FeedbackReactionFilter)}
+                            ariaLabel="按个人反馈类型筛选"
+                            options={[{ value: 'all', label: '全部反馈类型' }, { value: 'like', label: '有帮助' }, { value: 'dislike', label: '需改进' }]}
+                          />
+                          <FilterSelect
+                            value={personFeedbackStatus}
+                            onValueChange={(value) => setPersonFeedbackStatus(value as FeedbackFilter)}
+                            ariaLabel="按个人反馈状态筛选"
+                            options={[{ value: 'all', label: '全部处理状态' }, ...Object.entries(STATUS_META).map(([value, meta]) => ({ value, label: meta.label }))]}
+                          />
                         </div>
                         <div className="mt-4 space-y-3">{pagedPersonFeedback.map((row) => <article key={row.id} className="rounded-xl border border-slate-200 p-3.5 text-xs"><div className="flex items-center justify-between gap-3"><span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-1 font-medium', row.reaction === 'like' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700')}>{row.reaction === 'like' ? <ThumbsUp className="h-3 w-3" /> : <ThumbsDown className="h-3 w-3" />}{row.reaction === 'like' ? '有帮助' : '需改进'}</span><span className="text-slate-400">{formatDateTime(row.submittedAt)}</span></div>{row.reasonLabels.length > 0 && <p className="mt-2 text-slate-700">{row.reasonLabels.join('、')}</p>}{row.comment && <p className="mt-1 text-slate-500">“{row.comment}”</p>}{row.resolutionNote && <p className="mt-2 rounded-lg bg-slate-50 px-3 py-2 text-slate-600">处理结论：{row.resolutionNote}</p>}</article>)}</div>
                         {filteredPersonFeedback.length === 0 && <p className="py-10 text-center text-sm text-slate-400">没有符合当前筛选条件的反馈</p>}
@@ -1004,15 +1081,25 @@ export function ChatAnalyticsPage() {
         </SheetContent>
       </Sheet>
 
-      {statusDraft && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/40 p-4" role="dialog" aria-modal="true" aria-labelledby="feedback-status-title">
-          <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200">
-            <div className="border-b border-slate-100 px-6 py-4"><h2 id="feedback-status-title" className="font-semibold text-slate-950">更新问题处理状态</h2><p className="mt-1 text-xs text-slate-500">{statusDraft.row.user} · {STATUS_META[statusDraft.status].label}</p></div>
-            <div className="px-6 py-5"><label className="block text-sm font-medium text-slate-700">处理结论{(statusDraft.status === 'resolved' || statusDraft.status === 'ignored') && <span className="text-rose-500"> *</span>}<textarea value={statusDraft.resolutionNote} onChange={(event) => setStatusDraft({ ...statusDraft, resolutionNote: event.target.value })} rows={4} maxLength={500} placeholder="说明处理动作、核查结果或忽略原因" className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm leading-6 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100" /></label></div>
-            <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-4"><button type="button" onClick={() => setStatusDraft(null)} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">取消</button><button type="button" onClick={() => void updateStatus()} disabled={updatingId === statusDraft.row.id} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60">确认更新</button></div>
-          </div>
-        </div>
-      )}
+      <Dialog open={Boolean(statusDraft)} onOpenChange={(open) => { if (!open) setStatusDraft(null); }}>
+        {statusDraft && (
+          <DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-lg">
+            <DialogHeader className="border-b border-slate-100 px-6 py-4 pr-12 text-left">
+              <DialogTitle className="font-semibold text-slate-950">更新问题处理状态</DialogTitle>
+              <DialogDescription className="text-xs text-slate-500">{statusDraft.row.user} · {STATUS_META[statusDraft.status].label}</DialogDescription>
+            </DialogHeader>
+            <div className="px-6 py-5">
+              <label className="block text-sm font-medium text-slate-700">处理结论{(statusDraft.status === 'resolved' || statusDraft.status === 'ignored') && <span className="text-rose-500"> *</span>}
+                <textarea value={statusDraft.resolutionNote} onChange={(event) => setStatusDraft({ ...statusDraft, resolutionNote: event.target.value })} rows={4} maxLength={500} placeholder="说明处理动作、核查结果或忽略原因" className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm leading-6 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100" />
+              </label>
+            </div>
+            <DialogFooter className="border-t border-slate-100 px-6 py-4">
+              <button type="button" onClick={() => setStatusDraft(null)} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50">取消</button>
+              <button type="button" onClick={() => void updateStatus()} disabled={updatingId === statusDraft.row.id} className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60">确认更新</button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+      </Dialog>
     </main>
   );
 }
