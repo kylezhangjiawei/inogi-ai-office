@@ -21,8 +21,9 @@ function todayKey(): string {
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 }
 
-function storageKey(period: Period): string {
-  return `matechat-reminder:${todayKey()}:${period}`;
+// 按账号隔离：同一浏览器切换账号时，各账号的提醒记录互不影响
+function storageKey(userId: string, period: Period): string {
+  return `matechat-reminder:${userId}:${todayKey()}:${period}`;
 }
 
 const CHECK_INTERVAL = 5 * 60 * 1000; // 5 分钟检查一次（大多数情况仅本地判断，零网络）
@@ -39,11 +40,16 @@ export function MateChatReminderModal() {
   const [data, setData] = useState<MateChatStreak | null>(null);
   const checkingRef = useRef(false);
 
+  // 切换账号（user.id 变化）时清掉共享缓存，避免读到上一个账号的连续数据
+  useEffect(() => {
+    chatStreakApi.invalidate();
+  }, [user?.id]);
+
   const maybeShow = useCallback(async () => {
     if (!user || open || checkingRef.current) return;
     const period = currentPeriod();
     if (!period) return;
-    const key = storageKey(period);
+    const key = storageKey(user.id, period);
     if (localStorage.getItem(key)) return; // 本时段已处理：纯本地判断，不发请求
     checkingRef.current = true;
     try {
