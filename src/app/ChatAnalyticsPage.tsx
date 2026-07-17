@@ -556,7 +556,7 @@ export function ChatAnalyticsPage() {
           : '尚未形成实际使用';
 
   return (
-    <main className="min-h-full bg-[#f5f7fb] px-4 py-5 lg:px-7">
+    <main className="min-h-full px-4 py-5 lg:px-7">
       <div className="mx-auto max-w-[1580px]">
         <header className="flex flex-col gap-3 border-b border-slate-200/80 pb-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
