@@ -81,29 +81,23 @@ function Confetti() {
   );
 }
 
-/** 每日 AI 卡通动物吉祥物；加载失败自动隐藏 */
-function MascotImage({ url }: { url: string | null }) {
+/** 每日 AI 卡通动物图，作为整卡背景铺满；叠加可读性遮罩保证白字对比。加载失败自动隐藏（回退卡片自带渐变）。 */
+function CardBackground({ url }: { url: string | null }) {
   const reduce = useReducedMotion();
   const [failed, setFailed] = useState(false);
   if (!url || failed) return null;
   return (
-    <motion.img
-      src={url}
-      alt="每日吉祥物"
-      onError={() => setFailed(true)}
-      initial={reduce ? false : { opacity: 0, scale: 0.6, y: -6 }}
-      animate={reduce ? { opacity: 1 } : { opacity: 1, scale: 1, y: [0, -5, 0] }}
-      transition={
-        reduce
-          ? undefined
-          : {
-              opacity: { duration: 0.4 },
-              scale: { type: 'spring', stiffness: 300, damping: 18 },
-              y: { duration: 3, repeat: Infinity, ease: 'easeInOut' },
-            }
-      }
-      className="h-16 w-16 shrink-0 rounded-2xl bg-white/15 object-cover shadow-lg ring-1 ring-white/25"
-    />
+    <motion.div
+      className="absolute inset-0"
+      initial={reduce ? false : { opacity: 0, scale: 1.06 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.7, ease: 'easeOut' }}
+    >
+      <img src={url} alt="" onError={() => setFailed(true)} className="h-full w-full object-cover" />
+      {/* 可读性遮罩：整体压深 + 底部（文字/CTA 区）加重，保证白字在任意图片上都清晰，同时保留背景图可见 */}
+      <div className="absolute inset-0 bg-indigo-950/45" />
+      <div className="absolute inset-0 bg-gradient-to-t from-indigo-950/92 via-indigo-950/55 to-indigo-950/35" />
+    </motion.div>
   );
 }
 
@@ -112,7 +106,7 @@ function WeekStrip({ weekActivity, todayDone }: { weekActivity: boolean[]; today
   const reduce = useReducedMotion();
   const todayIdx = todayWeekIndex();
   return (
-    <div className="mt-4 flex items-center justify-between gap-1">
+    <div className="relative mt-4 flex items-center justify-between gap-1">
       {DAY_LABELS.map((label, i) => {
         const done = weekActivity[i];
         const isToday = i === todayIdx;
@@ -197,6 +191,8 @@ export function MateChatStreakCard({ data, loading, variant = 'full', onGoChat, 
         className,
       )}
     >
+      {/* 每日 AI 卡通动物作为整卡背景（无图时用上面的渐变兜底） */}
+      <CardBackground url={data?.mascotUrl ?? null} />
       {/* 背景光晕 */}
       <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-white/10 blur-2xl" />
       <div className="pointer-events-none absolute -bottom-12 -left-8 h-36 w-36 rounded-full bg-amber-300/10 blur-2xl" />
@@ -226,12 +222,11 @@ export function MateChatStreakCard({ data, loading, variant = 'full', onGoChat, 
               </span>
               <span className="mb-0.5 text-base font-semibold text-white/90">天</span>
             </div>
-            <p className="mt-1 text-xs font-medium text-white/70">
+            <p className="mt-1 text-xs font-medium text-white/80">
               连续使用 MateChat{data && data.bestStreak > 0 ? ` · 最长 ${data.bestStreak} 天` : ''}
             </p>
           </div>
         </div>
-        <MascotImage url={data?.mascotUrl ?? null} />
       </div>
 
       <WeekStrip weekActivity={data?.weekActivity ?? [false, false, false, false, false, false, false]} todayDone={data?.todayDone ?? false} />

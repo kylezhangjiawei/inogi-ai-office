@@ -137,7 +137,7 @@ export class ChatStreakService {
       const userId = await this.resolveSystemUserId();
       if (!userId) return;
       const animal = MASCOT_ANIMALS[this.seedFromKey(dateKey) % MASCOT_ANIMALS.length];
-      const prompt = `一只可爱的卡通${animal}吉祥物，扁平矢量插画风格，圆润友好的表情，明亮活泼的配色，纯浅色背景，居中构图，适合作为应用装饰角标`;
+      const prompt = `一只可爱的卡通${animal}，作为卡片背景的完整场景插画，主体偏右下方、铺满整个画面，梦幻柔和的光影，明快而不刺眼的配色，画面上方与左上区域留出较简洁的空间便于叠加白色文字，半扁平插画风格，画面中不要出现任何文字`;
       const result = (await this.imageGenerationService.generate(userId, {
         prompt,
         size: '1024x1024',
