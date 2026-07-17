@@ -1,8 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertCircle,
-  ArrowUpRight,
   BarChart3,
   CheckCircle2,
   Clock3,
@@ -169,6 +168,7 @@ export function Dashboard() {
 
   const permissionKey = (user?.permissions ?? []).join("\u0001");
   const userId = user?.id ?? "";
+  const lastLoadedRef = useRef(0);
 
   const loadData = useCallback(
     async (initial = false) => {
@@ -177,6 +177,7 @@ export function Dashboard() {
       try {
         const next = await fetchDashboardData(user?.permissions ?? []);
         setData(next);
+        lastLoadedRef.current = Date.now();
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -189,12 +190,23 @@ export function Dashboard() {
 
   useEffect(() => {
     void loadData(true);
-    const interval = window.setInterval(() => void loadData(false), 60_000);
-    const refreshOnFocus = () => void loadData(false);
-    window.addEventListener("focus", refreshOnFocus);
+    // 前台可见才轮询：后台标签页不再每 60s 打 5 个接口
+    const interval = window.setInterval(() => {
+      if (!document.hidden) void loadData(false);
+    }, 60_000);
+    // 切回前台/聚焦时，仅当数据已过期（>30s）才刷新，避免频繁 alt-tab 反复全量拉取
+    const MIN_REFRESH_GAP = 30_000;
+    const refreshIfStale = () => {
+      if (document.hidden) return;
+      if (Date.now() - lastLoadedRef.current < MIN_REFRESH_GAP) return;
+      void loadData(false);
+    };
+    document.addEventListener("visibilitychange", refreshIfStale);
+    window.addEventListener("focus", refreshIfStale);
     return () => {
       window.clearInterval(interval);
-      window.removeEventListener("focus", refreshOnFocus);
+      document.removeEventListener("visibilitychange", refreshIfStale);
+      window.removeEventListener("focus", refreshIfStale);
     };
   }, [loadData]);
 
@@ -284,13 +296,6 @@ export function Dashboard() {
     () => quickActionCatalog.filter((action) => hasPermission(user?.permissions ?? [], action.permission)).slice(0, 6),
     [permissionKey, user?.permissions],
   );
-
-  const pulseItems = moduleCards.map((card) => ({
-    title: card.title,
-    helper: `${card.helper}。${card.description}`,
-    path: card.path,
-    tone: card.tone,
-  }));
 
   const activityItems = useMemo<DashboardActivityItem[]>(() => {
     const items: DashboardActivityItem[] = [];
@@ -624,54 +629,6 @@ export function Dashboard() {
         <EmptyBlock title="暂无可汇总的业务模块" helper="当前账号只有首页权限，或尚未开通支持首页汇总的研发、问题、费用与订单模块。" />
       ) : null}
 
-      <section className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.2fr)_360px]">
-        <div className="material-card p-6">
-          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-            <div>
-              <h3 className="text-slate-900">工作台脉冲</h3>
-              <p className="mt-1 text-sm text-slate-500">按模块浓缩当前真实业务状态，点击可直接进入对应工作台。</p>
-            </div>
-            <span className="material-chip bg-slate-100 text-slate-600">API Summary</span>
-          </div>
-          {pulseItems.length ? (
-            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-              {pulseItems.map((item) => (
-                <Link key={item.title} to={item.path} className="material-panel transition hover:border-indigo-200">
-                  <div className={cn("material-chip", item.tone)}>{item.title}</div>
-                  <div className="mt-3 text-sm leading-6 text-slate-600">{item.helper}</div>
-                </Link>
-              ))}
-            </div>
-          ) : (
-            <div className="mt-5"><EmptyBlock title="暂无模块摘要" helper="完成业务模块授权后，这里会显示对应接口的实时摘要。" /></div>
-          )}
-        </div>
-
-        <div className="material-card p-6">
-          <div className="flex items-center justify-between">
-            <div>
-              <h3 className="text-slate-900">近期动态</h3>
-              <p className="mt-1 text-sm text-slate-500">最近更新的三条跨模块记录。</p>
-            </div>
-            <span className="material-chip bg-emerald-50 text-emerald-700">Live</span>
-          </div>
-          <div className="mt-5 space-y-3">
-            {activityItems.slice(0, 3).map((item) => (
-              <Link key={item.id} to={item.path} className="flex gap-3 rounded-[20px] border border-slate-100 bg-slate-50/80 p-4 transition hover:border-indigo-200">
-                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-white text-primary shadow-sm">
-                  <Activity className="h-4 w-4" />
-                </div>
-                <div className="min-w-0">
-                  <div className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-400">{item.source} · {item.time}</div>
-                  <div className="mt-1 line-clamp-2 text-sm text-slate-700">{item.title}</div>
-                </div>
-              </Link>
-            ))}
-            {!activityItems.length ? <EmptyBlock title="暂无近期动态" helper="已接入模块当前没有可展示的活动记录。" /> : null}
-          </div>
-        </div>
-      </section>
-
       <section className="grid grid-cols-12 gap-6">
         <div className="col-span-12 xl:col-span-7">
           <div className="material-card h-full p-6">
@@ -748,7 +705,7 @@ export function Dashboard() {
       </section>
 
       <section className="grid grid-cols-12 gap-6">
-        <div className="col-span-12 xl:col-span-7">
+        <div className="col-span-12">
           <div className="material-card p-6">
             <div className="mb-6 flex items-center justify-between">
               <div>
@@ -797,30 +754,6 @@ export function Dashboard() {
           </div>
         </div>
 
-        <div className="col-span-12 xl:col-span-5">
-          <div className="material-card p-6">
-            <div className="mb-6 flex items-center justify-between">
-              <div>
-                <h3 className="text-slate-900">模块聚焦</h3>
-                <p className="mt-1 text-sm text-slate-500">可直接下钻到产生首页数据的业务模块。</p>
-              </div>
-              <span className="material-chip bg-indigo-50 text-indigo-700">Connected</span>
-            </div>
-            <div className="space-y-4">
-              {moduleCards.slice(0, 3).map((item) => (
-                <Link key={item.title} to={item.path} className="block rounded-[24px] border border-slate-100 bg-white p-5 transition hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_10px_22px_-8px_rgba(79,70,229,0.18)]">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="text-base font-semibold text-slate-900">{item.title}</div>
-                    <ArrowUpRight className="h-4 w-4 text-slate-400" />
-                  </div>
-                  <div className="mt-2 text-sm leading-6 text-slate-600">{item.description}</div>
-                  <div className="mt-4 text-sm font-semibold text-primary">{item.value} · {item.helper}</div>
-                </Link>
-              ))}
-              {!moduleCards.length ? <EmptyBlock title="暂无已接入模块" helper="这里会列出首页数据的真实来源和当前摘要。" /> : null}
-            </div>
-          </div>
-        </div>
       </section>
 
       <section className="material-card overflow-hidden">
