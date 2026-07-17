@@ -632,16 +632,22 @@ export function MobileRDCockpit() {
             <span className="text-xs font-medium text-slate-400">{t("没有符合条件的任务")}</span>
           </div>
         ) : (
-          <div className="grid grid-cols-2 items-start gap-3">
-            {shownTasks.map((t) => (
-              <MobileFeedCard
-                key={t.task_id}
-                task={t}
-                isRisk={riskTaskIds.has(t.task_id)}
-                onOpen={() => openTask(t)}
-                onPreview={(images, index) => setLightbox({ images, index })}
-                unreadCount={noteUnread[t.task_id] ?? 0}
-              />
+          // 双列瀑布流：两列各自独立堆叠（非 grid 刚性行对齐），带附件封面的高卡片只撑长
+          // 自己那列，不会把同行邻格顶出大片空白。轮转分列(i%2)保证「最新优先」顺排稳定。
+          <div className="flex items-start gap-3">
+            {[0, 1].map((col) => (
+              <div key={col} className="flex min-w-0 flex-1 flex-col gap-3">
+                {shownTasks.filter((_, i) => i % 2 === col).map((t) => (
+                  <MobileFeedCard
+                    key={t.task_id}
+                    task={t}
+                    isRisk={riskTaskIds.has(t.task_id)}
+                    onOpen={() => openTask(t)}
+                    onPreview={(images, index) => setLightbox({ images, index })}
+                    unreadCount={noteUnread[t.task_id] ?? 0}
+                  />
+                ))}
+              </div>
             ))}
           </div>
         )}
