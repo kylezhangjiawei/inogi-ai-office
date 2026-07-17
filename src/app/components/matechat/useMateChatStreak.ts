@@ -12,11 +12,11 @@ export function useMateChatStreak() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = false) => {
     setLoading(true);
     setError(null);
     try {
-      setData(await chatStreakApi.getMyStreak());
+      setData(await chatStreakApi.getMyStreak(force ? { force: true } : undefined));
     } catch (e) {
       setError(e instanceof Error ? e.message : '加载失败');
     } finally {
@@ -28,9 +28,12 @@ export function useMateChatStreak() {
     void refresh();
   }, [refresh]);
 
-  // MateChat 产生使用行为后自动刷新，无需刷新页面
+  // MateChat 产生使用行为后自动刷新（使缓存失效并强制取最新），无需刷新页面
   useEffect(() => {
-    const onActivity = () => void refresh();
+    const onActivity = () => {
+      chatStreakApi.invalidate();
+      void refresh(true);
+    };
     window.addEventListener(MATECHAT_ACTIVITY_EVENT, onActivity);
     return () => window.removeEventListener(MATECHAT_ACTIVITY_EVENT, onActivity);
   }, [refresh]);

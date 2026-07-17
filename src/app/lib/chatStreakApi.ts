@@ -19,10 +19,31 @@ export type MateChatStreak = {
   mascotUrl: string | null;
 };
 
+// 打卡卡片与提醒弹窗共用同一份数据：30s 内的请求直接复用缓存，
+// 避免重复网络请求，签名图片 URL 也随之稳定命中浏览器缓存。
+let cache: { at: number; data: MateChatStreak } | null = null;
+let inflight: Promise<MateChatStreak> | null = null;
+const CACHE_TTL = 30_000;
+
 export const chatStreakApi = {
-  async getMyStreak(): Promise<MateChatStreak> {
-    const res = await authFetch('/api/chat/me/streak');
-    if (!res.ok) throw new Error('加载 MateChat 连续使用记录失败');
-    return res.json() as Promise<MateChatStreak>;
+  async getMyStreak(opts?: { force?: boolean }): Promise<MateChatStreak> {
+    if (!opts?.force && cache && Date.now() - cache.at < CACHE_TTL) return cache.data;
+    if (!opts?.force && inflight) return inflight; // 合并并发请求
+    inflight = (async () => {
+      const res = await authFetch('/api/chat/me/streak');
+      if (!res.ok) throw new Error('加载 MateChat 连续使用记录失败');
+      const data = (await res.json()) as MateChatStreak;
+      cache = { at: Date.now(), data };
+      return data;
+    })();
+    try {
+      return await inflight;
+    } finally {
+      inflight = null;
+    }
+  },
+  /** 使用行为发生后使缓存失效，下一次读取取最新 */
+  invalidate() {
+    cache = null;
   },
 };
