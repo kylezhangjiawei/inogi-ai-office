@@ -39,6 +39,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "./components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
+import { MateChatStreakCardConnected } from "./components/matechat/MateChatStreakCardConnected";
 import { usePermission } from "./hooks/usePermission";
 import { useAuth } from "./auth";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
@@ -4188,6 +4189,8 @@ export function RDMyWorkspacePage() {
 
           {/* ── RIGHT column ── */}
           <aside className="material-scrollbar min-h-0 space-y-4 overflow-y-auto pr-1">
+            {/* MateChat 连续使用打卡（激励多用 AI） */}
+            <MateChatStreakCardConnected variant="full" />
             {/* 通知中心 */}
             <SectionCard title={t("通知中心")} icon={Bell} count={visibleNotifications.length}>
               {visibleNotifications.length === 0 ? (

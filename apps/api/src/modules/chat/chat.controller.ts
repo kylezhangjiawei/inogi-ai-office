@@ -15,6 +15,7 @@ import { Response } from 'express';
 import { PrismaService } from '../../prisma/prisma.service';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { ChatAnalyticsService } from './chat-analytics.service';
+import { ChatStreakService } from './chat-streak.service';
 import { ChatService } from './chat.service';
 import { CreateUsageEventDto } from './dto/create-usage-event.dto';
 import { CreateConversationDto } from './dto/create-conversation.dto';
@@ -33,6 +34,7 @@ export class ChatController {
   constructor(
     private readonly chatService: ChatService,
     private readonly chatAnalyticsService: ChatAnalyticsService,
+    private readonly chatStreakService: ChatStreakService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -112,6 +114,12 @@ export class ChatController {
   @Post('events')
   recordUsageEvent(@Body() dto: CreateUsageEventDto, @Request() req: AuthedRequest) {
     return this.chatAnalyticsService.recordClientEvent(req.user.id, dto);
+  }
+
+  /** 我的 MateChat 连续使用打卡（个人自查，仅需登录） */
+  @Get('me/streak')
+  getMyStreak(@Request() req: AuthedRequest) {
+    return this.chatStreakService.getMyStreak(req.user.id);
   }
 
   @Patch('feedback/:id')

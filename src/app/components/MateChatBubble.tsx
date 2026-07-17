@@ -28,6 +28,7 @@ import { authFetch } from "../lib/authSession";
 import { i18nLocale } from "../lib/i18n";
 import { useAuth } from "../auth";
 import { cn } from "./ui/utils";
+import { MATECHAT_OPEN_EVENT, notifyMateChatActivity } from "./matechat/openMateChat";
 import { backfillKbToRag, ragStatus, type RagCitation, type RagStatus } from "../lib/ragApi";
 import { isChatUsableModel } from "../lib/aiModelOptions";
 import { hasPermission } from "../lib/permissions";
@@ -353,6 +354,13 @@ export function MateChatBubble() {
   const [open, setOpen] = useState(false);
   const [rendered, setRendered] = useState(false);
   const [visible, setVisible] = useState(false);
+
+  // 允许任意组件通过全局事件唤起 MateChat（如连续打卡卡片的 CTA）
+  useEffect(() => {
+    const openChat = () => setOpen(true);
+    window.addEventListener(MATECHAT_OPEN_EVENT, openChat);
+    return () => window.removeEventListener(MATECHAT_OPEN_EVENT, openChat);
+  }, []);
 
   // 数据
   const [conversations, setConversations] = useState<ApiConversation[]>([]);
@@ -860,6 +868,9 @@ export function MateChatBubble() {
           const err = (await res.json().catch(() => ({}))) as { message?: string };
           throw new Error(err.message ?? "发送失败");
         }
+
+        // 提问已成功落库（question_submitted），广播使用事件，让连续打卡卡片等实时刷新
+        notifyMateChatActivity();
 
         const reader = res.body!.getReader();
         const decoder = new TextDecoder();
