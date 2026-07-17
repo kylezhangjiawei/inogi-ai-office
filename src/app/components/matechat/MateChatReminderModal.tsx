@@ -62,6 +62,30 @@ export function MateChatReminderModal() {
     }
   }, [user, open]);
 
+  // 预览/测试：URL 带 ?matechatReminder=preview 时，无视时段/是否已用/是否已弹，强制弹出一次
+  useEffect(() => {
+    if (!user) return;
+    const preview =
+      typeof window !== 'undefined' &&
+      new URLSearchParams(window.location.search).get('matechatReminder') === 'preview';
+    if (!preview) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const streak = await chatStreakApi.getMyStreak();
+        if (!cancelled) {
+          setData(streak);
+          setOpen(true);
+        }
+      } catch {
+        // 忽略
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
   useEffect(() => {
     if (!user) return;
     const timer = setTimeout(() => void maybeShow(), 3000); // 进页面 3s 后再考虑，避免打扰首屏
