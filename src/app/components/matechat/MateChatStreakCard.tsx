@@ -187,7 +187,7 @@ export function MateChatStreakCard({ data, loading, variant = 'full', onGoChat, 
   return (
     <section
       className={cn(
-        'relative overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-600 via-blue-700 to-[#026fc2] p-5 text-white shadow-[0_18px_40px_rgba(2,111,194,0.28)]',
+        'relative overflow-hidden rounded-2xl bg-gradient-to-br from-indigo-600 via-blue-700 to-[#026fc2] p-5 text-white shadow-[0_12px_32px_rgba(30,27,75,0.35)]',
         className,
       )}
     >
