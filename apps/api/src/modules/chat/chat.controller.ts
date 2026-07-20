@@ -178,6 +178,12 @@ export class ChatController {
 
   // ── ReAct 写操作确认（待确认动作卡的确认/取消，以用户本人身份执行） ────────────
 
+  @Get('quick-suggestions')
+  async quickSuggestions(@Request() req: AuthedRequest) {
+    const userContext = await this.buildUserContext(req);
+    return { suggestions: await this.chatToolsService.buildQuickSuggestions(userContext) };
+  }
+
   @Get('conversations/:id/pending-actions')
   async listPendingActions(@Param('id') id: string, @Request() req: AuthedRequest) {
     const userContext = await this.buildUserContext(req);

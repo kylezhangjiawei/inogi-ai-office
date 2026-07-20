@@ -1027,6 +1027,54 @@ export class ChatToolsService {
     return rows;
   }
 
+  /**
+   * 生成个人化快捷问答建议：按当前账号的逾期任务 / 待审核队列 / 角色权限拼装，
+   * 点击后能直接触发对应 ReAct 工具（查任务 / 汇总）。任何异常或数据不足都回退通用池，
+   * 保证始终返回 4 条、新用户与空账号也不尴尬。
+   */
+  async buildQuickSuggestions(user: RagUserContext): Promise<string[]> {
+    // 通用兜底池：安全、与研发/办公场景无关也能用（不含法务等专属项，除非有对应权限时另加）
+    const fallback = [
+      '帮我起草一封项目跟进邮件',
+      '帮我写一份本周工作周报',
+      '帮我梳理今天该优先处理的事',
+      '帮我把一段内容总结成要点',
+    ];
+    const suggestions: string[] = [];
+    try {
+      const rows = await this.loadTaskRows(user);
+      const isDone = (s: string) => /完成|已关闭|closed|done|complete/i.test(s);
+      const todayKey = new Date().toISOString().slice(0, 10);
+      const myName = user.name?.trim() ?? '';
+      const mine = myName ? rows.filter((t) => t.owner.includes(myName) || myName.includes(t.owner)) : [];
+      const myOpen = mine.filter((t) => !isDone(t.status));
+      const myOverdue = myOpen.filter((t) => t.due && t.due.slice(0, 10) < todayKey);
+      const canManage = this.hasAnyPermission(user, RD_TASK_MANAGER_PERMISSIONS);
+      const pendingReview = rows.filter((t) => t.status.includes('pending_review') || t.pendingReviewType);
+
+      if (myOverdue.length > 0) suggestions.push(`我有 ${myOverdue.length} 条逾期任务，帮我按优先级排一下`);
+      if (canManage && pendingReview.length > 0) suggestions.push(`帮我看看 ${pendingReview.length} 条待审核的任务`);
+      if (canManage) suggestions.push('帮我汇总本周研发整体情况');
+      if (myOverdue.length === 0 && myOpen.length > 0) {
+        suggestions.push(`我还有 ${myOpen.length} 个未完成任务，帮我梳理下今天该做什么`);
+      }
+      suggestions.push('帮我起草一封项目跟进邮件');
+    } catch (error) {
+      this.logger.warn(`快捷建议生成失败，回退通用池: ${error instanceof Error ? error.message : error}`);
+    }
+    // 去重后用兜底池补足到 4 条
+    const seen = new Set<string>();
+    const result: string[] = [];
+    for (const s of [...suggestions, ...fallback]) {
+      if (result.length >= 4) break;
+      if (!seen.has(s)) {
+        seen.add(s);
+        result.push(s);
+      }
+    }
+    return result;
+  }
+
   /** 按任务编号查找任务（研发池：主库+产品库；协同池任务不支持写操作，有意不含） */
   private async findTaskById(taskId: string): Promise<TaskRow | null> {
     const rows = await this.loadTaskRows();

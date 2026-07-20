@@ -479,6 +479,8 @@ export function MateChatBubble() {
   const [msgToolSteps, setMsgToolSteps] = useState<Record<string, ToolStep[]>>({});
   // key = message id, value = 写操作待确认动作卡（确认/取消后原位更新状态）
   const [msgPendingActions, setMsgPendingActions] = useState<Record<string, PendingActionView[]>>({});
+  // 个性化快捷建议：按当前账号逾期/待审核/权限由后端拼装；拉取失败回退静态 QUICK_PROMPTS
+  const [dynamicPrompts, setDynamicPrompts] = useState<string[] | null>(null);
   // RAG 探活状态（embedding 配置 + 索引文档数）
   const [rag, setRag] = useState<RagStatus | null>(null);
   // KB→RAG 一键回填进行中（仅 KB 管理员触发）
@@ -636,6 +638,25 @@ export function MateChatBubble() {
       setBackfilling(false);
     }
   }, [backfilling]);
+
+  // ── 个性化快捷建议：登录后按当前账号拉取一次（切换账号重拉；失败静默回退静态） ──
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    authFetch("/api/chat/quick-suggestions")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { suggestions?: string[] } | null) => {
+        if (!cancelled && Array.isArray(data?.suggestions) && data.suggestions.length > 0) {
+          setDynamicPrompts(data.suggestions);
+        }
+      })
+      .catch(() => {
+        /* 静默回退静态 QUICK_PROMPTS */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
 
   // ── 切换会话时加载消息 ──────────────────────────────────────────────────────
 
@@ -2035,7 +2056,7 @@ export function MateChatBubble() {
               <div className="border-t border-slate-200/70 bg-white px-6 py-4">
                 {/* 快捷提问 */}
                 <div className="mb-3 flex flex-wrap gap-2">
-                  {QUICK_PROMPTS.map((p) => (
+                  {(dynamicPrompts ?? QUICK_PROMPTS).map((p) => (
                     <button
                       key={p}
                       type="button"
