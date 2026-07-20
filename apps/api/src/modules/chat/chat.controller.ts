@@ -16,6 +16,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { ChatAnalyticsService } from './chat-analytics.service';
 import { ChatStreakService } from './chat-streak.service';
+import { ChatToolsService } from './chat-tools.service';
 import { ChatService } from './chat.service';
 import { CreateUsageEventDto } from './dto/create-usage-event.dto';
 import { CreateConversationDto } from './dto/create-conversation.dto';
@@ -35,6 +36,7 @@ export class ChatController {
     private readonly chatService: ChatService,
     private readonly chatAnalyticsService: ChatAnalyticsService,
     private readonly chatStreakService: ChatStreakService,
+    private readonly chatToolsService: ChatToolsService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -172,6 +174,20 @@ export class ChatController {
     // res.write() is called, so the global exception filter handles them normally.
     const userContext = await this.buildUserContext(req);
     await this.chatService.streamMessage(id, dto, userContext, res);
+  }
+
+  // ── ReAct 写操作确认（待确认动作卡的确认/取消，以用户本人身份执行） ────────────
+
+  @Post('actions/:actionId/confirm')
+  async confirmPendingAction(@Param('actionId') actionId: string, @Request() req: AuthedRequest) {
+    const userContext = await this.buildUserContext(req);
+    return this.chatToolsService.confirmPendingAction(actionId, userContext);
+  }
+
+  @Post('actions/:actionId/cancel')
+  async cancelPendingAction(@Param('actionId') actionId: string, @Request() req: AuthedRequest) {
+    const userContext = await this.buildUserContext(req);
+    return this.chatToolsService.cancelPendingAction(actionId, userContext);
   }
 
   // ── Message actions ──────────────────────────────────────────────────────────

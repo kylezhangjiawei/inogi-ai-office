@@ -23,5 +23,7 @@ import { ResearchDevelopmentService } from './research-development.service';
     DeptKbGuard,
     KbMultipartService,
   ],
+  // MateChat 写操作工具复用：立项（createTask）与站内通知（createMessage）
+  exports: [ResearchDevelopmentService],
 })
 export class ResearchDevelopmentModule {}

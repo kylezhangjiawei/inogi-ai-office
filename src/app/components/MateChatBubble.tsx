@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
+  Check,
   ChevronDown,
   Clock3,
   Copy,
@@ -24,6 +25,8 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { authFetch } from "../lib/authSession";
 import { i18nLocale } from "../lib/i18n";
 import { useAuth } from "../auth";
@@ -100,10 +103,33 @@ type SseEvent =
   /** 对话内生成的文件（Excel/Word），挂到 assistant 消息下方复用附件卡展示 */
   | { type: "files_generated"; attachments: AttachmentView[] }
   | { type: "done"; messageId: string; title?: string }
+  /** ReAct 工具调用步骤：running 先到，同 callId 的 ok/error 原位更新 */
+  | { type: "tool_step"; callId: string; tool: string; label: string; status: "running" | "ok" | "error"; detail?: string }
+  /** ReAct 写操作待确认动作卡（用户点确认/取消走 /chat/actions 端点） */
+  | { type: "pending_action"; action: PendingActionCard }
   | { type: "error"; message: string };
 
 /** assistant 消息附加的引用数据，由 'citations' SSE 事件填充 */
 type MessageCitations = { citations: RagCitation[]; filteredByPermission: number };
+
+/** assistant 消息的工具调用步骤，由 'tool_step' SSE 事件填充 */
+type ToolStep = { callId: string; tool: string; label: string; status: "running" | "ok" | "error"; detail?: string };
+
+/** 后端下发的待确认动作卡数据 */
+type PendingActionCard = {
+  id: string;
+  tool: string;
+  label: string;
+  summary: string;
+  fields: Array<{ label: string; value: string }>;
+  expiresAt: string;
+};
+
+/** 确认卡的前端状态：pending 显示确认/取消按钮，其余显示结果 */
+type PendingActionView = PendingActionCard & {
+  status: "pending" | "submitting" | "executed" | "canceled" | "failed";
+  resultMessage?: string;
+};
 
 type DeleteConfirm =
   | { kind: "conversation"; id: string; label: string }
@@ -333,6 +359,61 @@ async function apiListModels(): Promise<ModelOption[]> {
   return all.filter((m) => isChatUsableModel(m));
 }
 
+// ─── assistant 正文 markdown 渲染 ─────────────────────────────────────────────
+
+/** AI 回答的 markdown 渲染：GFM 表格/列表/代码块，紧凑聊天排版；用户消息仍走纯文本 */
+const MarkdownContent = React.memo(function MarkdownContent({ content }: { content: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        p: ({ children }) => <p className="my-1.5 first:mt-0 last:mb-0">{children}</p>,
+        h1: ({ children }) => <h3 className="mb-1.5 mt-3 text-base font-bold first:mt-0">{children}</h3>,
+        h2: ({ children }) => <h3 className="mb-1.5 mt-3 text-base font-bold first:mt-0">{children}</h3>,
+        h3: ({ children }) => <h4 className="mb-1 mt-2.5 text-sm font-bold first:mt-0">{children}</h4>,
+        h4: ({ children }) => <h4 className="mb-1 mt-2.5 text-sm font-bold first:mt-0">{children}</h4>,
+        ul: ({ children }) => <ul className="my-1.5 list-disc space-y-0.5 pl-5">{children}</ul>,
+        ol: ({ children }) => <ol className="my-1.5 list-decimal space-y-0.5 pl-5">{children}</ol>,
+        li: ({ children }) => <li className="leading-6">{children}</li>,
+        a: ({ children, href }) => (
+          <a href={href} target="_blank" rel="noopener noreferrer" className="text-indigo-600 underline underline-offset-2 hover:text-indigo-700">
+            {children}
+          </a>
+        ),
+        blockquote: ({ children }) => (
+          <blockquote className="my-2 border-l-2 border-slate-300 pl-3 text-slate-500">{children}</blockquote>
+        ),
+        hr: () => <hr className="my-3 border-slate-200" />,
+        pre: ({ children }) => (
+          <pre className="my-2 overflow-x-auto rounded-lg bg-slate-800 p-3 text-xs leading-5 text-slate-100">{children}</pre>
+        ),
+        code: ({ children, ...rest }) => {
+          // 块级代码在 pre 里（含换行），样式由 pre 承担；行内代码单独上底色
+          const isBlock = String(children ?? "").includes("\n");
+          return isBlock ? (
+            <code {...rest}>{children}</code>
+          ) : (
+            <code className="rounded bg-slate-200/70 px-1 py-0.5 text-[0.9em]" {...rest}>
+              {children}
+            </code>
+          );
+        },
+        table: ({ children }) => (
+          <div className="my-2 overflow-x-auto">
+            <table className="w-full border-collapse text-xs">{children}</table>
+          </div>
+        ),
+        th: ({ children }) => (
+          <th className="border border-slate-300 bg-slate-100 px-2 py-1 text-left font-semibold">{children}</th>
+        ),
+        td: ({ children }) => <td className="border border-slate-200 px-2 py-1 align-top">{children}</td>,
+      }}
+    >
+      {content}
+    </ReactMarkdown>
+  );
+});
+
 // ─── 主组件 ───────────────────────────────────────────────────────────────────
 
 export function MateChatBubble() {
@@ -383,6 +464,10 @@ export function MateChatBubble() {
   const [submittingFeedback, setSubmittingFeedback] = useState(false);
   // key = message id, value = 引用数据（命中知识库时由后端 SSE 推送）
   const [msgCitations, setMsgCitations] = useState<Record<string, MessageCitations>>({});
+  // key = message id, value = ReAct 工具调用步骤（模型查任务/知识库/人员时由后端 SSE 推送）
+  const [msgToolSteps, setMsgToolSteps] = useState<Record<string, ToolStep[]>>({});
+  // key = message id, value = 写操作待确认动作卡（确认/取消后原位更新状态）
+  const [msgPendingActions, setMsgPendingActions] = useState<Record<string, PendingActionView[]>>({});
   // RAG 探活状态（embedding 配置 + 索引文档数）
   const [rag, setRag] = useState<RagStatus | null>(null);
   // KB→RAG 一键回填进行中（仅 KB 管理员触发）
@@ -938,6 +1023,31 @@ export function MateChatBubble() {
                 );
               }
 
+              if (event.type === "tool_step") {
+                // 同 callId 原位更新（running → ok/error），新 callId 追加
+                const step: ToolStep = {
+                  callId: event.callId,
+                  tool: event.tool,
+                  label: event.label,
+                  status: event.status,
+                  detail: event.detail,
+                };
+                setMsgToolSteps((prev) => {
+                  const cur = prev[tempAiId] ?? [];
+                  const idx = cur.findIndex((s) => s.callId === event.callId);
+                  const next = idx >= 0 ? cur.map((s, i) => (i === idx ? step : s)) : [...cur, step];
+                  return { ...prev, [tempAiId]: next };
+                });
+              }
+
+              if (event.type === "pending_action") {
+                const view: PendingActionView = { ...event.action, status: "pending" };
+                setMsgPendingActions((prev) => ({
+                  ...prev,
+                  [tempAiId]: [...(prev[tempAiId] ?? []), view],
+                }));
+              }
+
               if (event.type === "delta") {
                 streamedContent += event.delta;
                 const captured = streamedContent;
@@ -964,7 +1074,7 @@ export function MateChatBubble() {
                       : m,
                   ),
                 );
-                toast.success("文件已生成，点击附件卡片下载");
+                toast.success(atts.every((a) => a.isImage) ? "图片已生成" : "文件已生成，点击附件卡片下载");
               }
 
               if (event.type === "done") {
@@ -979,6 +1089,16 @@ export function MateChatBubble() {
                   prev.map((m) => (m.id === tempAiId ? { ...m, id: realAiId, sources } : m)),
                 );
                 setMsgCitations((prev) => {
+                  if (!prev[tempAiId]) return prev;
+                  const { [tempAiId]: pulled, ...rest } = prev;
+                  return { ...rest, [realAiId]: pulled };
+                });
+                setMsgToolSteps((prev) => {
+                  if (!prev[tempAiId]) return prev;
+                  const { [tempAiId]: pulled, ...rest } = prev;
+                  return { ...rest, [realAiId]: pulled };
+                });
+                setMsgPendingActions((prev) => {
                   if (!prev[tempAiId]) return prev;
                   const { [tempAiId]: pulled, ...rest } = prev;
                   return { ...rest, [realAiId]: pulled };
@@ -1002,6 +1122,17 @@ export function MateChatBubble() {
                 setMessages((prev) => isRegenerate && regenerateMessage
                   ? prev.map((message) => message.id === tempAiId ? regenerateMessage : message)
                   : prev.filter((m) => m.id !== tempAiId && (realUserId !== tempUserId || m.id !== tempUserId)));
+                // 气泡已移除，清掉挂在临时 id 上的工具步骤/确认卡，避免残留孤儿数据
+                setMsgToolSteps((prev) => {
+                  if (!prev[tempAiId]) return prev;
+                  const { [tempAiId]: _removed, ...rest } = prev;
+                  return rest;
+                });
+                setMsgPendingActions((prev) => {
+                  if (!prev[tempAiId]) return prev;
+                  const { [tempAiId]: _removed, ...rest } = prev;
+                  return rest;
+                });
               }
             } catch {
               // ignore JSON parse errors
@@ -1020,6 +1151,28 @@ export function MateChatBubble() {
     },
     [activeId, sending, draft, selectedModel, attachments],
   );
+
+  // ── ReAct 写操作确认卡：确认执行 / 取消 ──────────────────────────────────────
+
+  const handlePendingAction = async (msgId: string, actionId: string, decision: "confirm" | "cancel") => {
+    const patch = (status: PendingActionView["status"], resultMessage?: string) =>
+      setMsgPendingActions((prev) => ({
+        ...prev,
+        [msgId]: (prev[msgId] ?? []).map((a) => (a.id === actionId ? { ...a, status, resultMessage } : a)),
+      }));
+    patch("submitting");
+    try {
+      const res = await authFetch(`/api/chat/actions/${actionId}/${decision}`, { method: "POST" });
+      const data = (await res.json().catch(() => ({}))) as { message?: string };
+      if (!res.ok) throw new Error(data.message ?? "操作失败");
+      patch(decision === "confirm" ? "executed" : "canceled", data.message);
+      if (decision === "confirm") toast.success(data.message ?? "已执行");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "操作失败";
+      patch("failed", message);
+      toast.error(message);
+    }
+  };
 
   // ── 重新生成 ────────────────────────────────────────────────────────────────
 
@@ -1520,6 +1673,27 @@ export function MateChatBubble() {
                             )}
                             {/* 消息体 */}
                             <div className={isUser ? "text-right" : ""}>
+                              {/* ReAct 工具步骤：模型查任务/知识库/人员的过程可视化 */}
+                              {!isUser && (msgToolSteps[msg.id]?.length ?? 0) > 0 && (
+                                <div className="mb-1.5 flex flex-col items-start gap-1">
+                                  {msgToolSteps[msg.id].map((step) => (
+                                    <div
+                                      key={step.callId}
+                                      className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white/80 px-2.5 py-1 text-xs text-slate-600"
+                                    >
+                                      {step.status === "running" ? (
+                                        <Loader2 className="h-3 w-3 animate-spin text-indigo-500" />
+                                      ) : step.status === "ok" ? (
+                                        <Check className="h-3 w-3 text-emerald-500" />
+                                      ) : (
+                                        <AlertTriangle className="h-3 w-3 text-amber-500" />
+                                      )}
+                                      <span>{step.label}</span>
+                                      {step.detail && <span className="text-slate-400">· {step.detail}</span>}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
                               {(msg.content || isStreaming) && (
                                 <div
                                   className={cn(
@@ -1527,7 +1701,8 @@ export function MateChatBubble() {
                                     isUser ? "rounded-tr-md bg-indigo-50 text-slate-800" : "rounded-tl-md bg-[#f5f5fb] text-slate-800",
                                     isStreaming && !msg.content && "py-4",
                                   )}
-                                  style={{ whiteSpace: "pre-wrap", wordBreak: "break-word" }}
+                                  // 用户消息保留换行原样；AI 回答由 markdown 渲染管理段落
+                                  style={isUser ? { whiteSpace: "pre-wrap", wordBreak: "break-word" } : { wordBreak: "break-word" }}
                                 >
                                   {isStreaming && !msg.content ? (
                                     <span className="flex items-center gap-1.5">
@@ -1539,14 +1714,87 @@ export function MateChatBubble() {
                                         />
                                       ))}
                                     </span>
+                                  ) : isUser ? (
+                                    msg.content
                                   ) : (
                                     <>
-                                      {msg.content}
+                                      <MarkdownContent content={msg.content} />
                                       {isStreaming && (
                                         <span className="ml-1 inline-block h-4 w-0.5 animate-pulse bg-slate-500 align-middle" />
                                       )}
                                     </>
                                   )}
+                                </div>
+                              )}
+                              {/* ReAct 写操作确认卡：AI 生成的待确认动作，用户核对后确认/取消 */}
+                              {!isUser && (msgPendingActions[msg.id]?.length ?? 0) > 0 && (
+                                <div className="mt-2 flex max-w-[560px] flex-col gap-2">
+                                  {msgPendingActions[msg.id].map((action) => (
+                                    <div
+                                      key={action.id}
+                                      className="rounded-2xl border border-indigo-200 bg-indigo-50/60 p-4 text-left shadow-sm"
+                                    >
+                                      <div className="flex items-center gap-2">
+                                        <Sparkles className="h-4 w-4 text-indigo-500" />
+                                        <span className="text-sm font-bold text-slate-800">{action.label}</span>
+                                        {action.status === "pending" && (
+                                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">待确认</span>
+                                        )}
+                                        {action.status === "executed" && (
+                                          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700">已执行</span>
+                                        )}
+                                        {action.status === "canceled" && (
+                                          <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-medium text-slate-600">已取消</span>
+                                        )}
+                                        {action.status === "failed" && (
+                                          <span className="rounded-full bg-rose-100 px-2 py-0.5 text-xs font-medium text-rose-700">执行失败</span>
+                                        )}
+                                      </div>
+                                      <dl className="mt-2 space-y-1">
+                                        {action.fields.map((f) => (
+                                          <div key={f.label} className="flex gap-2 text-xs leading-5">
+                                            <dt className="w-16 shrink-0 text-slate-500">{f.label}</dt>
+                                            <dd className="min-w-0 break-words text-slate-700">{f.value}</dd>
+                                          </div>
+                                        ))}
+                                      </dl>
+                                      {(action.status === "pending" || action.status === "submitting") && (
+                                        <div className="mt-3 flex items-center gap-2">
+                                          <button
+                                            type="button"
+                                            disabled={action.status === "submitting"}
+                                            onClick={() => void handlePendingAction(msg.id, action.id, "confirm")}
+                                            className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-60"
+                                          >
+                                            {action.status === "submitting" && <Loader2 className="h-3 w-3 animate-spin" />}
+                                            确认执行
+                                          </button>
+                                          <button
+                                            type="button"
+                                            disabled={action.status === "submitting"}
+                                            onClick={() => void handlePendingAction(msg.id, action.id, "cancel")}
+                                            className="cursor-pointer rounded-lg px-3 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-white hover:text-slate-700 disabled:opacity-60"
+                                          >
+                                            取消
+                                          </button>
+                                        </div>
+                                      )}
+                                      {action.resultMessage && action.status !== "pending" && action.status !== "submitting" && (
+                                        <p
+                                          className={cn(
+                                            "mt-2 flex items-start gap-1.5 text-xs leading-5",
+                                            action.status === "executed" && "text-emerald-700",
+                                            action.status === "canceled" && "text-slate-500",
+                                            action.status === "failed" && "text-rose-600",
+                                          )}
+                                        >
+                                          {action.status === "executed" && <Check className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+                                          {action.status === "failed" && <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+                                          <span>{action.resultMessage}</span>
+                                        </p>
+                                      )}
+                                    </div>
+                                  ))}
                                 </div>
                               )}
                               {/* 附件（图片缩略图 / 文件卡片） */}
