@@ -1863,6 +1863,24 @@ export class ImageGenerationService {
     }
   }
 
+  /** 列出当前启用、可用于图片生成的模型配置（供业务侧做多模型兜底重试） */
+  async listActiveImageModelConfigs(): Promise<
+    Array<{ id: string; model: string; name: string; isDefault: boolean }>
+  > {
+    const configs = await this.prisma.integrationConfig.findMany({
+      where: { kind: 'openai', isActive: true },
+      orderBy: { updatedAt: 'desc' },
+    });
+    return configs
+      .filter((config) => this.configSupportsImage(config))
+      .map((config) => ({
+        id: config.id,
+        model: config.model || DEFAULT_IMAGE_TO_IMAGE_MODEL,
+        name: config.name,
+        isDefault: this.metadataDefaultEnabled(config),
+      }));
+  }
+
   private async resolveOpenAiCredentials(modelId?: string, requestedModel?: string): Promise<OpenAiRuntime> {
     const model = requestedModel?.trim() || DEFAULT_IMAGE_TO_IMAGE_MODEL;
 

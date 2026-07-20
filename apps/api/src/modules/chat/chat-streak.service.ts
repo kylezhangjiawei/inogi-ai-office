@@ -138,13 +138,8 @@ export class ChatStreakService {
       if (!userId) return;
       const animal = MASCOT_ANIMALS[this.seedFromKey(dateKey) % MASCOT_ANIMALS.length];
       const prompt = `一只可爱的卡通${animal}，作为卡片背景的完整场景插画，主体偏右下方、铺满整个画面，梦幻柔和的光影，明快而不刺眼的配色，画面上方与左上区域留出较简洁的空间便于叠加白色文字，半扁平插画风格，画面中不要出现任何文字`;
-      const result = (await this.imageGenerationService.generate(userId, {
-        prompt,
-        size: '1024x1024',
-        quality: 'low',
-      })) as { id?: string };
-      const imageId = result?.id;
-      if (!imageId) throw new Error('generate 未返回图片 id');
+      const imageId = await this.generateMascotWithFallback(userId, prompt);
+      if (!imageId) throw new Error('所有启用的图像模型均生成失败');
 
       // generate 的 OSS 上传是后台异步，轮询等待 objectKey 落库（最多 ~30s）
       const objectKey = await this.waitForObjectKey(imageId);
@@ -161,6 +156,44 @@ export class ChatStreakService {
     } finally {
       this.mascotGenerating.delete(dateKey);
     }
+  }
+
+  /**
+   * 生成吉祥物图：优先 image-2 系列模型，失败时依次换其他启用的图像模型兜底（最多尝试 3 个渠道）。
+   * 全部失败返回 null，由调用方统一记日志。
+   */
+  private async generateMascotWithFallback(userId: string, prompt: string): Promise<string | null> {
+    // 排序与聊天生图工具一致：image-2 系优先 → 默认启用优先 → 最近更新优先
+    const configs = await this.imageGenerationService.listActiveImageModelConfigs();
+    const candidates: Array<{ id?: string; model: string }> = [...configs]
+      .sort((a, b) => {
+        const aImg2 = /image[-_]?2/i.test(a.model) ? 0 : 1;
+        const bImg2 = /image[-_]?2/i.test(b.model) ? 0 : 1;
+        if (aImg2 !== bImg2) return aImg2 - bImg2;
+        return (a.isDefault ? 0 : 1) - (b.isDefault ? 0 : 1);
+      })
+      .slice(0, 4);
+    // 管理台没有任何图像模型配置时，仍按环境变量兜底试一次 image-2
+    if (candidates.length === 0) candidates.push({ model: 'gpt-image-2' });
+
+    for (const candidate of candidates) {
+      try {
+        const result = (await this.imageGenerationService.generate(userId, {
+          prompt,
+          size: '1024x1024',
+          quality: 'low',
+          model: candidate.model,
+          ...(candidate.id ? { model_id: candidate.id } : {}),
+        })) as { id?: string };
+        if (result?.id) return result.id;
+        this.logger.warn(`吉祥物生成异常（模型 ${candidate.model}）：generate 未返回图片 id，尝试下一个兜底`);
+      } catch (error) {
+        this.logger.warn(
+          `吉祥物生成失败（模型 ${candidate.model}），尝试下一个兜底：${error instanceof Error ? error.message : error}`,
+        );
+      }
+    }
+    return null;
   }
 
   private async waitForObjectKey(imageId: string): Promise<string | null> {
