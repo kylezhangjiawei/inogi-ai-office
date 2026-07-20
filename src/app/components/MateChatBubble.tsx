@@ -298,6 +298,17 @@ async function apiGetMessages(convId: string): Promise<ApiMessage[]> {
   return res.json() as Promise<ApiMessage[]>;
 }
 
+/** 拉取会话内仍待确认的动作卡（刷新后恢复），失败返回空不阻塞消息加载 */
+async function apiGetPendingActions(convId: string): Promise<Array<{ messageId: string | null; card: PendingActionCard }>> {
+  try {
+    const res = await authFetch(`/api/chat/conversations/${convId}/pending-actions`);
+    if (!res.ok) return [];
+    return (await res.json()) as Array<{ messageId: string | null; card: PendingActionCard }>;
+  } catch {
+    return [];
+  }
+}
+
 async function apiUpdateReaction(
   msgId: string,
   payload: { reaction: "like" | "dislike" | null; reasons?: string[]; comment?: string },
@@ -630,10 +641,25 @@ export function MateChatBubble() {
 
   useEffect(() => {
     if (!activeId) return;
+    const convId = activeId;
     setLoadingMsgs(true);
     setMessages([]);
-    apiGetMessages(activeId)
-      .then((msgs) => setMessages(msgs))
+    setMsgPendingActions({});
+    apiGetMessages(convId)
+      .then(async (msgs) => {
+        setMessages(msgs);
+        // 恢复未决确认卡：挂回其所属消息（无 messageId 的兜底挂到最后一条 assistant 消息）
+        const pendings = await apiGetPendingActions(convId);
+        if (pendings.length === 0) return;
+        const lastAssistantId = [...msgs].reverse().find((m) => m.role === "assistant")?.id;
+        const byMsg: Record<string, PendingActionView[]> = {};
+        for (const p of pendings) {
+          const mid = p.messageId ?? lastAssistantId;
+          if (!mid) continue;
+          (byMsg[mid] ??= []).push({ ...p.card, status: "pending" });
+        }
+        setMsgPendingActions(byMsg);
+      })
       .catch((err) => toast.error(err instanceof Error ? err.message : "加载消息失败"))
       .finally(() => setLoadingMsgs(false));
   }, [activeId]);

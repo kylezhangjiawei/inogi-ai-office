@@ -937,6 +937,8 @@ export class ChatService {
       const toolGeneratedAtts: StoredChatAttachment[] = [];
       // 本轮工具执行轨迹：回答完成后写入 KV，下一轮注入上下文实现跨轮记忆
       const toolTraceBuffer: Array<{ tool: string; args: string; content: string; at: string }> = [];
+      // 本轮生成的待确认动作 id：回答落库后回填 messageId，支撑刷新后确认卡持久化
+      const pendingActionIds: string[] = [];
 
       // ── ReAct 循环：模型返回 tool_calls 就执行工具并带结果再调，直到给出文字回答。
       //    无工具触发时第一轮即 break，与原单次流式调用完全等价（零额外延迟/成本）──
@@ -1008,45 +1010,60 @@ export class ChatService {
             function: { name: c.name, arguments: c.args || '{}' },
           })),
         });
-        for (const call of toolCalls) {
-          toolStepSeq += 1;
-          const stepId = `step_${toolStepSeq}`;
-          const label = this.chatToolsService.toolLabel(call.name);
-          send({ type: 'tool_step', callId: stepId, tool: call.name, label, status: 'running' });
-          // 长工具（生图可达分钟级）执行期间无 delta 流出，定期推保活事件防网关空闲超时掐断 SSE
-          const keepalive = setInterval(() => send({ type: 'ping' }), 15_000);
-          let result: ChatToolResult;
-          try {
-            result = await this.chatToolsService.execute(
-              call.name,
-              call.args,
-              userContext,
-              conversationId,
-            );
-          } finally {
-            clearInterval(keepalive);
-          }
-          send({
-            type: 'tool_step',
-            callId: stepId,
-            tool: call.name,
-            label,
-            status: result.ok ? 'ok' : 'error',
-            detail: result.summary,
-          });
-          // 写操作：把待确认动作卡推给前端渲染（确认/取消按钮走独立 REST 端点）
-          if (result.pendingAction) {
-            hadPendingAction = true;
-            send({ type: 'pending_action', action: result.pendingAction });
-          }
-          // 生图：图片即刻推给前端展示（不等最终回答），并随 assistant 消息落库
-          if (result.attachment) {
-            toolGeneratedAtts.push(result.attachment);
-            send({
-              type: 'files_generated',
-              attachments: this.attachmentService.signForDisplay([result.attachment]),
-            });
-          }
+        // 单轮多工具并行执行：一个共享 keepalive 覆盖整批；running 先全部推，
+        // 各工具完成即推 ok/error 与副作用事件（顺序无关的即时反馈），
+        // 顺序相关的收集（tool 消息 / 轨迹 / 附件落库）在并行结束后按原序补齐，保证确定性。
+        const baseSeq = toolStepSeq;
+        toolStepSeq += toolCalls.length;
+        const steps = toolCalls.map((call, i) => ({
+          call,
+          stepId: `step_${baseSeq + i + 1}`,
+          label: this.chatToolsService.toolLabel(call.name),
+        }));
+        for (const s of steps) {
+          send({ type: 'tool_step', callId: s.stepId, tool: s.call.name, label: s.label, status: 'running' });
+        }
+        const keepalive = setInterval(() => send({ type: 'ping' }), 15_000);
+        let results: ChatToolResult[];
+        try {
+          results = await Promise.all(
+            steps.map((s) =>
+              // execute 内部已 catch 所有异常并返回 ok:false 结果，Promise.all 不会因单个失败而 reject
+              this.chatToolsService
+                .execute(s.call.name, s.call.args, userContext, conversationId)
+                .then((result) => {
+                  send({
+                    type: 'tool_step',
+                    callId: s.stepId,
+                    tool: s.call.name,
+                    label: s.label,
+                    status: result.ok ? 'ok' : 'error',
+                    detail: result.summary,
+                  });
+                  // 写操作：把待确认动作卡推给前端渲染（确认/取消按钮走独立 REST 端点）
+                  if (result.pendingAction) {
+                    hadPendingAction = true;
+                    pendingActionIds.push(result.pendingAction.id);
+                    send({ type: 'pending_action', action: result.pendingAction });
+                  }
+                  // 生图：图片即刻推给前端展示（不等最终回答）
+                  if (result.attachment) {
+                    send({
+                      type: 'files_generated',
+                      attachments: this.attachmentService.signForDisplay([result.attachment]),
+                    });
+                  }
+                  return result;
+                }),
+            ),
+          );
+        } finally {
+          clearInterval(keepalive);
+        }
+        for (let i = 0; i < toolCalls.length; i += 1) {
+          const call = toolCalls[i];
+          const result = results[i];
+          if (result.attachment) toolGeneratedAtts.push(result.attachment);
           loopMessages.push({ role: 'tool', tool_call_id: call.id, content: result.content });
           toolTraceBuffer.push({
             tool: call.name,
@@ -1192,6 +1209,12 @@ export class ChatService {
       if (toolTraceBuffer.length > 0) {
         void this.appendToolTraces(conversationId, toolTraceBuffer).catch((err) =>
           this.logger.warn(`工具轨迹写入失败: ${err instanceof Error ? err.message : err}`),
+        );
+      }
+      // 待确认动作绑定到本条 assistant 消息（fire-and-forget）：刷新页面后可按消息恢复确认卡
+      if (pendingActionIds.length > 0) {
+        void this.chatToolsService.bindActionsToMessage(pendingActionIds, assistantMsg.id).catch((err) =>
+          this.logger.warn(`确认卡绑定消息失败: ${err instanceof Error ? err.message : err}`),
         );
       }
 

@@ -113,6 +113,8 @@ type PendingActionEntry = {
   id: string;
   userId: string;
   conversationId: string;
+  /** 关联的 assistant 消息 id（回答落库后回填）；支撑刷新后确认卡按消息恢复 */
+  messageId?: string;
   tool: 'create_task' | 'send_reminder' | 'update_task_progress' | 'approve_task_review';
   /** 已归一化的执行载荷（确认时直接投给对应服务） */
   payload: Record<string, unknown>;
@@ -1137,6 +1139,39 @@ export class ChatToolsService {
     };
     await this.writePendingActions(map);
     return card;
+  }
+
+  /** 回答落库后，把本轮生成的待确认动作绑定到 assistant 消息（供刷新后按消息恢复卡片） */
+  async bindActionsToMessage(actionIds: string[], messageId: string): Promise<void> {
+    if (actionIds.length === 0) return;
+    const map = await this.readPendingActions();
+    let changed = false;
+    for (const id of actionIds) {
+      if (map[id]) {
+        map[id].messageId = messageId;
+        changed = true;
+      }
+    }
+    if (changed) await this.writePendingActions(map);
+  }
+
+  /** 列出会话内仍待确认（pending 且未过期）的动作卡，带其所属消息 id，供前端刷新后恢复 */
+  async listConversationPendingActions(
+    conversationId: string,
+    user: RagUserContext,
+  ): Promise<Array<{ messageId: string | null; card: PendingActionCard }>> {
+    const map = await this.readPendingActions();
+    const nowMs = Date.now();
+    return Object.values(map)
+      .filter(
+        (e) =>
+          e.conversationId === conversationId &&
+          e.userId === user.userId &&
+          e.status === 'pending' &&
+          new Date(e.expiresAt).getTime() > nowMs,
+      )
+      .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+      .map((e) => ({ messageId: e.messageId ?? null, card: e.card }));
   }
 
   /** 用户点击「确认执行」：以用户本人身份执行动作（权限二次校验） */

@@ -178,6 +178,12 @@ export class ChatController {
 
   // ── ReAct 写操作确认（待确认动作卡的确认/取消，以用户本人身份执行） ────────────
 
+  @Get('conversations/:id/pending-actions')
+  async listPendingActions(@Param('id') id: string, @Request() req: AuthedRequest) {
+    const userContext = await this.buildUserContext(req);
+    return this.chatToolsService.listConversationPendingActions(id, userContext);
+  }
+
   @Post('actions/:actionId/confirm')
   async confirmPendingAction(@Param('actionId') actionId: string, @Request() req: AuthedRequest) {
     const userContext = await this.buildUserContext(req);
