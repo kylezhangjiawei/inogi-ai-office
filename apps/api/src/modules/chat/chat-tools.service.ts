@@ -5,6 +5,7 @@ import OpenAI from 'openai';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ImageGenerationService } from '../image-generation/image-generation.service';
 import { RagService, type RagUserContext } from '../rag/rag.service';
+import { isWorkspaceAllowed } from '../research-development/rd-workspace.context';
 import { ResearchDevelopmentService } from '../research-development/research-development.service';
 import { ChatFileExportService } from './chat-file-export.service';
 import type { StoredChatAttachment } from './chat-attachment.service';
@@ -58,6 +59,21 @@ type GeneratedImagePayload = {
   revisedPrompt?: string;
 };
 
+/** 跨库汇总后的任务行 */
+type TaskRow = {
+  taskId: string;
+  title: string;
+  owner: string;
+  status: string;
+  progress: string;
+  progressNum: number | null;
+  due: string;
+  path: string;
+  /** 来源库：主产品 / 产品·XX / 中美协同 */
+  store: string;
+  pendingReviewType: string;
+};
+
 /** 待确认动作 KV 存储键（沿用 chat.conv-memory 的免 migration 模式） */
 const PENDING_ACTIONS_KEY = 'chat.pendingActions';
 /** 待确认动作有效期：过期后确认按钮失效，须让模型重新发起 */
@@ -97,7 +113,7 @@ type PendingActionEntry = {
   id: string;
   userId: string;
   conversationId: string;
-  tool: 'create_task' | 'send_reminder' | 'update_task_progress';
+  tool: 'create_task' | 'send_reminder' | 'update_task_progress' | 'approve_task_review';
   /** 已归一化的执行载荷（确认时直接投给对应服务） */
   payload: Record<string, unknown>;
   card: PendingActionCard;
@@ -257,6 +273,40 @@ export class ChatToolsService {
       },
       execute: (args, user, conversationId) => this.prepareUpdateTaskProgress(args, user, conversationId),
     },
+    approve_task_review: {
+      label: '任务审批（待确认）',
+      definition: {
+        type: 'function',
+        function: {
+          name: 'approve_task_review',
+          description:
+            '审批处于「待审核」状态的研发任务（立项/成果验收/截止日期变更/协作变更/放弃申请等，系统按任务的审核类型自动处理）。调用后只生成「待确认动作卡」，用户确认后才真正生效。仅审核人/管理员可用；task_id 从 query_tasks 结果获得（状态为 pending_review 的任务）。',
+          parameters: {
+            type: 'object',
+            properties: {
+              task_id: { type: 'string', description: '任务编号（须处于待审核状态）' },
+              decision: { type: 'string', enum: ['approve', 'reject'], description: 'approve=通过，reject=驳回' },
+              reason: { type: 'string', description: '驳回原因（decision=reject 时必填）' },
+            },
+            required: ['task_id', 'decision'],
+          },
+        },
+      },
+      execute: (args, user, conversationId) => this.prepareApproveTaskReview(args, user, conversationId),
+    },
+    get_dashboard_summary: {
+      label: '汇总研发数据',
+      definition: {
+        type: 'function',
+        function: {
+          name: 'get_dashboard_summary',
+          description:
+            '汇总研发任务全景数据：总量、状态分布、逾期统计、待审核队列、按负责人分布、平均进度（覆盖主产品与全部产品库）。当用户要"周报/整体情况/汇总/统计/驾驶舱数据"时调用，比逐条查询高效。',
+          parameters: { type: 'object', properties: {} },
+        },
+      },
+      execute: (_args, user) => this.getDashboardSummary(user),
+    },
     generate_image: {
       label: '生成图片',
       timeoutMs: IMAGE_TOOL_TIMEOUT_MS,
@@ -400,44 +450,7 @@ export class ChatToolsService {
       ? String(args.status)
       : 'open';
     const owner = ownerArg === 'me' ? (user.name?.trim() ?? '') : ownerArg;
-
-    const setting = await this.prisma.systemSetting.findUnique({
-      where: { key: 'rd.taskCategories' },
-      select: { value: true },
-    });
-    const asRecord = (v: unknown): Record<string, unknown> =>
-      v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
-    const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
-    const clean = (v: unknown) => String(v ?? '').trim();
-
-    const rows: Array<{ taskId: string; title: string; owner: string; status: string; progress: string; due: string; path: string }> = [];
-    const collect = (tasks: unknown[], path: string) => {
-      for (const raw of tasks) {
-        if (rows.length >= 500) return;
-        const task = asRecord(raw);
-        const title = clean(task.title);
-        const taskPath = clean(task.category_path) || path;
-        if (title) {
-          rows.push({
-            taskId: clean(task.task_id),
-            title,
-            owner: clean(task.primary_owner ?? task.owner) || '待指派',
-            status: clean(task.status) || '未知',
-            progress: Number.isFinite(Number(task.progress)) ? `${Math.round(Number(task.progress))}%` : '未设置',
-            due: clean(task.due_date) || '',
-            path: taskPath || '未分类',
-          });
-        }
-        collect(asArray(task.subtasks), taskPath);
-      }
-    };
-    for (const rawCategory of asArray(setting?.value)) {
-      const category = asRecord(rawCategory);
-      for (const rawChild of asArray(category.children)) {
-        const child = asRecord(rawChild);
-        collect(asArray(child.tasks), [clean(category.label), clean(child.label)].filter(Boolean).join(' / '));
-      }
-    }
+    const rows = await this.loadTaskRows(user);
 
     // 实际数据状态值为英文（in_progress/completed 等），中英文关键词都覆盖
     const isDone = (s: string) => /完成|已关闭|closed|done|complete/i.test(s);
@@ -460,7 +473,8 @@ export class ChatToolsService {
     }
     const shown = filtered.slice(0, 30);
     const lines = shown.map(
-      (t) => `- [${t.taskId || '无编号'}] ${t.title}｜负责人：${t.owner}｜状态：${t.status}｜进度：${t.progress}｜截止：${t.due || '未设置'}｜路径：${t.path}`,
+      (t) =>
+        `- [${t.taskId || '无编号'}] ${t.title}｜负责人：${t.owner}｜状态：${t.status}｜进度：${t.progress}｜截止：${t.due || '未设置'}｜路径：${t.path}${t.store === '主产品' ? '' : `｜库：${t.store}`}`,
     );
     const suffix = filtered.length > shown.length ? `\n（共 ${filtered.length} 条，仅列出前 ${shown.length} 条，可细化条件再查）` : '';
     return {
@@ -523,6 +537,110 @@ export class ChatToolsService {
         `- ${clean(p.name)}｜岗位：${clean(p.position) || '未设置'}｜部门：${clean(p.department) || '未设置'}｜任务数：${clean(p.task_count) || '0'}/${clean(p.max_tasks) || '未设置'}`,
     );
     return { ok: true, summary: `命中 ${people.length} 名人员`, content: `查询到 ${people.length} 名人员：\n${lines.join('\n')}` };
+  }
+
+  // ── 数据汇总（只读） ─────────────────────────────────────────────────────────
+
+  private async getDashboardSummary(user: RagUserContext): Promise<ChatToolResult> {
+    const rows = await this.loadTaskRows(user);
+    if (rows.length === 0) {
+      return { ok: true, summary: '暂无任务数据', content: '当前没有任何研发任务数据。' };
+    }
+    const isDone = (s: string) => /完成|已关闭|closed|done|complete/i.test(s);
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const done = rows.filter((t) => isDone(t.status));
+    const open = rows.filter((t) => !isDone(t.status));
+    const overdue = open.filter((t) => t.due && t.due.slice(0, 10) < todayKey);
+    const pendingReview = rows.filter((t) => t.status.includes('pending_review') || t.pendingReviewType);
+    // 平均进度（仅未完成任务，反映在途工作量）
+    const progressVals = open.map((t) => t.progressNum).filter((n): n is number => n !== null);
+    const avgProgress = progressVals.length > 0 ? Math.round(progressVals.reduce((a, b) => a + b, 0) / progressVals.length) : 0;
+    // 按负责人分布（未完成任务数 Top）
+    const byOwner = new Map<string, { total: number; overdue: number }>();
+    for (const t of open) {
+      const cur = byOwner.get(t.owner) ?? { total: 0, overdue: 0 };
+      cur.total += 1;
+      if (t.due && t.due.slice(0, 10) < todayKey) cur.overdue += 1;
+      byOwner.set(t.owner, cur);
+    }
+    const ownerLines = [...byOwner.entries()]
+      .sort((a, b) => b[1].total - a[1].total)
+      .slice(0, 10)
+      .map(([name, s]) => `- ${name}：未完成 ${s.total} 条${s.overdue > 0 ? `（逾期 ${s.overdue}）` : ''}`);
+    const reviewLines = pendingReview
+      .slice(0, 15)
+      .map((t) => `- [${t.taskId}] ${t.title}｜负责人：${t.owner}｜类型：${t.pendingReviewType || '待审核'}`);
+
+    const content = [
+      `研发任务总量 ${rows.length} 条：已完成 ${done.length}，未完成 ${open.length}（其中逾期 ${overdue.length}），待审核 ${pendingReview.length}。未完成任务平均进度 ${avgProgress}%。`,
+      `\n【按负责人（未完成，Top10）】\n${ownerLines.join('\n')}`,
+      pendingReview.length > 0 ? `\n【待审核队列】\n${reviewLines.join('\n')}${pendingReview.length > reviewLines.length ? `\n（另有 ${pendingReview.length - reviewLines.length} 条未列出）` : ''}` : '\n【待审核队列】无',
+    ].join('\n');
+    return {
+      ok: true,
+      summary: `汇总 ${rows.length} 条任务`,
+      content: `以下是研发任务全景汇总数据，请据此为用户组织回答（可做成表格）：\n\n${content}`,
+    };
+  }
+
+  // ── 任务审批（走确认卡） ─────────────────────────────────────────────────────
+
+  private async prepareApproveTaskReview(
+    args: Record<string, unknown>,
+    user: RagUserContext,
+    conversationId: string,
+  ): Promise<ChatToolResult> {
+    // 审批是管理员/审核人专属：与 updateTask 的 _review_action 越权守卫同口径
+    if (!this.hasAnyPermission(user, RD_TASK_MANAGER_PERMISSIONS)) {
+      return { ok: false, summary: '无审核权限', content: '当前用户没有任务审核权限（仅研发主管/审核人可审批），请如实告知用户。' };
+    }
+    const taskId = String(args.task_id ?? '').trim();
+    const decision = String(args.decision) === 'reject' ? 'reject' : 'approve';
+    const reason = String(args.reason ?? '').trim();
+    if (!taskId) {
+      return { ok: false, summary: '缺少任务编号', content: '审批需要 task_id 参数。' };
+    }
+    if (decision === 'reject' && !reason) {
+      return { ok: false, summary: '缺少驳回原因', content: '驳回任务时必须提供 reason。' };
+    }
+    const task = await this.findTaskById(taskId);
+    if (!task) {
+      return { ok: false, summary: '任务不存在', content: `没有找到编号「${taskId}」的任务，请用 query_tasks 确认编号。` };
+    }
+    if (!task.status.includes('pending_review') && !task.pendingReviewType) {
+      return {
+        ok: false,
+        summary: '任务非待审核',
+        content: `任务「${task.title}」当前状态是「${task.status}」，不处于待审核状态，无法审批。`,
+      };
+    }
+    const typeLabel =
+      { proposal: '立项审核', result: '成果验收', due_date: '截止日期变更', collaboration: '协作变更', abandon: '放弃申请', merge: '合并申请' }[
+        task.pendingReviewType
+      ] ?? '待审核';
+    const card = await this.savePendingAction(
+      user,
+      conversationId,
+      'approve_task_review',
+      { taskId, decision, reason, taskTitle: task.title },
+      {
+        label: decision === 'approve' ? '审批通过' : '驳回任务',
+        summary: `${decision === 'approve' ? '通过' : '驳回'}「${task.title}」的${typeLabel}`,
+        fields: [
+          { label: '任务', value: `[${taskId}] ${task.title}` },
+          { label: '审核类型', value: typeLabel },
+          { label: '负责人', value: task.owner },
+          { label: '决定', value: decision === 'approve' ? '✓ 通过' : '✕ 驳回' },
+          ...(decision === 'reject' ? [{ label: '驳回原因', value: reason.slice(0, 200) }] : []),
+        ],
+      },
+    );
+    return {
+      ok: true,
+      summary: `已生成审批确认卡：${task.title}`,
+      content: `已生成「${decision === 'approve' ? '审批通过' : '驳回任务'}」待确认动作（任务「${task.title}」的${typeLabel}）。尚未生效：需要用户点击「确认执行」后才会真正审批。请告知用户核对并确认，不要声称已审批。`,
+      pendingAction: card,
+    };
   }
 
   // ── 生图（对话内直接出图，无需确认） ─────────────────────────────────────────
@@ -843,44 +961,74 @@ export class ChatToolsService {
     };
   }
 
-  /** 按任务编号在主库任务树中查找任务基础信息 */
-  private async findTaskById(
-    taskId: string,
-  ): Promise<{ taskId: string; title: string; owner: string; status: string; progress: string } | null> {
-    const setting = await this.prisma.systemSetting.findUnique({
-      where: { key: 'rd.taskCategories' },
-      select: { value: true },
+  /**
+   * 汇总任务行：主库 + 各产品库 +（当且仅当用户有协同池准入权限时）中美协同池。
+   * 不传 user 时只汇总研发池（主库+产品库）——写操作用它定位任务，协同池任务不支持写。
+   */
+  private async loadTaskRows(user?: RagUserContext): Promise<TaskRow[]> {
+    const includeUsCollab = user ? isWorkspaceAllowed('us-collab', user.permissions ?? []) : false;
+    const keys = ['rd.taskCategories', 'rd.productTaskCategories', 'rd.products'];
+    if (includeUsCollab) keys.push('rdws.us-collab.taskCategories');
+    const settings = await this.prisma.systemSetting.findMany({
+      where: { key: { in: keys } },
+      select: { key: true, value: true },
     });
+    const byKey = new Map(settings.map((s) => [s.key, s.value as unknown]));
     const asRecord = (v: unknown): Record<string, unknown> =>
       v && typeof v === 'object' && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
     const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
     const clean = (v: unknown) => String(v ?? '').trim();
-    let found: { taskId: string; title: string; owner: string; status: string; progress: string } | null = null;
-    const walk = (tasks: unknown[]) => {
+
+    const rows: TaskRow[] = [];
+    const collect = (tasks: unknown[], path: string, store: string) => {
       for (const raw of tasks) {
-        if (found) return;
+        if (rows.length >= 800) return;
         const task = asRecord(raw);
-        if (clean(task.task_id) === taskId) {
-          found = {
-            taskId,
-            title: clean(task.title) || '未命名任务',
+        const title = clean(task.title);
+        const taskPath = clean(task.category_path) || path;
+        if (title) {
+          const progressNum = Number.isFinite(Number(task.progress)) ? Math.round(Number(task.progress)) : null;
+          rows.push({
+            taskId: clean(task.task_id),
+            title,
             owner: clean(task.primary_owner ?? task.owner) || '待指派',
             status: clean(task.status) || '未知',
-            progress: Number.isFinite(Number(task.progress)) ? `${Math.round(Number(task.progress))}%` : '未设置',
-          };
-          return;
+            progress: progressNum !== null ? `${progressNum}%` : '未设置',
+            progressNum,
+            due: clean(task.due_date) || '',
+            path: taskPath || '未分类',
+            store,
+            pendingReviewType: clean(task.pending_review_type),
+          });
         }
-        walk(asArray(task.subtasks));
+        collect(asArray(task.subtasks), taskPath, store);
       }
     };
-    for (const rawCategory of asArray(setting?.value)) {
-      for (const rawChild of asArray(asRecord(rawCategory).children)) {
-        walk(asArray(asRecord(rawChild).tasks));
-        if (found) break;
+    const walkTree = (tree: unknown, store: string) => {
+      for (const rawCategory of asArray(tree)) {
+        const category = asRecord(rawCategory);
+        for (const rawChild of asArray(category.children)) {
+          const child = asRecord(rawChild);
+          collect(asArray(child.tasks), [clean(category.label), clean(child.label)].filter(Boolean).join(' / '), store);
+        }
       }
-      if (found) break;
+    };
+
+    walkTree(byKey.get('rd.taskCategories'), '主产品');
+    const products = asArray(byKey.get('rd.products')).map(asRecord);
+    const productName = (id: string) => clean(products.find((p) => clean(p.id) === id)?.name) || id;
+    const productStore = asRecord(byKey.get('rd.productTaskCategories'));
+    for (const [pid, tree] of Object.entries(productStore)) {
+      walkTree(tree, `产品·${productName(pid)}`);
     }
-    return found;
+    if (includeUsCollab) walkTree(byKey.get('rdws.us-collab.taskCategories'), '中美协同');
+    return rows;
+  }
+
+  /** 按任务编号查找任务（研发池：主库+产品库；协同池任务不支持写操作，有意不含） */
+  private async findTaskById(taskId: string): Promise<TaskRow | null> {
+    const rows = await this.loadTaskRows();
+    return rows.find((t) => t.taskId === taskId) ?? null;
   }
 
   /** 按分类名解析 category_id / sub_project_id（支持「分类」或「分类/子项目」） */
@@ -1035,6 +1183,21 @@ export class ChatToolsService {
         });
       }
       message = `已为任务「${String(entry.payload.taskTitle ?? taskId)}」记录进展${progress !== undefined ? `，进度更新为 ${progress}%` : ''}。`;
+    } else if (entry.tool === 'approve_task_review') {
+      if (!this.hasAnyPermission(user, RD_TASK_MANAGER_PERMISSIONS)) throw new ForbiddenException('没有任务审核权限');
+      const taskId = String(entry.payload.taskId ?? '');
+      const decision = entry.payload.decision === 'reject' ? 'reject' : 'approve';
+      // 复用工作台同款审批通道：updateTask 的 _review_action 会按任务的 pending_review_type 自动处理
+      await this.rdService.updateTask(
+        taskId,
+        {
+          _review_action: decision,
+          _reviewer_name: user.name,
+          ...(decision === 'reject' ? { _reject_reason: String(entry.payload.reason ?? '') } : {}),
+        } as Record<string, unknown>,
+        { requesterUserId: user.userId, requesterName: user.name, canEditAny: true },
+      );
+      message = `已${decision === 'approve' ? '审批通过' : '驳回'}任务「${String(entry.payload.taskTitle ?? taskId)}」。`;
     } else {
       if (!this.hasAnyPermission(user, SEND_MESSAGE_PERMISSIONS)) throw new ForbiddenException('没有发送站内通知的权限');
       await this.rdService.createMessage({
