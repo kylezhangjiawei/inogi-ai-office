@@ -94,7 +94,7 @@ function LocalClock({ name, role, lang }: { name: string; role?: string; lang: "
   return (
     <span
       className="ml-auto inline-flex shrink-0 items-center gap-1 text-[11px] tabular-nums text-slate-400"
-      title={`${displayName} ${lang === "en" ? "local time" : "当地时间"}（${displayLocation}）`}
+      title={t("{name} 当地时间（{location}）", { name: displayName, location: displayLocation })}
     >
       {displayLocation} {time}
       {isDaytime ? <Sun className="h-3 w-3" aria-hidden="true" /> : <Moon className="h-3 w-3" aria-hidden="true" />}
@@ -201,11 +201,11 @@ export default function UsCollabTaskDetailPage() {
       const all = flattenTasks(categories.flatMap((c) => c.children.flatMap((s) => s.tasks)));
       setAllTasks(all);
       const found = all.find((t) => t.task_id === taskId) ?? null;
-      if (!found) setLoadError("任务不存在或已被删除");
+      if (!found) setLoadError(t("任务不存在或已被删除"));
       setTask(found);
     } catch (error) {
       if (seq !== loadSeqRef.current) return;
-      setLoadError(error instanceof Error ? error.message : "任务加载失败");
+      setLoadError(error instanceof Error ? error.message : t("任务加载失败"));
     } finally {
       if (seq === loadSeqRef.current) setLoading(false);
     }
@@ -595,7 +595,7 @@ export default function UsCollabTaskDetailPage() {
     return (
       <div className="flex min-h-[40vh] flex-col items-center justify-center gap-3 text-slate-500">
         <div className="text-4xl">🔒</div>
-        <p className="text-base font-medium">您没有访问此页面的权限</p>
+        <p className="text-base font-medium">{t("您没有访问此页面的权限")}</p>
       </div>
     );
   }
@@ -703,7 +703,7 @@ export default function UsCollabTaskDetailPage() {
                 pCfg.bg,
                 pCfg.text,
               )}
-              title={lang === "en" ? "Change task priority" : "调整任务优先级"}
+              title={t("调整任务优先级")}
             >
               <SelectValue />
             </SelectTrigger>
@@ -779,7 +779,7 @@ export default function UsCollabTaskDetailPage() {
               type="button"
               onClick={() => setPersonTasksFor(task.primary_owner)}
               className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-1 py-0.5 text-left hover:bg-slate-50"
-              title={`查看 ${task.primary_owner} 名下的任务`}
+              title={t("查看 {name} 名下的任务", { name: displayPersonName(task.primary_owner) })}
             >
               <OwnerAvatar name={task.primary_owner} userId={task.primary_owner_user_id} size="sm" />
               <span className="text-sm font-medium text-slate-800">{displayPersonName(task.primary_owner)}</span>
@@ -795,7 +795,7 @@ export default function UsCollabTaskDetailPage() {
                       type="button"
                       onClick={() => setPersonTasksFor(c.name)}
                       className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-1 py-0.5 text-left hover:bg-slate-50"
-                      title={`查看 ${c.name} 名下的任务`}
+                      title={t("查看 {name} 名下的任务", { name: c.name })}
                     >
                       <OwnerAvatar name={c.name} userId={c.user_id} size="xs" />
                       <span className="text-sm text-slate-700">{c.name}</span>
@@ -888,7 +888,7 @@ export default function UsCollabTaskDetailPage() {
                 <button
                   type="button"
                   onClick={() => setBrief(null)}
-                  aria-label={lang === "en" ? "Close task brief" : "关闭任务小结"}
+                  aria-label={t("关闭任务小结")}
                   className="cursor-pointer rounded p-0.5 text-indigo-300 hover:bg-indigo-100 hover:text-indigo-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
                 >
                   <X className="h-3.5 w-3.5" />
@@ -1203,13 +1203,13 @@ export default function UsCollabTaskDetailPage() {
               {personTasksFor && <OwnerAvatar name={personTasksFor} size="sm" />}
               <span>
                 {personTasksFor}
-                <span className="ml-2 text-[11px] font-normal text-slate-400">名下活跃任务 {tasksOfPerson.length} 条</span>
+                <span className="ml-2 text-[11px] font-normal text-slate-400">{t("名下活跃任务 {count} 条", { count: tasksOfPerson.length })}</span>
               </span>
             </DialogTitle>
           </DialogHeader>
           <div className="cockpit-scroll max-h-[50vh] space-y-1.5 overflow-y-auto">
             {tasksOfPerson.length === 0 ? (
-              <p className="py-6 text-center text-sm text-slate-400">暂无活跃任务</p>
+              <p className="py-6 text-center text-sm text-slate-400">{t("暂无活跃任务")}</p>
             ) : (
               tasksOfPerson.map((t) => {
                 const tCfg = STATUS_CONFIG[t.status] ?? STATUS_CONFIG.in_progress;

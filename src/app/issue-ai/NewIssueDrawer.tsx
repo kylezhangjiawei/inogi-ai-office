@@ -20,6 +20,7 @@ import {
   type SimilarMatch,
 } from "../lib/issue/types";
 import { Mono, SolutionTypeBadge, SourceTag } from "./badges";
+import { t, useI18n } from "../lib/i18n";
 
 type DraftAttachment = NonNullable<NewIssueInput["attachments"]>[number];
 
@@ -51,6 +52,7 @@ export function NewIssueDrawer({
   onClose: () => void;
   onOpen: (id: string) => void;
 }) {
+  useI18n();
   const reduce = useReducedMotion();
 
   const [step, setStep] = React.useState<Step>("form");
@@ -107,7 +109,7 @@ export function NewIssueDrawer({
     if (desc) return desc.slice(0, 50);
     const firstAttachment = attachments[0]?.fileName?.trim();
     if (firstAttachment) return firstAttachment;
-    return "未命名问题";
+    return t("未命名问题");
   };
 
   const buildInput = (): NewIssueInput => ({
@@ -146,9 +148,9 @@ export function NewIssueDrawer({
         uploaded.push(await service.processAttachment(raw, "ai"));
       }
       setAttachments((cur) => [...cur, ...uploaded]);
-      toast.success(`已上传 ${uploaded.length} 个附件`);
+      toast.success(t("已上传 {count} 个附件", { count: uploaded.length }));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "附件上传失败");
+      toast.error(err instanceof Error ? err.message : t("附件上传失败"));
     } finally {
       setUploading(false);
     }
@@ -217,7 +219,7 @@ export function NewIssueDrawer({
             ref={panelRef}
             role="dialog"
             aria-modal="true"
-            aria-label="新建问题"
+            aria-label={t("新建问题")}
             tabIndex={-1}
             className="absolute inset-y-0 right-0 flex w-full max-w-2xl flex-col bg-white shadow-2xl outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-500/60 dark:bg-slate-900"
             initial={reduce ? { opacity: 0 } : { x: "100%" }}
@@ -229,16 +231,16 @@ export function NewIssueDrawer({
             <header className="flex items-center justify-between border-b border-slate-200 px-5 py-4 dark:border-slate-700">
               <div>
                 <h2 className="text-base font-semibold text-slate-800 dark:text-slate-100">
-                  新建问题
+                  {t("新建问题")}
                 </h2>
                 <p className="mt-0.5 text-xs text-slate-400">
-                  {step === "form" ? "第 1 步 · 填写问题" : "第 2 步 · 查相似方案"}
+                  {step === "form" ? t("第 1 步 · 填写问题") : t("第 2 步 · 查相似方案")}
                 </p>
               </div>
               <button
                 type="button"
                 onClick={onClose}
-                aria-label="关闭"
+                aria-label={t("关闭")}
                 className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:hover:bg-slate-800"
               >
                 <X className="size-5" />
@@ -274,13 +276,13 @@ export function NewIssueDrawer({
               {step === "form" ? (
                 <div className="flex items-center justify-end gap-2">
                   <Button variant="ghost" onClick={onClose}>
-                    取消
+                    {t("取消")}
                   </Button>
                   <Button onClick={goSimilar} disabled={submitting || uploading}>
                     {submitting || uploading ? (
                       <Loader2 className="size-4 animate-spin" />
                     ) : null}
-                    {uploading ? "附件上传中…" : "下一步：查相似"}
+                    {uploading ? t("附件上传中…") : t("下一步：查相似")}
                   </Button>
                 </div>
               ) : (
@@ -291,7 +293,7 @@ export function NewIssueDrawer({
                   disabled={!!busyAction}
                 >
                   <Sparkles className="size-4" />
-                  以上都不匹配 → 进入详情（AI 自动分析）
+                  {t("以上都不匹配 → 进入详情（AI 自动分析）")}
                 </Button>
               )}
             </footer>
@@ -356,26 +358,26 @@ function FormStep({
     <div className="space-y-4">
       {/* 标题 / 描述 / 附件为「或」关系：任意其一填写即可，无需全部填写。 */}
       <p className="rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:bg-slate-800/40 dark:text-slate-400">
-        标题、描述、附件<span className="font-medium text-slate-600 dark:text-slate-300">任填其一</span>即可开始 AI 分析。
+        {t("标题、描述、附件")} {" "}<span className="font-medium text-slate-600 dark:text-slate-300">{t("任填其一")}</span>{" "}{t("即可开始 AI 分析。")}
       </p>
       {invalid ? (
-        <p className="text-xs text-red-500">请至少填写标题、描述，或上传附件其中之一。</p>
+        <p className="text-xs text-red-500">{t("请至少填写标题、描述，或上传附件其中之一。")}</p>
       ) : null}
 
-      <Field label="标题">
+      <Field label={t("标题")}>
         <Input
           value={form.title}
           onChange={(e) => set("title", e.target.value)}
-          placeholder="一句话描述问题现象（可留空）"
+          placeholder={t("一句话描述问题现象（可留空）")}
         />
       </Field>
 
-      <Field label="描述">
+      <Field label={t("描述")}>
         <textarea
           value={form.description}
           onChange={(e) => set("description", e.target.value)}
           rows={4}
-          placeholder="现象 / 复现条件 / 影响范围…"
+          placeholder={t("现象 / 复现条件 / 影响范围…")}
           className={cn(
             "flex w-full rounded-md border border-input bg-input-background px-3 py-2 text-sm outline-none transition-[color,box-shadow]",
             "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
@@ -385,7 +387,7 @@ function FormStep({
       </Field>
 
       {/* 附件（选填，但与标题/描述互为「或」） */}
-      <Field label="附件（选填）">
+      <Field label={t("附件（选填）")}>
         <div
           onDragOver={(e) => {
             e.preventDefault();
@@ -410,9 +412,9 @@ function FormStep({
             <Paperclip className="size-5 text-slate-400" />
           )}
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            拖拽文件到此，或
+            {t("拖拽文件到此，或")}{" "}
             <label className="ml-1 cursor-pointer font-medium text-indigo-600 hover:underline dark:text-indigo-400">
-              点击选择
+              {t("点击选择")}
               <input
                 type="file"
                 multiple
@@ -426,7 +428,7 @@ function FormStep({
             </label>
           </p>
           <p className="text-[11px] text-slate-400">
-            {uploading ? "正在上传…" : "支持图片与文档，上传后 AI 首版分析即可结合附件内容"}
+            {uploading ? t("正在上传…") : t("支持图片与文档，上传后 AI 首版分析即可结合附件内容")}
           </p>
         </div>
         {attachments.length > 0 && (
@@ -441,7 +443,7 @@ function FormStep({
                 </span>
                 <button
                   type="button"
-                  aria-label="移除附件"
+                  aria-label={t("移除附件")}
                   onClick={() =>
                     setAttachments((cur) => cur.filter((_, idx) => idx !== i))
                   }
@@ -515,10 +517,10 @@ function SimilarStep({
       <div className="flex h-full flex-col items-center justify-center gap-2 py-10 text-center">
         <Sparkles className="size-7 text-slate-300 dark:text-slate-600" />
         <p className="text-sm text-slate-500 dark:text-slate-400">
-          未找到相似的历史问题
+          {t("未找到相似的历史问题")}
         </p>
         <p className="text-xs text-slate-400">
-          可直接让 AI 做完整根因分析（见下方按钮）
+          {t("可直接让 AI 做完整根因分析（见下方按钮）")}
         </p>
       </div>
     );
@@ -527,7 +529,7 @@ function SimilarStep({
   return (
     <div className="space-y-3">
       <p className="text-xs text-slate-400">
-        命中 <Mono>{matches.length}</Mono> 条历史问题，可直接复用其方案：
+        {t("命中")} <Mono>{matches.length}</Mono> {t("条历史问题，可直接复用其方案：")}
       </p>
       {matches.map((m) => {
         const reuseBusy = busyAction === `reuse:${m.issue.id}`;
@@ -553,19 +555,19 @@ function SimilarStep({
               <div className="mt-2 rounded-lg border border-indigo-100 bg-indigo-50/50 p-2.5 dark:border-indigo-500/20 dark:bg-indigo-500/5">
                 <div className="mb-1 flex items-center gap-1.5">
                   <span className="text-xs font-medium text-indigo-700 dark:text-indigo-300">
-                    采纳方案
+                    {t("采纳方案")}
                   </span>
                   <SolutionTypeBadge value={m.adoptedSolution.type} />
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  根因：{m.adoptedSolution.cause}
+                  {t("根因：")}{m.adoptedSolution.cause}
                 </p>
                 <p className="mt-0.5 text-xs text-slate-600 dark:text-slate-300">
                   {m.adoptedSolution.action}
                 </p>
               </div>
             ) : (
-              <p className="mt-2 text-xs text-slate-400">该历史问题暂无采纳方案。</p>
+              <p className="mt-2 text-xs text-slate-400">{t("该历史问题暂无采纳方案。")}</p>
             )}
 
             <div className="mt-2.5 flex items-center gap-2">
@@ -576,7 +578,7 @@ function SimilarStep({
                 disabled={!!busyAction || !m.adoptedSolution}
               >
                 {reuseBusy ? <Loader2 className="size-4 animate-spin" /> : null}
-                复用此方案
+                {t("复用此方案")}
               </Button>
               <Button
                 size="sm"
@@ -585,7 +587,7 @@ function SimilarStep({
                 onClick={() => onViewDetail(m.issue.id)}
                 disabled={!!busyAction}
               >
-                查看详情
+                {t("查看详情")}
               </Button>
             </div>
           </div>

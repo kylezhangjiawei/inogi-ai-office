@@ -13,6 +13,7 @@ import {
   STATUS_CONFIG,
 } from "../lib/issue/config";
 import type { CauseDimension, IssueSource, IssueStatus, Likelihood, Severity, SolutionType } from "../lib/issue/types";
+import { t } from "../lib/i18n";
 
 /** 等宽文本：编号 / 时间戳 / 不良率 / 版本号。 */
 export function Mono({ children, className }: { children: React.ReactNode; className?: string }) {
@@ -23,7 +24,7 @@ const pillBase = "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 t
 
 export function SeverityBadge({ value, className }: { value: Severity; className?: string }) {
   const c = SEVERITY_CONFIG[value];
-  return <span className={cn(pillBase, c.className, className)}>{c.label}</span>;
+  return <span className={cn(pillBase, c.className, className)}>{t(c.label)}</span>;
 }
 
 export function StatusBadge({ value, className }: { value: IssueStatus; className?: string }) {
@@ -31,24 +32,24 @@ export function StatusBadge({ value, className }: { value: IssueStatus; classNam
   return (
     <span className={cn(pillBase, c.className, className)}>
       <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", c.dot)} />
-      {c.label}
+      {t(c.label)}
     </span>
   );
 }
 
 export function SourceTag({ value, className }: { value: IssueSource; className?: string }) {
-  return <span className={cn("text-xs text-slate-500 dark:text-slate-400", className)}>{SOURCE_LABEL[value]}</span>;
+  return <span className={cn("text-xs text-slate-500 dark:text-slate-400", className)}>{t(SOURCE_LABEL[value])}</span>;
 }
 
 export function SolutionTypeBadge({ value, className }: { value: SolutionType; className?: string }) {
   const c = SOLUTION_TYPE_CONFIG[value];
-  return <span className={cn(pillBase, c.className, className)}>{c.label}</span>;
+  return <span className={cn(pillBase, c.className, className)}>{t(c.label)}</span>;
 }
 
 /** 6M 维度芯片：可只显示单字色块，或带完整中文标签。 */
 export function DimensionChip({ value, full = false, className }: { value: CauseDimension; full?: boolean; className?: string }) {
   const c = DIMENSION_CONFIG[value];
-  return <span className={cn(pillBase, c.chip, className)}>{full ? c.full : c.label}</span>;
+  return <span className={cn(pillBase, c.chip, className)}>{t(full ? c.full : c.label)}</span>;
 }
 
 /** 维度色块（小方块），用于分布图/图例。 */
@@ -61,7 +62,7 @@ export function LikelihoodIndicator({ value, className }: { value: Likelihood; c
   return (
     <span className={cn("inline-flex items-center gap-1 text-xs font-medium", c.className, className)}>
       <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", c.dot)} />
-      可能性{c.label}
+      {t("可能性{level}", { level: t(c.label) })}
     </span>
   );
 }

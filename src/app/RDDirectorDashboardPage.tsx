@@ -73,6 +73,7 @@ import {
 import { ProgressAttachmentGrid } from "./RDProgressEvidence";
 import { RDReportsPanel } from "./RDReportsPanel";
 import { RDPerformanceAssessmentPanel } from "./RDPerformanceAssessmentPanel";
+import { i18nLocale, t as translate, useI18n } from "./lib/i18n";
 
 const DIRECTOR_MOTION_EASE = [0.22, 1, 0.36, 1] as [number, number, number, number];
 const DIRECTOR_FAST_TRANSITION = { duration: 0.18, ease: DIRECTOR_MOTION_EASE };
@@ -366,7 +367,7 @@ function MiniPagination({
         onClick={() => onChange(Math.max(1, page - 1))}
         disabled={page <= 1}
         className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-slate-400 transition-all duration-150 hover:bg-slate-100 hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
-        aria-label="上一页"
+        aria-label={translate("上一页")}
       >
         <ChevronLeft className="h-3.5 w-3.5" />
       </button>
@@ -395,7 +396,7 @@ function MiniPagination({
         onClick={() => onChange(Math.min(totalPages, page + 1))}
         disabled={page >= totalPages}
         className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-slate-400 transition-all duration-150 hover:bg-slate-100 hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
-        aria-label="下一页"
+        aria-label={translate("下一页")}
       >
         <ChevronRight className="h-3.5 w-3.5" />
       </button>
@@ -470,7 +471,7 @@ function PersonCard({
           <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
             {person.name}
             {person.on_leave && (
-              <span className="rounded bg-amber-100 px-1 text-[10px] text-amber-700">请假中</span>
+              <span className="rounded bg-amber-100 px-1 text-[10px] text-amber-700">{translate("请假中")}</span>
             )}
           </div>
           <div className="text-xs text-slate-400">{person.position}</div>
@@ -601,11 +602,11 @@ function TaskDetailDrawer({
         comment: "从研发主管驾驶舱编辑并保存任务",
         source: "web",
       });
-      toast.success("任务已保存");
+      toast.success(translate("任务已保存"));
       setIsEditing(false);
       onUpdate?.();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "保存失败");
+      toast.error(err instanceof Error ? err.message : translate("保存失败"));
     } finally {
       setSaving(false);
     }
@@ -623,17 +624,17 @@ function TaskDetailDrawer({
         comment: "从研发主管驾驶舱删除任务",
         source: "web",
       });
-      toast.success("任务已删除");
+      toast.success(translate("任务已删除"));
       onDelete?.();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "删除失败");
+      toast.error(err instanceof Error ? err.message : translate("删除失败"));
       setDeleting(false);
     }
   };
 
   const recordDirectorTaskAction = async (action: "task.status_changed") => {
     if (!canEditTask) {
-      toast.error("当前账号没有编辑任务权限");
+      toast.error(translate("当前账号没有编辑任务权限"));
       return;
     }
     setSaving(true);
@@ -650,10 +651,10 @@ function TaskDetailDrawer({
         comment: "从研发主管驾驶舱标记任务完成",
         source: "web",
       });
-      toast.success("任务已标记完成");
+      toast.success(translate("任务已标记完成"));
       onUpdate?.();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "操作失败");
+      toast.error(err instanceof Error ? err.message : translate("操作失败"));
     } finally {
       setSaving(false);
     }
@@ -673,9 +674,9 @@ function TaskDetailDrawer({
               <span className="font-mono text-xs text-slate-400">{task.task_id}</span>
               <span className={cn("inline-flex min-w-[72px] items-center justify-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold", sCfg.bg, sCfg.text, sCfg.border)}>
                 <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
-                {sCfg.label}
+                {translate(sCfg.label)}
               </span>
-              <span className={cn("inline-flex items-center rounded border px-1.5 py-0.5 text-[11px] font-bold", pCfg.color)}>{pCfg.label}</span>
+              <span className={cn("inline-flex items-center rounded border px-1.5 py-0.5 text-[11px] font-bold", pCfg.color)}>{translate(pCfg.label)}</span>
             </div>
             <h3 className="text-base font-semibold leading-snug text-slate-900">{task.title}</h3>
             <p className="mt-1 text-xs text-slate-400">{task.category_path}</p>
@@ -685,8 +686,8 @@ function TaskDetailDrawer({
               <button
                 onClick={() => setIsEditing(true)}
                 className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
-                aria-label="编辑任务"
-                title="编辑任务"
+                aria-label={translate("编辑任务")}
+                title={translate("编辑任务")}
               >
                 <Pencil className="h-4 w-4" />
               </button>
@@ -695,8 +696,8 @@ function TaskDetailDrawer({
               <button
                 onClick={() => setShowDeleteConfirm(true)}
                 className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-500"
-                aria-label="删除任务"
-                title="删除任务"
+                aria-label={translate("删除任务")}
+                title={translate("删除任务")}
               >
                 <Trash2 className="h-4 w-4" />
               </button>
@@ -704,7 +705,7 @@ function TaskDetailDrawer({
             <button
               onClick={isEditing ? () => setIsEditing(false) : onClose}
               className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-              aria-label={isEditing ? "取消编辑" : "关闭"}
+              aria-label={isEditing ? translate("取消编辑") : translate("关闭")}
             >
               <X className="h-4 w-4" />
             </button>
@@ -715,13 +716,13 @@ function TaskDetailDrawer({
         {showDeleteConfirm && (
           <div className="flex items-center gap-3 border-b border-red-100 bg-red-50 px-6 py-3">
             <AlertTriangle className="h-4 w-4 shrink-0 text-red-500" />
-            <span className="flex-1 text-sm text-red-700">确认删除任务「{task.title}」？此操作不可恢复。</span>
+            <span className="flex-1 text-sm text-red-700">{translate("确认删除任务「{title}」？此操作不可恢复。", { title: task.title })}</span>
             <button
               onClick={() => setShowDeleteConfirm(false)}
               disabled={deleting}
               className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
             >
-              取消
+              {translate("取消")}
             </button>
             <button
               onClick={handleDelete}
@@ -729,7 +730,7 @@ function TaskDetailDrawer({
               className="flex items-center gap-1.5 rounded-md bg-red-600 px-2.5 py-1 text-xs font-semibold text-white transition-colors hover:bg-red-700 disabled:opacity-50"
             >
               {deleting && <Loader2 className="h-3 w-3 animate-spin" />}
-              确认删除
+              {translate("确认删除")}
             </button>
           </div>
         )}
@@ -738,7 +739,7 @@ function TaskDetailDrawer({
         {isEditing && (
           <div className="border-b border-slate-100 bg-slate-50/60 px-6 py-4 space-y-3">
             <div>
-              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">任务标题</label>
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">{translate("任务标题")}</label>
               <Input
                 type="text"
                 value={editForm.title}
@@ -748,31 +749,31 @@ function TaskDetailDrawer({
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">状态</label>
+                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">{translate("状态")}</label>
                 <NativeSelect
                   value={editForm.status}
                   onChange={(e) => setEditForm((f) => ({ ...f, status: e.target.value as TaskStatus }))}
                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400"
                 >
                   {(Object.keys(TASK_STATUS_CONFIG) as TaskStatus[]).map((s) => (
-                    <option key={s} value={s}>{TASK_STATUS_CONFIG[s].label}</option>
+                    <option key={s} value={s}>{translate(TASK_STATUS_CONFIG[s].label)}</option>
                   ))}
                 </NativeSelect>
               </div>
               <div>
-                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">优先级</label>
+                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">{translate("优先级")}</label>
                 <NativeSelect
                   value={editForm.priority}
                   onChange={(e) => setEditForm((f) => ({ ...f, priority: e.target.value as Priority }))}
                   className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-400"
                 >
-                  <option value="high">高</option>
-                  <option value="medium">中</option>
-                  <option value="low">低</option>
+                  <option value="high">{translate("高")}</option>
+                  <option value="medium">{translate("中")}</option>
+                  <option value="low">{translate("低")}</option>
                 </NativeSelect>
               </div>
               <div>
-                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">进度 %</label>
+                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">{translate("进度 %")}</label>
                 <Input
                   type="number"
                   min={0}
@@ -783,7 +784,7 @@ function TaskDetailDrawer({
                 />
               </div>
               <div>
-                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">截止日期</label>
+                <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">{translate("截止日期")}</label>
                 <Input
                   type="date"
                   value={editForm.due_date}
@@ -793,7 +794,7 @@ function TaskDetailDrawer({
               </div>
             </div>
             <div>
-              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">主责人</label>
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">{translate("主责人")}</label>
               <Input
                 type="text"
                 value={editForm.owner}
@@ -802,7 +803,7 @@ function TaskDetailDrawer({
               />
             </div>
             <div>
-              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">任务描述</label>
+              <label className="mb-1 block text-[10px] font-semibold uppercase tracking-wider text-slate-500">{translate("任务描述")}</label>
               <Textarea
                 value={editForm.description}
                 onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
@@ -816,7 +817,7 @@ function TaskDetailDrawer({
                 disabled={saving}
                 className="flex-1 rounded-lg border border-slate-200 bg-white py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
               >
-                取消
+                {translate("取消")}
               </button>
               <button
                 onClick={handleSave}
@@ -824,7 +825,7 @@ function TaskDetailDrawer({
                 className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-indigo-600 py-2 text-sm font-semibold text-white shadow-[0_6px_14px_rgba(79,70,229,0.18)] transition-colors hover:bg-indigo-700 disabled:opacity-50"
               >
                 {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                保存
+                {translate("保存")}
               </button>
             </div>
           </div>
@@ -837,7 +838,7 @@ function TaskDetailDrawer({
             <div className="rounded-lg border border-orange-100 bg-orange-50 px-3 py-2.5">
               <div className="flex items-center gap-2 text-xs font-semibold text-orange-700">
                 <AlertTriangle className="h-3.5 w-3.5" />
-                阻塞中 {task.blocked_days && <span>· 已 {task.blocked_days} 天</span>}
+                {translate("阻塞中")} {task.blocked_days && <span>· {translate("已 {days} 天", { days: task.blocked_days })}</span>}
               </div>
               <p className="mt-1 text-xs text-orange-600">{task.blocked_reason}</p>
             </div>
@@ -846,16 +847,16 @@ function TaskDetailDrawer({
             <div className="rounded-lg border border-violet-100 bg-violet-50 px-3 py-2.5">
               <div className="flex items-center gap-2 text-xs font-semibold text-violet-700">
                 <Loader2 className="h-3.5 w-3.5" />
-                等待人工指派
+                {translate("等待人工指派")}
               </div>
-              <p className="mt-1 text-xs text-violet-600">规则未能自动匹配责任人，请手动选择。</p>
+              <p className="mt-1 text-xs text-violet-600">{translate("规则未能自动匹配责任人，请手动选择。")}</p>
             </div>
           )}
 
           {/* Meta grid */}
           <div className="grid grid-cols-2 gap-3 rounded-xl border border-slate-100 bg-slate-50/40 p-3">
             <div>
-              <div className="text-[10px] font-medium uppercase tracking-wider text-slate-400">主责人</div>
+              <div className="text-[10px] font-medium uppercase tracking-wider text-slate-400">{translate("主责人")}</div>
               <button
                 type="button"
                 onClick={() => task.owner !== "待指派" && task.owner !== "外部机构" && onOpenPerson?.(task.owner)}
@@ -863,18 +864,18 @@ function TaskDetailDrawer({
                 className="mt-1 flex items-center gap-2 rounded-md py-0.5 text-sm font-medium text-slate-800 transition-colors enabled:cursor-pointer enabled:hover:text-indigo-600 disabled:cursor-default"
               >
                 <MiniAvatar name={task.owner} size="sm" />
-                {task.owner}
+                {task.owner === "待指派" || task.owner === "外部机构" ? translate(task.owner) : task.owner}
                 {task.owner !== "待指派" && task.owner !== "外部机构" && <ChevronRight className="h-3 w-3 opacity-50" />}
               </button>
             </div>
             <div>
-              <div className="text-[10px] font-medium uppercase tracking-wider text-slate-400">截止日期</div>
+              <div className="text-[10px] font-medium uppercase tracking-wider text-slate-400">{translate("截止日期")}</div>
               <div className="mt-1 text-sm font-medium tabular-nums text-slate-800">
                 {task.due_date ?? "—"}
               </div>
             </div>
             <div>
-              <div className="text-[10px] font-medium uppercase tracking-wider text-slate-400">进度</div>
+              <div className="text-[10px] font-medium uppercase tracking-wider text-slate-400">{translate("进度")}</div>
               <div className="mt-1 flex items-center gap-2">
                 <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-200">
                   <div className={cn("h-full rounded-full", sCfg.dot)} style={{ width: `${task.progress}%` }} />
@@ -883,15 +884,15 @@ function TaskDetailDrawer({
               </div>
             </div>
             <div>
-              <div className="text-[10px] font-medium uppercase tracking-wider text-slate-400">附件</div>
-              <div className="mt-1 text-sm font-medium text-slate-800">{task.attachments ?? 0} 个</div>
+              <div className="text-[10px] font-medium uppercase tracking-wider text-slate-400">{translate("附件")}</div>
+              <div className="mt-1 text-sm font-medium text-slate-800">{translate("{count} 个", { count: task.attachments ?? 0 })}</div>
             </div>
           </div>
 
           {/* Description */}
           {task.description && (
             <section>
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">任务描述</h4>
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">{translate("任务描述")}</h4>
               <p className="rounded-lg border border-slate-100 bg-white px-4 py-3 text-sm leading-relaxed text-slate-700">
                 {task.description}
               </p>
@@ -901,7 +902,7 @@ function TaskDetailDrawer({
           {/* Collaborators */}
           {task.collaborators && task.collaborators.length > 0 && (
             <section>
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">协作人</h4>
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">{translate("协作人")}</h4>
               <div className="flex flex-wrap gap-2">
                 {task.collaborators.map((c) => (
                   <button
@@ -922,7 +923,7 @@ function TaskDetailDrawer({
           {/* Activity timeline */}
           {task.recent_activities && task.recent_activities.length > 0 && (
             <section>
-              <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">最近动态</h4>
+              <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">{translate("最近动态")}</h4>
               <ul className="relative space-y-3 border-l border-slate-200 pl-4">
                 {task.recent_activities.map((a, idx) => (
                   <li key={idx} className="relative">
@@ -941,18 +942,18 @@ function TaskDetailDrawer({
           {/* Progress notes from workspace updates */}
           <section>
             <div className="mb-3 flex items-center justify-between">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">进度记录</h4>
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">{translate("进度记录")}</h4>
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
-                {notesLoading ? "加载中" : `${progressNotes.length} 条`}
+                {notesLoading ? translate("加载中") : translate("{count} 条", { count: progressNotes.length })}
               </span>
             </div>
             {notesLoading ? (
               <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-3 py-4 text-center text-xs text-slate-400">
-                读取中…
+                {translate("读取中…")}
               </div>
             ) : progressNotes.length === 0 ? (
               <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-3 py-4 text-center text-xs text-slate-400">
-                暂无进度记录
+                {translate("暂无进度记录")}
               </div>
             ) : (
               <ul className="space-y-3">
@@ -963,11 +964,11 @@ function TaskDetailDrawer({
                         {note.actor.name}
                         {note.actor.role ? <span className="ml-1 text-slate-400">· {note.actor.role}</span> : null}
                       </span>
-                      <span className="tabular-nums">{new Date(note.created_at).toLocaleString("zh-CN")}</span>
+                      <span className="tabular-nums">{new Date(note.created_at).toLocaleString(i18nLocale())}</span>
                     </div>
                     {typeof note.progress === "number" && (
                       <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">
-                        进度更新至 {note.progress}%
+                        {translate("进度更新至 {progress}%", { progress: note.progress })}
                       </div>
                     )}
                     <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-800">{note.text}</p>
@@ -1013,12 +1014,12 @@ function TaskDetailDrawer({
 
           <section>
             <div className="mb-3 flex items-center justify-between">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">操作留痕</h4>
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">{translate("操作留痕")}</h4>
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
-                {taskLogs.length} 条
+                {translate("{count} 条", { count: taskLogs.length })}
               </span>
             </div>
-            <AuditTimeline logs={taskLogs} showResource={false} emptyText="暂无此任务的操作记录" />
+            <AuditTimeline logs={taskLogs} showResource={false} emptyText={translate("暂无此任务的操作记录")} />
           </section>
         </div>
 
@@ -1031,14 +1032,14 @@ function TaskDetailDrawer({
                   onClick={() => onReviewTask?.(task, "rejected")}
                   className="flex-1 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 transition-all duration-150 hover:bg-red-100 active:scale-[0.98] disabled:opacity-50"
                 >
-                  驳回
+                  {translate("驳回")}
                 </button>
                 <button
                   disabled={saving}
                   onClick={() => onReviewTask?.(task, "approved")}
                   className="flex-1 rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(5,150,105,0.2)] transition-all duration-150 hover:bg-emerald-700 active:scale-[0.98] disabled:opacity-50"
                 >
-                  审核通过
+                  {translate("审核通过")}
                 </button>
               </>
             ) : canReassignTask && (
@@ -1047,12 +1048,12 @@ function TaskDetailDrawer({
                 onClick={() => onOpenReassign?.(task)}
                 className="flex-1 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700 transition-all duration-150 hover:bg-indigo-100 active:scale-[0.98] disabled:opacity-50"
               >
-                {task.status === "pending_assign" || task.owner === "待指派" ? "指派负责人" : "转派任务"}
+                {task.status === "pending_assign" || task.owner === "待指派" ? translate("指派负责人") : translate("转派任务")}
               </button>
             )}
             {canEditTask && task.status !== "completed" && task.status !== "pending_review" && (
               <button disabled={saving} onClick={() => recordDirectorTaskAction("task.status_changed")} className="flex-1 rounded-md bg-emerald-600 px-3 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(5,150,105,0.2)] transition-all duration-150 hover:bg-emerald-700 active:scale-[0.98] disabled:opacity-50">
-                标记完成
+                {translate("标记完成")}
               </button>
             )}
           </footer>
@@ -1106,7 +1107,7 @@ function PersonDetailDrawer({
           <button
             onClick={onClose}
             className="absolute right-4 top-4 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-            aria-label="关闭"
+            aria-label={translate("关闭")}
           >
             <X className="h-4 w-4" />
           </button>
@@ -1118,7 +1119,7 @@ function PersonDetailDrawer({
               <div className="flex items-center gap-2">
                 <h3 className="text-lg font-semibold text-slate-900">{person.name}</h3>
                 {person.on_leave && (
-                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">请假中</span>
+                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">{translate("请假中")}</span>
                 )}
               </div>
               <p className="text-xs text-slate-500">{person.position}</p>
@@ -1129,7 +1130,7 @@ function PersonDetailDrawer({
           {/* Load indicator */}
           <div className={cn("mt-4 rounded-xl border px-3 py-2.5", tone.bg.replace("bg-", "border-").replace("50", "100"), tone.bg)}>
             <div className="flex items-center justify-between text-xs">
-              <span className={cn("font-semibold", tone.text)}>{tone.label} · {person.task_count} / {person.max_tasks}</span>
+              <span className={cn("font-semibold", tone.text)}>{translate(tone.label)} · {person.task_count} / {person.max_tasks}</span>
               <span className={cn("tabular-nums font-bold", tone.text)}>{ratioPct}%</span>
             </div>
             <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-white/70">
@@ -1144,39 +1145,39 @@ function PersonDetailDrawer({
           <section className="grid grid-cols-3 gap-2 rounded-xl border border-slate-100 bg-slate-50/40 p-3">
             <div className="text-center">
               <div className="text-xl font-semibold tabular-nums text-emerald-600">{person.completed_this_month ?? 0}</div>
-              <div className="mt-0.5 text-[10px] font-medium text-slate-500">本月完成</div>
+              <div className="mt-0.5 text-[10px] font-medium text-slate-500">{translate("本月完成")}</div>
             </div>
             <div className="border-x border-slate-200 text-center">
               <div className={cn("text-xl font-semibold tabular-nums", (person.blocked_count ?? 0) > 0 ? "text-orange-600" : "text-slate-300")}>
                 {person.blocked_count ?? 0}
               </div>
-              <div className="mt-0.5 text-[10px] font-medium text-slate-500">阻塞中</div>
+              <div className="mt-0.5 text-[10px] font-medium text-slate-500">{translate("阻塞中")}</div>
             </div>
             <div className="text-center">
               <div className="text-xl font-semibold tabular-nums text-slate-800">{person.avg_completion ?? 0}%</div>
-              <div className="mt-0.5 text-[10px] font-medium text-slate-500">平均完成率</div>
+              <div className="mt-0.5 text-[10px] font-medium text-slate-500">{translate("平均完成率")}</div>
             </div>
           </section>
 
           {/* Contact */}
           <section>
-            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">联系方式</h4>
+            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">{translate("联系方式")}</h4>
             <div className="space-y-2 rounded-lg border border-slate-100 bg-white px-3 py-2.5 text-sm">
               {person.email && (
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-500">邮箱</span>
+                  <span className="text-xs text-slate-500">{translate("邮箱")}</span>
                   <span className="font-mono text-xs text-slate-700">{person.email}</span>
                 </div>
               )}
               {person.phone && (
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-500">电话</span>
+                  <span className="text-xs text-slate-500">{translate("电话")}</span>
                   <span className="font-mono text-xs text-slate-700">{person.phone}</span>
                 </div>
               )}
               {person.joined_at && (
                 <div className="flex items-center justify-between">
-                  <span className="text-xs text-slate-500">入职日期</span>
+                  <span className="text-xs text-slate-500">{translate("入职日期")}</span>
                   <span className="text-xs tabular-nums text-slate-700">{person.joined_at}</span>
                 </div>
               )}
@@ -1192,12 +1193,12 @@ function PersonDetailDrawer({
             >
               <div className="flex items-center gap-2 font-semibold">
                 <Info className={cn("h-3.5 w-3.5", canReassignPersonTasks ? "text-blue-500" : "text-slate-400")} />
-                可转派任务 {reassignableTaskCount} / 当前任务 {person.tasks.length}
+                {translate("可转派任务 {available} / 当前任务 {total}", { available: reassignableTaskCount, total: person.tasks.length })}
               </div>
               <p className="mt-1 leading-5">
                 {canReassignPersonTasks
-                  ? "转派会把该成员未完成且未归档的任务交给其他负责人，并同步更新人员负载。"
-                  : "当前任务均不可转派，通常是已完成、已归档，或任务数据暂未绑定到当前成员。"}
+                  ? translate("转派会把该成员未完成且未归档的任务交给其他负责人，并同步更新人员负载。")
+                  : translate("当前任务均不可转派，通常是已完成、已归档，或任务数据暂未绑定到当前成员。")}
               </p>
             </section>
           )}
@@ -1205,10 +1206,10 @@ function PersonDetailDrawer({
           {/* Tasks */}
           <section>
             <div className="mb-2 flex items-center justify-between">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">当前任务</h4>
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">{translate("当前任务")}</h4>
               <span className="text-[11px] tabular-nums text-slate-400">
-                {person.tasks.length} 项
-                {canReassignTask && <span className="ml-1 text-blue-500">· 可转派 {reassignableTaskCount}</span>}
+                {translate("{count} 项", { count: person.tasks.length })}
+                {canReassignTask && <span className="ml-1 text-blue-500">· {translate("可转派 {count}", { count: reassignableTaskCount })}</span>}
               </span>
             </div>
             <ul className="space-y-1.5">
@@ -1230,7 +1231,7 @@ function PersonDetailDrawer({
                         </div>
                         {task && (
                           <div className="mt-0.5 flex items-center gap-2 text-[10px]">
-                            <span className={cn("font-semibold", sCfg?.text)}>{sCfg?.label}</span>
+                            <span className={cn("font-semibold", sCfg?.text)}>{sCfg ? translate(sCfg.label) : null}</span>
                             <span className="text-slate-300">·</span>
                             <span className="tabular-nums text-slate-500">{task.progress}%</span>
                             {task.due_date && (
@@ -1253,7 +1254,7 @@ function PersonDetailDrawer({
           {/* Activity */}
           {person.recent_activities && person.recent_activities.length > 0 && (
             <section>
-              <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">最近动态</h4>
+              <h4 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-500">{translate("最近动态")}</h4>
               <ul className="relative space-y-3 border-l border-slate-200 pl-4">
                 {person.recent_activities.map((a, idx) => (
                   <li key={idx} className="relative">
@@ -1275,7 +1276,7 @@ function PersonDetailDrawer({
               onClick={() => onEditPerson(person)}
               className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-[0.98]"
             >
-              编辑信息
+              {translate("编辑信息")}
             </button>
           )}
           {onSendMessage && (
@@ -1284,7 +1285,7 @@ function PersonDetailDrawer({
               onClick={() => onSendMessage(person)}
               className="flex-1 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-[0.98]"
             >
-              发消息
+              {translate("发消息")}
             </button>
           )}
           {canReassignTask && onReassignPerson && (
@@ -1294,7 +1295,7 @@ function PersonDetailDrawer({
               onClick={() => {
                 if (canReassignPersonTasks) onReassignPerson(person);
               }}
-              title={canReassignPersonTasks ? "选择该成员的任务并转派给其他负责人" : "当前没有可转派任务"}
+              title={canReassignPersonTasks ? translate("选择该成员的任务并转派给其他负责人") : translate("当前没有可转派任务")}
               className={cn(
                 "flex-1 rounded-md px-3 py-2 text-sm font-semibold transition-all duration-150 active:scale-[0.98]",
                 canReassignPersonTasks
@@ -1302,7 +1303,7 @@ function PersonDetailDrawer({
                   : "cursor-not-allowed bg-slate-100 text-slate-400 shadow-none",
               )}
             >
-              {canReassignPersonTasks ? "转派任务" : "暂无可转派"}
+              {canReassignPersonTasks ? translate("转派任务") : translate("暂无可转派")}
             </button>
           )}
         </footer>
@@ -1383,11 +1384,11 @@ function CategoryDetailDrawer({
       "text/csv;charset=utf-8",
     );
     if (ok) {
-      toast.success("报表已导出", {
-        description: `${category.label} · ${relatedTasks.length} 项任务`,
+      toast.success(translate("报表已导出"), {
+        description: `${category.label} · ${translate("{count} 项任务", { count: relatedTasks.length })}`,
       });
     } else {
-      toast.error("当前环境不支持导出报表");
+      toast.error(translate("当前环境不支持导出报表"));
     }
   };
 
@@ -1403,7 +1404,7 @@ function CategoryDetailDrawer({
           <button
             onClick={onClose}
             className="absolute right-4 top-4 rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-            aria-label="关闭"
+            aria-label={translate("关闭")}
           >
             <X className="h-4 w-4" />
           </button>
@@ -1413,7 +1414,7 @@ function CategoryDetailDrawer({
             </span>
             <div className="min-w-0 flex-1">
               <h3 className="text-lg font-semibold text-slate-900">{category.label}</h3>
-              <p className="text-xs text-slate-500">{category.total} 个任务 · 完成率 {completedRate}%</p>
+              <p className="text-xs text-slate-500">{translate("{count} 个任务", { count: category.total })} · {translate("完成率")} {completedRate}%</p>
             </div>
           </div>
 
@@ -1426,24 +1427,24 @@ function CategoryDetailDrawer({
             <div className="mt-2 flex flex-wrap gap-3 text-[11px]">
               <span className="flex items-center gap-1.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                <span className="text-slate-500">已完成</span>
+                <span className="text-slate-500">{translate("已完成")}</span>
                 <span className="font-semibold tabular-nums text-emerald-700">{category.completed}</span>
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-blue-500" />
-                <span className="text-slate-500">进行中</span>
+                <span className="text-slate-500">{translate("进行中")}</span>
                 <span className="font-semibold tabular-nums text-blue-700">{category.in_progress}</span>
               </span>
               {category.blocked > 0 && (
                 <span className="flex items-center gap-1.5">
                   <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
-                  <span className="text-slate-500">阻塞</span>
+                  <span className="text-slate-500">{translate("阻塞")}</span>
                   <span className="font-semibold tabular-nums text-red-700">{category.blocked}</span>
                 </span>
               )}
               <span className="flex items-center gap-1.5">
                 <span className="h-1.5 w-1.5 rounded-full bg-slate-300" />
-                <span className="text-slate-500">未开始</span>
+                <span className="text-slate-500">{translate("未开始")}</span>
                 <span className="font-semibold tabular-nums text-slate-700">{notStarted}</span>
               </span>
             </div>
@@ -1462,7 +1463,7 @@ function CategoryDetailDrawer({
             ].map((s) => (
               <div key={s.label} className="text-center">
                 <div className={cn("text-xl font-semibold tabular-nums tracking-tight", s.tone)}>{s.value}</div>
-                <div className="mt-0.5 text-[10px] font-medium text-slate-500">{s.label}</div>
+                <div className="mt-0.5 text-[10px] font-medium text-slate-500">{translate(s.label)}</div>
               </div>
             ))}
           </section>
@@ -1470,14 +1471,14 @@ function CategoryDetailDrawer({
           {/* Key tasks */}
           <section>
             <div className="mb-2 flex items-center justify-between">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">关键任务</h4>
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">{translate("关键任务")}</h4>
               <span className="text-[11px] tabular-nums text-slate-400">
-                显示 {relatedTasks.length} 项 · 共 {category.total} 项
+                {translate("显示 {shown} 项 · 共 {total} 项", { shown: relatedTasks.length, total: category.total })}
               </span>
             </div>
             {relatedTasks.length === 0 ? (
               <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/40 py-6 text-center text-xs text-slate-400">
-                暂无关键任务录入
+                {translate("暂无关键任务录入")}
               </div>
             ) : (
               <ul className="space-y-1.5">
@@ -1499,14 +1500,14 @@ function CategoryDetailDrawer({
                           <div className="mt-0.5 flex items-center gap-2 text-[10px]">
                             <span className={cn("inline-flex items-center gap-1 rounded border px-1.5 py-0.5 font-semibold", sCfg.bg, sCfg.text, sCfg.border)}>
                               <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
-                              {sCfg.label}
+                              {translate(sCfg.label)}
                             </span>
                             <span className="text-slate-300">·</span>
                             <span className="tabular-nums text-slate-500">{t.progress}%</span>
                             {t.owner && (
                               <>
                                 <span className="text-slate-300">·</span>
-                                <span className="text-slate-500">{t.owner}</span>
+                                <span className="text-slate-500">{t.owner === "待指派" || t.owner === "外部机构" ? translate(t.owner) : t.owner}</span>
                               </>
                             )}
                           </div>
@@ -1523,7 +1524,7 @@ function CategoryDetailDrawer({
           {/* Top contributors */}
           {topContributors.length > 0 && (
             <section>
-              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">主要贡献人</h4>
+              <h4 className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-500">{translate("主要贡献人")}</h4>
               <ul className="space-y-1.5">
                 {topContributors.map((c) => (
                   <li key={c.name}>
@@ -1537,7 +1538,7 @@ function CategoryDetailDrawer({
                         {c.name}
                       </span>
                       <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-600">
-                        {c.count} 项
+                        {translate("{count} 项", { count: c.count })}
                       </span>
                       <ChevronRight className="h-3.5 w-3.5 text-slate-300 transition-all group-hover:translate-x-0.5 group-hover:text-slate-600" />
                     </button>
@@ -1556,7 +1557,7 @@ function CategoryDetailDrawer({
             className="flex flex-1 items-center justify-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-[0.98]"
           >
             <Download className="h-4 w-4" />
-            导出报表
+            {translate("导出报表")}
           </button>
           <button
             type="button"
@@ -1564,7 +1565,7 @@ function CategoryDetailDrawer({
             className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-all duration-150 hover:bg-indigo-700 active:scale-[0.98]"
           >
             <ListChecks className="h-4 w-4" />
-            查看完整清单
+            {translate("查看完整清单")}
           </button>
         </footer>
       </div>
@@ -1615,7 +1616,7 @@ function BatchReassignModal({
     const selected = selectedAssignableTasks;
     if (selected.length === 0) return;
     if (targetIsCurrentOwner) {
-      toast.info("目标负责人不能与当前负责人相同");
+      toast.info(translate("目标负责人不能与当前负责人相同"));
       return;
     }
 
@@ -1659,7 +1660,7 @@ function BatchReassignModal({
       onUpdated?.();
       setConfirmed(true);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "转派失败");
+      toast.error(err instanceof Error ? err.message : translate("转派失败"));
     } finally {
       setSaving(false);
     }
@@ -1679,7 +1680,7 @@ function BatchReassignModal({
         className="w-full max-w-lg rounded-2xl bg-white shadow-2xl"
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-          <span className="font-semibold text-slate-800">批量转派任务</span>
+          <span className="font-semibold text-slate-800">{translate("批量转派任务")}</span>
           <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100">
             <X className="h-4 w-4 text-slate-500" />
           </button>
@@ -1689,10 +1690,10 @@ function BatchReassignModal({
           {!confirmed ? (
             <>
               <div>
-                <div className="mb-2 text-sm font-medium text-slate-700">选择任务</div>
+                <div className="mb-2 text-sm font-medium text-slate-700">{translate("选择任务")}</div>
                 <div className="space-y-2 max-h-40 overflow-y-auto">
                   {ASSIGNABLE_TASKS.length === 0 ? (
-                    <DashboardEmptyPanel title="暂无可转派任务" description="当前没有阻塞或待指派任务，无法执行批量转派。" />
+                    <DashboardEmptyPanel title={translate("暂无可转派任务")} description={translate("当前没有阻塞或待指派任务，无法执行批量转派。")} />
                   ) : (
                     ASSIGNABLE_TASKS.map((t) => (
                       <label key={t.task_id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-100 px-3 py-2 hover:bg-slate-50">
@@ -1707,10 +1708,10 @@ function BatchReassignModal({
                           <div className="text-xs text-slate-400">
                             {t.task_id}
                             {t.owner === "待指派"
-                              ? " · 待指派"
+                              ? ` · ${translate("待指派")}`
                               : t.days_blocked
-                                ? ` · 阻塞 ${t.days_blocked} 天`
-                                : ` · 当前负责人 ${t.owner}`}
+                                ? ` · ${translate("阻塞 {days} 天", { days: t.days_blocked })}`
+                                : ` · ${translate("当前负责人")} ${t.owner}`}
                           </div>
                         </div>
                       </label>
@@ -1720,11 +1721,11 @@ function BatchReassignModal({
               </div>
 
               <div>
-                <div className="mb-2 text-sm font-medium text-slate-700">选择目标负责人</div>
+                <div className="mb-2 text-sm font-medium text-slate-700">{translate("选择目标负责人")}</div>
                 <div className="grid grid-cols-2 gap-2">
                   {PERSON_LOADS.filter((p) => !p.on_leave).length === 0 ? (
                     <div className="col-span-2">
-                      <DashboardEmptyPanel title="暂无可用负责人" description="请先在人员管理中维护研发成员后再执行转派。" />
+                      <DashboardEmptyPanel title={translate("暂无可用负责人")} description={translate("请先在人员管理中维护研发成员后再执行转派。")} />
                     </div>
                   ) : (
                     PERSON_LOADS.filter((p) => !p.on_leave).map((p) => {
@@ -1739,7 +1740,7 @@ function BatchReassignModal({
                           isNoopTarget && "cursor-not-allowed opacity-45",
                           targetPerson?.id === p.id ? "border-indigo-300 bg-indigo-50" : "border-slate-200 hover:bg-slate-50",
                         )}
-                        title={isNoopTarget ? "不能转派给当前负责人本人" : undefined}
+                        title={isNoopTarget ? translate("不能转派给当前负责人本人") : undefined}
                       >
                         <div className="font-medium text-slate-800">{p.name}</div>
                         <div className="flex items-center justify-between text-xs text-slate-400">
@@ -1748,7 +1749,7 @@ function BatchReassignModal({
                             "font-semibold",
                             p.max_tasks > 0 && p.task_count / p.max_tasks >= 0.75 ? "text-orange-500" : "text-emerald-600",
                           )}>
-                            {p.task_count} 个任务
+                            {translate("{count} 个任务", { count: p.task_count })}
                           </span>
                         </div>
                       </button>
@@ -1760,14 +1761,14 @@ function BatchReassignModal({
 
               <div className="flex justify-end gap-2 pt-2">
                 <button onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
-                  取消
+                  {translate("取消")}
                 </button>
                 <button
                   disabled={selectedTasks.size === 0 || !targetPerson || targetIsCurrentOwner || saving}
                   onClick={confirmReassign}
                   className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-all hover:bg-indigo-700 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none"
                 >
-                  {saving ? "处理中..." : selectedHasPendingAssign ? "确认指派" : "确认转派"}
+                  {saving ? translate("处理中...") : selectedHasPendingAssign ? translate("确认指派") : translate("确认转派")}
                   <ArrowRight className="h-3.5 w-3.5" />
                 </button>
               </div>
@@ -1775,12 +1776,12 @@ function BatchReassignModal({
           ) : (
             <div className="py-4 text-center">
               <CheckCircle2 className="mx-auto mb-3 h-10 w-10 text-emerald-500" />
-              <p className="font-semibold text-slate-800">转派成功</p>
+              <p className="font-semibold text-slate-800">{translate("转派成功")}</p>
               <p className="mt-1 text-sm text-slate-500">
-                已将 {selectedTasks.size} 个任务转派给 {targetPerson?.name}，痕迹已记录。
+                {translate("已将 {count} 个任务转派给 {name}，痕迹已记录。", { count: selectedTasks.size, name: targetPerson?.name ?? "" })}
               </p>
               <button onClick={onClose} className="mt-4 rounded-xl bg-slate-100 px-4 py-2 text-sm text-slate-600 hover:bg-slate-200">
-                关闭
+                {translate("关闭")}
               </button>
             </div>
           )}
@@ -1834,41 +1835,41 @@ function CategoryEditorModal({
         className="w-full max-w-lg rounded-2xl bg-white shadow-2xl"
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-          <span className="font-semibold text-slate-800">{state.mode === "create" ? "新增分类" : "编辑分类"}</span>
+          <span className="font-semibold text-slate-800">{state.mode === "create" ? translate("新增分类") : translate("编辑分类")}</span>
           <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100">
             <X className="h-4 w-4 text-slate-500" />
           </button>
         </div>
         <div className="space-y-4 p-6">
           <div>
-            <label className="mb-1.5 block text-xs font-semibold text-slate-500">分类名称</label>
+            <label className="mb-1.5 block text-xs font-semibold text-slate-500">{translate("分类名称")}</label>
             <Input
               value={label}
               onChange={(event) => setLabel(event.target.value)}
               className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
-              placeholder="例如：分子筛系统"
+              placeholder={translate("例如：分子筛系统")}
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-xs font-semibold text-slate-500">子项/部件</label>
+            <label className="mb-1.5 block text-xs font-semibold text-slate-500">{translate("子项/部件")}</label>
             <Textarea
               value={childrenText}
               onChange={(event) => setChildrenText(event.target.value)}
               rows={8}
               className="w-full resize-none rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-800 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
-              placeholder="每行一个子项，也可以用逗号分隔"
+              placeholder={translate("每行一个子项，也可以用逗号分隔")}
             />
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <button onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
-              取消
+              {translate("取消")}
             </button>
             <button
               onClick={submit}
               disabled={saving}
               className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-all hover:bg-indigo-700 active:scale-[0.98] disabled:opacity-50"
             >
-              {saving ? "保存中..." : "保存分类"}
+              {saving ? translate("保存中...") : translate("保存分类")}
               <ArrowRight className="h-3.5 w-3.5" />
             </button>
           </div>
@@ -1916,23 +1917,23 @@ function CategoryDeleteDialog({
         <div className="border-b border-red-100 bg-red-50 px-6 py-4">
           <div className="flex items-center gap-2 font-semibold text-red-700">
             <AlertTriangle className="h-4 w-4" />
-            删除分类
+            {translate("删除分类")}
           </div>
         </div>
         <div className="space-y-4 p-6">
           <p className="text-sm leading-6 text-slate-600">
-            确认删除「{category.label}」？该分类下有 {taskCount} 条未归档任务，删除后分类和其中任务都会从驾驶舱移除。
+            {translate("确认删除「{name}」？该分类下有 {count} 条未归档任务，删除后分类和其中任务都会从驾驶舱移除。", { name: category.label, count: taskCount })}
           </p>
           <div className="flex justify-end gap-2">
             <button onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
-              取消
+              {translate("取消")}
             </button>
             <button
               onClick={submit}
               disabled={saving}
               className="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(220,38,38,0.20)] transition-all hover:bg-red-700 disabled:opacity-50"
             >
-              {saving ? "删除中..." : "确认删除"}
+              {saving ? translate("删除中...") : translate("确认删除")}
             </button>
           </div>
         </div>
@@ -1993,9 +1994,9 @@ function CreateTaskModal({
     setForm((f) => ({ ...f, [k]: v }));
 
   const handleCreate = async () => {
-    if (!form.title.trim()) { toast.error("请填写任务标题"); return; }
-    if (!form.categoryId) { toast.error("请选择所属分类"); return; }
-    if (!form.subProjectId) { toast.error("请选择子项目"); return; }
+    if (!form.title.trim()) { toast.error(translate("请填写任务标题")); return; }
+    if (!form.categoryId) { toast.error(translate("请选择所属分类")); return; }
+    if (!form.subProjectId) { toast.error(translate("请选择子项目")); return; }
     setSaving(true);
     try {
       const subLabel = subProjects.find((s) => s.id === form.subProjectId)?.label;
@@ -2013,10 +2014,10 @@ function CreateTaskModal({
         description: form.description.trim() || undefined,
         category_path: categoryPath,
       });
-      toast.success("任务已创建");
+      toast.success(translate("任务已创建"));
       onCreate();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "创建失败");
+      toast.error(err instanceof Error ? err.message : translate("创建失败"));
       setSaving(false);
     }
   };
@@ -2036,7 +2037,7 @@ function CreateTaskModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-          <span className="font-semibold text-slate-800">新建任务</span>
+          <span className="font-semibold text-slate-800">{translate("新建任务")}</span>
           <button onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100">
             <X className="h-4 w-4 text-slate-500" />
           </button>
@@ -2044,19 +2045,19 @@ function CreateTaskModal({
 
         <div className="space-y-4 p-6">
           <div>
-            <label className="mb-1 block text-xs font-semibold text-slate-600">任务标题 *</label>
+            <label className="mb-1 block text-xs font-semibold text-slate-600">{translate("任务标题")} *</label>
             <Input
               type="text"
               value={form.title}
               onChange={(e) => setField("title", e.target.value)}
-              placeholder="输入任务标题"
+              placeholder={translate("输入任务标题")}
               className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
             />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-xs font-semibold text-slate-600">所属分类 *</label>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">{translate("所属分类")} *</label>
               <NativeSelect
                 value={form.categoryId}
                 onChange={(e) => {
@@ -2072,51 +2073,51 @@ function CreateTaskModal({
               </NativeSelect>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-semibold text-slate-600">子项目</label>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">{translate("子项目")}</label>
               <NativeSelect
                 value={form.subProjectId}
                 onChange={(e) => setField("subProjectId", e.target.value)}
                 disabled={subProjects.length === 0}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 disabled:opacity-50"
               >
-                <option value="" disabled>请选择子项目</option>
+                <option value="" disabled>{translate("请选择子项目")}</option>
                 {subProjects.map((s) => (
                   <option key={s.id} value={s.id}>{s.label}</option>
                 ))}
               </NativeSelect>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-semibold text-slate-600">优先级</label>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">{translate("优先级")}</label>
               <NativeSelect
                 value={form.priority}
                 onChange={(e) => setField("priority", e.target.value as Priority)}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
               >
-                <option value="high">高</option>
-                <option value="medium">中</option>
-                <option value="low">低</option>
+                <option value="high">{translate("高")}</option>
+                <option value="medium">{translate("中")}</option>
+                <option value="low">{translate("低")}</option>
               </NativeSelect>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-semibold text-slate-600">初始状态</label>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">{translate("初始状态")}</label>
               <NativeSelect
                 value={form.status}
                 onChange={(e) => setField("status", e.target.value as TaskStatus)}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
               >
                 {(Object.keys(TASK_STATUS_CONFIG) as TaskStatus[]).map((s) => (
-                  <option key={s} value={s}>{TASK_STATUS_CONFIG[s].label}</option>
+                  <option key={s} value={s}>{translate(TASK_STATUS_CONFIG[s].label)}</option>
                 ))}
               </NativeSelect>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-semibold text-slate-600">主责人</label>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">{translate("主责人")}</label>
               <NativeSelect
                 value={form.ownerKey || "待指派"}
                 onChange={(e) => setField("ownerKey", e.target.value === "待指派" ? "" : e.target.value)}
                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400"
               >
-                <option value="待指派">待指派</option>
+                <option value="待指派">{translate("待指派")}</option>
                 {people.map((person) => (
                   <option key={person.id} value={rdPersonOptionValue(person)}>
                     {person.name}
@@ -2125,7 +2126,7 @@ function CreateTaskModal({
               </NativeSelect>
             </div>
             <div>
-              <label className="mb-1 block text-xs font-semibold text-slate-600">截止日期</label>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">{translate("截止日期")}</label>
               <Input
                 type="date"
                 value={form.due_date}
@@ -2136,12 +2137,12 @@ function CreateTaskModal({
           </div>
 
           <div>
-            <label className="mb-1 block text-xs font-semibold text-slate-600">任务描述</label>
+            <label className="mb-1 block text-xs font-semibold text-slate-600">{translate("任务描述")}</label>
             <Textarea
               value={form.description}
               onChange={(e) => setField("description", e.target.value)}
               rows={3}
-              placeholder="可选"
+              placeholder={translate("可选")}
               className="w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-100"
             />
           </div>
@@ -2153,7 +2154,7 @@ function CreateTaskModal({
             disabled={saving}
             className="flex-1 rounded-xl border border-slate-200 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
           >
-            取消
+            {translate("取消")}
           </button>
           <button
             onClick={handleCreate}
@@ -2161,7 +2162,7 @@ function CreateTaskModal({
             className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-colors hover:bg-indigo-700 disabled:opacity-50"
           >
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            创建任务
+            {translate("创建任务")}
           </button>
         </div>
       </motion.div>
@@ -2222,9 +2223,9 @@ function CreateTaskModalV2({
     setForm((f) => ({ ...f, [k]: v }));
 
   const handleCreate = async () => {
-    if (!form.title.trim()) { toast.error("请填写任务标题"); return; }
-    if (!form.categoryId) { toast.error("请选择所属分类"); return; }
-    if (!form.subProjectId) { toast.error("请选择子项目"); return; }
+    if (!form.title.trim()) { toast.error(translate("请填写任务标题")); return; }
+    if (!form.categoryId) { toast.error(translate("请选择所属分类")); return; }
+    if (!form.subProjectId) { toast.error(translate("请选择子项目")); return; }
     setSaving(true);
     try {
       const subLabel = subProjects.find((s) => s.id === form.subProjectId)?.label;
@@ -2242,10 +2243,10 @@ function CreateTaskModalV2({
         description: form.description.trim() || undefined,
         category_path: categoryPath,
       });
-      toast.success("任务已创建");
+      toast.success(translate("任务已创建"));
       onCreate();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "创建失败");
+      toast.error(err instanceof Error ? err.message : translate("创建失败"));
       setSaving(false);
     }
   };
@@ -2264,7 +2265,7 @@ function CreateTaskModalV2({
         className="w-full max-w-lg rounded-2xl bg-white shadow-2xl"
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-          <span className="font-semibold text-slate-800">新建任务</span>
+          <span className="font-semibold text-slate-800">{translate("新建任务")}</span>
           <Button type="button" variant="ghost" size="icon" onClick={onClose}>
             <X className="h-4 w-4 text-slate-500" />
           </Button>
@@ -2272,13 +2273,13 @@ function CreateTaskModalV2({
 
         <div className="space-y-4 p-6">
           <div>
-            <Label className="mb-1 block text-xs font-semibold text-slate-600">任务标题 *</Label>
-            <Input value={form.title} onChange={(e) => setField("title", e.target.value)} placeholder="输入任务标题" />
+            <Label className="mb-1 block text-xs font-semibold text-slate-600">{translate("任务标题")} *</Label>
+            <Input value={form.title} onChange={(e) => setField("title", e.target.value)} placeholder={translate("输入任务标题")} />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <Label className="mb-1 block text-xs font-semibold text-slate-600">所属分类 *</Label>
+              <Label className="mb-1 block text-xs font-semibold text-slate-600">{translate("所属分类")} *</Label>
               <Select
                 value={form.categoryId}
                 onValueChange={(categoryId) => {
@@ -2286,51 +2287,51 @@ function CreateTaskModalV2({
                   setForm((f) => ({ ...f, categoryId, subProjectId: nextCategory?.children[0]?.id ?? "" }));
                 }}
               >
-                <SelectTrigger><SelectValue placeholder="选择分类" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={translate("选择分类")} /></SelectTrigger>
                 <SelectContent>
                   {categories.map((c) => <SelectItem key={c.id} value={c.id}>{c.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label className="mb-1 block text-xs font-semibold text-slate-600">子项目</Label>
+              <Label className="mb-1 block text-xs font-semibold text-slate-600">{translate("子项目")}</Label>
               <Select value={form.subProjectId} onValueChange={(value) => setField("subProjectId", value)} disabled={subProjects.length === 0}>
-                <SelectTrigger><SelectValue placeholder="选择子项目" /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={translate("选择子项目")} /></SelectTrigger>
                 <SelectContent>
                   {subProjects.map((s) => <SelectItem key={s.id} value={s.id}>{s.label}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label className="mb-1 block text-xs font-semibold text-slate-600">优先级</Label>
+              <Label className="mb-1 block text-xs font-semibold text-slate-600">{translate("优先级")}</Label>
               <Select value={form.priority} onValueChange={(value) => setField("priority", value as Priority)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="high">高</SelectItem>
-                  <SelectItem value="medium">中</SelectItem>
-                  <SelectItem value="low">低</SelectItem>
+                  <SelectItem value="high">{translate("高")}</SelectItem>
+                  <SelectItem value="medium">{translate("中")}</SelectItem>
+                  <SelectItem value="low">{translate("低")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label className="mb-1 block text-xs font-semibold text-slate-600">初始状态</Label>
+              <Label className="mb-1 block text-xs font-semibold text-slate-600">{translate("初始状态")}</Label>
               <Select value={form.status} onValueChange={(value) => setField("status", value as TaskStatus)}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {(Object.keys(TASK_STATUS_CONFIG) as TaskStatus[]).map((s) => (
-                    <SelectItem key={s} value={s}>{TASK_STATUS_CONFIG[s].label}</SelectItem>
+                    <SelectItem key={s} value={s}>{translate(TASK_STATUS_CONFIG[s].label)}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
             <div>
-              <Label className="mb-1 block text-xs font-semibold text-slate-600">主责人</Label>
+              <Label className="mb-1 block text-xs font-semibold text-slate-600">{translate("主责人")}</Label>
               <Select value={form.ownerKey || "待指派"} onValueChange={(value) => setField("ownerKey", value === "待指派" ? "" : value)}>
-                <SelectTrigger><SelectValue placeholder={peopleLoading ? "正在读取人员" : "待指派"} /></SelectTrigger>
+                <SelectTrigger><SelectValue placeholder={peopleLoading ? translate("正在读取人员") : translate("待指派")} /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="待指派" description="暂不指定负责人">待指派</SelectItem>
+                  <SelectItem value="待指派" description={translate("暂不指定负责人")}>{translate("待指派")}</SelectItem>
                   {people.map((person) => (
-                    <SelectItem key={person.id} value={rdPersonOptionValue(person)} description={`${person.position} · 当前 ${person.task_count}/${person.max_tasks}${person.user_id ? " · 已绑定账号" : " · 未绑定账号"}`}>
+                    <SelectItem key={person.id} value={rdPersonOptionValue(person)} description={`${person.position} · ${translate("当前")} ${person.task_count}/${person.max_tasks}${person.user_id ? ` · ${translate("已绑定账号")}` : ` · ${translate("未绑定账号")}`}`}>
                       {person.name}
                     </SelectItem>
                   ))}
@@ -2338,11 +2339,11 @@ function CreateTaskModalV2({
               </Select>
             </div>
             <div>
-              <Label className="mb-1 block text-xs font-semibold text-slate-600">截止日期</Label>
+              <Label className="mb-1 block text-xs font-semibold text-slate-600">{translate("截止日期")}</Label>
               <Popover>
                 <PopoverTrigger asChild>
                   <Button type="button" variant="outline" className={cn("h-9 w-full justify-between rounded-md px-3 text-left font-normal", !form.due_date && "text-slate-400")}>
-                    <span>{form.due_date ? form.due_date.replace(/-/g, "/") : "年 / 月 / 日"}</span>
+                    <span>{form.due_date ? form.due_date.replace(/-/g, "/") : translate("年 / 月 / 日")}</span>
                     <CalendarDays className="h-4 w-4 text-slate-500" />
                   </Button>
                 </PopoverTrigger>
@@ -2361,16 +2362,16 @@ function CreateTaskModalV2({
           </div>
 
           <div>
-            <Label className="mb-1 block text-xs font-semibold text-slate-600">任务描述</Label>
-            <Textarea value={form.description} onChange={(e) => setField("description", e.target.value)} rows={3} placeholder="可选" className="resize-none" />
+            <Label className="mb-1 block text-xs font-semibold text-slate-600">{translate("任务描述")}</Label>
+            <Textarea value={form.description} onChange={(e) => setField("description", e.target.value)} rows={3} placeholder={translate("可选")} className="resize-none" />
           </div>
         </div>
 
         <div className="flex gap-3 border-t border-slate-100 px-6 py-4">
-          <Button type="button" variant="outline" onClick={onClose} disabled={saving} className="flex-1 rounded-md">取消</Button>
+          <Button type="button" variant="outline" onClick={onClose} disabled={saving} className="flex-1 rounded-md">{translate("取消")}</Button>
           <Button type="button" onClick={handleCreate} disabled={saving} className="flex-1 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            创建任务
+            {translate("创建任务")}
           </Button>
         </div>
       </motion.div>
@@ -2383,7 +2384,7 @@ function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleare
   const shouldReduceMotion = useReducedMotion();
   const [confirm, setConfirm] = useState("");
   const [clearing, setClearing] = useState(false);
-  const CONFIRM_KEYWORD = "确认清空";
+  const CONFIRM_KEYWORD = translate("确认清空");
   const ready = confirm.trim() === CONFIRM_KEYWORD;
 
   const handleClear = async () => {
@@ -2398,10 +2399,10 @@ function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleare
         comment: "清空研发任务模块全部数据",
         source: "web",
       });
-      toast.success("研发任务模块数据已全部清空");
+      toast.success(translate("研发任务模块数据已全部清空"));
       onCleared();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "清空失败");
+      toast.error(err instanceof Error ? err.message : translate("清空失败"));
       setClearing(false);
     }
   };
@@ -2425,25 +2426,25 @@ function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleare
             <Trash2 className="h-5 w-5 text-red-600" />
           </div>
           <div>
-            <div className="font-semibold text-red-800">清空研发任务模块数据</div>
-            <div className="text-xs text-red-600">此操作需要清空数据权限，且不可恢复</div>
+            <div className="font-semibold text-red-800">{translate("清空研发任务模块数据")}</div>
+            <div className="text-xs text-red-600">{translate("此操作需要清空数据权限，且不可恢复")}</div>
           </div>
         </div>
 
         <div className="space-y-4 p-6">
           <div className="rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-red-700 leading-relaxed">
-            <p className="font-semibold mb-1">将被清空的数据：</p>
+            <p className="font-semibold mb-1">{translate("将被清空的数据：")}</p>
             <ul className="list-disc pl-4 space-y-0.5 text-xs">
-              <li>所有研发任务分类、子项目及任务（含子任务）</li>
-              <li>个人工作台任务数据</li>
-              <li>研发主管驾驶舱看板数据（分类进度、人员负载、阻塞、待指派）</li>
+              <li>{translate("所有研发任务分类、子项目及任务（含子任务）")}</li>
+              <li>{translate("个人工作台任务数据")}</li>
+              <li>{translate("研发主管驾驶舱看板数据（分类进度、人员负载、阻塞、待指派）")}</li>
             </ul>
-            <p className="mt-2 text-xs text-red-500">注：人员档案、审批流、AI 策略、操作留痕不受影响。</p>
+            <p className="mt-2 text-xs text-red-500">{translate("注：人员档案、审批流、AI 策略、操作留痕不受影响。")}</p>
           </div>
 
           <div>
             <label className="mb-1.5 block text-sm font-medium text-slate-700">
-              请输入「<span className="font-bold text-red-600">{CONFIRM_KEYWORD}</span>」以继续
+              {translate("请输入「{keyword}」以继续", { keyword: CONFIRM_KEYWORD })}
             </label>
             <Input
               type="text"
@@ -2461,7 +2462,7 @@ function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleare
             disabled={clearing}
             className="flex-1 rounded-xl border border-slate-200 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50"
           >
-            取消
+            {translate("取消")}
           </button>
           <button
             onClick={handleClear}
@@ -2469,7 +2470,7 @@ function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleare
             className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-600 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(220,38,38,0.20)] transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40"
           >
             {clearing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            确认清空
+            {translate("确认清空")}
           </button>
         </div>
       </motion.div>
@@ -2501,8 +2502,8 @@ function PersonEditModal({
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
-    if (!form.name.trim()) { toast.error("姓名不能为空"); return; }
-    if (!form.position.trim()) { toast.error("岗位不能为空"); return; }
+    if (!form.name.trim()) { toast.error(translate("姓名不能为空")); return; }
+    if (!form.position.trim()) { toast.error(translate("岗位不能为空")); return; }
     setSaving(true);
     try {
       await updateRdPerson({
@@ -2515,10 +2516,10 @@ function PersonEditModal({
         max_tasks: Math.max(1, Math.min(50, Math.round(form.max_tasks))),
         on_leave: form.on_leave,
       });
-      toast.success("已保存");
+      toast.success(translate("已保存"));
       onSaved();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "保存失败");
+      toast.error(err instanceof Error ? err.message : translate("保存失败"));
     } finally {
       setSaving(false);
     }
@@ -2544,7 +2545,7 @@ function PersonEditModal({
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
               <Pencil className="h-4 w-4" />
             </div>
-            <h3 className="text-base font-semibold text-slate-900">编辑研发成员信息</h3>
+            <h3 className="text-base font-semibold text-slate-900">{translate("编辑研发成员信息")}</h3>
           </div>
           <button type="button" disabled={saving} onClick={onClose} className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40">
             <X className="h-4 w-4" />
@@ -2553,7 +2554,7 @@ function PersonEditModal({
 
         <div className="grid grid-cols-2 gap-3 px-6 py-5">
           <label className="col-span-2 block">
-            <span className="mb-1 block text-xs font-medium text-slate-700">姓名</span>
+            <span className="mb-1 block text-xs font-medium text-slate-700">{translate("姓名")}</span>
             <Input
               autoFocus
               value={form.name}
@@ -2562,7 +2563,7 @@ function PersonEditModal({
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-700">岗位</span>
+            <span className="mb-1 block text-xs font-medium text-slate-700">{translate("岗位")}</span>
             <Input
               value={form.position}
               onChange={(e) => setForm({ ...form, position: e.target.value })}
@@ -2570,7 +2571,7 @@ function PersonEditModal({
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-700">部门</span>
+            <span className="mb-1 block text-xs font-medium text-slate-700">{translate("部门")}</span>
             <Input
               value={form.department}
               onChange={(e) => setForm({ ...form, department: e.target.value })}
@@ -2578,7 +2579,7 @@ function PersonEditModal({
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-700">邮箱</span>
+            <span className="mb-1 block text-xs font-medium text-slate-700">{translate("邮箱")}</span>
             <Input
               type="email"
               value={form.email}
@@ -2587,7 +2588,7 @@ function PersonEditModal({
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-700">电话</span>
+            <span className="mb-1 block text-xs font-medium text-slate-700">{translate("电话")}</span>
             <Input
               value={form.phone}
               onChange={(e) => setForm({ ...form, phone: e.target.value })}
@@ -2595,7 +2596,7 @@ function PersonEditModal({
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-700">最大任务数</span>
+            <span className="mb-1 block text-xs font-medium text-slate-700">{translate("最大任务数")}</span>
             <Input
               type="number"
               min={1}
@@ -2612,7 +2613,7 @@ function PersonEditModal({
               onChange={(e) => setForm({ ...form, on_leave: e.target.checked })}
               className="h-4 w-4 rounded border-slate-300"
             />
-            请假中
+            {translate("请假中")}
           </label>
         </div>
 
@@ -2623,7 +2624,7 @@ function PersonEditModal({
             onClick={onClose}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
-            取消
+            {translate("取消")}
           </button>
           <button
             type="button"
@@ -2632,7 +2633,7 @@ function PersonEditModal({
             className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
           >
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            保存
+            {translate("保存")}
           </button>
         </div>
       </motion.div>
@@ -2656,7 +2657,7 @@ function SendMessageModal({
 
   const handleSend = async () => {
     const trimmedBody = body.trim();
-    if (!trimmedBody) { toast.error("消息内容不能为空"); return; }
+    if (!trimmedBody) { toast.error(translate("消息内容不能为空")); return; }
     setSending(true);
     try {
       await sendRdMessage({
@@ -2666,10 +2667,10 @@ function SendMessageModal({
         subject: subject.trim() || undefined,
         body: trimmedBody,
       });
-      toast.success(`已发送给 ${recipient.name}`);
+      toast.success(translate("已发送给 {name}", { name: recipient.name }));
       onSent();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "发送失败");
+      toast.error(err instanceof Error ? err.message : translate("发送失败"));
     } finally {
       setSending(false);
     }
@@ -2696,7 +2697,7 @@ function SendMessageModal({
               <Sparkles className="h-4 w-4" />
             </div>
             <h3 className="text-base font-semibold text-slate-900">
-              发消息给 <span className="text-violet-700">{recipient.name}</span>
+              {translate("发消息给")} <span className="text-violet-700">{recipient.name}</span>
             </h3>
           </div>
           <button type="button" disabled={sending} onClick={onClose} className="rounded p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40">
@@ -2706,27 +2707,27 @@ function SendMessageModal({
 
         <div className="space-y-3 px-6 py-5">
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-700">标题（可选）</span>
+            <span className="mb-1 block text-xs font-medium text-slate-700">{translate("标题（可选）")}</span>
             <Input
               value={subject}
               onChange={(e) => setSubject(e.target.value)}
-              placeholder="例：本周阻塞跟进"
+              placeholder={translate("例：本周阻塞跟进")}
               className="w-full rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-700">消息内容</span>
+            <span className="mb-1 block text-xs font-medium text-slate-700">{translate("消息内容")}</span>
             <Textarea
               autoFocus
               rows={5}
               value={body}
               onChange={(e) => setBody(e.target.value)}
-              placeholder="写下要发送的内容…"
+              placeholder={translate("写下要发送的内容…")}
               className="w-full resize-none rounded-md border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             />
           </label>
           <p className="text-[11px] text-slate-400">
-            收件人：{recipient.name}{recipient.position ? ` · ${recipient.position}` : ""}{recipient.email ? ` · ${recipient.email}` : ""}
+            {translate("收件人：")}{recipient.name}{recipient.position ? ` · ${recipient.position}` : ""}{recipient.email ? ` · ${recipient.email}` : ""}
           </p>
         </div>
 
@@ -2737,7 +2738,7 @@ function SendMessageModal({
             onClick={onClose}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
-            取消
+            {translate("取消")}
           </button>
           <button
             type="button"
@@ -2746,7 +2747,7 @@ function SendMessageModal({
             className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
           >
             {sending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            发送
+            {translate("发送")}
           </button>
         </div>
       </motion.div>
@@ -2757,6 +2758,7 @@ function SendMessageModal({
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export function RDDirectorDashboardPage() {
+  useI18n();
   const shouldReduceMotion = useReducedMotion();
   const navigate = useNavigate();
   const [selectedPerson, setSelectedPerson] = useState<PersonLoad | null>(null);
@@ -2814,7 +2816,7 @@ export function RDDirectorDashboardPage() {
       .catch((error) => {
         if (!isMountedRef.current) return;
         setDashboard(EMPTY_DIRECTOR_DASHBOARD);
-        setLoadError(error instanceof Error ? error.message : "负责人看板数据读取失败");
+        setLoadError(error instanceof Error ? error.message : translate("负责人看板数据读取失败"));
       })
       .finally(() => {
         if (isMountedRef.current) setLoading(false);
@@ -3026,13 +3028,13 @@ export function RDDirectorDashboardPage() {
   const reviewTask = useCallback(
     async (task: TaskDetail, decision: "approved" | "rejected") => {
       if (!canEditTasks) {
-        toast.error("当前账号没有编辑任务权限");
+      toast.error(translate("当前账号没有编辑任务权限"));
         return;
       }
       const approved = decision === "approved";
       const meta = getReviewTypeMeta(task.pending_review_type);
       if (!meta) {
-        toast.error("无法识别该任务的审核类型，请刷新后重试");
+      toast.error(translate("无法识别该任务的审核类型，请刷新后重试"));
         return;
       }
       // 自审（审核人＝提交人）：允许，但在留痕中标记，便于追溯。
@@ -3071,11 +3073,11 @@ export function RDDirectorDashboardPage() {
           },
           source: "web",
         });
-        toast.success(`${meta.label}${approved ? "已通过" : "已驳回"}${isSelfReview ? "（自审）" : ""}`);
+      toast.success(`${translate(meta.label)}${approved ? translate("已通过") : translate("已驳回")}${isSelfReview ? translate("（自审）") : ""}`);
         setSelectedTask(null);
         reloadAll();
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "审核操作失败");
+      toast.error(err instanceof Error ? err.message : translate("审核操作失败"));
       }
     },
     [DIRECTOR_AUDIT_ACTOR, canEditTasks, reloadAll],
@@ -3093,7 +3095,7 @@ export function RDDirectorDashboardPage() {
   const saveCategoryEditor = async (labelInput: string, childrenInput: string) => {
     const label = labelInput.trim();
     if (!label) {
-      toast.error("请填写分类名称");
+      toast.error(translate("请填写分类名称"));
       return;
     }
     const childLabels = Array.from(
@@ -3135,7 +3137,7 @@ export function RDDirectorDashboardPage() {
     await saveRdTaskCategories(updated);
     await recomputeRdDirectorDashboard().catch(() => {});
     setCategoryEditor(null);
-    toast.success(categoryEditor?.mode === "edit" ? "分类已更新" : "分类已新增");
+      toast.success(categoryEditor?.mode === "edit" ? translate("分类已更新") : translate("分类已新增"));
     reloadAll();
   };
 
@@ -3144,7 +3146,7 @@ export function RDDirectorDashboardPage() {
     await saveRdTaskCategories(updated);
     await recomputeRdDirectorDashboard().catch(() => {});
     setCategoryDeleteTarget(null);
-    toast.success("分类已删除");
+      toast.success(translate("分类已删除"));
     reloadAll();
   };
 
@@ -3154,7 +3156,7 @@ export function RDDirectorDashboardPage() {
       .filter((task) => !task.archived && task.status !== "completed")
       .map(toReassignableTask);
     if (tasks.length === 0) {
-      toast.info("该分类下暂无可转派任务");
+      toast.info(translate("该分类下暂无可转派任务"));
       return;
     }
     setCategoryReassignTasks(tasks);
@@ -3188,14 +3190,14 @@ export function RDDirectorDashboardPage() {
         {/* Header */}
         <div className="mb-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white bg-white/70 px-5 py-4 shadow-sm">
           <div>
-            <h1 className="text-xl font-bold text-slate-900">研发主管驾驶舱</h1>
-            <p className="mt-0.5 text-sm text-slate-500">全局视图 · 高级权限专属 · 实时同步</p>
+            <h1 className="text-xl font-bold text-slate-900">{translate("研发主管驾驶舱")}</h1>
+            <p className="mt-0.5 text-sm text-slate-500">{translate("全局视图 · 高级权限专属 · 实时同步")}</p>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
             {loading && (
               <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-medium text-slate-500">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                正在同步
+                {translate("正在同步")}
               </span>
             )}
             {loadError && !loading && (
@@ -3204,7 +3206,7 @@ export function RDDirectorDashboardPage() {
                 onClick={loadDashboard}
                 className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100"
               >
-                接口读取失败，点击重试
+                {translate("接口读取失败，点击重试")}
               </button>
             )}
             {canReassignTasks && (
@@ -3217,7 +3219,7 @@ export function RDDirectorDashboardPage() {
                 className="flex items-center gap-2 rounded-xl border border-indigo-100 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.04)] transition-all duration-150 hover:-translate-y-0.5 hover:border-indigo-200 hover:bg-indigo-50/60 hover:text-indigo-700 hover:shadow-[0_12px_24px_rgba(79,70,229,0.08)] active:translate-y-0 active:scale-[0.98]"
               >
                 <Users className="h-4 w-4" />
-                批量转派
+                {translate("批量转派")}
               </button>
             )}
             {canCreateTask && (
@@ -3226,27 +3228,27 @@ export function RDDirectorDashboardPage() {
                 className="flex items-center gap-2 rounded-xl border border-emerald-100 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-[0_8px_18px_rgba(15,23,42,0.04)] transition-all duration-150 hover:-translate-y-0.5 hover:border-emerald-200 hover:bg-emerald-50/60 hover:text-emerald-700 hover:shadow-[0_12px_24px_rgba(5,150,105,0.08)] active:translate-y-0 active:scale-[0.98]"
               >
                 <Plus className="h-4 w-4" />
-                新建任务
+                {translate("新建任务")}
               </button>
             )}
             {canClearData && (
               <button
                 onClick={() => setShowClearData(true)}
                 className="flex items-center gap-2 rounded-xl border border-red-100 bg-white px-4 py-2 text-sm font-semibold text-red-600 shadow-[0_8px_18px_rgba(15,23,42,0.04)] transition-all duration-150 hover:-translate-y-0.5 hover:border-red-200 hover:bg-red-50/60 hover:shadow-[0_12px_24px_rgba(220,38,38,0.08)] active:translate-y-0 active:scale-[0.98]"
-                title="需要清空研发任务数据权限"
+                title={translate("需要清空研发任务数据权限")}
               >
                 <Trash2 className="h-4 w-4" />
-                清空数据
+                {translate("清空数据")}
               </button>
             )}
             {canDirectProject && (
               <button
                 onClick={() => setShowProposalDialog(true)}
                 className="group flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(79,70,229,0.28)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-[0_14px_28px_rgba(79,70,229,0.32)] active:translate-y-0 active:scale-[0.98]"
-                title="拥有直接立项权限时可绕过审核流程"
+                title={translate("拥有直接立项权限时可绕过审核流程")}
               >
                 <Sparkles className="h-4 w-4 transition-transform group-hover:rotate-12" />
-                AI 立项
+                {translate("AI 立项")}
                 <ChevronRight className="h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
               </button>
             )}
@@ -3256,7 +3258,7 @@ export function RDDirectorDashboardPage() {
                 className="group flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(79,70,229,0.24)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-[0_14px_28px_rgba(79,70,229,0.28)] active:translate-y-0 active:scale-[0.98]"
               >
                 <UserCog className="h-4 w-4" />
-                人员管理
+                {translate("人员管理")}
                 <ChevronRight className="h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
               </button>
             )}
@@ -3266,12 +3268,12 @@ export function RDDirectorDashboardPage() {
         {/* KPI Row — click to filter the task list below */}
         <div className="mb-5 grid grid-cols-2 gap-3 lg:grid-cols-6">
           {([
-            { key: "all", label: "总任务数", value: totalTasks, sub: "全部分类", color: "text-slate-800", ring: "ring-slate-300" },
-            { key: "completed", label: "完成率", value: `${overallRate}%`, sub: `${totalCompleted} 已完成`, color: "text-emerald-600", ring: "ring-emerald-400" },
-            { key: "in_progress", label: "进行中", value: totalInProgress, sub: "正常执行", color: "text-blue-600", ring: "ring-blue-400" },
-            { key: "blocked", label: "阻塞/异常", value: totalBlocked, sub: "需要关注", color: "text-red-500", ring: "ring-red-400" },
-            { key: null, label: "高负载人员", value: highLoadPeople, sub: `${PERSON_LOADS.length} 人在线`, color: "text-amber-600", ring: "ring-amber-400" },
-            { key: "pending_review", label: "行动队列", value: actionQueueCount, sub: `${pendingReviewTasks.length} 待审核 · ${PENDING_ASSIGN.length} 待指派`, color: "text-violet-600", ring: "ring-violet-400" },
+            { key: "all", label: translate("总任务数"), value: totalTasks, sub: translate("全部分类"), color: "text-slate-800", ring: "ring-slate-300" },
+            { key: "completed", label: translate("完成率"), value: `${overallRate}%`, sub: translate("{count} 已完成", { count: totalCompleted }), color: "text-emerald-600", ring: "ring-emerald-400" },
+            { key: "in_progress", label: translate("进行中"), value: totalInProgress, sub: translate("正常执行"), color: "text-blue-600", ring: "ring-blue-400" },
+            { key: "blocked", label: translate("阻塞/异常"), value: totalBlocked, sub: translate("需要关注"), color: "text-red-500", ring: "ring-red-400" },
+            { key: null, label: translate("高负载人员"), value: highLoadPeople, sub: translate("{count} 人在线", { count: PERSON_LOADS.length }), color: "text-amber-600", ring: "ring-amber-400" },
+            { key: "pending_review", label: translate("行动队列"), value: actionQueueCount, sub: translate("{review} 待审核 · {assign} 待指派", { review: pendingReviewTasks.length, assign: PENDING_ASSIGN.length }), color: "text-violet-600", ring: "ring-violet-400" },
           ] as const).map((kpi) => {
             const active = kpi.key !== null && kpiFilter === kpi.key;
             return (
@@ -3296,7 +3298,7 @@ export function RDDirectorDashboardPage() {
                 <div className={cn("text-2xl font-bold tabular-nums", kpi.color)}>{kpi.value}</div>
                 <div className="mt-1 flex items-center gap-1.5 text-sm font-medium text-slate-700">
                   {kpi.label}
-                  {active && <span className="text-[10px] font-semibold text-indigo-600">· 已筛选</span>}
+                  {active && <span className="text-[10px] font-semibold text-indigo-600">{translate("· 已筛选")}</span>}
                 </div>
                 <div className="text-xs text-slate-400">{kpi.sub}</div>
               </motion.button>
@@ -3310,12 +3312,12 @@ export function RDDirectorDashboardPage() {
               {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : <BarChart2 className="h-5 w-5" />}
             </div>
             <div className="mt-3 text-sm font-semibold text-slate-800">
-              {loading ? "正在读取研发负责人看板" : "暂无负责人看板数据"}
+              {loading ? translate("正在读取研发负责人看板") : translate("暂无负责人看板数据")}
             </div>
             <p className="mx-auto mt-1 max-w-md text-xs leading-5 text-slate-400">
               {loading
-                ? "正在从后端接口同步分类进度、人员负载、阻塞任务和待指派任务。"
-                : "后端当前返回空数据，页面已保留完整结构，新增任务或导入研发数据后会自动呈现看板内容。"}
+                ? translate("正在从后端接口同步分类进度、人员负载、阻塞任务和待指派任务。")
+                : translate("后端当前返回空数据，页面已保留完整结构，新增任务或导入研发数据后会自动呈现看板内容。")}
             </p>
             {loadError && (
               <p className="mt-2 text-xs text-amber-600">{loadError}</p>
@@ -3326,7 +3328,7 @@ export function RDDirectorDashboardPage() {
                 onClick={loadDashboard}
                 className="mt-4 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
               >
-                重新读取
+                {translate("重新读取")}
               </button>
             )}
           </div>
@@ -3340,7 +3342,7 @@ export function RDDirectorDashboardPage() {
                 <div>
                   <h2 className="flex items-center gap-2 text-sm font-bold text-slate-800">
                     <ListChecks className="h-4 w-4 text-indigo-500" />
-                    任务列表
+                    {translate("任务列表")}
                     <span className="rounded-full bg-slate-100 px-1.5 text-xs font-medium text-slate-600">
                       {filteredTasks.length}
                     </span>
@@ -3350,13 +3352,13 @@ export function RDDirectorDashboardPage() {
                         onClick={() => setKpiFilter("all")}
                         className="ml-1 inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700 hover:bg-indigo-100"
                       >
-                        {kpiFilter === "completed" ? "已完成" : kpiFilter === "in_progress" ? "进行中" : kpiFilter === "pending_review" ? "待审核" : "阻塞"}
+                        {translate(kpiFilter === "completed" ? "已完成" : kpiFilter === "in_progress" ? "进行中" : kpiFilter === "pending_review" ? "待审核" : "阻塞")}
                         <X className="h-3 w-3" />
                       </button>
                     )}
                   </h2>
                   <p className="mt-0.5 text-[11px] text-slate-400">
-                    待审核与待人工指派已合并到此列表 · 操作列可直接审核、指派或转派
+                    {translate("待审核与待人工指派已合并到此列表 · 操作列可直接审核、指派或转派")}
                   </p>
                 </div>
                 <div className="flex flex-wrap items-center justify-end gap-2">
@@ -3369,7 +3371,7 @@ export function RDDirectorDashboardPage() {
                       }}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-100"
                     >
-                      待审核 {pendingReviewTasks.length}
+                      {translate("待审核")} {pendingReviewTasks.length}
                       <ChevronRight className="h-3.5 w-3.5" />
                     </button>
                   )}
@@ -3382,7 +3384,7 @@ export function RDDirectorDashboardPage() {
                       }}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-violet-100 bg-violet-50 px-3 py-1.5 text-xs font-semibold text-violet-700 transition-colors hover:bg-violet-100"
                     >
-                      待指派 {PENDING_ASSIGN.length}
+                      {translate("待指派")} {PENDING_ASSIGN.length}
                       <ChevronRight className="h-3.5 w-3.5" />
                     </button>
                   )}
@@ -3393,7 +3395,7 @@ export function RDDirectorDashboardPage() {
                   <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
                   <Input
                     className="h-9 w-full rounded-[8px] border border-slate-200 bg-white pl-8 pr-3 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
-                    placeholder="搜索任务、编号、负责人、系统"
+                    placeholder={translate("搜索任务、编号、负责人、系统")}
                     value={taskKeyword}
                     onChange={(event) => setTaskKeyword(event.target.value)}
                   />
@@ -3403,19 +3405,19 @@ export function RDDirectorDashboardPage() {
                   value={taskPriorityFilter}
                   onChange={(event) => setTaskPriorityFilter(event.target.value as Priority | "all")}
                 >
-                  <option value="all">全部优先级</option>
-                  <option value="high">高优先级</option>
-                  <option value="medium">中优先级</option>
-                  <option value="low">低优先级</option>
+                  <option value="all">{translate("全部优先级")}</option>
+                  <option value="high">{translate("高优先级")}</option>
+                  <option value="medium">{translate("中优先级")}</option>
+                  <option value="low">{translate("低优先级")}</option>
                 </NativeSelect>
                 <NativeSelect
                   className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
                   value={taskStatusFilter}
                   onChange={(event) => setTaskStatusFilter(event.target.value as TaskStatus | "all")}
                 >
-                  <option value="all">全部状态</option>
+                  <option value="all">{translate("全部状态")}</option>
                   {(Object.keys(TASK_STATUS_CONFIG) as TaskStatus[]).map((status) => (
-                    <option key={status} value={status}>{TASK_STATUS_CONFIG[status].label}</option>
+                    <option key={status} value={status}>{translate(TASK_STATUS_CONFIG[status].label)}</option>
                   ))}
                 </NativeSelect>
                 <NativeSelect
@@ -3423,12 +3425,12 @@ export function RDDirectorDashboardPage() {
                   value={taskDueFilter}
                   onChange={(event) => setTaskDueFilter(event.target.value as DirectorDueFilter)}
                 >
-                  <option value="all">全部时间</option>
-                  <option value="overdue">已逾期</option>
-                  <option value="today">今天到期</option>
-                  <option value="3d">3 天内</option>
-                  <option value="7d">7 天内</option>
-                  <option value="no_due">无截止日</option>
+                  <option value="all">{translate("全部时间")}</option>
+                  <option value="overdue">{translate("已逾期")}</option>
+                  <option value="today">{translate("今天到期")}</option>
+                  <option value="3d">{translate("3 天内")}</option>
+                  <option value="7d">{translate("7 天内")}</option>
+                  <option value="no_due">{translate("无截止日")}</option>
                 </NativeSelect>
                 <button
                   type="button"
@@ -3441,18 +3443,18 @@ export function RDDirectorDashboardPage() {
                   }}
                   className="h-9 cursor-pointer rounded-[8px] border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
                 >
-                  清空
+                  {translate("清空")}
                 </button>
               </div>
               {filteredTasks.length === 0 ? (
                 <DashboardEmptyPanel
-                  title={loading ? "正在读取任务列表" : kpiFilter === "all" ? "暂无任务" : "该筛选下暂无任务"}
+                  title={loading ? translate("正在读取任务列表") : kpiFilter === "all" ? translate("暂无任务") : translate("该筛选下暂无任务")}
                   description={
                     loading
-                      ? "请稍候，系统正在同步任务数据。"
+                      ? translate("请稍候，系统正在同步任务数据。")
                       : kpiFilter === "all"
-                      ? "通过「AI 立项」或「新建任务」开始创建研发任务。"
-                      : "尝试切换 KPI 卡片，或选择「总任务数」查看全部。"
+                      ? translate("通过「AI 立项」或「新建任务」开始创建研发任务。")
+                      : translate("尝试切换 KPI 卡片，或选择「总任务数」查看全部。")
                   }
                 />
               ) : (
@@ -3461,13 +3463,13 @@ export function RDDirectorDashboardPage() {
                     <table className="min-w-full divide-y divide-slate-100 text-sm">
                       <thead className="bg-slate-50/80 text-left text-[11px] font-semibold uppercase tracking-wide text-slate-500">
                         <tr>
-                          <th className="px-3 py-2.5">任务</th>
-                          <th className="px-3 py-2.5">负责人</th>
-                          <th className="px-3 py-2.5">状态</th>
-                          <th className="px-3 py-2.5">优先级</th>
-                          <th className="px-3 py-2.5">进度</th>
-                          <th className="px-3 py-2.5">截止</th>
-                          <th className="px-3 py-2.5 text-right">操作</th>
+                          <th className="px-3 py-2.5">{translate("任务")}</th>
+                          <th className="px-3 py-2.5">{translate("负责人")}</th>
+                          <th className="px-3 py-2.5">{translate("状态")}</th>
+                          <th className="px-3 py-2.5">{translate("优先级")}</th>
+                          <th className="px-3 py-2.5">{translate("进度")}</th>
+                          <th className="px-3 py-2.5">{translate("截止")}</th>
+                          <th className="px-3 py-2.5 text-right">{translate("操作")}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 bg-white/70">
@@ -3488,7 +3490,7 @@ export function RDDirectorDashboardPage() {
                               </td>
                               <td className="px-3 py-3 text-sm text-slate-700">
                                 {isPendingAssign || task.owner === "外部机构" ? (
-                                  <span className={cn("font-medium", isPendingAssign ? "text-violet-600" : "text-slate-500")}>{task.owner}</span>
+                                  <span className={cn("font-medium", isPendingAssign ? "text-violet-600" : "text-slate-500")}>{translate(task.owner)}</span>
                                 ) : (
                                   <button
                                     type="button"
@@ -3502,7 +3504,7 @@ export function RDDirectorDashboardPage() {
                               <td className="px-3 py-3">
                                 <span className={cn("inline-flex min-w-[76px] items-center justify-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold", sCfg.bg, sCfg.text, sCfg.border)}>
                                   <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
-                                  {sCfg.label}
+                                  {translate(sCfg.label)}
                                 </span>
                                 {task.status === "pending_review" && getReviewTypeMeta(task.pending_review_type) ? (
                                   <span className={cn("mt-1 flex w-fit items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold", getReviewTypeMeta(task.pending_review_type)!.badgeClass)}>
@@ -3512,7 +3514,7 @@ export function RDDirectorDashboardPage() {
                               </td>
                               <td className="px-3 py-3">
                                 <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold", pCfg.bg, pCfg.text)}>
-                                  {pCfg.label}
+                                  {translate(pCfg.label)}
                                 </span>
                               </td>
                               <td className="px-3 py-3">
@@ -3535,7 +3537,7 @@ export function RDDirectorDashboardPage() {
                                     className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white shadow-[0_8px_16px_rgba(5,150,105,0.18)] transition-all hover:bg-emerald-700 active:scale-95"
                                   >
                                     <CheckCircle2 className="h-3.5 w-3.5" />
-                                    通过
+                                    {translate("通过")}
                                   </button>
                                 ) : canReassignTasks && task.status !== "completed" && task.status !== "archived" ? (
                                   <button
@@ -3552,7 +3554,7 @@ export function RDDirectorDashboardPage() {
                                     )}
                                   >
                                     <UserCog className="h-3.5 w-3.5" />
-                                    {isPendingAssign ? "指派" : "转派"}
+                                    {isPendingAssign ? translate("指派") : translate("转派")}
                                   </button>
                                 ) : (
                                   <span className="text-[11px] text-slate-300">—</span>
@@ -3584,10 +3586,10 @@ export function RDDirectorDashboardPage() {
                 <div>
                   <h2 className="flex items-center gap-2 text-sm font-bold text-slate-800">
                     <LayoutGrid className="h-4 w-4 text-emerald-500" />
-                    系统进度矩阵
+                    {translate("系统进度矩阵")}
                     <span className="rounded-full bg-slate-100 px-1.5 text-xs font-medium text-slate-600">{CATEGORY_PROGRESS.length}</span>
                   </h2>
-                  <p className="mt-0.5 text-[11px] text-slate-400">按系统查看进度、阻塞和完成量，点击进入分类详情</p>
+                  <p className="mt-0.5 text-[11px] text-slate-400">{translate("按系统查看进度、阻塞和完成量，点击进入分类详情")}</p>
                 </div>
                 <span className="text-[11px] tabular-nums text-slate-400">
                   {categoryRangeStart}
@@ -3599,8 +3601,8 @@ export function RDDirectorDashboardPage() {
               </div>
               {categoryPaged.length === 0 ? (
                 <DashboardEmptyPanel
-                  title={loading ? "正在读取系统进度" : "暂无系统进度数据"}
-                  description={loading ? "请稍候，系统正在同步分类进度。" : "新增任务或导入研发数据后，这里会显示系统维度进度。"}
+                  title={loading ? translate("正在读取系统进度") : translate("暂无系统进度数据")}
+                  description={loading ? translate("请稍候，系统正在同步分类进度。") : translate("新增任务或导入研发数据后，这里会显示系统维度进度。")}
                 />
               ) : (
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -3618,12 +3620,12 @@ export function RDDirectorDashboardPage() {
                           <div className="min-w-0">
                             <div className="truncate text-sm font-semibold text-slate-900">{category.label}</div>
                             <div className="mt-1 text-[11px] text-slate-400">
-                              {category.completed} / {category.total} 已完成
+                              {category.completed} / {category.total} {translate("已完成")}
                             </div>
                           </div>
                           {category.blocked > 0 && (
                             <span className="rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-600">
-                              阻塞 {category.blocked}
+                              {translate("阻塞")} {category.blocked}
                             </span>
                           )}
                         </div>
@@ -3634,9 +3636,9 @@ export function RDDirectorDashboardPage() {
                           <span className="w-10 text-right text-xs font-semibold tabular-nums text-slate-600">{rate}%</span>
                         </div>
                         <div className="mt-3 grid grid-cols-3 gap-2 text-[11px]">
-                          <span className="rounded-lg bg-blue-50 px-2 py-1 text-blue-700">进行 {category.in_progress}</span>
-                          <span className="rounded-lg bg-emerald-50 px-2 py-1 text-emerald-700">完成 {category.completed}</span>
-                          <span className="rounded-lg bg-slate-50 px-2 py-1 text-slate-600">总计 {category.total}</span>
+                          <span className="rounded-lg bg-blue-50 px-2 py-1 text-blue-700">{translate("进行")} {category.in_progress}</span>
+                          <span className="rounded-lg bg-emerald-50 px-2 py-1 text-emerald-700">{translate("完成")} {category.completed}</span>
+                          <span className="rounded-lg bg-slate-50 px-2 py-1 text-slate-600">{translate("总计")} {category.total}</span>
                         </div>
                       </button>
                     );
@@ -3659,15 +3661,15 @@ export function RDDirectorDashboardPage() {
               <div className="flex flex-wrap items-center gap-3 px-5 pt-5">
                 <h2 className="flex items-center gap-2 text-sm font-bold text-slate-800">
                   <AlertTriangle className="h-4 w-4 text-orange-500" />
-                  决策焦点
+                  {translate("决策焦点")}
                 </h2>
                 {BLOCKED_TASKS.length > 0 && (
                   <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-600">
-                    {BLOCKED_TASKS.length} 风险任务
+                    {translate("{count} 风险任务", { count: BLOCKED_TASKS.length })}
                   </span>
                 )}
                 <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
-                  {PERSON_LOADS.length} 人在线
+                  {translate("{count} 人在线", { count: PERSON_LOADS.length })}
                 </span>
               </div>
 
@@ -3681,7 +3683,7 @@ export function RDDirectorDashboardPage() {
                       className="relative flex shrink-0 items-center gap-1.5 rounded-none rounded-t-lg border-x border-t border-transparent px-3 pb-3 pt-2 text-xs font-semibold text-slate-500 transition-none data-[state=active]:border-slate-200 data-[state=active]:bg-white data-[state=active]:text-orange-600"
                     >
                       <AlertTriangle className="h-3.5 w-3.5" />
-                      全部
+                      {translate("全部")}
                       {BLOCKED_TASKS.length > 0 && (
                         <span className="rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-bold text-red-600">
                           {BLOCKED_TASKS.length}
@@ -3711,7 +3713,7 @@ export function RDDirectorDashboardPage() {
                             {p.task_count}
                           </span>
                           {p.on_leave && (
-                            <span className="rounded bg-amber-100 px-1 text-[10px] text-amber-700">假</span>
+                            <span className="rounded bg-amber-100 px-1 text-[10px] text-amber-700">{translate("假")}</span>
                           )}
                         </TabsTrigger>
                       );
@@ -3725,8 +3727,8 @@ export function RDDirectorDashboardPage() {
                   <div className="space-y-2.5">
                     {BLOCKED_TASKS.length === 0 ? (
                       <DashboardEmptyPanel
-                        title={loading ? "正在读取风险任务" : "暂无风险任务"}
-                        description={loading ? "请稍候，系统正在同步异常任务。" : "当前没有阻塞或异常任务。"}
+                        title={loading ? translate("正在读取风险任务") : translate("暂无风险任务")}
+                        description={loading ? translate("请稍候，系统正在同步异常任务。") : translate("当前没有阻塞或异常任务。")}
                       />
                     ) : (
                       BLOCKED_TASKS.map((t) => (
@@ -3736,7 +3738,7 @@ export function RDDirectorDashboardPage() {
                           className="group flex cursor-pointer items-start gap-3 rounded-xl border border-orange-100 bg-white px-4 py-3 transition-all duration-150 hover:-translate-y-0.5 hover:border-orange-200 hover:shadow-[0_8px_20px_rgba(234,88,12,0.08)] active:translate-y-0"
                         >
                           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-red-50 text-xs font-bold text-red-600 transition-transform group-hover:scale-105">
-                            {t.days_blocked}天
+                            {translate("{count}天", { count: t.days_blocked })}
                           </div>
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2">
@@ -3744,7 +3746,7 @@ export function RDDirectorDashboardPage() {
                               <span className="text-sm font-medium text-slate-800 group-hover:text-slate-900">{t.title}</span>
                             </div>
                             <div className="mt-0.5 text-xs text-slate-500">
-                              负责人: {t.owner} · 阻塞原因: {t.reason}
+                              {translate("负责人:")} {t.owner} · {translate("阻塞原因:")} {t.reason}
                             </div>
                           </div>
                           {canReassignTasks && (
@@ -3757,7 +3759,7 @@ export function RDDirectorDashboardPage() {
                               }}
                               className="flex shrink-0 items-center gap-1 rounded-lg border border-orange-200 bg-orange-50 px-2 py-1 text-xs font-semibold text-orange-700 transition-all hover:bg-orange-100 active:scale-95"
                             >
-                              转派
+                              {translate("转派")}
                               <ChevronRight className="h-3 w-3 transition-transform group-hover:translate-x-0.5" />
                             </button>
                           )}
@@ -3771,7 +3773,7 @@ export function RDDirectorDashboardPage() {
                     <div className="mt-5 border-t border-slate-100 pt-4">
                       <div className="mb-2.5 flex items-center gap-2 text-xs font-semibold text-slate-500">
                         <Users className="h-3.5 w-3.5" />
-                        人员负载概览 · 点击切换人员任务
+                        {translate("人员负载概览 · 点击切换人员任务")}
                       </div>
                       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6">
                         {PERSON_LOADS.map((p) => {
@@ -3800,7 +3802,7 @@ export function RDDirectorDashboardPage() {
                                 </span>
                               </div>
                               {p.on_leave && (
-                                <span className="mt-0.5 block rounded bg-amber-100 px-1 text-[10px] text-amber-700">请假中</span>
+                                <span className="mt-0.5 block rounded bg-amber-100 px-1 text-[10px] text-amber-700">{translate("请假中")}</span>
                               )}
                               <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-slate-100">
                                 <div
@@ -3815,10 +3817,10 @@ export function RDDirectorDashboardPage() {
                       {/* Legend */}
                       <div className="mt-3 flex flex-wrap gap-3 text-[10px] text-slate-400">
                         {[
-                          { color: "bg-emerald-400", label: "< 50% 负载" },
+                          { color: "bg-emerald-400", label: translate("< 50% 负载") },
                           { color: "bg-amber-400", label: "50–75%" },
                           { color: "bg-orange-400", label: "75–100%" },
-                          { color: "bg-red-500", label: "超负荷" },
+                          { color: "bg-red-500", label: translate("超负荷") },
                         ].map((l) => (
                           <span key={l.label} className="flex items-center gap-1">
                             <span className={cn("inline-block h-2 w-2 rounded-sm", l.color)} />
@@ -3849,18 +3851,18 @@ export function RDDirectorDashboardPage() {
                             <span className="text-sm font-bold text-slate-800">{person.name}</span>
                             {person.on_leave && (
                               <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
-                                请假中
+                                {translate("请假中")}
                               </span>
                             )}
                             {(person.blocked_count ?? 0) > 0 && (
                               <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-600">
-                                阻塞 {person.blocked_count}
+                                {translate("阻塞")} {person.blocked_count}
                               </span>
                             )}
                           </div>
                           <div className="mt-0.5 text-xs text-slate-400">
-                            {person.position} · 任务 {person.task_count}/{person.max_tasks}
-                            {typeof person.avg_completion === "number" && ` · 平均完成 ${person.avg_completion}%`}
+                            {person.position} · {translate("任务")} {person.task_count}/{person.max_tasks}
+                            {typeof person.avg_completion === "number" && <> · {translate("平均完成 {progress}%", { progress: person.avg_completion })}</>}
                           </div>
                         </div>
                         <div className="flex shrink-0 items-center gap-2">
@@ -3871,7 +3873,7 @@ export function RDDirectorDashboardPage() {
                               onClick={() => {
                                 const tasks = getPersonReassignableTasks(person);
                                 if (tasks.length === 0) {
-                                  toast.info(`${person.name} 当前没有可转派的任务`);
+                                  toast.info(translate("{name} 当前没有可转派的任务", { name: person.name }));
                                   return;
                                 }
                                 setCategoryReassignTasks(tasks);
@@ -3879,7 +3881,7 @@ export function RDDirectorDashboardPage() {
                                 setShowReassign(true);
                               }}
                             >
-                              批量转派
+                              {translate("批量转派")}
                             </Button>
                           )}
                           <Button
@@ -3887,7 +3889,7 @@ export function RDDirectorDashboardPage() {
                             size="sm"
                             onClick={() => setSelectedPerson(person)}
                           >
-                            详细档案
+                            {translate("详细档案")}
                             <ChevronRight className="h-3.5 w-3.5" />
                           </Button>
                         </div>
@@ -3896,8 +3898,8 @@ export function RDDirectorDashboardPage() {
                       {/* Task cards */}
                       {personTasks.length === 0 ? (
                         <DashboardEmptyPanel
-                          title="暂无任务数据"
-                          description="该成员任务信息未加载，或当前没有进行中的任务。"
+                          title={translate("暂无任务数据")}
+                          description={translate("该成员任务信息未加载，或当前没有进行中的任务。")}
                         />
                       ) : (
                         <div className="space-y-2.5">
@@ -3916,14 +3918,14 @@ export function RDDirectorDashboardPage() {
                                 <div className="flex flex-wrap items-center gap-1.5">
                                   <span className="font-mono text-[11px] text-slate-400">{task.task_id}</span>
                                   <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-semibold", sCfg.bg, sCfg.text)}>
-                                    {sCfg.label}
+                                    {translate(sCfg.label)}
                                   </span>
                                   <span className={cn("rounded-full border px-1.5 py-0.5 text-[10px] font-semibold", pCfg.color)}>
-                                    {pCfg.label}优先
+                                    {translate("{level}优先", { level: translate(pCfg.label) })}
                                   </span>
                                   {task.due_date && (
                                     <span className="ml-auto shrink-0 text-[11px] tabular-nums text-slate-400">
-                                      截止 {task.due_date}
+                                      {translate("截止")} {task.due_date}
                                     </span>
                                   )}
                                 </div>
@@ -3967,7 +3969,7 @@ export function RDDirectorDashboardPage() {
                       {personAllImages.length > 0 && (
                         <div className="mt-5 border-t border-slate-100 pt-4">
                           <div className="mb-2 text-[11px] font-semibold text-slate-500">
-                            进度图片汇总 · {personAllImages.length} 张
+                            {translate("进度图片汇总 · {count} 张", { count: personAllImages.length })}
                           </div>
                           <ProgressAttachmentGrid
                             attachments={personAllImages.slice(0, 12)}
@@ -4035,7 +4037,7 @@ export function RDDirectorDashboardPage() {
           onReassignPerson={(p) => {
             const personTasks = getPersonReassignableTasks(p);
             if (personTasks.length === 0) {
-              toast.info(`${p.name} 当前没有可转派的任务`);
+              toast.info(translate("{name} 当前没有可转派的任务", { name: p.name }));
               return;
             }
             setCategoryReassignTasks(personTasks);

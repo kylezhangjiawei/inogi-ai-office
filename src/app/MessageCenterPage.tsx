@@ -716,7 +716,7 @@ export function MessageCenterPage() {
           prev.map((m) => (m.id === msg.id ? { ...m, handled: true, read: true } : m)),
         );
         window.dispatchEvent(new CustomEvent("rd:review-submitted"));
-        toast.success(`${t("任务「")}${body.task_title}${t("」审核已批准")}`);
+        toast.success(t("任务「{title}」审核已批准", { title: body.task_title }));
         setApproveTarget(null);
       } catch (err) {
         toast.error(err instanceof Error ? err.message : t("操作失败"));
@@ -744,7 +744,7 @@ export function MessageCenterPage() {
           prev.map((m) => (m.id === msg.id ? { ...m, handled: true, read: true } : m)),
         );
         window.dispatchEvent(new CustomEvent("rd:review-submitted"));
-        toast.success(`${t("任务「")}${body.task_title}${t("」已打回")}`);
+        toast.success(t("任务「{title}」已打回", { title: body.task_title }));
       } catch (err) {
         toast.error(err instanceof Error ? err.message : t("操作失败"));
       }

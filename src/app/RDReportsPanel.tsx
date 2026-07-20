@@ -3,6 +3,7 @@ import { CalendarDays, CalendarRange } from "lucide-react";
 import { cn } from "./components/ui/utils";
 import { RDDailyReportPanel } from "./RDDailyReportPanel";
 import { RDMonthlyReportPanel } from "./RDMonthlyReportPanel";
+import { t, useI18n } from "./lib/i18n";
 
 type ReportTab = "daily" | "monthly";
 
@@ -17,6 +18,7 @@ const TABS: Array<{ key: ReportTab; label: string; icon: typeof CalendarDays }> 
  * 顶端与左侧模块对齐。两个子面板各自独立取数；月报 Tab 内含「月绩效报表」入口。
  */
 export function RDReportsPanel({ canRegenerate, spacious = false }: { canRegenerate: boolean; spacious?: boolean }) {
+  useI18n();
   const [tab, setTab] = useState<ReportTab>("daily");
 
   // Tab 注入到子面板速览卡片「内部」顶部：右侧整体即为单张卡片，顶端与左侧模块对齐。
@@ -39,7 +41,7 @@ export function RDReportsPanel({ canRegenerate, spacious = false }: { canRegener
             )}
           >
             <Icon className="h-3.5 w-3.5" />
-            {label}
+            {t(label)}
           </button>
         );
       })}

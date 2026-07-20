@@ -225,8 +225,8 @@ export const AUDIT_ACTION_META: Record<AuditAction, AuditActionMeta> = {
   "flow.mode_changed": { category: "approval_flow", label: "切换模式", verb: "切换了审核模式", tone: "amber" },
   "flow.reset": { category: "approval_flow", label: "恢复默认", verb: "恢复了默认审批流", tone: "amber" },
   // Person
-  "person.created": { category: "person", label: "新增成员", verb: "新增了成员", tone: "emerald" },
-  "person.edited": { category: "person", label: "编辑成员", verb: "修改了成员信息", tone: "blue" },
+  "person.created": { category: "person", label: "成员新增", verb: "新增了成员", tone: "emerald" },
+  "person.edited": { category: "person", label: "成员编辑", verb: "修改了成员信息", tone: "blue" },
   "person.deleted": { category: "person", label: "删除成员", verb: "删除了成员", tone: "red" },
   "person.status_changed": { category: "person", label: "状态变更", verb: "变更了成员状态", tone: "amber" },
   // Role

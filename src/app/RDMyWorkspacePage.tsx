@@ -404,7 +404,7 @@ function ConfirmActionModal({
       await config.onConfirm();
       onCancel();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "操作失败，请重试");
+      toast.error(error instanceof Error ? error.message : t("操作失败，请重试"));
       setConfirming(false);
     }
   };
@@ -446,7 +446,7 @@ function ConfirmActionModal({
             type="button"
             onClick={onCancel}
             className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-            aria-label="关闭确认弹窗"
+            aria-label={t("关闭确认弹窗")}
           >
             <X className="h-4 w-4" />
           </button>
@@ -468,7 +468,7 @@ function ConfirmActionModal({
         )}
 
         <div className="flex items-center justify-end gap-2 px-5 py-4">
-          <ActionButton onClick={onCancel}>{config.cancelLabel ?? "取消"}</ActionButton>
+          <ActionButton onClick={onCancel}>{config.cancelLabel ?? t("取消")}</ActionButton>
           <button
             type="button"
             onClick={confirm}
@@ -481,7 +481,7 @@ function ConfirmActionModal({
             )}
           >
             {confirming ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
-            {confirming ? "处理中..." : config.confirmLabel}
+            {confirming ? t("处理中...") : config.confirmLabel}
           </button>
         </div>
       </motion.div>
@@ -638,7 +638,7 @@ function DrawerShell({
             type="button"
             onClick={onClose}
             className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-            aria-label="关闭"
+            aria-label={t("关闭")}
           >
             <X className="h-4 w-4" />
           </button>
@@ -1020,19 +1020,19 @@ function TaskOperationDrawer({
     const progressToSave = clampProgressValue(draftProgress);
     const hasNote = note.trim().length > 0;
     const hasFiles = noteAttachments.length > 0;
-    const source = assessmentForSave && assessmentForSave.progress === progressToSave ? "AI 判断" : "人工设置";
-    const evidenceText = hasFiles ? `，依据 ${noteAttachments.length} 个上传文件` : "";
-    const message = `${task.task_id} 已通过${source}更新到 ${progressToSave}%${evidenceText}`;
+    const source = assessmentForSave && assessmentForSave.progress === progressToSave ? t("AI 判断") : t("人工设置");
+    const evidenceText = hasFiles ? t("，依据 {n} 个上传文件", { n: noteAttachments.length }) : "";
+    const message = t("{taskId} 已通过{source}更新到 {progress}%{evidence}", { taskId: task.task_id, source, progress: progressToSave, evidence: evidenceText });
     onRequestConfirm({
-      title: "确认保存进度",
-      message: `将把 ${task.task_id} 的进度更新为 ${progressToSave}%。`,
-      confirmLabel: "确认保存",
+      title: t("确认保存进度"),
+      message: t("将把 {taskId} 的进度更新为 {progress}%。", { taskId: task.task_id, progress: progressToSave }),
+      confirmLabel: t("确认保存"),
       details: [
-        `最终写入进度：${progressToSave}%（以本次确认值为准，不做累加）`,
-        `进度来源：${source}`,
-        hasFiles ? `上传附件：${noteAttachments.length} 个（已与文本一起送 AI）` : "上传附件：无",
-        assessmentForSave ? `AI 判断：${assessmentForSave.stage} / 置信度 ${assessmentForSave.confidence}%` : "AI 判断：未触发",
-        hasNote ? "已填写进展说明" : "未填写进展说明",
+        t("最终写入进度：{progress}%（以本次确认值为准，不做累加）", { progress: progressToSave }),
+        t("进度来源：{source}", { source }),
+        hasFiles ? t("上传附件：{n} 个（已与文本一起送 AI）", { n: noteAttachments.length }) : t("上传附件：无"),
+        assessmentForSave ? t("AI 判断：{stage} / 置信度 {confidence}%", { stage: assessmentForSave.stage, confidence: assessmentForSave.confidence }) : t("AI 判断：未触发"),
+        hasNote ? t("已填写进展说明") : t("未填写进展说明"),
       ],
       onConfirm: async () => {
         setSavingNote(true);
@@ -1077,7 +1077,7 @@ function TaskOperationDrawer({
           // 刷新进度留痕，让本次上传的附件/照片立即出现在操作留痕里（无需重开任务）。
           setProgressNotesReloadKey((k) => k + 1);
         } catch (err) {
-          const msg = err instanceof Error ? err.message : "进度记录保存失败";
+          const msg = err instanceof Error ? err.message : t("进度记录保存失败");
           toast.error(msg);
         } finally {
           setSavingNote(false);
@@ -1152,21 +1152,21 @@ function TaskOperationDrawer({
       });
       const aiProgress = clampProgressValue(assessment.progress);
       onRequestConfirm({
-        title: "AI 解析结果",
-        message: `AI 判断当前进度为 ${aiProgress}%（阶段：${assessment.stage} · 置信度 ${assessment.confidence}%）。`,
-        confirmLabel: "回显到进度条",
+        title: t("AI 解析结果"),
+        message: t("AI 判断当前进度为 {progress}%（阶段：{stage} · 置信度 {confidence}%）。", { progress: aiProgress, stage: assessment.stage, confidence: assessment.confidence }),
+        confirmLabel: t("回显到进度条"),
         details: [
-          assessment.recommendation ? `AI 建议：${assessment.recommendation}` : "",
-          suggestedItem ? `AI 判断本次进展属于工作项《${suggestedItem.title}》，已预选关联（可在表单中修改）。` : "",
-          "确认后只把该进度填入下方进度条，你可再手动微调；点「保存进度」才真正写入。",
+          assessment.recommendation ? t("AI 建议：{recommendation}", { recommendation: assessment.recommendation }) : "",
+          suggestedItem ? t("AI 判断本次进展属于工作项《{title}》，已预选关联（可在表单中修改）。", { title: suggestedItem.title }) : "",
+          t("确认后只把该进度填入下方进度条，你可再手动微调；点「保存进度」才真正写入。"),
         ].filter(Boolean),
         onConfirm: () => {
           setDraftProgress(aiProgress);
         },
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : "AI 进度判断失败";
-      toast.error(`AI 解析失败：${message}`);
+      const message = err instanceof Error ? err.message : t("AI 进度判断失败");
+      toast.error(t("AI 解析失败：{message}", { message }));
     } finally {
       setAiLoading(false);
     }
@@ -1183,15 +1183,15 @@ function TaskOperationDrawer({
     }
     const collaboratorNames = selectedCollaborators.map((collaborator) => collaborator.name).join("、");
     onRequestConfirm({
-      title: canApplyCollaborationDirectly ? "确认更新协同人" : "确认提交协作审批",
+      title: canApplyCollaborationDirectly ? t("确认更新协同人") : t("确认提交协作审批"),
       message: canApplyCollaborationDirectly
-        ? `将把 ${collaboratorNames} 设置为 ${task.task_id} 的协同执行人。`
-        : `将把 ${task.task_id} 的协作变更提交给研发主管审核。`,
-      confirmLabel: canApplyCollaborationDirectly ? "直接生效" : "提交审批",
+        ? t("将把 {names} 设置为 {taskId} 的协同执行人。", { names: collaboratorNames, taskId: task.task_id })
+        : t("将把 {taskId} 的协作变更提交给研发主管审核。", { taskId: task.task_id }),
+      confirmLabel: canApplyCollaborationDirectly ? t("直接生效") : t("提交审批"),
       details: [
-        `协同人：${collaboratorNames}`,
-        canApplyCollaborationDirectly ? "当前角色可直接更新任务协同人" : "审批通过后才会写入任务协同人",
-        handoffReason.trim() ? `说明：${handoffReason.trim()}` : "未填写补充说明",
+        t("协同人：{names}", { names: collaboratorNames }),
+        canApplyCollaborationDirectly ? t("当前角色可直接更新任务协同人") : t("审批通过后才会写入任务协同人"),
+        handoffReason.trim() ? t("说明：{reason}", { reason: handoffReason.trim() }) : t("未填写补充说明"),
       ],
       onConfirm: async () => {
         if (canApplyCollaborationDirectly) {
@@ -1244,10 +1244,10 @@ function TaskOperationDrawer({
 
   const submitResult = () => {
     onRequestConfirm({
-      title: "确认提交成果验收",
-      message: `将把 ${task.task_id} 提交上级进行成果验收。`,
-      confirmLabel: "确认提交",
-      details: ["请确认交付物、风险说明和测试记录已补齐", "进度将标记为 100%（待验收，非完成）", "验收通过后任务才标记完成；被驳回则退回继续"],
+      title: t("确认提交成果验收"),
+      message: t("将把 {taskId} 提交上级进行成果验收。", { taskId: task.task_id }),
+      confirmLabel: t("确认提交"),
+      details: [t("请确认交付物、风险说明和测试记录已补齐"), t("进度将标记为 100%（待验收，非完成）"), t("验收通过后任务才标记完成；被驳回则退回继续")],
       onConfirm: async () => {
         await updateRdTask(task.task_id, { status: "pending_review", pending_review_type: "result", progress: 100 });
         recordAudit({
@@ -1288,14 +1288,14 @@ function TaskOperationDrawer({
       return;
     }
     onRequestConfirm({
-      title: "确认提交截止日期变更审核",
-      message: `将把 ${task.task_id} 的截止日期变更提交给管理员审核。`,
-      confirmLabel: "提交审核",
+      title: t("确认提交截止日期变更审核"),
+      message: t("将把 {taskId} 的截止日期变更提交给管理员审核。", { taskId: task.task_id }),
+      confirmLabel: t("提交审核"),
       details: [
-        `当前截止日期：${current || "未设置"}`,
-        `申请变更为：${next}`,
-        "审核通过后截止日期才会更新，任务回到进行中",
-        `修改原因：${dueDateReason.trim()}`,
+        t("当前截止日期：{date}", { date: current || t("未设置") }),
+        t("申请变更为：{date}", { date: next }),
+        t("审核通过后截止日期才会更新，任务回到进行中"),
+        t("修改原因：{reason}", { reason: dueDateReason.trim() }),
       ],
       onConfirm: async () => {
         await updateRdTask(task.task_id, {
@@ -1352,14 +1352,14 @@ function TaskOperationDrawer({
         metadata: { current_progress: task.progress },
         source: "web",
       });
-      toast.success(`${task.task_id} 已提交放弃申请`);
+      toast.success(t("{taskId} 已提交放弃申请", { taskId: task.task_id }));
       onLog(`${task.task_id} 已提交放弃申请`);
       window.dispatchEvent(new CustomEvent("rd:review-submitted"));
       await onSubmittedForReview(task.task_id);
       setAbandonOpen(false);
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "提交失败，请重试");
+      toast.error(err instanceof Error ? err.message : t("提交失败，请重试"));
       setAbandonSubmitting(false);
     }
   };
@@ -1381,7 +1381,7 @@ function TaskOperationDrawer({
           for (const t of Array.isArray(tasks) ? tasks : []) {
             const rec = t as { task_id?: string; title?: string; primary_owner?: string; archived?: boolean; status?: string; subtasks?: unknown };
             if (rec?.task_id && rec.task_id !== task.task_id && !rec.archived && rec.status !== "completed") {
-              out.push({ task_id: rec.task_id, title: rec.title ?? "(无标题)", primary_owner: rec.primary_owner ?? "" });
+              out.push({ task_id: rec.task_id, title: rec.title ?? t("(无标题)"), primary_owner: rec.primary_owner ?? "" });
             }
             if (Array.isArray(rec?.subtasks)) walk(rec.subtasks);
           }
@@ -1429,14 +1429,14 @@ function TaskOperationDrawer({
         metadata: { merge_target: mergeTargetId },
         source: "web",
       });
-      toast.success(`${task.task_id} 已提交合并申请`);
+      toast.success(t("{taskId} 已提交合并申请", { taskId: task.task_id }));
       onLog(`${task.task_id} 已提交合并申请`);
       window.dispatchEvent(new CustomEvent("rd:review-submitted"));
       await onSubmittedForReview(task.task_id);
       setMergeOpen(false);
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "提交合并申请失败，请重试");
+      toast.error(err instanceof Error ? err.message : t("提交合并申请失败，请重试"));
       setMergeSubmitting(false);
     }
   };
@@ -1514,7 +1514,7 @@ function TaskOperationDrawer({
         {isTaskCompleted ? (
           <div className="flex items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50/70 px-4 py-3 text-sm text-emerald-700">
             <CheckCircle2 className="h-4 w-4 shrink-0" />
-            任务已完成，以下内容仅供回看。
+            {t("任务已完成，以下内容仅供回看。")}
           </div>
         ) : (
           <>
@@ -1555,18 +1555,18 @@ function TaskOperationDrawer({
           <div className="space-y-4">
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="rounded-xl bg-slate-50 px-4 py-3">
-                <div className="text-xs text-slate-400">状态</div>
+                <div className="text-xs text-slate-400">{t("状态")}</div>
                 <div className="mt-1"><StatusPill task={task} /></div>
               </div>
               <div className="rounded-xl bg-slate-50 px-4 py-3">
-                <div className="text-xs text-slate-400">优先级</div>
+                <div className="text-xs text-slate-400">{t("优先级")}</div>
                 <div className="mt-1"><PriorityBadge priority={task.priority} /></div>
               </div>
               <div className="rounded-xl bg-slate-50 px-4 py-3">
                 <div className="flex items-center justify-between">
-                  <div className="text-xs text-slate-400">截止日期</div>
+                  <div className="text-xs text-slate-400">{t("截止日期")}</div>
                   {isTaskCompleted ? null : dueDateChangePending ? (
-                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">变更审核中</span>
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">{t("变更审核中")}</span>
                   ) : (
                     <button
                       type="button"
@@ -1577,7 +1577,7 @@ function TaskOperationDrawer({
                       }}
                       className="cursor-pointer text-[11px] font-semibold text-indigo-600 transition-colors hover:text-indigo-700"
                     >
-                      {editingDueDate ? "取消" : "修改"}
+                      {editingDueDate ? t("取消") : t("修改")}
                     </button>
                   )}
                 </div>
@@ -1589,14 +1589,14 @@ function TaskOperationDrawer({
               <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4">
                 <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
                   <CalendarClock className="h-4 w-4 text-indigo-600" />
-                  修改截止日期
+                  {t("修改截止日期")}
                 </div>
                 <p className="mt-1 text-xs leading-5 text-slate-500">
-                  提交后任务进入待审核状态，管理员审核通过后截止日期才会更新；审核期间任务不可继续操作。
+                  {t("提交后任务进入待审核状态，管理员审核通过后截止日期才会更新；审核期间任务不可继续操作。")}
                 </p>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
                   <div>
-                    <label className="text-xs font-medium text-slate-500">新的截止日期</label>
+                    <label className="text-xs font-medium text-slate-500">{t("新的截止日期")}</label>
                     <Popover>
                       <PopoverTrigger asChild>
                         <Button
@@ -1608,7 +1608,7 @@ function TaskOperationDrawer({
                           )}
                         >
                           <CalendarDays className="mr-2 h-4 w-4" />
-                          {draftDueDate || "选择日期"}
+                          {draftDueDate || t("选择日期")}
                         </Button>
                       </PopoverTrigger>
                       <PopoverContent className="w-auto p-0" align="start">
@@ -1622,17 +1622,17 @@ function TaskOperationDrawer({
                     </Popover>
                   </div>
                   <div className="rounded-lg bg-white px-3 py-2 ring-1 ring-slate-200">
-                    <div className="text-xs text-slate-400">当前截止日期</div>
-                    <div className="mt-1 text-sm font-semibold text-slate-700">{task.due_date || "未设置"}</div>
+                    <div className="text-xs text-slate-400">{t("当前截止日期")}</div>
+                    <div className="mt-1 text-sm font-semibold text-slate-700">{task.due_date || t("未设置")}</div>
                   </div>
                 </div>
                 <div className="mt-3">
-                  <label className="text-xs font-medium text-slate-500">修改原因</label>
+                  <label className="text-xs font-medium text-slate-500">{t("修改原因")}</label>
                   <Textarea
                     value={dueDateReason}
                     onChange={(event) => setDueDateReason(event.target.value)}
                     rows={3}
-                    placeholder="请说明调整截止日期的原因，便于管理员审核"
+                    placeholder={t("请说明调整截止日期的原因，便于管理员审核")}
                     className="mt-1"
                   />
                 </div>
@@ -1646,23 +1646,23 @@ function TaskOperationDrawer({
                     }}
                     className="cursor-pointer rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50"
                   >
-                    取消
+                    {t("取消")}
                   </button>
                   <button
                     type="button"
                     onClick={submitDueDateChange}
                     className="cursor-pointer rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-indigo-700"
                   >
-                    提交审核
+                    {t("提交审核")}
                   </button>
                 </div>
               </div>
             )}
 
             <div className="rounded-xl border border-slate-200 p-4">
-              <div className="mb-2 text-sm font-semibold text-slate-900">任务说明</div>
-              <p className="text-sm leading-6 text-slate-600">{task.description}</p>
-              <div className="mt-3 rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-700">{task.next_action}</div>
+              <div className="mb-2 text-sm font-semibold text-slate-900">{t("任务说明")}</div>
+              <AutoTranslatedText as="p" className="text-sm leading-6 text-slate-600" text={task.description} />
+              <AutoTranslatedText as="div" className="mt-3 rounded-lg bg-indigo-50 px-3 py-2 text-sm text-indigo-700" text={task.next_action} />
             </div>
 
             {/* 工作项清单：任务内部轻量拆分（如不同类型文档各一项）。参与人直接增删勾选，无需审批。
@@ -1703,7 +1703,7 @@ function TaskOperationDrawer({
                               )
                             }
                             className="shrink-0 cursor-pointer rounded p-0.5 text-slate-300 opacity-0 transition-opacity hover:bg-slate-200 hover:text-slate-500 group-hover:opacity-100"
-                            title="删除工作项（已关联的留痕保留在主任务）"
+                            title={t("删除工作项（已关联的留痕保留在主任务）")}
                           >
                             <X className="h-3 w-3" />
                           </button>
@@ -1994,7 +1994,7 @@ function TaskOperationDrawer({
                       }}
                     >
                       <CheckCircle2 className="h-3.5 w-3.5" />
-                      恢复 AI 进度
+                      {t("恢复 AI 进度")}
                     </ActionButton>
                   )}
                 </div>
@@ -2169,7 +2169,7 @@ function TaskOperationDrawer({
                           if (next.length === 0 && !note.trim()) setAiAssessment(null);
                         }}
                         className="shrink-0 rounded p-0.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                        aria-label="移除附件"
+                        aria-label={t("移除附件")}
                       >
                         <X className="h-3 w-3" />
                       </button>
@@ -2238,7 +2238,7 @@ function TaskOperationDrawer({
                           <span className="min-w-0">
                             <span className="block truncate text-sm font-semibold">{person.name}</span>
                             <span className="mt-0.5 block truncate text-xs text-slate-400">
-                              {[person.position, person.department].filter(Boolean).join(" · ") || "研发成员"}
+                              {[person.position, person.department].filter(Boolean).join(" · ") || t("研发成员")}
                             </span>
                           </span>
                         </label>
@@ -2378,7 +2378,7 @@ function TaskOperationDrawer({
                 onClick={() => setAbandonOpen(false)}
                 className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                取消
+                {t("取消")}
               </button>
               <button
                 type="button"
@@ -2386,7 +2386,7 @@ function TaskOperationDrawer({
                 onClick={submitAbandon}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {abandonSubmitting ? "提交中…" : "提交放弃申请"}
+                {abandonSubmitting ? t("提交中…") : t("提交放弃申请")}
               </button>
             </div>
           </div>
@@ -2411,32 +2411,32 @@ function TaskOperationDrawer({
                 <Sparkles className="h-5 w-5" />
               </span>
               <div>
-                <h3 id="workspace-merge-title" className="text-base font-bold text-slate-900">申请合并到其他任务</h3>
-                <p className="mt-1 text-sm text-slate-500">提交后将流转给研发主管审核</p>
+                <h3 id="workspace-merge-title" className="text-base font-bold text-slate-900">{t("申请合并到其他任务")}</h3>
+                <p className="mt-1 text-sm text-slate-500">{t("提交后将流转给研发主管审核")}</p>
               </div>
             </div>
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-5">
               <div className="rounded-xl bg-cyan-50/60 px-4 py-3 text-xs leading-5 text-cyan-800 ring-1 ring-cyan-100">
-                审核通过后，本任务「{task.title}」将并入所选目标任务（进度留痕/附件/协作人一并迁移，子任务随迁），本任务归档保留；<strong>合并后由你担任目标任务的主责人</strong>。仅支持同一产品库内的任务合并。
+                {t("审核通过后，本任务「{title}」将并入所选目标任务（进度留痕/附件/协作人一并迁移，子任务随迁），本任务归档保留；合并后由你担任目标任务的主责人。仅支持同一产品库内的任务合并。", { title: task.title })}
               </div>
               <div>
-                <label className="text-sm font-semibold text-slate-900">选择目标任务<span className="ml-0.5 text-rose-500">（必选）</span></label>
+                <label className="text-sm font-semibold text-slate-900">{t("选择目标任务")}<span className="ml-0.5 text-rose-500">{t("（必选）")}</span></label>
                 <input
                   value={mergeSearch}
                   onChange={(e) => setMergeSearch(e.target.value)}
-                  placeholder="搜索任务标题 / 编号"
+                  placeholder={t("搜索任务标题 / 编号")}
                   className="mt-2 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-cyan-300 focus:ring-2 focus:ring-cyan-100"
                 />
                 <div className="mt-2 max-h-52 overflow-y-auto rounded-lg border border-slate-200">
                   {mergeLoading ? (
-                    <div className="px-3 py-6 text-center text-sm text-slate-400">加载候选任务…</div>
+                    <div className="px-3 py-6 text-center text-sm text-slate-400">{t("加载候选任务…")}</div>
                   ) : (() => {
                     const kw = mergeSearch.trim().toLowerCase();
                     const list = mergeCandidates.filter(
                       (c) => !kw || c.title.toLowerCase().includes(kw) || c.task_id.toLowerCase().includes(kw),
                     );
                     if (list.length === 0) {
-                      return <div className="px-3 py-6 text-center text-sm text-slate-400">没有可选的目标任务</div>;
+                      return <div className="px-3 py-6 text-center text-sm text-slate-400">{t("没有可选的目标任务")}</div>;
                     }
                     return list.slice(0, 100).map((c) => (
                       <button
@@ -2459,12 +2459,12 @@ function TaskOperationDrawer({
                 </div>
               </div>
               <div>
-                <label className="text-sm font-semibold text-slate-900">合并原因<span className="ml-1 text-xs font-normal text-slate-400">（选填）</span></label>
+                <label className="text-sm font-semibold text-slate-900">{t("合并原因")}<span className="ml-1 text-xs font-normal text-slate-400">{t("（选填）")}</span></label>
                 <Textarea
                   value={mergeReason}
                   onChange={(event) => setMergeReason(event.target.value)}
                   rows={3}
-                  placeholder="简述为何要合并这两个任务，便于主管审核"
+                  placeholder={t("简述为何要合并这两个任务，便于主管审核")}
                   className="mt-2"
                 />
               </div>
@@ -2476,7 +2476,7 @@ function TaskOperationDrawer({
                 onClick={() => setMergeOpen(false)}
                 className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                取消
+                {t("取消")}
               </button>
               <button
                 type="button"
@@ -2484,7 +2484,7 @@ function TaskOperationDrawer({
                 onClick={submitMergeRequest}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {mergeSubmitting ? "提交中…" : "提交合并申请"}
+                {mergeSubmitting ? t("提交中…") : t("提交合并申请")}
               </button>
             </div>
           </div>
@@ -2512,66 +2512,66 @@ function AISuggestionDrawer({
   return (
     <DrawerShell
       title={suggestion.title}
-      subtitle={`来源：${suggestion.source}`}
+      subtitle={t("来源：{source}", { source: suggestion.source })}
       icon={Sparkles}
       onClose={onClose}
     >
       <div className="space-y-5">
         <FlowSteps
           steps={[
-            { label: "解析来源", helper: "识别会议或记录中的动作", state: "done" },
-            { label: "人工校验", helper: "确认任务、责任人和时间", state: "current" },
-            { label: "写入任务池", helper: "确认后生成操作记录", state: "todo" },
+            { label: t("解析来源"), helper: t("识别会议或记录中的动作"), state: "done" },
+            { label: t("人工校验"), helper: t("确认任务、责任人和时间"), state: "current" },
+            { label: t("写入任务池"), helper: t("确认后生成操作记录"), state: "todo" },
           ]}
         />
 
         <div className="rounded-xl border border-violet-100 bg-violet-50 px-4 py-3">
           <div className="flex items-center justify-between gap-3">
-            <span className="text-sm font-semibold text-violet-800">AI 建议摘要</span>
+            <span className="text-sm font-semibold text-violet-800">{t("AI 建议摘要")}</span>
             <span className="rounded-full bg-white px-2 py-0.5 text-xs font-semibold text-violet-700">
-              置信度 {regenerated ? Math.min(96, suggestion.confidence + 6) : suggestion.confidence}%
+              {t("置信度")} {regenerated ? Math.min(96, suggestion.confidence + 6) : suggestion.confidence}%
             </span>
           </div>
           <p className="mt-2 text-sm leading-6 text-violet-700">
-            {regenerated ? "已根据更保守的拆解原则重新生成，请重点确认责任人和截止日期。" : suggestion.preview}
+            {regenerated ? t("已根据更保守的拆解原则重新生成，请重点确认责任人和截止日期。") : <AutoTranslatedText text={suggestion.preview} />}
           </p>
         </div>
 
         <div className="rounded-xl border border-slate-200">
-          <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">待生成内容</div>
+          <div className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">{t("待生成内容")}</div>
           <div className="divide-y divide-slate-100">
             {suggestion.generated_tasks.map((task) => (
               <div key={task.title} className="grid gap-3 px-4 py-3 sm:grid-cols-[1fr_90px_80px_54px] sm:items-center">
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-medium text-slate-800">{task.title}</div>
-                  <div className="mt-0.5 text-xs text-slate-400">建议责任人：{task.owner}</div>
+                  <AutoTranslatedText as="div" className="truncate text-sm font-medium text-slate-800" text={task.title} />
+                  <div className="mt-0.5 text-xs text-slate-400">{t("建议责任人：{owner}", { owner: task.owner })}</div>
                 </div>
                 <span className="text-xs text-slate-500">{t("截止")} {task.due}</span>
                 <PriorityBadge priority={task.priority} />
-                <ActionButton variant="ghost">调整</ActionButton>
+                <ActionButton variant="ghost">{t("调整")}</ActionButton>
               </div>
             ))}
           </div>
         </div>
 
         <label className="block">
-          <span className="text-sm font-semibold text-slate-900">调整意见</span>
+          <span className="text-sm font-semibold text-slate-900">{t("调整意见")}</span>
           <Textarea
             rows={3}
-            placeholder="例如：拆得更细、责任人改为赵强、截止日期顺延到下周三"
+            placeholder={t("例如：拆得更细、责任人改为赵强、截止日期顺延到下周三")}
             className="mt-2 w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
           />
         </label>
 
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <ActionButton onClick={onDismiss} variant="ghost">忽略</ActionButton>
+          <ActionButton onClick={onDismiss} variant="ghost">{t("忽略")}</ActionButton>
           <ActionButton onClick={onRegenerate}>
             <RefreshCw className="h-3.5 w-3.5" />
-            重新生成
+            {t("重新生成")}
           </ActionButton>
           <ActionButton onClick={onConfirm} variant="primary">
             <CheckCircle2 className="h-3.5 w-3.5" />
-            确认写入
+            {t("确认写入")}
           </ActionButton>
         </div>
       </div>
@@ -2681,36 +2681,36 @@ function NotificationDrawer({
           <div className="rounded-xl border border-amber-100 bg-amber-50/60 p-4 space-y-3">
             <div className="flex flex-wrap items-center gap-2">
               {isHandled ? (
-                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">已审核</span>
+                <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-semibold text-slate-500">{t("已审核")}</span>
               ) : (
-                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">待审核</span>
+                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">{t("待审核")}</span>
               )}
               <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500 ring-1 ring-slate-200">
-                {reviewType === "collaboration" ? "协作变更审核" : reviewType === "proposal" ? "立项审核" : reviewType === "due_date" ? "截止日期变更审核" : reviewType === "abandon" ? "放弃任务审核" : "成果审核"}
+                {reviewType === "collaboration" ? t("协作变更审核") : reviewType === "proposal" ? t("立项审核") : reviewType === "due_date" ? t("截止日期变更审核") : reviewType === "abandon" ? t("放弃任务审核") : t("成果审核")}
               </span>
             </div>
             <div>
               <div className="font-mono text-xs text-slate-400 mb-0.5">{reviewTaskId}</div>
               <div className="text-sm font-semibold text-slate-800">{reviewTaskTitle}</div>
             </div>
-            <div className="text-sm text-slate-500">提交人：<span className="font-medium text-slate-700">{reviewSubmitterName}</span></div>
+            <div className="text-sm text-slate-500">{t("提交人：")}<span className="font-medium text-slate-700">{reviewSubmitterName}</span></div>
             {reviewType === "due_date" && reviewPendingDueDate && (
               <div className="flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-sm ring-1 ring-slate-200">
                 <CalendarClock className="h-4 w-4 shrink-0 text-indigo-500" />
-                <span className="text-slate-500">{reviewCurrentDueDate || "未设置"}</span>
+                <span className="text-slate-500">{reviewCurrentDueDate || t("未设置")}</span>
                 <ArrowRight className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                 <span className="font-semibold text-indigo-700">{reviewPendingDueDate}</span>
               </div>
             )}
             {reviewNote && (
               <div className="rounded-lg bg-white px-3 py-2 text-sm text-slate-700 ring-1 ring-slate-200">
-                <span className="font-medium text-slate-500">{reviewType === "due_date" ? "修改原因：" : reviewType === "abandon" ? "放弃原因：" : "备注："}</span>{reviewNote}
+                <span className="font-medium text-slate-500">{reviewType === "due_date" ? t("修改原因：") : reviewType === "abandon" ? t("放弃原因：") : t("备注：")}</span><AutoTranslatedText text={reviewNote} />
               </div>
             )}
             {isHandled && (
               <div className="flex items-center gap-1.5 text-sm text-emerald-600">
                 <CheckCircle2 className="h-3.5 w-3.5" />
-                审核已处理
+                {t("审核已处理")}
               </div>
             )}
           </div>
@@ -2722,17 +2722,17 @@ function NotificationDrawer({
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-800">
                 <Clock className="h-4 w-4 text-indigo-500" />
-                进度时间线
-                <span className="text-xs font-normal text-slate-400">（审核参考依据）</span>
+                {t("进度时间线")}
+                <span className="text-xs font-normal text-slate-400">{t("（审核参考依据）")}</span>
               </div>
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
-                {progressNotesLoading ? "加载中" : `${progressNotes.length} 条`}
+                {progressNotesLoading ? t("加载中") : t("{n} 条", { n: progressNotes.length })}
               </span>
             </div>
             <ProgressNoteList
               notes={progressNotes}
               loading={progressNotesLoading}
-              emptyText="此任务暂无进度留痕记录"
+              emptyText={t("此任务暂无进度留痕记录")}
               compact
             />
           </div>
@@ -2743,22 +2743,22 @@ function NotificationDrawer({
           <div className={`rounded-xl border p-4 space-y-3 ${resultApproved ? "border-emerald-100 bg-emerald-50/60" : "border-red-100 bg-red-50/60"}`}>
             <div className="flex flex-wrap items-center gap-2">
               <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${resultApproved ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"}`}>
-                {resultApproved ? "✓ 审核通过" : "✕ 被打回"}
+                {resultApproved ? t("✓ 审核通过") : t("✕ 被打回")}
               </span>
-              <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500 ring-1 ring-slate-200">审核结果</span>
+              <span className="rounded-full bg-white px-2 py-0.5 text-xs text-slate-500 ring-1 ring-slate-200">{t("审核结果")}</span>
             </div>
             <div>
               <div className="font-mono text-xs text-slate-400 mb-0.5">{resultTaskId}</div>
               <div className="text-sm font-semibold text-slate-800">{resultTaskTitle}</div>
             </div>
-            <div className="text-sm text-slate-500">审核人：<span className="font-medium text-slate-700">{resultReviewerName}</span></div>
+            <div className="text-sm text-slate-500">{t("审核人：")}<span className="font-medium text-slate-700">{resultReviewerName}</span></div>
             {resultApproved ? (
               <div className="rounded-lg bg-white px-3 py-2 text-sm text-emerald-700 ring-1 ring-emerald-100">
-                任务已通过审核，恭喜完成！
+                {t("任务已通过审核，恭喜完成！")}
               </div>
             ) : (
               <div className="rounded-lg bg-white px-3 py-2 text-sm text-red-700 ring-1 ring-red-100">
-                <span className="font-medium">打回原因：</span>{resultReason || "请联系审核人了解详情"}
+                <span className="font-medium">{t("打回原因：")}</span>{resultReason ? <AutoTranslatedText text={resultReason} /> : t("请联系审核人了解详情")}
               </div>
             )}
           </div>
@@ -2778,7 +2778,7 @@ function NotificationDrawer({
             onClick={onSelfAssess}
             className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-violet-600 px-5 py-2.5 text-sm font-bold text-white transition hover:bg-violet-700"
           >
-            {isHandled ? "查看 / 修改自评" : "去自评"}
+            {isHandled ? t("查看 / 修改自评") : t("去自评")}
           </button>
         )}
 
@@ -2794,9 +2794,9 @@ function NotificationDrawer({
             </div>
             <ProgressBar value={relatedTask.progress} />
             <div className="mt-3 flex flex-wrap gap-2">
-              <ActionButton onClick={() => onOpenTask(relatedTask, "detail")}>查看详情</ActionButton>
+              <ActionButton onClick={() => onOpenTask(relatedTask, "detail")}>{t("查看详情")}</ActionButton>
               <ActionButton onClick={() => onOpenTask(relatedTask, notification.type === "due_soon" ? "handoff" : "progress")}>
-                推荐处理
+                {t("推荐处理")}
                 <ArrowRight className="h-3.5 w-3.5" />
               </ActionButton>
             </div>
@@ -2808,7 +2808,7 @@ function NotificationDrawer({
           <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 px-4 py-3">
             <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-indigo-700">
               <MessageSquare className="h-3.5 w-3.5" />
-              <span className="font-semibold">{notification.sender_name ?? "未知发件人"}</span>
+              <span className="font-semibold">{notification.sender_name ?? t("未知发件人")}</span>
               {notification.sender_role && <span className="text-indigo-500">· {notification.sender_role}</span>}
               <span className="ml-auto text-indigo-400">{relativeTimeLabel((notification as { created_at?: string }).created_at, notification.time)}</span>
             </div>
@@ -2821,13 +2821,13 @@ function NotificationDrawer({
           <div className="rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3">
             <div className="mb-1 flex items-center gap-2 text-sm font-semibold text-indigo-800">
               <ShieldCheck className="h-4 w-4" />
-              系统建议
+              {t("系统建议")}
             </div>
             <p className="text-sm leading-6 text-indigo-700">
-              {notification.type === "due_soon" && "建议先确认是否需要顺延；如果仍由你处理，请更新下一步动作和风险说明。"}
-              {notification.type === "blocked" && "建议补充协作反馈，并把上游阻塞同步给主责人和上级。"}
-              {notification.type === "pending_ai" && "建议进入 AI 建议审核，确认后再写入任务池，避免自动生成不准确任务。"}
-              {notification.type === "transfer" && "建议确认接收人和影响范围后再提交移交流程。"}
+              {notification.type === "due_soon" && t("建议先确认是否需要顺延；如果仍由你处理，请更新下一步动作和风险说明。")}
+              {notification.type === "blocked" && t("建议补充协作反馈，并把上游阻塞同步给主责人和上级。")}
+              {notification.type === "pending_ai" && t("建议进入 AI 建议审核，确认后再写入任务池，避免自动生成不准确任务。")}
+              {notification.type === "transfer" && t("建议确认接收人和影响范围后再提交移交流程。")}
             </p>
           </div>
         )}
@@ -2835,20 +2835,20 @@ function NotificationDrawer({
         {/* ── Inline reject dialog ── */}
         {rejectOpen && (
           <div className="rounded-xl border border-red-100 bg-red-50/60 p-4 space-y-3">
-            <div className="text-sm font-semibold text-red-700">填写驳回原因</div>
+            <div className="text-sm font-semibold text-red-700">{t("填写驳回原因")}</div>
             <Textarea
               rows={3}
-              placeholder="请说明驳回原因，申请人将收到通知…"
+              placeholder={t("请说明驳回原因，申请人将收到通知…")}
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
               className="bg-white text-sm"
             />
             <div className="flex items-center justify-end gap-2">
               <ActionButton onClick={() => { setRejectOpen(false); setRejectReason(""); }} disabled={isActing}>
-                取消
+                {t("取消")}
               </ActionButton>
               <ActionButton variant="danger" onClick={doReject} disabled={!rejectReason.trim() || isActing}>
-                {isActing ? "处理中…" : "确认驳回"}
+                {isActing ? t("处理中…") : t("确认驳回")}
               </ActionButton>
             </div>
           </div>
@@ -2860,24 +2860,24 @@ function NotificationDrawer({
             <>
               <ActionButton variant="primary" onClick={doApprove} disabled={isActing}>
                 <Check className="h-3.5 w-3.5" />
-                {isActing ? "处理中…" : "批准"}
+                {isActing ? t("处理中…") : t("批准")}
               </ActionButton>
               <ActionButton variant="danger" onClick={() => setRejectOpen(true)} disabled={isActing}>
-                驳回
+                {t("驳回")}
               </ActionButton>
             </>
           )}
-          <ActionButton onClick={onClose} className="ml-auto">稍后处理</ActionButton>
+          <ActionButton onClick={onClose} className="ml-auto">{t("稍后处理")}</ActionButton>
           {!isReviewRequest && !isReviewResult && (
             <ActionButton onClick={onDismiss} variant="primary">
               <CheckCircle2 className="h-3.5 w-3.5" />
-              标记已处理
+              {t("标记已处理")}
             </ActionButton>
           )}
           {isReviewResult && (
             <ActionButton onClick={onDismiss} variant="primary">
               <CheckCircle2 className="h-3.5 w-3.5" />
-              知道了
+              {t("知道了")}
             </ActionButton>
           )}
         </div>
@@ -3121,9 +3121,9 @@ function WorkspaceMoveDialog({
               <FolderInput className="h-4 w-4" />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-slate-900">移动任务归类</h3>
+              <h3 className="text-base font-semibold text-slate-900">{t("移动任务归类")}</h3>
               <p className="max-w-[260px] truncate text-xs text-slate-500">
-                {isBatch ? `已选 ${tasks.length} 个任务` : tasks[0]?.title}
+                {isBatch ? t("已选 {n} 个任务", { n: tasks.length }) : tasks[0]?.title}
               </p>
             </div>
           </div>
@@ -3135,14 +3135,14 @@ function WorkspaceMoveDialog({
         <div className="space-y-4 p-6">
           {!isBatch && (
             <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-500">
-              当前位置：<span className="font-medium text-slate-700">{tasks[0]?.category_path || "未分类"}</span>
+              {t("当前位置：")}<span className="font-medium text-slate-700">{tasks[0]?.category_path || t("未分类")}</span>
             </div>
           )}
 
           <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">目标位置</label>
+            <label className="mb-2 block text-sm font-medium text-slate-700">{t("目标位置")}</label>
             <div className="mb-2">
-              <label className="mb-1 block text-xs text-slate-500">产品</label>
+              <label className="mb-1 block text-xs text-slate-500">{t("产品")}</label>
               <NativeSelect
                 value={targetProductId}
                 onChange={(e) => setTargetProductId(e.target.value)}
@@ -3152,21 +3152,21 @@ function WorkspaceMoveDialog({
                 {products.map((p) => (
                   <option key={p.id} value={p.id}>
                     {p.name}
-                    {p.id === RD_MAIN_PRODUCT_ID ? "（主产品）" : ""}
+                    {p.id === RD_MAIN_PRODUCT_ID ? t("（主产品）") : ""}
                   </option>
                 ))}
               </NativeSelect>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="mb-1 block text-xs text-slate-500">一级系统</label>
+                <label className="mb-1 block text-xs text-slate-500">{t("一级系统")}</label>
                 <NativeSelect
                   value={targetCatId}
                   onChange={(e) => setTargetCatId(e.target.value)}
                   className="w-full text-sm"
                   disabled={loadingBase || loadingTree}
                 >
-                  <option value="">全部系统</option>
+                  <option value="">{t("全部系统")}</option>
                   {targetCategories.map((cat) => (
                     <option key={cat.id} value={cat.id}>
                       {cat.label}
@@ -3175,14 +3175,14 @@ function WorkspaceMoveDialog({
                 </NativeSelect>
               </div>
               <div>
-                <label className="mb-1 block text-xs text-slate-500">子项</label>
+                <label className="mb-1 block text-xs text-slate-500">{t("子项")}</label>
                 <NativeSelect
                   value={targetSubId}
                   onChange={(e) => setTargetSubId(e.target.value)}
                   className="w-full text-sm"
                   disabled={loadingBase || loadingTree}
                 >
-                  <option value="">{loadingTree ? "加载中…" : "请选择子项"}</option>
+                  <option value="">{loadingTree ? t("加载中…") : t("请选择子项")}</option>
                   {targetSubOptions.map(({ cat, sub }) => (
                     <option key={sub.id} value={sub.id}>
                       {cat.label} / {sub.label}
@@ -3192,7 +3192,7 @@ function WorkspaceMoveDialog({
               </div>
             </div>
             {isCrossProduct && (
-              <p className="mt-2 text-xs text-amber-600">跨产品移动：任务将移出当前产品，归入所选产品。</p>
+              <p className="mt-2 text-xs text-amber-600">{t("跨产品移动：任务将移出当前产品，归入所选产品。")}</p>
             )}
           </div>
         </div>
@@ -3204,7 +3204,7 @@ function WorkspaceMoveDialog({
             onClick={onClose}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
-            取消
+            {t("取消")}
           </button>
           <button
             type="button"
@@ -3213,7 +3213,7 @@ function WorkspaceMoveDialog({
             className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-60"
           >
             {saving ? <RefreshCw className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
-            确认移动
+            {t("确认移动")}
           </button>
         </div>
       </motion.div>
@@ -3261,7 +3261,7 @@ function WorkspaceTaskCard({
       role={isPendingReview ? undefined : "button"}
       tabIndex={isPendingReview ? undefined : 0}
       aria-disabled={isPendingReview || undefined}
-      title={isPendingReview ? "待审核任务，管理员审核通过后方可操作" : undefined}
+      title={isPendingReview ? t("待审核任务，管理员审核通过后方可操作") : undefined}
       onKeyDown={isPendingReview ? undefined : (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onOpen(task, "detail"); } }}
       className={cn(
         "group relative overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-[0_1px_4px_rgba(15,23,42,0.04)] transition-all duration-200 focus-visible:outline-none",
@@ -3354,7 +3354,7 @@ function WorkspaceTaskCard({
             {moveEnabled && onMove && (
               <button
                 type="button"
-                title="移动到其它系统 / 子项"
+                title={t("移动到其它系统 / 子项")}
                 onClick={(e) => {
                   e.stopPropagation();
                   onMove(task);
@@ -3381,7 +3381,7 @@ function WorkspaceTaskCard({
             {moveEnabled && onToggleSelect ? (
               <button
                 type="button"
-                title={selected ? "取消选择" : "勾选以批量移动"}
+                title={selected ? t("取消选择") : t("勾选以批量移动")}
                 onClick={(e) => {
                   e.stopPropagation();
                   onToggleSelect(task);
@@ -3448,8 +3448,8 @@ function SubsystemGroupBlock({
           <h3 className="truncate text-sm font-semibold text-slate-800" title={group.key}>{group.key}</h3>
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
-          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">进行中 {group.active.length}</span>
-          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">已完成 {group.done.length}</span>
+          <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{t("进行中")} {group.active.length}</span>
+          <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">{t("已完成")} {group.done.length}</span>
         </div>
       </div>
 
@@ -3488,7 +3488,7 @@ function SubsystemGroupBlock({
             className="flex w-full items-center gap-1.5 rounded-lg px-1 py-1 text-[11px] font-semibold text-slate-500 transition-colors hover:text-slate-700"
           >
             <ChevronDown className={cn("h-3.5 w-3.5 transition-transform", doneOpen ? "" : "-rotate-90")} />
-            已完成 {group.done.length}
+            {t("已完成")} {group.done.length}
           </button>
           {doneOpen && (
             <div className="mt-1.5 space-y-2">
@@ -3898,39 +3898,39 @@ export function RDMyWorkspacePage() {
     const currentDueDate = String(body.current_due_date ?? "").trim();
     const reviewTypeLabel =
       reviewType === "collaboration"
-        ? "协作变更审核"
+        ? t("协作变更审核")
         : reviewType === "proposal"
-        ? "立项审核"
+        ? t("立项审核")
         : reviewType === "due_date"
-        ? "截止日期变更审核"
+        ? t("截止日期变更审核")
         : reviewType === "abandon"
-        ? "放弃任务审核"
-        : "成果审核";
+        ? t("放弃任务审核")
+        : t("成果审核");
     if (!taskId) {
       toast.error(t("通知内容缺少任务 ID，无法审核"));
       return;
     }
 
     setConfirmDialog({
-      title: "确认审核通过",
-      message: `确认通过「${taskTitle}」的${reviewTypeLabel}？`,
-      confirmLabel: "确认通过",
-      cancelLabel: "再看看",
+      title: t("确认审核通过"),
+      message: t("确认通过「{title}」的{reviewType}？", { title: taskTitle, reviewType: reviewTypeLabel }),
+      confirmLabel: t("确认通过"),
+      cancelLabel: t("再看看"),
       details: [
-        `任务编号：${taskId}`,
-        submitterName ? `提交人：${submitterName}` : "提交人：未识别",
+        t("任务编号：{taskId}", { taskId }),
+        submitterName ? t("提交人：{name}", { name: submitterName }) : t("提交人：未识别"),
         ...(reviewType === "due_date" && pendingDueDate
-          ? [`截止日期：${currentDueDate || "未设置"} → ${pendingDueDate}`]
+          ? [t("截止日期：{current} → {next}", { current: currentDueDate || t("未设置"), next: pendingDueDate })]
           : []),
         reviewType === "collaboration"
-          ? "通过后协作人变更会立即生效，任务回到进行中。"
+          ? t("通过后协作人变更会立即生效，任务回到进行中。")
           : reviewType === "proposal"
-          ? "通过后任务将正式立项并进入进行中状态，同时通知发起人。"
+          ? t("通过后任务将正式立项并进入进行中状态，同时通知发起人。")
           : reviewType === "due_date"
-          ? "通过后任务的截止日期将更新为申请值，并回到进行中状态。"
+          ? t("通过后任务的截止日期将更新为申请值，并回到进行中状态。")
           : reviewType === "abandon"
-          ? "通过后该任务将被移除（等同删除），不可恢复，并通知申请人。"
-          : "通过后任务会进入审核通过状态，并通知对应申请人员。",
+          ? t("通过后该任务将被移除（等同删除），不可恢复，并通知申请人。")
+          : t("通过后任务会进入审核通过状态，并通知对应申请人员。"),
       ],
       onConfirm: async () => {
         await updateRdTask(taskId, {
@@ -4016,7 +4016,7 @@ export function RDMyWorkspacePage() {
                 type="button"
                 onClick={() => setShowProposalDialog(true)}
                 className="group inline-flex shrink-0 items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-all hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-[0_12px_24px_rgba(79,70,229,0.26)] active:translate-y-0 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
-                title="AI 立项 · 上传文档或写描述，自动拆任务"
+                title={t("AI 立项 · 上传文档或写描述，自动拆任务")}
               >
                 <Sparkles className="h-3.5 w-3.5 transition-transform group-hover:rotate-12" />
                 {t("AI 立项")}
@@ -4061,7 +4061,7 @@ export function RDMyWorkspacePage() {
                         "w-[4vw] flex h-7 items-center gap-1 rounded-[6px] px-2 text-xs font-medium transition-colors",
                         taskView === "list" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-700",
                       )}
-                      title="平铺列表"
+                      title={t("平铺列表")}
                     >
                       <List className="h-3.5 w-3.5" />
                       {t("列表")}
@@ -4073,7 +4073,7 @@ export function RDMyWorkspacePage() {
                         "w-[4vw] flex h-7 items-center gap-1 rounded-[6px] px-2 text-xs font-medium transition-colors",
                         taskView === "panorama" ? "bg-white text-indigo-700 shadow-sm" : "text-slate-500 hover:text-slate-700",
                       )}
-                      title="按子系统归类查看（仅我的任务）"
+                      title={t("按子系统归类查看（仅我的任务）")}
                     >
                       <Layers className="h-3.5 w-3.5" />
                       {t("全景")}
@@ -4177,7 +4177,7 @@ export function RDMyWorkspacePage() {
                     ) : filteredAllTasks.length > WORKSPACE_PAGE_SIZE ? (
                       <div className="mt-3 flex items-center justify-center gap-1.5 py-2 text-[11px] text-slate-400">
                         <CheckCircle2 className="h-3 w-3 text-emerald-400" />
-                        <span>已显示全部 <span className="font-semibold tabular-nums text-slate-500">{filteredAllTasks.length}</span> 个任务</span>
+                        <span>{t("已显示全部 {n} 个任务", { n: filteredAllTasks.length })}</span>
                       </div>
                     ) : null}
                   </div>
@@ -4191,7 +4191,7 @@ export function RDMyWorkspacePage() {
             {/* 通知中心 */}
             <SectionCard title={t("通知中心")} icon={Bell} count={visibleNotifications.length}>
               {visibleNotifications.length === 0 ? (
-                <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">暂无新通知</p>
+                <p className="rounded-xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">{t("暂无新通知")}</p>
               ) : (
                 <>
                   <ul className="space-y-2">
@@ -4250,10 +4250,10 @@ export function RDMyWorkspacePage() {
                               type="button"
                               onClick={() =>
                                 setConfirmDialog({
-                                  title: "确认关闭通知",
-                                  message: `将关闭「${notification.title}」这条通知。`,
-                                  confirmLabel: "确认关闭",
-                                  details: ["关闭后会从通知中心移除", "不会影响关联任务本身"],
+                                  title: t("确认关闭通知"),
+                                  message: t("将关闭「{title}」这条通知。", { title: notification.title }),
+                                  confirmLabel: t("确认关闭"),
+                                  details: [t("关闭后会从通知中心移除"), t("不会影响关联任务本身")],
                                   onConfirm: () => {
                                     recordAudit({
                                       actor: WORKSPACE_AUDIT_ACTOR,
@@ -4272,7 +4272,7 @@ export function RDMyWorkspacePage() {
                                 })
                               }
                               className="rounded p-1 text-slate-300 transition-colors hover:bg-white hover:text-slate-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
-                              aria-label="关闭通知"
+                              aria-label={t("关闭通知")}
                             >
                               <X className="h-3 w-3" />
                             </button>
@@ -4298,7 +4298,7 @@ export function RDMyWorkspacePage() {
                   ) : visibleNotifications.length > NOTIF_PAGE_SIZE ? (
                     <div className="mt-2 flex items-center justify-center gap-1.5 py-1.5 text-[11px] text-slate-400">
                       <CheckCircle2 className="h-3 w-3 text-emerald-400" />
-                      <span>已显示全部 <span className="font-semibold tabular-nums text-slate-500">{visibleNotifications.length}</span> 条通知</span>
+                      <span>{t("已显示全部 {n} 条通知", { n: visibleNotifications.length })}</span>
                     </div>
                   ) : null}
                 </>
@@ -4307,7 +4307,7 @@ export function RDMyWorkspacePage() {
 
             {/* AI 建议 */}
             {visibleSuggestions.length > 0 && (
-              <SectionCard title="待审核 AI 建议" icon={Sparkles} count={visibleSuggestions.length} helper="确认后才写入任务池">
+              <SectionCard title={t("待审核 AI 建议")} icon={Sparkles} count={visibleSuggestions.length} helper={t("确认后才写入任务池")}>
                 <div className="space-y-3">
                   {visibleSuggestions.map((suggestion) => (
                     <article key={suggestion.id} className="rounded-xl border border-violet-100 bg-violet-50/60 p-3">
@@ -4326,7 +4326,7 @@ export function RDMyWorkspacePage() {
                           variant="primary"
                         >
                           <CheckCircle2 className="h-3 w-3" />
-                          审核
+                          {t("审核")}
                         </ActionButton>
                         <ActionButton
                           onClick={() => {
@@ -4343,16 +4343,16 @@ export function RDMyWorkspacePage() {
                           }}
                         >
                           <RefreshCw className="h-3 w-3" />
-                          重新生成
+                          {t("重新生成")}
                         </ActionButton>
                         <ActionButton
                           onClick={() =>
                             setConfirmDialog({
-                              title: "确认忽略 AI 建议",
-                              message: `将忽略「${suggestion.title}」，该建议不会写入任务池。`,
-                              confirmLabel: "确认忽略",
+                              title: t("确认忽略 AI 建议"),
+                              message: t("将忽略「{title}」，该建议不会写入任务池。", { title: suggestion.title }),
+                              confirmLabel: t("确认忽略"),
                               tone: "danger",
-                              details: ["忽略后会从待审核列表移除", "如需恢复，需要重新生成建议"],
+                              details: [t("忽略后会从待审核列表移除"), t("如需恢复，需要重新生成建议")],
                               onConfirm: () => {
                                 recordAudit({
                                   actor: WORKSPACE_AUDIT_ACTOR,
@@ -4369,7 +4369,7 @@ export function RDMyWorkspacePage() {
                           variant="ghost"
                           className="ml-auto"
                         >
-                          忽略
+                          {t("忽略")}
                         </ActionButton>
                       </div>
                     </article>
@@ -4445,10 +4445,10 @@ export function RDMyWorkspacePage() {
           }}
           onConfirm={() =>
             setConfirmDialog({
-              title: "确认写入任务池",
-              message: `将把「${activePanel.suggestion.title}」生成的内容写入任务池。`,
-              confirmLabel: "确认写入",
-              details: [`生成任务数：${activePanel.suggestion.generated_tasks.length}`, `来源：${activePanel.suggestion.source}`, "写入后会从待审核列表移除"],
+              title: t("确认写入任务池"),
+              message: t("将把「{title}」生成的内容写入任务池。", { title: activePanel.suggestion.title }),
+              confirmLabel: t("确认写入"),
+              details: [t("生成任务数：{n}", { n: activePanel.suggestion.generated_tasks.length }), t("来源：{source}", { source: activePanel.suggestion.source }), t("写入后会从待审核列表移除")],
               onConfirm: () => {
                 recordAudit({
                   actor: WORKSPACE_AUDIT_ACTOR,
@@ -4482,11 +4482,11 @@ export function RDMyWorkspacePage() {
           }
           onDismiss={() =>
             setConfirmDialog({
-              title: "确认忽略 AI 建议",
-              message: `将忽略「${activePanel.suggestion.title}」，该建议不会写入任务池。`,
-              confirmLabel: "确认忽略",
+              title: t("确认忽略 AI 建议"),
+              message: t("将忽略「{title}」，该建议不会写入任务池。", { title: activePanel.suggestion.title }),
+              confirmLabel: t("确认忽略"),
               tone: "danger",
-              details: ["忽略后会从待审核列表移除", "如需恢复，需要重新生成建议"],
+              details: [t("忽略后会从待审核列表移除"), t("如需恢复，需要重新生成建议")],
               onConfirm: () => {
                 recordAudit({
                   actor: WORKSPACE_AUDIT_ACTOR,
@@ -4511,10 +4511,10 @@ export function RDMyWorkspacePage() {
           onClose={() => setActivePanel(null)}
           onDismiss={() =>
             setConfirmDialog({
-              title: "确认标记已处理",
-              message: `将把「${activePanel.notification.title}」标记为已处理。`,
-              confirmLabel: "确认处理",
-              details: ["通知会从通知中心移除", "会在操作记录中留下处理记录"],
+              title: t("确认标记已处理"),
+              message: t("将把「{title}」标记为已处理。", { title: activePanel.notification.title }),
+              confirmLabel: t("确认处理"),
+              details: [t("通知会从通知中心移除"), t("会在操作记录中留下处理记录")],
               onConfirm: () => {
                 recordAudit({
                   actor: WORKSPACE_AUDIT_ACTOR,
@@ -4567,13 +4567,13 @@ export function RDMyWorkspacePage() {
                 metadata: { notification_id: notif.id, reviewer: user?.name, reason },
                 source: "web",
               });
-              toast.success(`已驳回「${taskTitle}」`);
+              toast.success(t("已驳回「{title}」", { title: taskTitle }));
               setDismissedNotifs((prev) => new Set(prev).add(notif.id));
               window.dispatchEvent(new CustomEvent("rd:review-submitted"));
               setActivePanel(null);
               await loadWorkspace({ silent: true });
             } catch (err) {
-              toast.error(err instanceof Error ? err.message : "操作失败");
+              toast.error(err instanceof Error ? err.message : t("操作失败"));
             }
           }}
         />
@@ -4626,7 +4626,7 @@ export function RDMyWorkspacePage() {
             className="fixed bottom-6 left-1/2 z-[60] flex -translate-x-1/2 items-center gap-3 rounded-full border border-slate-200 bg-white/95 px-4 py-2 shadow-xl backdrop-blur"
           >
             <span className="text-xs font-semibold text-slate-600">
-              已选 <span className="tabular-nums text-indigo-600">{selectedTasks.length}</span> 个任务
+              {t("已选")} <span className="tabular-nums text-indigo-600">{selectedTasks.length}</span> {t("个任务")}
             </span>
             <button
               type="button"
@@ -4634,14 +4634,14 @@ export function RDMyWorkspacePage() {
               className="inline-flex items-center gap-1 rounded-full bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700"
             >
               <FolderInput className="h-3.5 w-3.5" />
-              批量移动
+              {t("批量移动")}
             </button>
             <button
               type="button"
               onClick={() => setSelectedTaskIds(new Set())}
               className="text-xs font-medium text-slate-400 transition-colors hover:text-slate-600"
             >
-              取消选择
+              {t("取消选择")}
             </button>
           </motion.div>
         )}

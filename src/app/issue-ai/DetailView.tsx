@@ -55,6 +55,7 @@ import type {
   PossibleCause,
   Solution,
 } from "../lib/issue/types";
+import { t, useI18n } from "../lib/i18n";
 
 // ── 工具 ───────────────────────────────────────────────────────────────────────
 
@@ -109,14 +110,14 @@ function AttachmentRow({ att }: { att: Issue["attachments"][number] }) {
   const hasText = Boolean(att.extractedText && att.extractedText.trim());
   const copyLink = async () => {
     if (!att.fileUrl) {
-      toast.error("暂无可复制的文件链接");
+      toast.error(t("暂无可复制的文件链接"));
       return;
     }
     try {
       await navigator.clipboard.writeText(att.fileUrl);
-      toast.success("已复制文件链接");
+      toast.success(t("已复制文件链接"));
     } catch {
-      toast.error("复制失败，请手动复制");
+      toast.error(t("复制失败，请手动复制"));
     }
   };
   return (
@@ -129,12 +130,12 @@ function AttachmentRow({ att }: { att: Issue["attachments"][number] }) {
         <button
           type="button"
           onClick={copyLink}
-          title="复制 OSS 文件链接"
-          aria-label="复制文件链接"
+          title={t("复制 OSS 文件链接")}
+          aria-label={t("复制文件链接")}
           className="inline-flex shrink-0 cursor-pointer items-center gap-0.5 rounded-md px-1.5 py-0.5 text-xs font-medium text-slate-500 outline-none hover:bg-slate-200/70 hover:text-slate-700 focus-visible:ring-2 focus-visible:ring-indigo-500/50 dark:text-slate-400 dark:hover:bg-slate-700"
         >
           <Copy className="size-3.5" />
-          复制链接
+          {t("复制链接")}
         </button>
         {hasText && (
           <button
@@ -144,7 +145,7 @@ function AttachmentRow({ att }: { att: Issue["attachments"][number] }) {
             aria-expanded={open}
           >
             {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-            已提取文本
+            {t("已提取文本")}
           </button>
         )}
       </div>
@@ -195,7 +196,7 @@ function ChatAttachment({
                 ? "hover:bg-white/15 focus-visible:ring-white/50"
                 : "hover:bg-slate-200 focus-visible:ring-indigo-500/50 dark:hover:bg-slate-700",
             )}
-            aria-label={`移除 ${att.fileName}`}
+            aria-label={t("移除 {file}", { file: att.fileName })}
           >
             <X className="size-3" />
           </button>
@@ -249,11 +250,11 @@ function CauseCard({
             >
               <span className="min-w-0 flex-1 text-sm text-slate-700 dark:text-slate-200">{sol.action}</span>
               <SolutionTypeBadge value={sol.type} />
-              {sol.owner && <span className={cn("text-xs", muted)}>责任：{sol.owner}</span>}
+              {sol.owner && <span className={cn("text-xs", muted)}>{t("责任：")}{sol.owner}</span>}
               {isAdopted ? (
                 <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
                   <CheckCircle2 className="size-3.5" />
-                  已采纳
+                  {t("已采纳")}
                 </span>
               ) : (
                 <Button
@@ -264,7 +265,7 @@ function CauseCard({
                   className="h-7 shrink-0 cursor-pointer px-2.5 text-xs disabled:cursor-not-allowed"
                 >
                   {isBusy && <Loader2 className="size-3.5 animate-spin" />}
-                  采纳
+                  {t("采纳")}
                 </Button>
               )}
             </li>
@@ -294,7 +295,7 @@ function MessageBubble({ msg, modelLabel }: { msg: IssueMessage; modelLabel?: st
       </span>
       <div className={cn("min-w-0 max-w-[82%]", isUser && "items-end text-right")}>
         <div className={cn("flex items-center gap-2 text-xs", muted, isUser && "flex-row-reverse")}>
-          <span>{isUser ? msg.author?.name ?? msg.operator ?? "操作人" : "AI 助手"}</span>
+          <span>{isUser ? t(msg.author?.name ?? msg.operator ?? "操作人") : t("AI 助手")}</span>
           <Mono>{fmtTime(msg.createdAt)}</Mono>
           {!isUser && modelLabel && (
             <span className="inline-flex items-center gap-0.5 rounded border border-slate-200 bg-slate-50 px-1 py-0.5 text-[10px] font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
@@ -404,8 +405,8 @@ function ChatPanel({
       {dragActive && (
         <div className="pointer-events-none absolute inset-0 z-30 m-3 flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-indigo-300 bg-indigo-50/85 dark:border-indigo-500/50 dark:bg-indigo-500/15">
           <Paperclip className="size-7 text-indigo-500" />
-          <div className="text-sm font-medium text-indigo-700 dark:text-indigo-200">松开鼠标上传文件</div>
-          <div className="text-xs text-indigo-400 dark:text-indigo-300/80">支持任意图片与文档附件</div>
+          <div className="text-sm font-medium text-indigo-700 dark:text-indigo-200">{t("松开鼠标上传文件")}</div>
+          <div className="text-xs text-indigo-400 dark:text-indigo-300/80">{t("支持任意图片与文档附件")}</div>
         </div>
       )}
       <div ref={scrollRef} onScroll={onScroll} className="material-scrollbar min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3 sm:px-5">
@@ -415,12 +416,12 @@ function ChatPanel({
             onClick={onLoadMore}
             className="mx-auto flex cursor-pointer rounded-full border border-slate-200 bg-white px-3 py-1 text-xs text-slate-500 shadow-sm transition hover:border-indigo-200 hover:text-indigo-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-400 dark:hover:text-indigo-300"
           >
-            加载更早对话
+            {t("加载更早对话")}
           </button>
         )}
         {messages.length === 0 ? (
           <p className={cn("rounded-lg bg-slate-50 px-3 py-6 text-center text-sm dark:bg-slate-800/40", muted)}>
-            暂无对话。可在下方补充信息以调整 AI 分析。
+            {t("暂无对话。可在下方补充信息以调整 AI 分析。")}
           </p>
         ) : (
           messages.map((m) => (
@@ -444,32 +445,32 @@ function ChatPanel({
             <div className="mb-2">
               <div className="flex items-center gap-1.5">
                 <Cpu className="size-3.5 shrink-0 text-slate-400" />
-                <span className={cn("shrink-0 text-xs", muted)}>AI 模型</span>
+                <span className={cn("shrink-0 text-xs", muted)}>{t("AI 模型")}</span>
                 <select
                   value={selectedModel}
                   onChange={(e) => onSelectModel(e.target.value)}
                   disabled={sending}
-                  aria-label="选择 AI 模型"
+                  aria-label={t("选择 AI 模型")}
                   className="h-7 min-w-0 max-w-full rounded-md border border-slate-200 bg-white px-1.5 text-xs text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 disabled:cursor-not-allowed dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                 >
                   {models.map((m) => (
                     <option key={m.value} value={m.value}>
-                      {m.label} · {m.usageLabel}
+                      {m.label} · {t(m.usageLabel)}
                     </option>
                   ))}
                 </select>
                 <span className={cn("ml-auto shrink-0 text-[11px]", muted)}>
-                  {current?.usageKind === "multimodal" ? "图片可直传" : "图片转文字"}
+                  {current?.usageKind === "multimodal" ? t("图片可直传") : t("图片转文字")}
                 </span>
               </div>
               {current && (
                 <p className={cn("mt-1 pl-5 text-[11px]", muted)}>
-                  当前模型：
+                  {t("当前模型：")}
                   <span className="text-slate-600 dark:text-slate-300">{current.provider}</span>
                   {" · "}
                   <Mono className="text-slate-600 dark:text-slate-300">{current.model}</Mono>
                   {" · "}
-                  {current.usageLabel}
+                  {t(current.usageLabel)}
                 </p>
               )}
             </div>
@@ -499,8 +500,8 @@ function ChatPanel({
             size="icon"
             onClick={() => fileInputRef.current?.click()}
             disabled={uploading || sending}
-            title="上传附件"
-            aria-label="上传附件"
+            title={t("上传附件")}
+            aria-label={t("上传附件")}
             className="cursor-pointer disabled:cursor-not-allowed"
           >
             {uploading ? <Loader2 className="size-4 animate-spin" /> : <Paperclip className="size-4" />}
@@ -518,14 +519,14 @@ function ChatPanel({
                 onSend();
               }
             }}
-            placeholder="补充线索 / 提出调整方向…"
+            placeholder={t("补充线索 / 提出调整方向…")}
             disabled={sending}
-            aria-label="对话输入"
+            aria-label={t("对话输入")}
             className="max-h-24 min-h-10 resize-none rounded-lg border-slate-200 bg-slate-50 text-sm shadow-inner focus-visible:border-indigo-300 focus-visible:ring-indigo-500/20 dark:border-slate-700 dark:bg-slate-800/70"
           />
           <Button onClick={onSend} disabled={!canSend} className="h-11 cursor-pointer px-3 disabled:cursor-not-allowed">
             {sending ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-            发送
+            {t("发送")}
           </Button>
         </div>
       </div>
@@ -544,6 +545,7 @@ export function DetailView({
   issueId: string;
   onBack: () => void;
 }) {
+  useI18n();
   const reduceMotion = useReducedMotion();
 
   const [issue, setIssue] = React.useState<Issue | null>(null);
@@ -593,7 +595,7 @@ export function DetailView({
         if (alive) setIssue(data);
       })
       .catch((err: unknown) => {
-        if (alive) setLoadError(err instanceof Error ? err.message : "加载失败");
+        if (alive) setLoadError(err instanceof Error ? err.message : t("加载失败"));
       });
     return () => {
       alive = false;
@@ -677,9 +679,9 @@ export function DetailView({
     try {
       await service.analyze(issueId);
       await reload();
-      toast.success("AI 根因分析完成");
+      toast.success(t("AI 根因分析完成"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "分析失败");
+      toast.error(err instanceof Error ? err.message : t("分析失败"));
     } finally {
       setAnalyzing(false);
     }
@@ -705,9 +707,9 @@ export function DetailView({
       try {
         await service.adopt(issueId, { kind: "analysis", causeId: cause.id, solutionId: solution.id });
         await reload();
-        toast.success("已采纳该方案");
+        toast.success(t("已采纳该方案"));
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "采纳失败");
+        toast.error(err instanceof Error ? err.message : t("采纳失败"));
       } finally {
         setAdoptingSolutionId(null);
       }
@@ -744,14 +746,14 @@ export function DetailView({
         if (imageCount > 0) {
           toast.success(
             multimodal
-              ? `已添加 ${uploaded.length} 个附件（图片将直传多模态模型）`
-              : `已添加 ${uploaded.length} 个附件（当前为纯文本模型，图片已转文字 OCR）`,
+              ? t("已添加 {count} 个附件（图片将直传多模态模型）", { count: uploaded.length })
+              : t("已添加 {count} 个附件（当前为纯文本模型，图片已转文字 OCR）", { count: uploaded.length }),
           );
         } else {
-          toast.success(`已添加 ${uploaded.length} 个附件`);
+          toast.success(t("已添加 {count} 个附件", { count: uploaded.length }));
         }
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : "附件上传失败");
+        toast.error(err instanceof Error ? err.message : t("附件上传失败"));
       } finally {
         setUploading(false);
       }
@@ -778,9 +780,9 @@ export function DetailView({
       setPendingAttachments([]);
       await reload();
       setViewVersion(null); // 跳回最新版本
-      toast.success("已发送");
+      toast.success(t("已发送"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "发送失败");
+      toast.error(err instanceof Error ? err.message : t("发送失败"));
     } finally {
       setSending(false);
     }
@@ -805,10 +807,10 @@ export function DetailView({
     return (
       <div className="mx-auto max-w-2xl px-4 py-16 text-center">
         <AlertCircle className="mx-auto size-8 text-red-500" />
-        <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">加载问题失败：{loadError}</p>
+        <p className="mt-3 text-sm text-slate-600 dark:text-slate-300">{t("加载问题失败：")}{loadError}</p>
         <Button variant="outline" className="mt-4" onClick={onBack}>
           <ArrowLeft className="size-4" />
-          返回
+          {t("返回")}
         </Button>
       </div>
     );
@@ -818,7 +820,7 @@ export function DetailView({
     return (
       <div className="flex items-center justify-center px-4 py-24 text-slate-400">
         <Loader2 className="size-5 animate-spin" />
-        <span className="ml-2 text-sm">加载中…</span>
+        <span className="ml-2 text-sm">{t("加载中…")}</span>
       </div>
     );
   }
@@ -841,9 +843,9 @@ export function DetailView({
       }
       await service.resolveIssue(issueId, { resolved: true, by: currentChatUser, note: "标记已解决（采纳最新方案）" });
       await reload();
-      toast.success("已标记为已完结");
+      toast.success(t("已标记为已完结"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "操作失败");
+      toast.error(err instanceof Error ? err.message : t("操作失败"));
     } finally {
       setResolving(false);
     }
@@ -904,7 +906,7 @@ export function DetailView({
         className="mb-3 inline-flex w-fit cursor-pointer items-center gap-1 rounded-full px-2.5 py-1 text-sm font-medium text-slate-500 outline-none transition-colors hover:bg-white hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-indigo-500/50 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-slate-100"
       >
         <ArrowLeft className="size-4" />
-        返回列表
+        {t("返回列表")}
       </button>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[minmax(22rem,390px)_minmax(0,1fr)] 2xl:grid-cols-[400px_minmax(0,1fr)]">
@@ -922,7 +924,7 @@ export function DetailView({
                   <StatusBadge value={issue.status} />
                 </div>
                 <div className="text-right text-xs text-slate-500 dark:text-slate-400">
-                  更新于 <Mono>{fmtTime(issue.updatedAt)}</Mono>
+                  {t("更新于")} <Mono>{fmtTime(issue.updatedAt)}</Mono>
                 </div>
               </div>
               <h1 className="mt-3 max-w-5xl text-xl font-semibold leading-snug text-slate-950 dark:text-white">
@@ -930,8 +932,8 @@ export function DetailView({
               </h1>
 
               <dl className={cn(insetPanel, "mt-4 grid grid-cols-1 gap-x-4 gap-y-3 p-3 sm:grid-cols-2")}>
-                <MetaCell label="来源">{SOURCE_LABEL[issue.source]}</MetaCell>
-                <MetaCell label="创建">
+                <MetaCell label={t("来源")}>{t(SOURCE_LABEL[issue.source])}</MetaCell>
+                <MetaCell label={t("创建")}>
                   <span>
                     {issue.createdBy} · <Mono className="text-xs">{fmtTime(issue.createdAt)}</Mono>
                   </span>
@@ -943,7 +945,7 @@ export function DetailView({
                 <div className="mt-4 flex justify-end">
                   <Button onClick={handleResolve} disabled={resolving}>
                     {resolving ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
-                    已解决
+                    {t("已解决")}
                   </Button>
                 </div>
               )}
@@ -953,16 +955,16 @@ export function DetailView({
           {/* 2) 问题描述 + 附件 */}
           <motion.section {...fade} className={cn(card, "p-4 sm:p-5")}>
             <div className="flex items-center justify-between gap-3">
-              <h2 className={sectionTitle}>问题描述</h2>
+              <h2 className={sectionTitle}>{t("问题描述")}</h2>
               {issue.attachments.length > 0 && (
                 <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800/50 dark:text-slate-400">
                   <Paperclip className="size-3.5" />
-                  {issue.attachments.length} 个附件
+                  {t("{count} 个附件", { count: issue.attachments.length })}
                 </span>
               )}
             </div>
             <p className="mt-3 whitespace-pre-wrap rounded-lg bg-slate-50/70 px-3 py-2.5 text-sm leading-relaxed text-slate-700 dark:bg-slate-800/35 dark:text-slate-200">
-              {issue.description || <span className={muted}>（无描述）</span>}
+              {issue.description || <span className={muted}>{t("（无描述）")}</span>}
             </p>
             {issue.attachments.length > 0 && (
               <div className="mt-4">
@@ -982,17 +984,17 @@ export function DetailView({
           <section className={cn(card, "p-4")}>
             <h2 className={cn(sectionTitle, "flex items-center gap-1.5")}>
               <Pin className="size-4 text-indigo-500" />
-              当前采纳方案
+              {t("当前采纳方案")}
             </h2>
             {!adopted ? (
                 <p className={cn("mt-2 rounded-lg bg-slate-50 px-3 py-3 text-sm dark:bg-slate-800/40", muted)}>
-                  尚未采纳方案
+                  {t("尚未采纳方案")}
                 </p>
             ) : isReuse ? (
                 <div className="mt-2 rounded-lg border border-emerald-200 bg-emerald-50/60 p-3 dark:border-emerald-500/30 dark:bg-emerald-500/10">
-                  <p className="text-xs font-medium text-emerald-700 dark:text-emerald-300">复用历史方案</p>
+                  <p className="text-xs font-medium text-emerald-700 dark:text-emerald-300">{t("复用历史方案")}</p>
                   <p className={cn("mt-1 text-xs", muted)}>
-                    来自 <Mono className="text-slate-700 dark:text-slate-200">{adopted.kind === "reuse" ? adopted.reusedFrom : ""}</Mono>
+                    {t("来自")} <Mono className="text-slate-700 dark:text-slate-200">{adopted.kind === "reuse" ? adopted.reusedFrom : ""}</Mono>
                   </p>
                   {reusedAdopted && (
                       <div className="mt-2">
@@ -1019,12 +1021,12 @@ export function DetailView({
                     <SolutionTypeBadge value={pinnedSolution.type} />
                   </div>
                   {pinnedSolution.owner && (
-                      <p className={cn("mt-1 text-xs", muted)}>责任岗位：{pinnedSolution.owner}</p>
+                      <p className={cn("mt-1 text-xs", muted)}>{t("责任岗位：")}{pinnedSolution.owner}</p>
                   )}
                 </div>
             ) : (
                 <p className={cn("mt-2 rounded-lg bg-slate-50 px-3 py-3 text-sm dark:bg-slate-800/40", muted)}>
-                  已采纳方案（详情待加载）
+                  {t("已采纳方案（详情待加载）")}
                 </p>
             )}
           </section>
@@ -1034,16 +1036,16 @@ export function DetailView({
             <div className="flex items-center justify-between gap-2">
               <h2 className={cn(sectionTitle, "flex items-center gap-1.5")}>
                 <History className="size-4 text-slate-400" />
-                版本与留痕
+                {t("版本与留痕")}
               </h2>
               <span className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
                 <Lock className="size-2.5" />
-                只增不改 · append-only
+                {t("只增不改 · append-only")}
               </span>
             </div>
 
             {analyses.length === 0 ? (
-                <p className={cn("mt-3 text-sm", muted)}>暂无版本记录</p>
+                <p className={cn("mt-3 text-sm", muted)}>{t("暂无版本记录")}</p>
             ) : (
                 <ol className="mt-3 space-y-3">
                   {analyses
@@ -1065,17 +1067,17 @@ export function DetailView({
                               <div className="flex flex-wrap items-center gap-1.5">
                                 <Mono className="text-sm font-semibold text-slate-800 dark:text-slate-100">v{v.version}</Mono>
                                 <span className="rounded border border-slate-200 px-1 py-0.5 text-[10px] text-slate-500 dark:border-slate-700 dark:text-slate-400">
-                            {triggerLabel(v.triggerType)}
+                            {t(triggerLabel(v.triggerType))}
                           </span>
                                 {v.basedOnVersion != null && (
                                     <span className={cn("text-[10px]", muted)}>
-                              基于 <Mono>v{v.basedOnVersion}</Mono>
+                              {t("基于")} <Mono>v{v.basedOnVersion}</Mono>
                             </span>
                                 )}
                                 {v.isAdopted && (
                                     <span className="inline-flex items-center gap-0.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
                               <CheckCircle2 className="size-3" />
-                              已采纳
+                              {t("已采纳")}
                             </span>
                                 )}
                               </div>
@@ -1094,7 +1096,7 @@ export function DetailView({
                 <div className="mt-3 border-t border-slate-100 pt-3 dark:border-slate-800">
                   <h3 className={cn("flex items-center gap-1 text-[11px] font-medium", muted)}>
                     <FileText className="size-3" />
-                    调整留痕
+                    {t("调整留痕")}
                   </h3>
                   <ol className="mt-1.5 space-y-1.5">
                     {[...issue.messages]
@@ -1102,7 +1104,7 @@ export function DetailView({
                         .sort((a, b) => b.seq - a.seq)
                         .map((m) => (
                             <li key={m.id} className={cn("text-[11px] leading-snug", muted)}>
-                              <Mono>{fmtTime(m.createdAt)}</Mono> · {m.operator ?? "操作人"}：
+                              <Mono>{fmtTime(m.createdAt)}</Mono> · {m.operator ?? t("操作人")}：
                               <span className="text-slate-600 dark:text-slate-300"> {m.content}</span>
                             </li>
                         ))}
@@ -1120,18 +1122,18 @@ export function DetailView({
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className={cn(sectionTitle, "flex items-center gap-1.5")}>
                 <Sparkles className="size-4 text-indigo-500" />
-                AI 根因分析
+                {t("AI 根因分析")}
               </h2>
               {totalVersions > 0 && shownVersion && (
                 <div className="flex flex-wrap items-center justify-end gap-1.5">
                   <span className={cn("text-xs", muted)}>
-                    版本 <Mono>v{shownVersion.version}</Mono>（共 {totalVersions} 版）
+                    {t("版本")} <Mono>v{shownVersion.version}</Mono>{t("（共 {count} 版）", { count: totalVersions })}
                   </span>
                   {totalVersions > 1 && (
                     <select
                       value={shownVersion.version}
                       onChange={(e) => setViewVersion(Number(e.target.value))}
-                      aria-label="查看历史版本"
+                      aria-label={t("查看历史版本")}
                       className="h-7 rounded-md border border-slate-200 bg-white px-1.5 text-xs text-slate-700 outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200"
                     >
                       {analyses
@@ -1139,7 +1141,7 @@ export function DetailView({
                         .reverse()
                         .map((v) => (
                           <option key={v.id} value={v.version}>
-                            v{v.version}（{triggerLabel(v.triggerType)}）
+                            v{v.version} ({t(triggerLabel(v.triggerType))})
                           </option>
                         ))}
                     </select>
@@ -1153,10 +1155,10 @@ export function DetailView({
               <div className="mt-3 rounded-lg border border-indigo-200 bg-indigo-50/60 p-3 dark:border-indigo-500/30 dark:bg-indigo-500/10">
                 <p className="flex items-center gap-1.5 text-sm font-medium text-indigo-800 dark:text-indigo-200">
                   <CheckCircle2 className="size-4" />
-                  已复用历史方案
+                  {t("已复用历史方案")}
                 </p>
                 <p className={cn("mt-1 text-xs", muted)}>
-                  复用自 <Mono className="text-indigo-700 dark:text-indigo-300">{adopted?.kind === "reuse" ? adopted.reusedFrom : ""}</Mono>
+                  {t("复用自")} <Mono className="text-indigo-700 dark:text-indigo-300">{adopted?.kind === "reuse" ? adopted.reusedFrom : ""}</Mono>
                 </p>
                 {reusedAdopted ? (
                   <div className="mt-2 rounded-md border border-slate-200 bg-white px-2.5 py-2 dark:border-slate-700 dark:bg-slate-900">
@@ -1170,7 +1172,7 @@ export function DetailView({
                     </div>
                   </div>
                 ) : (
-                  <p className={cn("mt-2 text-xs", muted)}>（历史方案详情可在下方对话调整中进一步细化）</p>
+                  <p className={cn("mt-2 text-xs", muted)}>{t("（历史方案详情可在下方对话调整中进一步细化）")}</p>
                 )}
               </div>
             )}
@@ -1182,7 +1184,7 @@ export function DetailView({
                 !isReuse)) && (
               <div className="mt-3 flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-slate-600 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-300">
                 <Loader2 className="size-4 animate-spin text-indigo-500" />
-                AI 正在分析根因，请稍候…
+                {t("AI 正在分析根因，请稍候…")}
               </div>
             )}
 
@@ -1192,7 +1194,7 @@ export function DetailView({
                 {!isLatestShown && (
                   <p className="inline-flex items-center gap-1 rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-300">
                     <Lock className="size-3" />
-                    历史版本 · 只读
+                    {t("历史版本 · 只读")}
                   </p>
                 )}
                 <p className="rounded-lg border border-indigo-100 bg-indigo-50/45 px-3 py-2.5 text-sm leading-relaxed text-slate-700 dark:border-indigo-500/20 dark:bg-indigo-500/10 dark:text-slate-200">
@@ -1200,7 +1202,7 @@ export function DetailView({
                 </p>
                 {shownVersion.content.referencedCases.length > 0 && (
                   <p className={cn("text-xs", muted)}>
-                    参考历史问题：
+                    {t("参考历史问题：")}
                     {shownVersion.content.referencedCases.map((c, i) => (
                       <React.Fragment key={c}>
                         {i > 0 && "、"}
@@ -1231,11 +1233,11 @@ export function DetailView({
               <div className="flex items-center justify-between gap-3">
                 <h2 className={cn(sectionTitle, "flex items-center gap-1.5")}>
                   <History className="size-4 text-slate-400" />
-                  对话调整（留痕）
+                  {t("对话调整（留痕）")}
                 </h2>
-                <span className={cn("shrink-0 text-xs", muted)}>{issue.messages.length} 条</span>
+                <span className={cn("shrink-0 text-xs", muted)}>{t("{count} 条", { count: issue.messages.length })}</span>
               </div>
-              <p className={cn("mt-1 text-xs", muted)}>每次调整都会生成新的分析版本，对话只增不改。</p>
+              <p className={cn("mt-1 text-xs", muted)}>{t("每次调整都会生成新的分析版本，对话只增不改。")}</p>
             </div>
             <ChatPanel
               messages={visibleMessages}

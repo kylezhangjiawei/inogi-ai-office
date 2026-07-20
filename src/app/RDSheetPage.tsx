@@ -16,6 +16,7 @@ import { Button } from "./components/ui/button";
 import { cn } from "./components/ui/utils";
 import { fetchRdSheetWorkbook, saveRdSheetWorkbook } from "./lib/rdApi";
 import { xlsxToUniverSnapshot } from "./lib/xlsxToUniver";
+import { t, useI18n } from "./lib/i18n";
 import type { RDSheetUniverHandle } from "./RDSheetUniver";
 
 // Univer 编辑器体积大：惰性加载（含 CSS），普通成员只读也走它以保真展示。
@@ -32,6 +33,7 @@ type Snapshot = Record<string, unknown>;
  * - 不再有「密级」列与行级裁剪：有页面权限即看全量。
  */
 export function RDSheetPage() {
+  const { lang } = useI18n();
   const { user } = useAuth();
   const userPerms = user?.permissions ?? [];
   const canEdit = hasPermission(userPerms, PERMISSIONS.RD_SHEET_EDIT);
@@ -58,7 +60,7 @@ export function RDSheetPage() {
         setReloadKey((k) => k + 1);
         setDirty(false);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "加载数据表失败"))
+      .catch((e) => setError(e instanceof Error ? e.message : t("加载数据表失败")))
       .finally(() => setLoading(false));
   }, []);
 
@@ -70,7 +72,7 @@ export function RDSheetPage() {
   const blocker = useBlocker(canEdit && dirty);
   useEffect(() => {
     if (blocker.state !== "blocked") return;
-    if (window.confirm("研发数据表有未保存的修改，确定离开吗？")) blocker.proceed();
+    if (window.confirm(t("研发数据表有未保存的修改，确定离开吗？"))) blocker.proceed();
     else blocker.reset();
   }, [blocker]);
 
@@ -85,17 +87,17 @@ export function RDSheetPage() {
         ? (snap as { sheetOrder: unknown[] }).sheetOrder.length
         : 0;
       if (!window.confirm(
-        `将用「${file.name}」（${sheetCount} 个工作表）整簿替换当前研发数据表。\n` +
-          `导入后需点「保存」才会写入服务器，或用「撤销改动」还原。是否继续？`,
+        t("将用「{file}」（{count} 个工作表）整簿替换当前研发数据表。", { file: file.name, count: sheetCount }) + "\n" +
+          t("导入后需点「保存」才会写入服务器，或用「撤销改动」还原。是否继续？"),
       )) {
         return;
       }
       setSnapshot(snap as Snapshot);
       setReloadKey((k) => k + 1);
       setDirty(true);
-      setNotice(`已从「${file.name}」导入 ${sheetCount} 个工作表（含图片/合并/样式），点「保存」生效。`);
+      setNotice(t("已从「{file}」导入 {count} 个工作表（含图片/合并/样式），点「保存」生效。", { file: file.name, count: sheetCount }));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "导入失败，请确认文件是有效的 .xlsx");
+      setError(e instanceof Error ? e.message : t("导入失败，请确认文件是有效的 .xlsx"));
     } finally {
       setImporting(false);
     }
@@ -118,19 +120,19 @@ export function RDSheetPage() {
     try {
       await handleRef.current?.commitPendingEdit();
       const snap = handleRef.current?.getSnapshot();
-      if (!snap) throw new Error("无法获取编辑器数据，请重试");
+      if (!snap) throw new Error(t("无法获取编辑器数据，请重试"));
       await saveRdSheetWorkbook(snap);
       setDirty(false);
-      setNotice("已保存。");
+      setNotice(t("已保存。"));
     } catch (e) {
-      setError(e instanceof Error ? e.message : "保存失败");
+      setError(e instanceof Error ? e.message : t("保存失败"));
     } finally {
       setSaving(false);
     }
   }, [canEdit]);
 
   const handleUndo = useCallback(() => {
-    if (dirty && !window.confirm("放弃自上次保存以来的所有改动，从服务器重新加载？")) return;
+    if (dirty && !window.confirm(t("放弃自上次保存以来的所有改动，从服务器重新加载？"))) return;
     setNotice(null);
     load();
   }, [dirty, load]);
@@ -144,16 +146,16 @@ export function RDSheetPage() {
     try {
       const res = await handleRef.current?.convertFloatingImagesToCells();
       if (!res || res.total === 0) {
-        setNotice("当前工作表没有浮动图片可转换。");
+        setNotice(t("当前工作表没有浮动图片可转换。"));
         return;
       }
       setNotice(
         res.converted === res.total
-          ? `已将 ${res.converted} 张浮动图片转为单元格图片，点「保存」生效。`
-          : `已转换 ${res.converted}/${res.total} 张（其余转换失败已跳过），点「保存」生效。`,
+          ? t("已将 {count} 张浮动图片转为单元格图片，点「保存」生效。", { count: res.converted })
+          : t("已转换 {converted}/{total} 张（其余转换失败已跳过），点「保存」生效。", { converted: res.converted, total: res.total }),
       );
     } catch (e) {
-      setError(e instanceof Error ? e.message : "转换失败");
+      setError(e instanceof Error ? e.message : t("转换失败"));
     } finally {
       setConverting(false);
     }
@@ -177,10 +179,10 @@ export function RDSheetPage() {
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-600 text-white shadow-[0_10px_22px_rgba(79,70,229,0.22)]">
                 <FileSpreadsheet className="w-4 h-4" />
               </span>
-              <span className="truncate">研发数据表</span>
+              <span className="truncate">{t("研发数据表")}</span>
             </h1>
             <p className="mt-1.5 text-sm font-medium text-slate-500">
-              高保真导入 / 编辑 xlsx 工作簿（图片、合并单元格、样式原样保留）
+              {t("高保真导入 / 编辑 xlsx 工作簿（图片、合并单元格、样式原样保留）")}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 xl:justify-end">
@@ -190,10 +192,10 @@ export function RDSheetPage() {
               onClick={handleUndo}
               disabled={loading || saving || importing}
               className="h-9 gap-2 rounded-lg border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
-              title="从服务器重新加载（放弃未保存改动）"
+              title={t("从服务器重新加载（放弃未保存改动）")}
             >
               <RotateCcw className={cn("w-4 h-4", loading && "animate-spin")} />
-              {canEdit ? "撤销改动" : "刷新"}
+              {canEdit ? t("撤销改动") : t("刷新")}
             </Button>
             {canEdit && (
               <Button
@@ -202,10 +204,10 @@ export function RDSheetPage() {
                 onClick={() => void handleConvertImages()}
                 disabled={converting || importing || saving || loading}
                 className="h-9 gap-2 rounded-lg border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50"
-                title="把粘贴/导入进来的浮动图片转成嵌入单元格的图片（转换后点保存）"
+                title={t("把粘贴/导入进来的浮动图片转成嵌入单元格的图片（转换后点保存）")}
               >
                 {converting ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImageDown className="w-4 h-4" />}
-                {converting ? "转换中…" : "转为单元格图片"}
+                {converting ? t("转换中…") : t("转为单元格图片")}
               </Button>
             )}
             {canEdit && (
@@ -217,7 +219,7 @@ export function RDSheetPage() {
                 className="h-9 gap-2 rounded-lg border-indigo-200 bg-white px-3 text-sm font-semibold text-indigo-600 hover:bg-indigo-50"
               >
                 {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
-                {importing ? "解析中…" : "导入 xlsx"}
+                {importing ? t("解析中…") : t("导入 xlsx")}
               </Button>
             )}
             {canEdit && (
@@ -228,7 +230,7 @@ export function RDSheetPage() {
                 className="h-9 gap-2 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(79,70,229,0.20)] hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                {saving ? "保存中…" : "保存"}
+                {saving ? t("保存中…") : t("保存")}
               </Button>
             )}
           </div>
@@ -242,14 +244,14 @@ export function RDSheetPage() {
             <>
               <Info className="mt-0.5 h-4 w-4 shrink-0 text-indigo-500" />
               <span>
-                已接入 Univer Sheets 编辑器，支持多工作表、合并单元格、图片与样式。
-                <strong className="text-slate-700">「导入 xlsx」会整簿替换</strong>当前数据；编辑或导入后点「保存」生效。
+                {t("已接入 Univer Sheets 编辑器，支持多工作表、合并单元格、图片与样式。")}{" "}
+                <strong className="text-slate-700">{t("「导入 xlsx」会整簿替换")}</strong>{" "}{t("当前数据；编辑或导入后点「保存」生效。")}
               </span>
             </>
           ) : (
             <>
               <Lock className="mt-0.5 h-4 w-4 shrink-0 text-slate-400" />
-              <span>你拥有<strong className="text-slate-700">只读</strong>查看权限。如需编辑 / 导入 / 保存，请联系管理员分配「编辑研发数据表」权限。</span>
+              <span>{t("你拥有")} {" "}<strong className="text-slate-700">{t("只读")}</strong>{" "}{t("查看权限。如需编辑 / 导入 / 保存，请联系管理员分配「编辑研发数据表」权限。")}</span>
             </>
           )}
         </div>
@@ -267,7 +269,7 @@ export function RDSheetPage() {
           <div className="flex h-[70vh] min-h-[480px] items-center justify-center text-sm text-slate-400">
             {error ? error : (
               <span className="inline-flex items-center gap-2">
-                <Loader2 className="h-4 w-4 animate-spin" /> 加载中…
+                <Loader2 className="h-4 w-4 animate-spin" /> {t("加载中…")}
               </span>
             )}
           </div>
@@ -276,7 +278,7 @@ export function RDSheetPage() {
             fallback={
               <div className="flex h-[70vh] min-h-[480px] items-center justify-center text-sm text-slate-400">
                 <span className="inline-flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin" /> 编辑器加载中…
+                  <Loader2 className="h-4 w-4 animate-spin" /> {t("编辑器加载中…")}
                 </span>
               </div>
             }
@@ -285,6 +287,7 @@ export function RDSheetPage() {
               key={reloadKey}
               ref={handleRef}
               snapshot={snapshot as never}
+              lang={lang}
               readOnly={!canEdit}
               recentColorOwnerKey={user?.id}
               onDirty={() => setDirty(true)}

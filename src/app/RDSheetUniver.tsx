@@ -18,8 +18,10 @@ import {
 } from "@univerjs/preset-sheets-core";
 import type { IColorPickerProps } from "@univerjs/preset-sheets-core";
 import sheetsCoreZhCN from "@univerjs/preset-sheets-core/locales/zh-CN";
+import sheetsCoreEnUS from "@univerjs/preset-sheets-core/locales/en-US";
 import { UniverSheetsDrawingPreset } from "@univerjs/preset-sheets-drawing";
 import sheetsDrawingZhCN from "@univerjs/preset-sheets-drawing/locales/zh-CN";
+import sheetsDrawingEnUS from "@univerjs/preset-sheets-drawing/locales/en-US";
 import "@univerjs/preset-sheets-core/lib/index.css";
 import "@univerjs/preset-sheets-drawing/lib/index.css";
 import type { IWorkbookData, Univer, FUniver } from "@univerjs/presets";
@@ -54,10 +56,12 @@ type Props = {
   onDirty?: () => void;
   /** 最近使用颜色按登录人隔离，避免同一浏览器切换账号后串用偏好。 */
   recentColorOwnerKey?: string;
+  /** Univer 内置菜单语言；切换语言时由父组件通过 key 重建编辑器。 */
+  lang: "zh" | "en";
 };
 
 export const RDSheetUniver = forwardRef<RDSheetUniverHandle, Props>(function RDSheetUniver(
-  { snapshot, onDirty, recentColorOwnerKey = "anonymous" },
+  { snapshot, onDirty, recentColorOwnerKey = "anonymous", lang },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -67,6 +71,8 @@ export const RDSheetUniver = forwardRef<RDSheetUniverHandle, Props>(function RDS
   snapshotRef.current = snapshot;
   const onDirtyRef = useRef(onDirty);
   onDirtyRef.current = onDirty;
+  // Univer 暂无无损热切换语言入口；固定本次装载语言，避免切换全站语言时重建编辑器并丢失未保存修改。
+  const initialLangRef = useRef(lang);
   const loadedRef = useRef(false);
 
   useImperativeHandle(
@@ -179,9 +185,13 @@ export const RDSheetUniver = forwardRef<RDSheetUniverHandle, Props>(function RDS
     if (!container) return;
     loadedRef.current = false;
 
+    const univerLocale = initialLangRef.current === "en" ? LocaleType.EN_US : LocaleType.ZH_CN;
+    const localeMessages = initialLangRef.current === "en"
+      ? merge({}, sheetsCoreEnUS, sheetsDrawingEnUS)
+      : merge({}, sheetsCoreZhCN, sheetsDrawingZhCN);
     const { univer, univerAPI } = createUniver({
-      locale: LocaleType.ZH_CN,
-      locales: { [LocaleType.ZH_CN]: merge({}, sheetsCoreZhCN, sheetsDrawingZhCN) },
+      locale: univerLocale,
+      locales: { [univerLocale]: localeMessages },
       theme: defaultTheme,
       presets: [UniverSheetsCorePreset({ container }), UniverSheetsDrawingPreset()],
     });

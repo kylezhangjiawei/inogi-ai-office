@@ -355,15 +355,15 @@ function getTaskRiskReason(task: Task): { type: Risk["type"]; reason: string } |
   // 待审核：申请者已提交，责任在审核侧；只有"逾期后才提交"才算其逾期（方案B）。按时提交不算风险。
   if (task.status === "pending_review") {
     const late = taskOverdueDays(task);
-    return late > 0 ? { type: "overdue", reason: `逾期提交 ${late} 天` } : null;
+  return late > 0 ? { type: "overdue", reason: t("逾期提交 {days} 天", { days: late }) } : null;
   }
-  if (dleft !== null && dleft < 0) return { type: "overdue", reason: `已逾期 ${-dleft} 天` };
-  if (task.status === "paused_blocked") return { type: "blocked", reason: "阻塞中" };
+  if (dleft !== null && dleft < 0) return { type: "overdue", reason: t("已逾期 {days} 天", { days: -dleft }) };
+  if (task.status === "paused_blocked") return { type: "blocked", reason: t("阻塞中") };
   if (dleft !== null && dleft <= 2)
-    return { type: "due_soon", reason: dleft === 0 ? "今日到期" : `${dleft} 天内到期` };
-  if (task.status === "pending_assign") return { type: "pending", reason: "待人工指派" };
+    return { type: "due_soon", reason: dleft === 0 ? t("今日到期") : t("{days} 天内到期", { days: dleft }) };
+  if (task.status === "pending_assign") return { type: "pending", reason: t("待人工指派") };
   if (task.final_priority === "high" && task.progress < 30 && task.status === "in_progress")
-    return { type: "slow", reason: "高优先级·进度偏低" };
+    return { type: "slow", reason: t("高优先级·进度偏低") };
   return null;
 }
 
@@ -479,7 +479,7 @@ function PriorityPill({ priority, aiPriority }: { priority: Priority; aiPriority
         cfg.text,
         adjusted && "ring-1 ring-amber-300",
       )}
-      title={adjusted && aiPriority ? `AI 建议: ${PRIORITY_CONFIG[aiPriority].label}，已被组长调整` : `优先级 ${cfg.label}`}
+      title={adjusted && aiPriority ? t("AI 建议: {priority}，已被组长调整", { priority: t(PRIORITY_CONFIG[aiPriority].label) }) : t("优先级 {priority}", { priority: t(cfg.label) })}
     >
       {cfg.label}
       {adjusted && <span className="ml-px text-[8px] opacity-70">·</span>}
@@ -610,13 +610,13 @@ function RiskListTooltip({
           <li key={r.task.task_id + r.type} className="flex items-start gap-1.5">
             <span className={cn("mt-1 h-1.5 w-1.5 shrink-0 rounded-full", RISK_DOT_COLOR[r.type])} />
             <span className="min-w-0 flex-1">
-              <span className="font-medium opacity-95">{RISK_LABEL[r.type]}</span>
+              <span className="font-medium opacity-95">{t(RISK_LABEL[r.type])}</span>
               <span className="opacity-60"> · {r.reason}</span>
               <div className="truncate opacity-80">{r.task.title}</div>
             </span>
           </li>
         ))}
-        {hidden > 0 && <li className="text-[11px] opacity-60">…还有 {hidden} 项</li>}
+        {hidden > 0 && <li className="text-[11px] opacity-60">{t("…还有 {count} 项", { count: hidden })}</li>}
       </ul>
     </div>
   );
@@ -637,9 +637,9 @@ function RiskCard({ risk, onClick }: { risk: Risk; onClick: () => void }) {
         <Icon className="h-4 w-4" />
       </span>
       <div className="min-w-0 flex-1">
-        <div className="truncate text-sm font-semibold text-slate-900">{risk.task.title}</div>
+        <AutoTranslatedText as="div" className="truncate text-sm font-semibold text-slate-900" text={risk.task.title} />
         <div className="mt-0.5 flex items-center gap-1.5 text-xs">
-          <span className={cn("font-semibold", isCritical ? "text-red-600" : "text-amber-600")}>{risk.reason}</span>
+          <span className={cn("font-semibold", isCritical ? "text-red-600" : "text-amber-600")}>{t(risk.reason)}</span>
           <span className="text-slate-400">·</span>
           <span className="text-slate-500">{risk.task.primary_owner}</span>
         </div>
@@ -655,12 +655,12 @@ function RiskBanner({ risks, onOpen }: { risks: Risk[]; onOpen: (t: Task) => voi
     <div className="rounded-[8px] bg-red-50/55 px-3 py-2.5 ring-1 ring-red-100/80">
       <div className="mb-2.5 flex items-center gap-2">
         <AlertTriangle className="h-4 w-4 text-red-600" />
-        <h3 className="text-[15px] font-semibold text-slate-800">需要立刻关注</h3>
+        <h3 className="text-[15px] font-semibold text-slate-800">{t("需要立刻关注")}</h3>
         <span className="text-xs text-slate-500">
-          <span className="font-semibold text-red-600">{critCount}</span> 紧急 ·{" "}
-          <span className="font-semibold text-amber-600">{risks.length - critCount}</span> 警告
+          <span className="font-semibold text-red-600">{critCount}</span> {t("紧急")} ·{" "}
+          <span className="font-semibold text-amber-600">{risks.length - critCount}</span> {t("警告")}
         </span>
-        <span className="ml-auto hidden text-xs font-medium text-slate-500 sm:inline">逾期 / 阻塞 / 高优滞后</span>
+        <span className="ml-auto hidden text-xs font-medium text-slate-500 sm:inline">{t("逾期 / 阻塞 / 高优滞后")}</span>
       </div>
       <div className="-mb-1 flex gap-1.5 overflow-x-auto pb-1 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300">
         {risks.map((r) => (
@@ -694,7 +694,7 @@ function DueDateChip({ task }: { task: Task }) {
     ? `逾期 ${overdueDays}d`
     : dleft < 0
       ? dateStr.slice(5)
-      : dleft === 0 ? "今日" : dleft <= 7 ? `${dleft}天后` : dateStr.slice(5);
+      : dleft === 0 ? t("今日") : dleft <= 7 ? t("{days}天后", { days: dleft }) : dateStr.slice(5);
   return (
     <span className={cn("inline-flex items-center gap-1 rounded border px-1.5 py-0.5 text-xs font-semibold", tone)}>
       <TimerReset className="h-3 w-3" />
@@ -887,7 +887,7 @@ function TaskItem({
               {depth === 0 ? task.task_id : task.task_id.replace("RD-2026-", "")}
             </span>
             {task.ai_modified && (
-              <span className="inline-flex shrink-0 text-amber-500" title="AI 输出已被人工修改">
+              <span className="inline-flex shrink-0 text-amber-500" title={t("AI 输出已被人工修改")}>
                 <Pencil className="h-3 w-3" />
               </span>
             )}
@@ -951,13 +951,13 @@ function TaskItem({
             <div className="flex items-center justify-between border-b border-slate-300 px-3 py-2">
               <div className="flex items-center gap-2">
                 <span className={cn("h-2.5 w-2.5 rounded-full", taskAccentClass(task))} />
-                <span className="text-sm font-semibold text-slate-800">子任务</span>
+                <span className="text-sm font-semibold text-slate-800">{t("子任务")}</span>
                 <span className="rounded bg-white px-1.5 py-0.5 text-xs font-semibold tabular-nums text-slate-600">
-                  {task.subtasks!.length} 项
+                  {t("{n} 项", { n: task.subtasks!.length })}
                 </span>
               </div>
               <span className="hidden text-xs font-medium text-slate-500 sm:inline">
-                隶属于 {task.task_id}
+                {t("隶属于 {taskId}", { taskId: task.task_id })}
               </span>
             </div>
           )}
@@ -1053,9 +1053,9 @@ function SubtaskBlock({
           <span className="font-bold text-slate-600">
             L{depth}
           </span>
-          <span className="ml-1.5">{stats.total} 项</span>
-          {stats.done > 0 && <span className="ml-1 text-emerald-600">· {stats.done} 完成</span>}
-          {stats.blocked > 0 && <span className="ml-1 text-orange-600">· {stats.blocked} 阻塞</span>}
+          <span className="ml-1.5">{t("{count} 项", { count: stats.total })}</span>
+          {stats.done > 0 && <span className="ml-1 text-emerald-600">· {t("{count} 完成", { count: stats.done })}</span>}
+          {stats.blocked > 0 && <span className="ml-1 text-orange-600">· {t("{count} 阻塞", { count: stats.blocked })}</span>}
         </span>
         <span className="tabular-nums text-slate-400">avg {stats.avg}%</span>
       </div>
@@ -1138,7 +1138,7 @@ function SubtaskRow({
         {/* Child count badge */}
         {hasChildren && (
           <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
-          {task.subtasks!.length} 项
+          {t("{count} 项", { count: task.subtasks!.length })}
           </span>
         )}
 
@@ -1257,7 +1257,7 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
           )}
 
           {task.description && (
-            <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-500">{task.description}</p>
+            <AutoTranslatedText as="p" className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-500" text={task.description} />
           )}
 
           <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
@@ -1267,7 +1267,7 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
             </span>
             <span className="inline-flex items-center gap-1.5">
               <TimerReset className="h-3.5 w-3.5 text-slate-400" />
-              {task.due_date ? <DueDateChip task={task} /> : <span className="font-medium text-slate-500">未设截止</span>}
+              {task.due_date ? <DueDateChip task={task} /> : <span className="font-medium text-slate-500">{t("未设截止")}</span>}
             </span>
             {task.attachments > 0 && (
               <span className="inline-flex items-center gap-1 font-medium text-slate-500">
@@ -1288,23 +1288,23 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
                     onClick={(e) => e.stopPropagation()}
                   >
                     <AlertTriangle className="h-3.5 w-3.5" />
-                    {ownRisk?.reason ?? "子任务风险"}
+                    {t(ownRisk?.reason ?? "子任务风险")}
                   </span>
                 </TooltipTrigger>
                 <TooltipContent side="top" align="start">
                   <div className="max-w-xs space-y-0.5">
                     <div className="flex items-center gap-1.5 text-xs font-semibold">
                       <AlertTriangle className="h-3.5 w-3.5 text-red-300" />
-                      需要立刻关注
+                      {t("需要立刻关注")}
                     </div>
                     {ownRisk ? (
                       <div className="flex items-center gap-1.5 text-[11px]">
                         <span className={cn("h-1.5 w-1.5 rounded-full", RISK_DOT_COLOR[ownRisk.type])} />
-                        <span className="font-medium">{RISK_LABEL[ownRisk.type]}</span>
-                        <span className="opacity-70">· {ownRisk.reason}</span>
+                        <span className="font-medium">{t(RISK_LABEL[ownRisk.type])}</span>
+                        <span className="opacity-70">· {t(ownRisk.reason)}</span>
                       </div>
                     ) : (
-                      <div className="text-[11px] opacity-70">下级任务存在逾期、阻塞或待指派问题。</div>
+                      <div className="text-[11px] opacity-70">{t("下级任务存在逾期、阻塞或待指派问题。")}</div>
                     )}
                   </div>
                 </TooltipContent>
@@ -1323,7 +1323,7 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
             type="button"
             className="flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-500 transition-all duration-200 hover:bg-white hover:text-slate-800 active:scale-90"
             onClick={() => setExpanded((value) => !value)}
-            aria-label={expanded ? "收起子任务" : "展开子任务"}
+            aria-label={expanded ? t("收起子任务") : t("展开子任务")}
             aria-expanded={expanded}
           >
             <ChevronRight
@@ -1348,17 +1348,17 @@ function TaskCard({ task, onOpen }: { task: Task; onOpen: (t: Task) => void }) {
             className="ml-3 mt-1.5 flex w-[calc(100%-0.75rem)] flex-wrap items-center gap-x-2 gap-y-1 rounded-md px-2.5 py-1 text-xs text-slate-500 transition-colors hover:bg-white/75"
           >
             <ChevronRight className="h-3 w-3 shrink-0 text-slate-500" />
-            <span className="font-semibold text-slate-700">{task.subtasks!.length} 个子任务</span>
+            <span className="font-semibold text-slate-700">{t("{n} 个子任务", { n: task.subtasks!.length })}</span>
             <span className="text-slate-400">·</span>
-            <span>共 <span className="font-semibold tabular-nums text-slate-700">{stats.total}</span> 项</span>
+            <span>{t("共")} <span className="font-semibold tabular-nums text-slate-700">{stats.total}</span> {t("项")}</span>
             {stats.done > 0 && (
               <span className="text-emerald-600">
-                · <span className="tabular-nums">{stats.done}</span> 完成
+                · <span className="tabular-nums">{stats.done}</span> {t("完成")}
               </span>
             )}
             {stats.blocked > 0 && (
               <span className="text-orange-600">
-                · <span className="tabular-nums">{stats.blocked}</span> 阻塞
+                · <span className="tabular-nums">{stats.blocked}</span> {t("阻塞")}
               </span>
             )}
             <span className="ml-auto tabular-nums text-slate-500">avg {stats.avg}%</span>
@@ -1422,7 +1422,7 @@ function SubProjectSection({
           type="button"
           onClick={() => setOpen((v) => !v)}
           className="flex h-7 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-500 transition-all duration-200 hover:bg-white/80 hover:text-slate-800 active:scale-90"
-          aria-label={open ? `收起${sub.label}` : `展开${sub.label}`}
+                  aria-label={open ? t("收起 {name}", { name: sub.label }) : t("展开 {name}", { name: sub.label })}
           aria-expanded={open}
         >
           <ChevronRight
@@ -1436,7 +1436,7 @@ function SubProjectSection({
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="text-base font-semibold text-slate-900">{sub.label}</h3>
             <span className="text-xs font-semibold text-slate-500">
-              {activeCount} 个活跃任务
+              {t("{count} 个活跃任务", { count: activeCount })}
             </span>
             {riskCount > 0 &&
               (() => {
@@ -1454,7 +1454,7 @@ function SubProjectSection({
                       </span>
                     </TooltipTrigger>
                     <TooltipContent side="bottom" align="start">
-                      <RiskListTooltip title={`${sub.label} · ${riskCount} 个风险任务`} risks={subRisks} />
+                    <RiskListTooltip title={t("{name} · {count} 个风险任务", { name: sub.label, count: riskCount })} risks={subRisks} />
                     </TooltipContent>
                   </Tooltip>
                 );
@@ -1489,7 +1489,7 @@ function SubProjectSection({
               </div>
             ) : (
               <div className="rounded-[8px] border border-dashed border-slate-300 bg-white/45 px-4 py-8 text-center text-sm font-medium text-slate-500">
-                当前部件暂无任务
+                {t("当前部件暂无任务")}
               </div>
             )}
           </div>
@@ -1788,20 +1788,20 @@ function CategorySidebar({
       <div className="border-b border-slate-200/70 px-4 py-3">
         <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">Navigation</div>
         <div className="mt-1 flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold text-slate-950">研发系统树</h2>
+          <h2 className="text-sm font-semibold text-slate-950">{t("研发系统树")}</h2>
           <div className="flex items-center gap-2">
             {totalRisks > 0 && (
-              <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">{totalRisks} 风险</span>
+              <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">{t("{count} 个风险", { count: totalRisks })}</span>
             )}
             {canManageTree && onRequestEditor && (
               <button
                 type="button"
                 onClick={() => onRequestEditor({ mode: "add-system" })}
                 className="inline-flex h-7 items-center gap-1 rounded-md border border-indigo-100 bg-indigo-50 px-2 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100"
-                title="新增一级系统"
+                title={t("新增一级系统")}
               >
                 <Plus className="h-3 w-3" />
-                新增
+                {t("新增")}
               </button>
             )}
           </div>
@@ -1821,10 +1821,10 @@ function CategorySidebar({
                 "flex h-10 w-full cursor-pointer items-center gap-2 rounded-[8px] px-2.5 text-left transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 active:scale-[0.99]",
                 selectedId === null ? "bg-white text-indigo-700 shadow-[0_8px_20px_rgba(79,70,229,0.08)] ring-1 ring-indigo-100" : "text-slate-600 hover:bg-white/80 hover:text-slate-900 hover:shadow-[0_8px_18px_rgba(15,23,42,0.04)]",
               )}
-              aria-label="全部系统"
+              aria-label={t("全部系统")}
             >
               <LayoutGrid className="h-4 w-4 shrink-0" />
-              <span className="min-w-0 flex-1 truncate text-sm font-semibold">全部系统</span>
+              <span className="min-w-0 flex-1 truncate text-sm font-semibold">{t("全部系统")}</span>
               {totalRisks > 0 && (
                 <span className="flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 text-[10px] font-bold leading-5 text-white">
                   {totalRisks}
@@ -1833,7 +1833,7 @@ function CategorySidebar({
             </button>
           </TooltipTrigger>
           <TooltipContent side="right" align="start">
-            <RiskListTooltip title={`全部系统 · ${totalRisks} 个风险任务`} risks={allRisks} />
+            <RiskListTooltip title={t("全部系统 · {count} 个风险任务", { count: totalRisks })} risks={allRisks} />
           </TooltipContent>
         </Tooltip>
 
@@ -1860,7 +1860,7 @@ function CategorySidebar({
                   type="button"
                   onClick={() => toggleExpanded(cat.id)}
                   className="flex h-8 w-7 shrink-0 cursor-pointer items-center justify-center rounded-md text-slate-400 transition-all duration-200 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-95"
-                  aria-label={expanded ? `收起 ${cat.label}` : `展开 ${cat.label}`}
+                  aria-label={expanded ? t("收起 {name}", { name: cat.label }) : t("展开 {name}", { name: cat.label })}
                   aria-expanded={expanded}
                 >
                   <ChevronRight
@@ -1895,7 +1895,7 @@ function CategorySidebar({
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "add-sub", category: cat }); }}
                       className="rounded p-1 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600"
-                      title="新增子项"
+                      title={t("新增子项")}
                     >
                       <FolderPlus className="h-3.5 w-3.5" />
                     </button>
@@ -1903,7 +1903,7 @@ function CategorySidebar({
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "edit-system", category: cat }); }}
                       className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                      title="重命名"
+                      title={t("重命名")}
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </button>
@@ -1912,7 +1912,7 @@ function CategorySidebar({
                         type="button"
                         onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "delete-system", category: cat }); }}
                         className="rounded p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
-                        title={subTaskCount > 0 ? `删除（含 ${subTaskCount} 个任务，将一并删除）` : "删除"}
+                        title={subTaskCount > 0 ? t("删除（含 {count} 个任务，将一并删除）", { count: subTaskCount }) : t("删除")}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
@@ -1928,7 +1928,7 @@ function CategorySidebar({
                       </span>
                     </TooltipTrigger>
                     <TooltipContent side="right" align="start">
-                      <RiskListTooltip title={`${cat.label} · ${risks} 个风险任务`} risks={riskItems} />
+                      <RiskListTooltip title={t("{name} · {count} 个风险任务", { name: cat.label, count: risks })} risks={riskItems} />
                     </TooltipContent>
                   </Tooltip>
                 )}
@@ -1996,7 +1996,7 @@ function CategorySidebar({
                                       ? "cursor-not-allowed text-slate-300"
                                       : "text-slate-400 hover:bg-slate-100 hover:text-slate-700",
                                   )}
-                                  title={subTaskTotal > 0 ? `含 ${subTaskTotal} 个任务，请先移空后再改名` : "重命名"}
+                                  title={subTaskTotal > 0 ? t("含 {count} 个任务，请先移空后再改名", { count: subTaskTotal }) : t("重命名")}
                                 >
                                   <Pencil className="h-3 w-3" />
                                 </button>
@@ -2006,7 +2006,7 @@ function CategorySidebar({
                                   type="button"
                                   onClick={(e) => { e.stopPropagation(); onRequestEditor({ mode: "move-tasks", fromCategory: cat, fromSub: sub }); }}
                                   className="rounded p-1 text-slate-400 hover:bg-indigo-50 hover:text-indigo-600"
-                                  title="移动任务"
+                                  title={t("移动任务")}
                                 >
                                   <ArrowRight className="h-3 w-3" />
                                 </button>
@@ -2022,7 +2022,7 @@ function CategorySidebar({
                                       ? "cursor-not-allowed text-slate-300"
                                       : "text-slate-400 hover:bg-red-50 hover:text-red-600",
                                   )}
-                                  title={subTaskTotal > 0 ? `含 ${subTaskTotal} 个任务，请先移空后再删除` : "删除"}
+                                  title={subTaskTotal > 0 ? t("含 {count} 个任务，请先移空后再删除", { count: subTaskTotal }) : t("删除")}
                                 >
                                   <Trash2 className="h-3 w-3" />
                                 </button>
@@ -2065,12 +2065,12 @@ function SystemTreeEditorDialog({
   const isAdd = request.mode === "add-system" || request.mode === "add-sub";
 
   const title =
-    request.mode === "add-system" ? "新增一级系统"
-    : request.mode === "edit-system" ? "重命名一级系统"
-    : request.mode === "delete-system" ? "删除一级系统"
-    : request.mode === "add-sub" ? `在「${request.category.label}」下新增子项`
-    : request.mode === "edit-sub" ? "重命名子项"
-    : "删除子项";
+    request.mode === "add-system" ? t("新增一级系统")
+    : request.mode === "edit-system" ? t("重命名一级系统")
+    : request.mode === "delete-system" ? t("删除一级系统")
+    : request.mode === "add-sub" ? t("在「{name}」下新增子项", { name: request.category.label })
+    : request.mode === "edit-sub" ? t("重命名子项")
+    : t("删除子项");
 
   const taskCount =
     request.mode === "delete-system"
@@ -2091,7 +2091,7 @@ function SystemTreeEditorDialog({
     }
     const trimmed = label.trim();
     if (!trimmed) {
-      toast.error("名称不能为空");
+      toast.error(t("名称不能为空"));
       return;
     }
     setSaving(true);
@@ -2144,32 +2144,32 @@ function SystemTreeEditorDialog({
           {isDelete ? (
             <>
               <p className="text-sm text-slate-700">
-                确认删除「<span className="font-semibold text-slate-900">{request.mode === "delete-system" ? request.category.label : (request as { sub: SubProject }).sub.label}</span>」？
+                {t("确认删除「{name}」？", { name: request.mode === "delete-system" ? request.category.label : (request as { sub: SubProject }).sub.label })}
               </p>
               {taskCount > 0 && (
                 <div className="flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50/70 px-3 py-2.5 text-xs text-amber-700">
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  <span>该节点下还有 <b>{taskCount}</b> 个任务，删除后会一并清除，操作不可恢复。</span>
+                  <span>{t("该节点下还有 {count} 个任务，删除后会一并清除，操作不可恢复。", { count: taskCount })}</span>
                 </div>
               )}
               {taskCount === 0 && (
-                <p className="text-xs text-slate-500">该节点下没有任务，删除安全。</p>
+                <p className="text-xs text-slate-500">{t("该节点下没有任务，删除安全。")}</p>
               )}
             </>
           ) : (
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-slate-700">名称</label>
+              <label className="mb-1.5 block text-xs font-medium text-slate-700">{t("名称")}</label>
               <Input
                 autoFocus
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") handleConfirm(); }}
-                placeholder={isAdd ? (request.mode === "add-system" ? "例：新型动力系统" : "例：主控板") : "新名称"}
+                placeholder={isAdd ? (request.mode === "add-system" ? t("例：新型动力系统") : t("例：主控板")) : t("新名称")}
                 disabled={saving}
                 className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50"
               />
               {request.mode === "add-system" && (
-                <p className="mt-1.5 text-[11px] text-slate-400">将作为研发系统树的一级节点；可在保存后添加子项。</p>
+                <p className="mt-1.5 text-[11px] text-slate-400">{t("将作为研发系统树的一级节点；可在保存后添加子项。")}</p>
               )}
             </div>
           )}
@@ -2182,7 +2182,7 @@ function SystemTreeEditorDialog({
             onClick={onClose}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
-            取消
+            {t("取消")}
           </button>
           <button
             type="button"
@@ -2194,7 +2194,7 @@ function SystemTreeEditorDialog({
             )}
           >
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            {isDelete ? "确认删除" : isEdit ? "保存" : "新增"}
+            {isDelete ? t("确认删除") : isEdit ? t("保存") : t("新增")}
           </button>
         </div>
       </motion.div>
@@ -2233,15 +2233,15 @@ function ExecutiveRiskList({ risks, onOpen }: { risks: Risk[]; onOpen: (task: Ta
     <section className="rounded-[8px] bg-white px-4 py-4 shadow-[0_14px_35px_rgba(15,23,42,0.045)] ring-1 ring-slate-200/75">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold text-slate-950">需要决策</h2>
-          <p className="sr-only">只列最需要领导关注的事项</p>
+          <h2 className="text-base font-semibold text-slate-950">{t("需要决策")}</h2>
+          <p className="sr-only">{t("只列最需要领导关注的事项")}</p>
         </div>
-        <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">{risks.length} 项</span>
+        <span className="rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700">{t("{count} 项", { count: risks.length })}</span>
       </div>
 
       {shown.length === 0 ? (
         <div className="rounded-[8px] bg-emerald-50 px-3 py-4 text-sm font-medium text-emerald-700">
-          当前没有需要升级处理的风险。
+          {t("当前没有需要升级处理的风险。")}
         </div>
       ) : (
         <div className="divide-y divide-slate-100">
@@ -2293,15 +2293,15 @@ function SystemHealthGrid({
     <section className="rounded-[8px] bg-white px-4 py-4 shadow-[0_14px_35px_rgba(15,23,42,0.045)] ring-1 ring-slate-200/75">
       <div className="mb-3 flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-base font-semibold text-slate-950">系统健康</h2>
-          <p className="sr-only">按风险和进度自动排序</p>
+          <h2 className="text-base font-semibold text-slate-950">{t("系统健康")}</h2>
+          <p className="sr-only">{t("按风险和进度自动排序")}</p>
         </div>
         <button
           type="button"
           onClick={() => onSelect(null)}
           className="cursor-pointer rounded-md px-2 py-1 text-xs font-semibold text-slate-500 hover:bg-slate-50 hover:text-slate-800"
         >
-          全局
+          {t("全局")}
         </button>
       </div>
 
@@ -2337,7 +2337,7 @@ function SystemHealthGrid({
 
       {stableCount > 0 && (
         <div className="mt-3 rounded-[8px] bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-700">
-          其余 {stableCount} 个系统暂未进入领导关注列表。
+          {t("其余 {count} 个系统暂未进入领导关注列表。", { count: stableCount })}
         </div>
       )}
     </section>
@@ -2363,10 +2363,10 @@ function SelectedScopePanel({
       <div className="flex flex-wrap items-center gap-3">
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-base font-semibold text-slate-950">{selectedLabel}</h2>
-          <p className="sr-only">点击左侧图标切换系统，点击事项查看详情</p>
+          <p className="sr-only">{t("点击左侧图标切换系统，点击事项查看详情")}</p>
         </div>
         <div className="flex items-center gap-3 text-sm">
-          <span className="font-semibold text-slate-700">{selectedStat.total} 项</span>
+          <span className="font-semibold text-slate-700">{t("{count} 项", { count: selectedStat.total })}</span>
           <span className="font-semibold text-indigo-700">{selectedStat.progress}%</span>
         </div>
       </div>
@@ -2387,7 +2387,7 @@ function SelectedScopePanel({
         </div>
       ) : (
         <div className="mt-3 rounded-[8px] bg-emerald-50 px-3 py-3 text-sm font-medium text-emerald-700">
-          当前系统暂无升级风险。
+          {t("当前系统暂无升级风险。")}
         </div>
       )}
     </section>
@@ -2419,7 +2419,7 @@ function findRdAiScene(settings: RdAiSettingsPayload | null, sceneId: string) {
 }
 
 function describeRdAiModel(settings: RdAiSettingsPayload | null, modelId?: string) {
-  if (!modelId) return "跟随默认模型";
+  if (!modelId) return t("跟随默认模型");
   const model = settings?.runtime?.models?.find((item) => item.id === modelId);
   if (!model) return modelId;
   return `${model.name || model.model} / ${model.model}`;
@@ -2470,7 +2470,7 @@ function mergeRdFiles(current: File[], incoming: File[]) {
 function describeFileRule(settings: RdAiSettingsPayload | null, filename: string) {
   const extension = fileExtension(filename);
   const rule = settings?.file_policy.rules.find((item) => item.extensions.includes(extension));
-  if (!rule) return "未知文件 / 文本抽取 / OCR 兜底";
+  if (!rule) return t("未知文件 / 文本抽取 / OCR 兜底");
   const parts = [rule.label, rule.strategy];
   if (rule.ocr_fallback) parts.push("OCR 兜底");
   if (rule.ai_after_parse) parts.push("AI 结构化");
@@ -2611,10 +2611,10 @@ function AiCreatePanel({
       setAiSummary(result.summary ?? `已解析 ${result.tasks.length} 个任务，当前展示第 1 个`);
       setModifiedFields(new Set());
       setAiState("review");
-      toast.success(`AI 已解析 ${result.tasks.length} 个任务`);
+      toast.success(t("AI 已解析 {count} 个任务", { count: result.tasks.length }));
     } catch (error) {
       setAiState("idle");
-      toast.error(error instanceof Error ? error.message : "AI 解析失败");
+      toast.error(error instanceof Error ? error.message : t("AI 解析失败"));
     }
   }
 
@@ -2657,7 +2657,7 @@ function AiCreatePanel({
     if (!draft) return;
     const target = resolveAiCreateTarget(categories, draft.category_path);
     if (!target) {
-      toast.error("请先配置研发系统树，再创建任务");
+      toast.error(t("请先配置研发系统树，再创建任务"));
       return;
     }
     let created: Task;
@@ -2677,7 +2677,7 @@ function AiCreatePanel({
         category_path: draft.category_path,
       } as Parameters<typeof createRdTask>[0]);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "任务创建失败");
+      toast.error(error instanceof Error ? error.message : t("任务创建失败"));
       return;
     }
     const taskId = created.task_id;
@@ -2711,7 +2711,7 @@ function AiCreatePanel({
         source: "web",
       });
     }
-    toast.success("任务已创建，关键字段已留痕");
+    toast.success(t("任务已创建，关键字段已留痕"));
     onCreated();
     onClose();
   }
@@ -2722,7 +2722,7 @@ function AiCreatePanel({
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-indigo-500" />
-            <span className="font-semibold text-slate-800">AI 任务解析 · 新建任务</span>
+            <span className="font-semibold text-slate-800">{t("AI 任务解析 · 新建任务")}</span>
           </div>
           <button type="button" onClick={onClose} className="cursor-pointer rounded-lg p-1.5 hover:bg-slate-100">
             <X className="h-4 w-4 text-slate-500" />
@@ -2734,29 +2734,29 @@ function AiCreatePanel({
             <div className="space-y-3">
               <div className="grid gap-2 rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-600 md:grid-cols-2">
                 <div>
-                  <div className="font-semibold text-slate-900">当前场景</div>
-                  <div className="mt-1">{activeScene?.name ?? "未配置"}</div>
+                  <div className="font-semibold text-slate-900">{t("当前场景")}</div>
+                  <div className="mt-1">{activeScene?.name ?? t("未配置")}</div>
                 </div>
                 <div>
-                  <div className="font-semibold text-slate-900">当前模型</div>
+                  <div className="font-semibold text-slate-900">{t("当前模型")}</div>
                   <div className="mt-1">{describeRdAiModel(aiSettings, activeScene?.model_id)}</div>
                 </div>
                 <div>
-                  <div className="font-semibold text-slate-900">Prompt 版本</div>
-                  <div className="mt-1">{activeScene?.prompt_version || "未指定"}</div>
+                  <div className="font-semibold text-slate-900">{t("Prompt 版本")}</div>
+                  <div className="mt-1">{activeScene?.prompt_version || t("未指定")}</div>
                 </div>
                 <div>
-                  <div className="font-semibold text-slate-900">OCR 兜底</div>
+                  <div className="font-semibold text-slate-900">{t("OCR 兜底")}</div>
                   <div className="mt-1">
-                    {aiSettings?.file_policy.ocr_provider ?? "tencent_ocr"} / 阈值 {aiSettings?.file_policy.ocr_confidence_threshold ?? 0.85}
+                    {aiSettings?.file_policy.ocr_provider ?? "tencent_ocr"} / {t("阈值")} {aiSettings?.file_policy.ocr_confidence_threshold ?? 0.85}
                   </div>
                 </div>
               </div>
-              <label className="text-sm font-medium text-slate-700">粘贴会议纪要、邮件正文或需求描述</label>
+              <label className="text-sm font-medium text-slate-700">{t("粘贴会议纪要、邮件正文或需求描述")}</label>
               <Textarea
                 className="w-full resize-none rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-800 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
                 rows={5}
-                placeholder="例：电磁阀耐压测试需要在本月底前完成，由王磊负责，陈静配合质检……"
+                placeholder={t("例：电磁阀耐压测试需要在本月底前完成，由王磊负责，陈静配合质检……")}
                 value={text}
                 onChange={(e) => setText(e.target.value)}
               />
@@ -2778,7 +2778,7 @@ function AiCreatePanel({
                   onDrop={handleFileDrop}
                 >
                   <FileUp className="h-4 w-4" />
-                  拖入 Excel / Word / PDF / 图片 / 压缩包
+                  {t("拖入 Excel / Word / PDF / 图片 / 压缩包")}
                   <Input
                     type="file"
                     className="hidden"
@@ -2799,12 +2799,12 @@ function AiCreatePanel({
                   {aiState === "processing" ? (
                     <>
                       <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-                      AI 解析中…
+                      {t("AI 解析中…")}
                     </>
                   ) : (
                     <>
                       <Send className="h-3.5 w-3.5" />
-                      AI 解析
+                      {t("AI 解析")}
                     </>
                   )}
                 </button>
@@ -2827,13 +2827,13 @@ function AiCreatePanel({
               <div className="rounded-[8px] border border-indigo-100 bg-indigo-50/50 px-4 py-3">
                 <p className="flex items-center gap-1.5 text-xs text-indigo-600">
                   <Pencil className="h-3 w-3" />
-                  AI 已解析完成。所有字段均可就地编辑，修改后字段会高亮标记。
+                  {t("AI 已解析完成。所有字段均可就地编辑，修改后字段会高亮标记。")}
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-indigo-700">
-                  <span>模型：{describeRdAiModel(aiSettings, activeScene?.model_id)}</span>
-                  <span>Prompt：{activeScene?.prompt_version || "未指定"}</span>
-                  <span>阈值：{activeScene?.confidence_threshold ?? 0.8}</span>
-                  {selectedFiles.length > 0 && <span>文件数：{selectedFiles.length}</span>}
+                  <span>{t("模型：")}{describeRdAiModel(aiSettings, activeScene?.model_id)}</span>
+                  <span>Prompt：{activeScene?.prompt_version || t("未指定")}</span>
+                  <span>{t("阈值：")}{activeScene?.confidence_threshold ?? 0.8}</span>
+                  {selectedFiles.length > 0 && <span>{t("文件数：{n}", { n: selectedFiles.length })}</span>}
                 </div>
               </div>
 
@@ -2842,11 +2842,11 @@ function AiCreatePanel({
               <div className="grid grid-cols-2 gap-3">
                 <div className="col-span-2 space-y-1">
                   <label className="flex items-center gap-1 text-xs font-medium text-slate-500">
-                    任务标题
+                    {t("任务标题")}
                     {modifiedFields.has("title") && (
                       <button type="button" onClick={() => resetField("title")} className="ml-1 inline-flex cursor-pointer items-center gap-1 text-amber-500 hover:underline">
                         <RotateCcw className="h-3 w-3" />
-                        还原
+                        {t("还原")}
                       </button>
                     )}
                   </label>
@@ -2861,7 +2861,7 @@ function AiCreatePanel({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-500">主责人</label>
+                  <label className="text-xs font-medium text-slate-500">{t("主责人")}</label>
                   <Input
                     className={cn(
                       "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100",
@@ -2874,8 +2874,8 @@ function AiCreatePanel({
 
                 <div className="space-y-1">
                   <label className="flex items-center gap-1 text-xs font-medium text-slate-500">
-                    最终优先级
-                    <span className="ml-auto text-slate-400">AI 建议: {PRIORITY_CONFIG[draft.ai_priority].label}</span>
+                    {t("最终优先级")}
+                    <span className="ml-auto text-slate-400">{t("AI 建议:")} {t(PRIORITY_CONFIG[draft.ai_priority].label)}</span>
                   </label>
                   <NativeSelect
                     className={cn(
@@ -2885,14 +2885,14 @@ function AiCreatePanel({
                     value={draft.final_priority}
                     onChange={(e) => patchDraft("final_priority", e.target.value as Priority)}
                   >
-                    <option value="high">高</option>
-                    <option value="medium">中</option>
-                    <option value="low">低</option>
+                    <option value="high">{t("高")}</option>
+                    <option value="medium">{t("中")}</option>
+                    <option value="low">{t("低")}</option>
                   </NativeSelect>
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-500">分类路径</label>
+                  <label className="text-xs font-medium text-slate-500">{t("分类路径")}</label>
                   <Input
                     className={cn(
                       "w-full rounded-lg border px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100",
@@ -2904,7 +2904,7 @@ function AiCreatePanel({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-500">预估工期（天）</label>
+                  <label className="text-xs font-medium text-slate-500">{t("预估工期（天）")}</label>
                   <Input
                     type="number"
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100"
@@ -2914,7 +2914,7 @@ function AiCreatePanel({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-500">起始日期</label>
+                  <label className="text-xs font-medium text-slate-500">{t("起始日期")}</label>
                   <Input
                     type="date"
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100"
@@ -2924,7 +2924,7 @@ function AiCreatePanel({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-slate-500">截止日期</label>
+                  <label className="text-xs font-medium text-slate-500">{t("截止日期")}</label>
                   <Input
                     type="date"
                     className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100"
@@ -2934,7 +2934,7 @@ function AiCreatePanel({
                 </div>
 
                 <div className="col-span-2 space-y-1">
-                  <label className="text-xs font-medium text-slate-500">任务描述</label>
+                  <label className="text-xs font-medium text-slate-500">{t("任务描述")}</label>
                   <Textarea
                     className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-indigo-100"
                     rows={3}
@@ -2957,14 +2957,14 @@ function AiCreatePanel({
                   className="flex cursor-pointer items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700"
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
-                  重新解析
+                  {t("重新解析")}
                 </button>
                 <div className="flex gap-2">
                   <button type="button" onClick={onClose} className="cursor-pointer rounded-[8px] border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">
-                    取消
+                    {t("取消")}
                   </button>
                   <button type="button" onClick={handleCreate} className="flex cursor-pointer items-center gap-2 rounded-[8px] bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
-                    确认创建
+                    {t("确认创建")}
                     <ArrowRight className="h-3.5 w-3.5" />
                   </button>
                 </div>
@@ -2999,28 +2999,28 @@ function TaskLifecycleTimeline({ task }: { task: Task }) {
     helper: string;
     Icon: React.ComponentType<{ className?: string }>;
   }[] = [
-    { label: "创建", helper: "任务已进入研发任务池", Icon: CircleDot },
+    { label: t("创建"), helper: t("任务已进入研发任务池"), Icon: CircleDot },
     {
-      label: "指派",
-      helper: task.status === "pending_assign" ? "等待组长确认负责人" : `主责人：${task.primary_owner}`,
+      label: t("指派"),
+      helper: task.status === "pending_assign" ? t("等待组长确认负责人") : t("主责人：{name}", { name: task.primary_owner }),
       Icon: Users,
     },
     {
-      label: task.status === "paused_blocked" ? "执行受阻" : task.status === "paused_leave" ? "暂停中" : "执行",
+      label: task.status === "paused_blocked" ? t("执行受阻") : task.status === "paused_leave" ? t("暂停中") : t("执行"),
       helper:
         task.status === "paused_blocked"
-          ? "当前存在阻塞，需优先处理"
+          ? t("当前存在阻塞，需优先处理")
           : task.status === "paused_leave"
-            ? "主责人请假，周期顺延"
-            : `当前进度 ${task.progress}%`,
+            ? t("主责人请假，周期顺延")
+            : t("当前进度 {progress}%", { progress: task.progress }),
       Icon: Target,
     },
     {
-      label: "完成",
-      helper: task.due_date ? `截止 ${task.due_date}` : "等待完成确认",
+      label: t("完成"),
+      helper: task.due_date ? t("截止 {date}", { date: task.due_date }) : t("等待完成确认"),
       Icon: CheckCircle2,
     },
-    { label: "封存", helper: task.archived || task.status === "archived" ? "任务已归档" : "完成后可封存", Icon: Archive },
+    { label: t("封存"), helper: task.archived || task.status === "archived" ? t("任务已归档") : t("完成后可封存"), Icon: Archive },
   ];
 
   // return (
@@ -3136,13 +3136,13 @@ export function SubmitConfirmDialog({
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-indigo-600">
             <Send className="h-4 w-4" />
           </div>
-          <h3 className="text-base font-semibold text-slate-900">提交任务审核</h3>
+          <h3 className="text-base font-semibold text-slate-900">{t("提交任务审核")}</h3>
         </div>
         <div className="space-y-3 px-6 py-5">
           <p className="text-sm text-slate-700">
-            确认提交「<span className="font-semibold text-slate-900">{taskTitle}</span>」进入待审核状态？
+            {t("确认提交「") }<span className="font-semibold text-slate-900">{taskTitle}</span>{t("」进入待审核状态？")}
           </p>
-          <p className="text-xs text-slate-500">提交将任务进入待审核状态，请确认成果已准备好。</p>
+          <p className="text-xs text-slate-500">{t("提交将任务进入待审核状态，请确认成果已准备好。")}</p>
         </div>
         <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
           <button
@@ -3151,7 +3151,7 @@ export function SubmitConfirmDialog({
             onClick={onCancel}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
-            取消
+            {t("取消")}
           </button>
           <button
             type="button"
@@ -3160,7 +3160,7 @@ export function SubmitConfirmDialog({
             className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-60"
           >
             {submitting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />}
-            确认提交
+            {t("确认提交")}
           </button>
         </div>
       </motion.div>
@@ -3663,7 +3663,7 @@ export function TaskCompletionScoreCard({
   if (!canView) {
     return (
       <div className="rounded-[8px] border border-dashed border-slate-200 bg-slate-50/60 px-3 py-4 text-center text-xs text-slate-400">
-        完成质量评分仅对该任务关联人员和管理员可见
+        {t("完成质量评分仅对该任务关联人员和管理员可见")}
       </div>
     );
   }
@@ -3671,7 +3671,7 @@ export function TaskCompletionScoreCard({
   if (loading || aiLoading || !aiFetched) {
     return (
       <div className="rounded-[8px] border border-dashed border-slate-200 bg-slate-50/60 px-3 py-4 text-center text-xs text-slate-400">
-        正在读取 AI 完成质量评分…
+        {t("正在读取 AI 完成质量评分…")}
       </div>
     );
   }
@@ -3682,11 +3682,10 @@ export function TaskCompletionScoreCard({
       <div className="rounded-[8px] border border-dashed border-indigo-200 bg-indigo-50/40 p-4 space-y-2">
         <div className="flex items-center gap-2 text-sm font-semibold text-indigo-800">
           <Sparkles className="h-4 w-4" />
-          完成质量评分
+          {t("完成质量评分")}
         </div>
         <p className="text-xs leading-relaxed text-slate-600">
-          AI 评分尚未生成。审核通过的任务会自动触发评分（每条 5-20 秒）；
-          历史已完成任务可在驾驶舱「完成」筛选条点击「AI 复盘评分」批量生成。
+          {t("AI 评分尚未生成。审核通过的任务会自动触发评分（每条 5-20 秒）；历史已完成任务可在驾驶舱「完成」筛选条点击「AI 复盘评分」批量生成。")}
         </p>
       </div>
     );
@@ -3711,7 +3710,7 @@ export function TaskCompletionScoreCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <Sparkles className={cn("h-4 w-4 shrink-0", tone.text)} />
-            <div className="text-sm font-semibold text-slate-800">完成质量评分</div>
+            <div className="text-sm font-semibold text-slate-800">{t("完成质量评分")}</div>
             <span
               className={cn(
                 "inline-flex items-center rounded-md border px-1.5 py-0.5 text-[10px] font-semibold",
@@ -3719,16 +3718,16 @@ export function TaskCompletionScoreCard({
                   ? "border-indigo-200 bg-indigo-50 text-indigo-700"
                   : "border-slate-200 bg-slate-50 text-slate-500",
               )}
-              title={useAi ? `AI 模型：${aiScore!.provider}/${aiScore!.model}` : "AI 评分未生成"}
+              title={useAi ? `${t("AI 模型：")}${aiScore!.provider}/${aiScore!.model}` : t("AI 评分未生成")}
             >
-              {useAi ? "AI 复盘" : "规则估算"}
+              {useAi ? t("AI 复盘") : t("规则估算")}
             </span>
             {!useAi && (
               <span
                 className="inline-flex items-center rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700"
                 title={aiScore.fallback_reason}
               >
-                AI 不可用·兜底
+                {t("AI 不可用·兜底")}
               </span>
             )}
           </div>
@@ -3746,9 +3745,9 @@ export function TaskCompletionScoreCard({
               tone.border,
               tone.ring,
             )}
-            title={gradeLabel}
+            title={t(gradeLabel)}
           >
-            {grade} · {gradeLabel}
+            {grade} · {t(gradeLabel)}
           </span>
         </div>
       </div>
@@ -3757,7 +3756,7 @@ export function TaskCompletionScoreCard({
         <div className="rounded-md border border-slate-200 bg-slate-50/70 px-3 py-2">
           <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
             <Sparkles className="h-3 w-3 text-indigo-500" />
-            AI 综合点评
+            {t("AI 综合点评")}
           </div>
           <p className="text-xs leading-6 text-slate-700">{aiScore.summary}</p>
         </div>
@@ -3769,7 +3768,7 @@ export function TaskCompletionScoreCard({
           return (
             <li key={d.key} className="space-y-1">
               <div className="flex items-center justify-between gap-2 text-xs">
-                <span className="font-medium text-slate-700">{d.label}</span>
+                <span className="font-medium text-slate-700">{t(d.label)}</span>
                 <span className="tabular-nums text-slate-500">
                   <span className="font-semibold text-slate-700">{d.score}</span>
                   <span className="text-slate-400"> / {d.max}</span>
@@ -3793,7 +3792,7 @@ export function TaskCompletionScoreCard({
             <div className="rounded-md border border-emerald-100 bg-emerald-50/60 px-2.5 py-2">
               <div className="mb-1 flex items-center gap-1 text-[11px] font-semibold text-emerald-700">
                 <CheckCircle2 className="h-3 w-3" />
-                亮点
+                {t("亮点")}
               </div>
               <ul className="space-y-0.5 text-[11px] leading-relaxed text-emerald-800">
                 {aiScore.highlights.map((h, i) => (
@@ -3806,7 +3805,7 @@ export function TaskCompletionScoreCard({
             <div className="rounded-md border border-amber-100 bg-amber-50/60 px-2.5 py-2">
               <div className="mb-1 flex items-center gap-1 text-[11px] font-semibold text-amber-700">
                 <AlertTriangle className="h-3 w-3" />
-                改进建议
+                {t("改进建议")}
               </div>
               <ul className="space-y-0.5 text-[11px] leading-relaxed text-amber-800">
                 {aiScore.improvements.map((s, i) => (
@@ -3822,14 +3821,14 @@ export function TaskCompletionScoreCard({
         <p className="min-w-0 flex-1">
           {useAi ? (
             <>
-              AI 复盘基于时效性、过程透明度、交付证据、协作与风险管理 4 维度评分。模型：
-              <span className="font-mono">{aiScore.provider}/{aiScore.model}</span> · 生成于
-              <span className="tabular-nums"> {new Date(aiScore.computed_at).toLocaleString("zh-CN")}</span>
+              {t("AI 复盘基于时效性、过程透明度、交付证据、协作与风险管理 4 维度评分。模型：")}
+              <span className="font-mono">{aiScore.provider}/{aiScore.model}</span> · {t("生成于")}
+              <span className="tabular-nums"> {new Date(aiScore.computed_at).toLocaleString(i18nLocale())}</span>
             </>
           ) : (
             <>
-              AI 模型调用失败或未配置，使用规则估算兜底（仅时效/留痕/附件/协作 4 指标，无 AI 推理）。
-              原因：<span className="font-mono">{aiScore.fallback_reason ?? "未知"}</span>
+              {t("AI 模型调用失败或未配置，使用规则估算兜底（仅时效/留痕/附件/协作 4 指标，无 AI 推理）。")}
+              {t("原因：")}<span className="font-mono">{aiScore.fallback_reason ?? t("未知")}</span>
             </>
           )}
         </p>
@@ -3838,23 +3837,23 @@ export function TaskCompletionScoreCard({
             type="button"
             onClick={() => {
               const ok = openTaskCompletionReport(task, aiScore, notes);
-              if (!ok) toast.error("报告窗口被浏览器拦截，请允许本站弹出窗口后重试");
+              if (!ok) toast.error(t("报告窗口被浏览器拦截，请允许本站弹出窗口后重试"));
             }}
             className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-indigo-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
-            title="生成正式的完成质量评估报告，在弹出的打印对话框中选择「另存为 PDF」即可下载"
+            title={t("生成正式的完成质量评估报告，在弹出的打印对话框中选择「另存为 PDF」即可下载")}
           >
             <FileText className="h-3 w-3" />
-            生成报告
+            {t("生成报告")}
           </button>
           {isSuper && (
             <button
               type="button"
               onClick={openDebug}
               className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
-              title="超级管理员专属：查看 AI 评分的原始 prompt 和 AI 响应（用于审查抽取/RAG 是否真的传到 AI）"
+              title={t("超级管理员专属：查看 AI 评分的原始 prompt 和 AI 响应（用于审查抽取/RAG 是否真的传到 AI）")}
             >
               <Settings2 className="h-3 w-3" />
-              调试
+              {t("调试")}
             </button>
           )}
         </div>
@@ -3883,8 +3882,8 @@ function CompletionScoreDebugDialog({
   const debug = data?._debug;
   const copyToClipboard = (text: string, label: string) => {
     navigator.clipboard.writeText(text).then(
-      () => toast.success(`${label}已复制`),
-      () => toast.error(`复制${label}失败`),
+      () => toast.success(t("{label}已复制", { label })),
+      () => toast.error(t("复制{label}失败", { label })),
     );
   };
   return (
@@ -3907,16 +3906,16 @@ function CompletionScoreDebugDialog({
         <div className="flex items-center justify-between gap-3 border-b border-slate-100 bg-slate-50 px-6 py-3">
           <div className="flex items-center gap-2">
             <Settings2 className="h-4 w-4 text-indigo-600" />
-            <h3 className="text-sm font-semibold text-slate-900">AI 评分调试 · 原始 prompt + AI 响应</h3>
+            <h3 className="text-sm font-semibold text-slate-900">{t("AI 评分调试 · 原始 prompt + AI 响应")}</h3>
             <span className="rounded-md border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-bold text-rose-700">
-              仅超管可见
+              {t("仅超管可见")}
             </span>
           </div>
           <button
             type="button"
             onClick={onClose}
             className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-            aria-label="关闭"
+            aria-label={t("关闭")}
           >
             <X className="h-4 w-4" />
           </button>
@@ -3925,13 +3924,13 @@ function CompletionScoreDebugDialog({
           {loading ? (
             <div className="flex h-full items-center justify-center text-sm text-slate-400">
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              正在拉取调试数据…
+              {t("正在拉取调试数据…")}
             </div>
           ) : !data || !debug ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-slate-400">
               <AlertTriangle className="h-5 w-5 text-amber-400" />
-              <p>该任务尚无 AI 评分数据，或调试信息未保存（仅新评分会带 _debug 字段）</p>
-              <p className="text-[11px] text-slate-400">让管理员重新触发一次 AI 评分即可。</p>
+              <p>{t("该任务尚无 AI 评分数据，或调试信息未保存（仅新评分会带 _debug 字段）")}</p>
+              <p className="text-[11px] text-slate-400">{t("让管理员重新触发一次 AI 评分即可。")}</p>
             </div>
           ) : (
             <div className="space-y-4 text-xs">
@@ -3939,25 +3938,25 @@ function CompletionScoreDebugDialog({
               <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-600">
                   <span>
-                    模型：<span className="font-mono font-semibold text-slate-900">{data.provider}/{data.model}</span>
+                    {t("模型：")}<span className="font-mono font-semibold text-slate-900">{data.provider}/{data.model}</span>
                   </span>
                   <span className="text-slate-300">|</span>
                   <span>
-                    耗时：<span className="font-semibold tabular-nums">{debug.duration_ms} ms</span>
+                    {t("耗时：")}<span className="font-semibold tabular-nums">{debug.duration_ms} ms</span>
                   </span>
                   <span className="text-slate-300">|</span>
                   <span>
-                    开始：<span className="tabular-nums">{new Date(debug.request_started_at).toLocaleString("zh-CN")}</span>
+                    {t("开始：")}<span className="tabular-nums">{new Date(debug.request_started_at).toLocaleString(i18nLocale())}</span>
                   </span>
                   <span className="text-slate-300">|</span>
                   <span>
-                    结束：<span className="tabular-nums">{new Date(debug.request_finished_at).toLocaleString("zh-CN")}</span>
+                    {t("结束：")}<span className="tabular-nums">{new Date(debug.request_finished_at).toLocaleString(i18nLocale())}</span>
                   </span>
                   {data.fallback_reason && (
                     <>
                       <span className="text-slate-300">|</span>
                       <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">
-                        兜底：{data.fallback_reason}
+                        {t("兜底：")}{data.fallback_reason}
                       </span>
                     </>
                   )}
@@ -3966,14 +3965,14 @@ function CompletionScoreDebugDialog({
 
               {/* 1. System Prompt */}
               <DebugSection
-                title="1. System Prompt（评分员角色 + 规则）"
+                title={t("1. System Prompt（评分员角色 + 规则）")}
                 content={debug.system_prompt}
                 onCopy={() => copyToClipboard(debug.system_prompt, "System Prompt")}
               />
 
               {/* 2. User Message */}
               <DebugSection
-                title="2. User Message（任务数据 + 附件抽取内容 + RAG 上下文）"
+                title={t("2. User Message（任务数据 + 附件抽取内容 + RAG 上下文）")}
                 content={debug.user_message}
                 onCopy={() => copyToClipboard(debug.user_message, "User Message")}
                 highlightLength
@@ -3981,14 +3980,14 @@ function CompletionScoreDebugDialog({
 
               {/* 3. Raw AI Response */}
               <DebugSection
-                title="3. AI 原始响应（JSON 字符串）"
+                title={t("3. AI 原始响应（JSON 字符串）")}
                 content={prettyJsonOrText(debug.raw_response)}
-                onCopy={() => copyToClipboard(debug.raw_response, "AI 原始响应")}
+                onCopy={() => copyToClipboard(debug.raw_response, t("AI 原始响应"))}
               />
 
               {/* 4. Parsed result */}
               <DebugSection
-                title="4. 解析后的评分结果（持久化到 rd.taskCompletionScores）"
+                title={t("4. 解析后的评分结果（持久化到 rd.taskCompletionScores）")}
                 content={JSON.stringify(
                   {
                     total: data.total,
@@ -4015,7 +4014,7 @@ function CompletionScoreDebugDialog({
                       null,
                       2,
                     ),
-                    "解析后结果",
+                    t("解析后结果"),
                   )
                 }
               />
@@ -4050,7 +4049,7 @@ function DebugSection({
           <ChevronRight className={cn("h-3 w-3 transition-transform", !collapsed && "rotate-90")} />
           <span className="truncate">{title}</span>
           <span className="shrink-0 text-[10px] font-normal text-slate-400">
-            ({content.length.toLocaleString()} 字符{highlightLength && content.length > 12000 ? " · ⚠️ 较长" : ""})
+            ({t("{count} 字符", { count: content.length.toLocaleString() })}{highlightLength && content.length > 12000 ? ` ${t("· ⚠️ 较长")}` : ""})
           </span>
         </button>
         <button
@@ -4058,12 +4057,12 @@ function DebugSection({
           onClick={onCopy}
           className="shrink-0 rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
         >
-          复制
+          {t("复制")}
         </button>
       </header>
       {!collapsed && (
         <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-words bg-slate-950 px-3 py-2 text-[11px] leading-relaxed text-slate-100">
-          {content || "(空)"}
+          {content || t("(空)")}
         </pre>
       )}
     </section>
@@ -4221,7 +4220,7 @@ export function WorkItemsSection({
       onTaskMutated?.();
       return true;
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "保存工作项失败");
+      toast.error(error instanceof Error ? error.message : t("保存工作项失败"));
       return false;
     } finally {
       setSaving(false);
@@ -4231,7 +4230,7 @@ export function WorkItemsSection({
   const handleCreate = async () => {
     const titles = draft.split("\n").map((t) => t.trim()).filter(Boolean);
     if (titles.length === 0) {
-      toast.error("请每行输入一个工作项标题");
+      toast.error(t("请每行输入一个工作项标题"));
       return;
     }
     const stamp = Date.now();
@@ -4314,7 +4313,7 @@ export function WorkItemsSection({
                     type="button"
                     onClick={() => void removeItem(it.id)}
                     className="shrink-0 cursor-pointer rounded p-0.5 text-slate-300 opacity-0 transition-opacity hover:bg-slate-100 hover:text-slate-500 group-hover:opacity-100"
-                    title="删除工作项（已关联的留痕保留在主任务）"
+                    title={t("删除工作项（已关联的留痕保留在主任务）")}
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -4331,7 +4330,7 @@ export function WorkItemsSection({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             rows={4}
-            placeholder={"每行一个工作项，例如：\n用户手册（英文版）\nFDA 提交材料 · 附录B\n装配 SOP 文档"}
+            placeholder={t("每行一个工作项，例如：\n用户手册（英文版）\nFDA 提交材料 · 附录B\n装配 SOP 文档")}
             className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             autoFocus
           />
@@ -4341,7 +4340,7 @@ export function WorkItemsSection({
               onClick={() => { setAdding(false); setDraft(""); }}
               className="cursor-pointer rounded px-2 py-1 text-[11px] text-slate-500 hover:bg-slate-200"
             >
-              取消
+              {t("取消")}
             </button>
             <button
               type="button"
@@ -4350,14 +4349,14 @@ export function WorkItemsSection({
               className="flex cursor-pointer items-center gap-1 rounded bg-indigo-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
             >
               {saving ? <RefreshCw className="h-2.5 w-2.5 animate-spin" /> : <Plus className="h-2.5 w-2.5" />}
-              批量添加
+              {t("批量添加")}
             </button>
           </div>
         </div>
       ) : (
         items.length === 0 && (
           <div className="rounded-lg border border-dashed border-slate-200 py-3 text-center text-xs text-slate-400">
-            暂无工作项，可把任务拆成几个小块（如不同类型文档各一项），进度留痕可关联到工作项分组查看
+            {t("暂无工作项，可把任务拆成几个小块（如不同类型文档各一项），进度留痕可关联到工作项分组查看")}
           </div>
         )
       )}
@@ -4435,7 +4434,7 @@ function TaskDetailDrawer({
     try {
       setTaskBrief(await generateRdTaskBrief(task.task_id));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "生成任务小结失败");
+      toast.error(error instanceof Error ? error.message : t("生成任务小结失败"));
     } finally {
       setBriefLoading(false);
     }
@@ -4564,7 +4563,7 @@ function TaskDetailDrawer({
           seen.add(k);
           return true;
         });
-      if (srcAtts.length > 0) toast.info(`正在搬运 ${srcAtts.length} 个附件到问题…`);
+      if (srcAtts.length > 0) toast.info(t("正在搬运 {count} 个附件到问题…", { count: srcAtts.length }));
       const issueAttachments: NonNullable<Parameters<typeof issueService.create>[0]["attachments"]> = [];
       for (const a of srcAtts) {
         try {
@@ -4600,10 +4599,10 @@ function TaskDetailDrawer({
         source: "rd",
         attachments: issueAttachments.length > 0 ? issueAttachments : undefined,
       });
-      toast.success(`已生成问题${issueAttachments.length > 0 ? `（含 ${issueAttachments.length} 个附件）` : ""}，正在跳转…`);
+      toast.success(t("已生成问题{attachments}，正在跳转…", { attachments: issueAttachments.length > 0 ? t("（含 {count} 个附件）", { count: issueAttachments.length }) : "" }));
       navigate(`/issue-ai?issue=${encodeURIComponent(issue.id)}`);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "生成问题失败，请重试");
+      toast.error(e instanceof Error ? e.message : t("生成问题失败，请重试"));
       setGeneratingIssue(false);
     }
   };
@@ -4693,9 +4692,9 @@ function TaskDetailDrawer({
       });
       onDescriptionUpdated?.(task.task_id, descDraft.trim());
       setEditingDesc(false);
-      toast.success("描述已保存");
+      toast.success(t("描述已保存"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "保存失败");
+      toast.error(err instanceof Error ? err.message : t("保存失败"));
     } finally {
       setSavingDesc(false);
     }
@@ -4705,7 +4704,7 @@ function TaskDetailDrawer({
     if (savingTitle) return;
     const next = titleDraft.trim();
     if (!next) {
-      toast.error("任务标题不能为空");
+      toast.error(t("任务标题不能为空"));
       return;
     }
     if (next === task.title.trim()) {
@@ -4726,9 +4725,9 @@ function TaskDetailDrawer({
       onTaskPatched?.(task.task_id, { title: next });
       onTaskMutated?.();
       setEditingTitle(false);
-      toast.success("标题已保存");
+      toast.success(t("标题已保存"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "保存失败");
+      toast.error(err instanceof Error ? err.message : t("保存失败"));
     } finally {
       setSavingTitle(false);
     }
@@ -4750,9 +4749,9 @@ function TaskDetailDrawer({
       });
       onTaskPatched?.(task.task_id, { final_priority: next });
       onTaskMutated?.();
-      toast.success(`优先级已调整为「${PRIORITY_CONFIG[next].label}」`);
+      toast.success(t("优先级已调整为「{priority}」", { priority: t(PRIORITY_CONFIG[next].label) }));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "保存失败");
+      toast.error(err instanceof Error ? err.message : t("保存失败"));
     } finally {
       setSavingPriority(false);
     }
@@ -4776,12 +4775,12 @@ function TaskDetailDrawer({
         comment: "提交任务审核，进度自动置为 100%",
         source: "web",
       });
-      toast.success("任务已提交审核，等待确认");
+      toast.success(t("任务已提交审核，等待确认"));
       window.dispatchEvent(new CustomEvent('rd:review-submitted'));
       setShowSubmitConfirm(false);
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "提交失败");
+      toast.error(err instanceof Error ? err.message : t("提交失败"));
     } finally {
       setSubmitting(false);
     }
@@ -4802,12 +4801,12 @@ function TaskDetailDrawer({
         comment: "管理员直接标记任务完成",
         source: "web",
       });
-      toast.success("任务已标记完成");
+      toast.success(t("任务已标记完成"));
       setShowCompleteConfirm(false);
       onTaskCompleted?.({ ...task, status: "completed", progress: 100 });
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "操作失败");
+      toast.error(err instanceof Error ? err.message : t("操作失败"));
     } finally {
       setSubmitting(false);
     }
@@ -4831,12 +4830,12 @@ function TaskDetailDrawer({
         comment: `移交任务给 ${newOwner}`,
         source: "web",
       });
-      toast.success(`任务已移交给 ${newOwner}`);
+      toast.success(t("任务已移交给 {name}", { name: newOwner }));
       setShowHandoverDialog(false);
       onTaskMutated?.(); // 移交后老/新主责人的任务数量都变了，需要刷新
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "移交失败");
+      toast.error(err instanceof Error ? err.message : t("移交失败"));
     } finally {
       setSubmitting(false);
     }
@@ -4858,12 +4857,12 @@ function TaskDetailDrawer({
         comment: `管理员直接添加协作人：${newCollaborators.map((c) => c.name).join("、")}`,
         source: "web",
       });
-      toast.success(`已添加 ${newCollaborators.length} 位协作人`);
+      toast.success(t("已添加 {count} 位协作人", { count: newCollaborators.length }));
       setShowAddCollaboratorsDialog(false);
       onTaskMutated?.(); // 触发父组件重新拉数据，刷新驾驶舱任务列表 + 人员头像计数
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "添加协作人失败");
+      toast.error(err instanceof Error ? err.message : t("添加协作人失败"));
     }
   };
 
@@ -4874,7 +4873,7 @@ function TaskDetailDrawer({
       const isApprove = showApprovalDialog === "approve";
       const meta = getReviewTypeMeta(task.pending_review_type);
       if (!meta) {
-        toast.error("无法识别该任务的审核类型，请刷新后重试");
+        toast.error(t("无法识别该任务的审核类型，请刷新后重试"));
         return;
       }
       // 自审（审核人＝提交人）：允许，但在留痕中标记，便于追溯。
@@ -4909,7 +4908,7 @@ function TaskDetailDrawer({
         metadata: { task_id: task.task_id, pending_review_type: task.pending_review_type, self_review: isSelfReview },
         source: "web",
       });
-      toast.success(`${meta.label}${isApprove ? "已通过" : "已驳回"}${isSelfReview ? "（自审）" : ""}`);
+      toast.success(`${t(meta.label)}${isApprove ? t("已通过") : t("已驳回")}${isSelfReview ? t("（自审）") : ""}`);
       setShowApprovalDialog(null);
       // 成果审核通过 → 任务进入已完成，通知父组件刷新完成态
       if (isApprove && meta.key === "result") {
@@ -4917,7 +4916,7 @@ function TaskDetailDrawer({
       }
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "操作失败");
+      toast.error(err instanceof Error ? err.message : t("操作失败"));
     } finally {
       setSubmitting(false);
     }
@@ -4982,7 +4981,7 @@ function TaskDetailDrawer({
                     if (e.key === "Enter") { e.preventDefault(); saveTitle(); }
                   }}
                   autoFocus
-                  placeholder="任务标题"
+                  placeholder={t("任务标题")}
                   className="h-8 flex-1 text-base font-semibold"
                 />
                 <button
@@ -4990,7 +4989,7 @@ function TaskDetailDrawer({
                   onClick={() => { setEditingTitle(false); setTitleDraft(task.title); }}
                   className="cursor-pointer rounded px-2 py-0.5 text-[11px] text-slate-500 hover:bg-slate-100"
                 >
-                  取消
+                  {t("取消")}
                 </button>
                 <button
                   type="button"
@@ -4999,17 +4998,17 @@ function TaskDetailDrawer({
                   className="flex cursor-pointer items-center gap-1 rounded bg-indigo-600 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
                 >
                   {savingTitle ? <RefreshCw className="h-2.5 w-2.5 animate-spin" /> : <CheckCircle2 className="h-2.5 w-2.5" />}
-                  保存
+                  {t("保存")}
                 </button>
               </div>
             ) : (
               <div className="flex items-center gap-1.5">
-                <div className="truncate text-base font-semibold text-slate-800">{task.title}</div>
+                <AutoTranslatedText as="div" className="truncate text-base font-semibold text-slate-800" text={task.title} />
                 {canManageTaskFlow && !task.archived && (
                   <button
                     type="button"
                     onClick={() => { setTitleDraft(task.title); setEditingTitle(true); }}
-                    title="编辑任务标题"
+                    title={t("编辑任务标题")}
                     className="shrink-0 cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                   >
                     <Pencil className="h-3 w-3" />
@@ -5024,7 +5023,7 @@ function TaskDetailDrawer({
               <button
                 type="button"
                 onClick={() => navigate(`/us-collab-task/${encodeURIComponent(task.task_id)}`)}
-                title="全屏查看任务详情"
+                title={t("全屏查看任务详情")}
                 className="cursor-pointer rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
               >
                 <Maximize2 className="h-4 w-4" />
@@ -5040,20 +5039,20 @@ function TaskDetailDrawer({
           {task.archived && (
             <div className="flex items-center gap-2 rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3">
               <Lock className="h-4 w-4 text-slate-400" />
-              <span className="text-sm text-slate-500">此任务已封存（只读），全部历史记录已保留</span>
+              <span className="text-sm text-slate-500">{t("此任务已封存（只读），全部历史记录已保留")}</span>
             </div>
           )}
 
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
-              <div className="mb-1 text-xs text-slate-400">状态</div>
+              <div className="mb-1 text-xs text-slate-400">{t("状态")}</div>
               <span className={cn("inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium", statusCfg.bg, statusCfg.text)}>
                 <StatusDot status={task.status} />
                 {t(statusCfg.label)}
               </span>
             </div>
             <div>
-              <div className="mb-1 text-xs text-slate-400">优先级</div>
+              <div className="mb-1 text-xs text-slate-400">{t("优先级")}</div>
               {canManageTaskFlow && !task.archived ? (
                 <div className="flex items-center gap-2">
                   <NativeSelect
@@ -5062,14 +5061,14 @@ function TaskDetailDrawer({
                     onChange={(e) => savePriority(e.target.value as Priority)}
                     className="w-[96px] border-slate-200 text-xs"
                   >
-                    <option value="high">高</option>
-                    <option value="medium">中</option>
-                    <option value="low">低</option>
+                    <option value="high">{t("高")}</option>
+                    <option value="medium">{t("中")}</option>
+                    <option value="low">{t("低")}</option>
                   </NativeSelect>
                   {savingPriority && <RefreshCw className="h-3 w-3 animate-spin text-slate-400" />}
                   {task.ai_priority && task.ai_priority !== task.final_priority && (
-                    <span className="text-[11px] text-slate-400" title="AI 初始建议">
-                      AI 建议: {PRIORITY_CONFIG[task.ai_priority].label}
+                    <span className="text-[11px] text-slate-400" title={t("AI 初始建议")}>
+                      {t("AI 建议:")} {t(PRIORITY_CONFIG[task.ai_priority].label)}
                     </span>
                   )}
                 </div>
@@ -5078,7 +5077,7 @@ function TaskDetailDrawer({
               )}
             </div>
             <div>
-              <div className="mb-1 text-xs text-slate-400">主责人</div>
+              <div className="mb-1 text-xs text-slate-400">{t("主责人")}</div>
               <button
                 type="button"
                 onClick={() => onOpenPerson?.(task.primary_owner)}
@@ -5091,21 +5090,21 @@ function TaskDetailDrawer({
               </button>
             </div>
             <div>
-              <div className="mb-1 text-xs text-slate-400">截止日期</div>
+              <div className="mb-1 text-xs text-slate-400">{t("截止日期")}</div>
               <div className="font-medium text-slate-700">{task.due_date ?? "—"}</div>
             </div>
             <div className="col-span-2">
               <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
-                <span>协作人</span>
+                <span>{t("协作人")}</span>
                 {canManageTaskFlow && !task.archived && (
                   <button
                     type="button"
                     onClick={() => setShowAddCollaboratorsDialog(true)}
                     className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50"
-                    title="管理员直接添加协作人，不走审核流程"
+                    title={t("管理员直接添加协作人，不走审核流程")}
                   >
                     <UserPlus className="h-3 w-3" />
-                    添加
+                    {t("添加")}
                   </button>
                 )}
               </div>
@@ -5124,7 +5123,7 @@ function TaskDetailDrawer({
             </div>
             <div className="col-span-2">
               <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
-                <span>完成进度</span>
+                <span>{t("完成进度")}</span>
                 <span className="font-semibold text-slate-600">{task.progress}%</span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-slate-100">
@@ -5136,7 +5135,7 @@ function TaskDetailDrawer({
             </div>
             <div className="col-span-2">
               <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
-                <span>分类路径</span>
+                <span>{t("分类路径")}</span>
                 {onMoveTask && !task.archived && (
                   <button
                     type="button"
@@ -5144,7 +5143,7 @@ function TaskDetailDrawer({
                     className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-indigo-500 hover:bg-indigo-50 hover:text-indigo-700"
                   >
                     <ArrowRight className="h-2.5 w-2.5" />
-                    移动到其他类目
+                    {t("移动到其他类目")}
                   </button>
                 )}
               </div>
@@ -5155,7 +5154,7 @@ function TaskDetailDrawer({
           {/* ── 任务描述（可内联编辑）── */}
           <div className="rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3">
             <div className="mb-2 flex items-center justify-between gap-2">
-              <span className="text-xs font-semibold text-slate-500">任务描述</span>
+              <span className="text-xs font-semibold text-slate-500">{t("任务描述")}</span>
               {!task.archived && (
                 editingDesc ? (
                   <div className="flex items-center gap-1.5">
@@ -5164,7 +5163,7 @@ function TaskDetailDrawer({
                       onClick={() => { setEditingDesc(false); setDescDraft(task.description ?? ""); }}
                       className="cursor-pointer rounded px-2 py-0.5 text-[11px] text-slate-500 hover:bg-slate-200"
                     >
-                      取消
+                      {t("取消")}
                     </button>
                     <button
                       type="button"
@@ -5173,7 +5172,7 @@ function TaskDetailDrawer({
                       className="flex cursor-pointer items-center gap-1 rounded bg-indigo-600 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
                     >
                       {savingDesc ? <RefreshCw className="h-2.5 w-2.5 animate-spin" /> : <CheckCircle2 className="h-2.5 w-2.5" />}
-                      保存
+                      {t("保存")}
                     </button>
                   </div>
                 ) : (
@@ -5183,7 +5182,7 @@ function TaskDetailDrawer({
                     className="flex cursor-pointer items-center gap-1 rounded px-2 py-0.5 text-[11px] text-slate-400 hover:bg-slate-200 hover:text-slate-700"
                   >
                     <Pencil className="h-2.5 w-2.5" />
-                    编辑
+                    {t("编辑")}
                   </button>
                 )
               )}
@@ -5193,12 +5192,12 @@ function TaskDetailDrawer({
                 value={descDraft}
                 onChange={(e) => setDescDraft(e.target.value)}
                 rows={4}
-                placeholder="描述这个任务具体要做什么、目标和预期输出…"
+                placeholder={t("描述这个任务具体要做什么、目标和预期输出…")}
                 className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
                 autoFocus
               />
             ) : task.description ? (
-              <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">{task.description}</p>
+              <AutoTranslatedText as="p" className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700" text={task.description} />
             ) : (
               <button
                 type="button"
@@ -5208,7 +5207,7 @@ function TaskDetailDrawer({
                   !task.archived && "cursor-pointer hover:border-indigo-300 hover:text-indigo-500",
                 )}
               >
-                暂无描述，点击添加
+                {t("暂无描述，点击添加")}
               </button>
             )}
           </div>
@@ -5247,8 +5246,8 @@ function TaskDetailDrawer({
             <div className="flex items-start gap-2 rounded-[8px] border border-red-100 bg-red-50 px-4 py-3">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
               <div className="text-sm text-red-700">
-                <span className="font-semibold">任务阻塞中{collabBlockedDays != null ? `，已阻塞 ${collabBlockedDays} 天` : ""}</span>
-                {collabBlockedDays != null && collabBlockedDays >= 3 && <span>，建议尽快协调对方团队解除依赖。</span>}
+                <span className="font-semibold">{collabBlockedDays != null ? t("任务阻塞中，已阻塞 {n} 天", { n: collabBlockedDays }) : t("任务阻塞中")}</span>
+                {collabBlockedDays != null && collabBlockedDays >= 3 && <span>{t("，建议尽快协调对方团队解除依赖。")}</span>}
               </div>
             </div>
           )}
@@ -5259,7 +5258,7 @@ function TaskDetailDrawer({
           <div className="flex min-h-0 flex-1 flex-col">
             <div className="mb-2 flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">操作留痕</div>
+                <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">{t("操作留痕")}</div>
                 {/* 协同专属：AI 小结 + 单任务过程报告导出 */}
                 {usCollab && (
                   <div className="flex items-center gap-1">
@@ -5270,22 +5269,22 @@ function TaskDetailDrawer({
                       className="flex cursor-pointer items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-600 hover:bg-indigo-100 disabled:opacity-50"
                     >
                       {briefLoading ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Sparkles className="h-2.5 w-2.5" />}
-                      AI 小结
+                      {t("AI 小结")}
                     </button>
                     <button
                       type="button"
                       onClick={() => void downloadUsCollabTaskReport(task, mergedTaskLogs, noteOfLog)}
                       className="flex cursor-pointer items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50"
-                      title="导出本任务的完整过程报告（Word），可直接发给对方团队"
+                      title={t("导出本任务的完整过程报告（Word），可直接发给对方团队")}
                     >
                       <Download className="h-2.5 w-2.5" />
-                      导出报告
+                      {t("导出报告")}
                     </button>
                   </div>
                 )}
               </div>
               <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
-                {displayTraceLogs.length} 条{taskAttachmentTotal > 0 ? ` · ${taskAttachmentTotal} 个附件` : ""}
+                {t("{n} 条", { n: displayTraceLogs.length })}{taskAttachmentTotal > 0 ? ` · ${t("{n} 个附件", { n: taskAttachmentTotal })}` : ""}
               </span>
             </div>
             {/* 协同专属：AI 小结卡片 */}
@@ -5294,7 +5293,7 @@ function TaskDetailDrawer({
                 <div className="mb-1 flex items-center justify-between">
                   <span className="flex items-center gap-1 text-[11px] font-semibold text-indigo-700">
                     <Sparkles className="h-3 w-3" />
-                    任务小结{taskBrief.source === "local" ? "（AI 未配置，基础事实版）" : ""}
+                    {t("任务小结")}{taskBrief.source === "local" ? t("（AI 未配置，基础事实版）") : ""}
                   </span>
                   <button
                     type="button"
@@ -5304,15 +5303,15 @@ function TaskDetailDrawer({
                     <X className="h-3 w-3" />
                   </button>
                 </div>
-                <p className="whitespace-pre-wrap text-xs leading-relaxed text-slate-700">{taskBrief.text}</p>
+                <AutoTranslatedText as="p" className="whitespace-pre-wrap text-xs leading-relaxed text-slate-700" text={taskBrief.text} />
               </div>
             )}
             {/* 工作项留痕 Tab：全部 / 未关联 / 各工作项；无工作项或功能未启用时不显示，行为不变 */}
             {workItemsFeatureEnabled() && (task.work_items ?? []).length > 0 && (
               <div className="mb-2 flex flex-wrap items-center gap-1">
                 {[
-                  { key: "all", label: "全部" },
-                  { key: "main", label: "未关联" },
+                  { key: "all", label: t("全部") },
+                  { key: "main", label: t("未关联") },
                   ...(task.work_items ?? []).map((it) => ({
                     key: it.id,
                     label: `${it.title}${(traceCountByItem.get(it.id) ?? 0) > 0 ? ` ${traceCountByItem.get(it.id)}` : ""}`,
@@ -5340,7 +5339,7 @@ function TaskDetailDrawer({
               <AuditTimeline
                 logs={displayTraceLogs}
                 showResource={false}
-                emptyText={traceTab === "all" || traceTab === "main" ? "暂无此任务的操作记录" : "该工作项暂无留痕，成员在工作台更新进度时可关联工作项"}
+                emptyText={traceTab === "all" || traceTab === "main" ? t("暂无此任务的操作记录") : t("该工作项暂无留痕，成员在工作台更新进度时可关联工作项")}
                 canAddNote={canManageTaskFlow}
                 onAddNote={async (logId, text) => {
                   await addAuditLogNote(logId, { text, actor: RD_ADMIN_AUDIT_ACTOR });
@@ -5357,46 +5356,46 @@ function TaskDetailDrawer({
           {task.status === "paused_leave" && (
             <div className="flex items-start gap-2 rounded-[8px] border border-amber-100 bg-amber-50 px-4 py-3">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-              <div className="text-sm text-amber-700">主责人请假中，任务周期已顺延。复岗后自动恢复为"进行中"。</div>
+              <div className="text-sm text-amber-700">{t('主责人请假中，任务周期已顺延。复岗后自动恢复为"进行中"。')}</div>
             </div>
           )}
 
           {task.status === "pending_assign" && (
             <div className="flex items-start gap-2 rounded-[8px] border border-violet-100 bg-violet-50 px-4 py-3">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-violet-500" />
-              <div className="text-sm text-violet-700">规则未能自动匹配责任人，请组长手动指派。</div>
+              <div className="text-sm text-violet-700">{t("规则未能自动匹配责任人，请组长手动指派。")}</div>
             </div>
           )}
 
           {task.status === "pending_review" && getReviewTypeMeta(task.pending_review_type) ? (
             <div className="flex items-center gap-2">
               <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${getReviewTypeMeta(task.pending_review_type)!.badgeClass}`}>
-                {getReviewTypeMeta(task.pending_review_type)!.label}审核
+                {t("{type}审核", { type: t(getReviewTypeMeta(task.pending_review_type)!.label) })}
               </span>
-              <span className="text-xs text-slate-400">该任务正在等待{getReviewTypeMeta(task.pending_review_type)!.label}审核</span>
+              <span className="text-xs text-slate-400">{t("该任务正在等待{type}审核", { type: t(getReviewTypeMeta(task.pending_review_type)!.label) })}</span>
             </div>
           ) : null}
 
           {task.pending_review_type === "collaboration" && (
             <div className="rounded-[8px] border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-700">
-              <div className="font-semibold">协同人变更待审核</div>
+              <div className="font-semibold">{t("协同人变更待审核")}</div>
               <div className="mt-1">
-                拟协同人：{(task.pending_collaborators ?? []).map((item) => item.name).join("、") || "未选择"}
+                {t("拟协同人：")}{(task.pending_collaborators ?? []).map((item) => item.name).join("、") || t("未选择")}
               </div>
               {task.pending_collaboration_reason && (
-                <div className="mt-1 text-indigo-600">说明：{task.pending_collaboration_reason}</div>
+                <div className="mt-1 text-indigo-600">{t("说明：")}<AutoTranslatedText text={task.pending_collaboration_reason} /></div>
               )}
             </div>
           )}
 
           {task.pending_review_type === "due_date" && (
             <div className="rounded-[8px] border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-700">
-              <div className="font-semibold">截止日期变更待审核</div>
+              <div className="font-semibold">{t("截止日期变更待审核")}</div>
               <div className="mt-1">
-                {task.due_date || "未设置"} → <span className="font-semibold">{task.pending_due_date || "未填写"}</span>
+                {task.due_date || t("未设置")} → <span className="font-semibold">{task.pending_due_date || t("未填写")}</span>
               </div>
               {task.pending_due_date_reason && (
-                <div className="mt-1 text-sky-600">说明：{task.pending_due_date_reason}</div>
+                <div className="mt-1 text-sky-600">{t("说明：")}<AutoTranslatedText text={task.pending_due_date_reason} /></div>
               )}
             </div>
           )}
@@ -5415,7 +5414,7 @@ function TaskDetailDrawer({
                     className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700"
                   >
                     <Send className="h-3.5 w-3.5" />
-                    提交审核
+                    {t("提交审核")}
                   </button>
                 )}
                 {canHandoverTask && (
@@ -5425,7 +5424,7 @@ function TaskDetailDrawer({
                     className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
                   >
                     <ArrowRight className="h-3.5 w-3.5" />
-                    移交任务
+                    {t("移交任务")}
                   </button>
                 )}
                 {canCompleteDirectly && (
@@ -5435,7 +5434,7 @@ function TaskDetailDrawer({
                     className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700"
                   >
                     <CheckCircle2 className="h-3.5 w-3.5" />
-                    标记完成
+                    {t("标记完成")}
                   </button>
                 )}
               </>
@@ -5447,11 +5446,11 @@ function TaskDetailDrawer({
                 <button
                   type="button"
                   onClick={() => ((task.attachments ?? 0) > 0 ? setTransferOpen(true) : setBlockOpen(true))}
-                  title="把本任务转为采购任务（需携带图纸附件）"
+                  title={t("把本任务转为采购任务（需携带图纸附件）")}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100"
                 >
                   <ShoppingCart className="h-3.5 w-3.5" />
-                  转采购
+                  {t("转采购")}
                 </button>
               )
             )}
@@ -5460,11 +5459,11 @@ function TaskDetailDrawer({
                 type="button"
                 onClick={handleGenerateIssue}
                 disabled={generatingIssue}
-                title="把本任务内容（描述/进度留痕/附件名）一键在「问题记录与 AI 定位」建成问题"
+                title={t("把本任务内容（描述/进度留痕/附件名）一键在「问题记录与 AI 定位」建成问题")}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 transition-colors hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <FileSearch className="h-3.5 w-3.5" />
-                {generatingIssue ? "生成中…" : "生成问题"}
+                {generatingIssue ? t("生成中…") : t("生成问题")}
               </button>
             )}
             {canReviewPendingTask && (
@@ -5475,7 +5474,7 @@ function TaskDetailDrawer({
                   className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700"
                 >
                   <CheckCircle2 className="h-3.5 w-3.5" />
-                  审核通过
+                  {t("审核通过")}
                 </button>
                 <button
                   type="button"
@@ -5483,7 +5482,7 @@ function TaskDetailDrawer({
                   className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100"
                 >
                   <RotateCcw className="h-3.5 w-3.5" />
-                  打回修改
+                  {t("打回修改")}
                 </button>
               </>
             )}
@@ -5552,18 +5551,18 @@ function TaskDetailDrawer({
       <AlertDialog open={showCloseConfirm} onOpenChange={(open) => { if (!open) setShowCloseConfirm(false); }}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>放弃未保存的修改？</AlertDialogTitle>
+            <AlertDialogTitle>{t("放弃未保存的修改？")}</AlertDialogTitle>
             <AlertDialogDescription>
-              还有未保存的内联编辑（任务标题或描述），关闭后这些修改将丢失。
+              {t("还有未保存的内联编辑（任务标题或描述），关闭后这些修改将丢失。")}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>继续编辑</AlertDialogCancel>
+            <AlertDialogCancel>{t("继续编辑")}</AlertDialogCancel>
             <AlertDialogAction
               className="bg-red-600 text-white hover:bg-red-700 focus:ring-red-600"
               onClick={() => { setShowCloseConfirm(false); onClose(); }}
             >
-              放弃并关闭
+              {t("放弃并关闭")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -5675,13 +5674,13 @@ function KpiStrip({
             <Gauge className="h-4.5 w-4.5" />
           </span>
           <div>
-            <h2 className="text-sm font-bold text-slate-950">执行统计</h2>
+            <h2 className="text-sm font-bold text-slate-950">{t("执行统计")}</h2>
             <span className="mt-0.5 flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
               <span className="relative flex h-1.5 w-1.5">
                 <span className="absolute inset-0 animate-ping rounded-full bg-emerald-400 opacity-60" />
                 <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
               </span>
-              今日实时
+              {t("今日实时")}
             </span>
           </div>
         </div>
@@ -5715,7 +5714,7 @@ function KpiStrip({
                 >
                   {it.value}
                 </div>
-                <div className="mt-0.5 truncate text-[10px] font-semibold text-slate-500">{it.label}</div>
+                <div className="mt-0.5 truncate text-[10px] font-semibold text-slate-500">{t(it.label)}</div>
               </div>
             </motion.div>
           ))}
@@ -5729,8 +5728,8 @@ function RiskHotspot({
   risks,
   onSelectTask,
   className,
-  title = "决策焦点 · 风险任务",
-  subtitle = "仅显示风险任务；全部任务在任务清单中",
+  title = t("决策焦点 · 风险任务"),
+  subtitle = t("仅显示风险任务；全部任务在任务清单中"),
   totalTasks,
 }: {
   risks: Risk[];
@@ -5793,7 +5792,7 @@ function RiskHotspot({
           </div>
           {typeof totalTasks === "number" && (
             <div className="mt-0.5 text-[11px] font-medium text-slate-400">
-              共 {totalTasks} 个任务
+              {t("共 {count} 个任务", { count: totalTasks })}
             </div>
           )}
         </div>
@@ -5822,7 +5821,7 @@ function RiskHotspot({
             >
               {b.type !== "all" && <span className={cn("h-1.5 w-1.5 rounded-full", RISK_DOT_COLOR[b.type])} />}
               {b.type === "all" && <span className={cn("h-1.5 w-1.5 rounded-full", active ? "bg-indigo-500" : "bg-slate-400")} />}
-              <span className={cn("font-medium", active ? "text-indigo-700" : disabled ? "text-slate-400" : "text-slate-700")}>{b.label}</span>
+              <span className={cn("font-medium", active ? "text-indigo-700" : disabled ? "text-slate-400" : "text-slate-700")}>{t(b.label)}</span>
               <span className={cn("tabular-nums", active ? "font-semibold text-indigo-700" : disabled ? "text-slate-400" : "font-semibold text-slate-900")}>
                 {b.count}
               </span>
@@ -5834,7 +5833,7 @@ function RiskHotspot({
       <ul className="flex-1 divide-y divide-slate-100 overflow-hidden">
         {shownRisks.length === 0 ? (
           <li className="px-6 py-10 text-center text-sm text-slate-400">
-            {totalTasks ? "暂无风险任务，全部任务请查看任务清单" : "暂无风险任务"}
+            {totalTasks ? t("暂无风险任务，全部任务请查看任务清单") : t("暂无风险任务")}
           </li>
         ) : (
           shownRisks.map((r) => (
@@ -5860,7 +5859,7 @@ function RiskHotspot({
                   <span
                     className={cn(r.severity === "critical" ? "font-semibold text-red-600" : "text-amber-600")}
                   >
-                    {RISK_LABEL[r.type]} · {r.reason}
+                    {t(RISK_LABEL[r.type])} · {t(r.reason)}
                   </span>
                   <span className="text-slate-300">·</span>
                   <span>{r.task.primary_owner}</span>
@@ -5892,7 +5891,7 @@ function RiskHotspot({
               onClick={() => setPage((current) => Math.max(1, current - 1))}
               disabled={safePage <= 1}
               className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-slate-400 transition-all duration-150 hover:bg-slate-100 hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
-              aria-label="上一页"
+              aria-label={t("上一页")}
             >
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
@@ -5922,7 +5921,7 @@ function RiskHotspot({
               onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
               disabled={safePage >= totalPages}
               className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-slate-400 transition-all duration-150 hover:bg-slate-100 hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
-              aria-label="下一页"
+              aria-label={t("下一页")}
             >
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
@@ -5965,19 +5964,19 @@ function PersonLoadPanel({
     >
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 bg-gradient-to-r from-white via-white to-slate-50/70 px-5 py-4 sm:px-6">
         <div className="min-w-0">
-          <h3 className="text-sm font-semibold text-slate-900">人员负载</h3>
-          <p className="mt-0.5 text-xs text-slate-500">活跃任务分布</p>
+          <h3 className="text-sm font-semibold text-slate-900">{t("人员负载")}</h3>
+          <p className="mt-0.5 text-xs text-slate-500">{t("活跃任务分布")}</p>
         </div>
         <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           <div className="flex items-baseline gap-2 rounded-lg border border-slate-100 bg-white px-2.5 py-1.5 text-xs shadow-[0_8px_20px_rgba(15,23,42,0.04)]">
             {heavy > 0 && (
               <span className="text-red-600">
-                <span className="font-semibold tabular-nums">{heavy}</span> 高负载
+                <span className="font-semibold tabular-nums">{heavy}</span> {t("高负载")}
               </span>
             )}
             {onLeaveCount > 0 && (
               <span className="text-amber-600">
-                <span className="font-semibold tabular-nums">{onLeaveCount}</span> 请假
+                <span className="font-semibold tabular-nums">{onLeaveCount}</span> {t("请假")}
               </span>
             )}
           </div>
@@ -5986,10 +5985,10 @@ function PersonLoadPanel({
               type="button"
               onClick={onManage}
               className="group inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-all duration-150 hover:-translate-y-0.5 hover:border-slate-300 hover:bg-slate-50 hover:text-slate-900 hover:shadow-[0_6px_14px_rgba(15,23,42,0.06)] active:translate-y-0 active:scale-[0.97] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300"
-              title="进入人员管理"
+              title={t("进入人员管理")}
             >
               <UserPlus className="h-3.5 w-3.5 text-slate-500 transition-colors group-hover:text-slate-700" />
-              <span>人员管理</span>
+              <span>{t("人员管理")}</span>
               <ChevronRight className="h-3 w-3 text-slate-400 transition-transform duration-200 group-hover:translate-x-0.5" />
             </button>
           )}
@@ -5998,7 +5997,7 @@ function PersonLoadPanel({
 
       <ul className="flex-1 space-y-1.5 overflow-hidden px-5 py-3 sm:px-6">
         {shownLoads.length === 0 ? (
-          <li className="py-6 text-center text-sm text-slate-400">暂无负载数据</li>
+          <li className="py-6 text-center text-sm text-slate-400">{t("暂无负载数据")}</li>
         ) : (
           shownLoads.map((p) => {
             const ratio = p.count / p.max;
@@ -6030,7 +6029,7 @@ function PersonLoadPanel({
                     <span className="truncate text-sm font-medium text-slate-700">{p.name}</span>
                     {p.onLeave && (
                       <span className="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
-                        请假
+                        {t("请假")}
                       </span>
                     )}
                     <span className="text-xs tabular-nums text-slate-500">
@@ -6067,7 +6066,7 @@ function PersonLoadPanel({
               onClick={() => setPage((current) => Math.max(1, current - 1))}
               disabled={safePage <= 1}
               className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-slate-400 transition-all duration-150 hover:bg-slate-100 hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
-              aria-label="上一页"
+              aria-label={t("上一页")}
             >
               <ChevronLeft className="h-3.5 w-3.5" />
             </button>
@@ -6096,7 +6095,7 @@ function PersonLoadPanel({
               onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
               disabled={safePage >= totalPages}
               className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-slate-400 transition-all duration-150 hover:bg-slate-100 hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent"
-              aria-label="下一页"
+              aria-label={t("下一页")}
             >
               <ChevronRight className="h-3.5 w-3.5" />
             </button>
@@ -6159,7 +6158,7 @@ function PersonDetailDrawer({
             <OwnerAvatar name={name} userId={profile?.user_id} />
             <div className="min-w-0">
               <h3 className="truncate text-lg font-semibold text-slate-900">{name}</h3>
-              <p className="mt-0.5 text-xs text-slate-500">{profile?.position ?? "研发成员"} · {profile?.department ?? "未设置部门"}</p>
+              <p className="mt-0.5 text-xs text-slate-500">{profile?.position ?? t("研发成员")} · {profile?.department ?? t("未设置部门")}</p>
             </div>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700">
@@ -6172,15 +6171,15 @@ function PersonDetailDrawer({
             <div className="grid grid-cols-3 gap-3 text-center">
               <div>
                 <div className="text-2xl font-semibold tabular-nums text-slate-900">{count}</div>
-                <div className="mt-0.5 text-[11px] text-slate-500">当前负载</div>
+                <div className="mt-0.5 text-[11px] text-slate-500">{t("当前负载")}</div>
               </div>
               <div>
                 <div className="text-2xl font-semibold tabular-nums text-indigo-600">{maxTasks}</div>
-                <div className="mt-0.5 text-[11px] text-slate-500">容量上限</div>
+                <div className="mt-0.5 text-[11px] text-slate-500">{t("容量上限")}</div>
               </div>
               <div>
-                <div className={cn("text-2xl font-semibold", statusLabel === "在岗" ? "text-emerald-600" : "text-amber-600")}>{statusLabel}</div>
-                <div className="mt-0.5 text-[11px] text-slate-500">人员状态</div>
+                <div className={cn("text-2xl font-semibold", statusLabel === "在岗" ? "text-emerald-600" : "text-amber-600")}>{t(statusLabel)}</div>
+                <div className="mt-0.5 text-[11px] text-slate-500">{t("人员状态")}</div>
               </div>
             </div>
             <div className="mt-4 h-2 overflow-hidden rounded-full bg-white">
@@ -6193,22 +6192,22 @@ function PersonDetailDrawer({
 
           <section className="grid grid-cols-2 gap-3 text-sm">
             <div className="rounded-lg border border-slate-100 bg-white p-3">
-              <div className="text-[11px] text-slate-400">邮箱</div>
+              <div className="text-[11px] text-slate-400">{t("邮箱")}</div>
               <div className="mt-1 truncate font-medium text-slate-700">{profile?.email ?? "-"}</div>
             </div>
             <div className="rounded-lg border border-slate-100 bg-white p-3">
-              <div className="text-[11px] text-slate-400">电话</div>
+              <div className="text-[11px] text-slate-400">{t("电话")}</div>
               <div className="mt-1 font-medium text-slate-700">{profile?.phone ?? "-"}</div>
             </div>
           </section>
 
           <section>
             <div className="mb-2 flex items-center justify-between">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">负责/协作任务</h4>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-slate-500">{tasks.length} 项</span>
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">{t("负责/协作任务")}</h4>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold tabular-nums text-slate-500">{t("{count} 项", { count: tasks.length })}</span>
             </div>
             {tasks.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/50 py-8 text-center text-sm text-slate-400">暂无关联任务</div>
+              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/50 py-8 text-center text-sm text-slate-400">{t("暂无关联任务")}</div>
             ) : (
               <ul className="space-y-2">
                 {tasks.slice(0, 12).map((task) => (
@@ -6276,12 +6275,14 @@ function SystemHealthCard({
 
       <div className="flex items-center gap-2">
         <theme.Icon className={cn("h-4 w-4 shrink-0 transition-colors", theme.iconColor)} />
-        <span className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-900">
-          {stat.cat.label}
-        </span>
+        <AutoTranslatedText
+          as="span"
+          className="min-w-0 flex-1 truncate text-sm font-semibold text-slate-900"
+          text={t(stat.cat.label.trim())}
+        />
         {reserved && (
           <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
-            预留
+            {t("预留")}
           </span>
         )}
         <Tooltip>
@@ -6296,14 +6297,14 @@ function SystemHealthCard({
               )}
             >
               <span className={cn("h-1 w-1 rounded-full", hConfig.dot)} />
-              {hConfig.label}
+              {t(hConfig.label)}
             </span>
           </TooltipTrigger>
           <TooltipContent side="top">
             <div className="text-xs">
-              <div className="font-semibold">{hConfig.label}</div>
+              <div className="font-semibold">{t(hConfig.label)}</div>
               <div className="opacity-70">
-                完成 {stat.progress}% · 风险 {stat.risks} · 阻塞 {stat.blocked}
+                {t("完成")} {stat.progress}% · {t("风险")} {stat.risks} · {t("阻塞")} {stat.blocked}
               </div>
             </div>
           </TooltipContent>
@@ -6330,7 +6331,7 @@ function SystemHealthCard({
             </TooltipTrigger>
             <TooltipContent side="top">
               <RiskListTooltip
-                title={`${stat.cat.label} · ${stat.risks} 个风险任务`}
+                title={t("{name} · {count} 个风险任务", { name: t(stat.cat.label.trim()), count: stat.risks })}
                 risks={stat.riskItems}
               />
             </TooltipContent>
@@ -6360,22 +6361,22 @@ function SystemHealthCard({
           >
             {stat.total}
           </span>{" "}
-          任务
+          {t("任务")}
         </span>
         <span className="text-slate-400">
-          <span className="font-semibold tabular-nums text-slate-500">{stat.cat.children.length}</span> 部件
+          <span className="font-semibold tabular-nums text-slate-500">{stat.cat.children.length}</span> {t("部件")}
         </span>
         {stat.inProgress > 0 && (
           <span className="text-slate-500">
-            <span className="font-semibold tabular-nums text-indigo-600">{stat.inProgress}</span> 进行中
+            <span className="font-semibold tabular-nums text-indigo-600">{stat.inProgress}</span> {t("进行中")}
           </span>
         )}
-        {stat.total === 0 && <span className="text-slate-400">无活跃</span>}
+        {stat.total === 0 && <span className="text-slate-400">{t("无活跃")}</span>}
       </div>
 
       {/* Hover hint */}
       <div className="pointer-events-none flex items-center justify-end text-[11px] font-medium text-slate-400 opacity-0 transition-all duration-200 group-hover:opacity-100">
-        进入详情
+        {t("进入详情")}
         <ChevronRight className="ml-0.5 h-3 w-3 transition-transform duration-200 group-hover:translate-x-0.5" />
       </div>
     </motion.button>
@@ -6479,11 +6480,13 @@ function SystemPanorama({
       {/* Header */}
       <header className="mb-4 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h3 className="text-sm font-semibold text-slate-950">子系统全景</h3>
+          <h3 className="text-sm font-semibold text-slate-950">{t("子系统全景")}</h3>
           <p className="mt-0.5 text-xs text-slate-500">
-            {activeProd
-              ? `${activeProd.name} · ${activeCatStats.length} 个子系统`
-              : `当前研发分类树 · ${mainCatStats.length} 个子系统`}
+            {activeProd ? (
+              <>
+                <AutoTranslatedText text={t(activeProd.name.trim())} /> · {t("{count} 个子系统", { count: activeCatStats.length })}
+              </>
+            ) : t("当前研发分类树 · {count} 个子系统", { count: mainCatStats.length })}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -6496,7 +6499,7 @@ function SystemPanorama({
                 return (
                   <span key={h} className="flex items-center gap-1.5 rounded-full border border-slate-200 bg-slate-50 px-2 py-1">
                     <span className={cn("h-1.5 w-1.5 rounded-full", cfg.dot)} />
-                    {cfg.label}
+                    {t(cfg.label)}
                     <span className={cn("font-semibold tabular-nums", cfg.text)}>{count}</span>
                   </span>
                 );
@@ -6511,7 +6514,7 @@ function SystemPanorama({
               className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-all hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 active:scale-[0.97]"
             >
               <Settings2 className="h-3.5 w-3.5" />
-              管理产品
+              {t("管理产品")}
             </button>
           )}
         </div>
@@ -6521,8 +6524,8 @@ function SystemPanorama({
       {products.length === 0 ? (
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed border-slate-200 bg-slate-50 py-12 text-center">
           <Settings2 className="mx-auto mb-3 h-8 w-8 text-slate-300" />
-          <p className="text-sm font-medium text-slate-500">暂无产品线</p>
-          <p className="mt-1 text-xs text-slate-400">请点击"管理产品"添加产品线和子系统</p>
+          <p className="text-sm font-medium text-slate-500">{t("暂无产品线")}</p>
+          <p className="mt-1 text-xs text-slate-400">{t("请点击“管理产品”添加产品线和子系统")}</p>
         </div>
       ) : (
         <>
@@ -6545,7 +6548,7 @@ function SystemPanorama({
                   )}
                 >
                   <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", dot)} />
-                  {prod.name}
+                  <AutoTranslatedText text={t(prod.name.trim())} />
                 </button>
               );
             })}
@@ -6555,7 +6558,7 @@ function SystemPanorama({
           {isLoadingActive ? (
             <div className="flex h-32 items-center justify-center gap-2 text-sm text-slate-400">
               <Loader2 className="h-4 w-4 animate-spin" />
-              加载中…
+              {t("加载中…")}
             </div>
           ) : activeProd ? (
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
@@ -6672,16 +6675,16 @@ function SystemDetailHero({
             <h2 className="text-xl font-semibold tracking-tight text-slate-900">{label}</h2>
           </div>
           <p className="mt-1.5 text-xs text-slate-500">
-            {sub ? "部件维度" : "子系统维度"} · 今日 {TODAY_STR}
+            {sub ? t("部件维度") : t("子系统维度")} · {t("今日")} {TODAY_STR}
           </p>
         </div>
 
         <div className="flex flex-wrap items-baseline gap-x-7 gap-y-2">
-          <Metric label="活跃任务" value={totalActive} />
-          <Metric label="完成率" value={`${rate}%`} />
-          <Metric label="风险" value={riskCount} tone={riskCount > 0 ? "text-red-600" : undefined} />
-          {criticalCount > 0 && <Metric label="紧急" value={criticalCount} tone="text-red-600" />}
-          {blockedCount > 0 && <Metric label="阻塞" value={blockedCount} tone="text-orange-600" />}
+          <Metric label={t("活跃任务")} value={totalActive} />
+          <Metric label={t("完成率")} value={`${rate}%`} />
+          <Metric label={t("风险")} value={riskCount} tone={riskCount > 0 ? "text-red-600" : undefined} />
+          {criticalCount > 0 && <Metric label={t("紧急")} value={criticalCount} tone="text-red-600" />}
+          {blockedCount > 0 && <Metric label={t("阻塞")} value={blockedCount} tone="text-orange-600" />}
         </div>
       </div>
 
@@ -6689,8 +6692,8 @@ function SystemDetailHero({
       {total > 0 && (
         <div className="mt-5 border-t border-slate-100 pt-4">
           <div className="mb-2 flex items-center justify-between text-xs">
-            <span className="font-medium text-slate-600">状态分布</span>
-            <span className="text-slate-400">共 {total} 项</span>
+            <span className="font-medium text-slate-600">{t("状态分布")}</span>
+            <span className="text-slate-400">{t("共 {count} 项", { count: total })}</span>
           </div>
           <div className="flex h-2 w-full overflow-hidden rounded-full bg-slate-100">
             {statusBreakdown.map(
@@ -6705,7 +6708,7 @@ function SystemDetailHero({
                     </TooltipTrigger>
                     <TooltipContent side="top">
                       <span className="text-xs">
-                        {s.label} · <span className="font-semibold tabular-nums">{s.count}</span> 项 ·{" "}
+                        {t(s.label)} · <span className="font-semibold tabular-nums">{s.count}</span> {t("项")} ·{" "}
                         {Math.round((s.count / total) * 100)}%
                       </span>
                     </TooltipContent>
@@ -6719,7 +6722,7 @@ function SystemDetailHero({
               .map((s) => (
                 <span key={s.key} className="flex items-center gap-1.5">
                   <span className={cn("h-1.5 w-1.5 rounded-full", s.color)} />
-                  <span className="text-slate-600">{s.label}</span>
+                  <span className="text-slate-600">{t(s.label)}</span>
                   <span className="font-semibold tabular-nums text-slate-900">{s.count}</span>
                 </span>
               ))}
@@ -6786,25 +6789,25 @@ function UpcomingMilestonesSection({
   const visibleItems = filteredItems.slice((safePage - 1) * pageSize, safePage * pageSize);
   const within7 = upcoming.filter((it) => it.dleft >= 0 && it.dleft <= 7).length;
   const overdue = upcoming.filter((it) => it.dleft < 0).length;
-  const activeWindowLabel = windowFilter === "all" ? "全部窗口" : activeBucket?.label ?? "全部窗口";
+  const activeWindowLabel = windowFilter === "all" ? t("全部窗口") : t(activeBucket?.label ?? "全部窗口");
 
   return (
     <section className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)]">
       <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
         <div>
-          <h3 className="text-sm font-semibold text-slate-900">里程碑预报</h3>
+          <h3 className="text-sm font-semibold text-slate-900">{t("里程碑预报")}</h3>
           <p className="mt-0.5 text-xs text-slate-500">
-            未来 30 天 · {upcoming.length} 个截止日 · {within7} 个 7 天内到期
+            {t("未来 30 天 · {total} 个截止日 · {within} 个 7 天内到期", { total: upcoming.length, within: within7 })}
           </p>
         </div>
         <div className="flex items-center gap-2 text-xs">
           {overdue > 0 && (
             <span className="rounded-full bg-red-50 px-2 py-0.5 font-semibold text-red-600">
-              逾期 {overdue}
+              {t("逾期")} {overdue}
             </span>
           )}
           <span className="rounded-full bg-slate-50 px-2 py-0.5 font-medium text-slate-500 ring-1 ring-slate-200">
-            点击任务查看详情
+            {t("点击任务查看详情")}
           </span>
         </div>
       </header>
@@ -6813,7 +6816,7 @@ function UpcomingMilestonesSection({
         <aside className="border-b border-slate-100 bg-slate-50/70 px-5 py-4 lg:border-b-0 lg:border-r">
           <div className="mb-3 flex items-center gap-2">
             <CalendarClock className="h-4 w-4 text-slate-400" />
-            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">时间窗口</span>
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-slate-500">{t("时间窗口")}</span>
           </div>
           <div className="grid grid-cols-2 gap-2 lg:grid-cols-1">
             <button
@@ -6828,7 +6831,7 @@ function UpcomingMilestonesSection({
             >
               <span className="flex min-w-0 items-center gap-2">
                 <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", windowFilter === "all" ? "bg-indigo-500" : "bg-slate-400")} />
-                <span className="truncate text-xs font-semibold">全部窗口</span>
+                <span className="truncate text-xs font-semibold">{t("全部窗口")}</span>
               </span>
               <span className="text-xs font-semibold tabular-nums">{upcoming.length}</span>
             </button>
@@ -6854,7 +6857,7 @@ function UpcomingMilestonesSection({
                 >
                   <span className="flex min-w-0 items-center gap-2">
                     <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", b.dot, !active && "opacity-30")} />
-                    <span className={cn("truncate text-xs font-medium", selected ? "text-indigo-700" : active ? b.tone : "text-slate-400")}>{b.label}</span>
+                    <span className={cn("truncate text-xs font-medium", selected ? "text-indigo-700" : active ? b.tone : "text-slate-400")}>{t(b.label)}</span>
                   </span>
                   <span className={cn("text-xs font-semibold tabular-nums", selected ? "text-indigo-700" : active ? "text-slate-900" : "text-slate-300")}>
                     {b.items.length}
@@ -6868,9 +6871,9 @@ function UpcomingMilestonesSection({
         <div className="px-5 py-4">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <div className="text-xs text-slate-500">
-              当前筛选：<span className="font-semibold text-slate-800">{activeWindowLabel}</span>
+              {t("当前筛选：")}<span className="font-semibold text-slate-800">{activeWindowLabel}</span>
               <span className="mx-1 text-slate-300">·</span>
-              <span className="font-semibold tabular-nums text-slate-800">{filteredItems.length}</span> 项
+              <span className="font-semibold tabular-nums text-slate-800">{filteredItems.length}</span> {t("项")}
             </div>
             <div className="text-xs tabular-nums text-slate-400">
               {filteredItems.length === 0 ? "0 / 0" : `${(safePage - 1) * pageSize + 1}-${Math.min(safePage * pageSize, filteredItems.length)} / ${filteredItems.length}`}
@@ -6879,7 +6882,7 @@ function UpcomingMilestonesSection({
           <div className="grid gap-2 xl:grid-cols-2">
             {visibleItems.map(({ task, dleft }) => {
               const dayLabel =
-                dleft < 0 ? `逾期 ${-dleft}d` : dleft === 0 ? "今日" : `${dleft}天后`;
+                dleft < 0 ? t("逾期 {count}d", { count: -dleft }) : dleft === 0 ? t("今日") : t("{count}天后", { count: dleft });
               const bucket =
                 grouped.find((b) => dleft >= b.range[0] && dleft <= b.range[1]) ?? grouped[grouped.length - 1];
               const path = splitCategoryPath(task.category_path).slice(0, 2).join(" / ");
@@ -6904,7 +6907,7 @@ function UpcomingMilestonesSection({
                       {/* 协同池无分类概念，不显示路径段 */}
                       {!isUsCollabWorkspace() && (
                         <>
-                          <span className="max-w-[180px] truncate text-slate-500">{path || "未分类"}</span>
+                          <span className="max-w-[180px] truncate text-slate-500">{path || t("未分类")}</span>
                           <span className="text-slate-300">·</span>
                         </>
                       )}
@@ -6928,7 +6931,7 @@ function UpcomingMilestonesSection({
           {totalPages > 1 && (
             <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
               <span className="text-xs text-slate-500">
-                每页 10 条 · 第 <span className="font-semibold tabular-nums text-slate-800">{safePage}</span> / {totalPages} 页
+                {t("每页 10 条 · 第")} <span className="font-semibold tabular-nums text-slate-800">{safePage}</span> / {totalPages} {t("页")}
               </span>
               <div className="flex items-center gap-1">
                 <button
@@ -6936,7 +6939,7 @@ function UpcomingMilestonesSection({
                   onClick={() => setPage((current) => Math.max(1, current - 1))}
                   disabled={safePage <= 1}
                   className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-slate-400 transition-all hover:bg-white hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30"
-                  aria-label="上一页"
+                  aria-label={t("上一页")}
                 >
                   <ChevronLeft className="h-3.5 w-3.5" />
                 </button>
@@ -6963,7 +6966,7 @@ function UpcomingMilestonesSection({
                   onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
                   disabled={safePage >= totalPages}
                   className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md text-slate-400 transition-all hover:bg-white hover:text-slate-700 active:scale-90 disabled:cursor-not-allowed disabled:opacity-30"
-                  aria-label="下一页"
+                  aria-label={t("下一页")}
                 >
                   <ChevronRight className="h-3.5 w-3.5" />
                 </button>
@@ -7008,13 +7011,13 @@ function TasksByPartSection({
     <section className="space-y-3">
       <header className="flex flex-wrap items-start justify-between gap-3 px-1">
         <div>
-          <h3 className="text-sm font-semibold text-slate-900">全部任务清单</h3>
+          <h3 className="text-sm font-semibold text-slate-900">{t("全部任务清单")}</h3>
           <p className="mt-0.5 text-xs text-slate-500">
-            {sub ? `${sub.label} · ` : `按部件分组 · ${parts.length} 个部件 · `}
-            {filtersActive ? `${filteredTotal} / ${totalCount}` : totalCount} 个活跃任务
+            {sub ? `${sub.label} · ` : <>{t("按部件分组 · {count} 个部件", { count: parts.length })} · </>}
+            {filtersActive ? `${filteredTotal} / ${totalCount}` : totalCount} {t("个活跃任务")}
           </p>
         </div>
-        <span className="text-xs text-slate-400">点击展开部件 / 卡片查看子任务</span>
+        <span className="text-xs text-slate-400">{t("点击展开部件 / 卡片查看子任务")}</span>
       </header>
 
       <div className="grid gap-2 rounded-[8px] border border-slate-200 bg-white p-3 sm:grid-cols-[minmax(150px,1fr)_auto_auto_auto_auto]">
@@ -7022,7 +7025,7 @@ function TasksByPartSection({
           <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
           <Input
             className="h-9 w-full rounded-[8px] border border-slate-200 bg-slate-50 pl-8 pr-3 text-sm text-slate-700 outline-none transition focus:border-indigo-300 focus:bg-white focus:ring-2 focus:ring-indigo-50"
-            placeholder="搜索任务、编号、负责人、路径"
+            placeholder={t("搜索任务、编号、负责人、路径")}
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}
           />
@@ -7032,7 +7035,7 @@ function TasksByPartSection({
           value={statusFilter}
           onChange={(event) => setStatusFilter(event.target.value as TaskStatus | "all")}
         >
-          <option value="all">状态</option>
+          <option value="all">{t("状态")}</option>
           {(Object.keys(STATUS_CONFIG) as TaskStatus[]).map((status) => (
             <option key={status} value={status}>{t(STATUS_CONFIG[status].label)}</option>
           ))}
@@ -7042,22 +7045,22 @@ function TasksByPartSection({
           value={priorityFilter}
           onChange={(event) => setPriorityFilter(event.target.value as Priority | "all")}
         >
-          <option value="all">优先级</option>
-          <option value="high">高</option>
-          <option value="medium">中</option>
-          <option value="low">低</option>
+          <option value="all">{t("优先级")}</option>
+          <option value="high">{t("高")}</option>
+          <option value="medium">{t("中")}</option>
+          <option value="low">{t("低")}</option>
         </NativeSelect>
         <NativeSelect
           className="h-9 rounded-[8px] border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50"
           value={dueFilter}
           onChange={(event) => setDueFilter(event.target.value as TaskDueFilter)}
         >
-          <option value="all">时间</option>
-          <option value="overdue">已逾期</option>
-          <option value="today">今天到期</option>
-          <option value="3d">3 天内</option>
-          <option value="7d">7 天内</option>
-          <option value="no_due">无截止日</option>
+          <option value="all">{t("时间")}</option>
+          <option value="overdue">{t("已逾期")}</option>
+          <option value="today">{t("今天到期")}</option>
+          <option value="3d">{t("3 天内")}</option>
+          <option value="7d">{t("7 天内")}</option>
+          <option value="no_due">{t("无截止日")}</option>
         </NativeSelect>
         <button
           type="button"
@@ -7070,7 +7073,7 @@ function TasksByPartSection({
           disabled={!filtersActive}
           className="h-9 cursor-pointer rounded-[8px] border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          清空
+          {t("清空")}
         </button>
       </div>
 
@@ -7088,7 +7091,7 @@ function TasksByPartSection({
         ))}
         {filteredTotal === 0 && filtersActive && (
           <div className="rounded-[8px] border border-dashed border-slate-300 bg-white px-4 py-8 text-center text-sm font-medium text-slate-500">
-            当前筛选条件下暂无任务
+            {t("当前筛选条件下暂无任务")}
           </div>
         )}
       </div>
@@ -7132,12 +7135,12 @@ function PartHealthGrid({
     <section className="rounded-xl border border-slate-100 bg-white p-5">
       <header className="mb-4 flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-semibold text-slate-900">部件健康</h3>
+          <h3 className="text-sm font-semibold text-slate-900">{t("部件健康")}</h3>
           <p className="mt-0.5 text-xs text-slate-500">
-            {category.label} · {parts.length} 个部件 · 点击切换聚焦范围
+            {category.label} · {t("{count} 个部件", { count: parts.length })} · {t("点击切换聚焦范围")}
           </p>
         </div>
-        <span className="text-xs text-slate-400">按风险数排序</span>
+        <span className="text-xs text-slate-400">{t("按风险数排序")}</span>
       </header>
 
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-4">
@@ -7171,7 +7174,7 @@ function PartHealthGrid({
                   </span>
                   <span
                     className={cn("h-1.5 w-1.5 shrink-0 rounded-full", config.dot)}
-                    title={config.label}
+                    title={t(config.label)}
                   />
                 </div>
 
@@ -7194,12 +7197,12 @@ function PartHealthGrid({
 
                 <div className="flex items-center justify-between text-[11px] text-slate-500">
                   <span>
-                    <span className="font-semibold tabular-nums text-slate-700">{active}</span> 活跃
+                    <span className="font-semibold tabular-nums text-slate-700">{active}</span> {t("活跃")}
                   </span>
-                  {isIdle && <span className="text-slate-400">空闲</span>}
+                  {isIdle && <span className="text-slate-400">{t("空闲")}</span>}
                   {blocked > 0 && (
                     <span className="text-orange-600">
-                      <span className="font-semibold tabular-nums">{blocked}</span> 阻塞
+                      <span className="font-semibold tabular-nums">{blocked}</span> {t("阻塞")}
                     </span>
                   )}
                 </div>
@@ -7283,8 +7286,8 @@ function PersonFormModal({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const newErrors: typeof errors = {};
-    if (!form.name.trim()) newErrors.name = "姓名不能为空";
-    if (!form.position.trim()) newErrors.position = "职位不能为空";
+    if (!form.name.trim()) newErrors.name = t("姓名不能为空");
+    if (!form.position.trim()) newErrors.position = t("职位不能为空");
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
       return;
@@ -7302,17 +7305,17 @@ function PersonFormModal({
         <header className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
           <div>
             <h3 className="text-base font-semibold text-slate-900">
-              {isEdit ? "编辑成员" : "新增成员"}
+              {isEdit ? t("编辑成员") : t("新增成员")}
             </h3>
             <p className="mt-0.5 text-xs text-slate-500">
-              {isEdit ? `修改 ${person!.name} 的信息` : "创建一个新的团队成员"}
+              {isEdit ? t("修改 {name} 的信息", { name: person!.name }) : t("创建一个新的团队成员")}
             </p>
           </div>
           <button
             onClick={onClose}
             type="button"
             className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-            aria-label="关闭"
+            aria-label={t("关闭")}
           >
             <X className="h-4 w-4" />
           </button>
@@ -7320,7 +7323,7 @@ function PersonFormModal({
 
         <form onSubmit={handleSubmit} className="space-y-4 px-6 py-5">
           <div className="grid grid-cols-2 gap-3">
-            <Field label="姓名" required error={errors.name}>
+            <Field label={t("姓名")} required error={errors.name}>
               <Input
                 value={form.name}
                 onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
@@ -7328,11 +7331,11 @@ function PersonFormModal({
                   "w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100",
                   errors.name ? "border-red-300" : "border-slate-200",
                 )}
-                placeholder="例: 王磊"
+                placeholder={t("例: 王磊")}
                 autoFocus
               />
             </Field>
-            <Field label="职位" required error={errors.position}>
+            <Field label={t("职位")} required error={errors.position}>
               <Input
                 value={form.position}
                 onChange={(e) => setForm((f) => ({ ...f, position: e.target.value }))}
@@ -7340,13 +7343,13 @@ function PersonFormModal({
                   "w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100",
                   errors.position ? "border-red-300" : "border-slate-200",
                 )}
-                placeholder="硬件测试工程师"
+                placeholder={t("硬件测试工程师")}
               />
             </Field>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
-            <Field label="所属部门">
+            <Field label={t("所属部门")}>
               <NativeSelect
                 value={form.department}
                 onChange={(e) => setForm((f) => ({ ...f, department: e.target.value }))}
@@ -7359,20 +7362,20 @@ function PersonFormModal({
                 ))}
               </NativeSelect>
             </Field>
-            <Field label="状态">
+            <Field label={t("状态")}>
               <NativeSelect
                 value={form.status}
                 onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as PersonStatus }))}
                 className="w-full cursor-pointer rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
               >
-                <option value="active">在岗</option>
-                <option value="on_leave">请假中</option>
-                <option value="resigned">已离职</option>
+                <option value="active">{t("在岗")}</option>
+                <option value="on_leave">{t("请假中")}</option>
+                <option value="resigned">{t("已离职")}</option>
               </NativeSelect>
             </Field>
           </div>
 
-          <Field label="邮箱">
+          <Field label={t("邮箱")}>
             <Input
               type="email"
               value={form.email ?? ""}
@@ -7383,7 +7386,7 @@ function PersonFormModal({
           </Field>
 
           <div className="grid grid-cols-2 gap-3">
-            <Field label="联系电话">
+            <Field label={t("联系电话")}>
               <Input
                 value={form.phone ?? ""}
                 onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value }))}
@@ -7391,7 +7394,7 @@ function PersonFormModal({
                 placeholder="13800000000"
               />
             </Field>
-            <Field label="任务上限">
+            <Field label={t("任务上限")}>
               <Input
                 type="number"
                 min={1}
@@ -7409,13 +7412,13 @@ function PersonFormModal({
               onClick={onClose}
               className="rounded-md border border-slate-200 px-4 py-2 text-sm font-medium text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-[0.98]"
             >
-              取消
+              {t("取消")}
             </button>
             <button
               type="submit"
               className="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(15,23,42,0.2)] transition-all duration-150 hover:bg-slate-800 active:scale-[0.98]"
             >
-              {isEdit ? "保存修改" : "创建成员"}
+              {isEdit ? t("保存修改") : t("创建成员")}
               <ArrowRight className="h-3.5 w-3.5" />
             </button>
           </footer>
@@ -7469,9 +7472,9 @@ function ConfirmDeleteDialog({
           <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-red-50">
             <AlertTriangle className="h-6 w-6 text-red-500" />
           </div>
-          <h3 className="text-base font-semibold text-slate-900">删除 {person.name}?</h3>
+          <h3 className="text-base font-semibold text-slate-900">{t("删除 {name}?", { name: person.name })}</h3>
           <p className="mt-1.5 text-sm leading-relaxed text-slate-500">
-            此操作将永久删除该成员的档案，关联任务将转为待指派状态。删除后无法撤销。
+            {t("此操作将永久删除该成员的档案，关联任务将转为待指派状态。删除后无法撤销。")}
           </p>
         </div>
         <footer className="mt-5 flex items-center justify-end gap-2 border-t border-slate-100 bg-slate-50/50 px-6 py-3">
@@ -7480,7 +7483,7 @@ function ConfirmDeleteDialog({
             onClick={onCancel}
             className="rounded-md border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition-all duration-150 hover:bg-slate-50 active:scale-[0.98]"
           >
-            取消
+            {t("取消")}
           </button>
           <button
             type="button"
@@ -7488,7 +7491,7 @@ function ConfirmDeleteDialog({
             className="inline-flex items-center gap-1.5 rounded-md bg-red-600 px-3.5 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(220,38,38,0.25)] transition-all duration-150 hover:bg-red-700 active:scale-[0.98]"
           >
             <Trash2 className="h-3.5 w-3.5" />
-            确认删除
+            {t("确认删除")}
           </button>
         </footer>
       </div>
@@ -7591,12 +7594,12 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
             className="group flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.96]"
           >
             <ChevronLeft className="h-4 w-4 transition-transform duration-200 ease-out group-hover:-translate-x-0.5" />
-            返回总览
+            {t("返回总览")}
           </button>
           <span className="text-xs text-slate-300">·</span>
-          <span className="text-sm text-slate-500">详情视图</span>
+          <span className="text-sm text-slate-500">{t("详情视图")}</span>
           <span className="text-xs text-slate-300">›</span>
-          <span className="text-sm font-medium text-slate-800">人员管理</span>
+          <span className="text-sm font-medium text-slate-800">{t("人员管理")}</span>
         </div>
         <button
           type="button"
@@ -7604,7 +7607,7 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
           className="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-3 py-1.5 text-xs font-semibold text-white shadow-[0_8px_18px_rgba(15,23,42,0.18)] transition-all duration-150 hover:-translate-y-0.5 hover:bg-slate-800 hover:shadow-[0_12px_24px_rgba(15,23,42,0.22)] active:scale-[0.98]"
         >
           <Plus className="h-3.5 w-3.5" />
-          新增成员
+          {t("新增成员")}
         </button>
       </div>
 
@@ -7617,13 +7620,13 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
                 <div className="text-3xl font-semibold tabular-nums tracking-tight text-slate-900">
                   {stats.total}
                 </div>
-                <div className="mt-1 text-[11px] font-medium text-slate-500">总成员数</div>
+                <div className="mt-1 text-[11px] font-medium text-slate-500">{t("总成员数")}</div>
               </div>
               <div className="px-6 py-4">
                 <div className="text-3xl font-semibold tabular-nums tracking-tight text-emerald-600">
                   {stats.active}
                 </div>
-                <div className="mt-1 text-[11px] font-medium text-slate-500">在岗</div>
+                <div className="mt-1 text-[11px] font-medium text-slate-500">{t("在岗")}</div>
               </div>
               <div className="px-6 py-4">
                 <div
@@ -7634,13 +7637,13 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
                 >
                   {stats.onLeave}
                 </div>
-                <div className="mt-1 text-[11px] font-medium text-slate-500">请假中</div>
+                <div className="mt-1 text-[11px] font-medium text-slate-500">{t("请假中")}</div>
               </div>
               <div className="px-6 py-4">
                 <div className="text-3xl font-semibold tabular-nums tracking-tight text-slate-900">
                   {stats.departments}
                 </div>
-                <div className="mt-1 text-[11px] font-medium text-slate-500">所属部门</div>
+                <div className="mt-1 text-[11px] font-medium text-slate-500">{t("所属部门")}</div>
               </div>
             </div>
           </section>
@@ -7652,7 +7655,7 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
               <Input
                 value={keyword}
                 onChange={(e) => setKeyword(e.target.value)}
-                placeholder="搜索姓名 / 职位 / 部门 / 邮箱…"
+                placeholder={t("搜索姓名 / 职位 / 部门 / 邮箱…")}
                 className="flex-1 text-sm text-slate-900 outline-none placeholder:text-slate-400"
               />
               {keyword && (
@@ -7660,7 +7663,7 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
                   type="button"
                   onClick={() => setKeyword("")}
                   className="rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                  aria-label="清除搜索"
+                  aria-label={t("清除搜索")}
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -7680,7 +7683,7 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
                       : "text-slate-500 hover:bg-slate-100 hover:text-slate-700",
                   )}
                 >
-                  {s === "all" ? "全部" : PERSON_STATUS_CONFIG[s].label}
+                  {s === "all" ? t("全部") : t(PERSON_STATUS_CONFIG[s].label)}
                 </button>
               ))}
             </div>
@@ -7690,7 +7693,7 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
               onChange={(e) => setDeptFilter(e.target.value)}
               className="cursor-pointer rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             >
-              <option value="all">全部部门</option>
+              <option value="all">{t("全部部门")}</option>
               {DEPARTMENTS.map((d) => (
                 <option key={d} value={d}>
                   {d}
@@ -7699,8 +7702,7 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
             </NativeSelect>
 
             <span className="ml-auto text-xs tabular-nums text-slate-400">
-              共 <span className="font-semibold text-slate-700">{filtered.length}</span> /{" "}
-              {people.length} 人
+              {t("共 {filtered} / {total} 人", { filtered: filtered.length, total: people.length })}
             </span>
           </section>
 
@@ -7709,19 +7711,19 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
             <table className="w-full">
               <thead>
                 <tr className="border-b border-slate-100 bg-slate-50/60 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                  <th className="px-6 py-3 text-left">成员</th>
-                  <th className="px-4 py-3 text-left">职位</th>
-                  <th className="px-4 py-3 text-left">部门</th>
-                  <th className="px-4 py-3 text-left">状态</th>
-                  <th className="px-4 py-3 text-left">入职日期</th>
-                  <th className="px-4 py-3 text-right">操作</th>
+                  <th className="px-6 py-3 text-left">{t("成员")}</th>
+                  <th className="px-4 py-3 text-left">{t("职位")}</th>
+                  <th className="px-4 py-3 text-left">{t("部门")}</th>
+                  <th className="px-4 py-3 text-left">{t("状态")}</th>
+                  <th className="px-4 py-3 text-left">{t("入职日期")}</th>
+                  <th className="px-4 py-3 text-right">{t("操作")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {filtered.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-6 py-16 text-center">
-                      <div className="text-sm font-medium text-slate-400">没有匹配的成员</div>
+                      <div className="text-sm font-medium text-slate-400">{t("没有匹配的成员")}</div>
                       <button
                         type="button"
                         onClick={() => {
@@ -7731,7 +7733,7 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
                         }}
                         className="mt-3 text-xs font-medium text-indigo-600 hover:underline"
                       >
-                        重置筛选
+                        {t("重置筛选")}
                       </button>
                     </td>
                   </tr>
@@ -7771,7 +7773,7 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
                             )}
                           >
                             <span className={cn("h-1.5 w-1.5 rounded-full", cfg.dot)} />
-                            {cfg.label}
+                            {t(cfg.label)}
                           </span>
                         </td>
                         <td className="px-4 py-3.5 text-xs tabular-nums text-slate-500">
@@ -7783,8 +7785,8 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
                               type="button"
                               onClick={() => setEditing(p)}
                               className="rounded-md p-1.5 text-slate-400 transition-all duration-150 hover:bg-indigo-50 hover:text-indigo-600 active:scale-90"
-                              aria-label={`编辑 ${p.name}`}
-                              title="编辑"
+                              aria-label={t("编辑 {name}", { name: p.name })}
+                              title={t("编辑")}
                             >
                               <Pencil className="h-3.5 w-3.5" />
                             </button>
@@ -7792,8 +7794,8 @@ function PeopleManagementPage({ onBack }: { onBack: () => void }) {
                               type="button"
                               onClick={() => setDeleteTarget(p)}
                               className="rounded-md p-1.5 text-slate-400 transition-all duration-150 hover:bg-red-50 hover:text-red-600 active:scale-90"
-                              aria-label={`删除 ${p.name}`}
-                              title="删除"
+                              aria-label={t("删除 {name}", { name: p.name })}
+                              title={t("删除")}
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                             </button>
@@ -8180,7 +8182,7 @@ function PersonTaskCockpit({
   const handleBackfillScores = useCallback(async (force = false) => {
     if (backfillBusy) return;
     setBackfillBusy(true);
-    const toastId = toast.loading("[1/2] 正在抽取历史附件文本（OCR/文档/视觉）…");
+    const toastId = toast.loading(t("[1/2] 正在抽取历史附件文本（OCR/文档/视觉）…"));
 
     // Step 1：先做附件抽取，让评分时 AI 能"看到"附件内容
     let extractionSummary = "";
@@ -8188,33 +8190,37 @@ function PersonTaskCockpit({
     try {
       const extractResult = await backfillRdTaskProgressNoteExtraction({ max_items: 50 });
       if (extractResult.processed === 0) {
-        extractionSummary = "附件全部已抽取";
+        extractionSummary = t("附件全部已抽取");
       } else {
-        extractionSummary = `附件抽取 ${extractResult.succeeded} 成功${
-          extractResult.failed > 0 ? ` / ${extractResult.failed} 失败` : ""
-        }`;
+        extractionSummary = t("附件抽取 {succeeded} 成功{failed}", {
+          succeeded: extractResult.succeeded,
+          failed: extractResult.failed > 0 ? ` ${t("/ {count} 失败", { count: extractResult.failed })}` : "",
+        });
         if (extractResult.has_more) {
           extractionHasMore = true;
-          extractionSummary += `（剩 ${extractResult.total_pending - extractResult.processed} 个待处理）`;
+          extractionSummary += t("（剩 {count} 个待处理）", { count: extractResult.total_pending - extractResult.processed });
         }
       }
     } catch (err) {
-      extractionSummary = `附件抽取失败：${err instanceof Error ? err.message : "未知错误"}`;
+      extractionSummary = t("附件抽取失败：{error}", { error: err instanceof Error ? err.message : t("未知错误") });
       // 抽取失败不阻塞评分，AI 依然能基于元数据评分
     }
 
     // Step 2：AI 评分
-    toast.loading(`[2/2] ${extractionSummary} → 生成 AI 评分中…`, { id: toastId });
+    toast.loading(t("[2/2] {summary} → 生成 AI 评分中…", { summary: extractionSummary }), { id: toastId });
     try {
       const result = await backfillRdTaskCompletionScores({ force });
       const scoreSummary = force
-        ? `AI 重新评分：${result.scored} 个已按新标准更新${
-            result.failed > 0 ? ` / ${result.failed} 失败` : ""
-          }`
-        : `AI 评分：${result.scored} 新评分 / ${result.skipped} 已存在${
-            result.failed > 0 ? ` / ${result.failed} 失败` : ""
-          }`;
-      const finalMsg = [extractionSummary, scoreSummary, extractionHasMore ? "提示：附件仍有未抽取项，可再次点击继续完善评分" : ""]
+        ? t("AI 重新评分：{scored} 个已按新标准更新{failed}", {
+            scored: result.scored,
+            failed: result.failed > 0 ? ` ${t("/ {count} 失败", { count: result.failed })}` : "",
+          })
+        : t("AI 评分：{scored} 新评分 / {skipped} 已存在{failed}", {
+            scored: result.scored,
+            skipped: result.skipped,
+            failed: result.failed > 0 ? ` ${t("/ {count} 失败", { count: result.failed })}` : "",
+          });
+      const finalMsg = [extractionSummary, scoreSummary, extractionHasMore ? t("提示：附件仍有未抽取项，可再次点击继续完善评分") : ""]
         .filter(Boolean)
         .join("\n");
       if (result.failed > 0 || extractionHasMore) {
@@ -8226,7 +8232,7 @@ function PersonTaskCockpit({
       setAiScoreMap({});
       setNotesMap({});
     } catch (err) {
-      toast.error(`AI 评分失败：${err instanceof Error ? err.message : "未知错误"}`, { id: toastId });
+      toast.error(t("AI 评分失败：{error}", { error: err instanceof Error ? err.message : t("未知错误") }), { id: toastId });
     } finally {
       setBackfillBusy(false);
     }
@@ -8235,26 +8241,26 @@ function PersonTaskCockpit({
   const handleBackfillExtraction = useCallback(async () => {
     if (extractionBackfillBusy) return;
     setExtractionBackfillBusy(true);
-    const toastId = toast.loading("正在批量抽取历史附件文本（OCR/文档/视觉，每个 5-30 秒）…");
+    const toastId = toast.loading(t("正在批量抽取历史附件文本（OCR/文档/视觉，每个 5-30 秒）…"));
     try {
       const result = await backfillRdTaskProgressNoteExtraction({ max_items: 50 });
       const lines = [
-        `本次处理 ${result.processed} / 待处理 ${result.total_pending}`,
-        `成功 ${result.succeeded}${result.failed > 0 ? ` · 失败 ${result.failed}` : ""}`,
+        t("本次处理 {processed} / 待处理 {pending}", { processed: result.processed, pending: result.total_pending }),
+        t("成功 {succeeded}{failed}", { succeeded: result.succeeded, failed: result.failed > 0 ? ` ${t("· 失败 {count}", { count: result.failed })}` : "" }),
       ];
       if (result.has_more) {
-        lines.push("（剩余附件较多，可再次点击继续）");
+        lines.push(t("（剩余附件较多，可再次点击继续）"));
       }
       const msg = lines.join("，");
       if (result.failed > 0) toast.warning(msg, { id: toastId, duration: 6000 });
-      else if (result.processed === 0) toast.info("没有待抽取的附件，全部已处理过", { id: toastId });
+      else if (result.processed === 0) toast.info(t("没有待抽取的附件，全部已处理过"), { id: toastId });
       else toast.success(msg, { id: toastId, duration: 6000 });
       // 清空 notesMap，触发可见任务重新拉取（这样新的 extracted_text 会反映出来）
       setNotesMap({});
       // 评分也清空，因为下次评分能用上新抽取的内容
       setAiScoreMap({});
     } catch (err) {
-      toast.error(`批量抽取失败：${err instanceof Error ? err.message : "未知错误"}`, { id: toastId });
+      toast.error(t("批量抽取失败：{error}", { error: err instanceof Error ? err.message : t("未知错误") }), { id: toastId });
     } finally {
       setExtractionBackfillBusy(false);
     }
@@ -8419,17 +8425,17 @@ function PersonTaskCockpit({
     const scopeTasks = (activeTab === "all" ? allActiveTasks : (personTasksMap.get(activeTab) ?? []))
       .filter((t) => t.status === "completed");
     if (scopeTasks.length === 0) {
-      toast.info("当前范围没有已完成任务可导出");
+      toast.info(t("当前范围没有已完成任务可导出"));
       return;
     }
     if (
       scopeTasks.length > 50 &&
-      !window.confirm(`当前范围有 ${scopeTasks.length} 个已完成任务，将逐个拉取评分与留痕并生成多页报告，可能较慢。确定继续？`)
+      !window.confirm(t("当前范围有 {count} 个已完成任务，将逐个拉取评分与留痕并生成多页报告，可能较慢。确定继续？", { count: scopeTasks.length }))
     ) {
       return;
     }
     setBatchExportBusy(true);
-    const toastId = toast.loading(`正在汇总 ${scopeTasks.length} 个任务的评分…`);
+    const toastId = toast.loading(t("正在汇总 {count} 个任务的评分…", { count: scopeTasks.length }));
     try {
       // 1) 拉评分（并发上限 6），优先用已缓存的 aiScoreMap
       const scoreEntries = await mapWithConcurrency(scopeTasks, 6, async (t) => {
@@ -8441,29 +8447,29 @@ function PersonTaskCockpit({
         (e): e is readonly [Task, RdTaskCompletionScore] => e[1] != null,
       );
       if (scored.length === 0) {
-        toast.error("这些任务尚未生成 AI 评分，请先点击「AI 复盘评分」", { id: toastId });
+        toast.error(t("这些任务尚未生成 AI 评分，请先点击「AI 复盘评分」"), { id: toastId });
         return;
       }
       // 2) 拉进度留痕（并发上限 6），优先用 notesMap 缓存
-      toast.loading(`正在汇总 ${scored.length} 个任务的进度留痕…`, { id: toastId });
+      toast.loading(t("正在汇总 {count} 个任务的进度留痕…", { count: scored.length }), { id: toastId });
       const items = await mapWithConcurrency(scored, 6, async ([t, score]) => {
         const cachedNotes = notesMap[t.task_id];
         const noteList = cachedNotes !== undefined ? cachedNotes : await fetchRdTaskProgressNotes(t.task_id).catch(() => []);
         return { task: t, score, notes: noteList };
       });
-      const scopeLabel = activeTab === "all" ? "全部成员" : activeTab;
+      const scopeLabel = activeTab === "all" ? t("全部成员") : activeTab;
       const ok = openBatchCompletionReport(scopeLabel, items);
       if (!ok) {
-        toast.error("报告窗口被浏览器拦截，请允许本站弹出窗口后重试", { id: toastId });
+        toast.error(t("报告窗口被浏览器拦截，请允许本站弹出窗口后重试"), { id: toastId });
         return;
       }
       const skipped = scopeTasks.length - scored.length;
       toast.success(
-        `已生成 ${items.length} 份报告${skipped > 0 ? `，跳过 ${skipped} 个未评分任务` : ""}`,
+        t("已生成 {count} 份报告{skipped}", { count: items.length, skipped: skipped > 0 ? t("，跳过 {count} 个未评分任务", { count: skipped }) : "" }),
         { id: toastId, duration: 6000 },
       );
     } catch (err) {
-      toast.error(`批量导出失败：${err instanceof Error ? err.message : "未知错误"}`, { id: toastId });
+      toast.error(t("批量导出失败：{error}", { error: err instanceof Error ? err.message : t("未知错误") }), { id: toastId });
     } finally {
       setBatchExportBusy(false);
     }
@@ -8661,7 +8667,7 @@ function PersonTaskCockpit({
                     "inline-flex h-7 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2 font-medium",
                     updateTone.text,
                   )}
-                  title={lastUpdateIso ? `最近更新：${new Date(lastUpdateIso).toLocaleString("zh-CN")}` : ""}
+                  title={lastUpdateIso ? t("最近更新：{time}", { time: new Date(lastUpdateIso).toLocaleString(i18nLocale()) }) : ""}
                 >
                   <span className="relative flex h-2 w-2 shrink-0">
                     {relativeUpdate.tone === "fresh" && (
@@ -8684,7 +8690,7 @@ function PersonTaskCockpit({
                         gradeTone.bg,
                         gradeTone.border,
                       )}
-                      title={completionScore.isFallback ? "AI 调用失败，使用规则兜底" : "AI 复盘评分"}
+                      title={completionScore.isFallback ? t("AI 调用失败，使用规则兜底") : t("AI 复盘评分")}
                     >
                       <Sparkles className={cn("h-3 w-3 shrink-0", gradeTone.text)} />
                       <span className={cn("text-[10px] font-semibold opacity-75", gradeTone.text)}>AI</span>
@@ -8693,17 +8699,17 @@ function PersonTaskCockpit({
                         <span className="text-[9px] font-semibold opacity-60">/100</span>
                       </span>
                       <span className={cn("rounded px-1 py-0.5 text-[9px] font-black text-white", gradeTone.bar)}>
-                        {completionScore.grade}·{completionScore.gradeLabel}
+                        {completionScore.grade}·{t(completionScore.gradeLabel.trim())}
                       </span>
                       {completionScore.isFallback && (
-                        <span className="rounded bg-amber-100 px-1 py-0.5 text-[9px] font-bold text-amber-800">兜底</span>
+                        <span className="rounded bg-amber-100 px-1 py-0.5 text-[9px] font-bold text-amber-800">{t("兜底")}</span>
                       )}
                     </div>
                   </TooltipTrigger>
                   <TooltipContent side="bottom" align="start">
                     <div className="min-w-[220px] max-w-xs space-y-1">
                       <div className="flex items-center justify-between gap-3 text-xs font-semibold">
-                        <span>AI 复盘评分{completionScore.isFallback ? "（兜底）" : ""}</span>
+                        <span>{t("AI 复盘评分")}{completionScore.isFallback ? t("（兜底）") : ""}</span>
                         <span>{completionScore.total} / 100 · {completionScore.grade}</span>
                       </div>
                       {completionScore.summary && (
@@ -8726,7 +8732,7 @@ function PersonTaskCockpit({
                 <div
                   onClick={(e) => e.stopPropagation()}
                   className="inline-flex h-7 items-center gap-1 rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-2 text-slate-400"
-                  title={aiScoreFetched ? "AI 评分尚未生成，可在「完成」筛选中点击「AI 复盘评分」按钮批量生成" : "正在读取 AI 评分…"}
+                  title={aiScoreFetched ? t("AI 评分尚未生成，可在「完成」筛选中点击「AI 复盘评分」按钮批量生成") : t("正在读取 AI 评分…")}
                 >
                   <Sparkles className="h-3 w-3 opacity-50" />
                   <span className="text-[10px] font-semibold">{aiScoreFetched ? t("评分待生成") : t("评分加载中")}</span>
@@ -8836,7 +8842,7 @@ function PersonTaskCockpit({
             {workItemsFeatureEnabled() && (task.work_items ?? []).length > 0 && (
               <span
                 className="inline-flex items-center gap-0.5 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500"
-                title={`工作项 ${task.work_items!.filter((it) => it.done).length}/${task.work_items!.length}`}
+                title={t("工作项 {done}/{total}", { done: task.work_items!.filter((it) => it.done).length, total: task.work_items!.length })}
               >
                 <ListChecks className="h-3 w-3" />
                 {task.work_items!.filter((it) => it.done).length}/{task.work_items!.length}
@@ -8931,7 +8937,7 @@ function PersonTaskCockpit({
                 {risks.length > 0 && (
                   <span
                     className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-0.5 text-[9px] font-black text-white"
-                    title={`${risks.length} 个风险任务`}
+                    title={t("{count} 个风险任务", { count: risks.length })}
                   >
                     {risks.length > 99 ? "99+" : risks.length}
                   </span>
@@ -8990,7 +8996,7 @@ function PersonTaskCockpit({
                     )}
                     {p.onLeave && (
                       <span className="absolute -top-0.5 left-1/2 -translate-x-1/2 rounded-sm bg-amber-400 px-1 text-[8px] font-black text-white leading-none py-0.5">
-                        假
+                        {t("假")}
                       </span>
                     )}
                   </div>
@@ -9027,12 +9033,12 @@ function PersonTaskCockpit({
                       e.currentTarget.blur();
                     }
                   }}
-                  placeholder="任务、编号、负责人"
+                  placeholder={t("任务、编号、负责人")}
                   className="h-9 w-40 rounded-full border border-slate-200 bg-white pl-8 pr-14 text-xs text-slate-700 shadow-sm outline-none transition-[border-color,box-shadow] focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50 sm:w-52"
                 />
                 {cockpitSearch ? (
                   <span className="pointer-events-none absolute right-8 top-1/2 -translate-y-1/2 text-[10px] font-semibold tabular-nums text-indigo-500">
-                    {cockpitHitCount} 条
+                    {t("{n} 条", { n: cockpitHitCount })}
                   </span>
                 ) : null}
                 {cockpitKeyword ? (
@@ -9044,7 +9050,7 @@ function PersonTaskCockpit({
                       searchInputRef.current?.focus();
                     }}
                     className="absolute right-2 top-1/2 -translate-y-1/2 cursor-pointer rounded-full p-0.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
-                    aria-label="清空搜索"
+                    aria-label={t("清空搜索")}
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -9055,8 +9061,8 @@ function PersonTaskCockpit({
                 type="button"
                 onClick={() => setSearchOpen(true)}
                 className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600"
-                title="搜索任务（标题 / 编号 / 负责人 / 路径）"
-                aria-label="搜索任务"
+                title={t("搜索任务（标题 / 编号 / 负责人 / 路径）")}
+                aria-label={t("搜索任务")}
               >
                 <Search className="h-4 w-4" />
               </button>
@@ -9070,11 +9076,11 @@ function PersonTaskCockpit({
               <div className="flex min-w-0 items-center gap-2">
                 <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-white px-2 py-0.5 text-[11px] font-semibold text-indigo-700 ring-1 ring-indigo-200 shadow-[0_4px_10px_rgba(79,70,229,0.06)]">
                   <ListChecks className="h-3 w-3" />
-                  当前筛选：
-                  <span className="ml-0.5">{KPI_FILTER_LABEL[kpiFilter]}</span>
+                  {t("当前筛选：")}
+                  <span className="ml-0.5">{t(KPI_FILTER_LABEL[kpiFilter])}</span>
                 </span>
                 <span className="truncate text-slate-500">
-                  共 <span className="font-bold tabular-nums text-slate-700">{allActiveTasks.length}</span> 个任务符合此筛选
+                  {t("共 {count} 个任务符合此筛选", { count: allActiveTasks.length })}
                 </span>
               </div>
               <div className="flex shrink-0 items-center gap-2">
@@ -9085,21 +9091,21 @@ function PersonTaskCockpit({
                       onClick={() => handleBackfillScores(false)}
                       disabled={backfillBusy}
                       className="inline-flex shrink-0 items-center gap-1 rounded-md border border-indigo-200 bg-white px-2 py-1 text-[11px] font-semibold text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
-                      title="一键执行：① 自动抽取附件文本（OCR/文档/视觉） → ② 调 AI 评分。已抽取/已评分的会跳过（幂等）。"
+                      title={t("一键执行：① 自动抽取附件文本（OCR/文档/视觉） → ② 调 AI 评分。已抽取/已评分的会跳过（幂等）。")}
                     >
                       {backfillBusy ? (
                         <Loader2 className="h-3 w-3 animate-spin" />
                       ) : (
                         <Sparkles className="h-3 w-3" />
                       )}
-                      {backfillBusy ? "抽取+评分中…" : "AI 复盘评分"}
+                      {backfillBusy ? t("抽取+评分中…") : t("AI 复盘评分")}
                     </button>
                     <button
                       type="button"
                       onClick={() => {
                         if (
                           window.confirm(
-                            "将对【所有已完成任务】按最新评分标准重新评分，并覆盖现有分数（消耗 AI 额度、耗时较长）。\n通常仅在评分标准调整后执行一次。确定继续？",
+                            t("将对【所有已完成任务】按最新评分标准重新评分，并覆盖现有分数（消耗 AI 额度、耗时较长）。\n通常仅在评分标准调整后执行一次。确定继续？"),
                           )
                         ) {
                           void handleBackfillScores(true);
@@ -9107,20 +9113,20 @@ function PersonTaskCockpit({
                       }}
                       disabled={backfillBusy}
                       className="inline-flex shrink-0 items-center gap-1 rounded-md border border-amber-200 bg-white px-2 py-1 text-[11px] font-semibold text-amber-700 transition-colors hover:border-amber-300 hover:bg-amber-50 disabled:cursor-not-allowed disabled:opacity-60"
-                      title="强制重算：对所有已完成任务按最新评分标准重新评分并覆盖旧分。用于评分标准升级后统一刷新历史分。"
+                      title={t("强制重算：对所有已完成任务按最新评分标准重新评分并覆盖旧分。用于评分标准升级后统一刷新历史分。")}
                     >
                       <RotateCcw className="h-3 w-3" />
-                      按新标准重算
+                      {t("按新标准重算")}
                     </button>
                     <button
                       type="button"
                       onClick={handleBatchExportReports}
                       disabled={batchExportBusy}
                       className="inline-flex shrink-0 items-center gap-1 rounded-md border border-violet-200 bg-white px-2 py-1 text-[11px] font-semibold text-violet-700 transition-colors hover:border-violet-300 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-60"
-                      title="把当前范围（全部 / 选中成员）已完成且已评分的任务，汇总成一份多页正式报告，可在打印对话框中选择「另存为 PDF」下载。"
+                      title={t("把当前范围（全部 / 选中成员）已完成且已评分的任务，汇总成一份多页正式报告，可在打印对话框中选择「另存为 PDF」下载。")}
                     >
                       {batchExportBusy ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileText className="h-3 w-3" />}
-                      {batchExportBusy ? "汇总中…" : "批量导出报告"}
+                      {batchExportBusy ? t("汇总中…") : t("批量导出报告")}
                     </button>
                   </>
                 )}
@@ -9130,14 +9136,14 @@ function PersonTaskCockpit({
                     onClick={handleBackfillExtraction}
                     disabled={extractionBackfillBusy}
                     className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-violet-200 hover:bg-violet-50 hover:text-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
-                    title="仅抽取附件文本（不触发评分）。用于进行中/暂停任务的附件抽取，便于知识库 RAG 检索；已完成任务请直接用 AI 复盘评分（已包含抽取）。"
+                    title={t("仅抽取附件文本（不触发评分）。用于进行中/暂停任务的附件抽取，便于知识库 RAG 检索；已完成任务请直接用 AI 复盘评分（已包含抽取）。")}
                   >
                     {extractionBackfillBusy ? (
                       <Loader2 className="h-3 w-3 animate-spin" />
                     ) : (
                       <FileText className="h-3 w-3" />
                     )}
-                    {extractionBackfillBusy ? "抽取中…" : "仅抽取附件"}
+                    {extractionBackfillBusy ? t("抽取中…") : t("仅抽取附件")}
                   </button>
                 )}
                 {onClearKpiFilter && (
@@ -9147,7 +9153,7 @@ function PersonTaskCockpit({
                     className="inline-flex shrink-0 items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
                   >
                     <X className="h-3 w-3" />
-                    清除筛选
+                    {t("清除筛选")}
                   </button>
                 )}
               </div>
@@ -9186,7 +9192,7 @@ function PersonTaskCockpit({
                             className="flex items-center gap-2 border-b border-indigo-100 bg-indigo-50 px-4 py-2 text-[11px] text-indigo-600"
                           >
                             <Loader2 className="h-3 w-3 animate-spin shrink-0" />
-                            正在加载任务附件图片…
+                            {t("正在加载任务附件图片…")}
                           </motion.div>
                         )}
                       </AnimatePresence>
@@ -9195,8 +9201,10 @@ function PersonTaskCockpit({
                         <div className="flex h-[65vh] flex-col items-center justify-center gap-2 text-sm text-slate-400">
                           <span>
                             {cockpitSearch
-                              ? `没有匹配「${cockpitSearch}」的任务`
-                              : kpiFilter === "all" ? "暂无任务" : `当前筛选「${KPI_FILTER_LABEL[kpiFilter]}」下暂无任务`}
+                              ? t("没有匹配「{keyword}」的任务", { keyword: cockpitSearch })
+                              : kpiFilter === "all"
+                                ? t("暂无任务")
+                                : t("当前筛选「{filter}」下暂无任务", { filter: t(KPI_FILTER_LABEL[kpiFilter]) })}
                           </span>
                           {cockpitSearch && (
                             <button
@@ -9205,7 +9213,7 @@ function PersonTaskCockpit({
                               className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
                             >
                               <X className="h-3 w-3" />
-                              清除搜索
+                              {t("清除搜索")}
                             </button>
                           )}
                           {kpiFilter !== "all" && onClearKpiFilter && (
@@ -9215,7 +9223,7 @@ function PersonTaskCockpit({
                               className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
                             >
                               <X className="h-3 w-3" />
-                              清除筛选
+                              {t("清除筛选")}
                             </button>
                           )}
                         </div>
@@ -9285,7 +9293,7 @@ function PersonTaskCockpit({
                             className="flex items-center gap-2 border-b border-indigo-100 bg-indigo-50 px-4 py-2 text-[11px] text-indigo-600"
                           >
                             <Loader2 className="h-3 w-3 animate-spin shrink-0" />
-                            正在加载任务附件图片…
+                            {t("正在加载任务附件图片…")}
                           </motion.div>
                         )}
                       </AnimatePresence>
@@ -9295,8 +9303,8 @@ function PersonTaskCockpit({
                         <div className="flex h-[65vh] flex-col items-center justify-center gap-2 text-sm text-slate-400">
                           <span>
                             {cockpitSearch
-                              ? `该成员下没有匹配「${cockpitSearch}」的任务`
-                              : kpiFilter === "all" ? "该成员当前暂无任务" : `该成员当前筛选「${KPI_FILTER_LABEL[kpiFilter]}」下暂无任务`}
+                              ? t("该成员下没有匹配「{keyword}」的任务", { keyword: cockpitSearch })
+                              : kpiFilter === "all" ? t("该成员当前暂无任务") : t("该成员当前筛选「{filter}」下暂无任务", { filter: t(KPI_FILTER_LABEL[kpiFilter]) })}
                           </span>
                           {cockpitSearch && (
                             <button
@@ -9305,7 +9313,7 @@ function PersonTaskCockpit({
                               className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
                             >
                               <X className="h-3 w-3" />
-                              清除搜索
+                              {t("清除搜索")}
                             </button>
                           )}
                           {kpiFilter !== "all" && onClearKpiFilter && (
@@ -9315,7 +9323,7 @@ function PersonTaskCockpit({
                               className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-600 transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700"
                             >
                               <X className="h-3 w-3" />
-                              清除筛选
+                              {t("清除筛选")}
                             </button>
                           )}
                         </div>
@@ -9351,7 +9359,7 @@ function PersonTaskCockpit({
                                 {t("已显示全部")} <span className="font-semibold tabular-nums text-slate-500">{tasks.length}</span> {t("个任务")}
                                 {/* 角标=主责进行中(与个人工作台「主责」同口径)；此列表是超集，另含协作 / 已完成，故两数不同属正常 */}
                                 {kpiFilter === "all" && !cockpitSearch && (
-                                  <> · 其中主责进行中 <span className="font-semibold tabular-nums text-indigo-500">{p.count}</span> 个<span className="text-slate-300">（= 头像角标，余为协作 / 已完成）</span></>
+                                  <> · {t("其中主责进行中 {count} 个（= 头像角标，余为协作 / 已完成）", { count: p.count })}</>
                                 )}
                               </span>
                             </div>
@@ -9487,13 +9495,13 @@ function TaskReassignModal({
         source: "web",
       });
       if (failed > 0) {
-        toast.warning(`${succeeded} 个任务转派成功，${failed} 个失败，请检查后重试`);
+        toast.warning(t("{succeeded} 个任务转派成功，{failed} 个失败，请检查后重试", { succeeded, failed }));
       } else {
         onUpdated?.();
         setConfirmed(true);
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "转派失败");
+      toast.error(err instanceof Error ? err.message : t("转派失败"));
     } finally {
       setSaving(false);
     }
@@ -9517,7 +9525,7 @@ function TaskReassignModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-          <span className="font-semibold text-slate-800">批量转派任务</span>
+          <span className="font-semibold text-slate-800">{t("批量转派任务")}</span>
           <button type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100">
             <X className="h-4 w-4 text-slate-500" />
           </button>
@@ -9527,9 +9535,9 @@ function TaskReassignModal({
             <>
               <div>
                 <div className="mb-2 flex items-center justify-between">
-                  <span className="text-sm font-medium text-slate-700">选择任务</span>
+                  <span className="text-sm font-medium text-slate-700">{t("选择任务")}</span>
                   {selectedTasks.size > 0 && (
-                    <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-600">已选 {selectedTasks.size} 个</span>
+                    <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-600">{t("已选 {n} 个", { n: selectedTasks.size })}</span>
                   )}
                 </div>
                 {/* 过滤工具行：任务多时按关键字/负责人/优先级快速定位；勾选状态不随过滤丢失 */}
@@ -9541,7 +9549,7 @@ function TaskReassignModal({
                         <Input
                           value={taskKeyword}
                           onChange={(e) => setTaskKeyword(e.target.value)}
-                          placeholder="搜索任务标题…"
+                          placeholder={t("搜索任务标题…")}
                           className="h-8 rounded-lg pl-8 text-sm"
                         />
                       </div>
@@ -9550,7 +9558,7 @@ function TaskReassignModal({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
-                          <SelectItem value="all">全部负责人</SelectItem>
+                          <SelectItem value="all">{t("全部负责人")}</SelectItem>
                           {taskOwners.map((name) => (
                             <SelectItem key={name} value={name}>{name}</SelectItem>
                           ))}
@@ -9575,40 +9583,40 @@ function TaskReassignModal({
                               : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50",
                           )}
                         >
-                          {p.label}
+                          {t(p.label)}
                         </button>
                       ))}
-                      <span className="ml-auto text-[11px] text-slate-400">{visibleTasks.length} / {assignableTasks.length} 个</span>
+                      <span className="ml-auto text-[11px] text-slate-400">{visibleTasks.length} / {assignableTasks.length} {t("个")}</span>
                       <button
                         type="button"
                         onClick={toggleSelectVisible}
                         disabled={visibleTasks.length === 0}
                         className="cursor-pointer rounded-full border border-slate-200 px-2.5 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
                       >
-                        {allVisibleSelected ? "取消全选" : "全选当前"}
+                        {allVisibleSelected ? t("取消全选") : t("全选当前")}
                       </button>
                     </div>
                   </div>
                 )}
                 <div className="cockpit-scroll space-y-2 overflow-y-auto" style={{ maxHeight: "min(280px, 40vh)" }}>
                   {assignableTasks.length === 0 ? (
-                    <p className="py-4 text-center text-sm text-slate-400">暂无可转派任务</p>
+                    <p className="py-4 text-center text-sm text-slate-400">{t("暂无可转派任务")}</p>
                   ) : visibleTasks.length === 0 ? (
-                    <p className="py-4 text-center text-sm text-slate-400">没有匹配的任务，试试调整筛选条件</p>
-                  ) : visibleTasks.map((t) => (
-                    <label key={t.task_id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-100 px-3 py-2 hover:bg-slate-50">
+                    <p className="py-4 text-center text-sm text-slate-400">{t("没有匹配的任务，试试调整筛选条件")}</p>
+                  ) : visibleTasks.map((taskItem) => (
+                    <label key={taskItem.task_id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-100 px-3 py-2 hover:bg-slate-50">
                       <Checkbox
-                        checked={selectedTasks.has(t.task_id)}
-                        onCheckedChange={() => toggleTask(t.task_id)}
+                        checked={selectedTasks.has(taskItem.task_id)}
+                        onCheckedChange={() => toggleTask(taskItem.task_id)}
                         className="border-slate-300"
                       />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2">
-                          <div className="truncate text-sm text-slate-800">{t.title}</div>
-                          <PriorityPill priority={t.priority} />
+                          <AutoTranslatedText as="div" className="truncate text-sm text-slate-800" text={taskItem.title} />
+                          <PriorityPill priority={taskItem.priority} />
                         </div>
                         <div className="text-xs text-slate-400">
-                          {t.owner === "待指派" ? "待指派" : `当前负责人 ${t.owner}`}
+                          {taskItem.owner === "待指派" ? t("待指派") : t("当前负责人 {name}", { name: taskItem.owner })}
                         </div>
                       </div>
                     </label>
@@ -9616,10 +9624,10 @@ function TaskReassignModal({
                 </div>
               </div>
               <div>
-                <div className="mb-2 text-sm font-medium text-slate-700">选择目标负责人</div>
+                <div className="mb-2 text-sm font-medium text-slate-700">{t("选择目标负责人")}</div>
                 {peopleError && (
                   <p className="rounded-lg border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                    人员数据加载失败，请关闭后重试
+                    {t("人员数据加载失败，请关闭后重试")}
                   </p>
                 )}
                 <div className="grid grid-cols-2 gap-2">
@@ -9641,7 +9649,7 @@ function TaskReassignModal({
                         <div className="flex items-center justify-between text-xs text-slate-400">
                           <span>{p.position}</span>
                           <span className={cn("font-semibold", p.max_tasks > 0 && p.task_count / p.max_tasks >= 0.75 ? "text-orange-500" : "text-emerald-600")}>
-                            {p.task_count} 个任务
+                            {t("{n} 个任务", { n: p.task_count })}
                           </span>
                         </div>
                       </button>
@@ -9650,7 +9658,7 @@ function TaskReassignModal({
                 </div>
               </div>
               <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">取消</button>
+                <button type="button" onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">{t("取消")}</button>
                 <button
                   type="button"
                   disabled={selectedTasks.size === 0 || !targetPerson || targetIsCurrentOwner || saving}
@@ -9658,18 +9666,18 @@ function TaskReassignModal({
                   className="flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-all hover:bg-indigo-700 active:scale-[0.98] disabled:opacity-40 disabled:shadow-none"
                 >
                   {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ArrowRight className="h-3.5 w-3.5" />}
-                  {saving ? "处理中..." : hasPendingAssign ? "确认指派" : "确认转派"}
+                  {saving ? t("处理中...") : hasPendingAssign ? t("确认指派") : t("确认转派")}
                 </button>
               </div>
             </>
           ) : (
             <div className="py-4 text-center">
               <CheckCircle2 className="mx-auto mb-3 h-10 w-10 text-emerald-500" />
-              <p className="font-semibold text-slate-800">操作成功</p>
+              <p className="font-semibold text-slate-800">{t("操作成功")}</p>
               <p className="mt-1 text-sm text-slate-500">
-                已将 {selectedAssignable.length} 个任务转派给 {targetPerson?.name}，操作已记录。
+                {t("已将 {n} 个任务转派给 {name}，操作已记录。", { n: selectedAssignable.length, name: targetPerson?.name ?? "" })}
               </p>
-              <button type="button" onClick={onClose} className="mt-4 rounded-xl bg-slate-100 px-4 py-2 text-sm text-slate-600 hover:bg-slate-200">关闭</button>
+              <button type="button" onClick={onClose} className="mt-4 rounded-xl bg-slate-100 px-4 py-2 text-sm text-slate-600 hover:bg-slate-200">{t("关闭")}</button>
             </div>
           )}
         </div>
@@ -9681,14 +9689,14 @@ function TaskReassignModal({
 // ─── ClearDataDialog ──────────────────────────────────────────────────────────
 function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleared: () => void }) {
   const usCollab = isUsCollabWorkspace();
-  const moduleName = usCollab ? "协同任务模块" : "研发任务模块";
-  const workspaceName = usCollab ? "协同" : "研发";
+  const moduleName = usCollab ? t("协同任务模块") : t("研发任务模块");
+  const workspaceName = usCollab ? t("协同") : t("研发");
   const AUDIT_ACTOR = useAuditActor(usCollab ? "协同管理员" : "研发管理员");
   const shouldReduceMotion = useReducedMotion();
   const [confirmText, setConfirmText] = useState("");
   const [clearing, setClearing] = useState(false);
   const [cooldown, setCooldown] = useState(0); // 关键词输入正确后的 3 秒冷却
-  const KEYWORD = "确认清空";
+  const KEYWORD = t("确认清空");
   const keywordMatched = confirmText.trim() === KEYWORD;
   const ready = keywordMatched && cooldown === 0;
 
@@ -9724,10 +9732,10 @@ function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleare
         comment: `清空${moduleName}全部数据`,
         source: "web",
       });
-      toast.success(`${moduleName}数据已全部清空`);
+      toast.success(t("{moduleName}数据已全部清空", { moduleName: t(moduleName) }));
       onCleared();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "清空失败");
+      toast.error(err instanceof Error ? err.message : t("清空失败"));
       setConfirmText("");
       setClearing(false);
     }
@@ -9758,25 +9766,25 @@ function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleare
             <Trash2 className="h-5 w-5 text-red-600" />
           </div>
           <div>
-            <div id="clear-task-data-title" className="font-semibold text-red-800">清空{moduleName}数据</div>
-            <div className="text-xs text-red-600">此操作不可恢复，需拥有数据清空权限</div>
+            <div id="clear-task-data-title" className="font-semibold text-red-800">{t("清空{moduleName}数据", { moduleName: t(moduleName) })}</div>
+            <div className="text-xs text-red-600">{t("此操作不可恢复，需拥有数据清空权限")}</div>
           </div>
         </div>
         <div className="space-y-4 p-6">
           <div className="rounded-xl border border-red-100 bg-red-50 p-4 text-sm text-red-700 leading-relaxed">
-            <p className="font-semibold mb-1">将被清空的数据：</p>
+            <p className="font-semibold mb-1">{t("将被清空的数据：")}</p>
             <ul className="list-disc pl-4 space-y-0.5 text-xs">
-              <li>所有{workspaceName}任务分类、子项目及任务</li>
-              <li>{workspaceName}工作台任务数据与进展留痕</li>
-              <li>{workspaceName}驾驶舱看板、日报与立项草稿</li>
+              <li>{t("所有{workspaceName}任务分类、子项目及任务", { workspaceName: t(workspaceName) })}</li>
+              <li>{t("{workspaceName}工作台任务数据与进展留痕", { workspaceName: t(workspaceName) })}</li>
+              <li>{t("{workspaceName}驾驶舱看板、日报与立项草稿", { workspaceName: t(workspaceName) })}</li>
             </ul>
             <p className="mt-2 text-xs text-red-500">
-              注：消息历史保留，相关审核待办会自动标记为已处理；人员档案、审批流、AI 策略和操作审计日志不受影响。
+              {t("注：消息历史保留，相关审核待办会自动标记为已处理；人员档案、审批流、AI 策略和操作审计日志不受影响。")}
             </p>
           </div>
           <div>
             <label htmlFor="clear-task-data-confirm" className="mb-1.5 block text-sm font-medium text-slate-700">
-              请输入「<span className="font-bold text-red-600">{KEYWORD}</span>」以继续
+              {t("请输入「")}<span className="font-bold text-red-600">{KEYWORD}</span>{t("」以继续")}
             </label>
             <Input
               id="clear-task-data-confirm"
@@ -9790,12 +9798,12 @@ function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleare
         <div className="flex gap-3 border-t border-slate-100 px-6 py-4">
           <button type="button" onClick={onClose} disabled={clearing}
             className="flex-1 rounded-xl border border-slate-200 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:opacity-50">
-            取消
+            {t("取消")}
           </button>
           <button type="button" onClick={handleClear} disabled={!ready || clearing}
             className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-red-600 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(220,38,38,0.20)] transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-40">
             {clearing && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            {clearing ? "清空中…" : cooldown > 0 ? `${cooldown} 秒后可执行` : "确认清空"}
+            {clearing ? t("清空中…") : cooldown > 0 ? t("{n} 秒后可执行", { n: cooldown }) : t("确认清空")}
           </button>
         </div>
       </motion.div>
@@ -9876,9 +9884,9 @@ function ProductManageDialog({
       }
       await onSave(next);
       setView("list");
-      toast.success(editingId ? "产品已更新" : "产品已创建");
+      toast.success(editingId ? t("产品已更新") : t("产品已创建"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "保存失败，请重试");
+      toast.error(err instanceof Error ? err.message : t("保存失败，请重试"));
     } finally {
       setSaving(false);
     }
@@ -9889,9 +9897,9 @@ function ProductManageDialog({
     const next = products.filter((p) => p.id !== id);
     try {
       await onSave(next);
-      toast.success("产品已删除");
+      toast.success(t("产品已删除"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "删除失败，请重试");
+      toast.error(err instanceof Error ? err.message : t("删除失败，请重试"));
     }
   };
 
@@ -9921,7 +9929,7 @@ function ProductManageDialog({
             {/* Header */}
             <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
               <h2 className="text-base font-semibold text-slate-900">
-                {view === "list" ? "产品线管理" : editingId ? "编辑产品" : "新增产品"}
+                {view === "list" ? t("产品线管理") : editingId ? t("编辑产品") : t("新增产品")}
               </h2>
               <button
                 type="button"
@@ -9937,7 +9945,7 @@ function ProductManageDialog({
               <div className="flex flex-col">
                 <div className="max-h-[420px] overflow-y-auto divide-y divide-slate-100">
                   {products.length === 0 ? (
-                    <div className="py-12 text-center text-sm text-slate-400">暂无产品线，请点击下方添加</div>
+                    <div className="py-12 text-center text-sm text-slate-400">{t("暂无产品线，请点击下方添加")}</div>
                   ) : (
                     products.map((prod) => {
                       const pStatus: RdProductStatus = prod.status ?? "developing";
@@ -9951,7 +9959,7 @@ function ProductManageDialog({
                               <span className="text-sm font-semibold text-slate-800">{prod.name}</span>
                               <span className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-semibold", style)}>
                                 <span className={cn("h-1 w-1 rounded-full", dot)} />
-                                {label}
+                                {t(label)}
                               </span>
                             </div>
                             {prod.description && <div className="mt-0.5 truncate text-xs text-slate-400">{prod.description}</div>}
@@ -9983,7 +9991,7 @@ function ProductManageDialog({
                     className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-300 py-2.5 text-sm font-semibold text-slate-600 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700"
                   >
                     <Plus className="h-4 w-4" />
-                    新增产品
+                    {t("新增产品")}
                   </button>
                 </div>
               </div>
@@ -9994,28 +10002,28 @@ function ProductManageDialog({
               <div className="flex flex-col gap-4 px-6 py-5 max-h-[560px] overflow-y-auto">
                 {/* Name */}
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold text-slate-700">产品名称 *</Label>
+                  <Label className="text-xs font-semibold text-slate-700">{t("产品名称")} *</Label>
                   <Input
                     value={form.name}
                     onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-                    placeholder="请输入产品名称"
+                    placeholder={t("请输入产品名称")}
                     className="text-sm"
                   />
                 </div>
                 {/* Description */}
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold text-slate-700">产品描述</Label>
+                  <Label className="text-xs font-semibold text-slate-700">{t("产品描述")}</Label>
                   <Textarea
                     value={form.description}
                     onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
-                    placeholder="可选，简要描述产品用途"
+                    placeholder={t("可选，简要描述产品用途")}
                     className="text-sm resize-none"
                     rows={2}
                   />
                 </div>
                 {/* Status */}
                 <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold text-slate-700">研发状态</Label>
+                  <Label className="text-xs font-semibold text-slate-700">{t("研发状态")}</Label>
                   <Select
                     value={form.status}
                     onValueChange={(v) => setForm((prev) => ({ ...prev, status: v as RdProductStatus }))}
@@ -10024,10 +10032,10 @@ function ProductManageDialog({
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="active">活跃</SelectItem>
-                      <SelectItem value="developing">研发中</SelectItem>
-                      <SelectItem value="paused">暂停</SelectItem>
-                      <SelectItem value="archived">归档</SelectItem>
+                      <SelectItem value="active">{t("活跃")}</SelectItem>
+                      <SelectItem value="developing">{t("研发中")}</SelectItem>
+                      <SelectItem value="paused">{t("暂停")}</SelectItem>
+                      <SelectItem value="archived">{t("归档")}</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -10038,7 +10046,7 @@ function ProductManageDialog({
                     onClick={() => setView("list")}
                     className="flex-1 rounded-xl border border-slate-200 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
                   >
-                    取消
+                    {t("取消")}
                   </button>
                   <button
                     type="button"
@@ -10047,7 +10055,7 @@ function ProductManageDialog({
                     className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-indigo-600 py-2 text-sm font-semibold text-white shadow-[0_8px_18px_rgba(79,70,229,0.20)] transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-                    保存
+                    {t("保存")}
                   </button>
                 </div>
               </div>
@@ -10301,20 +10309,20 @@ function ExecutiveOverview({
             <button
               type="button"
               onClick={() => { setHeaderPinned(true); setHeaderCollapsed(false); }}
-              aria-label="展开研发执行提示与日报/月报并钉住常显"
-              title="点击展开研发执行提示与日报/月报，并钉住常显"
+              aria-label={t("展开研发执行提示与日报/月报并钉住常显")}
+              title={t("点击展开研发执行提示与日报/月报，并钉住常显")}
               className="group flex w-full items-center gap-2 rounded-xl border border-slate-200/80 bg-white/70 px-3 py-1.5 text-[11px] text-slate-500 shadow-[0_1px_2px_rgba(15,23,42,0.04)] backdrop-blur transition-colors hover:border-indigo-200 hover:bg-indigo-50/60"
             >
               <Sparkles className="h-3.5 w-3.5 shrink-0 text-indigo-500" />
-              <span className="shrink-0 font-semibold text-slate-600 group-hover:text-indigo-700">顶部概览已收起</span>
+              <span className="shrink-0 font-semibold text-slate-600 group-hover:text-indigo-700">{t("顶部概览已收起")}</span>
               {risks.length > 0 && (
                 <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-600">
                   <AlertTriangle className="h-3 w-3" />
-                  {risks.length} 风险
+                  {t("{count} 风险", { count: risks.length })}
                 </span>
               )}
               <span className="ml-auto inline-flex shrink-0 items-center gap-1 font-semibold text-indigo-600">
-                展开
+                {t("展开")}
                 <ChevronDown className="h-3.5 w-3.5 transition-transform group-hover:translate-y-0.5" />
               </span>
             </button>
@@ -10324,8 +10332,8 @@ function ExecutiveOverview({
                 type="button"
                 onClick={() => { const next = !headerPinned; setHeaderPinned(next); if (next) setHeaderCollapsed(false); }}
                 aria-pressed={headerPinned}
-                aria-label={headerPinned ? "已钉住顶部模块，点击恢复滚动自动收起" : "顶部模块随任务滚动自动收起，点击钉住常显"}
-                title={headerPinned ? "已钉住：滚动时保持展开 · 点击恢复自动收起" : "滚动任务时自动收起 · 点击钉住常显"}
+                aria-label={headerPinned ? t("已钉住顶部模块，点击恢复滚动自动收起") : t("顶部模块随任务滚动自动收起，点击钉住常显")}
+                title={headerPinned ? t("已钉住：滚动时保持展开 · 点击恢复自动收起") : t("滚动任务时自动收起 · 点击钉住常显")}
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold shadow-sm transition-colors",
                   headerPinned
@@ -10334,7 +10342,7 @@ function ExecutiveOverview({
                 )}
               >
                 {headerPinned ? <Pin className="h-3 w-3" /> : <PinOff className="h-3 w-3" />}
-                {headerPinned ? "已钉住" : "自动收起"}
+                {headerPinned ? t("已钉住") : t("自动收起")}
               </button>
             </div>
           )}
@@ -10420,7 +10428,7 @@ function ExecutiveOverview({
                           type: "button" as const,
                           onClick: () => toggleKpiFilter(item.filterKey as KpiFilter),
                           "aria-pressed": active,
-                          title: active ? `已筛选「${item.label}」· 再次点击取消` : `按「${item.label}」筛选任务列表`,
+                          title: active ? t("已筛选「{label}」· 再次点击取消", { label: item.label }) : t("按「{label}」筛选任务列表", { label: item.label }),
                         }
                       : {})}
                     className={cn(
@@ -10433,7 +10441,7 @@ function ExecutiveOverview({
                     </span>
                     <span className={cn("mt-1.5 text-xs font-medium", active ? "font-semibold text-indigo-600" : "text-slate-400")}>
                       {item.label}
-                      {active && " · 筛选中"}
+                      {active && ` · ${t("筛选中")}`}
                     </span>
                   </Wrapper>
                 );
@@ -10454,7 +10462,7 @@ function ExecutiveOverview({
                 <Sparkles className="h-5 w-5" />
               </span>
               <div className="min-w-0">
-                <h2 className="truncate text-base font-bold text-slate-900">研发执行提示</h2>
+                <h2 className="truncate text-base font-bold text-slate-900">{t("研发执行提示")}</h2>
                 {/*<p className="mt-0.5 truncate text-xs font-medium text-slate-500">*/}
                 {/*  优先处理阻塞、逾期和待指派任务；新增需求建议先走 AI 立项拆解。*/}
                 {/*</p>*/}
@@ -10474,7 +10482,7 @@ function ExecutiveOverview({
                           type: "button" as const,
                           onClick: () => toggleKpiFilter(item.filterKey as KpiFilter),
                           "aria-pressed": active,
-                          title: active ? `已筛选「${item.label}」· 再次点击取消` : `按「${item.label}」筛选任务列表`,
+                          title: active ? t("已筛选「{label}」· 再次点击取消", { label: item.label }) : t("按「{label}」筛选任务列表", { label: item.label }),
                         }
                       : {})}
                     className={cn(
@@ -10493,7 +10501,7 @@ function ExecutiveOverview({
                       <div className={cn("text-base font-bold leading-none tabular-nums", item.tone)}>{item.value}</div>
                       <div className="mt-0.5 flex items-center gap-1 truncate text-[10px] font-semibold text-slate-500">
                         <span className="truncate">{item.label}</span>
-                        {active && <span className="shrink-0 rounded-sm bg-indigo-100 px-1 py-px text-[9px] font-bold leading-none text-indigo-700">筛选中</span>}
+                        {active && <span className="shrink-0 rounded-sm bg-indigo-100 px-1 py-px text-[9px] font-bold leading-none text-indigo-700">{t("筛选中")}</span>}
                       </div>
                     </div>
                   </Wrapper>
@@ -10514,7 +10522,7 @@ function ExecutiveOverview({
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/18">
                       <Sparkles className="h-4 w-4 transition-transform group-hover:rotate-12" />
                     </span>
-                    <span className="min-w-0">AI 立项</span>
+                    <span className="min-w-0">{t("AI 立项")}</span>
                   </button>
                 )}
                 {onCreateTask && (
@@ -10526,7 +10534,7 @@ function ExecutiveOverview({
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 ring-1 ring-emerald-100">
                       <Plus className="h-4 w-4" />
                     </span>
-                    <span className="min-w-0">新建任务</span>
+                    <span className="min-w-0">{t("新建任务")}</span>
                   </button>
                 )}
                 {canReassign && onReassign && (
@@ -10538,7 +10546,7 @@ function ExecutiveOverview({
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
                       <UserCog className="h-4 w-4" />
                     </span>
-                    <span className="min-w-0">批量转派</span>
+                    <span className="min-w-0">{t("批量转派")}</span>
                   </button>
                 )}
                 {onOpenPeople && (
@@ -10550,7 +10558,7 @@ function ExecutiveOverview({
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
                       <UserPlus className="h-4 w-4" />
                     </span>
-                    <span className="min-w-0">人员管理</span>
+                    <span className="min-w-0">{t("人员管理")}</span>
                   </button>
                 )}
                 {canClearData && onClearData && (
@@ -10562,7 +10570,7 @@ function ExecutiveOverview({
                     <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-red-50 text-red-600 ring-1 ring-red-100">
                       <Trash2 className="h-4 w-4" />
                     </span>
-                    <span className="min-w-0">清空数据</span>
+                    <span className="min-w-0">{t("清空数据")}</span>
                   </button>
                 )}
               </div>
@@ -10588,12 +10596,12 @@ function ExecutiveOverview({
               <LayoutGrid className="h-5 w-5" />
             </span>
             <h2 className="mt-4 text-lg font-semibold text-slate-950">
-              {loading ? "正在加载研发任务数据" : "暂无研发任务数据"}
+              {loading ? t("正在加载研发任务数据") : t("暂无研发任务数据")}
             </h2>
             <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-slate-500">
               {loading
-                ? "正在从后端接口读取任务树、风险和人员负载。"
-                : "后端当前没有任务树或任务记录。创建任务或导入数据后，这里会展示真实的系统全景、风险和负载。"}
+                ? t("正在从后端接口读取任务树、风险和人员负载。")
+                : t("后端当前没有任务树或任务记录。创建任务或导入数据后，这里会展示真实的系统全景、风险和负载。")}
             </p>
             {loadError && (
               <p className="mx-auto mt-3 max-w-md rounded-md border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-700">
@@ -10607,7 +10615,7 @@ function ExecutiveOverview({
                 className="mt-5 inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 transition-all hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 active:scale-[0.98]"
               >
                 <RefreshCw className="h-3.5 w-3.5" />
-                重新读取
+                {t("重新读取")}
               </button>
             )}
           </section>
@@ -10667,7 +10675,7 @@ function useMoveTargetTree(mainCategories: Category[], _products: ProductDef[]) 
       .catch(() => {
         if (!cancelled) {
           setTreeCache((prev) => ({ ...prev, [targetProductId]: [] }));
-          toast.error("目标产品分类加载失败，请重试");
+          toast.error(t("目标产品分类加载失败，请重试"));
         }
       })
       .finally(() => {
@@ -10737,9 +10745,9 @@ export function MoveTaskDialog({
   );
 
   const handleConfirm = async () => {
-    if (!targetSubId) { toast.error("请选择目标子项"); return; }
+    if (!targetSubId) { toast.error(t("请选择目标子项")); return; }
     const chosen = allTargetOptions.find((o) => o.sub.id === targetSubId);
-    if (!chosen) { toast.error("目标子项无效，请重新选择"); return; }
+    if (!chosen) { toast.error(t("目标子项无效，请重新选择")); return; }
     setSaving(true);
     try {
       await onConfirm(targetProductId, chosen.cat.id, targetSubId);
@@ -10771,7 +10779,7 @@ export function MoveTaskDialog({
               <ArrowRight className="h-4 w-4" />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-slate-900">移动任务</h3>
+              <h3 className="text-base font-semibold text-slate-900">{t("移动任务")}</h3>
               <p className="max-w-[260px] truncate text-xs text-slate-500">{task.title}</p>
             </div>
           </div>
@@ -10782,47 +10790,47 @@ export function MoveTaskDialog({
 
         <div className="space-y-4 p-6">
           <div className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-500">
-            当前位置：<span className="font-medium text-slate-700">{task.category_path || "未分类"}</span>
+            {t("当前位置：")}<span className="font-medium text-slate-700">{task.category_path || t("未分类")}</span>
           </div>
 
           <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">目标位置</label>
+            <label className="mb-2 block text-sm font-medium text-slate-700">{t("目标位置")}</label>
             <div className="mb-2">
-              <label className="mb-1 block text-xs text-slate-500">产品</label>
+              <label className="mb-1 block text-xs text-slate-500">{t("产品")}</label>
               <NativeSelect
                 value={targetProductId}
                 onChange={(e) => setTargetProductId(e.target.value)}
                 className="w-full text-sm"
               >
                 {products.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}{p.id === MAIN_PRODUCT_ID ? "（当前）" : ""}</option>
+                  <option key={p.id} value={p.id}>{p.name}{p.id === MAIN_PRODUCT_ID ? t("（当前）") : ""}</option>
                 ))}
               </NativeSelect>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="mb-1 block text-xs text-slate-500">一级系统</label>
+                <label className="mb-1 block text-xs text-slate-500">{t("一级系统")}</label>
                 <NativeSelect
                   value={targetCatId}
                   onChange={(e) => setTargetCatId(e.target.value)}
                   className="w-full text-sm"
                   disabled={loadingTree}
                 >
-                  <option value="">全部系统</option>
+                  <option value="">{t("全部系统")}</option>
                   {targetCategories.map((cat) => (
                     <option key={cat.id} value={cat.id}>{cat.label}</option>
                   ))}
                 </NativeSelect>
               </div>
               <div>
-                <label className="mb-1 block text-xs text-slate-500">子项</label>
+                <label className="mb-1 block text-xs text-slate-500">{t("子项")}</label>
                 <NativeSelect
                   value={targetSubId}
                   onChange={(e) => setTargetSubId(e.target.value)}
                   className="w-full text-sm"
                   disabled={loadingTree}
                 >
-                  <option value="">{loadingTree ? "加载中…" : "请选择子项"}</option>
+                  <option value="">{loadingTree ? t("加载中…") : t("请选择子项")}</option>
                   {targetSubOptions.map(({ cat, sub }) => (
                     <option key={sub.id} value={sub.id}>{cat.label} / {sub.label}</option>
                   ))}
@@ -10831,7 +10839,7 @@ export function MoveTaskDialog({
             </div>
             {isCrossProduct && (
               <p className="mt-2 text-xs text-amber-600">
-                跨产品移动：任务将从当前产品移出，归入所选产品。
+                {t("跨产品移动：任务将从当前产品移出，归入所选产品。")}
               </p>
             )}
           </div>
@@ -10844,7 +10852,7 @@ export function MoveTaskDialog({
             onClick={onClose}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
-            取消
+            {t("取消")}
           </button>
           <button
             type="button"
@@ -10853,7 +10861,7 @@ export function MoveTaskDialog({
             className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-60"
           >
             {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
-            确认移动
+            {t("确认移动")}
           </button>
         </div>
       </motion.div>
@@ -10924,10 +10932,10 @@ function MoveTasksDialog({
   };
 
   const handleConfirm = async () => {
-    if (selectedIds.size === 0) { toast.error("请选择要移动的任务"); return; }
-    if (!targetSubId) { toast.error("请选择目标子项"); return; }
+    if (selectedIds.size === 0) { toast.error(t("请选择要移动的任务")); return; }
+    if (!targetSubId) { toast.error(t("请选择目标子项")); return; }
     const chosen = allTargetOptions.find((o) => o.sub.id === targetSubId);
-    if (!chosen) { toast.error("目标子项无效，请重新选择"); return; }
+    if (!chosen) { toast.error(t("目标子项无效，请重新选择")); return; }
     setSaving(true);
     try {
       await onConfirm(Array.from(selectedIds), targetProductId, chosen.cat.id, targetSubId);
@@ -10959,8 +10967,8 @@ function MoveTasksDialog({
               <ArrowRight className="h-4 w-4" />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-slate-900">移动任务</h3>
-              <p className="text-xs text-slate-500">从「{fromCategory.label} / {fromSub.label}」移动任务到其他子项</p>
+              <h3 className="text-base font-semibold text-slate-900">{t("移动任务")}</h3>
+              <p className="text-xs text-slate-500">{t("从「{path}」移动任务到其他子项", { path: `${fromCategory.label} / ${fromSub.label}` })}</p>
             </div>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg p-1.5 hover:bg-slate-100">
@@ -10971,24 +10979,24 @@ function MoveTasksDialog({
         <div className="space-y-4 p-6">
           <div>
             <div className="mb-2 flex items-center justify-between text-sm font-medium text-slate-700">
-              <span>选择任务 ({selectedIds.size}/{fromSub.tasks.length})</span>
+              <span>{t("选择任务")} ({selectedIds.size}/{fromSub.tasks.length})</span>
               <button type="button" onClick={toggleAll} className="text-xs text-indigo-600 hover:underline">
-                {selectedIds.size === fromSub.tasks.length ? "取消全选" : "全选"}
+                {selectedIds.size === fromSub.tasks.length ? t("取消全选") : t("全选")}
               </button>
             </div>
             <div className="cockpit-scroll space-y-2 overflow-y-auto" style={{ maxHeight: "min(240px, 35vh)" }}>
               {fromSub.tasks.length === 0 ? (
-                <p className="py-4 text-center text-sm text-slate-400">该子项下暂无任务</p>
-              ) : fromSub.tasks.map((t) => (
-                <label key={t.task_id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-100 px-3 py-2 hover:bg-slate-50">
+                <p className="py-4 text-center text-sm text-slate-400">{t("该子项下暂无任务")}</p>
+              ) : fromSub.tasks.map((taskItem) => (
+                <label key={taskItem.task_id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-100 px-3 py-2 hover:bg-slate-50">
                   <Checkbox
-                    checked={selectedIds.has(t.task_id)}
-                    onCheckedChange={() => toggleTask(t.task_id)}
+                    checked={selectedIds.has(taskItem.task_id)}
+                    onCheckedChange={() => toggleTask(taskItem.task_id)}
                     className="border-slate-300"
                   />
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm text-slate-800">{t.title}</div>
-                    <div className="text-xs text-slate-400">{t.primary_owner} · {STATUS_CONFIG[t.status]?.label ?? t.status}</div>
+                    <div className="truncate text-sm text-slate-800">{taskItem.title}</div>
+                    <div className="text-xs text-slate-400">{taskItem.primary_owner} · {STATUS_CONFIG[taskItem.status] ? t(STATUS_CONFIG[taskItem.status].label) : taskItem.status}</div>
                   </div>
                 </label>
               ))}
@@ -10996,43 +11004,43 @@ function MoveTasksDialog({
           </div>
 
           <div>
-            <label className="mb-2 block text-sm font-medium text-slate-700">目标位置</label>
+            <label className="mb-2 block text-sm font-medium text-slate-700">{t("目标位置")}</label>
             <div className="mb-2">
-              <label className="mb-1 block text-xs text-slate-500">产品</label>
+              <label className="mb-1 block text-xs text-slate-500">{t("产品")}</label>
               <NativeSelect
                 value={targetProductId}
                 onChange={(e) => setTargetProductId(e.target.value)}
                 className="w-full text-sm"
               >
                 {products.map((p) => (
-                  <option key={p.id} value={p.id}>{p.name}{p.id === MAIN_PRODUCT_ID ? "（当前）" : ""}</option>
+                  <option key={p.id} value={p.id}>{p.name}{p.id === MAIN_PRODUCT_ID ? t("（当前）") : ""}</option>
                 ))}
               </NativeSelect>
             </div>
             <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="mb-1 block text-xs text-slate-500">一级系统</label>
+                <label className="mb-1 block text-xs text-slate-500">{t("一级系统")}</label>
                 <NativeSelect
                   value={targetCatId}
                   onChange={(e) => setTargetCatId(e.target.value)}
                   className="w-full text-sm"
                   disabled={loadingTree}
                 >
-                  <option value="">全部系统</option>
+                  <option value="">{t("全部系统")}</option>
                   {targetCategories.map((cat) => (
                     <option key={cat.id} value={cat.id}>{cat.label}</option>
                   ))}
                 </NativeSelect>
               </div>
               <div>
-                <label className="mb-1 block text-xs text-slate-500">子项</label>
+                <label className="mb-1 block text-xs text-slate-500">{t("子项")}</label>
                 <NativeSelect
                   value={targetSubId}
                   onChange={(e) => setTargetSubId(e.target.value)}
                   className="w-full text-sm"
                   disabled={loadingTree}
                 >
-                  <option value="">{loadingTree ? "加载中…" : "请选择子项"}</option>
+                  <option value="">{loadingTree ? t("加载中…") : t("请选择子项")}</option>
                   {targetSubOptions.map(({ cat, sub }) => (
                     <option key={sub.id} value={sub.id}>{cat.label} / {sub.label}</option>
                   ))}
@@ -11041,7 +11049,7 @@ function MoveTasksDialog({
             </div>
             {isCrossProduct && (
               <p className="mt-2 text-xs text-amber-600">
-                跨产品移动：所选任务将从当前产品移出，归入所选产品。
+                {t("跨产品移动：所选任务将从当前产品移出，归入所选产品。")}
               </p>
             )}
           </div>
@@ -11054,7 +11062,7 @@ function MoveTasksDialog({
             onClick={onClose}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
           >
-            取消
+            {t("取消")}
           </button>
           <button
             type="button"
@@ -11063,7 +11071,7 @@ function MoveTasksDialog({
             className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 disabled:opacity-60"
           >
             {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <ArrowRight className="h-3 w-3" />}
-            确认移动
+            {t("确认移动")}
           </button>
         </div>
       </motion.div>
@@ -11100,15 +11108,15 @@ function TaskCompletedCelebration({ task, onClose }: { task: Task; onClose: () =
             <CheckCircle2 className="h-9 w-9 text-emerald-500" />
           </div>
         </div>
-        <h3 className="mb-2 text-xl font-bold text-slate-900">太棒了！</h3>
+        <h3 className="mb-2 text-xl font-bold text-slate-900">{t("太棒了！")}</h3>
         <p className="mb-1 font-semibold text-slate-700">{task.title}</p>
-        <p className="mb-6 text-sm text-slate-500">任务已审核通过并完成</p>
+        <p className="mb-6 text-sm text-slate-500">{t("任务已审核通过并完成")}</p>
         <button
           type="button"
           onClick={onClose}
           className="rounded-xl bg-emerald-600 px-6 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-700"
         >
-          好的
+          {t("好的")}
         </button>
       </motion.div>
     </motion.div>
@@ -11211,7 +11219,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
       })
       .catch((error) => {
         setCategories([]);
-        setLoadError(error instanceof Error ? error.message : "研发任务接口加载失败");
+        setLoadError(error instanceof Error ? error.message : t("研发任务接口加载失败"));
       })
       .finally(() => setLoading(false));
   };
@@ -11229,7 +11237,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   useEffect(() => {
     loadCategories();
     fetchRdProducts().then(setProducts).catch(() => {
-      toast.error("产品线数据加载失败，部分功能可能不可用");
+      toast.error(t("产品线数据加载失败，部分功能可能不可用"));
     });
   }, []);
 
@@ -11258,7 +11266,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
 
     if (treeEditor.mode === "add-system") {
       const dup = categories.find((c) => c.label.trim() === safeLabel);
-      if (dup) { toast.error(`已存在同名系统：${safeLabel}`); return; }
+      if (dup) { toast.error(t("已存在同名系统：{name}", { name: safeLabel })); return; }
       const newCat: Category = {
         id: `rd-cat-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
         label: safeLabel,
@@ -11271,7 +11279,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
     } else if (treeEditor.mode === "edit-system") {
       const target = treeEditor.category;
       if (categories.some((c) => c.id !== target.id && c.label.trim() === safeLabel)) {
-        toast.error(`已存在同名系统：${safeLabel}`); return;
+        toast.error(t("已存在同名系统：{name}", { name: safeLabel })); return;
       }
       nextCategories = categories.map((c) => (c.id === target.id ? { ...c, label: safeLabel } : c));
       auditAction = "category.edited";
@@ -11286,7 +11294,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
     } else if (treeEditor.mode === "add-sub") {
       const target = treeEditor.category;
       if (target.children.some((s) => s.label.trim() === safeLabel)) {
-        toast.error(`「${target.label}」下已存在同名子项：${safeLabel}`); return;
+        toast.error(t("「{parent}」下已存在同名子项：{name}", { parent: target.label, name: safeLabel })); return;
       }
       const newSub: SubProject = {
         id: `rd-sub-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -11302,7 +11310,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
     } else if (treeEditor.mode === "edit-sub") {
       const { category, sub } = treeEditor;
       if (category.children.some((s) => s.id !== sub.id && s.label.trim() === safeLabel)) {
-        toast.error(`「${category.label}」下已存在同名子项：${safeLabel}`); return;
+        toast.error(t("「{parent}」下已存在同名子项：{name}", { parent: category.label, name: safeLabel })); return;
       }
       nextCategories = categories.map((c) =>
         c.id === category.id
@@ -11347,13 +11355,13 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
         source: "web",
       });
       toast.success(
-        treeEditor.mode.startsWith("add") ? "新增成功"
-        : treeEditor.mode.startsWith("edit") ? "已更新"
-        : "已删除",
+        treeEditor.mode.startsWith("add") ? t("新增成功")
+        : treeEditor.mode.startsWith("edit") ? t("已更新")
+        : t("已删除"),
       );
       setTreeEditor(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "保存失败");
+      toast.error(err instanceof Error ? err.message : t("保存失败"));
     }
   };
 
@@ -11401,7 +11409,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
       );
       setMoveTasks(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "移动失败，请重试");
+      toast.error(err instanceof Error ? err.message : t("移动失败，请重试"));
     }
   };
 
@@ -11442,10 +11450,10 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
         comment: crossProduct ? `跨产品移动任务 → ${productLabel} / ${movedPath}` : `手动调整任务类目 → ${movedPath}`,
         source: "web",
       });
-      toast.success(crossProduct ? `任务已移动到 ${productLabel} · ${movedPath}` : `任务已移动到 ${movedPath}`);
+      toast.success(crossProduct ? t("任务已移动到 {product} · {path}", { product: productLabel, path: movedPath }) : t("任务已移动到 {path}", { path: movedPath }));
       setMoveTaskTarget(null);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "移动失败，请重试");
+      toast.error(err instanceof Error ? err.message : t("移动失败，请重试"));
     }
   };
 
@@ -11584,7 +11592,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   const scopedRisks = selectedCatId === null ? risks : visibleRisks;
   const primaryRisk = scopedRisks[0] ?? null;
   const criticalCount = scopedRisks.filter((risk) => risk.severity === "critical").length;
-  const scopeTitle = selectedLabel ?? "全部研发系统";
+  const scopeTitle = selectedLabel ?? t("全部研发系统");
   const detailScope = selectedSub ?? selectedCategory ?? null;
   const detailActiveTasks = useMemo(
     () => (detailScope ? collectAllActiveTasks(detailScope) : allTasks.filter((task) => !task.archived)),
@@ -11663,7 +11671,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
                     toast.success(t("任务已删除"));
                     loadCategories();
                   } catch (err) {
-                    toast.error(err instanceof Error ? err.message : "删除失败");
+                    toast.error(err instanceof Error ? err.message : t("删除失败"));
                   } finally {
                     setDeleteTaskTarget(null);
                   }
@@ -11803,7 +11811,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
             className="group flex items-center gap-1.5 rounded-md px-2 py-1 text-sm font-medium text-slate-600 transition-all duration-200 hover:bg-slate-100 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-300 active:scale-[0.96]"
           >
             <ChevronLeft className="h-4 w-4 transition-transform duration-200 ease-out group-hover:-translate-x-0.5" />
-            返回总览
+            {t("返回总览")}
           </button>
           <span className="text-xs text-slate-300">·</span>
           {boardProductName && (
@@ -11814,7 +11822,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
               <span className="text-xs text-slate-300">›</span>
             </>
           )}
-          <span className="text-sm text-slate-500">详情视图</span>
+          <span className="text-sm text-slate-500">{t("详情视图")}</span>
           {selectedLabel && (
             <>
               <span className="text-xs text-slate-300">›</span>
@@ -11875,8 +11883,8 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
                       totalTasks={totalActive}
                       onSelectTask={openTaskDetail}
                       className="min-w-0"
-                      title="需要决策"
-                      subtitle="按严重度排序 · 点击查看详情"
+                      title={t("需要决策")}
+                      subtitle={t("按严重度排序 · 点击查看详情")}
                     />
                     <PersonLoadPanel
                       loads={personLoads}
@@ -11916,8 +11924,8 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
                       totalTasks={detailActiveTasks.length}
                       onSelectTask={openTaskDetail}
                       className="min-w-0"
-                      title={selectedLabel ? `${selectedLabel} · 需要决策` : "需要决策"}
-                      subtitle="按严重度排序 · 点击查看详情"
+                      title={selectedLabel ? `${selectedLabel} · ${t("需要决策")}` : t("需要决策")}
+                      subtitle={t("按严重度排序 · 点击查看详情")}
                     />
                     <PersonLoadPanel
                       loads={computeScopedPersonLoads(selectedSub ?? selectedCategory)}
