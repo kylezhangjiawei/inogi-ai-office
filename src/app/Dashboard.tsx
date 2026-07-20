@@ -1,8 +1,7 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   AlertCircle,
-  ArrowUpRight,
   BarChart3,
   CheckCircle2,
   Clock3,
@@ -173,6 +172,7 @@ export function Dashboard() {
 
   const permissionKey = (user?.permissions ?? []).join("\u0001");
   const userId = user?.id ?? "";
+  const lastLoadedRef = useRef(0);
 
   const loadData = useCallback(
     async (initial = false) => {
@@ -181,6 +181,7 @@ export function Dashboard() {
       try {
         const next = await fetchDashboardData(user?.permissions ?? []);
         setData(next);
+        lastLoadedRef.current = Date.now();
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -193,12 +194,23 @@ export function Dashboard() {
 
   useEffect(() => {
     void loadData(true);
-    const interval = window.setInterval(() => void loadData(false), 60_000);
-    const refreshOnFocus = () => void loadData(false);
-    window.addEventListener("focus", refreshOnFocus);
+    // 前台可见才轮询：后台标签页不再每 60s 打 5 个接口
+    const interval = window.setInterval(() => {
+      if (!document.hidden) void loadData(false);
+    }, 60_000);
+    // 切回前台/聚焦时，仅当数据已过期（>30s）才刷新，避免频繁 alt-tab 反复全量拉取
+    const MIN_REFRESH_GAP = 30_000;
+    const refreshIfStale = () => {
+      if (document.hidden) return;
+      if (Date.now() - lastLoadedRef.current < MIN_REFRESH_GAP) return;
+      void loadData(false);
+    };
+    document.addEventListener("visibilitychange", refreshIfStale);
+    window.addEventListener("focus", refreshIfStale);
     return () => {
       window.clearInterval(interval);
-      window.removeEventListener("focus", refreshOnFocus);
+      document.removeEventListener("visibilitychange", refreshIfStale);
+      window.removeEventListener("focus", refreshIfStale);
     };
   }, [loadData]);
 
@@ -757,7 +769,7 @@ export function Dashboard() {
       </section>
 
       <section className="grid grid-cols-12 gap-6">
-        <div className="col-span-12 xl:col-span-7">
+        <div className="col-span-12">
           <div className="material-card p-6">
             <div className="mb-6 flex items-center justify-between">
               <div>
@@ -868,7 +880,7 @@ export function Dashboard() {
         </div>
 
         <div className="material-scrollbar overflow-x-auto">
-          <table className="min-w-[900px] text-left">
+          <table className="w-full min-w-[900px] text-left">
             <thead className="bg-slate-50/90">
               <tr>
                 {[t("事项名称"), t("来源模块"), t("负责人"), t("截止/更新时间"), t("状态"), t("优先级"), t("操作")].map((title) => (

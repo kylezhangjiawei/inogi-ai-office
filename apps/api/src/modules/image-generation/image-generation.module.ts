@@ -10,5 +10,6 @@ import { ImageGenerationService } from './image-generation.service';
   imports: [PrismaModule, ConfigModule, SecurityModule],
   controllers: [ImageGenerationController],
   providers: [ImageGenerationService],
+  exports: [ImageGenerationService],
 })
 export class ImageGenerationModule {}

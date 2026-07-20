@@ -3,6 +3,7 @@ import { Outlet } from "react-router";
 import { Header } from "./components/header_1";
 import { initI18n } from "./lib/i18n";
 import { MateChatBubble } from "./components/MateChatBubble";
+import { MateChatReminderModal } from "./components/matechat/MateChatReminderModal";
 import { Toaster } from "./components/ui/sonner";
 import { Sidebar } from "./components/sidebar_1";
 import {
@@ -68,6 +69,7 @@ export function Root() {
               </main>
             </div>
             <MateChatBubble />
+            <MateChatReminderModal />
             <Toaster richColors position="top-right" />
           </div>
         </div>

@@ -54,6 +54,21 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:3000',
         changeOrigin: true,
+        // 后端未启动时，vite 默认会把每个失败请求打成一大坨 AggregateError 堆栈刷屏。
+        // 这里收敛成一行简短日志，并给前端回一个 502，避免请求一直挂起。
+        configure(proxy) {
+          // vite 在调用 configure 前已挂了自己的 error 处理器（负责打 AggregateError 堆栈），
+          // 先移除它，只保留下面这个简短版本，避免刷屏。
+          proxy.removeAllListeners('error')
+          proxy.on('error', (err, req, res) => {
+            const code = err?.code || err?.message || 'proxy error'
+            console.warn(`[api proxy] ${req.method} ${req.url} -> ${code}（后端 localhost:3000 是否已启动？）`)
+            if (res && 'writeHead' in res && !res.headersSent) {
+              res.writeHead(502, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ error: 'backend unavailable' }))
+            }
+          })
+        },
       },
     },
   },
