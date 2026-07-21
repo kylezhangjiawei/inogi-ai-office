@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -116,6 +116,20 @@ type MessageCitations = { citations: RagCitation[]; filteredByPermission: number
 
 /** assistant 消息的工具调用步骤，由 'tool_step' SSE 事件填充 */
 type ToolStep = { callId: string; tool: string; label: string; status: "running" | "ok" | "error"; detail?: string };
+
+/**
+ * 会把「具体任务」的标识/状态带进回答正文的工具。
+ * 分享给同事时，若回答用到了这些工具，正文可能含收件人（仅能看自己任务）无权查看的任务数据，
+ * 故先给发送者一次确认。search_knowledge / query_members / 生图改图不涉及任务，不在此列。
+ */
+const TASK_REF_TOOLS = new Set([
+  "query_tasks",
+  "get_dashboard_summary",
+  "create_task",
+  "update_task_progress",
+  "approve_task_review",
+  "send_reminder",
+]);
 
 /** 后端下发的待确认动作卡数据 */
 type PendingActionCard = {
@@ -457,6 +471,31 @@ export function MateChatBubble() {
   const [shareLoading, setShareLoading] = useState(false);
   const [shareSearch, setShareSearch] = useState("");
   const [shareSendingId, setShareSendingId] = useState<string | null>(null);
+  // 越权分享二次确认：待确认的收件人（回答含任务数据、对方可能无权查看时置入）
+  const [shareConfirm, setShareConfirm] = useState<ShareRecipient | null>(null);
+
+  // 搜索过滤 + 按部门分组：长列表下便于扫读，避免每行重复展示同一部门
+  const shareGroups = useMemo(() => {
+    const kw = shareSearch.trim().toLowerCase();
+    const list = kw
+      ? shareRecipients.filter(
+          (r) => r.name.toLowerCase().includes(kw) || (r.department ?? "").toLowerCase().includes(kw),
+        )
+      : shareRecipients;
+    const groups: { dept: string; items: ShareRecipient[] }[] = [];
+    const idx = new Map<string, number>();
+    for (const r of list) {
+      const dept = r.department?.trim() || "未分组";
+      let i = idx.get(dept);
+      if (i === undefined) {
+        i = groups.length;
+        idx.set(dept, i);
+        groups.push({ dept, items: [] });
+      }
+      groups[i].items.push(r);
+    }
+    return { total: list.length, groups };
+  }, [shareRecipients, shareSearch]);
 
   // 参考来源点击：外链新标签打开；内部路由（/开头）应用内跳转并关闭聊天窗，让目标页定位高亮
   const handleOpenSource = useCallback(
@@ -477,6 +516,7 @@ export function MateChatBubble() {
   const openShare = useCallback((message: ApiMessage) => {
     setShareTarget(message);
     setShareSearch("");
+    setShareConfirm(null);
     setShareLoading(true);
     authFetch("/api/chat/share-recipients")
       .then((res) => (res.ok ? res.json() : []))
@@ -485,7 +525,20 @@ export function MateChatBubble() {
       .finally(() => setShareLoading(false));
   }, []);
 
-  // 把回答作为站内消息发给某位同事（复用研发站内消息通道）
+  // 允许任意组件通过全局事件唤起 MateChat（如连续打卡卡片的 CTA）
+  useEffect(() => {
+    const openChat = () => setOpen(true);
+    window.addEventListener(MATECHAT_OPEN_EVENT, openChat);
+    return () => window.removeEventListener(MATECHAT_OPEN_EVENT, openChat);
+  }, []);
+
+  // 数据
+  const [conversations, setConversations] = useState<ApiConversation[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ApiMessage[]>([]);
+
+  // 把回答作为站内消息发给某位同事（复用研发站内消息通道）。
+  // 定义在 activeId 之后：依赖数组引用 activeId，放在其声明前会触发 TDZ。
   const shareToColleague = useCallback(
     async (recipient: ShareRecipient) => {
       if (!shareTarget) return;
@@ -513,18 +566,6 @@ export function MateChatBubble() {
     },
     [shareTarget, activeId],
   );
-
-  // 允许任意组件通过全局事件唤起 MateChat（如连续打卡卡片的 CTA）
-  useEffect(() => {
-    const openChat = () => setOpen(true);
-    window.addEventListener(MATECHAT_OPEN_EVENT, openChat);
-    return () => window.removeEventListener(MATECHAT_OPEN_EVENT, openChat);
-  }, []);
-
-  // 数据
-  const [conversations, setConversations] = useState<ApiConversation[]>([]);
-  const [activeId, setActiveId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<ApiMessage[]>([]);
   const [models, setModels] = useState<ModelOption[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
 
@@ -2310,7 +2351,7 @@ export function MateChatBubble() {
           aria-label="分享给同事"
         >
           <div
-            className="flex max-h-[70vh] w-full max-w-sm flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            className="flex max-h-[80vh] w-full max-w-sm flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
@@ -2338,50 +2379,106 @@ export function MateChatBubble() {
                   autoFocus
                 />
               </div>
+              {!shareLoading && shareRecipients.length > 0 && (
+                <p className="mt-2 px-0.5 text-xs text-slate-400">
+                  {shareSearch.trim() ? `匹配到 ${shareGroups.total} 位同事` : `共 ${shareGroups.total} 位同事`}
+                </p>
+              )}
             </div>
-            <div className="material-scrollbar flex-1 overflow-y-auto px-2 py-2">
+            <div className="material-scrollbar flex-1 overflow-y-auto px-2 pb-2">
               {shareLoading ? (
                 <div className="flex items-center justify-center gap-2 py-10 text-sm text-slate-400">
                   <Loader2 className="h-4 w-4 animate-spin" />
                   加载同事列表…
                 </div>
+              ) : shareGroups.total === 0 ? (
+                <div className="py-12 text-center text-sm text-slate-400">
+                  {shareRecipients.length === 0 ? "没有可分享的同事" : "没有匹配的同事"}
+                </div>
               ) : (
-                (() => {
-                  const kw = shareSearch.trim().toLowerCase();
-                  const list = kw
-                    ? shareRecipients.filter(
-                        (r) => r.name.toLowerCase().includes(kw) || (r.department ?? "").toLowerCase().includes(kw),
-                      )
-                    : shareRecipients;
-                  if (list.length === 0) {
-                    return (
-                      <div className="py-10 text-center text-sm text-slate-400">
-                        {shareRecipients.length === 0 ? "没有可分享的同事" : "没有匹配的同事"}
-                      </div>
-                    );
-                  }
-                  return list.map((r) => (
-                    <button
-                      key={r.id}
-                      type="button"
-                      disabled={shareSendingId !== null}
-                      onClick={() => void shareToColleague(r)}
-                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-indigo-50/60 disabled:cursor-wait disabled:opacity-60"
-                    >
-                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-semibold text-indigo-700">
-                        {r.name.slice(0, 1)}
+                shareGroups.groups.map((g) => (
+                  <div key={g.dept} className="mb-0.5">
+                    <div className="sticky top-0 z-10 flex items-center gap-2 bg-white/95 px-3 py-1.5 backdrop-blur">
+                      <span className="text-xs font-semibold text-slate-500">{g.dept}</span>
+                      <span className="rounded-full bg-slate-100 px-1.5 text-[11px] font-medium leading-5 text-slate-400">
+                        {g.items.length}
                       </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-slate-800">{r.name}</span>
-                        {r.department && <span className="block truncate text-xs text-slate-400">{r.department}</span>}
-                      </span>
-                      {shareSendingId === r.id && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-indigo-500" />}
-                    </button>
-                  ));
-                })()
+                    </div>
+                    {g.items.map((r) => (
+                      <button
+                        key={r.id}
+                        type="button"
+                        disabled={shareSendingId !== null}
+                        onClick={() => {
+                          const steps = shareTarget ? msgToolSteps[shareTarget.id] ?? [] : [];
+                          const refsTask = steps.some((s) => TASK_REF_TOOLS.has(s.tool) && s.status !== "error");
+                          if (refsTask) setShareConfirm(r);
+                          else void shareToColleague(r);
+                        }}
+                        className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left transition hover:bg-indigo-50/60 disabled:cursor-wait disabled:opacity-60"
+                      >
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-semibold text-indigo-700">
+                          {r.name.slice(0, 1)}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-sm font-medium text-slate-800">{r.name}</span>
+                        {shareSendingId === r.id && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-indigo-500" />}
+                      </button>
+                    ))}
+                  </div>
+                ))
               )}
             </div>
           </div>
+
+          {/* 越权分享确认：回答引用了任务数据，收件人可能无权查看，交由发送者决断 */}
+          {shareConfirm && (
+            <div
+              className="absolute inset-0 z-10 flex items-center justify-center bg-slate-950/40 p-4"
+              onClick={(e) => {
+                e.stopPropagation();
+                setShareConfirm(null);
+              }}
+            >
+              <div
+                className="w-full max-w-xs rounded-2xl bg-white p-5 shadow-2xl"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-start gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100 text-amber-600">
+                    <AlertTriangle className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <h4 className="text-sm font-bold text-slate-900">这条回答引用了任务数据</h4>
+                    <p className="mt-1 text-xs leading-relaxed text-slate-500">
+                      <span className="font-medium text-slate-700">{shareConfirm.name}</span>{" "}
+                      可能无权查看其中部分任务，分享后对方将看到完整正文。仍要分享吗？
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShareConfirm(null)}
+                    className="material-button-secondary !px-4 !py-1.5 text-xs"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    disabled={shareSendingId !== null}
+                    onClick={() => {
+                      const r = shareConfirm;
+                      setShareConfirm(null);
+                      void shareToColleague(r);
+                    }}
+                    className="rounded-xl bg-indigo-600 px-4 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-wait disabled:opacity-60"
+                  >
+                    仍要分享
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </>

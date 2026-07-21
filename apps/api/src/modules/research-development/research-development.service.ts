@@ -980,8 +980,8 @@ export class ResearchDevelopmentService {
           author_name: owner || undefined,
           url:
             workspace === 'us-collab'
-              ? `/us-collab-workspace?task=${encodeURIComponent(taskId)}`
-              : `/rd-my-workspace?task=${encodeURIComponent(taskId)}`,
+              ? `/us-collab-task/${encodeURIComponent(taskId)}`
+              : `/rd-task/${encodeURIComponent(taskId)}`,
         },
       });
     } catch (err) {
@@ -1013,8 +1013,8 @@ export class ResearchDevelopmentService {
           created_at: cleanText(note.created_at) || undefined,
           url:
             workspace === 'us-collab'
-              ? `/us-collab-workspace?task=${encodeURIComponent(taskId)}`
-              : `/rd-my-workspace?task=${encodeURIComponent(taskId)}`,
+              ? `/us-collab-task/${encodeURIComponent(taskId)}`
+              : `/rd-task/${encodeURIComponent(taskId)}`,
         },
       });
     } catch (err) {
