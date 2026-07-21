@@ -144,7 +144,8 @@ CACHE_DIR="$REPO_DIR/.deploy-cache"
 mkdir -p "$CACHE_DIR"
 lock_hash() {
   # 含 pnpm-workspace.yaml：onlyBuiltDependencies 等改动也应触发重新安装
-  cat pnpm-workspace.yaml pnpm-lock.yaml package-lock.json apps/api/package-lock.json 2>/dev/null \
+  # `|| true`：pipefail 下，纯 pnpm 仓库缺 package-lock.json 会让 cat 返回非零而中断部署，这里容忍缺失文件
+  { cat pnpm-workspace.yaml pnpm-lock.yaml package-lock.json apps/api/package-lock.json 2>/dev/null || true; } \
     | sha256sum | awk '{print $1}'
 }
 NEW_HASH="$(lock_hash)"
