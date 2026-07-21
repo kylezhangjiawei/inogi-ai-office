@@ -32,7 +32,9 @@ import { i18nLocale } from "../lib/i18n";
 import { useAuth } from "../auth";
 import { cn } from "./ui/utils";
 import { MATECHAT_OPEN_EVENT, notifyMateChatActivity } from "./matechat/openMateChat";
+import { useNavigate } from "react-router";
 import { backfillKbToRag, ragStatus, type RagCitation, type RagStatus } from "../lib/ragApi";
+import { sendRdMessage } from "../lib/rdApi";
 import { isChatUsableModel } from "../lib/aiModelOptions";
 import { hasPermission } from "../lib/permissions";
 import { RagCitations, RagPermissionNotice } from "./RagCitations";
@@ -446,6 +448,71 @@ export function MateChatBubble() {
   const [open, setOpen] = useState(false);
   const [rendered, setRendered] = useState(false);
   const [visible, setVisible] = useState(false);
+  const navigate = useNavigate();
+
+  // 分享给同事：目标消息 + 收件人列表 + 搜索 + 发送态
+  type ShareRecipient = { id: string; name: string; department: string | null };
+  const [shareTarget, setShareTarget] = useState<ApiMessage | null>(null);
+  const [shareRecipients, setShareRecipients] = useState<ShareRecipient[]>([]);
+  const [shareLoading, setShareLoading] = useState(false);
+  const [shareSearch, setShareSearch] = useState("");
+  const [shareSendingId, setShareSendingId] = useState<string | null>(null);
+
+  // 参考来源点击：外链新标签打开；内部路由（/开头）应用内跳转并关闭聊天窗，让目标页定位高亮
+  const handleOpenSource = useCallback(
+    (c: RagCitation) => {
+      const url = c.url;
+      if (!url) return;
+      if (/^https?:\/\//i.test(url) || c.sourceType === "web") {
+        window.open(url, "_blank", "noopener,noreferrer");
+        return;
+      }
+      setOpen(false);
+      navigate(url);
+    },
+    [navigate],
+  );
+
+  // 打开分享面板并拉取收件人列表（仅需登录，失败提示但不阻断）
+  const openShare = useCallback((message: ApiMessage) => {
+    setShareTarget(message);
+    setShareSearch("");
+    setShareLoading(true);
+    authFetch("/api/chat/share-recipients")
+      .then((res) => (res.ok ? res.json() : []))
+      .then((list: ShareRecipient[]) => setShareRecipients(Array.isArray(list) ? list : []))
+      .catch(() => setShareRecipients([]))
+      .finally(() => setShareLoading(false));
+  }, []);
+
+  // 把回答作为站内消息发给某位同事（复用研发站内消息通道）
+  const shareToColleague = useCallback(
+    async (recipient: ShareRecipient) => {
+      if (!shareTarget) return;
+      setShareSendingId(recipient.id);
+      try {
+        await sendRdMessage({
+          recipient_id: recipient.id,
+          subject: "来自 MateChat 的回答分享",
+          body: shareTarget.content,
+        });
+        void apiRecordUsageEvent({
+          eventType: "share",
+          conversationId: activeId ?? undefined,
+          messageId: shareTarget.id,
+          model: shareTarget.model ?? undefined,
+          metadata: { method: "colleague" },
+        }).catch(() => undefined);
+        toast.success(`已分享给 ${recipient.name}`);
+        setShareTarget(null);
+      } catch {
+        toast.error("分享失败，请稍后重试");
+      } finally {
+        setShareSendingId(null);
+      }
+    },
+    [shareTarget, activeId],
+  );
 
   // 允许任意组件通过全局事件唤起 MateChat（如连续打卡卡片的 CTA）
   useEffect(() => {
@@ -1370,29 +1437,6 @@ export function MateChatBubble() {
     }
   };
 
-  const shareText = async (text: string, message: ApiMessage) => {
-    try {
-      let method = "clipboard";
-      if (typeof navigator.share === "function") {
-        await navigator.share({ title: "MateChat 回答", text });
-        method = "web_share";
-      } else {
-        await navigator.clipboard.writeText(text);
-      }
-      void apiRecordUsageEvent({
-        eventType: "share",
-        conversationId: activeId ?? undefined,
-        messageId: message.id,
-        model: message.model ?? undefined,
-        metadata: { method },
-      }).catch(() => undefined);
-      toast.success(method === "web_share" ? "已完成分享操作" : "内容已复制，可粘贴分享");
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") return;
-      toast.error("分享失败，请稍后重试");
-    }
-  };
-
   const currentModel = models.find((m) => m.id === selectedModel);
 
   // 附件相关派生状态
@@ -1933,7 +1977,7 @@ export function MateChatBubble() {
                                     { key: "refresh", icon: RefreshCw, label: "重新回答", onClick: () => void handleRefresh(msg.id), active: false },
                                     { key: "like", icon: ThumbsUp, label: "赞", onClick: () => void handleReaction(msg.id, "like"), active: msg.reaction === "like" },
                                     { key: "dislike", icon: ThumbsDown, label: msg.reaction === "dislike" ? "已反馈" : "踩", onClick: () => void handleReaction(msg.id, "dislike"), active: msg.reaction === "dislike" },
-                                    { key: "share", icon: Share2, label: "分享", onClick: () => void shareText(msg.content, msg), active: false },
+                                    { key: "share", icon: Share2, label: "分享", onClick: () => openShare(msg), active: false },
                                     { key: "delete", icon: Trash2, label: "删除", onClick: () => void handleDeleteMsg(msg.id), active: false },
                                   ].filter((item) => item.key !== "refresh" || msg.id === latestAssistantId).map(({ key, icon: Icon, label, onClick, active }) => (
                                     <button
@@ -2038,7 +2082,7 @@ export function MateChatBubble() {
                               {/* 知识库引用：命中内部资料时由后端 SSE 推送 */}
                               {!isUser && !isStreaming && msgCitations[msg.id] && (
                                 <div className="mt-2 max-w-[640px]">
-                                  <RagCitations citations={msgCitations[msg.id].citations} />
+                                  <RagCitations citations={msgCitations[msg.id].citations} onOpenSource={handleOpenSource} />
                                   <RagPermissionNotice filtered={msgCitations[msg.id].filteredByPermission} />
                                 </div>
                               )}
@@ -2252,6 +2296,91 @@ export function MateChatBubble() {
                 </div>
               </div>
             </section>
+          </div>
+        </div>
+      )}
+
+      {/* 分享给同事：选一位同事，把这条回答作为站内消息发过去 */}
+      {shareTarget && (
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-950/40 p-4"
+          onClick={() => setShareTarget(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="分享给同事"
+        >
+          <div
+            className="flex max-h-[70vh] w-full max-w-sm flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">分享给同事</h3>
+                <p className="mt-0.5 text-xs text-slate-400">对方会在通知中心 / 顶栏铃铛收到这条回答</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShareTarget(null)}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                aria-label="关闭"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="border-b border-slate-100 px-5 py-3">
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={shareSearch}
+                  onChange={(e) => setShareSearch(e.target.value)}
+                  placeholder="搜索同事姓名 / 部门"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-9 pr-3 text-sm text-slate-800 outline-none transition focus:border-indigo-400 focus:bg-white"
+                  autoFocus
+                />
+              </div>
+            </div>
+            <div className="material-scrollbar flex-1 overflow-y-auto px-2 py-2">
+              {shareLoading ? (
+                <div className="flex items-center justify-center gap-2 py-10 text-sm text-slate-400">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  加载同事列表…
+                </div>
+              ) : (
+                (() => {
+                  const kw = shareSearch.trim().toLowerCase();
+                  const list = kw
+                    ? shareRecipients.filter(
+                        (r) => r.name.toLowerCase().includes(kw) || (r.department ?? "").toLowerCase().includes(kw),
+                      )
+                    : shareRecipients;
+                  if (list.length === 0) {
+                    return (
+                      <div className="py-10 text-center text-sm text-slate-400">
+                        {shareRecipients.length === 0 ? "没有可分享的同事" : "没有匹配的同事"}
+                      </div>
+                    );
+                  }
+                  return list.map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      disabled={shareSendingId !== null}
+                      onClick={() => void shareToColleague(r)}
+                      className="flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition hover:bg-indigo-50/60 disabled:cursor-wait disabled:opacity-60"
+                    >
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-semibold text-indigo-700">
+                        {r.name.slice(0, 1)}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium text-slate-800">{r.name}</span>
+                        {r.department && <span className="block truncate text-xs text-slate-400">{r.department}</span>}
+                      </span>
+                      {shareSendingId === r.id && <Loader2 className="h-4 w-4 shrink-0 animate-spin text-indigo-500" />}
+                    </button>
+                  ));
+                })()
+              )}
+            </div>
           </div>
         </div>
       )}

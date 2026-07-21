@@ -184,6 +184,18 @@ export class ChatController {
     return { suggestions: await this.chatToolsService.buildQuickSuggestions(userContext) };
   }
 
+  /** 分享收件人列表：活跃同事（排除自己），仅需登录即可读，供「把回答分享给同事」选人 */
+  @Get('share-recipients')
+  async shareRecipients(@Request() req: AuthedRequest) {
+    const users = await this.prisma.user.findMany({
+      where: { status: 'ACTIVE', id: { not: req.user.id } },
+      select: { id: true, name: true, department: true },
+      orderBy: [{ department: 'asc' }, { name: 'asc' }],
+      take: 300,
+    });
+    return users.map((u) => ({ id: u.id, name: u.name ?? '未命名', department: u.department ?? null }));
+  }
+
   @Get('conversations/:id/pending-actions')
   async listPendingActions(@Param('id') id: string, @Request() req: AuthedRequest) {
     const userContext = await this.buildUserContext(req);

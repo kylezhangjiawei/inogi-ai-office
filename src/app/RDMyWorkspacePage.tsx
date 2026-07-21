@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   AlertTriangle,
@@ -3550,6 +3551,7 @@ export function RDMyWorkspacePage() {
   const [notifVisibleCount, setNotifVisibleCount] = useState(NOTIF_PAGE_SIZE);
   const [progressOverrides, setProgressOverrides] = useState<Record<string, number>>({});
   const [activePanel, setActivePanel] = useState<ActivePanel | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
   // 绩效自评弹窗状态（从通知抽屉「去自评」打开）
   const [perfSelfReport, setPerfSelfReport] = useState<RdPerformanceReport | null>(null);
   const [perfSelfNotifId, setPerfSelfNotifId] = useState<string | null>(null);
@@ -3777,6 +3779,20 @@ export function RDMyWorkspacePage() {
     }
     void markRdTaskNotesRead(task.task_id).catch(() => {});
   };
+
+  // 深链定位：MateChat 参考来源 / 通知等带 ?task=<编号> 进来时，任务数据就绪后自动打开该任务详情并锁定，
+  // 随后清除该参数，避免刷新或返回时重复弹出。找不到（非本工作台任务/尚未加载）则静默忽略。
+  useEffect(() => {
+    const taskId = searchParams.get("task");
+    if (!taskId) return;
+    const target = allTasks.find((t) => t.task_id === taskId);
+    if (!target) return;
+    openTask(target, "detail");
+    const next = new URLSearchParams(searchParams);
+    next.delete("task");
+    setSearchParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, allTasks]);
 
   // 离开全景视图时清空勾选，避免切回列表后残留选择态。
   useEffect(() => {
