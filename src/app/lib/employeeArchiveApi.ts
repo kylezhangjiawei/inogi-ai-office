@@ -92,7 +92,7 @@ export interface EmployeeProbationReminder {
   conversionDate: string;
   reminderDate: string;
   daysUntilConversion: number;
-  phase: 'upcoming' | 'active' | 'overdue';
+  phase: 'upcoming' | 'active' | 'completed';
 }
 
 export interface EmployeeArchiveListResponse {

@@ -59,9 +59,6 @@ export default defineConfig({
       'react/jsx-runtime',
       'react/jsx-dev-runtime',
       '@radix-ui/react-select',
-      '@radix-ui/react-context',
-      '@radix-ui/react-portal',
-      '@radix-ui/react-popper',
     ],
   },
   server: {

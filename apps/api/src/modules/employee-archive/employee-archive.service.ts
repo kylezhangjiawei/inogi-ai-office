@@ -22,6 +22,7 @@ const employeeInclude = {
 } satisfies Prisma.EmployeeArchiveInclude;
 
 type EmployeeWithDocuments = Prisma.EmployeeArchiveGetPayload<{ include: typeof employeeInclude }>;
+const EMPLOYEE_ARCHIVE_REQUIRED_FIELD_COUNT = 30;
 
 @Injectable()
 export class EmployeeArchiveService {
@@ -79,36 +80,43 @@ export class EmployeeArchiveService {
 
   async stats() {
     const records = await this.prisma.employeeArchive.findMany({
-      select: { archiveStatus: true, missingFields: true },
+      select: { hireDate: true, employmentStatus: true, missingFields: true },
     });
-    const counts = records.reduce<Record<string, number>>((result, record) => {
+    const normalizedRecords = records.map((record) => {
+      const tenure = this.tenureFromDate(record.hireDate);
+      const missingFields = this.normalizeMissingFields(record.missingFields, tenure);
+      const archiveStatus = this.archiveStatusFromMissingFields(missingFields, record.employmentStatus);
+      return { archiveStatus, missingFields };
+    });
+    const counts = normalizedRecords.reduce<Record<string, number>>((result, record) => {
       result[record.archiveStatus] = (result[record.archiveStatus] ?? 0) + 1;
       return result;
     }, {});
     return {
-      total: records.length,
+      total: normalizedRecords.length,
       complete: counts.complete ?? 0,
       review: counts.review ?? 0,
       missing: counts.missing ?? 0,
       onboarding: counts.onboarding ?? 0,
       pending: (counts.review ?? 0) + (counts.missing ?? 0) + (counts.onboarding ?? 0),
-      missingFieldCount: records.reduce((sum, record) => sum + record.missingFields.length, 0),
+      missingFieldCount: normalizedRecords.reduce((sum, record) => sum + record.missingFields.length, 0),
     };
   }
 
   async probationReminders(days: number) {
     const employees = await this.prisma.employeeArchive.findMany({
-      where: { employmentStatus: { contains: '试用' }, hireDate: { not: null } },
+      where: { hireDate: { not: null } },
       include: employeeInclude,
       orderBy: { hireDate: 'asc' },
     });
     const reminders = employees
+      .filter((employee) => this.shouldTrackProbation(employee.employmentStatus))
       .map((employee) => {
         const reminder = this.buildProbationReminder(employee.hireDate);
         return reminder ? { employee: this.serialize(employee), ...reminder } : null;
       })
       .filter((item): item is NonNullable<typeof item> => Boolean(item))
-      .filter((item) => item.phase !== 'upcoming' || item.daysUntilConversion <= days);
+      .filter((item) => item.phase === 'active');
     return { items: reminders, total: reminders.length, windowDays: days };
   }
 
@@ -282,7 +290,7 @@ export class EmployeeArchiveService {
       company: this.clean(dto.company),
       hireDate,
       settlementDate: this.toDate(dto.settlementDate),
-      tenure: this.clean(dto.tenure) || this.tenureFromDate(hireDate),
+      tenure: this.tenureFromDate(hireDate) || this.clean(dto.tenure),
       employmentStatus: this.clean(dto.status),
       workLocation: this.clean(dto.workLocation),
       department: this.clean(dto.department),
@@ -327,7 +335,7 @@ export class EmployeeArchiveService {
 
     const requiredFields: Array<[string, string | number]> = [
       ['序号', data.rosterNo], ['隶属', data.company], ['入职日期', this.formatDate(data.hireDate)],
-      ['结算日期', this.formatDate(data.settlementDate)], ['工龄', data.tenure], ['状态', data.employmentStatus],
+      ['司龄', data.tenure], ['状态', data.employmentStatus],
       ['工作地', data.workLocation], ['部门', data.department], ['职务', data.title],
       ['工号', data.employeeCode], ['姓名', data.name], ['证件号码', data.idNoMasked],
       ['出生日期', this.formatDate(data.birthDate)], ['出生月日', data.birthMonthDay], ['生肖', data.zodiac],
@@ -410,13 +418,21 @@ export class EmployeeArchiveService {
   }
 
   private serialize(employee: EmployeeWithDocuments) {
+    const tenure = this.tenureFromDate(employee.hireDate) || employee.tenure;
+    const birthDate = this.formatDate(employee.birthDate);
+    const constellation = birthDate ? this.constellationFromDate(birthDate) : '';
+    const missingFields = this.normalizeMissingFields(employee.missingFields, tenure);
+    const archiveStatus = this.archiveStatusFromMissingFields(missingFields, employee.employmentStatus);
+    const archiveScore = Math.round(
+      ((EMPLOYEE_ARCHIVE_REQUIRED_FIELD_COUNT - missingFields.length) / EMPLOYEE_ARCHIVE_REQUIRED_FIELD_COUNT) * 100,
+    );
     return {
       id: employee.id,
       rosterNo: employee.rosterNo,
       company: employee.company,
       hireDate: this.formatDate(employee.hireDate),
       settlementDate: this.formatDate(employee.settlementDate),
-      tenure: employee.tenure,
+      tenure,
       status: employee.employmentStatus,
       workLocation: employee.workLocation,
       department: employee.department,
@@ -424,10 +440,10 @@ export class EmployeeArchiveService {
       employeeCode: employee.employeeCode,
       name: employee.name,
       idNoMasked: employee.idNoMasked,
-      birthDate: this.formatDate(employee.birthDate),
+      birthDate,
       birthMonthDay: employee.birthMonthDay,
       zodiac: employee.zodiac,
-      constellation: employee.constellation,
+      constellation,
       gender: employee.gender,
       age: employee.age,
       ethnicity: employee.ethnicity,
@@ -448,9 +464,9 @@ export class EmployeeArchiveService {
       socialSecurityFirstMonth: employee.socialSecurityFirstMonth,
       note: employee.note,
       costCenter: employee.costCenter,
-      archiveStatus: employee.archiveStatus,
-      archiveScore: employee.archiveScore,
-      missingFields: employee.missingFields,
+      archiveStatus,
+      archiveScore,
+      missingFields,
       alerts: employee.alerts,
       badgeConfig: employee.badgeConfig,
       source: employee.source,
@@ -462,7 +478,7 @@ export class EmployeeArchiveService {
         updatedAt: this.formatDate(document.documentDate),
       })),
       probationReminder:
-        employee.employmentStatus.includes('试用') && employee.hireDate
+        this.shouldTrackProbation(employee.employmentStatus) && employee.hireDate
           ? this.buildProbationReminder(employee.hireDate)
           : null,
       createdAt: employee.createdAt.toISOString(),
@@ -556,6 +572,23 @@ export class EmployeeArchiveService {
     return `${years > 0 ? `${years}年` : ''}${months > 0 ? `${months}个月` : ''}`;
   }
 
+  private normalizeMissingFields(missingFields: string[], tenure: string) {
+    return Array.from(new Set(missingFields
+      .filter((field) => field !== '结算日期')
+      .map((field) => field === '工龄' ? '司龄' : field)))
+      .filter((field) => field !== '司龄' || !tenure);
+  }
+
+  private archiveStatusFromMissingFields(missingFields: string[], employmentStatus: string) {
+    return missingFields.length === 0
+      ? 'complete'
+      : /入职|待入职/.test(employmentStatus)
+        ? 'onboarding'
+        : /试用/.test(employmentStatus)
+          ? 'review'
+          : 'missing';
+  }
+
   private buildProbationReminder(hireDate: Date | null) {
     if (!hireDate) return null;
     const conversionDate = this.addUtcMonthsClamped(hireDate, 3);
@@ -568,13 +601,17 @@ export class EmployeeArchiveService {
       conversionDate.getUTCDate(),
     );
     const daysUntilConversion = Math.ceil((conversionUtc - todayUtc) / 86_400_000);
-    const phase = todayUtc > conversionUtc ? 'overdue' : todayUtc >= reminderDate.getTime() ? 'active' : 'upcoming';
+    const phase = todayUtc > conversionUtc ? 'completed' : todayUtc >= reminderDate.getTime() ? 'active' : 'upcoming';
     return {
       conversionDate: this.formatDate(conversionDate),
       reminderDate: this.formatDate(reminderDate),
       daysUntilConversion,
       phase,
     };
+  }
+
+  private shouldTrackProbation(status: string) {
+    return !/(已转正|正式员工|离职|退休|终止|解除)/.test(status.trim());
   }
 
   private addUtcMonthsClamped(value: Date, months: number) {

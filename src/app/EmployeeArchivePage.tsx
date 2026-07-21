@@ -6,6 +6,7 @@ import {
   Building2,
   Calendar,
   CheckCircle2,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -83,7 +84,7 @@ interface ProbationReminder {
   conversionDate: string;
   reminderDate: string;
   daysUntilConversion: number;
-  phase: "upcoming" | "active" | "overdue";
+  phase: "upcoming" | "active" | "completed";
 }
 
 interface EmployeeArchiveEditDraft extends EmployeeArchive {
@@ -418,10 +419,10 @@ function createEmptyEmployeeArchive(id = "empty-employee"): EmployeeArchive {
 const EMPTY_EMPLOYEE_ARCHIVE = createEmptyEmployeeArchive();
 
 // ── 花名册真实导入 / 导出 / 本地持久化 ───────────────────────────────────────────
-// 主档案严格匹配用户提供的「在职员工」sheet：黄色 A-AE 为归档必备，AF-AG 两个社保字段选填。
+// 主档案匹配用户提供的「在职员工」sheet；结算日期不参与归档，两个社保字段选填。
 // 敏感字段（证件/手机/银行/社保/紧急联系人手机）仅存脱敏值，原文不落库。
 const ROSTER_COLUMNS = [
-  "序号", "隶属", "入职日期", "结算日期", "工龄", "状态", "工作地", "部门", "职务", "工号",
+  "序号", "隶属", "入职日期", "司龄", "状态", "工作地", "部门", "职务", "工号",
   "姓名", "证件号码", "出生日期", "出生月日", "生肖", "性别", "年龄", "民族", "婚姻状况", "手机号码",
   "银行帐号", "工资卡开户行全称", "学历", "毕业院校", "专业", "籍贯", "户籍地址", "常住地址", "紧急联系人姓名",
   "紧急联系人关系", "紧急联系人手机", "社保号", "社保首月日期",
@@ -457,6 +458,37 @@ function normalizeBirthDate(value: string): string {
     return "";
   }
   return formatLocalDate(date);
+}
+
+/**
+ * 花名册日期既可能是可读日期，也可能是未设置日期格式的 Excel 序列值。
+ * 统一转换为接口接受的 YYYY-MM-DD，避免序列值被当作普通字符串后丢失。
+ */
+function normalizeRosterDate(value: string): string {
+  const source = value.trim();
+  if (!source) return "";
+
+  const isoPrefix = source.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:T.*)?$/);
+  if (isoPrefix) return normalizeBirthDate(`${isoPrefix[1]}-${isoPrefix[2]}-${isoPrefix[3]}`);
+
+  const readable = source.match(/^(\d{4})\s*[年/.\-]\s*(\d{1,2})\s*[月/.\-]\s*(\d{1,2})\s*日?$/);
+  if (readable) return normalizeBirthDate(`${readable[1]}-${readable[2]}-${readable[3]}`);
+
+  const compact = source.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (compact) return normalizeBirthDate(`${compact[1]}-${compact[2]}-${compact[3]}`);
+
+  if (/^\d+(?:\.\d+)?$/.test(source)) {
+    const serial = Number(source);
+    if (Number.isFinite(serial) && serial >= 1 && serial <= 2_958_465) {
+      const date = new Date(Date.UTC(1899, 11, 30) + Math.floor(serial) * 86_400_000);
+      const year = date.getUTCFullYear();
+      if (year >= 1900 && year <= 2200) {
+        return `${year}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+      }
+    }
+  }
+
+  return "";
 }
 
 function getBirthDateFromChineseId(idNumber: string): string {
@@ -557,6 +589,19 @@ function getTenureFromHireDate(hireDate: string, referenceDate = new Date()): st
   return `${years > 0 ? `${years}年` : ""}${months > 0 ? `${months}个月` : ""}`;
 }
 
+function translateTenure(value: string): string {
+  if (!value) return "";
+  const yearsAndMonths = value.match(/^(\d+)年(\d+)个月$/);
+  if (yearsAndMonths) {
+    return translate("{years}年{months}个月", { years: yearsAndMonths[1], months: yearsAndMonths[2] });
+  }
+  const years = value.match(/^(\d+)年$/);
+  if (years) return translate("{count}年", { count: years[1] });
+  const months = value.match(/^(\d+)个月$/);
+  if (months) return translate("{count}个月", { count: months[1] });
+  return translate(value);
+}
+
 function getConstellation(birthDate: string): string {
   const match = birthDate.trim().match(/^(?:\d{4}[-/.])?(\d{1,2})[-/.](\d{1,2})$/);
   if (!match) return "";
@@ -581,6 +626,14 @@ function getConstellation(birthDate: string): string {
   return day < boundaries[month - 1]
     ? signsAfterBoundary[(month + 10) % 12]
     : signsAfterBoundary[month - 1];
+}
+
+function getEmployeeConstellation(employee: Pick<EmployeeArchive, "birthDate" | "constellation">): string {
+  return getConstellation(employee.birthDate) || employee.constellation;
+}
+
+function getEmployeeConstellationDisplay(employee: Pick<EmployeeArchive, "birthDate" | "constellation">): string {
+  return getEmployeeConstellation(employee) || "缺少出生日期";
 }
 
 function parseLocalDate(value: string): Date | null {
@@ -612,7 +665,7 @@ function differenceInCalendarDays(later: Date, earlier: Date): number {
 }
 
 function getProbationReminder(employee: EmployeeArchive, referenceDate = new Date()): ProbationReminder | null {
-  if (!/试用/.test(employee.status)) return null;
+  if (!shouldTrackProbation(employee.status)) return null;
   const hireDate = parseLocalDate(employee.hireDate);
   if (!hireDate) return null;
 
@@ -620,7 +673,7 @@ function getProbationReminder(employee: EmployeeArchive, referenceDate = new Dat
   const reminderDate = addCalendarMonths(conversionDate, -1);
   const today = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate());
   const daysUntilConversion = differenceInCalendarDays(conversionDate, today);
-  const phase = today < reminderDate ? "upcoming" : daysUntilConversion >= 0 ? "active" : "overdue";
+  const phase = today < reminderDate ? "upcoming" : daysUntilConversion >= 0 ? "active" : "completed";
 
   return {
     conversionDate: formatLocalDate(conversionDate),
@@ -630,12 +683,18 @@ function getProbationReminder(employee: EmployeeArchive, referenceDate = new Dat
   };
 }
 
+function shouldTrackProbation(status: string): boolean {
+  return !/(已转正|正式员工|离职|退休|终止|解除)/.test(status.trim());
+}
+
 function deriveArchiveFromRow(get: (col: string) => string, index: number): EmployeeArchive {
   const source = (c: string) => get(c).trim();
+  const hireDate = normalizeRosterDate(source("入职日期"));
   const idBirthDate = getBirthDateFromChineseId(source("证件号码"));
-  const birthDate = idBirthDate || normalizeBirthDate(source("出生日期"));
+  const birthDate = idBirthDate || normalizeRosterDate(source("出生日期"));
   const raw = (c: string) => {
-    if (c === "工龄") return source("工龄") || getTenureFromHireDate(source("入职日期"));
+    if (c === "入职日期") return hireDate;
+    if (c === "司龄") return getTenureFromHireDate(hireDate) || source("司龄");
     if (c === "出生日期") return birthDate;
     if (c === "出生月日") return birthDate.slice(5) || source("出生月日");
     if (c === "年龄") return birthDate ? String(getAgeFromBirthDate(birthDate)) : source("年龄");
@@ -685,8 +744,8 @@ function deriveArchiveFromRow(get: (col: string) => string, index: number): Empl
     rosterNo: raw("序号"),
     company: raw("隶属"),
     hireDate: raw("入职日期"),
-    settlementDate: raw("结算日期"),
-    tenure: raw("工龄"),
+    settlementDate: "",
+    tenure: raw("司龄"),
     status: statusText,
     workLocation: raw("工作地"),
     department: raw("部门"),
@@ -745,8 +804,20 @@ async function parseRosterWorkbook(data: ArrayBuffer): Promise<ParsedRosterWorkb
   );
   if (hdrIdx < 0) hdrIdx = rows.findIndex((r) => Array.isArray(r) && r.some((c) => String(c).trim() === "姓名"));
   if (hdrIdx < 0) return { items: [], headerFound: false };
-  const headers = (rows[hdrIdx] as unknown[]).map((h) => String(h ?? "").trim());
-  const colIndex = (name: string) => headers.findIndex((h) => h === name);
+  // Excel 表头可能带换行或业务备注，例如「工号（2跳过，25,38空）」。
+  // 映射前移除空白和中英文括号备注，避免有效列被误判为缺失。
+  const normalizeHeader = (value: unknown) => String(value ?? "")
+    .replace(/\s+/g, "")
+    .replace(/[（(][^）)]*[）)]/g, "")
+    .trim();
+  const headers = (rows[hdrIdx] as unknown[]).map(normalizeHeader);
+  const headerAliases: Record<string, string[]> = {
+    司龄: ["司龄", "工龄"],
+  };
+  const colIndex = (name: string) => {
+    const candidates = (headerAliases[name] ?? [name]).map(normalizeHeader);
+    return headers.findIndex((header) => candidates.includes(header));
+  };
   const out: EmployeeArchive[] = [];
   for (let i = hdrIdx + 1; i < rows.length; i++) {
     const r = rows[i];
@@ -768,8 +839,7 @@ async function exportEmployeeRoster(employees: EmployeeArchive[]): Promise<void>
     序号: employee.rosterNo,
     隶属: employee.company,
     入职日期: employee.hireDate,
-    结算日期: employee.settlementDate,
-    工龄: employee.tenure,
+    司龄: employee.tenure,
     状态: employee.status,
     工作地: employee.workLocation,
     部门: employee.department,
@@ -821,9 +891,25 @@ function loadStoredEmployees(): EmployeeArchive[] | null {
     if (!Array.isArray(arr)) return null;
     return arr.map((value) => {
       const employee = normalizeEmployeeArchiveRecord(value);
+      const tenure = getTenureFromHireDate(employee.hireDate) || employee.tenure;
+      const missingFields = Array.from(new Set(employee.missingFields
+        .filter((field) => field !== "结算日期")
+        .map((field) => field === "工龄" ? "司龄" : field)))
+        .filter((field) => field !== "司龄" || !tenure);
+      const archiveStatus: ArchiveStatus = missingFields.length === 0
+        ? "complete"
+        : /入职|待入职/.test(employee.status)
+          ? "onboarding"
+          : /试用/.test(employee.status)
+            ? "review"
+            : "missing";
       return {
         ...employee,
-        constellation: employee.constellation || getConstellation(employee.birthDate),
+        tenure,
+        constellation: getEmployeeConstellation(employee),
+        missingFields,
+        archiveScore: Math.max(0, Math.min(100, Math.round(((REQUIRED_COLUMN_COUNT - missingFields.length) / REQUIRED_COLUMN_COUNT) * 100))),
+        archiveStatus,
         alerts: employee.alerts
           .filter((alert) => !alert.startsWith("试用期归档需在"))
           .map((alert) => (alert === "工资卡信息缺失影响结算" ? "工资卡信息缺失影响发薪" : alert)),
@@ -902,8 +988,7 @@ const fieldGroups: Array<{
       { label: "序号", value: employee.rosterNo },
       { label: "隶属", value: employee.company },
       { label: "入职日期", value: employee.hireDate },
-      { label: "结算日期", value: employee.settlementDate },
-      { label: "工龄", value: employee.tenure },
+      { label: "司龄", value: translateTenure(employee.tenure) },
       { label: "状态", value: employee.status },
       { label: "工作地", value: employee.workLocation },
       { label: "部门", value: employee.department },
@@ -922,6 +1007,7 @@ const fieldGroups: Array<{
       { label: "出生日期", value: employee.birthDate },
       { label: "出生月日", value: employee.birthMonthDay },
       { label: "生肖", value: employee.zodiac },
+      { label: "星座", value: getEmployeeConstellationDisplay(employee) },
       { label: "性别", value: employee.gender },
       { label: "年龄", value: employee.age },
       { label: "民族", value: employee.ethnicity },
@@ -976,7 +1062,6 @@ const employeeEditGroups: Array<{
       { key: "rosterNo", label: "序号", required: true },
       { key: "company", label: "隶属", required: true },
       { key: "hireDate", label: "入职日期", type: "date", required: true },
-      { key: "settlementDate", label: "结算日期", type: "date", required: true },
       { key: "status", label: "状态", required: true, placeholder: "例如：在职、试用期" },
       { key: "workLocation", label: "工作地", required: true },
       { key: "department", label: "部门", required: true },
@@ -1462,10 +1547,12 @@ function downloadBadgeBlob(blob: Blob, employee: EmployeeArchive, template: Badg
 const TABLE_HEADER_CLASS = "px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 whitespace-nowrap";
 const TABLE_CELL_CLASS = "px-5 py-3 align-middle text-sm text-slate-700";
 const EMPLOYEE_PAGE_SIZE = 10;
-type EmployeeListColumnKey = "employee" | "organization" | "position" | "employment" | "archive" | "missing";
+type EmployeeListColumnKey = "employee" | "employeeCode" | "constellation" | "organization" | "position" | "employment" | "archive" | "missing";
 const EMPLOYEE_LIST_COLUMN_STORAGE_KEY = "employee-archive-list-columns-v1";
 const EMPLOYEE_LIST_COLUMNS: Array<{ key: EmployeeListColumnKey; label: string; width: number }> = [
   { key: "employee", label: "员工", width: 190 },
+  { key: "employeeCode", label: "工号", width: 140 },
+  { key: "constellation", label: "星座", width: 110 },
   { key: "organization", label: "组织", width: 180 },
   { key: "position", label: "岗位", width: 170 },
   { key: "employment", label: "入职 / 转正", width: 190 },
@@ -1747,13 +1834,13 @@ function EmployeeArchiveEditor({
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
           <div className="mb-5 flex flex-col gap-2 rounded-2xl border border-indigo-100 bg-indigo-50/70 px-4 py-3 text-sm text-indigo-900 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="font-semibold">{translate("必填规则已按黄色花名册字段同步")}</p>
+              <p className="font-semibold">{translate("必填规则已按当前花名册确认")}</p>
               <p className="mt-0.5 text-xs leading-5 text-indigo-700">
-                {translate("红色 * 为归档必备；社保号、社保首月日期明确为选填。工龄、出生月日、生肖、年龄由系统自动计算。")}
+                {translate("红色 * 为归档必备；结算日期不归档，社保号、社保首月日期为选填。司龄、出生月日、生肖、星座、年龄由系统自动计算。")}
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap gap-1.5">
-              {[draft.tenure || translate("工龄"), draft.birthMonthDay || translate("出生月日"), translate(draft.zodiac || "生肖"), draft.age ? translate("{age}岁", { age: draft.age }) : translate("年龄")].map((value) => (
+              {[draft.tenure ? translateTenure(draft.tenure) : translate("司龄"), draft.birthMonthDay || translate("出生月日"), translate(draft.zodiac || "生肖"), translate(getEmployeeConstellationDisplay(draft)), draft.age ? translate("{age}岁", { age: draft.age }) : translate("年龄")].map((value) => (
                 <span key={value} className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-indigo-700 ring-1 ring-indigo-100">
                   {value}
                 </span>
@@ -2628,7 +2715,7 @@ export function EmployeeArchivePage() {
   }, []);
 
   const companies = useMemo(
-    () => ["全部", ...Array.from(new Set(employees.map((employee) => employee.company)))],
+    () => Array.from(new Set(employees.map((employee) => employee.company).filter(Boolean))),
     [employees],
   );
 
@@ -2874,8 +2961,8 @@ export function EmployeeArchivePage() {
       setStatusFilter("全部");
       if (persistedToServer) void refreshArchiveMeta();
       toast.success(persistedToServer
-        ? translate("已导入 {count} 名员工，按 31 个必备字段完成核对并保存到服务端", { count: parsed.length })
-        : translate("已导入 {count} 名员工，按 31 个必备字段完成核对", { count: parsed.length }));
+        ? translate("已导入 {count} 名员工，按 {required} 个必备字段完成核对并保存到服务端", { count: parsed.length, required: REQUIRED_COLUMN_COUNT })
+        : translate("已导入 {count} 名员工，按 {required} 个必备字段完成核对", { count: parsed.length, required: REQUIRED_COLUMN_COUNT }));
     } catch (err) {
       toast.error(err instanceof Error ? translate("导入失败：{message}", { message: err.message }) : translate("导入失败，请确认文件为 .xlsx 花名册"));
     }
@@ -3015,8 +3102,11 @@ export function EmployeeArchivePage() {
       : getProbationReminder(employee);
   };
   const selectedProbationReminder = probationReminderFor(selected);
-  const hasSelectedProbationReminder =
-    selectedProbationReminder?.phase === "active" || selectedProbationReminder?.phase === "overdue";
+  const hasSelectedProbationReminder = selectedProbationReminder?.phase === "active";
+  const probationReminderCount = employees.reduce((count, employee) => {
+    const reminder = probationReminderFor(employee);
+    return reminder?.phase === "active" ? count + 1 : count;
+  }, 0);
   const blockingActionCount = selected.missingFields.length + badgeBlockingItems.length;
   const pendingActionCount = blockingActionCount + (hasSelectedProbationReminder ? 1 : 0);
   const totalPages = Math.max(1, Math.ceil(filteredEmployees.length / EMPLOYEE_PAGE_SIZE));
@@ -3295,12 +3385,13 @@ export function EmployeeArchivePage() {
       ) : null}
       {view === "list" ? (
         <div className="flex min-h-0 flex-1 flex-col gap-3">
-          <section className="grid shrink-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {[
-              { label: translate("花名册人员"), value: stats.total, helper: translate("{count} 人已完成", { count: stats.completed }) },
-              { label: translate("已完成归档"), value: stats.completed, helper: translate("字段与材料均已核对") },
-              { label: translate("待处理归档"), value: stats.needsAction, helper: translate("缺项 / 复核 / 入职中") },
-              { label: translate("字段缺口"), value: stats.missing, helper: translate("来自 31 个必备字段") },
+            <section className="grid shrink-0 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              {[
+                { label: translate("花名册人员"), value: stats.total, helper: translate("{count} 人已完成", { count: stats.completed }) },
+                { label: translate("已完成归档"), value: stats.completed, helper: translate("字段与材料均已核对") },
+                { label: translate("待处理归档"), value: stats.needsAction, helper: translate("缺项 / 复核 / 入职中") },
+                { label: translate("转正提醒"), value: probationReminderCount, helper: translate("最后一个月提醒") },
+                { label: translate("字段缺口"), value: stats.missing, helper: translate("来自 {count} 个必备字段", { count: REQUIRED_COLUMN_COUNT }) },
             ].map((item) => (
               <div key={item.label} className="material-card-flat flex min-w-0 items-center justify-between gap-3 px-4 py-3">
                 <div className="min-w-0">
@@ -3384,23 +3475,24 @@ export function EmployeeArchivePage() {
                       </div>
                     </details>
 
-                    <div className="flex flex-wrap gap-2">
-                      {companies.map((company) => (
-                        <button
-                          key={company}
-                          type="button"
-                          onClick={() => setCompanyFilter(company)}
-                          className={cn(
-                            "cursor-pointer rounded-full border px-4 py-2 text-sm font-semibold transition",
-                            companyFilter === company
-                              ? "border-indigo-200 bg-indigo-50 text-indigo-700"
-                              : "border-slate-200 bg-white text-slate-500 hover:border-slate-300",
-                          )}
-                        >
-                          {translate(company)}
-                        </button>
-                      ))}
-                    </div>
+                    <label className="relative block w-full shrink-0 sm:w-36">
+                      <span className="sr-only">{translate("隶属")}</span>
+                      <Building2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                      <select
+                        value={companyFilter}
+                        onChange={(event) => setCompanyFilter(event.target.value)}
+                        aria-label={translate("隶属")}
+                        className="h-10 w-full cursor-pointer appearance-none truncate rounded-full border border-slate-200 bg-white py-2 pl-9 pr-8 text-sm font-semibold text-slate-600 outline-none transition-colors hover:border-slate-300 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                      >
+                        <option value="全部">{translate("全部")}</option>
+                        {companies.map((company) => (
+                          <option key={company} value={company}>
+                            {translate(company)}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                    </label>
                   </div>
                 </div>
 
@@ -3469,8 +3561,8 @@ export function EmployeeArchivePage() {
                     ) : (
                       pagedEmployees.map((employee) => {
                         const probationReminder = probationReminderFor(employee);
-                        const showProbationReminder =
-                          probationReminder?.phase === "active" || probationReminder?.phase === "overdue";
+                        const showProbationReminder = probationReminder?.phase === "active";
+                        const employeeConstellation = getEmployeeConstellation(employee);
 
                         return (
                           <tr key={employee.id} className="group h-[72px] transition hover:bg-blue-50/25">
@@ -3487,6 +3579,19 @@ export function EmployeeArchivePage() {
                               </div>
                             </div>
                           </td> : null}
+                          {listColumnVisibility.employeeCode ? <td className={TABLE_CELL_CLASS}>
+                            <div className="truncate font-semibold text-slate-800">
+                              {employee.employeeCode || translate("待补充")}
+                            </div>
+                          </td> : null}
+                          {listColumnVisibility.constellation ? <td className={TABLE_CELL_CLASS}>
+                            <span className={cn(
+                              "material-chip",
+                              employeeConstellation ? "bg-violet-50 text-violet-700" : "bg-amber-50 text-amber-700",
+                            )}>
+                              {translate(employeeConstellation || "缺少出生日期")}
+                            </span>
+                          </td> : null}
                           {listColumnVisibility.organization ? <td className={TABLE_CELL_CLASS}>
                             <div className="truncate font-medium text-slate-800">{employee.company}</div>
                             <div className="mt-0.5 truncate text-xs text-slate-400">
@@ -3499,17 +3604,27 @@ export function EmployeeArchivePage() {
                           </td> : null}
                           {listColumnVisibility.employment ? <td className={TABLE_CELL_CLASS}>
                             <div className="font-medium text-slate-800">{employee.hireDate}</div>
-                            {showProbationReminder && probationReminder ? (
+                            {probationReminder ? (
                               <div
-                                data-probation-reminder={employee.id}
+                                {...(showProbationReminder ? { "data-probation-reminder": employee.id } : { "data-expected-conversion": employee.id })}
                                 className={cn(
                                   "mt-1 flex items-center gap-1 text-xs font-semibold",
-                                  probationReminder.phase === "overdue" ? "text-red-600" : "text-amber-600",
+                                  probationReminder.phase === "completed"
+                                    ? "text-emerald-600"
+                                    : probationReminder.phase === "active"
+                                      ? "text-amber-600"
+                                      : "text-slate-400",
                                 )}
                               >
                                 <Clock className="h-3.5 w-3.5 shrink-0" />
                                 <span className="truncate">
-                                  {translate(probationReminder.phase === "overdue" ? "转正已逾期" : "转正提醒")} · {probationReminder.conversionDate}
+                                  {translate(
+                                    probationReminder.phase === "completed"
+                                      ? "已转正"
+                                      : probationReminder.phase === "active"
+                                        ? "转正提醒"
+                                        : "预计转正",
+                                  )} · {probationReminder.conversionDate}
                                 </span>
                               </div>
                             ) : null}
@@ -3701,12 +3816,17 @@ export function EmployeeArchivePage() {
                       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Employee Archive</p>
                       <h3 className="mt-1 text-xl font-semibold text-slate-950">{translate("员工档案")}</h3>
                     </div>
-                    <div className="grid gap-2 sm:grid-cols-4 lg:min-w-[560px]">
+                    <div className="grid gap-2 sm:grid-cols-5 lg:min-w-[700px]">
                       {[
                         { label: translate("入职"), value: selected.hireDate },
-                        { label: translate("结算"), value: selected.settlementDate || translate("待补充") },
-                        { label: translate("工龄"), value: selected.tenure },
+                        {
+                          label: translate(selectedProbationReminder?.phase === "completed" ? "转正日期" : "预计转正"),
+                          value: selectedProbationReminder?.conversionDate
+                            || (/已转正|正式员工/.test(selected.status) ? translate("已转正") : translate("待补充")),
+                        },
+                        { label: translate("司龄"), value: translateTenure(selected.tenure) },
                         { label: translate("工号"), value: selected.employeeCode || translate("待补充") },
+                        { label: translate("星座"), value: translate(getEmployeeConstellationDisplay(selected)) },
                       ].map((item) => (
                         <div key={item.label} className="min-w-0 border-l border-slate-200 pl-3">
                           <p className="text-[11px] font-semibold text-slate-400">{item.label}</p>
@@ -3801,7 +3921,7 @@ export function EmployeeArchivePage() {
                           <span className="material-chip bg-slate-50 text-slate-600">{translate("{count} 列", { count: sheetFields.length })}</span>
                         </div>
                         <p className="mt-1 text-xs leading-5 text-slate-500">
-                          {translate("黄色 A-AE 为归档必备，社保号与社保首月日期为选填；工龄及出生相关字段自动计算。")}
+                          {translate("结算日期不归档；其余 30 个业务字段为必备，社保号与社保首月日期为选填；司龄及出生相关字段自动计算。")}
                         </p>
                       </div>
                       <div className="flex max-w-3xl flex-wrap gap-1.5">
@@ -3854,9 +3974,7 @@ export function EmployeeArchivePage() {
                     <span
                       className={cn(
                         "material-chip",
-                        blockingActionCount > 0 || selectedProbationReminder?.phase === "overdue"
-                          ? "bg-red-50 text-red-700"
-                          : "bg-amber-50 text-amber-700",
+                        blockingActionCount > 0 ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-700",
                       )}
                     >
                       {translate("{count} 项", { count: pendingActionCount })}
@@ -3881,23 +3999,14 @@ export function EmployeeArchivePage() {
                   {hasSelectedProbationReminder && selectedProbationReminder ? (
                     <div
                       data-probation-reminder={selected.id}
-                      className={cn(
-                        "rounded-xl border px-3 py-2.5",
-                        selectedProbationReminder.phase === "overdue"
-                          ? "border-red-200 bg-red-50 text-red-800"
-                          : "border-amber-200 bg-amber-50 text-amber-800",
-                      )}
+                      className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-amber-800"
                     >
                       <div className="flex items-center gap-2 text-xs font-semibold">
                         <Clock className="h-4 w-4 shrink-0" />
-                        <span>
-                          {translate(selectedProbationReminder.phase === "overdue" ? "试用期转正已逾期" : "试用期转正提醒")}
-                        </span>
+                        <span>{translate("试用期转正提醒")}</span>
                       </div>
                       <p className="mt-1 text-xs leading-5">
-                        {selectedProbationReminder.phase === "overdue"
-                          ? translate("预计转正日 {date} 已过 {days} 天，请尽快完成转正审批。", { date: selectedProbationReminder.conversionDate, days: Math.abs(selectedProbationReminder.daysUntilConversion) })
-                          : translate("预计 {date} 转正，距转正 {days} 天；已从 {reminderDate} 起进入提前一个月提醒期。", { date: selectedProbationReminder.conversionDate, days: selectedProbationReminder.daysUntilConversion, reminderDate: selectedProbationReminder.reminderDate })}
+                        {translate("预计 {date} 转正，距转正 {days} 天；已从 {reminderDate} 起进入提前一个月提醒期。", { date: selectedProbationReminder.conversionDate, days: selectedProbationReminder.daysUntilConversion, reminderDate: selectedProbationReminder.reminderDate })}
                       </p>
                     </div>
                   ) : null}
