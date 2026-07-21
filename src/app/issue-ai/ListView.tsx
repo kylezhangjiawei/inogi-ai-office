@@ -32,6 +32,7 @@ import {
   type Paged,
 } from "../lib/issue/types";
 import { STATUS_GROUP_LABEL } from "../lib/issue/config";
+import { t, useI18n } from "../lib/i18n";
 import { NewIssueDrawer } from "./NewIssueDrawer";
 import {
   Mono,
@@ -166,11 +167,11 @@ function StatsBand({ stats }: { stats: IssueStats | null }) {
   const avgStr = Number.isInteger(avg) ? String(avg) : avg.toFixed(1);
   return (
     <div className="grid grid-cols-2 gap-2 lg:grid-cols-5">
-      <StatTile label="问题总数" value={stats.total} icon={Database} />
-      <StatTile label="待处理" value={stats.pending} icon={ClipboardList} tone="amber" />
-      <StatTile label="已解决" value={stats.solved} icon={ListChecks} tone="emerald" />
-      <StatTile label="方案复用率" value={reusePct} suffix="%" icon={Archive} tone="indigo" />
-      <StatTile label="平均定位时长" value={avgStr} suffix="h" icon={Clock3} tone="sky" />
+      <StatTile label={t("问题总数")} value={stats.total} icon={Database} />
+      <StatTile label={t("待处理")} value={stats.pending} icon={ClipboardList} tone="amber" />
+      <StatTile label={t("已解决")} value={stats.solved} icon={ListChecks} tone="emerald" />
+      <StatTile label={t("方案复用率")} value={reusePct} suffix="%" icon={Archive} tone="indigo" />
+      <StatTile label={t("平均定位时长")} value={avgStr} suffix="h" icon={Clock3} tone="sky" />
     </div>
   );
 }
@@ -191,7 +192,7 @@ function ActiveTag({
       <button
         type="button"
         onClick={onClear}
-        aria-label="清除该筛选"
+        aria-label={t("清除该筛选")}
         className="cursor-pointer rounded-sm p-0.5 hover:bg-indigo-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:hover:bg-indigo-500/20"
       >
         <X className="size-3" />
@@ -283,22 +284,23 @@ function ReusableCards({
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
       {items.map((it) => {
+        const adopted = it.adopted;
         const adoptedAnalysis = it.analyses.find((a) => a.isAdopted);
         const adoptedCause =
-          it.adopted?.kind === "analysis" && adoptedAnalysis
+          adopted?.kind === "analysis" && adoptedAnalysis
             ? adoptedAnalysis.content.possibleCauses.find(
-                (c) => c.id === it.adopted?.causeId,
+                (c) => c.id === adopted.causeId,
               )
             : undefined;
         const adoptedSolution = adoptedCause?.solutions.find(
-          (s) => it.adopted?.kind === "analysis" && s.id === it.adopted.solutionId,
+          (s) => adopted?.kind === "analysis" && s.id === adopted.solutionId,
         );
         const summary =
           adoptedSolution?.action ??
           adoptedAnalysis?.summary ??
-          (it.adopted?.kind === "reuse"
-            ? `复用自 ${it.adopted.reusedFrom}`
-            : "已沉淀可复用方案");
+          (adopted?.kind === "reuse"
+            ? t("复用自 {id}", { id: adopted.reusedFrom })
+            : t("已沉淀可复用方案"));
         return (
           <button
             key={it.id}
@@ -312,7 +314,7 @@ function ReusableCards({
             <div className="flex items-start justify-between gap-2">
               <Mono className="text-xs text-slate-400">{it.id}</Mono>
               <span className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300">
-                可复用
+                {t("可复用")}
               </span>
             </div>
             <div className="line-clamp-2 text-sm font-medium text-slate-800 dark:text-slate-100">
@@ -321,7 +323,7 @@ function ReusableCards({
             <div className="mt-1 rounded-lg border border-indigo-100 bg-indigo-50/50 p-2.5 dark:border-indigo-500/20 dark:bg-indigo-500/5">
               <div className="mb-1 flex items-center gap-1.5">
                 <span className="text-xs font-medium text-indigo-700 dark:text-indigo-300">
-                  采纳方案
+                  {t("采纳方案")}
                 </span>
                 {adoptedSolution ? (
                   <SolutionTypeBadge value={adoptedSolution.type} />
@@ -370,7 +372,7 @@ function Pagination({
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 px-1">
       <span className="text-xs text-slate-500 dark:text-slate-400">
-        共 <Mono>{total}</Mono> 条 · 第 <Mono>{from}</Mono>–<Mono>{to}</Mono> 条
+        {t("共")} <Mono>{total}</Mono> {t("条 · 第")} <Mono>{from}</Mono>–<Mono>{to}</Mono> {t("条")}
       </span>
       <div className="flex items-center gap-1">
         <button
@@ -380,7 +382,7 @@ function Pagination({
           className="inline-flex h-7 cursor-pointer items-center gap-0.5 rounded-md border border-slate-200 px-2 text-xs text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
         >
           <ChevronLeft className="size-3.5" />
-          上一页
+          {t("上一页")}
         </button>
         {pages.map((p) => (
           <button
@@ -404,7 +406,7 @@ function Pagination({
           onClick={() => onPage(page + 1)}
           className="inline-flex h-7 cursor-pointer items-center gap-0.5 rounded-md border border-slate-200 px-2 text-xs text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
         >
-          下一页
+          {t("下一页")}
           <ChevronRight className="size-3.5" />
         </button>
       </div>
@@ -422,6 +424,7 @@ export function ListView({
   service: IssueService;
   onOpen: (id: string) => void;
 }) {
+  useI18n();
   const canCreate = usePermission("issue:create");
   const [stats, setStats] = React.useState<IssueStats | null>(null);
 
@@ -492,19 +495,19 @@ export function ListView({
         <div className="min-w-0">
           <span className="inline-flex items-center gap-1.5 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700 dark:border-indigo-500/30 dark:bg-indigo-500/10 dark:text-indigo-300">
             <Sparkles className="size-3.5" />
-            AI 根因定位
+            {t("AI 根因定位")}
           </span>
           <h1 className="mt-2 text-[1.65rem] font-semibold leading-tight text-slate-950 dark:text-white">
-            问题记录与 AI 定位
+            {t("问题记录与 AI 定位")}
           </h1>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500 dark:text-slate-400">
-            面向研发与生产异常的质量闭环工作台，统一记录、相似复用、根因分析与处理留痕。
+            {t("面向研发与生产异常的质量闭环工作台，统一记录、相似复用、根因分析与处理留痕。")}
           </p>
         </div>
         {canCreate && (
           <Button size="sm" onClick={() => setDrawerOpen(true)} className="cursor-pointer shadow-sm">
             <Plus className="size-4" />
-            新建问题
+            {t("新建问题")}
           </Button>
         )}
       </header>
@@ -533,7 +536,7 @@ export function ListView({
                       : "text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200",
                   )}
                 >
-                  {STATUS_GROUP_LABEL[key]}
+                  {t(STATUS_GROUP_LABEL[key])}
                 </button>
               );
             })}
@@ -549,7 +552,7 @@ export function ListView({
               onKeyDown={(e) => {
                 if (e.key === "Enter") applySearch();
               }}
-              placeholder="搜索标题 / 编号 / 产品 / 描述"
+              placeholder={t("搜索标题 / 编号 / 产品 / 描述")}
               className="h-9 border-slate-300 bg-white pl-8 text-xs shadow-sm focus-visible:border-indigo-400 dark:border-slate-600 dark:bg-slate-900"
             />
           </div>
@@ -560,7 +563,7 @@ export function ListView({
           <div className="flex flex-wrap items-center gap-2">
             {query.search ? (
               <ActiveTag
-                label={<>搜索：{query.search}</>}
+                label={<>{t("搜索：")}{query.search}</>}
                 onClear={() => {
                   setSearchText("");
                   patchQuery({ search: undefined });
@@ -572,7 +575,7 @@ export function ListView({
               onClick={clearAll}
               className="inline-flex cursor-pointer items-center gap-1 rounded-md px-2 py-0.5 text-xs text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/60 dark:text-slate-400 dark:hover:text-slate-200"
             >
-              清除筛选
+              {t("清除筛选")}
             </button>
           </div>
         )}
@@ -582,13 +585,13 @@ export function ListView({
       <section className="flex flex-col gap-3">
         {loading && !paged ? (
           <div className={cn(cardClass, "flex items-center justify-center py-16 text-sm text-slate-400")}>
-            加载中…
+            {t("加载中…")}
           </div>
         ) : total === 0 ? (
           <div className={cn(cardClass, "flex flex-col items-center justify-center gap-1 py-16 text-center")}>
-            <p className="text-sm text-slate-500 dark:text-slate-400">未找到匹配的问题</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">{t("未找到匹配的问题")}</p>
             <p className="text-xs text-slate-400">
-              {hasExtraFilter ? "试试调整或清除筛选条件" : "点击「新建问题」开始记录"}
+              {hasExtraFilter ? t("试试调整或清除筛选条件") : t("点击「新建问题」开始记录")}
             </p>
           </div>
         ) : (

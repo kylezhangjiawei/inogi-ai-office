@@ -530,7 +530,7 @@ function normalizeAiChatText(value: string) {
   return value.replace(/\\n/g, "\n").trim();
 }
 
-function getPatchKeys(value?: Record<string, unknown>) {
+function getPatchKeys(value?: object) {
   if (!value) return [];
   return Object.entries(value)
     .filter(([, item]) => {
@@ -1860,7 +1860,7 @@ export function ResumeScreeningPage() {
 
     const nextConversation: CandidateFilterSessionMessage[] = [
       ...filterConversation,
-      { role: "user", content: instruction },
+      { role: "user" as const, content: instruction },
     ].slice(-12);
     setFilterConversation(nextConversation);
     setFilterInstruction("");
@@ -1874,7 +1874,7 @@ export function ResumeScreeningPage() {
         limit: 80,
       });
       const assistantMessage = response.answer || response.filter_summary || "已完成本轮候选人二次筛选。";
-      setFilterConversation((current) => [...current, { role: "assistant", content: assistantMessage }].slice(-12));
+      setFilterConversation((current) => [...current, { role: "assistant" as const, content: assistantMessage }].slice(-12));
       if (response.action !== "filter" || !response.version_id) {
         toast.message("AI 需要先确认筛选条件");
         return;
@@ -2143,6 +2143,11 @@ export function ResumeScreeningPage() {
   const candidateAiTarget =
     (candidateAiDialogId ? candidates.find((candidate) => candidate.id === candidateAiDialogId) : null) ??
     selectedCandidate;
+  const candidateAiProfile = candidateAiTarget
+    ? "parsed_candidate_profile" in candidateAiTarget
+      ? candidateAiTarget.parsed_candidate_profile
+      : candidateAiTarget
+    : null;
   const candidateAiMessages = candidateAiTarget ? candidateAiMessagesById[candidateAiTarget.id] ?? [] : [];
   const candidateAiLoading = Boolean(candidateAiTarget && candidateAiLoadingId === candidateAiTarget.id);
 
@@ -3839,11 +3844,11 @@ export function ResumeScreeningPage() {
             <div className="min-w-0">
               <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">Candidate MateChat</div>
               <DialogTitle className="mt-1 truncate text-xl text-slate-900">
-                {candidateAiTarget ? `${candidateAiTarget.name || "未命名候选人"} · AI 讨论` : "候选人 AI 讨论"}
+                {candidateAiTarget ? `${candidateAiProfile?.name || "未命名候选人"} · AI 讨论` : "候选人 AI 讨论"}
               </DialogTitle>
               <DialogDescription className="mt-1 truncate text-sm text-slate-500">
                 {candidateAiTarget
-                  ? `${candidateAiTarget.job_rule_name || candidateAiTarget.target_job || "未匹配岗位"} / ${candidateAiTarget.city || "城市未知"}`
+                  ? `${candidateAiTarget.job_rule_name || candidateAiProfile?.target_job || "未匹配岗位"} / ${candidateAiProfile?.city || "城市未知"}`
                   : "基于候选人简历、JD 和筛选结果回答"}
               </DialogDescription>
             </div>
@@ -3869,7 +3874,7 @@ export function ResumeScreeningPage() {
                               : "bg-white",
                           )}
                         >
-                          {isUser ? candidateAiTarget?.name?.slice(0, 1) || "U" : <img src={MATECHAT_AVATAR} alt="MateChat" className="h-8 w-8 object-contain" />}
+                          {isUser ? candidateAiProfile?.name?.slice(0, 1) || "U" : <img src={MATECHAT_AVATAR} alt="MateChat" className="h-8 w-8 object-contain" />}
                         </div>
                         <div className={isUser ? "text-right" : ""}>
                           <div

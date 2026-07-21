@@ -226,7 +226,11 @@ const SOURCE_CONFIG = {
  * 类目图标精选库：value 是 lucide 组件名（随类目持久化），label 供选择器搜索。
  * 渲染映射 CAT_ICON_MAP 由本表生成——扩充图标只加一行，且 bundle 仅含精选集（不引全量 lucide）。
  */
-export const KB_ICON_LIBRARY: Array<{ value: string; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+export const KB_ICON_LIBRARY: Array<{
+  value: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
+}> = [
   // 文档知识
   { value: "BookOpen", label: "通用", icon: BookOpen },
   { value: "FolderOpen", label: "其他", icon: FolderOpen },
@@ -569,7 +573,7 @@ function EntryThumbSmall({ entry, onClick }: { entry: KbEntry; onClick?: () => v
       type="button"
       onClick={onClick}
       disabled={!onClick}
-      title={onClick ? '点击预览' : undefined}
+      title={onClick ? t("点击预览") : undefined}
       className={cn(
         'relative h-11 w-11 shrink-0 overflow-hidden rounded-lg bg-slate-50 ring-1 ring-slate-200/70',
         onClick && 'cursor-pointer transition hover:ring-2 hover:ring-indigo-300',
@@ -665,7 +669,7 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
               <button
                 type="button"
                 onClick={() => onPreview(entry)}
-                title="预览"
+                title={t("预览")}
                 className="flex h-9 w-9 items-center justify-center rounded-full bg-white/95 text-indigo-700 shadow transition hover:bg-white"
               >
                 <Eye className="h-4 w-4" />
@@ -675,7 +679,7 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
               <button
                 type="button"
                 onClick={() => void downloadKbEntry(entry, kbId)}
-                title={entry.external_url ? '打开链接' : '下载'}
+                title={entry.external_url ? t('打开链接') : t('下载')}
                 className="flex h-9 w-9 items-center justify-center rounded-full bg-white/95 text-slate-700 shadow transition hover:bg-white hover:text-indigo-700"
               >
                 <ArrowDownToLine className="h-4 w-4" />
@@ -708,13 +712,13 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
           <div className="flex min-w-0 items-center gap-1.5">
             <UploaderAvatar name={entry.created_by_name} userId={entry.created_by_id} className="h-5 w-5 text-[9px]" />
             <div className="min-w-0 leading-tight">
-              <div className="truncate text-[11px] font-medium text-slate-600">{entry.created_by_name ?? '未知'}</div>
+              <div className="truncate text-[11px] font-medium text-slate-600">{entry.created_by_name ?? t("未知")}</div>
               <div className="text-[10px] text-slate-400">{relativeTime(entry.created_at)}</div>
             </div>
           </div>
           <span
             className={cn('flex shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold', permCfg.badgeClass)}
-            title={`权限分值 ${score}/100 · ${permCfg.label}，用户分值 ≥ ${score} 方可访问`}
+            title={t("权限分值 {score}/100 · {level}，用户分值 ≥ {score} 方可访问", { score, level: t(permCfg.label) })}
           >
             <ShieldCheck className="h-3 w-3" />
             {score}
@@ -723,17 +727,17 @@ const EntryCard = React.memo(React.forwardRef<HTMLDivElement, EntryCardProps>(fu
           {hasManage && (
             <div className="absolute inset-0 flex items-center justify-end gap-1 bg-white/95 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
               {canEdit && (
-                <button type="button" onClick={() => onEdit(entry)} title="编辑" className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-indigo-50 hover:text-indigo-700">
+                <button type="button" onClick={() => onEdit(entry)} title={t("编辑")} className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-indigo-50 hover:text-indigo-700">
                   <Edit3 className="h-3.5 w-3.5" />
                 </button>
               )}
               {canMove && (
-                <button type="button" onClick={() => onMove(entry)} title="移动" className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-indigo-50 hover:text-indigo-700">
+                <button type="button" onClick={() => onMove(entry)} title={t("移动")} className="flex h-7 w-7 items-center justify-center rounded-md text-slate-500 transition hover:bg-indigo-50 hover:text-indigo-700">
                   <MoveRight className="h-3.5 w-3.5" />
                 </button>
               )}
               {canDelete && (
-                <button type="button" onClick={() => onDelete(entry)} title="删除" className="flex h-7 w-7 items-center justify-center rounded-md text-red-500 transition hover:bg-red-50 hover:text-red-600">
+                <button type="button" onClick={() => onDelete(entry)} title={t("删除")} className="flex h-7 w-7 items-center justify-center rounded-md text-red-500 transition hover:bg-red-50 hover:text-red-600">
                   <Trash2 className="h-3.5 w-3.5" />
                 </button>
               )}
@@ -787,29 +791,29 @@ const EntryRow = React.memo(function EntryRow({
       <div className="hidden shrink-0 items-center gap-1.5 md:flex">
         <UploaderAvatar name={entry.created_by_name} userId={entry.created_by_id} className="h-6 w-6 text-[10px]" />
         <div className="leading-tight">
-          <div className="max-w-[88px] truncate text-[11px] font-medium text-slate-600">{entry.created_by_name ?? '未知'}</div>
+          <div className="max-w-[88px] truncate text-[11px] font-medium text-slate-600">{entry.created_by_name ?? t("未知")}</div>
           <div className="text-[10px] text-slate-400">{relativeTime(entry.created_at)}</div>
         </div>
       </div>
       <span
         className={cn('hidden shrink-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px] font-semibold lg:flex', permCfg.badgeClass)}
-        title={`权限分值 ${score}/100 · ${permCfg.label}`}
+        title={t("权限分值 {score}/100 · {level}", { score, level: t(permCfg.label) })}
       >
         <ShieldCheck className="h-3 w-3" />
         {score}
       </span>
       <div className="flex shrink-0 items-center gap-0.5">
         {isPreviewable && (
-          <button type="button" onClick={() => onPreview(entry)} title="预览" className={iconBtn}><Eye className="h-3.5 w-3.5" /></button>
+          <button type="button" onClick={() => onPreview(entry)} title={t("预览")} className={iconBtn}><Eye className="h-3.5 w-3.5" /></button>
         )}
         {hasDownload && (
-          <button type="button" onClick={() => void downloadKbEntry(entry, kbId)} title={entry.external_url ? '打开链接' : '下载'} className={iconBtn}><ArrowDownToLine className="h-3.5 w-3.5" /></button>
+          <button type="button" onClick={() => void downloadKbEntry(entry, kbId)} title={entry.external_url ? t('打开链接') : t('下载')} className={iconBtn}><ArrowDownToLine className="h-3.5 w-3.5" /></button>
         )}
         {hasManage && (
           <span className="flex items-center gap-0.5 opacity-0 transition group-hover:opacity-100">
-            {canEdit && <button type="button" onClick={() => onEdit(entry)} title="编辑" className={iconBtn}><Edit3 className="h-3.5 w-3.5" /></button>}
-            {canMove && <button type="button" onClick={() => onMove(entry)} title="移动" className={iconBtn}><MoveRight className="h-3.5 w-3.5" /></button>}
-            {canDelete && <button type="button" onClick={() => onDelete(entry)} title="删除" className="flex h-7 w-7 items-center justify-center rounded-md text-red-500 transition hover:bg-red-50 hover:text-red-600"><Trash2 className="h-3.5 w-3.5" /></button>}
+            {canEdit && <button type="button" onClick={() => onEdit(entry)} title={t("编辑")} className={iconBtn}><Edit3 className="h-3.5 w-3.5" /></button>}
+            {canMove && <button type="button" onClick={() => onMove(entry)} title={t("移动")} className={iconBtn}><MoveRight className="h-3.5 w-3.5" /></button>}
+            {canDelete && <button type="button" onClick={() => onDelete(entry)} title={t("删除")} className="flex h-7 w-7 items-center justify-center rounded-md text-red-500 transition hover:bg-red-50 hover:text-red-600"><Trash2 className="h-3.5 w-3.5" /></button>}
           </span>
         )}
       </div>
@@ -894,7 +898,7 @@ function EditEntryDialog({
             {t("编辑文件信息")}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            修改已上传文件的元数据，包括标题、描述、分类、标签和权限分值。
+            {t("修改已上传文件的元数据，包括标题、描述、分类、标签和权限分值。")}
           </DialogDescription>
         </DialogHeader>
 
@@ -939,7 +943,7 @@ function EditEntryDialog({
               >
                 <option value="">{t("请选择")}</option>
                 {flatCats.map((c) => (
-                  <option key={c.id} value={c.id}>{c.label}</option>
+                  <option key={c.id} value={c.id}>{t(c.label)}</option>
                 ))}
               </NativeSelect>
             </div>
@@ -1069,7 +1073,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
               onCreate(category.id);
             }}
             className={actionClass}
-            title="新增子类目"
+            title={t("新增子类目")}
           >
             <FolderPlus className="h-3.5 w-3.5" />
           </Button>
@@ -1087,7 +1091,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
               }
             }}
             className={actionClass}
-            title={locked ? "类目下有文件，需先移动文件后编辑" : "编辑类目"}
+            title={locked ? t("类目下有文件，需先移动文件后编辑") : t("编辑类目")}
           >
             <Edit3 className="h-3.5 w-3.5" />
           </Button>
@@ -1105,7 +1109,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
               }
             }}
             className={cn(actionClass, selected ? "hover:text-white" : "hover:text-red-600 hover:bg-red-50")}
-            title={locked ? "类目下有文件，需先移动文件后删除" : category.id === 'kb-other' ? "默认类目不能删除" : "删除类目"}
+            title={locked ? t("类目下有文件，需先移动文件后删除") : category.id === 'kb-other' ? t("默认类目不能删除") : t("删除类目")}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
@@ -1126,7 +1130,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
               size="icon"
               onClick={() => onCreate(null)}
               className="h-6 w-6 rounded-md text-slate-400 hover:bg-indigo-50 hover:text-indigo-700"
-              title="新增一级类目"
+              title={t("新增一级类目")}
             >
               <Plus className="h-3.5 w-3.5" />
             </Button>
@@ -1184,7 +1188,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
               >
                 <span className="flex items-center gap-2 min-w-0">
                   <CatIcon className="w-4 h-4 shrink-0" style={isSelected ? undefined : { color: cat.color || undefined }} />
-                  <span className="truncate">{cat.label}</span>
+                  <span className="truncate">{t(cat.label)}</span>
                 </span>
                 <div className="flex h-5 w-5 shrink-0 items-center justify-end">
                   {hasChildren && (
@@ -1228,7 +1232,7 @@ const CategorySidebar = React.memo(function CategorySidebar({
                       >
                         <span className="flex items-center gap-1.5 min-w-0">
                           <ChildIcon className="w-3.5 h-3.5 shrink-0" style={isChildSelected ? undefined : { color: child.color || undefined }} />
-                          <span className="truncate">{child.label}</span>
+                          <span className="truncate">{t(child.label)}</span>
                         </span>
                       </Button>
                       {renderActions(child, false)}
@@ -1303,19 +1307,19 @@ function CategoryFormDialog({
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600">
               {isEdit ? <Edit3 className="h-4 w-4" /> : <FolderPlus className="h-4 w-4" />}
             </span>
-            {isEdit ? '编辑知识库类目' : '新增知识库类目'}
+            {isEdit ? t('编辑知识库类目') : t('新增知识库类目')}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            设置知识库类目的名称、图标和颜色。
+            {t("设置知识库类目的名称、图标和颜色。")}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 px-5 py-4">
           {!isEdit && (
             <div className="space-y-1.5">
-              <Label className="text-xs font-semibold text-slate-600">所属层级</Label>
+              <Label className="text-xs font-semibold text-slate-600">{t("所属层级")}</Label>
               <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
                 <ParentIcon className="h-4 w-4 text-slate-500" />
-                <span>{parentCategory ? `${parentCategory.label} / ${t('子类目')}` : t('一级类目')}</span>
+                <span>{parentCategory ? `${t(parentCategory.label)} / ${t('子类目')}` : t('一级类目')}</span>
               </div>
             </div>
           )}
@@ -1382,7 +1386,7 @@ function CategoryFormDialog({
 
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label className="text-xs font-semibold text-slate-600">颜色</Label>
+              <Label className="text-xs font-semibold text-slate-600">{t("颜色")}</Label>
               <span className="text-[11px] text-slate-400">{t("用于左侧类目树的图标颜色")}</span>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -1432,7 +1436,7 @@ function CategoryFormDialog({
             className="h-9 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
           >
             {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
-            {isEdit ? '保存修改' : '创建类目'}
+            {isEdit ? t('保存修改') : t('创建类目')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -1454,9 +1458,9 @@ function DeleteCategoryDialog({
   return (
     <Dialog open onOpenChange={(open) => !open && onCancel()}>
       <DialogContent className="sm:max-w-sm rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.24)] [&>button]:hidden">
-        <DialogTitle className="sr-only">确认删除知识库类目</DialogTitle>
+        <DialogTitle className="sr-only">{t("确认删除知识库类目")}</DialogTitle>
         <DialogDescription className="sr-only">
-          删除空的知识库类目，已有文件的类目不能删除。
+          {t("删除空的知识库类目，已有文件的类目不能删除。")}
         </DialogDescription>
         <div className="space-y-4 p-6">
           <div className="flex items-center gap-3">
@@ -1464,12 +1468,12 @@ function DeleteCategoryDialog({
               <Trash2 className="h-5 w-5" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-slate-950">确认删除类目</h3>
-              <p className="mt-0.5 text-xs text-slate-400">仅空类目允许删除</p>
+              <h3 className="text-sm font-semibold text-slate-950">{t("确认删除类目")}</h3>
+              <p className="mt-0.5 text-xs text-slate-400">{t("仅空类目允许删除")}</p>
             </div>
           </div>
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800">
-            {category.label}
+            {t(category.label)}
           </div>
           <p className="text-xs leading-5 text-slate-500">
             {t("删除后该类目会从知识域导航移除；如果类目下存在文件，接口会拒绝删除。")}
@@ -1523,7 +1527,7 @@ function MoveEntryDialog({
             {t("移动文件类目")}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            选择目标类目并将当前知识库文件移动过去。
+            {t("选择目标类目并将当前知识库文件移动过去。")}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 px-5 py-4">
@@ -1557,14 +1561,14 @@ function MoveEntryDialog({
                     return <Icon className="h-3.5 w-3.5" style={targetId === category.id ? undefined : { color: category.color || undefined }} />;
                   })()}
                   <span className={cn("truncate", !categories.some((parent) => parent.id === category.id) && "pl-3")}>
-                    {category.label}
+                    {t(category.label)}
                   </span>
                   {targetId === category.id && <Check className="ml-auto h-3.5 w-3.5" />}
                 </Button>
               ))}
             </div>
             <p className="text-[11px] text-slate-400">
-              {targetCategory ? `${t('将移动到：')}${targetCategory.label}` : t('请选择目标类目')}
+              {targetCategory ? `${t('将移动到：')}${t(targetCategory.label)}` : t('请选择目标类目')}
             </p>
           </div>
         </div>
@@ -1600,9 +1604,9 @@ function DeleteConfirmDialog({ entry, loading, onConfirm, onCancel }: DeleteConf
   return (
     <Dialog open onOpenChange={(open) => !open && onCancel()}>
       <DialogContent className="sm:max-w-sm rounded-xl border-slate-200 bg-white p-0 shadow-[0_24px_70px_rgba(15,23,42,0.22)] [&>button]:hidden">
-        <DialogTitle className="sr-only">确认删除文件</DialogTitle>
+        <DialogTitle className="sr-only">{t("确认删除文件")}</DialogTitle>
         <DialogDescription className="sr-only">
-          删除知识库文件，此操作不可撤销。
+          {t("删除知识库文件，此操作不可撤销。")}
         </DialogDescription>
         <div className="p-6 flex flex-col gap-4">
           {/* Icon + heading */}
@@ -1611,8 +1615,8 @@ function DeleteConfirmDialog({ entry, loading, onConfirm, onCancel }: DeleteConf
               <Trash2 className="h-5 w-5 text-red-500" />
             </div>
             <div>
-              <h3 className="text-sm font-semibold text-slate-900">确认删除文件</h3>
-              <p className="text-xs text-slate-400 mt-0.5">此操作不可撤销</p>
+              <h3 className="text-sm font-semibold text-slate-900">{t("确认删除文件")}</h3>
+              <p className="text-xs text-slate-400 mt-0.5">{t("此操作不可撤销")}</p>
             </div>
           </div>
           {/* File preview row */}
@@ -1696,7 +1700,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
     <Dialog open onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="sm:max-w-5xl w-[calc(100vw-2rem)] gap-0 rounded-2xl border-0 bg-white p-0 shadow-[0_32px_80px_rgba(15,23,42,0.36)] [&>button]:hidden overflow-hidden">
         <DialogDescription className="sr-only">
-          预览知识库文件并查看文件元数据。
+          {t("预览知识库文件并查看文件元数据。")}
         </DialogDescription>
 
         {/* ── Header ── */}
@@ -1732,12 +1736,12 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
               )}>
                 <ShieldCheck className="w-3 h-3 shrink-0" />
                 <span className="tabular-nums">{permScore}</span>
-                <span className="opacity-70">· {permCfg.label}</span>
+                <span className="opacity-70">· {t(permCfg.label)}</span>
               </div>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="max-w-xs">
               <div className="space-y-1.5">
-                <p className="font-semibold">权限分值 {permScore}/100 · {permCfg.label}</p>
+                <p className="font-semibold">{t("权限分值")} {permScore}/100 · {t(permCfg.label)}</p>
                 <Slider
                   value={[permScore]}
                   min={0}
@@ -1749,7 +1753,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
                     permCfg.sliderClass,
                   )}
                 />
-                <p className="opacity-70 text-[11px]">用户分值 ≥ {permScore} 方可访问</p>
+                <p className="opacity-70 text-[11px]">{t("用户分值 ≥ {score} 方可访问", { score: permScore })}</p>
               </div>
             </TooltipContent>
           </Tooltip>
@@ -1763,7 +1767,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
               className="h-8 shrink-0 gap-1.5 rounded-lg border-indigo-200 bg-indigo-50/70 px-3 text-xs font-semibold text-indigo-700 hover:border-indigo-300 hover:bg-indigo-100"
             >
               <ArrowDownToLine className="h-3.5 w-3.5" />
-              <span className="hidden sm:inline">{entry.external_url ? '打开链接' : '下载'}</span>
+              <span className="hidden sm:inline">{entry.external_url ? t("打开链接") : t("下载")}</span>
             </Button>
           )}
 
@@ -1791,7 +1795,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
           {loading && (
             <div className="flex flex-col items-center gap-3 py-14 text-slate-400">
               <Loader2 className="w-8 h-8 animate-spin text-indigo-400" />
-              <p className="text-sm font-medium">正在加载文件…</p>
+              <p className="text-sm font-medium">{t("正在加载文件…")}</p>
             </div>
           )}
 
@@ -1836,7 +1840,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
               <div className="p-5 rounded-2xl bg-slate-100 ring-1 ring-slate-200">
                 <FileTypeIcon entry={entry} className="w-12 h-12 text-slate-300" />
               </div>
-              <p className="text-sm text-slate-400">文件加载失败，请尝试下载查看</p>
+              <p className="text-sm text-slate-400">{t("文件加载失败，请尝试下载查看")}</p>
             </div>
           )}
 
@@ -1854,9 +1858,9 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
                 )}
               </div>
               <div>
-                <p className="text-sm font-semibold text-slate-700 mb-1">该文件不支持在线预览</p>
+                <p className="text-sm font-semibold text-slate-700 mb-1">{t("该文件不支持在线预览")}</p>
                 <p className="text-xs text-slate-400 leading-relaxed max-w-xs">
-                  {entry.external_url ? '点击按钮在新标签页中打开外部链接' : '点击下载按钮将文件保存到本地后查看'}
+                  {entry.external_url ? t('点击按钮在新标签页中打开外部链接') : t('点击下载按钮将文件保存到本地后查看')}
                 </p>
               </div>
               {hasDownloadable && (
@@ -1866,7 +1870,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
                   className="h-9 px-6 text-sm font-semibold bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl shadow-[0_6px_18px_rgba(79,70,229,0.28)] gap-2"
                 >
                   <ArrowDownToLine className="w-4 h-4" />
-                  {entry.external_url ? '打开链接' : '下载文件'}
+                  {entry.external_url ? t('打开链接') : t('下载文件')}
                 </Button>
               )}
             </div>
@@ -1882,7 +1886,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
                 {(entry.created_by_name ?? '?').charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>
-            <span className="font-medium text-slate-700">{entry.created_by_name ?? '未知'}</span>
+            <span className="font-medium text-slate-700">{entry.created_by_name ?? t("未知")}</span>
           </div>
 
           <Separator orientation="vertical" className="h-3.5 shrink-0" />
@@ -1890,7 +1894,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
 
           <Separator orientation="vertical" className="h-3.5 shrink-0" />
           <span className={cn('flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium shrink-0', srcCfg.className)}>
-            {srcCfg.label}
+            {t(srcCfg.label)}
           </span>
 
           <Separator orientation="vertical" className="h-3.5 shrink-0" />
@@ -1901,7 +1905,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
                 <strong className="font-semibold text-slate-600 tabular-nums">{entry.view_count}</strong>
               </span>
             </TooltipTrigger>
-            <TooltipContent>浏览次数</TooltipContent>
+            <TooltipContent>{t("浏览次数")}</TooltipContent>
           </Tooltip>
 
           <Tooltip>
@@ -1911,7 +1915,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
                 <strong className="font-semibold text-slate-600 tabular-nums">{entry.download_count}</strong>
               </span>
             </TooltipTrigger>
-            <TooltipContent>下载次数</TooltipContent>
+            <TooltipContent>{t("下载次数")}</TooltipContent>
           </Tooltip>
 
           {/* Tags */}
@@ -2220,7 +2224,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
                             {suggestion?.method === 'ai'
                               ? <Sparkles className="mr-1 inline h-3 w-3" aria-hidden="true" />
                               : <Zap className="mr-1 inline h-3 w-3" aria-hidden="true" />}
-                            {suggestedCat.label}
+                            {t(suggestedCat.label)}
                           </span>
                         )}
                       </div>
@@ -2259,7 +2263,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
               {classifying && (
                 <span className="flex items-center gap-1 text-[11px] text-blue-500">
                   <Loader2 className="w-3 h-3 animate-spin" />
-                  分析中...
+                  {t("分析中...")}
                 </span>
               )}
               {!classifying && categorySource === 'ai' && (
@@ -2281,13 +2285,13 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
               aria-label={t("知识库分类")}
               value={categoryId}
               onValueChange={(v) => { setCategoryId(v); setCategorySource('manual'); }}
-              placeholder="请选择分类"
+              placeholder={t("请选择分类")}
               className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 bg-white text-slate-700 outline-none transition-shadow focus:ring-2 focus:ring-indigo-200"
             >
               <option value="">{t("请选择分类")}</option>
               {flatCats.map((cat) => (
                 <option key={cat.id} value={cat.id}>
-                  {categories.some((parent) => parent.id === cat.id) ? cat.label : `  ${cat.label}`}
+                  {categories.some((parent) => parent.id === cat.id) ? t(cat.label) : `  ${t(cat.label)}`}
                 </option>
               ))}
             </NativeSelect>
@@ -2303,7 +2307,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
                   <div className={cn('flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold border select-none', cfg.badgeClass)}>
                     <ShieldCheck className="w-3 h-3 shrink-0" />
                     <span>{permissionLevel}</span>
-                    <span className="font-normal opacity-75">· {cfg.label}</span>
+                    <span className="font-normal opacity-75">· {t(cfg.label)}</span>
                   </div>
                 );
               })()}
@@ -2316,7 +2320,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
                   <Slider
                     id="kb-upload-permission"
                     aria-label={t("访问权限分值")}
-                    aria-valuetext={`${permissionLevel} · ${cfg.label}`}
+                    aria-valuetext={`${permissionLevel} · ${t(cfg.label)}`}
                     value={[permissionLevel]}
                     disabled={!canSetPermissionLevel}
                     onValueChange={([v]) => {
@@ -2497,14 +2501,16 @@ function MemberLevelsDialog({ kbId, onClose }: { kbId: string; onClose: () => vo
         <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("搜索姓名 / 账号 / 部门")} className="h-9" />
         <div className="max-h-80 space-y-1.5 overflow-y-auto pr-1">
           {loading ? (
-            <div className="py-8 text-center text-sm text-slate-400">加载中…</div>
+            <div className="py-8 text-center text-sm text-slate-400">{t("加载中…")}</div>
           ) : rows.length === 0 ? (
             <div className="py-8 text-center text-sm text-slate-400">{t("没有匹配的成员")}</div>
           ) : rows.map((c) => (
             <div key={c.id} className="flex items-center gap-3 rounded-lg border border-slate-100 px-3 py-2">
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium text-slate-800">{c.name}</div>
-                <div className="truncate text-xs text-slate-400">{c.username}{c.department ? ` · ${c.department}` : ""}</div>
+                <div className="truncate text-xs text-slate-400">
+                  {c.username}{c.department ? <> · {t(c.department)}</> : null}
+                </div>
               </div>
               <Input
                 type="number"
@@ -2522,8 +2528,8 @@ function MemberLevelsDialog({ kbId, onClose }: { kbId: string; onClose: () => vo
           ))}
         </div>
         <DialogFooter>
-          <Button type="button" variant="outline" onClick={onClose}>取消</Button>
-          <Button type="button" onClick={handleSave} disabled={saving || loading || loadFailed}>{saving ? "保存中…" : "保存"}</Button>
+          <Button type="button" variant="outline" onClick={onClose}>{t("取消")}</Button>
+          <Button type="button" onClick={handleSave} disabled={saving || loading || loadFailed}>{saving ? t("保存中…") : t("保存")}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -3034,8 +3040,8 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
               <Upload className="h-6 w-6 text-indigo-600" />
             </span>
             <div>
-              <p className="text-sm font-semibold text-slate-950">释放文件，进入上传队列</p>
-              <p className="mt-1 text-xs text-slate-500">松开鼠标后选择分类与可见范围</p>
+              <p className="text-sm font-semibold text-slate-950">{t("释放文件添加到上传队列")}</p>
+              <p className="mt-1 text-xs text-slate-500">{t("松开鼠标后选择分类与可见范围")}</p>
             </div>
           </div>
         </div>
@@ -3057,7 +3063,7 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
               type="button"
               onClick={() => setKeyword('')}
               className="absolute right-2 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-slate-400 transition hover:text-slate-700"
-              aria-label="清除筛选词"
+              aria-label={t("清除筛选词")}
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -3105,7 +3111,7 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
               type="button"
               onClick={() => setViewMode('grid')}
               aria-pressed={viewMode === 'grid'}
-              title="网格视图"
+              title={t("网格视图")}
               className={cn('flex h-7 w-8 items-center justify-center rounded-md transition', viewMode === 'grid' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600')}
             >
               <LayoutGrid className="h-4 w-4" />
@@ -3114,7 +3120,7 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
               type="button"
               onClick={() => setViewMode('list')}
               aria-pressed={viewMode === 'list'}
-              title="列表视图"
+              title={t("列表视图")}
               className={cn('flex h-7 w-8 items-center justify-center rounded-md transition', viewMode === 'list' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600')}
             >
               <List className="h-4 w-4" />
@@ -3128,7 +3134,7 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
             onClick={handleRefresh}
             disabled={loading}
             className="h-9 gap-2 rounded-lg border-slate-200 bg-white px-3 text-sm font-semibold text-slate-600 hover:bg-slate-50 hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-indigo-200 disabled:cursor-not-allowed disabled:opacity-60"
-            title="同步（保留当前筛选条件）"
+            title={t("同步（保留当前筛选条件）")}
           >
             <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
             {t("同步")}
@@ -3143,7 +3149,7 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
                   variant="outline"
                   size="icon"
                   className="h-9 w-9 rounded-lg border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-800 focus-visible:ring-2 focus-visible:ring-indigo-200"
-                  title="更多操作"
+                  title={t("更多操作")}
                 >
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
@@ -3151,12 +3157,12 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
               <DropdownMenuContent align="end" className="w-48">
                 <DropdownMenuItem onClick={handleRepairFilenames} disabled={repairing} className="gap-2">
                   <Wrench className={cn('h-4 w-4', repairing && 'animate-spin')} />
-                  {repairing ? '修复中…' : '修复文件名乱码'}
+                  {repairing ? t("修复中…") : t("修复文件名乱码")}
                 </DropdownMenuItem>
                 {hasLegacyManage && (
                   <DropdownMenuItem onClick={handleBackfillRag} disabled={backfillingRag} className="gap-2">
                     <DatabaseZap className={cn('h-4 w-4', backfillingRag && 'animate-pulse')} />
-                    {backfillingRag ? 'RAG 回填中…' : 'RAG 回填'}
+                    {backfillingRag ? t("RAG 回填中…") : t("RAG 回填")}
                   </DropdownMenuItem>
                 )}
               </DropdownMenuContent>
@@ -3229,7 +3235,7 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
             <div className="flex-1 flex items-center justify-center py-20">
               <div className="flex flex-col items-center gap-3 text-slate-400">
                 <Loader2 className="w-8 h-8 animate-spin" />
-                <span className="text-sm">加载中..</span>
+                <span className="text-sm">{t("加载中...")}</span>
               </div>
             </div>
           )}
@@ -3304,12 +3310,11 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
               {/* 分页 — 仅在多于一页时出现 */}
               {totalPages > 1 && (
                 <nav
-                  aria-label="知识库分页"
+                  aria-label={t("知识库分页")}
                   className="shrink-0 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-200/80 bg-white px-3 py-2 text-xs shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
                 >
                   <span className="text-slate-500">
-                    第 <span className="font-semibold tabular-nums text-slate-700">{page}</span> / {totalPages} 页 · 共{' '}
-                    <span className="font-semibold tabular-nums text-slate-700">{entries.length}</span> 条
+                    {t("第 {page} / {total} 页 · 共 {n} 条", { page, total: totalPages, n: entries.length })}
                   </span>
                   <div className="flex flex-wrap items-center justify-end gap-1">
                     <button
@@ -3317,7 +3322,7 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
                       disabled={page === 1}
                       onClick={() => setPage((p) => Math.max(1, p - 1))}
                       className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-indigo-300 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
-                      aria-label="上一页"
+                      aria-label={t("上一页")}
                     >
                       <ChevronLeft className="h-3.5 w-3.5" />
                     </button>
@@ -3342,7 +3347,7 @@ export function RDKnowledgeBasePage({ kbScope }: { kbScope?: KbScope } = {}) {
                       disabled={page === totalPages}
                       onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                       className="flex h-7 w-7 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition hover:border-indigo-300 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
-                      aria-label="下一页"
+                      aria-label={t("下一页")}
                     >
                       <ChevronRight className="h-3.5 w-3.5" />
                     </button>

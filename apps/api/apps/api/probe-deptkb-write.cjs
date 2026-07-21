@@ -1,7 +1,8 @@
 const crypto = require('crypto');
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
-const SECRET = 'change-me-jwt-secret-32chars-minimum';
+const SECRET = process.env.JWT_SECRET;
+if (!SECRET) throw new Error('JWT_SECRET is required');
 const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_');
 function sign(payload) {
   const now = Math.floor(Date.now() / 1000);

@@ -16,11 +16,13 @@ export interface EmployeeArchiveRecord {
   rosterNo: string;
   company: string;
   hireDate: string;
+  settlementDate: string;
   tenure: string;
   status: string;
   workLocation: string;
   department: string;
   title: string;
+  employeeCode: string;
   name: string;
   idNoMasked: string;
   birthDate: string;
@@ -109,8 +111,9 @@ export interface EmployeeArchiveSensitiveUpdate {
 }
 
 const EMPLOYEE_ARCHIVE_KEYS: ReadonlyArray<keyof EmployeeArchiveRecord> = [
-  'id', 'rosterNo', 'company', 'hireDate', 'tenure', 'status', 'workLocation', 'department', 'title',
-  'name', 'idNoMasked', 'birthDate', 'birthMonthDay', 'zodiac', 'constellation', 'gender', 'age',
+  'id', 'rosterNo', 'company', 'hireDate', 'settlementDate', 'tenure', 'status', 'workLocation',
+  'department', 'title', 'employeeCode', 'name', 'idNoMasked', 'birthDate', 'birthMonthDay', 'zodiac',
+  'constellation', 'gender', 'age',
   'ethnicity', 'maritalStatus', 'phoneMasked', 'bankAccountMasked', 'bankBranch', 'education', 'school',
   'major', 'hometown', 'registeredAddress', 'currentAddress', 'emergencyContact', 'emergencyRelation',
   'emergencyPhoneMasked', 'socialSecurityNo', 'socialSecurityFirstMonth', 'note', 'costCenter',
@@ -119,8 +122,9 @@ const EMPLOYEE_ARCHIVE_KEYS: ReadonlyArray<keyof EmployeeArchiveRecord> = [
 ];
 
 const EMPLOYEE_ARCHIVE_STRING_KEYS: ReadonlyArray<keyof EmployeeArchiveRecord> = [
-  'id', 'rosterNo', 'company', 'hireDate', 'tenure', 'status', 'workLocation', 'department', 'title',
-  'name', 'idNoMasked', 'birthDate', 'birthMonthDay', 'zodiac', 'constellation', 'gender', 'ethnicity',
+  'id', 'rosterNo', 'company', 'hireDate', 'settlementDate', 'tenure', 'status', 'workLocation',
+  'department', 'title', 'employeeCode', 'name', 'idNoMasked', 'birthDate', 'birthMonthDay', 'zodiac',
+  'constellation', 'gender', 'ethnicity',
   'maritalStatus', 'phoneMasked', 'bankAccountMasked', 'bankBranch', 'education', 'school', 'major',
   'hometown', 'registeredAddress', 'currentAddress', 'emergencyContact', 'emergencyRelation',
   'emergencyPhoneMasked', 'socialSecurityNo', 'socialSecurityFirstMonth', 'note', 'costCenter',

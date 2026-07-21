@@ -27,6 +27,7 @@ export type AuditCategory =
 export type AuditAction =
   // Task lifecycle
   | "task.created"
+  | "task.updated"
   | "task.edited"
   | "task.status_changed"
   | "task.priority_changed"
@@ -45,6 +46,11 @@ export type AuditAction =
   | "task.abandon_requested"
   | "task.merge_requested"
   | "task.submitted"
+  | "task.collaboration_updated"
+  | "task.collaboration_requested"
+  | "task.due_date_requested"
+  | "task.review_approved"
+  | "task.review_rejected"
   // Proposal lifecycle
   | "proposal.created"
   | "proposal.draft_saved"
@@ -85,6 +91,8 @@ export type AuditAction =
   | "ai.suggestion_accepted"
   | "ai.suggestion_rejected"
   | "ai.regenerated"
+  | "ai.proposal_refined"
+  | "ai.proposal_refine_applied"
   // Category / sub-project tree
   | "category.created"
   | "category.edited"
@@ -178,6 +186,7 @@ const UNKNOWN_AUDIT_ACTION_META: AuditActionMeta = {
 export const AUDIT_ACTION_META: Record<AuditAction, AuditActionMeta> = {
   // Task
   "task.created": { category: "task", label: "新建任务", verb: "创建了任务", tone: "blue" },
+  "task.updated": { category: "task", label: "更新任务", verb: "更新了任务", tone: "blue" },
   "task.edited": { category: "task", label: "编辑任务", verb: "修改了任务", tone: "blue" },
   "task.status_changed": { category: "task", label: "状态变更", verb: "变更了任务状态", tone: "amber" },
   "task.priority_changed": { category: "task", label: "优先级变更", verb: "调整了任务优先级", tone: "amber" },
@@ -196,6 +205,11 @@ export const AUDIT_ACTION_META: Record<AuditAction, AuditActionMeta> = {
   "task.abandon_requested": { category: "task", label: "申请放弃", verb: "申请放弃了任务", tone: "amber" },
   "task.merge_requested": { category: "task", label: "申请合并", verb: "申请合并任务", tone: "blue" },
   "task.submitted": { category: "task", label: "提交审核", verb: "提交了任务结果审核", tone: "blue" },
+  "task.collaboration_updated": { category: "task", label: "更新协作人", verb: "更新了任务协作人", tone: "violet" },
+  "task.collaboration_requested": { category: "task", label: "申请协作变更", verb: "提交了协作变更申请", tone: "violet" },
+  "task.due_date_requested": { category: "task", label: "申请截止变更", verb: "提交了截止日期变更申请", tone: "amber" },
+  "task.review_approved": { category: "task", label: "任务审核通过", verb: "审核通过了任务", tone: "emerald" },
+  "task.review_rejected": { category: "task", label: "任务审核驳回", verb: "驳回了任务", tone: "red" },
   // Proposal
   "proposal.created": { category: "proposal", label: "立项创建", verb: "创建了立项", tone: "blue" },
   "proposal.draft_saved": { category: "proposal", label: "保存草稿", verb: "保存了立项草稿", tone: "slate" },
@@ -225,8 +239,8 @@ export const AUDIT_ACTION_META: Record<AuditAction, AuditActionMeta> = {
   "flow.mode_changed": { category: "approval_flow", label: "切换模式", verb: "切换了审核模式", tone: "amber" },
   "flow.reset": { category: "approval_flow", label: "恢复默认", verb: "恢复了默认审批流", tone: "amber" },
   // Person
-  "person.created": { category: "person", label: "新增成员", verb: "新增了成员", tone: "emerald" },
-  "person.edited": { category: "person", label: "编辑成员", verb: "修改了成员信息", tone: "blue" },
+  "person.created": { category: "person", label: "成员新增", verb: "新增了成员", tone: "emerald" },
+  "person.edited": { category: "person", label: "成员编辑", verb: "修改了成员信息", tone: "blue" },
   "person.deleted": { category: "person", label: "删除成员", verb: "删除了成员", tone: "red" },
   "person.status_changed": { category: "person", label: "状态变更", verb: "变更了成员状态", tone: "amber" },
   // Role
@@ -236,6 +250,15 @@ export const AUDIT_ACTION_META: Record<AuditAction, AuditActionMeta> = {
   "ai.suggestion_accepted": { category: "ai", label: "采纳 AI 建议", verb: "采纳了 AI 建议", tone: "emerald" },
   "ai.suggestion_rejected": { category: "ai", label: "拒绝 AI 建议", verb: "拒绝了 AI 建议", tone: "red" },
   "ai.regenerated": { category: "ai", label: "重新生成", verb: "重新生成了 AI 输出", tone: "blue" },
+  "ai.proposal_refined": { category: "ai", label: "AI 优化立项", verb: "使用 AI 优化了立项", tone: "violet" },
+  "ai.proposal_refine_applied": { category: "ai", label: "应用 AI 优化", verb: "应用了 AI 立项优化结果", tone: "emerald" },
+  // Category / sub-project tree
+  "category.created": { category: "system", label: "新建分类", verb: "新建了分类", tone: "emerald" },
+  "category.edited": { category: "system", label: "编辑分类", verb: "修改了分类", tone: "blue" },
+  "category.deleted": { category: "system", label: "删除分类", verb: "删除了分类", tone: "red" },
+  "sub_project.created": { category: "system", label: "新建子项目", verb: "新建了子项目", tone: "emerald" },
+  "sub_project.edited": { category: "system", label: "编辑子项目", verb: "修改了子项目", tone: "blue" },
+  "sub_project.deleted": { category: "system", label: "删除子项目", verb: "删除了子项目", tone: "red" },
   // System
   "system.bulk_reassign": { category: "system", label: "批量转派", verb: "执行了批量转派", tone: "violet" },
   "notification.handled": { category: "system", label: "通知处理", verb: "处理了通知", tone: "slate" },

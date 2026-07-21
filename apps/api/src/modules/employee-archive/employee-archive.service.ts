@@ -43,6 +43,7 @@ export class EmployeeArchiveService {
             OR: [
               { name: { contains: search, mode: 'insensitive' } },
               { rosterNo: { contains: search, mode: 'insensitive' } },
+              { employeeCode: { contains: search, mode: 'insensitive' } },
               { company: { contains: search, mode: 'insensitive' } },
               { department: { contains: search, mode: 'insensitive' } },
               { title: { contains: search, mode: 'insensitive' } },
@@ -275,15 +276,18 @@ export class EmployeeArchiveService {
     const birthDate = identity?.birthDate ?? this.normalizeDate(dto.birthDate);
     const birthMonthDay = birthDate ? birthDate.slice(5) : this.clean(dto.birthMonthDay);
     const derivedAge = birthDate ? this.ageFromDate(birthDate) : (dto.age ?? 0);
+    const hireDate = this.toDate(dto.hireDate);
     const data = {
       rosterNo: dto.rosterNo.trim(),
       company: this.clean(dto.company),
-      hireDate: this.toDate(dto.hireDate),
-      tenure: this.clean(dto.tenure),
+      hireDate,
+      settlementDate: this.toDate(dto.settlementDate),
+      tenure: this.clean(dto.tenure) || this.tenureFromDate(hireDate),
       employmentStatus: this.clean(dto.status),
       workLocation: this.clean(dto.workLocation),
       department: this.clean(dto.department),
       title: this.clean(dto.title),
+      employeeCode: this.clean(dto.employeeCode),
       name: dto.name.trim(),
       idNoMasked: identity?.masked ?? this.clean(dto.idNoMasked),
       birthDate: this.toDate(birthDate),
@@ -323,17 +327,16 @@ export class EmployeeArchiveService {
 
     const requiredFields: Array<[string, string | number]> = [
       ['序号', data.rosterNo], ['隶属', data.company], ['入职日期', this.formatDate(data.hireDate)],
-      ['工龄', data.tenure], ['状态', data.employmentStatus], ['工作地', data.workLocation],
-      ['部门', data.department], ['职务', data.title], ['姓名', data.name], ['证件号码', data.idNoMasked],
+      ['结算日期', this.formatDate(data.settlementDate)], ['工龄', data.tenure], ['状态', data.employmentStatus],
+      ['工作地', data.workLocation], ['部门', data.department], ['职务', data.title],
+      ['工号', data.employeeCode], ['姓名', data.name], ['证件号码', data.idNoMasked],
       ['出生日期', this.formatDate(data.birthDate)], ['出生月日', data.birthMonthDay], ['生肖', data.zodiac],
-      ['星座', data.constellation], ['性别', data.gender], ['年龄', data.age], ['民族', data.ethnicity],
+      ['性别', data.gender], ['年龄', data.age], ['民族', data.ethnicity],
       ['婚姻状况', data.maritalStatus], ['手机号码', data.phoneMasked], ['银行帐号', data.bankAccountMasked],
       ['工资卡开户行全称', data.bankBranch], ['学历', data.education], ['毕业院校', data.school],
       ['专业', data.major], ['籍贯', data.hometown], ['户籍地址', data.registeredAddress],
       ['常住地址', data.currentAddress], ['紧急联系人姓名', data.emergencyContact],
       ['紧急联系人关系', data.emergencyRelation], ['紧急联系人手机', data.emergencyPhoneMasked],
-      ['社保号', data.socialSecurityNo], ['社保首月日期', data.socialSecurityFirstMonth],
-      ['费用归属', data.costCenter],
     ];
     data.missingFields = requiredFields
       .filter(([, value]) => this.isIncompleteValue(value))
@@ -412,11 +415,13 @@ export class EmployeeArchiveService {
       rosterNo: employee.rosterNo,
       company: employee.company,
       hireDate: this.formatDate(employee.hireDate),
+      settlementDate: this.formatDate(employee.settlementDate),
       tenure: employee.tenure,
       status: employee.employmentStatus,
       workLocation: employee.workLocation,
       department: employee.department,
       title: employee.title,
+      employeeCode: employee.employeeCode,
       name: employee.name,
       idNoMasked: employee.idNoMasked,
       birthDate: this.formatDate(employee.birthDate),
@@ -532,6 +537,23 @@ export class EmployeeArchiveService {
       (today.getUTCMonth() === birth.getUTCMonth() && today.getUTCDate() < birth.getUTCDate());
     if (hasNotHadBirthday) age -= 1;
     return Math.max(0, age);
+  }
+
+  private tenureFromDate(hireDate: Date | null) {
+    if (!hireDate) return '';
+    const today = new Date();
+    const todayDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+    if (hireDate > todayDate) return '待入职';
+
+    let years = todayDate.getUTCFullYear() - hireDate.getUTCFullYear();
+    let months = todayDate.getUTCMonth() - hireDate.getUTCMonth();
+    if (todayDate.getUTCDate() < hireDate.getUTCDate()) months -= 1;
+    if (months < 0) {
+      years -= 1;
+      months += 12;
+    }
+    if (years <= 0 && months <= 0) return '不足1个月';
+    return `${years > 0 ? `${years}年` : ''}${months > 0 ? `${months}个月` : ''}`;
   }
 
   private buildProbationReminder(hireDate: Date | null) {

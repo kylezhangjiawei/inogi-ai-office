@@ -14,7 +14,8 @@ const { PrismaClient } = require("@prisma/client");
 const env = readFileSync(join(apiRoot, ".env"), "utf8");
 const envVal = (k) => env.match(new RegExp(`^${k}\\s*=\\s*"?([^"\\r\\n]+)"?`, "m"))?.[1];
 process.env.DATABASE_URL = envVal("DATABASE_URL");
-const JWT_SECRET = envVal("JWT_SECRET") ?? "change-me-jwt-secret";
+const JWT_SECRET = envVal("JWT_SECRET");
+if (!JWT_SECRET) throw new Error("apps/api/.env 中未配置 JWT_SECRET");
 const BASE = "http://localhost:3000/api";
 const prisma = new PrismaClient();
 

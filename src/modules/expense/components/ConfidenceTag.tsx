@@ -2,6 +2,7 @@ import { AlertTriangle, CheckCircle2, CircleHelp } from "lucide-react";
 
 import { Badge } from "../../../app/components/ui/badge";
 import { cn } from "../../../app/components/ui/utils";
+import { useI18n } from "../../../app/lib/i18n";
 
 type ConfidenceTagProps = {
   value: number;
@@ -9,6 +10,7 @@ type ConfidenceTagProps = {
 };
 
 export function ConfidenceTag({ value, className }: ConfidenceTagProps) {
+  const { t } = useI18n();
   const percent = Math.round(value * 100);
   const level =
     value >= 0.9
@@ -34,10 +36,10 @@ export function ConfidenceTag({ value, className }: ConfidenceTagProps) {
   const Icon = level.icon;
 
   return (
-    <Badge variant="outline" title={level.title} className={cn("gap-1.5", level.className, className)}>
+    <Badge variant="outline" title={t(level.title)} className={cn("gap-1.5", level.className, className)}>
       <Icon className="h-3.5 w-3.5" />
       {percent}%
-      <span className="sr-only">{level.label}</span>
+      <span className="sr-only">{t(level.label)}</span>
     </Badge>
   );
 }

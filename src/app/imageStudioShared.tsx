@@ -953,7 +953,7 @@ export function ImageEditModal({
                   >
                     <div>{message.content}</div>
                     {message.role === "assistant" ? (
-                      <div className={cn("mt-1 text-[11px]", message.role === "user" ? "text-white/70" : "text-slate-500")}>
+                      <div className="mt-1 text-[11px] text-slate-500">
                         本次 {message.estimatedCostUsd > 0 ? formatUsd(message.estimatedCostUsd) : "未返回用量"} · 累计 {formatUsd(message.cumulativeEstimatedCostUsd)}
                       </div>
                     ) : null}

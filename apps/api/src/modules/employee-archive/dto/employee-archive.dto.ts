@@ -62,11 +62,13 @@ export class SaveEmployeeArchiveDto {
 
   @IsOptional() @IsString() @MaxLength(120) company?: string;
   @IsOptional() @IsString() @MaxLength(10) hireDate?: string;
+  @IsOptional() @IsString() @MaxLength(10) settlementDate?: string;
   @IsOptional() @IsString() @MaxLength(80) tenure?: string;
   @IsOptional() @IsString() @MaxLength(80) status?: string;
   @IsOptional() @IsString() @MaxLength(120) workLocation?: string;
   @IsOptional() @IsString() @MaxLength(120) department?: string;
   @IsOptional() @IsString() @MaxLength(120) title?: string;
+  @IsOptional() @IsString() @MaxLength(80) employeeCode?: string;
 
   @IsOptional()
   @IsString()

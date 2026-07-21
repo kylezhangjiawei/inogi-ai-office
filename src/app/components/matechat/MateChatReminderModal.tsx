@@ -4,6 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 
 import { useAuth } from '../../auth';
 import { chatStreakApi, type MateChatStreak } from '../../lib/chatStreakApi';
+import { useI18n } from '../../lib/i18n';
 import { openMateChat } from './openMateChat';
 
 type Period = 'am' | 'pm';
@@ -34,6 +35,7 @@ const CHECK_INTERVAL = 5 * 60 * 1000; // 5 分钟检查一次（大多数情况�
  * （且走 chatStreakApi 的 30s 共享缓存，与打卡卡片复用同一份数据）。
  */
 export function MateChatReminderModal() {
+  const { lang, t } = useI18n();
   const { user } = useAuth();
   const reduce = useReducedMotion();
   const [open, setOpen] = useState(false);
@@ -173,14 +175,14 @@ export function MateChatReminderModal() {
                 >
                   <Flame className="h-4 w-4 fill-amber-400 text-amber-300" />
                 </motion.span>
-                <span className="text-sm font-bold tabular-nums">{streak} 天</span>
+                <span className="text-sm font-bold tabular-nums">{t('{n} 天', { n: streak })}</span>
               </motion.div>
             </div>
 
             <button
               type="button"
               onClick={close}
-              aria-label="关闭"
+              aria-label={t('关闭')}
               className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full bg-black/25 text-white transition-colors hover:bg-black/40"
             >
               <X className="h-4 w-4" />
@@ -195,7 +197,7 @@ export function MateChatReminderModal() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.15 }}
               >
-                {streak > 0 ? `别断了连续 ${streak} 天！` : '今天还没用 MateChat 哦'}
+                {streak > 0 ? t('别断了连续 {n} 天！', { n: streak }) : t('今天还没用 MateChat 哦')}
               </motion.h2>
               <motion.p
                 className="mt-2 flex items-start justify-center gap-1.5 text-sm leading-6 text-slate-600"
@@ -204,7 +206,7 @@ export function MateChatReminderModal() {
                 transition={{ delay: 0.22 }}
               >
                 <Sparkles className="mt-0.5 h-4 w-4 shrink-0 text-indigo-500" />
-                <span>{data.message}</span>
+                <span>{lang === 'en' ? t('今天也用 MateChat 保持连续记录吧！') : data.message}</span>
               </motion.p>
               <div className="mt-5 flex flex-col gap-2">
                 <motion.button
@@ -214,14 +216,14 @@ export function MateChatReminderModal() {
                   whileTap={reduce ? undefined : { scale: 0.98 }}
                   className="w-full rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-indigo-700"
                 >
-                  立即去用 MateChat
+                  {t('立即去用 MateChat')}
                 </motion.button>
                 <button
                   type="button"
                   onClick={close}
                   className="w-full rounded-xl px-4 py-2 text-sm font-medium text-slate-400 transition-colors hover:text-slate-600"
                 >
-                  稍后再说
+                  {t('稍后再说')}
                 </button>
               </div>
             </div>

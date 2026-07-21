@@ -19,9 +19,10 @@ type NativeSelectProps = Omit<
   defaultValue?: string | number;
   onChange?: React.ChangeEventHandler<HTMLSelectElement>;
   onValueChange?: (value: string) => void;
+  placeholder?: React.ReactNode;
 };
 
-function normalizeValue(value: string | number | undefined) {
+function normalizeValue(value: string | number | readonly string[] | undefined) {
   if (value === undefined) return undefined;
   const nextValue = String(value);
   return nextValue === "" ? EMPTY_OPTION_VALUE : nextValue;
@@ -54,7 +55,10 @@ function NativeSelect({
   "aria-labelledby": ariaLabelledBy,
   "aria-describedby": ariaDescribedBy,
 }: NativeSelectProps) {
-  const options = React.Children.toArray(children).filter(React.isValidElement);
+  const options = React.Children.toArray(children).filter(
+    (child): child is React.ReactElement<React.OptionHTMLAttributes<HTMLOptionElement>> =>
+      React.isValidElement<React.OptionHTMLAttributes<HTMLOptionElement>>(child),
+  );
   const selectedOption = options.find((option) => {
     const optionValue = normalizeValue(option.props.value ?? "");
     return optionValue === normalizeValue(value);

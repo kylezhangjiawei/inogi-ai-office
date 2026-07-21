@@ -905,12 +905,12 @@ function StepInput({
       {!isUsCollabWorkspace() && products.length > 1 && (
         <div>
           <label className="mb-1.5 block text-xs font-medium text-slate-700">
-            归属产品
-            <span className="ml-1.5 text-[10px] font-normal text-slate-400">AI 会按原文推断，可手动调整</span>
+            {t("归属产品")}
+            <span className="ml-1.5 text-[10px] font-normal text-slate-400">{t("AI 会按原文推断，可手动调整")}</span>
           </label>
           <Select value={productId} onValueChange={onProductChange} disabled={catLoading}>
             <SelectTrigger className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm">
-              <SelectValue placeholder="选择产品" />
+              <SelectValue placeholder={t("选择产品")} />
             </SelectTrigger>
             <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
               {products.map((p) => (
@@ -1006,7 +1006,7 @@ function StepInput({
           />
         </label>
         <p className="mt-1.5 text-[10px] text-slate-400">
-          支持 Excel / Word / PDF / 图片 / zip、rar、7z 压缩包；拖入后会显示在下方列表。
+          {t("支持 Excel / Word / PDF / 图片 / zip、rar、7z 压缩包；拖入后会显示在下方列表。")}
         </p>
         {hasFiles && (
           <ul className="mt-2 space-y-1">
@@ -1021,7 +1021,7 @@ function StepInput({
                   type="button"
                   onClick={() => setFiles(files.filter((_, i) => i !== idx))}
                   className="ml-2 shrink-0 text-slate-400 hover:text-red-500"
-                  aria-label="移除"
+                  aria-label={t("移除")}
                 >
                   <X className="h-3 w-3" />
                 </button>
@@ -1135,14 +1135,14 @@ function TaskEditRow({
             onChange={(event) => onSelectedChange(event.target.checked)}
             onClick={(event) => event.stopPropagation()}
             className="mt-1 h-4 w-4 shrink-0 rounded border-slate-300 text-violet-600 focus:ring-violet-200"
-            aria-label={`选择任务 ${task.title}`}
+            aria-label={t("选择任务 {title}", { title: task.title })}
           />
         )}
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
           className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-          aria-label={expanded ? "收起" : "展开"}
+          aria-label={expanded ? t("收起") : t("展开")}
         >
           <ChevronRight className={cn("h-3.5 w-3.5 transition-transform duration-200", expanded && "rotate-90")} />
         </button>
@@ -1152,7 +1152,7 @@ function TaskEditRow({
             value={task.title}
             onChange={(e) => onChange({ ...task, title: e.target.value })}
             className="w-full rounded border-0 bg-transparent px-0 py-0 text-sm font-medium text-slate-900 outline-none placeholder:text-slate-400 focus:bg-slate-50 focus:px-1.5"
-            placeholder="任务标题"
+            placeholder={t("任务标题")}
           />
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px] text-slate-500">
             {/* Owner */}
@@ -1167,7 +1167,7 @@ function TaskEditRow({
             <span className="text-slate-300">·</span>
             {/* Priority */}
             <span className={cn("rounded border px-1.5 py-0.5 font-semibold", pCfg.chip)}>
-              {pCfg.label}
+              {t(pCfg.label)}
             </span>
             <span className="text-slate-300">·</span>
             {/* Duration */}
@@ -1175,12 +1175,12 @@ function TaskEditRow({
               {task.ai_estimated_days !== undefined && task.ai_estimated_days !== task.estimated_days ? (
                 <>
                   <span className="rounded bg-violet-100 px-1 py-0.5 text-[10px] font-semibold text-violet-600">
-                    AI {task.ai_estimated_days}天
+                    AI {t("{n} 天", { n: task.ai_estimated_days })}
                   </span>
-                  <span className="font-semibold text-slate-700">{task.estimated_days}天</span>
+                  <span className="font-semibold text-slate-700">{t("{n} 天", { n: task.estimated_days })}</span>
                 </>
               ) : (
-                <span>预估 {task.estimated_days} 天</span>
+                <span>{t("预估 {n} 天", { n: task.estimated_days })}</span>
               )}
             </span>
           </div>
@@ -1192,7 +1192,7 @@ function TaskEditRow({
               type="button"
               onClick={onRequestAiHelp}
               className="rounded p-1.5 text-slate-400 transition-colors hover:bg-violet-50 hover:text-violet-600"
-              title="请 AI 微调此任务"
+              title={t("请 AI 微调此任务")}
             >
               <Sparkles className="h-3.5 w-3.5" />
             </button>
@@ -1201,7 +1201,7 @@ function TaskEditRow({
             type="button"
             onClick={onDelete}
             className="rounded p-1.5 text-slate-400 transition-colors hover:bg-red-50 hover:text-red-600"
-            title="删除"
+            title={t("删除")}
           >
             <Trash2 className="h-3.5 w-3.5" />
           </button>
@@ -1227,7 +1227,7 @@ function TaskEditRow({
               {ownerLocked ? (
                 <div
                   className="flex h-9 w-full items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50/60 px-3 text-sm text-indigo-700"
-                  title="个人工作台立项：所有任务强制绑定到当前账号"
+                  title={t("个人工作台立项：所有任务强制绑定到当前账号")}
                 >
                   <MiniAvatar name={task.owner} size="xs" />
                   <span className="font-medium">{task.owner}</span>
@@ -1246,7 +1246,7 @@ function TaskEditRow({
                   }
                 >
                   <SelectTrigger className={REVIEW_SELECT_TRIGGER_CLASS}>
-                    <SelectValue placeholder="选择主责人" />
+                    <SelectValue placeholder={t("选择主责人")} />
                   </SelectTrigger>
                   <SelectContent className="max-h-72 rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
                     {effectiveOwnerOptions.map((option) => (
@@ -1278,7 +1278,7 @@ function TaskEditRow({
               />
               {task.due_date_original && (
                 <div className="mt-1 truncate rounded border border-amber-100 bg-amber-50/70 px-1.5 py-0.5 text-[10px] text-amber-700" title={task.due_date_original}>
-                  原文节点：{task.due_date_original}
+                  {t("原文节点：")}{task.due_date_original}
                 </div>
               )}
             </div>
@@ -1289,12 +1289,12 @@ function TaskEditRow({
                 onValueChange={(priority) => onChange({ ...task, priority: priority as Priority })}
               >
                 <SelectTrigger className={REVIEW_SELECT_TRIGGER_CLASS}>
-                  <SelectValue placeholder="选择优先级" />
+                  <SelectValue placeholder={t("选择优先级")} />
                 </SelectTrigger>
                 <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
                   {PRIORITY_OPTIONS.map((p) => (
                     <SelectItem key={p.value} value={p.value} className="rounded-lg py-2 pl-3 pr-9 text-sm text-slate-700">
-                      {p.label}
+                      {t(p.label)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -1303,13 +1303,13 @@ function TaskEditRow({
             {/* 协同池无「分类路径」概念：隐藏选择器，提交时任务统一落「协同任务」默认分组 */}
             {!isUsCollabWorkspace() && (
               <div>
-                <label className="mb-1 block text-[11px] font-medium text-slate-500">分类路径</label>
+                <label className="mb-1 block text-[11px] font-medium text-slate-500">{t("分类路径")}</label>
                 <Select
                   value={task.category_path}
                   onValueChange={(category_path) => onChange({ ...task, category_path })}
                 >
                   <SelectTrigger className={REVIEW_SELECT_TRIGGER_CLASS}>
-                    <SelectValue placeholder="选择分类路径" />
+                    <SelectValue placeholder={t("选择分类路径")} />
                   </SelectTrigger>
                   <SelectContent className="max-h-80 rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
                     {categoryGroups.map((group) => (
@@ -1338,8 +1338,8 @@ function TaskEditRow({
           {!ownerLocked && (
             <div>
               <label className="mb-1 flex items-center gap-2 text-[11px] font-medium text-slate-500">
-                协作人
-                <span className="text-[10px] text-slate-400">（可多选，立项后将同步分配）</span>
+                {t("协作人")}
+                <span className="text-[10px] text-slate-400">{t("（可多选，立项后将同步分配）")}</span>
               </label>
               <div className="space-y-1.5">
                 {/* 已选协作人 chips */}
@@ -1361,7 +1361,7 @@ function TaskEditRow({
                             })
                           }
                           className="ml-0.5 -mr-0.5 flex h-4 w-4 items-center justify-center rounded text-slate-400 hover:bg-red-50 hover:text-red-600"
-                          aria-label={`移除协作人 ${name}`}
+                          aria-label={t("移除协作人 {name}", { name })}
                         >
                           ×
                         </button>
@@ -1381,7 +1381,7 @@ function TaskEditRow({
                   }}
                 >
                   <SelectTrigger className={cn(REVIEW_SELECT_TRIGGER_CLASS, "h-9 w-full")}>
-                    <SelectValue placeholder={(task.collaborators ?? []).length > 0 ? "+ 继续添加协作人" : "+ 添加协作人"} />
+                    <SelectValue placeholder={(task.collaborators ?? []).length > 0 ? t("+ 继续添加协作人") : t("+ 添加协作人")} />
                   </SelectTrigger>
                   <SelectContent className="max-h-72 rounded-xl border border-slate-200 bg-white p-1 shadow-xl">
                     {effectiveOwnerOptions
@@ -1408,10 +1408,10 @@ function TaskEditRow({
           {/* Duration: AI suggestion + manual override */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="mb-1 block text-[11px] font-medium text-slate-500">AI 建议工时（天）</label>
+              <label className="mb-1 block text-[11px] font-medium text-slate-500">{t("AI 建议工时（天）")}</label>
               <div className="flex h-11 items-center rounded border border-slate-100 bg-slate-100/60 px-3 text-sm text-slate-400">
                 {task.ai_estimated_days ?? "—"}
-                <span className="ml-1 text-[11px]">天</span>
+                <span className="ml-1 text-[11px]">{t("天")}</span>
               </div>
             </div>
             <div>
@@ -1438,14 +1438,14 @@ function TaskEditRow({
                   }}
                   className="h-11 w-full rounded border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
                 />
-                <span className="shrink-0 text-xs text-slate-400">天</span>
+                <span className="shrink-0 text-xs text-slate-400">{t("天")}</span>
               </div>
             </div>
           </div>
           <div className="rounded border border-indigo-100 bg-indigo-50/40 px-2.5 py-2 text-[11px] leading-relaxed text-indigo-700">
-            <span className="font-semibold">AI 推荐理由：</span>
+            <span className="font-semibold">{t("AI 推荐理由：")}</span>
             {task.owner_reason}
-            <div className="mt-0.5 text-indigo-600/80">工期依据：{task.duration_basis}</div>
+            <div className="mt-0.5 text-indigo-600/80">{t("工期依据：")}{task.duration_basis}</div>
           </div>
         </div>
       )}
@@ -1498,14 +1498,14 @@ function CapacityPanel({
   return (
     <section className="space-y-2.5 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
       <div className="flex items-center justify-between">
-        <h4 className="text-xs font-semibold text-slate-700">人力容量预估</h4>
+        <h4 className="text-xs font-semibold text-slate-700">{t("人力容量预估")}</h4>
         <div className="flex items-center gap-3 text-[11px] text-slate-500">
           <span>
-            AI建议合计：<span className="font-semibold text-violet-600">{totalAiDays} 天</span>
+            {t("AI 建议合计：")}<span className="font-semibold text-violet-600">{t("{n} 天", { n: totalAiDays })}</span>
           </span>
           <span className="text-slate-300">|</span>
           <span>
-            人工调整合计：<span className="font-semibold text-slate-700">{totalManualDays} 天</span>
+            {t("人工调整合计：")}<span className="font-semibold text-slate-700">{t("{n} 天", { n: totalManualDays })}</span>
           </span>
         </div>
       </div>
@@ -1524,17 +1524,17 @@ function CapacityPanel({
               <div className="flex items-center gap-1.5">
                 <MiniAvatar name={name} size="xs" />
                 <span className="font-medium text-slate-700">{name}</span>
-                <span className="text-slate-400">{taskCount} 个任务</span>
+                <span className="text-slate-400">{t("{n} 个任务", { n: taskCount })}</span>
               </div>
               <div className="flex items-center gap-2">
                 {aiDiffers && (
-                  <span className="text-violet-500">AI {aiDays}天</span>
+                  <span className="text-violet-500">AI {t("{n} 天", { n: aiDays })}</span>
                 )}
                 <span className={cn("font-semibold tabular-nums", textColor)}>
-                  {manualDays} / {capacityDays} 天
+                  {manualDays} / {t("{n} 天", { n: capacityDays })}
                 </span>
-                {overload && <span className="rounded bg-red-100 px-1 py-0.5 text-[10px] font-bold text-red-600">超载</span>}
-                {warn && <span className="rounded bg-amber-100 px-1 py-0.5 text-[10px] font-bold text-amber-600">较满</span>}
+                {overload && <span className="rounded bg-red-100 px-1 py-0.5 text-[10px] font-bold text-red-600">{t("超载")}</span>}
+                {warn && <span className="rounded bg-amber-100 px-1 py-0.5 text-[10px] font-bold text-amber-600">{t("较满")}</span>}
               </div>
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-slate-200">
@@ -1550,7 +1550,7 @@ function CapacityPanel({
       {pendingCount > 0 && (
         <div className="flex items-center gap-1.5 text-[11px] text-slate-400">
           <span className="h-2 w-2 rounded-full bg-slate-300" />
-          {pendingCount} 个任务尚未指派，未计入容量
+          {t("{n} 个任务尚未指派，未计入容量", { n: pendingCount })}
         </div>
       )}
     </section>
@@ -1797,7 +1797,7 @@ function StepReview({
         {/* Project meta */}
         <section className="space-y-3 rounded-xl border border-slate-100 bg-slate-50/40 p-4">
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-slate-700">立项标题</label>
+            <label className="mb-1.5 block text-xs font-medium text-slate-700">{t("立项标题")}</label>
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -1808,8 +1808,8 @@ function StepReview({
           {!isUsCollabWorkspace() && products.length > 1 && (
             <div>
               <label className="mb-1.5 block text-xs font-medium text-slate-700">
-                归属产品
-                <span className="ml-1.5 text-[10px] font-normal text-slate-400">由 AI 推断，可手动调整；切换会刷新下方项目节点</span>
+                {t("归属产品")}
+                <span className="ml-1.5 text-[10px] font-normal text-slate-400">{t("由 AI 推断，可手动调整；切换会刷新下方项目节点")}</span>
               </label>
               <NativeSelect
                 value={productId}
@@ -1831,7 +1831,7 @@ function StepReview({
           <div>
             <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-slate-700">
               <FolderPlus className="h-3 w-3" />
-              归属项目节点
+              {t("归属项目节点")}
             </label>
             <NativeSelect
               value={parentProjectId}
@@ -1839,10 +1839,10 @@ function StepReview({
               disabled={catLoading}
               className="w-full cursor-pointer rounded border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <option value="new">+ 创建新项目节点</option>
+              <option value="new">{t("+ 创建新项目节点")}</option>
               {categoriesToOptions(categories).map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.label}（已有 {p.task_count} 个任务）
+                  {t("{label}（已有 {count} 个任务）", { label: p.label, count: p.task_count })}
                 </option>
               ))}
             </NativeSelect>
@@ -1850,14 +1850,14 @@ function StepReview({
               <Input
                 value={newProjectName}
                 onChange={(e) => setNewProjectName(e.target.value)}
-                placeholder="新项目名称（例：电磁阀工艺升级 v2.1）"
+                placeholder={t("新项目名称（例：电磁阀工艺升级 v2.1）")}
                 className="mt-2 w-full rounded border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
               />
             )}
             <p className="mt-1 text-[11px] text-slate-400">
               {parentProjectId === "new"
-                ? "AI 未找到合适的现有项目，将创建新节点；任务按各自分类路径散落到分类树。"
-                : "任务将归属到此项目下，仍按各自分类路径散落到分类树。"}
+                ? t("AI 未找到合适的现有项目，将创建新节点；任务按各自分类路径散落到分类树。")
+                : t("任务将归属到此项目下，仍按各自分类路径散落到分类树。")}
             </p>
           </div>
           )}
@@ -1982,10 +1982,10 @@ function StepReview({
           <div className="mb-3 flex items-center justify-between">
             <div>
               <h3 className="text-sm font-semibold text-slate-900">
-                AI 解析出 {tasks.length} 个任务
+                {t("AI 解析出 {n} 个任务", { n: tasks.length })}
               </h3>
               <p className="mt-0.5 text-[11px] text-slate-500">
-                点击行展开编辑 · 可调整人工工时 · 已选 {selectedCount} 个用于局部微调
+                {t("点击行展开编辑 · 可调整人工工时 · 已选 {n} 个用于局部微调", { n: selectedCount })}
               </p>
             </div>
             <div className="flex items-center gap-1.5">
@@ -1996,7 +1996,7 @@ function StepReview({
                 className="inline-flex items-center gap-1 rounded-md border border-violet-200 bg-violet-50 px-2.5 py-1 text-xs font-medium text-violet-700 transition-all hover:-translate-y-0.5 hover:bg-violet-100 active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
               >
                 <Sparkles className="h-3 w-3" />
-                请 AI 微调全部
+                {t("请 AI 微调全部")}
               </button>
               <button
                 type="button"
@@ -2004,7 +2004,7 @@ function StepReview({
                 className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-all hover:-translate-y-0.5 hover:bg-slate-50 active:scale-95"
               >
                 <Plus className="h-3 w-3" />
-                手动添加
+                {t("手动添加")}
               </button>
             </div>
           </div>
@@ -2012,7 +2012,7 @@ function StepReview({
           <div className="space-y-2">
             {tasks.length === 0 ? (
               <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/40 py-8 text-center text-xs text-slate-400">
-                所有任务已被删除，请添加至少一个任务
+                {t("所有任务已被删除，请添加至少一个任务")}
               </div>
             ) : (
               tasks.map((task) => (
@@ -2064,7 +2064,7 @@ function StepReview({
               type="button"
               disabled={tasks.length === 0 || quickSubmitDisabled || submitting || catLoading}
               onClick={onQuickSubmit}
-              title="跳过审核流程预览，直接按 AI 建议立项"
+              title={t("跳过审核流程预览，直接按 AI 建议立项")}
               className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-[0_10px_22px_rgba(79,70,229,0.24)] transition-all hover:bg-indigo-700 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-40"
             >
               {submitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
@@ -2138,7 +2138,7 @@ function StepSubmit({
 
   const projectName =
     parentProjectId === "new"
-      ? newProjectName || "（新项目节点）"
+      ? newProjectName || t("（新项目节点）")
       : categories.find((c) => c.id === parentProjectId)?.label ?? "—";
 
   return (
@@ -2147,15 +2147,15 @@ function StepSubmit({
         {/* Summary */}
         <section className="rounded-xl border border-slate-100 bg-slate-50/60 p-4">
           <div className="mb-2 text-xs font-medium text-slate-500">{t("立项摘要")}</div>
-          <h3 className="text-base font-semibold text-slate-900">{title || "未命名立项"}</h3>
+          <h3 className="text-base font-semibold text-slate-900">{title || t("未命名立项")}</h3>
           <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
             <div>
-              <div className="text-slate-500">归属项目</div>
-              <div className="mt-0.5 font-medium text-slate-800">{projectName}</div>
+              <div className="text-slate-500">{t("归属项目")}</div>
+              <div className="mt-0.5 font-medium text-slate-800">{t(projectName)}</div>
             </div>
             <div>
-              <div className="text-slate-500">任务数</div>
-              <div className="mt-0.5 font-medium text-slate-800">{taskCount} 个</div>
+              <div className="text-slate-500">{t("任务数")}</div>
+              <div className="mt-0.5 font-medium text-slate-800">{t("{n} 个", { n: taskCount })}</div>
             </div>
           </div>
         </section>
@@ -2164,11 +2164,11 @@ function StepSubmit({
         <section>
           <div className="mb-2 flex items-center justify-between">
             <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-              {directOnly ? "审批流程" : "审核流程"}
+              {directOnly ? t("审批流程") : t("审核流程")}
             </h4>
             {!directOnly && reviewNodes.length > 0 && (
               <span className="text-[10px] text-slate-400">
-                来自审批流配置 · 共 {reviewNodes.length} 级
+                {t("来自审批流配置 · 共 {n} 级", { n: reviewNodes.length })}
               </span>
             )}
           </div>
@@ -2176,16 +2176,16 @@ function StepSubmit({
           {reviewNodes.length === 0 ? (
             <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 px-3 py-2.5 text-xs text-emerald-700">
               <CheckCircle2 className="mr-1.5 inline h-3.5 w-3.5" />
-              {canDirect ? "你有直接立项权限，立项可直接生效并自动分配" : "当前审批流没有后续审核节点，请联系管理员配置审批流或分配直接立项权限"}
+              {canDirect ? t("你有直接立项权限，立项可直接生效并自动分配") : t("当前审批流没有后续审核节点，请联系管理员配置审批流或分配直接立项权限")}
             </div>
           ) : (
             <div className="space-y-2">
               {/* Origin */}
               <div className="flex items-center gap-2 rounded-lg border border-slate-100 bg-white px-3 py-2">
-                <MiniAvatar name="你" />
+                <MiniAvatar name={t("你")} />
                 <div className="flex-1">
-                  <div className="text-xs font-medium text-slate-700">提交人</div>
-                  <div className="text-[10px] text-slate-500">你</div>
+                  <div className="text-xs font-medium text-slate-700">{t("提交人")}</div>
+                  <div className="text-[10px] text-slate-500">{t("你")}</div>
                 </div>
               </div>
               {/* Chain of approval nodes */}
@@ -2204,7 +2204,7 @@ function StepSubmit({
                           <span className="flex h-5 w-5 items-center justify-center rounded-full bg-indigo-600 text-[10px] font-bold text-white">
                             {idx + 1}
                           </span>
-                          <span className="text-xs font-semibold text-slate-800">{node.label}</span>
+                          <span className="text-xs font-semibold text-slate-800">{t(node.label)}</span>
                           <span
                             className={cn(
                               "rounded-full px-1.5 py-0.5 text-[10px] font-semibold",
@@ -2212,11 +2212,11 @@ function StepSubmit({
                               modeCfg.text,
                             )}
                           >
-                            {modeCfg.label}
+                            {t(modeCfg.label)}
                           </span>
                         </div>
                         <span className="text-[10px] text-slate-400">
-                          {pool.length > 0 ? `${pool.length} 人审核组` : "暂无候选人"}
+                          {pool.length > 0 ? t("{n} 人审核组", { n: pool.length }) : t("暂无候选人")}
                         </span>
                       </div>
                       {pool.length > 0 ? (
@@ -2239,7 +2239,7 @@ function StepSubmit({
                         </div>
                       ) : (
                         <div className="rounded border border-dashed border-amber-200 bg-amber-50/40 px-2 py-1.5 text-[10px] text-amber-700">
-                          ⚠ 当前无人持有权限「{node.permission_code}」，请到角色权限页分配
+                          {t("⚠ 当前无人持有权限「{permission}」，请到角色权限页分配", { permission: node.permission_code })}
                         </div>
                       )}
                       {node.description && (
@@ -2287,7 +2287,7 @@ function StepSubmit({
           <div className="flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2.5 text-xs text-amber-700">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
-              新项目节点未命名，将使用默认名「{title || "未命名立项"}」
+              {t("新项目节点未命名，将使用默认名「{title}」", { title: title || t("未命名立项") })}
             </span>
           </div>
         )}
@@ -2516,24 +2516,24 @@ export function RDProjectProposalDialog({
 
     setStep(2);
     setAiProgress(0);
-    setAiLabel("准备中…");
+    setAiLabel(t("准备中…"));
 
     // Background progress animation — slows down past 90 until the API resolves
     let currentProgress = 0;
-    setAiLabel(files.length > 0 ? "上传并读取文件…" : "调用 AI 模型解析…");
+    setAiLabel(files.length > 0 ? t("上传并读取文件…") : t("调用 AI 模型解析…"));
     const progressTimer = setInterval(() => {
       currentProgress = Math.min(90, currentProgress + (currentProgress < 50 ? 3 : currentProgress < 80 ? 1.5 : 0.4));
       setAiProgress(Math.round(currentProgress));
-      if (currentProgress >= 50 && currentProgress < 60) setAiLabel("AI 模型分析中…");
-      else if (currentProgress >= 60 && currentProgress < 80) setAiLabel("提取任务条目…");
-      else if (currentProgress >= 80) setAiLabel("整理字段与优先级…");
+      if (currentProgress >= 50 && currentProgress < 60) setAiLabel(t("AI 模型分析中…"));
+      else if (currentProgress >= 60 && currentProgress < 80) setAiLabel(t("提取任务条目…"));
+      else if (currentProgress >= 80) setAiLabel(t("整理字段与优先级…"));
     }, 200);
 
     const categoryLabels = categories.map((c) => c.label);
 
     const productOptions = products.map((p) => ({ id: p.id, name: p.name }));
 
-    const aiCall: Promise<{ tasks: RdAiTaskDraft[]; suggested_category?: string; suggested_product?: string; summary?: string }> =
+    const aiCall =
       files.length > 0
           ? extractRdTasksFromFile({
               file: files[0],
@@ -2587,7 +2587,7 @@ export function RDProjectProposalDialog({
           }
         }
         setAiProgress(100);
-        setAiLabel(`${result.provider === "local" ? "本地解析" : "AI 解析"}完成，共 ${drafted.length} 个任务`);
+        setAiLabel(t("{method}完成，共 {n} 个任务", { method: result.provider === "local" ? t("本地解析") : t("AI 解析"), n: drafted.length }));
         if (result.provider === "local") {
           toast.warning(t("AI 未配置，已使用本地规则解析继续立项"), {
             description: t("如需模型增强抽取，请在 AI 模型管理中配置可用模型。"),
@@ -2616,7 +2616,7 @@ export function RDProjectProposalDialog({
                 setTitle(drafted[0].title.replace(/[（(].*$/, "").trim() || "AI 立项");
               }
               setAiProgress(100);
-              setAiLabel(`本地解析完成，共 ${drafted.length} 个任务`);
+              setAiLabel(t("本地解析完成，共 {n} 个任务", { n: drafted.length }));
               toast.warning(t("AI 未配置，已使用本地文件解析继续立项"), {
                 description: t("如需 AI 增强抽取，请在「AI 模型管理」中配置可用模型。"),
               });
@@ -2626,12 +2626,12 @@ export function RDProjectProposalDialog({
           } catch {
             // 本地解析也失败，继续向下报错
           }
-          toast.error(`AI 未配置：${message}`);
+          toast.error(t("AI 未配置：{message}", { message }));
         } else {
           // AI 已配置但调用失败（超时、网络、模型错误等）
           // 不降级本地解析 — 显示真实错误，让用户重试或检查配置
-          toast.error(`AI 解析失败：${message}`, {
-            description: "请检查网络连接、API Key 是否有效，或稍后重试。",
+          toast.error(t("AI 解析失败：{message}", { message }), {
+            description: t("请检查网络连接、API Key 是否有效，或稍后重试。"),
             duration: 8000,
           });
         }
@@ -2822,7 +2822,7 @@ export function RDProjectProposalDialog({
       });
       handleClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "提交失败，请重试");
+      toast.error(err instanceof Error ? err.message : t("提交失败，请重试"));
     } finally {
       setSubmitting(false);
     }
@@ -2854,7 +2854,7 @@ export function RDProjectProposalDialog({
       });
       handleClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "草稿保存失败");
+      toast.error(err instanceof Error ? err.message : t("草稿保存失败"));
     } finally {
       setSubmitting(false);
     }
@@ -2902,8 +2902,8 @@ export function RDProjectProposalDialog({
       });
 
       if (failed > 0) {
-        toast.warning(`立项完成，但 ${failed} 个任务创建失败`, {
-          description: "请到任务驾驶舱手动补录",
+        toast.warning(t("立项完成，但 {n} 个任务创建失败", { n: failed }), {
+          description: t("请到任务驾驶舱手动补录"),
         });
       } else {
         toast.success(t("立项已生效并自动分配"), {
@@ -2912,7 +2912,7 @@ export function RDProjectProposalDialog({
       }
       handleClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "立项失败，请重试");
+      toast.error(err instanceof Error ? err.message : t("立项失败，请重试"));
     } finally {
       setSubmitting(false);
     }
@@ -2934,9 +2934,9 @@ export function RDProjectProposalDialog({
               <Sparkles className="h-4 w-4" />
             </span>
             <div>
-              <h2 className="text-base font-semibold text-slate-900">AI 立项</h2>
+              <h2 className="text-base font-semibold text-slate-900">{t("AI 立项")}</h2>
               <p className="mt-0.5 text-xs text-slate-500">
-                第 {step} / 4 步 · {STEP_LABELS[step]}
+                {t("第 {step} / 4 步", { step })} · {STEP_LABELS[step]}
               </p>
             </div>
           </div>
@@ -2944,7 +2944,7 @@ export function RDProjectProposalDialog({
             onClick={handleClose}
             type="button"
             className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700"
-            aria-label="关闭"
+            aria-label={t("关闭")}
           >
             <X className="h-4 w-4" />
           </button>

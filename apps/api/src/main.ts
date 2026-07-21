@@ -14,9 +14,8 @@ const defaultCorsOrigins = [
 ];
 
 async function bootstrap() {
-  // 安全闸门：生产环境必须显式配置 JWT_SECRET。否则鉴权相关代码会回退到内置默认值
-  // 'change-me-jwt-secret'（见 auth.service / jwt.strategy / oss preview token），
-  // 任何知道该公开默认值的人都能伪造任意用户的登录令牌。宁可启动即失败，也不带病运行。
+  // 安全闸门：生产环境必须显式配置 JWT_SECRET；鉴权模块同样采用 fail-closed，
+  // 避免任何缺少密钥的部署进入可签发令牌的运行状态。
   if (process.env.NODE_ENV === 'production' && !process.env.JWT_SECRET?.trim()) {
     // eslint-disable-next-line no-console
     console.error(

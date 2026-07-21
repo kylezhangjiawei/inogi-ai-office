@@ -157,7 +157,7 @@ export function RegistrationProjects() {
   const selected = useMemo(() => filteredProjects.find((item) => item.id === selectedId) ?? filteredProjects[0] ?? projects[0], [filteredProjects, selectedId]);
 
   const staleWarning = selected.staleDays >= 14;
-  const missingDocs = selected.docs.filter((item) => item.status !== "宸叉湁");
+  const missingDocs = selected.docs.filter((item) => item.status !== "已有");
 
   return (
     <div className="mx-auto max-w-7xl space-y-6">

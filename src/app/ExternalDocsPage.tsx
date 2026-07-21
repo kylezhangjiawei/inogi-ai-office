@@ -12,7 +12,6 @@ import {
   Plus,
   Send,
   Sparkles,
-  Toggle,
   Upload,
 } from "lucide-react";
 import { toast } from "sonner";

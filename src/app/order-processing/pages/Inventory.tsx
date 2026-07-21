@@ -41,12 +41,14 @@ import {
   TableHeader,
   TableRow
 } from '../../components/ui/table';
+import { AutoTranslatedText } from '../../components/TranslatableText';
 import {
   orderProcessingApi,
   type InventoryDetailResponse,
   type InventoryItem,
   type InventoryResponse
 } from '../../lib/orderProcessingApi';
+import { useI18n } from '../../lib/i18n';
 const TIME_FILTERS = [
 {
   id: 'all',
@@ -99,6 +101,7 @@ function addDays(date: Date, days: number) {
 
 export function Inventory() {
   const navigate = useNavigate();
+  const { t } = useI18n();
   const stockInFileInputRef = useRef<HTMLInputElement | null>(null);
   const [inventoryData, setInventoryData] = useState<InventoryResponse | null>(null);
   const [detailData, setDetailData] = useState<InventoryDetailResponse | null>(null);
@@ -150,11 +153,11 @@ export function Inventory() {
       });
       setInventoryData(data);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '库存数据加载失败');
+      toast.error(error instanceof Error ? error.message : t('库存数据加载失败'));
     } finally {
       setLoading(false);
     }
-  }, [categoryFilter, customEndDate, customStartDate, inventoryPage, inventorySearch, statusFilter, timeFilter]);
+  }, [categoryFilter, customEndDate, customStartDate, inventoryPage, inventorySearch, statusFilter, t, timeFilter]);
 
   useEffect(() => {
     void loadInventory();
@@ -165,7 +168,7 @@ export function Inventory() {
       const data = await orderProcessingApi.getInventoryDetail(itemId);
       setDetailData(data);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '商品详情加载失败');
+      toast.error(error instanceof Error ? error.message : t('商品详情加载失败'));
     }
   };
 
@@ -174,9 +177,9 @@ export function Inventory() {
       const data = await orderProcessingApi.getInventory({ page: 1, pageSize: 10000 });
       setSkuOptions(data.inventory.items);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '商品选项加载失败');
+      toast.error(error instanceof Error ? error.message : t('商品选项加载失败'));
     }
-  }, []);
+  }, [t]);
 
   const openStockInModal = (item?: InventoryItem | null) => {
     if (item?.id) setStockInItems([{ id: item.id, qty: 1 }]);
@@ -244,7 +247,7 @@ export function Inventory() {
       setAiPhase('reviewed');
       toast.success(result.message);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'AI 识别失败');
+      toast.error(error instanceof Error ? error.message : t('AI 识别失败'));
       resetAi();
     }
   };
@@ -266,7 +269,7 @@ export function Inventory() {
       resetAi();
       await loadInventory();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '入库失败');
+      toast.error(error instanceof Error ? error.message : t('入库失败'));
     }
   };
   const exportInventory = async () => {
@@ -279,45 +282,45 @@ export function Inventory() {
         startDate: timeFilter === 'custom' ? customStartDate : undefined,
         endDate: timeFilter === 'custom' ? customEndDate : undefined
       });
-      toast.success('库存已导出');
+      toast.success(t('库存已导出'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '导出失败');
+      toast.error(error instanceof Error ? error.message : t('导出失败'));
     }
   };
   const adjustCurrentInventory = async () => {
     if (!detailItem) return;
-    const input = window.prompt('请输入调整后的库存数量', String(detailItem.stock));
+    const input = window.prompt(t('请输入调整后的库存数量'), String(detailItem.stock));
     if (input == null) return;
     const stock = Number(input);
     if (!Number.isFinite(stock) || stock < 0) {
-      toast.error('请输入有效库存数量');
+      toast.error(t('请输入有效库存数量'));
       return;
     }
     try {
       const data = await orderProcessingApi.adjustInventory(detailItem.id, { stock, operator: handler });
       setDetailData(data);
       await loadInventory();
-      toast.success('库存已调整');
+      toast.success(t('库存已调整'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '库存调整失败');
+      toast.error(error instanceof Error ? error.message : t('库存调整失败'));
     }
   };
   const stockOutCurrentItem = async () => {
     if (!detailItem) return;
-    const input = window.prompt('请输入出库数量', '1');
+    const input = window.prompt(t('请输入出库数量'), '1');
     if (input == null) return;
     const qty = Number(input);
     if (!Number.isFinite(qty) || qty <= 0) {
-      toast.error('请输入有效出库数量');
+      toast.error(t('请输入有效出库数量'));
       return;
     }
     try {
       const data = await orderProcessingApi.createStockOut(detailItem.id, { qty, operator: handler, note: '手工出库' });
       setDetailData(data);
       await loadInventory();
-      toast.success('出库已登记');
+      toast.success(t('出库已登记'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '出库失败');
+      toast.error(error instanceof Error ? error.message : t('出库失败'));
     }
   };
   const AiBadge = ({ fieldKey }: {fieldKey: string;}) => {
@@ -330,8 +333,8 @@ export function Inventory() {
   };
   const todayLabel = formatDateInput(new Date());
   const timeRangeText =
-    timeFilter === 'all' ? '显示全部库存数据' :
-    timeFilter === 'today' ? `${todayLabel} 当日变动` :
+    timeFilter === 'all' ? t('显示全部库存数据') :
+    timeFilter === 'today' ? `${todayLabel} ${t('当日变动')}` :
     timeFilter === 'week' ? `${formatDateInput(addDays(new Date(), -6))} ~ ${todayLabel}` :
     timeFilter === 'month' ? `${todayLabel.slice(0, 8)}01 ~ ${todayLabel}` :
     timeFilter === 'custom' ? `${customStartDate} ~ ${customEndDate}` :
@@ -358,7 +361,7 @@ export function Inventory() {
               <Layers className="w-6 h-6 text-blue-600" />
             </div>
             <div>
-              <p className="text-xs text-slate-500 mb-0.5">总SKU数量</p>
+              <p className="text-xs text-slate-500 mb-0.5">{t('总SKU数量')}</p>
               <p className="text-2xl font-bold text-slate-800">{inventorySummary.totalSku}</p>
             </div>
           </div>
@@ -367,7 +370,7 @@ export function Inventory() {
               <CheckCircle className="w-6 h-6 text-emerald-600" />
             </div>
             <div>
-              <p className="text-xs text-slate-500 mb-0.5">库存正常</p>
+              <p className="text-xs text-slate-500 mb-0.5">{t('库存正常')}</p>
               <p className="text-2xl font-bold text-slate-800">{inventorySummary.normal}</p>
             </div>
           </div>
@@ -376,7 +379,7 @@ export function Inventory() {
               <AlertTriangle className="w-6 h-6 text-amber-600" />
             </div>
             <div>
-              <p className="text-xs text-slate-500 mb-0.5">库存偏低</p>
+              <p className="text-xs text-slate-500 mb-0.5">{t('库存偏低')}</p>
               <p className="text-2xl font-bold text-slate-800">{inventorySummary.low}</p>
             </div>
           </div>
@@ -385,7 +388,7 @@ export function Inventory() {
               <AlertCircle className="w-6 h-6 text-rose-600" />
             </div>
             <div>
-              <p className="text-xs text-slate-500 mb-0.5">缺货状态</p>
+              <p className="text-xs text-slate-500 mb-0.5">{t('缺货状态')}</p>
               <p className="text-2xl font-bold text-slate-800">{inventorySummary.shortage}</p>
             </div>
           </div>
@@ -401,10 +404,10 @@ export function Inventory() {
                   onClick={() => navigate('/order-workbench')}
                   className="px-3 py-2 text-sm font-medium text-slate-600 bg-slate-100 rounded-full hover:bg-slate-200 transition-all flex items-center gap-1.5 whitespace-nowrap">
                   
-                  <ChevronLeft className="w-4 h-4" /> 返回工作台
+                  <ChevronLeft className="w-4 h-4" /> {t('返回工作台')}
                 </button>
                 <h2 className="font-semibold text-slate-800">
-                  库存清单
+                  {t('库存清单')}
                 </h2>
               </div>
               <div className="flex items-center gap-3 flex-wrap">
@@ -417,7 +420,7 @@ export function Inventory() {
                       setInventorySearch(event.target.value);
                       setInventoryPage(1);
                     }}
-                    placeholder="搜索商品编码/名称"
+                    placeholder={t('搜索商品编码/名称')}
                     className="w-full pl-10 pr-4 py-2 bg-slate-100 border-none rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all" />
                   
                 </div>
@@ -428,9 +431,9 @@ export function Inventory() {
                     setInventoryPage(1);
                   }}
                   className="py-2 px-4 bg-slate-100 border-none rounded-full text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all whitespace-nowrap">
-                  <option value="all">所有类目</option>
+                  <option value="all">{t('所有类目')}</option>
                   {categories.map((category) =>
-                  <option key={category} value={category}>{category}</option>
+                  <option key={category} value={category}>{t(category)}</option>
                   )}
                 </select>
                 <select
@@ -440,21 +443,21 @@ export function Inventory() {
                     setInventoryPage(1);
                   }}
                   className="py-2 px-4 bg-slate-100 border-none rounded-full text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all whitespace-nowrap">
-                  <option value="all">所有状态</option>
-                  <option value="正常">库存正常</option>
-                  <option value="偏低">库存偏低</option>
-                  <option value="缺货">缺货</option>
+                  <option value="all">{t('所有状态')}</option>
+                  <option value="正常">{t('库存正常')}</option>
+                  <option value="偏低">{t('库存偏低')}</option>
+                  <option value="缺货">{t('缺货')}</option>
                 </select>
                 <button
                   onClick={exportInventory}
                   className="px-4 py-2 text-sm font-medium text-blue-700 bg-blue-50 rounded-full hover:bg-blue-100 transition-all flex items-center gap-1.5 whitespace-nowrap">
-                  <Download className="w-4 h-4" /> 导出库存
+                  <Download className="w-4 h-4" /> {t('导出库存')}
                 </button>
                 <button
                   onClick={() => openStockInModal()}
                   className="px-5 py-2 text-sm font-medium text-white bg-gradient-primary rounded-full glow-blue transition-all flex items-center gap-1.5 whitespace-nowrap">
                   
-                  <Plus className="w-4 h-4" /> 入库登记
+                  <Plus className="w-4 h-4" /> {t('入库登记')}
                 </button>
               </div>
             </div>
@@ -462,7 +465,7 @@ export function Inventory() {
             {/* Time filter segmented control */}
             <div className="px-5 pt-4 pb-3 border-b border-slate-50 shrink-0 flex items-center gap-3">
               <span className="text-xs text-slate-500 flex items-center gap-1.5 shrink-0">
-                <Calendar className="w-3.5 h-3.5" /> 时间范围
+                <Calendar className="w-3.5 h-3.5" /> {t('时间范围')}
               </span>
               <div className="flex p-1 bg-slate-100/80 rounded-full">
                 {TIME_FILTERS.map((tf) =>
@@ -474,7 +477,7 @@ export function Inventory() {
                   }}
                   className={`px-3 py-1 text-xs rounded-full font-medium transition-all ${timeFilter === tf.id ? 'bg-blue-100 text-blue-700' : 'text-slate-500 hover:text-slate-700'}`}>
                   
-                    {tf.label}
+                    {t(tf.label)}
                   </button>
                 )}
               </div>
@@ -489,7 +492,7 @@ export function Inventory() {
                   }}
                   className="px-3 py-1.5 bg-slate-100 border-none rounded-full text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all" />
                 
-                  <span className="text-slate-400">至</span>
+                  <span className="text-slate-400">{t('至')}</span>
                   <input
                   type="date"
                   value={customEndDate}
@@ -509,24 +512,24 @@ export function Inventory() {
             <Table containerClassName="min-h-0 flex-1 overflow-auto" className="w-full text-sm text-left whitespace-nowrap">
                 <TableHeader className="text-xs text-slate-600 [&_th]:sticky [&_th]:top-0 [&_th]:z-30 [&_th]:bg-slate-50 [&_th]:shadow-[0_1px_0_rgba(148,163,184,0.25)]">
                   <TableRow>
-                    <TableHead className="px-5 py-3.5 font-medium">商品编码</TableHead>
-                    <TableHead className="px-5 py-3.5 font-medium">商品名称</TableHead>
-                    <TableHead className="px-5 py-3.5 font-medium">类目</TableHead>
-                    <TableHead className="px-5 py-3.5 font-medium">规格</TableHead>
+                    <TableHead className="px-5 py-3.5 font-medium">{t('商品编码')}</TableHead>
+                    <TableHead className="px-5 py-3.5 font-medium">{t('商品名称')}</TableHead>
+                    <TableHead className="px-5 py-3.5 font-medium">{t('类目')}</TableHead>
+                    <TableHead className="px-5 py-3.5 font-medium">{t('规格')}</TableHead>
                     <TableHead className="px-5 py-3.5 font-medium text-right">
-                      当前库存
+                      {t('当前库存')}
                     </TableHead>
                     <TableHead className="px-5 py-3.5 font-medium text-right">
-                      安全库存
+                      {t('安全库存')}
                     </TableHead>
                     <TableHead className="px-5 py-3.5 font-medium text-right">
-                      待入库
+                      {t('待入库')}
                     </TableHead>
                     <TableHead className="px-5 py-3.5 font-medium text-right">
-                      待出库
+                      {t('待出库')}
                     </TableHead>
-                    <TableHead className="px-5 py-3.5 font-medium">状态</TableHead>
-                    <TableHead className="px-5 py-3.5 font-medium text-right">操作</TableHead>
+                    <TableHead className="px-5 py-3.5 font-medium">{t('状态')}</TableHead>
+                    <TableHead className="px-5 py-3.5 font-medium text-right">{t('操作')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody className="divide-y divide-slate-50">
@@ -543,14 +546,14 @@ export function Inventory() {
                         onClick={() => void openDetail(item.id)}
                         className="text-left hover:text-blue-600 hover:underline transition-colors">
                         
-                          {item.name}
+                          <AutoTranslatedText text={item.name} />
                         </button>
                       </TableCell>
                       <TableCell className="px-5 py-3.5 text-slate-600">
-                        {item.category}
+                        <AutoTranslatedText text={item.category} />
                       </TableCell>
                       <TableCell className="px-5 py-3.5 text-slate-600">
-                        {item.spec}
+                        <AutoTranslatedText text={item.spec} />
                       </TableCell>
                       <TableCell
                       className={`px-5 py-3.5 text-right font-medium ${item.status === '缺货' ? 'text-rose-600' : item.status === '偏低' ? 'text-amber-600' : 'text-slate-800'}`}>
@@ -574,7 +577,7 @@ export function Inventory() {
                           ${item.status === '缺货' ? 'text-rose-700 bg-rose-50' : ''}
                         `}>
                         
-                          {item.status}
+                          {t(item.status)}
                         </span>
                       </TableCell>
                       <TableCell className="px-5 py-3.5 text-right">
@@ -583,13 +586,13 @@ export function Inventory() {
                           onClick={() => void openDetail(item.id)}
                           className="text-slate-500 hover:text-slate-800 font-medium text-xs px-2 py-1 rounded-full hover:bg-slate-100 transition-colors">
                           
-                            详情
+                            {t('详情')}
                           </button>
                           <button
                           onClick={() => openStockInModal(item)}
                           className="text-blue-700 bg-blue-50 px-3 py-1.5 rounded-full hover:bg-blue-100 font-medium text-xs transition-colors">
                           
-                            入库
+                            {t('入库')}
                           </button>
                         </div>
                       </TableCell>
@@ -600,8 +603,8 @@ export function Inventory() {
 
             <div className="p-4 pr-52 border-t border-slate-50 bg-white flex items-center justify-between shrink-0">
               <div className="text-xs text-slate-500 px-2">
-                显示 {inventoryItems.length > 0 ? ((inventoryMeta?.page ?? 1) - 1) * (inventoryMeta?.pageSize ?? 12) + 1 : 0}-
-                {((inventoryMeta?.page ?? 1) - 1) * (inventoryMeta?.pageSize ?? 12) + inventoryItems.length} / 共 {inventoryMeta?.total ?? 0} 条
+                {t('显示')} {inventoryItems.length > 0 ? ((inventoryMeta?.page ?? 1) - 1) * (inventoryMeta?.pageSize ?? 12) + 1 : 0}-
+                {((inventoryMeta?.page ?? 1) - 1) * (inventoryMeta?.pageSize ?? 12) + inventoryItems.length} / {t('共')} {inventoryMeta?.total ?? 0} {t('条')}
               </div>
               <div className="flex items-center gap-1 text-xs">
                 <button
@@ -646,7 +649,7 @@ export function Inventory() {
             <div className="bg-white rounded-3xl p-5 elevation-1">
               <h3 className="text-sm font-medium text-slate-800 mb-4 flex items-center gap-2">
                 <AlertTriangle className="w-4.5 h-4.5 text-amber-500" />{' '}
-                库存预警
+                {t('库存预警')}
               </h3>
               <div className="space-y-2">
                 {(inventoryData?.inventory.items ?? []).filter((i) => i.status !== '正常').
@@ -658,10 +661,10 @@ export function Inventory() {
                   
                       <div>
                         <div className="text-sm font-medium text-slate-800 truncate max-w-[140px]">
-                          {item.name}
+                          <AutoTranslatedText text={item.name} />
                         </div>
                         <div className="text-xs text-slate-500 mt-0.5">
-                          库存{' '}
+                          {t('库存')}{' '}
                           <span
                         className={
                         item.status === '缺货' ?
@@ -671,14 +674,14 @@ export function Inventory() {
                         
                             {item.stock}
                           </span>{' '}
-                          / 安全 {item.safe}
+                          / {t('安全')} {item.safe}
                         </div>
                       </div>
                       <button
                     onClick={() => openStockInModal(item)}
                     className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-xs font-medium opacity-0 group-hover:opacity-100 transition-opacity hover:bg-blue-100">
                     
-                        补货
+                        {t('补货')}
                       </button>
                     </div>
                 )}
@@ -688,7 +691,7 @@ export function Inventory() {
             {/* Timeline Card */}
             <div className="bg-white rounded-3xl p-5 elevation-1 flex-1">
               <h3 className="text-sm font-medium text-slate-800 mb-5 flex items-center gap-2">
-                <Clock className="w-4.5 h-4.5 text-blue-500" /> 最近变动
+                <Clock className="w-4.5 h-4.5 text-blue-500" /> {t('最近变动')}
               </h3>
               <div className="relative pl-3 border-l-2 border-slate-100 space-y-6 ml-2">
                 {recentMovements.map((move) =>
@@ -697,7 +700,7 @@ export function Inventory() {
                     className={`absolute -left-[17px] top-1 w-2.5 h-2.5 rounded-full border-2 border-white ${move.type === 'in' ? 'bg-emerald-500' : 'bg-rose-500'}`}>
                   </div>
                     <div className="text-sm text-slate-800 font-medium">
-                      {move.note}
+                      <AutoTranslatedText text={move.note} />
                     </div>
                     <div className="text-xs text-slate-400 mt-1">
                       {move.time}
@@ -725,10 +728,10 @@ export function Inventory() {
           
             <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white">
               <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                <Plus className="w-5 h-5 text-blue-500" /> 入库登记
+                <Plus className="w-5 h-5 text-blue-500" /> {t('入库登记')}
                 {aiPhase === 'reviewed' &&
               <span className="inline-flex items-center gap-1 px-2.5 py-0.5 bg-violet-50 text-violet-700 rounded-full text-xs font-medium border border-violet-100">
-                    <Sparkles className="w-3 h-3" /> AI 已识别 · 待人工审核
+                    <Sparkles className="w-3 h-3" /> {t('AI 已识别 · 待人工审核')}
                   </span>
               }
               </h2>
@@ -754,27 +757,26 @@ export function Inventory() {
                     </div>
                     <div className="flex-1">
                       <h3 className="text-sm font-semibold text-slate-800 mb-1">
-                        AI 智能识别
+                        {t('AI 智能识别')}
                       </h3>
                       <p className="text-xs text-slate-600 leading-relaxed mb-3">
-                        上传送货单、采购单、发票或包装清单等图片/PDF，AI
-                        将自动识别并预填入库信息，结果可人工审核后提交。
+                        {t('上传送货单、采购单、发票或包装清单等图片/PDF，AI 将自动识别并预填入库信息，结果可人工审核后提交。')}
                       </p>
                       <div className="flex items-center gap-2">
                         <button
                       onClick={() => stockInFileInputRef.current?.click()}
                       className="px-4 py-2 bg-gradient-to-br from-violet-500 to-blue-600 text-white rounded-full text-sm font-medium shadow-sm hover:shadow-md transition-all flex items-center gap-1.5">
                       
-                          <Upload className="w-4 h-4" /> 上传识别
+                          <Upload className="w-4 h-4" /> {t('上传识别')}
                         </button>
                         <button
                       onClick={() => stockInFileInputRef.current?.click()}
                       className="px-4 py-2 bg-white text-slate-700 rounded-full text-sm font-medium border border-slate-200 hover:bg-slate-50 transition-all flex items-center gap-1.5">
                       
-                          <ImageIcon className="w-4 h-4" /> 选择文件
+                          <ImageIcon className="w-4 h-4" /> {t('选择文件')}
                         </button>
                         <span className="text-xs text-slate-400 ml-1">
-                          支持 JPG · PNG · PDF
+                          {t('支持 JPG · PNG · PDF')}
                         </span>
                       </div>
                     </div>
@@ -791,13 +793,13 @@ export function Inventory() {
                     <div className="flex-1">
                       <h3 className="text-sm font-semibold text-slate-800">
                         {aiPhase === 'uploading' ?
-                    'AI 正在上传文件...' :
-                    'AI 正在分析单据内容...'}
+                    t('AI 正在上传文件...') :
+                    t('AI 正在分析单据内容...')}
                       </h3>
                       <p className="text-xs text-slate-500 mt-0.5">
                         {aiPhase === 'uploading' ?
-                    '准备识别引擎' :
-                    '提取供应商、商品、数量等字段'}
+                    t('准备识别引擎') :
+                    t('提取供应商、商品、数量等字段')}
                       </p>
                     </div>
                   </div>
@@ -815,7 +817,7 @@ export function Inventory() {
                         {aiPhase === 'analyzing' &&
                   <span className="inline-flex items-center gap-1 text-xs text-violet-600">
                             <ScanLine className="w-3 h-3 animate-pulse" />{' '}
-                            识别中
+                            {t('识别中')}
                           </span>
                   }
                       </div>
@@ -837,23 +839,23 @@ export function Inventory() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <h3 className="text-sm font-semibold text-violet-900">
-                        AI 识别完成
+                        {t('AI 识别完成')}
                       </h3>
                       <span className="text-xs text-violet-600 bg-white px-2 py-0.5 rounded-full border border-violet-100">
-                        置信度 96%
+                        {t('置信度 96%')}
                       </span>
                     </div>
                     <p className="text-xs text-violet-700/80 leading-relaxed">
-                      已从 {aiFiles.length} 个文件中识别出供应商、采购单号、
+                      {t('已从')} {aiFiles.length} {t('个文件中识别出供应商、采购单号、')}
                       {stockInItems.length}{' '}
-                      项商品及数量。请核对下方紫色标记的字段，确认无误后提交。
+                      {t('项商品及数量。请核对下方紫色标记的字段，确认无误后提交。')}
                     </p>
                   </div>
                   <button
                 onClick={resetAi}
                 className="px-3 py-1.5 text-xs font-medium text-violet-700 bg-white rounded-full border border-violet-200 hover:bg-violet-50 transition-all flex items-center gap-1 shrink-0">
                 
-                    <RotateCw className="w-3 h-3" /> 重新识别
+                    <RotateCw className="w-3 h-3" /> {t('重新识别')}
                   </button>
                 </div>
             }
@@ -861,16 +863,16 @@ export function Inventory() {
               {/* Stock-in Type */}
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-2 flex items-center gap-2">
-                  入库类型 <AiBadge fieldKey="type" />
+                  {t('入库类型')} <AiBadge fieldKey="type" />
                 </label>
                 <div className="flex gap-2 flex-wrap">
-                  {STOCK_IN_TYPES.map((t) =>
+                  {STOCK_IN_TYPES.map((stockType) =>
                 <button
-                  key={t.id}
-                  onClick={() => setStockInType(t.id)}
-                  className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${stockInType === t.id ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>
+                  key={stockType.id}
+                  onClick={() => setStockInType(stockType.id)}
+                  className={`px-4 py-2 rounded-full text-sm font-medium transition-all ${stockInType === stockType.id ? 'bg-blue-600 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>
                   
-                      {t.label}
+                      {t(stockType.label)}
                     </button>
                 )}
                 </div>
@@ -879,24 +881,24 @@ export function Inventory() {
               {/* Basic Info Card */}
               <div className="bg-white rounded-3xl p-5 elevation-1 space-y-4">
                 <h3 className="text-sm font-medium text-slate-800 flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-blue-500" /> 基本信息
+                  <FileText className="w-4 h-4 text-blue-500" /> {t('基本信息')}
                 </h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs text-slate-500 mb-1.5">
-                      入库单号
+                      {t('入库单号')}
                     </label>
 	                    <input
 	                    type="text"
 	                    value={stockInDocumentNo}
 	                    onChange={(event) => setStockInDocumentNo(event.target.value)}
-	                    placeholder="如 IN-20260601-001"
+	                    placeholder={t('如 IN-20260601-001')}
 	                    className="w-full px-4 py-2 bg-slate-100 border-none rounded-full text-sm font-mono focus:ring-2 focus:ring-blue-500/20 focus:bg-white outline-none transition-all" />
                   
                   </div>
                   <div>
                     <label className="text-xs text-slate-500 mb-1.5 flex items-center gap-1.5">
-                      入库日期 <AiBadge fieldKey="date" />
+                      {t('入库日期')} <AiBadge fieldKey="date" />
                     </label>
 	                    <input
 	                    type="date"
@@ -909,7 +911,7 @@ export function Inventory() {
                 <>
                       <div>
                         <label className="text-xs text-slate-500 mb-1.5 flex items-center gap-1.5">
-                          <Truck className="w-3 h-3" /> 供应商{' '}
+                          <Truck className="w-3 h-3" /> {t('供应商')}{' '}
                           <AiBadge fieldKey="supplier" />
                         </label>
                         <select
@@ -917,20 +919,20 @@ export function Inventory() {
                       onChange={(e) => setSupplier(e.target.value)}
                       className={`w-full px-4 py-2 border-none rounded-full text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all ${aiFields.has('supplier') ? 'bg-violet-50/60 ring-1 ring-violet-100' : 'bg-slate-100'}`}>
                       
-                          <option>深圳市恒丰电子有限公司</option>
-                          <option>东莞市嘉鸿科技有限公司</option>
-                          <option>上海星诚贸易有限公司</option>
+                          <option value="深圳市恒丰电子有限公司">{t('深圳市恒丰电子有限公司')}</option>
+                          <option value="东莞市嘉鸿科技有限公司">{t('东莞市嘉鸿科技有限公司')}</option>
+                          <option value="上海星诚贸易有限公司">{t('上海星诚贸易有限公司')}</option>
                         </select>
                       </div>
                       <div>
                         <label className="text-xs text-slate-500 mb-1.5 flex items-center gap-1.5">
-                          关联采购单 <AiBadge fieldKey="po" />
+                          {t('关联采购单')} <AiBadge fieldKey="po" />
                         </label>
                         <input
                       type="text"
                       value={poNumber}
                       onChange={(e) => setPoNumber(e.target.value)}
-                      placeholder="可选, 如 PO-20260520-03"
+                      placeholder={t('可选, 如 PO-20260520-03')}
                       className={`w-full px-4 py-2 border-none rounded-full text-sm font-mono focus:ring-2 focus:ring-blue-500/20 focus:bg-white outline-none transition-all ${aiFields.has('po') ? 'bg-violet-50/60 ring-1 ring-violet-100' : 'bg-slate-100'}`} />
                     
                       </div>
@@ -938,7 +940,7 @@ export function Inventory() {
                 }
                   <div>
                     <label className="text-xs text-slate-500 mb-1.5 flex items-center gap-1.5">
-                      <User className="w-3 h-3" /> 经办人{' '}
+                      <User className="w-3 h-3" /> {t('经办人')}{' '}
                       <AiBadge fieldKey="handler" />
                     </label>
                     <input
@@ -950,15 +952,15 @@ export function Inventory() {
                   </div>
                   <div>
                     <label className="block text-xs text-slate-500 mb-1.5">
-                      入库仓库
+                      {t('入库仓库')}
                     </label>
 	                    <select
 	                    value={warehouse}
 	                    onChange={(event) => setWarehouse(event.target.value)}
 	                    className="w-full px-4 py-2 bg-slate-100 border-none rounded-full text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all">
-                      <option>主仓 - 上海</option>
-                      <option>分仓 - 深圳</option>
-                      <option>分仓 - 杭州</option>
+                      <option value="主仓 - 上海">{t('主仓 - 上海')}</option>
+                      <option value="分仓 - 深圳">{t('分仓 - 深圳')}</option>
+                      <option value="分仓 - 杭州">{t('分仓 - 杭州')}</option>
                     </select>
                   </div>
                 </div>
@@ -968,10 +970,10 @@ export function Inventory() {
               <div className="bg-white rounded-3xl p-5 elevation-1">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-sm font-medium text-slate-800 flex items-center gap-2">
-                    <Package className="w-4 h-4 text-blue-500" /> 入库商品
+                    <Package className="w-4 h-4 text-blue-500" /> {t('入库商品')}
                   </h3>
                   <span className="text-xs text-slate-500">
-                    共 {stockInItems.length} 项
+                    {t('共')} {stockInItems.length} {t('项')}
                   </span>
                 </div>
                 <div className="space-y-2">
@@ -993,7 +995,7 @@ export function Inventory() {
                     }
                     className="flex-1 px-3 py-1.5 bg-white border-none rounded-full text-sm text-slate-700 outline-none focus:ring-2 focus:ring-blue-500/20 transition-all">
                     
-                        <option value="">选择商品...</option>
+                        <option value="">{t('选择商品...')}</option>
 	                        {(skuOptions.length > 0 ? skuOptions : inventoryData?.inventory.items ?? []).map((p) =>
                     <option key={p.id} value={p.id}>
                             {p.id} · {p.name} ({p.spec})
@@ -1002,7 +1004,7 @@ export function Inventory() {
                       </select>
                       <input
                     type="number"
-                    placeholder="数量"
+                    placeholder={t('数量')}
                     value={row.qty || ''}
                     onChange={(e) =>
                     updateStockInRow(
@@ -1027,20 +1029,20 @@ export function Inventory() {
                 onClick={addStockInRow}
                 className="mt-3 text-sm text-blue-700 bg-blue-50 px-4 py-2 rounded-full font-medium flex items-center gap-1.5 hover:bg-blue-100 transition-colors">
                 
-                  <Plus className="w-4 h-4" /> 添加商品
+                  <Plus className="w-4 h-4" /> {t('添加商品')}
                 </button>
               </div>
 
               {/* Remarks */}
               <div>
                 <label className="block text-xs font-medium text-slate-600 mb-2">
-                  备注 <span className="text-slate-400">(可选)</span>
+                  {t('备注')} <span className="text-slate-400">{t('(可选)')}</span>
                 </label>
 	                <textarea
 	                rows={3}
 	                value={stockInRemark}
 	                onChange={(event) => setStockInRemark(event.target.value)}
-	                placeholder="可填写来源、批次、质检情况等..."
+	                placeholder={t('可填写来源、批次、质检情况等...')}
                 className="w-full px-4 py-3 bg-white border border-slate-200 rounded-2xl text-sm focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400 outline-none transition-all resize-none" />
               
               </div>
@@ -1048,14 +1050,14 @@ export function Inventory() {
 
             <div className="px-6 py-4 border-t border-slate-100 bg-white flex items-center justify-between">
               <div className="text-xs text-slate-500 flex items-center gap-2">
-                合计入库{' '}
+                {t('合计入库')}{' '}
                 <span className="font-semibold text-blue-700">
                   {stockInItems.reduce((s, r) => s + (r.qty || 0), 0)}
                 </span>{' '}
-                件
+                {t('件')}
                 {aiPhase === 'reviewed' &&
               <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-violet-50 text-violet-600 rounded-full text-[10px] font-medium border border-violet-100 ml-1">
-                    <Sparkles className="w-2.5 h-2.5" /> AI 预填，待您确认
+                    <Sparkles className="w-2.5 h-2.5" /> {t('AI 预填，待您确认')}
                   </span>
               }
               </div>
@@ -1067,13 +1069,13 @@ export function Inventory() {
                 }}
                 className="px-5 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-full hover:bg-slate-200 transition-all">
                 
-                  取消
+                  {t('取消')}
                 </button>
                 <button
                 onClick={() => void submitStockIn()}
                 className="px-6 py-2 text-sm font-medium text-white bg-gradient-primary rounded-full glow-blue transition-all flex items-center gap-1.5">
                 
-                  <CheckCircle className="w-4 h-4" /> 确认入库
+                  <CheckCircle className="w-4 h-4" /> {t('确认入库')}
                 </button>
               </div>
             </div>
@@ -1100,7 +1102,7 @@ export function Inventory() {
                 <div>
                   <div className="flex items-center gap-2">
                     <h2 className="text-lg font-semibold text-slate-800">
-                      {detailItem.name}
+                      <AutoTranslatedText text={detailItem.name} />
                     </h2>
                     <span
                     className={`inline-flex px-2.5 py-0.5 rounded-full text-xs font-medium
@@ -1108,11 +1110,11 @@ export function Inventory() {
                       ${detailItem.status === '偏低' ? 'text-amber-700 bg-amber-50' : ''}
                       ${detailItem.status === '缺货' ? 'text-rose-700 bg-rose-50' : ''}`}>
                     
-                      {detailItem.status}
+                      {t(detailItem.status)}
                     </span>
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5 font-mono">
-                    SKU: {detailItem.id} · 条码: 690
+                    SKU: {detailItem.id} · {t('条码')}: 690
                     {detailItem.id.replace(/[^0-9]/g, '').padStart(10, '0')}
                   </p>
                 </div>
@@ -1121,7 +1123,7 @@ export function Inventory() {
                 <button
                   onClick={adjustCurrentInventory}
                   className="px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 rounded-full hover:bg-slate-200 transition-all flex items-center gap-1.5">
-                  <Edit3 className="w-3.5 h-3.5" /> 编辑
+                  <Edit3 className="w-3.5 h-3.5" /> {t('编辑')}
                 </button>
                 <button
                 onClick={() => setDetailData(null)}
@@ -1137,7 +1139,7 @@ export function Inventory() {
               <div className="grid grid-cols-4 gap-4">
                 <div className="bg-white rounded-2xl p-4 elevation-1">
                   <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-1.5">
-                    <BarChart3 className="w-3.5 h-3.5" /> 当前库存
+                    <BarChart3 className="w-3.5 h-3.5" /> {t('当前库存')}
                   </div>
                   <div
                   className={`text-2xl font-bold ${detailItem.status === '缺货' ? 'text-rose-600' : detailItem.status === '偏低' ? 'text-amber-600' : 'text-slate-800'}`}>
@@ -1145,42 +1147,42 @@ export function Inventory() {
                     {detailItem.stock}
                   </div>
                   <div className="text-[10px] text-slate-400 mt-0.5">
-                    安全库存 {detailItem.safe}
+                    {t('安全库存')} {detailItem.safe}
                   </div>
                 </div>
                 <div className="bg-white rounded-2xl p-4 elevation-1">
                   <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-1.5">
                     <TrendingUp className="w-3.5 h-3.5 text-emerald-500" />{' '}
-                    待入库
+                    {t('待入库')}
                   </div>
                   <div className="text-2xl font-bold text-emerald-600">
                     {detailItem.in > 0 ? `+${detailItem.in}` : '0'}
                   </div>
                   <div className="text-[10px] text-slate-400 mt-0.5">
-                    采购单待入库
+                    {t('采购单待入库')}
                   </div>
                 </div>
                 <div className="bg-white rounded-2xl p-4 elevation-1">
                   <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-1.5">
                     <ShoppingCart className="w-3.5 h-3.5 text-blue-500" />{' '}
-                    待出库
+                    {t('待出库')}
                   </div>
                   <div className="text-2xl font-bold text-blue-600">
                     {detailItem.out > 0 ? `-${detailItem.out}` : '0'}
                   </div>
                   <div className="text-[10px] text-slate-400 mt-0.5">
-                    订单已占用
+                    {t('订单已占用')}
                   </div>
                 </div>
                 <div className="bg-white rounded-2xl p-4 elevation-1">
                   <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-1.5">
-                    <Layers className="w-3.5 h-3.5 text-indigo-500" /> 可用库存
+                    <Layers className="w-3.5 h-3.5 text-indigo-500" /> {t('可用库存')}
                   </div>
                   <div className="text-2xl font-bold text-slate-800">
                     {detailItem.stock - detailItem.out + detailItem.in}
                   </div>
                   <div className="text-[10px] text-slate-400 mt-0.5">
-                    含待入库
+                    {t('含待入库')}
                   </div>
                 </div>
               </div>
@@ -1189,10 +1191,10 @@ export function Inventory() {
               <div className="bg-white rounded-2xl p-4 elevation-1">
                 <div className="flex items-center justify-between mb-3">
                   <h3 className="text-sm font-medium text-slate-800">
-                    库存健康度
+                    {t('库存健康度')}
                   </h3>
                   <span className="text-xs text-slate-500">
-                    占安全库存{' '}
+                    {t('占安全库存')}{' '}
                     {Math.round(detailItem.stock / detailItem.safe * 100)}%
                   </span>
                 </div>
@@ -1214,7 +1216,7 @@ export function Inventory() {
                 </div>
                 <div className="flex justify-between text-[10px] text-slate-400 mt-1.5">
                   <span>0</span>
-                  <span>安全库存 {detailItem.safe}</span>
+                  <span>{t('安全库存')} {detailItem.safe}</span>
                 </div>
               </div>
 
@@ -1223,43 +1225,43 @@ export function Inventory() {
                 {/* Basic Info */}
                 <div className="bg-white rounded-2xl p-5 elevation-1">
                   <h3 className="text-sm font-medium text-slate-800 mb-4 flex items-center gap-2">
-                    <Tag className="w-4 h-4 text-blue-500" /> 基本信息
+                    <Tag className="w-4 h-4 text-blue-500" /> {t('基本信息')}
                   </h3>
                   <div className="space-y-2.5 text-sm">
                     <div className="flex justify-between gap-2">
-                      <span className="text-slate-500">商品类目</span>
+                      <span className="text-slate-500">{t('商品类目')}</span>
                       <span className="text-slate-800">
-                        {detailItem.category}
+                        <AutoTranslatedText text={detailItem.category} />
                       </span>
                     </div>
                     <div className="flex justify-between gap-2">
-                      <span className="text-slate-500">规格</span>
-                      <span className="text-slate-800">{detailItem.spec}</span>
+                      <span className="text-slate-500">{t('规格')}</span>
+                      <span className="text-slate-800"><AutoTranslatedText text={detailItem.spec} /></span>
                     </div>
                     <div className="flex justify-between gap-2">
-                      <span className="text-slate-500">计量单位</span>
-                      <span className="text-slate-800">个</span>
+                      <span className="text-slate-500">{t('计量单位')}</span>
+                      <span className="text-slate-800">{t('个')}</span>
                     </div>
                     <div className="flex justify-between gap-2">
-                      <span className="text-slate-500">默认供应商</span>
+                      <span className="text-slate-500">{t('默认供应商')}</span>
                       <span
                       className="text-slate-800 truncate max-w-[180px]"
                       title="深圳市恒丰电子有限公司">
                       
-                        深圳市恒丰电子
+                        {t('深圳市恒丰电子')}
                       </span>
                     </div>
                     <div className="flex justify-between gap-2">
                       <span className="text-slate-500 flex items-center gap-1">
                         <MapPin className="w-3 h-3" />
-                        存放位置
+                        {t('存放位置')}
                       </span>
                       <span className="text-slate-800 font-mono">
-                        A区-3排-{detailItem.id.slice(-2)}
+                        {t('A区-3排-')}{detailItem.id.slice(-2)}
                       </span>
                     </div>
                     <div className="flex justify-between gap-2">
-                      <span className="text-slate-500">采购成本</span>
+                      <span className="text-slate-500">{t('采购成本')}</span>
                       <span className="text-slate-800 font-medium">
                         ¥
                         {(
@@ -1270,7 +1272,7 @@ export function Inventory() {
                       </span>
                     </div>
                     <div className="flex justify-between gap-2">
-                      <span className="text-slate-500">销售单价</span>
+                      <span className="text-slate-500">{t('销售单价')}</span>
                       <span className="text-blue-700 font-medium">
                         ¥
                         {(
@@ -1286,7 +1288,7 @@ export function Inventory() {
                 {/* Related Orders */}
                 <div className="bg-white rounded-2xl p-5 elevation-1">
                   <h3 className="text-sm font-medium text-slate-800 mb-4 flex items-center gap-2">
-                    <ShoppingCart className="w-4 h-4 text-blue-500" /> 关联订单
+                    <ShoppingCart className="w-4 h-4 text-blue-500" /> {t('关联订单')}
                   </h3>
                   <div className="space-y-2">
                     {(() => {
@@ -1294,7 +1296,7 @@ export function Inventory() {
                     if (relatedOrders.length === 0) {
                       return (
                         <div className="text-xs text-slate-400 text-center py-6">
-                            暂无关联订单
+                            {t('暂无关联订单')}
                           </div>);
 
                     }
@@ -1310,7 +1312,7 @@ export function Inventory() {
                                 {o.orderId}
                               </div>
                               <div className="text-xs text-slate-500 truncate mt-0.5">
-                                {o.customer}
+                                <AutoTranslatedText text={o.customer} />
                               </div>
                             </div>
                             <div className="text-right shrink-0 ml-3">
@@ -1332,12 +1334,12 @@ export function Inventory() {
               <div className="bg-white rounded-2xl p-5 elevation-1">
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-sm font-medium text-slate-800 flex items-center gap-2">
-                    <History className="w-4 h-4 text-blue-500" /> 出入库记录
+                    <History className="w-4 h-4 text-blue-500" /> {t('出入库记录')}
                   </h3>
                   <button
-                    onClick={() => toast.info('当前已显示最近出入库记录')}
+                    onClick={() => toast.info(t('当前已显示最近出入库记录'))}
                     className="text-xs text-blue-600 hover:bg-blue-50 px-2 py-1 rounded-full transition-colors flex items-center gap-1">
-                    查看全部 <ArrowRight className="w-3 h-3" />
+                    {t('查看全部')} <ArrowRight className="w-3 h-3" />
                   </button>
                 </div>
                 <div className="space-y-2">
@@ -1350,7 +1352,7 @@ export function Inventory() {
                       <div
                     className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${m.type === 'in' ? 'bg-emerald-50 text-emerald-600' : m.type === 'out' ? 'bg-rose-50 text-rose-600' : 'bg-slate-100 text-slate-600'}`}>
                     
-                        {m.type === 'in' ? '入' : m.type === 'out' ? '出' : '调'}
+                        {m.type === 'in' ? t('入') : m.type === 'out' ? t('出') : t('调')}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
@@ -1361,11 +1363,11 @@ export function Inventory() {
                             {m.qty}
                           </span>
                           <span className="text-xs text-slate-600 truncate">
-                            {m.note}
+                            <AutoTranslatedText text={m.note} />
                           </span>
                         </div>
                         <div className="text-[10px] text-slate-400 mt-0.5">
-                          {m.time} · 经办人 {m.operator}
+                          {m.time} · {t('经办人')} {m.operator}
                         </div>
                       </div>
                     </div>
@@ -1377,18 +1379,18 @@ export function Inventory() {
             {/* Footer Actions */}
             <div className="px-6 py-4 border-t border-slate-100 bg-white flex items-center justify-between">
               <div className="text-xs text-slate-500">
-                最后更新: {detailData?.movements[0]?.time ?? '-'}
+                {t('最后更新')}: {detailData?.movements[0]?.time ?? '-'}
               </div>
               <div className="flex items-center gap-2">
                 <button
                   onClick={adjustCurrentInventory}
                   className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-full hover:bg-slate-200 transition-all">
-                  调整库存
+                  {t('调整库存')}
                 </button>
                 <button
                   onClick={stockOutCurrentItem}
                   className="px-4 py-2 text-sm font-medium text-rose-700 bg-rose-50 rounded-full hover:bg-rose-100 transition-all flex items-center gap-1.5">
-                  <ArrowRight className="w-4 h-4 rotate-180" /> 出库登记
+                  <ArrowRight className="w-4 h-4 rotate-180" /> {t('出库登记')}
                 </button>
                 <button
                 onClick={() => {
@@ -1397,7 +1399,7 @@ export function Inventory() {
                 }}
                 className="px-5 py-2 text-sm font-medium text-white bg-gradient-primary rounded-full glow-blue transition-all flex items-center gap-1.5">
                 
-                  <Plus className="w-4 h-4" /> 入库登记
+                  <Plus className="w-4 h-4" /> {t('入库登记')}
                 </button>
               </div>
             </div>

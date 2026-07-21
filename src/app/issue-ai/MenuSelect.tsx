@@ -11,6 +11,7 @@ import * as React from "react";
 import { Check, ChevronDown } from "lucide-react";
 
 import { cn } from "../components/ui/utils";
+import { t } from "../lib/i18n";
 
 const ALL = "__all__";
 
@@ -129,7 +130,7 @@ export function MenuSelect<T extends string>({
           triggerClassName,
         )}
       >
-        <span className="truncate">{display}</span>
+        <span className="truncate">{t(display)}</span>
         <ChevronDown className={cn("size-3.5 shrink-0 opacity-60 transition-transform", open && "rotate-180")} />
       </button>
       {open ? (
@@ -162,7 +163,7 @@ export function MenuSelect<T extends string>({
                 {isSel ? (
                   <Check className="absolute left-2 size-3.5 text-indigo-600 dark:text-indigo-400" />
                 ) : null}
-                {it.label}
+                {t(it.label)}
               </button>
             );
           })}

@@ -5,29 +5,63 @@
  * 与之不同的是配图用真实截图而非手绘示意：图由 apps/api/scripts/shoot-manual-screens.mjs
  * 对着真实页面 + 演示数据自动生成，UI 改版后重跑脚本即可刷新。
  *
- * 图上的红色编号圆点由截图脚本叠加，与本文件 points[] 的序号一一对应——
- * 改图上的编号必须同步改这里的条目顺序（截图脚本里是 marks / relMarks）。
+ * 图上的红色编号圆点与本文件 points[] 的序号一一对应：中文图由截图脚本烘焙，
+ * 英文图由本页按 EN_SHOT_MARKERS 响应式覆盖；调整序号或坐标时需同步维护。
  *
- * 当前只有中文，原因见下方 t 的注释。
+ * 正文和截图均随全站语言切换。
  */
 import React from "react";
 import { ArrowLeft, BookOpen, GanttChartSquare, LayoutGrid } from "lucide-react";
 import { Link, Navigate, useParams } from "react-router";
 import { cn } from "./components/ui/utils";
-/**
- * ⚠️ 本页暂时锁定中文，不跟随全站语言切换。
- *
- * 原因：手册内容仍在打磨，现在做英文会一边翻一边废；而只翻一半会让英文用户看到
- * 中英夹生的页面，比全中文更糟。故把 t 换成恒等函数——即便字典里有词条也不会生效，
- * 不依赖字典状态，行为是确定的。
- *
- * 内容定稿后恢复英文，只需三步：
- *   1. 这里改回 `import { currentI18nLang, t, useI18n } from "./lib/i18n";`
- *   2. 下面的 shotLang() 改回 shotLang()，并在两个组件里调回 useI18n() 订阅语言切换
- *   3. 往 apps/api/scripts/seed-i18n-en.mjs 补词条 + 把截图脚本的 LANGS 改回 ["zh", "en"]
- */
-const t = (zhText: string) => zhText;
-const shotLang = () => "zh";
+import { t, useI18n, type I18nLang } from "./lib/i18n";
+
+type ShotMarker = { n: number; x: number; y: number };
+
+// 英文图由 1280×720 的真实界面录制；编号用百分比覆盖，响应式缩放时仍能对准。
+// 中文历史图已经把编号烘焙进图片，因此仅英文态渲染这些覆盖层。
+const EN_SHOT_MARKERS: Record<string, ShotMarker[]> = {
+  "cockpit-overview": [
+    { n: 1, x: 78.1, y: 17.8 }, { n: 2, x: 25.2, y: 28.5 },
+    { n: 3, x: 25.2, y: 45.1 }, { n: 4, x: 25.2, y: 56.3 },
+    { n: 5, x: 25.2, y: 70.1 },
+  ],
+  "workspace-overview": [
+    { n: 1, x: 27.3, y: 20.1 }, { n: 2, x: 27.3, y: 30.6 },
+    { n: 3, x: 27.3, y: 39.6 }, { n: 4, x: 27.3, y: 74.3 },
+    { n: 5, x: 84.4, y: 20.1 },
+  ],
+  "kb-overview": [
+    { n: 1, x: 27.3, y: 19.7 }, { n: 2, x: 84.4, y: 25 },
+    { n: 3, x: 71.5, y: 25 }, { n: 4, x: 27.3, y: 36.1 },
+    { n: 5, x: 62.5, y: 69.4 },
+  ],
+  "workspace-progress": [
+    { n: 1, x: 48.6, y: 13.3 }, { n: 2, x: 48.6, y: 20.8 },
+    { n: 3, x: 48.6, y: 46.7 }, { n: 4, x: 48.6, y: 60.3 },
+    { n: 5, x: 48.6, y: 75.8 }, { n: 6, x: 81.4, y: 86.9 },
+  ],
+  "cockpit-kickoff": [
+    { n: 1, x: 53.4, y: 15.6 }, { n: 2, x: 24.7, y: 25.6 },
+    { n: 3, x: 24.7, y: 43.3 }, { n: 4, x: 24.7, y: 61.9 },
+  ],
+  "cockpit-reassign": [
+    { n: 1, x: 30.9, y: 14.2 }, { n: 2, x: 30.9, y: 25 },
+    { n: 3, x: 60.2, y: 68 }, { n: 4, x: 59.4, y: 96 },
+  ],
+  "kb-upload": [
+    { n: 1, x: 49.5, y: 29.5 }, { n: 2, x: 49.5, y: 50.4 },
+    { n: 3, x: 49.5, y: 63.8 }, { n: 4, x: 66.7, y: 92.3 },
+  ],
+  "kb-member-levels": [
+    { n: 1, x: 30.9, y: 16.7 }, { n: 2, x: 30.9, y: 25.6 },
+    { n: 3, x: 60.2, y: 34.4 },
+  ],
+};
+
+function manualShotSrc(shot: string, lang: I18nLang): string {
+  return `/manual-shots/${shot}-${lang}.${lang === "en" ? "jpg" : "png"}`;
+}
 
 type ManualPoint = {
   /** 与截图上红色圆点的编号对应 */
@@ -64,7 +98,7 @@ type ManualDeepDive = {
   title: string;
   /** 怎么打开这个界面 */
   entry: string;
-  /** public/manual-shots/{shot}-{lang}.png */
+  /** public/manual-shots/{shot}-{lang}.{png|jpg} */
   shot: string;
   points: ManualPoint[];
   note?: string;
@@ -76,9 +110,9 @@ type ManualTopic = {
   navLabel: string;
   title: string;
   summary: string;
-  /** public/manual-shots/{shot}-{lang}.png */
+  /** public/manual-shots/{shot}-{lang}.{png|jpg} */
   shot: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string; strokeWidth?: string | number }>;
   gradient: string;
   shadow: string;
   accent: string;
@@ -572,6 +606,18 @@ const TOPICS: ManualTopic[] = [
     ],
     deepDives: [
       {
+        title: "上传文件弹窗",
+        entry: "工具栏点「上传文件」，或把文件直接拖到知识库页面。",
+        shot: "kb-upload",
+        points: [
+          { n: 1, title: "选择文件", body: "点击虚线区域选择文件，或把一个或多个文件拖进来。选中文件后，这里会变成上传队列，并显示每个文件的名称和大小。" },
+          { n: 2, title: "知识库分类", body: "分类是必填项。系统可能根据文件名和内容给出 AI 推荐，但上传前仍应确认资料放到了正确的知识域。" },
+          { n: 3, title: "访问权限分值", body: "管理员可设置 0~100；成员分值必须不低于该值才能看到文件。普通成员上传时固定为 0，即完全公开。" },
+          { n: 4, title: "确认上传", body: "按钮会在已选择文件且分类有效后可用。多个文件会共用本弹窗里的分类、描述、标签和权限分值。" },
+        ],
+        note: "上传前特别检查权限分值。文件一旦上传，虽然可以再编辑标题和权限，但无法在原记录上替换文件内容。",
+      },
+      {
         title: "成员权限分值弹窗（管理员）",
         entry: "工具栏点「成员权限」。只有库管理员看得到这个按钮。",
         shot: "kb-member-levels",
@@ -662,6 +708,26 @@ function SectionHeading({ title, desc }: { title: string; desc?: string }) {
   );
 }
 
+function ManualShotImage({ shot, lang, alt }: { shot: string; lang: I18nLang; alt: string }) {
+  const markers = lang === "en" ? (EN_SHOT_MARKERS[shot] ?? []) : [];
+  return (
+    <span className="relative block">
+      <img src={manualShotSrc(shot, lang)} alt={alt} className="block h-auto w-full cursor-zoom-in" loading="lazy" />
+      {markers.map((marker) => (
+        <span
+          key={marker.n}
+          data-manual-marker={marker.n}
+          aria-hidden
+          className="pointer-events-none absolute flex h-6 w-6 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-white bg-rose-600 text-xs font-bold text-white shadow-[0_2px_8px_rgba(0,0,0,0.35)]"
+          style={{ left: `${marker.x}%`, top: `${marker.y}%` }}
+        >
+          {marker.n}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 function TopicIndexCard({ topic }: { topic: ManualTopic }) {
   const Icon = topic.icon;
   return (
@@ -689,6 +755,7 @@ function TopicIndexCard({ topic }: { topic: ManualTopic }) {
 }
 
 export function ManualPage() {
+  useI18n();
   return (
     <div className="mx-auto max-w-[1680px] space-y-5 sm:space-y-7">
       <section className="rounded-sm border border-slate-200/70 bg-white px-4 py-4 shadow-[0_1px_2px_rgba(15,23,42,0.04),0_12px_28px_-12px_rgba(15,23,42,0.10)] sm:px-5 sm:py-5">
@@ -715,12 +782,13 @@ export function ManualPage() {
 }
 
 export function ManualTopicPage() {
+  const { lang } = useI18n();
   const { topicId } = useParams();
   const topic = TOPICS.find((item) => item.id === topicId);
 
   if (!topic) return <Navigate to="/manual" replace />;
 
-  const shotSrc = `/manual-shots/${topic.shot}-${shotLang()}.png`;
+  const shotSrc = manualShotSrc(topic.shot, lang);
 
   return (
     <div className="mx-auto max-w-[1680px] overflow-hidden rounded-sm bg-white shadow-[0_12px_28px_rgba(15,23,42,0.06)]">
@@ -786,12 +854,7 @@ export function ManualTopicPage() {
             rel="noreferrer"
             className="block overflow-hidden rounded border border-slate-200 bg-slate-50 transition hover:border-indigo-300"
           >
-            <img
-              src={shotSrc}
-              alt={t(topic.title)}
-              className="block h-auto w-full cursor-zoom-in"
-              loading="lazy"
-            />
+            <ManualShotImage shot={topic.shot} lang={lang} alt={t(topic.title)} />
           </a>
           <figcaption className="text-xs text-slate-400">{t("点击图片查看大图")}</figcaption>
         </figure>
@@ -849,12 +912,12 @@ export function ManualTopicPage() {
                 <p className="mt-1 text-xs leading-5 text-slate-500">{t("打开方式")}：{t(dive.entry)}</p>
                 <div className="mt-3 grid gap-4 lg:grid-cols-[minmax(0,420px)_minmax(0,1fr)] lg:items-start">
                   <a
-                    href={`/manual-shots/${dive.shot}-${shotLang()}.png`}
+                    href={manualShotSrc(dive.shot, lang)}
                     target="_blank"
                     rel="noreferrer"
                     className="block overflow-hidden rounded border border-slate-200 bg-slate-50 transition hover:border-indigo-300"
                   >
-                    <img src={`/manual-shots/${dive.shot}-${shotLang()}.png`} alt={t(dive.title)} className="block h-auto w-full cursor-zoom-in" loading="lazy" />
+                    <ManualShotImage shot={dive.shot} lang={lang} alt={t(dive.title)} />
                   </a>
                   <ol className="grid gap-2">
                     {dive.points.map((point) => (

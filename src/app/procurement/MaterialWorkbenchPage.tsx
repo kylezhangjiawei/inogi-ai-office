@@ -3,6 +3,8 @@ import { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { Boxes, ClipboardCheck, FolderTree, PackageCheck, RefreshCw, Search, Truck, Upload } from "lucide-react";
 import { cn } from "../components/ui/utils";
+import { AutoTranslatedText } from "../components/TranslatableText";
+import { useI18n } from "../lib/i18n";
 import { MATERIALS, PROCUREMENT_TASKS, PROC_PRODUCT_LINES, daysFromDemoToday, materialAggregates, type Material, type ProcStatus } from "../../mock/procurement";
 import { PageHeader, StatCell, stageToast } from "./components/common";
 import { MaterialCard } from "./components/MaterialCard";
@@ -14,6 +16,7 @@ const TRANSIT: ProcStatus[] = ["in_transit", "partial_arrival"];
 const CAT_OF = new Map(MATERIALS.map((m) => [m.name, m.category] as const));
 
 export function MaterialWorkbenchPage() {
+  const { t } = useI18n();
   const navigate = useNavigate();
   const [productLine, setProductLine] = useState<(typeof PROC_PRODUCT_LINES)[number] | "all">("all");
   const [category, setCategory] = useState<string | null>(null);
@@ -64,33 +67,33 @@ export function MaterialWorkbenchPage() {
     <div className="mx-auto w-full max-w-[1600px] p-4">
       <PageHeader
         Icon={Boxes}
-        badge="采购管理"
-        title="采购工作台 · 物料库"
-        description="物料主数据与库存/在途资产视角：按产品线与分类总览，管理审核、缺料预警与历史价格。"
+        badge={t("采购管理")}
+        title={t("采购工作台 · 物料库")}
+        description={t("物料主数据与库存/在途资产视角：按产品线与分类总览，管理审核、缺料预警与历史价格。")}
         right={
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => setImportOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><Upload className="h-4 w-4" />批量导入</button>
-            <button type="button" onClick={() => setReviewOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><ClipboardCheck className="h-4 w-4" />审核队列{stats.pending > 0 && <span className="rounded-full bg-amber-100 px-1.5 text-[10px] text-amber-700">{stats.pending}</span>}</button>
-            <button type="button" onClick={() => setCatManageOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><FolderTree className="h-4 w-4" />分类管理</button>
-            <button type="button" onClick={() => stageToast()} title="V2 功能：将通过 ERP 接口同步库存" className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-400 hover:bg-slate-50"><RefreshCw className="h-4 w-4" />同步 ERP 库存</button>
+            <button type="button" onClick={() => setImportOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><Upload className="h-4 w-4" />{t("批量导入")}</button>
+            <button type="button" onClick={() => setReviewOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><ClipboardCheck className="h-4 w-4" />{t("审核队列")}{stats.pending > 0 && <span className="rounded-full bg-amber-100 px-1.5 text-[10px] text-amber-700">{stats.pending}</span>}</button>
+            <button type="button" onClick={() => setCatManageOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><FolderTree className="h-4 w-4" />{t("分类管理")}</button>
+            <button type="button" onClick={() => stageToast()} title={t("V2 功能：将通过 ERP 接口同步库存")} className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-400 hover:bg-slate-50"><RefreshCw className="h-4 w-4" />{t("同步 ERP 库存")}</button>
           </div>
         }
       />
 
       {/* 统计条 */}
       <div className="mb-3 grid grid-cols-5 gap-3">
-        <StatCell label="物料总数" value={stats.total} Icon={Boxes} />
-        <StatCell label="待审核" value={stats.pending} tone={stats.pending > 0 ? "amber" : "slate"} badge={stats.pending > 0} Icon={ClipboardCheck} onClick={() => setReviewOpen(true)} />
-        <StatCell label="缺料预警" value={stats.shortage} tone="red" badge={stats.shortage > 0} Icon={PackageCheck} />
-        <StatCell label="在途批次" value={stats.transitBatches} tone="indigo" Icon={Truck} />
-        <StatCell label="本周到货批次" value={stats.weekArrival} tone="emerald" Icon={PackageCheck} />
+        <StatCell label={t("物料总数")} value={stats.total} Icon={Boxes} />
+        <StatCell label={t("待审核")} value={stats.pending} tone={stats.pending > 0 ? "amber" : "slate"} badge={stats.pending > 0} Icon={ClipboardCheck} onClick={() => setReviewOpen(true)} />
+        <StatCell label={t("缺料预警")} value={stats.shortage} tone="red" badge={stats.shortage > 0} Icon={PackageCheck} />
+        <StatCell label={t("在途批次")} value={stats.transitBatches} tone="indigo" Icon={Truck} />
+        <StatCell label={t("本周到货批次")} value={stats.weekArrival} tone="emerald" Icon={PackageCheck} />
       </div>
 
       {/* 产品线 Tab */}
       <div className="material-card mb-3 flex flex-wrap items-center gap-1.5 px-4 py-3">
-        <button type="button" onClick={() => { setProductLine("all"); setCategory(null); }} className={cn("rounded-full border px-3 py-1.5 text-xs font-medium", productLine === "all" ? "border-indigo-300 bg-indigo-50 text-indigo-600" : "border-slate-200 text-slate-500 hover:bg-slate-50")}>全部</button>
+        <button type="button" onClick={() => { setProductLine("all"); setCategory(null); }} className={cn("rounded-full border px-3 py-1.5 text-xs font-medium", productLine === "all" ? "border-indigo-300 bg-indigo-50 text-indigo-600" : "border-slate-200 text-slate-500 hover:bg-slate-50")}>{t("全部")}</button>
         {PROC_PRODUCT_LINES.map((pl) => (
-          <button key={pl} type="button" onClick={() => { setProductLine(pl); setCategory(null); }} className={cn("rounded-full border px-3 py-1.5 text-xs font-medium", productLine === pl ? "border-indigo-300 bg-indigo-50 text-indigo-600" : "border-slate-200 text-slate-500 hover:bg-slate-50")}>{pl}</button>
+          <button key={pl} type="button" onClick={() => { setProductLine(pl); setCategory(null); }} className={cn("rounded-full border px-3 py-1.5 text-xs font-medium", productLine === pl ? "border-indigo-300 bg-indigo-50 text-indigo-600" : "border-slate-200 text-slate-500 hover:bg-slate-50")}><AutoTranslatedText text={t(pl.trim())} /></button>
         ))}
       </div>
 
@@ -99,12 +102,12 @@ export function MaterialWorkbenchPage() {
         {categories.map((c) => (
           <button key={c.cat} type="button" onClick={() => selectCategory(c.cat)} className={cn("material-card p-4 text-left transition hover:shadow-md", category === c.cat && "ring-2 ring-indigo-300")}>
             <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-slate-800">{c.cat}</span>
-              {(c.shortage > 0 || c.overdueTransit > 0) && <span className="rounded-full border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] text-red-600">{c.shortage > 0 ? `缺${c.shortage}` : ""}{c.shortage > 0 && c.overdueTransit > 0 ? " · " : ""}{c.overdueTransit > 0 ? `逾期${c.overdueTransit}` : ""}</span>}
+              <AutoTranslatedText as="span" className="text-sm font-semibold text-slate-800" text={t(c.cat.trim())} />
+              {(c.shortage > 0 || c.overdueTransit > 0) && <span className="rounded-full border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] text-red-600">{c.shortage > 0 ? t("缺 {count}", { count: c.shortage }) : ""}{c.shortage > 0 && c.overdueTransit > 0 ? " · " : ""}{c.overdueTransit > 0 ? t("逾期 {count}", { count: c.overdueTransit }) : ""}</span>}
             </div>
-            <div className="mt-2 flex items-baseline gap-1"><span className="text-2xl font-bold tabular-nums text-indigo-600">{c.active}</span><span className="text-[11px] text-slate-400">进行中任务</span></div>
+            <div className="mt-2 flex items-baseline gap-1"><span className="text-2xl font-bold tabular-nums text-indigo-600">{c.active}</span><span className="text-[11px] text-slate-400">{t("进行中任务")}</span></div>
             <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-indigo-400" style={{ width: `${c.matCount ? Math.min(100, (c.active / Math.max(c.matCount, 1)) * 100) : 0}%` }} /></div>
-            <div className="mt-2 flex justify-between text-[11px] text-slate-400"><span>物料 {c.matCount}</span><span>在途 {c.transit}</span><span>本周 {c.week}</span></div>
+            <div className="mt-2 flex justify-between text-[11px] text-slate-400"><span>{t("物料 {count}", { count: c.matCount })}</span><span>{t("在途 {count}", { count: c.transit })}</span><span>{t("本周 {count}", { count: c.week })}</span></div>
           </button>
         ))}
       </div>
@@ -113,17 +116,17 @@ export function MaterialWorkbenchPage() {
       <div ref={flowRef} className="material-card p-4">
         <div className="mb-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <h2 className="text-base font-bold text-slate-900">物料清单</h2>
-            {category && <button type="button" onClick={() => setCategory(null)} className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600">{category} ✕</button>}
-            <span className="text-xs text-slate-400">{filteredMaterials.length} 条</span>
+            <h2 className="text-base font-bold text-slate-900">{t("物料清单")}</h2>
+            {category && <button type="button" onClick={() => setCategory(null)} className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600"><AutoTranslatedText text={t(category.trim())} /> ✕</button>}
+            <span className="text-xs text-slate-400">{t("{count} 条", { count: filteredMaterials.length })}</span>
           </div>
           <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm">
             <Search className="h-4 w-4 text-slate-400" />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜索名称 / 规格 / ERP 编码" className="w-56 bg-transparent outline-none placeholder:text-slate-400" />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t("搜索名称 / 规格 / ERP 编码")} className="w-56 bg-transparent outline-none placeholder:text-slate-400" />
           </div>
         </div>
         <div className="grid grid-cols-3 items-start gap-3 xl:grid-cols-4">
-          {filteredMaterials.length === 0 && <div className="col-span-full py-12 text-center text-sm text-slate-400">没有符合条件的物料</div>}
+          {filteredMaterials.length === 0 && <div className="col-span-full py-12 text-center text-sm text-slate-400">{t("没有符合条件的物料")}</div>}
           {filteredMaterials.map((m) => (
             <MaterialCard
               key={m.id}

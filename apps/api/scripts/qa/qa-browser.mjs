@@ -10,7 +10,8 @@ import { createHmac } from "node:crypto";
 
 const apiRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const env = readFileSync(join(apiRoot, ".env"), "utf8");
-const JWT_SECRET = env.match(/^JWT_SECRET\s*=\s*"?([^"\r\n]+)"?/m)?.[1] ?? "change-me-jwt-secret";
+const JWT_SECRET = env.match(/^JWT_SECRET\s*=\s*"?([^"\r\n]+)"?/m)?.[1];
+if (!JWT_SECRET) throw new Error("apps/api/.env 中未配置 JWT_SECRET");
 const USER_ID = "cmra7pb6w0026u7w411wrhk7w";
 const b64url = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
 const now = Math.floor(Date.now() / 1000);

@@ -115,6 +115,8 @@ const RESOURCE_LABELS: Record<FilterValue<ResourceType>, string> = {
   project: "项目",
   person: "人员",
   role: "角色",
+  category: "分类",
+  knowledge: "知识",
   flow: "审批流",
   system: "系统",
 };

@@ -11,9 +11,10 @@ import {
 
 import { cn } from '../ui/utils';
 import type { MateChatStreak } from '../../lib/chatStreakApi';
+import { useI18n } from '../../lib/i18n';
 import { openMateChat } from './openMateChat';
 
-const DAY_LABELS = ['一', '二', '三', '四', '五', '六', '日'];
+const DAY_LABELS = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
 const CONFETTI_COLORS = ['#fbbf24', '#34d399', '#60a5fa', '#f472b6', '#a78bfa', '#f97316'];
 
 function todayWeekIndex(): number {
@@ -103,6 +104,7 @@ function CardBackground({ url }: { url: string | null }) {
 
 /** 本周打卡条 */
 function WeekStrip({ weekActivity, todayDone }: { weekActivity: boolean[]; todayDone: boolean }) {
+  const { t } = useI18n();
   const reduce = useReducedMotion();
   const todayIdx = todayWeekIndex();
   return (
@@ -114,7 +116,7 @@ function WeekStrip({ weekActivity, todayDone }: { weekActivity: boolean[]; today
         const pendingToday = isToday && !todayDone;
         return (
           <div key={label} className="flex flex-1 flex-col items-center gap-1.5">
-            <span className={cn('text-[11px] font-medium', isToday ? 'text-white' : 'text-white/55')}>{label}</span>
+            <span className={cn('text-[11px] font-medium', isToday ? 'text-white' : 'text-white/55')}>{t(label)}</span>
             <motion.span
               initial={reduce ? false : { scale: 0, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -162,6 +164,7 @@ export type MateChatStreakCardProps = {
  * 便于在任意页面复用与测试。数据自取请用 MateChatStreakCardConnected。
  */
 export function MateChatStreakCard({ data, loading, variant = 'full', onGoChat, className }: MateChatStreakCardProps) {
+  const { lang, t } = useI18n();
   const reduce = useReducedMotion();
   const streak = data?.currentStreak ?? 0;
   const active = streak > 0;
@@ -172,14 +175,14 @@ export function MateChatStreakCard({ data, loading, variant = 'full', onGoChat, 
       <button
         type="button"
         onClick={goChat}
-        aria-label={`MateChat 连续使用 ${streak} 天，点击去使用`}
+        aria-label={t('MateChat 连续使用 {n} 天，点击去使用', { n: streak })}
         className={cn(
           'inline-flex items-center gap-1.5 rounded-full border border-orange-200 bg-gradient-to-r from-amber-50 to-orange-50 px-3 py-1 text-sm font-semibold text-orange-600 transition-transform hover:scale-[1.03]',
           className,
         )}
       >
         <Flame className={cn('h-4 w-4', active ? 'fill-orange-500 text-orange-500' : 'text-slate-400')} />
-        {loading ? <span className="text-orange-300">…</span> : <span>{streak} 天</span>}
+        {loading ? <span className="text-orange-300">…</span> : <span>{streak} {t('天')}</span>}
       </button>
     );
   }
@@ -220,10 +223,10 @@ export function MateChatStreakCard({ data, loading, variant = 'full', onGoChat, 
               <span className="text-4xl font-black leading-none tracking-tight tabular-nums">
                 {loading ? '–' : <AnimatedNumber value={streak} />}
               </span>
-              <span className="mb-0.5 text-base font-semibold text-white/90">天</span>
+              <span className="mb-0.5 text-base font-semibold text-white/90">{t('天')}</span>
             </div>
             <p className="mt-1 text-xs font-medium text-white/80">
-              连续使用 MateChat{data && data.bestStreak > 0 ? ` · 最长 ${data.bestStreak} 天` : ''}
+              {t('连续使用 MateChat')}{data && data.bestStreak > 0 ? <> · {t('最长 {n} 天', { n: data.bestStreak })}</> : null}
             </p>
           </div>
         </div>
@@ -248,7 +251,7 @@ export function MateChatStreakCard({ data, loading, variant = 'full', onGoChat, 
               className="flex items-start gap-1.5 text-sm font-medium leading-5 text-white/95"
             >
               <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-300" />
-              <span>{data.message}</span>
+              <span>{lang === 'en' ? t('今天也用 MateChat 保持连续记录吧！') : data.message}</span>
             </motion.p>
           )}
         </AnimatePresence>
@@ -271,7 +274,7 @@ export function MateChatStreakCard({ data, loading, variant = 'full', onGoChat, 
             transition={{ duration: 2.2, repeat: Infinity, repeatDelay: 1.4, ease: 'easeInOut' }}
           />
         )}
-        <span className="relative">{data?.todayDone ? '再问 MateChat 一个问题' : '立即去用 MateChat'}</span>
+        <span className="relative">{data?.todayDone ? t('再问 MateChat 一个问题') : t('立即去用 MateChat')}</span>
         <ArrowRight className="relative h-4 w-4 transition-transform group-hover:translate-x-0.5" />
       </motion.button>
     </section>

@@ -9,6 +9,7 @@ import {
 } from "../../../app/components/ui/select";
 import { Slider } from "../../../app/components/ui/slider";
 import type { ExpenseCategory, InvoiceFilters, InvoiceStatus } from "../types";
+import { useI18n } from "../../../app/lib/i18n";
 
 const statusOptions: Array<"全部" | InvoiceStatus> = ["全部", "待识别", "已识别", "待确认", "已关联", "异常", "已报销"];
 const categoryOptions: Array<"全部" | ExpenseCategory> = ["全部", "差旅", "餐饮", "采购", "办公", "其他"];
@@ -26,11 +27,12 @@ export function FilterBar({
   onReset: () => void;
   onToggleAdvanced: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="material-panel space-y-3 p-4">
       <div className="grid grid-cols-[150px_150px_150px_minmax(0,1fr)_auto_auto] items-end gap-3">
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">时间范围</span>
+          <span className="mb-1 block text-xs font-medium text-slate-500">{t('时间范围')}</span>
           <Select
             value={filters.quickRange}
             onValueChange={(value) => onFiltersChange({ ...filters, quickRange: value as InvoiceFilters["quickRange"] })}
@@ -40,13 +42,13 @@ export function FilterBar({
             </SelectTrigger>
             <SelectContent>
               {["本周", "本月", "上月", "本季度", "自定义"].map((item) => (
-                <SelectItem key={item} value={item}>{item}</SelectItem>
+                <SelectItem key={item} value={item}>{t(item)}</SelectItem>
               ))}
             </SelectContent>
           </Select>
         </label>
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">状态</span>
+          <span className="mb-1 block text-xs font-medium text-slate-500">{t('状态')}</span>
           <Select
             value={filters.status}
             onValueChange={(value) => onFiltersChange({ ...filters, status: value as "全部" | InvoiceStatus })}
@@ -55,12 +57,12 @@ export function FilterBar({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {statusOptions.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}
+              {statusOptions.map((item) => <SelectItem key={item} value={item}>{t(item)}</SelectItem>)}
             </SelectContent>
           </Select>
         </label>
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">类别</span>
+          <span className="mb-1 block text-xs font-medium text-slate-500">{t('类别')}</span>
           <Select
             value={filters.category}
             onValueChange={(value) => onFiltersChange({ ...filters, category: value as "全部" | ExpenseCategory })}
@@ -69,34 +71,34 @@ export function FilterBar({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {categoryOptions.map((item) => <SelectItem key={item} value={item}>{item}</SelectItem>)}
+              {categoryOptions.map((item) => <SelectItem key={item} value={item}>{t(item)}</SelectItem>)}
             </SelectContent>
           </Select>
         </label>
         <label className="block">
-          <span className="mb-1 block text-xs font-medium text-slate-500">关键字</span>
+          <span className="mb-1 block text-xs font-medium text-slate-500">{t('关键字')}</span>
           <Input
             value={filters.keyword}
             onChange={(event) => onFiltersChange({ ...filters, keyword: event.target.value })}
-            placeholder="发票号 / 销售方 / 项目"
+            placeholder={t('发票号 / 销售方 / 项目')}
             className="h-9"
           />
         </label>
-        <Button type="button" variant="outline" onClick={onReset}>重置</Button>
-        <Button type="button" variant="outline" onClick={onToggleAdvanced}>{advanced ? "收起" : "高级筛选"}</Button>
+        <Button type="button" variant="outline" onClick={onReset}>{t('重置')}</Button>
+        <Button type="button" variant="outline" onClick={onToggleAdvanced}>{t(advanced ? "收起" : "高级筛选")}</Button>
       </div>
       {advanced ? (
         <div className="grid grid-cols-[150px_150px_minmax(0,1fr)] items-end gap-3 border-t border-slate-200 pt-3">
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">金额下限</span>
+            <span className="mb-1 block text-xs font-medium text-slate-500">{t('金额下限')}</span>
             <Input value={filters.amountMin} onChange={(event) => onFiltersChange({ ...filters, amountMin: event.target.value })} className="h-9" />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs font-medium text-slate-500">金额上限</span>
+            <span className="mb-1 block text-xs font-medium text-slate-500">{t('金额上限')}</span>
             <Input value={filters.amountMax} onChange={(event) => onFiltersChange({ ...filters, amountMax: event.target.value })} className="h-9" />
           </label>
           <label className="block">
-            <span className="mb-2 block text-xs font-medium text-slate-500">只看 AI 置信度低于 {Math.round(filters.maxConfidence * 100)}%</span>
+            <span className="mb-2 block text-xs font-medium text-slate-500">{t('只看 AI 置信度低于 {value}%', { value: Math.round(filters.maxConfidence * 100) })}</span>
             <Slider
               value={[filters.maxConfidence]}
               min={0.5}

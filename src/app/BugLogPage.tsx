@@ -134,7 +134,14 @@ export function BugLogPage() {
   const selectedLog = logFiles.find((l) => l.id === selectedLogId) ?? logFiles[0];
   const analysis = logAnalyses[selectedLogId];
 
-  const kpis = [
+  const kpis: Array<{
+    label: string;
+    value: string;
+    helper: string;
+    icon: typeof FileText;
+    color: string;
+    trend?: "up" | "down";
+  }> = [
     { label: "已处理日志数", value: "128", helper: "本月累计", icon: FileText, color: "text-blue-600" },
     {
       label: "今日异常数",
