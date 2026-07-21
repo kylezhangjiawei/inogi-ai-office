@@ -5,7 +5,7 @@ import { Boxes, ClipboardCheck, FolderTree, PackageCheck, RefreshCw, Search, Tru
 import { cn } from "../components/ui/utils";
 import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
-import { MATERIALS, PROCUREMENT_TASKS, PROC_PRODUCT_LINES, daysFromDemoToday, materialAggregates, type Material, type ProcStatus } from "../../mock/procurement";
+import { PROC_PRODUCT_LINES, daysFromToday, useProcurementData, type Material, type ProcStatus } from "./data";
 import { PageHeader, StatCell, stageToast } from "./components/common";
 import { MaterialCard } from "./components/MaterialCard";
 import { MaterialDetailDrawer } from "./components/MaterialDetailDrawer";
@@ -13,11 +13,11 @@ import { PriceHistoryModal } from "./components/PriceHistoryModal";
 import { CategoryManageModal, ImportMaterialsModal, ReviewQueueDrawer } from "./components/modals";
 
 const TRANSIT: ProcStatus[] = ["in_transit", "partial_arrival"];
-const CAT_OF = new Map(MATERIALS.map((m) => [m.name, m.category] as const));
 
 export function MaterialWorkbenchPage() {
   const { t } = useI18n();
   const navigate = useNavigate();
+  const { tasks, materials, loading, error } = useProcurementData();
   const [productLine, setProductLine] = useState<(typeof PROC_PRODUCT_LINES)[number] | "all">("all");
   const [category, setCategory] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -28,30 +28,32 @@ export function MaterialWorkbenchPage() {
   const [catManageOpen, setCatManageOpen] = useState(false);
   const flowRef = useRef<HTMLDivElement>(null);
 
-  const plMaterials = useMemo(() => MATERIALS.filter((m) => productLine === "all" || m.productLine === productLine), [productLine]);
+  const plMaterials = useMemo(() => materials.filter((m) => productLine === "all" || m.productLine === productLine), [materials, productLine]);
+  // 物料名 → 分类的索引，用于把任务归到分类下
+  const catOf = useMemo(() => new Map(materials.map((m) => [m.name, m.category] as const)), [materials]);
 
   const stats = useMemo(() => {
-    const active = PROCUREMENT_TASKS.filter((t) => !["completed", "cancelled"].includes(t.status));
+    const active = tasks.filter((t) => !["completed", "cancelled"].includes(t.status));
     const shortage = plMaterials.filter((m) => m.stockQty === 0 && active.some((t) => t.materialName === m.name)).length;
     const transitBatches = active.filter((t) => TRANSIT.includes(t.status)).length;
-    const weekArrival = active.filter((t) => { const d = daysFromDemoToday(t.expectedArrivalDate); return TRANSIT.includes(t.status) && d != null && d >= 0 && d <= 7; }).length;
+    const weekArrival = active.filter((t) => { const d = daysFromToday(t.expectedArrivalDate); return TRANSIT.includes(t.status) && d != null && d >= 0 && d <= 7; }).length;
     return { total: plMaterials.length, pending: plMaterials.filter((m) => m.reviewStatus === "pending").length, shortage, transitBatches, weekArrival };
-  }, [plMaterials]);
+  }, [plMaterials, tasks]);
 
   // 分类总览
   const categories = useMemo(() => {
     const names = Array.from(new Set(plMaterials.map((m) => m.category)));
     return names.map((cat) => {
       const mats = plMaterials.filter((m) => m.category === cat);
-      const catTasks = PROCUREMENT_TASKS.filter((t) => CAT_OF.get(t.materialName) === cat);
+      const catTasks = tasks.filter((t) => catOf.get(t.materialName) === cat);
       const active = catTasks.filter((t) => !["completed", "cancelled"].includes(t.status));
       const transit = active.filter((t) => TRANSIT.includes(t.status));
-      const week = transit.filter((t) => { const d = daysFromDemoToday(t.expectedArrivalDate); return d != null && d >= 0 && d <= 7; });
+      const week = transit.filter((t) => { const d = daysFromToday(t.expectedArrivalDate); return d != null && d >= 0 && d <= 7; });
       const shortage = mats.filter((m) => m.stockQty === 0 && active.some((t) => t.materialName === m.name)).length;
-      const overdueTransit = transit.filter((t) => (daysFromDemoToday(t.expectedArrivalDate) ?? 99) < 0).length;
+      const overdueTransit = transit.filter((t) => (daysFromToday(t.expectedArrivalDate) ?? 99) < 0).length;
       return { cat, matCount: mats.length, active: active.length, transit: transit.length, week: week.length, shortage, overdueTransit };
     });
-  }, [plMaterials]);
+  }, [plMaterials, tasks, catOf]);
 
   const filteredMaterials = useMemo(() => {
     const kw = search.trim().toLowerCase();
@@ -126,7 +128,13 @@ export function MaterialWorkbenchPage() {
           </div>
         </div>
         <div className="grid grid-cols-3 items-start gap-3 xl:grid-cols-4">
-          {filteredMaterials.length === 0 && <div className="col-span-full py-12 text-center text-sm text-slate-400">{t("没有符合条件的物料")}</div>}
+          {error ? (
+            <div className="col-span-full py-12 text-center text-sm text-red-500">{error}</div>
+          ) : loading && materials.length === 0 ? (
+            <div className="col-span-full py-12 text-center text-sm text-slate-400">{t("加载中")}…</div>
+          ) : filteredMaterials.length === 0 ? (
+            <div className="col-span-full py-12 text-center text-sm text-slate-400">{t("没有符合条件的物料")}</div>
+          ) : null}
           {filteredMaterials.map((m) => (
             <MaterialCard
               key={m.id}

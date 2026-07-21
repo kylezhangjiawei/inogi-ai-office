@@ -1,8 +1,8 @@
 // 历史价格对比弹窗（任务详情与物料详情共用）：按物料过滤报价，支持按供应商分组、按时间/单价排序，顶部趋势折线。
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ArrowDownUp, X } from "lucide-react";
 import { cn } from "../../components/ui/utils";
-import { QUOTATIONS, type Quotation } from "../../../mock/procurement";
+import { listQuotations, type Quotation } from "../../lib/procurementApi";
 import { fmtMoney } from "./common";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
@@ -10,7 +10,7 @@ import { useI18n } from "../../lib/i18n";
 type SortKey = "date" | "price";
 
 function TrendLine({ rows }: { rows: Quotation[] }) {
-  const pts = [...rows].sort((a, b) => a.quoteDate.localeCompare(b.quoteDate));
+  const pts = [...rows].sort((a, b) => (a.quoteDate ?? "").localeCompare(b.quoteDate ?? ""));
   if (pts.length < 2) return null;
   const w = 460, h = 84, pad = 10;
   const prices = pts.map((p) => p.unitPrice);
@@ -21,7 +21,7 @@ function TrendLine({ rows }: { rows: Quotation[] }) {
     <svg width={w} height={h} className="w-full">
       <path d={path} fill="none" stroke="#6D5CFF" strokeWidth={2} />
       {co.map((c) => (
-        <g key={c.p.quoteDate + c.p.supplierName}>
+        <g key={(c.p.quoteDate ?? "") + c.p.supplierName}>
           <circle cx={c.x} cy={c.y} r={3} fill="#6D5CFF" />
           <text x={c.x} y={c.y - 6} textAnchor="middle" className="fill-slate-500 text-[9px]">{c.p.unitPrice.toFixed(2)}</text>
         </g>
@@ -35,9 +35,18 @@ export function PriceHistoryModal({ materialName, open, onClose }: { materialNam
   const [groupBySupplier, setGroupBySupplier] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("date");
   const [asc, setAsc] = useState(true);
-  const rows = useMemo(() => QUOTATIONS.filter((q) => q.materialName === materialName), [materialName]);
+  // 报价按物料名跨任务聚合，弹窗打开时才拉取
+  const [rows, setRows] = useState<Quotation[]>([]);
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    void listQuotations({ materialName })
+      .then((list) => { if (alive) setRows(list); })
+      .catch(() => { if (alive) setRows([]); });
+    return () => { alive = false; };
+  }, [open, materialName]);
   const sorted = useMemo(() => {
-    const arr = [...rows].sort((a, b) => (sortKey === "date" ? a.quoteDate.localeCompare(b.quoteDate) : a.unitPrice - b.unitPrice));
+    const arr = [...rows].sort((a, b) => (sortKey === "date" ? (a.quoteDate ?? "").localeCompare(b.quoteDate ?? "") : a.unitPrice - b.unitPrice));
     return asc ? arr : arr.reverse();
   }, [rows, sortKey, asc]);
   const grouped = useMemo(() => {

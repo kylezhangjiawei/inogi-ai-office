@@ -1,0 +1,232 @@
+import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Request } from '@nestjs/common';
+
+import { Permissions } from '../auth/decorators/permissions.decorator';
+import {
+  CancelProcTaskDto,
+  CreateProcTaskDto,
+  CreateQuotationDto,
+  ImportMaterialsDto,
+  LinkPurchaseOrderDto,
+  ProcAttachmentInputDto,
+  ReassignProcTaskDto,
+  ReceiveGoodsDto,
+  ReviewMaterialDto,
+  TransferFromRdDto,
+  TransitionProcTaskDto,
+  UpdateProcTaskDto,
+  UpsertMaterialDto,
+} from './dto/procurement.dto';
+import { ProcurementService } from './procurement.service';
+import type { ProcActor, ProcMaterialListQuery, ProcTaskListQuery } from './procurement.types';
+
+type AuthedRequest = {
+  user: { id: string; name?: string; username?: string; permissions: string[] };
+};
+
+/**
+ * 采购管理接口。
+ * 读操作只需页面权限（page:proc-cockpit / page:proc-materials，由前端路由守卫控制），
+ * 写操作按 proc-task:* / material:* 操作码校验（全局 RolesGuard 生效，'*' 直通）。
+ */
+@Controller('procurement')
+export class ProcurementController {
+  constructor(private readonly service: ProcurementService) {}
+
+  private actor(req: AuthedRequest): ProcActor {
+    return {
+      id: req.user.id,
+      name: req.user.name ?? req.user.username ?? '',
+      permissions: req.user.permissions ?? [],
+    };
+  }
+
+  // ── 任务 ────────────────────────────────────────────────────────────────────
+
+  @Get('tasks')
+  listTasks(@Query() query: ProcTaskListQuery) {
+    return this.service.listTasks(query);
+  }
+
+  @Get('summary')
+  summary() {
+    return this.service.summary();
+  }
+
+  @Get('tasks/:id')
+  getTask(@Param('id') id: string) {
+    return this.service.getTask(id);
+  }
+
+  @Post('tasks')
+  @Permissions('proc-task:create')
+  createTask(@Body() dto: CreateProcTaskDto, @Request() req: AuthedRequest) {
+    return this.service.createTask(dto, this.actor(req));
+  }
+
+  /** 研发侧「转采购」入口：研发人员持 proc-task:transfer 即可提交。 */
+  @Post('tasks/transfer')
+  @Permissions('proc-task:transfer')
+  transfer(@Body() dto: TransferFromRdDto, @Request() req: AuthedRequest) {
+    return this.service.transferFromRd(dto, this.actor(req));
+  }
+
+  @Put('tasks/:id')
+  @Permissions('proc-task:create')
+  updateTask(
+    @Param('id') id: string,
+    @Body() dto: UpdateProcTaskDto,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.service.updateTask(id, dto, this.actor(req));
+  }
+
+  @Post('tasks/:id/confirm')
+  @Permissions('proc-task:confirm')
+  confirm(@Param('id') id: string, @Request() req: AuthedRequest) {
+    return this.service.confirmTask(id, this.actor(req));
+  }
+
+  @Post('tasks/:id/transition')
+  @Permissions('proc-task:inquiry')
+  transition(
+    @Param('id') id: string,
+    @Body() dto: TransitionProcTaskDto,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.service.transitionTask(id, dto, this.actor(req));
+  }
+
+  @Post('tasks/:id/cancel')
+  @Permissions('proc-task:delete')
+  cancel(@Param('id') id: string, @Body() dto: CancelProcTaskDto, @Request() req: AuthedRequest) {
+    return this.service.cancelTask(id, dto, this.actor(req));
+  }
+
+  /** 手工登记到货：过渡期能力，T+ 接通后改由同步驱动并下线本端点。 */
+  @Post('tasks/:id/receive')
+  @Permissions('proc-task:receive')
+  receive(@Param('id') id: string, @Body() dto: ReceiveGoodsDto, @Request() req: AuthedRequest) {
+    return this.service.receiveGoods(id, dto, this.actor(req));
+  }
+
+  @Post('tasks/:id/reassign')
+  @Permissions('proc-task:reassign')
+  reassign(
+    @Param('id') id: string,
+    @Body() dto: ReassignProcTaskDto,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.service.reassignTask(id, dto, this.actor(req));
+  }
+
+  @Delete('tasks/:id')
+  @Permissions('proc-task:delete')
+  remove(@Param('id') id: string) {
+    return this.service.deleteTask(id);
+  }
+
+  @Post('tasks/:id/attachments')
+  @Permissions('proc-task:create')
+  addAttachments(
+    @Param('id') id: string,
+    @Body() body: { items: ProcAttachmentInputDto[] },
+    @Request() req: AuthedRequest,
+  ) {
+    return this.service.addAttachments(id, body.items ?? [], this.actor(req));
+  }
+
+  // ── 报价 ────────────────────────────────────────────────────────────────────
+
+  @Get('quotations')
+  listQuotations(
+    @Query('materialId') materialId?: string,
+    @Query('materialName') materialName?: string,
+    @Query('taskId') taskId?: string,
+  ) {
+    return this.service.listQuotations({ materialId, materialName, taskId });
+  }
+
+  @Post('tasks/:id/quotations')
+  @Permissions('proc-task:inquiry')
+  addQuotation(
+    @Param('id') id: string,
+    @Body() dto: CreateQuotationDto,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.service.addQuotation(id, dto, this.actor(req));
+  }
+
+  @Post('tasks/:id/quotations/:quotationId/select')
+  @Permissions('proc-task:select-quote')
+  selectQuotation(
+    @Param('id') id: string,
+    @Param('quotationId') quotationId: string,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.service.selectQuotation(id, quotationId, this.actor(req));
+  }
+
+  // ── T+ 采购单接缝 ───────────────────────────────────────────────────────────
+
+  @Post('tasks/:id/purchase-orders')
+  @Permissions('proc-task:order')
+  linkPurchaseOrder(
+    @Param('id') id: string,
+    @Body() dto: LinkPurchaseOrderDto,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.service.linkPurchaseOrder(id, dto, this.actor(req));
+  }
+
+  @Delete('tasks/:id/purchase-orders/:refId')
+  @Permissions('proc-task:order')
+  unlinkPurchaseOrder(@Param('id') id: string, @Param('refId') refId: string) {
+    return this.service.unlinkPurchaseOrder(id, refId);
+  }
+
+  // ── 物料主数据 ───────────────────────────────────────────────────────────────
+
+  @Get('materials')
+  listMaterials(@Query() query: ProcMaterialListQuery) {
+    return this.service.listMaterials(query);
+  }
+
+  @Post('materials')
+  @Permissions('proc-task:create')
+  createMaterial(@Body() dto: UpsertMaterialDto, @Request() req: AuthedRequest) {
+    return this.service.upsertMaterial(dto, this.actor(req));
+  }
+
+  @Put('materials/:id')
+  @Permissions('proc-task:create')
+  updateMaterial(
+    @Param('id') id: string,
+    @Body() dto: UpsertMaterialDto,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.service.upsertMaterial(dto, this.actor(req), id);
+  }
+
+  @Patch('materials/:id/review')
+  @Permissions('material:review')
+  reviewMaterial(
+    @Param('id') id: string,
+    @Body() dto: ReviewMaterialDto,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.service.reviewMaterial(id, dto, this.actor(req));
+  }
+
+  @Post('materials/import')
+  @Permissions('material:import')
+  importMaterials(@Body() dto: ImportMaterialsDto, @Request() req: AuthedRequest) {
+    return this.service.importMaterials(dto, this.actor(req));
+  }
+
+  /** 灌入演示数据：空库时一次性初始化，force=true 才清空重灌。 */
+  @Post('seed')
+  @Permissions('material:import')
+  seed(@Body() body: { force?: boolean }, @Request() req: AuthedRequest) {
+    return this.service.seedDemoData(this.actor(req), body?.force === true);
+  }
+}

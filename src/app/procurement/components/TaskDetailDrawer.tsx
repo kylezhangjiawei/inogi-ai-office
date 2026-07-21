@@ -1,10 +1,12 @@
 // 采购任务详情抽屉：步骤条(询价长/直购短) + 下一步操作卡 + 基本信息 + 报价 + 样品测试 + 下单付款 + 到货 + 日志。
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown, ExternalLink, History, X } from "lucide-react";
 import { cn } from "../../components/ui/utils";
-import { BusinessLinePill, DIRECT_FLOW, INQUIRY_FLOW, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, fmtMoney, stageToast } from "./common";
+import { BusinessLinePill, DIRECT_FLOW, INQUIRY_FLOW, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, fmtMoney } from "./common";
+import { useProcTaskAction } from "./taskActions";
 import { PriceHistoryModal } from "./PriceHistoryModal";
-import { QUOTATIONS, taskRequester, type ProcurementTask } from "../../../mock/procurement";
+import { taskRequester, type ProcurementTask } from "../data";
+import { listQuotations, type Quotation } from "../../lib/procurementApi";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
 
@@ -22,11 +24,20 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
   const { t } = useI18n();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
+  const taskAction = useProcTaskAction();
   const requester = taskRequester(task);
   const meta = PROC_STATUS_META[task.status];
   const flow = task.method === "direct" ? DIRECT_FLOW : INQUIRY_FLOW;
   const curIdx = flow.indexOf(task.status);
-  const quotes = useMemo(() => QUOTATIONS.filter((q) => q.materialName === task.materialName), [task.materialName]);
+  // 报价按物料名跨任务聚合（与历史价格对比同源）
+  const [quotes, setQuotes] = useState<Quotation[]>([]);
+  useEffect(() => {
+    let alive = true;
+    void listQuotations({ materialName: task.materialName })
+      .then((list) => { if (alive) setQuotes(list); })
+      .catch(() => { if (alive) setQuotes([]); });
+    return () => { alive = false; };
+  }, [task.materialName]);
   const histLow = quotes.length ? quotes.reduce((a, b) => (a.unitPrice <= b.unitPrice ? a : b)) : null;
   const selected = quotes.find((q) => q.isSelected);
   const pct = task.quantity > 0 ? Math.round((task.arrivedQty / task.quantity) * 100) : 0;
@@ -70,7 +81,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
               <div className="text-xs font-semibold text-indigo-500">{t('下一步 · 责任人：')}{task.status === "testing" ? task.rdContact ?? t("研发对接人") : task.buyer}</div>
               <p className="mt-1 text-sm text-slate-700">{t('当前状态「{status}」，下一步：{next}。', { status: t(meta.label), next: t(meta.next) })}</p>
               <div className="mt-3 flex items-center gap-2">
-                <button type="button" onClick={() => (task.method === "direct" && task.status === "pending_purchase" ? window.open(task.purchaseLink, "_blank") : stageToast())} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm">
+                <button type="button" disabled={taskAction.busy} onClick={() => taskAction.runNext(task)} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm disabled:opacity-60">
                   {t(meta.next)}{task.method === "direct" && task.status === "pending_purchase" && <ExternalLink className="h-4 w-4" />}
                 </button>
               </div>
@@ -170,6 +181,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
         </div>
       </div>
       <PriceHistoryModal materialName={task.materialName} open={historyOpen} onClose={() => setHistoryOpen(false)} />
+      {taskAction.modal}
     </div>
   );
 }

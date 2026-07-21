@@ -2,7 +2,8 @@
 import { useState } from "react";
 import { Sparkles, Upload, X } from "lucide-react";
 import { cn } from "../../components/ui/utils";
-import { MATERIALS } from "../../../mock/procurement";
+import { refreshProcurement, useProcurementData } from "../data";
+import { reviewMaterial } from "../../lib/procurementApi";
 import { stageToast } from "./common";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
@@ -77,7 +78,17 @@ export function ImportMaterialsModal({ onClose }: { onClose: () => void }) {
 /** 审核队列：列出 pending 物料 + 来源标签 + 通过/驳回（静态）。 */
 export function ReviewQueueDrawer({ onClose }: { onClose: () => void }) {
   const { t } = useI18n();
-  const pending = MATERIALS.filter((m) => m.reviewStatus === "pending");
+  const { materials } = useProcurementData();
+  const pending = materials.filter((m) => m.reviewStatus === "pending");
+  // 审核直接落库，成功后刷新共享数据源，队列自动少一条
+  const decide = async (id: string, reviewStatus: "approved" | "rejected") => {
+    try {
+      await reviewMaterial(id, reviewStatus);
+      await refreshProcurement();
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : "审核失败");
+    }
+  };
   return (
     <div className="fixed inset-0 z-[70] flex justify-end bg-slate-900/30" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="flex h-full w-[560px] flex-col bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
@@ -91,8 +102,8 @@ export function ReviewQueueDrawer({ onClose }: { onClose: () => void }) {
               </div>
               <AutoTranslatedText as="div" className="mt-1 text-xs text-slate-500" text={`${m.category} · ${m.productLine} · ERP ${m.erpCode}`} />
               <div className="mt-2 flex gap-2">
-                <button type="button" onClick={stageToast} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700">{t('通过')}</button>
-                <button type="button" onClick={stageToast} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">{t('驳回')}</button>
+                <button type="button" onClick={() => void decide(m.id, "approved")} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700">{t('通过')}</button>
+                <button type="button" onClick={() => void decide(m.id, "rejected")} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">{t('驳回')}</button>
               </div>
             </div>
           ))}
@@ -105,8 +116,9 @@ export function ReviewQueueDrawer({ onClose }: { onClose: () => void }) {
 /** 分类管理弹窗（纯展示分类列表）。 */
 export function CategoryManageModal({ onClose }: { onClose: () => void }) {
   const { t } = useI18n();
+  const { materials } = useProcurementData();
   const byCat = new Map<string, number>();
-  for (const m of MATERIALS) byCat.set(m.category, (byCat.get(m.category) ?? 0) + 1);
+  for (const m of materials) byCat.set(m.category, (byCat.get(m.category) ?? 0) + 1);
   return (
     <Shell title={t("分类管理")} onClose={onClose} footer={<button type="button" onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">{t('关闭')}</button>}>
       <div className="grid grid-cols-2 gap-2">

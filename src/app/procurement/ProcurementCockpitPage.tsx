@@ -6,9 +6,10 @@ import { Activity, AlertTriangle, ClipboardList, Download, Grid3x3, LayoutGrid, 
 import { cn } from "../components/ui/utils";
 import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
-import { MATERIALS, PROCUREMENT_TASKS, PROC_PRODUCT_LINES, daysFromDemoToday, taskMainDate, taskRequester, type ProcStatus, type ProcurementTask } from "../../mock/procurement";
+import { PROC_PRODUCT_LINES, daysFromToday, taskMainDate, taskRequester, useProcurementData, type ProcStatus, type ProcurementTask } from "./data";
 import { PersonAvatar, StatCell, stageToast } from "./components/common";
 import { ProcurementTaskCard } from "./components/ProcurementTaskCard";
+import { useProcTaskAction } from "./components/taskActions";
 import { TaskDetailDrawer } from "./components/TaskDetailDrawer";
 import { AiCreateModal, NewRequirementModal } from "./components/modals";
 
@@ -24,22 +25,23 @@ const CAT_TRANSIT: ProcStatus[] = ["in_transit", "partial_arrival"];
 /** 分类看板视图：产品线 Tab + 分类总览网格（与采购工作台同口径），卡片点击进入分类详情二级页。 */
 function CategoryBoardView({ onOpenCategory }: { onOpenCategory: (cat: string, line: string) => void }) {
   const { t } = useI18n();
+  const { tasks: allTasks, materials } = useProcurementData();
   const [productLine, setProductLine] = useState<string>("all");
-  const plMaterials = useMemo(() => MATERIALS.filter((m) => productLine === "all" || m.productLine === productLine), [productLine]);
+  const plMaterials = useMemo(() => materials.filter((m) => productLine === "all" || m.productLine === productLine), [materials, productLine]);
   const categories = useMemo(() => {
     const names = Array.from(new Set(plMaterials.map((m) => m.category)));
     return names.map((cat) => {
       const mats = plMaterials.filter((m) => m.category === cat);
       // 任务按「当前产品线内的物料」归集，与二级详情页 /proc-category 的口径一致（避免卡片数字与详情对不上）
-      const catTasks = PROCUREMENT_TASKS.filter((t) => mats.some((m) => m.name === t.materialName));
+      const catTasks = allTasks.filter((t) => mats.some((m) => m.name === t.materialName));
       const active = catTasks.filter((t) => !["completed", "cancelled"].includes(t.status));
       const transit = active.filter((t) => CAT_TRANSIT.includes(t.status));
-      const week = transit.filter((t) => { const d = daysFromDemoToday(t.expectedArrivalDate); return d != null && d >= 0 && d <= 7; });
+      const week = transit.filter((t) => { const d = daysFromToday(t.expectedArrivalDate); return d != null && d >= 0 && d <= 7; });
       const shortage = mats.filter((m) => m.stockQty === 0 && active.some((t) => t.materialName === m.name)).length;
-      const overdueTransit = transit.filter((t) => (daysFromDemoToday(t.expectedArrivalDate) ?? 99) < 0).length;
+      const overdueTransit = transit.filter((t) => (daysFromToday(t.expectedArrivalDate) ?? 99) < 0).length;
       return { cat, matCount: mats.length, active: active.length, transit: transit.length, week: week.length, shortage, overdueTransit };
     });
-  }, [plMaterials]);
+  }, [plMaterials, allTasks]);
 
   return (
     <div className="space-y-3">
@@ -70,13 +72,16 @@ type StatKey = "inprogress" | "pending" | "inquiring" | "transit" | "overdue" | 
 
 export function ProcurementCockpitPage() {
   const { t } = useI18n();
-  const tasks = PROCUREMENT_TASKS;
+  const { tasks, loading, error } = useProcurementData();
   const [params, setParams] = useSearchParams();
   const [open, setOpen] = useState<ProcurementTask | null>(null);
   const [stat, setStat] = useState<StatKey | null>(null);
   const [person, setPerson] = useState<string | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
+  // 决策类动作（选定报价 / 测试结论）在卡片上点只打开详情，由详情提供报价与图纸依据。
+  // 必须声明在 setOpen 之后——放前面会命中 TDZ，构建器不报错但运行时直接白屏。
+  const taskAction = useProcTaskAction({ onOpenDetail: setOpen });
 
   // 视图形态：瀑布流卡片 / 分类看板，悬浮按钮切换，同步到 ?view=
   const navigate = useNavigate();
@@ -137,8 +142,13 @@ export function ProcurementCockpitPage() {
     }
   }, [taskParam, tasks]);
 
-  const isOverdue = (t: ProcurementTask) => TRANSIT_STATUSES.includes(t.status) && (daysFromDemoToday(t.expectedArrivalDate) ?? 99) < 0;
-  const isThisWeek = (t: ProcurementTask) => { const d = daysFromDemoToday(t.expectedArrivalDate); return TRANSIT_STATUSES.includes(t.status) && d != null && d >= 0 && d <= 7; };
+  // 操作后数据刷新，已打开的抽屉要跟着换成最新对象（否则状态停在操作前）
+  useEffect(() => {
+    setOpen((cur) => (cur ? tasks.find((x) => x.id === cur.id) ?? null : cur));
+  }, [tasks]);
+
+  const isOverdue = (t: ProcurementTask) => TRANSIT_STATUSES.includes(t.status) && (daysFromToday(t.expectedArrivalDate) ?? 99) < 0;
+  const isThisWeek = (t: ProcurementTask) => { const d = daysFromToday(t.expectedArrivalDate); return TRANSIT_STATUSES.includes(t.status) && d != null && d >= 0 && d <= 7; };
 
   // Tab 数量徽标按全量任务计，作用域内数据一律用 lineTasks
   const lineTasks = useMemo(() => (line === "all" ? tasks : tasks.filter((t) => t.businessLine === line)), [tasks, line]);
@@ -212,7 +222,7 @@ export function ProcurementCockpitPage() {
   const visibleTasks = filtered.slice(0, visibleCount);
 
   return (
-    <div className="mx-auto w-full max-w-[1600px] p-4">
+    <div className="mx-auto flex h-full w-full max-w-[1600px] flex-col p-4">
       {/* 页头（业务线 Tab + 操作按钮）/ 统计条 / 人员泳道：仅任务视图展示，分类看板模式下隐藏 */}
       {view !== "board" && (
       <>
@@ -262,7 +272,9 @@ export function ProcurementCockpitPage() {
       </>
       )}
 
-      {/* 任务展示区：瀑布流 / 分类看板两种视图，悬浮按钮切换；过渡只动 opacity/transform 不掉帧 */}
+      {/* 任务展示区：瀑布流 / 分类看板两种视图，悬浮按钮切换；过渡只动 opacity/transform 不掉帧。
+          头部固定、这里 flex-1 + min-h-0 自身内滚，避免撑高外层 <main> 出现整页滚动条。 */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
       <AnimatePresence mode="wait" initial={false}>
         <motion.div
           key={view}
@@ -273,6 +285,10 @@ export function ProcurementCockpitPage() {
         >
           {view === "board" ? (
             <CategoryBoardView onOpenCategory={(cat, pl) => navigate(`/proc-category?cat=${encodeURIComponent(cat)}${pl !== "all" ? `&line=${encodeURIComponent(pl)}` : ""}`)} />
+          ) : error ? (
+            <div className="rounded-xl border border-dashed border-red-200 bg-red-50/40 py-12 text-center text-sm text-red-500">{error}</div>
+          ) : loading && tasks.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-200 py-12 text-center text-sm text-slate-400">{t('加载中')}…</div>
           ) : filtered.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-200 py-12 text-center text-sm text-slate-400">{t('没有符合条件的任务')}</div>
           ) : (
@@ -281,7 +297,13 @@ export function ProcurementCockpitPage() {
                 <div className="columns-3 gap-3">
                   {visibleTasks.map((t) => (
                     <div key={t.id} className="mb-3 break-inside-avoid">
-                      <ProcurementTaskCard task={t} onOpen={setOpen} />
+                      <ProcurementTaskCard
+                        task={t}
+                        onOpen={setOpen}
+                        onNext={(task) => taskAction.runNext(task, "card")}
+                        onReassign={taskAction.reassign}
+                        onRemove={taskAction.remove}
+                      />
                     </div>
                   ))}
                 </div>
@@ -297,6 +319,7 @@ export function ProcurementCockpitPage() {
             )}
           </motion.div>
         </AnimatePresence>
+      </div>
 
       {/* 视图切换悬浮球：默认右侧垂直居中，可拖拽（拖完记忆位置）；onTap 与拖拽手势互斥，不会误触发切换 */}
       <motion.button
@@ -318,6 +341,7 @@ export function ProcurementCockpitPage() {
       </motion.button>
 
       {open && <TaskDetailDrawer task={open} onClose={() => { setOpen(null); if (taskParam) setParams((p) => { const n = new URLSearchParams(p); n.delete("task"); return n; }, { replace: true }); }} />}
+      {taskAction.modal}
       {aiOpen && <AiCreateModal onClose={() => setAiOpen(false)} />}
       {newOpen && <NewRequirementModal onClose={() => setNewOpen(false)} />}
     </div>

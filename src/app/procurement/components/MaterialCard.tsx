@@ -2,7 +2,7 @@
 import { cn } from "../../components/ui/utils";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
-import { materialAggregates, PROCUREMENT_TASKS, type Material } from "../../../mock/procurement";
+import { materialAggregates, useProcurementData, type Material } from "../data";
 import { fmtMoney } from "./common";
 
 export function MaterialCard({ material, onOpen, onOpenTasks, onOpenHistory }: {
@@ -12,8 +12,9 @@ export function MaterialCard({ material, onOpen, onOpenTasks, onOpenHistory }: {
   onOpenHistory: (m: Material) => void;
 }) {
   const { t } = useI18n();
-  const { inTransit, taskCount } = materialAggregates(material.name);
-  const hasActiveTask = PROCUREMENT_TASKS.some((t) => t.materialName === material.name && !["completed", "cancelled"].includes(t.status));
+  const { tasks } = useProcurementData();
+  const { inTransit, taskCount } = materialAggregates(tasks, material.name);
+  const hasActiveTask = tasks.some((t) => t.materialName === material.name && !["completed", "cancelled"].includes(t.status));
   const isShortage = material.stockQty === 0 && hasActiveTask;
   const isPending = material.reviewStatus === "pending";
 

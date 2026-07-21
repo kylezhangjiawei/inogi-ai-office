@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { HelpCircle, X } from "lucide-react";
 import { cn } from "../../components/ui/utils";
-import { materialAggregates, PROCUREMENT_TASKS, type Material } from "../../../mock/procurement";
+import { materialAggregates, useProcurementData, type Material } from "../data";
 import { PriceHistoryModal } from "./PriceHistoryModal";
 import { StatusPill, fmtMoney } from "./common";
 import { AutoTranslatedText } from "../../components/TranslatableText";
@@ -16,8 +16,9 @@ function Info({ label, value }: { label: string; value: React.ReactNode }) {
 export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { material: Material; onClose: () => void; onOpenTask: (taskId: string) => void }) {
   const { t } = useI18n();
   const [historyOpen, setHistoryOpen] = useState(false);
-  const { inTransit, taskCount } = materialAggregates(material.name);
-  const related = PROCUREMENT_TASKS.filter((t) => t.materialName === material.name);
+  const { tasks } = useProcurementData();
+  const { inTransit, taskCount } = materialAggregates(tasks, material.name);
+  const related = tasks.filter((t) => t.materialName === material.name);
   // 到货时间线（从关联任务的到货聚合，V1 单边只增）
   const arrivals = related.filter((t) => t.arrivedQty > 0).map((t) => ({ code: t.code, qty: t.arrivedQty, date: t.expectedArrivalDate ?? t.needDate }));
 

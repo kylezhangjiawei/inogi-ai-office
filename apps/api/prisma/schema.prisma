@@ -851,3 +851,260 @@ model EmployeeArchiveDocument {
 
   @@index([employeeId, sortOrder])
 }
+
+// ── 采购管理（Proc*）────────────────────────────────────────────────────────────
+// 边界：本系统自有 = 采购任务 / 物料主数据 / BOM / 报价 / 附件 / 安全库存阈值；
+//       畅捷通 T+ 只读镜像 = 供应商(ProcSupplier) / 库存结存(ProcInventoryBalance) /
+//       采购单(ProcPurchaseOrderRef)。下单与入库在 T+ 内完成，本系统不回写。
+// 与 OrderProcessing*（销售侧订单/发票/自有库存）互不干涉，勿合并。
+
+/// 多层 BOM 节点：自引用树。叶子节点可挂物料，中间节点为结构分组。
+model ProcBomNode {
+  id          String        @id @default(cuid())
+  parentId    String?
+  parent      ProcBomNode?  @relation("ProcBomTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children    ProcBomNode[] @relation("ProcBomTree")
+  name        String
+  code        String?
+  level       Int           @default(0)
+  productLine String        @default("")
+  materialId  String?
+  material    ProcMaterial? @relation(fields: [materialId], references: [id], onDelete: SetNull)
+  qtyPer      Decimal?      @db.Decimal(14, 4)
+  remark      String?
+  sortOrder   Int           @default(0)
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@index([parentId, sortOrder])
+  @@index([materialId])
+  @@index([productLine])
+}
+
+/// 物料主数据：合并「物料 / 零件 / 存货」三概念，safeStock 阈值由本系统维护。
+model ProcMaterial {
+  id              String                 @id @default(cuid())
+  name            String
+  spec            String                 @default("")
+  unit            String                 @default("")
+  category        String                 @default("")
+  productLine     String                 @default("")
+  erpCode         String                 @default("")
+  /// 畅捷通 T+ 存货编码：库存/采购单同步的锚点，未对接时为空
+  tpInventoryCode String?                @unique
+  isSpecial       Boolean                @default(false)
+  isConsumable    Boolean                @default(false)
+  safeStock       Decimal                @default(0) @db.Decimal(14, 3)
+  reviewStatus    String                 @default("pending")
+  reviewSource    String?
+  reviewNote      String?
+  reviewedBy      String?
+  reviewedAt      DateTime?
+  latestPrice     Decimal?               @db.Decimal(12, 4)
+  latestSupplier  String?
+  latestQuoteDate DateTime?
+  remark          String?
+  metadata        Json                   @default("{}")
+  bomNodes        ProcBomNode[]
+  tasks           ProcTask[]
+  quotations      ProcQuotation[]
+  balances        ProcInventoryBalance[]
+  createdBy       String?
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  @@index([name])
+  @@index([category])
+  @@index([productLine])
+  @@index([reviewStatus])
+}
+
+/// 采购任务：全流程主体。三分支——直购 / 询价(需样) / 询价(免样)。
+model ProcTask {
+  id                  String                 @id @default(cuid())
+  code                String                 @unique
+  materialId          String?
+  material            ProcMaterial?          @relation(fields: [materialId], references: [id], onDelete: SetNull)
+  /// 物料快照：任务创建时冻结，物料改名不影响历史任务
+  materialName        String
+  spec                String                 @default("")
+  unit                String                 @default("")
+  quantity            Decimal                @default(0) @db.Decimal(14, 3)
+  method              String                 @default("inquiry")
+  purchaseLink        String?
+  source              String                 @default("self")
+  businessLine        String                 @default("rd")
+  status              String                 @default("pending_inquiry")
+  priority            String                 @default("medium")
+  needSample          Boolean                @default(false)
+  needDate            DateTime?
+  deadline            DateTime?
+  expectedArrivalDate DateTime?
+  paymentDate         DateTime?
+  paymentStatus       String                 @default("unpaid")
+  paymentNote         String?
+  arrivedQty          Decimal                @default(0) @db.Decimal(14, 3)
+  buyer               String                 @default("")
+  buyerUserId         String?
+  /// 研发流转来源：研发任务 id / 标题快照，用于研发侧回查进度
+  rdTaskId            String?
+  rdTaskTitle         String?
+  rdContact           String?
+  requester           String?
+  requesterUserId     String?
+  requesterDept       String?
+  consumableNote      String?
+  selectedQuotationId String?
+  /// 业务完结：到货齐 + 结算完，与状态解耦，供统计口径使用
+  businessDone        Boolean                @default(false)
+  cancelReason        String?
+  metadata            Json                   @default("{}")
+  attachments         ProcTaskAttachment[]
+  quotations          ProcQuotation[]
+  purchaseOrderRefs   ProcPurchaseOrderRef[]
+  logs                ProcTaskLog[]
+  createdBy           String?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+
+  @@index([status, updatedAt])
+  @@index([businessLine, status])
+  @@index([materialId])
+  @@index([rdTaskId])
+  @@index([buyerUserId])
+  @@index([needDate])
+}
+
+/// 任务附件：真实 OSS 文件（图纸 / 报价单 / 其他）。
+model ProcTaskAttachment {
+  id         String   @id @default(cuid())
+  taskId     String
+  task       ProcTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  fileName   String
+  fileUrl    String
+  fileKey    String?
+  fileSize   Int      @default(0)
+  mimeType   String?
+  kind       String   @default("drawing")
+  uploadedBy String?
+  createdAt  DateTime @default(now())
+
+  @@index([taskId, createdAt])
+}
+
+/// 供应商：T+ 只读镜像（source=tplus）；未对接前允许本地录入（source=local）。
+model ProcSupplier {
+  id         String          @id @default(cuid())
+  tpCode     String?         @unique
+  name       String
+  shortName  String?
+  contact    String?
+  phone      String?
+  email      String?
+  address    String?
+  enabled    Boolean         @default(true)
+  source     String          @default("local")
+  syncedAt   DateTime?
+  remark     String?
+  metadata   Json            @default("{}")
+  quotations ProcQuotation[]
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+
+  @@index([name])
+  @@index([source])
+}
+
+/// 供应商报价：本系统自有（T+ 不管报价）。来源 manual=手工录入 / mail=邮件解析。
+model ProcQuotation {
+  id           String        @id @default(cuid())
+  taskId       String?
+  task         ProcTask?     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  materialId   String?
+  material     ProcMaterial? @relation(fields: [materialId], references: [id], onDelete: SetNull)
+  materialName String
+  supplierId   String?
+  supplier     ProcSupplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  supplierName String
+  unitPrice    Decimal       @db.Decimal(12, 4)
+  currency     String        @default("CNY")
+  leadTimeDays Int           @default(0)
+  minOrderQty  Decimal?      @db.Decimal(14, 3)
+  quoteDate    DateTime
+  validUntil   DateTime?
+  channel      String        @default("manual")
+  isSelected   Boolean       @default(false)
+  note         String?
+  createdBy    String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([materialId, quoteDate])
+  @@index([taskId])
+  @@index([supplierId])
+}
+
+/// 任务 ↔ T+ 采购单的接缝（N:N，最大包容度：一任务可拆多单，一单可含多任务行）。
+/// 全部字段来自 T+ 同步，本系统只读展示，不回写 T+。
+model ProcPurchaseOrderRef {
+  id             String    @id @default(cuid())
+  taskId         String
+  task           ProcTask  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  tpOrderNo      String
+  tpOrderId      String?
+  tpLineNo       String?
+  supplierName   String    @default("")
+  orderedQty     Decimal   @default(0) @db.Decimal(14, 3)
+  receivedQty    Decimal   @default(0) @db.Decimal(14, 3)
+  unitPrice      Decimal?  @db.Decimal(12, 4)
+  orderDate      DateTime?
+  etaDate        DateTime?
+  /// T+ 审批状态：本系统不做采购审批，仅只读展示
+  approvalStatus String?
+  status         String?
+  linkedBy       String?
+  syncedAt       DateTime?
+  metadata       Json      @default("{}")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([taskId])
+  @@index([tpOrderNo])
+}
+
+/// 库存结存：T+ 只读镜像。缺料预警 = stockQty < ProcMaterial.safeStock（阈值本地维护）。
+model ProcInventoryBalance {
+  id              String        @id @default(cuid())
+  tpInventoryCode String
+  materialId      String?
+  material        ProcMaterial? @relation(fields: [materialId], references: [id], onDelete: SetNull)
+  materialName    String        @default("")
+  spec            String        @default("")
+  unit            String        @default("")
+  warehouse       String        @default("")
+  stockQty        Decimal       @default(0) @db.Decimal(14, 3)
+  availableQty    Decimal       @default(0) @db.Decimal(14, 3)
+  inTransitQty    Decimal       @default(0) @db.Decimal(14, 3)
+  syncedAt        DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@unique([tpInventoryCode, warehouse])
+  @@index([materialId])
+}
+
+/// 采购任务留痕：状态流转与人工操作，前端时间线直接读这张表。
+model ProcTaskLog {
+  id          String   @id @default(cuid())
+  taskId      String
+  task        ProcTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  kind        String   @default("action")
+  text        String
+  fromStatus  String?
+  toStatus    String?
+  actor       String?
+  actorUserId String?
+  createdAt   DateTime @default(now())
+
+  @@index([taskId, createdAt])
+}

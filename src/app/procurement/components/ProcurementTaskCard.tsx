@@ -1,12 +1,23 @@
 // 采购任务卡（瀑布流）：复刻研发任务卡外壳——左彩边/附件预览/转派删除/主日期/进度条/下一步/负责人。
-import { ExternalLink } from "lucide-react";
+import { ChevronRight, ExternalLink } from "lucide-react";
 import { cn } from "../../components/ui/utils";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
-import { taskRequester, type ProcurementTask } from "../../../mock/procurement";
-import { BusinessLinePill, MainDateBadge, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, stageToast } from "./common";
+import { taskRequester, type ProcurementTask } from "../data";
+import { BusinessLinePill, MainDateBadge, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill } from "./common";
+import { DECISION_STATUSES } from "./taskActions";
 
-export function ProcurementTaskCard({ task, onOpen }: { task: ProcurementTask; onOpen: (t: ProcurementTask) => void }) {
+/**
+ * 卡片本身是 <button>，表单弹窗不能嵌在内部，
+ * 因此三个动作以回调上抛，由页面统一持有 useProcTaskAction 并渲染弹窗。
+ */
+export function ProcurementTaskCard({ task, onOpen, onNext, onReassign, onRemove }: {
+  task: ProcurementTask;
+  onOpen: (t: ProcurementTask) => void;
+  onNext?: (t: ProcurementTask) => void;
+  onReassign?: (t: ProcurementTask) => void;
+  onRemove?: (t: ProcurementTask) => void;
+}) {
   const { t } = useI18n();
   const meta = PROC_STATUS_META[task.status];
   const requester = taskRequester(task);
@@ -34,8 +45,8 @@ export function ProcurementTaskCard({ task, onOpen }: { task: ProcurementTask; o
       <div className="flex items-center justify-between text-[11px] text-slate-400">
         <span>{task.code}</span>
         <span className="flex items-center gap-2">
-          <span role="button" tabIndex={0} onClick={(e) => stop(e, stageToast)} className="cursor-pointer rounded px-1 py-0.5 hover:bg-slate-50 hover:text-slate-600">{t('转派')}</span>
-          <span role="button" tabIndex={0} onClick={(e) => stop(e, stageToast)} className="cursor-pointer rounded px-1 py-0.5 hover:bg-rose-50 hover:text-rose-600">{t('删除')}</span>
+          <span role="button" tabIndex={0} onClick={(e) => stop(e, () => onReassign?.(task))} className="cursor-pointer rounded px-1 py-0.5 hover:bg-slate-50 hover:text-slate-600">{t('转派')}</span>
+          <span role="button" tabIndex={0} onClick={(e) => stop(e, () => onRemove?.(task))} className="cursor-pointer rounded px-1 py-0.5 hover:bg-rose-50 hover:text-rose-600">{t('删除')}</span>
         </span>
       </div>
 
@@ -81,13 +92,15 @@ export function ProcurementTaskCard({ task, onOpen }: { task: ProcurementTask; o
           <span
             role="button"
             tabIndex={0}
-            onClick={(e) => stop(e, () => (task.method === "direct" && task.status === "pending_purchase" ? window.open(task.purchaseLink, "_blank") : stageToast()))}
+            onClick={(e) => stop(e, () => onNext?.(task))}
             className={cn(
               "inline-flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-xs font-semibold transition",
               isPendingConfirm ? "bg-rose-600 text-white hover:bg-rose-700" : "bg-indigo-600 text-white hover:bg-indigo-700",
             )}
           >
             {t(meta.next)}
+            {/* 决策类：点击是「去详情处理」而非就地执行，用箭头把预期说清楚 */}
+            {DECISION_STATUSES.includes(task.status) && <ChevronRight className="h-3 w-3" />}
             {task.method === "direct" && task.status === "pending_purchase" && <ExternalLink className="h-3 w-3" />}
           </span>
         ) : (

@@ -172,4 +172,18 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'page:issue-ai', label: '问题记录与 AI 定位', description: '问题登记、AI 6M 根因分析、方案采纳与复用、问题知识库', groupLabel: '页面访问 · 问题记录与 AI 定位', type: 'page', routePath: '/issue-ai', sortOrder: 680 },
   { code: 'issue:create', label: '登记问题', description: '新建问题记录并触发 AI 根因分析', groupLabel: '操作权限 · 问题记录与 AI 定位', type: 'action', sortOrder: 1500 },
   { code: 'issue:resolve', label: '问题定性 / AI 配置', description: '判定问题是否已解决（进知识库可复用），并维护本模块 AI 配置', groupLabel: '操作权限 · 问题记录与 AI 定位', type: 'action', sortOrder: 1510 },
+
+  // 采购管理 · 操作权限（下单/入库在畅捷通 T+ 内完成，本系统无采购审批码）
+  { code: 'proc-task:create', label: '新建 / 编辑采购任务', description: '采购自建需求、维护任务信息与附件、维护物料主数据', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1600 },
+  { code: 'proc-task:transfer', label: '转采购', description: '研发侧将任务转为采购需求（需带附件）', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1610 },
+  { code: 'proc-task:confirm', label: '确认接收', description: '采购确认接收流转来的任务，进入询价 / 直购分支', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1620 },
+  { code: 'proc-task:inquiry', label: '询价 / 推进状态', description: '录入供应商报价并推进任务状态（打样、测试、到货）', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1630 },
+  { code: 'proc-task:select-quote', label: '选定报价', description: '在多份报价中定标，回写物料最新价格', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1640 },
+  { code: 'proc-task:order', label: '关联采购单', description: '把任务关联到畅捷通 T+ 的采购单据（本系统不创建单据）', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1650 },
+  { code: 'proc-task:receive', label: '登记到货', description: '手工登记到货数量（过渡期能力，畅捷通 T+ 接通后改由同步驱动）', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1655 },
+  { code: 'proc-task:reassign', label: '转派采购负责人', description: '变更任务的采购负责人', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1660 },
+  { code: 'proc-task:delete', label: '取消 / 删除任务', description: '取消进行中的采购任务或删除错误任务', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1670 },
+  { code: 'material:review', label: '物料审核', description: '审核待确认物料（通过 / 驳回）', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1680 },
+  { code: 'material:import', label: '物料批量导入', description: '批量导入物料主数据', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1690 },
+  { code: 'proc:sync-erp', label: '同步畅捷通 T+', description: '手动触发供应商 / 库存 / 采购单的只读同步', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1700 },
 ];

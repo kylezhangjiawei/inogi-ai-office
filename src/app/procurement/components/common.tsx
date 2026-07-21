@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { cn } from "../../components/ui/utils";
 import { useAvatarDirectory } from "../../lib/userAvatar";
 import { i18nLocale, t as translate, useI18n } from "../../lib/i18n";
-import { taskMainDate, type BusinessLine, type ProcMethod, type ProcSource, type ProcStatus, type ProcurementTask } from "../../../mock/procurement";
+import { taskMainDate, type BusinessLine, type ProcMethod, type ProcSource, type ProcStatus, type ProcurementTask } from "../data";
 
 /** 数据变更类动作统一轻提示（本阶段不接逻辑）。 */
 export function stageToast() {

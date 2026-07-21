@@ -7,7 +7,7 @@ import { ArrowLeft, Activity, AlertTriangle, Boxes, Truck } from "lucide-react";
 import { cn } from "../components/ui/utils";
 import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
-import { MATERIALS, PROCUREMENT_TASKS, daysFromDemoToday, taskRequester, type Material, type ProcStatus, type ProcurementTask } from "../../mock/procurement";
+import { daysFromToday, taskRequester, useProcurementData, type Material, type ProcStatus, type ProcurementTask } from "./data";
 import { MainDateBadge, PersonAvatar, StatCell, StatusPill, fmtMoney } from "./components/common";
 import { TaskDetailDrawer } from "./components/TaskDetailDrawer";
 
@@ -104,13 +104,14 @@ export function ProcCategoryDetailPage() {
   const line = params.get("line") ?? "all";
   const [open, setOpen] = useState<ProcurementTask | null>(null);
 
+  const { tasks: allTasks, materials: allMaterials } = useProcurementData();
   const materials = useMemo(
-    () => MATERIALS.filter((m) => m.category === cat && (line === "all" || m.productLine === line)),
-    [cat, line],
+    () => allMaterials.filter((m) => m.category === cat && (line === "all" || m.productLine === line)),
+    [allMaterials, cat, line],
   );
   const tasks = useMemo(
-    () => PROCUREMENT_TASKS.filter((t) => materials.some((m) => m.name === t.materialName)),
-    [materials],
+    () => allTasks.filter((t) => materials.some((m) => m.name === t.materialName)),
+    [allTasks, materials],
   );
 
   // 物料维度二级目录：每个物料聚合 任务/库存/在途/缺料
@@ -132,7 +133,7 @@ export function ProcCategoryDetailPage() {
   const stats = useMemo(() => ({
     active: groups.reduce((sum, g) => sum + g.activeCount, 0),
     transit: groups.reduce((sum, g) => sum + g.transitCount, 0),
-    week: tasks.filter((t) => { const d = daysFromDemoToday(t.expectedArrivalDate); return TRANSIT.includes(t.status) && d != null && d >= 0 && d <= 7; }).length,
+    week: tasks.filter((t) => { const d = daysFromToday(t.expectedArrivalDate); return TRANSIT.includes(t.status) && d != null && d >= 0 && d <= 7; }).length,
     shortage: groups.filter((g) => g.shortage).length,
   }), [groups, tasks]);
 
