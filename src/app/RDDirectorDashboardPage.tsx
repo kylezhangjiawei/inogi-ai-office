@@ -3513,7 +3513,7 @@ export function RDDirectorDashboardPage() {
                                 ) : null}
                               </td>
                               <td className="px-3 py-3">
-                                <span className={cn("inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold", pCfg.bg, pCfg.text)}>
+                                <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold", pCfg.color)}>
                                   {translate(pCfg.label)}
                                 </span>
                               </td>
@@ -3905,7 +3905,7 @@ export function RDDirectorDashboardPage() {
                         <div className="space-y-2.5">
                           {personTasks.map((task) => {
                             const sCfg = TASK_STATUS_CONFIG[task.status] ?? TASK_STATUS_CONFIG.in_progress;
-                            const pCfg = TASK_PRIORITY_CONFIG[task.priority] ?? TASK_PRIORITY_CONFIG.medium;
+                            const pCfg = TASK_PRIORITY_CONFIG[task.final_priority] ?? TASK_PRIORITY_CONFIG.medium;
                             const taskImages = (progressNoteMap[task.task_id] ?? [])
                               .flatMap((n) => n.attachments.filter((a) => a.mime.startsWith("image/")));
                             return (

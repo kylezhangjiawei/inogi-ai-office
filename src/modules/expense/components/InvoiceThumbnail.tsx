@@ -2,6 +2,7 @@ import { FileImage, FileText } from "lucide-react";
 
 import { cn } from "../../../app/components/ui/utils";
 import type { InvoiceRecord } from "../types";
+import { useI18n } from "../../../app/lib/i18n";
 
 export function InvoiceThumbnail({
   invoice,
@@ -10,6 +11,7 @@ export function InvoiceThumbnail({
   invoice: Pick<InvoiceRecord, "thumbnailType" | "invoiceNo" | "vendor">;
   className?: string;
 }) {
+  const { t } = useI18n();
   const Icon = invoice.thumbnailType === "PDF" ? FileText : FileImage;
 
   return (
@@ -26,7 +28,7 @@ export function InvoiceThumbnail({
       <span className="pointer-events-none absolute left-12 top-0 z-20 hidden w-44 rounded-[var(--m3-shape-medium)] border border-slate-200 bg-white p-3 text-left text-xs text-slate-600 shadow-lg group-hover:block">
         {invoice.vendor}
         <br />
-        发票号：{invoice.invoiceNo}
+        {t('发票号：')}{invoice.invoiceNo}
       </span>
     </button>
   );

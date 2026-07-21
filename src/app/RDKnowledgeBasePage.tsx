@@ -226,7 +226,11 @@ const SOURCE_CONFIG = {
  * 类目图标精选库：value 是 lucide 组件名（随类目持久化），label 供选择器搜索。
  * 渲染映射 CAT_ICON_MAP 由本表生成——扩充图标只加一行，且 bundle 仅含精选集（不引全量 lucide）。
  */
-export const KB_ICON_LIBRARY: Array<{ value: string; label: string; icon: React.ComponentType<{ className?: string }> }> = [
+export const KB_ICON_LIBRARY: Array<{
+  value: string;
+  label: string;
+  icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
+}> = [
   // 文档知识
   { value: "BookOpen", label: "通用", icon: BookOpen },
   { value: "FolderOpen", label: "其他", icon: FolderOpen },
@@ -939,7 +943,7 @@ function EditEntryDialog({
               >
                 <option value="">{t("请选择")}</option>
                 {flatCats.map((c) => (
-                  <option key={c.id} value={c.id}>{c.label}</option>
+                  <option key={c.id} value={c.id}>{t(c.label)}</option>
                 ))}
               </NativeSelect>
             </div>
@@ -1315,7 +1319,7 @@ function CategoryFormDialog({
               <Label className="text-xs font-semibold text-slate-600">{t("所属层级")}</Label>
               <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
                 <ParentIcon className="h-4 w-4 text-slate-500" />
-                <span>{parentCategory ? `${parentCategory.label} / ${t('子类目')}` : t('一级类目')}</span>
+                <span>{parentCategory ? `${t(parentCategory.label)} / ${t('子类目')}` : t('一级类目')}</span>
               </div>
             </div>
           )}
@@ -1469,7 +1473,7 @@ function DeleteCategoryDialog({
             </div>
           </div>
           <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-800">
-            {category.label}
+            {t(category.label)}
           </div>
           <p className="text-xs leading-5 text-slate-500">
             {t("删除后该类目会从知识域导航移除；如果类目下存在文件，接口会拒绝删除。")}
@@ -1557,14 +1561,14 @@ function MoveEntryDialog({
                     return <Icon className="h-3.5 w-3.5" style={targetId === category.id ? undefined : { color: category.color || undefined }} />;
                   })()}
                   <span className={cn("truncate", !categories.some((parent) => parent.id === category.id) && "pl-3")}>
-                    {category.label}
+                    {t(category.label)}
                   </span>
                   {targetId === category.id && <Check className="ml-auto h-3.5 w-3.5" />}
                 </Button>
               ))}
             </div>
             <p className="text-[11px] text-slate-400">
-              {targetCategory ? `${t('将移动到：')}${targetCategory.label}` : t('请选择目标类目')}
+              {targetCategory ? `${t('将移动到：')}${t(targetCategory.label)}` : t('请选择目标类目')}
             </p>
           </div>
         </div>
@@ -1732,7 +1736,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
               )}>
                 <ShieldCheck className="w-3 h-3 shrink-0" />
                 <span className="tabular-nums">{permScore}</span>
-                <span className="opacity-70">· {permCfg.label}</span>
+                <span className="opacity-70">· {t(permCfg.label)}</span>
               </div>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="max-w-xs">
@@ -1890,7 +1894,7 @@ function PreviewModal({ entry, onClose }: PreviewModalProps) {
 
           <Separator orientation="vertical" className="h-3.5 shrink-0" />
           <span className={cn('flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-medium shrink-0', srcCfg.className)}>
-            {srcCfg.label}
+            {t(srcCfg.label)}
           </span>
 
           <Separator orientation="vertical" className="h-3.5 shrink-0" />
@@ -2220,7 +2224,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
                             {suggestion?.method === 'ai'
                               ? <Sparkles className="mr-1 inline h-3 w-3" aria-hidden="true" />
                               : <Zap className="mr-1 inline h-3 w-3" aria-hidden="true" />}
-                            {suggestedCat.label}
+                            {t(suggestedCat.label)}
                           </span>
                         )}
                       </div>
@@ -2287,7 +2291,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
               <option value="">{t("请选择分类")}</option>
               {flatCats.map((cat) => (
                 <option key={cat.id} value={cat.id}>
-                  {categories.some((parent) => parent.id === cat.id) ? cat.label : `  ${cat.label}`}
+                  {categories.some((parent) => parent.id === cat.id) ? t(cat.label) : `  ${t(cat.label)}`}
                 </option>
               ))}
             </NativeSelect>
@@ -2303,7 +2307,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
                   <div className={cn('flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[11px] font-bold border select-none', cfg.badgeClass)}>
                     <ShieldCheck className="w-3 h-3 shrink-0" />
                     <span>{permissionLevel}</span>
-                    <span className="font-normal opacity-75">· {cfg.label}</span>
+                    <span className="font-normal opacity-75">· {t(cfg.label)}</span>
                   </div>
                 );
               })()}
@@ -2316,7 +2320,7 @@ function UploadDialog({ categories, initialFiles = [], onClose, onUploaded, canS
                   <Slider
                     id="kb-upload-permission"
                     aria-label={t("访问权限分值")}
-                    aria-valuetext={`${permissionLevel} · ${cfg.label}`}
+                    aria-valuetext={`${permissionLevel} · ${t(cfg.label)}`}
                     value={[permissionLevel]}
                     disabled={!canSetPermissionLevel}
                     onValueChange={([v]) => {
@@ -2504,7 +2508,9 @@ function MemberLevelsDialog({ kbId, onClose }: { kbId: string; onClose: () => vo
             <div key={c.id} className="flex items-center gap-3 rounded-lg border border-slate-100 px-3 py-2">
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium text-slate-800">{c.name}</div>
-                <div className="truncate text-xs text-slate-400">{c.username}{c.department ? ` · ${c.department}` : ""}</div>
+                <div className="truncate text-xs text-slate-400">
+                  {c.username}{c.department ? <> · {t(c.department)}</> : null}
+                </div>
               </div>
               <Input
                 type="number"

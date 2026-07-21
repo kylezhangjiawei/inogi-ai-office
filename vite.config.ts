@@ -1,8 +1,21 @@
 import { defineConfig } from 'vite'
 import path from 'path'
+import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 
+const packageVersion = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version as string
+
+function resolveGitSha() {
+  const fromEnvironment = process.env.VITE_GIT_SHA || process.env.APP_GIT_SHA || process.env.GIT_COMMIT || process.env.SOURCE_VERSION
+  if (fromEnvironment) return fromEnvironment.slice(0, 12)
+  try {
+    return execFileSync('git', ['rev-parse', '--short=12', 'HEAD'], { encoding: 'utf8' }).trim()
+  } catch {
+    return 'unknown'
+  }
+}
 
 function figmaAssetResolver() {
   return {
@@ -17,6 +30,10 @@ function figmaAssetResolver() {
 }
 
 export default defineConfig({
+  define: {
+    'import.meta.env.VITE_APP_VERSION': JSON.stringify(process.env.VITE_APP_VERSION || packageVersion),
+    'import.meta.env.VITE_GIT_SHA': JSON.stringify(resolveGitSha()),
+  },
   plugins: [
     figmaAssetResolver(),
     // The React and Tailwind plugins are both required for Make, even if

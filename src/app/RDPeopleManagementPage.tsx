@@ -28,6 +28,7 @@ import {
   fetchRdPeopleUserOptions,
   updateRdPerson,
   type RdIdentityUser,
+  type RdPersonLoad,
 } from "./lib/rdApi";
 import { authFetch } from "./lib/authSession";
 import { t, useI18n } from "./lib/i18n";
@@ -192,6 +193,31 @@ function getPersonChanges(before: Person, after: Person): AuditChange[] {
   return fields
     .filter((field) => before[field] !== after[field])
     .map((field) => ({ field, before: before[field], after: after[field] }));
+}
+
+function personFromLoad(person: RdPersonLoad): Person {
+  const status: PersonStatus =
+    person.status === "resigned" || person.status === "on_leave" || person.status === "active"
+      ? person.status
+      : person.on_leave
+        ? "on_leave"
+        : "active";
+  return {
+    id: person.id,
+    user_id: person.user_id ?? null,
+    name: person.name,
+    position: person.position,
+    department: person.department ?? "",
+    email: person.email,
+    username: person.username ?? null,
+    user_status: person.user_status ?? null,
+    phone: person.phone,
+    status,
+    max_tasks: person.max_tasks,
+    joined_at: person.joined_at,
+    kb_level: typeof person.kb_level === "number" ? person.kb_level : undefined,
+    kb_level_scale: person.kb_level_scale === "score" ? "score" : undefined,
+  };
 }
 
 // ─── Form Field wrapper ──────────────────────────────────────────────────────
@@ -648,26 +674,7 @@ export function RDPeopleManagementPage({
         ]);
         if (cancelled) return;
         setSystemUsers(users);
-        const remotePeople: Person[] = raw.map((p) => ({
-          id: p.id,
-          user_id: p.user_id ?? null,
-          name: p.name,
-          position: p.position,
-          department: (p as Person & { department?: string }).department ?? "",
-          email: p.email,
-          username: p.username ?? null,
-          user_status: p.user_status ?? null,
-          phone: p.phone,
-          status: (
-            ((p as Person & { status?: string }).status as PersonStatus | undefined) ??
-            (p.on_leave ? "on_leave" : "active")
-          ),
-          max_tasks: p.max_tasks,
-          joined_at: (p as Person & { joined_at?: string }).joined_at,
-          // ⚠️ 之前漏映射了 kb_level / kb_level_scale，导致页面 fallback 全显示 20
-          kb_level: typeof p.kb_level === "number" ? p.kb_level : undefined,
-          kb_level_scale: p.kb_level_scale === "score" ? "score" : undefined,
-        }));
+        const remotePeople = raw.map(personFromLoad);
         setPeople(remotePeople);
       } catch (error) {
         if (cancelled) return;
@@ -726,12 +733,13 @@ export function RDPeopleManagementPage({
     if (editing) {
       try {
         const saved = await updateRdPerson({ ...p, id: editing.id });
-        const changes = getPersonChanges(editing, saved);
-        setPeople((prev) => prev.map((x) => (x.id === saved.id ? saved : x)));
+        const savedPerson = personFromLoad(saved);
+        const changes = getPersonChanges(editing, savedPerson);
+        setPeople((prev) => prev.map((x) => (x.id === savedPerson.id ? savedPerson : x)));
         recordAudit({
           actor: PEOPLE_AUDIT_ACTOR,
           action: changes.some((change) => change.field === "status") ? "person.status_changed" : "person.edited",
-          resource: { type: "person", id: saved.id, name: saved.name },
+          resource: { type: "person", id: savedPerson.id, name: savedPerson.name },
           changes,
           comment: "维护研发成员信息",
           source: "web",
@@ -745,12 +753,13 @@ export function RDPeopleManagementPage({
     } else {
       try {
         const saved = await createRdPerson({ ...p, id: p.id || undefined });
-        setPeople((prev) => [saved, ...prev]);
+        const savedPerson = personFromLoad(saved);
+        setPeople((prev) => [savedPerson, ...prev]);
         recordAudit({
           actor: PEOPLE_AUDIT_ACTOR,
           action: "person.created",
-          resource: { type: "person", id: saved.id, name: saved.name },
-          metadata: { department: saved.department, position: saved.position },
+          resource: { type: "person", id: savedPerson.id, name: savedPerson.name },
+          metadata: { department: savedPerson.department, position: savedPerson.position },
           source: "web",
         });
         setCreating(false);

@@ -159,6 +159,9 @@ export type RdTask = {
   work_items?: RdWorkItem[];
   /** 进入 paused_blocked 的时间点（离开时清除），协同模块显示"已阻塞 N 天"。 */
   blocked_since?: string | null;
+  /** 兼容旧任务数据中的阻塞说明与风险标记。 */
+  blocked_reason?: string | null;
+  risk_flag?: boolean;
   updated_at?: string;
   /** 后端派生：max(updated_at, 最新进度留痕时间)。排序与「最近更新」显示共用此口径，避免逆序。 */
   last_activity_at?: string;
@@ -313,6 +316,7 @@ export type RdPersonLoad = {
   task_count: number;
   max_tasks: number;
   on_leave?: boolean;
+  status?: "active" | "on_leave" | "resigned" | string;
   tasks: string[];
   task_ids?: string[];
   email?: string;
@@ -705,14 +709,32 @@ export function fetchRdPeopleUserOptions() {
   return requestJson<RdIdentityUser[]>("/people/user-options");
 }
 
-export function createRdPerson(payload: Omit<RdPersonLoad, "id">) {
+export type RdPersonMutation = {
+  id?: string;
+  user_id?: string | null;
+  name: string;
+  position: string;
+  department?: string;
+  email?: string;
+  username?: string | null;
+  user_status?: string | null;
+  phone?: string;
+  status?: "active" | "on_leave" | "resigned" | string;
+  on_leave?: boolean;
+  max_tasks: number;
+  joined_at?: string;
+  kb_level?: number;
+  kb_level_scale?: "score" | string;
+};
+
+export function createRdPerson(payload: RdPersonMutation) {
   return requestJson<RdPersonLoad>("/people", {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
 
-export function updateRdPerson(payload: RdPersonLoad) {
+export function updateRdPerson(payload: RdPersonMutation & { id: string }) {
   return requestJson<RdPersonLoad>(`/people/${encodeURIComponent(payload.id)}`, {
     method: "PATCH",
     body: JSON.stringify(payload),
@@ -800,6 +822,7 @@ export type RdAiTaskDraft = {
   owner_reason: string;
   start_date?: string;
   due_date: string;
+  due_date_original?: string;
   priority: "high" | "medium" | "low";
   category_path: string;
   estimated_days: number;

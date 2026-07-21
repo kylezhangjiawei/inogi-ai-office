@@ -28,7 +28,8 @@ const PROFILE = `${process.env.TEMP ?? "/tmp"}/manual-shots-${Date.now()}`;
 
 // 超管自签 token：与 seed-i18n-en.mjs 同法，避免脚本依赖交互登录
 const env = readFileSync(join(apiRoot, ".env"), "utf8");
-const SECRET = env.match(/^JWT_SECRET\s*=\s*"?([^"\r\n]+)"?/m)?.[1] ?? "change-me-jwt-secret";
+const SECRET = env.match(/^JWT_SECRET\s*=\s*"?([^"\r\n]+)"?/m)?.[1];
+if (!SECRET) throw new Error("apps/api/.env 中未配置 JWT_SECRET");
 const b64url = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
 const nowSec = Math.floor(Date.now() / 1000);
 const head = b64url({ alg: "HS256", typ: "JWT" });
@@ -154,8 +155,8 @@ const SHOTS = [
 ];
 
 /**
- * 手册页当前锁定中文（见 src/app/ManualPage.tsx 顶部说明），故只出中文图。
- * 内容定稿要做英文时改回 ["zh", "en"] 重跑即可——脚本的双语能力（clickText 的 en 锚点）都还在。
+ * 中文图继续由本脚本生成并烘焙编号；英文图按 1280×720 实机录制，编号由
+ * ManualPage 的 EN_SHOT_MARKERS 响应式覆盖，避免不同容器宽度下的坐标漂移。
  */
 const LANGS = ["zh"];
 

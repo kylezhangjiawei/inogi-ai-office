@@ -25,6 +25,7 @@ import {
   Save,
   Search,
   ShieldCheck,
+  SlidersHorizontal,
   Trash2,
   Upload,
   Users,
@@ -36,6 +37,7 @@ import badgeInternTemplate from "../assets/employee-archive/badge-intern.jpeg";
 import badgeLaborTemplate from "../assets/employee-archive/badge-labor.jpeg";
 import badgeOfficialTemplate from "../assets/employee-archive/badge-official.jpeg";
 import { cn } from "./components/ui/utils";
+import { t as translate, useI18n } from "./lib/i18n";
 import {
   createEmployeeArchive,
   deleteEmployeeArchive,
@@ -172,11 +174,13 @@ const archiveEmployees: EmployeeArchive[] = [
     rosterNo: "001",
     company: "壹诺吉",
     hireDate: "2024-03-04",
+    settlementDate: "2024-03-31",
     tenure: "2年4个月",
     status: "在职",
     workLocation: "上海",
     department: "研发部",
     title: "注册工程师",
+    employeeCode: "INOGI-001",
     name: "林予安",
     idNoMasked: "3205**********1426",
     birthDate: "1994-08-12",
@@ -219,11 +223,13 @@ const archiveEmployees: EmployeeArchive[] = [
     rosterNo: "002",
     company: "益雍君",
     hireDate: "2025-09-15",
+    settlementDate: "2025-09-30",
     tenure: "9个月",
     status: "在职",
     workLocation: "上海",
     department: "质量部",
     title: "质量体系专员",
+    employeeCode: "INOGI-002",
     name: "周庭序",
     idNoMasked: "3412**********6173",
     birthDate: "1998-02-09",
@@ -266,11 +272,13 @@ const archiveEmployees: EmployeeArchive[] = [
     rosterNo: "003",
     company: "壹诺吉",
     hireDate: "2026-05-06",
+    settlementDate: "2026-05-31",
     tenure: "1个月",
     status: "试用期",
     workLocation: "苏州",
     department: "生产部",
     title: "设备技术员",
+    employeeCode: "INOGI-003",
     name: "许洛川",
     idNoMasked: "5101**********3918",
     birthDate: "2000-11-02",
@@ -297,15 +305,15 @@ const archiveEmployees: EmployeeArchive[] = [
     socialSecurityFirstMonth: "待确认",
     note: "社保首月待人事确认",
     costCenter: "生产制造",
-    archiveStatus: "review",
-    archiveScore: 88,
-    missingFields: ["社保号", "社保首月日期"],
-    alerts: ["社保首月字段待确认"],
+    archiveStatus: "complete",
+    archiveScore: 100,
+    missingFields: [],
+    alerts: [],
     docs: [
       { title: "身份证信息", source: "证件号码 / 出生日期 / 年龄", status: "done", detail: "证件字段完整", updatedAt: "2026-06-03" },
       { title: "学历与专业", source: "学历 / 毕业院校 / 专业", status: "review", detail: "学历证扫描件清晰度偏低", updatedAt: "2026-06-05" },
       { title: "银行卡与开户行", source: "银行帐号 / 工资卡开户行全称", status: "done", detail: "工资卡信息已匹配", updatedAt: "2026-06-05" },
-      { title: "社保首月", source: "社保号 / 社保首月日期", status: "missing", detail: "首月参保日期待录入", updatedAt: "2026-06-25" },
+      { title: "社保首月", source: "社保号 / 社保首月日期（选填）", status: "review", detail: "选填字段，暂未维护", updatedAt: "2026-06-25" },
     ],
   },
   {
@@ -313,11 +321,13 @@ const archiveEmployees: EmployeeArchive[] = [
     rosterNo: "004",
     company: "益雍君",
     hireDate: "2026-06-24",
+    settlementDate: "2026-06-30",
     tenure: "待转正",
     status: "待入职归档",
     workLocation: "上海",
     department: "市场部",
     title: "商务助理",
+    employeeCode: "INOGI-004",
     name: "唐亦禾",
     idNoMasked: "4401**********8820",
     birthDate: "2002-04-22",
@@ -346,7 +356,7 @@ const archiveEmployees: EmployeeArchive[] = [
     costCenter: "市场运营",
     archiveStatus: "onboarding",
     archiveScore: 56,
-    missingFields: ["常住地址", "紧急联系人姓名", "紧急联系人关系", "紧急联系人手机", "银行帐号", "社保号"],
+    missingFields: ["常住地址", "紧急联系人姓名", "紧急联系人关系", "紧急联系人手机", "银行帐号"],
     alerts: ["新入职资料缺项较多", "紧急联系人信息未留存"],
     docs: [
       { title: "身份证信息", source: "证件号码 / 出生日期 / 民族", status: "done", detail: "证件主字段已录入", updatedAt: "2026-06-24" },
@@ -363,11 +373,13 @@ function createEmptyEmployeeArchive(id = "empty-employee"): EmployeeArchive {
     rosterNo: "",
     company: "",
     hireDate: "",
+    settlementDate: "",
     tenure: "",
     status: "待入职",
     workLocation: "",
     department: "",
     title: "",
+    employeeCode: "",
     name: "",
     idNoMasked: "",
     birthDate: "",
@@ -406,15 +418,15 @@ function createEmptyEmployeeArchive(id = "empty-employee"): EmployeeArchive {
 const EMPTY_EMPLOYEE_ARCHIVE = createEmptyEmployeeArchive();
 
 // ── 花名册真实导入 / 导出 / 本地持久化 ───────────────────────────────────────────
-// 主档案以「在职员工」sheet 的当前 34 列为准（与页面详情四组字段一一对应）。缺口按全字段计算
-// （备注为可选、不计缺口）。敏感字段（证件/手机/银行/社保/紧急联系人手机）仅存脱敏值，原文不落库。
+// 主档案严格匹配用户提供的「在职员工」sheet：黄色 A-AE 为归档必备，AF-AG 两个社保字段选填。
+// 敏感字段（证件/手机/银行/社保/紧急联系人手机）仅存脱敏值，原文不落库。
 const ROSTER_COLUMNS = [
-  "序号", "隶属", "入职日期", "工龄", "状态", "工作地", "部门", "职务", "姓名", "证件号码",
-  "出生日期", "出生月日", "生肖", "星座", "性别", "年龄", "民族", "婚姻状况", "手机号码", "银行帐号",
-  "工资卡开户行全称", "学历", "毕业院校", "专业", "籍贯", "户籍地址", "常住地址", "紧急联系人姓名",
-  "紧急联系人关系", "紧急联系人手机", "社保号", "社保首月日期", "备注", "费用归属",
+  "序号", "隶属", "入职日期", "结算日期", "工龄", "状态", "工作地", "部门", "职务", "工号",
+  "姓名", "证件号码", "出生日期", "出生月日", "生肖", "性别", "年龄", "民族", "婚姻状况", "手机号码",
+  "银行帐号", "工资卡开户行全称", "学历", "毕业院校", "专业", "籍贯", "户籍地址", "常住地址", "紧急联系人姓名",
+  "紧急联系人关系", "紧急联系人手机", "社保号", "社保首月日期",
 ];
-const OPTIONAL_COLUMNS = new Set(["备注"]);
+const OPTIONAL_COLUMNS = new Set(["社保号", "社保首月日期"]);
 const REQUIRED_COLUMN_COUNT = ROSTER_COLUMNS.filter((c) => !OPTIONAL_COLUMNS.has(c)).length;
 const ROSTER_STORAGE_KEY = "employee-archive-roster";
 
@@ -481,7 +493,7 @@ function getZodiacFromChineseId(idNumber: string): string {
     try {
       const yearName = new Intl.DateTimeFormat("zh-CN-u-ca-chinese", { year: "numeric" })
         .formatToParts(date)
-        .find((part) => part.type === "yearName")?.value;
+        .find((part) => String(part.type) === "yearName")?.value;
       const branch = yearName?.slice(-1) ?? "";
       const zodiacByBranch: Record<string, string> = {
         子: "鼠",
@@ -507,6 +519,17 @@ function getZodiacFromChineseId(idNumber: string): string {
   return zodiacAnimals[((year - 4) % 12 + 12) % 12];
 }
 
+function getGenderFromChineseId(idNumber: string): string {
+  const normalized = idNumber.replace(/\s+/g, "").toUpperCase();
+  const sequence = /^\d{17}[\dX]$/.test(normalized)
+    ? normalized.slice(14, 17)
+    : /^\d{15}$/.test(normalized)
+      ? normalized.slice(12, 15)
+      : "";
+  if (!sequence) return "";
+  return Number(sequence) % 2 === 1 ? "男" : "女";
+}
+
 function getAgeFromBirthDate(birthDate: string, referenceDate = new Date()): number {
   const date = parseLocalDate(birthDate);
   if (!date) return 0;
@@ -516,6 +539,22 @@ function getAgeFromBirthDate(birthDate: string, referenceDate = new Date()): num
     (referenceDate.getMonth() === date.getMonth() && referenceDate.getDate() >= date.getDate());
   if (!birthdayPassed) age -= 1;
   return Math.max(0, age);
+}
+
+function getTenureFromHireDate(hireDate: string, referenceDate = new Date()): string {
+  const date = parseLocalDate(hireDate);
+  if (!date) return "";
+  const today = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate());
+  if (date > today) return "待入职";
+  let years = today.getFullYear() - date.getFullYear();
+  let months = today.getMonth() - date.getMonth();
+  if (today.getDate() < date.getDate()) months -= 1;
+  if (months < 0) {
+    years -= 1;
+    months += 12;
+  }
+  if (years <= 0 && months <= 0) return "不足1个月";
+  return `${years > 0 ? `${years}年` : ""}${months > 0 ? `${months}个月` : ""}`;
 }
 
 function getConstellation(birthDate: string): string {
@@ -596,11 +635,12 @@ function deriveArchiveFromRow(get: (col: string) => string, index: number): Empl
   const idBirthDate = getBirthDateFromChineseId(source("证件号码"));
   const birthDate = idBirthDate || normalizeBirthDate(source("出生日期"));
   const raw = (c: string) => {
+    if (c === "工龄") return source("工龄") || getTenureFromHireDate(source("入职日期"));
     if (c === "出生日期") return birthDate;
     if (c === "出生月日") return birthDate.slice(5) || source("出生月日");
     if (c === "年龄") return birthDate ? String(getAgeFromBirthDate(birthDate)) : source("年龄");
     if (c === "生肖") return getZodiacFromChineseId(source("证件号码")) || source("生肖");
-    if (c === "星座") return getConstellation(birthDate) || source("星座");
+    if (c === "性别") return getGenderFromChineseId(source("证件号码")) || source("性别");
     return source(c);
   };
   const missingFields = ROSTER_COLUMNS.filter((c) => !OPTIONAL_COLUMNS.has(c) && !raw(c));
@@ -625,12 +665,19 @@ function deriveArchiveFromRow(get: (col: string) => string, index: number): Empl
     docOf("身份证信息", "证件号码 / 出生日期 / 民族", ["证件号码", "出生日期", "民族", "性别"]),
     docOf("学历与专业", "学历 / 毕业院校 / 专业", ["学历", "毕业院校", "专业"]),
     docOf("银行卡与开户行", "银行帐号 / 工资卡开户行全称", ["银行帐号", "工资卡开户行全称"]),
-    docOf("社保首月", "社保号 / 社保首月日期", ["社保号", "社保首月日期"]),
+    ...(raw("社保号") || raw("社保首月日期")
+      ? [{
+          title: "社保首月",
+          source: "社保号 / 社保首月日期（选填）",
+          status: raw("社保号") && raw("社保首月日期") ? "done" as const : "review" as const,
+          detail: raw("社保号") && raw("社保首月日期") ? "选填字段已维护" : "选填信息仅录入一项，可继续补充",
+          updatedAt: today,
+        }]
+      : []),
     docOf("紧急联系人", "紧急联系人姓名 / 关系 / 手机", ["紧急联系人姓名", "紧急联系人关系", "紧急联系人手机"]),
   ];
   const alerts: string[] = [];
   if (!raw("银行帐号") || !raw("工资卡开户行全称")) alerts.push("工资卡信息缺失影响发薪");
-  if (!raw("社保号") || !raw("社保首月日期")) alerts.push("社保首月字段待确认");
   if (!raw("紧急联系人姓名")) alerts.push("紧急联系人信息未留存");
 
   return {
@@ -638,17 +685,19 @@ function deriveArchiveFromRow(get: (col: string) => string, index: number): Empl
     rosterNo: raw("序号"),
     company: raw("隶属"),
     hireDate: raw("入职日期"),
+    settlementDate: raw("结算日期"),
     tenure: raw("工龄"),
     status: statusText,
     workLocation: raw("工作地"),
     department: raw("部门"),
     title: raw("职务"),
+    employeeCode: raw("工号"),
     name: raw("姓名"),
     idNoMasked: maskId(raw("证件号码")),
     birthDate: raw("出生日期"),
     birthMonthDay: raw("出生月日"),
     zodiac: raw("生肖"),
-    constellation: raw("星座"),
+    constellation: getConstellation(birthDate),
     gender: raw("性别"),
     age: Number(raw("年龄")) || 0,
     ethnicity: raw("民族"),
@@ -667,8 +716,8 @@ function deriveArchiveFromRow(get: (col: string) => string, index: number): Empl
     emergencyPhoneMasked: maskPhone(raw("紧急联系人手机")),
     socialSecurityNo: maskSocial(raw("社保号")),
     socialSecurityFirstMonth: raw("社保首月日期"),
-    note: raw("备注"),
-    costCenter: raw("费用归属"),
+    note: "",
+    costCenter: "",
     archiveStatus,
     archiveScore,
     missingFields,
@@ -677,20 +726,25 @@ function deriveArchiveFromRow(get: (col: string) => string, index: number): Empl
   };
 }
 
-async function parseRosterWorkbook(data: ArrayBuffer): Promise<EmployeeArchive[]> {
+interface ParsedRosterWorkbook {
+  items: EmployeeArchive[];
+  headerFound: boolean;
+}
+
+async function parseRosterWorkbook(data: ArrayBuffer): Promise<ParsedRosterWorkbook> {
   const mod = await import("xlsx");
   const XLSX = ((mod as unknown as { default?: typeof import("xlsx") }).default ?? mod) as typeof import("xlsx");
   const wb = XLSX.read(new Uint8Array(data), { type: "array" });
   const wsName = wb.SheetNames.find((n) => /在职/.test(n)) ?? wb.SheetNames[0];
   const ws = wb.Sheets[wsName];
-  if (!ws) return [];
+  if (!ws) return { items: [], headerFound: false };
   const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, raw: false, defval: "" });
   // 表头行：含「姓名」且含「证件」的那一行（跳过标题/合并行）
   let hdrIdx = rows.findIndex(
     (r) => Array.isArray(r) && r.some((c) => String(c).trim() === "姓名") && r.some((c) => String(c).includes("证件")),
   );
   if (hdrIdx < 0) hdrIdx = rows.findIndex((r) => Array.isArray(r) && r.some((c) => String(c).trim() === "姓名"));
-  if (hdrIdx < 0) return [];
+  if (hdrIdx < 0) return { items: [], headerFound: false };
   const headers = (rows[hdrIdx] as unknown[]).map((h) => String(h ?? "").trim());
   const colIndex = (name: string) => headers.findIndex((h) => h === name);
   const out: EmployeeArchive[] = [];
@@ -704,7 +758,7 @@ async function parseRosterWorkbook(data: ArrayBuffer): Promise<EmployeeArchive[]
     if (!get("姓名") && !get("序号")) continue; // 跳过空行/尾部合计行
     out.push(deriveArchiveFromRow(get, i));
   }
-  return out;
+  return { items: out, headerFound: true };
 }
 
 async function exportEmployeeRoster(employees: EmployeeArchive[]): Promise<void> {
@@ -714,17 +768,18 @@ async function exportEmployeeRoster(employees: EmployeeArchive[]): Promise<void>
     序号: employee.rosterNo,
     隶属: employee.company,
     入职日期: employee.hireDate,
+    结算日期: employee.settlementDate,
     工龄: employee.tenure,
     状态: employee.status,
     工作地: employee.workLocation,
     部门: employee.department,
     职务: employee.title,
+    工号: employee.employeeCode,
     姓名: employee.name,
     证件号码: employee.idNoMasked,
     出生日期: employee.birthDate,
     出生月日: employee.birthMonthDay,
     生肖: employee.zodiac,
-    星座: employee.constellation,
     性别: employee.gender,
     年龄: employee.age,
     民族: employee.ethnicity,
@@ -743,12 +798,10 @@ async function exportEmployeeRoster(employees: EmployeeArchive[]): Promise<void>
     紧急联系人手机: employee.emergencyPhoneMasked,
     社保号: employee.socialSecurityNo,
     社保首月日期: employee.socialSecurityFirstMonth,
-    备注: employee.note,
-    费用归属: employee.costCenter,
   }));
   const ws = XLSX.utils.json_to_sheet(rows, { header: [...ROSTER_COLUMNS] });
   ws["!cols"] = ROSTER_COLUMNS.map((column) => ({
-    wch: ["户籍地址", "常住地址", "工资卡开户行全称", "备注"].includes(column)
+    wch: ["户籍地址", "常住地址", "工资卡开户行全称"].includes(column)
       ? 24
       : ["证件号码", "银行帐号", "紧急联系人手机"].includes(column)
         ? 20
@@ -756,7 +809,7 @@ async function exportEmployeeRoster(employees: EmployeeArchive[]): Promise<void>
   }));
   if (ws["!ref"]) ws["!autofilter"] = { ref: ws["!ref"] };
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, "人员名单");
+  XLSX.utils.book_append_sheet(wb, ws, "在职员工");
   XLSX.writeFile(wb, `员工人员名单_${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
@@ -843,18 +896,19 @@ const fieldGroups: Array<{
   {
     key: "employment",
     title: "组织与入职",
-    description: "对应在职员工表 A-J、AH 列",
+    description: "对应在职员工表 A-J 列",
     Icon: Building2,
     getFields: (employee) => [
       { label: "序号", value: employee.rosterNo },
       { label: "隶属", value: employee.company },
+      { label: "入职日期", value: employee.hireDate },
+      { label: "结算日期", value: employee.settlementDate },
+      { label: "工龄", value: employee.tenure },
       { label: "状态", value: employee.status },
       { label: "工作地", value: employee.workLocation },
       { label: "部门", value: employee.department },
       { label: "职务", value: employee.title },
-      { label: "入职日期", value: employee.hireDate },
-      { label: "工龄", value: employee.tenure },
-      { label: "费用归属", value: employee.costCenter },
+      { label: "工号", value: employee.employeeCode },
     ],
   },
   {
@@ -868,7 +922,6 @@ const fieldGroups: Array<{
       { label: "出生日期", value: employee.birthDate },
       { label: "出生月日", value: employee.birthMonthDay },
       { label: "生肖", value: employee.zodiac },
-      { label: "星座", value: employee.constellation || "待补充" },
       { label: "性别", value: employee.gender },
       { label: "年龄", value: employee.age },
       { label: "民族", value: employee.ethnicity },
@@ -891,7 +944,6 @@ const fieldGroups: Array<{
       { label: "紧急联系人姓名", value: employee.emergencyContact },
       { label: "紧急联系人关系", value: employee.emergencyRelation },
       { label: "紧急联系人手机", value: employee.emergencyPhoneMasked, sensitive: true },
-      { label: "备注", value: employee.note },
     ],
   },
   {
@@ -904,7 +956,6 @@ const fieldGroups: Array<{
       { label: "工资卡开户行全称", value: employee.bankBranch },
       { label: "社保号", value: employee.socialSecurityNo, sensitive: true },
       { label: "社保首月日期", value: employee.socialSecurityFirstMonth },
-      { label: "费用归属", value: employee.costCenter },
     ],
   },
 ];
@@ -924,30 +975,31 @@ const employeeEditGroups: Array<{
     fields: [
       { key: "rosterNo", label: "序号", required: true },
       { key: "company", label: "隶属", required: true },
+      { key: "hireDate", label: "入职日期", type: "date", required: true },
+      { key: "settlementDate", label: "结算日期", type: "date", required: true },
       { key: "status", label: "状态", required: true, placeholder: "例如：在职、试用期" },
-      { key: "workLocation", label: "工作地" },
+      { key: "workLocation", label: "工作地", required: true },
       { key: "department", label: "部门", required: true },
       { key: "title", label: "职务", required: true },
-      { key: "hireDate", label: "入职日期", type: "date" },
-      { key: "tenure", label: "工龄", placeholder: "例如：2年4个月" },
-      { key: "costCenter", label: "费用归属" },
+      { key: "employeeCode", label: "工号", required: true },
+      { key: "costCenter", label: "费用归属（内部选填）" },
     ],
   },
   {
     key: "identity",
     title: "身份与学历",
-    description: "身份证修改后会自动刷新出生信息、生肖、星座、性别和年龄",
+    description: "身份证修改后会自动刷新出生信息、生肖、性别和年龄",
     Icon: IdCard,
     fields: [
       { key: "name", label: "姓名", required: true },
-      { key: "identityNumber", label: "新身份证号码", sensitive: true, placeholder: "不修改请留空" },
-      { key: "birthDate", label: "出生日期", type: "date" },
-      { key: "gender", label: "性别", type: "select", options: ["", "男", "女"] },
-      { key: "ethnicity", label: "民族" },
-      { key: "maritalStatus", label: "婚姻状况", type: "select", options: ["", "未婚", "已婚", "离异", "丧偶"] },
-      { key: "education", label: "学历" },
-      { key: "school", label: "毕业院校" },
-      { key: "major", label: "专业" },
+      { key: "identityNumber", label: "新身份证号码", sensitive: true, required: true, placeholder: "不修改请留空" },
+      { key: "birthDate", label: "出生日期（无身份证时填写）", type: "date" },
+      { key: "gender", label: "性别（无身份证时填写）", type: "select", options: ["", "男", "女"] },
+      { key: "ethnicity", label: "民族", required: true },
+      { key: "maritalStatus", label: "婚姻状况", type: "select", required: true, options: ["", "未婚", "已婚", "离异", "丧偶"] },
+      { key: "education", label: "学历", required: true },
+      { key: "school", label: "毕业院校", required: true },
+      { key: "major", label: "专业", required: true },
     ],
   },
   {
@@ -956,14 +1008,14 @@ const employeeEditGroups: Array<{
     description: "新号码保存后仅保留脱敏结果",
     Icon: MapPin,
     fields: [
-      { key: "phoneNumber", label: "新手机号码", sensitive: true, placeholder: "不修改请留空" },
-      { key: "hometown", label: "籍贯" },
-      { key: "registeredAddress", label: "户籍地址", type: "textarea", fullWidth: true },
-      { key: "currentAddress", label: "常住地址", type: "textarea", fullWidth: true },
-      { key: "emergencyContact", label: "紧急联系人姓名" },
-      { key: "emergencyRelation", label: "紧急联系人关系" },
-      { key: "emergencyPhoneNumber", label: "紧急联系人新手机", sensitive: true, placeholder: "不修改请留空" },
-      { key: "note", label: "备注", type: "textarea", fullWidth: true },
+      { key: "phoneNumber", label: "新手机号码", sensitive: true, required: true, placeholder: "不修改请留空" },
+      { key: "hometown", label: "籍贯", required: true },
+      { key: "registeredAddress", label: "户籍地址", type: "textarea", required: true, fullWidth: true },
+      { key: "currentAddress", label: "常住地址", type: "textarea", required: true, fullWidth: true },
+      { key: "emergencyContact", label: "紧急联系人姓名", required: true },
+      { key: "emergencyRelation", label: "紧急联系人关系", required: true },
+      { key: "emergencyPhoneNumber", label: "紧急联系人新手机", sensitive: true, required: true, placeholder: "不修改请留空" },
+      { key: "note", label: "备注（内部选填）", type: "textarea", fullWidth: true },
     ],
   },
   {
@@ -972,36 +1024,15 @@ const employeeEditGroups: Array<{
     description: "敏感号码只用于本次更新并在服务端即时脱敏",
     Icon: Banknote,
     fields: [
-      { key: "bankAccount", label: "新银行帐号", sensitive: true, placeholder: "不修改请留空" },
-      { key: "bankBranch", label: "工资卡开户行全称", fullWidth: true },
-      { key: "socialSecurityNumber", label: "新社保号", sensitive: true, placeholder: "不修改请留空" },
-      { key: "socialSecurityFirstMonth", label: "社保首月日期", placeholder: "YYYY-MM" },
+      { key: "bankAccount", label: "新银行帐号", sensitive: true, required: true, placeholder: "不修改请留空" },
+      { key: "bankBranch", label: "工资卡开户行全称", required: true, fullWidth: true },
+      { key: "socialSecurityNumber", label: "新社保号（选填）", sensitive: true, placeholder: "不修改请留空" },
+      { key: "socialSecurityFirstMonth", label: "社保首月日期（选填）", placeholder: "YYYY-MM" },
     ],
   },
 ];
 
-const sheetFields = [
-  "隶属",
-  "入职日期",
-  "工龄",
-  "状态",
-  "工作地",
-  "部门",
-  "职务",
-  "姓名",
-  "证件号码",
-  "手机号码",
-  "银行帐号",
-  "工资卡开户行全称",
-  "学历",
-  "毕业院校",
-  "专业",
-  "户籍地址",
-  "常住地址",
-  "紧急联系人",
-  "社保首月日期",
-  "费用归属",
-];
+const sheetFields = [...ROSTER_COLUMNS];
 
 const BADGE_PRINT_SIZE = "154 x 245";
 const BADGE_EXPORT_WIDTH = 642;
@@ -1431,6 +1462,42 @@ function downloadBadgeBlob(blob: Blob, employee: EmployeeArchive, template: Badg
 const TABLE_HEADER_CLASS = "px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 whitespace-nowrap";
 const TABLE_CELL_CLASS = "px-5 py-3 align-middle text-sm text-slate-700";
 const EMPLOYEE_PAGE_SIZE = 10;
+type EmployeeListColumnKey = "employee" | "organization" | "position" | "employment" | "archive" | "missing";
+const EMPLOYEE_LIST_COLUMN_STORAGE_KEY = "employee-archive-list-columns-v1";
+const EMPLOYEE_LIST_COLUMNS: Array<{ key: EmployeeListColumnKey; label: string; width: number }> = [
+  { key: "employee", label: "员工", width: 190 },
+  { key: "organization", label: "组织", width: 180 },
+  { key: "position", label: "岗位", width: 170 },
+  { key: "employment", label: "入职 / 转正", width: 190 },
+  { key: "archive", label: "归档", width: 170 },
+  { key: "missing", label: "缺项", width: 190 },
+];
+
+function loadEmployeeListColumnVisibility(): Record<EmployeeListColumnKey, boolean> {
+  const defaults = Object.fromEntries(EMPLOYEE_LIST_COLUMNS.map((column) => [column.key, true])) as Record<
+    EmployeeListColumnKey,
+    boolean
+  >;
+  try {
+    const stored = JSON.parse(localStorage.getItem(EMPLOYEE_LIST_COLUMN_STORAGE_KEY) ?? "{}") as Record<string, unknown>;
+    for (const column of EMPLOYEE_LIST_COLUMNS) {
+      if (typeof stored[column.key] === "boolean") defaults[column.key] = stored[column.key] as boolean;
+    }
+  } catch {
+    // 无效的旧配置直接回退到默认列。
+  }
+  return Object.values(defaults).some(Boolean)
+    ? defaults
+    : Object.fromEntries(EMPLOYEE_LIST_COLUMNS.map((column) => [column.key, true])) as Record<EmployeeListColumnKey, boolean>;
+}
+
+function persistEmployeeListColumnVisibility(visibility: Record<EmployeeListColumnKey, boolean>) {
+  try {
+    localStorage.setItem(EMPLOYEE_LIST_COLUMN_STORAGE_KEY, JSON.stringify(visibility));
+  } catch {
+    // 隐私模式或存储空间不足时仍允许本次会话继续使用。
+  }
+}
 
 function ActionIconButton({
   children,
@@ -1455,7 +1522,7 @@ function StatusBadge({ status }: { status: ArchiveStatus }) {
   return (
     <span className={cn("material-chip gap-1.5 whitespace-nowrap", meta.className)}>
       <span className={cn("h-1.5 w-1.5 rounded-full", meta.dotClassName)} />
-      {meta.label}
+      {translate(meta.label)}
     </span>
   );
 }
@@ -1479,7 +1546,7 @@ function ArchiveActions({
         className={cn("material-button-primary justify-center", compact && "px-3 py-2 text-xs")}
       >
         <Plus className="h-4 w-4" />
-        新增人员
+        {translate("新增人员")}
       </button>
       <button
         type="button"
@@ -1487,7 +1554,7 @@ function ArchiveActions({
         className={cn("material-button-secondary justify-center", compact && "px-3 py-2 text-xs")}
       >
         <Upload className="h-4 w-4" />
-        导入花名册
+        {translate("导入花名册")}
       </button>
       <button
         type="button"
@@ -1495,7 +1562,7 @@ function ArchiveActions({
         className={cn("material-button-secondary justify-center", compact && "px-3 py-2 text-xs")}
       >
         <Download className="h-4 w-4" />
-        导出人员名单
+        {translate("导出人员名单")}
       </button>
     </div>
   );
@@ -1514,7 +1581,7 @@ function GenderDefaultAvatar({
 
   return (
     <div
-      aria-label={`${employee.name}默认头像`}
+      aria-label={translate("{name}默认头像", { name: employee.name })}
       className={cn(
         "relative isolate shrink-0 overflow-hidden rounded-2xl border border-white/80 shadow-inner",
         isFemale
@@ -1574,12 +1641,12 @@ function ResumeFieldGrid({ employee, fields }: { employee: EmployeeArchive; fiel
           <div key={field.label} className="min-w-0 border-b border-slate-100 pb-2.5">
             <div className="flex min-w-0 items-center gap-1.5">
               <p className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">
-                {field.label}
+                {translate(field.label)}
               </p>
               {field.sensitive ? <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-slate-300" /> : null}
             </div>
             <p className={cn("mt-1 min-h-5 break-words text-sm font-semibold leading-5", valueClassName)}>
-              {field.value}
+              {typeof field.value === "string" ? translate(field.value) : field.value}
             </p>
           </div>
         );
@@ -1656,19 +1723,19 @@ function EmployeeArchiveEditor({
               </span>
               <div className="min-w-0">
                 <h2 id="employee-archive-editor-title" className="truncate text-lg font-semibold text-slate-950">
-                  {mode === "create" ? "新增人员" : "编辑人员信息"}
+                  {translate(mode === "create" ? "新增人员" : "编辑人员信息")}
                 </h2>
                 <p className="mt-0.5 truncate text-xs text-slate-500">
                   {mode === "create"
-                    ? "建立人员主档，保存后同步到服务端"
-                    : `${draft.name} · ${draft.rosterNo}，保存后同步更新服务端档案`}
+                    ? translate("建立人员主档，保存后同步到服务端")
+                    : translate("{name} · {number}，保存后同步更新服务端档案", { name: draft.name, number: draft.rosterNo })}
                 </p>
               </div>
             </div>
           </div>
           <button
             type="button"
-            aria-label="关闭编辑"
+            aria-label={translate("关闭编辑")}
             disabled={saving}
             onClick={onCancel}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-500 transition hover:border-slate-300 hover:text-slate-800 disabled:opacity-50"
@@ -1680,13 +1747,13 @@ function EmployeeArchiveEditor({
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
           <div className="mb-5 flex flex-col gap-2 rounded-2xl border border-indigo-100 bg-indigo-50/70 px-4 py-3 text-sm text-indigo-900 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <p className="font-semibold">派生字段由系统维护</p>
+              <p className="font-semibold">{translate("必填规则已按黄色花名册字段同步")}</p>
               <p className="mt-0.5 text-xs leading-5 text-indigo-700">
-                出生月日、生肖、星座、年龄会在保存后自动重新计算；输入完整身份证号时也会校验性别。
+                {translate("红色 * 为归档必备；社保号、社保首月日期明确为选填。工龄、出生月日、生肖、年龄由系统自动计算。")}
               </p>
             </div>
             <div className="flex shrink-0 flex-wrap gap-1.5">
-              {[draft.birthMonthDay || "出生月日", draft.zodiac || "生肖", draft.constellation || "星座", draft.age ? `${draft.age}岁` : "年龄"].map((value) => (
+              {[draft.tenure || translate("工龄"), draft.birthMonthDay || translate("出生月日"), translate(draft.zodiac || "生肖"), draft.age ? translate("{age}岁", { age: draft.age }) : translate("年龄")].map((value) => (
                 <span key={value} className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-indigo-700 ring-1 ring-indigo-100">
                   {value}
                 </span>
@@ -1702,8 +1769,8 @@ function EmployeeArchiveEditor({
                     <group.Icon className="h-4 w-4" />
                   </span>
                   <div>
-                    <h3 className="text-sm font-semibold text-slate-950">{group.title}</h3>
-                    <p className="mt-0.5 text-xs leading-5 text-slate-500">{group.description}</p>
+                    <h3 className="text-sm font-semibold text-slate-950">{translate(group.title)}</h3>
+                    <p className="mt-0.5 text-xs leading-5 text-slate-500">{translate(group.description)}</p>
                   </div>
                 </div>
 
@@ -1711,6 +1778,10 @@ function EmployeeArchiveEditor({
                   {group.fields.map((field) => {
                     const value = String(draft[field.key] ?? "");
                     const currentValue = field.sensitive ? currentSensitiveValue(field.key) : "";
+                    const hasCurrentSensitiveValue = Boolean(
+                      currentValue && !/^(待补充|待确认|未填写|缺失|-|—)$/.test(currentValue.trim()),
+                    );
+                    const requiredInput = Boolean(field.required && (!field.sensitive || !hasCurrentSensitiveValue));
                     const commonClassName = cn(
                       "mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none transition placeholder:text-slate-400 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 disabled:bg-slate-50 disabled:text-slate-400",
                       field.sensitive && "font-mono tracking-wide",
@@ -1718,7 +1789,7 @@ function EmployeeArchiveEditor({
                     return (
                       <label key={String(field.key)} className={cn("min-w-0", field.fullWidth && "md:col-span-2 xl:col-span-3")}>
                         <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-600">
-                          {field.label}
+                          {translate(field.label)}
                           {field.required ? <span className="text-red-500">*</span> : null}
                           {field.sensitive ? <ShieldCheck className="h-3.5 w-3.5 text-slate-400" /> : null}
                         </span>
@@ -1726,21 +1797,23 @@ function EmployeeArchiveEditor({
                           <textarea
                             rows={3}
                             value={value}
+                            required={requiredInput}
                             disabled={saving}
-                            placeholder={field.placeholder}
+                            placeholder={field.placeholder ? translate(field.placeholder) : undefined}
                             onChange={(event) => onChange(field.key, event.target.value)}
                             className={cn(commonClassName, "resize-y")}
                           />
                         ) : field.type === "select" ? (
                           <select
                             value={value}
+                            required={requiredInput}
                             disabled={saving}
                             onChange={(event) => onChange(field.key, event.target.value)}
                             className={commonClassName}
                           >
                             {field.options?.map((option) => (
                               <option key={option || "empty"} value={option}>
-                                {option || "请选择"}
+                                {option ? translate(option) : translate("请选择")}
                               </option>
                             ))}
                           </select>
@@ -1748,17 +1821,17 @@ function EmployeeArchiveEditor({
                           <input
                             type={field.type ?? "text"}
                             value={value}
-                            required={field.required}
+                            required={requiredInput}
                             disabled={saving}
                             autoComplete="off"
-                            placeholder={field.placeholder}
+                            placeholder={field.placeholder ? translate(field.placeholder) : undefined}
                             onChange={(event) => onChange(field.key, event.target.value)}
                             className={commonClassName}
                           />
                         )}
                         {field.sensitive && currentValue ? (
                           <span className="mt-1 flex min-w-0 items-center justify-between gap-2 text-[11px] text-slate-400">
-                            <span className="truncate">当前：{currentValue}；留空则不修改</span>
+                            <span className="truncate">{translate("当前：{value}；留空则不修改", { value: currentValue })}</span>
                             <button
                               type="button"
                               className="shrink-0 font-semibold text-red-500 hover:text-red-700"
@@ -1768,7 +1841,7 @@ function EmployeeArchiveEditor({
                                 onChange(field.key, "");
                               }}
                             >
-                              清除当前
+                              {translate("清除当前")}
                             </button>
                           </span>
                         ) : null}
@@ -1786,8 +1859,8 @@ function EmployeeArchiveEditor({
                     <FileCheck2 className="h-4 w-4" />
                   </span>
                   <div>
-                    <h3 className="text-sm font-semibold text-slate-950">材料记录</h3>
-                    <p className="mt-0.5 text-xs leading-5 text-slate-500">维护材料名称、核对状态、说明和更新时间</p>
+                    <h3 className="text-sm font-semibold text-slate-950">{translate("材料记录")}</h3>
+                    <p className="mt-0.5 text-xs leading-5 text-slate-500">{translate("维护材料名称、核对状态、说明和更新时间")}</p>
                   </div>
                 </div>
                 <button
@@ -1800,13 +1873,13 @@ function EmployeeArchiveEditor({
                   className="material-button-secondary px-3 py-2 text-xs disabled:opacity-50"
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  添加材料
+                  {translate("添加材料")}
                 </button>
               </div>
 
               {draft.docs.length === 0 ? (
                 <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-4 py-7 text-center text-sm text-slate-400">
-                  暂无材料记录，可点击“添加材料”补充
+                  {translate("暂无材料记录，可点击“添加材料”补充")}
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -1818,7 +1891,7 @@ function EmployeeArchiveEditor({
                       <div key={`${index}-${document.title}`} className="rounded-xl border border-slate-200 bg-slate-50/50 p-3">
                         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[1fr_1.2fr_130px_140px_auto]">
                           <label className="min-w-0 text-xs font-semibold text-slate-600">
-                            材料名称
+                            {translate("材料名称")}
                             <input
                               value={document.title}
                               required
@@ -1828,7 +1901,7 @@ function EmployeeArchiveEditor({
                             />
                           </label>
                           <label className="min-w-0 text-xs font-semibold text-slate-600">
-                            字段来源
+                            {translate("字段来源")}
                             <input
                               value={document.source}
                               disabled={saving}
@@ -1837,20 +1910,20 @@ function EmployeeArchiveEditor({
                             />
                           </label>
                           <label className="min-w-0 text-xs font-semibold text-slate-600">
-                            状态
+                            {translate("状态")}
                             <select
                               value={document.status}
                               disabled={saving}
                               onChange={(event) => updateDocument({ status: event.target.value as DocStatus })}
                               className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
                             >
-                              <option value="done">已归档</option>
-                              <option value="review">待复核</option>
-                              <option value="missing">待补充</option>
+                              <option value="done">{translate("已归档")}</option>
+                              <option value="review">{translate("待复核")}</option>
+                              <option value="missing">{translate("待补充")}</option>
                             </select>
                           </label>
                           <label className="min-w-0 text-xs font-semibold text-slate-600">
-                            更新日期
+                            {translate("更新日期")}
                             <input
                               type="date"
                               value={document.updatedAt}
@@ -1861,7 +1934,8 @@ function EmployeeArchiveEditor({
                           </label>
                           <button
                             type="button"
-                            title="删除材料"
+                            title={translate("删除材料")}
+                            aria-label={translate("删除材料")}
                             disabled={saving}
                             onClick={() => onDocumentsChange(draft.docs.filter((_, itemIndex) => itemIndex !== index))}
                             className="mt-5 flex h-9 w-9 items-center justify-center rounded-xl border border-red-100 bg-white text-red-500 transition hover:bg-red-50 disabled:opacity-50"
@@ -1870,7 +1944,7 @@ function EmployeeArchiveEditor({
                           </button>
                         </div>
                         <label className="mt-3 block text-xs font-semibold text-slate-600">
-                          核对说明
+                          {translate("核对说明")}
                           <textarea
                             rows={2}
                             value={document.detail}
@@ -1889,7 +1963,7 @@ function EmployeeArchiveEditor({
         </div>
 
         <footer className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 bg-white px-5 py-4 sm:px-6">
-          <p className="hidden text-xs text-slate-400 sm:block">保存后将重新计算归档完整度和缺失字段</p>
+          <p className="hidden text-xs text-slate-400 sm:block">{translate("保存后将重新计算归档完整度和缺失字段")}</p>
           <div className="ml-auto flex items-center gap-2">
             <button
               type="button"
@@ -1897,7 +1971,7 @@ function EmployeeArchiveEditor({
               onClick={onCancel}
               className="material-button-secondary px-4 py-2.5 text-sm disabled:opacity-50"
             >
-              取消
+              {translate("取消")}
             </button>
             <button
               type="submit"
@@ -1905,7 +1979,7 @@ function EmployeeArchiveEditor({
               className="material-button-primary min-w-28 px-4 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-60"
             >
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              {saving ? "保存中" : mode === "create" ? "新增并保存" : "保存修改"}
+              {translate(saving ? "保存中" : mode === "create" ? "新增并保存" : "保存修改")}
             </button>
           </div>
         </footer>
@@ -1928,22 +2002,22 @@ function EmployeeDeleteDialog({
 }) {
   return (
     <BodyPortal>
-      <div className="fixed inset-0 z-[90] flex min-h-[100dvh] items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm" role="dialog" aria-modal="true">
+      <div className="fixed inset-0 z-[90] flex min-h-[100dvh] items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={translate("删除人员档案")}>
         <section className="w-full max-w-md rounded-3xl border border-white/80 bg-white p-5 shadow-2xl">
         <div className="flex items-start gap-3">
           <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-red-50 text-red-600 ring-1 ring-red-100">
             <Trash2 className="h-5 w-5" />
           </span>
           <div className="min-w-0">
-            <h2 className="text-lg font-semibold text-slate-950">删除人员档案</h2>
+            <h2 className="text-lg font-semibold text-slate-950">{translate("删除人员档案")}</h2>
             <p className="mt-1 text-sm leading-6 text-slate-500">
-              确认删除 <span className="font-semibold text-slate-800">{employee.name}</span>（{employee.rosterNo}）吗？人员信息、材料记录和胸牌配置会一并删除。
+              {translate("确认删除 {name}（{number}）吗？人员信息、材料记录和胸牌配置会一并删除。", { name: employee.name, number: employee.rosterNo })}
             </p>
           </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" disabled={deleting} onClick={onCancel} className="material-button-secondary px-4 py-2.5 text-sm disabled:opacity-50">
-            取消
+            {translate("取消")}
           </button>
           <button
             type="button"
@@ -1952,7 +2026,7 @@ function EmployeeDeleteDialog({
             className="inline-flex min-w-28 items-center justify-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-red-700 disabled:opacity-60"
           >
             {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-            {deleting ? "删除中" : "确认删除"}
+            {translate(deleting ? "删除中" : "确认删除")}
           </button>
         </div>
         </section>
@@ -1990,7 +2064,7 @@ function BadgePreview({
   const badgeId = getBadgeEmployeeId(employee);
   const departmentEn = departmentEnglish[employee.department] ?? "Office";
   const canEditPosition = isPositionEditing;
-  const positionStatus = isPositionEditing ? "拖动调整中" : isPositionConfirmed ? "位置已固定" : "位置待确认";
+  const positionStatus = translate(isPositionEditing ? "拖动调整中" : isPositionConfirmed ? "位置已固定" : "位置待确认");
 
   const overlayStyle = (key: BadgeOverlayKey) => {
     const position = positions[key];
@@ -2089,7 +2163,7 @@ function BadgePreview({
   const editLabel = (label: string) =>
     canEditPosition ? (
       <span className="pointer-events-none absolute left-1 top-1 z-20 rounded-md bg-blue-600 px-1.5 py-0.5 text-[9px] font-semibold leading-none text-white shadow-sm">
-        {label}
+        {translate(label)}
       </span>
     ) : null;
 
@@ -2103,7 +2177,7 @@ function BadgePreview({
       >
         <img
           src={template.frontImage}
-          alt={`${template.name}胸牌模板`}
+          alt={translate("{name}胸牌模板", { name: translate(template.name) })}
           className="absolute inset-0 h-full w-full object-fill"
           draggable={false}
         />
@@ -2134,7 +2208,7 @@ function BadgePreview({
             onPointerCancel={endDrag}
           >
             {editLabel("标签")}
-            <div className="truncate text-[10px] font-semibold leading-none">所属部门</div>
+            <div className="truncate text-[10px] font-semibold leading-none">{translate("所属部门")}</div>
           </div>
         ) : null}
 
@@ -2180,7 +2254,7 @@ function BadgePreview({
           {avatarDraft.dataUrl ? (
             <img
               src={avatarDraft.dataUrl}
-              alt={`${employee.name}头像`}
+              alt={translate("{name}头像", { name: employee.name })}
               className="absolute left-1/2 top-1/2 object-cover"
               draggable={false}
               style={{
@@ -2200,7 +2274,7 @@ function BadgePreview({
           {canEditPosition ? (
             <div
               role="button"
-              aria-label="拉伸头像宽高"
+              aria-label={translate("拉伸头像宽高")}
               className="absolute bottom-1 right-1 z-30 h-4 w-4 cursor-nwse-resize rounded-sm border border-white bg-blue-600 shadow-sm"
               onPointerDown={(event) => startResize(event, "photo")}
               onPointerMove={(event) => moveResize(event, "photo")}
@@ -2236,7 +2310,7 @@ function BadgePreview({
 
       <div className="mt-3 flex items-center justify-center gap-2 text-xs font-semibold text-slate-500">
         <span className="h-2 w-2 rounded-full" style={{ backgroundColor: template.primary }} />
-        {template.name} · {positionStatus} · {template.sourceFile}
+        {translate(template.name)} · {positionStatus} · {translate(template.name)}.jpeg
       </div>
     </div>
   );
@@ -2264,7 +2338,7 @@ function BadgeRangeControl({
   return (
     <label className={cn("block min-w-0", disabled && "opacity-45")}>
       <span className="flex items-center justify-between gap-2 text-xs font-semibold text-slate-500">
-        <span className="truncate">{label}</span>
+        <span className="truncate">{translate(label)}</span>
         <span className="shrink-0 tabular-nums text-slate-700">
           {value}
           {suffix}
@@ -2328,9 +2402,9 @@ function BadgeAvatarEditor({
               <ImageIcon className="h-4 w-4" />
             </span>
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-slate-900">头像图片</p>
+              <p className="truncate text-sm font-semibold text-slate-900">{translate("头像图片")}</p>
               <p className="mt-0.5 truncate text-xs text-slate-500">
-                {hasAvatar ? avatarDraft.fileName ?? "胸牌头像" : "未上传"}
+                {hasAvatar ? avatarDraft.fileName ?? translate("胸牌头像") : translate("未上传")}
               </p>
             </div>
           </div>
@@ -2345,14 +2419,14 @@ function BadgeAvatarEditor({
                 : "bg-amber-50 text-amber-700",
           )}
         >
-          {!hasAvatar ? "待上传" : avatarDraft.savedLocal ? "服务端已保存" : "待保存"}
+          {translate(!hasAvatar ? "待上传" : avatarDraft.savedLocal ? "服务端已保存" : "待保存")}
         </span>
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
         <button type="button" onClick={onUpload} className="material-button-secondary px-3 py-2 text-xs">
           <Upload className="h-4 w-4" />
-          上传
+          {translate("上传")}
         </button>
         <button
           type="button"
@@ -2361,7 +2435,7 @@ function BadgeAvatarEditor({
           className="material-button-secondary px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-45"
         >
           {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-          {saving ? "保存中" : "保存头像"}
+          {translate(saving ? "保存中" : "保存头像")}
         </button>
         <button
           type="button"
@@ -2370,7 +2444,7 @@ function BadgeAvatarEditor({
           className="material-button-secondary px-3 py-2 text-xs text-red-600 disabled:cursor-not-allowed disabled:opacity-45"
         >
           <Trash2 className="h-4 w-4" />
-          移除
+          {translate("移除")}
         </button>
       </div>
 
@@ -2380,7 +2454,7 @@ function BadgeAvatarEditor({
             <div className="relative h-28 w-24 overflow-hidden rounded-2xl bg-white shadow-inner">
               <img
                 src={avatarDraft.dataUrl}
-                alt={`${employee.name}头像预览`}
+                alt={translate("{name}头像预览", { name: employee.name })}
                 className="absolute left-1/2 top-1/2 object-cover"
                 style={{
                   width: `${avatarDraft.imageWidth}%`,
@@ -2467,6 +2541,7 @@ function BadgeAvatarEditor({
 }
 
 export function EmployeeArchivePage() {
+  useI18n();
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const rosterInputRef = useRef<HTMLInputElement>(null);
   // 花名册数据：启动时先显示本地缓存，随后由服务端数据覆盖；不再把演示人员当成真实档案展示。
@@ -2491,6 +2566,9 @@ export function EmployeeArchivePage() {
   const [isBadgeExporting, setIsBadgeExporting] = useState(false);
   const [view, setView] = useState<"list" | "detail">("list");
   const [listPage, setListPage] = useState(1);
+  const [listColumnVisibility, setListColumnVisibility] = useState<Record<EmployeeListColumnKey, boolean>>(
+    () => loadEmployeeListColumnVisibility(),
+  );
   const [employeeEditDraft, setEmployeeEditDraft] = useState<EmployeeArchiveEditDraft | null>(null);
   const [employeeEditMode, setEmployeeEditMode] = useState<"create" | "edit">("edit");
   const [isEmployeeSaving, setIsEmployeeSaving] = useState(false);
@@ -2566,6 +2644,7 @@ export function EmployeeArchivePage() {
           employee.title,
           employee.status,
           employee.workLocation,
+          employee.employeeCode,
           employee.costCenter,
         ]
           .join(" ")
@@ -2632,13 +2711,14 @@ export function EmployeeArchivePage() {
     return () => controller.abort();
   }, [selected.id]);
 
-  const startEmployeeEdit = () => {
+  const startEmployeeEdit = (employee: EmployeeArchive = selected) => {
+    setSelectedId(employee.id);
     setEmployeeEditMode("edit");
     setEmployeeEditDraft({
-      ...selected,
-      docs: selected.docs.map((doc) => ({ ...doc })),
-      missingFields: [...selected.missingFields],
-      alerts: [...selected.alerts],
+      ...employee,
+      docs: employee.docs.map((doc) => ({ ...doc })),
+      missingFields: [...employee.missingFields],
+      alerts: [...employee.alerts],
       identityNumber: "",
       phoneNumber: "",
       bankAccount: "",
@@ -2660,6 +2740,25 @@ export function EmployeeArchivePage() {
     });
   };
 
+  const toggleListColumn = (key: EmployeeListColumnKey) => {
+    setListColumnVisibility((current) => {
+      const visibleCount = EMPLOYEE_LIST_COLUMNS.filter((column) => current[column.key]).length;
+      if (current[key] && visibleCount <= 1) return current;
+      const next = { ...current, [key]: !current[key] };
+      persistEmployeeListColumnVisibility(next);
+      return next;
+    });
+  };
+
+  const resetListColumns = () => {
+    const next = Object.fromEntries(EMPLOYEE_LIST_COLUMNS.map((column) => [column.key, true])) as Record<
+      EmployeeListColumnKey,
+      boolean
+    >;
+    setListColumnVisibility(next);
+    persistEmployeeListColumnVisibility(next);
+  };
+
   const updateEmployeeEditDraft = (key: keyof EmployeeArchiveEditDraft, value: string) => {
     setEmployeeEditDraft((current) => current ? { ...current, [key]: value } : current);
   };
@@ -2671,7 +2770,7 @@ export function EmployeeArchivePage() {
   const saveEmployeeEdit = async () => {
     if (!employeeEditDraft) return;
     if (!employeeEditDraft.name.trim() || !employeeEditDraft.rosterNo.trim()) {
-      toast.error("姓名和序号不能为空");
+      toast.error(translate("姓名和序号不能为空"));
       return;
     }
 
@@ -2704,9 +2803,9 @@ export function EmployeeArchivePage() {
       setEmployeeEditDraft(null);
       setView("detail");
       void refreshArchiveMeta();
-      toast.success(employeeEditMode === "create" ? `${updated.name} 已新增` : `${updated.name} 的人员信息已保存`);
+      toast.success(employeeEditMode === "create" ? translate("{name} 已新增", { name: updated.name }) : translate("{name} 的人员信息已保存", { name: updated.name }));
     } catch (error) {
-      toast.error(error instanceof Error ? `保存失败：${error.message}` : "保存失败，请稍后重试");
+      toast.error(error instanceof Error ? translate("保存失败：{message}", { message: error.message }) : translate("保存失败，请稍后重试"));
     } finally {
       setIsEmployeeSaving(false);
     }
@@ -2730,9 +2829,9 @@ export function EmployeeArchivePage() {
       setSelectedId(nextEmployees[0]?.id ?? "");
       setView("list");
       void refreshArchiveMeta();
-      toast.success("人员档案已删除");
+      toast.success(translate("人员档案已删除"));
     } catch (error) {
-      toast.error(error instanceof Error ? `删除失败：${error.message}` : "删除失败，请稍后重试");
+      toast.error(error instanceof Error ? translate("删除失败：{message}", { message: error.message }) : translate("删除失败，请稍后重试"));
     } finally {
       setIsEmployeeDeleting(false);
     }
@@ -2744,9 +2843,13 @@ export function EmployeeArchivePage() {
     event.target.value = "";
     if (!file) return;
     try {
-      const parsed = await parseRosterWorkbook(await file.arrayBuffer());
+      const { items: parsed, headerFound } = await parseRosterWorkbook(await file.arrayBuffer());
       if (parsed.length === 0) {
-        toast.error("未从花名册解析到有效记录，请检查表头是否含「姓名 / 证件号码」");
+        toast.error(
+          headerFound
+            ? translate("已识别花名册表头，但未发现员工数据，请从表头下一行开始填写")
+            : translate("未识别到花名册表头，请检查是否包含「姓名 / 证件号码」"),
+        );
         return;
       }
       let nextEmployees = parsed;
@@ -2759,8 +2862,8 @@ export function EmployeeArchivePage() {
       } catch (apiError) {
         toast.warning(
           apiError instanceof Error
-            ? `服务端保存失败，已暂存本机：${apiError.message}`
-            : "服务端保存失败，已暂存本机",
+            ? translate("服务端保存失败，已暂存本机：{message}", { message: apiError.message })
+            : translate("服务端保存失败，已暂存本机"),
         );
       }
       setEmployees(nextEmployees);
@@ -2770,23 +2873,23 @@ export function EmployeeArchivePage() {
       setCompanyFilter("全部");
       setStatusFilter("全部");
       if (persistedToServer) void refreshArchiveMeta();
-      toast.success(
-        `已导入 ${parsed.length} 名员工，按 34 列主档案完成字段核对${persistedToServer ? "并保存到服务端" : ""}`,
-      );
+      toast.success(persistedToServer
+        ? translate("已导入 {count} 名员工，按 31 个必备字段完成核对并保存到服务端", { count: parsed.length })
+        : translate("已导入 {count} 名员工，按 31 个必备字段完成核对", { count: parsed.length }));
     } catch (err) {
-      toast.error(err instanceof Error ? `导入失败：${err.message}` : "导入失败，请确认文件为 .xlsx 花名册");
+      toast.error(err instanceof Error ? translate("导入失败：{message}", { message: err.message }) : translate("导入失败，请确认文件为 .xlsx 花名册"));
     }
   };
   const handleRosterExport = async () => {
     if (filteredEmployees.length === 0) {
-      toast.info("当前筛选条件下暂无人员可导出");
+      toast.info(translate("当前筛选条件下暂无人员可导出"));
       return;
     }
     try {
       await exportEmployeeRoster(filteredEmployees);
-      toast.success(`已导出 ${filteredEmployees.length} 人的人员名单`);
+      toast.success(translate("已导出 {count} 人的人员名单", { count: filteredEmployees.length }));
     } catch {
-      toast.error("导出失败，请重试");
+      toast.error(translate("导出失败，请重试"));
     }
   };
   const badgeEmployeeId = getBadgeEmployeeId(selected);
@@ -2980,7 +3083,7 @@ export function EmployeeArchivePage() {
     };
     setBadgeTextVisibility(nextVisibility);
     if (!persistBadgeTextVisibility(nextVisibility)) {
-      toast.error("文本显示设置保存失败");
+      toast.error(translate("文本显示设置保存失败"));
     }
   };
 
@@ -2991,19 +3094,19 @@ export function EmployeeArchivePage() {
       [badgeTemplateKey]: defaultPositions,
     }));
     setBadgePositionConfirmed((current) => ({ ...current, [badgeTemplateKey]: false }));
-    toast.info(`${activeBadgeTemplate.name}模板位置已重置`);
+    toast.info(translate("{name}模板位置已重置", { name: translate(activeBadgeTemplate.name) }));
   };
 
   const toggleBadgePositionEditing = () => {
     if (isBadgePositionEditing) {
       setIsBadgePositionEditing(false);
       setBadgePositionConfirmed((current) => ({ ...current, [badgeTemplateKey]: true }));
-      toast.success(`${activeBadgeTemplate.name}模板位置已固定`);
+      toast.success(translate("{name}模板位置已固定", { name: translate(activeBadgeTemplate.name) }));
       return;
     }
     setIsBadgePositionEditing(true);
     setBadgePositionConfirmed((current) => ({ ...current, [badgeTemplateKey]: false }));
-    toast.info("拖动姓名、头像、部门、职位、编号到设计稿标注位置");
+    toast.info(translate("拖动姓名、头像、部门、职位、编号到设计稿标注位置"));
   };
 
   const closeBadgeEditor = () => {
@@ -3031,14 +3134,14 @@ export function EmployeeArchivePage() {
     event.currentTarget.value = "";
     if (!file) return;
     if (!file.type.startsWith("image/")) {
-      toast.warning("请选择图片文件");
+      toast.warning(translate("请选择图片文件"));
       return;
     }
     const reader = new FileReader();
     reader.onload = () => {
       const dataUrl = String(reader.result ?? "");
       if (!dataUrl) {
-        toast.error("头像读取失败");
+        toast.error(translate("头像读取失败"));
         return;
       }
       setBadgeAvatarDrafts((current) => ({
@@ -3052,9 +3155,9 @@ export function EmployeeArchivePage() {
           savedLocal: false,
         }),
       }));
-      toast.success("头像已载入，调整完成后请保存到服务端");
+      toast.success(translate("头像已载入，调整完成后请保存到服务端"));
     };
-    reader.onerror = () => toast.error("头像读取失败");
+    reader.onerror = () => toast.error(translate("头像读取失败"));
     reader.readAsDataURL(file);
   };
 
@@ -3114,9 +3217,9 @@ export function EmployeeArchivePage() {
         saveStoredEmployees(next);
         return next;
       });
-      toast.success("胸牌配置和头像已保存到服务端");
+      toast.success(translate("胸牌配置和头像已保存到服务端"));
     } catch (error) {
-      toast.error(error instanceof Error ? `胸牌保存失败：${error.message}` : "胸牌保存失败，请稍后重试");
+      toast.error(error instanceof Error ? translate("胸牌保存失败：{message}", { message: error.message }) : translate("胸牌保存失败，请稍后重试"));
     } finally {
       setIsBadgeConfigSaving(false);
     }
@@ -3134,9 +3237,9 @@ export function EmployeeArchivePage() {
         textVisibility: activeBadgeTextVisibility,
       });
       downloadBadgeBlob(blob, selected, activeBadgeTemplate);
-      toast.success(`胸牌 PNG 已导出（${BADGE_EXPORT_WIDTH} × ${BADGE_EXPORT_HEIGHT}）`);
+      toast.success(translate("胸牌 PNG 已导出（{width} × {height}）", { width: BADGE_EXPORT_WIDTH, height: BADGE_EXPORT_HEIGHT }));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "胸牌图片导出失败，请重试");
+      toast.error(error instanceof Error ? error.message : translate("胸牌图片导出失败，请重试"));
     } finally {
       setIsBadgeExporting(false);
     }
@@ -3147,12 +3250,12 @@ export function EmployeeArchivePage() {
       const nextDrafts = { ...current };
       delete nextDrafts[selected.id];
       if (!persistBadgeAvatarDrafts(nextDrafts)) {
-        toast.error("本地草稿更新失败");
+        toast.error(translate("本地草稿更新失败"));
         return current;
       }
       return nextDrafts;
     });
-    toast.info("头像草稿已移除");
+    toast.info(translate("头像草稿已移除"));
   };
 
   return (
@@ -3194,10 +3297,10 @@ export function EmployeeArchivePage() {
         <div className="flex min-h-0 flex-1 flex-col gap-3">
           <section className="grid shrink-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {[
-              { label: "花名册人员", value: stats.total, helper: `${stats.completed} 人已完成` },
-              { label: "已完成归档", value: stats.completed, helper: "字段与材料均已核对" },
-              { label: "待处理归档", value: stats.needsAction, helper: "缺项 / 复核 / 入职中" },
-              { label: "字段缺口", value: stats.missing, helper: "来自 34 列主档案" },
+              { label: translate("花名册人员"), value: stats.total, helper: translate("{count} 人已完成", { count: stats.completed }) },
+              { label: translate("已完成归档"), value: stats.completed, helper: translate("字段与材料均已核对") },
+              { label: translate("待处理归档"), value: stats.needsAction, helper: translate("缺项 / 复核 / 入职中") },
+              { label: translate("字段缺口"), value: stats.missing, helper: translate("来自 31 个必备字段") },
             ].map((item) => (
               <div key={item.label} className="material-card-flat flex min-w-0 items-center justify-between gap-3 px-4 py-3">
                 <div className="min-w-0">
@@ -3214,9 +3317,9 @@ export function EmployeeArchivePage() {
               <div className="shrink-0 border-b border-slate-100 bg-slate-50/60 px-5 py-3">
                 <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-center 2xl:justify-between">
                   <div className="min-w-0">
-                    <h3 className="text-slate-900">花名册列表</h3>
+                    <h3 className="text-slate-900">{translate("花名册列表")}</h3>
                     <p className="mt-1 text-sm text-slate-500">
-                      共 {filteredEmployees.length} 条记录，点击详情再展开字段与材料。
+                      {translate("共 {count} 条记录，点击详情再展开字段与材料。", { count: filteredEmployees.length })}
                     </p>
                   </div>
 
@@ -3226,7 +3329,8 @@ export function EmployeeArchivePage() {
                       <input
                         value={search}
                         onChange={(event) => setSearch(event.target.value)}
-                        placeholder="搜索姓名、部门、岗位..."
+                        aria-label={translate("搜索花名册")}
+                        placeholder={translate("搜索姓名、工号、部门、岗位...")}
                         className="material-input pl-11"
                       />
                     </div>
@@ -3236,6 +3340,49 @@ export function EmployeeArchivePage() {
                       onImport={() => rosterInputRef.current?.click()}
                       onExport={handleRosterExport}
                     />
+
+                    <details className="relative shrink-0">
+                      <summary className="material-button-secondary cursor-pointer list-none px-3 py-2 text-xs [&::-webkit-details-marker]:hidden">
+                        <SlidersHorizontal className="h-4 w-4" />
+                        {translate("显示列")}
+                      </summary>
+                      <div className="absolute right-0 top-[calc(100%+8px)] z-30 w-60 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl">
+                        <div className="mb-2 flex items-center justify-between gap-3 px-1">
+                          <span className="text-xs font-semibold text-slate-700">{translate("选择列表显示项")}</span>
+                          <button
+                            type="button"
+                            onClick={resetListColumns}
+                            className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800"
+                          >
+                            {translate("恢复默认")}
+                          </button>
+                        </div>
+                        <div className="space-y-1">
+                          {EMPLOYEE_LIST_COLUMNS.map((column) => {
+                            const visibleCount = EMPLOYEE_LIST_COLUMNS.filter(
+                              (item) => listColumnVisibility[item.key],
+                            ).length;
+                            const isLastVisible = listColumnVisibility[column.key] && visibleCount === 1;
+                            return (
+                              <label
+                                key={column.key}
+                                className="flex cursor-pointer items-center justify-between gap-3 rounded-xl px-2.5 py-2 text-sm text-slate-700 hover:bg-slate-50"
+                              >
+                                <span>{translate(column.label)}</span>
+                                <input
+                                  type="checkbox"
+                                  checked={listColumnVisibility[column.key]}
+                                  disabled={isLastVisible}
+                                  onChange={() => toggleListColumn(column.key)}
+                                  className="h-4 w-4 rounded border-slate-300 accent-indigo-600 disabled:cursor-not-allowed"
+                                />
+                              </label>
+                            );
+                          })}
+                        </div>
+                        <p className="mt-2 px-1 text-[11px] leading-4 text-slate-400">{translate("设置会保存在当前浏览器。")}</p>
+                      </div>
+                    </details>
 
                     <div className="flex flex-wrap gap-2">
                       {companies.map((company) => (
@@ -3250,7 +3397,7 @@ export function EmployeeArchivePage() {
                               : "border-slate-200 bg-white text-slate-500 hover:border-slate-300",
                           )}
                         >
-                          {company}
+                          {translate(company)}
                         </button>
                       ))}
                     </div>
@@ -3270,37 +3417,53 @@ export function EmployeeArchivePage() {
                           : "border-slate-200 bg-white text-slate-500 hover:border-slate-300",
                       )}
                     >
-                      {filter.label}
+                      {translate(filter.label)}
                     </button>
                   ))}
                 </div>
               </div>
 
               <div className="material-scrollbar min-h-0 flex-1 overflow-auto">
-                <table className="w-full min-w-[1120px] table-fixed text-left">
+                <table
+                  className="w-full table-fixed text-left"
+                  style={{
+                    minWidth: `${EMPLOYEE_LIST_COLUMNS.reduce(
+                      (total, column) => total + (listColumnVisibility[column.key] ? column.width : 0),
+                      170,
+                    )}px`,
+                  }}
+                >
                   <colgroup>
-                    <col className="w-[190px]" />
-                    <col className="w-[180px]" />
-                    <col className="w-[170px]" />
-                    <col className="w-[170px]" />
-                    <col className="w-[170px]" />
-                    <col className="w-[190px]" />
-                    <col className="w-[70px]" />
+                    {EMPLOYEE_LIST_COLUMNS.filter((column) => listColumnVisibility[column.key]).map((column) => (
+                      <col key={column.key} style={{ width: `${column.width}px` }} />
+                    ))}
+                    <col style={{ width: "170px" }} />
                   </colgroup>
                   <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur">
                     <tr>
-                      {["员工", "组织", "岗位", "入职 / 转正", "归档", "缺项", "操作"].map((col) => (
-                        <th key={col} className={cn(TABLE_HEADER_CLASS, col === "操作" && "text-right")}>
-                          {col}
+                      {EMPLOYEE_LIST_COLUMNS.filter((column) => listColumnVisibility[column.key]).map((column) => (
+                        <th key={column.key} className={TABLE_HEADER_CLASS}>
+                          {translate(column.label)}
                         </th>
                       ))}
+                      <th
+                        className={cn(
+                          TABLE_HEADER_CLASS,
+                          "sticky right-0 z-20 bg-slate-50/95 text-right shadow-[-10px_0_14px_-14px_rgba(15,23,42,0.55)]",
+                        )}
+                      >
+                        {translate("操作")}
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {filteredEmployees.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="py-14 text-center text-sm text-slate-400">
-                          暂无匹配的花名册记录
+                        <td
+                          colSpan={EMPLOYEE_LIST_COLUMNS.filter((column) => listColumnVisibility[column.key]).length + 1}
+                          className="py-14 text-center text-sm text-slate-400"
+                        >
+                          {translate("暂无匹配的花名册记录")}
                         </td>
                       </tr>
                     ) : (
@@ -3310,29 +3473,31 @@ export function EmployeeArchivePage() {
                           probationReminder?.phase === "active" || probationReminder?.phase === "overdue";
 
                         return (
-                          <tr key={employee.id} className="h-[72px] transition hover:bg-blue-50/25">
-                          <td className={TABLE_CELL_CLASS}>
+                          <tr key={employee.id} className="group h-[72px] transition hover:bg-blue-50/25">
+                          {listColumnVisibility.employee ? <td className={TABLE_CELL_CLASS}>
                             <div className="flex min-w-0 items-center gap-3">
                               <span className="material-table-avatar flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-bold">
                                 {getInitial(employee.name)}
                               </span>
                               <div className="min-w-0">
                                 <div className="truncate font-semibold text-slate-900">{employee.name}</div>
-                                <div className="mt-0.5 truncate text-xs text-slate-400">序号 {employee.rosterNo}</div>
+                                <div className="mt-0.5 truncate text-xs text-slate-400">
+                                  {translate("序号 {number}", { number: employee.rosterNo })}
+                                </div>
                               </div>
                             </div>
-                          </td>
-                          <td className={TABLE_CELL_CLASS}>
+                          </td> : null}
+                          {listColumnVisibility.organization ? <td className={TABLE_CELL_CLASS}>
                             <div className="truncate font-medium text-slate-800">{employee.company}</div>
                             <div className="mt-0.5 truncate text-xs text-slate-400">
                               {employee.workLocation} · {employee.department}
                             </div>
-                          </td>
-                          <td className={TABLE_CELL_CLASS}>
+                          </td> : null}
+                          {listColumnVisibility.position ? <td className={TABLE_CELL_CLASS}>
                             <div className="truncate font-medium text-slate-800">{employee.title}</div>
-                            <span className="material-chip mt-1 bg-blue-50 text-blue-700">{employee.status}</span>
-                          </td>
-                          <td className={TABLE_CELL_CLASS}>
+                            <span className="material-chip mt-1 bg-blue-50 text-blue-700">{translate(employee.status)}</span>
+                          </td> : null}
+                          {listColumnVisibility.employment ? <td className={TABLE_CELL_CLASS}>
                             <div className="font-medium text-slate-800">{employee.hireDate}</div>
                             {showProbationReminder && probationReminder ? (
                               <div
@@ -3344,12 +3509,12 @@ export function EmployeeArchivePage() {
                               >
                                 <Clock className="h-3.5 w-3.5 shrink-0" />
                                 <span className="truncate">
-                                  {probationReminder.phase === "overdue" ? "转正已逾期" : "转正提醒"} · {probationReminder.conversionDate}
+                                  {translate(probationReminder.phase === "overdue" ? "转正已逾期" : "转正提醒")} · {probationReminder.conversionDate}
                                 </span>
                               </div>
                             ) : null}
-                          </td>
-                          <td className={TABLE_CELL_CLASS}>
+                          </td> : null}
+                          {listColumnVisibility.archive ? <td className={TABLE_CELL_CLASS}>
                             <div className="flex items-center gap-3">
                               <div className="h-2 w-24 overflow-hidden rounded-full bg-slate-100">
                                 <div
@@ -3369,13 +3534,13 @@ export function EmployeeArchivePage() {
                             <div className="mt-2">
                               <StatusBadge status={employee.archiveStatus} />
                             </div>
-                          </td>
-                          <td className={TABLE_CELL_CLASS}>
+                          </td> : null}
+                          {listColumnVisibility.missing ? <td className={TABLE_CELL_CLASS}>
                             {employee.missingFields.length > 0 ? (
                               <div className="flex flex-wrap gap-1.5">
                                 {employee.missingFields.slice(0, 2).map((field) => (
                                   <span key={field} className="material-chip bg-red-50 text-red-700">
-                                    {field}
+                                    {translate(field)}
                                   </span>
                                 ))}
                                 {employee.missingFields.length > 2 && (
@@ -3387,14 +3552,40 @@ export function EmployeeArchivePage() {
                             ) : (
                               <span className="material-chip gap-1 bg-emerald-50 text-emerald-700">
                                 <CheckCircle2 className="h-3.5 w-3.5" />
-                                无缺项
+                                {translate("无缺项")}
                               </span>
                             )}
-                          </td>
-                          <td className={cn(TABLE_CELL_CLASS, "text-right")}>
-                            <ActionIconButton onClick={() => openDetail(employee.id)} title="查看详情">
-                              <ChevronRight className="h-4 w-4" />
-                            </ActionIconButton>
+                          </td> : null}
+                          <td
+                            className={cn(
+                              TABLE_CELL_CLASS,
+                              "sticky right-0 z-[5] bg-white text-right shadow-[-10px_0_14px_-14px_rgba(15,23,42,0.45)] transition group-hover:bg-blue-50",
+                            )}
+                          >
+                            <div className="flex items-center justify-end gap-1.5">
+                              <ActionIconButton
+                                onClick={() => startEmployeeEdit(employee)}
+                                title={translate("编辑 {name}", { name: employee.name })}
+                                aria-label={translate("编辑 {name}", { name: employee.name })}
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </ActionIconButton>
+                              <ActionIconButton
+                                onClick={() => setEmployeePendingDelete(employee)}
+                                title={translate("删除 {name}", { name: employee.name })}
+                                aria-label={translate("删除 {name}", { name: employee.name })}
+                                className="hover:border-red-200 hover:bg-red-50 hover:text-red-600"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </ActionIconButton>
+                              <ActionIconButton
+                                onClick={() => openDetail(employee.id)}
+                                title={translate("查看 {name} 详情", { name: employee.name })}
+                                aria-label={translate("查看 {name} 详情", { name: employee.name })}
+                              >
+                                <ChevronRight className="h-4 w-4" />
+                              </ActionIconButton>
+                            </div>
                           </td>
                           </tr>
                         );
@@ -3406,11 +3597,11 @@ export function EmployeeArchivePage() {
 
               <div className="grid shrink-0 gap-3 border-t border-slate-100 bg-white/95 px-5 py-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
                 <div className="min-w-0 text-sm text-slate-500">
-                  共 <span className="font-semibold text-slate-800">{filteredEmployees.length}</span> 条记录
+                  {translate("共 {count} 条记录", { count: filteredEmployees.length })}
                   <span className="mx-2 text-slate-300">/</span>
-                  每页 {EMPLOYEE_PAGE_SIZE} 条
+                  {translate("每页 {count} 条", { count: EMPLOYEE_PAGE_SIZE })}
                   <span className="mx-2 text-slate-300">/</span>
-                  第 {currentPage}/{totalPages} 页
+                  {translate("第 {page}/{total} 页", { page: currentPage, total: totalPages })}
                 </div>
                 <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                   <button
@@ -3419,7 +3610,7 @@ export function EmployeeArchivePage() {
                     disabled={currentPage === 1}
                     className="material-button-secondary px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    首页
+                    {translate("首页")}
                   </button>
                   <button
                     type="button"
@@ -3428,7 +3619,7 @@ export function EmployeeArchivePage() {
                     className="material-button-secondary px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <ChevronLeft className="h-3.5 w-3.5" />
-                    上一页
+                    {translate("上一页")}
                   </button>
                   <button
                     type="button"
@@ -3436,7 +3627,7 @@ export function EmployeeArchivePage() {
                     disabled={currentPage === totalPages}
                     className="material-button-secondary px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    下一页
+                    {translate("下一页")}
                     <ChevronRight className="h-3.5 w-3.5" />
                   </button>
                   <button
@@ -3445,7 +3636,7 @@ export function EmployeeArchivePage() {
                     disabled={currentPage === totalPages}
                     className="material-button-secondary px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    末页
+                    {translate("末页")}
                   </button>
                 </div>
               </div>
@@ -3463,7 +3654,7 @@ export function EmployeeArchivePage() {
                 className="material-button-secondary w-fit px-3 py-2 text-xs"
               >
                 <ChevronLeft className="h-4 w-4" />
-                返回列表
+                {translate("返回列表")}
               </button>
 
               <div className="flex min-w-0 items-center gap-3">
@@ -3487,15 +3678,15 @@ export function EmployeeArchivePage() {
                   className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-100 bg-white px-3 py-2 text-xs font-semibold text-red-600 transition hover:bg-red-50"
                 >
                   <Trash2 className="h-4 w-4" />
-                  删除人员
+                  {translate("删除人员")}
                 </button>
                 <button
                   type="button"
-                  onClick={startEmployeeEdit}
+                  onClick={() => startEmployeeEdit(selected)}
                   className="material-button-secondary px-3 py-2 text-xs"
                 >
                   <Pencil className="h-4 w-4" />
-                  编辑字段
+                  {translate("编辑字段")}
                 </button>
               </div>
             </div>
@@ -3508,14 +3699,14 @@ export function EmployeeArchivePage() {
                   <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                     <div>
                       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-400">Employee Archive</p>
-                      <h3 className="mt-1 text-xl font-semibold text-slate-950">员工档案</h3>
+                      <h3 className="mt-1 text-xl font-semibold text-slate-950">{translate("员工档案")}</h3>
                     </div>
                     <div className="grid gap-2 sm:grid-cols-4 lg:min-w-[560px]">
                       {[
-                        { label: "入职", value: selected.hireDate },
-                        { label: "星座", value: selected.constellation || "待补充" },
-                        { label: "工龄", value: selected.tenure },
-                        { label: "费用", value: selected.costCenter },
+                        { label: translate("入职"), value: selected.hireDate },
+                        { label: translate("结算"), value: selected.settlementDate || translate("待补充") },
+                        { label: translate("工龄"), value: selected.tenure },
+                        { label: translate("工号"), value: selected.employeeCode || translate("待补充") },
                       ].map((item) => (
                         <div key={item.label} className="min-w-0 border-l border-slate-200 pl-3">
                           <p className="text-[11px] font-semibold text-slate-400">{item.label}</p>
@@ -3537,8 +3728,8 @@ export function EmployeeArchivePage() {
                               <group.Icon className="h-4 w-4" />
                             </span>
                             <div className="min-w-0">
-                              <h4 className="truncate text-sm font-semibold text-slate-950">{group.title}</h4>
-                              <p className="mt-0.5 text-xs text-slate-400">{fields.length} 项</p>
+                              <h4 className="truncate text-sm font-semibold text-slate-950">{translate(group.title)}</h4>
+                              <p className="mt-0.5 text-xs text-slate-400">{translate("{count} 项", { count: fields.length })}</p>
                             </div>
                           </div>
                           <ResumeFieldGrid employee={selected} fields={fields} />
@@ -3554,23 +3745,23 @@ export function EmployeeArchivePage() {
                           <FileCheck2 className="h-4 w-4" />
                         </span>
                         <div>
-                          <h4 className="text-sm font-semibold text-slate-950">材料记录</h4>
-                          <p className="mt-0.5 text-xs text-slate-400">{selected.docs.length} 项</p>
+                          <h4 className="text-sm font-semibold text-slate-950">{translate("材料记录")}</h4>
+                          <p className="mt-0.5 text-xs text-slate-400">{translate("{count} 项", { count: selected.docs.length })}</p>
                         </div>
                       </div>
                       <div className="flex flex-wrap justify-end gap-1.5">
-                        <span className="material-chip bg-emerald-50 text-emerald-700">已归档 {completedDocCount}</span>
-                        <span className="material-chip bg-amber-50 text-amber-700">待复核 {reviewDocCount}</span>
-                        <span className="material-chip bg-red-50 text-red-700">待补 {missingDocCount}</span>
+                        <span className="material-chip bg-emerald-50 text-emerald-700">{translate("已归档 {count}", { count: completedDocCount })}</span>
+                        <span className="material-chip bg-amber-50 text-amber-700">{translate("待复核 {count}", { count: reviewDocCount })}</span>
+                        <span className="material-chip bg-red-50 text-red-700">{translate("待补 {count}", { count: missingDocCount })}</span>
                       </div>
                     </div>
 
                     <div className="overflow-hidden rounded-xl border border-slate-200">
                       <div className="hidden grid-cols-[minmax(0,1.05fr)_minmax(0,1.45fr)_96px_82px] gap-3 bg-slate-50 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500 md:grid">
-                        <span>材料</span>
-                        <span>核对说明</span>
-                        <span>更新</span>
-                        <span className="text-right">状态</span>
+                        <span>{translate("材料")}</span>
+                        <span>{translate("核对说明")}</span>
+                        <span>{translate("更新")}</span>
+                        <span className="text-right">{translate("状态")}</span>
                       </div>
                       <div className="divide-y divide-slate-100">
                         {selected.docs.map((doc) => {
@@ -3592,7 +3783,7 @@ export function EmployeeArchivePage() {
                               <p className="text-sm leading-5 text-slate-600">{doc.detail}</p>
                               <p className="text-xs text-slate-400">{doc.updatedAt}</p>
                               <div className="md:text-right">
-                                <span className={cn("material-chip", meta.className)}>{meta.label}</span>
+                                <span className={cn("material-chip", meta.className)}>{translate(meta.label)}</span>
                               </div>
                             </div>
                           );
@@ -3606,17 +3797,17 @@ export function EmployeeArchivePage() {
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
                           <IdCard className="h-4 w-4 text-slate-400" />
-                          <h4 className="text-sm font-semibold text-slate-950">Excel 字段映射</h4>
-                          <span className="material-chip bg-slate-50 text-slate-600">{sheetFields.length} 列</span>
+                          <h4 className="text-sm font-semibold text-slate-950">{translate("Excel 字段映射")}</h4>
+                          <span className="material-chip bg-slate-50 text-slate-600">{translate("{count} 列", { count: sheetFields.length })}</span>
                         </div>
                         <p className="mt-1 text-xs leading-5 text-slate-500">
-                          身份证自动生成出生日期、出生月日、年龄和生肖；星座根据出生日期自动计算。
+                          {translate("黄色 A-AE 为归档必备，社保号与社保首月日期为选填；工龄及出生相关字段自动计算。")}
                         </p>
                       </div>
                       <div className="flex max-w-3xl flex-wrap gap-1.5">
                         {sheetFields.map((field) => (
                           <span key={field} className="material-chip bg-slate-50 text-slate-600 ring-1 ring-inset ring-slate-200">
-                            {field}
+                            {translate(field)}
                           </span>
                         ))}
                       </div>
@@ -3629,7 +3820,7 @@ export function EmployeeArchivePage() {
             <aside className="space-y-3 xl:sticky xl:top-[88px] xl:self-start">
               <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-slate-900">归档完成度</p>
+                  <p className="text-sm font-semibold text-slate-900">{translate("归档完成度")}</p>
                   <span className="text-2xl font-bold text-slate-950">{selected.archiveScore}%</span>
                 </div>
                 <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
@@ -3638,15 +3829,15 @@ export function EmployeeArchivePage() {
                 <div className="mt-3 grid grid-cols-3 gap-2">
                   <div className="rounded-xl bg-slate-50 px-2 py-2 text-center">
                     <p className="text-base font-bold text-slate-950">{selected.docs.length}</p>
-                    <p className="text-[11px] font-semibold text-slate-400">材料</p>
+                    <p className="text-[11px] font-semibold text-slate-400">{translate("材料")}</p>
                   </div>
                   <div className="rounded-xl bg-red-50 px-2 py-2 text-center">
                     <p className="text-base font-bold text-red-700">{selected.missingFields.length}</p>
-                    <p className="text-[11px] font-semibold text-red-400">缺项</p>
+                    <p className="text-[11px] font-semibold text-red-400">{translate("缺项")}</p>
                   </div>
                   <div className="rounded-xl bg-amber-50 px-2 py-2 text-center">
                     <p className="text-base font-bold text-amber-700">{reviewDocCount + badgeWarningItems.length}</p>
-                    <p className="text-[11px] font-semibold text-amber-500">复核</p>
+                    <p className="text-[11px] font-semibold text-amber-500">{translate("复核")}</p>
                   </div>
                 </div>
               </section>
@@ -3655,10 +3846,10 @@ export function EmployeeArchivePage() {
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
                     <AlertTriangle className="h-4 w-4 text-amber-600" />
-                    <p className="text-sm font-semibold text-slate-900">待处理</p>
+                    <p className="text-sm font-semibold text-slate-900">{translate("待处理")}</p>
                   </div>
                   {pendingActionCount === 0 ? (
-                    <span className="material-chip bg-emerald-50 text-emerald-700">无阻断</span>
+                    <span className="material-chip bg-emerald-50 text-emerald-700">{translate("无阻断")}</span>
                   ) : (
                     <span
                       className={cn(
@@ -3668,7 +3859,7 @@ export function EmployeeArchivePage() {
                           : "bg-amber-50 text-amber-700",
                       )}
                     >
-                      {pendingActionCount} 项
+                      {translate("{count} 项", { count: pendingActionCount })}
                     </span>
                   )}
                 </div>
@@ -3676,13 +3867,13 @@ export function EmployeeArchivePage() {
                   {selected.missingFields.length > 0 ? (
                     selected.missingFields.map((field) => (
                       <span key={field} className="material-chip bg-red-50 text-red-700 ring-1 ring-inset ring-red-100">
-                        {field}
+                        {translate(field)}
                       </span>
                     ))
                   ) : (
                     <span className="material-chip gap-1 bg-emerald-50 text-emerald-700">
                       <CheckCircle2 className="h-3.5 w-3.5" />
-                      字段完整
+                      {translate("字段完整")}
                     </span>
                   )}
                 </div>
@@ -3700,19 +3891,19 @@ export function EmployeeArchivePage() {
                       <div className="flex items-center gap-2 text-xs font-semibold">
                         <Clock className="h-4 w-4 shrink-0" />
                         <span>
-                          {selectedProbationReminder.phase === "overdue" ? "试用期转正已逾期" : "试用期转正提醒"}
+                          {translate(selectedProbationReminder.phase === "overdue" ? "试用期转正已逾期" : "试用期转正提醒")}
                         </span>
                       </div>
                       <p className="mt-1 text-xs leading-5">
                         {selectedProbationReminder.phase === "overdue"
-                          ? `预计转正日 ${selectedProbationReminder.conversionDate} 已过 ${Math.abs(selectedProbationReminder.daysUntilConversion)} 天，请尽快完成转正审批。`
-                          : `预计 ${selectedProbationReminder.conversionDate} 转正，距转正 ${selectedProbationReminder.daysUntilConversion} 天；已从 ${selectedProbationReminder.reminderDate} 起进入提前一个月提醒期。`}
+                          ? translate("预计转正日 {date} 已过 {days} 天，请尽快完成转正审批。", { date: selectedProbationReminder.conversionDate, days: Math.abs(selectedProbationReminder.daysUntilConversion) })
+                          : translate("预计 {date} 转正，距转正 {days} 天；已从 {reminderDate} 起进入提前一个月提醒期。", { date: selectedProbationReminder.conversionDate, days: selectedProbationReminder.daysUntilConversion, reminderDate: selectedProbationReminder.reminderDate })}
                       </p>
                     </div>
                   ) : null}
                   {selected.alerts.map((alert) => (
                     <p key={alert} className="rounded-xl border border-amber-100 bg-amber-50/60 px-3 py-2 text-xs leading-5 text-amber-800">
-                      {alert}
+                      {translate(alert)}
                     </p>
                   ))}
                 </div>
@@ -3721,8 +3912,8 @@ export function EmployeeArchivePage() {
               <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className="text-sm font-semibold text-slate-900">胸牌</p>
-                    <p className="mt-0.5 text-xs text-slate-500">{activeBadgeTemplate.name} · {BADGE_PRINT_SIZE}</p>
+                    <p className="text-sm font-semibold text-slate-900">{translate("胸牌")}</p>
+                    <p className="mt-0.5 text-xs text-slate-500">{translate(activeBadgeTemplate.name)} · {BADGE_PRINT_SIZE}</p>
                   </div>
                   <span
                     className={cn(
@@ -3734,7 +3925,7 @@ export function EmployeeArchivePage() {
                           : "bg-amber-50 text-amber-700",
                     )}
                   >
-                    {badgeBlockingItems.length > 0 ? `待补 ${badgeBlockingItems.length}` : isActiveBadgePositionConfirmed ? "可打印" : "待定位"}
+                    {badgeBlockingItems.length > 0 ? translate("待补 {count}", { count: badgeBlockingItems.length }) : translate(isActiveBadgePositionConfirmed ? "可打印" : "待定位")}
                   </span>
                 </div>
                 <div className="mt-3">
@@ -3764,7 +3955,7 @@ export function EmployeeArchivePage() {
                         )}
                       >
                         <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: template.primary }} />
-                        <span className="truncate">{template.name}</span>
+                        <span className="truncate">{translate(template.name)}</span>
                       </button>
                     );
                   })}
@@ -3777,7 +3968,7 @@ export function EmployeeArchivePage() {
                     className="material-button-secondary justify-center disabled:cursor-wait disabled:opacity-60"
                   >
                     {isBadgeExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                    {isBadgeExporting ? "导出中" : "导出图片"}
+                    {translate(isBadgeExporting ? "导出中" : "导出图片")}
                   </button>
                   <button
                     type="button"
@@ -3785,7 +3976,7 @@ export function EmployeeArchivePage() {
                     className="material-button-primary justify-center"
                   >
                     <CreditCard className="h-4 w-4" />
-                    编辑胸牌
+                    {translate("编辑胸牌")}
                   </button>
                 </div>
               </section>
@@ -3799,13 +3990,13 @@ export function EmployeeArchivePage() {
                 <div className="flex min-w-0 items-start justify-between gap-3 border-b border-slate-100 px-5 py-4">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-lg font-semibold text-slate-950">胸牌定制</h3>
-                      <span className="material-chip bg-slate-50 text-slate-600">{activeBadgeTemplate.name}</span>
+                      <h3 className="text-lg font-semibold text-slate-950">{translate("胸牌定制")}</h3>
+                      <span className="material-chip bg-slate-50 text-slate-600">{translate(activeBadgeTemplate.name)}</span>
                       <span className="material-chip bg-slate-50 text-slate-600">{BADGE_PRINT_SIZE}</span>
                     </div>
                     <p className="mt-1 text-sm text-slate-500">{selected.name} · {selected.department} · {selected.title}</p>
                   </div>
-                  <ActionIconButton type="button" onClick={closeBadgeEditor} title="关闭胸牌编辑">
+                  <ActionIconButton type="button" onClick={closeBadgeEditor} title={translate("关闭胸牌编辑")} aria-label={translate("关闭胸牌编辑")}>
                     <XCircle className="h-4 w-4" />
                   </ActionIconButton>
                 </div>
@@ -3826,7 +4017,7 @@ export function EmployeeArchivePage() {
                             )}
                           >
                             <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: template.primary }} />
-                            <span className="truncate">{template.name}</span>
+                            <span className="truncate">{translate(template.name)}</span>
                           </button>
                         );
                       })}
@@ -3844,9 +4035,9 @@ export function EmployeeArchivePage() {
                         )}
                       >
                         {isBadgePositionEditing ? <CheckCircle2 className="h-4 w-4" /> : <Move className="h-4 w-4" />}
-                        {isBadgePositionEditing ? "确认位置" : "调整位置"}
+                        {translate(isBadgePositionEditing ? "确认位置" : "调整位置")}
                       </button>
-                      <ActionIconButton type="button" onClick={resetBadgePositions} title="重置当前模板坐标">
+                      <ActionIconButton type="button" onClick={resetBadgePositions} title={translate("重置当前模板坐标")} aria-label={translate("重置当前模板坐标")}>
                         <RotateCcw className="h-4 w-4" />
                       </ActionIconButton>
                     </div>
@@ -3854,8 +4045,8 @@ export function EmployeeArchivePage() {
                     <div className="mb-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
                       <div className="flex items-center justify-between gap-3">
                         <div>
-                          <p className="text-sm font-semibold text-slate-900">文本显示</p>
-                          <p className="mt-0.5 text-xs text-slate-500">控制当前模板导出的文字内容</p>
+                          <p className="text-sm font-semibold text-slate-900">{translate("文本显示")}</p>
+                          <p className="mt-0.5 text-xs text-slate-500">{translate("控制当前模板导出的文字内容")}</p>
                         </div>
                         <span aria-live="polite" className="material-chip bg-blue-50 text-blue-700">
                           {visibleBadgeTextCount}/{badgeTextFieldOptions.length}
@@ -3879,7 +4070,7 @@ export function EmployeeArchivePage() {
                               )}
                             >
                               {visible ? <Eye className="h-3.5 w-3.5 shrink-0" /> : <EyeOff className="h-3.5 w-3.5 shrink-0" />}
-                              <span className="truncate">{field.label}</span>
+                              <span className="truncate">{translate(field.label)}</span>
                             </button>
                           );
                         })}
@@ -3904,21 +4095,21 @@ export function EmployeeArchivePage() {
                         <div className="grid gap-2 sm:grid-cols-3">
                           {[
                             {
-                              label: "必填完成",
+                              label: translate("必填完成"),
                               value: `${badgeReadyRequiredCount}/${requiredBadgeItems.length}`,
-                              helper: "模板、定位、头像与员工信息",
+                              helper: translate("模板、定位、头像与员工信息"),
                               tone: "text-slate-900",
                             },
                             {
-                              label: "待补",
+                              label: translate("待补"),
                               value: badgeBlockingItems.length,
-                              helper: badgeBlockingItems.length > 0 ? badgeBlockingItems.map((item) => item.label).join("、") : "无阻断项",
+                              helper: badgeBlockingItems.length > 0 ? badgeBlockingItems.map((item) => translate(item.label)).join(", ") : translate("无阻断项"),
                               tone: badgeBlockingItems.length > 0 ? "text-red-700" : "text-emerald-700",
                             },
                             {
-                              label: "需确认",
+                              label: translate("需确认"),
                               value: badgeWarningItems.length,
-                              helper: badgeWarningItems.length > 0 ? badgeWarningItems.map((item) => item.label).join("、") : "无提醒",
+                              helper: badgeWarningItems.length > 0 ? badgeWarningItems.map((item) => translate(item.label)).join(", ") : translate("无提醒"),
                               tone: badgeWarningItems.length > 0 ? "text-amber-700" : "text-slate-600",
                             },
                           ].map((item) => (
@@ -3947,14 +4138,14 @@ export function EmployeeArchivePage() {
                         <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
                           <div className="flex min-w-0 items-start justify-between gap-3">
                             <div>
-                              <p className="text-sm font-semibold text-slate-900">字段来源</p>
-                              <p className="mt-0.5 text-xs text-slate-500">从当前员工档案回填到模板。</p>
+                              <p className="text-sm font-semibold text-slate-900">{translate("字段来源")}</p>
+                              <p className="mt-0.5 text-xs text-slate-500">{translate("从当前员工档案回填到模板。")}</p>
                             </div>
                             <span className="material-chip bg-white text-slate-600">{BADGE_PRINT_SIZE}</span>
                           </div>
                           <div className="mt-3 grid gap-2 sm:grid-cols-2">
                             {[
-                              { label: "模板", value: `${activeBadgeTemplate.name} (${activeBadgeTemplate.sourceFile})` },
+                              { label: "模板", value: `${translate(activeBadgeTemplate.name)} (${translate(activeBadgeTemplate.name)}.jpeg)` },
                               { label: "姓名", value: selected.name },
                               { label: "部门", value: selected.department },
                               { label: "部门英文", value: departmentEnglish[selected.department] ?? "Office" },
@@ -3962,7 +4153,7 @@ export function EmployeeArchivePage() {
                               { label: "员工编号", value: badgeEmployeeId },
                             ].map((item) => (
                               <div key={item.label} className="min-w-0 border-b border-slate-200 pb-2">
-                                <p className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">{item.label}</p>
+                                <p className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-400">{translate(item.label)}</p>
                                 <p className="mt-1 truncate text-sm font-semibold text-slate-900">{item.value}</p>
                               </div>
                             ))}
@@ -3980,15 +4171,15 @@ export function EmployeeArchivePage() {
                               >
                                 <div className="flex min-w-0 items-center gap-2">
                                   <RequirementIcon className={cn("h-4 w-4 shrink-0", meta.iconClassName)} />
-                                  <span className="truncate text-sm font-semibold text-slate-800">{item.label}</span>
+                                  <span className="truncate text-sm font-semibold text-slate-800">{translate(item.label)}</span>
                                 </div>
                                 <div className="min-w-0">
                                   <p className={cn("truncate text-sm font-semibold", item.status === "ready" ? "text-slate-800" : item.status === "warning" ? "text-amber-700" : "text-red-700")}>
-                                    {item.value}
+                                    {translate(item.value)}
                                   </p>
-                                  <p className="mt-0.5 truncate text-xs text-slate-400">{item.helper}</p>
+                                  <p className="mt-0.5 truncate text-xs text-slate-400">{translate(item.helper)}</p>
                                 </div>
-                                <span className={cn("material-chip justify-center", meta.className)}>{meta.label}</span>
+                                <span className={cn("material-chip justify-center", meta.className)}>{translate(meta.label)}</span>
                               </div>
                             );
                           })}
@@ -4002,7 +4193,7 @@ export function EmployeeArchivePage() {
                             className="material-button-secondary w-full justify-center disabled:cursor-wait disabled:opacity-60"
                           >
                             {isBadgeConfigSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                            {isBadgeConfigSaving ? "保存中" : "保存胸牌配置"}
+                            {translate(isBadgeConfigSaving ? "保存中" : "保存胸牌配置")}
                           </button>
                           <button
                             type="button"
@@ -4011,7 +4202,7 @@ export function EmployeeArchivePage() {
                             className="material-button-primary w-full justify-center disabled:cursor-wait disabled:opacity-60"
                           >
                             {isBadgeExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                            {isBadgeExporting ? "正在生成 PNG" : "导出胸牌 PNG"}
+                            {translate(isBadgeExporting ? "正在生成 PNG" : "导出胸牌 PNG")}
                           </button>
                         </div>
                       </div>

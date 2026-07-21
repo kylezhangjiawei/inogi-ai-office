@@ -470,11 +470,7 @@ export class OssService implements OnModuleInit {
 
   /** HMAC secret for self-authenticating preview tokens (iframes can't send Authorization headers). */
   private previewSecret(): string {
-    return (
-      this.config.get<string>('OSS_PREVIEW_SECRET') ||
-      this.config.get<string>('JWT_SECRET') ||
-      'change-me-jwt-secret'
-    );
+    return this.config.get<string>('OSS_PREVIEW_SECRET') || this.config.getOrThrow<string>('JWT_SECRET');
   }
 
   /** Sign a time-limited HMAC token authorizing inline preview of an object via the proxy. */

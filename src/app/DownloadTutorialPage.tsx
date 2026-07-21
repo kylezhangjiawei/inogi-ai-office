@@ -31,7 +31,7 @@ type PlatformConfig = {
   title: string;
   version: string;
   gradient: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: React.ComponentType<{ className?: string; strokeWidth?: string | number }>;
   iconClass: string;
   shadow: string;
   accent: string;
@@ -292,7 +292,7 @@ function TutorialImageSlot({ step }: { step: TutorialStep }) {
 }
 
 function TutorialVisual({ step, platform }: { step: TutorialStep; platform: PlatformConfig }) {
-  const { type } = step;
+  const type = step.visual;
 
   if (step.imageSrc || step.imageShape) return <TutorialImageSlot step={step} />;
 

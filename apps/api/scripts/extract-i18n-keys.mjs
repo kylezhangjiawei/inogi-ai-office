@@ -10,10 +10,12 @@ import { fileURLToPath } from "node:url";
 const apiRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = join(apiRoot, "..", "..");
 const srcRoot = join(repoRoot, "src", "app");
+const modulesRoot = join(repoRoot, "src", "modules");
 
 const env = readFileSync(join(apiRoot, ".env"), "utf8");
 const envValue = (name) => env.match(new RegExp(`^${name}\\s*=\\s*"?([^"\\r\\n]+)"?`, "m"))?.[1]?.trim();
-const SECRET = envValue("JWT_SECRET") ?? "change-me-jwt-secret";
+const SECRET = envValue("JWT_SECRET");
+if (!SECRET) throw new Error("apps/api/.env 中未配置 JWT_SECRET");
 const BASE = process.env.API_BASE ?? "http://localhost:3000/api";
 const dry = process.argv.includes("--dry");
 let TOKEN = "";
@@ -106,14 +108,6 @@ function decodeJsString(raw) {
   return result;
 }
 
-/**
- * 不参与翻译登记的文件。
- * ManualPage.tsx：操作手册正文当前锁中文，它的 `t` 是文件内的恒等函数、不查字典（原因见该文件顶部）。
- * 语法上仍是 t("中文") 会被本脚本正则命中，登记进去会让翻译管理页凭空多出几百条「缺失英文」，
- * 淹掉真正待翻的条目。内容定稿要做英文时，把这条移除即可。
- */
-const SKIP_FILES = new Set(["ManualPage.tsx"]);
-
 function* walk(dir) {
   for (const name of readdirSync(dir)) {
     const full = join(dir, name);
@@ -121,7 +115,7 @@ function* walk(dir) {
     if (st.isDirectory()) {
       if (name === "node_modules" || name === "dist") continue;
       yield* walk(full);
-    } else if (/\.(tsx?|jsx?)$/.test(name) && !SKIP_FILES.has(name)) {
+    } else if (/\.(tsx?|jsx?)$/.test(name)) {
       yield full;
     }
   }
@@ -129,9 +123,14 @@ function* walk(dir) {
 
 /** 模块归属：文件相对 src/app 的首段/文件名（管理页按模块过滤用） */
 function moduleOf(file) {
-  const rel = relative(srcRoot, file).replace(/\\/g, "/");
+  const appRelative = relative(srcRoot, file).replace(/\\/g, "/");
+  if (!appRelative.startsWith("../")) {
+    const base = appRelative.split("/").pop().replace(/\.(tsx?|jsx?)$/, "");
+    return appRelative.startsWith("components/") ? `components/${base}` : base;
+  }
+  const rel = relative(join(repoRoot, "src"), file).replace(/\\/g, "/");
   const base = rel.split("/").pop().replace(/\.(tsx?|jsx?)$/, "");
-  return rel.startsWith("components/") ? `components/${base}` : base;
+  return rel.replace(/\.(tsx?|jsx?)$/, "") || base;
 }
 
 const keys = {};
@@ -161,18 +160,42 @@ let files = 0;
       module: "Dashboard",
       re: /(?:title|health|rd|issues|expenses|orders|pending|analyzing|adjusting|adopted|archived):\s*"([^"]+)"/g,
     },
+    // 7) 采购状态元数据（状态标签与下一步操作由 t(变量) 消费）
+    { file: "procurement/components/common.tsx", module: "procurement/common", re: /(?:label|next):\s*"([^"]+)"/g },
+    // 8) 库存页时间/入库类型标签，以及采购 mock 中由 t(unit) 消费的计量单位
+    { file: "order-processing/pages/Inventory.tsx", module: "order-processing/Inventory", re: /label:\s*'([^']+)'/g },
+    { root: join(repoRoot, "src"), file: "mock/procurement.ts", module: "mock/procurement", re: /unit:\s*"([^"]+)"/g },
+    // 9) 费用模块标签常量（模块位于 src/modules，不在默认 app 根目录）
+    { root: modulesRoot, file: "expense/pages/ExpenseModule.tsx", module: "modules/expense/ExpenseModule", re: /(?:label|name|l):\s*'([^']+)'/g },
+    { root: repoRoot, file: "apps/api/src/modules/expense/expense.service.ts", module: "api/expense", re: /(?:title|trend|badge):\s*'([^']+)'/g },
+    // 10) 协同演示人员职位会由 t(p.position) 消费；姓名保持原文。
+    { root: repoRoot, file: "apps/api/scripts/seed-us-collab-demo.mjs", module: "api/us-collab-demo", re: /position:\s*"([^"]+)"/g },
+    { root: repoRoot, file: "apps/api/scripts/seed-us-collab-demo.mjs", module: "api/us-collab-demo", re: /label:\s*"([^"]+)"/g },
   ];
   for (const src of sources) {
-    const text = readFileSync(join(srcRoot, src.file), "utf8");
+    const text = readFileSync(join(src.root ?? srcRoot, src.file), "utf8");
     let m;
     while ((m = src.re.exec(text))) {
       const key = m[1].trim();
       if (key && /[一-鿿]/.test(key) && !keys[key]) keys[key] = src.module;
     }
   }
+
+  // 11) 用户手册正文都放在 TOPICS 常量中，渲染点是 t(topic.*) / t(line)。
+  // 仅扫描常量区域中的字符串字面量，避免把文件注释误登记为翻译 key。
+  const manualText = readFileSync(join(srcRoot, "ManualPage.tsx"), "utf8");
+  const manualStart = manualText.indexOf("const TOPICS");
+  const manualEnd = manualText.indexOf("function SectionHeading", manualStart);
+  const manualSource = manualText.slice(manualStart, manualEnd);
+  const manualLiteralRe = /"((?:[^"\\]|\\.)+)"/g;
+  let manualMatch;
+  while ((manualMatch = manualLiteralRe.exec(manualSource))) {
+    const key = decodeJsString(manualMatch[1]).trim();
+    if (key && /[一-鿿]/.test(key) && !keys[key]) keys[key] = "ManualPage";
+  }
 }
 
-for (const file of walk(srcRoot)) {
+for (const file of [...walk(srcRoot), ...walk(modulesRoot)]) {
   const text = readFileSync(file, "utf8");
   if (!text.includes("t(") && !text.includes("translate(")) continue;
   let m;
@@ -181,6 +204,28 @@ for (const file of walk(srcRoot)) {
   while ((m = CALL_RE.exec(text))) {
     const key = decodeJsString(m[1] ?? m[2] ?? m[3] ?? "").trim();
     // 只登记含中文的 key（过滤掉误匹配的英文/变量场景）
+    if (!key || !/[一-鿿]/.test(key)) continue;
+    if (!keys[key]) keys[key] = moduleOf(file);
+    hit = true;
+  }
+  // 条件式调用（如 t(flag ? "是" : "否")）的首参不是直接字面量，CALL_RE 无法命中。
+  // 对含 t()/translate() 的单行再收集其中的中文字符串；这些字符串均由该行的翻译调用消费。
+  for (const line of text.split(/\r?\n/)) {
+    if (!/\b(?:t|translate)\(/.test(line) || !/[一-鿿]/.test(line)) continue;
+    const literalRe = /"((?:[^"\\]|\\.)+)"|'((?:[^'\\]|\\.)+)'|`((?:[^`\\$]|\\.)+)`/g;
+    let literal;
+    while ((literal = literalRe.exec(line))) {
+      const key = decodeJsString(literal[1] ?? literal[2] ?? literal[3] ?? "").trim();
+      if (!key || !/[一-鿿]/.test(key)) continue;
+      if (!keys[key]) keys[key] = moduleOf(file);
+      hit = true;
+    }
+  }
+  // Info 是内部会执行 t(label) 的展示组件；将字面量 label 同步纳入注册表。
+  const translatedPropRe = /<(?:Info)\b[^>]*\blabel=(?:"([^"]+)"|'([^']+)')/g;
+  let translatedProp;
+  while ((translatedProp = translatedPropRe.exec(text))) {
+    const key = decodeJsString(translatedProp[1] ?? translatedProp[2] ?? "").trim();
     if (!key || !/[一-鿿]/.test(key)) continue;
     if (!keys[key]) keys[key] = moduleOf(file);
     hit = true;

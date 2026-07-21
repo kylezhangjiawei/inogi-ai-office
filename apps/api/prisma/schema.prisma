@@ -725,11 +725,13 @@ model EmployeeArchive {
   rosterNo                 String                    @unique
   company                  String                    @default("")
   hireDate                 DateTime?
+  settlementDate           DateTime?
   tenure                   String                    @default("")
   employmentStatus         String                    @default("")
   workLocation             String                    @default("")
   department               String                    @default("")
   title                    String                    @default("")
+  employeeCode             String                    @default("")
   name                     String
   idNoMasked               String                    @default("")
   birthDate                DateTime?
@@ -775,6 +777,7 @@ model EmployeeArchive {
   @@index([employmentStatus])
   @@index([archiveStatus])
   @@index([hireDate])
+  @@index([employeeCode])
 }
 
 /// 员工每日考勤。人员基础信息来自 EmployeeArchive，本表只保存班次、打卡与异常结果。

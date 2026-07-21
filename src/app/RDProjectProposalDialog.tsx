@@ -2533,7 +2533,7 @@ export function RDProjectProposalDialog({
 
     const productOptions = products.map((p) => ({ id: p.id, name: p.name }));
 
-    const aiCall: Promise<{ tasks: RdAiTaskDraft[]; suggested_category?: string; suggested_product?: string; summary?: string }> =
+    const aiCall =
       files.length > 0
           ? extractRdTasksFromFile({
               file: files[0],

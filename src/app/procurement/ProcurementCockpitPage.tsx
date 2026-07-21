@@ -4,6 +4,8 @@ import { useNavigate, useSearchParams } from "react-router";
 import { AnimatePresence, motion, useMotionValue } from "motion/react";
 import { Activity, AlertTriangle, ClipboardList, Download, Grid3x3, LayoutGrid, PackageCheck, Plus, Search, Sparkles, Truck, Users } from "lucide-react";
 import { cn } from "../components/ui/utils";
+import { AutoTranslatedText } from "../components/TranslatableText";
+import { useI18n } from "../lib/i18n";
 import { MATERIALS, PROCUREMENT_TASKS, PROC_PRODUCT_LINES, daysFromDemoToday, taskMainDate, taskRequester, type ProcStatus, type ProcurementTask } from "../../mock/procurement";
 import { PersonAvatar, StatCell, stageToast } from "./components/common";
 import { ProcurementTaskCard } from "./components/ProcurementTaskCard";
@@ -21,6 +23,7 @@ const CAT_TRANSIT: ProcStatus[] = ["in_transit", "partial_arrival"];
 
 /** 分类看板视图：产品线 Tab + 分类总览网格（与采购工作台同口径），卡片点击进入分类详情二级页。 */
 function CategoryBoardView({ onOpenCategory }: { onOpenCategory: (cat: string, line: string) => void }) {
+  const { t } = useI18n();
   const [productLine, setProductLine] = useState<string>("all");
   const plMaterials = useMemo(() => MATERIALS.filter((m) => productLine === "all" || m.productLine === productLine), [productLine]);
   const categories = useMemo(() => {
@@ -41,21 +44,21 @@ function CategoryBoardView({ onOpenCategory }: { onOpenCategory: (cat: string, l
   return (
     <div className="space-y-3">
       <div className="material-card flex flex-wrap items-center gap-1.5 px-4 py-3">
-        <button type="button" onClick={() => setProductLine("all")} className={cn("rounded-full border px-3 py-1.5 text-xs font-medium", productLine === "all" ? "border-indigo-300 bg-indigo-50 text-indigo-600" : "border-slate-200 text-slate-500 hover:bg-slate-50")}>全部</button>
+        <button type="button" onClick={() => setProductLine("all")} className={cn("rounded-full border px-3 py-1.5 text-xs font-medium", productLine === "all" ? "border-indigo-300 bg-indigo-50 text-indigo-600" : "border-slate-200 text-slate-500 hover:bg-slate-50")}>{t('全部')}</button>
         {PROC_PRODUCT_LINES.map((pl) => (
-          <button key={pl} type="button" onClick={() => setProductLine(pl)} className={cn("rounded-full border px-3 py-1.5 text-xs font-medium", productLine === pl ? "border-indigo-300 bg-indigo-50 text-indigo-600" : "border-slate-200 text-slate-500 hover:bg-slate-50")}>{pl}</button>
+          <button key={pl} type="button" onClick={() => setProductLine(pl)} className={cn("rounded-full border px-3 py-1.5 text-xs font-medium", productLine === pl ? "border-indigo-300 bg-indigo-50 text-indigo-600" : "border-slate-200 text-slate-500 hover:bg-slate-50")}><AutoTranslatedText text={pl} /></button>
         ))}
       </div>
       <div className="grid grid-cols-4 gap-3">
         {categories.map((c) => (
           <button key={c.cat} type="button" onClick={() => onOpenCategory(c.cat, productLine)} className="material-card p-4 text-left transition hover:shadow-md">
             <div className="flex items-center justify-between">
-              <span className="text-sm font-semibold text-slate-800">{c.cat}</span>
-              {(c.shortage > 0 || c.overdueTransit > 0) && <span className="rounded-full border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] text-red-600">{c.shortage > 0 ? `缺${c.shortage}` : ""}{c.shortage > 0 && c.overdueTransit > 0 ? " · " : ""}{c.overdueTransit > 0 ? `逾期${c.overdueTransit}` : ""}</span>}
+              <span className="text-sm font-semibold text-slate-800"><AutoTranslatedText text={c.cat} /></span>
+              {(c.shortage > 0 || c.overdueTransit > 0) && <span className="rounded-full border border-red-200 bg-red-50 px-1.5 py-0.5 text-[10px] text-red-600">{c.shortage > 0 ? `${t('缺')}${c.shortage}` : ""}{c.shortage > 0 && c.overdueTransit > 0 ? " · " : ""}{c.overdueTransit > 0 ? `${t('逾期')}${c.overdueTransit}` : ""}</span>}
             </div>
-            <div className="mt-2 flex items-baseline gap-1"><span className="text-2xl font-bold tabular-nums text-indigo-600">{c.active}</span><span className="text-[11px] text-slate-400">进行中任务</span></div>
+            <div className="mt-2 flex items-baseline gap-1"><span className="text-2xl font-bold tabular-nums text-indigo-600">{c.active}</span><span className="text-[11px] text-slate-400">{t('进行中任务')}</span></div>
             <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-indigo-400" style={{ width: `${c.matCount ? Math.min(100, (c.active / Math.max(c.matCount, 1)) * 100) : 0}%` }} /></div>
-            <div className="mt-2 flex justify-between text-[11px] text-slate-400"><span>物料 {c.matCount}</span><span>在途 {c.transit}</span><span>本周 {c.week}</span></div>
+            <div className="mt-2 flex justify-between text-[11px] text-slate-400"><span>{t('物料')} {c.matCount}</span><span>{t('在途')} {c.transit}</span><span>{t('本周')} {c.week}</span></div>
           </button>
         ))}
       </div>
@@ -66,6 +69,7 @@ function CategoryBoardView({ onOpenCategory }: { onOpenCategory: (cat: string, l
 type StatKey = "inprogress" | "pending" | "inquiring" | "transit" | "overdue" | "week";
 
 export function ProcurementCockpitPage() {
+  const { t } = useI18n();
   const tasks = PROCUREMENT_TASKS;
   const [params, setParams] = useSearchParams();
   const [open, setOpen] = useState<ProcurementTask | null>(null);
@@ -216,33 +220,33 @@ export function ProcurementCockpitPage() {
         <div className="inline-flex items-center gap-1 rounded-lg bg-slate-100 p-1">
           {([["all", "全部"], ["production", "生产"], ["rd", "研发"]] as const).map(([k, lbl]) => (
             <button key={k} type="button" onClick={() => setLine(k)} className={cn("flex items-center gap-1.5 rounded-md px-4 py-1.5 text-sm transition", line === k ? "bg-white font-semibold text-indigo-700 shadow-sm" : "font-medium text-slate-500 hover:text-slate-700")}>
-              {lbl}
+              {t(lbl)}
               <span className={cn("rounded-full px-1.5 text-[11px] font-medium tabular-nums", line === k ? "bg-indigo-50 text-indigo-600" : "bg-slate-200/70 text-slate-500")}>{lineCounts[k]}</span>
             </button>
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" onClick={stageToast} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Download className="h-4 w-4" />导出</button>
-          <button type="button" onClick={() => setAiOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Sparkles className="h-4 w-4" />AI 建单</button>
-          <button type="button" onClick={stageToast} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Users className="h-4 w-4" />批量转派</button>
-          <button type="button" onClick={() => setNewOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Plus className="h-4 w-4" />新建需求</button>
+          <button type="button" onClick={stageToast} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Download className="h-4 w-4" />{t('导出')}</button>
+          <button type="button" onClick={() => setAiOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Sparkles className="h-4 w-4" />{t('AI 建单')}</button>
+          <button type="button" onClick={stageToast} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Users className="h-4 w-4" />{t('批量转派')}</button>
+          <button type="button" onClick={() => setNewOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Plus className="h-4 w-4" />{t('新建需求')}</button>
         </div>
       </div>
 
       {/* 统计条 */}
       <div className="mb-3 grid grid-cols-6 gap-3">
-        <StatCell label="进行中" value={counts.inprogress} Icon={Activity} active={stat === "inprogress"} onClick={() => toggleStat("inprogress")} />
-        <StatCell label="待处理" value={counts.pending} tone={counts.pending > 0 ? "red" : "slate"} badge={counts.pending > 0} Icon={ClipboardList} active={stat === "pending"} onClick={() => toggleStat("pending")} />
-        <StatCell label="询价中" value={counts.inquiring} tone="indigo" Icon={Search} active={stat === "inquiring"} onClick={() => toggleStat("inquiring")} />
-        <StatCell label="在途" value={counts.transit} tone="violet" Icon={Truck} active={stat === "transit"} onClick={() => toggleStat("transit")} />
-        <StatCell label="逾期" value={counts.overdue} tone="red" Icon={AlertTriangle} active={stat === "overdue"} onClick={() => toggleStat("overdue")} />
-        <StatCell label="本周到货" value={counts.week} tone="emerald" Icon={PackageCheck} active={stat === "week"} onClick={() => toggleStat("week")} />
+        <StatCell label={t('进行中')} value={counts.inprogress} Icon={Activity} active={stat === "inprogress"} onClick={() => toggleStat("inprogress")} />
+        <StatCell label={t('待处理')} value={counts.pending} tone={counts.pending > 0 ? "red" : "slate"} badge={counts.pending > 0} Icon={ClipboardList} active={stat === "pending"} onClick={() => toggleStat("pending")} />
+        <StatCell label={t('询价中')} value={counts.inquiring} tone="indigo" Icon={Search} active={stat === "inquiring"} onClick={() => toggleStat("inquiring")} />
+        <StatCell label={t('在途')} value={counts.transit} tone="violet" Icon={Truck} active={stat === "transit"} onClick={() => toggleStat("transit")} />
+        <StatCell label={t('逾期')} value={counts.overdue} tone="red" Icon={AlertTriangle} active={stat === "overdue"} onClick={() => toggleStat("overdue")} />
+        <StatCell label={t('本周到货')} value={counts.week} tone="emerald" Icon={PackageCheck} active={stat === "week"} onClick={() => toggleStat("week")} />
       </div>
 
       {/* 人员泳道 */}
       <div className="material-card mb-3 flex flex-wrap items-center gap-2 px-4 py-3">
-        <span className="mr-1 text-xs text-slate-400">人员</span>
-        <button type="button" onClick={() => setPerson(null)} className={cn("rounded-full border px-2.5 py-1 text-xs font-medium", !person ? "border-indigo-300 bg-indigo-50 text-indigo-600" : "border-slate-200 text-slate-500 hover:bg-slate-50")}>全部</button>
+        <span className="mr-1 text-xs text-slate-400">{t('人员')}</span>
+        <button type="button" onClick={() => setPerson(null)} className={cn("rounded-full border px-2.5 py-1 text-xs font-medium", !person ? "border-indigo-300 bg-indigo-50 text-indigo-600" : "border-slate-200 text-slate-500 hover:bg-slate-50")}>{t('全部')}</button>
         {people.map(([name, n]) => (
           <button key={name} type="button" onClick={() => setPerson((cur) => (cur === name ? null : name))} className={cn("flex items-center gap-1.5 rounded-full border py-0.5 pl-0.5 pr-2 text-xs font-medium", person === name ? "border-indigo-300 bg-indigo-50 text-indigo-600" : "border-slate-200 text-slate-600 hover:bg-slate-50")}>
             <PersonAvatar name={name} size="xs" />
@@ -251,9 +255,9 @@ export function ProcurementCockpitPage() {
           </button>
         ))}
         {materialParam && (
-          <button type="button" onClick={() => setParams((p) => { const n = new URLSearchParams(p); n.delete("material"); return n; }, { replace: true })} className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600">物料：{materialParam} ✕</button>
+          <button type="button" onClick={() => setParams((p) => { const n = new URLSearchParams(p); n.delete("material"); return n; }, { replace: true })} className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600">{t('物料')}：<AutoTranslatedText text={materialParam} /> ✕</button>
         )}
-        <span className="ml-auto text-xs text-slate-400">{filtered.length} 个任务</span>
+        <span className="ml-auto text-xs text-slate-400">{filtered.length} {t('个任务')}</span>
       </div>
       </>
       )}
@@ -270,7 +274,7 @@ export function ProcurementCockpitPage() {
           {view === "board" ? (
             <CategoryBoardView onOpenCategory={(cat, pl) => navigate(`/proc-category?cat=${encodeURIComponent(cat)}${pl !== "all" ? `&line=${encodeURIComponent(pl)}` : ""}`)} />
           ) : filtered.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-slate-200 py-12 text-center text-sm text-slate-400">没有符合条件的任务</div>
+            <div className="rounded-xl border border-dashed border-slate-200 py-12 text-center text-sm text-slate-400">{t('没有符合条件的任务')}</div>
           ) : (
               <>
                 {/* 瀑布流：CSS 多列实现（待处理置顶项落在第一列顶部）；分批渲染 + 滚动加载更多 */}
@@ -284,10 +288,10 @@ export function ProcurementCockpitPage() {
                 {visibleCount < filtered.length ? (
                   <div ref={sentinelRef} className="flex items-center justify-center gap-2 py-4 text-xs text-slate-400">
                     <span className="h-3 w-3 animate-spin rounded-full border-2 border-slate-300 border-t-indigo-500" />
-                    下拉加载更多（{visibleCount} / {filtered.length}）
+                    {t('下拉加载更多')}（{visibleCount} / {filtered.length}）
                   </div>
                 ) : filtered.length > WATERFALL_PAGE_SIZE ? (
-                  <div className="py-4 text-center text-xs text-slate-300">已加载全部 {filtered.length} 个任务</div>
+                  <div className="py-4 text-center text-xs text-slate-300">{t('已加载全部')} {filtered.length} {t('个任务')}</div>
                 ) : null}
               </>
             )}
@@ -305,7 +309,7 @@ export function ProcurementCockpitPage() {
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
         onTap={handleTap}
-        title={nextView === "board" ? "切换为分类看板（可拖拽移动）" : "切换为瀑布流视图（可拖拽移动）"}
+        title={nextView === "board" ? t('切换为分类看板（可拖拽移动）') : t('切换为瀑布流视图（可拖拽移动）')}
         className="fixed right-6 top-1/2 z-40 -mt-6 flex h-12 w-12 cursor-grab items-center justify-center rounded-full bg-indigo-600 text-white shadow-lg shadow-indigo-300/60 transition-colors hover:bg-indigo-700 active:cursor-grabbing"
       >
         <motion.span key={view} initial={{ rotate: -90, opacity: 0 }} animate={{ rotate: 0, opacity: 1 }} transition={{ duration: 0.25 }} className="flex">

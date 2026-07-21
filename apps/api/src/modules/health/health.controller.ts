@@ -16,8 +16,11 @@ export class HealthController {
       release: process.env.APP_VERSION ?? process.env.npm_package_version ?? 'dev',
       git_sha:
         process.env.APP_GIT_SHA ??
+        process.env.GIT_COMMIT ??
         process.env.GIT_COMMIT_SHA ??
         process.env.COMMIT_SHA ??
+        process.env.SOURCE_VERSION ??
+        process.env.RENDER_GIT_COMMIT ??
         process.env.VERCEL_GIT_COMMIT_SHA ??
         'unknown',
       started_at: STARTED_AT,

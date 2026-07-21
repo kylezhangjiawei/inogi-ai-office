@@ -44,6 +44,8 @@ import {
   SelectValue
 } from '../../components/ui/select';
 import { ScrollArea } from '../../components/ui/scroll-area';
+import { AutoTranslatedText } from '../../components/TranslatableText';
+import { i18nLocale, useI18n } from '../../lib/i18n';
 import {
   integrationManagementApi,
   type MailboxItem
@@ -82,7 +84,7 @@ const parseMoney = (value: string | number) => {
 };
 
 const formatInvoiceMoney = (value: number) =>
-  `¥${value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  `¥${value.toLocaleString(i18nLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 const formatDraftNumber = (value: number) => Number.isFinite(value) ? String(value) : '';
 const formatDraftMoneyInput = (value: number) => Number.isFinite(value) ? value.toFixed(2).replace(/\.00$/, '') : '';
@@ -128,6 +130,7 @@ const buildInvoiceInfoForDetail = (detail: OrderDetail): InvoiceDraftInfo => ({
 });
 
 export function Workbench() {
+  const { t } = useI18n();
   const orderQueueRef = useRef<HTMLDivElement | null>(null);
   const orderUploadInputRef = useRef<HTMLInputElement | null>(null);
   const aiTemplateInputRef = useRef<HTMLInputElement | null>(null);
@@ -194,7 +197,7 @@ export function Workbench() {
         setSelectedOrderId(data.selectedOrder.id);
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '订单工作台加载失败');
+      toast.error(error instanceof Error ? error.message : t('订单工作台加载失败'));
     } finally {
       setLoading(false);
       setLoadingMoreOrders(false);
@@ -217,7 +220,7 @@ export function Workbench() {
       })
       .catch((error) => {
         if (!alive) return;
-        toast.error(error instanceof Error ? error.message : '企业微信邮箱列表加载失败');
+        toast.error(error instanceof Error ? error.message : t('企业微信邮箱列表加载失败'));
       })
       .finally(() => {
         if (alive) setLoadingWecomMailboxes(false);
@@ -269,10 +272,11 @@ export function Workbench() {
   const visibleQueueItems = queueItems.length > 0 ? queueItems : queue?.items ?? [];
   const hasMoreOrders = Boolean(queue && queue.page < queue.totalPages);
   const loadedOrderCount = Math.min(visibleQueueItems.length, queue?.total ?? visibleQueueItems.length);
-  const activeTemplateName = selectableTemplates.find((template) => template.id === activeTemplate)?.name ?? '当前发票模板';
+  const selectedTemplateName = selectableTemplates.find((template) => template.id === activeTemplate)?.name;
+  const activeTemplateName = selectedTemplateName ? t(selectedTemplateName.trim()) : t('当前发票模板');
   const rawInvoicePreviewTemplate = orderDetails.invoiceTemplateId || activeTemplate;
   const invoicePreviewTemplate = rawInvoicePreviewTemplate === 'custom' ? fallbackTemplateId : rawInvoicePreviewTemplate;
-  const invoicePreviewTemplateName = selectableTemplates.find((template) => template.id === invoicePreviewTemplate)?.name ?? activeTemplateName;
+  const invoicePreviewTemplateName = t((selectableTemplates.find((template) => template.id === invoicePreviewTemplate)?.name ?? activeTemplateName).trim());
   const invoicePreviewInfo = useMemo(() => buildInvoiceInfoForDetail(orderDetails), [orderDetails]);
   const invoicePreviewLines = useMemo(() => buildInvoiceLinesForDetail(orderDetails), [orderDetails]);
   const invoicePreviewAmount = useMemo(
@@ -325,7 +329,7 @@ export function Workbench() {
 
   const handleUploadOrders = async (files: File[] = []) => {
     if (files.length === 0) {
-      toast.error('请选择要上传的订货单文件');
+      toast.error(t('请选择要上传的订货单文件'));
       return;
     }
     try {
@@ -335,7 +339,7 @@ export function Workbench() {
       setProductPage(1);
       if (result.created[0]?.id) setSelectedOrderId(result.created[0].id);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '订货单上传失败');
+      toast.error(error instanceof Error ? error.message : t('订货单上传失败'));
     }
   };
 
@@ -347,7 +351,7 @@ export function Workbench() {
     }
 
     if (!selectedWecomMailboxId) {
-      toast.info('请先选择企业微信邮箱');
+      toast.info(t('请先选择企业微信邮箱'));
       return;
     }
 
@@ -355,7 +359,7 @@ export function Workbench() {
     try {
       const result = await orderProcessingApi.syncWecomMailOrders({ mailboxId: selectedWecomMailboxId, ignoreLastUid: true });
       const skippedReason = result.created.length === 0 ? result.skipped[0]?.reason : '';
-      const syncMessage = skippedReason ? `${result.message} 原因：${skippedReason}` : result.message;
+      const syncMessage = skippedReason ? t('{message} 原因：{reason}', { message: result.message, reason: skippedReason }) : result.message;
       if (result.created.length > 0) {
         toast.success(syncMessage);
       } else if (result.matchedCount > 0 || skippedReason) {
@@ -371,7 +375,7 @@ export function Workbench() {
         await loadWorkbench();
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '企业微信邮箱同步失败');
+      toast.error(error instanceof Error ? error.message : t('企业微信邮箱同步失败'));
     } finally {
       setSyncingWecomOrders(false);
     }
@@ -379,12 +383,12 @@ export function Workbench() {
 
   const handleOpenInvoiceDraft = () => {
     if (!selectedOrder?.id) {
-      toast.info('请先选择一张订货单');
+      toast.info(t('请先选择一张订货单'));
       return;
     }
     const lines = buildInvoiceLinesForDetail(orderDetails);
     if (lines.length === 0) {
-      toast.error('当前订货单没有可生成发票的商品明细');
+      toast.error(t('当前订货单没有可生成发票的商品明细'));
       return;
     }
     setInvoiceDraftInfo(buildInvoiceInfoForDetail(orderDetails));
@@ -445,7 +449,7 @@ export function Workbench() {
   const handleConfirmGenerateInvoice = async () => {
     if (!selectedOrder?.id) return;
     if (invoiceDraftLines.length === 0) {
-      toast.error('当前发票没有商品明细');
+      toast.error(t('当前发票没有商品明细'));
       return;
     }
     const invalidLine = invoiceDraftLines.find((line) =>
@@ -458,7 +462,7 @@ export function Workbench() {
       line.subtotal < 0
     );
     if (invalidLine) {
-      toast.error('请检查商品名称、数量、单价和金额，数量必须大于 0，金额不能小于 0');
+      toast.error(t('请检查商品名称、数量、单价和金额，数量必须大于 0，金额不能小于 0'));
       return;
     }
     setInvoiceSubmitting(true);
@@ -481,7 +485,7 @@ export function Workbench() {
       await refreshAfterMutation();
       setActiveModal('preview');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '发票生成失败');
+      toast.error(error instanceof Error ? error.message : t('发票生成失败'));
     } finally {
       setInvoiceSubmitting(false);
     }
@@ -491,10 +495,10 @@ export function Workbench() {
     if (!selectedOrder?.id) return;
     try {
       const result = await orderProcessingApi.exportInvoice(selectedOrder.id);
-      toast.success(result.message ?? '发票 PDF 已导出');
+      toast.success(result.message ?? t('发票 PDF 已导出'));
       await refreshAfterMutation();
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '发票导出失败');
+      toast.error(error instanceof Error ? error.message : t('发票导出失败'));
     }
   };
 
@@ -509,7 +513,7 @@ export function Workbench() {
 
   const simulateAiTemplateGeneration = async (files: File[] = []) => {
     if (files.length === 0) {
-      toast.error('请选择参考发票文件');
+      toast.error(t('请选择参考发票文件'));
       return;
     }
     setAiPhase('uploading');
@@ -527,7 +531,7 @@ export function Workbench() {
       await refreshAfterMutation();
       setAiPhase('done');
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'AI 模板生成失败');
+      toast.error(error instanceof Error ? error.message : t('AI 模板生成失败'));
       resetAi();
     }
   };
@@ -566,10 +570,10 @@ export function Workbench() {
         {/* Overview Strip */}
         <div className="min-h-14 bg-slate-50/80 border-b border-slate-100 flex items-center justify-between gap-4 px-6 py-3 shrink-0">
           <div className="flex items-center gap-3 flex-wrap">
-            <StatItem label="待处理" value={String(workbench?.stats.pending ?? 0)} color="blue" />
-            <StatItem label="异常" value={String(workbench?.stats.abnormal ?? 0)} color="rose" />
-            <StatItem label="已生成" value={String(workbench?.stats.generated ?? 0)} color="emerald" />
-            <StatItem label="未导出" value={String(workbench?.stats.unexported ?? 0)} color="amber" />
+            <StatItem label={t("待处理")} value={String(workbench?.stats.pending ?? 0)} color="blue" />
+            <StatItem label={t("异常")} value={String(workbench?.stats.abnormal ?? 0)} color="rose" />
+            <StatItem label={t("已生成")} value={String(workbench?.stats.generated ?? 0)} color="emerald" />
+            <StatItem label={t("未导出")} value={String(workbench?.stats.unexported ?? 0)} color="amber" />
           </div>
 
         </div>
@@ -586,7 +590,7 @@ export function Workbench() {
                     setActiveTab('wecom_mail');
                     resetOrderQueue();
                   }}>
-                  企业微信邮箱
+                  {t("企业微信邮箱")}
                 </button>
                 <button
                   className={`flex-1 text-[11px] leading-none py-1.5 rounded-full font-medium transition-all ${activeTab === 'upload' ? 'bg-blue-100 text-blue-700' : 'text-slate-500 hover:bg-slate-200/50'}`}
@@ -594,7 +598,7 @@ export function Workbench() {
                     setActiveTab('upload');
                     resetOrderQueue();
                   }}>
-                  手动上传
+                  {t("手动上传")}
                 </button>
               </div>
 
@@ -611,10 +615,10 @@ export function Workbench() {
                       <SelectValue
                         placeholder={
                           loadingWecomMailboxes ?
-                            '加载企业微信邮箱...' :
+                            t('加载企业微信邮箱...') :
                             enabledWecomMailboxes.length > 0 ?
-                              '选择企业微信邮箱' :
-                              '暂无可用企业微信邮箱'
+                              t('选择企业微信邮箱') :
+                              t('暂无可用企业微信邮箱')
                         } />
                     </SelectTrigger>
                     <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
@@ -640,7 +644,7 @@ export function Workbench() {
 	                    setOrderSearch(event.target.value);
 	                    resetOrderQueue();
 	                  }}
-                  placeholder="搜索客户 / 订单号"
+                  placeholder={t("搜索客户 / 订单号")}
                   className="h-8 w-full pl-8 pr-3 bg-slate-100 border-none rounded-full text-xs focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:bg-white transition-all" />
                 
               </div>
@@ -675,7 +679,7 @@ export function Workbench() {
                   <div
                   className={`text-xs flex items-center gap-1 ${selectedOrderId === order.id ? 'text-blue-700/60' : 'text-slate-400'}`}>
                   
-                    <Clock className="w-3.5 h-3.5" /> 发货: {order.date}
+                    <Clock className="w-3.5 h-3.5" /> {t("发货：{date}", { date: order.date })}
                   </div>
                 </div>
               )}
@@ -683,20 +687,20 @@ export function Workbench() {
 		              <div className="py-10 text-center text-sm text-slate-400">
 		                {activeTab === 'wecom_mail' ?
 		                enabledWecomMailboxes.length > 0 ?
-		                  '当前企业微信邮箱暂无订货单' :
-		                  '暂无可用企业微信邮箱，请先在邮箱管理启用通道' :
-		                '暂无匹配订单'}
+                  t('当前企业微信邮箱暂无订货单') :
+                  t('暂无可用企业微信邮箱，请先在邮箱管理启用通道') :
+                t('暂无匹配订单')}
 		              </div>
 		              }
 	              {visibleQueueItems.length > 0 &&
 	              <div className="py-3 text-center text-xs text-slate-400">
 	                {loadingMoreOrders &&
 	                <span className="inline-flex items-center justify-center gap-2">
-	                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> 正在加载更多
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> {t("正在加载更多")}
 	                </span>
 	                }
-	                {!loadingMoreOrders && hasMoreOrders && `已显示 ${loadedOrderCount} / ${queue?.total ?? loadedOrderCount}，继续下滑加载更多`}
-	                {!loadingMoreOrders && !hasMoreOrders && `已加载全部 ${queue?.total ?? loadedOrderCount} 条`}
+                {!loadingMoreOrders && hasMoreOrders && t("已显示 {loaded} / {total}，继续下滑加载更多", { loaded: loadedOrderCount, total: queue?.total ?? loadedOrderCount })}
+                {!loadingMoreOrders && !hasMoreOrders && t("已加载全部 {count} 条", { count: queue?.total ?? loadedOrderCount })}
 	              </div>
 	              }
 	            </div>
@@ -707,12 +711,12 @@ export function Workbench() {
 		                  onClick={() => void handleRefreshOrders()}
 		                  disabled={syncingWecomOrders}
 		                  className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-blue-50 text-blue-700 rounded-full text-sm font-medium hover:bg-blue-100 transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-60">
-		                  {syncingWecomOrders ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />} 刷新
+                  {syncingWecomOrders ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />} {t("刷新")}
 		                </button>
                 <button
                   onClick={() => orderUploadInputRef.current?.click()}
                   className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-blue-50 text-blue-700 rounded-full text-sm font-medium hover:bg-blue-100 transition-all active:scale-95">
-                  <Upload className="w-4 h-4" /> 上传
+                  <Upload className="w-4 h-4" /> {t("上传")}
                 </button>
               </div>
             </div>
@@ -723,24 +727,24 @@ export function Workbench() {
             {/* Compact Summary */}
             <div className="mx-5 mt-4 mb-3 px-4 py-2.5 bg-white rounded-2xl elevation-1 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm shrink-0">
               <div className="flex items-center gap-2 whitespace-nowrap">
-                <span className="text-slate-400">客户:</span>
+                <span className="text-slate-400">{t("客户：")}</span>
                 <span className="font-medium text-slate-800">
                   {orderDetails.customer}
                 </span>
               </div>
               <div className="flex items-center gap-2 whitespace-nowrap">
-                <span className="text-slate-400">订单号:</span>
+                <span className="text-slate-400">{t("订单号：")}</span>
                 <span className="font-mono text-slate-800">
                   {orderDetails.orderId}
                 </span>
               </div>
               <div className="flex items-center gap-2 whitespace-nowrap">
-                <span className="text-slate-400">发货日:</span>
+                <span className="text-slate-400">{t("发货日：")}</span>
                 <span className="text-slate-800">{orderDetails.date}</span>
               </div>
               <div className="ml-auto flex items-center gap-2">
                 <div className="flex items-center gap-2 bg-blue-50/50 px-3.5 py-1 rounded-full whitespace-nowrap">
-                  <span className="text-slate-500">金额:</span>
+                  <span className="text-slate-500">{t("金额：")}</span>
                   <span className="font-semibold text-blue-700">
                     {orderDetails.amount}
                   </span>
@@ -749,7 +753,7 @@ export function Workbench() {
                   onClick={() => setActiveModal('original')}
                   disabled={!selectedOrder?.id}
                   className="h-8 px-3 text-xs font-medium text-blue-700 bg-blue-50 rounded-full hover:bg-blue-100 transition-all active:scale-95 flex items-center gap-1.5 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed">
-                  <FileText className="w-3.5 h-3.5" /> 查看原单
+                  <FileText className="w-3.5 h-3.5" /> {t("查看原单")}
                 </button>
                 {selectedOrder?.generated &&
                   <button
@@ -757,7 +761,7 @@ export function Workbench() {
                     disabled={!selectedOrder?.id || loading}
                     className="h-8 px-3.5 text-xs font-medium text-white bg-gradient-primary rounded-full glow-blue transition-all active:scale-95 flex items-center gap-1.5 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed">
                     <Eye className="w-3.5 h-3.5" />
-                    查看发票
+                    {t("查看发票")}
                   </button>
                 }
               </div>
@@ -767,23 +771,23 @@ export function Workbench() {
 	            <div className="flex-1 mx-5 mb-4 bg-white rounded-3xl elevation-1 flex min-h-0 flex-col overflow-hidden">
 	              <div className="px-4 py-3 border-b border-slate-50 bg-white shrink-0">
 	                <div className="flex flex-wrap items-center gap-3">
-	                  <h3 className="font-semibold text-slate-800 whitespace-nowrap">商品明细</h3>
+	                  <h3 className="font-semibold text-slate-800 whitespace-nowrap">{t("商品明细")}</h3>
 	                  <div className="ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
 	                    <div className="relative min-w-[180px] flex-1 max-w-[260px]">
 	                      <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
 	                      <input
 	                        value={productSearch}
 	                        onChange={(event) => setProductSearch(event.target.value)}
-	                        placeholder="筛商品 / SKU / 备注"
+	                        placeholder={t("筛商品 / SKU / 备注")}
 	                        className="h-8 w-full rounded-full border border-slate-200 bg-slate-50 pl-8 pr-3 text-xs text-slate-700 outline-none transition-all focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-500/10" />
 	                    </div>
 	                    <select
 	                      value={productCategoryFilter}
 	                      onChange={(event) => setProductCategoryFilter(event.target.value)}
 	                      className="h-8 rounded-full border border-slate-200 bg-slate-50 px-3 text-xs text-slate-700 outline-none transition-all focus:border-blue-300 focus:bg-white focus:ring-2 focus:ring-blue-500/10">
-	                      <option value="all">全部类目</option>
+	                      <option value="all">{t("全部类目")}</option>
 	                      {productCategories.map((category) =>
-	                      <option key={category} value={category}>{category}</option>
+	                      <option key={category} value={category}>{t(category.trim())}</option>
 	                      )}
 	                    </select>
 	                  </div>
@@ -794,25 +798,25 @@ export function Workbench() {
                 <Table containerClassName="overflow-visible" className="min-w-[980px] text-sm text-left whitespace-nowrap">
                   <TableHeader className="text-xs text-slate-600 [&_th]:sticky [&_th]:top-0 [&_th]:z-30 [&_th]:bg-slate-50 [&_th]:shadow-[0_1px_0_rgba(148,163,184,0.25)]">
                     <TableRow>
-                      <TableHead className="px-4 py-2.5 font-medium">序号</TableHead>
-                      <TableHead className="px-4 py-2.5 font-medium">商品编码</TableHead>
-                      <TableHead className="px-4 py-2.5 font-medium">商品名称</TableHead>
-                      <TableHead className="px-4 py-2.5 font-medium">类目</TableHead>
-                      <TableHead className="px-4 py-2.5 font-medium">规格</TableHead>
-                      <TableHead className="px-4 py-2.5 font-medium">单位</TableHead>
+                      <TableHead className="px-4 py-2.5 font-medium">{t("序号")}</TableHead>
+                      <TableHead className="px-4 py-2.5 font-medium">{t("商品编码")}</TableHead>
+                      <TableHead className="px-4 py-2.5 font-medium">{t("商品名称")}</TableHead>
+                      <TableHead className="px-4 py-2.5 font-medium">{t("类目")}</TableHead>
+                      <TableHead className="px-4 py-2.5 font-medium">{t("规格")}</TableHead>
+                      <TableHead className="px-4 py-2.5 font-medium">{t("单位")}</TableHead>
                       <TableHead className="px-4 py-2.5 font-medium text-right">
-                        订货数量
+                        {t("订货数量")}
                       </TableHead>
                       <TableHead className="px-4 py-2.5 font-medium text-right">
-                        订单单价
+                        {t("订单单价")}
                       </TableHead>
                       <TableHead className="px-4 py-2.5 font-medium text-right">
-                        系统单价
+                        {t("系统单价")}
                       </TableHead>
                       <TableHead className="px-4 py-2.5 font-medium text-right">
-                        小计金额
+                        {t("小计金额")}
                       </TableHead>
-                      <TableHead className="px-4 py-2.5 font-medium">备注</TableHead>
+                      <TableHead className="px-4 py-2.5 font-medium">{t("备注")}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody className="divide-y divide-slate-50">
@@ -830,13 +834,13 @@ export function Workbench() {
                           {p.id}
                         </TableCell>
                         <TableCell className="px-4 py-2.5 font-medium text-slate-800">
-                          {p.name}
+                          <AutoTranslatedText text={p.name} />
                         </TableCell>
                         <TableCell className="px-4 py-2.5 text-slate-600">
-                          {p.category}
+                          <AutoTranslatedText text={t(p.category.trim())} />
                         </TableCell>
-                        <TableCell className="px-4 py-2.5 text-slate-600">{p.spec}</TableCell>
-                        <TableCell className="px-4 py-2.5 text-slate-600">{p.unit}</TableCell>
+                        <TableCell className="px-4 py-2.5 text-slate-600"><AutoTranslatedText text={p.spec} /></TableCell>
+                        <TableCell className="px-4 py-2.5 text-slate-600">{t(p.unit.trim())}</TableCell>
                         <TableCell className="px-4 py-2.5 text-right font-medium text-slate-800">
                           {p.orderQty}
                         </TableCell>
@@ -855,14 +859,14 @@ export function Workbench() {
                         className="px-4 py-2.5 text-slate-500 text-xs max-w-[150px] truncate"
                         title={p.remark}>
                         
-                          {p.remark}
+                          <AutoTranslatedText text={p.remark} />
                         </TableCell>
 	                      </TableRow>
 	                    )}
 	                    {productRows.length === 0 &&
 	                    <TableRow>
 	                      <TableCell colSpan={11} className="px-4 py-10 text-center text-sm text-slate-400">
-	                        暂无匹配商品
+	                        {t("暂无匹配商品")}
 	                      </TableCell>
 	                    </TableRow>
 	                    }
@@ -872,8 +876,11 @@ export function Workbench() {
 
               <div className="px-4 py-2.5 border-t border-slate-50 bg-white flex items-center justify-between shrink-0">
                 <div className="text-xs text-slate-500 px-2">
-                  显示 {productRows.length > 0 ? ((productMeta?.page ?? 1) - 1) * (productMeta?.pageSize ?? 8) + 1 : 0}-
-                  {((productMeta?.page ?? 1) - 1) * (productMeta?.pageSize ?? 8) + productRows.length} / 共 {productMeta?.total ?? 0} 条
+                  {t("显示 {start}-{end} / 共 {total} 条", {
+                    start: productRows.length > 0 ? ((productMeta?.page ?? 1) - 1) * (productMeta?.pageSize ?? 8) + 1 : 0,
+                    end: ((productMeta?.page ?? 1) - 1) * (productMeta?.pageSize ?? 8) + productRows.length,
+                    total: productMeta?.total ?? 0,
+                  })}
                 </div>
 	                {(productMeta?.totalPages ?? 1) > 1 &&
 	                <Pagination className="mx-0 w-auto justify-end">
@@ -881,7 +888,7 @@ export function Workbench() {
                     <PaginationItem>
                       <PaginationLink
                         href="#"
-                        aria-label="上一页"
+                        aria-label={t("上一页")}
                         onClick={(event) => {
                           event.preventDefault();
                           setProductPage((page) => Math.max(1, page - 1));
@@ -937,7 +944,7 @@ export function Workbench() {
                     <PaginationItem>
                       <PaginationLink
                         href="#"
-                        aria-label="下一页"
+                        aria-label={t("下一页")}
                         onClick={(event) => {
                           event.preventDefault();
                           setProductPage((page) => Math.min(productMeta?.totalPages ?? 1, page + 1));
@@ -962,23 +969,23 @@ export function Workbench() {
               <div className="bg-white rounded-3xl p-5 elevation-1">
                 <div className="space-y-3 text-sm mb-5">
                   <div className="flex justify-between">
-                    <span className="text-slate-400">客户</span>
+                    <span className="text-slate-400">{t("客户")}</span>
                     <span className="text-slate-800 truncate max-w-[140px]">
                       {orderDetails.customer}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">订单号</span>
+                    <span className="text-slate-400">{t("订单号")}</span>
                     <span className="text-slate-800 font-mono">
                       {orderDetails.orderId}
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-400">发货日</span>
+                    <span className="text-slate-400">{t("发货日")}</span>
                     <span className="text-slate-800">{orderDetails.date}</span>
                   </div>
                   <div className="flex justify-between pt-3 border-t border-slate-50">
-                    <span className="text-slate-400">金额</span>
+                    <span className="text-slate-400">{t("金额")}</span>
                     <span className="text-blue-700 font-semibold">
                       {orderDetails.amount}
                     </span>
@@ -988,22 +995,22 @@ export function Workbench() {
                   onClick={handleOpenInvoiceDraft}
                   disabled={!selectedOrder?.id}
                   className="mb-3 flex w-full items-center justify-center gap-1.5 rounded-full bg-blue-600 py-2.5 text-sm font-medium text-white shadow-sm shadow-blue-200 transition-all hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">
-                  <FileDown className="w-4 h-4" /> 生成发票
+                  <FileDown className="w-4 h-4" /> {t("生成发票")}
                 </button>
                 <div className="flex gap-3">
                   <button
                     onClick={() => setActiveModal('preview')}
                     disabled={!selectedOrder?.generated}
-                    title={selectedOrder?.generated ? "预览商业发票" : "请先点击「生成发票」"}
+                    title={selectedOrder?.generated ? t("预览商业发票") : t("请先点击「生成发票」")}
                     className="flex-1 py-2 bg-blue-50 text-blue-700 rounded-full text-sm font-medium enabled:hover:bg-blue-100 transition-all flex items-center justify-center gap-1.5 disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed">
 
-                    <Eye className="w-4 h-4" /> 预览
+                    <Eye className="w-4 h-4" /> {t("预览")}
                   </button>
                   <button
                     onClick={handleExportInvoice}
 	                    disabled={!selectedOrder?.generated}
 	                    className="flex-1 py-2 bg-gradient-primary text-white rounded-full text-sm font-medium glow-blue transition-all flex items-center justify-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed">
-                    <Download className="w-4 h-4" /> 导出
+                    <Download className="w-4 h-4" /> {t("导出")}
                   </button>
                 </div>
               </div>
@@ -1012,40 +1019,40 @@ export function Workbench() {
               <div className="bg-white rounded-3xl p-5 elevation-1">
                 <div className="flex justify-between items-center gap-3 mb-4">
                   <h3 className="text-sm font-medium text-slate-800 flex items-center gap-2">
-                    <Layers className="w-4.5 h-4.5 text-indigo-500" /> 发票模板
+                    <Layers className="w-4.5 h-4.5 text-indigo-500" /> {t("发票模板")}
                   </h3>
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => setActiveModal('aiTemplate')}
                       className="px-2.5 py-1.5 bg-gradient-to-br from-violet-50 to-blue-50 text-violet-700 border border-violet-100 rounded-full text-xs font-medium hover:bg-violet-100/50 transition-colors flex items-center justify-center gap-1">
                       
-                      <Sparkles className="w-3.5 h-3.5" /> AI 模板
+                      <Sparkles className="w-3.5 h-3.5" /> {t("AI 模板")}
                     </button>
                   </div>
                 </div>
                 <div className="space-y-1.5 mb-4">
-                  {selectableTemplates.map((t) =>
+                  {selectableTemplates.map((template) =>
                   <div
-                    key={t.id}
-                    onClick={() => void handleSelectTemplate(t.id)}
-                    className={`p-3 rounded-2xl flex items-center justify-between cursor-pointer transition-colors ${activeTemplate === t.id ? 'bg-blue-50' : 'hover:bg-blue-50/40'}`}>
+                    key={template.id}
+                    onClick={() => void handleSelectTemplate(template.id)}
+                    className={`p-3 rounded-2xl flex items-center justify-between cursor-pointer transition-colors ${activeTemplate === template.id ? 'bg-blue-50' : 'hover:bg-blue-50/40'}`}>
                     
                       <div className="flex items-center gap-2.5">
                         <FileDown
-                        className={`w-4.5 h-4.5 ${activeTemplate === t.id ? 'text-blue-600' : 'text-slate-400'}`} />
+                        className={`w-4.5 h-4.5 ${activeTemplate === template.id ? 'text-blue-600' : 'text-slate-400'}`} />
                       
                         <span
-                        className={`text-sm flex items-center gap-2 ${activeTemplate === t.id ? 'font-medium text-blue-900' : 'text-slate-600'}`}>
+                        className={`text-sm flex items-center gap-2 ${activeTemplate === template.id ? 'font-medium text-blue-900' : 'text-slate-600'}`}>
                         
-                          {t.name}
-                          {t.source === 'ai' &&
+                          {t(template.name.trim())}
+                          {template.source === 'ai' &&
                         <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-violet-50 text-violet-600 rounded text-[10px] font-medium border border-violet-100">
                               <Sparkles className="w-2.5 h-2.5" /> AI
                             </span>
                         }
                         </span>
                       </div>
-                      {activeTemplate === t.id &&
+                      {activeTemplate === template.id &&
                     <div className="w-2 h-2 rounded-full bg-blue-600"></div>
                     }
                     </div>
@@ -1075,7 +1082,7 @@ export function Workbench() {
           
               <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white">
                 <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                  <Sparkles className="w-5 h-5 text-violet-500" /> AI 生成模板
+                  <Sparkles className="w-5 h-5 text-violet-500" /> {t('AI 生成模板')}
                 </h2>
                 <button
               onClick={() => {
@@ -1099,10 +1106,10 @@ export function Workbench() {
                     </div>
 
                     <h3 className="text-xl font-semibold text-slate-800 mb-3 relative z-10">
-                      上传参考发票
+                      {t('上传参考发票')}
                     </h3>
                     <p className="text-sm text-slate-600 leading-relaxed mb-8 max-w-md mx-auto relative z-10">
-	                      上传客户提供的发票样式图片或 PDF，系统会提取可用字段并生成一个可复核的模板草稿。
+	                      {t('上传客户提供的发票样式图片或 PDF，系统会提取可用字段并生成一个可复核的模板草稿。')}
                     </p>
 
                     <div className="flex items-center justify-center gap-4 relative z-10">
@@ -1110,11 +1117,11 @@ export function Workbench() {
                   onClick={() => aiTemplateInputRef.current?.click()}
                   className="px-6 py-3 bg-gradient-to-br from-violet-500 to-blue-600 text-white rounded-full text-sm font-medium shadow-md hover:shadow-lg transition-all flex items-center gap-2">
                   
-                        <Upload className="w-4 h-4" /> 选择文件并生成
+                        <Upload className="w-4 h-4" /> {t('选择文件并生成')}
                       </button>
                     </div>
                     <p className="text-xs text-slate-400 mt-4 relative z-10">
-                      支持 JPG · PNG · PDF，最大 10MB
+                      {t('支持 JPG · PNG · PDF，最大 10MB')}
                     </p>
                   </div>
             }
@@ -1128,15 +1135,15 @@ export function Workbench() {
                     </div>
 
                     <h3 className="text-lg font-semibold text-slate-800 mb-2">
-                      {aiPhase === 'uploading' && '正在上传参考文件...'}
-	                      {aiPhase === 'analyzing' && '正在提取模板字段...'}
-	                      {aiPhase === 'generating' && '正在生成模板草稿...'}
+                      {aiPhase === 'uploading' && t('正在上传参考文件...')}
+	                      {aiPhase === 'analyzing' && t('正在提取模板字段...')}
+	                      {aiPhase === 'generating' && t('正在生成模板草稿...')}
                     </h3>
                     <p className="text-sm text-slate-500 mb-8">
-	                      {aiPhase === 'uploading' && '即将开始文件解析'}
+	                      {aiPhase === 'uploading' && t('即将开始文件解析')}
 	                      {aiPhase === 'analyzing' &&
-	                '提取表头、订单号、客户和金额等字段'}
-                      {aiPhase === 'generating' && '这可能需要几秒钟时间'}
+	                t('提取表头、订单号、客户和金额等字段')}
+                      {aiPhase === 'generating' && t('这可能需要几秒钟时间')}
                     </p>
 
                     <div className="max-w-sm mx-auto space-y-3">
@@ -1176,18 +1183,17 @@ export function Workbench() {
                       </div>
                       <div>
                         <h3 className="text-base font-semibold text-emerald-900 mb-1">
-                          模板生成成功！
+                          {t('模板生成成功！')}
                         </h3>
                         <p className="text-sm text-emerald-700/80">
-                          AI
-                          已成功解析参考文件，并生成了对应的高保真模板。您可以保存并在预览中使用它。
+                          {t('AI 已成功解析参考文件，并生成了对应的高保真模板。您可以保存并在预览中使用它。')}
                         </p>
                       </div>
                     </div>
 
                     <div className="bg-white border border-slate-200 rounded-3xl p-6 elevation-1">
                       <h4 className="text-sm font-medium text-slate-800 mb-4">
-                        模板预览
+                        {t('模板预览')}
                       </h4>
                       <div className="aspect-[1/1.4] w-full max-w-sm mx-auto bg-slate-50 border border-slate-200 rounded-xl overflow-hidden relative shadow-sm">
                         {/* Placeholder for generated template thumbnail */}
@@ -1214,13 +1220,13 @@ export function Workbench() {
               onClick={resetAi}
               className="px-5 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-full hover:bg-slate-200 transition-all">
               
-                    重新生成
+                    {t('重新生成')}
                   </button>
                   <button
               onClick={() => void saveAiTemplate()}
               className="px-6 py-2 text-sm font-medium text-white bg-gradient-to-br from-violet-500 to-blue-600 rounded-full shadow-md shadow-violet-500/20 hover:shadow-lg transition-all flex items-center gap-1.5">
               
-                    <Check className="w-4 h-4" /> 保存并应用新模板
+                    <Check className="w-4 h-4" /> {t('保存并应用新模板')}
                   </button>
                 </div>
           }
@@ -1236,10 +1242,10 @@ export function Workbench() {
               <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white">
                 <div>
                   <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                    <FileDown className="w-5 h-5 text-blue-500" /> 生成发票
+                    <FileDown className="w-5 h-5 text-blue-500" /> {t('生成发票')}
                   </h2>
                   <p className="mt-1 text-xs text-slate-500">
-                    当前模板：{activeTemplateName}，保存后可在“查看发票”中看到最新内容。
+                    {t('当前模板：{name}，保存后可在“查看发票”中看到最新内容。', { name: activeTemplateName })}
                   </p>
                 </div>
                 <button
@@ -1256,7 +1262,7 @@ export function Workbench() {
                   <div className="min-w-0 overflow-hidden rounded-3xl border border-slate-100 bg-white elevation-1">
                     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-5 py-4">
                       <div>
-                        <h3 className="text-sm font-semibold text-slate-800">发票商品明细</h3>
+                        <h3 className="text-sm font-semibold text-slate-800">{t('发票商品明细')}</h3>
                         <p className="mt-1 text-xs text-slate-500">
                           {invoiceDraftInfo.customer || '-'} · {invoiceDraftInfo.orderId || '-'}
                         </p>
@@ -1269,13 +1275,13 @@ export function Workbench() {
                       <Table containerClassName="overflow-visible" className="min-w-[820px] text-sm whitespace-nowrap">
                         <TableHeader className="bg-slate-50 text-xs text-slate-600">
                           <TableRow>
-                            <TableHead className="px-4 py-3 font-medium">商品编码</TableHead>
-                            <TableHead className="px-4 py-3 font-medium">商品名称</TableHead>
-                            <TableHead className="px-4 py-3 font-medium">规格</TableHead>
-                            <TableHead className="px-4 py-3 font-medium">单位</TableHead>
-                            <TableHead className="px-4 py-3 text-right font-medium">数量</TableHead>
-                            <TableHead className="px-4 py-3 text-right font-medium">单价</TableHead>
-                            <TableHead className="px-4 py-3 text-right font-medium">金额</TableHead>
+                            <TableHead className="px-4 py-3 font-medium">{t('商品编码')}</TableHead>
+                            <TableHead className="px-4 py-3 font-medium">{t('商品名称')}</TableHead>
+                            <TableHead className="px-4 py-3 font-medium">{t('规格')}</TableHead>
+                            <TableHead className="px-4 py-3 font-medium">{t('单位')}</TableHead>
+                            <TableHead className="px-4 py-3 text-right font-medium">{t('数量')}</TableHead>
+                            <TableHead className="px-4 py-3 text-right font-medium">{t('单价')}</TableHead>
+                            <TableHead className="px-4 py-3 text-right font-medium">{t('金额')}</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody className="divide-y divide-slate-50">
@@ -1340,7 +1346,7 @@ export function Workbench() {
 
                     <div className={`space-y-2 rounded-2xl p-4 text-sm ${activeTemplate === 'inogi' ? 'bg-white/10' : 'bg-slate-50'}`}>
                       <div className="flex justify-between gap-3">
-                        <span className={activeTemplate === 'inogi' ? 'text-white/60' : 'text-slate-400'}>客户</span>
+                        <span className={activeTemplate === 'inogi' ? 'text-white/60' : 'text-slate-400'}>{t('客户')}</span>
                         <input
                           value={invoiceDraftInfo.customer}
                           onChange={(event) => handleInvoiceDraftInfoChange('customer', event.target.value)}
@@ -1349,7 +1355,7 @@ export function Workbench() {
                           }`} />
                       </div>
                       <div className="flex justify-between gap-3">
-                        <span className={activeTemplate === 'inogi' ? 'text-white/60' : 'text-slate-400'}>订单号</span>
+                        <span className={activeTemplate === 'inogi' ? 'text-white/60' : 'text-slate-400'}>{t('订单号')}</span>
                         <input
                           value={invoiceDraftInfo.orderId}
                           onChange={(event) => handleInvoiceDraftInfoChange('orderId', event.target.value)}
@@ -1358,7 +1364,7 @@ export function Workbench() {
                           }`} />
                       </div>
                       <div className="flex justify-between gap-3">
-                        <span className={activeTemplate === 'inogi' ? 'text-white/60' : 'text-slate-400'}>发货日</span>
+                        <span className={activeTemplate === 'inogi' ? 'text-white/60' : 'text-slate-400'}>{t('发货日')}</span>
                         <input
                           value={invoiceDraftInfo.date}
                           onChange={(event) => handleInvoiceDraftInfoChange('date', event.target.value)}
@@ -1370,9 +1376,9 @@ export function Workbench() {
 
                     <div className={`mt-4 overflow-hidden rounded-2xl border ${activeTemplate === 'inogi' ? 'border-white/20' : 'border-slate-100'}`}>
                       <div className={`grid grid-cols-[minmax(0,1fr)_64px_104px] gap-2 px-3 py-2 text-xs font-semibold ${activeTemplate === 'inogi' ? 'bg-white/10 text-white/80' : 'bg-slate-50 text-slate-500'}`}>
-                        <span>商品</span>
-                        <span className="text-right">数量</span>
-                        <span className="text-right">金额</span>
+                        <span>{t('商品')}</span>
+                        <span className="text-right">{t('数量')}</span>
+                        <span className="text-right">{t('金额')}</span>
                       </div>
                       <div className="max-h-[270px] overflow-y-auto">
                         {invoiceDraftLines.map((line) => {
@@ -1414,7 +1420,7 @@ export function Workbench() {
                       </div>
                     </div>
                     <div className={`mt-5 flex items-center justify-between border-t pt-4 text-base font-bold ${activeTemplate === 'inogi' ? 'border-white/20' : 'border-slate-100'}`}>
-                      <span>合计</span>
+                      <span>{t('合计')}</span>
                       <span>{invoiceDraftAmountText}</span>
                     </div>
                   </div>
@@ -1428,7 +1434,7 @@ export function Workbench() {
               disabled={invoiceSubmitting}
               className="px-5 py-2 text-sm font-medium text-slate-700 bg-slate-100 rounded-full hover:bg-slate-200 transition-all disabled:cursor-not-allowed disabled:opacity-50">
               
-                    取消
+                    {t('取消')}
                   </button>
                   <button
               onClick={() => void handleConfirmGenerateInvoice()}
@@ -1436,7 +1442,7 @@ export function Workbench() {
               className="px-6 py-2 text-sm font-medium text-white bg-gradient-primary rounded-full shadow-md shadow-blue-500/20 hover:shadow-lg transition-all flex items-center gap-1.5 disabled:cursor-not-allowed disabled:opacity-50">
               
                     {invoiceSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                    保存并生成发票
+                    {t('保存并生成发票')}
                   </button>
                 </div>
               </div>
@@ -1451,7 +1457,7 @@ export function Workbench() {
           
               <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white">
                 <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-blue-500" /> 原始订货单
+                  <FileText className="w-5 h-5 text-blue-500" /> {t('原始订货单')}
                 </h2>
                 <button
               onClick={() => setActiveModal(null)}
@@ -1466,7 +1472,7 @@ export function Workbench() {
                     <h1 className="text-2xl font-bold text-slate-800 mb-2">
                       PURCHASE ORDER
                     </h1>
-	                    <p className="text-slate-500">{orderDetails.customer || '未识别客户'}</p>
+	                    <p className="text-slate-500">{orderDetails.customer || t('未识别客户')}</p>
                   </div>
                   <div className="flex justify-between mb-8 text-sm">
                     <div>
@@ -1537,7 +1543,7 @@ export function Workbench() {
           
               <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white">
                 <h2 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
-                  <Eye className="w-5 h-5 text-blue-500" /> 商业发票预览
+                  <Eye className="w-5 h-5 text-blue-500" /> {t('商业发票预览')}
                   <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-500">
                     {invoicePreviewTemplateName}
                   </span>
@@ -1547,7 +1553,7 @@ export function Workbench() {
 	                    onClick={handleExportInvoice}
 	                    disabled={!selectedOrder?.generated}
 	                    className="px-5 py-2 text-sm font-medium text-white bg-gradient-primary rounded-full glow-blue transition-all flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed">
-	                    <Download className="w-4 h-4" /> 导出 PDF
+	                    <Download className="w-4 h-4" /> {t('导出 PDF')}
                   </button>
                   <button
                 onClick={() => setActiveModal(null)}
@@ -1597,7 +1603,7 @@ export function Workbench() {
                       <div className="text-right space-y-1">
                         <div className="flex justify-end gap-2">
                           <span className="font-bold">Invoice:</span>
-	                          <span>#{orderDetails.invoiceNo || '未生成'}</span>
+	                          <span>#{orderDetails.invoiceNo || t('未生成')}</span>
                         </div>
                         <div className="flex justify-end gap-2">
                           <span className="font-bold">Date:</span>
@@ -1754,7 +1760,7 @@ export function Workbench() {
                         <div className="text-right space-y-1 font-medium">
                           <div className="flex justify-end gap-2">
                             <span>Invoice:</span>
-	                            <span>#{orderDetails.invoiceNo || '未生成'}</span>
+	                            <span>#{orderDetails.invoiceNo || t('未生成')}</span>
                           </div>
                           <div className="flex justify-end gap-2">
                             <span>Date:</span>
@@ -1857,7 +1863,7 @@ export function Workbench() {
                               balance for the above purchase orders.
                             </li>
                             <li>
-	                              Please include Invoice #{orderDetails.invoiceNo || '未生成'} in the wire
+	                              Please include Invoice #{orderDetails.invoiceNo || t('未生成')} in the wire
                               memo.
                             </li>
                           </ul>
@@ -1892,7 +1898,7 @@ export function Workbench() {
                         <div className="flex justify-end gap-3 mb-2">
                           <span className="text-slate-500">Invoice No:</span>
 	                          <span className="font-bold text-slate-800">
-	                            #{orderDetails.invoiceNo || '未生成'}
+	                            #{orderDetails.invoiceNo || t('未生成')}
 	                          </span>
                         </div>
                         <div className="flex justify-end gap-3 mb-2">

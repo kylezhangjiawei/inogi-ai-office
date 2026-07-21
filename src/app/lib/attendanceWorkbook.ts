@@ -551,7 +551,10 @@ export async function exportMonthlyAttendanceWorkbook(
   departmentFilter?: string,
 ) {
   const { buffer, department } = await buildMonthlyAttendanceWorkbook(data, departmentFilter);
-  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const blobBytes = buffer.buffer instanceof ArrayBuffer
+    ? buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength)
+    : Uint8Array.from(buffer).buffer;
+  const blob = new Blob([blobBytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;

@@ -746,11 +746,11 @@ function TaskOperationDrawer({
       seen.add(n);
       out.push({ user_id: userId ?? null, name: n, hint });
     };
-    push(task.primary_owner, task.primary_owner_user_id, t("主责人"));
+    push(task.owner, task.owner_user_id, t("主责人"));
     for (const c of task.collaborators ?? []) push(c.name, c.user_id, t("协作人"));
     for (const p of peopleOptions) push(p.name, p.user_id ?? null);
     return out;
-  }, [task.primary_owner, task.primary_owner_user_id, task.collaborators, peopleOptions]);
+  }, [task.owner, task.owner_user_id, task.collaborators, peopleOptions]);
   const mention = useMentions({ value: note, setValue: setNote, inputRef: noteInputRef, candidates: mentionCandidates });
   const [peopleLoading, setPeopleLoading] = useState(false);
   const [peopleError, setPeopleError] = useState(false);
@@ -1000,7 +1000,7 @@ function TaskOperationDrawer({
             { label: t("提交审核"), helper: t("流转给上级"), state: "todo" as const },
           ]
         : [
-            { label: t("填写进展"), helper: t("更新百分比和说明"), state: tab === "progress" ? "current" as const : "done" as const },
+            { label: t("填写进展"), helper: t("更新百分比和说明"), state: "done" as const },
             { label: t("同步风险"), helper: t("确认阻塞项"), state: "todo" as const },
             { label: t("生成记录"), helper: t("沉淀操作日志"), state: "todo" as const },
           ];

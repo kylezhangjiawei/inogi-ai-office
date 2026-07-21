@@ -1,5 +1,6 @@
 import { Badge } from "../../../app/components/ui/badge";
 import { cn } from "../../../app/components/ui/utils";
+import { useI18n } from "../../../app/lib/i18n";
 import type { InvoiceStatus, MatchStatus, ReimbursementStatus } from "../types";
 
 const statusClassName: Record<string, string> = {
@@ -29,9 +30,11 @@ export function StatusBadge({
   status: InvoiceStatus | MatchStatus | ReimbursementStatus | string;
   className?: string;
 }) {
+  const { t } = useI18n();
+
   return (
     <Badge variant="outline" className={cn(statusClassName[status] ?? "border-slate-200 bg-slate-50 text-slate-600", className)}>
-      {status}
+      {t(status)}
     </Badge>
   );
 }

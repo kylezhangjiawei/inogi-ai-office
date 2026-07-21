@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Activity,
   AlertCircle,
+  ArrowUpRight,
   BarChart3,
   CheckCircle2,
   Clock3,

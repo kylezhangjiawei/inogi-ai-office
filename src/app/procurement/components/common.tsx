@@ -3,14 +3,15 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { cn } from "../../components/ui/utils";
 import { useAvatarDirectory } from "../../lib/userAvatar";
+import { i18nLocale, t as translate, useI18n } from "../../lib/i18n";
 import { taskMainDate, type BusinessLine, type ProcMethod, type ProcSource, type ProcStatus, type ProcurementTask } from "../../../mock/procurement";
 
 /** 数据变更类动作统一轻提示（本阶段不接逻辑）。 */
 export function stageToast() {
-  toast.info("流程逻辑将在下一阶段接入");
+  toast.info(translate("流程逻辑将在下一阶段接入"));
 }
 
-export const fmtMoney = (n?: number) => (typeof n === "number" ? `¥${n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—");
+export const fmtMoney = (n?: number) => (typeof n === "number" ? `¥${n.toLocaleString(i18nLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—");
 
 // ── 状态元数据（含「下一步」按钮文案）─────────────────────────────────────────
 export const PROC_STATUS_META: Record<ProcStatus, { label: string; pill: string; next?: string }> = {
@@ -32,54 +33,60 @@ export const INQUIRY_FLOW: ProcStatus[] = ["pending_confirm", "pending_inquiry",
 export const DIRECT_FLOW: ProcStatus[] = ["pending_purchase", "in_transit", "completed"];
 
 export function StatusPill({ status, className }: { status: ProcStatus; className?: string }) {
+  useI18n();
   const m = PROC_STATUS_META[status];
-  return <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium", m.pill, className)}>{m.label}</span>;
+  return <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium", m.pill, className)}>{translate(m.label)}</span>;
 }
 export function SourcePill({ source }: { source: ProcSource }) {
+  useI18n();
   return source === "rd" ? (
-    <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700">研发流转</span>
+    <span className="inline-flex items-center rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-xs font-medium text-violet-700">{translate("研发流转")}</span>
   ) : (
-    <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-500">采购自建</span>
+    <span className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-xs font-medium text-slate-500">{translate("采购自建")}</span>
   );
 }
 export function BusinessLinePill({ line }: { line: BusinessLine }) {
+  useI18n();
   return line === "rd" ? (
-    <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">研发</span>
+    <span className="inline-flex items-center rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-700">{translate("研发")}</span>
   ) : (
-    <span className="inline-flex items-center rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 text-xs font-medium text-orange-700">生产</span>
+    <span className="inline-flex items-center rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 text-xs font-medium text-orange-700">{translate("生产")}</span>
   );
 }
 export function MethodPill({ method }: { method: ProcMethod }) {
+  useI18n();
   return method === "inquiry" ? (
-    <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">询价采购</span>
+    <span className="inline-flex items-center rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-medium text-sky-700">{translate("询价采购")}</span>
   ) : (
-    <span className="inline-flex items-center rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 text-xs font-medium text-orange-600">电商直购</span>
+    <span className="inline-flex items-center rounded-full border border-orange-200 bg-orange-50 px-2 py-0.5 text-xs font-medium text-orange-600">{translate("电商直购")}</span>
   );
 }
 export function PriorityBadge({ priority }: { priority: "high" | "medium" | "low" }) {
+  useI18n();
   const m = { high: ["高优先", "border-red-200 bg-red-50 text-red-600"], medium: ["中优先", "border-amber-200 bg-amber-50 text-amber-600"], low: ["低优先", "border-slate-200 bg-slate-50 text-slate-500"] }[priority];
-  return <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium", m[1])}>{m[0]}</span>;
+  return <span className={cn("inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium", m[1])}>{translate(m[0])}</span>;
 }
 
 /** 主日期徽标：剩 N 天 / 逾期 N 天 / 临期黄。 */
 export function MainDateBadge({ task, big = false }: { task: ProcurementTask; big?: boolean }) {
+  useI18n();
   const info = taskMainDate(task);
   let pill = "border-slate-200 bg-slate-50 text-slate-500";
   let text = "";
   if (info.days != null) {
     if (info.days < 0) {
       pill = "border-red-200 bg-red-50 text-red-600";
-      text = `逾期 ${Math.abs(info.days)} 天`;
+      text = translate("逾期 {count} 天", { count: Math.abs(info.days) });
     } else if (info.days <= 3) {
       pill = "border-amber-200 bg-amber-50 text-amber-600";
-      text = `剩 ${info.days} 天`;
+      text = translate("剩 {count} 天", { count: info.days });
     } else {
-      text = `剩 ${info.days} 天`;
+      text = translate("剩 {count} 天", { count: info.days });
     }
   }
   return (
     <div className="flex items-baseline gap-2">
-      <span className="text-[11px] text-slate-400">{info.label}</span>
+      <span className="text-[11px] text-slate-400">{translate(info.label)}</span>
       <span className={cn("font-bold tabular-nums text-slate-900", big ? "text-lg" : "text-sm")}>{info.date ?? "—"}</span>
       {text && <span className={cn("inline-flex items-center rounded-full border px-1.5 py-0.5 text-[11px] font-medium", pill)}>{text}</span>}
     </div>

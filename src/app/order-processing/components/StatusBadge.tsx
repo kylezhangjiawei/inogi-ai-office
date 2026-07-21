@@ -1,5 +1,8 @@
 import React from 'react';
+import { AutoTranslatedText } from '../../components/TranslatableText';
+import { t, useI18n } from '../../lib/i18n';
 export function StatusBadge({ type, text }: {type: string;text: string;}) {
+  useI18n();
   const styles =
   {
     success: 'text-emerald-700 bg-emerald-50',
@@ -11,7 +14,7 @@ export function StatusBadge({ type, text }: {type: string;text: string;}) {
     <span
       className={`px-2.5 py-1 text-[10px] font-medium rounded-full ${styles}`}>
       
-      {text}
+      <AutoTranslatedText text={t(text.trim())} />
     </span>);
 
 }

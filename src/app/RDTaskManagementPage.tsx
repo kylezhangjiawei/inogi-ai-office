@@ -215,7 +215,7 @@ const POC_BOM_STRUCTURE = [
   { id: "cat-sealing", label: "密封系统", parts: ["O-ring", "泡棉", "密封胶"], reserved: true },
 ] as const;
 
-const POC_BOM_RESERVED_IDS = new Set(
+const POC_BOM_RESERVED_IDS = new Set<string>(
   POC_BOM_STRUCTURE.filter((system) => "reserved" in system && system.reserved).map((system) => system.id),
 );
 
@@ -462,8 +462,8 @@ function StatusDot({ status }: { status: TaskStatus }) {
   return (
     <span
       className={cn("inline-block h-2 w-2 shrink-0 rounded-full", cfg.dot)}
-      title={cfg.label}
-      aria-label={cfg.label}
+      title={t(cfg.label)}
+      aria-label={t(cfg.label)}
     />
   );
 }
@@ -481,7 +481,7 @@ function PriorityPill({ priority, aiPriority }: { priority: Priority; aiPriority
       )}
       title={adjusted && aiPriority ? t("AI 建议: {priority}，已被组长调整", { priority: t(PRIORITY_CONFIG[aiPriority].label) }) : t("优先级 {priority}", { priority: t(cfg.label) })}
     >
-      {cfg.label}
+      {t(cfg.label)}
       {adjusted && <span className="ml-px text-[8px] opacity-70">·</span>}
     </span>
   );
@@ -2997,7 +2997,7 @@ function TaskLifecycleTimeline({ task }: { task: Task }) {
   const steps: {
     label: string;
     helper: string;
-    Icon: React.ComponentType<{ className?: string }>;
+    Icon: React.ComponentType<{ className?: string; strokeWidth?: string | number }>;
   }[] = [
     { label: t("创建"), helper: t("任务已进入研发任务池"), Icon: CircleDot },
     {
@@ -3023,83 +3023,76 @@ function TaskLifecycleTimeline({ task }: { task: Task }) {
     { label: t("封存"), helper: task.archived || task.status === "archived" ? t("任务已归档") : t("完成后可封存"), Icon: Archive },
   ];
 
-  // return (
-  //   <motion.section
-  //     initial={shouldReduceMotion ? false : { opacity: 0, y: 6 }}
-  //     animate={{ opacity: 1, y: 0 }}
-  //     transition={RD_PANEL_TRANSITION}
-  //     className="rounded-[8px] border border-slate-200 bg-white px-4 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.04)]"
-  //   >
-  //     <div className="mb-3 flex items-center justify-between">
-  //       <div>
-  //         <h3 className="text-sm font-semibold text-slate-900">任务时间轴</h3>
-  //         <p className="mt-0.5 text-xs text-slate-500">当前节点已高亮显示</p>
-  //       </div>
-  //       <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">
-  //         {steps[currentIndex].label}
-  //       </span>
-  //     </div>
-  //
-  //     <div className="space-y-0">
-  //       {steps.map((step, index) => {
-  //         const state: TimelineStepState =
-  //           index < currentIndex ? "done" : index === currentIndex ? (attentionCurrent ? "attention" : "current") : "todo";
-  //         const isLast = index === steps.length - 1;
-  //         return (
-  //           <motion.div
-  //             key={step.label}
-  //             initial={shouldReduceMotion ? false : { opacity: 0, x: -8 }}
-  //             animate={{ opacity: 1, x: 0 }}
-  //             transition={shouldReduceMotion ? { duration: 0 } : { ...RD_LIST_TRANSITION, delay: index * 0.03 }}
-  //             className="relative flex gap-3"
-  //           >
-  //             {!isLast && (
-  //               <motion.span
-  //                 initial={shouldReduceMotion ? false : { scaleY: 0 }}
-  //                 animate={{ scaleY: 1 }}
-  //                 transition={shouldReduceMotion ? { duration: 0 } : { ...RD_LIST_TRANSITION, delay: index * 0.04 }}
-  //                 className={cn(
-  //                   "absolute left-[15px] top-8 h-[calc(100%-24px)] w-px origin-top",
-  //                   index < currentIndex ? "bg-emerald-200" : "bg-slate-200",
-  //                 )}
-  //               />
-  //             )}
-  //             <motion.span
-  //               initial={shouldReduceMotion ? false : { scale: 0.9 }}
-  //               animate={{ scale: 1 }}
-  //               transition={shouldReduceMotion ? { duration: 0 } : { ...RD_FAST_TRANSITION, delay: index * 0.03 }}
-  //               className={cn(
-  //                 "relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-white transition-all",
-  //                 state === "done" && "border-emerald-200 bg-emerald-50 text-emerald-600",
-  //                 state === "current" && "border-indigo-200 bg-indigo-50 text-indigo-700 shadow-[0_0_0_4px_rgba(59,130,246,0.10)]",
-  //                 state === "attention" && "border-amber-200 bg-amber-50 text-amber-700 shadow-[0_0_0_4px_rgba(245,158,11,0.10)]",
-  //                 state === "todo" && "border-slate-200 text-slate-300",
-  //               )}
-  //             >
-  //               <step.Icon className="h-4 w-4" />
-  //             </motion.span>
-  //             <div className={cn("min-w-0 pb-4", isLast && "pb-0")}>
-  //               <div
-  //                 className={cn(
-  //                   "text-sm font-semibold",
-  //                   state === "done" && "text-emerald-700",
-  //                   state === "current" && "text-indigo-800",
-  //                   state === "attention" && "text-amber-800",
-  //                   state === "todo" && "text-slate-400",
-  //                 )}
-  //               >
-  //                 {step.label}
-  //               </div>
-  //               <div className={cn("mt-0.5 text-xs", state === "todo" ? "text-slate-400" : "text-slate-500")}>
-  //                 {step.helper}
-  //               </div>
-  //             </div>
-  //           </motion.div>
-  //         );
-  //       })}
-  //     </div>
-  //   </motion.section>
-  // );
+  return (
+    <motion.section
+      initial={shouldReduceMotion ? false : { opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={RD_PANEL_TRANSITION}
+      className="rounded-[8px] border border-slate-200 bg-white px-4 py-3 shadow-[0_10px_24px_rgba(15,23,42,0.04)]"
+    >
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-900">{t("任务时间轴")}</h3>
+          <p className="mt-0.5 text-xs text-slate-500">{t("当前节点已高亮显示")}</p>
+        </div>
+        <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">
+          {steps[currentIndex].label}
+        </span>
+      </div>
+      <div className="space-y-0">
+        {steps.map((step, index) => {
+          const state: TimelineStepState =
+            index < currentIndex ? "done" : index === currentIndex ? (attentionCurrent ? "attention" : "current") : "todo";
+          const isLast = index === steps.length - 1;
+          return (
+            <motion.div
+              key={step.label}
+              initial={shouldReduceMotion ? false : { opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={shouldReduceMotion ? { duration: 0 } : { ...RD_LIST_TRANSITION, delay: index * 0.03 }}
+              className="relative flex gap-3"
+            >
+              {!isLast && (
+                <span
+                  className={cn(
+                    "absolute left-[15px] top-8 h-[calc(100%-24px)] w-px",
+                    index < currentIndex ? "bg-emerald-200" : "bg-slate-200",
+                  )}
+                />
+              )}
+              <span
+                className={cn(
+                  "relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border bg-white",
+                  state === "done" && "border-emerald-200 bg-emerald-50 text-emerald-600",
+                  state === "current" && "border-indigo-200 bg-indigo-50 text-indigo-700 shadow-[0_0_0_4px_rgba(59,130,246,0.10)]",
+                  state === "attention" && "border-amber-200 bg-amber-50 text-amber-700 shadow-[0_0_0_4px_rgba(245,158,11,0.10)]",
+                  state === "todo" && "border-slate-200 text-slate-300",
+                )}
+              >
+                <step.Icon className="h-4 w-4" />
+              </span>
+              <div className={cn("min-w-0 pb-4", isLast && "pb-0")}>
+                <div
+                  className={cn(
+                    "text-sm font-semibold",
+                    state === "done" && "text-emerald-700",
+                    state === "current" && "text-indigo-800",
+                    state === "attention" && "text-amber-800",
+                    state === "todo" && "text-slate-400",
+                  )}
+                >
+                  {step.label}
+                </div>
+                <div className={cn("mt-0.5 text-xs", state === "todo" ? "text-slate-400" : "text-slate-500")}>
+                  {step.helper}
+                </div>
+              </div>
+            </motion.div>
+          );
+        })}
+      </div>
+    </motion.section>
+  );
 }
 
 // ─── SubmitConfirmDialog ──────────────────────────────────────────────────────
@@ -5611,7 +5604,26 @@ function CommandCenter({
 }) {
   const criticalRisks = risks.filter((risk) => risk.severity === "critical").length;
 
-  return ;
+  return (
+    <section className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 bg-white px-5 py-3">
+      <div className="flex flex-1 flex-wrap gap-2">
+        <CommandMetric label={t("活跃任务")} value={String(totalActive)} helper={t("当前任务池")} tone="text-indigo-500" Icon={Target} />
+        <CommandMetric label={t("平均进度")} value={`${averageProgress}%`} helper={t("全部活跃任务")} tone="text-emerald-500" Icon={Gauge} />
+        <CommandMetric label={t("高风险")} value={String(criticalRisks)} helper={t("需要优先处理")} tone="text-red-500" Icon={AlertTriangle} />
+        <CommandMetric label={t("待指派")} value={String(pendingAssign)} helper={t("等待确认负责人")} tone="text-violet-500" Icon={Users} />
+      </div>
+      {onCreate && (
+        <button
+          type="button"
+          onClick={onCreate}
+          className="inline-flex items-center gap-1.5 rounded-md bg-indigo-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 focus-visible:ring-offset-2"
+        >
+          <Plus className="h-3.5 w-3.5" />
+          {t("新建任务")}
+        </button>
+      )}
+    </section>
+  );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -5639,7 +5651,7 @@ function KpiStrip({
     value: string | number;
     tone: string;
     iconTone: string;
-    Icon: React.ComponentType<{ className?: string }>;
+    Icon: React.ComponentType<{ className?: string; strokeWidth?: string | number }>;
   }[] = [
     { label: "活跃任务", value: totalActive, tone: "text-slate-900", iconTone: "text-slate-400", Icon: Target },
     { label: "完成率", value: `${rate}%`, tone: "text-slate-900", iconTone: "text-slate-400", Icon: Gauge },
@@ -9647,7 +9659,7 @@ function TaskReassignModal({
                       >
                         <div className="font-medium text-slate-800">{p.name}</div>
                         <div className="flex items-center justify-between text-xs text-slate-400">
-                          <span>{p.position}</span>
+                          <span>{t(p.position)}</span>
                           <span className={cn("font-semibold", p.max_tasks > 0 && p.task_count / p.max_tasks >= 0.75 ? "text-orange-500" : "text-emerald-600")}>
                             {t("{n} 个任务", { n: p.task_count })}
                           </span>
@@ -10354,7 +10366,7 @@ function ExecutiveOverview({
           transition={shouldReduceMotion ? { duration: 0 } : RD_FAST_TRANSITION}
           className={headerCollapsed ? "overflow-hidden" : "overflow-visible"}
           aria-hidden={headerCollapsed}
-          inert={headerCollapsed ? "" : undefined}
+          {...(headerCollapsed ? { inert: "" } : {})}
         >
         {usCollabLayout ? (
           /* ══ 协同页头：三层信息架构（页头条=身份+动作 / Stat Strip=纯数据 / 报表=独占全宽），
@@ -11955,6 +11967,8 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
         {showCreate && canCreateTask && (
           <AiCreatePanel
             categories={categories}
+            peopleProfiles={peopleProfiles}
+            personLoads={personLoads}
             productId={boardProductId}
             onCreated={loadCategories}
             onClose={() => setShowCreate(false)}

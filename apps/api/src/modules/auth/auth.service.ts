@@ -83,7 +83,7 @@ export class AuthService implements OnModuleInit {
     private readonly secureConfigService: SecureConfigService,
     private readonly ossService: OssService,
   ) {
-    this.jwtSecret = this.configService.get<string>('JWT_SECRET') ?? 'change-me-jwt-secret';
+    this.jwtSecret = this.configService.getOrThrow<string>('JWT_SECRET');
   }
 
   onModuleInit() {

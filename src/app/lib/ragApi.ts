@@ -62,7 +62,7 @@ export type RagStatus = {
 
 export async function ragStatus(): Promise<RagStatus> {
   const res = await authFetch("/api/rag/status");
-  if (!res.ok) throw new Error(await readErrorMessage(res));
+  if (!res.ok) throw new Error(await readErrorMessage(res, "RAG 状态读取失败"));
   return res.json() as Promise<RagStatus>;
 }
 
@@ -71,7 +71,7 @@ export async function ragChat(query: string, opts: { topK?: number; sourceTypes?
     method: "POST",
     body: JSON.stringify({ query, ...opts }),
   });
-  if (!res.ok) throw new Error(await readErrorMessage(res));
+  if (!res.ok) throw new Error(await readErrorMessage(res, "RAG 对话请求失败"));
   return res.json() as Promise<RagChatResult>;
 }
 
@@ -80,7 +80,7 @@ export async function ragSearch(query: string, opts: { topK?: number; sourceType
     method: "POST",
     body: JSON.stringify({ query, ...opts }),
   });
-  if (!res.ok) throw new Error(await readErrorMessage(res));
+  if (!res.ok) throw new Error(await readErrorMessage(res, "RAG 检索请求失败"));
   return res.json() as Promise<RagSearchResult>;
 }
 
@@ -90,7 +90,7 @@ export async function backfillKbToRag(): Promise<{ total: number; succeeded: num
     method: "POST",
     body: JSON.stringify({}),
   });
-  if (!res.ok) throw new Error(await readErrorMessage(res));
+  if (!res.ok) throw new Error(await readErrorMessage(res, "知识库回填失败"));
   return res.json() as Promise<{ total: number; succeeded: number; failed: number; failedIds: string[] }>;
 }
 

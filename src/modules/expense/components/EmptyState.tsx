@@ -1,8 +1,10 @@
 import type { ElementType, ReactNode } from "react";
 import { Inbox } from "lucide-react";
 
+import { useI18n } from "../../../app/lib/i18n";
+
 export function EmptyState({
-  title = "暂无数据",
+  title,
   detail,
   action,
   icon: Icon = Inbox,
@@ -14,6 +16,8 @@ export function EmptyState({
   icon?: ElementType;
   compact?: boolean;
 }) {
+  const { t } = useI18n();
+
   return (
     <div
       className={[
@@ -22,7 +26,7 @@ export function EmptyState({
       ].join(" ")}
     >
       <Icon className={compact ? "mb-2 h-6 w-6 text-slate-400" : "mb-3 h-8 w-8 text-slate-400"} />
-      <div className="text-sm font-bold text-slate-800">{title}</div>
+      <div className="text-sm font-bold text-slate-800">{title ?? t("暂无数据")}</div>
       {detail ? <div className="mt-1 max-w-[420px] text-xs leading-5 text-slate-500">{detail}</div> : null}
       {action ? <div className="mt-4 flex flex-wrap items-center justify-center gap-2">{action}</div> : null}
     </div>

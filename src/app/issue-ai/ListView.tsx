@@ -284,21 +284,22 @@ function ReusableCards({
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
       {items.map((it) => {
+        const adopted = it.adopted;
         const adoptedAnalysis = it.analyses.find((a) => a.isAdopted);
         const adoptedCause =
-          it.adopted?.kind === "analysis" && adoptedAnalysis
+          adopted?.kind === "analysis" && adoptedAnalysis
             ? adoptedAnalysis.content.possibleCauses.find(
-                (c) => c.id === it.adopted?.causeId,
+                (c) => c.id === adopted.causeId,
               )
             : undefined;
         const adoptedSolution = adoptedCause?.solutions.find(
-          (s) => it.adopted?.kind === "analysis" && s.id === it.adopted.solutionId,
+          (s) => adopted?.kind === "analysis" && s.id === adopted.solutionId,
         );
         const summary =
           adoptedSolution?.action ??
           adoptedAnalysis?.summary ??
-          (it.adopted?.kind === "reuse"
-            ? t("复用自 {id}", { id: it.adopted.reusedFrom })
+          (adopted?.kind === "reuse"
+            ? t("复用自 {id}", { id: adopted.reusedFrom })
             : t("已沉淀可复用方案"));
         return (
           <button

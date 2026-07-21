@@ -16,6 +16,7 @@ import {
 } from "recharts";
 
 import type { ExpenseCategory, ExpenseDashboardData } from "../types";
+import { i18nLocale, useI18n } from "../../../app/lib/i18n";
 import { EmptyState } from "./EmptyState";
 import { KPICard } from "./KPICard";
 
@@ -37,7 +38,7 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const fmtCNY = (value: number) =>
-  new Intl.NumberFormat("zh-CN", { style: "currency", currency: "CNY", maximumFractionDigits: 0 }).format(value);
+  new Intl.NumberFormat(i18nLocale(), { style: "currency", currency: "CNY", maximumFractionDigits: 0 }).format(value);
 
 function ChartCard({ title, subtitle, children }: { title: string; subtitle?: string; children: React.ReactNode }) {
   return (
@@ -52,6 +53,7 @@ function ChartCard({ title, subtitle, children }: { title: string; subtitle?: st
 }
 
 function CurrencyTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ name?: string; value?: number; color?: string }>; label?: string }) {
+  const { t } = useI18n();
   if (!active || !payload?.length) return null;
   // 堆叠面积图会把当月所有分类都塞进 payload，金额为 0 的分类不展示，避免一长串 ¥0 噪音。
   const items = payload.filter((entry) => Number(entry.value ?? 0) > 0);
@@ -62,7 +64,7 @@ function CurrencyTooltip({ active, payload, label }: { active?: boolean; payload
       {items.map((entry, index) => (
         <div key={index} className="flex items-center gap-2 text-slate-600">
           <span className="inline-block h-2 w-2 rounded-full" style={{ background: entry.color }} />
-          <span className="min-w-12">{entry.name}</span>
+          <span className="min-w-12">{t(entry.name ?? '')}</span>
           <span className="ml-auto font-medium text-slate-800">{fmtCNY(Number(entry.value ?? 0))}</span>
         </div>
       ))}
@@ -77,10 +79,19 @@ export function ExpenseStatistics({
   dashboard: ExpenseDashboardData | null;
   loading: boolean;
 }) {
+  const { t } = useI18n();
+  const translateMetric = (value?: string) => {
+    if (!value) return undefined;
+    const accumulated = value.match(/^(\d+)\s*张\s*·\s*累计\s*(.+)$/);
+    if (accumulated) return `${accumulated[1]} ${t('张')} · ${t('累计')} ${accumulated[2]}`;
+    const counted = value.match(/^(\d+)\s*(张|异常|单)$/);
+    if (counted) return `${counted[1]} ${t(counted[2])}`;
+    return t(value);
+  };
   if (!dashboard && loading) {
     return (
       <div className="flex h-full items-center justify-center text-slate-400">
-        <Loader2 className="mr-2 h-5 w-5 animate-spin" /> 正在加载统计数据…
+        <Loader2 className="mr-2 h-5 w-5 animate-spin" /> {t('正在加载统计数据…')}
       </div>
     );
   }
@@ -91,8 +102,8 @@ export function ExpenseStatistics({
       <div className="px-5 py-6">
         <EmptyState
           icon={BarChart3}
-          title="暂无报销统计数据"
-          detail="上传发票或付款凭证、创建报销单后，本月报销总额、分类占比、月度趋势等指标会自动汇总。"
+          title={t('暂无报销统计数据')}
+          detail={t('上传发票或付款凭证、创建报销单后，本月报销总额、分类占比、月度趋势等指标会自动汇总。')}
         />
       </div>
     );
@@ -113,11 +124,11 @@ export function ExpenseStatistics({
           {dashboard.kpis.map((kpi, index) => (
             <KPICard
               key={index}
-              title={kpi.title}
-              value={kpi.value}
+              title={t(kpi.title)}
+              value={translateMetric(kpi.value) ?? kpi.value}
               icon={kpi.icon}
-              trend={kpi.trend}
-              badge={kpi.badge}
+              trend={translateMetric(kpi.trend)}
+              badge={translateMetric(kpi.badge)}
               progress={kpi.progress}
             />
           ))}
@@ -126,13 +137,13 @@ export function ExpenseStatistics({
         {!hasChartData ? (
           <EmptyState
             icon={BarChart3}
-            title="暂无图表统计数据"
-            detail="上传发票或付款凭证并完成识别后，分类占比、月度趋势、票据状态分布等图表会自动汇总。"
+            title={t('暂无图表统计数据')}
+            detail={t('上传发票或付款凭证并完成识别后，分类占比、月度趋势、票据状态分布等图表会自动汇总。')}
           />
         ) : (
         <>
         {/* 月度分类趋势（按发票 issued_date 落桶，近 6 个月） */}
-        <ChartCard title="月度分类趋势" subtitle="近 6 个月 · 按开票日期">
+        <ChartCard title={t('月度分类趋势')} subtitle={t('近 6 个月 · 按开票日期')}>
           {hasTrend ? (
           <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
@@ -152,15 +163,16 @@ export function ExpenseStatistics({
                   axisLine={false}
                   tickLine={false}
                   width={56}
-                  tickFormatter={(value: number) => (value >= 10000 ? `${(value / 10000).toFixed(0)}万` : `${value}`)}
+                  tickFormatter={(value: number) => (value >= 10000 ? `${(value / 10000).toFixed(0)}${t('万')}` : `${value}`)}
                 />
                 <Tooltip content={<CurrencyTooltip />} />
-                <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
+                <Legend iconType="circle" formatter={(value) => t(String(value))} wrapperStyle={{ fontSize: 12 }} />
                 {CATEGORY_META.map((meta) => (
                   <Area
                     key={meta.key}
                     type="monotone"
                     dataKey={meta.key}
+                    name={t(meta.key)}
                     stackId="1"
                     stroke={meta.color}
                     strokeWidth={2}
@@ -171,13 +183,13 @@ export function ExpenseStatistics({
             </ResponsiveContainer>
           </div>
           ) : (
-            <EmptyState compact title="暂无月度数据" />
+            <EmptyState compact title={t('暂无月度数据')} />
           )}
         </ChartCard>
 
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {/* 分类金额占比 */}
-          <ChartCard title="分类金额占比" subtitle="累计">
+          <ChartCard title={t('分类金额占比')} subtitle={t('累计')}>
             {categoryShare.length ? (
               <div className="h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
@@ -201,27 +213,27 @@ export function ExpenseStatistics({
                       ))}
                     </Pie>
                     <Tooltip content={<CurrencyTooltip />} />
-                    <Legend iconType="circle" wrapperStyle={{ fontSize: 12 }} />
+                    <Legend iconType="circle" formatter={(value) => t(String(value))} wrapperStyle={{ fontSize: 12 }} />
                   </PieChart>
                 </ResponsiveContainer>
               </div>
             ) : (
-              <EmptyState compact title="暂无分类数据" />
+              <EmptyState compact title={t('暂无分类数据')} />
             )}
           </ChartCard>
 
           {/* 票据状态分布 */}
-          <ChartCard title="票据状态分布" subtitle="张数">
+          <ChartCard title={t('票据状态分布')} subtitle={t('张数')}>
             {statusBreakdown.length ? (
               <div className="h-64 w-full">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={statusBreakdown} margin={{ top: 8, right: 12, left: 4, bottom: 0 }}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" vertical={false} />
-                    <XAxis dataKey="status" tick={{ fontSize: 12, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
+                    <XAxis dataKey="status" tickFormatter={(value: string) => t(value)} tick={{ fontSize: 12, fill: "#94a3b8" }} axisLine={false} tickLine={false} />
                     <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#94a3b8" }} axisLine={false} tickLine={false} width={32} />
                     <Tooltip
                       cursor={{ fill: "rgba(148,163,184,0.08)" }}
-                      formatter={(value: number, _name, item) => [`${value} 张 · ${fmtCNY(Number((item?.payload as { amount?: number })?.amount ?? 0))}`, "票据"]}
+                      formatter={(value: number, _name, item) => [`${value} ${t('张')} · ${fmtCNY(Number((item?.payload as { amount?: number })?.amount ?? 0))}`, t('票据')]}
                     />
                     <Bar dataKey="count" radius={[6, 6, 0, 0]} maxBarSize={48}>
                       {statusBreakdown.map((entry) => (
@@ -232,13 +244,13 @@ export function ExpenseStatistics({
                 </ResponsiveContainer>
               </div>
             ) : (
-              <EmptyState compact title="暂无票据" />
+              <EmptyState compact title={t('暂无票据')} />
             )}
           </ChartCard>
         </div>
 
         {/* 项目报销 Top */}
-        <ChartCard title="项目报销 Top 5" subtitle="按累计金额">
+        <ChartCard title={t('项目报销 Top 5')} subtitle={t('按累计金额')}>
           {projectTop.length ? (
             <div className="w-full" style={{ height: Math.max(160, projectTop.length * 52) }}>
               <ResponsiveContainer width="100%" height="100%">
@@ -249,7 +261,7 @@ export function ExpenseStatistics({
                     tick={{ fontSize: 11, fill: "#94a3b8" }}
                     axisLine={false}
                     tickLine={false}
-                    tickFormatter={(value: number) => (value >= 10000 ? `${(value / 10000).toFixed(0)}万` : `${value}`)}
+                    tickFormatter={(value: number) => (value >= 10000 ? `${(value / 10000).toFixed(0)}${t('万')}` : `${value}`)}
                   />
                   <YAxis
                     type="category"
@@ -260,12 +272,12 @@ export function ExpenseStatistics({
                     tickLine={false}
                   />
                   <Tooltip cursor={{ fill: "rgba(148,163,184,0.08)" }} content={<CurrencyTooltip />} />
-                  <Bar dataKey="amount" name="报销金额" radius={[0, 6, 6, 0]} fill="var(--chart-1)" maxBarSize={28} />
+                  <Bar dataKey="amount" name={t('报销金额')} radius={[0, 6, 6, 0]} fill="var(--chart-1)" maxBarSize={28} />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           ) : (
-            <EmptyState compact title="暂无项目数据" icon={Bot} />
+            <EmptyState compact title={t('暂无项目数据')} icon={Bot} />
           )}
         </ChartCard>
         </>
