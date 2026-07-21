@@ -6,7 +6,6 @@ import {
   Building2,
   Calendar,
   CheckCircle2,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock,
@@ -38,6 +37,7 @@ import badgeInternTemplate from "../assets/employee-archive/badge-intern.jpeg";
 import badgeLaborTemplate from "../assets/employee-archive/badge-labor.jpeg";
 import badgeOfficialTemplate from "../assets/employee-archive/badge-official.jpeg";
 import { cn } from "./components/ui/utils";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { t as translate, useI18n } from "./lib/i18n";
 import {
   createEmployeeArchive,
@@ -1891,19 +1891,30 @@ function EmployeeArchiveEditor({
                             className={cn(commonClassName, "resize-y")}
                           />
                         ) : field.type === "select" ? (
-                          <select
-                            value={value}
-                            required={requiredInput}
+                          // Radix Select 禁止空字符串 value，所以「请选择」不作为选项存在，
+                          // 改用 placeholder：未选时 value 为 undefined，Root 渲染的隐藏原生
+                          // select 也为空，required 校验才能照常拦住提交。
+                          <Select
+                            value={value || undefined}
+                            onValueChange={(next) => onChange(field.key, next)}
                             disabled={saving}
-                            onChange={(event) => onChange(field.key, event.target.value)}
-                            className={commonClassName}
+                            name={String(field.key)}
+                            required={requiredInput}
                           >
-                            {field.options?.map((option) => (
-                              <option key={option || "empty"} value={option}>
-                                {option ? translate(option) : translate("请选择")}
-                              </option>
-                            ))}
-                          </select>
+                            <SelectTrigger
+                              className={cn(commonClassName, "h-auto data-[size=default]:h-auto")}
+                            >
+                              <SelectValue placeholder={translate("请选择")} />
+                            </SelectTrigger>
+                            {/* 编辑弹窗是 z-[80]，SelectContent 默认 z-50 会被整个遮住（下拉是开的但看不见） */}
+                            <SelectContent className="z-[100] rounded-xl border-slate-200">
+                              {field.options?.filter(Boolean).map((option) => (
+                                <SelectItem key={option} value={option}>
+                                  {translate(option)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         ) : (
                           <input
                             type={field.type ?? "text"}
@@ -1998,16 +2009,20 @@ function EmployeeArchiveEditor({
                           </label>
                           <label className="min-w-0 text-xs font-semibold text-slate-600">
                             {translate("状态")}
-                            <select
+                            <Select
                               value={document.status}
                               disabled={saving}
-                              onChange={(event) => updateDocument({ status: event.target.value as DocStatus })}
-                              className="mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100"
+                              onValueChange={(next) => updateDocument({ status: next as DocStatus })}
                             >
-                              <option value="done">{translate("已归档")}</option>
-                              <option value="review">{translate("待复核")}</option>
-                              <option value="missing">{translate("待补充")}</option>
-                            </select>
+                              <SelectTrigger className="mt-1.5 h-auto w-full rounded-xl border-slate-200 bg-white px-3 py-2 text-sm font-normal text-slate-900 focus:border-indigo-400 data-[size=default]:h-auto">
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent className="z-[100] rounded-xl border-slate-200">
+                                <SelectItem value="done">{translate("已归档")}</SelectItem>
+                                <SelectItem value="review">{translate("待复核")}</SelectItem>
+                                <SelectItem value="missing">{translate("待补充")}</SelectItem>
+                              </SelectContent>
+                            </Select>
                           </label>
                           <label className="min-w-0 text-xs font-semibold text-slate-600">
                             {translate("更新日期")}
@@ -3475,24 +3490,27 @@ export function EmployeeArchivePage() {
                       </div>
                     </details>
 
-                    <label className="relative block w-full shrink-0 sm:w-36">
-                      <span className="sr-only">{translate("隶属")}</span>
-                      <Building2 className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                      <select
-                        value={companyFilter}
-                        onChange={(event) => setCompanyFilter(event.target.value)}
-                        aria-label={translate("隶属")}
-                        className="h-10 w-full cursor-pointer appearance-none truncate rounded-full border border-slate-200 bg-white py-2 pl-9 pr-8 text-sm font-semibold text-slate-600 outline-none transition-colors hover:border-slate-300 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
-                      >
-                        <option value="全部">{translate("全部")}</option>
-                        {companies.map((company) => (
-                          <option key={company} value={company}>
-                            {translate(company)}
-                          </option>
-                        ))}
-                      </select>
-                      <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                    </label>
+                    {/* 隶属筛选：用 Radix Select，避免原生 <select> 下拉在各浏览器/系统下
+                        渲染成系统样式（蓝底高亮），与站内其余控件割裂 */}
+                    <div className="relative w-full shrink-0 sm:w-36">
+                      <Building2 className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                      <Select value={companyFilter} onValueChange={setCompanyFilter}>
+                        <SelectTrigger
+                          aria-label={translate("隶属")}
+                          className="h-10 w-full cursor-pointer rounded-full border-slate-200 bg-white pl-9 pr-3 text-sm font-semibold text-slate-600 transition-colors hover:border-slate-300 focus:border-indigo-300 data-[size=default]:h-10"
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="rounded-xl border-slate-200">
+                          <SelectItem value="全部">{translate("全部")}</SelectItem>
+                          {companies.map((company) => (
+                            <SelectItem key={company} value={company}>
+                              {translate(company)}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
                 </div>
 
