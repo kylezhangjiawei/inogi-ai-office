@@ -137,6 +137,13 @@ export function Inventory() {
   const inventorySummary = inventoryData?.summary ?? { totalSku: 0, normal: 0, low: 0, shortage: 0 };
   const categories = inventoryData?.categories ?? [];
   const recentMovements = inventoryData?.recentMovements ?? [];
+  // 空态文案分流：有筛选条件时提示「换条件」，否则提示「去录入」
+  const hasActiveFilter =
+    inventorySearch.trim() !== '' ||
+    categoryFilter !== 'all' ||
+    statusFilter !== 'all' ||
+    timeFilter !== 'all';
+  const alertItems = inventoryItems.filter((item) => item.status !== '正常');
 
   const loadInventory = useCallback(async () => {
     setLoading(true);
@@ -598,6 +605,31 @@ export function Inventory() {
                       </TableCell>
                     </TableRow>
                   )}
+                  {/* 空态/加载态：与同模块 PurchaseOrders 一致的 colSpan 行内写法，
+                      避免无数据时表体塌成一整片空白 */}
+                  {loading && inventoryItems.length === 0 &&
+                  <TableRow>
+                      <TableCell colSpan={10} className="h-[37vh] text-center text-sm text-slate-400">
+                        <span className="inline-flex items-center gap-2">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          {t('正在加载库存数据')}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  }
+                  {!loading && inventoryItems.length === 0 &&
+                  <TableRow>
+                      <TableCell colSpan={10} className="h-[37vh] text-center">
+                        <div className="flex flex-col items-center gap-2 text-slate-400">
+                          <Package className="w-8 h-8 text-slate-300" />
+                          <div className="text-sm">{hasActiveFilter ? t('没有符合条件的库存记录') : t('暂无库存数据')}</div>
+                          <div className="text-xs text-slate-400">
+                            {hasActiveFilter ? t('试试调整搜索或筛选条件') : t('通过右上角「入库登记」录入第一条库存')}
+                          </div>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  }
                 </TableBody>
             </Table>
 
@@ -652,7 +684,15 @@ export function Inventory() {
                 {t('库存预警')}
               </h3>
               <div className="space-y-2">
-                {(inventoryData?.inventory.items ?? []).filter((i) => i.status !== '正常').
+                {alertItems.length === 0 &&
+                <div className="flex flex-col items-center gap-1.5 py-6 text-center">
+                    <CheckCircle className="w-6 h-6 text-emerald-400" />
+                    <div className="text-xs text-slate-400">
+                      {loading ? t('正在加载…') : inventoryItems.length === 0 ? t('暂无库存数据') : t('库存水位正常，无预警')}
+                    </div>
+                  </div>
+                }
+                {alertItems.
                 slice(0, 4).
                 map((item) =>
                 <div
@@ -689,10 +729,16 @@ export function Inventory() {
             </div>
 
             {/* Timeline Card */}
-            <div className="bg-white rounded-3xl p-5 elevation-1 flex-1">
-              <h3 className="text-sm font-medium text-slate-800 mb-5 flex items-center gap-2">
+            {/* 空态时不撑满：否则卡片被 flex-1 拉高，下方留出一大片白 */}
+            <div className={`bg-white rounded-3xl p-5 elevation-1 ${recentMovements.length > 0 ? 'flex-1' : ''}`}>
+              <h3 className={`text-sm font-medium text-slate-800 flex items-center gap-2 ${recentMovements.length > 0 ? 'mb-5' : 'mb-1'}`}>
                 <Clock className="w-4.5 h-4.5 text-blue-500" /> {t('最近变动')}
               </h3>
+              {recentMovements.length === 0 ?
+              <div className="flex flex-col items-center gap-1.5 py-6 text-center">
+                  <History className="w-6 h-6 text-slate-300" />
+                  <div className="text-xs text-slate-400">{loading ? t('正在加载…') : t('近期没有出入库记录')}</div>
+                </div> :
               <div className="relative pl-3 border-l-2 border-slate-100 space-y-6 ml-2">
                 {recentMovements.map((move) =>
                 <div key={move.id} className="relative">
@@ -708,6 +754,7 @@ export function Inventory() {
                   </div>
                 )}
               </div>
+              }
             </div>
           </div>
         </div>
