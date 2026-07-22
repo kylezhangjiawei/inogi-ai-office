@@ -5,6 +5,7 @@ import {
   BulkImportEmployeeArchivesDto,
   ListEmployeeArchivesQueryDto,
   ListProbationRemindersQueryDto,
+  RegularizeEmployeeArchiveDto,
   SaveEmployeeBadgeConfigDto,
   SaveEmployeeArchiveDto,
 } from './dto/employee-archive.dto';
@@ -59,6 +60,15 @@ export class EmployeeArchiveController {
   @Get(':id')
   get(@Param('id') id: string) {
     return this.employeeArchiveService.get(id);
+  }
+
+  @Put(':id/regularize')
+  regularize(
+    @Param('id') id: string,
+    @Body() dto: RegularizeEmployeeArchiveDto,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.employeeArchiveService.regularize(id, dto, req.user.id);
   }
 
   @Put(':id')

@@ -1,6 +1,6 @@
 // 采购任务详情抽屉：步骤条(询价长/直购短) + 下一步操作卡 + 基本信息 + 报价 + 样品测试 + 下单付款 + 到货 + 日志。
 import { useEffect, useState } from "react";
-import { ChevronDown, ExternalLink, History, X } from "lucide-react";
+import { ChevronDown, ExternalLink, History, Paperclip, X } from "lucide-react";
 import { cn } from "../../components/ui/utils";
 import { BusinessLinePill, DIRECT_FLOW, INQUIRY_FLOW, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, fmtMoney } from "./common";
 import { useProcTaskAction } from "./taskActions";
@@ -114,12 +114,31 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
                   </span>
                 } />
                 {task.rdContact && <Info label="研发对接人" value={task.rdContact} />}
-                {task.source === "rd" && task.rdTaskTitle && <Info label="关联研发任务" value={<AutoTranslatedText className="text-indigo-600" text={task.rdTaskTitle} />} />}
+                {task.source === "rd" && task.rdTaskTitle && <Info label="关联研发任务" value={<span><AutoTranslatedText className="text-indigo-600" text={task.rdTaskTitle} />{task.rdTaskId && <span className="ml-1 text-[11px] text-slate-400">{task.rdTaskId}</span>}</span>} />}
                 {task.method === "direct" && task.purchaseLink && <Info label="商品链接" value={<a href={task.purchaseLink} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-indigo-600 hover:underline">{t('打开链接')} <ExternalLink className="h-3.5 w-3.5" /></a>} />}
               </div>
             </div>
             {task.consumableNote && <div className="mt-2 rounded-lg bg-amber-50 px-3 py-1.5 text-xs text-amber-700">{t('低值易耗品：')}<AutoTranslatedText text={task.consumableNote} /></div>}
           </div>
+
+          {/* 研发转采购时携带的图纸/说明：随采购任务展示，读取地址由后端按 OSS key 动态重签。 */}
+          {task.attachmentList.length > 0 && (
+            <div className="rounded-xl border border-slate-100 p-4">
+              <div className="mb-2 text-sm font-semibold text-slate-700">{t("需求附件（{count}）", { count: task.attachmentList.length })}</div>
+              <ul className="space-y-2">
+                {task.attachmentList.map((attachment) => (
+                  <li key={attachment.id}>
+                    <a href={attachment.fileUrl} target="_blank" rel="noreferrer" className="flex items-center gap-2 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600 hover:border-indigo-200 hover:bg-indigo-50/40 hover:text-indigo-700">
+                      <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                      <span className="min-w-0 flex-1 truncate">{attachment.fileName}</span>
+                      {attachment.fileSize > 0 && <span className="shrink-0 text-[10px] text-slate-400">{attachment.fileSize >= 1024 * 1024 ? `${(attachment.fileSize / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(attachment.fileSize / 1024)} KB`}</span>}
+                      <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {/* 报价区（询价）：仅在已有报价数据时展示 */}
           {task.method === "inquiry" && quotes.length > 0 && (

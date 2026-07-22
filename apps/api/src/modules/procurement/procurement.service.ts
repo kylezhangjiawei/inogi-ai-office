@@ -2,6 +2,8 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { OSS_BUSINESS_TYPES, SIGNED_URL_TTL_SECONDS } from '../oss/oss.constants';
+import { OssService } from '../oss/oss.service';
 import {
   CancelProcTaskDto,
   CreateProcTaskDto,
@@ -57,7 +59,10 @@ function parseDay(value: string | null | undefined): Date | null {
 
 @Injectable()
 export class ProcurementService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly ossService: OssService,
+  ) {}
 
   // ── 任务 ────────────────────────────────────────────────────────────────────
 
@@ -128,17 +133,39 @@ export class ProcurementService {
 
   /** 研发侧「转采购」：落到待处理，由采购确认后才进入询价/直购分支。 */
   async transferFromRd(dto: TransferFromRdDto, actor: ProcActor) {
+    const rdTaskId = dto.rdTaskId.trim();
+    const existing = await this.prisma.procTask.findUnique({
+      where: { rdTaskId },
+      include: { attachments: true, logs: true, purchaseOrderRefs: true },
+    });
+    if (existing) {
+      return { ...this.serializeTask(existing), alreadyTransferred: true };
+    }
     if (!dto.attachments?.length) {
       // 研发侧不强制校验业务字段，但必须带附件（图纸/说明），否则采购无从下手
       throw new BadRequestException('转采购需至少上传 1 个附件');
     }
-    return this.insertTask(dto, actor, {
-      source: 'rd',
-      status: 'pending_confirm',
-      rdTaskId: dto.rdTaskId,
-      rdTaskTitle: dto.rdTaskTitle,
-      rdContact: dto.rdContact,
-    });
+    try {
+      return await this.insertTask(dto, actor, {
+        source: 'rd',
+        status: 'pending_confirm',
+        rdTaskId,
+        rdTaskTitle: dto.rdTaskTitle,
+        rdContact: dto.rdContact,
+      });
+    } catch (error) {
+      // 数据库唯一约束兜住并发双击/网络重试；若另一请求已成功，返回同一采购任务。
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const transferred = await this.prisma.procTask.findUnique({
+          where: { rdTaskId },
+          include: { attachments: true, logs: true, purchaseOrderRefs: true },
+        });
+        if (transferred) {
+          return { ...this.serializeTask(transferred), alreadyTransferred: true };
+        }
+      }
+      throw error;
+    }
   }
 
   private async insertTask(
@@ -152,6 +179,15 @@ export class ProcurementService {
       rdContact?: string;
     },
   ) {
+    for (const attachment of dto.attachments ?? []) {
+      if (!attachment.fileKey) continue;
+      const allowed = [
+        OSS_BUSINESS_TYPES.RD_PROGRESS_NOTES,
+        OSS_BUSINESS_TYPES.ASSETS,
+        OSS_BUSINESS_TYPES.UPLOADS_TEMP,
+      ].some((businessType) => this.ossService.isKeyUnderBusinessType(attachment.fileKey!, businessType));
+      if (!allowed) throw new BadRequestException(`附件「${attachment.fileName}」的存储路径不合法`);
+    }
     const code = await this.nextTaskCode();
     const method = dto.method ?? 'inquiry';
     const task = await this.prisma.procTask.create({
@@ -909,7 +945,10 @@ export class ProcurementService {
       attachmentList: task.attachments.map((a) => ({
         id: a.id,
         fileName: a.fileName,
-        fileUrl: a.fileUrl,
+        // 采购任务保存 OSS object key，读取时重签，避免转采购时保存的短效链接过期。
+        fileUrl: a.fileKey
+          ? this.ossService.getSignedUrl(a.fileKey, SIGNED_URL_TTL_SECONDS.DOCUMENT) ?? a.fileUrl
+          : a.fileUrl,
         fileSize: a.fileSize,
         mimeType: a.mimeType ?? undefined,
         kind: a.kind,

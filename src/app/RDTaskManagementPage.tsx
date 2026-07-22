@@ -53,7 +53,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { createHttpIssueService } from "./lib/issue/issueHttpService";
-import { AttachmentBlockModal, PROC_LINK_MAP, ProcurementActivitySection, ProcurementLinkChip, TransferToProcurementModal } from "./procurement/components/rdInsertion";
+import { ProcurementActivitySection, ProcurementLinkChip, TransferToProcurementModal, useProcurementTaskLink } from "./procurement/components/rdInsertion";
 import { Input } from "./components/ui/input";
 import { NativeSelect } from "./components/ui/native-select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
@@ -4387,8 +4387,7 @@ function TaskDetailDrawer({
   const issueService = useMemo(() => createHttpIssueService(), []);
   const [generatingIssue, setGeneratingIssue] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
-  const [blockOpen, setBlockOpen] = useState(false);
-  const procLink = PROC_LINK_MAP[task.title];
+  const { task: procLink, setTask: setProcLink } = useProcurementTaskLink(task.task_id);
   const { user } = useAuth();
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
   const canReviewProjectL1 = usePermission(PERMISSIONS.RD_PROJECT_REVIEW_L1);
@@ -4506,7 +4505,14 @@ function TaskDetailDrawer({
   );
   // 转采购弹窗默认带入的任务附件（全部进度留痕附件拍平）
   const transferAttachments = useMemo(
-    () => progressNotes.flatMap((note) => note.attachments.map((a) => ({ id: a.id, name: a.name, size: a.size }))),
+    () => progressNotes.flatMap((note) => note.attachments.map((a) => ({
+      id: a.id,
+      name: a.name,
+      size: a.size,
+      mimeType: a.mime,
+      fileUrl: getAttachmentUrl(a),
+      fileKey: a.object_key,
+    }))).filter((attachment) => Boolean(attachment.fileUrl)),
     [progressNotes],
   );
   const canManageTaskFlow = canDirectProject || canReviewProjectL1 || canReviewProjectL2 || canManagePeople || canReassignTasks;
@@ -5230,7 +5236,7 @@ function TaskDetailDrawer({
 
           {procLink && (
             <div className="mb-3">
-              <ProcurementActivitySection title={task.title} />
+              <ProcurementActivitySection task={procLink} />
             </div>
           )}
 
@@ -5434,11 +5440,11 @@ function TaskDetailDrawer({
             )}
             {!task.archived && (
               procLink ? (
-                <ProcurementLinkChip title={task.title} onJump={(procTaskId) => navigate(`/proc-cockpit?task=${encodeURIComponent(procTaskId)}`)} />
+                <ProcurementLinkChip task={procLink} onJump={(procTaskId) => navigate(`/proc-cockpit?task=${encodeURIComponent(procTaskId)}`)} />
               ) : (
                 <button
                   type="button"
-                  onClick={() => ((task.attachments ?? 0) > 0 ? setTransferOpen(true) : setBlockOpen(true))}
+                  onClick={() => setTransferOpen(true)}
                   title={t("把本任务转为采购任务（需携带图纸附件）")}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100"
                 >
@@ -5538,8 +5544,18 @@ function TaskDetailDrawer({
         )}
       </AnimatePresence>
 
-      {transferOpen && <TransferToProcurementModal taskTitle={task.title} owner={task.primary_owner} attachments={transferAttachments} onClose={() => setTransferOpen(false)} />}
-      {blockOpen && <AttachmentBlockModal onClose={() => setBlockOpen(false)} />}
+      {transferOpen && (
+        <TransferToProcurementModal
+          taskId={task.task_id}
+          taskTitle={task.title}
+          owner={task.primary_owner}
+          priority={task.final_priority}
+          dueDate={task.due_date}
+          attachments={transferAttachments}
+          onTransferred={setProcLink}
+          onClose={() => setTransferOpen(false)}
+        />
+      )}
 
       <AlertDialog open={showCloseConfirm} onOpenChange={(open) => { if (!open) setShowCloseConfirm(false); }}>
         <AlertDialogContent>
