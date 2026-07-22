@@ -17,6 +17,7 @@ import { RagService, type RagUserContext, type RagChatCitation } from '../rag/ra
 import { ChatAttachmentService, type StoredChatAttachment } from './chat-attachment.service';
 import { ChatAnalyticsService } from './chat-analytics.service';
 import { ChatToolsService, type ChatToolResult } from './chat-tools.service';
+import { AiUsageService } from '../ai-usage/ai-usage.service';
 import { ChatFileExportService, FILE_EXPORT_MARKER } from './chat-file-export.service';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { SendMessageDto } from './dto/send-message.dto';
@@ -109,6 +110,7 @@ export class ChatService {
     private readonly fileExportService: ChatFileExportService,
     private readonly webSearchService: WebSearchService,
     private readonly chatToolsService: ChatToolsService,
+    private readonly aiUsageService: AiUsageService,
   ) {
     this.openaiApiKey = this.config.get<string>('OPENAI_API_KEY') ?? null;
     this.openaiBaseUrl =
@@ -408,6 +410,72 @@ export class ChatService {
     });
 
     return { content: completion.choices[0]?.message?.content ?? '', model, visionUsed };
+  }
+
+  /**
+   * 反推视频生成提示词：根据图片（或视频关键帧）用视觉模型生成一段可直接用于文生/图生视频的中文提示词。
+   * kind='video' 时输入是同一视频的多张关键帧（按时间顺序）。
+   */
+  async reverseVideoPrompt(opts: {
+    images: string[];
+    kind: 'image' | 'video';
+    userId?: string;
+  }): Promise<{ prompt: string; model: string }> {
+    const images = (opts.images ?? []).filter((u) => typeof u === 'string' && u.startsWith('data:'));
+    if (images.length === 0) {
+      throw new BadRequestException('请提供图片或视频关键帧（base64 data URL）');
+    }
+    const visionConfig = await this.resolveVisionModelConfig();
+    if (!visionConfig) {
+      throw new BadRequestException('未配置可用的视觉理解模型，无法反推提示词（请在 AI 模型管理中启用一个多模态模型）');
+    }
+
+    const isVideo = opts.kind === 'video';
+    const system =
+      '你是 AI 视频生成的提示词专家。用户会给你一张图片' +
+      (isVideo ? '或同一段视频的多张关键帧（按时间先后排列）' : '') +
+      '。请据此反推出一段【用于 AI 视频生成】的中文提示词，覆盖：画面主体、场景环境、主体动作' +
+      (isVideo ? '（重点描述随时间发生的动作与镜头变化）' : '（可合理设想自然的动态）') +
+      '、镜头运动、画面风格、光影氛围。要求：只输出提示词正文，不要任何解释、前后缀或分点标题，80~150 字，自然连贯，可直接粘贴到视频生成框使用。';
+    const userText = isVideo
+      ? '以下是同一段视频的关键帧（按时间顺序），请反推出整段视频的提示词。'
+      : '请根据这张图片反推出视频生成提示词。';
+
+    let result: { content: string; model: string; visionUsed: boolean };
+    try {
+      result = await this.complete({
+        modelId: visionConfig.id,
+        system,
+        messages: [{ role: 'user', content: userText }],
+        images,
+        temperature: 0.7,
+        maxTokens: 500,
+        maxRetries: 1,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.logger.warn(`反推提示词失败（模型 ${visionConfig.model}）：${message}`);
+      throw new BadRequestException(`反推失败：${message}`);
+    }
+    const prompt = (result.content ?? '').trim();
+    if (!prompt) {
+      throw new BadRequestException('反推失败：模型未返回内容，请重试或更换图片');
+    }
+    // 埋点：反推消耗视觉模型，计入统一用量（token 估算，图片输入按每张约 300 估）
+    if (opts.userId) {
+      const est = (n: number) => Math.ceil(n / 2.5);
+      this.aiUsageService.record({
+        userId: opts.userId,
+        modality: 'chat',
+        model: result.model,
+        provider: visionConfig.provider ?? '',
+        promptTokens: images.length * 300 + est(userText.length),
+        completionTokens: est(prompt.length),
+        estimated: true,
+        source: 'reverse_prompt',
+      });
+    }
+    return { prompt, model: result.model };
   }
 
   // ── Streaming ────────────────────────────────────────────────────────────────
@@ -772,6 +840,9 @@ export class ChatService {
       contextParts.push(
         '【图片生成与修改】你可以用 generate_image 直接生成图片、用 edit_image 修改之前生成的图片（都无需用户确认），结果会作为图片附件展示在你的回答下方。用户要求画图/配图时调用 generate_image（把简短要求扩写成具体画面描述）；用户说"把刚才那张图改成 XX"时调用 edit_image（image_id 在此前工具结果里）。生成需要几十秒到一两分钟，一次请求只调用一次。不要再回答"我无法生成图片"或让用户去图像工场。',
       );
+      contextParts.push(
+        '【视频生成】你可以用 generate_video 生成视频：i2v 图生视频（需 1 张首帧图）、r2v 参考生视频（需 1~9 张参考图）、t2v 文生视频（仅需描述）。来源图两种：①用户本轮直接上传了图片——直接调用 generate_video(mode=i2v)，image_ids 留空，系统会自动用用户上传的图（哪怕你看不清图片内容，只要用户上传了图并说"根据图/用这张图生成视频"，就这样调用，不要以"看不到图"为由拒绝）；②之前用 generate_image/edit_image 生成的图——把其 id 放进 image_ids。典型链路："先生成一张图 → 用这张图生成视频"先 generate_image 再把图片 id 传给 generate_video(mode=i2v)。视频要花钱且分钟级：调用后系统按成本闸门可能生成一张「待确认动作卡」显示预计花费——生成了卡就告知用户"已生成确认卡，请核对花费后确认"，绝不说"已生成视频"；若无需确认则任务直接提交，告知用户"已开始生成，几分钟后完成会站内通知你"。任何情况下都不要输出视频链接、不要声称视频已生成完成。同一需求只调用一次。',
+      );
     }
 
     // 结构化数据是精确事实，优先级高于向量召回的知识库资料 → 先注入；KB 资料降级为补充参考，冲突时以结构化为准
@@ -849,6 +920,9 @@ export class ChatService {
     // ── 组装本轮用户消息：文本 + 文档抽取内容 + 图片（视觉模型走 image_url，否则降级为文字提示）──
     const imageAttachments = attachments.filter((a) => this.attachmentService.isImage(a.mime));
     const docAttachments = attachments.filter((a) => !this.attachmentService.isImage(a.mime));
+    // 本轮上传图片的外部直连 URL：供 generate_video 工具作首帧/参考图（DashScope 需公网可拉取，
+    // 不能用同源预览代理 URL）。签 2h，覆盖确认卡确认窗口。
+    const uploadedVideoImageUrls = this.attachmentService.buildExternalImageUrls(imageAttachments);
 
     // 文档：并行抽取纯文本，拼接后整体再做一次总长度兜底
     let docContext = '';
@@ -1030,7 +1104,9 @@ export class ChatService {
             steps.map((s) =>
               // execute 内部已 catch 所有异常并返回 ok:false 结果，Promise.all 不会因单个失败而 reject
               this.chatToolsService
-                .execute(s.call.name, s.call.args, userContext, conversationId)
+                .execute(s.call.name, s.call.args, userContext, conversationId, {
+                  uploadedImageUrls: uploadedVideoImageUrls,
+                })
                 .then((result) => {
                   send({
                     type: 'tool_step',
@@ -1212,6 +1288,28 @@ export class ChatService {
       }
 
       send({ type: 'done', messageId: assistantMsg.id, title: isFirstUserMsg ? titleSeed.slice(0, 30) : undefined });
+
+      // 用量埋点（fire-and-forget）：流式未回传 usage，按内容长度粗估 token（estimated=true）
+      try {
+        const promptChars = [...baseMessages, ...loopMessages].reduce(
+          (sum, m) => sum + (typeof m.content === 'string' ? m.content.length : 0),
+          0,
+        );
+        const estTokens = (n: number) => Math.ceil(n / 2.5);
+        this.aiUsageService.record({
+          userId,
+          modality: 'chat',
+          model,
+          provider: activeConfig.provider ?? '',
+          promptTokens: estTokens(promptChars),
+          completionTokens: estTokens(fullContent.length),
+          estimated: true,
+          source: 'matechat',
+          refId: conversationId,
+        });
+      } catch {
+        /* 埋点不影响主流程 */
+      }
 
       // 工具轨迹落库（fire-and-forget）：下一轮对话注入上下文
       if (toolTraceBuffer.length > 0) {

@@ -24,6 +24,7 @@ import { SendMessageDto } from './dto/send-message.dto';
 import { UpdateConversationDto } from './dto/update-conversation.dto';
 import { UpdateFeedbackStatusDto } from './dto/update-feedback-status.dto';
 import { UpdateReactionDto } from './dto/update-reaction.dto';
+import { ReverseVideoPromptDto } from './dto/reverse-video-prompt.dto';
 import type { RagUserContext } from '../rag/rag.service';
 
 type AuthedRequest = { user: { id: string; permissions: string[] } };
@@ -212,6 +213,17 @@ export class ChatController {
   async cancelPendingAction(@Param('actionId') actionId: string, @Request() req: AuthedRequest) {
     const userContext = await this.buildUserContext(req);
     return this.chatToolsService.cancelPendingAction(actionId, userContext);
+  }
+
+  /** 图片/视频反推提示词：前端传图片或视频关键帧的 base64 data URL，返回可用于视频生成的提示词 */
+  @Post('reverse-video-prompt')
+  @Permissions('page:video-library')
+  reverseVideoPrompt(@Body() dto: ReverseVideoPromptDto, @Request() req: AuthedRequest) {
+    return this.chatService.reverseVideoPrompt({
+      images: dto.images ?? [],
+      kind: dto.kind === 'video' ? 'video' : 'image',
+      userId: req.user.id,
+    });
   }
 
   // ── Message actions ──────────────────────────────────────────────────────────

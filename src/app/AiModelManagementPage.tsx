@@ -28,10 +28,11 @@ type PresetModel = {
   provider: string;
   model: string;
   capability: string;
-  usageKind: "text" | "multimodal" | "image";
+  usageKind: "text" | "multimodal" | "image" | "video";
 };
 
 const BAILIAN_PRESET_MODELS: PresetModel[] = [
+  { brand: "千问", provider: "Qwen", model: "qwen3.8-max-preview", capability: "文本生成、推理模型、视觉理解", usageKind: "multimodal" },
   { brand: "千问", provider: "Qwen", model: "qwen3.7-plus", capability: "文本生成、推理模型、视觉理解", usageKind: "multimodal" },
   { brand: "千问", provider: "Qwen", model: "qwen3.7-max", capability: "推理模型、文本生成", usageKind: "text" },
   { brand: "千问", provider: "Qwen", model: "qwen3.6-plus", capability: "推理模型、视觉理解、文本生成", usageKind: "multimodal" },
@@ -40,6 +41,9 @@ const BAILIAN_PRESET_MODELS: PresetModel[] = [
   { brand: "千问", provider: "Qwen", model: "qwen-image-2.0-pro", capability: "图片生成", usageKind: "image" },
   { brand: "万相", provider: "Wanx", model: "wan2.7-image", capability: "图片生成", usageKind: "image" },
   { brand: "万相", provider: "Wanx", model: "wan2.7-image-pro", capability: "图片生成", usageKind: "image" },
+  { brand: "HappyHorse", provider: "HappyHorse", model: "happyhorse-1.1-i2v", capability: "视频生成", usageKind: "video" },
+  { brand: "HappyHorse", provider: "HappyHorse", model: "happyhorse-1.1-t2v", capability: "视频生成", usageKind: "video" },
+  { brand: "HappyHorse", provider: "HappyHorse", model: "happyhorse-1.1-r2v", capability: "视频生成", usageKind: "video" },
   { brand: "DeepSeek", provider: "DeepSeek", model: "deepseek-v4-pro", capability: "推理模型、文本生成", usageKind: "text" },
   { brand: "DeepSeek", provider: "DeepSeek", model: "deepseek-v4-flash", capability: "文本生成、推理模型", usageKind: "text" },
   { brand: "DeepSeek", provider: "DeepSeek", model: "deepseek-v3.2", capability: "推理模型、文本生成", usageKind: "text" },
@@ -57,7 +61,7 @@ const PRESET_BRANDS = Array.from(new Set(BAILIAN_PRESET_MODELS.map((item) => ite
 // ── 导入 / 导出 ───────────────────────────────────────────────────────────────
 // 导出文件不含 API Key（密文不可回读）；导入时可统一补一个 Key，或导入后逐条编辑。
 
-const EXPORT_USAGE_KINDS = new Set(["auto", "text", "multimodal", "image", "embedding", "document"]);
+const EXPORT_USAGE_KINDS = new Set(["auto", "text", "multimodal", "image", "embedding", "document", "video"]);
 
 type ExportedModel = {
   name: string;
@@ -163,6 +167,7 @@ const usageToneMap: Record<string, string> = {
   image: "bg-amber-50 text-amber-700",
   embedding: "bg-teal-50 text-teal-700",
   document: "bg-indigo-50 text-indigo-700",
+  video: "bg-pink-50 text-pink-700",
 };
 
 export function AiModelManagementPage() {
@@ -1021,6 +1026,7 @@ export function AiModelManagementPage() {
                   { value: "text", label: "文本 — 纯文字对话、摘要、提取" },
                   { value: "multimodal", label: "文本/图片 — 多模态理解（可接收图片输入）" },
                   { value: "image", label: "图片生成 — 文生图、参考图生图" },
+                  { value: "video", label: "视频生成 — 图生视频 / 文生视频" },
                   { value: "embedding", label: "向量 — 知识库 RAG 向量化检索" },
                   { value: "document", label: "文档解析 — 读取附件 / 文件内容" },
                 ]}

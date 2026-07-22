@@ -1636,6 +1636,8 @@ export type RdMessage = {
   body: string;
   read: boolean;
   handled?: boolean;
+  /** 结构化元数据（如视频完成通知的跳转信息 { kind, video_id, route }），供 UI 渲染跳转按钮 */
+  meta?: Record<string, unknown> | null;
   created_at: string;
 };
 

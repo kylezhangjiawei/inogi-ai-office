@@ -22,9 +22,10 @@ type MailboxMetadata = {
  * - image=图片生成 / 参考图生图 / 图片编辑
  * - embedding=向量化（RAG 检索），不可当对话模型
  * - document=文档解析（如 qwen-doc 系列），只用于文件读取，不可当对话模型
+ * - video=视频生成（图生视频 / 文生视频），不可当对话模型
  * - auto=根据模型名称自动推断（兜底）
  */
-type AiModelUsageKind = 'text' | 'multimodal' | 'image' | 'embedding' | 'document' | 'auto';
+type AiModelUsageKind = 'text' | 'multimodal' | 'image' | 'embedding' | 'document' | 'video' | 'auto';
 
 const VALID_USAGE_KINDS: readonly string[] = [
   'text',
@@ -32,6 +33,7 @@ const VALID_USAGE_KINDS: readonly string[] = [
   'image',
   'embedding',
   'document',
+  'video',
   'auto',
 ];
 

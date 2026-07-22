@@ -20,6 +20,9 @@ import { DepartmentsModule } from './modules/departments/departments.module';
 import { IntegrationManagementModule } from './modules/integration-management/integration-management.module';
 import { ChatModule } from './modules/chat/chat.module';
 import { ImageGenerationModule } from './modules/image-generation/image-generation.module';
+import { VideoGenerationModule } from './modules/video-generation/video-generation.module';
+import { AiUsageModule } from './modules/ai-usage/ai-usage.module';
+import { ContentSlotsModule } from './modules/content-slots/content-slots.module';
 import { OpsCenterModule } from './modules/ops-center/ops-center.module';
 import { PermissionCatalogModule } from './modules/permission-catalog/permission-catalog.module';
 import { ExpenseModule } from './modules/expense/expense.module';
@@ -67,6 +70,9 @@ const envFilePath = [
     IntegrationManagementModule,
     ChatModule,
     ImageGenerationModule,
+    VideoGenerationModule,
+    AiUsageModule,
+    ContentSlotsModule,
     OpsCenterModule,
     PermissionCatalogModule,
     OssModule,

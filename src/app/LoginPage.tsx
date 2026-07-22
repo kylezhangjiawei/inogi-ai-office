@@ -1,7 +1,10 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router";
 import { LockKeyhole, User } from "lucide-react";
 import { useAuth } from "./auth";
+import { authFetch } from "./lib/authSession";
+
+const DEFAULT_LOGIN_BG = "https://matechat.gitcode.com/png/home/bgHome.png";
 
 export function LoginPage() {
   const { user, hydrated, login } = useAuth();
@@ -12,10 +15,26 @@ export function LoginPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
+  const [bgUrl, setBgUrl] = useState(DEFAULT_LOGIN_BG);
+
   const redirectTo = useMemo(() => {
     const from = (location.state as { from?: string } | null)?.from;
     return from && from !== "/login" ? from : "/";
   }, [location.state]);
+
+  // 登录页背景由「运营素材管理」控制（公开端点，免鉴权）；失败回退默认背景
+  useEffect(() => {
+    let cancelled = false;
+    void authFetch("/api/content-slots/public/login-background")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { url?: string } | null) => {
+        if (!cancelled && d?.url) setBgUrl(d.url);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (!hydrated) return null;
   if (user) return <Navigate to={redirectTo} replace />;
@@ -36,7 +55,7 @@ export function LoginPage() {
   return (
     <div
       className="flex min-h-screen items-center justify-center bg-center bg-cover bg-no-repeat px-4"
-      style={{ backgroundImage: "url(https://matechat.gitcode.com/png/home/bgHome.png)" }}
+      style={{ backgroundImage: `url(${bgUrl})` }}
     >
       <div className="grid w-full max-w-5xl overflow-hidden rounded-3xl border border-white/70 bg-white/80 shadow-[0_30px_60px_rgba(15,23,42,0.12)] lg:grid-cols-[1.1fr_0.9fr]">
         <div className="hidden bg-[linear-gradient(145deg,#4338ca_0%,#6366f1_55%,#a5b4fc_100%)] p-10 text-white lg:flex lg:flex-col lg:justify-between">

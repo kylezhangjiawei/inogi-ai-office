@@ -136,6 +136,21 @@ export class ChatAttachmentService {
     }));
   }
 
+  /**
+   * 取图片附件的「外部可直连」OSS 签名 URL（供第三方服务如 DashScope 视频接口拉取首帧/参考图）。
+   * 注意：不能用 signForDisplay 的同源代理 URL（外部访问不到），必须是公网直连签名 URL。
+   * 仅返回图片类型且成功签名的项，顺序与入参一致。
+   */
+  buildExternalImageUrls(atts: StoredChatAttachment[], ttlSeconds = 7200): string[] {
+    const urls: string[] = [];
+    for (const a of atts) {
+      if (!this.isImage(a.mime) || !a.objectKey) continue;
+      const url = this.oss.getSignedUrl(a.objectKey, ttlSeconds);
+      if (url) urls.push(url);
+    }
+    return urls;
+  }
+
   /** 构造同源内联预览代理 URL（HMAC 令牌 24h 有效）；objectKey 为空或异常时返回 null。 */
   private buildPreviewUrl(objectKey: string): string | null {
     if (!objectKey) return null;

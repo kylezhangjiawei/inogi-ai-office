@@ -48,6 +48,29 @@ const MASCOT_ANIMALS = [
   '水獭', '刺猬', '羊驼', '浣熊', '小熊', '柯基犬', '仓鼠', '树懒',
 ];
 
+/** 运营素材位配置 KV 键（由「运营素材管理」页读写；本服务只读，缺省回退内置默认） */
+export const CONTENT_SLOT_MASCOT_KEY = 'content_slot.matechat_mascot';
+export const CONTENT_SLOT_DAILY_MESSAGE_KEY = 'content_slot.matechat_daily_message';
+/** 素材位历史留存 KV 键前缀：<prefix><slotKey 去掉 content_slot. 前缀> */
+export const CONTENT_SLOT_HISTORY_PREFIX = 'content_slot_history.';
+/** 历史条目结构（图片素材位） */
+export type SlotHistoryEntry = { date: string; objectKey: string; source: 'ai' | 'upload' };
+/** 历史留存上限 */
+export const SLOT_HISTORY_MAX = 30;
+/** 由配置 KV 键推导历史 KV 键：content_slot.xxx → content_slot_history.xxx */
+export function slotHistoryKey(configKey: string): string {
+  return CONTENT_SLOT_HISTORY_PREFIX + configKey.replace(/^content_slot\./, '');
+}
+/** 吉祥物默认 prompt 模板；{{animal}} 会替换为当日动物、{{date}} 为日期 */
+export const DEFAULT_MASCOT_PROMPT =
+  '一只可爱的卡通{{animal}}，作为卡片背景的完整场景插画，主体偏右下方、铺满整个画面，梦幻柔和的光影，明快而不刺眼的配色，画面上方与左上区域留出较简洁的空间便于叠加白色文字，半扁平插画风格，画面中不要出现任何文字';
+/** 每日激励文案默认 system prompt */
+export const DEFAULT_DAILY_MESSAGE_PROMPT = [
+  '你是一个活泼、会玩梗的 AI 助手打卡教练，任务是激励用户每天使用公司内部 AI 助手「MateChat」。',
+  '请只输出一句中文激励语，20 字以内，口语化、有趣、可带 1 个 emoji。',
+  '不要引号、不要解释、不要换行，直接给这一句话。每次尽量换新花样，别重复套路。',
+].join('\n');
+
 @Injectable()
 export class ChatStreakService {
   private readonly logger = new Logger(ChatStreakService.name);
@@ -108,6 +131,12 @@ export class ChatStreakService {
 
   /** 取当日吉祥物签名 URL；未生成则后台触发生成（fire-and-forget），本次返回 null。 */
   private async resolveDailyMascotUrl(todayKey: string): Promise<string | null> {
+    const config = await this.readSlotConfig(CONTENT_SLOT_MASCOT_KEY, DEFAULT_MASCOT_PROMPT);
+    if (config.mode === 'off') return null; // 停用：卡片回退为无背景图
+    if (config.mode === 'static') {
+      // 固定素材：展示管理页上传的图
+      return config.staticImageObjectKey ? this.ossService.getSignedUrl(config.staticImageObjectKey, 3600) : null;
+    }
     const setting = await this.prisma.systemSetting.findUnique({
       where: { key: MASCOT_SETTING_KEY },
       select: { value: true },
@@ -122,22 +151,67 @@ export class ChatStreakService {
     return null;
   }
 
-  /** 确保当日吉祥物已生成并入库（幂等 + 防并发） */
-  private async ensureDailyMascot(dateKey: string): Promise<void> {
+  /**
+   * 读取素材位配置（缺省回退内置默认）。本服务只读，写入由「运营素材管理」页负责。
+   * mode: ai_daily（AI 每日生成）| static（固定素材）| off（停用）。向后兼容旧 { enabled } 字段。
+   */
+  private async readSlotConfig(
+    key: string,
+    defaultPrompt: string,
+  ): Promise<{
+    mode: 'ai_daily' | 'static' | 'off';
+    promptTemplate: string;
+    staticImageObjectKey: string;
+    staticText: string;
+  }> {
+    try {
+      const row = await this.prisma.systemSetting.findUnique({ where: { key }, select: { value: true } });
+      const v = (row?.value ?? {}) as {
+        mode?: unknown;
+        enabled?: unknown;
+        promptTemplate?: unknown;
+        staticImageObjectKey?: unknown;
+        staticText?: unknown;
+      };
+      const mode: 'ai_daily' | 'static' | 'off' =
+        v.mode === 'static' || v.mode === 'off' || v.mode === 'ai_daily'
+          ? v.mode
+          : v.enabled === false
+            ? 'off'
+            : 'ai_daily';
+      return {
+        mode,
+        promptTemplate:
+          typeof v.promptTemplate === 'string' && v.promptTemplate.trim() ? v.promptTemplate : defaultPrompt,
+        staticImageObjectKey: typeof v.staticImageObjectKey === 'string' ? v.staticImageObjectKey : '',
+        staticText: typeof v.staticText === 'string' ? v.staticText : '',
+      };
+    } catch {
+      return { mode: 'ai_daily', promptTemplate: defaultPrompt, staticImageObjectKey: '', staticText: '' };
+    }
+  }
+
+  /** 确保当日吉祥物已生成并入库（幂等 + 防并发）。force=true 时无视「今日已就绪」与「已停用」，强制重生成。 */
+  private async ensureDailyMascot(dateKey: string, force = false): Promise<void> {
     if (this.mascotGenerating.has(dateKey)) return;
+    const config = await this.readSlotConfig(CONTENT_SLOT_MASCOT_KEY, DEFAULT_MASCOT_PROMPT);
+    // 仅「AI 每日」模式才自动生成；static/off 不生成（force 例外，供管理页强制预览）
+    if (!force && config.mode !== 'ai_daily') return;
     const existing = await this.prisma.systemSetting.findUnique({
       where: { key: MASCOT_SETTING_KEY },
       select: { value: true },
     });
     const value = (existing?.value ?? null) as { date?: string; objectKey?: string } | null;
-    if (value && value.date === dateKey && value.objectKey) return; // 今日已就绪
+    if (!force && value && value.date === dateKey && value.objectKey) return; // 今日已就绪
 
     this.mascotGenerating.add(dateKey);
     try {
       const userId = await this.resolveSystemUserId();
       if (!userId) return;
       const animal = MASCOT_ANIMALS[this.seedFromKey(dateKey) % MASCOT_ANIMALS.length];
-      const prompt = `一只可爱的卡通${animal}，作为卡片背景的完整场景插画，主体偏右下方、铺满整个画面，梦幻柔和的光影，明快而不刺眼的配色，画面上方与左上区域留出较简洁的空间便于叠加白色文字，半扁平插画风格，画面中不要出现任何文字`;
+      const prompt = config.promptTemplate
+        .replace(/\{\{\s*animal\s*\}\}/g, animal)
+        .replace(/\{\{\s*date\s*\}\}/g, dateKey);
       const imageId = await this.generateMascotWithFallback(userId, prompt);
       if (!imageId) throw new Error('所有启用的图像模型均生成失败');
 
@@ -150,6 +224,7 @@ export class ChatStreakService {
         create: { key: MASCOT_SETTING_KEY, category: 'matechat', value: { date: dateKey, objectKey, imageId } },
         update: { value: { date: dateKey, objectKey, imageId } },
       });
+      await this.appendSlotHistory(CONTENT_SLOT_MASCOT_KEY, { date: dateKey, objectKey, source: 'ai' });
       this.logger.log(`已生成当日吉祥物（${animal}）：${dateKey}`);
     } catch (error) {
       this.logger.warn(`当日吉祥物生成失败：${error instanceof Error ? error.message : error}`);
@@ -291,12 +366,20 @@ export class ChatStreakService {
     const cached = this.dailyMessageCache.get(userId);
     if (cached && cached.date === todayKey) return cached.message;
 
+    const config = await this.readSlotConfig(CONTENT_SLOT_DAILY_MESSAGE_KEY, DEFAULT_DAILY_MESSAGE_PROMPT);
     let message: string;
-    try {
-      message = await this.generateDailyMessage(ctx);
-    } catch (error) {
-      this.logger.warn(`每日文案生成失败，使用兜底：${error instanceof Error ? error.message : error}`);
+    if (config.mode === 'static') {
+      // 固定文案：用管理页填写的文案，未填则回退兜底池
+      message = config.staticText.trim() || this.fallbackMessage(ctx.currentStreak, todayKey);
+    } else if (config.mode === 'off') {
       message = this.fallbackMessage(ctx.currentStreak, todayKey);
+    } else {
+      try {
+        message = await this.generateDailyMessage(ctx);
+      } catch (error) {
+        this.logger.warn(`每日文案生成失败，使用兜底：${error instanceof Error ? error.message : error}`);
+        message = this.fallbackMessage(ctx.currentStreak, todayKey);
+      }
     }
     this.dailyMessageCache.set(userId, { date: todayKey, message });
     return message;
@@ -307,11 +390,8 @@ export class ChatStreakService {
     todayDone: boolean;
     bestStreak: number;
   }): Promise<string> {
-    const system = [
-      '你是一个活泼、会玩梗的 AI 助手打卡教练，任务是激励用户每天使用公司内部 AI 助手「MateChat」。',
-      '请只输出一句中文激励语，20 字以内，口语化、有趣、可带 1 个 emoji。',
-      '不要引号、不要解释、不要换行，直接给这一句话。每次尽量换新花样，别重复套路。',
-    ].join('\n');
+    const config = await this.readSlotConfig(CONTENT_SLOT_DAILY_MESSAGE_KEY, DEFAULT_DAILY_MESSAGE_PROMPT);
+    const system = config.promptTemplate;
     const state = ctx.todayDone
       ? `用户今天已经用过 MateChat，当前连续 ${ctx.currentStreak} 天，历史最长 ${ctx.bestStreak} 天。夸奖并鼓励保持。`
       : ctx.currentStreak > 0
@@ -337,5 +417,66 @@ export class ChatStreakService {
     const seed = [...todayKey].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
     const line = FALLBACK_LINES[seed % FALLBACK_LINES.length];
     return line.replace('{n}', String(currentStreak));
+  }
+
+  // ── 供「运营素材管理」页调用 ──────────────────────────────────────────────
+
+  /** 当前吉祥物图（管理页预览）：返回签名 URL 与日期 */
+  async getCurrentMascot(): Promise<{ url: string | null; date: string | null }> {
+    const setting = await this.prisma.systemSetting.findUnique({
+      where: { key: MASCOT_SETTING_KEY },
+      select: { value: true },
+    });
+    const value = (setting?.value ?? null) as { date?: string; objectKey?: string } | null;
+    const url = value?.objectKey ? this.ossService.getSignedUrl(value.objectKey, 3600) : null;
+    return { url, date: value?.date ?? null };
+  }
+
+  /** 强制重新生成当日吉祥物（管理页「立即重新生成」）；用当前配置的 prompt。 */
+  async forceRegenerateMascot(): Promise<{ url: string | null; date: string | null }> {
+    const today = this.dayKey(new Date());
+    await this.ensureDailyMascot(today, true);
+    return this.getCurrentMascot();
+  }
+
+  /**
+   * 通用：按 prompt 生成一张图并返回 OSS objectKey（复用吉祥物的多渠道兜底 + 等待落库）。
+   * 供「运营素材管理」的其它图片素材位（如登录背景）复用，避免重复实现生成逻辑。
+   */
+  async generateImageForSlot(prompt: string): Promise<string | null> {
+    const userId = await this.resolveSystemUserId();
+    if (!userId) return null;
+    const imageId = await this.generateMascotWithFallback(userId, prompt);
+    if (!imageId) return null;
+    return this.waitForObjectKey(imageId);
+  }
+
+  /** 向素材位历史追加一条（去重同日、按上限裁剪）。图片素材位共用。 */
+  private async appendSlotHistory(configKey: string, entry: SlotHistoryEntry): Promise<void> {
+    try {
+      const key = slotHistoryKey(configKey);
+      const row = await this.prisma.systemSetting.findUnique({ where: { key }, select: { value: true } });
+      const raw = ((row?.value as { items?: unknown })?.items ?? []) as SlotHistoryEntry[];
+      const items = [entry, ...raw.filter((e) => e && e.objectKey && e.date !== entry.date)].slice(
+        0,
+        SLOT_HISTORY_MAX,
+      );
+      await this.prisma.systemSetting.upsert({
+        where: { key },
+        create: { key, category: 'content_slot', value: { items } },
+        update: { value: { items } },
+      });
+    } catch (err) {
+      this.logger.warn(`素材位历史写入失败: ${err instanceof Error ? err.message : err}`);
+    }
+  }
+
+  /** 生成一条示例每日文案（管理页预览用，不写缓存） */
+  async generateSampleMessage(): Promise<string> {
+    try {
+      return await this.generateDailyMessage({ currentStreak: 5, todayDone: true, bestStreak: 12 });
+    } catch {
+      return this.fallbackMessage(5, this.dayKey(new Date()));
+    }
   }
 }
