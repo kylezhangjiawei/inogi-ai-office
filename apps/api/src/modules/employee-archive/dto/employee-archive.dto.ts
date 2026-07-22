@@ -8,6 +8,7 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -62,6 +63,7 @@ export class SaveEmployeeArchiveDto {
 
   @IsOptional() @IsString() @MaxLength(120) company?: string;
   @IsOptional() @IsString() @MaxLength(10) hireDate?: string;
+  @IsOptional() @IsString() @MaxLength(10) regularizationDate?: string;
   @IsOptional() @IsString() @MaxLength(10) settlementDate?: string;
   @IsOptional() @IsString() @MaxLength(80) tenure?: string;
   @IsOptional() @IsString() @MaxLength(80) status?: string;
@@ -210,6 +212,12 @@ export class ListProbationRemindersQueryDto {
   @Min(1)
   @Max(180)
   days?: number;
+}
+
+export class RegularizeEmployeeArchiveDto {
+  @IsString()
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  regularizationDate!: string;
 }
 
 export class SaveEmployeeBadgeConfigDto {

@@ -16,6 +16,7 @@ export interface EmployeeArchiveRecord {
   rosterNo: string;
   company: string;
   hireDate: string;
+  regularizationDate: string;
   settlementDate: string;
   tenure: string;
   status: string;
@@ -111,7 +112,7 @@ export interface EmployeeArchiveSensitiveUpdate {
 }
 
 const EMPLOYEE_ARCHIVE_KEYS: ReadonlyArray<keyof EmployeeArchiveRecord> = [
-  'id', 'rosterNo', 'company', 'hireDate', 'settlementDate', 'tenure', 'status', 'workLocation',
+  'id', 'rosterNo', 'company', 'hireDate', 'regularizationDate', 'settlementDate', 'tenure', 'status', 'workLocation',
   'department', 'title', 'employeeCode', 'name', 'idNoMasked', 'birthDate', 'birthMonthDay', 'zodiac',
   'constellation', 'gender', 'age',
   'ethnicity', 'maritalStatus', 'phoneMasked', 'bankAccountMasked', 'bankBranch', 'education', 'school',
@@ -122,7 +123,7 @@ const EMPLOYEE_ARCHIVE_KEYS: ReadonlyArray<keyof EmployeeArchiveRecord> = [
 ];
 
 const EMPLOYEE_ARCHIVE_STRING_KEYS: ReadonlyArray<keyof EmployeeArchiveRecord> = [
-  'id', 'rosterNo', 'company', 'hireDate', 'settlementDate', 'tenure', 'status', 'workLocation',
+  'id', 'rosterNo', 'company', 'hireDate', 'regularizationDate', 'settlementDate', 'tenure', 'status', 'workLocation',
   'department', 'title', 'employeeCode', 'name', 'idNoMasked', 'birthDate', 'birthMonthDay', 'zodiac',
   'constellation', 'gender', 'ethnicity',
   'maritalStatus', 'phoneMasked', 'bankAccountMasked', 'bankBranch', 'education', 'school', 'major',
@@ -281,6 +282,16 @@ export async function deleteEmployeeArchive(id: string) {
     method: 'DELETE',
   });
   return parseResponse<{ success: true; id: string }>(response, '删除员工归档失败');
+}
+
+export async function regularizeEmployeeArchive(id: string, regularizationDate: string) {
+  const response = await authFetch(`/api/employee-archives/${encodeURIComponent(id)}/regularize`, {
+    method: 'PUT',
+    body: JSON.stringify({ regularizationDate }),
+  });
+  return normalizeEmployeeArchiveRecord(
+    await parseResponse<EmployeeArchiveRecord>(response, '员工转正失败'),
+  );
 }
 
 export async function getEmployeeBadgeConfig(id: string, signal?: AbortSignal) {

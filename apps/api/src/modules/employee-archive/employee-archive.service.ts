@@ -13,6 +13,7 @@ import {
   BulkImportEmployeeArchivesDto,
   EmployeeArchiveDocumentDto,
   ListEmployeeArchivesQueryDto,
+  RegularizeEmployeeArchiveDto,
   SaveEmployeeBadgeConfigDto,
   SaveEmployeeArchiveDto,
 } from './dto/employee-archive.dto';
@@ -158,6 +159,48 @@ export class EmployeeArchiveService {
     }
   }
 
+  async regularize(id: string, dto: RegularizeEmployeeArchiveDto, actorId: string) {
+    const existing = await this.prisma.employeeArchive.findUnique({
+      where: { id },
+      include: employeeInclude,
+    });
+    if (!existing) throw new NotFoundException('员工归档不存在');
+    if (existing.regularizationDate || /已转正|正式员工/.test(existing.employmentStatus.trim())) {
+      throw new BadRequestException('该员工已转正，无需重复操作');
+    }
+    if (/离职|退休|终止|解除/.test(existing.employmentStatus.trim())) {
+      throw new BadRequestException('离职或已终止劳动关系的员工不能执行转正');
+    }
+    if (/待入职|入职中/.test(existing.employmentStatus.trim())) {
+      throw new BadRequestException('该员工尚未正式入职，不能执行转正');
+    }
+    if (!existing.hireDate) {
+      throw new BadRequestException('请先维护入职日期后再执行转正');
+    }
+
+    const regularizationDate = this.toDate(dto.regularizationDate);
+    if (!regularizationDate) throw new BadRequestException('转正日期格式不正确');
+    if (regularizationDate < existing.hireDate) {
+      throw new BadRequestException('转正日期不能早于入职日期');
+    }
+    const today = new Date();
+    const todayUtc = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()));
+    if (regularizationDate > todayUtc) {
+      throw new BadRequestException('转正日期不能晚于今天');
+    }
+
+    const employee = await this.prisma.employeeArchive.update({
+      where: { id },
+      data: {
+        employmentStatus: '已转正',
+        regularizationDate,
+        updatedById: actorId,
+      },
+      include: employeeInclude,
+    });
+    return this.serialize(employee);
+  }
+
   async bulkImport(dto: BulkImportEmployeeArchivesDto, actorId: string) {
     if (dto.items.length === 0) throw new BadRequestException('导入数据不能为空');
     const rosterNos = dto.items.map((item) => item.rosterNo.trim());
@@ -285,13 +328,19 @@ export class EmployeeArchiveService {
     const birthMonthDay = birthDate ? birthDate.slice(5) : this.clean(dto.birthMonthDay);
     const derivedAge = birthDate ? this.ageFromDate(birthDate) : (dto.age ?? 0);
     const hireDate = this.toDate(dto.hireDate);
+    const employmentStatus = this.clean(dto.status);
     const data = {
       rosterNo: dto.rosterNo.trim(),
       company: this.clean(dto.company),
       hireDate,
+      regularizationDate: this.shouldTrackProbation(employmentStatus)
+        ? null
+        : dto.regularizationDate === undefined
+          ? undefined
+          : this.toDate(dto.regularizationDate),
       settlementDate: this.toDate(dto.settlementDate),
       tenure: this.tenureFromDate(hireDate) || this.clean(dto.tenure),
-      employmentStatus: this.clean(dto.status),
+      employmentStatus,
       workLocation: this.clean(dto.workLocation),
       department: this.clean(dto.department),
       title: this.clean(dto.title),
@@ -431,6 +480,7 @@ export class EmployeeArchiveService {
       rosterNo: employee.rosterNo,
       company: employee.company,
       hireDate: this.formatDate(employee.hireDate),
+      regularizationDate: this.formatDate(employee.regularizationDate),
       settlementDate: this.formatDate(employee.settlementDate),
       tenure,
       status: employee.employmentStatus,

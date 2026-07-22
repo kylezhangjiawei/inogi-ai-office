@@ -5,6 +5,7 @@ import {
   IsBoolean,
   IsIn,
   IsInt,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
@@ -131,6 +132,7 @@ export class CreateProcTaskDto {
 /** 研发侧「转采购」：附带研发任务上下文，附件必填（无强制字段校验，有附件即可）。 */
 export class TransferFromRdDto extends CreateProcTaskDto {
   @IsString()
+  @IsNotEmpty()
   @MaxLength(64)
   rdTaskId!: string;
 

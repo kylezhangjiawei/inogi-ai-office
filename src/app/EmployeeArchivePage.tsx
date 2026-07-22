@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   AlertTriangle,
+  BadgeCheck,
   Banknote,
   Building2,
   Calendar,
@@ -48,6 +49,7 @@ import {
   listEmployeeArchives,
   listEmployeeProbationReminders,
   normalizeEmployeeArchiveRecord,
+  regularizeEmployeeArchive,
   saveEmployeeBadgeConfig,
   saveEmployeeArchive,
   uploadEmployeeBadgeAvatar,
@@ -175,6 +177,7 @@ const archiveEmployees: EmployeeArchive[] = [
     rosterNo: "001",
     company: "壹诺吉",
     hireDate: "2024-03-04",
+    regularizationDate: "",
     settlementDate: "2024-03-31",
     tenure: "2年4个月",
     status: "在职",
@@ -224,6 +227,7 @@ const archiveEmployees: EmployeeArchive[] = [
     rosterNo: "002",
     company: "益雍君",
     hireDate: "2025-09-15",
+    regularizationDate: "",
     settlementDate: "2025-09-30",
     tenure: "9个月",
     status: "在职",
@@ -273,6 +277,7 @@ const archiveEmployees: EmployeeArchive[] = [
     rosterNo: "003",
     company: "壹诺吉",
     hireDate: "2026-05-06",
+    regularizationDate: "",
     settlementDate: "2026-05-31",
     tenure: "1个月",
     status: "试用期",
@@ -322,6 +327,7 @@ const archiveEmployees: EmployeeArchive[] = [
     rosterNo: "004",
     company: "益雍君",
     hireDate: "2026-06-24",
+    regularizationDate: "",
     settlementDate: "2026-06-30",
     tenure: "待转正",
     status: "待入职归档",
@@ -374,6 +380,7 @@ function createEmptyEmployeeArchive(id = "empty-employee"): EmployeeArchive {
     rosterNo: "",
     company: "",
     hireDate: "",
+    regularizationDate: "",
     settlementDate: "",
     tenure: "",
     status: "待入职",
@@ -687,6 +694,27 @@ function shouldTrackProbation(status: string): boolean {
   return !/(已转正|正式员工|离职|退休|终止|解除)/.test(status.trim());
 }
 
+function isEmployeeRegularized(employee: Pick<EmployeeArchive, "regularizationDate" | "status">): boolean {
+  return Boolean(employee.regularizationDate) || /已转正|正式员工/.test(employee.status.trim());
+}
+
+function getExpectedRegularizationDate(employee: Pick<EmployeeArchive, "hireDate">): string {
+  const hireDate = parseLocalDate(employee.hireDate);
+  return hireDate ? formatLocalDate(addCalendarMonths(hireDate, 3)) : "";
+}
+
+function canRegularizeEmployee(
+  employee: Pick<EmployeeArchive, "hireDate" | "regularizationDate" | "status">,
+  referenceDate = new Date(),
+): boolean {
+  if (isEmployeeRegularized(employee)) return false;
+  if (/待入职|入职中|离职|退休|终止|解除/.test(employee.status.trim())) return false;
+  const hireDate = parseLocalDate(employee.hireDate);
+  if (!hireDate) return false;
+  const today = new Date(referenceDate.getFullYear(), referenceDate.getMonth(), referenceDate.getDate());
+  return hireDate <= today;
+}
+
 function deriveArchiveFromRow(get: (col: string) => string, index: number): EmployeeArchive {
   const source = (c: string) => get(c).trim();
   const hireDate = normalizeRosterDate(source("入职日期"));
@@ -744,6 +772,7 @@ function deriveArchiveFromRow(get: (col: string) => string, index: number): Empl
     rosterNo: raw("序号"),
     company: raw("隶属"),
     hireDate: raw("入职日期"),
+    regularizationDate: "",
     settlementDate: "",
     tenure: raw("司龄"),
     status: statusText,
@@ -1547,6 +1576,7 @@ function downloadBadgeBlob(blob: Blob, employee: EmployeeArchive, template: Badg
 const TABLE_HEADER_CLASS = "px-5 py-3 text-xs font-semibold uppercase tracking-[0.14em] text-slate-500 whitespace-nowrap";
 const TABLE_CELL_CLASS = "px-5 py-3 align-middle text-sm text-slate-700";
 const EMPLOYEE_PAGE_SIZE = 10;
+const EMPLOYEE_ACTION_COLUMN_WIDTH = 250;
 type EmployeeListColumnKey = "employee" | "employeeCode" | "constellation" | "organization" | "position" | "employment" | "archive" | "missing";
 const EMPLOYEE_LIST_COLUMN_STORAGE_KEY = "employee-archive-list-columns-v1";
 const EMPLOYEE_LIST_COLUMNS: Array<{ key: EmployeeListColumnKey; label: string; width: number }> = [
@@ -2137,6 +2167,135 @@ function EmployeeDeleteDialog({
   );
 }
 
+function EmployeeRegularizationDialog({
+  employee,
+  saving,
+  onCancel,
+  onConfirm,
+}: {
+  employee: EmployeeArchive;
+  saving: boolean;
+  onCancel: () => void;
+  onConfirm: (regularizationDate: string) => void;
+}) {
+  const today = formatLocalDate(new Date());
+  const expectedDate = getExpectedRegularizationDate(employee);
+  const [regularizationDate, setRegularizationDate] = useState(today);
+  const selectedDate = parseLocalDate(regularizationDate);
+  const hireDate = parseLocalDate(employee.hireDate);
+  const expected = parseLocalDate(expectedDate);
+  const earlyDays = selectedDate && expected && selectedDate < expected
+    ? differenceInCalendarDays(expected, selectedDate)
+    : 0;
+  const isValidDate = Boolean(
+    selectedDate
+      && hireDate
+      && selectedDate >= hireDate
+      && regularizationDate <= today,
+  );
+
+  return (
+    <BodyPortal>
+      <div
+        className="fixed inset-0 z-[90] flex min-h-[100dvh] items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="employee-regularization-title"
+      >
+        <section className="w-full max-w-lg overflow-hidden rounded-3xl border border-white/80 bg-white shadow-2xl">
+          <div className="border-b border-slate-100 bg-[linear-gradient(135deg,#ecfdf5_0%,#ffffff_70%)] p-5">
+            <div className="flex items-start gap-3">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200">
+                <BadgeCheck className="h-5 w-5" />
+              </span>
+              <div className="min-w-0">
+                <h2 id="employee-regularization-title" className="text-lg font-semibold text-slate-950">
+                  {translate("确认员工转正")}
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-slate-500">
+                  {translate("确认后将更新员工状态，并保存实际转正日期。")}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4 p-5">
+            <div className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-slate-50/80 p-3.5">
+              <span className="material-table-avatar flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-bold">
+                {getInitial(employee.name)}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-slate-950">{employee.name}</p>
+                <p className="mt-0.5 truncate text-xs text-slate-500">
+                  {employee.employeeCode || translate("工号待补充")} · {employee.department || translate("部门待补充")} · {employee.title || translate("岗位待补充")}
+                </p>
+              </div>
+              <span className="material-chip shrink-0 bg-blue-50 text-blue-700">{translate(employee.status || "在职")}</span>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-semibold text-slate-600">{translate("实际转正日期")}</span>
+                <input
+                  type="date"
+                  value={regularizationDate}
+                  min={employee.hireDate || undefined}
+                  max={today}
+                  onChange={(event) => setRegularizationDate(event.target.value)}
+                  className="material-input h-11"
+                  autoFocus
+                />
+              </label>
+              <div className="rounded-2xl border border-slate-200 bg-white px-3.5 py-2.5">
+                <p className="text-xs font-semibold text-slate-500">{translate("预计转正日期")}</p>
+                <p className="mt-1 text-sm font-semibold text-slate-950">{expectedDate || translate("待补充")}</p>
+              </div>
+            </div>
+
+            {earlyDays > 0 ? (
+              <div className="flex gap-2.5 rounded-2xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-amber-800">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <p className="text-xs leading-5">
+                  {translate("本次为提前转正，比预计日期提前 {days} 天。请确认日期与审批结果一致。", { days: earlyDays })}
+                </p>
+              </div>
+            ) : (
+              <div className="flex gap-2.5 rounded-2xl border border-emerald-100 bg-emerald-50/70 px-3.5 py-3 text-emerald-800">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                <p className="text-xs leading-5">{translate("系统将记录本次操作人员和转正日期。")}</p>
+              </div>
+            )}
+
+            {!isValidDate ? (
+              <p className="text-xs font-medium text-red-600">{translate("转正日期须介于入职日期和今天之间。")}</p>
+            ) : null}
+          </div>
+
+          <div className="flex justify-end gap-2 border-t border-slate-100 bg-slate-50/70 px-5 py-4">
+            <button
+              type="button"
+              disabled={saving}
+              onClick={onCancel}
+              className="material-button-secondary px-4 py-2.5 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {translate("取消")}
+            </button>
+            <button
+              type="button"
+              disabled={saving || !isValidDate}
+              onClick={() => onConfirm(regularizationDate)}
+              className="inline-flex min-w-32 items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <BadgeCheck className="h-4 w-4" />}
+              {translate(saving ? "转正处理中" : "确认转正")}
+            </button>
+          </div>
+        </section>
+      </div>
+    </BodyPortal>
+  );
+}
+
 function BadgePreview({
   employee,
   template,
@@ -2676,6 +2835,8 @@ export function EmployeeArchivePage() {
   const [isEmployeeSaving, setIsEmployeeSaving] = useState(false);
   const [employeePendingDelete, setEmployeePendingDelete] = useState<EmployeeArchive | null>(null);
   const [isEmployeeDeleting, setIsEmployeeDeleting] = useState(false);
+  const [employeePendingRegularization, setEmployeePendingRegularization] = useState<EmployeeArchive | null>(null);
+  const [isEmployeeRegularizing, setIsEmployeeRegularizing] = useState(false);
   const [serverStats, setServerStats] = useState<EmployeeArchiveStats | null>(null);
   const [serverProbationReminders, setServerProbationReminders] = useState<Record<string, EmployeeProbationReminder>>({});
   const [isBadgeConfigSaving, setIsBadgeConfigSaving] = useState(false);
@@ -2936,6 +3097,29 @@ export function EmployeeArchivePage() {
       toast.error(error instanceof Error ? translate("删除失败：{message}", { message: error.message }) : translate("删除失败，请稍后重试"));
     } finally {
       setIsEmployeeDeleting(false);
+    }
+  };
+
+  const confirmEmployeeRegularization = async (regularizationDate: string) => {
+    if (!employeePendingRegularization) return;
+    setIsEmployeeRegularizing(true);
+    try {
+      const updated = await regularizeEmployeeArchive(employeePendingRegularization.id, regularizationDate);
+      const nextEmployees = employees.map((employee) => employee.id === updated.id ? updated : employee);
+      setEmployees(nextEmployees);
+      saveStoredEmployees(nextEmployees);
+      setSelectedId(updated.id);
+      setEmployeePendingRegularization(null);
+      void refreshArchiveMeta();
+      toast.success(translate("{name} 已于 {date} 转正", { name: updated.name, date: updated.regularizationDate }));
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? translate("转正失败：{message}", { message: error.message })
+          : translate("转正失败，请稍后重试"),
+      );
+    } finally {
+      setIsEmployeeRegularizing(false);
     }
   };
 
@@ -3398,6 +3582,14 @@ export function EmployeeArchivePage() {
           onConfirm={confirmEmployeeDelete}
         />
       ) : null}
+      {employeePendingRegularization ? (
+        <EmployeeRegularizationDialog
+          employee={employeePendingRegularization}
+          saving={isEmployeeRegularizing}
+          onCancel={() => setEmployeePendingRegularization(null)}
+          onConfirm={confirmEmployeeRegularization}
+        />
+      ) : null}
       {view === "list" ? (
         <div className="flex min-h-0 flex-1 flex-col gap-3">
             <section className="grid shrink-0 gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -3539,7 +3731,7 @@ export function EmployeeArchivePage() {
                   style={{
                     minWidth: `${EMPLOYEE_LIST_COLUMNS.reduce(
                       (total, column) => total + (listColumnVisibility[column.key] ? column.width : 0),
-                      170,
+                      EMPLOYEE_ACTION_COLUMN_WIDTH,
                     )}px`,
                   }}
                 >
@@ -3547,7 +3739,7 @@ export function EmployeeArchivePage() {
                     {EMPLOYEE_LIST_COLUMNS.filter((column) => listColumnVisibility[column.key]).map((column) => (
                       <col key={column.key} style={{ width: `${column.width}px` }} />
                     ))}
-                    <col style={{ width: "170px" }} />
+                    <col style={{ width: `${EMPLOYEE_ACTION_COLUMN_WIDTH}px` }} />
                   </colgroup>
                   <thead className="sticky top-0 z-10 bg-slate-50/95 backdrop-blur">
                     <tr>
@@ -3581,6 +3773,8 @@ export function EmployeeArchivePage() {
                         const probationReminder = probationReminderFor(employee);
                         const showProbationReminder = probationReminder?.phase === "active";
                         const employeeConstellation = getEmployeeConstellation(employee);
+                        const employeeIsRegularized = isEmployeeRegularized(employee);
+                        const employeeCanRegularize = canRegularizeEmployee(employee);
 
                         return (
                           <tr key={employee.id} className="group h-[72px] transition hover:bg-blue-50/25">
@@ -3622,7 +3816,17 @@ export function EmployeeArchivePage() {
                           </td> : null}
                           {listColumnVisibility.employment ? <td className={TABLE_CELL_CLASS}>
                             <div className="font-medium text-slate-800">{employee.hireDate}</div>
-                            {probationReminder ? (
+                            {employeeIsRegularized ? (
+                              <div
+                                data-regularization-date={employee.id}
+                                className="mt-1 flex items-center gap-1 text-xs font-semibold text-emerald-600"
+                              >
+                                <BadgeCheck className="h-3.5 w-3.5 shrink-0" />
+                                <span className="truncate">
+                                  {translate("已转正")} · {employee.regularizationDate || getExpectedRegularizationDate(employee) || translate("日期待补充")}
+                                </span>
+                              </div>
+                            ) : probationReminder ? (
                               <div
                                 {...(showProbationReminder ? { "data-probation-reminder": employee.id } : { "data-expected-conversion": employee.id })}
                                 className={cn(
@@ -3638,7 +3842,7 @@ export function EmployeeArchivePage() {
                                 <span className="truncate">
                                   {translate(
                                     probationReminder.phase === "completed"
-                                      ? "已转正"
+                                      ? "转正待确认"
                                       : probationReminder.phase === "active"
                                         ? "转正提醒"
                                         : "预计转正",
@@ -3696,6 +3900,18 @@ export function EmployeeArchivePage() {
                             )}
                           >
                             <div className="flex items-center justify-end gap-1.5">
+                              {employeeCanRegularize ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setEmployeePendingRegularization(employee)}
+                                  title={translate("将 {name} 转为正式员工", { name: employee.name })}
+                                  aria-label={translate("将 {name} 转为正式员工", { name: employee.name })}
+                                  className="inline-flex h-9 shrink-0 cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 text-xs font-semibold text-emerald-700 shadow-sm transition-colors hover:border-emerald-300 hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+                                >
+                                  <BadgeCheck className="h-4 w-4" />
+                                  {translate("转正")}
+                                </button>
+                              ) : null}
                               <ActionIconButton
                                 onClick={() => startEmployeeEdit(employee)}
                                 title={translate("编辑 {name}", { name: employee.name })}
@@ -3805,6 +4021,16 @@ export function EmployeeArchivePage() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2 lg:justify-end">
+                {canRegularizeEmployee(selected) ? (
+                  <button
+                    type="button"
+                    onClick={() => setEmployeePendingRegularization(selected)}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-semibold text-emerald-700 shadow-sm transition-colors hover:border-emerald-300 hover:bg-emerald-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 focus-visible:ring-offset-2"
+                  >
+                    <BadgeCheck className="h-4 w-4" />
+                    {translate("转正")}
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => setEmployeePendingDelete(selected)}
@@ -3838,9 +4064,11 @@ export function EmployeeArchivePage() {
                       {[
                         { label: translate("入职"), value: selected.hireDate },
                         {
-                          label: translate(selectedProbationReminder?.phase === "completed" ? "转正日期" : "预计转正"),
-                          value: selectedProbationReminder?.conversionDate
-                            || (/已转正|正式员工/.test(selected.status) ? translate("已转正") : translate("待补充")),
+                          label: translate(isEmployeeRegularized(selected) ? "转正日期" : "预计转正"),
+                          value: selected.regularizationDate
+                            || selectedProbationReminder?.conversionDate
+                            || getExpectedRegularizationDate(selected)
+                            || translate("待补充"),
                         },
                         { label: translate("司龄"), value: translateTenure(selected.tenure) },
                         { label: translate("工号"), value: selected.employeeCode || translate("待补充") },

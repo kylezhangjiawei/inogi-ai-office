@@ -36,6 +36,7 @@ import { ProcurementModule } from './modules/procurement/procurement.module';
 import { I18nModule } from './modules/i18n/i18n.module';
 import { EmployeeArchiveModule } from './modules/employee-archive/employee-archive.module';
 import { AttendanceModule } from './modules/attendance/attendance.module';
+import { ExternalDocsModule } from './modules/external-docs/external-docs.module';
 import { JwtAuthGuard } from './modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from './modules/auth/guards/roles.guard';
 import { UserThrottlerGuard } from './common/user-throttler.guard';
@@ -85,6 +86,7 @@ const envFilePath = [
     IssueModule,
     EmployeeArchiveModule,
     AttendanceModule,
+    ExternalDocsModule,
     I18nModule,
   ],
   providers: [

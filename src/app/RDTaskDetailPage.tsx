@@ -54,7 +54,7 @@ import {
   OwnerAvatar,
   type PersonProfile,
 } from "./RDTaskManagementPage";
-import { AttachmentBlockModal, PROC_LINK_MAP, ProcurementActivitySection, ProcurementLinkChip, TransferToProcurementModal } from "./procurement/components/rdInsertion";
+import { ProcurementActivitySection, ProcurementLinkChip, TransferToProcurementModal, useProcurementTaskLink } from "./procurement/components/rdInsertion";
 import { createHttpIssueService } from "./lib/issue/issueHttpService";
 import { getReviewTypeMeta } from "./lib/reviewTypes";
 import {
@@ -125,7 +125,6 @@ export default function RDTaskDetailPage() {
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [generatingIssue, setGeneratingIssue] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
-  const [blockOpen, setBlockOpen] = useState(false);
   const [showMove, setShowMove] = useState(false);
   const [categories, setCategories] = useState<RdCategory[]>([]);
   const [products, setProducts] = useState<RdProductDef[]>([]);
@@ -160,6 +159,7 @@ export default function RDTaskDetailPage() {
   const [composerItemId, setComposerItemId] = useState("");
   const [sendingNote, setSendingNote] = useState(false);
   const auditLogs = useAuditLogs({ resourceType: "task", resourceId: taskId });
+  const { task: procTask, setTask: setProcTask } = useProcurementTaskLink(taskId);
 
   // 视口内布局的可用高度：实测容器到视口顶的距离（覆盖全局顶栏/面包屑/内边距的任意组合），
   // 不猜固定偏移。lg 以下返回 null 走自然文档流。
@@ -544,7 +544,14 @@ export default function RDTaskDetailPage() {
 
   /** 转采购弹窗默认带入的任务附件（全部进度留痕附件拍平） */
   const transferAttachments = useMemo(
-    () => notes.flatMap((note) => note.attachments.map((a) => ({ id: a.id, name: a.name, size: a.size }))),
+    () => notes.flatMap((note) => note.attachments.map((a) => ({
+      id: a.id,
+      name: a.name,
+      size: a.size,
+      mimeType: a.mime,
+      fileUrl: getAttachmentUrl(a),
+      fileKey: a.object_key,
+    }))).filter((attachment) => Boolean(attachment.fileUrl)),
     [notes],
   );
 
@@ -1010,9 +1017,9 @@ export default function RDTaskDetailPage() {
                 已转采购的任务显示跳转芯片而非再次转出 */}
             {!task.archived && (
               <>
-                {PROC_LINK_MAP[task.title] ? (
+                {procTask ? (
                   <ProcurementLinkChip
-                    title={task.title}
+                    task={procTask}
                     onJump={(procTaskId) => navigate(`/proc-cockpit?task=${encodeURIComponent(procTaskId)}`)}
                   />
                 ) : (
@@ -1020,7 +1027,7 @@ export default function RDTaskDetailPage() {
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => ((task.attachments ?? 0) > 0 ? setTransferOpen(true) : setBlockOpen(true))}
+                    onClick={() => setTransferOpen(true)}
                     title={t("把本任务转为采购任务（需携带图纸附件）")}
                     className="h-8 w-full gap-1.5 text-xs"
                   >
@@ -1107,9 +1114,9 @@ export default function RDTaskDetailPage() {
           )}
 
           {/* 已转采购的任务：展示对应采购任务的活动流（研发侧特有） */}
-          {PROC_LINK_MAP[task.title] && (
+          {procTask && (
             <div className="shrink-0">
-              <ProcurementActivitySection title={task.title} />
+              <ProcurementActivitySection task={procTask} />
             </div>
           )}
 
@@ -1394,13 +1401,16 @@ export default function RDTaskDetailPage() {
       )}
       {transferOpen && (
         <TransferToProcurementModal
+          taskId={task.task_id}
           taskTitle={task.title}
           owner={task.primary_owner}
+          priority={task.final_priority}
+          dueDate={task.due_date}
           attachments={transferAttachments}
+          onTransferred={setProcTask}
           onClose={() => setTransferOpen(false)}
         />
       )}
-      {blockOpen && <AttachmentBlockModal onClose={() => setBlockOpen(false)} />}
       {showApproval && (
         <ApprovalActionDialog
           mode={showApproval}

@@ -86,6 +86,8 @@ export interface ProcurementTask {
   logs: ProcLog[];
   createdAt: string;
   updatedAt: string;
+  /** 转采购接口命中已有记录时为 true，用于幂等反馈。 */
+  alreadyTransferred?: boolean;
 }
 
 export type MaterialReviewStatus = "pending" | "approved" | "rejected";
@@ -158,6 +160,18 @@ export async function listProcTasks(signal?: AbortSignal): Promise<ProcurementTa
   return data.items;
 }
 
+/** 按研发任务查询已关联的采购任务。一个研发任务最多对应一条采购任务。 */
+export async function getProcTaskByRdTask(
+  rdTaskId: string,
+  signal?: AbortSignal,
+): Promise<ProcurementTask | null> {
+  const data = await request<Paged<ProcurementTask>>(
+    `/tasks?rdTaskId=${encodeURIComponent(rdTaskId)}&pageSize=1`,
+    { signal },
+  );
+  return data.items[0] ?? null;
+}
+
 export async function getProcTask(id: string): Promise<ProcurementTask> {
   return request<ProcurementTask>(`/tasks/${encodeURIComponent(id)}`);
 }
@@ -196,6 +210,25 @@ export async function transferProcTask(
     method: "POST",
     body: JSON.stringify(input),
   });
+}
+
+export type ProcurementUploadResult = {
+  fileId: string;
+  objectKey: string;
+  fileName: string;
+  mimeType: string;
+  fileSize: number;
+  signedUrl: string | null;
+};
+
+/** 转采购弹窗新增的本地附件先落通用文件库，再把 OSS 引用登记到采购任务。 */
+export async function uploadProcurementAttachment(file: File): Promise<ProcurementUploadResult> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("businessType", "assets");
+  const response = await authFetch("/api/files/upload", { method: "POST", body: form });
+  if (!response.ok) throw new Error(await readErrorMessage(response, `附件「${file.name}」上传失败`));
+  return (await response.json()) as ProcurementUploadResult;
 }
 
 export async function confirmProcTask(id: string): Promise<ProcurementTask> {

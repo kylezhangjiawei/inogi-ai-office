@@ -10,6 +10,7 @@ export const OSS_BUSINESS_TYPES = {
   RECRUITMENT_RESUMES: 'recruitment/resumes',
   ISSUE_ATTACHMENTS: 'issue/attachments',
   EMPLOYEE_BADGE_AVATAR: 'employee-archive/badge-avatar',
+  EXTERNAL_DOCS: 'external-docs',
   ASSETS: 'assets',
 } as const;
 
@@ -27,6 +28,7 @@ export const OSS_MAX_FILE_SIZE: Record<OssBusinessType, number> = {
   'recruitment/resumes': 10 * 1024 * 1024,
   'issue/attachments': 20 * 1024 * 1024,
   'employee-archive/badge-avatar': 5 * 1024 * 1024,
+  'external-docs': 25 * 1024 * 1024,
   'assets': 50 * 1024 * 1024,
 };
 
@@ -59,6 +61,7 @@ export const OSS_ALLOWED_MIME_TYPES: Record<OssBusinessType, string[]> = {
   ],
   'issue/attachments': ['*/*'],
   'employee-archive/badge-avatar': ['image/jpeg', 'image/png', 'image/webp'],
+  'external-docs': ['*/*'],
   'assets': ['*/*'],
 };
 

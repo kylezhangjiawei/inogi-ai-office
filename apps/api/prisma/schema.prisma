@@ -684,6 +684,86 @@ model FileAsset {
   @@index([uploadedBy])
 }
 
+/// 对外资料主档。currentVersionId 指向当前确认可外发的版本；候选版本在人工确认前不会覆盖它。
+model ExternalDocument {
+  id               String                       @id @default(cuid())
+  code             String                       @unique
+  name             String
+  category         String                       @default("未分类")
+  ownerName        String                       @default("")
+  ownerId          String?
+  currentVersionId String?                      @unique
+  status           String                       @default("current")
+  allowSend        Boolean                      @default(false)
+  versions         ExternalDocumentVersion[]
+  comparisons      ExternalDocumentComparison[]
+  createdAt        DateTime                     @default(now())
+  updatedAt        DateTime                     @updatedAt
+
+  @@index([status, updatedAt])
+  @@index([category])
+}
+
+/// 资料原始版本。文件存 OSS，解析文本和 OCR 证据单独固化，便于后续重新比对与审计。
+model ExternalDocumentVersion {
+  id                 String           @id @default(cuid())
+  documentId         String
+  document           ExternalDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  version            String
+  fileName           String
+  mimeType           String
+  fileSize           Int
+  fileHash           String
+  objectKey          String           @unique
+  status             String           @default("pending")
+  notes              String           @default("")
+  extractedText      String?          @db.Text
+  extractionProvider String?
+  ocrRequestId       String?
+  ocrConfidence      Float?
+  extractionMetadata Json             @default("{}")
+  /// 同一业务版本因误传而纠正文件时递增；旧文件快照保存在 replacementHistory，原 OSS 对象不删除。
+  uploadRevision     Int              @default(1)
+  replacementHistory Json             @default("[]")
+  fileUploadedAt     DateTime         @default(now())
+  uploadedById       String?
+  uploadedByName     String            @default("")
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@unique([documentId, version])
+  @@index([documentId, createdAt])
+  @@index([status])
+}
+
+/// 一次候选版与基准版的完整比对任务。differences 内含逐项人工复核状态和原文定位。
+model ExternalDocumentComparison {
+  id                 String           @id @default(cuid())
+  jobCode            String           @unique
+  documentId         String
+  document           ExternalDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  baselineVersionId  String
+  candidateVersionId String           @unique
+  status             String           @default("comparing")
+  summary            String           @default("") @db.Text
+  differences        Json             @default("[]")
+  aiModel             String?
+  aiProvider          String?
+  ocrProvider         String?
+  ocrConfidence       Float?
+  errorMessage        String?          @db.Text
+  confirmedById      String?
+  confirmedByName    String?
+  startedAt          DateTime          @default(now())
+  completedAt        DateTime?
+  archivedAt         DateTime?
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  @@index([documentId, createdAt])
+  @@index([status, createdAt])
+}
+
 /// 知识库向量片段。每个 chunk 是某个原始资源（KB 文档 / 任务 / 立项 / 聊天 ...）切块后的语义索引单元。
 /// 注：embedding 用 Float[]（Postgres double precision array）而非 pgvector，
 ///     由 Node.js 在查询时计算余弦相似度。适合 ≤10k chunks 的规模；
@@ -804,6 +884,7 @@ model EmployeeArchive {
   rosterNo                 String                    @unique
   company                  String                    @default("")
   hireDate                 DateTime?
+  regularizationDate       DateTime?
   settlementDate           DateTime?
   tenure                   String                    @default("")
   employmentStatus         String                    @default("")
@@ -1026,7 +1107,7 @@ model ProcTask {
   buyer               String                 @default("")
   buyerUserId         String?
   /// 研发流转来源：研发任务 id / 标题快照，用于研发侧回查进度
-  rdTaskId            String?
+  rdTaskId            String?                @unique
   rdTaskTitle         String?
   rdContact           String?
   requester           String?
@@ -1049,7 +1130,6 @@ model ProcTask {
   @@index([status, updatedAt])
   @@index([businessLine, status])
   @@index([materialId])
-  @@index([rdTaskId])
   @@index([buyerUserId])
   @@index([needDate])
 }
