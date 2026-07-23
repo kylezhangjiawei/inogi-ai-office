@@ -11,7 +11,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
     "prisma:seed": "ts-node -r tsconfig-paths/register prisma/seed.ts",
-    "seed:attendance-mock": "ts-node -r tsconfig-paths/register prisma/seed-attendance-mock.ts"
+    "seed:attendance-mock": "ts-node -r tsconfig-paths/register prisma/seed-attendance-mock.ts",
+    "test:expense": "node --test -r ts-node/register -r tsconfig-paths/register test/expense.service.spec.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",
@@ -33,6 +34,7 @@
     "jszip": "3.10.1",
     "mailparser": "^3.7.2",
     "mammoth": "^1.12.0",
+    "nodemailer": "9.0.1",
     "openai": "^5.12.2",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
@@ -48,6 +50,7 @@
     "@nestjs/testing": "^11.0.0",
     "@types/ali-oss": "^6.23.3",
     "@types/node": "^22.10.1",
+    "@types/nodemailer": "^8.0.1",
     "@types/passport-jwt": "^4.0.1",
     "prisma": "^6.0.0",
     "ts-node": "^10.9.2",

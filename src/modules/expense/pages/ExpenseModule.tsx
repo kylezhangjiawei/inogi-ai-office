@@ -34,9 +34,14 @@ import {
   Users,
   Building2,
   BarChart3,
+  ClipboardCheck,
   Hash } from
 'lucide-react';
-import { expenseService, type ExpenseDepartmentOption } from '../services/expenseService';
+import {
+  expenseService,
+  type ExpenseDepartmentOption,
+  type ExpenseIntegrationRequirements,
+} from '../services/expenseService';
 import type { ExpenseDashboardData, InvoiceRecord, ReimbursementRecord, VoucherUploadRecord } from '../types';
 import { ExpenseStatistics } from '../components/ExpenseStatistics';
 import { useAuth } from '../../../app/auth';
@@ -183,6 +188,29 @@ const toErrorMessage = (error: unknown) => error instanceof Error ? error.messag
 
 const formatMoney = (value: number) => `¥${value.toFixed(2)}`;
 const REIMBURSEMENT_PAGE_SIZE = 4;
+
+function formatDateInput(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getMonthRange(monthOffset = 0) {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + monthOffset + 1, 0);
+  return { start: formatDateInput(start), end: formatDateInput(end) };
+}
+
+function getCurrentQuarterRange() {
+  const now = new Date();
+  const quarterStartMonth = Math.floor(now.getMonth() / 3) * 3;
+  return {
+    start: formatDateInput(new Date(now.getFullYear(), quarterStartMonth, 1)),
+    end: formatDateInput(new Date(now.getFullYear(), quarterStartMonth + 3, 0)),
+  };
+}
 
 function isSuccessfullyApprovedInvoice(status?: InvoiceRecord['status']) {
   return status === '已报销';
@@ -646,6 +674,7 @@ export function ExpenseModule() {
   const [invoiceVouchers, setInvoiceVouchers] = useState<InvoiceVoucherView[]>([]);
   const [approvals, setApprovals] = useState<ApprovalView[]>([]);
   const [selectedApproval, setSelectedApproval] = useState<ApprovalView | null>(null);
+  const [approvalActionBusy, setApprovalActionBusy] = useState(false);
   const [dashboard, setDashboard] = useState<ExpenseDashboardData | null>(null);
   const [reimbursementDialogOpen, setReimbursementDialogOpen] = useState(false);
   const [reimbursementDraftItems, setReimbursementDraftItems] = useState<ExpenseVoucherView[]>([]);
@@ -667,6 +696,7 @@ export function ExpenseModule() {
   const [reimbursementNotifyEmails, setReimbursementNotifyEmails] = useState<string[]>([]);
   const [reimbursementCcEmails, setReimbursementCcEmails] = useState<string[]>([]);
   const [mailboxOptions, setMailboxOptions] = useState<MailboxItem[]>([]);
+  const [mailboxLoadError, setMailboxLoadError] = useState('');
   const [submittingReimbursement, setSubmittingReimbursement] = useState(false);
   const expenseUploadInputRef = useRef<HTMLInputElement | null>(null);
   const invoiceUploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -674,10 +704,7 @@ export function ExpenseModule() {
   const [dragZone, setDragZone] = useState<'invoice' | 'voucher' | null>(null);
   const hoverZoneRef = useRef<'invoice' | 'voucher' | null>(null);
   const loadingRef = useRef(false);
-  const [dateRange, setDateRange] = useState({
-    start: '2026-05-01',
-    end: '2026-05-31'
-  });
+  const [dateRange, setDateRange] = useState(() => getMonthRange());
   const [archiveSelected, setArchiveSelected] = useState<string>('all');
   const [archiveExpanded, setArchiveExpanded] = useState<Set<string>>(
     new Set(['all', 'cat-food', 'cat-transport'])
@@ -694,6 +721,8 @@ export function ExpenseModule() {
   const [archivePage, setArchivePage] = useState(1);
   // 已手动移动归类的凭证：voucherId -> 目标分类节点 id（覆盖 AI 自动分组）
   const [manualCategory, setManualCategory] = useState<Record<string, string>>({});
+  const [archiveExcludedIds, setArchiveExcludedIds] = useState<Set<string>>(() => new Set());
+  const [archiveConfigError, setArchiveConfigError] = useState('');
   // 归档列表行操作目标
   const [moveItemTarget, setMoveItemTarget] = useState<ExpenseVoucherView | null>(null);
   const [deleteItemTarget, setDeleteItemTarget] = useState<ExpenseVoucherView | null>(null);
@@ -706,6 +735,12 @@ export function ExpenseModule() {
   const hasViewAll = Boolean(
     user?.permissions?.includes('*') || user?.permissions?.includes('expense:view-all'),
   );
+  const canSubmitOnBehalf = Boolean(
+    user?.permissions?.includes('*') || user?.permissions?.includes('expense:submit-on-behalf'),
+  );
+  const canManageArchive = Boolean(
+    user?.permissions?.includes('*') || user?.permissions?.includes('expense:archive-manage'),
+  );
   const ownDeptName = user?.department ?? null;
   const ownDeptCode = user?.departmentCode ?? null;
   // 普通用户无部门 → 后端不返回数据且禁止录入，前端给出明确提示。
@@ -716,7 +751,14 @@ export function ExpenseModule() {
   const [reassignTargetCode, setReassignTargetCode] = useState<string>('');
   const [reassigning, setReassigning] = useState(false);
   // 当前列表加载到的原始记录 id（供批量改派使用）
-  const loadedIdsRef = useRef<{ invoices: string[]; reimbursements: string[] }>({ invoices: [], reimbursements: [] });
+  const loadedIdsRef = useRef<{ invoices: string[]; vouchers: string[]; reimbursements: string[] }>({
+    invoices: [],
+    vouchers: [],
+    reimbursements: [],
+  });
+  const [dataLoadError, setDataLoadError] = useState('');
+  const [integrationRequirements, setIntegrationRequirements] = useState<ExpenseIntegrationRequirements | null>(null);
+  const [integrationRequirementsError, setIntegrationRequirementsError] = useState('');
   // 传给接口的部门参数：仅 view-all 生效，'all' → 不传。
   const departmentParam = hasViewAll && departmentFilter !== 'all' ? departmentFilter : undefined;
 
@@ -728,40 +770,86 @@ export function ExpenseModule() {
     })();
   }, [hasViewAll]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void expenseService.getIntegrationRequirements()
+      .then((requirements) => {
+        if (cancelled) return;
+        setIntegrationRequirements(requirements);
+        setIntegrationRequirementsError('');
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setIntegrationRequirements(null);
+        setIntegrationRequirementsError(toErrorMessage(error));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void expenseService.getArchiveConfig()
+      .then((config) => {
+        if (cancelled) return;
+        setArchiveTree(config.tree.length > 0 ? config.tree : ARCHIVE_TREE);
+        setManualCategory(config.manual_category);
+        setArchiveExcludedIds(new Set(config.excluded_ids));
+        setArchiveConfigError('');
+      })
+      .catch((error) => {
+        if (!cancelled) setArchiveConfigError(toErrorMessage(error));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const reloadExpenseData = useCallback(async () => {
     setLoading(true);
     try {
-      const [invoices, reimbursements, dashboardData] = await Promise.all([
-        expenseService.listInvoices(undefined, departmentParam),
-        expenseService.listReimbursements(departmentParam),
-        expenseService.getDashboard(departmentParam),
+      const [invoices, vouchers, reimbursements, dashboardData] = await Promise.all([
+        expenseService.listInvoicesStrict(undefined, departmentParam),
+        expenseService.listVouchers(departmentParam),
+        expenseService.listReimbursementsStrict(departmentParam),
+        expenseService.getDashboardStrict(departmentParam),
       ]);
       loadedIdsRef.current = {
         invoices: invoices.map((i) => i.id),
+        vouchers: vouchers.map((v) => v.id),
         reimbursements: reimbursements.map((r) => r.id),
       };
+      setDataLoadError('');
       setDashboard(dashboardData);
 
       // 后端为唯一数据源：直接以接口结果覆盖（空数据 → 清空，不再回落到 mock 假数据）。
       const nextInvoiceVouchers = invoices.map(invoiceToInvoiceVoucher);
       setInvoiceVouchers(nextInvoiceVouchers);
 
-      const nextExpenseVouchers = invoices
+      const projectedExpenseVouchers = invoices
         .filter((invoice) => isInvoiceMatched(invoice))
         .map(invoiceToExpenseVoucher);
-      // 已关联发票投影为左栏「报销凭证」；同时保留本会话内上传但尚未关联的付款凭证，
-      // 避免 reload 把刚上传、待手动关联的凭证从界面清空。
-      setExpenseVouchers((current) => {
-        const projectedIds = new Set(nextExpenseVouchers.map((item) => item.id));
-        const survivingUploads = current.filter(
-          (item) =>
-            item.sourceVoucherId &&
-            !item.matched &&
-            !projectedIds.has(item.id) &&
-            !projectedIds.has(item.sourceVoucherId),
+      const uploadedExpenseVouchers = vouchers.map((voucher) => {
+        const item = uploadedVoucherToExpenseVoucher(voucher);
+        const invoice = nextInvoiceVouchers.find(
+          (entry) => entry.id === voucher.matchedInvoiceId || entry.sourceInvoiceId === voucher.matchedInvoiceId,
         );
-        return [...nextExpenseVouchers, ...survivingUploads];
+        return {
+          ...item,
+          category: invoice
+            ? invoices.find((entry) => entry.id === invoice.sourceInvoiceId)?.category ?? item.category
+            : item.category,
+          sourceInvoiceId: invoice?.sourceInvoiceId,
+          sourceInvoiceStatus: invoice?.status,
+        };
       });
+      const uploadedIds = new Set(uploadedExpenseVouchers.flatMap((item) => [item.id, item.sourceVoucherId].filter(Boolean)));
+      const compatibilityProjections = projectedExpenseVouchers.filter(
+        (item) => !uploadedIds.has(item.id) && !uploadedIds.has(item.sourceVoucherId),
+      );
+      const nextExpenseVouchers = mergeById(uploadedExpenseVouchers, compatibilityProjections);
+      setExpenseVouchers(nextExpenseVouchers);
 
       const nextApprovals = reimbursements.map((reimbursement) =>
         reimbursementToApproval(
@@ -778,6 +866,8 @@ export function ExpenseModule() {
       setSelectedApproval((current) =>
         nextApprovals.find((item) => item.id === current?.id) ?? nextApprovals[0] ?? null
       );
+    } catch (error) {
+      setDataLoadError(toErrorMessage(error));
     } finally {
       setLoading(false);
     }
@@ -790,8 +880,8 @@ export function ExpenseModule() {
   // 批量改派：把当前列表里的发票与报销单改派到目标部门（仅 view-all）。
   const handleReassignDepartment = useCallback(async () => {
     if (!hasViewAll || !reassignTargetCode) return;
-    const { invoices, reimbursements } = loadedIdsRef.current;
-    if (invoices.length === 0 && reimbursements.length === 0) {
+    const { invoices, vouchers, reimbursements } = loadedIdsRef.current;
+    if (invoices.length === 0 && vouchers.length === 0 && reimbursements.length === 0) {
       toast.info(t('当前没有可改派的记录'));
       return;
     }
@@ -799,6 +889,9 @@ export function ExpenseModule() {
     try {
       if (invoices.length > 0) {
         await expenseService.reassignDepartment({ type: 'invoice', ids: invoices, department_code: reassignTargetCode });
+      }
+      if (vouchers.length > 0) {
+        await expenseService.reassignDepartment({ type: 'voucher', ids: vouchers, department_code: reassignTargetCode });
       }
       if (reimbursements.length > 0) {
         await expenseService.reassignDepartment({ type: 'reimbursement', ids: reimbursements, department_code: reassignTargetCode });
@@ -823,8 +916,12 @@ export function ExpenseModule() {
         const response = await integrationManagementApi.listMailboxes({ page: 1, pageSize: 200 });
         if (cancelled) return;
         setMailboxOptions(response.items.filter((item) => item.enabled));
-      } catch {
-        if (!cancelled) setMailboxOptions([]);
+        setMailboxLoadError('');
+      } catch (error) {
+        if (!cancelled) {
+          setMailboxOptions([]);
+          setMailboxLoadError(toErrorMessage(error));
+        }
       }
     })();
     return () => {
@@ -844,7 +941,9 @@ export function ExpenseModule() {
   const matched = expenseVouchers.filter((v) => v.matched).length;
   const totalInvoices = invoiceVouchers.length;
   const pendingApprovals = approvals.filter((a) => a.status === 'pending').length;
+  const invalidDateRange = Boolean(dateRange.start && dateRange.end && dateRange.start > dateRange.end);
   const filteredInvoices = invoiceVouchers.filter((iv) => {
+    if (invalidDateRange) return false;
     return iv.date >= dateRange.start && iv.date <= dateRange.end;
   });
   const buybackTotal = filteredInvoices.reduce((s, v) => s + v.amount, 0);
@@ -1095,7 +1194,7 @@ export function ExpenseModule() {
     setReimbursementCategoryFilter('all');
     setReimbursementSelectionFilter('all');
     setReimbursementTitle(t('{month} 月费用报销申请', { month: new Date().getMonth() + 1 }));
-    setReimbursementApplicant(t('当前用户'));
+    setReimbursementApplicant(user?.name?.trim() || t('当前用户'));
     setReimbursementReason(targetItems[0]?.category ? t('{category}费用报销', { category: t(targetItems[0].category) }) : t('费用报销'));
     // 项目/成本归属：默认带出第一张关联发票的项目，可在表单中修改
     const firstInvoice = targetItems[0] ? findInvoiceForExpenseItem(targetItems[0], invoiceVouchers) : undefined;
@@ -1104,7 +1203,7 @@ export function ExpenseModule() {
     setReimbursementNotifyEmails([]);
     setReimbursementCcEmails([]);
     setReimbursementDialogOpen(true);
-  }, [expenseVouchers, invoiceVouchers]);
+  }, [expenseVouchers, invoiceVouchers, user?.name]);
 
   const toggleReimbursementItem = useCallback((itemId: string) => {
     setSelectedReimbursementItemIds((current) => {
@@ -1142,43 +1241,6 @@ export function ExpenseModule() {
     setReimbursementDialogOpen(false);
   }, [submittingReimbursement]);
 
-  const createLocalApproval = useCallback((items: ExpenseVoucherView[], title = t('费用报销申请'), applicant = t('当前用户')) => {
-    const amount = items.reduce((sum, item) => sum + item.amount, 0);
-    const now = new Date();
-    const materials = buildApprovalMaterialsFromItems(items, invoiceVouchers);
-    const created: ApprovalView = {
-      id: `BX-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(approvals.length + 1).padStart(2, '0')}`,
-      title,
-      applicant,
-      department: t('费用报销'),
-      amount,
-      submitDate: now.toISOString().slice(0, 16).replace('T', ' '),
-      currentStep: 2,
-      totalSteps: 4,
-      status: 'pending',
-      items: items.length,
-      invoiceIds: materials.map((item) => item.invoiceId),
-      voucherIds: materials.map((item) => item.voucherId),
-      materials,
-      project: reimbursementProject.trim() || items[0]?.category || undefined,
-      notifyEmails: reimbursementNotifyEmails,
-      ccEmails: reimbursementCcEmails,
-      carbonCopy: [
-        { name: t('财务共享中心'), department: t('财务部') },
-        ...reimbursementCcEmails.map((email) => ({ name: email, department: t('邮件抄送') })),
-      ],
-      flow: [
-        { name: applicant, role: t('申请人'), status: 'done', time: now.toISOString().slice(0, 10) },
-        { name: t('部门主管'), role: t('部门主管'), status: 'current', time: '' },
-        { name: t('财务审核'), role: t('财务审核'), status: 'pending', time: '' },
-        { name: t('出纳'), role: t('付款确认'), status: 'pending', time: '' },
-      ],
-    };
-    setApprovals((current) => [created, ...current]);
-    setSelectedApproval(created);
-    setActiveTab('approval');
-  }, [approvals.length, invoiceVouchers, reimbursementCcEmails, reimbursementNotifyEmails, reimbursementProject]);
-
   const handleConfirmCreateApproval = useCallback(async () => {
     const targetItems = reimbursementDraftItems.filter((item) =>
       selectedReimbursementItemIds.has(item.id)
@@ -1210,10 +1272,17 @@ export function ExpenseModule() {
         cc_emails: reimbursementCcEmails,
       });
       let next = reimbursement;
-      try {
-        next = await expenseService.submitWeComApproval(reimbursement.id);
-      } catch {
-        // 企微未配置时，保留已创建的报销单并在页面中展示草稿/待提交状态。
+      let wecomSubmitError = '';
+      if (integrationRequirements?.wecom.ready) {
+        try {
+          next = await expenseService.submitWeComApproval(reimbursement.id);
+        } catch (error) {
+          wecomSubmitError = toErrorMessage(error);
+        }
+      } else {
+        wecomSubmitError = integrationRequirements
+          ? integrationRequirements.wecom.missing.map((item) => item.label).join('、')
+          : t('企业微信配置状态尚未加载');
       }
       const approval = reimbursementToApproval(next, materials);
       setApprovals((current) => mergeById([approval, ...current], [approval]));
@@ -1221,16 +1290,21 @@ export function ExpenseModule() {
       setActiveTab('approval');
       setReimbursementDialogOpen(false);
       await reloadExpenseData();
-    } catch {
-      createLocalApproval(targetItems, title, applicant);
-      setReimbursementDialogOpen(false);
+      if (wecomSubmitError) {
+        toast.warning(t('报销单已保存为草稿，企业微信提交未完成：{message}', { message: wecomSubmitError }));
+      } else {
+        toast.success(t('报销单已创建并提交企业微信审批'));
+      }
+    } catch (error) {
+      toast.error(t('创建报销单失败：{message}', { message: toErrorMessage(error) }));
     } finally {
       setSubmittingReimbursement(false);
     }
-  }, [createLocalApproval, invoiceVouchers, reimbursementApplicant, reimbursementCcEmails, reimbursementCreatorUserid, reimbursementDraftItems, reimbursementNotifyEmails, reimbursementProject, reimbursementReason, reimbursementTitle, reloadExpenseData, selectedReimbursementItemIds]);
+  }, [integrationRequirements, invoiceVouchers, reimbursementApplicant, reimbursementCcEmails, reimbursementCreatorUserid, reimbursementDraftItems, reimbursementNotifyEmails, reimbursementProject, reimbursementReason, reimbursementTitle, reloadExpenseData, selectedReimbursementItemIds]);
 
   const handleSyncSelectedApproval = useCallback(async () => {
     if (!selectedApproval) return;
+    setApprovalActionBusy(true);
     try {
       const reimbursement = await expenseService.syncWeComApproval(selectedApproval.id);
       const approval = reimbursementToApproval(
@@ -1245,12 +1319,85 @@ export function ExpenseModule() {
       setApprovals((current) => mergeById(current, [approval]));
       setSelectedApproval(approval);
     } catch (error) {
-      window.alert(t('同步审批状态失败：{message}', { message: toErrorMessage(error) }));
+      toast.error(t('同步审批状态失败：{message}', { message: toErrorMessage(error) }));
+    } finally {
+      setApprovalActionBusy(false);
     }
   }, [expenseVouchers, invoiceVouchers, selectedApproval]);
 
+  const handleSubmitSelectedApproval = useCallback(async () => {
+    if (!selectedApproval || selectedApproval.status !== 'draft') return;
+    setApprovalActionBusy(true);
+    try {
+      const reimbursement = await expenseService.submitWeComApproval(selectedApproval.id);
+      const approval = reimbursementToApproval(
+        reimbursement,
+        buildApprovalMaterialsFromIds(
+          reimbursement.invoiceIds,
+          reimbursement.voucherIds,
+          expenseVouchers,
+          invoiceVouchers,
+        ),
+      );
+      setApprovals((current) => mergeById(current, [approval]));
+      setSelectedApproval(approval);
+      toast.success(t('报销草稿已提交企业微信审批'));
+    } catch (error) {
+      toast.error(t('提交企业微信审批失败：{message}', { message: toErrorMessage(error) }));
+    } finally {
+      setApprovalActionBusy(false);
+    }
+  }, [expenseVouchers, invoiceVouchers, selectedApproval]);
+
+  const handleDeleteSelectedDraft = useCallback(async () => {
+    if (!selectedApproval || selectedApproval.status !== 'draft') return;
+    if (!window.confirm(t('确认删除草稿「{name}」？删除后会释放其中票据，可重新组单。', {
+      name: selectedApproval.title,
+    }))) return;
+    setApprovalActionBusy(true);
+    try {
+      await expenseService.deleteDraftReimbursement(selectedApproval.id);
+      await reloadExpenseData();
+      toast.success(t('报销草稿已删除，票据已释放'));
+    } catch (error) {
+      toast.error(t('删除报销草稿失败：{message}', { message: toErrorMessage(error) }));
+    } finally {
+      setApprovalActionBusy(false);
+    }
+  }, [reloadExpenseData, selectedApproval]);
+
+  const persistArchiveConfig = useCallback(async (
+    nextTree: TreeNode[],
+    nextManualCategory: Record<string, string>,
+    nextExcludedIds: Set<string>,
+    successMessage?: string,
+  ) => {
+    if (!canManageArchive) {
+      toast.error(t('你没有管理费用归档的权限'));
+      return false;
+    }
+    try {
+      const saved = await expenseService.saveArchiveConfig({
+        tree: nextTree,
+        manual_category: nextManualCategory,
+        excluded_ids: Array.from(nextExcludedIds),
+      });
+      setArchiveTree(saved.tree);
+      setManualCategory(saved.manual_category);
+      setArchiveExcludedIds(new Set(saved.excluded_ids));
+      setArchiveConfigError('');
+      if (successMessage) toast.success(successMessage);
+      return true;
+    } catch (error) {
+      const message = toErrorMessage(error);
+      setArchiveConfigError(message);
+      toast.error(t('归档配置保存失败：{message}', { message }));
+      return false;
+    }
+  }, [canManageArchive]);
+
   const getItemsForNode = (nodeId: string) => {
-    const matchedItems = expenseVouchers.filter((v) => v.matched);
+    const matchedItems = expenseVouchers.filter((v) => v.matched && !archiveExcludedIds.has(v.id));
     if (nodeId === 'all') return matchedItems;
     // Find node in tree
     const findNode = (nodes: TreeNode[], id: string): TreeNode | null => {
@@ -1299,60 +1446,72 @@ export function ExpenseModule() {
     getItemsForNode(node.id).length > 0 || (node.children?.some(nodeHasData) ?? false);
   const genCategoryId = () =>
     `cat-custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-  const addCategoryNode = (parentId: string | null, name: string, icon: string) => {
+  const addCategoryNode = async (parentId: string | null, name: string, icon: string) => {
     const newNode: TreeNode = parentId ?
       { id: genCategoryId(), name, vendorFilter: [] } :
       { id: genCategoryId(), name, icon: icon || '📁', children: [] };
-    setArchiveTree((prev) => {
-      if (!parentId) return [...prev, newNode];
-      const insert = (nodes: TreeNode[]): TreeNode[] =>
-        nodes.map((n) =>
-          n.id === parentId ?
-            { ...n, children: [...(n.children ?? []), newNode] } :
-            n.children ? { ...n, children: insert(n.children) } : n
-        );
-      return insert(prev);
-    });
-    if (parentId) {
+    const insert = (nodes: TreeNode[]): TreeNode[] =>
+      nodes.map((n) =>
+        n.id === parentId ?
+          { ...n, children: [...(n.children ?? []), newNode] } :
+          n.children ? { ...n, children: insert(n.children) } : n
+      );
+    const nextTree = parentId ? insert(archiveTree) : [...archiveTree, newNode];
+    const saved = await persistArchiveConfig(
+      nextTree,
+      manualCategory,
+      archiveExcludedIds,
+      t('费用分类已保存'),
+    );
+    if (saved && parentId) {
       setArchiveExpanded((prev) => new Set(prev).add(parentId));
     }
   };
-  const renameCategoryNode = (nodeId: string, name: string, icon: string) => {
-    setArchiveTree((prev) => {
-      const rename = (nodes: TreeNode[]): TreeNode[] =>
-        nodes.map((n) =>
-          n.id === nodeId ?
-            { ...n, name, ...(n.icon !== undefined ? { icon: icon || n.icon } : {}) } :
-            n.children ? { ...n, children: rename(n.children) } : n
-        );
-      return rename(prev);
-    });
+  const renameCategoryNode = async (nodeId: string, name: string, icon: string) => {
+    const rename = (nodes: TreeNode[]): TreeNode[] =>
+      nodes.map((n) =>
+        n.id === nodeId ?
+          { ...n, name, ...(n.icon !== undefined ? { icon: icon || n.icon } : {}) } :
+          n.children ? { ...n, children: rename(n.children) } : n
+      );
+    await persistArchiveConfig(
+      rename(archiveTree),
+      manualCategory,
+      archiveExcludedIds,
+      t('费用分类已更新'),
+    );
   };
-  const removeCategoryNode = (nodeId: string) => {
-    setArchiveTree((prev) => {
-      const remove = (nodes: TreeNode[]): TreeNode[] =>
-        nodes.filter((n) => n.id !== nodeId).map((n) =>
-          n.children ? { ...n, children: remove(n.children) } : n
-        );
-      return remove(prev);
-    });
-    setArchiveSelected((cur) => (cur === nodeId ? 'all' : cur));
+  const removeCategoryNode = async (nodeId: string) => {
+    const remove = (nodes: TreeNode[]): TreeNode[] =>
+      nodes.filter((n) => n.id !== nodeId).map((n) =>
+        n.children ? { ...n, children: remove(n.children) } : n
+      );
+    const nextManualCategory = Object.fromEntries(
+      Object.entries(manualCategory).filter(([, targetNodeId]) => targetNodeId !== nodeId),
+    );
+    const saved = await persistArchiveConfig(
+      remove(archiveTree),
+      nextManualCategory,
+      archiveExcludedIds,
+      t('费用分类已删除'),
+    );
+    if (saved) setArchiveSelected((cur) => (cur === nodeId ? 'all' : cur));
   };
-  const submitCategoryEditor = () => {
+  const submitCategoryEditor = async () => {
     if (!categoryEditor) return;
     const name = categoryEditor.name.trim();
     if (!name) return;
     if (categoryEditor.mode === 'rename' && categoryEditor.nodeId) {
-      renameCategoryNode(categoryEditor.nodeId, name, categoryEditor.icon);
+      await renameCategoryNode(categoryEditor.nodeId, name, categoryEditor.icon);
     } else if (categoryEditor.mode === 'add-child' && categoryEditor.parentId) {
-      addCategoryNode(categoryEditor.parentId, name, categoryEditor.icon);
+      await addCategoryNode(categoryEditor.parentId, name, categoryEditor.icon);
     } else {
-      addCategoryNode(null, name, categoryEditor.icon);
+      await addCategoryNode(null, name, categoryEditor.icon);
     }
     setCategoryEditor(null);
   };
   // 将凭证移动到目标分类节点（覆盖 AI 自动分组），并同步顶级类目名用于展示
-  const moveVoucherToNode = (itemId: string, nodeId: string) => {
+  const moveVoucherToNode = async (itemId: string, nodeId: string) => {
     const findCatPath = (nodes: TreeNode[], id: string, path: TreeNode[] = []): TreeNode[] | null => {
       for (const n of nodes) {
         const next = [...path, n];
@@ -1365,26 +1524,41 @@ export function ExpenseModule() {
       return null;
     };
     const rootName = findCatPath(archiveTree, nodeId)?.[0]?.name;
-    setManualCategory((prev) => ({ ...prev, [itemId]: nodeId }));
-    if (rootName) {
-      setExpenseVouchers((prev) => prev.map((v) => (v.id === itemId ? { ...v, category: rootName } : v)));
+    const nextManualCategory = { ...manualCategory, [itemId]: nodeId };
+    const nextExcludedIds = new Set(archiveExcludedIds);
+    nextExcludedIds.delete(itemId);
+    const saved = await persistArchiveConfig(
+      archiveTree,
+      nextManualCategory,
+      nextExcludedIds,
+      t('归档位置已保存'),
+    );
+    if (saved) {
+      if (rootName) {
+        setExpenseVouchers((prev) => prev.map((v) => (v.id === itemId ? { ...v, category: rootName } : v)));
+      }
+      setMoveItemTarget(null);
     }
-    setMoveItemTarget(null);
   };
-  // 删除归档凭证（前端移除；接口接入后改为后端删除）
-  const deleteArchiveVoucher = (itemId: string) => {
-    setExpenseVouchers((prev) => prev.filter((v) => v.id !== itemId));
-    setManualCategory((prev) => {
-      const next = { ...prev };
-      delete next[itemId];
-      return next;
-    });
-    setArchiveSelectedIds((prev) => {
-      const next = new Set(prev);
-      next.delete(itemId);
-      return next;
-    });
-    setDeleteItemTarget(null);
+  // 财务原始凭证不可物理删除；此操作仅将其移出归档视图，原始发票/付款凭证仍保留。
+  const deleteArchiveVoucher = async (itemId: string) => {
+    const nextExcludedIds = new Set(archiveExcludedIds).add(itemId);
+    const nextManualCategory = { ...manualCategory };
+    delete nextManualCategory[itemId];
+    const saved = await persistArchiveConfig(
+      archiveTree,
+      nextManualCategory,
+      nextExcludedIds,
+      t('凭证已移出归档，原始记录仍保留'),
+    );
+    if (saved) {
+      setArchiveSelectedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(itemId);
+        return next;
+      });
+      setDeleteItemTarget(null);
+    }
   };
   const selectedReimbursementItems = useMemo(
     () => reimbursementDraftItems.filter((item) => selectedReimbursementItemIds.has(item.id)),
@@ -1667,6 +1841,54 @@ export function ExpenseModule() {
               <span className="text-slate-400">{t('· 仅展示本部门费用数据')}</span>
             </div>
           ) : null}
+          {dataLoadError ? (
+            <div className="mt-2 flex items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-2 text-xs text-rose-700">
+              <span>{t('费用数据加载失败：{message}', { message: dataLoadError })}</span>
+              <button
+                type="button"
+                onClick={() => void reloadExpenseData()}
+                className="shrink-0 rounded-md bg-white px-2 py-1 font-medium text-rose-700 ring-1 ring-rose-200 hover:bg-rose-100"
+              >
+                {t('重试')}
+              </button>
+            </div>
+          ) : null}
+          {integrationRequirementsError ? (
+            <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2 text-xs text-amber-700">
+              {t('第三方配置状态加载失败：{message}', { message: integrationRequirementsError })}
+            </div>
+          ) : integrationRequirements && (
+            !integrationRequirements.storage.ready ||
+            !integrationRequirements.tencent_ocr.ready ||
+            !integrationRequirements.wecom.ready ||
+            !integrationRequirements.email.ready
+          ) ? (
+            <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2 text-xs text-amber-800">
+              {[
+                !integrationRequirements.storage.ready
+                  ? t('文件存储未就绪：上传已停用，以避免生成缺少原始附件的财务记录。')
+                  : '',
+                !integrationRequirements.tencent_ocr.ready
+                  ? t('OCR 未就绪：{items}。上传文件会暂存为待识别。', {
+                      items: integrationRequirements.tencent_ocr.missing.map((item) => item.label).join('、'),
+                    })
+                  : '',
+                !integrationRequirements.wecom.ready
+                  ? t('企业微信审批未就绪：{count} 项配置缺失，报销单只能保存为草稿。', {
+                      count: integrationRequirements.wecom.missing.length,
+                    })
+                  : '',
+                !integrationRequirements.email.ready
+                  ? t('SMTP 未就绪：审批可继续，但邮件通知不会发送。')
+                  : '',
+              ].filter(Boolean).join(' ')}
+            </div>
+          ) : null}
+          {archiveConfigError ? (
+            <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2 text-xs text-amber-700">
+              {t('归档配置加载失败，本次操作不会自动保存：{message}', { message: archiveConfigError })}
+            </div>
+          ) : null}
         </div>
         {/* Stats Strip */}
         <div className="px-5 py-2 flex gap-3 shrink-0">
@@ -1753,7 +1975,8 @@ export function ExpenseModule() {
                   type="button"
                   variant="outline"
                   size="sm"
-                  disabled={loading}
+                  disabled={loading || integrationRequirements?.storage.ready === false}
+                  title={integrationRequirements?.storage.ready === false ? t('请先完成 OSS 文件存储配置') : undefined}
                   className="h-8 border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:bg-emerald-50/70 hover:text-emerald-700">
                   <Upload className="h-3.5 w-3.5" /> {t('上传')}
                   <ChevronDown className="h-3.5 w-3.5 text-slate-400" />
@@ -1761,13 +1984,13 @@ export function ExpenseModule() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-40 rounded-2xl p-2">
                 <DropdownMenuItem
-                  disabled={loading}
+                  disabled={loading || integrationRequirements?.storage.ready === false}
                   onSelect={() => expenseUploadInputRef.current?.click()}
                   className="rounded-xl text-orange-700">
                   <Receipt className="h-4 w-4" /> {t('报销凭证')}
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  disabled={loading}
+                  disabled={loading || integrationRequirements?.storage.ready === false}
                   onSelect={() => invoiceUploadInputRef.current?.click()}
                   className="rounded-xl text-blue-700">
                   <FileText className="h-4 w-4" /> {t('发票凭证')}
@@ -1829,15 +2052,39 @@ export function ExpenseModule() {
               </DropdownMenu>
             }
             {activeTab === 'approval' &&
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={() => void handleSyncSelectedApproval()}
-              disabled={!selectedApproval}
-              className="h-8 border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:bg-emerald-50/70 hover:text-emerald-700">
-                <MessageCircle className="h-3.5 w-3.5" /> {t('同步状态')}
-              </Button>
+              selectedApproval?.status === 'draft' ?
+              <>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleDeleteSelectedDraft()}
+                  disabled={approvalActionBusy}
+                  className="h-8 border-rose-200 bg-white text-rose-600 hover:bg-rose-50 hover:text-rose-700">
+                  <Trash2 className="h-3.5 w-3.5" /> {t('删除草稿')}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => void handleSubmitSelectedApproval()}
+                  disabled={approvalActionBusy || !integrationRequirements?.wecom.ready}
+                  title={!integrationRequirements?.wecom.ready ? t('请先完成企业微信审批配置') : undefined}
+                  className="h-8 border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50 disabled:text-slate-400">
+                  {approvalActionBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+                  {t('提交企业微信')}
+                </Button>
+              </> :
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => void handleSyncSelectedApproval()}
+                disabled={!selectedApproval || approvalActionBusy}
+                className="h-8 border-slate-200 bg-white text-slate-600 hover:border-emerald-200 hover:bg-emerald-50/70 hover:text-emerald-700">
+                  {approvalActionBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <MessageCircle className="h-3.5 w-3.5" />}
+                  {t('同步状态')}
+                </Button>
             }
             {activeTab === 'buyback' &&
             <DropdownMenu>
@@ -2305,52 +2552,54 @@ export function ExpenseModule() {
                         </span>
                     }
                       {/* 行内增删改（hover 显示）；有数据的分类锁定 */}
-                      <div
-                      className="hidden group-hover:flex items-center gap-0.5 shrink-0"
-                      onClick={(e) => e.stopPropagation()}>
-                        {depth === 0 &&
-                      <button
-                        type="button"
-                        title={t('添加子类')}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setCategoryEditor({ mode: 'add-child', parentId: node.id, name: '', icon: '', withIcon: false });
-                        }}
-                        className="w-5 h-5 flex items-center justify-center rounded text-slate-400 hover:text-blue-600 hover:bg-blue-100/60">
-                          <Plus className="w-3 h-3" />
-                        </button>
-                      }
-                        {hasData ?
-                      <span
-                        title={t('该分类下已有归档数据，不可修改 / 删除')}
-                        className="w-5 h-5 flex items-center justify-center text-slate-300">
-                          <Lock className="w-3 h-3" />
-                        </span> :
-
-                      <>
-                          <button
+                      {canManageArchive &&
+                        <div
+                        className="hidden group-hover:flex items-center gap-0.5 shrink-0"
+                        onClick={(e) => e.stopPropagation()}>
+                          {depth === 0 &&
+                        <button
                           type="button"
-                          title={t('重命名')}
+                          title={t('添加子类')}
                           onClick={(e) => {
                             e.stopPropagation();
-                            setCategoryEditor({ mode: 'rename', nodeId: node.id, name: node.name, icon: node.icon ?? '', withIcon: depth === 0 });
+                            setCategoryEditor({ mode: 'add-child', parentId: node.id, name: '', icon: '', withIcon: false });
                           }}
                           className="w-5 h-5 flex items-center justify-center rounded text-slate-400 hover:text-blue-600 hover:bg-blue-100/60">
-                            <Pencil className="w-3 h-3" />
+                            <Plus className="w-3 h-3" />
                           </button>
-                          <button
-                          type="button"
-                          title={t('删除')}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setCategoryDeleteTarget(node);
-                          }}
-                          className="w-5 h-5 flex items-center justify-center rounded text-slate-400 hover:text-rose-600 hover:bg-rose-100/60">
-                            <Trash2 className="w-3 h-3" />
-                          </button>
-                        </>
+                        }
+                          {hasData ?
+                        <span
+                          title={t('该分类下已有归档数据，不可修改 / 删除')}
+                          className="w-5 h-5 flex items-center justify-center text-slate-300">
+                            <Lock className="w-3 h-3" />
+                          </span> :
+
+                        <>
+                            <button
+                            type="button"
+                            title={t('重命名')}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCategoryEditor({ mode: 'rename', nodeId: node.id, name: node.name, icon: node.icon ?? '', withIcon: depth === 0 });
+                            }}
+                            className="w-5 h-5 flex items-center justify-center rounded text-slate-400 hover:text-blue-600 hover:bg-blue-100/60">
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                            <button
+                            type="button"
+                            title={t('删除')}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setCategoryDeleteTarget(node);
+                            }}
+                            className="w-5 h-5 flex items-center justify-center rounded text-slate-400 hover:text-rose-600 hover:bg-rose-100/60">
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </>
+                        }
+                        </div>
                       }
-                      </div>
                     </div>
                     {hasChildren && isExpanded &&
                   <div>
@@ -2371,13 +2620,15 @@ export function ExpenseModule() {
                         <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
                           <Archive className="w-4 h-4 text-blue-500" /> {t('分类导航')}
                         </h3>
-                        <button
-                          type="button"
-                          title={t('新增费用类别')}
-                          onClick={() => setCategoryEditor({ mode: 'add-root', name: '', icon: '📁', withIcon: true })}
-                          className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">
-                          <Plus className="w-3.5 h-3.5" />
-                        </button>
+                        {canManageArchive &&
+                          <button
+                            type="button"
+                            title={t('新增费用类别')}
+                            onClick={() => setCategoryEditor({ mode: 'add-root', name: '', icon: '📁', withIcon: true })}
+                            className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors">
+                            <Plus className="w-3.5 h-3.5" />
+                          </button>
+                        }
                       </div>
                       <div className="relative">
                         <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -2415,7 +2666,7 @@ export function ExpenseModule() {
                         className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${archiveSelected === 'all' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>
                         
                           {
-                        expenseVouchers.filter((v) => v.matched).
+                        expenseVouchers.filter((v) => v.matched && !archiveExcludedIds.has(v.id)).
                         length
                         }
                         </span>
@@ -2444,13 +2695,13 @@ export function ExpenseModule() {
                       <div className="flex items-baseline justify-between">
                         <div className="text-lg font-bold text-slate-800">
                           ¥
-                          {expenseVouchers.filter((v) => v.matched).
+                          {expenseVouchers.filter((v) => v.matched && !archiveExcludedIds.has(v.id)).
                         reduce((s, v) => s + v.amount, 0).
                         toFixed(2)}
                         </div>
                         <div className="text-[10px] text-slate-500">
                           {
-                        expenseVouchers.filter((v) => v.matched).
+                        expenseVouchers.filter((v) => v.matched && !archiveExcludedIds.has(v.id)).
                         length
                         }{' '}
                           {t('项')}
@@ -2654,20 +2905,24 @@ export function ExpenseModule() {
                                     className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-blue-50 hover:text-blue-600">
                                         <Eye className="h-3.5 w-3.5" />
                                       </button>
-                                      <button
-                                    type="button"
-                                    title={t('移动到其他类目')}
-                                    onClick={() => setMoveItemTarget(v)}
-                                    className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-violet-50 hover:text-violet-600">
-                                        <FolderOpen className="h-3.5 w-3.5" />
-                                      </button>
-                                      <button
-                                    type="button"
-                                    title={t('删除')}
-                                    onClick={() => setDeleteItemTarget(v)}
-                                    className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600">
-                                        <Trash2 className="h-3.5 w-3.5" />
-                                      </button>
+                                      {canManageArchive &&
+                                        <>
+                                          <button
+                                        type="button"
+                                        title={t('移动到其他类目')}
+                                        onClick={() => setMoveItemTarget(v)}
+                                        className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-violet-50 hover:text-violet-600">
+                                            <FolderOpen className="h-3.5 w-3.5" />
+                                          </button>
+                                          <button
+                                        type="button"
+                                        title={t('移出归档')}
+                                        onClick={() => setDeleteItemTarget(v)}
+                                        className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600">
+                                            <Trash2 className="h-3.5 w-3.5" />
+                                          </button>
+                                        </>
+                                      }
                                     </div>
                                   </td>
                                 </tr>);
@@ -2734,12 +2989,16 @@ export function ExpenseModule() {
                   'bg-emerald-50 text-emerald-700' :
                   a.status === 'rejected' ?
                   'bg-rose-50 text-rose-700' :
+                  a.status === 'draft' ?
+                  'bg-slate-100 text-slate-600' :
                   'bg-amber-50 text-amber-700';
                   const statusLabel =
                   a.status === 'approved' ?
                   t('已通过') :
                   a.status === 'rejected' ?
                   t('已驳回') :
+                  a.status === 'draft' ?
+                  t('草稿') :
                   t('审批中');
                   const statusIcon =
                   a.status === 'approved' ?
@@ -2797,11 +3056,18 @@ export function ExpenseModule() {
                       </div>);
 
                 })}
+                  {approvals.length === 0 &&
+                    <div className="flex h-full min-h-64 flex-col items-center justify-center px-6 text-center text-slate-400">
+                      <ClipboardCheck className="mb-3 h-11 w-11 text-slate-300" />
+                      <p className="text-sm font-medium text-slate-600">{t('暂无报销申请')}</p>
+                      <p className="mt-1 text-xs">{t('关联发票与凭证后即可创建报销单')}</p>
+                    </div>
+                  }
                 </div>
               </div>
 
               {/* RIGHT: Approval detail */}
-              {selectedApproval && (() => {
+              {selectedApproval ? (() => {
               const meta = deriveWeComMeta(selectedApproval);
               const statusLabel =
               selectedApproval.status === 'approved' ? t('已通过') :
@@ -3077,7 +3343,20 @@ export function ExpenseModule() {
                     </div>
                   </div>
                 </div>);
-              })()}
+              })() :
+                <div className="flex flex-1 flex-col items-center justify-center rounded-3xl bg-white text-center elevation-1">
+                  <ClipboardCheck className="mb-3 h-14 w-14 text-slate-200" />
+                  <p className="text-sm font-medium text-slate-600">{t('暂无可查看的报销申请')}</p>
+                  <p className="mt-1 text-xs text-slate-400">{t('请先在凭证管理中完成关联，再新建报销单')}</p>
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="mt-4 rounded-full bg-emerald-600 text-white hover:bg-emerald-700"
+                    onClick={() => openReimbursementDialog()}>
+                    <Plus className="h-3.5 w-3.5" /> {t('新建报销单')}
+                  </Button>
+                </div>
+              }
             </div>
           }
 
@@ -3122,28 +3401,19 @@ export function ExpenseModule() {
                   </div>
                   <div className="flex p-1 bg-slate-100 rounded-full">
                     {[
+                  { l: '本月', ...getMonthRange() },
+                  { l: '上月', ...getMonthRange(-1) },
                   {
-                    l: '本月',
-                    s: '2026-05-01',
-                    e: '2026-05-31'
-                  },
-                  {
-                    l: '上月',
-                    s: '2026-04-01',
-                    e: '2026-04-30'
-                  },
-                  {
-                    l: 'Q2',
-                    s: '2026-04-01',
-                    e: '2026-06-30'
+                    l: `Q${Math.floor(new Date().getMonth() / 3) + 1}`,
+                    ...getCurrentQuarterRange()
                   }].
                   map((p) =>
                   <button
                     key={p.l}
                     onClick={() =>
                     setDateRange({
-                      start: p.s,
-                      end: p.e
+                      start: p.start,
+                      end: p.end
                     })
                     }
                     className="px-3 py-1 text-xs text-slate-600 hover:bg-white hover:shadow-sm rounded-full transition-all">
@@ -3152,6 +3422,11 @@ export function ExpenseModule() {
                       </button>
                   )}
                   </div>
+                  {invalidDateRange &&
+                    <p className="w-full text-xs text-rose-600">
+                      {t('开始日期不能晚于结束日期，请重新选择日期区间。')}
+                    </p>
+                  }
                 </div>
               </div>
 
@@ -3363,7 +3638,9 @@ export function ExpenseModule() {
                   <input
                     value={reimbursementApplicant}
                     onChange={(event) => setReimbursementApplicant(event.target.value)}
-                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 outline-none transition-all focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                    disabled={!canSubmitOnBehalf}
+                    title={!canSubmitOnBehalf ? t('申请人由当前登录账号确定') : undefined}
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 outline-none transition-all focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:text-slate-500"
                     placeholder={t('申请人姓名')} />
                 </label>
                 <label className="block">
@@ -3382,7 +3659,9 @@ export function ExpenseModule() {
                   <input
                     value={reimbursementCreatorUserid}
                     onChange={(event) => setReimbursementCreatorUserid(event.target.value)}
-                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 outline-none transition-all focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100"
+                    disabled={!canSubmitOnBehalf}
+                    title={!canSubmitOnBehalf ? t('仅具有代提交权限的用户可以指定企业微信提单人') : undefined}
+                    className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-800 outline-none transition-all focus:border-blue-300 focus:bg-white focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:text-slate-500"
                     placeholder={t('留空则用系统默认提单人')} />
                 </label>
                 <label className="col-span-2 block">
@@ -3408,7 +3687,11 @@ export function ExpenseModule() {
                         current.includes(email) ? current.filter((item) => item !== email) : [...current, email],
                       )
                     }
-                    emptyHint={t('「邮箱管理」暂无已启用邮箱，可前往邮箱管理页配置后再选择收件人。')}
+                    emptyHint={
+                      mailboxLoadError
+                        ? t('邮箱列表加载失败：{message}', { message: mailboxLoadError })
+                        : t('「邮箱管理」暂无已启用邮箱，可前往邮箱管理页配置后再选择收件人。')
+                    }
                   />
                 </div>
                 <div className="col-span-2">
@@ -3426,7 +3709,11 @@ export function ExpenseModule() {
                         current.includes(email) ? current.filter((item) => item !== email) : [...current, email],
                       )
                     }
-                    emptyHint={t('暂无可选抄送邮箱（同上，来自「邮箱管理」已启用邮箱）。')}
+                    emptyHint={
+                      mailboxLoadError
+                        ? t('邮箱列表加载失败：{message}', { message: mailboxLoadError })
+                        : t('暂无可选抄送邮箱（同上，来自「邮箱管理」已启用邮箱）。')
+                    }
                   />
                 </div>
               </div>
@@ -4089,7 +4376,7 @@ export function ExpenseModule() {
           </DialogContent>
         </Dialog>
 
-        {/* 归档凭证 · 删除确认 */}
+        {/* 归档凭证 · 移出确认 */}
         <Dialog
           open={deleteItemTarget !== null}
           onOpenChange={(open) => {
@@ -4097,9 +4384,9 @@ export function ExpenseModule() {
           }}>
           <DialogContent className="w-full sm:max-w-sm gap-0 overflow-hidden rounded-3xl border-0 bg-white p-0 elevation-3">
             <DialogHeader className="px-5 py-4 text-left">
-              <DialogTitle className="text-base font-semibold text-slate-900">{t('删除归档凭证')}</DialogTitle>
+              <DialogTitle className="text-base font-semibold text-slate-900">{t('移出归档')}</DialogTitle>
               <DialogDescription className="mt-1 text-xs leading-relaxed text-slate-500">
-                {t('确认删除报销凭证「{name}」（{id} · ¥{amount}）？删除后将从归档列表移除，该操作不可撤销。', {
+                {t('确认将报销凭证「{name}」（{id} · ¥{amount}）移出归档列表？原始发票与付款凭证仍会保留，后续可通过重新归类恢复。', {
                   name: deleteItemTarget?.vendor ?? '',
                   id: deleteItemTarget?.id ?? '',
                   amount: deleteItemTarget?.amount.toFixed(2) ?? '',
@@ -4116,10 +4403,10 @@ export function ExpenseModule() {
               <button
                 type="button"
                 onClick={() => {
-                  if (deleteItemTarget) deleteArchiveVoucher(deleteItemTarget.id);
+                  if (deleteItemTarget) void deleteArchiveVoucher(deleteItemTarget.id);
                 }}
                 className="inline-flex items-center gap-1.5 rounded-full bg-rose-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-rose-700">
-                <Trash2 className="h-4 w-4" /> {t('删除')}
+                <Trash2 className="h-4 w-4" /> {t('移出归档')}
               </button>
             </DialogFooter>
           </DialogContent>

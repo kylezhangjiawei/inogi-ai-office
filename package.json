@@ -9,7 +9,8 @@
     "dev": "node ./scripts/dev-all.mjs",
     "dev:web": "vite",
     "dev:api": "npm --prefix apps/api run start:dev",
-    "build:api": "npm --prefix apps/api run build"
+    "build:api": "npm --prefix apps/api run build",
+    "test:expense": "npm --prefix apps/api run test:expense"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
