@@ -395,7 +395,7 @@ export async function linkPurchaseOrder(
 // ── 物料 ──────────────────────────────────────────────────────────────────────
 
 export async function listMaterials(signal?: AbortSignal): Promise<Material[]> {
-  const data = await request<Paged<Material>>("/materials?pageSize=500", { signal });
+  const data = await request<Paged<Material>>("/materials?pageSize=10000", { signal });
   return data.items;
 }
 

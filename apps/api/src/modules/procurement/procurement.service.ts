@@ -798,7 +798,8 @@ export class ProcurementService {
       ];
     }
     const page = Math.max(1, Number(query.page) || 1);
-    const pageSize = Math.min(500, Math.max(1, Number(query.pageSize) || 200));
+    // 物料主档全量供前端树形表使用（数千条量级，序列化后 <2MB）
+    const pageSize = Math.min(10000, Math.max(1, Number(query.pageSize) || 200));
 
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.procMaterial.count({ where }),
