@@ -1,7 +1,7 @@
 // 采购工作台（资产视角 · 物料库）：统计条 + 产品线Tab + 分类总览网格 + 物料瀑布流 + 物料详情抽屉。
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { Boxes, ClipboardCheck, FolderTree, PackageCheck, RefreshCw, Search, Truck, Upload } from "lucide-react";
+import { Boxes, ClipboardCheck, FolderTree, PackageCheck, Plus, RefreshCw, Search, Truck, Upload } from "lucide-react";
 import { cn } from "../components/ui/utils";
 import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
@@ -10,7 +10,7 @@ import { PageHeader, StatCell, stageToast } from "./components/common";
 import { MaterialCard } from "./components/MaterialCard";
 import { MaterialDetailDrawer } from "./components/MaterialDetailDrawer";
 import { PriceHistoryModal } from "./components/PriceHistoryModal";
-import { CategoryManageModal, ImportMaterialsModal, ReviewQueueDrawer } from "./components/modals";
+import { CategoryManageModal, ImportMaterialsModal, MaterialFormModal, ReviewQueueDrawer } from "./components/modals";
 
 const TRANSIT: ProcStatus[] = ["in_transit", "partial_arrival"];
 
@@ -26,7 +26,13 @@ export function MaterialWorkbenchPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [catManageOpen, setCatManageOpen] = useState(false);
+  const [createOpen, setCreateOpen] = useState(false);
   const flowRef = useRef<HTMLDivElement>(null);
+
+  // 编辑落库刷新后，已打开的详情抽屉要换成最新对象（否则停留在改前数据）
+  useEffect(() => {
+    setDetail((cur) => (cur ? materials.find((m) => m.id === cur.id) ?? null : cur));
+  }, [materials]);
 
   const plMaterials = useMemo(() => materials.filter((m) => productLine === "all" || m.productLine === productLine), [materials, productLine]);
   // 物料名 → 分类的索引，用于把任务归到分类下
@@ -74,6 +80,7 @@ export function MaterialWorkbenchPage() {
         description={t("物料主数据与库存/在途资产视角：按产品线与分类总览，管理审核、缺料预警与历史价格。")}
         right={
           <div className="flex flex-wrap items-center gap-2">
+            <button type="button" onClick={() => setCreateOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><Plus className="h-4 w-4" />{t("新增物料")}</button>
             <button type="button" onClick={() => setImportOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><Upload className="h-4 w-4" />{t("批量导入")}</button>
             <button type="button" onClick={() => setReviewOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><ClipboardCheck className="h-4 w-4" />{t("审核队列")}{stats.pending > 0 && <span className="rounded-full bg-amber-100 px-1.5 text-[10px] text-amber-700">{stats.pending}</span>}</button>
             <button type="button" onClick={() => setCatManageOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><FolderTree className="h-4 w-4" />{t("分类管理")}</button>
@@ -150,6 +157,7 @@ export function MaterialWorkbenchPage() {
       {detail && <MaterialDetailDrawer material={detail} onClose={() => setDetail(null)} onOpenTask={(taskId) => navigate(`/proc-cockpit?task=${encodeURIComponent(taskId)}`)} />}
       {history && <PriceHistoryModal materialName={history.name} open onClose={() => setHistory(null)} />}
       {importOpen && <ImportMaterialsModal onClose={() => setImportOpen(false)} />}
+      {createOpen && <MaterialFormModal onClose={() => setCreateOpen(false)} />}
       {reviewOpen && <ReviewQueueDrawer onClose={() => setReviewOpen(false)} />}
       {catManageOpen && <CategoryManageModal onClose={() => setCatManageOpen(false)} />}
     </div>

@@ -180,6 +180,17 @@ export async function getProcSummary(signal?: AbortSignal): Promise<ProcSummary>
   return request<ProcSummary>("/summary", { signal });
 }
 
+/** 负责人候选（转派/建单人员选择）：全部启用用户，采购部排前。 */
+export interface BuyerCandidate {
+  id: string;
+  name: string;
+  department?: string;
+}
+
+export async function listBuyerCandidates(signal?: AbortSignal): Promise<BuyerCandidate[]> {
+  return request<BuyerCandidate[]>("/buyers", { signal });
+}
+
 export interface CreateProcTaskInput {
   materialId?: string;
   materialName: string;
@@ -193,6 +204,8 @@ export interface CreateProcTaskInput {
   needSample?: boolean;
   needDate?: string;
   deadline?: string;
+  buyer?: string;
+  buyerUserId?: string;
   requesterDept?: string;
   consumableNote?: string;
   attachments?: { fileName: string; fileUrl: string; fileKey?: string; fileSize?: number; mimeType?: string; kind?: "drawing" | "quote" | "other" }[];
@@ -200,6 +213,27 @@ export interface CreateProcTaskInput {
 
 export async function createProcTask(input: CreateProcTaskInput): Promise<ProcurementTask> {
   return request<ProcurementTask>("/tasks", { method: "POST", body: JSON.stringify(input) });
+}
+
+/** AI 建单解析出的草稿：不落库，用户在表单里确认/修改后走 createProcTask。 */
+export interface AiTaskDraft {
+  materialName?: string;
+  materialId?: string;
+  spec?: string;
+  unit?: string;
+  quantity?: number;
+  method?: ProcMethod;
+  purchaseLink?: string;
+  needDate?: string;
+  deadline?: string;
+  priority?: "high" | "medium" | "low";
+  needSample?: boolean;
+}
+
+export async function aiParseProcTask(
+  text: string,
+): Promise<{ draft: AiTaskDraft; model: string; usedAI: boolean }> {
+  return request("/tasks/ai-parse", { method: "POST", body: JSON.stringify({ text }) });
 }
 
 /** 研发侧转采购：必须带附件，后端会校验。 */
@@ -229,6 +263,30 @@ export async function uploadProcurementAttachment(file: File): Promise<Procureme
   const response = await authFetch("/api/files/upload", { method: "POST", body: form });
   if (!response.ok) throw new Error(await readErrorMessage(response, `附件「${file.name}」上传失败`));
   return (await response.json()) as ProcurementUploadResult;
+}
+
+/** 任务信息编辑（与后端 UpdateProcTaskDto 对齐；仅提交有变化的字段）。 */
+export interface UpdateProcTaskInput {
+  quantity?: number;
+  priority?: "high" | "medium" | "low";
+  needDate?: string;
+  deadline?: string;
+  expectedArrivalDate?: string;
+  paymentDate?: string;
+  paymentStatus?: PaymentStatus;
+  paymentNote?: string;
+  consumableNote?: string;
+  purchaseLink?: string;
+}
+
+export async function updateProcTask(
+  id: string,
+  input: UpdateProcTaskInput,
+): Promise<ProcurementTask> {
+  return request<ProcurementTask>(`/tasks/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
 }
 
 export async function confirmProcTask(id: string): Promise<ProcurementTask> {
@@ -261,6 +319,18 @@ export async function reassignProcTask(
   return request<ProcurementTask>(`/tasks/${encodeURIComponent(id)}/reassign`, {
     method: "POST",
     body: JSON.stringify({ buyer, buyerUserId }),
+  });
+}
+
+/** 批量转派：后端事务原子执行，整体成功或整体回滚。 */
+export async function batchReassignProcTasks(
+  taskIds: string[],
+  buyer: string,
+  buyerUserId?: string,
+): Promise<{ updated: number }> {
+  return request<{ updated: number }>("/tasks/batch-reassign", {
+    method: "POST",
+    body: JSON.stringify({ taskIds, buyer, buyerUserId }),
   });
 }
 
@@ -336,5 +406,51 @@ export async function reviewMaterial(
   return request<Material>(`/materials/${encodeURIComponent(id)}/review`, {
     method: "PATCH",
     body: JSON.stringify({ reviewStatus, reviewNote }),
+  });
+}
+
+/** 批量导入的单条物料（与后端 UpsertMaterialDto 对齐；新建条目落为待审核）。 */
+export interface MaterialImportItem {
+  name: string;
+  spec?: string;
+  unit?: string;
+  category?: string;
+  productLine?: string;
+  erpCode?: string;
+  tpInventoryCode?: string;
+  isSpecial?: boolean;
+  isConsumable?: boolean;
+  safeStock?: number;
+  remark?: string;
+}
+
+/**
+ * 新增/编辑物料主数据。传 id 走更新，不传走新建（reviewSource=manual，落待审核）。
+ * 更新为部分更新：未传字段保留原值，想清空某字段须显式传空串。
+ */
+export async function upsertProcMaterial(
+  input: MaterialImportItem,
+  id?: string,
+): Promise<Material> {
+  return request<Material>(id ? `/materials/${encodeURIComponent(id)}` : "/materials", {
+    method: id ? "PUT" : "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function importProcMaterials(
+  items: MaterialImportItem[],
+): Promise<{ created: number; updated: number; total: number }> {
+  return request("/materials/import", { method: "POST", body: JSON.stringify({ items }) });
+}
+
+/** 分类重命名/合并：目标分类已存在即合并。 */
+export async function renameProcCategory(
+  from: string,
+  to: string,
+): Promise<{ updated: number }> {
+  return request("/materials/categories/rename", {
+    method: "POST",
+    body: JSON.stringify({ from, to }),
   });
 }

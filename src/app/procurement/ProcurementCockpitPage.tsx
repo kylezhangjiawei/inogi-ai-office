@@ -6,12 +6,14 @@ import { Activity, AlertTriangle, ClipboardList, Download, Grid3x3, LayoutGrid, 
 import { cn } from "../components/ui/utils";
 import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
+import { toast } from "sonner";
 import { PROC_PRODUCT_LINES, daysFromToday, taskMainDate, taskRequester, useProcurementData, type ProcStatus, type ProcurementTask } from "./data";
-import { PersonAvatar, StatCell, stageToast } from "./components/common";
+import { PersonAvatar, StatCell } from "./components/common";
 import { ProcurementTaskCard } from "./components/ProcurementTaskCard";
 import { useProcTaskAction } from "./components/taskActions";
 import { TaskDetailDrawer } from "./components/TaskDetailDrawer";
-import { AiCreateModal, NewRequirementModal } from "./components/modals";
+import { AiCreateModal, BatchReassignModal, NewRequirementModal } from "./components/modals";
+import { exportProcTasksXlsx } from "./exportTasks";
 
 const ACTIVE_STATUSES: ProcStatus[] = ["pending_confirm", "pending_inquiry", "inquiring", "pending_sample", "testing", "priced", "pending_purchase", "in_transit", "partial_arrival"];
 const TRANSIT_STATUSES: ProcStatus[] = ["in_transit", "partial_arrival"];
@@ -79,6 +81,8 @@ export function ProcurementCockpitPage() {
   const [person, setPerson] = useState<string | null>(null);
   const [aiOpen, setAiOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [kw, setKw] = useState("");
   // 决策类动作（选定报价 / 测试结论）在卡片上点只打开详情，由详情提供报价与图纸依据。
   // 必须声明在 setOpen 之后——放前面会命中 TDZ，构建器不报错但运行时直接白屏。
   const taskAction = useProcTaskAction({ onOpenDetail: setOpen });
@@ -190,6 +194,8 @@ export function ProcurementCockpitPage() {
     });
     if (person) list = list.filter((t) => t.buyer === person || t.rdContact === person || taskRequester(t).name === person);
     if (materialParam) list = list.filter((t) => t.materialName === materialParam);
+    const keyword = kw.trim().toLowerCase();
+    if (keyword) list = list.filter((t) => `${t.code} ${t.materialName} ${t.spec} ${t.buyer} ${t.rdContact ?? ""} ${taskRequester(t).name}`.toLowerCase().includes(keyword));
     // 待处理置顶；其余按主日期升序
     return [...list].sort((a, b) => {
       if ((a.status === "pending_confirm") !== (b.status === "pending_confirm")) return a.status === "pending_confirm" ? -1 : 1;
@@ -197,14 +203,14 @@ export function ProcurementCockpitPage() {
       const db = taskMainDate(b).date ?? "9999";
       return da.localeCompare(db);
     });
-  }, [lineTasks, stat, person, materialParam]);
+  }, [lineTasks, stat, person, materialParam, kw]);
 
   const toggleStat = (k: StatKey) => setStat((cur) => (cur === k ? null : k));
 
   // 瀑布流分批渲染：首屏一批，滚动到底部哨兵自动追加；筛选条件变化重置
   const [visibleCount, setVisibleCount] = useState(WATERFALL_PAGE_SIZE);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => { setVisibleCount(WATERFALL_PAGE_SIZE); }, [line, person, stat, materialParam]);
+  useEffect(() => { setVisibleCount(WATERFALL_PAGE_SIZE); }, [line, person, stat, materialParam, kw]);
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || visibleCount >= filtered.length) return;
@@ -236,9 +242,18 @@ export function ProcurementCockpitPage() {
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <button type="button" onClick={stageToast} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Download className="h-4 w-4" />{t('导出')}</button>
+          <button
+            type="button"
+            title={t('导出当前筛选下的任务列表（Excel）')}
+            onClick={() => {
+              void exportProcTasksXlsx(filtered)
+                .then((count) => toast.success(t('已导出 {count} 个任务', { count })))
+                .catch((err) => toast.error(err instanceof Error ? err.message : t('导出失败')));
+            }}
+            className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"
+          ><Download className="h-4 w-4" />{t('导出')}</button>
           <button type="button" onClick={() => setAiOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Sparkles className="h-4 w-4" />{t('AI 建单')}</button>
-          <button type="button" onClick={stageToast} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Users className="h-4 w-4" />{t('批量转派')}</button>
+          <button type="button" onClick={() => setBatchOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Users className="h-4 w-4" />{t('批量转派')}</button>
           <button type="button" onClick={() => setNewOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Plus className="h-4 w-4" />{t('新建需求')}</button>
         </div>
       </div>
@@ -267,7 +282,14 @@ export function ProcurementCockpitPage() {
         {materialParam && (
           <button type="button" onClick={() => setParams((p) => { const n = new URLSearchParams(p); n.delete("material"); return n; }, { replace: true })} className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600">{t('物料')}：<AutoTranslatedText text={materialParam} /> ✕</button>
         )}
-        <span className="ml-auto text-xs text-slate-400">{filtered.length} {t('个任务')}</span>
+        <div className="ml-auto flex items-center gap-2">
+          <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2 py-1 text-xs">
+            <Search className="h-3.5 w-3.5 text-slate-400" />
+            <input value={kw} onChange={(e) => setKw(e.target.value)} placeholder={t('搜索单号 / 物料 / 人员')} className="w-40 bg-transparent outline-none placeholder:text-slate-400" />
+            {kw && <button type="button" onClick={() => setKw("")} className="text-slate-400 hover:text-slate-600">✕</button>}
+          </div>
+          <span className="text-xs text-slate-400">{filtered.length} {t('个任务')}</span>
+        </div>
       </div>
       </>
       )}
@@ -344,6 +366,7 @@ export function ProcurementCockpitPage() {
       {taskAction.modal}
       {aiOpen && <AiCreateModal onClose={() => setAiOpen(false)} />}
       {newOpen && <NewRequirementModal onClose={() => setNewOpen(false)} />}
+      {batchOpen && <BatchReassignModal tasks={lineTasks} onClose={() => setBatchOpen(false)} />}
     </div>
   );
 }

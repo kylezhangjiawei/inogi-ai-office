@@ -34,7 +34,7 @@ import {
   type Quotation,
 } from "../../lib/procurementApi";
 import { refreshProcurement } from "../data";
-import { fmtMoney } from "./common";
+import { BuyerSuggestDatalist, fmtMoney, useBuyerDirectory } from "./common";
 
 type FormKind = "quote" | "select" | "order" | "receive" | "reassign" | "confirm" | "test";
 
@@ -215,6 +215,7 @@ function ActionModal({
 }) {
   const { t } = useI18n();
   const { kind, task, confirm } = pending;
+  const { resolveUserId } = useBuyerDirectory();
 
   const [supplierName, setSupplierName] = useState("");
   const [unitPrice, setUnitPrice] = useState("");
@@ -292,7 +293,8 @@ function ActionModal({
         toast.error(t("请填写采购负责人"));
         return;
       }
-      void onSubmit(() => reassignProcTask(task.id, buyer.trim()), t("已转派"));
+      // 命中用户目录时同步落 buyerUserId（同名冲突时只存名字）
+      void onSubmit(() => reassignProcTask(task.id, buyer.trim(), resolveUserId(buyer.trim())), t("已转派"));
     }
   };
 
@@ -424,7 +426,7 @@ function ActionModal({
           )}
 
           {kind === "reassign" && (
-            <div><span className={label}>{t("采购负责人")}</span><input value={buyer} onChange={(e) => setBuyer(e.target.value)} className={field} /></div>
+            <div><span className={label}>{t("采购负责人")}</span><input value={buyer} onChange={(e) => setBuyer(e.target.value)} list="proc-buyer-list" className={field} /><BuyerSuggestDatalist /></div>
           )}
         </div>
 

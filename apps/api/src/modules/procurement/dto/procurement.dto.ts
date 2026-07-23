@@ -230,6 +230,14 @@ export class ReassignProcTaskDto {
   buyer!: string;
 }
 
+/** 批量转派：事务内整体成功或整体回滚。 */
+export class BatchReassignDto extends ReassignProcTaskDto {
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsString({ each: true })
+  taskIds!: string[];
+}
+
 /**
  * 手工登记到货（过渡期）。
  * T+ 接通后到货以同步为准，此入口应改为只读——届时删掉本 DTO 与对应端点即可。
@@ -388,6 +396,27 @@ export class UpsertMaterialDto {
   @IsString()
   @MaxLength(500)
   remark?: string;
+}
+
+/** AI 建单：粘贴自然语言需求（或含商品链接），解析出建单草稿。 */
+export class AiParseTaskDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(4000)
+  text!: string;
+}
+
+/** 分类重命名/合并：目标名已存在即为合并，两个分类下的物料归到一起。 */
+export class RenameCategoryDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  from!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  to!: string;
 }
 
 export class ReviewMaterialDto {

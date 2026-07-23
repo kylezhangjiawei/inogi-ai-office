@@ -2,6 +2,8 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Request 
 
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import {
+  AiParseTaskDto,
+  BatchReassignDto,
   CancelProcTaskDto,
   CreateProcTaskDto,
   CreateQuotationDto,
@@ -10,6 +12,7 @@ import {
   ProcAttachmentInputDto,
   ReassignProcTaskDto,
   ReceiveGoodsDto,
+  RenameCategoryDto,
   ReviewMaterialDto,
   TransferFromRdDto,
   TransitionProcTaskDto,
@@ -52,6 +55,12 @@ export class ProcurementController {
     return this.service.summary();
   }
 
+  /** 负责人候选目录（转派/建单人员选择），读操作与其他采购读接口一致仅需登录。 */
+  @Get('buyers')
+  listBuyers() {
+    return this.service.listBuyerCandidates();
+  }
+
   @Get('tasks/:id')
   getTask(@Param('id') id: string) {
     return this.service.getTask(id);
@@ -61,6 +70,13 @@ export class ProcurementController {
   @Permissions('proc-task:create')
   createTask(@Body() dto: CreateProcTaskDto, @Request() req: AuthedRequest) {
     return this.service.createTask(dto, this.actor(req));
+  }
+
+  /** AI 建单解析：只产出草稿不落库，前端确认后仍走 POST /tasks。 */
+  @Post('tasks/ai-parse')
+  @Permissions('proc-task:create')
+  aiParseTask(@Body() dto: AiParseTaskDto) {
+    return this.service.aiParseTask(dto);
   }
 
   /** 研发侧「转采购」入口：研发人员持 proc-task:transfer 即可提交。 */
@@ -117,6 +133,13 @@ export class ProcurementController {
     @Request() req: AuthedRequest,
   ) {
     return this.service.reassignTask(id, dto, this.actor(req));
+  }
+
+  /** 批量转派：事务原子执行（终态任务或不存在的 id 会让整批回滚）。 */
+  @Post('tasks/batch-reassign')
+  @Permissions('proc-task:reassign')
+  batchReassign(@Body() dto: BatchReassignDto, @Request() req: AuthedRequest) {
+    return this.service.batchReassign(dto, this.actor(req));
   }
 
   @Delete('tasks/:id')
@@ -221,6 +244,13 @@ export class ProcurementController {
   @Permissions('material:import')
   importMaterials(@Body() dto: ImportMaterialsDto, @Request() req: AuthedRequest) {
     return this.service.importMaterials(dto, this.actor(req));
+  }
+
+  /** 分类重命名/合并（分类无独立表，批量改物料冗余字段）。 */
+  @Post('materials/categories/rename')
+  @Permissions('material:import')
+  renameCategory(@Body() dto: RenameCategoryDto) {
+    return this.service.renameCategory(dto);
   }
 
   /** 灌入演示数据：空库时一次性初始化，force=true 才清空重灌。 */
