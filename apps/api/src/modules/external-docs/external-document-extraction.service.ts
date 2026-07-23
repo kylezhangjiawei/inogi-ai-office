@@ -24,6 +24,21 @@ export type ExternalDocumentExtraction = {
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'bmp']);
 const TEXT_EXTENSIONS = new Set(['txt', 'md', 'csv', 'json', 'xml']);
 
+/**
+ * Word 表单常用 Wingdings 2 的方块表示复选框。Mammoth 会把它们映射成
+ * 普通几何方块（□ / ■），在网页正文中容易被误认为乱码；同时兼容部分
+ * 旧解析器可能遗留的私有区码位，并统一补足与后续文字之间的间距。
+ */
+export function normalizeDocxCheckboxSymbols(text: string) {
+  return text
+    .replace(/[\u25A1\uF0A3]/g, '☐')
+    .replace(/[\u25A0\uF052\uF0A2]/g, '☑')
+    .replace(/\uF054/g, '☒')
+    .replace(/(\S)([☐☑☒])/g, '$1 $2')
+    .replace(/([☐☑☒])(?=[^\s\uFE0F])/g, '$1 ')
+    .replace(/[ \t]{2,}/g, ' ');
+}
+
 @Injectable()
 export class ExternalDocumentExtractionService {
   constructor(private readonly ocrService: OcrService) {}
@@ -130,7 +145,9 @@ export class ExternalDocumentExtractionService {
   }
 
   private nativeResult(text: string, provider: string, extension: string): ExternalDocumentExtraction {
-    const normalized = this.normalizeText(text);
+    const normalized = this.normalizeText(
+      provider === 'docx_text' ? normalizeDocxCheckboxSymbols(text) : text,
+    );
     if (!normalized) {
       throw new BadRequestException('文件中没有提取到可比对文字');
     }

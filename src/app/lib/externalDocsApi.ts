@@ -68,6 +68,8 @@ export interface ExternalComparison {
   differences: ExternalDifference[];
   aiModel: string | null;
   aiProvider: string | null;
+  aiGenerationMode: 'ai' | 'fallback';
+  aiWarning: string | null;
   ocrProvider: string | null;
   ocrConfidence: number | null;
   errorMessage: string | null;
@@ -119,6 +121,33 @@ export async function getExternalDocumentVersionDownload(versionId: string, revi
     url: string;
     expiresIn: number;
   }>(response, '读取资料原文件失败');
+}
+
+export async function getExternalDocumentVersionPreviewContent(versionId: string, signal?: AbortSignal) {
+  const response = await authFetch(
+    `/api/external-docs/versions/${encodeURIComponent(versionId)}/preview-content`,
+    { signal },
+  );
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, '读取资料原文预览失败'));
+  }
+  return response.blob();
+}
+
+export async function getExternalDocumentVersionDownloadContent(
+  versionId: string,
+  revision?: number,
+  signal?: AbortSignal,
+) {
+  const query = revision == null ? '' : `?revision=${encodeURIComponent(String(revision))}`;
+  const response = await authFetch(
+    `/api/external-docs/versions/${encodeURIComponent(versionId)}/download-content${query}`,
+    { signal },
+  );
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response, '下载资料原文件失败'));
+  }
+  return response.blob();
 }
 
 export async function replaceExternalComparisonCandidate(comparisonId: string, input: {
@@ -189,7 +218,13 @@ export async function regenerateExternalComparisonSummary(comparisonId: string) 
     method: 'POST',
     body: JSON.stringify({}),
   });
-  return parseResponse<{ summary: string; model: string; provider: string }>(response, '重新生成摘要失败');
+  return parseResponse<{
+    summary: string;
+    model: string;
+    provider: string;
+    generationMode: 'ai' | 'fallback';
+    warning?: string;
+  }>(response, '重新生成摘要失败');
 }
 
 export async function archiveExternalComparison(comparisonId: string, summary: string) {

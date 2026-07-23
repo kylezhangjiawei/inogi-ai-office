@@ -749,6 +749,8 @@ model ExternalDocumentComparison {
   differences        Json             @default("[]")
   aiModel             String?
   aiProvider          String?
+  aiGenerationMode    String?
+  aiWarning           String?          @db.Text
   ocrProvider         String?
   ocrConfidence       Float?
   errorMessage        String?          @db.Text
