@@ -33,6 +33,8 @@ const AfterSalesDetails = lazyNamed(() => import("./AfterSalesDetails"), "AfterS
 const AfterSalesForm = lazyNamed(() => import("./AfterSalesForm"), "AfterSalesForm");
 const AfterSalesList = lazyNamed(() => import("./AfterSalesList"), "AfterSalesList");
 const AiModelManagementPage = lazyNamed(() => import("./AiModelManagementPage"), "AiModelManagementPage");
+const AiUsageDashboardPage = lazyNamed(() => import("./AiUsageDashboardPage"), "AiUsageDashboardPage");
+const ContentSlotsPage = lazyNamed(() => import("./ContentSlotsPage"), "ContentSlotsPage");
 const ChatAnalyticsPage = lazyNamed(() => import("./ChatAnalyticsPage"), "ChatAnalyticsPage");
 const MobileChatAnalyticsPage = lazyNamed(() => import("./MobileChatAnalyticsPage"), "MobileChatAnalyticsPage");
 const I18nManagementPage = lazyNamed(() => import("./I18nManagementPage"), "I18nManagementPage");
@@ -92,6 +94,7 @@ const RDSheetPage = lazyNamed(() => import("./RDSheetPage"), "RDSheetPage");
 const RouteManagementPage = lazyNamed(() => import("./RouteManagementPage"), "RouteManagementPage");
 const UIDesignPage = lazyNamed(() => import("./UIDesignPage"), "UIDesignPage");
 const ImageLibraryPage = lazyNamed(() => import("./ImageLibraryPage"), "ImageLibraryPage");
+const VideoLibraryPage = lazyNamed(() => import("./VideoLibraryPage"), "VideoLibraryPage");
 const DictionaryList = lazyNamed(() => import("./DictionaryList"), "DictionaryList");
 const UserManagement = lazyNamed(() => import("./UserManagement"), "UserManagement");
 
@@ -371,6 +374,8 @@ const router = createBrowserRouter([
       { path: "contract-review", element: makeLazyProtected(<ContractReviewPage />, "page:contract-review") },
       { path: "mailbox-management", element: makeLazyProtected(<MailboxManagementPage />, "page:mailbox-management") },
       { path: "ai-model-management", element: makeLazyProtected(<AiModelManagementPage />, "page:ai-model-management") },
+      { path: "ai-usage", element: makeLazyProtected(<AiUsageDashboardPage />, "page:ai-usage-dashboard") },
+      { path: "content-slots", element: makeLazyProtected(<ContentSlotsPage />, "page:content-slots") },
       { path: "chat-analytics", element: makeLazyProtected(<ChatAnalyticsPage />, "page:chat-analytics") },
       { path: "i18n-management", element: makeLazyProtected(<I18nManagementPage />, "i18n:manage") },
       { path: "ocr-config-management", element: makeLazyProtected(<OcrConfigManagementPage />, "page:ocr-config-management") },
@@ -395,6 +400,7 @@ const router = createBrowserRouter([
       { path: "settings", element: makeLazyProtected(<DictionaryList />, "page:settings") },
       { path: "ui-design", element: makeLazyProtected(<UIDesignPage />, "page:ui-design") },
       { path: "image-library", element: makeLazyProtected(<ImageLibraryPage />, "page:image-library") },
+      { path: "video-library", element: makeLazyProtected(<VideoLibraryPage />, "page:video-library") },
       { path: "*", Component: () => <Navigate to="/" replace /> },
     ],
   },

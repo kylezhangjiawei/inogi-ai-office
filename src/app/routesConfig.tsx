@@ -5,6 +5,8 @@ import {
   Bot,
   BadgeCheck,
   BookOpen,
+  Clapperboard,
+  Palette,
   Bug,
   Building2,
   CalendarCheck2,
@@ -159,6 +161,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { label: "AI 图像生成", path: "/ui-design", icon: Wand2, requiredPermission: "page:ui-design" },
       { label: "图像作品库", path: "/image-library", icon: Images, requiredPermission: "page:image-library" },
+      { label: "视频作品库", path: "/video-library", icon: Clapperboard, requiredPermission: "page:video-library" },
     ],
   },
   {
@@ -208,6 +211,8 @@ export const navGroups: NavGroup[] = [
     items: [
       { label: "邮箱管理", path: "/mailbox-management", icon: Mail, requiredPermission: "page:mailbox-management" },
       { label: "AI模型管理", path: "/ai-model-management", icon: Bot, requiredPermission: "page:ai-model-management" },
+      { label: "AI使用情况", path: "/ai-usage", icon: BarChart3, requiredPermission: "page:ai-usage-dashboard" },
+      { label: "运营素材管理", path: "/content-slots", icon: Palette, requiredPermission: "page:content-slots" },
       { label: "AI使用与反馈", path: "/chat-analytics", icon: BarChart3, requiredPermission: "page:chat-analytics" },
       { label: "翻译管理", path: "/i18n-management", icon: Languages, requiredPermission: "i18n:manage" },
       { label: "腾讯OCR配置", path: "/ocr-config-management", icon: ScanSearch, requiredPermission: "page:ocr-config-management" },

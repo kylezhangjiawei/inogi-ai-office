@@ -4,6 +4,7 @@ import OpenAI from 'openai';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { ImageGenerationService } from '../image-generation/image-generation.service';
+import { VideoGenerationService } from '../video-generation/video-generation.service';
 import { RagService, type RagUserContext } from '../rag/rag.service';
 import { isWorkspaceAllowed } from '../research-development/rd-workspace.context';
 import { ResearchDevelopmentService } from '../research-development/research-development.service';
@@ -33,6 +34,12 @@ export type ChatToolResult = {
   attachment?: StoredChatAttachment;
 };
 
+/** 工具执行上下文：本轮消息级的附加信息（如用户上传的图片），供需要的工具按需取用 */
+export type ChatToolContext = {
+  /** 本轮用户上传的图片的外部可直连 URL（供 generate_video 作首帧/参考图） */
+  uploadedImageUrls?: string[];
+};
+
 type ToolSpec = {
   definition: OpenAI.Chat.Completions.ChatCompletionTool;
   /** 前端步骤条显示的动作名（如「查询研发任务」） */
@@ -43,6 +50,7 @@ type ToolSpec = {
     args: Record<string, unknown>,
     user: RagUserContext,
     conversationId: string,
+    ctx: ChatToolContext,
   ) => Promise<ChatToolResult>;
 };
 
@@ -50,6 +58,8 @@ type ToolSpec = {
 const TOOL_TIMEOUT_MS = 10_000;
 /** 生图工具超时：上游图像生成 + OSS 落库通常 20s~2min，给足预算 */
 const IMAGE_TOOL_TIMEOUT_MS = 5 * 60 * 1000;
+/** 生视频工具超时：仅出确认卡或提交异步任务（不等生成），但自动提交路径含一次上游 POST（30s），留 45s */
+const VIDEO_TOOL_TIMEOUT_MS = 45_000;
 
 /** generate / editImage 返回值里本工具关心的字段 */
 type GeneratedImagePayload = {
@@ -115,7 +125,7 @@ type PendingActionEntry = {
   conversationId: string;
   /** 关联的 assistant 消息 id（回答落库后回填）；支撑刷新后确认卡按消息恢复 */
   messageId?: string;
-  tool: 'create_task' | 'send_reminder' | 'update_task_progress' | 'approve_task_review';
+  tool: 'create_task' | 'send_reminder' | 'update_task_progress' | 'approve_task_review' | 'generate_video';
   /** 已归一化的执行载荷（确认时直接投给对应服务） */
   payload: Record<string, unknown>;
   card: PendingActionCard;
@@ -138,6 +148,7 @@ export class ChatToolsService {
     private readonly ragService: RagService,
     private readonly rdService: ResearchDevelopmentService,
     private readonly imageGenerationService: ImageGenerationService,
+    private readonly videoGenerationService: VideoGenerationService,
     private readonly fileExportService: ChatFileExportService,
   ) {}
 
@@ -358,6 +369,48 @@ export class ChatToolsService {
       },
       execute: (args, user, conversationId) => this.editImage(args, user, conversationId),
     },
+    generate_video: {
+      label: '生成视频（待确认）',
+      timeoutMs: VIDEO_TOOL_TIMEOUT_MS,
+      definition: {
+        type: 'function',
+        function: {
+          name: 'generate_video',
+          description:
+            '根据文字或图片生成一段视频。三种模式：i2v 图生视频（需 1 张首帧图）、r2v 参考生视频（需 1~9 张参考图）、t2v 文生视频（仅需文字描述）。图片来源有两种：①用户本轮直接上传的图片——此时 image_ids 留空，系统会自动用用户上传的图；②之前 generate_image / edit_image 生成的图——把其 id 放进 image_ids。只要用户上传了图片并要求"根据图/用这张图生成视频"，就用 i2v 且 image_ids 留空。调用后不会直接生成：系统按成本闸门可能生成一张「待确认动作卡」显示预计花费，用户确认后才提交；视频生成需几分钟，完成后通过站内通知告知用户。当用户要求生成视频、把图做成视频、做个短片时使用；同一需求只调用一次。',
+          parameters: {
+            type: 'object',
+            properties: {
+              mode: {
+                type: 'string',
+                enum: ['i2v', 't2v', 'r2v'],
+                description: 'i2v=图生视频(1张首帧) / t2v=文生视频(无需图) / r2v=参考生视频(1~9张参考图)',
+              },
+              prompt: {
+                type: 'string',
+                description: '视频内容描述：画面、动作、镜头、风格等（用户没说的可合理补全）；r2v 可用 [图1][图2] 指代参考图',
+              },
+              image_ids: {
+                type: 'array',
+                items: { type: 'string' },
+                description: '来源图片 id 列表，仅当来源是 generate_image / edit_image 生成的图时才传其 id：i2v 传 1 个 / r2v 传 1~9 个。若来源是用户本轮上传的图片，则留空（系统自动用上传图）；t2v 不传',
+              },
+              resolution: {
+                type: 'string',
+                enum: ['720P', '1080P'],
+                description: '分辨率，默认 720P（1080P 更清晰但更贵）',
+              },
+              duration: {
+                type: 'number',
+                description: '视频时长（秒），3~15，默认 5',
+              },
+            },
+            required: ['mode', 'prompt'],
+          },
+        },
+      },
+      execute: (args, user, conversationId, ctx) => this.generateVideo(args, user, conversationId, ctx),
+    },
   };
 
   /** OpenAI tools 参数（第一期全员可用：三个工具均为只读，暴露面与既有聊天检索一致） */
@@ -375,6 +428,7 @@ export class ChatToolsService {
     rawArgs: string,
     user: RagUserContext,
     conversationId: string,
+    ctx: ChatToolContext = {},
   ): Promise<ChatToolResult> {
     const spec = this.tools[name];
     const startedAt = Date.now();
@@ -395,7 +449,7 @@ export class ChatToolsService {
       const timeoutMs = spec.timeoutMs ?? TOOL_TIMEOUT_MS;
       try {
         result = await Promise.race([
-          spec.execute(args, user, conversationId),
+          spec.execute(args, user, conversationId, ctx),
           new Promise<ChatToolResult>((resolve) =>
             setTimeout(
               () =>
@@ -771,6 +825,132 @@ export class ChatToolsService {
       { buffer, filename: `AI配图-${Date.now()}.${ext}`, mime },
       conversationId,
     );
+  }
+
+  /**
+   * 生成视频：解析来源图 → 评估成本闸门 → 免确认则直接提交异步任务，否则生成待确认卡。
+   * 视频分钟级异步，工具本身不等生成完成；完成后由 VideoGenerationService 站内通知。
+   */
+  private async generateVideo(
+    args: Record<string, unknown>,
+    user: RagUserContext,
+    conversationId: string,
+    ctx: ChatToolContext,
+  ): Promise<ChatToolResult> {
+    const mode = args.mode === 'i2v' || args.mode === 't2v' || args.mode === 'r2v' ? args.mode : null;
+    if (!mode) {
+      return { ok: false, summary: '缺少视频模式', content: 'generate_video 需要 mode：i2v / t2v / r2v。' };
+    }
+    const prompt = String(args.prompt ?? '').trim();
+    if (!prompt) {
+      return { ok: false, summary: '缺少视频描述', content: '生成视频需要 prompt（画面/动作/风格描述）。' };
+    }
+    const resolution = args.resolution === '1080P' ? '1080P' : '720P';
+    const durationRaw = Number(args.duration);
+    const duration = Number.isFinite(durationRaw) ? Math.min(15, Math.max(3, Math.round(durationRaw))) : 5;
+    const imageIds = Array.isArray(args.image_ids)
+      ? args.image_ids.map((x) => String(x).trim()).filter(Boolean)
+      : [];
+    const uploadedUrls = ctx.uploadedImageUrls ?? [];
+
+    const modeLabel = mode === 'i2v' ? '图生视频' : mode === 't2v' ? '文生视频' : '参考生视频';
+
+    // 解析来源图 → 可对外直连访问的 URL（供上游 DashScope 拉取）。
+    // 优先用 generate_image 生成图的 id；未给 id 时回退用「本轮用户上传的图片」。
+    let sourceUrls: string[] = [];
+    let sourceRefs: string[] = [];
+    if (mode === 'i2v' || mode === 'r2v') {
+      if (imageIds.length > 0) {
+        for (const id of imageIds) {
+          const url = await this.imageGenerationService.getShareableImageUrl(user.userId, id);
+          if (!url) {
+            return {
+              ok: false,
+              summary: '来源图不存在',
+              content: `图片 id=${id} 不存在或不属于当前用户，无法作为视频来源。若来源是用户上传的图，image_ids 应留空。`,
+            };
+          }
+          sourceUrls.push(url);
+        }
+        sourceRefs = imageIds;
+      } else if (uploadedUrls.length > 0) {
+        sourceUrls = uploadedUrls;
+        sourceRefs = uploadedUrls.map(() => '(用户上传图)');
+      }
+
+      if (mode === 'i2v') {
+        if (sourceUrls.length === 0) {
+          return {
+            ok: false,
+            summary: '缺少首帧图',
+            content:
+              '图生视频(i2v)需要 1 张来源图。用户本轮没有上传图片、也没有可用的 image_id：请让用户上传一张图，或先用 generate_image 生成一张再做首帧。',
+          };
+        }
+        // i2v 只取 1 张作首帧
+        sourceUrls = sourceUrls.slice(0, 1);
+        sourceRefs = sourceRefs.slice(0, 1);
+      } else if (sourceUrls.length < 1 || sourceUrls.length > 9) {
+        return {
+          ok: false,
+          summary: '参考生视频需 1~9 张图',
+          content: '参考生视频(r2v)需要 1~9 张参考图（用户上传或 generate_image 生成）。',
+        };
+      }
+    }
+
+    const gate = await this.videoGenerationService.evaluateGate(resolution, duration);
+
+    // 免确认（且未超预算）：直接提交异步任务
+    if (!gate.require_confirm) {
+      try {
+        await this.videoGenerationService.submit(user.userId, {
+          mode,
+          prompt,
+          resolution,
+          duration,
+          source_image_urls: sourceUrls,
+          source_image_refs: sourceRefs,
+          conversation_id: conversationId,
+        });
+        return {
+          ok: true,
+          summary: '视频已提交生成',
+          content: `视频任务已提交（${modeLabel} · ${resolution} · ${duration}秒，预计 ¥${gate.estimate_yuan}），生成约需几分钟，完成后会通过站内通知告知用户。请告知用户"已开始生成，稍后通知"，不要声称已生成完成，也不要输出任何视频链接。`,
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return { ok: false, summary: '视频提交失败', content: `视频任务提交失败：${message}。请如实告知用户。` };
+      }
+    }
+
+    // 需确认：生成待确认动作卡（成本 / 预算显式展示）
+    const fields: Array<{ label: string; value: string }> = [
+      { label: '模式', value: modeLabel },
+      { label: '时长', value: `${duration} 秒` },
+      { label: '分辨率', value: resolution },
+      { label: '预计消耗', value: `¥${gate.estimate_yuan}` },
+    ];
+    if (gate.remaining_yuan != null) fields.push({ label: '剩余预算', value: `¥${gate.remaining_yuan}` });
+    if (gate.blocked) fields.push({ label: '⚠️ 提示', value: '预算不足，确认将被拒绝' });
+
+    const card = await this.savePendingAction(
+      user,
+      conversationId,
+      'generate_video',
+      { mode, prompt, resolution, duration, sourceUrls, sourceRefs, conversationId },
+      {
+        label: '生成视频',
+        summary: `${modeLabel} · ${resolution} · ${duration}s · 预计 ¥${gate.estimate_yuan}`,
+        fields,
+      },
+    );
+    return {
+      ok: true,
+      summary: '已生成视频确认卡',
+      content: `已生成「生成视频」待确认动作卡（${modeLabel}，${resolution}，${duration}秒，预计消耗 ¥${gate.estimate_yuan}${gate.blocked ? '；⚠️ 预算不足，确认会被拒绝' : ''}）。视频尚未开始生成：需要用户点击确认卡的「确认执行」后才会提交。请告知用户核对并确认，不要声称已生成，也不要输出视频链接。`,
+      pendingAction: card,
+    };
   }
 
   // ── 写操作（二期）：生成待确认动作，用户确认后才执行 ─────────────────────────
@@ -1281,6 +1461,24 @@ export class ChatToolsService {
         { requesterUserId: user.userId, requesterName: user.name, canEditAny: true },
       );
       message = `已${decision === 'approve' ? '审批通过' : '驳回'}任务「${String(entry.payload.taskTitle ?? taskId)}」。`;
+    } else if (entry.tool === 'generate_video') {
+      const p = entry.payload;
+      const mode = p.mode === 'i2v' || p.mode === 't2v' || p.mode === 'r2v' ? p.mode : 't2v';
+      const resolution = p.resolution === '1080P' ? '1080P' : '720P';
+      const duration = typeof p.duration === 'number' ? p.duration : 5;
+      const sourceUrls = Array.isArray(p.sourceUrls) ? (p.sourceUrls as unknown[]).map(String) : [];
+      const sourceRefs = Array.isArray(p.sourceRefs) ? (p.sourceRefs as unknown[]).map(String) : [];
+      await this.videoGenerationService.submit(user.userId, {
+        mode,
+        prompt: String(p.prompt ?? ''),
+        resolution,
+        duration,
+        source_image_urls: sourceUrls,
+        source_image_refs: sourceRefs,
+        conversation_id: typeof p.conversationId === 'string' ? p.conversationId : undefined,
+      });
+      const modeLabel = mode === 'i2v' ? '图生视频' : mode === 't2v' ? '文生视频' : '参考生视频';
+      message = `已提交视频生成任务（${modeLabel} · ${resolution} · ${duration}秒），生成约需几分钟，完成后将通过站内通知告知你。`;
     } else {
       if (!this.hasAnyPermission(user, SEND_MESSAGE_PERMISSIONS)) throw new ForbiddenException('没有发送站内通知的权限');
       await this.rdService.createMessage({

@@ -108,6 +108,7 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
 
   { code: 'page:ui-design', label: 'AI 图像生成', groupLabel: '页面访问 · AI 创作', type: 'page', routePath: '/ui-design', sortOrder: 300 },
   { code: 'page:image-library', label: '图像作品库', description: '历史创作、收藏作品与上游用量统计', groupLabel: '页面访问 · AI 创作', type: 'page', routePath: '/image-library', sortOrder: 305 },
+  { code: 'page:video-library', label: '视频作品库', description: '对话式生成的视频任务、状态与成本闸门配置', groupLabel: '页面访问 · AI 创作', type: 'page', routePath: '/video-library', sortOrder: 306 },
 
   { code: 'page:inquiry', label: '多渠道询盘', groupLabel: '页面访问 · 沟通协同', type: 'page', routePath: '/inquiry', sortOrder: 400 },
   { code: 'page:meeting', label: '会议纪要', groupLabel: '页面访问 · 沟通协同', type: 'page', routePath: '/meeting', sortOrder: 410 },
@@ -137,6 +138,8 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
 
   { code: 'page:mailbox-management', label: '邮箱管理', description: '邮箱集成管理页面', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/mailbox-management', sortOrder: 900 },
   { code: 'page:ai-model-management', label: 'AI 模型管理', description: 'AI 模型配置页面', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/ai-model-management', sortOrder: 910 },
+  { code: 'page:ai-usage-dashboard', label: 'AI 使用情况', description: '按模型 / 人员的用量与成本统计看板', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/ai-usage', sortOrder: 911 },
+  { code: 'page:content-slots', label: '运营素材管理', description: 'MateChat 每日吉祥物图 / 激励文案等动态素材位的统一管理', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/content-slots', sortOrder: 912 },
   { code: 'page:chat-analytics', label: 'AI 使用与反馈', description: '查看 MateChat 使用、质量、反馈与问题明细', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/chat-analytics', sortOrder: 912 },
   { code: 'chat-feedback:manage', label: '处理 AI 反馈', description: '更新 MateChat 问题反馈的处理状态与处理结论', groupLabel: '操作权限 · AI 使用与反馈', type: 'action', sortOrder: 913 },
   { code: 'page:ocr-config-management', label: '腾讯OCR配置', description: '腾讯 OCR 凭证配置页面', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/ocr-config-management', sortOrder: 915 },

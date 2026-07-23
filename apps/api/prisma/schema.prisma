@@ -58,6 +58,8 @@ model User {
   imagePromptChatSessions ImagePromptChatSession[]
   imagePromptChatMessages ImagePromptChatMessage[]
   chatUsageEvents         ChatUsageEvent[]
+  videoGenerations        VideoGeneration[]
+  aiUsageLogs             AiUsageLog[]
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
 }
@@ -509,6 +511,83 @@ model GeneratedImage {
 
   @@index([userId, rootImageId, createdAt])
   @@index([parentImageId])
+}
+
+/// 对话式 / 独立视频生成任务（HappyHorse i2v/t2v/r2v）。
+/// 上游为 DashScope 异步接口（分钟级）：落库而非内存，支持重启后续轮询、历史库、成本累计、通知补投。
+model VideoGeneration {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// MateChat 来源对话 id（对话式生成时回填，用于完成后往对话内追加消息）；独立页生成为 null
+  conversationId   String?
+  /// 生成模式：i2v(图生/首帧) | t2v(文生) | r2v(参考生)
+  mode             String
+  /// 上游模型标识，如 happyhorse-1.1-i2v
+  model            String
+  prompt           String   @default("")
+  /// i2v 首帧 / r2v 参考图（1-9）对应的来源标识（GeneratedImage id 或原始 URL），仅留痕
+  sourceImageRefs  String[] @default([])
+  /// 实际提交给上游的图片 URL（i2v/r2v）
+  sourceImageUrls  String[] @default([])
+  resolution       String   @default("720P")
+  /// 画面比例（t2v/r2v 可选，如 16:9）；i2v 由首帧决定，留空
+  ratio            String   @default("")
+  duration         Int      @default(5)
+  watermark        Boolean  @default(true)
+  seed             Int?
+  /// DashScope 返回的 task_id（轮询用）
+  upstreamTaskId   String?
+  /// 任务状态：pending | running | succeeded | failed
+  status           String   @default("pending")
+  /// OSS 转存后的对象 key（列表接口用 getSignedUrl 生成访问 URL）
+  videoObjectKey   String   @default("")
+  /// 上游 24h 临时视频 URL（备查 / OSS 未启用时兜底）
+  upstreamVideoUrl String   @default("")
+  /// 计费秒数（上游 usage.duration）
+  billedSeconds    Int      @default(0)
+  /// 本次预估 / 实际成本（人民币元）
+  costYuan         Float    @default(0)
+  errorMessage     String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([upstreamTaskId])
+  @@index([status])
+}
+
+/// 统一 AI 用量日志：每次 AI 调用（对话/图片/视频/…）落一条，用于用量与成本看板。
+/// 与各业务表并存：业务表是权威数据源，本表是跨模态统一的用量视图（含真实 token 与成本）。
+model AiUsageLog {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// 模态：chat | image | video | embedding | document
+  modality         String
+  provider         String   @default("")
+  model            String
+  promptTokens     Int      @default(0)
+  completionTokens Int      @default(0)
+  totalTokens      Int      @default(0)
+  /// 人民币成本（视频真实计费）
+  costYuan         Float    @default(0)
+  /// 美元成本（图片估算）
+  costUsd          Float    @default(0)
+  /// 视频计费秒数
+  seconds          Int      @default(0)
+  /// token 是否为估算值（流式未返回 usage 时按内容长度估算）
+  estimated        Boolean  @default(false)
+  /// 来源特性标识（matechat / reverse_prompt / image_gen / video_gen 等）
+  source           String   @default("")
+  /// 关联业务 id（会话 / 图片 / 视频 id 等），便于追溯
+  refId            String?
+  createdAt        DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+  @@index([model, createdAt])
+  @@index([modality, createdAt])
 }
 
 model ImageEditMessage {

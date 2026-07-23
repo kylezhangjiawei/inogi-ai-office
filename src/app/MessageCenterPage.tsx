@@ -10,6 +10,7 @@ import {
   Filter,
   Loader2,
   MessageSquare,
+  PlayCircle,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -18,6 +19,7 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useNavigate } from "react-router";
 import { useAuth } from "./auth";
 import { cn } from "./components/ui/utils";
 import {
@@ -285,7 +287,22 @@ function MessageCard({
   onSelfAssess: (msg: RdMessage, body: PerfSelfAssessmentBody) => void;
 }) {
   const { lang } = useI18n();
+  const navigate = useNavigate();
   const body = useMemo(() => parseBody(msg.body), [msg.body]);
+  // 视频完成通知：meta 带跳转信息，点击后跳视频库并定位该视频
+  const videoMeta = (msg.meta && typeof msg.meta === "object" ? (msg.meta as Record<string, unknown>) : null);
+  const videoJump =
+    videoMeta && videoMeta.kind === "video_done" && typeof videoMeta.video_id === "string"
+      ? {
+          route: typeof videoMeta.route === "string" ? videoMeta.route : "/video-library",
+          videoId: videoMeta.video_id as string,
+        }
+      : null;
+  const openVideo = () => {
+    if (!videoJump) return;
+    onOpen(msg); // 标记已读
+    navigate(`${videoJump.route}?video=${encodeURIComponent(videoJump.videoId)}`);
+  };
 
   const timeLabel = useMemo(() => {
     try {
@@ -506,12 +523,16 @@ function MessageCard({
   const rb = body as { type: "unknown"; raw: string };
   return (
     <article
-      className="cursor-pointer rounded-2xl border border-slate-100 bg-white p-5"
-      onClick={() => onOpen(msg)}
+      className={cn(
+        "cursor-pointer rounded-2xl border bg-white p-5 transition-colors",
+        videoJump ? "border-indigo-100 hover:border-indigo-300 hover:bg-indigo-50/40" : "border-slate-100",
+      )}
+      onClick={() => (videoJump ? openVideo() : onOpen(msg))}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
           event.preventDefault();
-          onOpen(msg);
+          if (videoJump) openVideo();
+          else onOpen(msg);
         }
       }}
       role="button"
@@ -534,6 +555,19 @@ function MessageCard({
       </div>
       {msg.subject && <AutoTranslatedText as="div" className="mb-1 font-semibold text-slate-900" text={msg.subject} />}
       <AutoTranslatedText as="p" className="text-sm text-slate-600" text={rb.raw || msg.body} />
+      {videoJump && (
+        <button
+          type="button"
+          className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-indigo-700"
+          onClick={(event) => {
+            event.stopPropagation();
+            openVideo();
+          }}
+        >
+          <PlayCircle className="h-4 w-4" />
+          {t("查看视频")}
+        </button>
+      )}
     </article>
   );
 }

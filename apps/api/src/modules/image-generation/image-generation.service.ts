@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecureConfigService } from '../security/secure-config.service';
 import { OssService } from '../oss/oss.service';
+import { AiUsageService } from '../ai-usage/ai-usage.service';
 import { EditImageDto } from './dto/edit-image.dto';
 import { GenerateImageDto } from './dto/generate-image.dto';
 import { CreatePromptChatSessionDto, PromptChatDto } from './dto/prompt-chat.dto';
@@ -130,6 +131,7 @@ export class ImageGenerationService {
     private readonly config: ConfigService,
     private readonly secureConfigService: SecureConfigService,
     private readonly ossService: OssService,
+    private readonly aiUsageService: AiUsageService,
   ) {}
 
   // ── 生成图片（优先命中缓存）────────────────────────────────────────────────
@@ -188,6 +190,16 @@ export class ImageGenerationService {
       if (!savedFromCache.imageUrl) {
         void this.uploadAndSaveImageUrl(savedFromCache.id, savedFromCache.imageData);
       }
+      // 埋点：缓存命中也计一次（成本 0），与 backfill 口径一致（backfill 会计入所有 GeneratedImage）
+      this.aiUsageService.record({
+        userId,
+        modality: 'image',
+        model: cached.model,
+        totalTokens: 0,
+        costUsd: 0,
+        source: 'image_gen',
+        refId: savedFromCache.id,
+      });
       return { ...this.toResponse(savedFromCache), fromCache: true, similarity: cached._similarity };
     }
 
@@ -256,6 +268,15 @@ export class ImageGenerationService {
     //    会把整个异步任务卡在 processing，直到前端轮询超时报「图片处理超时」——即便图片此时早已存库并出现在列表里。
     //    这里先用 base64 返回（toResponse 在 imageUrl 为空时回退到 imageData），OSS URL 由后台写回 DB，与命中缓存路径一致。
     void this.uploadAndSaveImageUrl(saved.id, imageData);
+    this.aiUsageService.record({
+      userId,
+      modality: 'image',
+      model: effectiveModel,
+      totalTokens: usageSummary.totalTokens,
+      costUsd: usageSummary.estimatedCostUsd,
+      source: 'image_gen',
+      refId: saved.id,
+    });
     return { ...this.toResponse(saved), fromCache: false, similarity: 0 };
     } catch (error) {
       if (error instanceof HttpException) {
@@ -946,6 +967,24 @@ export class ImageGenerationService {
       data: { isFavorite: !img.isFavorite },
       select: { id: true, isFavorite: true },
     });
+  }
+
+  /**
+   * 按图片 id 取可对外访问的 URL（视频生成 i2v/r2v 的来源图用）。
+   * 优先返回 OSS 签名 URL；OSS 未启用时回退到 base64 data URL（DashScope url 字段接受 base64）。
+   */
+  async getShareableImageUrl(userId: string, imageId: string): Promise<string | null> {
+    const img = await this.prisma.generatedImage.findFirst({
+      where: { id: imageId, userId },
+      select: { imageUrl: true, imageData: true },
+    });
+    if (!img) return null;
+    if (img.imageUrl && this.ossService.isEnabled) {
+      // 签 2h：覆盖「确认卡 TTL(30min) + 上游异步拉取延迟」窗口，避免边界过期导致上游拉取失败
+      const signed = this.ossService.getSignedUrl(img.imageUrl, 7200);
+      if (signed) return signed;
+    }
+    return img.imageData || null;
   }
 
   // ── 删除 ─────────────────────────────────────────────────────────────────────

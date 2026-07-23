@@ -184,6 +184,11 @@ const DISLIKE_REASONS = [
 /** 附件数量与单文件大小上限（与后端 uploads-temp 的 20MB 对齐） */
 const ATTACH_MAX_COUNT = 10;
 const ATTACH_MAX_BYTES = 20 * 1024 * 1024;
+/**
+ * 图片上传前压缩的触发/目标上限：对齐后端聊天视觉硬线（MAX_IMAGE_BYTES = 10MB），留 1MB 余量。
+ * 超过此值的图片一律先压缩再上传，否则后端会以「图片过大」拒绝加载、模型看不到图。
+ */
+const IMAGE_UPLOAD_MAX_BYTES = 9 * 1024 * 1024;
 
 function fmtFileSize(bytes: number) {
   if (!bytes || bytes < 0) return "";
@@ -874,7 +879,7 @@ export function MateChatBubble() {
     async (localId: string, file: File) => {
       let compressed: File | null = null;
       try {
-        compressed = await compressImageToLimit(file, ATTACH_MAX_BYTES);
+        compressed = await compressImageToLimit(file, IMAGE_UPLOAD_MAX_BYTES);
       } catch {
         compressed = null;
       }
@@ -882,11 +887,11 @@ export function MateChatBubble() {
         setAttachments((prev) =>
           prev.map((a) =>
             a.localId === localId
-              ? { ...a, status: "error", error: "图片过大，压缩后仍超过 20MB" }
+              ? { ...a, status: "error", error: "图片无法压缩到 9MB 以内（可能是格式不支持，如 HEIC）" }
               : a,
           ),
         );
-        toast.error(`「${file.name}」过大，压缩后仍超过 20MB，已跳过`);
+        toast.error(`「${file.name}」无法压缩到 9MB 以内，已跳过`);
         return;
       }
       const out = compressed;
@@ -924,12 +929,13 @@ export function MateChatBubble() {
         }
         const localId = `att-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
         const isImg = isImageFile(file);
-        if (file.size > ATTACH_MAX_BYTES) {
-          // 非图片无法压缩，仍跳过；超大图片先占位再压缩
-          if (!isImg) {
-            toast.error(`「${file.name}」超过 20MB，已跳过`);
-            continue;
-          }
+        // 非图片超 20MB 无法压缩，跳过
+        if (!isImg && file.size > ATTACH_MAX_BYTES) {
+          toast.error(`「${file.name}」超过 20MB，已跳过`);
+          continue;
+        }
+        // 图片超过后端视觉上限（9MB）：先占位再压缩，避免上传后被后端以「图片过大」拒绝
+        if (isImg && file.size > IMAGE_UPLOAD_MAX_BYTES) {
           items.push({
             localId,
             name: file.name || "未命名图片",
@@ -1830,7 +1836,11 @@ export function MateChatBubble() {
                                 <div
                                   className={cn(
                                     "rounded-[24px] px-4 py-3 text-sm leading-7 shadow-sm",
-                                    isUser ? "rounded-tr-md bg-indigo-50 text-slate-800" : "rounded-tl-md bg-[#f5f5fb] text-slate-800",
+                                    // 用户气泡 inline-block + text-left：收缩到文字宽度，避免被同条更宽的图片附件撑宽后
+                                    // 文字被 text-right 推到右侧、左侧留白
+                                    isUser
+                                      ? "inline-block text-left rounded-tr-md bg-indigo-50 text-slate-800"
+                                      : "rounded-tl-md bg-[#f5f5fb] text-slate-800",
                                     isStreaming && !msg.content && "py-4",
                                   )}
                                   // 用户消息保留换行原样；AI 回答由 markdown 渲染管理段落

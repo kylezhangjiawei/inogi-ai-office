@@ -5536,6 +5536,8 @@ export class ResearchDevelopmentService {
     recipient_name?: string | null;
     subject?: string | null;
     body: string;
+    /** 结构化元数据（如视频完成通知的跳转信息），随消息透传给前端渲染动作/跳转按钮 */
+    meta?: Record<string, unknown> | null;
   }) {
     const body = (payload.body ?? '').trim();
     if (!body) throw new BadRequestException('消息内容不能为空');
@@ -5558,6 +5560,7 @@ export class ResearchDevelopmentService {
       recipient_name: recipientName,
       subject: (payload.subject ?? '').trim() || null,
       body,
+      ...(payload.meta ? { meta: payload.meta } : {}),
       read: false,
       created_at: new Date().toISOString(),
     };

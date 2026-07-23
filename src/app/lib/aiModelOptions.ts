@@ -13,7 +13,7 @@ export type AiModelOption = {
   usageDescription: string;
 };
 
-export type AiModelUsageKind = "text" | "multimodal" | "image" | "embedding" | "document";
+export type AiModelUsageKind = "text" | "multimodal" | "image" | "embedding" | "document" | "video";
 
 export type AiModelConfigLike = {
   name?: string | null;
@@ -62,6 +62,14 @@ export function getAiModelUsage(model?: string | null) {
       kind: "document" as const,
       label: "文档解析",
       description: "用于读取解析文档 / 附件内容，不能用于对话或图片任务。",
+    };
+  }
+
+  if (isVideoModelName(normalized)) {
+    return {
+      kind: "video" as const,
+      label: "视频",
+      description: "用于图生视频 / 文生视频，不能用于对话或图片任务。",
     };
   }
 
@@ -123,7 +131,13 @@ export function isDocumentModelName(model: string) {
   return /qwen-doc/i.test(model);
 }
 
-const USAGE_KINDS: readonly AiModelUsageKind[] = ["text", "multimodal", "image", "embedding", "document"];
+/** 名称推断：是否为视频生成模型（happyhorse 系列、i2v/t2v/r2v 后缀）。仅当 usage_kind=auto 未显式标注时兜底使用。 */
+export function isVideoModelName(model: string) {
+  const normalized = model.toLowerCase();
+  return normalized.includes("happyhorse") || /(^|[-_/])(i2v|t2v|r2v)($|[-_/])/.test(normalized);
+}
+
+const USAGE_KINDS: readonly AiModelUsageKind[] = ["text", "multimodal", "image", "embedding", "document", "video"];
 
 function isUsageKind(value: string): value is AiModelUsageKind {
   return (USAGE_KINDS as readonly string[]).includes(value);
@@ -180,6 +194,8 @@ export function resolveExplicitUsage(kind: AiModelUsageKind): { kind: AiModelUsa
       return { kind: "embedding", label: "向量", description: "用于知识库向量化检索，不能用于对话或图片任务。" };
     case "document":
       return { kind: "document", label: "文档解析", description: "用于读取解析文档 / 附件内容，不能用于对话或图片任务。" };
+    case "video":
+      return { kind: "video", label: "视频", description: "用于图生视频 / 文生视频，不能用于对话或图片任务。" };
     default:
       return { kind: "text", label: "文本", description: "适合文本对话、摘要、筛选和结构化提取任务。" };
   }
