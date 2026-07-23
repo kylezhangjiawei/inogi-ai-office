@@ -61,6 +61,16 @@ const IMAGE_TOOL_TIMEOUT_MS = 5 * 60 * 1000;
 /** 生视频工具超时：仅出确认卡或提交异步任务（不等生成），但自动提交路径含一次上游 POST（30s），留 45s */
 const VIDEO_TOOL_TIMEOUT_MS = 45_000;
 
+/** 快捷建议兜底池的运营配置 KV 键（由「运营素材管理」页读写；本服务只读，缺省用内置默认） */
+export const CONTENT_SLOT_QUICK_SUGGESTIONS_KEY = 'content_slot.matechat_quick_suggestions';
+/** 快捷建议内置兜底池（与业务无关、安全通用） */
+export const DEFAULT_QUICK_SUGGESTIONS = [
+  '帮我起草一封项目跟进邮件',
+  '帮我写一份本周工作周报',
+  '帮我梳理今天该优先处理的事',
+  '帮我把一段内容总结成要点',
+];
+
 /** generate / editImage 返回值里本工具关心的字段 */
 type GeneratedImagePayload = {
   id?: string;
@@ -1213,13 +1223,8 @@ export class ChatToolsService {
    * 保证始终返回 4 条、新用户与空账号也不尴尬。
    */
   async buildQuickSuggestions(user: RagUserContext): Promise<string[]> {
-    // 通用兜底池：安全、与研发/办公场景无关也能用（不含法务等专属项，除非有对应权限时另加）
-    const fallback = [
-      '帮我起草一封项目跟进邮件',
-      '帮我写一份本周工作周报',
-      '帮我梳理今天该优先处理的事',
-      '帮我把一段内容总结成要点',
-    ];
+    // 通用兜底池：优先用「运营素材管理」配置的自定义列表，未配置回退内置默认
+    const fallback = await this.resolveQuickSuggestionPool();
     const suggestions: string[] = [];
     try {
       const rows = await this.loadTaskRows(user);
@@ -1253,6 +1258,24 @@ export class ChatToolsService {
       }
     }
     return result;
+  }
+
+  /** 快捷建议兜底池：素材位 mode=static 且列表非空时用自定义，否则用内置默认 */
+  private async resolveQuickSuggestionPool(): Promise<string[]> {
+    try {
+      const row = await this.prisma.systemSetting.findUnique({
+        where: { key: CONTENT_SLOT_QUICK_SUGGESTIONS_KEY },
+        select: { value: true },
+      });
+      const v = (row?.value ?? {}) as { mode?: unknown; staticList?: unknown };
+      if (v.mode === 'static' && Array.isArray(v.staticList)) {
+        const list = v.staticList.map((x) => String(x).trim()).filter(Boolean);
+        if (list.length > 0) return list;
+      }
+    } catch {
+      /* 读失败回退默认 */
+    }
+    return DEFAULT_QUICK_SUGGESTIONS;
   }
 
   /** 按任务编号查找任务（研发池：主库+产品库；协同池任务不支持写操作，有意不含） */

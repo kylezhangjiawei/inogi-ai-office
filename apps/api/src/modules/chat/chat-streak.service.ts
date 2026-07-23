@@ -134,8 +134,9 @@ export class ChatStreakService {
     const config = await this.readSlotConfig(CONTENT_SLOT_MASCOT_KEY, DEFAULT_MASCOT_PROMPT);
     if (config.mode === 'off') return null; // 停用：卡片回退为无背景图
     if (config.mode === 'static') {
-      // 固定素材：展示管理页上传的图
-      return config.staticImageObjectKey ? this.ossService.getSignedUrl(config.staticImageObjectKey, 3600) : null;
+      // 固定素材：图片池按当日轮换选一张
+      const objectKey = this.pickFromPool(config.staticImagePool, todayKey);
+      return objectKey ? this.ossService.getSignedUrl(objectKey, 3600) : null;
     }
     const setting = await this.prisma.systemSetting.findUnique({
       where: { key: MASCOT_SETTING_KEY },
@@ -162,6 +163,7 @@ export class ChatStreakService {
     mode: 'ai_daily' | 'static' | 'off';
     promptTemplate: string;
     staticImageObjectKey: string;
+    staticImagePool: string[];
     staticText: string;
   }> {
     try {
@@ -171,6 +173,7 @@ export class ChatStreakService {
         enabled?: unknown;
         promptTemplate?: unknown;
         staticImageObjectKey?: unknown;
+        staticImagePool?: unknown;
         staticText?: unknown;
       };
       const mode: 'ai_daily' | 'static' | 'off' =
@@ -179,16 +182,30 @@ export class ChatStreakService {
           : v.enabled === false
             ? 'off'
             : 'ai_daily';
+      const single = typeof v.staticImageObjectKey === 'string' ? v.staticImageObjectKey : '';
+      const pool = Array.isArray(v.staticImagePool)
+        ? v.staticImagePool.map((x) => String(x)).filter(Boolean)
+        : single
+          ? [single] // 向后兼容旧单图
+          : [];
       return {
         mode,
         promptTemplate:
           typeof v.promptTemplate === 'string' && v.promptTemplate.trim() ? v.promptTemplate : defaultPrompt,
-        staticImageObjectKey: typeof v.staticImageObjectKey === 'string' ? v.staticImageObjectKey : '',
+        staticImageObjectKey: single,
+        staticImagePool: pool,
         staticText: typeof v.staticText === 'string' ? v.staticText : '',
       };
     } catch {
-      return { mode: 'ai_daily', promptTemplate: defaultPrompt, staticImageObjectKey: '', staticText: '' };
+      return { mode: 'ai_daily', promptTemplate: defaultPrompt, staticImageObjectKey: '', staticImagePool: [], staticText: '' };
     }
+  }
+
+  /** 从图片池按当日日期轮换选一张（同一天稳定、不同天变化） */
+  private pickFromPool(pool: string[], dateKey: string): string {
+    if (pool.length === 0) return '';
+    if (pool.length === 1) return pool[0];
+    return pool[this.seedFromKey(dateKey) % pool.length];
   }
 
   /** 确保当日吉祥物已生成并入库（幂等 + 防并发）。force=true 时无视「今日已就绪」与「已停用」，强制重生成。 */

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { History, ImageIcon, Loader2, Palette, RefreshCw, RotateCcw, Sparkles, Type, Upload } from "lucide-react";
+import { History, ImageIcon, Loader2, Palette, RefreshCw, RotateCcw, Sparkles, Type, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "./components/ui/utils";
@@ -15,6 +15,8 @@ function SlotCard({ slot, onChanged }: { slot: ContentSlot; onChanged: () => voi
   const [mode, setMode] = useState<SlotMode>(slot.mode);
   const [prompt, setPrompt] = useState(slot.prompt_template);
   const [staticText, setStaticText] = useState(slot.static_text);
+  const [staticList, setStaticList] = useState<string[]>(slot.static_list ?? []);
+  const [pool, setPool] = useState<Array<{ object_key: string; url: string | null }>>(slot.static_image_pool ?? []);
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState(false);
   const [previewText, setPreviewText] = useState<string | null>(null);
@@ -40,12 +42,16 @@ function SlotCard({ slot, onChanged }: { slot: ContentSlot; onChanged: () => voi
     }
   }
 
-  const dirty = mode !== slot.mode || prompt !== slot.prompt_template || staticText !== slot.static_text;
+  const dirty =
+    mode !== slot.mode ||
+    prompt !== slot.prompt_template ||
+    staticText !== slot.static_text ||
+    JSON.stringify(staticList) !== JSON.stringify(slot.static_list ?? []);
 
   async function handleSave() {
     setSaving(true);
     try {
-      await contentSlotsApi.updateConfig(slot.key, { mode, promptTemplate: prompt, staticText });
+      await contentSlotsApi.updateConfig(slot.key, { mode, promptTemplate: prompt, staticText, staticList });
       toast.success("已保存");
       onChanged();
     } catch (err) {
@@ -60,15 +66,35 @@ function SlotCard({ slot, onChanged }: { slot: ContentSlot; onChanged: () => voi
       toast.error("请选择图片");
       return;
     }
+    if (pool.length >= 12) {
+      toast.error("图片池最多 12 张");
+      return;
+    }
     setBusy(true);
     try {
       const objectKey = await uploadSlotImage(file);
-      await contentSlotsApi.updateConfig(slot.key, { mode: "static", staticImageObjectKey: objectKey });
+      const nextKeys = [...pool.map((p) => p.object_key), objectKey];
+      await contentSlotsApi.updateConfig(slot.key, { mode: "static", staticImagePool: nextKeys });
       setMode("static");
-      toast.success("已上传固定素材");
+      toast.success("已添加图片");
       onChanged();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "上传失败");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removePoolImage(objectKey: string) {
+    setBusy(true);
+    try {
+      const nextKeys = pool.map((p) => p.object_key).filter((k) => k !== objectKey);
+      await contentSlotsApi.updateConfig(slot.key, { staticImagePool: nextKeys });
+      setPool((prev) => prev.filter((p) => p.object_key !== objectKey));
+      toast.success("已移除");
+      onChanged();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "移除失败");
     } finally {
       setBusy(false);
     }
@@ -97,6 +123,7 @@ function SlotCard({ slot, onChanged }: { slot: ContentSlot; onChanged: () => voi
   }
 
   const isImage = slot.type === "image";
+  const isList = slot.type === "list";
 
   return (
     <section className="material-card p-6">
@@ -115,6 +142,17 @@ function SlotCard({ slot, onChanged }: { slot: ContentSlot; onChanged: () => voi
                   <span className="text-xs">{mode === "static" ? "未上传固定图" : "尚无图片"}</span>
                 </div>
               )}
+            </div>
+          ) : isList ? (
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+              <div className="mb-1.5 text-[11px] font-medium text-slate-400">当前展示</div>
+              <ul className="space-y-1">
+                {(slot.current?.list ?? []).slice(0, 5).map((s, i) => (
+                  <li key={i} className="truncate rounded-lg bg-white px-2.5 py-1.5 text-xs text-slate-600" title={s}>
+                    {s}
+                  </li>
+                ))}
+              </ul>
             </div>
           ) : (
             <div className="flex aspect-video items-center justify-center rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4 text-center">
@@ -192,8 +230,8 @@ function SlotCard({ slot, onChanged }: { slot: ContentSlot; onChanged: () => voi
             </div>
           )}
 
-          {/* 固定模式：文案 / 图片上传 */}
-          {mode === "static" && !isImage && (
+          {/* 固定模式：文案 / 图片上传 / 列表 */}
+          {mode === "static" && slot.type === "text" && (
             <div>
               <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">固定文案</label>
               <textarea
@@ -205,17 +243,74 @@ function SlotCard({ slot, onChanged }: { slot: ContentSlot; onChanged: () => voi
               />
             </div>
           )}
+          {mode === "static" && isList && (
+            <div>
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                自定义建议列表（最多 12 条）
+              </label>
+              <div className="space-y-2">
+                {staticList.map((s, i) => (
+                  <div key={i} className="flex items-center gap-2">
+                    <input
+                      className="material-input w-full text-sm"
+                      value={s}
+                      placeholder="一条建议，如：帮我写本周周报"
+                      onChange={(e) => setStaticList((prev) => prev.map((x, j) => (j === i ? e.target.value : x)))}
+                    />
+                    <button
+                      type="button"
+                      className="shrink-0 rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-rose-500"
+                      onClick={() => setStaticList((prev) => prev.filter((_, j) => j !== i))}
+                      title="删除"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                ))}
+                {staticList.length < 12 && (
+                  <button
+                    type="button"
+                    className="material-button-secondary !px-3 !py-1.5 text-xs"
+                    onClick={() => setStaticList((prev) => [...prev, ""])}
+                  >
+                    + 添加一条
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
           {mode === "static" && isImage && (
             <div>
-              <button
-                type="button"
-                className="material-button-secondary disabled:opacity-50"
-                onClick={() => fileRef.current?.click()}
-                disabled={busy}
-              >
-                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                {slot.has_static_image ? "更换固定图片" : "上传固定图片"}
-              </button>
+              <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
+                固定图片池（{pool.length}/12，多张时每天轮换一张）
+              </label>
+              <div className="flex flex-wrap gap-2">
+                {pool.map((p) => (
+                  <div key={p.object_key} className="group relative h-16 w-24 overflow-hidden rounded-lg border border-slate-200">
+                    {p.url ? <img src={p.url} alt="" className="h-full w-full object-cover" /> : null}
+                    <button
+                      type="button"
+                      onClick={() => void removePoolImage(p.object_key)}
+                      disabled={busy}
+                      className="absolute right-0.5 top-0.5 flex h-5 w-5 items-center justify-center rounded-full bg-black/50 text-white opacity-0 transition group-hover:opacity-100"
+                      title="移除"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ))}
+                {pool.length < 12 && (
+                  <button
+                    type="button"
+                    className="flex h-16 w-24 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-slate-300 text-slate-400 hover:border-indigo-300 hover:text-indigo-500 disabled:opacity-50"
+                    onClick={() => fileRef.current?.click()}
+                    disabled={busy}
+                  >
+                    {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                    <span className="text-[10px]">添加图片</span>
+                  </button>
+                )}
+              </div>
               <input
                 ref={fileRef}
                 type="file"
@@ -301,6 +396,67 @@ function SlotCard({ slot, onChanged }: { slot: ContentSlot; onChanged: () => voi
   );
 }
 
+function GenBudgetCard() {
+  const [cap, setCap] = useState(0);
+  const [used, setUsed] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+
+  useEffect(() => {
+    void contentSlotsApi
+      .getGenBudget()
+      .then((b) => {
+        setCap(b.monthly_cap);
+        setUsed(b.used_this_month);
+        setLoaded(true);
+      })
+      .catch(() => setLoaded(true));
+  }, []);
+
+  async function save() {
+    setSaving(true);
+    try {
+      const r = await contentSlotsApi.saveGenBudget(cap);
+      setCap(r.monthly_cap);
+      toast.success("已保存生成上限");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!loaded) return null;
+  const over = cap > 0 && used >= cap;
+  return (
+    <section className="material-card flex flex-wrap items-center justify-between gap-4 p-5">
+      <div>
+        <div className="text-sm font-semibold text-slate-800">AI 生成成本闸门</div>
+        <div className="mt-0.5 text-xs text-slate-400">
+          本月已生成 <span className={cn("font-medium", over ? "text-rose-600" : "text-slate-600")}>{used}</span> 张
+          {cap > 0 ? ` / 上限 ${cap} 张` : "（未设上限）"}
+          {over ? " · 已达上限，自动生成暂停、手动重生成被拒" : ""}
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <label className="text-xs text-slate-500">月度上限</label>
+        <input
+          type="number"
+          min={0}
+          className="material-input !w-28 text-sm"
+          value={cap}
+          placeholder="0=不限"
+          onChange={(e) => setCap(Math.max(0, Number(e.target.value) || 0))}
+        />
+        <button type="button" className="material-button-secondary !px-3 !py-2" onClick={() => void save()} disabled={saving}>
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+          保存
+        </button>
+      </div>
+    </section>
+  );
+}
+
 export function ContentSlotsPage() {
   const [slots, setSlots] = useState<ContentSlot[]>([]);
   const [loading, setLoading] = useState(false);
@@ -340,6 +496,8 @@ export function ContentSlotsPage() {
           <b> AI 每日生成 / 固定素材 / 关闭</b> 三种模式：AI 模式可改提示词并立即重新生成；固定模式可上传图片或填写文案。改动即时生效，无需发版。
         </p>
       </section>
+
+      <GenBudgetCard />
 
       {loading && slots.length === 0 ? (
         <div className="flex items-center justify-center gap-2 py-16 text-sm text-slate-400">

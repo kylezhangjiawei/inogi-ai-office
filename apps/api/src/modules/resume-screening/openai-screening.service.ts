@@ -840,9 +840,22 @@ export class OpenAiScreeningService {
       // Disable thinking mode for Qwen3 models on structured JSON tasks
       ...(this.isQwenProvider(provider) ? { enable_thinking: false } : {}),
     };
-    const response = await (client.responses as unknown as {
+    const responsesClient = client.responses as unknown as {
       create: (p: Record<string, unknown>) => Promise<{ output_text: string; usage: unknown }>;
-    }).create(responseParams);
+    };
+    let response: { output_text: string; usage: unknown };
+    try {
+      response = await responsesClient.create(responseParams);
+    } catch (error) {
+      // 部分 qwen 模型（如 qwen3.8-max-preview）强制 enable_thinking=true，不接受 false → 去掉该参数用模型默认重试
+      const msg = error instanceof Error ? error.message : String(error);
+      if (this.isQwenProvider(provider) && /enable_thinking/i.test(msg)) {
+        delete responseParams.enable_thinking;
+        response = await responsesClient.create(responseParams);
+      } else {
+        throw error;
+      }
+    }
     return {
       content: response.output_text ?? '',
       usage: this.extractUsage(response as Parameters<typeof this.extractUsage>[0]),
