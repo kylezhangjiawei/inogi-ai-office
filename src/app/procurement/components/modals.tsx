@@ -1,6 +1,6 @@
 // 采购模块弹窗/面板：新建需求 / 批量导入 / 分类管理 / 批量转派 / 任务编辑 / 物料表单。均走真实接口。
 // AiCreateModal 暂无入口（产品决定隐藏 AI 建单按钮），实现保留以便恢复；物料审核在 MaterialDetailDrawer 里做。
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FileDown, Loader2, Sparkles, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "../../components/ui/utils";
@@ -9,8 +9,12 @@ import {
   aiParseProcTask,
   batchReassignProcTasks,
   createProcTask,
+  getTplusConfig,
+  getTplusStatus,
   importProcMaterials,
   renameProcCategory,
+  saveTplusConfig,
+  triggerTplusSync,
   updateProcTask,
   upsertProcMaterial,
   type AiTaskDraft,
@@ -20,6 +24,7 @@ import {
   type PaymentStatus,
   type ProcMethod,
   type ProcurementTask,
+  type TplusConfigState,
   type UpdateProcTaskInput,
 } from "../../lib/procurementApi";
 import { BuyerSuggestDatalist, useBuyerDirectory } from "./common";
@@ -763,6 +768,124 @@ export function MaterialFormModal({ material, onClose }: { material?: Material; 
         <label className="col-span-2 block"><span className={label}>{t('备注')}</span><input value={form.remark} onChange={(e) => set('remark')(e.target.value)} className={field} /></label>
         <label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={form.isSpecial} onChange={(e) => set('isSpecial')(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-indigo-600" />{t('特殊物料')}</label>
         <label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={form.isConsumable} onChange={(e) => set('isConsumable')(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-indigo-600" />{t('低值易耗品')}</label>
+      </div>
+    </Shell>
+  );
+}
+
+// ── 畅捷通 T+ 集成 ────────────────────────────────────────────────────────────
+
+/**
+ * T+ 集成弹窗：凭据录入（appSecret 由管理员现场填写，后端落库加密、不回显）
+ * + 同步状态与三个手动同步触发。授权（openToken）流程接入前，同步会返回待授权提示。
+ */
+export function TplusConfigModal({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n();
+  const [config, setConfig] = useState<TplusConfigState | null>(null);
+  const [mirrored, setMirrored] = useState<{ suppliers: number; balances: number; purchaseOrderRefs: number } | null>(null);
+  const [appKey, setAppKey] = useState("");
+  const [appSecret, setAppSecret] = useState("");
+  const [baseUrl, setBaseUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [syncing, setSyncing] = useState<string | null>(null);
+
+  const reload = async () => {
+    try {
+      const [cfg, status] = await Promise.all([getTplusConfig(), getTplusStatus()]);
+      setConfig(cfg);
+      setMirrored(status.mirrored);
+      setBaseUrl(cfg.baseUrl);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('加载配置失败'));
+    }
+  };
+  useEffect(() => { void reload(); }, []);
+
+  const save = async () => {
+    if (!appKey.trim()) { toast.error(t('请填写 appKey')); return; }
+    if (!config?.hasSecret && !appSecret.trim()) { toast.error(t('首次配置需填写 appSecret')); return; }
+    setBusy(true);
+    try {
+      const next = await saveTplusConfig({
+        appKey: appKey.trim(),
+        appSecret: appSecret.trim() || undefined,
+        baseUrl: baseUrl.trim() || undefined,
+      });
+      setConfig(next);
+      setAppSecret("");
+      toast.success(t('T+ 凭据已保存（appSecret 已加密存储）'));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('保存失败'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const sync = async (kind: "suppliers" | "inventory" | "purchase-orders", label: string) => {
+    setSyncing(kind);
+    try {
+      const result = await triggerTplusSync(kind);
+      await refreshProcurement();
+      toast.success(`${t(label)}${t('同步完成')}：${Object.entries(result).map(([k, v]) => `${k}=${v}`).join(", ")}`);
+      void reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t('同步失败'));
+    } finally {
+      setSyncing(null);
+    }
+  };
+
+  const field = "mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-indigo-300";
+  const label = "text-xs font-medium text-slate-500";
+
+  return (
+    <Shell
+      title={t("畅捷通 T+ 集成")}
+      onClose={onClose}
+      footer={<>
+        <button type="button" onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">{t('关闭')}</button>
+        <button type="button" disabled={busy} onClick={() => void save()} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm disabled:opacity-60">
+          {busy && <Loader2 className="h-4 w-4 animate-spin" />}{t('保存凭据')}
+        </button>
+      </>}
+    >
+      {/* 状态条 */}
+      <div className="mb-3 flex flex-wrap items-center gap-2 text-xs">
+        <span className={cn("rounded-full border px-2 py-0.5", config?.configured ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-slate-200 bg-slate-50 text-slate-500")}>
+          {t(config?.configured ? '凭据已配置' : '凭据未配置')}{config?.appKeyMasked ? ` · ${config.appKeyMasked}` : ''}
+        </span>
+        <span className={cn("rounded-full border px-2 py-0.5", config?.authorized ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700")}>
+          {t(config?.authorized ? '已授权' : '待授权（OAuth 流程接入后完成）')}
+        </span>
+        {mirrored && (
+          <span className="text-slate-400">{t('已镜像')}：{t('供应商')} {mirrored.suppliers} · {t('库存')} {mirrored.balances} · {t('采购单')} {mirrored.purchaseOrderRefs}</span>
+        )}
+      </div>
+
+      {/* 凭据表单：appSecret 不回显，留空表示保留已存值 */}
+      <div className="space-y-3">
+        <label className="block"><span className={label}>appKey<span className="ml-0.5 text-rose-500">*</span></span>
+          <input value={appKey} onChange={(e) => setAppKey(e.target.value)} placeholder={config?.appKeyMasked ? t('已配置（{masked}），重新填写将覆盖', { masked: config.appKeyMasked }) : t('开放平台应用的 appKey')} className={field} />
+        </label>
+        <label className="block"><span className={label}>appSecret{!config?.hasSecret && <span className="ml-0.5 text-rose-500">*</span>}</span>
+          <input type="password" value={appSecret} onChange={(e) => setAppSecret(e.target.value)} placeholder={config?.hasSecret ? t('已加密存储，留空保持不变') : t('开放平台应用的 appSecret')} autoComplete="new-password" className={field} />
+        </label>
+        <label className="block"><span className={label}>{t('网关地址')}</span>
+          <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://openapi.chanjet.com" className={field} />
+        </label>
+        <p className="text-[11px] leading-5 text-slate-400">{t('appSecret 仅在保存时传输一次，后端加密存储、任何接口不回显。凭据保存后还需完成开放平台 OAuth 授权（下一期接入）才能开始同步。')}</p>
+      </div>
+
+      {/* 手动同步 */}
+      <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/50 p-3">
+        <div className="mb-2 text-xs font-semibold text-slate-600">{t('手动同步（T+ 为唯一事实源，只拉不推）')}</div>
+        <div className="flex flex-wrap gap-2">
+          {([["suppliers", "供应商"], ["inventory", "库存现存量"], ["purchase-orders", "采购单到货"]] as const).map(([kind, lbl]) => (
+            <button key={kind} type="button" disabled={syncing !== null} onClick={() => void sync(kind, lbl)} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-60">
+              {syncing === kind && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{t(lbl)}
+            </button>
+          ))}
+        </div>
       </div>
     </Shell>
   );

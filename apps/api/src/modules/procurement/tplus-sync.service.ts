@@ -2,6 +2,8 @@ import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common'
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { SecureConfigService } from '../security/secure-config.service';
+import { TplusConfigDto } from './dto/procurement.dto';
 import { ProcurementService } from './procurement.service';
 
 /**
@@ -12,20 +14,21 @@ import { ProcurementService } from './procurement.service';
  * ProcPurchaseOrderRef 三张镜像表，再由 ProcurementService.recomputeArrival
  * 反推采购任务的到货量与状态。
  *
- * 现状：凭据（appKey / appSecret / 账套 / openToken）尚未到位，fetchFromTplus
- * 是唯一的外部调用出口，未配置时直接抛 503，不做任何假数据兜底。
- * 凭据到位后只需实现 fetchFromTplus 与三个 map* 函数，其余落库/状态推进逻辑已可用。
+ * 凭据模型（对齐开放平台文档 open.chanjet.com）：
+ * - appKey / appSecret：应用凭据，经配置端点录入（secret 落库加密）；
+ * - openToken：OAuth2 动态令牌（授权码换取，6 天有效 + refreshToken 轮转），
+ *   授权与刷新流程尚未接入——配置好凭据后 fetchFromTplus 仍会 503 提示待授权。
+ * 网关默认 https://openapi.chanjet.com，业务路径 /tplus/api/v2/...。
  */
 
 const CONFIG_KIND = 'tplus';
+const DEFAULT_BASE_URL = 'https://openapi.chanjet.com';
 
 export interface TplusCredentials {
   baseUrl: string;
   appKey: string;
   appSecret: string;
-  /** 账套号 */
-  accountId: string;
-  /** 开放平台访问令牌 */
+  /** 开放平台访问令牌（OAuth2 动态获取；未授权时为空）。 */
   openToken: string;
 }
 
@@ -71,22 +74,88 @@ export class TplusSyncService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly procurement: ProcurementService,
+    private readonly secureConfig: SecureConfigService,
   ) {}
 
-  /** 凭据：存于 IntegrationConfig(kind='tplus')，未配置返回 null。 */
-  async loadCredentials(): Promise<TplusCredentials | null> {
-    const config = await this.prisma.integrationConfig.findFirst({
+  private async findConfigRow() {
+    return this.prisma.integrationConfig.findFirst({
       where: { kind: CONFIG_KIND, isActive: true },
       orderBy: { updatedAt: 'desc' },
     });
+  }
+
+  /** 凭据：存于 IntegrationConfig(kind='tplus')。appKey+appSecret 齐即视为已配置。 */
+  async loadCredentials(): Promise<TplusCredentials | null> {
+    const config = await this.findConfigRow();
     if (!config) return null;
     const meta = (config.metadata ?? {}) as Record<string, unknown>;
-    const baseUrl = typeof meta.baseUrl === 'string' ? meta.baseUrl : '';
+    const baseUrl = typeof meta.baseUrl === 'string' && meta.baseUrl ? meta.baseUrl : DEFAULT_BASE_URL;
     const appKey = typeof meta.appKey === 'string' ? meta.appKey : '';
-    const accountId = typeof meta.accountId === 'string' ? meta.accountId : '';
     const openToken = typeof meta.openToken === 'string' ? meta.openToken : '';
-    if (!baseUrl || !appKey || !accountId || !openToken) return null;
-    return { baseUrl, appKey, accountId, openToken, appSecret: config.encryptedSecret };
+    let appSecret = '';
+    try {
+      appSecret = this.secureConfig.decryptFromStorage(config.encryptedSecret);
+    } catch {
+      appSecret = '';
+    }
+    if (!appKey || !appSecret) return null;
+    return { baseUrl, appKey, appSecret, openToken };
+  }
+
+  /** 配置状态（不回显 secret，appKey 掩码）。 */
+  async getConfig() {
+    const config = await this.findConfigRow();
+    const meta = (config?.metadata ?? {}) as Record<string, unknown>;
+    const appKey = typeof meta.appKey === 'string' ? meta.appKey : '';
+    let hasSecret = false;
+    if (config?.encryptedSecret) {
+      try {
+        hasSecret = Boolean(this.secureConfig.decryptFromStorage(config.encryptedSecret));
+      } catch {
+        hasSecret = false;
+      }
+    }
+    return {
+      configured: Boolean(appKey && hasSecret),
+      baseUrl: (typeof meta.baseUrl === 'string' && meta.baseUrl) || DEFAULT_BASE_URL,
+      appKeyMasked: appKey ? `${appKey.slice(0, 4)}****${appKey.slice(-4)}` : null,
+      hasSecret,
+      authorized: Boolean(typeof meta.openToken === 'string' && meta.openToken),
+      updatedAt: config?.updatedAt?.toISOString() ?? null,
+    };
+  }
+
+  /** 录入/更新配置：appSecret 落库加密，不传则保留已存值。 */
+  async saveConfig(dto: TplusConfigDto, actorId: string) {
+    const existing = await this.findConfigRow();
+    const meta = (existing?.metadata ?? {}) as Record<string, unknown>;
+    const appSecret = dto.appSecret?.trim();
+    const encryptedSecret = appSecret
+      ? this.secureConfig.encryptForStorage(appSecret)
+      : existing?.encryptedSecret ?? '';
+    const metadata = {
+      ...meta,
+      baseUrl: dto.baseUrl?.trim() || DEFAULT_BASE_URL,
+      appKey: dto.appKey.trim(),
+      updatedBy: actorId,
+    } as Prisma.InputJsonObject;
+    if (existing) {
+      await this.prisma.integrationConfig.update({
+        where: { id: existing.id },
+        data: { metadata, encryptedSecret },
+      });
+    } else {
+      await this.prisma.integrationConfig.create({
+        data: {
+          kind: CONFIG_KIND,
+          name: '畅捷通 T+',
+          isActive: true,
+          metadata,
+          encryptedSecret,
+        },
+      });
+    }
+    return this.getConfig();
   }
 
   async status() {
@@ -98,7 +167,7 @@ export class TplusSyncService {
     ]);
     return {
       configured: Boolean(cred),
-      accountId: cred?.accountId ?? null,
+      authorized: Boolean(cred?.openToken),
       mirrored: { suppliers, balances, purchaseOrderRefs: refs },
     };
   }
@@ -221,25 +290,31 @@ export class TplusSyncService {
   // ── 外部调用出口（唯一） ─────────────────────────────────────────────────────
 
   /**
-   * 调用 T+ OpenAPI。凭据未配置时抛 503——不返回假数据，避免上层把空结果当成「库存为 0」。
+   * 调用 T+ OpenAPI。凭据未配置/未授权时抛 503——不返回假数据，避免上层把空结果当成「库存为 0」。
    */
   private async fetchFromTplus(path: string): Promise<unknown[]> {
     const cred = await this.loadCredentials();
     if (!cred) {
       throw new ServiceUnavailableException(
-        '畅捷通 T+ 未配置：请在「集成管理」中登记 baseUrl / appKey / appSecret / 账套号 / openToken',
+        '畅捷通 T+ 未配置：请先在采购工作台「T+ 集成」里录入 appKey / appSecret',
+      );
+    }
+    if (!cred.openToken) {
+      throw new ServiceUnavailableException(
+        '畅捷通 T+ 已配置凭据但尚未完成授权（openToken 为空），OAuth 授权流程接入后可用',
       );
     }
     const url = `${cred.baseUrl.replace(/\/+$/, '')}${path}`;
     const res = await fetch(url, {
-      method: 'GET',
+      // 开放平台业务接口统一 POST；三个凭据全放 header（对齐官方文档）
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        // T+ 开放平台鉴权头，字段名以对接时的接口文档为准
-        appkey: cred.appKey,
+        appKey: cred.appKey,
+        appSecret: cred.appSecret,
         openToken: cred.openToken,
-        accountId: cred.accountId,
       },
+      body: JSON.stringify({ param: {} }),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');

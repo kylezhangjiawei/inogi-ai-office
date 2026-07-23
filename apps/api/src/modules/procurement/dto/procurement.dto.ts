@@ -419,6 +419,24 @@ export class RenameCategoryDto {
   to!: string;
 }
 
+/** 畅捷通 T+ 集成配置：appSecret 走 HTTPS 明文传输、落库加密；不传则保留已存值。 */
+export class TplusConfigDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  baseUrl?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(128)
+  appKey!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(256)
+  appSecret?: string;
+}
+
 export class ReviewMaterialDto {
   @IsIn(['approved', 'rejected'])
   reviewStatus!: 'approved' | 'rejected';

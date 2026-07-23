@@ -6,11 +6,11 @@ import { cn } from "../components/ui/utils";
 import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
 import { PROC_PRODUCT_LINES, daysFromToday, useProcurementData, type Material, type ProcStatus } from "./data";
-import { PageHeader, StatCell, stageToast, useProcCan } from "./components/common";
+import { PageHeader, StatCell, useProcCan } from "./components/common";
 import { MaterialCard } from "./components/MaterialCard";
 import { MaterialDetailDrawer } from "./components/MaterialDetailDrawer";
 import { PriceHistoryModal } from "./components/PriceHistoryModal";
-import { CategoryManageModal, ImportMaterialsModal, MaterialFormModal } from "./components/modals";
+import { CategoryManageModal, ImportMaterialsModal, MaterialFormModal, TplusConfigModal } from "./components/modals";
 
 const TRANSIT: ProcStatus[] = ["in_transit", "partial_arrival"];
 
@@ -26,6 +26,7 @@ export function MaterialWorkbenchPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [catManageOpen, setCatManageOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [tplusOpen, setTplusOpen] = useState(false);
   // 待审核筛选：统计卡点击切换，审核动作在物料详情抽屉里做（带完整上下文）
   const [onlyPending, setOnlyPending] = useState(false);
   const flowRef = useRef<HTMLDivElement>(null);
@@ -89,7 +90,7 @@ export function MaterialWorkbenchPage() {
             {can("proc-task:create") && <button type="button" onClick={() => setCreateOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><Plus className="h-4 w-4" />{t("新增物料")}</button>}
             {can("material:import") && <button type="button" onClick={() => setImportOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><Upload className="h-4 w-4" />{t("批量导入")}</button>}
             {can("material:import") && <button type="button" onClick={() => setCatManageOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><FolderTree className="h-4 w-4" />{t("分类管理")}</button>}
-            {can("proc:sync-erp") && <button type="button" onClick={() => stageToast()} title={t("V2 功能：将通过 ERP 接口同步库存")} className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-400 hover:bg-slate-50"><RefreshCw className="h-4 w-4" />{t("同步 ERP 库存")}</button>}
+            {can("proc:sync-erp") && <button type="button" onClick={() => setTplusOpen(true)} title={t("畅捷通 T+ 凭据配置与手动同步")} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><RefreshCw className="h-4 w-4" />{t("T+ 集成")}</button>}
           </div>
         }
       />
@@ -164,6 +165,7 @@ export function MaterialWorkbenchPage() {
       {history && <PriceHistoryModal materialName={history.name} open onClose={() => setHistory(null)} />}
       {importOpen && <ImportMaterialsModal onClose={() => setImportOpen(false)} />}
       {createOpen && <MaterialFormModal onClose={() => setCreateOpen(false)} />}
+      {tplusOpen && <TplusConfigModal onClose={() => setTplusOpen(false)} />}
       {catManageOpen && <CategoryManageModal onClose={() => setCatManageOpen(false)} />}
     </div>
   );

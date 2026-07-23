@@ -409,6 +409,48 @@ export async function reviewMaterial(
   });
 }
 
+// ── 畅捷通 T+ 集成 ────────────────────────────────────────────────────────────
+
+export interface TplusConfigState {
+  configured: boolean;
+  baseUrl: string;
+  appKeyMasked: string | null;
+  hasSecret: boolean;
+  /** 是否已完成 OAuth 授权（openToken 就绪）。 */
+  authorized: boolean;
+  updatedAt: string | null;
+}
+
+export async function getTplusConfig(): Promise<TplusConfigState> {
+  return request<TplusConfigState>("/tplus/config");
+}
+
+/** appSecret 走 HTTPS 明文传输、后端落库加密；不传则保留已存值。 */
+export async function saveTplusConfig(input: {
+  baseUrl?: string;
+  appKey: string;
+  appSecret?: string;
+}): Promise<TplusConfigState> {
+  return request<TplusConfigState>("/tplus/config", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function getTplusStatus(): Promise<{
+  configured: boolean;
+  authorized: boolean;
+  mirrored: { suppliers: number; balances: number; purchaseOrderRefs: number };
+}> {
+  return request("/tplus/status");
+}
+
+export async function triggerTplusSync(
+  kind: "suppliers" | "inventory" | "purchase-orders",
+): Promise<Record<string, number>> {
+  return request(`/tplus/sync/${kind}`, { method: "POST" });
+}
+
 /** 批量导入的单条物料（与后端 UpsertMaterialDto 对齐；新建条目落为待审核）。 */
 export interface MaterialImportItem {
   name: string;
