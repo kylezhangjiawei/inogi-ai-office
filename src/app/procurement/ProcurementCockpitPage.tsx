@@ -2,7 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { AnimatePresence, motion, useMotionValue } from "motion/react";
-import { Activity, AlertTriangle, ClipboardCheck, ClipboardList, Download, Grid3x3, LayoutGrid, PackageCheck, Plus, Search, Sparkles, Truck, UserCog, Users } from "lucide-react";
+import { Activity, AlertTriangle, ClipboardList, Download, Grid3x3, LayoutGrid, PackageCheck, Plus, Search, Truck, UserCog, Users } from "lucide-react";
 import { cn } from "../components/ui/utils";
 import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
@@ -12,7 +12,7 @@ import { PersonAvatar, StatCell } from "./components/common";
 import { ProcurementTaskCard } from "./components/ProcurementTaskCard";
 import { useProcTaskAction } from "./components/taskActions";
 import { TaskDetailDrawer } from "./components/TaskDetailDrawer";
-import { AiCreateModal, BatchReassignModal, NewRequirementModal, ReviewQueueDrawer } from "./components/modals";
+import { BatchReassignModal, NewRequirementModal } from "./components/modals";
 import { PeopleManageDrawer } from "./components/PeopleManageDrawer";
 import { usePermission } from "../hooks/usePermission";
 import { exportProcTasksXlsx } from "./exportTasks";
@@ -76,22 +76,18 @@ type StatKey = "inprogress" | "pending" | "inquiring" | "transit" | "overdue" | 
 
 export function ProcurementCockpitPage() {
   const { t } = useI18n();
-  const { tasks, materials, loading, error } = useProcurementData();
+  const { tasks, loading, error } = useProcurementData();
   const [params, setParams] = useSearchParams();
   const [open, setOpen] = useState<ProcurementTask | null>(null);
   const [stat, setStat] = useState<StatKey | null>(null);
   const [person, setPerson] = useState<string | null>(null);
-  const [aiOpen, setAiOpen] = useState(false);
   const [newOpen, setNewOpen] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
-  const [reviewOpen, setReviewOpen] = useState(false);
   const [peopleOpen, setPeopleOpen] = useState(false);
   const [kw, setKw] = useState("");
-  // 写操作按钮按系统管理配置的操作码显隐；审核由管理员在驾驶舱执行
-  const canReview = usePermission("material:review");
+  // 写操作按钮按系统管理配置的操作码显隐；物料审核在工作台物料详情里做（带完整上下文）
   const canCreate = usePermission("proc-task:create");
   const canReassign = usePermission("proc-task:reassign");
-  const pendingReview = useMemo(() => materials.filter((m) => m.reviewStatus === "pending").length, [materials]);
   // 决策类动作（选定报价 / 测试结论）在卡片上点只打开详情，由详情提供报价与图纸依据。
   // 必须声明在 setOpen 之后——放前面会命中 TDZ，构建器不报错但运行时直接白屏。
   const taskAction = useProcTaskAction({ onOpenDetail: setOpen });
@@ -261,15 +257,8 @@ export function ProcurementCockpitPage() {
             }}
             className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"
           ><Download className="h-4 w-4" />{t('导出')}</button>
-          {canCreate && <button type="button" onClick={() => setAiOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Sparkles className="h-4 w-4" />{t('AI 建单')}</button>}
           {canReassign && <button type="button" onClick={() => setBatchOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Users className="h-4 w-4" />{t('批量转派')}</button>}
           <button type="button" onClick={() => setPeopleOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><UserCog className="h-4 w-4" />{t('人员管理')}</button>
-          {canReview && (
-            <button type="button" onClick={() => setReviewOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm">
-              <ClipboardCheck className="h-4 w-4" />{t('审核队列')}
-              {pendingReview > 0 && <span className="rounded-full bg-amber-100 px-1.5 text-[10px] font-semibold text-amber-700">{pendingReview}</span>}
-            </button>
-          )}
           {canCreate && <button type="button" onClick={() => setNewOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Plus className="h-4 w-4" />{t('新建需求')}</button>}
         </div>
       </div>
@@ -380,10 +369,8 @@ export function ProcurementCockpitPage() {
 
       {open && <TaskDetailDrawer task={open} onClose={() => { setOpen(null); if (taskParam) setParams((p) => { const n = new URLSearchParams(p); n.delete("task"); return n; }, { replace: true }); }} />}
       {taskAction.modal}
-      {aiOpen && <AiCreateModal onClose={() => setAiOpen(false)} />}
       {newOpen && <NewRequirementModal onClose={() => setNewOpen(false)} />}
       {batchOpen && <BatchReassignModal tasks={lineTasks} onClose={() => setBatchOpen(false)} />}
-      {reviewOpen && <ReviewQueueDrawer onClose={() => setReviewOpen(false)} />}
       {peopleOpen && <PeopleManageDrawer onClose={() => setPeopleOpen(false)} onFocusPerson={setPerson} />}
     </div>
   );

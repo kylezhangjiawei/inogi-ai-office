@@ -1,4 +1,5 @@
-// 采购模块弹窗/面板：AI建单 / 新建需求 / 批量导入 / 审核队列 / 分类管理 / 批量转派。均走真实接口。
+// 采购模块弹窗/面板：新建需求 / 批量导入 / 分类管理 / 批量转派 / 任务编辑 / 物料表单。均走真实接口。
+// AiCreateModal 暂无入口（产品决定隐藏 AI 建单按钮），实现保留以便恢复；物料审核在 MaterialDetailDrawer 里做。
 import { useMemo, useRef, useState } from "react";
 import { FileDown, Loader2, Sparkles, Upload, X } from "lucide-react";
 import { toast } from "sonner";
@@ -10,7 +11,6 @@ import {
   createProcTask,
   importProcMaterials,
   renameProcCategory,
-  reviewMaterial,
   updateProcTask,
   upsertProcMaterial,
   type AiTaskDraft,
@@ -419,44 +419,6 @@ export function ImportMaterialsModal({ onClose }: { onClose: () => void }) {
         <button type="button" onClick={() => void downloadImportTemplate()} className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700"><FileDown className="h-3.5 w-3.5" />{t('下载模板')}</button>
       </div>
     </Shell>
-  );
-}
-
-/** 审核队列：列出 pending 物料 + 来源标签 + 通过/驳回。 */
-export function ReviewQueueDrawer({ onClose }: { onClose: () => void }) {
-  const { t } = useI18n();
-  const { materials } = useProcurementData();
-  const pending = materials.filter((m) => m.reviewStatus === "pending");
-  // 审核直接落库，成功后刷新共享数据源，队列自动少一条
-  const decide = async (id: string, reviewStatus: "approved" | "rejected") => {
-    try {
-      await reviewMaterial(id, reviewStatus);
-      await refreshProcurement();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('审核失败'));
-    }
-  };
-  return (
-    <div className="fixed inset-0 z-[70] flex justify-end bg-slate-900/30" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="flex h-full w-[560px] flex-col bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4"><h3 className="text-base font-bold text-slate-900">{t('物料审核队列（{count}）', { count: pending.length })}</h3><button type="button" onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-50"><X className="h-5 w-5" /></button></div>
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-6 py-4">
-          {pending.length === 0 ? <div className="py-10 text-center text-sm text-slate-400">{t('暂无待审核物料')}</div> : pending.map((m) => (
-            <div key={m.id} className="rounded-xl border border-amber-100 bg-amber-50/40 p-3">
-              <div className="flex items-center justify-between">
-                <AutoTranslatedText className="text-sm font-semibold text-slate-800" text={`${m.name} · ${m.spec}`} />
-                <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] text-amber-700">{t(m.reviewSource === "import" ? "来源：导入" : "来源：任务沉淀")}</span>
-              </div>
-              <AutoTranslatedText as="div" className="mt-1 text-xs text-slate-500" text={`${m.category} · ${m.productLine} · ERP ${m.erpCode}`} />
-              <div className="mt-2 flex gap-2">
-                <button type="button" onClick={() => void decide(m.id, "approved")} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700">{t('通过')}</button>
-                <button type="button" onClick={() => void decide(m.id, "rejected")} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50">{t('驳回')}</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
   );
 }
 

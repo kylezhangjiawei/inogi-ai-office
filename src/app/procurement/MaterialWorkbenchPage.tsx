@@ -1,7 +1,7 @@
 // 采购工作台（资产视角 · 物料库）：统计条 + 产品线Tab + 分类总览网格 + 物料瀑布流 + 物料详情抽屉。
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { Boxes, FolderTree, PackageCheck, Plus, RefreshCw, Search, Truck, Upload } from "lucide-react";
+import { Boxes, ClipboardCheck, FolderTree, PackageCheck, Plus, RefreshCw, Search, Truck, Upload } from "lucide-react";
 import { cn } from "../components/ui/utils";
 import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
@@ -26,6 +26,8 @@ export function MaterialWorkbenchPage() {
   const [importOpen, setImportOpen] = useState(false);
   const [catManageOpen, setCatManageOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  // 待审核筛选：统计卡点击切换，审核动作在物料详情抽屉里做（带完整上下文）
+  const [onlyPending, setOnlyPending] = useState(false);
   const flowRef = useRef<HTMLDivElement>(null);
   // 写操作按钮按系统管理配置的操作码显隐
   const can = useProcCan();
@@ -44,7 +46,7 @@ export function MaterialWorkbenchPage() {
     const shortage = plMaterials.filter((m) => m.stockQty === 0 && active.some((t) => t.materialName === m.name)).length;
     const transitBatches = active.filter((t) => TRANSIT.includes(t.status)).length;
     const weekArrival = active.filter((t) => { const d = daysFromToday(t.expectedArrivalDate); return TRANSIT.includes(t.status) && d != null && d >= 0 && d <= 7; }).length;
-    return { total: plMaterials.length, shortage, transitBatches, weekArrival };
+    return { total: plMaterials.length, pending: plMaterials.filter((m) => m.reviewStatus === "pending").length, shortage, transitBatches, weekArrival };
   }, [plMaterials, tasks]);
 
   // 分类总览
@@ -64,8 +66,11 @@ export function MaterialWorkbenchPage() {
 
   const filteredMaterials = useMemo(() => {
     const kw = search.trim().toLowerCase();
-    return plMaterials.filter((m) => (!category || m.category === category) && (!kw || `${m.name} ${m.spec} ${m.erpCode}`.toLowerCase().includes(kw)));
-  }, [plMaterials, category, search]);
+    return plMaterials.filter((m) =>
+      (!onlyPending || m.reviewStatus === "pending") &&
+      (!category || m.category === category) &&
+      (!kw || `${m.name} ${m.spec} ${m.erpCode}`.toLowerCase().includes(kw)));
+  }, [plMaterials, category, search, onlyPending]);
 
   const selectCategory = (cat: string) => {
     setCategory((cur) => (cur === cat ? null : cat));
@@ -89,9 +94,10 @@ export function MaterialWorkbenchPage() {
         }
       />
 
-      {/* 统计条（物料审核已移至采购任务驾驶舱，由管理员执行） */}
-      <div className="mb-3 grid grid-cols-4 gap-3">
+      {/* 统计条：「待审核」是筛选开关，审核动作在物料详情抽屉里做 */}
+      <div className="mb-3 grid grid-cols-5 gap-3">
         <StatCell label={t("物料总数")} value={stats.total} Icon={Boxes} />
+        <StatCell label={t("待审核")} value={stats.pending} tone={stats.pending > 0 ? "amber" : "slate"} badge={stats.pending > 0} Icon={ClipboardCheck} active={onlyPending} onClick={() => { setOnlyPending((v) => !v); setTimeout(() => flowRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 50); }} />
         <StatCell label={t("缺料预警")} value={stats.shortage} tone="red" badge={stats.shortage > 0} Icon={PackageCheck} />
         <StatCell label={t("在途批次")} value={stats.transitBatches} tone="indigo" Icon={Truck} />
         <StatCell label={t("本周到货批次")} value={stats.weekArrival} tone="emerald" Icon={PackageCheck} />
@@ -126,6 +132,7 @@ export function MaterialWorkbenchPage() {
           <div className="flex items-center gap-2">
             <h2 className="text-base font-bold text-slate-900">{t("物料清单")}</h2>
             {category && <button type="button" onClick={() => setCategory(null)} className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600"><AutoTranslatedText text={t(category.trim())} /> ✕</button>}
+            {onlyPending && <button type="button" onClick={() => setOnlyPending(false)} className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-xs text-amber-700">{t("只看待审核")} ✕</button>}
             <span className="text-xs text-slate-400">{t("{count} 条", { count: filteredMaterials.length })}</span>
           </div>
           <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm">
