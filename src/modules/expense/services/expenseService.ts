@@ -186,6 +186,10 @@ export type ExpenseOcrUploadOptions = {
 };
 
 export type ExpenseIntegrationRequirements = {
+  storage: {
+    ready: boolean;
+    missing: Array<{ key: string; label: string }>;
+  };
   tencent_ocr: {
     ready: boolean;
     missing: Array<{ key: string; label: string }>;
@@ -197,6 +201,25 @@ export type ExpenseIntegrationRequirements = {
     missing: Array<{ key: string; label: string }>;
     callback_endpoint: string;
   };
+  email: {
+    ready: boolean;
+    missing: Array<{ key: string; label: string }>;
+  };
+};
+
+export type ExpenseArchiveNode = {
+  id: string;
+  name: string;
+  icon?: string;
+  color?: string;
+  vendorFilter?: string[];
+  children?: ExpenseArchiveNode[];
+};
+
+export type ExpenseArchiveConfig = {
+  tree: ExpenseArchiveNode[];
+  manual_category: Record<string, string>;
+  excluded_ids: string[];
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -446,6 +469,17 @@ export const expenseService = {
     }
   },
 
+  async listInvoicesStrict(filters?: Partial<InvoiceFilters>, department?: string) {
+    const params = new URLSearchParams();
+    params.set("page_size", "200");
+    if (filters?.keyword?.trim()) params.set("keyword", filters.keyword.trim());
+    if (filters?.status && filters.status !== "全部") params.set("status", filters.status);
+    if (filters?.category && filters.category !== "全部") params.set("category", filters.category);
+    appendDepartment(params, department);
+    const result = await request<{ items: ApiInvoice[] }>(`/api/expenses/invoices?${params.toString()}`);
+    return applyLocalInvoiceFilters(result.items.map(toInvoice), filters);
+  },
+
   async getDashboard(department?: string): Promise<ExpenseDashboardData> {
     const params = new URLSearchParams();
     appendDepartment(params, department);
@@ -488,12 +522,8 @@ export const expenseService = {
   },
 
   async listVoucherCandidates(invoiceId: string): Promise<VoucherCandidate[]> {
-    try {
-      const result = await request<ApiVoucherCandidate[]>(`/api/expenses/invoices/${invoiceId}/voucher-candidates`);
-      return result.map(toVoucherCandidate);
-    } catch (error) {
-      return fallbackWithWarning("listVoucherCandidates", [], error);
-    }
+    const result = await request<ApiVoucherCandidate[]>(`/api/expenses/invoices/${invoiceId}/voucher-candidates`);
+    return result.map(toVoucherCandidate);
   },
 
   async listReimbursements(department?: string): Promise<ReimbursementRecord[]> {
@@ -506,6 +536,22 @@ export const expenseService = {
     } catch (error) {
       return fallbackWithWarning("listReimbursements", [], error);
     }
+  },
+
+  async listReimbursementsStrict(department?: string): Promise<ReimbursementRecord[]> {
+    const params = new URLSearchParams();
+    appendDepartment(params, department);
+    const qs = params.toString();
+    const result = await request<ApiReimbursement[]>(`/api/expenses/reimbursements${qs ? `?${qs}` : ""}`);
+    return result.map(toReimbursement);
+  },
+
+  async listVouchers(department?: string): Promise<VoucherUploadRecord[]> {
+    const params = new URLSearchParams();
+    appendDepartment(params, department);
+    const qs = params.toString();
+    const result = await request<ApiVoucherUpload[]>(`/api/expenses/vouchers${qs ? `?${qs}` : ""}`);
+    return result.map(toVoucherUpload);
   },
 
   async listRules(): Promise<ExpenseRule[]> {
@@ -579,6 +625,12 @@ export const expenseService = {
     }));
   },
 
+  deleteDraftReimbursement(reimbursementId: string) {
+    return request<{ ok: true }>(`/api/expenses/reimbursements/${reimbursementId}`, {
+      method: "DELETE",
+    });
+  },
+
   async syncWeComApproval(reimbursementId: string) {
     return toReimbursement(await request<ApiReimbursement>(`/api/expenses/reimbursements/${reimbursementId}/sync-wecom`, {
       method: "POST",
@@ -587,5 +639,16 @@ export const expenseService = {
 
   getIntegrationRequirements() {
     return request<ExpenseIntegrationRequirements>("/api/expenses/integrations/requirements");
+  },
+
+  getArchiveConfig() {
+    return request<ExpenseArchiveConfig>("/api/expenses/archive/config");
+  },
+
+  saveArchiveConfig(config: ExpenseArchiveConfig) {
+    return request<ExpenseArchiveConfig>("/api/expenses/archive/config", {
+      method: "PUT",
+      body: JSON.stringify(config),
+    });
   },
 };

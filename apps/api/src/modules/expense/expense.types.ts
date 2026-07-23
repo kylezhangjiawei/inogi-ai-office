@@ -64,6 +64,7 @@ export type ExpenseInvoiceValue = ExpenseDepartmentScope & {
   ocr_raw_response?: unknown;
   third_party_errors?: ThirdPartyOfficialError[];
   file_url?: string;
+  file_object_key?: string;
 };
 
 export type ExpenseVoucherValue = ExpenseDepartmentScope & {
@@ -94,12 +95,14 @@ export type ExpenseVoucherValue = ExpenseDepartmentScope & {
   ocr_raw_response?: unknown;
   third_party_errors?: ThirdPartyOfficialError[];
   file_url?: string;
+  file_object_key?: string;
 };
 
 export type ExpenseReimbursementValue = ExpenseDepartmentScope & {
   id: string;
   title: string;
   applicant: string;
+  applicant_user_id?: string;
   applied_date: string;
   amount: number;
   invoice_count: number;

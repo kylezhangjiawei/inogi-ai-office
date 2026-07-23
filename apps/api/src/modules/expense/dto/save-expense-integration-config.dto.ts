@@ -1,4 +1,4 @@
-import { IsBoolean, IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsObject, IsOptional, IsString } from 'class-validator';
 
 export class SaveTencentOcrConfigDto {
   @IsOptional()
@@ -58,6 +58,16 @@ export class SaveWeComExpenseConfigDto {
   @IsOptional()
   @IsString()
   callback_aes_key?: string;
+
+  @IsOptional()
+  @IsObject()
+  approval_control_ids?: {
+    title?: string;
+    amount?: string;
+    reason?: string;
+    invoice_count?: string;
+    project?: string;
+  };
 }
 
 export class SaveExpenseIntegrationConfigDto {

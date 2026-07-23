@@ -1,12 +1,20 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
+import { createTransport } from 'nodemailer';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecureConfigService } from '../security/secure-config.service';
 import { CreateExpenseReimbursementDto } from './dto/create-expense-reimbursement.dto';
 import { ListExpenseInvoicesQueryDto } from './dto/list-expense-invoices-query.dto';
+import { SaveExpenseArchiveConfigDto } from './dto/save-expense-archive-config.dto';
 import { SaveExpenseIntegrationConfigDto } from './dto/save-expense-integration-config.dto';
 import { UpdateExpenseInvoiceDto } from './dto/update-expense-invoice.dto';
 import {
@@ -39,6 +47,7 @@ import type {
 import { UploadExpenseOcrFilesDto } from './dto/upload-expense-ocr-files.dto';
 import { OcrService } from '../ocr/ocr.service';
 import { OssService } from '../oss/oss.service';
+import { SIGNED_URL_TTL_SECONDS } from '../oss/oss.constants';
 
 type UploadedExpenseFile = {
   originalname: string;
@@ -84,6 +93,36 @@ type ApprovalControlIds = {
   project: string;
 };
 
+type ExpenseActor = {
+  id: string;
+  name: string;
+  canSubmitOnBehalf: boolean;
+};
+
+type ExpenseSmtpConfig = {
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  password: string;
+  from: string;
+};
+
+export type ExpenseArchiveNode = {
+  id: string;
+  name: string;
+  icon?: string;
+  color?: string;
+  vendorFilter?: string[];
+  children?: ExpenseArchiveNode[];
+};
+
+export type ExpenseArchiveConfig = {
+  tree: ExpenseArchiveNode[];
+  manual_category: Record<string, string>;
+  excluded_ids: string[];
+};
+
 const RECORD_CATEGORIES = {
   invoice: 'expense_invoice',
   reimbursement: 'expense_reimbursement',
@@ -91,11 +130,24 @@ const RECORD_CATEGORIES = {
   event: 'expense_event',
   integration: 'expense_integration',
   voucher: 'expense_voucher',
+  reimbursementInvoice: 'expense_reimbursement_invoice',
+  reimbursementOperation: 'expense_reimbursement_operation',
+  archive: 'expense_archive',
 } as const;
 
 const INTEGRATION_KEY = 'expense:integrations';
+const ARCHIVE_CONFIG_KEY = 'expense:archive-config';
 const DEFAULT_PAGE = 1;
 const DEFAULT_PAGE_SIZE = 20;
+const MAX_UPLOAD_FILES = 20;
+const MAX_EXPENSE_FILE_SIZE = 10 * 1024 * 1024;
+const ALLOWED_EXPENSE_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'application/pdf',
+]);
+const ALLOWED_EXPENSE_FILE_EXTENSIONS = /\.(pdf|png|jpe?g|webp)$/i;
 
 /** 「未分配」部门的筛选标识（用于 view-all 用户查看无部门标签的存量数据）。 */
 export const UNASSIGNED_DEPT = 'unassigned';
@@ -217,6 +269,10 @@ export class ExpenseService {
     return this.ensureReimbursements(scope);
   }
 
+  async listVouchers(scope: ExpenseScope) {
+    return this.ensureVouchers(scope);
+  }
+
   async listRules() {
     return this.ensureRules();
   }
@@ -240,13 +296,26 @@ export class ExpenseService {
   }
 
   async uploadInvoices(files: UploadedExpenseFile[], payload: UploadExpenseOcrFilesDto = {}, scope: ExpenseScope) {
-    if (files.length === 0) {
-      throw new BadRequestException('请至少上传一个票据文件');
-    }
+    this.validateUploadFiles(files, '票据');
     this.assertCanWrite(scope);
+    if (!this.ossService.isEnabled) {
+      throw new ServiceUnavailableException('OSS 文件存储尚未配置，不能上传财务原始凭证');
+    }
     const tag = this.ownDeptTag(scope);
 
-    const created = await Promise.all(files.map((file) => this.createInvoiceFromFile(file, payload, tag)));
+    const objectKeys = await Promise.all(
+      files.map((file) =>
+        this.ossService.uploadBuffer(file.buffer, 'expense/invoices', file.originalname, file.mimetype),
+      ),
+    );
+    if (objectKeys.some((key) => !key)) {
+      throw new ServiceUnavailableException('部分原始发票未能保存到对象存储，本批次未生成票据记录，请检查 OSS 后重试');
+    }
+    const created = await Promise.all(
+      files.map((file, index) =>
+        this.createInvoiceFromFile(file, objectKeys[index] as string, payload, tag),
+      ),
+    );
     await this.recordEvent({
       title: '票据上传完成',
       detail: `已接收 ${created.length} 个文件，默认自动识别；低置信度或失败时可人工选择服务重试`,
@@ -259,13 +328,26 @@ export class ExpenseService {
   }
 
   async uploadVouchers(files: UploadedExpenseFile[], payload: UploadExpenseOcrFilesDto = {}, scope: ExpenseScope) {
-    if (files.length === 0) {
-      throw new BadRequestException('请至少上传一个付款凭证文件');
-    }
+    this.validateUploadFiles(files, '付款凭证');
     this.assertCanWrite(scope);
+    if (!this.ossService.isEnabled) {
+      throw new ServiceUnavailableException('OSS 文件存储尚未配置，不能上传财务原始凭证');
+    }
     const tag = this.ownDeptTag(scope);
 
-    const created = await Promise.all(files.map((file) => this.createVoucherFromFile(file, payload, tag)));
+    const objectKeys = await Promise.all(
+      files.map((file) =>
+        this.ossService.uploadBuffer(file.buffer, 'expense/vouchers', file.originalname, file.mimetype),
+      ),
+    );
+    if (objectKeys.some((key) => !key)) {
+      throw new ServiceUnavailableException('部分原始付款凭证未能保存到对象存储，本批次未生成凭证记录，请检查 OSS 后重试');
+    }
+    const created = await Promise.all(
+      files.map((file, index) =>
+        this.createVoucherFromFile(file, objectKeys[index] as string, payload, tag),
+      ),
+    );
     await this.recordEvent({
       title: '付款凭证上传完成',
       detail: `已接收 ${created.length} 个文件，可继续与票据做自动或人工关联`,
@@ -494,27 +576,50 @@ export class ExpenseService {
     return result.Response;
   }
 
-  async createReimbursement(payload: CreateExpenseReimbursementDto, scope: ExpenseScope) {
+  async createReimbursement(payload: CreateExpenseReimbursementDto, scope: ExpenseScope, actor: ExpenseActor) {
     this.assertCanWrite(scope);
+    const requestedInvoiceIds = Array.from(new Set(payload.invoice_ids));
+    if (requestedInvoiceIds.length !== payload.invoice_ids.length) {
+      throw new BadRequestException('报销单中存在重复票据');
+    }
     // 仅能在作用域内的票据上组单，跨部门票据天然被过滤掉。
-    const invoices = (await this.ensureInvoices(scope)).filter((invoice) => payload.invoice_ids.includes(invoice.id));
+    const invoices = (await this.ensureInvoices(scope)).filter((invoice) => requestedInvoiceIds.includes(invoice.id));
     if (invoices.length === 0) {
       throw new BadRequestException('请至少选择一张有效票据');
     }
-    if (invoices.length !== payload.invoice_ids.length) {
+    if (invoices.length !== requestedInvoiceIds.length) {
       throw new BadRequestException('部分票据不在你的部门范围内，无法组单');
     }
+    const alreadyReimbursed = invoices.filter((invoice) => invoice.status === '已报销');
+    if (alreadyReimbursed.length > 0) {
+      throw new BadRequestException(`以下票据已报销，不能重复组单：${alreadyReimbursed.map((item) => item.invoice_no).join('、')}`);
+    }
+    const unlinked = invoices.filter((invoice) => invoice.status !== '已关联' || !invoice.matched_voucher_id);
+    if (unlinked.length > 0) {
+      throw new BadRequestException(`以下票据尚未关联有效付款凭证：${unlinked.map((item) => item.invoice_no).join('、')}`);
+    }
+    const activeReimbursements = (await this.ensureReimbursements(scope)).filter(
+      (item) => item.status !== '已驳回',
+    );
+    const occupiedInvoiceIds = new Set(activeReimbursements.flatMap((item) => item.invoice_ids ?? []));
+    const occupied = invoices.filter((invoice) => occupiedInvoiceIds.has(invoice.id));
+    if (occupied.length > 0) {
+      throw new BadRequestException(`以下票据已进入其他报销单：${occupied.map((item) => item.invoice_no).join('、')}`);
+    }
     const tag = this.ownDeptTag(scope);
-    const voucherIds = Array.from(new Set([
-      ...(payload.voucher_ids ?? []),
-      ...invoices.map((invoice) => invoice.matched_voucher_id ?? invoice.voucher_no).filter(Boolean),
-    ] as string[]));
+    const voucherIds = Array.from(
+      new Set(invoices.map((invoice) => invoice.matched_voucher_id).filter(Boolean) as string[]),
+    );
     const now = new Date();
     const reimbursement: ExpenseReimbursementValue = {
       ...tag,
       id: this.newBusinessId('EXP'),
       title: payload.title.trim(),
-      applicant: payload.applicant?.trim() || '当前用户',
+      applicant:
+        actor.canSubmitOnBehalf && payload.applicant?.trim()
+          ? payload.applicant.trim()
+          : actor.name,
+      applicant_user_id: actor.id,
       applied_date: this.formatDate(now),
       amount: invoices.reduce((sum, invoice) => sum + invoice.amount, 0),
       invoice_count: invoices.length,
@@ -528,99 +633,238 @@ export class ExpenseService {
       wecom_sync_status: '未提交',
       wecom_approver: '-',
       wecom_updated_at: this.formatDateTime(now),
-      wecom_creator_userid: payload.wecom_creator_userid,
+      wecom_creator_userid:
+        actor.canSubmitOnBehalf ? payload.wecom_creator_userid?.trim() || undefined : undefined,
       notify_emails: this.normalizeEmails(payload.notify_emails),
       cc_emails: this.normalizeEmails(payload.cc_emails),
     };
-    await this.upsertValue(RECORD_CATEGORIES.reimbursement, reimbursement.id, reimbursement, reimbursement.title);
-    await this.recordEvent({
+    const reimbursementJson = JSON.parse(JSON.stringify(reimbursement)) as Prisma.InputJsonValue;
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        for (const invoice of invoices) {
+          await tx.systemSetting.create({
+            data: {
+              category: RECORD_CATEGORIES.reimbursementInvoice,
+              key: `${RECORD_CATEGORIES.reimbursementInvoice}:${invoice.id}`,
+              description: reimbursement.id,
+              value: {
+                invoice_id: invoice.id,
+                reimbursement_id: reimbursement.id,
+              },
+            },
+          });
+        }
+        await tx.systemSetting.create({
+          data: {
+            category: RECORD_CATEGORIES.reimbursement,
+            key: `${RECORD_CATEGORIES.reimbursement}:${reimbursement.id}`,
+            description: reimbursement.title,
+            value: reimbursementJson,
+          },
+        });
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new BadRequestException('所选票据已被其他报销单占用，请刷新后重试');
+      }
+      throw error;
+    }
+    void this.recordEvent({
       title: '报销单已创建',
       detail: `${reimbursement.title} / ${this.formatCurrency(reimbursement.amount)}`,
       level: 'info',
       ...tag,
-    });
+    }).catch(() => undefined);
     return reimbursement;
   }
 
   async submitWeComApproval(reimbursementId: string, scope: ExpenseScope) {
-    const reimbursement = await this.getReimbursementOrThrow(reimbursementId, scope);
-    const config = await this.getResolvedIntegrationConfig();
-    this.assertWeComReady(config, ['corp_id', 'corp_secret', 'approval_template_id', 'default_creator_userid']);
-    const controlIds = await this.getApprovalControlIds();
-    const client = new WeComApprovalClient(config.wecom);
-    const accessToken = await client.getAccessToken();
-    const materialSummary = `${reimbursement.invoice_count} 张发票 / ${reimbursement.voucher_ids?.length ?? 0} 份凭证`;
-    const response = await client.submitApproval(accessToken, {
-      creator_userid: reimbursement.wecom_creator_userid || config.wecom.default_creator_userid,
-      template_id: config.wecom.approval_template_id,
-      use_template_approver: 1,
-      apply_data: {
-        contents: [
-          this.textControl(controlIds.title, reimbursement.title),
-          this.moneyControl(controlIds.amount, reimbursement.amount),
-          this.textControl(controlIds.reason, reimbursement.reason || reimbursement.project || reimbursement.title),
-          this.textControl(controlIds.invoice_count, materialSummary),
-          this.textControl(controlIds.project, reimbursement.project || '-'),
-        ],
-      },
-      summary_list: [
-        {
-          summary_info: [
-            { text: reimbursement.title, lang: 'zh_CN' },
-            { text: this.formatCurrency(reimbursement.amount), lang: 'zh_CN' },
-            { text: materialSummary, lang: 'zh_CN' },
+    await this.acquireReimbursementOperation(reimbursementId, 'submit');
+    let submitted = false;
+    try {
+      const reimbursement = await this.getReimbursementOrThrow(reimbursementId, scope);
+      if (reimbursement.status !== '草稿' || reimbursement.wecom_flow_id) {
+        throw new BadRequestException('该报销单已经提交审批，不能重复提交');
+      }
+      const config = await this.getResolvedIntegrationConfig();
+      this.assertWeComReady(config, ['corp_id', 'corp_secret', 'approval_template_id', 'default_creator_userid']);
+      const controlIds = await this.getApprovalControlIds();
+      const client = new WeComApprovalClient(config.wecom);
+      const accessToken = await client.getAccessToken();
+      const materialSummary = `${reimbursement.invoice_count} 张发票 / ${reimbursement.voucher_ids?.length ?? 0} 份凭证`;
+      const response = await client.submitApproval(accessToken, {
+        creator_userid: reimbursement.wecom_creator_userid || config.wecom.default_creator_userid,
+        template_id: config.wecom.approval_template_id,
+        use_template_approver: 1,
+        apply_data: {
+          contents: [
+            this.textControl(controlIds.title, reimbursement.title),
+            this.moneyControl(controlIds.amount, reimbursement.amount),
+            this.textControl(controlIds.reason, reimbursement.reason || reimbursement.project || reimbursement.title),
+            this.textControl(controlIds.invoice_count, materialSummary),
+            this.textControl(controlIds.project, reimbursement.project || '-'),
           ],
         },
-      ],
-    });
-    const spNo = String(response.sp_no ?? response.sp_no_list ?? '');
-    const next: ExpenseReimbursementValue = {
-      ...reimbursement,
-      status: '审批中',
-      node: '企业微信审批中',
-      wecom_flow_id: spNo,
-      wecom_sync_status: '审批中',
-      wecom_template_id: config.wecom.approval_template_id,
-      wecom_updated_at: this.formatDateTime(new Date()),
-      wecom_raw_response: response,
-      third_party_errors: [],
-    };
-    await this.upsertValue(RECORD_CATEGORIES.reimbursement, next.id, next, next.title);
-    await this.recordEvent({
-      title: '已提交企业微信报销审批',
-      detail: `${next.title} / 审批编号 ${spNo || '等待企微返回'}`,
-      level: 'info',
-      provider: 'wecom',
-    });
-    // 邮件通知与审批提交解耦：失败不影响主流程（fire-and-forget）。
-    void this.queueReimbursementEmails(next, '已提交企业微信审批');
-    return next;
+        summary_list: [
+          {
+            summary_info: [
+              { text: reimbursement.title, lang: 'zh_CN' },
+              { text: this.formatCurrency(reimbursement.amount), lang: 'zh_CN' },
+              { text: materialSummary, lang: 'zh_CN' },
+            ],
+          },
+        ],
+      });
+      const spNo = String(response.sp_no ?? response.sp_no_list ?? '');
+      if (!spNo) {
+        throw new BadRequestException('企业微信未返回审批编号，报销单仍保留为草稿，请检查模板后重试');
+      }
+      const next: ExpenseReimbursementValue = {
+        ...reimbursement,
+        status: '审批中',
+        node: '企业微信审批中',
+        wecom_flow_id: spNo,
+        wecom_sync_status: '审批中',
+        wecom_template_id: config.wecom.approval_template_id,
+        wecom_updated_at: this.formatDateTime(new Date()),
+        wecom_raw_response: response,
+        third_party_errors: [],
+      };
+      await this.upsertValue(RECORD_CATEGORIES.reimbursement, next.id, next, next.title);
+      submitted = true;
+      await this.recordEvent({
+        title: '已提交企业微信报销审批',
+        detail: `${next.title} / 审批编号 ${spNo || '等待企微返回'}`,
+        level: 'info',
+        provider: 'wecom',
+      });
+      // 邮件通知与审批提交解耦：失败不影响主流程（fire-and-forget）。
+      void this.queueReimbursementEmails(next, '已提交企业微信审批');
+      return next;
+    } finally {
+      if (!submitted) {
+        await this.releaseReimbursementOperation(reimbursementId).catch(() => undefined);
+      }
+    }
+  }
+
+  async deleteDraftReimbursement(reimbursementId: string, scope: ExpenseScope) {
+    await this.acquireReimbursementOperation(reimbursementId, 'delete-draft');
+    try {
+      const reimbursement = await this.getReimbursementOrThrow(reimbursementId, scope);
+      if (reimbursement.status !== '草稿' || reimbursement.wecom_flow_id) {
+        throw new BadRequestException('仅未提交企业微信的草稿报销单可以删除');
+      }
+      await this.prisma.$transaction(async (tx) => {
+        await tx.systemSetting.deleteMany({
+          where: { key: `${RECORD_CATEGORIES.reimbursement}:${reimbursement.id}` },
+        });
+        await tx.systemSetting.deleteMany({
+          where: {
+            description: reimbursement.id,
+            key: {
+              in: reimbursement.invoice_ids.map(
+                (invoiceId) => `${RECORD_CATEGORIES.reimbursementInvoice}:${invoiceId}`,
+              ),
+            },
+          },
+        });
+      });
+      void this.recordEvent({
+        title: '报销草稿已删除',
+        detail: `${reimbursement.title} / 已释放 ${reimbursement.invoice_ids.length} 张票据`,
+        level: 'info',
+        department_code: reimbursement.department_code,
+        department_name: reimbursement.department_name,
+      }).catch(() => undefined);
+      return { ok: true };
+    } finally {
+      await this.releaseReimbursementOperation(reimbursementId).catch(() => undefined);
+    }
   }
 
   /**
    * 报销单邮件通知（与「邮箱管理」打通的业务流程闭环）。
-   * 当前阶段只把通知意图落到活动流，真实 SMTP 发送通道后续接入（邮箱管理暂无 SMTP 配置字段）。
+   * 邮件发送与审批主流程解耦；SMTP 未配置或发送失败时记录可见事件，但不回滚审批。
    */
   private async queueReimbursementEmails(reimbursement: ExpenseReimbursementValue, trigger: string) {
     const to = this.normalizeEmails(reimbursement.notify_emails);
     const cc = this.normalizeEmails(reimbursement.cc_emails);
     if (to.length === 0 && cc.length === 0) return;
     try {
+      const smtp = this.getSmtpConfig();
       const audience = [
         to.length ? `收件人 ${to.join('、')}` : '',
         cc.length ? `抄送 ${cc.join('、')}` : '',
       ]
         .filter(Boolean)
         .join('；');
+      if (!smtp) {
+        await this.recordEvent({
+          title: '报销审批邮件通知未发送',
+          detail: `${trigger}：${reimbursement.title} → ${audience}（SMTP 配置不完整）`,
+          level: 'warning',
+        });
+        return;
+      }
+      const transporter = createTransport({
+        host: smtp.host,
+        port: smtp.port,
+        secure: smtp.secure,
+        connectionTimeout: 10_000,
+        greetingTimeout: 10_000,
+        socketTimeout: 20_000,
+        ...(smtp.user && smtp.password
+          ? { auth: { user: smtp.user, pass: smtp.password } }
+          : {}),
+      });
+      const subjectTitle = reimbursement.title.replace(/[\r\n]+/g, ' ').slice(0, 120);
+      const recipients = to.length ? to : cc;
+      await transporter.sendMail({
+        from: smtp.from,
+        to: recipients,
+        ...(to.length && cc.length ? { cc } : {}),
+        subject: `[费用报销] ${trigger} - ${subjectTitle}`,
+        text: [
+          `报销单：${reimbursement.title}`,
+          `当前状态：${trigger}`,
+          `申请人：${reimbursement.applicant}`,
+          `金额：${this.formatCurrency(reimbursement.amount)}`,
+          `报销单号：${reimbursement.id}`,
+          reimbursement.wecom_flow_id ? `企业微信审批编号：${reimbursement.wecom_flow_id}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n'),
+      });
       await this.recordEvent({
-        title: '报销审批邮件通知已排队',
-        detail: `${trigger}：${reimbursement.title} → ${audience}（待发送通道接入）`,
+        title: '报销审批邮件通知已发送',
+        detail: `${trigger}：${reimbursement.title} → ${audience}`,
         level: 'info',
       });
     } catch (error) {
-      // 通知失败不应阻断审批主流程
-      void error;
+      await this.recordEvent({
+        title: '报销审批邮件通知发送失败',
+        detail: `${trigger}：${reimbursement.title}（${this.toSafeErrorMessage(error)}）`,
+        level: 'warning',
+      }).catch(() => undefined);
     }
+  }
+
+  private getSmtpConfig(): ExpenseSmtpConfig | null {
+    const host = this.configService.get<string>('SMTP_HOST')?.trim() ?? '';
+    const user = this.configService.get<string>('SMTP_USER')?.trim() ?? '';
+    const password = this.configService.get<string>('SMTP_PASSWORD') ?? '';
+    const from = this.configService.get<string>('SMTP_FROM')?.trim() || user;
+    const rawPort = Number(this.configService.get<string>('SMTP_PORT') ?? 465);
+    const port = Number.isInteger(rawPort) && rawPort > 0 && rawPort <= 65535 ? rawPort : 465;
+    const secureValue = this.configService.get<string>('SMTP_SECURE')?.trim().toLowerCase();
+    const secure = secureValue ? ['1', 'true', 'yes', 'on'].includes(secureValue) : port === 465;
+    if (!host || !from || Boolean(user) !== Boolean(password)) return null;
+    return { host, port, secure, user, password, from };
+  }
+
+  private hasSmtpConfig() {
+    return this.getSmtpConfig() !== null;
   }
 
   /** 去重、去空、规范化邮箱列表。 */
@@ -633,6 +877,11 @@ export class ExpenseService {
           .filter((email) => email.length > 0),
       ),
     );
+  }
+
+  private toSafeErrorMessage(error: unknown) {
+    const message = error instanceof Error ? error.message : '未知错误';
+    return message.replace(/[\r\n]+/g, ' ').slice(0, 240);
   }
 
   async syncWeComApproval(reimbursementId: string, scope: ExpenseScope) {
@@ -687,14 +936,26 @@ export class ExpenseService {
   async getIntegrationRequirements() {
     const config = await this.getResolvedIntegrationConfig();
     const controlIds = await this.getApprovalControlIds(false);
+    const smtpReady = this.hasSmtpConfig();
     return {
+      storage: {
+        ready: this.ossService.isEnabled,
+        missing: this.ossService.isEnabled
+          ? []
+          : [{ key: 'oss', label: '阿里云 OSS 文件存储配置' }],
+      },
       tencent_ocr: {
         ready: this.hasTencentConfig(config),
         supported_actions: TENCENT_OCR_SUPPORTED_ACTIONS,
-        missing: this.missingConfigFields(config.tencent_ocr, ['secret_id', 'secret_key']).map((key) => ({
-          key: `tencent_ocr.${key}`,
-          label: key === 'secret_id' ? '腾讯云 SecretId' : '腾讯云 SecretKey',
-        })),
+        missing: [
+          ...(config.tencent_ocr.enabled
+            ? []
+            : [{ key: 'tencent_ocr.enabled', label: '启用腾讯 OCR' }]),
+          ...this.missingConfigFields(config.tencent_ocr, ['secret_id', 'secret_key']).map((key) => ({
+            key: `tencent_ocr.${key}`,
+            label: key === 'secret_id' ? '腾讯云 SecretId' : '腾讯云 SecretKey',
+          })),
+        ],
         optional: [
           { key: 'tencent_ocr.region', label: '腾讯云地域', default: DEFAULT_TENCENT_OCR_CONFIG.region },
           { key: 'tencent_ocr.invoice_action', label: '票据上传默认 Action', default: DEFAULT_TENCENT_OCR_CONFIG.invoice_action },
@@ -703,6 +964,9 @@ export class ExpenseService {
       wecom: {
         ready: this.hasWeComConfig(config) && this.hasApprovalControlIds(controlIds),
         missing: [
+          ...(config.wecom.enabled
+            ? []
+            : [{ key: 'wecom.enabled', label: '启用企业微信审批' }]),
           ...this.missingConfigFields(config.wecom, [
             'corp_id',
             'agent_id',
@@ -718,6 +982,16 @@ export class ExpenseService {
           })),
         ],
         callback_endpoint: '/api/expenses/wecom/callback',
+      },
+      email: {
+        ready: smtpReady,
+        missing: smtpReady
+          ? []
+          : [
+              { key: 'smtp.host', label: 'SMTP_HOST' },
+              { key: 'smtp.from', label: 'SMTP_FROM（或 SMTP_USER）' },
+              { key: 'smtp.credentials', label: 'SMTP_USER / SMTP_PASSWORD（需要认证时）' },
+            ],
       },
     };
   }
@@ -784,7 +1058,12 @@ export class ExpenseService {
               encrypted_callback_aes_key: payload.wecom.callback_aes_key
                 ? this.secureConfigService.encryptForStorage(payload.wecom.callback_aes_key)
                 : existing.wecom?.encrypted_callback_aes_key,
-              approval_control_ids: existing.wecom?.approval_control_ids,
+              approval_control_ids: payload.wecom.approval_control_ids
+                ? {
+                    ...(existing.wecom?.approval_control_ids ?? {}),
+                    ...this.normalizeApprovalControlIds(payload.wecom.approval_control_ids),
+                  }
+                : existing.wecom?.approval_control_ids,
             }
           : {}),
       },
@@ -806,8 +1085,120 @@ export class ExpenseService {
     return this.getMaskedIntegrationConfig();
   }
 
+  async getArchiveConfig(): Promise<ExpenseArchiveConfig> {
+    const record = await this.prisma.systemSetting.findUnique({
+      where: { key: ARCHIVE_CONFIG_KEY },
+      select: { value: true },
+    });
+    if (!record?.value || typeof record.value !== 'object' || Array.isArray(record.value)) {
+      return { tree: [], manual_category: {}, excluded_ids: [] };
+    }
+    const value = record.value as Record<string, unknown>;
+    return {
+      tree: this.sanitizeArchiveTree(Array.isArray(value.tree) ? value.tree : []),
+      manual_category: this.sanitizeStringMap(value.manual_category),
+      excluded_ids: this.sanitizeStringList(value.excluded_ids),
+    };
+  }
+
+  async saveArchiveConfig(payload: SaveExpenseArchiveConfigDto): Promise<ExpenseArchiveConfig> {
+    const tree = this.sanitizeArchiveTree(payload.tree);
+    const validNodeIds = new Set<string>();
+    const collectNodeIds = (nodes: ExpenseArchiveNode[]) => {
+      for (const node of nodes) {
+        validNodeIds.add(node.id);
+        if (node.children) collectNodeIds(node.children);
+      }
+    };
+    collectNodeIds(tree);
+    const manualCategory = Object.fromEntries(
+      Object.entries(this.sanitizeStringMap(payload.manual_category))
+        .filter(([, nodeId]) => validNodeIds.has(nodeId)),
+    );
+    const config: ExpenseArchiveConfig = {
+      tree,
+      manual_category: manualCategory,
+      excluded_ids: this.sanitizeStringList(payload.excluded_ids),
+    };
+    const jsonValue = JSON.parse(JSON.stringify(config)) as Prisma.InputJsonValue;
+    await this.prisma.systemSetting.upsert({
+      where: { key: ARCHIVE_CONFIG_KEY },
+      create: {
+        category: RECORD_CATEGORIES.archive,
+        key: ARCHIVE_CONFIG_KEY,
+        description: '费用归档分类与人工归档设置',
+        value: jsonValue,
+      },
+      update: {
+        value: jsonValue,
+      },
+    });
+    return config;
+  }
+
+  private sanitizeArchiveTree(
+    input: unknown[],
+    depth = 0,
+    state: { value: number; ids: Set<string> } = { value: 0, ids: new Set<string>() },
+  ): ExpenseArchiveNode[] {
+    if (depth > 4) {
+      throw new BadRequestException('归档分类最多支持 5 层');
+    }
+    const result: ExpenseArchiveNode[] = [];
+    for (const raw of input) {
+      if (!raw || typeof raw !== 'object' || Array.isArray(raw)) continue;
+      state.value += 1;
+      if (state.value > 100) {
+        throw new BadRequestException('归档分类最多支持 100 个节点');
+      }
+      const value = raw as Record<string, unknown>;
+      const id = typeof value.id === 'string' ? value.id.trim().slice(0, 80) : '';
+      const name = typeof value.name === 'string' ? value.name.trim().slice(0, 80) : '';
+      if (!id || !name) continue;
+      if (state.ids.has(id)) {
+        throw new BadRequestException(`归档分类 ID 重复：${id}`);
+      }
+      state.ids.add(id);
+      const node: ExpenseArchiveNode = {
+        id,
+        name,
+        ...(typeof value.icon === 'string' ? { icon: value.icon.slice(0, 16) } : {}),
+        ...(typeof value.color === 'string' ? { color: value.color.slice(0, 32) } : {}),
+        vendorFilter: this.sanitizeStringList(value.vendorFilter).slice(0, 20),
+      };
+      if (Array.isArray(value.children)) {
+        node.children = this.sanitizeArchiveTree(value.children, depth + 1, state);
+      }
+      result.push(node);
+    }
+    return result;
+  }
+
+  private sanitizeStringMap(value: unknown): Record<string, string> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .slice(0, 1000)
+        .filter(([key, item]) => key.trim() && typeof item === 'string' && item.trim())
+        .map(([key, item]) => [key.trim().slice(0, 120), String(item).trim().slice(0, 120)]),
+    );
+  }
+
+  private sanitizeStringList(value: unknown): string[] {
+    if (!Array.isArray(value)) return [];
+    return Array.from(
+      new Set(
+        value
+          .filter((item): item is string => typeof item === 'string')
+          .map((item) => item.trim().slice(0, 160))
+          .filter(Boolean),
+      ),
+    ).slice(0, 1000);
+  }
+
   private async createInvoiceFromFile(
     file: UploadedExpenseFile,
+    invoiceObjectKey: string,
     payload: UploadExpenseOcrFilesDto,
     dept: { department_code: string | null; department_name: string | null } = { department_code: null, department_name: null },
   ) {
@@ -821,14 +1212,8 @@ export class ExpenseService {
       'invoice',
     );
 
-    // 上传原始文件到 OSS（非阻塞，失败不影响主流程）
-    const invoiceObjectKey = await this.ossService.uploadBuffer(
-      file.buffer,
-      'expense/invoices',
-      file.originalname,
-      file.mimetype,
-    );
-    const fileUrl = invoiceObjectKey ? this.ossService.getSignedUrl(invoiceObjectKey, 30 * 24 * 3600) : null;
+    const fileUrl = this.ossService.getSignedUrl(invoiceObjectKey, SIGNED_URL_TTL_SECONDS.DOCUMENT);
+    baseInvoice.file_object_key = invoiceObjectKey;
     if (fileUrl) baseInvoice.file_url = fileUrl;
 
     const config = await this.getResolvedIntegrationConfig();
@@ -899,6 +1284,7 @@ export class ExpenseService {
 
   private async createVoucherFromFile(
     file: UploadedExpenseFile,
+    voucherObjectKey: string,
     payload: UploadExpenseOcrFilesDto,
     dept: { department_code: string | null; department_name: string | null } = { department_code: null, department_name: null },
   ) {
@@ -909,14 +1295,7 @@ export class ExpenseService {
       'voucher',
     );
 
-    // 上传原始文件到 OSS（非阻塞，失败不影响主流程）
-    const voucherObjectKey = await this.ossService.uploadBuffer(
-      file.buffer,
-      'expense/vouchers',
-      file.originalname,
-      file.mimetype,
-    );
-    const fileUrl = voucherObjectKey ? this.ossService.getSignedUrl(voucherObjectKey, 30 * 24 * 3600) : null;
+    const fileUrl = this.ossService.getSignedUrl(voucherObjectKey, SIGNED_URL_TTL_SECONDS.DOCUMENT);
 
     const baseVoucher: ExpenseVoucherValue = {
       id: this.newBusinessId('VOU'),
@@ -936,6 +1315,7 @@ export class ExpenseService {
       ocr_action: service?.action,
       manual_review_required: true,
       ...dept,
+      file_object_key: voucherObjectKey,
       ...(fileUrl ? { file_url: fileUrl } : {}),
     };
     const config = await this.getResolvedIntegrationConfig();
@@ -1268,12 +1648,29 @@ export class ExpenseService {
       wecom_raw_response: payload,
     };
     await this.upsertValue(RECORD_CATEGORIES.reimbursement, next.id, next, next.title);
+    if (next.status === '已驳回') {
+      await this.prisma.systemSetting.deleteMany({
+        where: {
+          key: {
+            in: next.invoice_ids.map(
+              (invoiceId) => `${RECORD_CATEGORIES.reimbursementInvoice}:${invoiceId}`,
+            ),
+          },
+        },
+      });
+    }
     if (next.status === '已通过' || next.status === '已付款') {
       const invoices = await this.refreshInvoicesByIds(next.invoice_ids);
       await Promise.all(invoices.map((invoice) => {
         const nextInvoice: ExpenseInvoiceValue = { ...invoice, status: '已报销' };
         return this.upsertValue(RECORD_CATEGORIES.invoice, nextInvoice.id, nextInvoice, `${nextInvoice.invoice_no} ${nextInvoice.vendor}`);
       }));
+    }
+    if (
+      next.status !== reimbursement.status &&
+      (next.status === '已通过' || next.status === '已付款' || next.status === '已驳回')
+    ) {
+      void this.queueReimbursementEmails(next, `企业微信审批${next.status}`);
     }
     return next;
   }
@@ -1317,12 +1714,16 @@ export class ExpenseService {
   }
 
   private async ensureInvoices(scope?: ExpenseScope) {
-    const list = await this.listValues<ExpenseInvoiceValue>(RECORD_CATEGORIES.invoice);
+    const list = (await this.listValues<ExpenseInvoiceValue>(RECORD_CATEGORIES.invoice)).map(
+      (item) => this.refreshExpenseFileUrl(item),
+    );
     return scope ? this.filterByScope(list, scope) : list;
   }
 
   private async ensureVouchers(scope?: ExpenseScope) {
-    const list = await this.listValues<ExpenseVoucherValue>(RECORD_CATEGORIES.voucher);
+    const list = (await this.listValues<ExpenseVoucherValue>(RECORD_CATEGORIES.voucher)).map(
+      (item) => this.refreshExpenseFileUrl(item),
+    );
     return scope ? this.filterByScope(list, scope) : list;
   }
 
@@ -1333,6 +1734,15 @@ export class ExpenseService {
 
   private async ensureRules() {
     return this.listValues<ExpenseRuleValue>(RECORD_CATEGORIES.rule);
+  }
+
+  private refreshExpenseFileUrl<T extends { file_object_key?: string; file_url?: string }>(item: T): T {
+    if (!item.file_object_key) return item;
+    const freshUrl = this.ossService.getSignedUrl(
+      item.file_object_key,
+      SIGNED_URL_TTL_SECONDS.DOCUMENT,
+    );
+    return freshUrl ? { ...item, file_url: freshUrl } : item;
   }
 
   private async listEvents(take: number, scope?: ExpenseScope) {
@@ -1363,6 +1773,55 @@ export class ExpenseService {
 
   private filterByScope<T extends { department_code?: string | null }>(list: T[], scope: ExpenseScope): T[] {
     return list.filter((rec) => this.recordInScope(rec, scope));
+  }
+
+  private validateUploadFiles(files: UploadedExpenseFile[], label: string) {
+    if (files.length === 0) {
+      throw new BadRequestException(`请至少上传一个${label}文件`);
+    }
+    if (files.length > MAX_UPLOAD_FILES) {
+      throw new BadRequestException(`一次最多上传 ${MAX_UPLOAD_FILES} 个文件`);
+    }
+    for (const file of files) {
+      if (!file.buffer || file.buffer.length === 0) {
+        throw new BadRequestException(`${file.originalname || label} 内容为空`);
+      }
+      if (file.buffer.length > MAX_EXPENSE_FILE_SIZE) {
+        throw new BadRequestException(`${file.originalname} 超过 10MB 上限`);
+      }
+      const mimeAccepted =
+        !file.mimetype ||
+        file.mimetype === 'application/octet-stream' ||
+        ALLOWED_EXPENSE_MIME_TYPES.has(file.mimetype.toLowerCase());
+      const extensionAccepted = ALLOWED_EXPENSE_FILE_EXTENSIONS.test(file.originalname);
+      const contentType = this.detectExpenseFileType(file.buffer);
+      const extensionMatchesContent =
+        (contentType === 'pdf' && /\.pdf$/i.test(file.originalname)) ||
+        (contentType === 'png' && /\.png$/i.test(file.originalname)) ||
+        (contentType === 'jpeg' && /\.jpe?g$/i.test(file.originalname)) ||
+        (contentType === 'webp' && /\.webp$/i.test(file.originalname));
+      if (!mimeAccepted || !extensionAccepted || !contentType || !extensionMatchesContent) {
+        throw new BadRequestException(`${file.originalname} 类型不支持，仅允许 PDF、PNG、JPG、JPEG、WebP`);
+      }
+    }
+  }
+
+  private detectExpenseFileType(buffer: Buffer): 'pdf' | 'png' | 'jpeg' | 'webp' | null {
+    if (buffer.length >= 5 && buffer.subarray(0, 5).toString('ascii') === '%PDF-') return 'pdf';
+    if (
+      buffer.length >= 8 &&
+      buffer[0] === 0x89 &&
+      buffer.subarray(1, 4).toString('ascii') === 'PNG'
+    ) return 'png';
+    if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+      return 'jpeg';
+    }
+    if (
+      buffer.length >= 12 &&
+      buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+    ) return 'webp';
+    return null;
   }
 
   /** 写入前置校验：无部门的普通用户禁止录入（避免数据落进自己看不到的桶）。 */
@@ -1434,6 +1893,38 @@ export class ExpenseService {
     }
     if (scope) this.assertRecordInScope(reimbursement, scope, '报销单');
     return reimbursement;
+  }
+
+  private reimbursementOperationKey(reimbursementId: string) {
+    return `${RECORD_CATEGORIES.reimbursementOperation}:${reimbursementId}`;
+  }
+
+  private async acquireReimbursementOperation(reimbursementId: string, operation: string) {
+    try {
+      await this.prisma.systemSetting.create({
+        data: {
+          category: RECORD_CATEGORIES.reimbursementOperation,
+          key: this.reimbursementOperationKey(reimbursementId),
+          description: operation,
+          value: {
+            reimbursement_id: reimbursementId,
+            operation,
+            created_at: this.formatDateTime(new Date()),
+          },
+        },
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new BadRequestException('该报销单正在处理，请勿重复操作');
+      }
+      throw error;
+    }
+  }
+
+  private async releaseReimbursementOperation(reimbursementId: string) {
+    await this.prisma.systemSetting.deleteMany({
+      where: { key: this.reimbursementOperationKey(reimbursementId) },
+    });
   }
 
   private async upsertValue(category: string, id: string, value: unknown, description: string) {
@@ -1538,6 +2029,21 @@ export class ExpenseService {
     return controlIds;
   }
 
+  private normalizeApprovalControlIds(value: Partial<ApprovalControlIds>) {
+    const allowedKeys: Array<keyof ApprovalControlIds> = [
+      'title',
+      'amount',
+      'reason',
+      'invoice_count',
+      'project',
+    ];
+    return Object.fromEntries(
+      allowedKeys
+        .map((key) => [key, typeof value[key] === 'string' ? value[key]!.trim() : ''] as const)
+        .filter(([, item]) => item.length > 0),
+    ) as Partial<ApprovalControlIds>;
+  }
+
   private decryptStored(value?: string) {
     if (!value) return undefined;
     try {
@@ -1552,12 +2058,17 @@ export class ExpenseService {
   }
 
   private hasTencentConfig(config: ExpenseIntegrationConfig) {
-    return Boolean(config.tencent_ocr.secret_id && config.tencent_ocr.secret_key);
+    return Boolean(
+      config.tencent_ocr.enabled &&
+        config.tencent_ocr.secret_id &&
+        config.tencent_ocr.secret_key,
+    );
   }
 
   private hasWeComConfig(config: ExpenseIntegrationConfig) {
     return Boolean(
-      config.wecom.corp_id &&
+      config.wecom.enabled &&
+        config.wecom.corp_id &&
         config.wecom.corp_secret &&
         config.wecom.approval_template_id &&
         config.wecom.default_creator_userid,
@@ -1565,6 +2076,9 @@ export class ExpenseService {
   }
 
   private assertTencentReady(config: ExpenseIntegrationConfig, fields: Array<keyof ExpenseIntegrationConfig['tencent_ocr']>) {
+    if (!config.tencent_ocr.enabled) {
+      throw new BadRequestException('腾讯 OCR 已停用');
+    }
     const missing = this.missingConfigFields(config.tencent_ocr, fields);
     if (missing.length > 0) {
       throw new BadRequestException({
@@ -1575,6 +2089,9 @@ export class ExpenseService {
   }
 
   private assertWeComReady(config: ExpenseIntegrationConfig, fields: Array<keyof WeComExpenseConfig>) {
+    if (!config.wecom.enabled) {
+      throw new BadRequestException('企业微信审批已停用');
+    }
     const missing = this.missingConfigFields(config.wecom, fields);
     if (missing.length > 0) {
       throw new BadRequestException({

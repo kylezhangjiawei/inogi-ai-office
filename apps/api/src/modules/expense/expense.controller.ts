@@ -1,10 +1,12 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Request,
   UploadedFiles,
@@ -12,10 +14,12 @@ import {
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 
+import { Permissions } from '../auth/decorators/permissions.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { CreateExpenseReimbursementDto } from './dto/create-expense-reimbursement.dto';
 import { LinkExpenseVoucherDto } from './dto/link-expense-voucher.dto';
 import { ListExpenseInvoicesQueryDto } from './dto/list-expense-invoices-query.dto';
+import { SaveExpenseArchiveConfigDto } from './dto/save-expense-archive-config.dto';
 import { SaveExpenseIntegrationConfigDto } from './dto/save-expense-integration-config.dto';
 import { UpdateExpenseInvoiceDto } from './dto/update-expense-invoice.dto';
 import { UploadExpenseOcrFilesDto } from './dto/upload-expense-ocr-files.dto';
@@ -44,6 +48,7 @@ function buildExpenseScope(req: AuthedRequest, filterDepartment?: string): Expen
 }
 
 @Controller('expenses')
+@Permissions('page:expense-center')
 export class ExpenseController {
   constructor(private readonly expenseService: ExpenseService) {}
 
@@ -67,7 +72,7 @@ export class ExpenseController {
   }
 
   @Post('invoices/upload')
-  @UseInterceptors(FilesInterceptor('files', 30))
+  @UseInterceptors(FilesInterceptor('files', 20, { limits: { files: 20, fileSize: 10 * 1024 * 1024 } }))
   uploadInvoices(
     @UploadedFiles() files: Array<{ originalname: string; buffer: Buffer; mimetype?: string }>,
     @Body() payload: UploadExpenseOcrFilesDto,
@@ -77,7 +82,7 @@ export class ExpenseController {
   }
 
   @Post('vouchers/upload')
-  @UseInterceptors(FilesInterceptor('files', 30))
+  @UseInterceptors(FilesInterceptor('files', 20, { limits: { files: 20, fileSize: 10 * 1024 * 1024 } }))
   uploadVouchers(
     @UploadedFiles() files: Array<{ originalname: string; buffer: Buffer; mimetype?: string }>,
     @Body() payload: UploadExpenseOcrFilesDto,
@@ -91,8 +96,14 @@ export class ExpenseController {
     return this.expenseService.autoMatchVouchers(buildExpenseScope(req));
   }
 
+  @Get('vouchers')
+  listVouchers(@Request() req: AuthedRequest, @Query('department') department?: string) {
+    return this.expenseService.listVouchers(buildExpenseScope(req, department));
+  }
+
   /** 批量改派部门（仅 view-all）。 */
   @Post('reassign-department')
+  @Permissions('expense:view-all')
   reassignDepartment(
     @Body() payload: { type?: 'invoice' | 'voucher' | 'reimbursement'; ids?: string[]; department_code?: string },
     @Request() req: AuthedRequest,
@@ -135,12 +146,23 @@ export class ExpenseController {
 
   @Post('reimbursements')
   createReimbursement(@Body() payload: CreateExpenseReimbursementDto, @Request() req: AuthedRequest) {
-    return this.expenseService.createReimbursement(payload, buildExpenseScope(req));
+    const permissions = req.user?.permissions ?? [];
+    return this.expenseService.createReimbursement(payload, buildExpenseScope(req), {
+      id: req.user?.id ?? '',
+      name: req.user?.name?.trim() || '当前用户',
+      canSubmitOnBehalf:
+        permissions.includes('*') || permissions.includes('expense:submit-on-behalf'),
+    });
   }
 
   @Post('reimbursements/:reimbursementId/submit-wecom')
   submitWeComApproval(@Param('reimbursementId') reimbursementId: string, @Request() req: AuthedRequest) {
     return this.expenseService.submitWeComApproval(reimbursementId, buildExpenseScope(req));
+  }
+
+  @Delete('reimbursements/:reimbursementId')
+  deleteDraftReimbursement(@Param('reimbursementId') reimbursementId: string, @Request() req: AuthedRequest) {
+    return this.expenseService.deleteDraftReimbursement(reimbursementId, buildExpenseScope(req));
   }
 
   @Post('reimbursements/:reimbursementId/sync-wecom')
@@ -159,23 +181,38 @@ export class ExpenseController {
   }
 
   @Get('integrations/config')
+  @Permissions('expense:manage-integrations')
   getMaskedIntegrationConfig() {
     return this.expenseService.getMaskedIntegrationConfig();
   }
 
   @Post('integrations/config')
+  @Permissions('expense:manage-integrations')
   saveIntegrationConfig(@Body() payload: SaveExpenseIntegrationConfigDto) {
     return this.expenseService.saveIntegrationConfig(payload);
   }
 
+  @Get('archive/config')
+  getArchiveConfig() {
+    return this.expenseService.getArchiveConfig();
+  }
+
+  @Put('archive/config')
+  @Permissions('expense:archive-manage')
+  saveArchiveConfig(@Body() payload: SaveExpenseArchiveConfigDto) {
+    return this.expenseService.saveArchiveConfig(payload);
+  }
+
   @Get('wecom/callback')
   @Public()
+  @Permissions()
   verifyWeComCallback(@Query() query: Record<string, string | undefined>) {
     return this.expenseService.verifyWeComCallback(query);
   }
 
   @Post('wecom/callback')
   @Public()
+  @Permissions()
   handleWeComCallback(
     @Query() query: Record<string, string | undefined>,
     @Body() body: unknown,
