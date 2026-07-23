@@ -25,12 +25,17 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  ExternalDocumentEvidenceViewer,
+  type ExternalEvidenceDifference,
+} from "./components/ExternalDocumentEvidenceViewer";
 import { cn } from "./components/ui/utils";
+import { useModalFocus } from "./hooks/useModalFocus";
 import {
   archiveExternalComparison,
   createExternalDocument,
   getExternalDocument,
-  getExternalDocumentVersionDownload,
+  getExternalDocumentVersionDownloadContent,
   listExternalDocuments,
   replaceExternalComparisonCandidate,
   regenerateExternalComparisonSummary,
@@ -107,7 +112,7 @@ type UploadMode = "newDocument" | "newVersion" | "replaceCandidate";
 const statusConfig: Record<DocumentStatus, { label: string; className: string }> = {
   current: { label: "当前有效", className: "bg-emerald-50 text-emerald-700 ring-emerald-200" },
   review: { label: "待人工确认", className: "bg-amber-50 text-amber-700 ring-amber-200" },
-  comparing: { label: "AI 比对中", className: "bg-blue-50 text-blue-700 ring-blue-200" },
+  comparing: { label: "版本比对中", className: "bg-blue-50 text-blue-700 ring-blue-200" },
   failed: { label: "比对失败", className: "bg-rose-50 text-rose-700 ring-rose-200" },
 };
 
@@ -136,6 +141,17 @@ function nextVersion(version: string) {
 function fileSizeLabel(size: number) {
   if (size < 1024 * 1024) return `${Math.max(1, Math.round(size / 1024))} KB`;
   return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function downloadBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = fileName;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function formatDate(value: string, withTime = false) {
@@ -195,6 +211,8 @@ export function ExternalDocsPage() {
   const [versions, setVersions] = useState<VersionRecord[]>([]);
   const [integration, setIntegration] = useState<ExternalIntegrationStatus | null>(null);
   const [aiModel, setAiModel] = useState("");
+  const [aiGenerationMode, setAiGenerationMode] = useState<"ai" | "fallback">("fallback");
+  const [aiWarning, setAiWarning] = useState("");
   const [ocrProvider, setOcrProvider] = useState("");
   const [ocrConfidence, setOcrConfidence] = useState<number | null>(null);
   const [showUpload, setShowUpload] = useState(false);
@@ -208,12 +226,20 @@ export function ExternalDocsPage() {
   const [isActionPending, setIsActionPending] = useState(false);
   const [openingVersionId, setOpeningVersionId] = useState("");
   const [summary, setSummary] = useState("");
+  const [evidenceDifference, setEvidenceDifference] = useState<ExternalEvidenceDifference | null>(null);
+  const closeUploadDialog = useCallback(() => {
+    if (!isUploading) setShowUpload(false);
+  }, [isUploading]);
+  const uploadDialogRef = useModalFocus<HTMLElement>(showUpload, closeUploadDialog, {
+    escapeDisabled: isUploading,
+  });
 
   const selectedDocument = documents.find((item) => item.id === selectedId) ?? documents[0] ?? emptyDocument;
   const hasDocuments = documents.length > 0;
   const comparisonVisible = Boolean(selectedDocument.id && selectedDocument.id === activeComparisonDocId);
   const reviewedCount = differences.filter((item) => item.reviewed).length;
   const allReviewed = reviewedCount === differences.length;
+  const baselineRecord = versions.find((item) => item.version === baselineVersion);
   const candidateRecord = versions.find((item) => item.comparisonId === comparisonId && item.version === candidateVersion);
 
   const normalizeDocument = useCallback((document: ExternalDocumentDetail["document"]): DocumentSet => ({
@@ -267,6 +293,8 @@ export function ExternalDocsPage() {
       setSummary("");
       setCompareJobId("尚未创建比对任务");
       setAiModel("");
+      setAiGenerationMode("fallback");
+      setAiWarning("");
       setOcrProvider("");
       setOcrConfidence(null);
       return;
@@ -285,6 +313,8 @@ export function ExternalDocsPage() {
     setCandidateFileName(comparison.candidate?.fileName ?? "—");
     setCandidateFileSize(comparison.candidate ? fileSizeLabel(comparison.candidate.fileSize) : "—");
     setAiModel(comparison.aiModel || detail.integration.ai.model || "");
+    setAiGenerationMode(comparison.aiGenerationMode || (comparison.aiProvider?.includes("fallback") ? "fallback" : "ai"));
+    setAiWarning(comparison.aiWarning || "");
     setOcrProvider(comparison.ocrProvider || "");
     setOcrConfidence(comparison.ocrConfidence);
   }, [normalizeDocument]);
@@ -332,6 +362,14 @@ export function ExternalDocsPage() {
     if (differenceFilter === "high") return differences.filter((item) => item.risk === "high");
     return differences.filter((item) => item.type === differenceFilter);
   }, [differenceFilter, differences]);
+
+  const openEvidenceViewer = (difference: DifferenceItem) => {
+    if (!baselineRecord || !candidateRecord) {
+      toast.error("暂时无法定位两个版本的原文件，请刷新页面后重试");
+      return;
+    }
+    setEvidenceDifference(difference);
+  };
 
   const openUploadDialog = (mode: UploadMode) => {
     if (mode === "newVersion" && !selectedDocument.id) {
@@ -403,7 +441,7 @@ export function ExternalDocsPage() {
           notes: uploadNote.trim(),
         }));
         setWorkspaceTab("differences");
-        toast.success("新版本上传成功，已启动真实 AI/OCR 比对");
+        toast.success("新版本上传成功，已启动版本比对");
       } else {
         applyDetail(await replaceExternalComparisonCandidate(comparisonId, {
           file: uploadFile,
@@ -456,7 +494,13 @@ export function ExternalDocsPage() {
       const result = await regenerateExternalComparisonSummary(comparisonId);
       setSummary(result.summary);
       setAiModel(result.model);
-      toast.success("已使用真实 AI 根据复核结果重新生成摘要");
+      setAiGenerationMode(result.generationMode);
+      setAiWarning(result.warning || "");
+      if (result.generationMode === "ai") {
+        toast.success("已使用 AI 根据复核结果重新生成摘要");
+      } else {
+        toast.warning(result.warning || "AI 当前不可用，已使用确定性规则生成摘要");
+      }
     } catch (error) {
       toast.error((error as Error).message);
     } finally {
@@ -496,16 +540,15 @@ export function ExternalDocsPage() {
   };
 
   const openVersionFile = async (version: VersionRecord, revision?: number) => {
-    const popup = window.open("about:blank", "_blank");
-    if (popup) popup.opener = null;
     const openingId = `${version.id}:${revision ?? version.uploadRevision}`;
     setOpeningVersionId(openingId);
     try {
-      const result = await getExternalDocumentVersionDownload(version.id, revision);
-      if (popup) popup.location.href = result.url;
-      else window.location.assign(result.url);
+      const blob = await getExternalDocumentVersionDownloadContent(version.id, revision);
+      const replacement = revision == null
+        ? null
+        : version.replacementHistory.find((item) => item.revision === revision);
+      downloadBlob(blob, replacement?.fileName || version.fileName);
     } catch (error) {
-      popup?.close();
       toast.error((error as Error).message);
     } finally {
       setOpeningVersionId("");
@@ -543,7 +586,7 @@ export function ExternalDocsPage() {
               )}
               {!isLoading && filteredDocuments.length === 0 && (
                 <div className="px-3 py-10 text-center text-xs leading-5 text-slate-500">
-                  {documents.length ? "没有匹配的资料" : "还没有受控资料，请新建首版"}
+                  {documents.length ? "没有匹配的资料，右侧仍显示当前已选资料" : "还没有受控资料，请新建首版"}
                 </div>
               )}
               {filteredDocuments.map((document) => {
@@ -814,7 +857,7 @@ export function ExternalDocsPage() {
                                   </div>
                                   <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
                                     <span className="inline-flex items-center gap-1"><Fingerprint className="h-3.5 w-3.5" />{difference.source}</span>
-                                    <button type="button" onClick={() => toast.info(`已定位到 ${difference.location}`)} className="cursor-pointer font-semibold text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
+                                    <button type="button" onClick={() => openEvidenceViewer(difference)} className="cursor-pointer font-semibold text-blue-700 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
                                       查看原文定位
                                     </button>
                                   </div>
@@ -828,12 +871,31 @@ export function ExternalDocsPage() {
 
                     {workspaceTab === "summary" && (
                       <div className="space-y-4 p-4 sm:p-5">
-                        <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-4">
+                        <div className={cn(
+                          "rounded-2xl border p-4",
+                          aiGenerationMode === "ai" ? "border-blue-200 bg-blue-50/60" : "border-amber-200 bg-amber-50/70",
+                        )}>
                           <div className="flex items-start gap-3">
-                            <div className="rounded-xl bg-white p-2 text-blue-700 shadow-sm"><Sparkles className="h-5 w-5" /></div>
-                            <div>
-                              <h3 className="text-sm font-semibold text-blue-950">AI 生成的版本变更摘要</h3>
-                              <p className="mt-1 text-xs leading-5 text-blue-800/80">摘要会随差异复核结果更新，归档前可由用户编辑补充。</p>
+                            <div className={cn("rounded-xl bg-white p-2 shadow-sm", aiGenerationMode === "ai" ? "text-blue-700" : "text-amber-700")}>
+                              {aiGenerationMode === "ai" ? <Sparkles className="h-5 w-5" /> : <Bot className="h-5 w-5" />}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <h3 className={cn("text-sm font-semibold", aiGenerationMode === "ai" ? "text-blue-950" : "text-amber-950")}>
+                                  {aiGenerationMode === "ai" ? "AI 生成的版本变更摘要" : "规则降级生成的版本变更摘要"}
+                                </h3>
+                                <span className={cn(
+                                  "rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset",
+                                  aiGenerationMode === "ai" ? "bg-blue-100 text-blue-700 ring-blue-200" : "bg-amber-100 text-amber-800 ring-amber-200",
+                                )}>
+                                  {aiGenerationMode === "ai" ? "AI 已生效" : "AI 未生效"}
+                                </span>
+                              </div>
+                              <p className={cn("mt-1 text-xs leading-5", aiGenerationMode === "ai" ? "text-blue-800/80" : "text-amber-900/80")}>
+                                {aiGenerationMode === "ai"
+                                  ? "摘要由已配置模型生成，会随差异复核结果更新，归档前可由用户编辑补充。"
+                                  : aiWarning || "AI 当前不可用，本摘要由确定性规则生成，可继续人工编辑后归档。"}
+                              </p>
                             </div>
                           </div>
                         </div>
@@ -860,15 +922,22 @@ export function ExternalDocsPage() {
                             </div>
                           ))}
                         </div>
-                        <button
-                          type="button"
-                          onClick={() => void handleRegenerateSummary()}
-                          disabled={comparisonStatus === "archived" || isActionPending}
-                          className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-default disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-                        >
-                          {isActionPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                          根据复核结果重新生成
-                        </button>
+                        {comparisonStatus === "archived" ? (
+                          <div className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-xs font-medium text-slate-500" role="status">
+                            <LockKeyhole className="h-4 w-4" />
+                            该版本已归档锁定，摘要不可重新生成
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => void handleRegenerateSummary()}
+                            disabled={isActionPending}
+                            className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-slate-300 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-wait disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+                          >
+                            {isActionPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                            根据复核结果重新生成
+                          </button>
+                        )}
                       </div>
                     )}
 
@@ -878,9 +947,14 @@ export function ExternalDocsPage() {
                           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
                             <span className="inline-flex items-center gap-1.5 font-semibold text-slate-800"><ShieldCheck className="h-4 w-4 text-emerald-600" />证据已固化</span>
                             <span className="text-slate-500">OCR {ocrProvider ? `${ocrProvider}${ocrConfidence == null ? "" : ` · ${ocrConfidence}%`}` : "未触发（原生文本）"}</span>
-                            <span className="text-slate-500">AI {aiModel || integration?.ai.model || "未配置"} · 识别 {differences.length} 处</span>
+                            <span className={cn("font-medium", aiGenerationMode === "ai" ? "text-blue-700" : "text-amber-700")}>
+                              {aiGenerationMode === "ai" ? "AI 模型生成" : "规则降级生成"} · {aiModel || integration?.ai.model || "未配置"} · 识别 {differences.length} 处
+                            </span>
                             <span className="font-mono text-blue-700">{compareJobId}</span>
                           </div>
+                          {aiGenerationMode === "fallback" && aiWarning && (
+                            <p className="mt-2 text-xs leading-5 text-amber-700" role="status">{aiWarning}</p>
+                          )}
                         </div>
                         <div>
                           <div className="mb-3 flex items-center justify-between gap-3">
@@ -914,10 +988,10 @@ export function ExternalDocsPage() {
                                       onClick={() => void openVersionFile(version)}
                                       disabled={openingVersionId === `${version.id}:${version.uploadRevision}`}
                                       className="inline-flex h-7 cursor-pointer items-center gap-1 rounded-lg border border-slate-200 bg-white px-2 text-[11px] font-semibold text-slate-600 hover:border-blue-200 hover:text-blue-700 disabled:cursor-wait disabled:opacity-60"
-                                      title={`打开当前文件修订 R${version.uploadRevision}`}
+                                      title={`下载当前文件修订 R${version.uploadRevision}`}
                                     >
                                       {openingVersionId === `${version.id}:${version.uploadRevision}` ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />}
-                                      当前文件
+                                      下载
                                     </button>
                                   </div>
                                   <p className="mt-2 truncate text-xs font-medium text-slate-800" title={version.fileName}>{version.fileName}</p>
@@ -998,9 +1072,26 @@ export function ExternalDocsPage() {
         </main>
       </div>
 
+      {evidenceDifference && baselineRecord && candidateRecord && (
+        <ExternalDocumentEvidenceViewer
+          difference={evidenceDifference}
+          baseline={{
+            id: baselineRecord.id,
+            version: baselineRecord.version,
+            fileName: baselineRecord.fileName,
+          }}
+          candidate={{
+            id: candidateRecord.id,
+            version: candidateRecord.version,
+            fileName: candidateRecord.fileName,
+          }}
+          onClose={() => setEvidenceDifference(null)}
+        />
+      )}
+
       {showUpload && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-3 backdrop-blur-[2px]" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && !isUploading && setShowUpload(false)}>
-          <section role="dialog" aria-modal="true" aria-labelledby="upload-dialog-title" className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/45 p-3 backdrop-blur-[2px]" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && closeUploadDialog()}>
+          <section ref={uploadDialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="upload-dialog-title" className="flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl outline-none">
             <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 px-5 py-4 sm:px-6">
               <div>
                 <h2 id="upload-dialog-title" className="text-lg font-semibold text-slate-950">
@@ -1010,7 +1101,7 @@ export function ExternalDocsPage() {
                   {uploadMode === "replaceCandidate" ? "替换本次待比对文件，业务版本与比对任务保持不变。" : "建立首版资料，或为已有资料上传待比对的新版本。"}
                 </p>
               </div>
-              <button type="button" onClick={() => setShowUpload(false)} disabled={isUploading} aria-label="关闭上传窗口" className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-default">
+              <button type="button" onClick={closeUploadDialog} disabled={isUploading} aria-label="关闭上传窗口" data-dialog-autofocus className="inline-flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg text-slate-500 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50">
                 <X className="h-5 w-5" />
               </button>
             </div>
@@ -1082,12 +1173,21 @@ export function ExternalDocsPage() {
                   <span className="mb-1.5 block text-xs font-semibold text-slate-700">版本号 <span className="text-rose-600">*</span></span>
                   <input value={uploadVersion} onChange={(event) => setUploadVersion(event.target.value)} placeholder="例如：V3.2" className="h-10 w-full rounded-xl border border-slate-200 px-3 font-mono text-sm outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
                 </label>
-                <label className="block">
-                  <span className="mb-1.5 block text-xs font-semibold text-slate-700">资料分类</span>
-                  <select value={uploadCategory} onChange={(event) => setUploadCategory(event.target.value)} className="h-10 w-full cursor-pointer rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-100">
-                    <option>产品资料</option><option>技术资料</option><option>合规资质</option><option>注册资料</option><option>售前资料</option><option>未分类</option>
-                  </select>
-                </label>
+                {uploadMode === "newDocument" ? (
+                  <label className="block">
+                    <span className="mb-1.5 block text-xs font-semibold text-slate-700">资料分类</span>
+                    <select value={uploadCategory} onChange={(event) => setUploadCategory(event.target.value)} className="h-10 w-full cursor-pointer rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700 outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-100">
+                      <option>产品资料</option><option>技术资料</option><option>合规资质</option><option>注册资料</option><option>售前资料</option><option>未分类</option>
+                    </select>
+                  </label>
+                ) : (
+                  <div className="block">
+                    <span className="mb-1.5 block text-xs font-semibold text-slate-700">资料分类（沿用）</span>
+                    <div className="flex h-10 items-center rounded-xl border border-slate-200 bg-slate-50 px-3 text-sm text-slate-600" aria-label="沿用当前资料分类">
+                      {selectedDocument.category}
+                    </div>
+                  </div>
+                )}
               </div>}
 
               <label
@@ -1135,14 +1235,14 @@ export function ExternalDocsPage() {
                     {uploadMode === "replaceCandidate" ? "错误文件不会被覆盖或删除" : uploadMode === "newVersion" ? "上传完成后自动启动 AI / OCR 比对" : "首版文件将直接建立受控档案"}
                   </p>
                   <p className="mt-1 text-xs leading-5 text-slate-500">
-                    {uploadMode === "replaceCandidate" ? "旧文件、SHA256、上传人、上传时间和纠正原因会保存在版本溯源中，仍可下载核验。" : `系统保留原始文件、SHA256、上传人和时间。AI ${integration?.ai.configured ? `已连接 ${integration.ai.model || "默认模型"}` : "尚未配置"}；OCR ${integration?.ocr.configured ? "已连接腾讯 OCR" : "尚未配置"}。`}
+                    {uploadMode === "replaceCandidate" ? "旧文件、SHA256、上传人、上传时间和纠正原因会保存在版本溯源中，仍可下载核验。" : `系统保留原始文件、SHA256、上传人和时间。AI ${integration?.ai.configured ? `已配置 ${integration.ai.model || "默认模型"}` : "尚未配置"}；OCR ${integration?.ocr.configured ? "已配置腾讯 OCR" : "尚未配置"}。`}
                   </p>
                 </div>
               </div>
             </div>
 
             <div className="flex shrink-0 flex-col-reverse gap-2 border-t border-slate-200 bg-slate-50 px-5 py-4 sm:flex-row sm:justify-end sm:px-6">
-              <button type="button" onClick={() => setShowUpload(false)} disabled={isUploading} className="cursor-pointer rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-default disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">取消</button>
+              <button type="button" onClick={closeUploadDialog} disabled={isUploading} className="cursor-pointer rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">取消</button>
               <button type="button" onClick={handleUpload} disabled={isUploading} className="inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-800 disabled:cursor-wait disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2">
                 {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : uploadMode === "replaceCandidate" ? <RefreshCw className="h-4 w-4" /> : uploadMode === "newVersion" ? <FileDiff className="h-4 w-4" /> : <Archive className="h-4 w-4" />}
                 {isUploading ? "正在上传…" : uploadMode === "replaceCandidate" ? "替换并重新比对" : uploadMode === "newVersion" ? "上传并开始比对" : "上传并建立首版"}

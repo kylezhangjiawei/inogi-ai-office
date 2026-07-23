@@ -31,6 +31,7 @@ type DiffOperation = { kind: 'equal' | 'removed' | 'added'; text: string };
 
 const MAX_AI_HUNKS = 160;
 const MAX_HUNK_TEXT = 1800;
+const DEFAULT_QWEN_JSON_MAX_TOKENS = 16_000;
 
 @Injectable()
 export class ExternalDocumentAiService {
@@ -77,10 +78,12 @@ export class ExternalDocumentAiService {
       `${input.baselineProvider} → ${input.candidateProvider}`,
     );
     let runtime: AiRuntimeConfig | null = null;
+    let fallbackWarning = '';
     try {
       runtime = await this.resolveRuntimeConfig();
     } catch (error) {
       this.logger.warn(`AI 模型不可用，资料比对使用确定性降级: ${(error as Error).message}`);
+      fallbackWarning = 'AI 模型当前不可用，本次结果由确定性文本比对生成';
     }
 
     if (candidates.length === 0) {
@@ -88,7 +91,9 @@ export class ExternalDocumentAiService {
         summary: `${input.candidateVersion} 与 ${input.baselineVersion} 的可提取文字内容一致，未发现文本差异。仍建议人工核对图片、颜色和版式。`,
         differences: [] as ExternalDifference[],
         model: runtime?.model ?? 'deterministic-diff-v1',
-        provider: runtime?.provider ?? 'local-diff',
+        provider: `${runtime?.provider ?? 'local-diff'}:deterministic`,
+        generationMode: 'fallback' as const,
+        warning: '未检测到可提取文字差异，本次摘要由确定性规则生成',
       };
     }
 
@@ -121,10 +126,30 @@ export class ExternalDocumentAiService {
             }),
           },
         ]);
-        parsed = this.parseJson(raw) as typeof parsed;
+        const candidateResponse = this.parseJson(raw) as typeof parsed;
+        const responseDifferences = Array.isArray(candidateResponse.differences)
+          ? candidateResponse.differences
+          : [];
+        const responseIds = new Set(
+          responseDifferences
+            .filter((item) => typeof item?.id === 'string')
+            .map((item) => String(item.id)),
+        );
+        const missingIds = aiCandidates
+          .map((item) => item.id)
+          .filter((id) => !responseIds.has(id));
+        if (!this.textValue(candidateResponse.summary) || missingIds.length > 0) {
+          throw new BadRequestException(
+            missingIds.length > 0
+              ? `AI 返回结果不完整，缺少 ${missingIds.length} 条差异`
+              : 'AI 未返回有效的版本摘要',
+          );
+        }
+        parsed = candidateResponse;
         aiSucceeded = true;
       } catch (error) {
         this.logger.warn(`AI 差异分类失败，保留确定性差异进入人工复核: ${(error as Error).message}`);
+        fallbackWarning = 'AI 差异分类调用失败，本次结果由确定性文本比对生成';
       }
     }
     const aiById = new Map(
@@ -155,6 +180,8 @@ export class ExternalDocumentAiService {
       differences,
       model: runtime?.model ?? 'deterministic-diff-v1',
       provider: aiSucceeded ? runtime!.provider : `${runtime?.provider ?? 'local-diff'}:fallback`,
+      generationMode: aiSucceeded ? 'ai' as const : 'fallback' as const,
+      warning: aiSucceeded ? undefined : fallbackWarning || '本次结果由确定性文本比对生成',
     };
   }
 
@@ -193,7 +220,13 @@ export class ExternalDocumentAiService {
       const parsed = this.parseJson(raw) as { summary?: unknown };
       const summary = this.textValue(parsed.summary);
       if (!summary) throw new BadRequestException('AI 未返回有效的归档摘要');
-      return { summary, model: runtime.model, provider: runtime.provider };
+      return {
+        summary,
+        model: runtime.model,
+        provider: runtime.provider,
+        generationMode: 'ai' as const,
+        warning: undefined,
+      };
     } catch (error) {
       this.logger.warn(`AI 摘要生成失败，使用确定性摘要: ${(error as Error).message}`);
       const summary = this.fallbackArchiveSummary(input.baselineVersion, input.candidateVersion, input.differences);
@@ -201,6 +234,8 @@ export class ExternalDocumentAiService {
         summary,
         model: runtime?.model ?? 'deterministic-diff-v1',
         provider: `${runtime?.provider ?? 'local-diff'}:fallback`,
+        generationMode: 'fallback' as const,
+        warning: 'AI 摘要生成失败，已改用确定性规则生成',
       };
     }
   }
@@ -362,10 +397,26 @@ export class ExternalDocumentAiService {
   private async callJson(runtime: AiRuntimeConfig, messages: Array<{ role: 'system' | 'user'; content: string }>) {
     const globalTimeout = Number(this.config.get('OPENAI_TIMEOUT_MS') ?? 120_000);
     const externalDocsTimeout = Number(this.config.get('EXTERNAL_DOCS_AI_TIMEOUT_MS') ?? Math.min(globalTimeout, 60_000));
+    const configuredQwenMaxTokens = Number(
+      this.config.get('EXTERNAL_DOCS_QWEN_JSON_MAX_TOKENS') ?? DEFAULT_QWEN_JSON_MAX_TOKENS,
+    );
+    const qwenJsonOptions = this.isQwenProvider(runtime.provider)
+      ? ({
+          // Qwen's thinking tokens share the completion budget. For a large JSON
+          // difference list this can truncate the visible JSON before it closes.
+          enable_thinking: false,
+          max_tokens: Number.isFinite(configuredQwenMaxTokens) && configuredQwenMaxTokens > 0
+            ? Math.round(configuredQwenMaxTokens)
+            : DEFAULT_QWEN_JSON_MAX_TOKENS,
+        } as Record<string, unknown>)
+      : {};
     const client = new OpenAI({
       apiKey: runtime.apiKey,
       ...(runtime.baseURL ? { baseURL: runtime.baseURL } : {}),
       timeout: Number.isFinite(externalDocsTimeout) && externalDocsTimeout > 0 ? externalDocsTimeout : 60_000,
+      // A background comparison already has an explicit deterministic fallback.
+      // Avoid the SDK multiplying the configured timeout with two implicit retries.
+      maxRetries: 0,
     });
     try {
       const response = await client.chat.completions.create({
@@ -373,6 +424,7 @@ export class ExternalDocumentAiService {
         messages,
         response_format: { type: 'json_object' },
         temperature: 0.1,
+        ...qwenJsonOptions,
       });
       return response.choices[0]?.message?.content ?? '{}';
     } catch (firstError) {
@@ -382,6 +434,7 @@ export class ExternalDocumentAiService {
         model: runtime.model,
         messages,
         temperature: 0.1,
+        ...qwenJsonOptions,
       });
       return response.choices[0]?.message?.content ?? '{}';
     }
@@ -434,6 +487,15 @@ export class ExternalDocumentAiService {
     const status = Number(info.status);
     const message = (error as Error)?.message?.toLowerCase() ?? '';
     return status === 400 && /response[_ -]?format|json[_ -]?mode|json_object/.test(message);
+  }
+
+  private isQwenProvider(provider: string) {
+    const normalized = provider.trim().toLowerCase();
+    return (
+      ['qwen', 'tongyi', 'dashscope', 'aliyun'].some((item) => normalized.includes(item)) ||
+      normalized.includes('千问') ||
+      normalized.includes('通义')
+    );
   }
 
   private confidenceValue(value: unknown) {

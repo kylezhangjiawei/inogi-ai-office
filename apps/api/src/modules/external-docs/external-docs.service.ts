@@ -18,6 +18,7 @@ import {
 } from './external-document-ai.service';
 import {
   ExternalDocumentExtractionService,
+  normalizeDocxCheckboxSymbols,
   type ExternalDocumentExtraction,
   type ExternalDocumentFile,
 } from './external-document-extraction.service';
@@ -31,6 +32,11 @@ type CreateDocumentInput = {
   allowSend?: boolean;
 };
 type UploadVersionInput = { version: string; notes?: string };
+type VersionUploadDocument = {
+  currentVersionId: string | null;
+  versions: Array<{ version: string }>;
+  comparisons: Array<unknown>;
+};
 type ReplacementHistoryEntry = {
   revision: number;
   fileName: string;
@@ -101,7 +107,7 @@ export class ExternalDocsService implements OnModuleInit {
       where: { id: documentId },
       include: {
         versions: { orderBy: { createdAt: 'desc' } },
-        comparisons: { orderBy: { createdAt: 'desc' }, take: 1 },
+        comparisons: { orderBy: { createdAt: 'desc' } },
       },
     });
     if (!document) throw new NotFoundException('资料不存在');
@@ -184,24 +190,29 @@ export class ExternalDocsService implements OnModuleInit {
     const versionLabel = input.version?.trim();
     if (!versionLabel) throw new BadRequestException('版本号不能为空');
 
-    const document = await this.prisma.externalDocument.findUnique({
+    const preflight = await this.prisma.externalDocument.findUnique({
       where: { id: documentId },
       include: {
         versions: true,
         comparisons: { where: { status: { in: ['comparing', 'review'] } }, take: 1 },
       },
     });
-    if (!document) throw new NotFoundException('资料不存在');
-    if (!document.currentVersionId) throw new ConflictException('当前资料尚未建立有效基准版本');
-    if (document.comparisons.length) throw new ConflictException('当前资料已有待处理的版本比对，请先完成或重试该任务');
-    if (document.versions.some((item) => item.version.toLowerCase() === versionLabel.toLowerCase())) {
-      throw new ConflictException(`版本号 ${versionLabel} 已存在`);
-    }
+    this.assertVersionUploadAllowed(preflight, versionLabel);
 
     const stored = await this.storeFile(file);
     let comparisonId = '';
     try {
       comparisonId = await this.prisma.$transaction(async (tx) => {
+        await this.lockDocument(tx, documentId);
+        const document = await tx.externalDocument.findUnique({
+          where: { id: documentId },
+          include: {
+            versions: true,
+            comparisons: { where: { status: { in: ['comparing', 'review'] } }, take: 1 },
+          },
+        });
+        this.assertVersionUploadAllowed(document, versionLabel);
+
         const candidate = await tx.externalDocumentVersion.create({
           data: {
             documentId,
@@ -231,6 +242,12 @@ export class ExternalDocsService implements OnModuleInit {
       });
     } catch (error) {
       await this.oss.deleteObject(stored.objectKey);
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        ['P2002', 'P2034'].includes(error.code)
+      ) {
+        throw new ConflictException('当前资料已有其他版本上传或比对任务，请刷新后重试');
+      }
       throw error;
     }
 
@@ -239,27 +256,31 @@ export class ExternalDocsService implements OnModuleInit {
   }
 
   async reviewDifference(comparisonId: string, differenceId: string, reviewed: boolean) {
-    const comparison = await this.findComparison(comparisonId);
-    if (comparison.status !== 'review') throw new ConflictException('当前比对任务不处于人工复核阶段');
-    const differences = this.differences(comparison.differences);
-    if (!differences.some((item) => item.id === differenceId)) throw new NotFoundException('差异项不存在');
-    const updated = differences.map((item) => item.id === differenceId ? { ...item, reviewed } : item);
-    await this.prisma.externalDocumentComparison.update({
-      where: { id: comparisonId },
-      data: { differences: updated as unknown as Prisma.InputJsonValue },
+    return this.prisma.$transaction(async (tx) => {
+      const comparison = await this.lockComparison(tx, comparisonId);
+      if (comparison.status !== 'review') throw new ConflictException('当前比对任务不处于人工复核阶段');
+      const differences = this.differences(comparison.differences);
+      if (!differences.some((item) => item.id === differenceId)) throw new NotFoundException('差异项不存在');
+      const updated = differences.map((item) => item.id === differenceId ? { ...item, reviewed } : item);
+      await tx.externalDocumentComparison.update({
+        where: { id: comparisonId },
+        data: { differences: updated as unknown as Prisma.InputJsonValue },
+      });
+      return { differences: updated, reviewedCount: updated.filter((item) => item.reviewed).length };
     });
-    return { differences: updated, reviewedCount: updated.filter((item) => item.reviewed).length };
   }
 
   async reviewAll(comparisonId: string) {
-    const comparison = await this.findComparison(comparisonId);
-    if (comparison.status !== 'review') throw new ConflictException('当前比对任务不处于人工复核阶段');
-    const differences = this.differences(comparison.differences).map((item) => ({ ...item, reviewed: true }));
-    await this.prisma.externalDocumentComparison.update({
-      where: { id: comparisonId },
-      data: { differences: differences as unknown as Prisma.InputJsonValue },
+    return this.prisma.$transaction(async (tx) => {
+      const comparison = await this.lockComparison(tx, comparisonId);
+      if (comparison.status !== 'review') throw new ConflictException('当前比对任务不处于人工复核阶段');
+      const differences = this.differences(comparison.differences).map((item) => ({ ...item, reviewed: true }));
+      await tx.externalDocumentComparison.update({
+        where: { id: comparisonId },
+        data: { differences: differences as unknown as Prisma.InputJsonValue },
+      });
+      return { differences, reviewedCount: differences.length };
     });
-    return { differences, reviewedCount: differences.length };
   }
 
   async regenerateSummary(comparisonId: string) {
@@ -276,21 +297,30 @@ export class ExternalDocsService implements OnModuleInit {
       candidateVersion: candidate.version,
       differences: this.differences(comparison.differences),
     });
-    await this.prisma.externalDocumentComparison.update({
-      where: { id: comparisonId },
-      data: { summary: generated.summary, aiModel: generated.model, aiProvider: generated.provider },
+    const updated = await this.prisma.externalDocumentComparison.updateMany({
+      where: { id: comparisonId, status: 'review', updatedAt: comparison.updatedAt },
+      data: {
+        summary: generated.summary,
+        aiModel: generated.model,
+        aiProvider: generated.provider,
+        aiGenerationMode: generated.generationMode,
+        aiWarning: generated.warning ?? null,
+      },
     });
+    if (updated.count === 0) {
+      throw new ConflictException('复核状态已被其他用户更新，请刷新后重新生成摘要');
+    }
     return generated;
   }
 
   async archive(actor: RequestActor, comparisonId: string, summary?: string) {
-    const comparison = await this.findComparison(comparisonId);
-    if (comparison.status !== 'review') throw new ConflictException('当前比对任务不能归档');
-    const differences = this.differences(comparison.differences);
-    const unreviewed = differences.filter((item) => !item.reviewed).length;
-    if (unreviewed) throw new ConflictException(`还有 ${unreviewed} 处差异未复核`);
-
     await this.prisma.$transaction(async (tx) => {
+      const comparison = await this.lockComparison(tx, comparisonId);
+      if (comparison.status !== 'review') throw new ConflictException('当前比对任务不能归档');
+      const differences = this.differences(comparison.differences);
+      const unreviewed = differences.filter((item) => !item.reviewed).length;
+      if (unreviewed) throw new ConflictException(`还有 ${unreviewed} 处差异未复核`);
+
       await tx.externalDocumentVersion.updateMany({
         where: { documentId: comparison.documentId, status: 'current' },
         data: { status: 'superseded' },
@@ -318,28 +348,64 @@ export class ExternalDocsService implements OnModuleInit {
         },
       });
     });
+    const comparison = await this.findComparison(comparisonId);
     return this.detail(comparison.documentId);
   }
 
   async retry(comparisonId: string) {
-    const comparison = await this.findComparison(comparisonId);
-    if (comparison.status !== 'failed') throw new ConflictException('仅失败的比对任务可以重试');
-    await this.prisma.$transaction([
-      this.prisma.externalDocumentComparison.update({
-        where: { id: comparisonId },
-        data: { status: 'comparing', errorMessage: null, startedAt: new Date(), completedAt: null },
-      }),
-      this.prisma.externalDocumentVersion.update({
-        where: { id: comparison.candidateVersionId },
-        data: { status: 'pending' },
-      }),
-      this.prisma.externalDocument.update({
-        where: { id: comparison.documentId },
-        data: { status: 'comparing' },
-      }),
-    ]);
+    let documentId = '';
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const comparison = await this.lockComparison(tx, comparisonId);
+        if (comparison.status !== 'failed') throw new ConflictException('仅失败的比对任务可以重试');
+        await this.lockDocument(tx, comparison.documentId);
+        const active = await tx.externalDocumentComparison.findFirst({
+          where: {
+            documentId: comparison.documentId,
+            status: { in: ['comparing', 'review'] },
+            NOT: { id: comparisonId },
+          },
+          select: { id: true },
+        });
+        if (active) throw new ConflictException('当前资料已有其他待处理的版本比对，不能重试旧任务');
+
+        const startedAt = new Date();
+        await tx.externalDocumentComparison.update({
+          where: { id: comparisonId },
+          data: {
+            status: 'comparing',
+            summary: '',
+            differences: [],
+            aiModel: null,
+            aiProvider: null,
+            aiGenerationMode: null,
+            aiWarning: null,
+            errorMessage: null,
+            startedAt,
+            completedAt: null,
+          },
+        });
+        await tx.externalDocumentVersion.update({
+          where: { id: comparison.candidateVersionId },
+          data: { status: 'pending' },
+        });
+        await tx.externalDocument.update({
+          where: { id: comparison.documentId },
+          data: { status: 'comparing' },
+        });
+        documentId = comparison.documentId;
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        ['P2002', 'P2034'].includes(error.code)
+      ) {
+        throw new ConflictException('当前资料已有其他待处理的版本比对，请刷新后重试');
+      }
+      throw error;
+    }
     this.launchComparison(comparisonId);
-    return this.detail(comparison.documentId);
+    return this.detail(documentId);
   }
 
   /**
@@ -415,6 +481,8 @@ export class ExternalDocsService implements OnModuleInit {
             differences: [],
             aiModel: null,
             aiProvider: null,
+            aiGenerationMode: null,
+            aiWarning: null,
             ocrProvider: null,
             ocrConfidence: null,
             errorMessage: null,
@@ -437,11 +505,39 @@ export class ExternalDocsService implements OnModuleInit {
   }
 
   async versionDownload(versionId: string, revisionInput?: string) {
+    const resolved = await this.resolveVersionFile(versionId, revisionInput);
+    const url = this.oss.getSignedUrl(resolved.source.objectKey, SIGNED_URL_TTL_SECONDS.DEFAULT);
+    if (!url) throw new BadRequestException('OSS 未配置，暂时无法读取原文件');
+    return {
+      versionId: resolved.versionId,
+      revision: resolved.revision,
+      fileName: resolved.source.fileName,
+      hash: resolved.source.fileHash,
+      url,
+      expiresIn: SIGNED_URL_TTL_SECONDS.DEFAULT,
+    };
+  }
+
+  async versionDownloadContent(versionId: string, revisionInput?: string) {
+    const resolved = await this.resolveVersionFile(versionId, revisionInput);
+    const object = await this.oss.getObjectStream(resolved.source.objectKey);
+    if (!object) throw new NotFoundException('资料原文件暂时无法读取');
+    return {
+      ...object,
+      fileName: resolved.source.fileName,
+      revision: resolved.revision,
+      versionId: resolved.versionId,
+    };
+  }
+
+  private async resolveVersionFile(versionId: string, revisionInput?: string) {
     const version = await this.prisma.externalDocumentVersion.findUnique({
       where: { id: versionId },
       select: {
         id: true,
         fileName: true,
+        mimeType: true,
+        fileSize: true,
         objectKey: true,
         fileHash: true,
         uploadRevision: true,
@@ -465,15 +561,30 @@ export class ExternalDocsService implements OnModuleInit {
     if (!this.oss.isKeyUnderBusinessType(source.objectKey, OSS_BUSINESS_TYPES.EXTERNAL_DOCS)) {
       throw new BadRequestException('资料原文件存储路径不合法');
     }
-    const url = this.oss.getSignedUrl(source.objectKey, SIGNED_URL_TTL_SECONDS.DEFAULT);
-    if (!url) throw new BadRequestException('OSS 未配置，暂时无法读取原文件');
     return {
       versionId: version.id,
       revision: requestedRevision,
-      fileName: source.fileName,
-      hash: source.fileHash,
-      url,
-      expiresIn: SIGNED_URL_TTL_SECONDS.DEFAULT,
+      source,
+    };
+  }
+
+  async versionPreviewContent(versionId: string) {
+    const version = await this.prisma.externalDocumentVersion.findUnique({
+      where: { id: versionId },
+      select: {
+        fileName: true,
+        objectKey: true,
+      },
+    });
+    if (!version) throw new NotFoundException('资料版本不存在');
+    if (!this.oss.isKeyUnderBusinessType(version.objectKey, OSS_BUSINESS_TYPES.EXTERNAL_DOCS)) {
+      throw new BadRequestException('资料原文件存储路径不合法');
+    }
+    const object = await this.oss.getObjectStream(version.objectKey);
+    if (!object) throw new NotFoundException('资料原文件暂时无法读取');
+    return {
+      ...object,
+      fileName: version.fileName,
     };
   }
 
@@ -517,6 +628,8 @@ export class ExternalDocsService implements OnModuleInit {
             differences: analysis.differences as unknown as Prisma.InputJsonValue,
             aiModel: analysis.model,
             aiProvider: analysis.provider,
+            aiGenerationMode: analysis.generationMode,
+            aiWarning: analysis.warning ?? null,
             ocrProvider: ocrExtraction ? 'tencent_ocr' : 'native_text',
             ocrConfidence: ocrExtraction?.ocrConfidence ?? null,
             errorMessage: null,
@@ -568,7 +681,9 @@ export class ExternalDocsService implements OnModuleInit {
   ): Promise<ExternalDocumentExtraction> {
     if (version.extractedText && version.extractionProvider) {
       return {
-        text: version.extractedText,
+        text: version.extractionProvider === 'docx_text'
+          ? normalizeDocxCheckboxSymbols(version.extractedText)
+          : version.extractedText,
         provider: version.extractionProvider,
         ocrRequestId: version.ocrRequestId ?? undefined,
         ocrConfidence: version.ocrConfidence ?? undefined,
@@ -628,6 +743,43 @@ export class ExternalDocsService implements OnModuleInit {
     };
   }
 
+  private assertVersionUploadAllowed(
+    document: VersionUploadDocument | null,
+    versionLabel: string,
+  ): asserts document is VersionUploadDocument & { currentVersionId: string } {
+    if (!document) throw new NotFoundException('资料不存在');
+    if (!document.currentVersionId) throw new ConflictException('当前资料尚未建立有效基准版本');
+    if (document.comparisons.length) {
+      throw new ConflictException('当前资料已有待处理的版本比对，请先完成或重试该任务');
+    }
+    if (document.versions.some((item) => item.version.toLowerCase() === versionLabel.toLowerCase())) {
+      throw new ConflictException(`版本号 ${versionLabel} 已存在`);
+    }
+  }
+
+  private async lockDocument(tx: Prisma.TransactionClient, documentId: string) {
+    const rows = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id"
+      FROM "ExternalDocument"
+      WHERE "id" = ${documentId}
+      FOR UPDATE
+    `;
+    if (!rows.length) throw new NotFoundException('资料不存在');
+  }
+
+  private async lockComparison(tx: Prisma.TransactionClient, comparisonId: string) {
+    const rows = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id"
+      FROM "ExternalDocumentComparison"
+      WHERE "id" = ${comparisonId}
+      FOR UPDATE
+    `;
+    if (!rows.length) throw new NotFoundException('比对任务不存在');
+    const comparison = await tx.externalDocumentComparison.findUnique({ where: { id: comparisonId } });
+    if (!comparison) throw new NotFoundException('比对任务不存在');
+    return comparison;
+  }
+
   private async findComparison(comparisonId: string) {
     const comparison = await this.prisma.externalDocumentComparison.findUnique({ where: { id: comparisonId } });
     if (!comparison) throw new NotFoundException('比对任务不存在');
@@ -635,9 +787,22 @@ export class ExternalDocsService implements OnModuleInit {
   }
 
   private differences(value: Prisma.JsonValue): ExternalDifference[] {
-    return Array.isArray(value) ? value.filter((item): item is ExternalDifference => {
+    const differences = Array.isArray(value) ? value.filter((item): item is ExternalDifference => {
       return Boolean(item && typeof item === 'object' && !Array.isArray(item) && typeof item.id === 'string');
     }) : [];
+    return differences.map((item) => {
+      if (
+        typeof item.source !== 'string' ||
+        !item.source.includes('docx_text') ||
+        typeof item.before !== 'string' ||
+        typeof item.after !== 'string'
+      ) return item;
+      return {
+        ...item,
+        before: normalizeDocxCheckboxSymbols(item.before),
+        after: normalizeDocxCheckboxSymbols(item.after),
+      };
+    });
   }
 
   private documentResponse(document: {
@@ -729,6 +894,8 @@ export class ExternalDocsService implements OnModuleInit {
     differences: Prisma.JsonValue;
     aiModel: string | null;
     aiProvider: string | null;
+    aiGenerationMode: string | null;
+    aiWarning: string | null;
     ocrProvider: string | null;
     ocrConfidence: number | null;
     errorMessage: string | null;
@@ -762,6 +929,8 @@ export class ExternalDocsService implements OnModuleInit {
       differences: this.differences(comparison.differences),
       aiModel: comparison.aiModel,
       aiProvider: comparison.aiProvider,
+      aiGenerationMode: comparison.aiGenerationMode === 'ai' ? 'ai' : 'fallback',
+      aiWarning: comparison.aiWarning,
       ocrProvider: comparison.ocrProvider,
       ocrConfidence: comparison.ocrConfidence == null ? null : Math.round(comparison.ocrConfidence * 1000) / 10,
       errorMessage: comparison.errorMessage,

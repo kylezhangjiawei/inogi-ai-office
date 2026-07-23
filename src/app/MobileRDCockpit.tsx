@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeft, Clock, History, ImageIcon, Inbox, Loader2, RefreshCw, Send, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Clock, History, ImageIcon, Inbox, Loader2, RefreshCw, Search, Send, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
 import { t, useI18n } from "./lib/i18n";
@@ -381,6 +381,7 @@ export function MobileRDCockpit() {
 
   const [filter, setFilter] = useState<MobileFilter>("all");
   const [person, setPerson] = useState<string | null>(null);
+  const [keyword, setKeyword] = useState("");
   const [visible, setVisible] = useState(TASK_PAGE);
   const [activeTask, setActiveTask] = useState<RdTask | null>(null);
   // 灯箱状态提升到页面级：避免在 columns 多列容器里渲染 fixed 元素的布局怪相，
@@ -404,7 +405,9 @@ export function MobileRDCockpit() {
     return Array.from(m, ([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
   }, [allTasks]);
 
-  // 状态 + 人员 双重过滤（AND）
+  const normalizedKeyword = keyword.trim().toLocaleLowerCase();
+
+  // 搜索 + 状态 + 人员三重过滤（AND）。搜索仅使用驾驶舱已加载的数据，不新增接口请求。
   const filteredTasks = useMemo(() => {
     let list = allTasks.filter((t) => !t.archived);
     switch (filter) {
@@ -424,16 +427,22 @@ export function MobileRDCockpit() {
         break;
     }
     if (person) list = list.filter((t) => ((t.primary_owner || "").trim() || "未指派") === person);
+    if (normalizedKeyword) {
+      list = list.filter((task) =>
+        [task.title, task.task_id, (task.primary_owner || "").trim() || "未指派", task.category_path]
+          .some((value) => String(value ?? "").toLocaleLowerCase().includes(normalizedKeyword)),
+      );
+    }
     // 按最近活动时间倒序，使卡片按行从左到右呈现时对应时间顺序（最新在前）。
     const tsOf = (t: (typeof list)[number]) =>
       String(t.last_activity_at ?? t.latest_progress_summary?.created_at ?? t.updated_at ?? "");
     return [...list].sort((a, b) => tsOf(b).localeCompare(tsOf(a)));
-  }, [allTasks, filter, person, riskTaskIds]);
+  }, [allTasks, filter, normalizedKeyword, person, riskTaskIds]);
 
   // 切换过滤回到第一页
   useEffect(() => {
     setVisible(TASK_PAGE);
-  }, [filter, person]);
+  }, [filter, normalizedKeyword, person]);
 
   // 触底加载更多
   useEffect(() => {
@@ -547,6 +556,34 @@ export function MobileRDCockpit() {
           ))}
         </div>
 
+        {/* 本地任务搜索：与状态、人员筛选叠加，不改变接口与其它驾驶舱逻辑。 */}
+        <div className="px-4 pt-2">
+          <label className="relative block">
+            <Search
+              size={15}
+              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+            />
+            <input
+              type="search"
+              value={keyword}
+              onChange={(event) => setKeyword(event.target.value)}
+              placeholder={t("搜索任务、编号、负责人、路径")}
+              aria-label={t("搜索任务")}
+              className="h-9 w-full appearance-none rounded-xl border border-slate-200/80 bg-white pl-9 pr-9 text-[13px] text-slate-700 shadow-sm outline-none transition placeholder:text-slate-400 focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 [&::-webkit-search-cancel-button]:hidden"
+            />
+            {keyword && (
+              <button
+                type="button"
+                onClick={() => setKeyword("")}
+                aria-label={t("清空搜索")}
+                className="absolute right-1.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full text-slate-400 active:bg-slate-100 active:text-slate-600"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </label>
+        </div>
+
         {/* 人员过滤 + 刷新 */}
         <div className="flex items-center gap-2 px-4 pb-2.5 pt-2">
           <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
@@ -621,7 +658,7 @@ export function MobileRDCockpit() {
       <div className="px-4 pt-3">
         <div className="mb-2.5 flex items-center justify-between">
           <span className="text-[13px] font-bold text-slate-900">
-            {filter === "all" && !person ? t("全部任务") : t("筛选结果")}
+            {filter === "all" && !person && !normalizedKeyword ? t("全部任务") : t("筛选结果")}
           </span>
           <span className="text-[11px] font-semibold text-slate-400">{filteredTasks.length}</span>
         </div>

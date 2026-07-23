@@ -8,12 +8,13 @@ import {
   Put,
   Query,
   Req,
+  Res,
   UnauthorizedException,
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { Request } from 'express';
+import { Request, Response } from 'express';
 
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import {
@@ -115,6 +116,56 @@ export class ExternalDocsController {
   @Get('versions/:id/download')
   versionDownload(@Param('id') versionId: string, @Query('revision') revision?: string) {
     return this.service.versionDownload(versionId, revision);
+  }
+
+  /** 受控下载流：避免前端预开空白页，并支持当前文件与历史修订直接下载。 */
+  @Get('versions/:id/download-content')
+  async versionDownloadContent(
+    @Param('id') versionId: string,
+    @Query('revision') revision: string | undefined,
+    @Res() response: Response,
+  ) {
+    const file = await this.service.versionDownloadContent(versionId, revision);
+    response.setHeader('Content-Type', file.contentType || 'application/octet-stream');
+    response.setHeader(
+      'Content-Disposition',
+      `attachment; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
+    );
+    response.setHeader('Cache-Control', 'private, no-store');
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    if (file.size > 0) response.setHeader('Content-Length', String(file.size));
+
+    file.stream.on('error', () => {
+      if (response.headersSent) response.end();
+      else response.status(500).end();
+    });
+    file.stream.pipe(response);
+  }
+
+  /**
+   * 受控原文视觉预览：由已鉴权接口以内联方式回传原文件。
+   * 前端按需在浏览器本地渲染 DOCX/PDF/图片，不把资料发送到第三方预览服务。
+   */
+  @Get('versions/:id/preview-content')
+  async versionPreviewContent(
+    @Param('id') versionId: string,
+    @Res() response: Response,
+  ) {
+    const file = await this.service.versionPreviewContent(versionId);
+    response.setHeader('Content-Type', file.contentType || 'application/octet-stream');
+    response.setHeader(
+      'Content-Disposition',
+      `inline; filename*=UTF-8''${encodeURIComponent(file.fileName)}`,
+    );
+    response.setHeader('Cache-Control', 'private, max-age=300');
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    if (file.size > 0) response.setHeader('Content-Length', String(file.size));
+
+    file.stream.on('error', () => {
+      if (response.headersSent) response.end();
+      else response.status(500).end();
+    });
+    file.stream.pipe(response);
   }
 
   @Get(':id')

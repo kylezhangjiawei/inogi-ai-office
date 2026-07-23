@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { NavLink } from "react-router";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { NavLink, useLocation } from "react-router";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useAuth } from "../auth";
 import { hasPermission } from "../lib/permissions";
@@ -12,10 +12,12 @@ import logo from '../../assets/logo.png'
 
 export function Sidebar() {
   const { lang } = useI18n(); // 订阅语言切换（菜单 label 走 t()，中文即 key 全站菜单一处生效）
+  const { pathname } = useLocation();
   const { user } = useAuth();
   const { immersive, sidebarCollapsed: collapsed } = useLayoutChromeState();
   const { toggleSidebar } = useLayoutChromeActions();
   const userPermissions = user?.permissions ?? [];
+  const navScrollRef = useRef<HTMLElement>(null);
 
   // Fetch nav-hidden codes from the permission catalog.
   // Hidden pages are still accessible but not shown in the sidebar.
@@ -40,6 +42,32 @@ export function Sidebar() {
       }),
     }))
     .filter((group) => group.items.length > 0);
+
+  // 刷新或路由跳转后，浏览器会保留当前路由，但侧栏自身的滚动位置会回到顶部。
+  // 只调整侧栏滚动容器，确保当前激活菜单可见，不影响页面主体和用户正常滚动。
+  useLayoutEffect(() => {
+    if (immersive) return;
+
+    const nav = navScrollRef.current;
+    const activeItem = nav?.querySelector<HTMLElement>('a[aria-current="page"]');
+    if (!nav || !activeItem) return;
+
+    const navRect = nav.getBoundingClientRect();
+    const activeRect = activeItem.getBoundingClientRect();
+    const edgePadding = 8;
+    const isFullyVisible =
+      activeRect.top >= navRect.top + edgePadding &&
+      activeRect.bottom <= navRect.bottom - edgePadding;
+
+    if (isFullyVisible) return;
+
+    const centeredTop =
+      nav.scrollTop +
+      (activeRect.top - navRect.top) -
+      (nav.clientHeight - activeRect.height) / 2;
+    const maxScrollTop = Math.max(0, nav.scrollHeight - nav.clientHeight);
+    nav.scrollTop = Math.min(maxScrollTop, Math.max(0, centeredTop));
+  }, [collapsed, immersive, navHiddenCodes, pathname]);
 
   return (
     // 外层只负责宽度过渡：沉浸模式整体滑出(0)、手动收起成图标轨道(76)、常态(300/324)。
@@ -85,6 +113,8 @@ export function Sidebar() {
         )}
 
         <nav
+          ref={navScrollRef}
+          data-sidebar-scroll-container
           className={cn(
             "material-scrollbar flex-1 overflow-y-auto",
             collapsed ? "w-full space-y-2" : "-mx-1 space-y-4 px-1",

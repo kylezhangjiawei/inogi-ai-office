@@ -10,6 +10,7 @@
     "dev:web": "vite",
     "dev:api": "npm --prefix apps/api run start:dev",
     "build:api": "npm --prefix apps/api run build",
+    "test:external-docs": "npm --prefix apps/api run test:external-docs",
     "test:expense": "npm --prefix apps/api run test:expense"
   },
   "dependencies": {
@@ -49,6 +50,7 @@
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "cmdk": "1.1.1",
+    "docx-preview": "^0.4.0",
     "embla-carousel-react": "8.6.0",
     "exceljs": "^4.4.0",
     "input-otp": "1.4.2",
