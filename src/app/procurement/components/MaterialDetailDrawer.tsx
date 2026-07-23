@@ -5,7 +5,7 @@ import { cn } from "../../components/ui/utils";
 import { materialAggregates, useProcurementData, type Material } from "../data";
 import { MaterialFormModal } from "./modals";
 import { PriceHistoryModal } from "./PriceHistoryModal";
-import { StatusPill, fmtMoney } from "./common";
+import { StatusPill, fmtMoney, useProcCan } from "./common";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
 
@@ -18,6 +18,7 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
   const { t } = useI18n();
   const [historyOpen, setHistoryOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const can = useProcCan();
   const { tasks } = useProcurementData();
   const { inTransit, taskCount } = materialAggregates(tasks, material.name);
   const related = tasks.filter((t) => t.materialName === material.name);
@@ -37,7 +38,7 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
             <AutoTranslatedText as="div" className="mt-0.5 text-sm text-slate-500" text={`${material.spec} · ${material.category} · ${material.productLine}`} />
           </div>
           <div className="flex items-center gap-1">
-            <button type="button" onClick={() => setEditOpen(true)} title={t('编辑物料主数据')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"><Pencil className="h-3.5 w-3.5" />{t('编辑')}</button>
+            {can("proc-task:create") && <button type="button" onClick={() => setEditOpen(true)} title={t('编辑物料主数据')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"><Pencil className="h-3.5 w-3.5" />{t('编辑')}</button>}
             <button type="button" onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-50"><X className="h-5 w-5" /></button>
           </div>
         </div>

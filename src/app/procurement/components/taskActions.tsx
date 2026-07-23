@@ -60,6 +60,31 @@ interface PendingForm {
  */
 export const DECISION_STATUSES = ["inquiring", "testing"];
 
+/**
+ * 「下一步」按钮所需操作码（与后端各端点 @Permissions 一致），
+ * 供卡片/详情按码显隐按钮；终态无下一步返回 null。
+ */
+export function nextPermissionOf(task: ProcurementTask): string | null {
+  switch (task.status) {
+    case "pending_confirm":
+      return "proc-task:confirm";
+    case "pending_inquiry":
+    case "pending_sample":
+    case "testing":
+      return "proc-task:inquiry";
+    case "inquiring":
+      return "proc-task:select-quote";
+    case "priced":
+    case "pending_purchase":
+      return "proc-task:order";
+    case "in_transit":
+    case "partial_arrival":
+      return "proc-task:receive";
+    default:
+      return null;
+  }
+}
+
 /** 执行类动作的二次确认文案；返回 null 表示该状态走表单。 */
 function confirmSpecOf(task: ProcurementTask): ConfirmSpec | null {
   switch (task.status) {

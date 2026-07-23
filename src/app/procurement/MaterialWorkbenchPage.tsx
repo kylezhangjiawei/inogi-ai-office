@@ -1,16 +1,16 @@
 // 采购工作台（资产视角 · 物料库）：统计条 + 产品线Tab + 分类总览网格 + 物料瀑布流 + 物料详情抽屉。
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
-import { Boxes, ClipboardCheck, FolderTree, PackageCheck, Plus, RefreshCw, Search, Truck, Upload } from "lucide-react";
+import { Boxes, FolderTree, PackageCheck, Plus, RefreshCw, Search, Truck, Upload } from "lucide-react";
 import { cn } from "../components/ui/utils";
 import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
 import { PROC_PRODUCT_LINES, daysFromToday, useProcurementData, type Material, type ProcStatus } from "./data";
-import { PageHeader, StatCell, stageToast } from "./components/common";
+import { PageHeader, StatCell, stageToast, useProcCan } from "./components/common";
 import { MaterialCard } from "./components/MaterialCard";
 import { MaterialDetailDrawer } from "./components/MaterialDetailDrawer";
 import { PriceHistoryModal } from "./components/PriceHistoryModal";
-import { CategoryManageModal, ImportMaterialsModal, MaterialFormModal, ReviewQueueDrawer } from "./components/modals";
+import { CategoryManageModal, ImportMaterialsModal, MaterialFormModal } from "./components/modals";
 
 const TRANSIT: ProcStatus[] = ["in_transit", "partial_arrival"];
 
@@ -24,10 +24,11 @@ export function MaterialWorkbenchPage() {
   const [detail, setDetail] = useState<Material | null>(null);
   const [history, setHistory] = useState<Material | null>(null);
   const [importOpen, setImportOpen] = useState(false);
-  const [reviewOpen, setReviewOpen] = useState(false);
   const [catManageOpen, setCatManageOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const flowRef = useRef<HTMLDivElement>(null);
+  // 写操作按钮按系统管理配置的操作码显隐
+  const can = useProcCan();
 
   // 编辑落库刷新后，已打开的详情抽屉要换成最新对象（否则停留在改前数据）
   useEffect(() => {
@@ -43,7 +44,7 @@ export function MaterialWorkbenchPage() {
     const shortage = plMaterials.filter((m) => m.stockQty === 0 && active.some((t) => t.materialName === m.name)).length;
     const transitBatches = active.filter((t) => TRANSIT.includes(t.status)).length;
     const weekArrival = active.filter((t) => { const d = daysFromToday(t.expectedArrivalDate); return TRANSIT.includes(t.status) && d != null && d >= 0 && d <= 7; }).length;
-    return { total: plMaterials.length, pending: plMaterials.filter((m) => m.reviewStatus === "pending").length, shortage, transitBatches, weekArrival };
+    return { total: plMaterials.length, shortage, transitBatches, weekArrival };
   }, [plMaterials, tasks]);
 
   // 分类总览
@@ -80,19 +81,17 @@ export function MaterialWorkbenchPage() {
         description={t("物料主数据与库存/在途资产视角：按产品线与分类总览，管理审核、缺料预警与历史价格。")}
         right={
           <div className="flex flex-wrap items-center gap-2">
-            <button type="button" onClick={() => setCreateOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><Plus className="h-4 w-4" />{t("新增物料")}</button>
-            <button type="button" onClick={() => setImportOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><Upload className="h-4 w-4" />{t("批量导入")}</button>
-            <button type="button" onClick={() => setReviewOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><ClipboardCheck className="h-4 w-4" />{t("审核队列")}{stats.pending > 0 && <span className="rounded-full bg-amber-100 px-1.5 text-[10px] text-amber-700">{stats.pending}</span>}</button>
-            <button type="button" onClick={() => setCatManageOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><FolderTree className="h-4 w-4" />{t("分类管理")}</button>
-            <button type="button" onClick={() => stageToast()} title={t("V2 功能：将通过 ERP 接口同步库存")} className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-400 hover:bg-slate-50"><RefreshCw className="h-4 w-4" />{t("同步 ERP 库存")}</button>
+            {can("proc-task:create") && <button type="button" onClick={() => setCreateOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><Plus className="h-4 w-4" />{t("新增物料")}</button>}
+            {can("material:import") && <button type="button" onClick={() => setImportOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><Upload className="h-4 w-4" />{t("批量导入")}</button>}
+            {can("material:import") && <button type="button" onClick={() => setCatManageOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"><FolderTree className="h-4 w-4" />{t("分类管理")}</button>}
+            {can("proc:sync-erp") && <button type="button" onClick={() => stageToast()} title={t("V2 功能：将通过 ERP 接口同步库存")} className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-sm text-slate-400 hover:bg-slate-50"><RefreshCw className="h-4 w-4" />{t("同步 ERP 库存")}</button>}
           </div>
         }
       />
 
-      {/* 统计条 */}
-      <div className="mb-3 grid grid-cols-5 gap-3">
+      {/* 统计条（物料审核已移至采购任务驾驶舱，由管理员执行） */}
+      <div className="mb-3 grid grid-cols-4 gap-3">
         <StatCell label={t("物料总数")} value={stats.total} Icon={Boxes} />
-        <StatCell label={t("待审核")} value={stats.pending} tone={stats.pending > 0 ? "amber" : "slate"} badge={stats.pending > 0} Icon={ClipboardCheck} onClick={() => setReviewOpen(true)} />
         <StatCell label={t("缺料预警")} value={stats.shortage} tone="red" badge={stats.shortage > 0} Icon={PackageCheck} />
         <StatCell label={t("在途批次")} value={stats.transitBatches} tone="indigo" Icon={Truck} />
         <StatCell label={t("本周到货批次")} value={stats.weekArrival} tone="emerald" Icon={PackageCheck} />
@@ -158,7 +157,6 @@ export function MaterialWorkbenchPage() {
       {history && <PriceHistoryModal materialName={history.name} open onClose={() => setHistory(null)} />}
       {importOpen && <ImportMaterialsModal onClose={() => setImportOpen(false)} />}
       {createOpen && <MaterialFormModal onClose={() => setCreateOpen(false)} />}
-      {reviewOpen && <ReviewQueueDrawer onClose={() => setReviewOpen(false)} />}
       {catManageOpen && <CategoryManageModal onClose={() => setCatManageOpen(false)} />}
     </div>
   );

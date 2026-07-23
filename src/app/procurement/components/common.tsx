@@ -1,8 +1,10 @@
 // 采购模块 · 共享展示组件与元数据（复刻研发驾驶舱同款视觉）。
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useAuth } from "../../auth";
 import { cn } from "../../components/ui/utils";
 import { useAvatarDirectory } from "../../lib/userAvatar";
+import { hasPermission } from "../../lib/permissions";
 import { i18nLocale, t as translate, useI18n } from "../../lib/i18n";
 import { listBuyerCandidates, type BuyerCandidate } from "../../lib/procurementApi";
 import { taskMainDate, useProcurementData, type BusinessLine, type ProcMethod, type ProcSource, type ProcStatus, type ProcurementTask } from "../data";
@@ -10,6 +12,19 @@ import { taskMainDate, useProcurementData, type BusinessLine, type ProcMethod, t
 /** 数据变更类动作统一轻提示（本阶段不接逻辑）。 */
 export function stageToast() {
   toast.info(translate("流程逻辑将在下一阶段接入"));
+}
+
+/**
+ * 操作码判断（动态码版）：can('proc-task:reassign')。
+ * 码在系统管理 · 权限目录里配置到角色；固定码场景用 usePermission 即可。
+ */
+export function useProcCan() {
+  const { user } = useAuth();
+  const permissions = user?.permissions;
+  return useCallback(
+    (code: string | null | undefined) => Boolean(code && hasPermission(permissions ?? [], code)),
+    [permissions],
+  );
 }
 
 // ── 负责人目录（转派/建单人员选择）──────────────────────────────────────────

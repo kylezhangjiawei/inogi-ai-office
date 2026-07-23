@@ -2,8 +2,8 @@
 import { useEffect, useState } from "react";
 import { ChevronDown, ExternalLink, History, Paperclip, Pencil, X } from "lucide-react";
 import { cn } from "../../components/ui/utils";
-import { BusinessLinePill, DIRECT_FLOW, INQUIRY_FLOW, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, fmtMoney } from "./common";
-import { useProcTaskAction } from "./taskActions";
+import { BusinessLinePill, DIRECT_FLOW, INQUIRY_FLOW, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, fmtMoney, useProcCan } from "./common";
+import { nextPermissionOf, useProcTaskAction } from "./taskActions";
 import { EditTaskModal } from "./modals";
 import { PriceHistoryModal } from "./PriceHistoryModal";
 import { taskRequester, type ProcurementTask } from "../data";
@@ -26,6 +26,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
   const [historyOpen, setHistoryOpen] = useState(false);
   const [logsOpen, setLogsOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+  const can = useProcCan();
   const taskAction = useProcTaskAction();
   const requester = taskRequester(task);
   const meta = PROC_STATUS_META[task.status];
@@ -61,7 +62,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
             </div>
             <div className="flex items-center gap-1">
               {/* 终态任务只读；状态流转走「下一步」操作卡，这里只改任务信息 */}
-              {!["completed", "cancelled"].includes(task.status) && (
+              {!["completed", "cancelled"].includes(task.status) && can("proc-task:create") && (
                 <button type="button" onClick={() => setEditOpen(true)} title={t('编辑任务信息')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"><Pencil className="h-3.5 w-3.5" />{t('编辑')}</button>
               )}
               <button type="button" onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-50"><X className="h-5 w-5" /></button>
@@ -83,8 +84,8 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
         </div>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
-          {/* 下一步操作卡 */}
-          {meta.next && (
+          {/* 下一步操作卡：动作码由系统管理配置到角色，无权限者只读 */}
+          {meta.next && can(nextPermissionOf(task)) && (
             <div className="rounded-xl border border-indigo-200 bg-gradient-to-br from-indigo-50 to-violet-50 p-4">
               <div className="text-xs font-semibold text-indigo-500">{t('下一步 · 责任人：')}{task.status === "testing" ? task.rdContact ?? t("研发对接人") : task.buyer}</div>
               <p className="mt-1 text-sm text-slate-700">{t('当前状态「{status}」，下一步：{next}。', { status: t(meta.label), next: t(meta.next) })}</p>
