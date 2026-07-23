@@ -4538,6 +4538,8 @@ function TaskDetailDrawer({
   const canHandoverTask = task.status === "in_progress" && canManageTaskFlow;
   // 生成问题：把当前任务内容（描述+进度留痕+附件名）一键在「问题记录与 AI 定位」建成一条问题，省去手动新建。
   const canGenerateIssue = !task.archived && canCreateIssue;
+  // 转采购操作码（系统管理·权限目录可配），已转的跳转芯片保持只读可见
+  const canTransferProc = usePermission("proc-task:transfer");
   // 非归档任务始终显示操作栏（至少含「转采购」/「生成问题」）
   const showActionBar = !task.archived;
 
@@ -5441,7 +5443,7 @@ function TaskDetailDrawer({
             {!task.archived && (
               procLink ? (
                 <ProcurementLinkChip task={procLink} onJump={(procTaskId) => navigate(`/proc-cockpit?task=${encodeURIComponent(procTaskId)}`)} />
-              ) : (
+              ) : canTransferProc ? (
                 <button
                   type="button"
                   onClick={() => setTransferOpen(true)}
@@ -5451,7 +5453,7 @@ function TaskDetailDrawer({
                   <ShoppingCart className="h-3.5 w-3.5" />
                   {t("转采购")}
                 </button>
-              )
+              ) : null
             )}
             {canGenerateIssue && (
               <button
