@@ -103,8 +103,8 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
 
   // 采购管理（静态流程页面）
   { code: 'page:proc-cockpit', label: '采购任务驾驶舱', description: '采购任务全流程视角：询价/打样/测试/下单/到货', groupLabel: '页面访问 · 采购管理', type: 'page', routePath: '/proc-cockpit', sortOrder: 45 },
-  { code: 'page:proc-category', label: '采购分类详情', description: '分类看板二级页：分类下任务与物料清单（无侧边栏入口）', groupLabel: '页面访问 · 采购管理', type: 'page', routePath: '/proc-category', sortOrder: 46 },
-  { code: 'page:proc-materials', label: '采购工作台', description: '物料库资产视角：物料主数据、库存/在途、审核与历史价格', groupLabel: '页面访问 · 采购管理', type: 'page', routePath: '/proc-materials', sortOrder: 47 },
+  { code: 'page:proc-my-workspace', label: '采购个人工作台', description: '成员视角：只看分配给我的采购任务，按阶段分组推进', groupLabel: '页面访问 · 采购管理', type: 'page', routePath: '/proc-my-workspace', sortOrder: 46 },
+  { code: 'page:proc-materials', label: '采购物料库', description: '物料主数据与库存/在途资产视角：分类、审核与历史价格', groupLabel: '页面访问 · 采购管理', type: 'page', routePath: '/proc-materials', sortOrder: 47 },
 
   { code: 'page:ui-design', label: 'AI 图像生成', groupLabel: '页面访问 · AI 创作', type: 'page', routePath: '/ui-design', sortOrder: 300 },
   { code: 'page:image-library', label: '图像作品库', description: '历史创作、收藏作品与上游用量统计', groupLabel: '页面访问 · AI 创作', type: 'page', routePath: '/image-library', sortOrder: 305 },

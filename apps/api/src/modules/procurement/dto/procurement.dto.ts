@@ -435,6 +435,20 @@ export class TplusConfigDto {
   @IsString()
   @MaxLength(256)
   appSecret?: string;
+
+  /** OAuth 回调地址：须与开放平台应用配置一致，换 token 时要原样带上。 */
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  redirectUri?: string;
+}
+
+/** 手动粘贴授权码换 token（回调直达不可用时的兜底）。 */
+export class TplusExchangeCodeDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(512)
+  code!: string;
 }
 
 export class ReviewMaterialDto {
@@ -445,6 +459,50 @@ export class ReviewMaterialDto {
   @IsString()
   @MaxLength(500)
   reviewNote?: string;
+}
+
+/** BOM 树节点：机型/部件/组件为中间层，叶子为原料（code 按 T+ 存货编码匹配物料）。 */
+export class BomNodeInputDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  code?: string;
+
+  /** 根节点机型（R1 / R2 / 通用），子孙继承。 */
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  productLine?: string;
+
+  /** 单机用量（叶子原料）。 */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  qtyPer?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BomNodeInputDto)
+  children?: BomNodeInputDto[];
+}
+
+export class ImportBomDto {
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => BomNodeInputDto)
+  roots!: BomNodeInputDto[];
+
+  /** true 则先清空现有 BOM 再导入（全量替换）。 */
+  @IsOptional()
+  @IsBoolean()
+  replace?: boolean;
 }
 
 export class ImportMaterialsDto {

@@ -5,6 +5,7 @@ import {
   AiParseTaskDto,
   BatchReassignDto,
   CancelProcTaskDto,
+  ImportBomDto,
   CreateProcTaskDto,
   CreateQuotationDto,
   ImportMaterialsDto,
@@ -246,6 +247,19 @@ export class ProcurementController {
     return this.service.importMaterials(dto, this.actor(req));
   }
 
+  /** BOM 树查询（机型/部件/组件 → 原料）。 */
+  @Get('bom')
+  getBomTree() {
+    return this.service.getBomTree();
+  }
+
+  /** BOM 导入：replace=true 全量替换；叶子按 T+ 存货编码匹配物料并回填产品线。 */
+  @Post('bom/import')
+  @Permissions('material:import')
+  importBom(@Body() dto: ImportBomDto) {
+    return this.service.importBom(dto);
+  }
+
   /** 分类重命名/合并（分类无独立表，批量改物料冗余字段）。 */
   @Post('materials/categories/rename')
   @Permissions('material:import')
@@ -253,10 +267,4 @@ export class ProcurementController {
     return this.service.renameCategory(dto);
   }
 
-  /** 灌入演示数据：空库时一次性初始化，force=true 才清空重灌。 */
-  @Post('seed')
-  @Permissions('material:import')
-  seed(@Body() body: { force?: boolean }, @Request() req: AuthedRequest) {
-    return this.service.seedDemoData(this.actor(req), body?.force === true);
-  }
 }

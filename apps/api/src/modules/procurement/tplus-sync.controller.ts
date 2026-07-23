@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Post, Put, Request } from '@nestjs/common';
+import { Body, Controller, Get, Post, Put, Query, Request, Res } from '@nestjs/common';
+import type { Response } from 'express';
 
 import { Permissions } from '../auth/decorators/permissions.decorator';
-import { TplusConfigDto } from './dto/procurement.dto';
+import { Public } from '../auth/decorators/public.decorator';
+import { TplusConfigDto, TplusExchangeCodeDto } from './dto/procurement.dto';
 import { TplusSyncService } from './tplus-sync.service';
 
 type AuthedRequest = { user: { id: string } };
@@ -28,6 +30,30 @@ export class TplusSyncController {
   @Permissions('proc:sync-erp')
   saveConfig(@Body() dto: TplusConfigDto, @Request() req: AuthedRequest) {
     return this.sync.saveConfig(dto, req.user.id);
+  }
+
+  /** 手动粘贴授权码换 token（回调直达不可用时的兜底）。 */
+  @Post('oauth/exchange')
+  @Permissions('proc:sync-erp')
+  exchangeCode(@Body() dto: TplusExchangeCodeDto) {
+    return this.sync.exchangeAuthCode(dto);
+  }
+
+  /**
+   * OAuth 回调：开放平台授权完成后浏览器跳转到此（无登录态，须 Public）。
+   * 伪造的 code 在换 token 时会被开放平台拒绝，无实际风险；完成后跳回物料库。
+   */
+  @Public()
+  @Get('oauth/callback')
+  async oauthCallback(@Query('code') code: string, @Res() res: Response) {
+    try {
+      if (!code) throw new Error('缺少授权码');
+      await this.sync.exchangeAuthCode({ code });
+      res.redirect('/proc-materials?tplus=authorized');
+    } catch (error) {
+      const message = encodeURIComponent((error as Error).message ?? '授权失败');
+      res.redirect(`/proc-materials?tplus=auth-failed&reason=${message}`);
+    }
   }
 
   @Post('sync/suppliers')

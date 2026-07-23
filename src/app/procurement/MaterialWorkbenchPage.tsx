@@ -5,7 +5,7 @@ import { Boxes, ClipboardCheck, FolderTree, PackageCheck, Plus, RefreshCw, Searc
 import { cn } from "../components/ui/utils";
 import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
-import { PROC_PRODUCT_LINES, daysFromToday, useProcurementData, type Material, type ProcStatus } from "./data";
+import { daysFromToday, useProcurementData, useProductLines, type Material, type ProcStatus } from "./data";
 import { PageHeader, StatCell, useProcCan } from "./components/common";
 import { MaterialCard } from "./components/MaterialCard";
 import { MaterialDetailDrawer } from "./components/MaterialDetailDrawer";
@@ -18,7 +18,8 @@ export function MaterialWorkbenchPage() {
   const { t } = useI18n();
   const navigate = useNavigate();
   const { tasks, materials, loading, error } = useProcurementData();
-  const [productLine, setProductLine] = useState<(typeof PROC_PRODUCT_LINES)[number] | "all">("all");
+  const productLines = useProductLines();
+  const [productLine, setProductLine] = useState<string>("all");
   const [category, setCategory] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [detail, setDetail] = useState<Material | null>(null);
@@ -83,7 +84,7 @@ export function MaterialWorkbenchPage() {
       <PageHeader
         Icon={Boxes}
         badge={t("采购管理")}
-        title={t("采购工作台 · 物料库")}
+        title={t("物料库 · 主数据与库存")}
         description={t("物料主数据与库存/在途资产视角：按产品线与分类总览，管理审核、缺料预警与历史价格。")}
         right={
           <div className="flex flex-wrap items-center gap-2">
@@ -107,7 +108,7 @@ export function MaterialWorkbenchPage() {
       {/* 产品线 Tab */}
       <div className="material-card mb-3 flex flex-wrap items-center gap-1.5 px-4 py-3">
         <button type="button" onClick={() => { setProductLine("all"); setCategory(null); }} className={cn("rounded-full border px-3 py-1.5 text-xs font-medium", productLine === "all" ? "border-indigo-300 bg-indigo-50 text-indigo-600" : "border-slate-200 text-slate-500 hover:bg-slate-50")}>{t("全部")}</button>
-        {PROC_PRODUCT_LINES.map((pl) => (
+        {productLines.map((pl) => (
           <button key={pl} type="button" onClick={() => { setProductLine(pl); setCategory(null); }} className={cn("rounded-full border px-3 py-1.5 text-xs font-medium", productLine === pl ? "border-indigo-300 bg-indigo-50 text-indigo-600" : "border-slate-200 text-slate-500 hover:bg-slate-50")}><AutoTranslatedText text={t(pl.trim())} /></button>
         ))}
       </div>

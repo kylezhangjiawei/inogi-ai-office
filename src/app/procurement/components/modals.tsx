@@ -4,11 +4,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { FileDown, Loader2, Sparkles, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "../../components/ui/utils";
-import { PROC_PRODUCT_LINES, refreshProcurement, useProcurementData } from "../data";
+import { refreshProcurement, useProcurementData, useProductLines } from "../data";
 import {
   aiParseProcTask,
   batchReassignProcTasks,
   createProcTask,
+  exchangeTplusAuthCode,
   getTplusConfig,
   getTplusStatus,
   importProcMaterials,
@@ -686,6 +687,7 @@ export function EditTaskModal({ task, onClose }: { task: ProcurementTask; onClos
 export function MaterialFormModal({ material, onClose }: { material?: Material; onClose: () => void }) {
   const { t } = useI18n();
   const { materials } = useProcurementData();
+  const productLines = useProductLines();
   const [busy, setBusy] = useState(false);
   const [form, setForm] = useState(() => ({
     name: material?.name ?? "",
@@ -757,10 +759,8 @@ export function MaterialFormModal({ material, onClose }: { material?: Material; 
         </label>
         <label className="block">
           <span className={label}>{t('产品线')}</span>
-          <select value={form.productLine} onChange={(e) => set('productLine')(e.target.value)} className={field}>
-            <option value="">{t('未指定')}</option>
-            {PROC_PRODUCT_LINES.map((pl) => <option key={pl} value={pl}>{t(pl)}</option>)}
-          </select>
+          <input value={form.productLine} onChange={(e) => set('productLine')(e.target.value)} list="proc-line-list" placeholder={t('如 R1 / R2 / 通用')} className={field} />
+          <datalist id="proc-line-list">{productLines.map((pl) => <option key={pl} value={pl} />)}</datalist>
         </label>
         <label className="block"><span className={label}>{t('ERP 编码')}</span><input value={form.erpCode} onChange={(e) => set('erpCode')(e.target.value)} className={field} /></label>
         <label className="block"><span className={label}>{t('T+ 存货编码')}</span><input value={form.tpInventoryCode} onChange={(e) => set('tpInventoryCode')(e.target.value)} className={field} /></label>
@@ -786,8 +786,11 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
   const [appKey, setAppKey] = useState("");
   const [appSecret, setAppSecret] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
+  const [authCode, setAuthCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState<string | null>(null);
+  // 回调地址随凭据保存进后端，须与开放平台应用配置一致
+  const defaultRedirectUri = `${window.location.origin}/api/procurement/tplus/oauth/callback`;
 
   const reload = async () => {
     try {
@@ -810,6 +813,7 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
         appKey: appKey.trim(),
         appSecret: appSecret.trim() || undefined,
         baseUrl: baseUrl.trim() || undefined,
+        redirectUri: config?.redirectUri ?? defaultRedirectUri,
       });
       setConfig(next);
       setAppSecret("");
@@ -855,7 +859,9 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
           {t(config?.configured ? '凭据已配置' : '凭据未配置')}{config?.appKeyMasked ? ` · ${config.appKeyMasked}` : ''}
         </span>
         <span className={cn("rounded-full border px-2 py-0.5", config?.authorized ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700")}>
-          {t(config?.authorized ? '已授权' : '待授权（OAuth 流程接入后完成）')}
+          {config?.authorized
+            ? `${t('已授权')}${config.tokenExpireAt ? ` · token ${t('有效至')} ${config.tokenExpireAt.slice(0, 10)}` : ''}`
+            : t('待授权')}
         </span>
         {mirrored && (
           <span className="text-slate-400">{t('已镜像')}：{t('供应商')} {mirrored.suppliers} · {t('库存')} {mirrored.balances} · {t('采购单')} {mirrored.purchaseOrderRefs}</span>
@@ -873,8 +879,35 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
         <label className="block"><span className={label}>{t('网关地址')}</span>
           <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://openapi.chanjet.com" className={field} />
         </label>
-        <p className="text-[11px] leading-5 text-slate-400">{t('appSecret 仅在保存时传输一次，后端加密存储、任何接口不回显。凭据保存后还需完成开放平台 OAuth 授权（下一期接入）才能开始同步。')}</p>
+        <p className="text-[11px] leading-5 text-slate-400">{t('appSecret 仅在保存时传输一次，后端加密存储、任何接口不回显。')}</p>
       </div>
+
+      {/* 授权区：凭据已配置但未授权时引导完成 OAuth；已授权则不展示 */}
+      {config?.configured && !config.authorized && (
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50/50 p-3">
+          <div className="mb-1 text-xs font-semibold text-amber-800">{t('完成开放平台授权（一次性）')}</div>
+          <ol className="list-decimal space-y-1 pl-4 text-[11px] leading-5 text-amber-700">
+            <li>{t('在开放平台「应用管理」里把 OAuth 回调地址配置为：')}<code className="mx-1 select-all rounded bg-white px-1 py-0.5 text-[10px] text-slate-700">{config.redirectUri ?? defaultRedirectUri}</code></li>
+            <li>{t('从开放平台后台对该应用发起授权（用 T+ 管理员账号），授权完成会自动跳回本页并写入 token；')}</li>
+            <li>{t('若跳转失败但你拿到了授权码 code（10 分钟内有效），粘贴到下面手动换取：')}</li>
+          </ol>
+          <div className="mt-2 flex items-center gap-2">
+            <input value={authCode} onChange={(e) => setAuthCode(e.target.value)} placeholder={t('粘贴授权码 code')} className="h-8 flex-1 rounded-lg border border-amber-200 bg-white px-2 text-sm outline-none focus:border-amber-400" />
+            <button
+              type="button"
+              disabled={busy || !authCode.trim()}
+              onClick={() => {
+                setBusy(true);
+                void exchangeTplusAuthCode(authCode.trim())
+                  .then((next) => { setConfig(next); setAuthCode(""); toast.success(t('授权完成，token 已写入')); })
+                  .catch((err) => toast.error(err instanceof Error ? err.message : t('换取失败')))
+                  .finally(() => setBusy(false));
+              }}
+              className="rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-60"
+            >{t('换取 Token')}</button>
+          </div>
+        </div>
+      )}
 
       {/* 手动同步 */}
       <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/50 p-3">

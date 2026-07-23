@@ -3,7 +3,7 @@
 // 采购任务与物料被三个页面和多个卡片/抽屉同时消费，这里用一个模块级 store
 // （useSyncExternalStore 订阅）保证：无论多少组件调用，一次会话只拉一次接口，
 // 且任一处写操作后 refreshProcurement() 能让所有订阅者同步刷新。
-import { useCallback, useEffect, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import {
   listMaterials,
@@ -27,14 +27,14 @@ export type {
   Quotation,
 } from "../lib/procurementApi";
 
-/** 复用研发子系统分类（物料主数据的 category 取值域）。 */
-export const PROC_CATEGORIES = [
-  "电源部分", "底部结构", "压缩系统", "310阀系统", "风冷系统", "储气系统",
-  "210阀系统", "Top结构", "分子筛系统", "外观结构", "配件系统", "气管系统",
-  "线束系统", "紧固件系统", "密封系统",
-] as const;
-
-export const PROC_PRODUCT_LINES = ["便携式制氧机", "5L直流式制氧机", "正压式呼吸器", "通用"] as const;
+/** 产品线取值来自物料数据（BOM 导入回填：R1 / R2 / 通用），动态派生而非写死。 */
+export function useProductLines(): string[] {
+  const { materials } = useProcurementData();
+  return useMemo(
+    () => Array.from(new Set(materials.map((m) => m.productLine).filter(Boolean))).sort((a, b) => a.localeCompare(b, "zh-CN")),
+    [materials],
+  );
+}
 
 // ── 模块级 store ──────────────────────────────────────────────────────────────
 

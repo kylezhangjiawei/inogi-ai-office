@@ -69,6 +69,7 @@ export interface ProcurementTask {
   rdTaskId?: string;
   rdTaskTitle?: string;
   buyer: string;
+  buyerUserId?: string;
   rdContact?: string;
   requester?: string;
   requesterDept?: string;
@@ -416,8 +417,12 @@ export interface TplusConfigState {
   baseUrl: string;
   appKeyMasked: string | null;
   hasSecret: boolean;
+  /** 已配置的 OAuth 回调地址（须与开放平台应用配置一致）。 */
+  redirectUri: string | null;
   /** 是否已完成 OAuth 授权（openToken 就绪）。 */
   authorized: boolean;
+  tokenExpireAt: string | null;
+  refreshExpireAt: string | null;
   updatedAt: string | null;
 }
 
@@ -430,10 +435,19 @@ export async function saveTplusConfig(input: {
   baseUrl?: string;
   appKey: string;
   appSecret?: string;
+  redirectUri?: string;
 }): Promise<TplusConfigState> {
   return request<TplusConfigState>("/tplus/config", {
     method: "PUT",
     body: JSON.stringify(input),
+  });
+}
+
+/** 手动粘贴授权码换 openToken（授权回调直达不可用时的兜底）。 */
+export async function exchangeTplusAuthCode(code: string): Promise<TplusConfigState> {
+  return request<TplusConfigState>("/tplus/oauth/exchange", {
+    method: "POST",
+    body: JSON.stringify({ code }),
   });
 }
 

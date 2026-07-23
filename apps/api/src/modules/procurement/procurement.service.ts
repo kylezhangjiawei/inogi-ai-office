@@ -8,9 +8,11 @@ import { OssService } from '../oss/oss.service';
 import {
   AiParseTaskDto,
   BatchReassignDto,
+  BomNodeInputDto,
   CancelProcTaskDto,
   CreateProcTaskDto,
   CreateQuotationDto,
+  ImportBomDto,
   ImportMaterialsDto,
   LinkPurchaseOrderDto,
   ProcAttachmentInputDto,
@@ -23,12 +25,6 @@ import {
   UpdateProcTaskDto,
   UpsertMaterialDto,
 } from './dto/procurement.dto';
-import {
-  SEED_MATERIALS,
-  SEED_QUOTATIONS,
-  SEED_SUPPLIERS,
-  SEED_TASKS,
-} from './procurement.seed';
 import {
   PROC_ARRIVAL_STATUSES,
   PROC_STATUS_LABELS,
@@ -59,6 +55,18 @@ function parseDay(value: string | null | undefined): Date | null {
   if (!value) return null;
   const t = new Date(`${value.slice(0, 10)}T00:00:00.000Z`);
   return Number.isNaN(t.getTime()) ? null : t;
+}
+
+/** BOM 树出参节点。 */
+export interface BomTreeNode {
+  id: string;
+  name: string;
+  code: string | null;
+  level: number;
+  productLine: string;
+  qtyPer: number | null;
+  material: { id: string; name: string; spec: string; unit: string } | null;
+  children: BomTreeNode[];
 }
 
 /** AI 建单草稿（不落库，前端确认后走 createTask）。 */
@@ -878,14 +886,123 @@ export class ProcurementService {
         updated += 1;
       } else {
         const row = await this.upsertMaterial(item, actor);
+        // 带 T+ 存货编码的视为 ERP 主档（事实源）免审核；其余进入审核队列
         await this.prisma.procMaterial.update({
           where: { id: row.id },
-          data: { reviewStatus: 'pending', reviewSource: 'import' },
+          data: item.tpInventoryCode
+            ? { reviewStatus: 'approved', reviewSource: 'import' }
+            : { reviewStatus: 'pending', reviewSource: 'import' },
         });
         created += 1;
       }
     }
     return { created, updated, total: dto.items.length };
+  }
+
+  // ── BOM ─────────────────────────────────────────────────────────────────────
+
+  /**
+   * BOM 导入：树形建 ProcBomNode（机型/部件/组件 → 原料叶子），
+   * 叶子 code 按 T+ 存货编码匹配物料并回填物料的产品线与 BOM 归属：
+   * 出现在单一机型 → 该机型；跨机型共用 → 「通用」。
+   */
+  async importBom(dto: ImportBomDto) {
+    if (dto.replace) await this.prisma.procBomNode.deleteMany({});
+    // 物料编码 → { productLines, systems }（systems=所属组件/部件名，供物料详情展示）
+    const usage = new Map<string, { lines: Set<string>; systems: Set<string> }>();
+    let nodeCount = 0;
+
+    const createNode = async (
+      node: BomNodeInputDto,
+      parentId: string | null,
+      level: number,
+      productLine: string,
+      chain: string[],
+      sortOrder: number,
+    ): Promise<void> => {
+      const line = node.productLine?.trim() || productLine;
+      const code = node.code?.trim() || null;
+      const material = code
+        ? await this.prisma.procMaterial.findUnique({ where: { tpInventoryCode: code }, select: { id: true } })
+        : null;
+      const row = await this.prisma.procBomNode.create({
+        data: {
+          parentId,
+          name: node.name,
+          code,
+          level,
+          productLine: line,
+          materialId: material?.id ?? null,
+          qtyPer: node.qtyPer === undefined ? null : new Prisma.Decimal(node.qtyPer),
+          sortOrder,
+        },
+        select: { id: true },
+      });
+      nodeCount += 1;
+      if (code && material) {
+        const u = usage.get(code) ?? { lines: new Set<string>(), systems: new Set<string>() };
+        if (line) u.lines.add(line);
+        if (chain.length > 0) u.systems.add(chain[chain.length - 1]);
+        usage.set(code, u);
+      }
+      for (const [index, child] of (node.children ?? []).entries()) {
+        await createNode(child, row.id, level + 1, line, [...chain, node.name], index);
+      }
+    };
+
+    for (const [index, root] of dto.roots.entries()) {
+      await createNode(root, null, 0, root.productLine?.trim() ?? '', [], index);
+    }
+
+    // 回填物料产品线与 BOM 归属
+    let touchedMaterials = 0;
+    for (const [code, u] of usage) {
+      const material = await this.prisma.procMaterial.findUnique({
+        where: { tpInventoryCode: code },
+        select: { id: true, metadata: true },
+      });
+      if (!material) continue;
+      const lines = [...u.lines].filter(Boolean);
+      const productLine = lines.length === 1 ? lines[0] : lines.length > 1 ? '通用' : '';
+      const meta = (material.metadata ?? {}) as Record<string, unknown>;
+      await this.prisma.procMaterial.update({
+        where: { id: material.id },
+        data: {
+          ...(productLine ? { productLine } : {}),
+          metadata: { ...meta, bom: { systems: [...u.systems], lines } } as Prisma.InputJsonObject,
+        },
+      });
+      touchedMaterials += 1;
+    }
+    return { nodes: nodeCount, matchedMaterials: usage.size, touchedMaterials };
+  }
+
+  /** BOM 树查询：全量返回（数据量为部件×原料级，数百节点）。 */
+  async getBomTree() {
+    const rows = await this.prisma.procBomNode.findMany({
+      orderBy: [{ level: 'asc' }, { sortOrder: 'asc' }],
+      include: { material: { select: { id: true, name: true, spec: true, unit: true } } },
+    });
+    const byId = new Map<string, BomTreeNode>();
+    const roots: BomTreeNode[] = [];
+    for (const r of rows) {
+      byId.set(r.id, {
+        id: r.id,
+        name: r.name,
+        code: r.code,
+        level: r.level,
+        productLine: r.productLine,
+        qtyPer: numOrNull(r.qtyPer),
+        material: r.material,
+        children: [],
+      });
+    }
+    for (const r of rows) {
+      const node = byId.get(r.id)!;
+      if (r.parentId && byId.has(r.parentId)) byId.get(r.parentId)!.children.push(node);
+      else roots.push(node);
+    }
+    return { roots };
   }
 
   /** 分类重命名/合并：目标名已存在即合并。分类没有独立表，直接改物料上的冗余字段。 */
@@ -957,165 +1074,6 @@ export class ProcurementService {
       shortage,
       pendingReview,
     };
-  }
-
-  // ── 演示种子 ─────────────────────────────────────────────────────────────────
-
-  /**
-   * 灌入演示数据（与前端原 mock 同源）。
-   * 默认幂等保护：库中已有任务时直接返回 skipped，force=true 才清空重灌。
-   */
-  async seedDemoData(actor: ProcActor, force = false) {
-    const existing = await this.prisma.procTask.count();
-    if (existing > 0 && !force) {
-      return { skipped: true, reason: `已存在 ${existing} 条采购任务，如需重灌请传 force=true` };
-    }
-    if (force) {
-      // 顺序无关：附件/日志/报价/采购单引用均为级联删除
-      await this.prisma.procTask.deleteMany({});
-      await this.prisma.procQuotation.deleteMany({});
-      await this.prisma.procInventoryBalance.deleteMany({});
-      await this.prisma.procMaterial.deleteMany({});
-      await this.prisma.procSupplier.deleteMany({});
-    }
-
-    const base = new Date(new Date().toISOString().slice(0, 10));
-    const shift = (days: number | undefined | null): Date | null =>
-      days === undefined || days === null
-        ? null
-        : new Date(base.getTime() + days * 24 * 3600 * 1000);
-
-    for (const s of SEED_SUPPLIERS) {
-      await this.prisma.procSupplier.create({
-        data: { name: s.name, contact: s.contact, phone: s.phone, source: 'local' },
-      });
-    }
-
-    const materialIdByName = new Map<string, string>();
-    for (const m of SEED_MATERIALS) {
-      const row = await this.prisma.procMaterial.create({
-        data: {
-          name: m.name,
-          spec: m.spec,
-          unit: m.unit,
-          category: m.category,
-          productLine: m.productLine,
-          erpCode: m.erpCode,
-          isSpecial: m.isSpecial ?? false,
-          isConsumable: m.isConsumable ?? false,
-          safeStock: new Prisma.Decimal(m.safeStock),
-          reviewStatus: m.reviewStatus,
-          reviewSource: m.reviewSource ?? null,
-          latestPrice: m.latestPrice === undefined ? null : new Prisma.Decimal(m.latestPrice),
-          latestSupplier: m.latestSupplier ?? null,
-          latestQuoteDate: shift(m.latestQuoteDay),
-          createdBy: actor.id,
-        },
-      });
-      materialIdByName.set(m.name, row.id);
-      // 库存先落本地镜像（warehouse 留空），正式接 T+ 后由同步覆盖
-      await this.prisma.procInventoryBalance.create({
-        data: {
-          tpInventoryCode: m.erpCode,
-          materialId: row.id,
-          materialName: m.name,
-          spec: m.spec,
-          unit: m.unit,
-          warehouse: '',
-          stockQty: new Prisma.Decimal(m.stockQty),
-          availableQty: new Prisma.Decimal(m.stockQty),
-        },
-      });
-    }
-
-    let seq = 0;
-    const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    for (const t of SEED_TASKS) {
-      seq += 1;
-      await this.prisma.procTask.create({
-        data: {
-          code: `PR-${stamp}-${String(seq).padStart(3, '0')}`,
-          materialId: materialIdByName.get(t.materialName) ?? null,
-          materialName: t.materialName,
-          spec: t.spec,
-          unit: t.unit,
-          quantity: new Prisma.Decimal(t.quantity),
-          method: t.method,
-          purchaseLink: t.purchaseLink ?? null,
-          source: t.source,
-          businessLine: t.businessLine,
-          status: t.status,
-          priority: t.priority,
-          needSample: t.needSample,
-          needDate: shift(t.needDay),
-          deadline: shift(t.deadlineDay),
-          expectedArrivalDate: shift(t.etaDay),
-          paymentDate: shift(t.paymentDay),
-          paymentStatus: t.paymentStatus,
-          paymentNote: t.paymentNote ?? null,
-          arrivedQty: new Prisma.Decimal(t.arrivedQty),
-          buyer: t.buyer,
-          rdTaskTitle: t.rdTaskTitle ?? null,
-          rdContact: t.rdContact ?? null,
-          requester: t.requester,
-          requesterDept: t.requesterDept,
-          consumableNote: t.consumableNote ?? null,
-          businessDone: t.status === 'completed',
-          createdBy: actor.id,
-          attachments: {
-            create: Array.from({ length: t.attachmentCount }, (_, i) => ({
-              fileName: `${t.materialName}-图纸${i + 1}.pdf`,
-              fileUrl: '',
-              kind: 'drawing',
-              uploadedBy: actor.id,
-            })),
-          },
-          logs: {
-            create: t.logs.map((l) => ({
-              kind: 'system',
-              text: l.text,
-              createdAt: shift(l.day) ?? base,
-            })),
-          },
-        },
-      });
-    }
-
-    for (const [materialName, quotes] of Object.entries(SEED_QUOTATIONS)) {
-      const materialId = materialIdByName.get(materialName) ?? null;
-      const task = await this.prisma.procTask.findFirst({
-        where: { materialName },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true },
-      });
-      for (const q of quotes) {
-        const supplier = await this.prisma.procSupplier.findFirst({
-          where: { name: q.supplierName },
-          select: { id: true },
-        });
-        await this.prisma.procQuotation.create({
-          data: {
-            taskId: task?.id ?? null,
-            materialId,
-            materialName,
-            supplierId: supplier?.id ?? null,
-            supplierName: q.supplierName,
-            unitPrice: new Prisma.Decimal(q.unitPrice),
-            leadTimeDays: q.leadTimeDays,
-            quoteDate: shift(q.quoteDay) ?? base,
-            isSelected: q.isSelected ?? false,
-            createdBy: actor.id,
-          },
-        });
-      }
-    }
-
-    const [tasks, materials, quotations] = await this.prisma.$transaction([
-      this.prisma.procTask.count(),
-      this.prisma.procMaterial.count(),
-      this.prisma.procQuotation.count(),
-    ]);
-    return { skipped: false, tasks, materials, quotations };
   }
 
   // ── 序列化 ───────────────────────────────────────────────────────────────────

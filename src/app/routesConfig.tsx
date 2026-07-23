@@ -83,7 +83,8 @@ export const navGroups: NavGroup[] = [
     label: "采购管理",
     items: [
       { label: "采购任务驾驶舱", path: "/proc-cockpit", icon: ShoppingCart, requiredPermission: "page:proc-cockpit" },
-      { label: "采购工作台", path: "/proc-materials", icon: Warehouse, requiredPermission: "page:proc-materials" },
+      { label: "个人工作台", path: "/proc-my-workspace", icon: GanttChartSquare, requiredPermission: "page:proc-my-workspace" },
+      { label: "物料库", path: "/proc-materials", icon: Warehouse, requiredPermission: "page:proc-materials" },
     ],
   },
   {
