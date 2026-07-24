@@ -1,8 +1,9 @@
-import { Body, Controller, Get, HttpCode, Param, Post, Put, Query, Request, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, NotFoundException, Param, Post, Put, Query, Request, Res } from '@nestjs/common';
 import type { Response } from 'express';
 
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { Public } from '../auth/decorators/public.decorator';
+import { getApplyJob, startApplyJob } from './apply-job.store';
 import { TplusConfigDto, TplusExchangeCodeDto } from './dto/procurement.dto';
 import { TplusPoMatchService } from './tplus-po-match.service';
 import { TplusSyncService } from './tplus-sync.service';
@@ -92,18 +93,32 @@ export class TplusSyncController {
 
   // ── 采购单全量镜像 + 任务匹配 ────────────────────────────────────────────────
 
-  /** 全量拉取采购订单到镜像表（近 90 天，日期过滤失败自动降级全量）。 */
+  /**
+   * 全量拉取采购订单到镜像表（异步：234 张单逐单精查要几分钟，同步等会被网关 504 切断）。
+   * 返回 jobId，前端轮询 GET sync/jobs/:id。
+   */
   @Post('sync/purchase-orders-full')
   @Permissions('proc:sync-erp')
   syncPurchaseOrdersFull() {
-    return this.sync.syncPurchaseOrderMirror();
+    const job = startApplyJob('tplus-po-full', (update) => this.sync.syncPurchaseOrderMirror(90, update));
+    return { jobId: job.id };
   }
 
-  /** 一键全同步（与每日 3:00 自动同步同一条链路）：供应商→库存→采购单全量→匹配。 */
+  /** 一键全同步（异步，与每日 3:00 自动同步同一条链路）：供应商→库存→采购单全量→匹配。 */
   @Post('sync/auto')
   @Permissions('proc:sync-erp')
   syncAll() {
-    return this.sync.autoSync();
+    const job = startApplyJob('tplus-auto-sync', (update) => this.sync.autoSync(update));
+    return { jobId: job.id };
+  }
+
+  /** 同步/匹配任务进度查询（同步权限或采购员下单权限任一即可）。 */
+  @Get('sync/jobs/:id')
+  @Permissions('proc:sync-erp', 'proc-task:order')
+  syncJob(@Param('id') id: string) {
+    const job = getApplyJob(id);
+    if (!job) throw new NotFoundException('任务不存在或已被清理（服务可能重启过），请重新发起');
+    return job;
   }
 
   /** 镜像清单（读操作走页面权限）。 */
@@ -112,11 +127,12 @@ export class TplusSyncController {
     return this.poMatch.listMirror(status);
   }
 
-  /** 跑规则 + AI 匹配，生成建议。 */
+  /** 跑规则 + AI 匹配（异步：AI 名称匹配单次调用可超网关时限），生成建议。 */
   @Post('purchase-orders/match')
   @Permissions('proc-task:order')
   runMatch() {
-    return this.poMatch.runMatch();
+    const job = startApplyJob('tplus-po-match', () => this.poMatch.runMatch());
+    return { jobId: job.id };
   }
 
   /** 确认建议（可覆盖目标任务），复用 linkPurchaseOrder 建关联。 */

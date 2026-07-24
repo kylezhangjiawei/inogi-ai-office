@@ -804,12 +804,15 @@ export class TplusSyncService {
    * 压到最小），明细复用已验证字段映射的 GetVoucherDTO 逐单精查。
    * 日期过滤（近 days 天）失败时自动降级为无过滤拉取（部分账套 paramDic 键名不同）。
    */
-  async syncPurchaseOrderMirror(days = 90) {
+  async syncPurchaseOrderMirror(days = 90, onProgress?: (progress: string) => void) {
     const codes = await this.fetchOrderCodes(days);
     let upserted = 0;
     let failed = 0;
     let matchedMaterials = 0;
+    let done = 0;
     for (const orderNo of codes) {
+      done += 1;
+      if (done % 20 === 0) onProgress?.(`采购单明细 ${done}/${codes.length}`);
       let lines: TplusPurchaseOrderLine[] = [];
       try {
         const raw = await this.fetchFromTplus(
@@ -898,7 +901,7 @@ export class TplusSyncService {
    * 全链路自动同步：供应商 → 库存 → 采购单全量（含任务到货回推）→ 匹配建议。
    * 未配置/未授权/开关关闭时跳过；单步失败记日志并继续，结果摘要落 metadata 供前端展示。
    */
-  async autoSync() {
+  async autoSync(onProgress?: (progress: string) => void) {
     const config = await this.getConfig();
     if (!config.configured || !config.authorized) {
       this.logger.debug('T+ 自动同步跳过：未配置或未授权');
@@ -909,6 +912,7 @@ export class TplusSyncService {
     }
     const parts: string[] = [];
     const step = async (label: string, run: () => Promise<Record<string, unknown>>) => {
+      onProgress?.(`${parts.length ? parts.join('；') + '；' : ''}正在同步${label}…`);
       try {
         const result = await run();
         parts.push(`${label} ✓ ${Object.entries(result).filter(([, v]) => typeof v === 'number').map(([k, v]) => `${k}=${v}`).join(',')}`);
@@ -919,7 +923,7 @@ export class TplusSyncService {
     };
     await step('供应商', () => this.syncSuppliers());
     await step('库存', () => this.syncInventory());
-    await step('采购单全量', () => this.syncPurchaseOrderMirror());
+    await step('采购单全量', () => this.syncPurchaseOrderMirror(90, (p) => onProgress?.(`${parts.join('；')}；${p}`)));
     await step('匹配', () => this.poMatch.runMatch());
 
     const summary = parts.join('；');

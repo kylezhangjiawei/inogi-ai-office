@@ -24,6 +24,7 @@ import {
   exchangeTplusAuthCode,
   getTplusConfig,
   getTplusStatus,
+  getTplusSyncJob,
   importProcMaterials,
   previewMaterialClassify,
   renameProcCategory,
@@ -35,8 +36,11 @@ import {
   type BusinessLine,
   type ClassifyPreview,
   type ClassifyReport,
+  type PoFullSyncResult,
+  type PoMatchResult,
   type PoMirrorList,
   type ReplenishSuggestion,
+  type TplusAutoSyncResult,
   type SafeStockPreview,
   type SafeStockReport,
   type Material,
@@ -1218,23 +1222,31 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
   };
   useEffect(() => { void reload(); }, []);
 
+  const [syncProgress, setSyncProgress] = useState<string | null>(null);
+
   const syncFull = async () => {
     setSyncing("purchase-orders-full");
+    setSyncProgress(t('任务已启动…'));
     try {
-      const r = await syncTplusPurchaseOrdersFull();
+      // 异步任务：逐单精查要几分钟，同步等响应会被网关超时切断
+      const { jobId } = await syncTplusPurchaseOrdersFull();
+      const r = await waitApplyJob<PoFullSyncResult>(jobId, setSyncProgress, getTplusSyncJob);
       toast.success(t('全量同步完成：{orders} 张单 / {lines} 行，物料命中 {m}，失败 {f}', { orders: r.orders, lines: r.lines, m: r.matchedMaterials, f: r.failed }));
       void reload();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('同步失败'));
     } finally {
       setSyncing(null);
+      setSyncProgress(null);
     }
   };
 
   const syncAll = async () => {
     setSyncing("auto");
+    setSyncProgress(t('任务已启动…'));
     try {
-      const r = await runTplusAutoSync();
+      const { jobId } = await runTplusAutoSync();
+      const r = await waitApplyJob<TplusAutoSyncResult>(jobId, setSyncProgress, getTplusSyncJob);
       if (r.skipped) toast.warning(t('已跳过：{reason}', { reason: r.reason }));
       else toast.success(t('全同步完成：{summary}', { summary: r.summary }));
       void reload();
@@ -1242,6 +1254,7 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
       toast.error(err instanceof Error ? err.message : t('同步失败'));
     } finally {
       setSyncing(null);
+      setSyncProgress(null);
     }
   };
 
@@ -1379,6 +1392,11 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
             {syncing === "auto" && <Loader2 className="h-3.5 w-3.5 animate-spin" />}{t('立即全同步')}
           </button>
         </div>
+        {syncing && syncProgress && (
+          <div className="mt-2 flex items-center gap-1.5 text-[11px] text-indigo-600">
+            <Loader2 className="h-3 w-3 animate-spin" />{syncProgress}
+          </div>
+        )}
         {config && (
           <div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-2 text-[11px] text-slate-500">
             <label className="inline-flex cursor-pointer items-center gap-1.5">
@@ -1415,7 +1433,9 @@ export function PoMatchPanel() {
   const doMatch = async () => {
     setMatchBusy("run");
     try {
-      const r = await runPoMatch();
+      // 异步任务：AI 名称匹配单次调用可能超网关时限
+      const { jobId } = await runPoMatch();
+      const r = await waitApplyJob<PoMatchResult>(jobId, undefined, getTplusSyncJob);
       toast.success(t('匹配完成：规则建议 {a} 条，AI 建议 {b} 条，未匹配 {c} 条', { a: r.suggested, b: r.aiSuggested, c: r.unmatched }));
       setPoMirror(await listPoMirror());
     } catch (err) {

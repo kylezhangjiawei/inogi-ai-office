@@ -471,20 +471,22 @@ export async function triggerTplusSync(
   return request(`/tplus/sync/${kind}`, { method: "POST" });
 }
 
-/** 一键全同步（与每日 3:00 自动同步同链路）：供应商→库存→采购单全量→匹配。 */
-export async function runTplusAutoSync(): Promise<
-  { skipped: true; reason: string } | { skipped: false; summary: string }
-> {
+export type TplusAutoSyncResult = { skipped: true; reason: string } | { skipped: false; summary: string };
+
+/** 一键全同步（异步任务）：供应商→库存→采购单全量→匹配，返回 jobId 轮询。 */
+export async function runTplusAutoSync(): Promise<{ jobId: string }> {
   return request("/tplus/sync/auto", { method: "POST" });
 }
 
-/** 采购单全量镜像同步（近 90 天，FindVoucherList 取单号 + GetVoucherDTO 逐单精查）。 */
-export async function syncTplusPurchaseOrdersFull(): Promise<{
+export interface PoFullSyncResult {
   orders: number;
   lines: number;
   failed: number;
   matchedMaterials: number;
-}> {
+}
+
+/** 采购单全量镜像同步（异步任务）：返回 jobId 轮询。 */
+export async function syncTplusPurchaseOrdersFull(): Promise<{ jobId: string }> {
   return request("/tplus/sync/purchase-orders-full", { method: "POST" });
 }
 
@@ -515,8 +517,14 @@ export async function listPoMirror(status?: string): Promise<PoMirrorList> {
   return request(`/tplus/purchase-orders/mirror${qs}`);
 }
 
-/** 规则 + AI 生成「单据 ↔ 任务」匹配建议。 */
-export async function runPoMatch(): Promise<{ suggested: number; aiSuggested: number; unmatched: number }> {
+export interface PoMatchResult {
+  suggested: number;
+  aiSuggested: number;
+  unmatched: number;
+}
+
+/** 规则 + AI 生成「单据 ↔ 任务」匹配建议（异步任务）：返回 jobId 轮询。 */
+export async function runPoMatch(): Promise<{ jobId: string }> {
   return request("/tplus/purchase-orders/match", { method: "POST" });
 }
 
@@ -591,13 +599,19 @@ export async function getApplyJob<T>(jobId: string): Promise<ApplyJobState<T>> {
   return request(`/materials/apply-jobs/${encodeURIComponent(jobId)}`);
 }
 
-/** 轮询任务直到完成（3s 间隔）；任务丢失/失败抛错。 */
+/** T+ 同步/匹配任务的进度查询（与物料 apply 任务不同权限入口，同一个任务存储）。 */
+export async function getTplusSyncJob<T>(jobId: string): Promise<ApplyJobState<T>> {
+  return request(`/tplus/sync/jobs/${encodeURIComponent(jobId)}`);
+}
+
+/** 轮询任务直到完成（3s 间隔）；任务丢失/失败抛错。fetcher 缺省为物料 apply 任务端点。 */
 export async function waitApplyJob<T>(
   jobId: string,
   onProgress?: (progress: string) => void,
+  fetcher: (id: string) => Promise<ApplyJobState<T>> = getApplyJob,
 ): Promise<T> {
   for (;;) {
-    const job = await getApplyJob<T>(jobId);
+    const job = await fetcher(jobId);
     if (job.status === "done") return job.result as T;
     if (job.status === "error") throw new Error(job.error || "任务执行失败");
     onProgress?.(job.progress);
