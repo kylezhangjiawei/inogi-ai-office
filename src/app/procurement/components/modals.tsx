@@ -458,11 +458,17 @@ export function CategoryManageModal({ onClose }: { onClose: () => void }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [keyword, setKeyword] = useState("");
   const byCat = useMemo(() => {
     const m = new Map<string, number>();
     for (const mat of materials) m.set(mat.category, (m.get(mat.category) ?? 0) + 1);
     return m;
   }, [materials]);
+  // 分类可能上百个，按名称过滤定位
+  const entries = useMemo(() => {
+    const kw = keyword.trim().toLowerCase();
+    return [...byCat.entries()].filter(([c]) => !kw || c.toLowerCase().includes(kw));
+  }, [byCat, keyword]);
 
   const rename = async (from: string) => {
     const to = newName.trim();
@@ -487,8 +493,14 @@ export function CategoryManageModal({ onClose }: { onClose: () => void }) {
   return (
     <Shell title={t("分类管理")} onClose={onClose} footer={<button type="button" onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">{t('关闭')}</button>}>
       <p className="mb-3 text-xs text-slate-400">{t('分类由物料主数据聚合而来；重命名会同步更新该分类下所有物料，改成已有分类名即为合并。')}</p>
-      <div className="space-y-2">
-        {Array.from(byCat.entries()).map(([c, n]) => (
+      <input
+        value={keyword}
+        onChange={(e) => setKeyword(e.target.value)}
+        placeholder={t('按分类名称过滤…')}
+        className="mb-3 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-indigo-300"
+      />
+      <div className="max-h-[55vh] space-y-2 overflow-y-auto">
+        {entries.map(([c, n]) => (
           <div key={c} className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 px-3 py-2 text-sm">
             {editing === c ? (
               <>
@@ -505,7 +517,7 @@ export function CategoryManageModal({ onClose }: { onClose: () => void }) {
             )}
           </div>
         ))}
-        {byCat.size === 0 && <div className="py-8 text-center text-sm text-slate-400">{t('暂无分类')}</div>}
+        {entries.length === 0 && <div className="py-8 text-center text-sm text-slate-400">{t(byCat.size === 0 ? '暂无分类' : '没有匹配的分类')}</div>}
       </div>
     </Shell>
   );

@@ -115,9 +115,10 @@ export function MaterialTable({ materials, tasks, filters, onFiltersChange, onOp
   };
 
   return (
-    <div className="material-card overflow-hidden">
+    // 填满父级剩余高度：过滤条/分页固定，表格区内部滚动（父级不出滚动条）
+    <div className="material-card flex min-h-0 flex-1 flex-col overflow-hidden">
       {/* 过滤条 */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3">
         <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm">
           <Search className="h-4 w-4 text-slate-400" />
           <input value={filters.keyword} onChange={(e) => setF("keyword", e.target.value)} placeholder={t('搜索名称 / 规格 / 编码')} className="w-52 bg-transparent outline-none placeholder:text-slate-400" />
@@ -145,8 +146,8 @@ export function MaterialTable({ materials, tasks, filters, onFiltersChange, onOp
         </span>
       </div>
 
-      {/* 高度封顶在视口内（不超出父容器），行数多时内部滚动；表头吸顶 */}
-      <div className="max-h-[calc(100vh-320px)] overflow-auto">
+      {/* 占据卡片剩余高度，行数多时内部滚动；表头吸顶 */}
+      <div className="min-h-0 flex-1 overflow-auto">
         <table className="w-full min-w-[960px]">
           <thead className="sticky top-0 z-10 bg-slate-50">
             <tr>
@@ -203,7 +204,7 @@ export function MaterialTable({ materials, tasks, filters, onFiltersChange, onOp
 
       {/* 分页：仅扁平过滤模式需要 */}
       {filterActive && filtered.length > PAGE_SIZE && (
-        <div className="flex items-center justify-between border-t border-slate-100 px-4 py-2.5 text-sm">
+        <div className="flex shrink-0 items-center justify-between border-t border-slate-100 px-4 py-2.5 text-sm">
           <span className="text-xs text-slate-400">{t('第 {page} / {total} 页', { page: pageSafe, total: totalPages })}</span>
           <div className="flex items-center gap-2">
             <button type="button" disabled={pageSafe <= 1} onClick={() => setPage(pageSafe - 1)} className="rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-600 disabled:opacity-40">{t('上一页')}</button>

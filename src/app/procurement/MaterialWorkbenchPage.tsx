@@ -46,7 +46,8 @@ export function MaterialWorkbenchPage() {
   }, [materials, tasks]);
 
   return (
-    <div className="mx-auto w-full max-w-[1600px] p-4">
+    // h-full + flex 列：头部/统计固定，表格占剩余高度内部滚动，父级 main 不再出滚动条
+    <div className="mx-auto flex h-full min-h-0 w-full max-w-[1600px] flex-col p-4">
       <PageHeader
         Icon={Boxes}
         badge={t("采购管理")}
