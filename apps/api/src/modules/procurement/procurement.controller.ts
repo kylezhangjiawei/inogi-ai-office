@@ -20,6 +20,9 @@ import {
   UpdateProcTaskDto,
   UpsertMaterialDto,
 } from './dto/procurement.dto';
+import { MaterialClassifyService } from './material-classify.service';
+import { MaterialReplenishService } from './material-replenish.service';
+import { MaterialSafeStockService } from './material-safestock.service';
 import { ProcurementService } from './procurement.service';
 import type { ProcActor, ProcMaterialListQuery, ProcTaskListQuery } from './procurement.types';
 
@@ -34,7 +37,12 @@ type AuthedRequest = {
  */
 @Controller('procurement')
 export class ProcurementController {
-  constructor(private readonly service: ProcurementService) {}
+  constructor(
+    private readonly service: ProcurementService,
+    private readonly classify: MaterialClassifyService,
+    private readonly safeStock: MaterialSafeStockService,
+    private readonly replenish: MaterialReplenishService,
+  ) {}
 
   private actor(req: AuthedRequest): ProcActor {
     return {
@@ -258,6 +266,50 @@ export class ProcurementController {
   @Permissions('material:import')
   importBom(@Body() dto: ImportBomDto) {
     return this.service.importBom(dto);
+  }
+
+  /** 初步分类干跑：统计规则可分多少、AI 要兜多少，不落库。 */
+  @Get('materials/classify/preview')
+  @Permissions('material:import')
+  classifyPreview() {
+    return this.classify.preview();
+  }
+
+  /** 初步分类应用：规则结果直接落库，AI 兜底高置信应用、低置信保持未分类。 */
+  @Post('materials/classify/apply')
+  @Permissions('material:import')
+  classifyApply(@Request() req: AuthedRequest) {
+    return this.classify.apply(req.user.id);
+  }
+
+  /** 安全库存初始化干跑：基于采购单镜像统计建议值，不落库。 */
+  @Get('materials/safe-stock/preview')
+  @Permissions('material:import')
+  safeStockPreview() {
+    return this.safeStock.preview();
+  }
+
+  /** 安全库存初始化应用：只填 safeStock=0 的物料，人工值不覆盖。 */
+  @Post('materials/safe-stock/apply')
+  @Permissions('material:import')
+  safeStockApply(@Request() req: AuthedRequest) {
+    return this.safeStock.apply(req.user.id);
+  }
+
+  /** 补货建议清单：缺口 = 安全库存 − 库存 − 在途 − 进行中任务，>0 才列出。 */
+  @Get('materials/replenish/suggestions')
+  replenishSuggestions() {
+    return this.replenish.suggestions();
+  }
+
+  /** 勾选补货条目批量生成采购任务（询价起点，零库存自动高优先级）。 */
+  @Post('materials/replenish/create-tasks')
+  @Permissions('proc-task:create')
+  replenishCreateTasks(
+    @Body() body: { items: Array<{ materialId: string; quantity: number }> },
+    @Request() req: AuthedRequest,
+  ) {
+    return this.replenish.createTasks(body?.items ?? [], this.actor(req));
   }
 
   /** 分类重命名/合并（分类无独立表，批量改物料冗余字段）。 */

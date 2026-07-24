@@ -36,9 +36,15 @@ export class GlobalExceptionFilter implements ExceptionFilter {
       `Unhandled exception on ${request?.method ?? '-'} ${request?.url ?? '-'}`,
       exception instanceof Error ? exception.stack : String(exception),
     );
+    // 非生产环境附带真实错误信息，免去开发排查时「盲猜 500」；生产仍只回通用文案
+    const detail =
+      process.env.NODE_ENV !== 'production' && exception instanceof Error
+        ? exception.message
+        : undefined;
     response.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
       statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
       message: '服务器内部错误',
+      ...(detail ? { detail } : {}),
     });
   }
 }

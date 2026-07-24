@@ -5,6 +5,8 @@ import OpenAI from 'openai';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ImageGenerationService } from '../image-generation/image-generation.service';
 import { VideoGenerationService } from '../video-generation/video-generation.service';
+import { computeReplenishRows } from '../procurement/replenish-core';
+import { PROC_STATUS_LABELS, PROC_TERMINAL_STATUSES, type ProcStatus } from '../procurement/procurement.types';
 import { RagService, type RagUserContext } from '../rag/rag.service';
 import { isWorkspaceAllowed } from '../research-development/rd-workspace.context';
 import { ResearchDevelopmentService } from '../research-development/research-development.service';
@@ -127,6 +129,14 @@ const PROGRESS_NOTE_PERMISSIONS = [
   'page:rd-my-workspace',
   'page:us-collab-workspace',
   ...RD_TASK_MANAGER_PERMISSIONS,
+];
+
+/** 采购数据查询权限：能看采购页面或有采购操作码的人才可用（含单价等敏感信息） */
+const PROC_QUERY_PERMISSIONS = [
+  'page:proc-cockpit',
+  'page:proc-materials',
+  'proc-task:create',
+  'proc:sync-erp',
 ];
 
 type PendingActionEntry = {
@@ -329,6 +339,30 @@ export class ChatToolsService {
         },
       },
       execute: (_args, user) => this.getDashboardSummary(user),
+    },
+    query_procurement: {
+      label: '查询采购数据',
+      definition: {
+        type: 'function',
+        function: {
+          name: 'query_procurement',
+          description:
+            '查询采购与库存数据（只读）。视图选择：问"哪些物料缺料/该补什么货/库存不足"→view=shortage（缺料与补货建议，已扣除在途与进行中任务，含最近供应商/单价）；问"在途/已下单未到货/什么时候到"→view=transit（T+ 采购单未到齐明细行）；问"采购任务进展/采购员在跟什么"→view=tasks（进行中采购任务）。用户提到具体物料名/供应商/单号时务必把它作为 keyword 传入以精确过滤。',
+          parameters: {
+            type: 'object',
+            properties: {
+              view: {
+                type: 'string',
+                enum: ['shortage', 'transit', 'tasks'],
+                description: 'shortage=缺料与补货建议 / transit=在途采购单 / tasks=进行中采购任务',
+              },
+              keyword: { type: 'string', description: '按物料名称/编码/单号模糊过滤，可选' },
+            },
+            required: ['view'],
+          },
+        },
+      },
+      execute: (args, user) => this.queryProcurement(args, user),
     },
     generate_image: {
       label: '生成图片',
@@ -603,6 +637,118 @@ export class ChatToolsService {
         `- ${clean(p.name)}｜岗位：${clean(p.position) || '未设置'}｜部门：${clean(p.department) || '未设置'}｜任务数：${clean(p.task_count) || '0'}/${clean(p.max_tasks) || '未设置'}`,
     );
     return { ok: true, summary: `命中 ${people.length} 名人员`, content: `查询到 ${people.length} 名人员：\n${lines.join('\n')}` };
+  }
+
+  // ── 采购查询（只读） ─────────────────────────────────────────────────────────
+
+  /** 采购数据三视图：缺料补货 / 在途单据 / 进行中任务。口径与采购模块页面完全一致。 */
+  private async queryProcurement(args: Record<string, unknown>, user: RagUserContext): Promise<ChatToolResult> {
+    if (!this.hasAnyPermission(user, PROC_QUERY_PERMISSIONS)) {
+      return { ok: false, summary: '无采购数据权限', content: '当前用户没有采购数据查看权限，无法查询。请如实告知用户。' };
+    }
+    const view = String(args.view ?? 'shortage');
+    const keyword = typeof args.keyword === 'string' ? args.keyword.trim().toLowerCase() : '';
+    const hit = (...fields: Array<string | null | undefined>) =>
+      !keyword || fields.some((f) => (f ?? '').toLowerCase().includes(keyword));
+
+    if (view === 'shortage') {
+      // 与 MaterialReplenishService.suggestions 同口径（共用 replenish-core 计算）
+      const materials = await this.prisma.procMaterial.findMany({
+        where: { safeStock: { gt: 0 } },
+        select: { id: true, erpCode: true, name: true, spec: true, unit: true, safeStock: true, balances: { select: { stockQty: true } } },
+      });
+      const shortage = materials
+        .map((m) => ({
+          id: m.id,
+          erpCode: m.erpCode,
+          name: m.name,
+          spec: m.spec,
+          unit: m.unit,
+          safeStock: Number(m.safeStock),
+          stock: m.balances.reduce((s, b) => s + Number(b.stockQty), 0),
+        }))
+        .filter((m) => m.stock < m.safeStock);
+      const ids = shortage.map((m) => m.id);
+      const [mirrorRows, openTasks] = await Promise.all([
+        this.prisma.procPurchaseOrderMirror.findMany({
+          where: { materialId: { in: ids } },
+          select: { materialId: true, orderedQty: true, receivedQty: true, supplierName: true, unitPrice: true },
+          orderBy: { orderDate: 'desc' },
+        }),
+        this.prisma.procTask.findMany({
+          where: { materialId: { in: ids }, status: { notIn: PROC_TERMINAL_STATUSES } },
+          select: { materialId: true, quantity: true, arrivedQty: true },
+        }),
+      ]);
+      const rows = computeReplenishRows(
+        shortage,
+        mirrorRows.map((r) => ({
+          materialId: r.materialId as string,
+          orderedQty: Number(r.orderedQty),
+          receivedQty: Number(r.receivedQty),
+          supplierName: r.supplierName,
+          unitPrice: r.unitPrice === null ? null : Number(r.unitPrice),
+        })),
+        openTasks.map((t) => ({ materialId: t.materialId as string, quantity: Number(t.quantity), arrivedQty: Number(t.arrivedQty) })),
+      ).filter((r) => hit(r.name, r.code));
+      if (rows.length === 0) {
+        return { ok: true, summary: '无缺料', content: keyword ? `没有匹配「${keyword}」的缺料物料。` : '当前没有需要补货的物料（缺口均已被在途或进行中任务覆盖）。' };
+      }
+      const lines = rows.slice(0, 20).map((r) =>
+        `- ${r.code} ${r.name}：库存 ${r.stock}/安全 ${r.safeStock}，在途 ${r.inTransit}，任务中 ${r.openTaskQty}，建议补 ${r.suggestQty}${r.unit ? ` ${r.unit}` : ''}${r.lastSupplier ? `（最近：${r.lastSupplier}${r.lastPrice != null ? ` ¥${r.lastPrice}` : ''}）` : ''}`,
+      );
+      return {
+        ok: true,
+        summary: `缺料 ${rows.length} 项`,
+        content: [`共 ${rows.length} 项物料需要补货（建议量已扣除在途与进行中任务）${rows.length > 20 ? '，以下为缺口金额最大的 20 项' : ''}：`, ...lines, '', '可引导用户到「物料库」页点击「缺料预警」卡片一键生成补货采购任务。'].join('\n'),
+      };
+    }
+
+    if (view === 'transit') {
+      const rows = await this.prisma.procPurchaseOrderMirror.findMany({
+        select: { tpOrderNo: true, tpLineNo: true, inventoryCode: true, inventoryName: true, orderedQty: true, receivedQty: true, supplierName: true, etaDate: true, orderDate: true },
+        orderBy: { orderDate: 'desc' },
+        take: 1000,
+      });
+      const open = rows
+        .filter((r) => Number(r.orderedQty) - Number(r.receivedQty) > 0)
+        .filter((r) => hit(r.inventoryName, r.inventoryCode, r.tpOrderNo, r.supplierName));
+      if (open.length === 0) {
+        return { ok: true, summary: '无在途单据', content: keyword ? `没有匹配「${keyword}」的在途采购单。` : '当前没有未到齐的采购单。' };
+      }
+      const lines = open.slice(0, 30).map((r) => {
+        const openQty = Number(r.orderedQty) - Number(r.receivedQty);
+        return `- ${r.tpOrderNo}#${r.tpLineNo} ${r.inventoryName || r.inventoryCode}：订 ${Number(r.orderedQty)} 到 ${Number(r.receivedQty)}（差 ${openQty}）· ${r.supplierName || '供应商未知'}${r.etaDate ? ` · 预计 ${r.etaDate.toISOString().slice(0, 10)}` : ''}`;
+      });
+      return {
+        ok: true,
+        summary: `在途 ${open.length} 行`,
+        content: [`共 ${open.length} 行采购单未到齐${open.length > 30 ? '，以下为最近 30 行' : ''}（数据来自畅捷通 T+ 镜像）：`, ...lines].join('\n'),
+      };
+    }
+
+    if (view === 'tasks') {
+      const tasks = await this.prisma.procTask.findMany({
+        where: { status: { notIn: PROC_TERMINAL_STATUSES } },
+        select: { code: true, materialName: true, quantity: true, arrivedQty: true, status: true, buyer: true, needDate: true, priority: true },
+        orderBy: { updatedAt: 'desc' },
+        take: 200,
+      });
+      const filtered = tasks.filter((t) => hit(t.materialName, t.code, t.buyer));
+      if (filtered.length === 0) {
+        return { ok: true, summary: '无进行中采购任务', content: keyword ? `没有匹配「${keyword}」的进行中采购任务。` : '当前没有进行中的采购任务。' };
+      }
+      const lines = filtered.slice(0, 30).map((t) =>
+        `- ${t.code} ${t.materialName}：${Number(t.quantity)} 到 ${Number(t.arrivedQty)} · ${PROC_STATUS_LABELS[t.status as ProcStatus] ?? t.status}${t.buyer ? ` · ${t.buyer}` : ''}${t.priority === 'high' ? ' · 高优' : ''}${t.needDate ? ` · 需 ${t.needDate.toISOString().slice(0, 10)}` : ''}`,
+      );
+      return {
+        ok: true,
+        summary: `进行中任务 ${filtered.length} 个`,
+        content: [`共 ${filtered.length} 个进行中的采购任务${filtered.length > 30 ? '，以下为最近更新的 30 个' : ''}：`, ...lines].join('\n'),
+      };
+    }
+
+    return { ok: false, summary: '未知视图', content: `view 参数无效：${view}，可选 shortage/transit/tasks。` };
   }
 
   // ── 数据汇总（只读） ─────────────────────────────────────────────────────────

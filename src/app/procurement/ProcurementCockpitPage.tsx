@@ -12,7 +12,7 @@ import { PersonAvatar, StatCell } from "./components/common";
 import { ProcurementTaskCard } from "./components/ProcurementTaskCard";
 import { useProcTaskAction } from "./components/taskActions";
 import { TaskDetailDrawer } from "./components/TaskDetailDrawer";
-import { BatchReassignModal, NewRequirementModal } from "./components/modals";
+import { BatchReassignModal, NewRequirementModal, PoMatchModal } from "./components/modals";
 import { PeopleManageDrawer } from "./components/PeopleManageDrawer";
 import { usePermission } from "../hooks/usePermission";
 import { exportProcTasksXlsx } from "./exportTasks";
@@ -33,11 +33,13 @@ export function ProcurementCockpitPage() {
   const [person, setPerson] = useState<string | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
+  const [poMatchOpen, setPoMatchOpen] = useState(false);
   const [peopleOpen, setPeopleOpen] = useState(false);
   const [kw, setKw] = useState("");
   // 写操作按钮按系统管理配置的操作码显隐；物料审核在工作台物料详情里做（带完整上下文）
   const canCreate = usePermission("proc-task:create");
   const canReassign = usePermission("proc-task:reassign");
+  const canOrder = usePermission("proc-task:order");
   // 决策类动作（选定报价 / 测试结论）在卡片上点只打开详情，由详情提供报价与图纸依据。
   // 必须声明在 setOpen 之后——放前面会命中 TDZ，构建器不报错但运行时直接白屏。
   const taskAction = useProcTaskAction({ onOpenDetail: setOpen });
@@ -161,6 +163,7 @@ export function ProcurementCockpitPage() {
             }}
             className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"
           ><Download className="h-4 w-4" />{t('导出')}</button>
+          {canOrder && <button type="button" onClick={() => setPoMatchOpen(true)} title={t('确认 T+ 采购单与任务的匹配建议，任务自动转入在途')} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Truck className="h-4 w-4" />{t('单据匹配')}</button>}
           {canReassign && <button type="button" onClick={() => setBatchOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Users className="h-4 w-4" />{t('批量转派')}</button>}
           <button type="button" onClick={() => setPeopleOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><UserCog className="h-4 w-4" />{t('人员管理')}</button>
           {canCreate && <button type="button" onClick={() => setNewOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Plus className="h-4 w-4" />{t('新建需求')}</button>}
@@ -243,6 +246,7 @@ export function ProcurementCockpitPage() {
       {taskAction.modal}
       {newOpen && <NewRequirementModal onClose={() => setNewOpen(false)} />}
       {batchOpen && <BatchReassignModal tasks={lineTasks} onClose={() => setBatchOpen(false)} />}
+      {poMatchOpen && <PoMatchModal onClose={() => setPoMatchOpen(false)} />}
       {peopleOpen && <PeopleManageDrawer onClose={() => setPeopleOpen(false)} onFocusPerson={setPerson} />}
     </div>
   );

@@ -2,7 +2,11 @@ import { Module } from '@nestjs/common';
 
 import { ChatModule } from '../chat/chat.module';
 import { SecurityModule } from '../security/security.module';
+import { MaterialClassifyService } from './material-classify.service';
+import { MaterialReplenishService } from './material-replenish.service';
+import { MaterialSafeStockService } from './material-safestock.service';
 import { ProcurementController } from './procurement.controller';
+import { TplusPoMatchService } from './tplus-po-match.service';
 import { ProcurementService } from './procurement.service';
 import { TplusSyncController } from './tplus-sync.controller';
 import { TplusSyncService } from './tplus-sync.service';
@@ -16,7 +20,14 @@ import { TplusSyncService } from './tplus-sync.service';
 @Module({
   imports: [ChatModule, SecurityModule],
   controllers: [ProcurementController, TplusSyncController],
-  providers: [ProcurementService, TplusSyncService],
+  providers: [
+    ProcurementService,
+    TplusSyncService,
+    MaterialClassifyService,
+    MaterialSafeStockService,
+    MaterialReplenishService,
+    TplusPoMatchService,
+  ],
   exports: [ProcurementService],
 })
 export class ProcurementModule {}

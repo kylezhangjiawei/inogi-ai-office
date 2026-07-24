@@ -424,6 +424,10 @@ export interface TplusConfigState {
   tokenExpireAt: string | null;
   refreshExpireAt: string | null;
   updatedAt: string | null;
+  /** 每日自动同步（3:00 服务器时区）开关，默认开。 */
+  autoSync: boolean;
+  lastAutoSyncAt: string | null;
+  lastAutoSyncSummary: string | null;
 }
 
 export async function getTplusConfig(): Promise<TplusConfigState> {
@@ -433,9 +437,11 @@ export async function getTplusConfig(): Promise<TplusConfigState> {
 /** appSecret 走 HTTPS 明文传输、后端落库加密；不传则保留已存值。 */
 export async function saveTplusConfig(input: {
   baseUrl?: string;
-  appKey: string;
+  /** 不传保留已存值（如仅切换 autoSync）；首次配置必填。 */
+  appKey?: string;
   appSecret?: string;
   redirectUri?: string;
+  autoSync?: boolean;
 }): Promise<TplusConfigState> {
   return request<TplusConfigState>("/tplus/config", {
     method: "PUT",
@@ -463,6 +469,66 @@ export async function triggerTplusSync(
   kind: "suppliers" | "inventory" | "purchase-orders",
 ): Promise<Record<string, number>> {
   return request(`/tplus/sync/${kind}`, { method: "POST" });
+}
+
+/** 一键全同步（与每日 3:00 自动同步同链路）：供应商→库存→采购单全量→匹配。 */
+export async function runTplusAutoSync(): Promise<
+  { skipped: true; reason: string } | { skipped: false; summary: string }
+> {
+  return request("/tplus/sync/auto", { method: "POST" });
+}
+
+/** 采购单全量镜像同步（近 90 天，FindVoucherList 取单号 + GetVoucherDTO 逐单精查）。 */
+export async function syncTplusPurchaseOrdersFull(): Promise<{
+  orders: number;
+  lines: number;
+  failed: number;
+  matchedMaterials: number;
+}> {
+  return request("/tplus/sync/purchase-orders-full", { method: "POST" });
+}
+
+export interface PoMirrorRow {
+  id: string;
+  tpOrderNo: string;
+  tpLineNo: string;
+  supplierName: string;
+  inventoryCode: string;
+  inventoryName: string;
+  orderedQty: number;
+  receivedQty: number;
+  orderDate: string | null;
+  etaDate: string | null;
+  matchStatus: "unmatched" | "suggested" | "confirmed" | "ignored";
+  matchConfidence: number | null;
+  matchReason: string | null;
+  task: { id: string; code: string; materialName: string; quantity: number; status: string } | null;
+}
+
+export interface PoMirrorList {
+  counts: Record<string, number>;
+  rows: PoMirrorRow[];
+}
+
+export async function listPoMirror(status?: string): Promise<PoMirrorList> {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+  return request(`/tplus/purchase-orders/mirror${qs}`);
+}
+
+/** 规则 + AI 生成「单据 ↔ 任务」匹配建议。 */
+export async function runPoMatch(): Promise<{ suggested: number; aiSuggested: number; unmatched: number }> {
+  return request("/tplus/purchase-orders/match", { method: "POST" });
+}
+
+export async function confirmPoMatch(id: string, taskId?: string): Promise<PoMirrorList> {
+  return request(`/tplus/purchase-orders/mirror/${id}/confirm`, {
+    method: "POST",
+    body: JSON.stringify({ taskId }),
+  });
+}
+
+export async function ignorePoMatch(id: string): Promise<PoMirrorList> {
+  return request(`/tplus/purchase-orders/mirror/${id}/ignore`, { method: "POST" });
 }
 
 /** 批量导入的单条物料（与后端 UpsertMaterialDto 对齐；新建条目落为待审核）。 */
@@ -498,6 +564,95 @@ export async function importProcMaterials(
   items: MaterialImportItem[],
 ): Promise<{ created: number; updated: number; total: number }> {
   return request("/materials/import", { method: "POST", body: JSON.stringify({ items }) });
+}
+
+export interface ClassifyPreview {
+  uncategorized: number;
+  rule1: number;
+  rule2: number;
+  aiPending: number;
+  ruleCategories: Record<string, number>;
+  aiSamples: string[];
+}
+
+export interface ClassifyReport {
+  ruleApplied: number;
+  ruleCategories: Record<string, number>;
+  aiApplied: Array<{ code: string; name: string; category: string; confidence: number }>;
+  aiSkipped: Array<{ code: string; name: string; reason: string }>;
+  aiError: string | null;
+  model: string | null;
+}
+
+/** 初步分类干跑：规则可分多少、AI 要兜多少，不落库。 */
+export async function previewMaterialClassify(): Promise<ClassifyPreview> {
+  return request("/materials/classify/preview");
+}
+
+/** 初步分类应用：规则直接落库，AI 高置信应用、低置信保持未分类。 */
+export async function applyMaterialClassify(): Promise<ClassifyReport> {
+  return request("/materials/classify/apply", { method: "POST" });
+}
+
+export interface SafeStockPreview {
+  windowDays: number;
+  coverFactor: number;
+  usageMaterialCount: number;
+  skippedManual: number;
+  ruleCount: number;
+  aiPending: number;
+  samples: Array<{ code: string; name: string; orders: number; monthlyAvg: number; suggest: number }>;
+  aiSamples: string[];
+}
+
+export interface SafeStockReport {
+  ruleApplied: number;
+  aiApplied: Array<{ code: string; name: string; suggest: number; confidence: number }>;
+  aiSkipped: Array<{ code: string; name: string; reason: string }>;
+  aiError: string | null;
+  model: string | null;
+}
+
+/** 安全库存初始化干跑：基于采购镜像统计建议值，不落库。 */
+export async function previewSafeStock(): Promise<SafeStockPreview> {
+  return request("/materials/safe-stock/preview");
+}
+
+/** 安全库存初始化应用：只填 safeStock=0 的物料，人工值不覆盖。 */
+export async function applySafeStock(): Promise<SafeStockReport> {
+  return request("/materials/safe-stock/apply", { method: "POST" });
+}
+
+export interface ReplenishSuggestion {
+  materialId: string;
+  code: string;
+  name: string;
+  spec: string;
+  unit: string;
+  stock: number;
+  safeStock: number;
+  inTransit: number;
+  openTaskQty: number;
+  suggestQty: number;
+  /** 包装/起订粒度（历史采购量最大公约数）；建议量已按此向上取整 */
+  packStep: number | null;
+  lastSupplier: string | null;
+  lastPrice: number | null;
+}
+
+/** 补货建议清单：缺口 = 安全库存 − 库存 − 在途 − 进行中任务。 */
+export async function listReplenishSuggestions(): Promise<{ rows: ReplenishSuggestion[] }> {
+  return request("/materials/replenish/suggestions");
+}
+
+/** 勾选补货条目批量生成采购任务。 */
+export async function createReplenishTasks(
+  items: Array<{ materialId: string; quantity: number }>,
+): Promise<{ created: number; codes: string[] }> {
+  return request("/materials/replenish/create-tasks", {
+    method: "POST",
+    body: JSON.stringify({ items }),
+  });
 }
 
 /** 分类重命名/合并：目标分类已存在即合并。 */

@@ -1,10 +1,12 @@
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecureConfigService } from '../security/secure-config.service';
 import { TplusConfigDto, TplusExchangeCodeDto } from './dto/procurement.dto';
 import { ProcurementService } from './procurement.service';
+import { TplusPoMatchService } from './tplus-po-match.service';
 
 /**
  * 畅捷通 T+ 只读同步适配层。
@@ -58,6 +60,11 @@ export interface TplusPurchaseOrderLine {
   orderId?: string;
   lineNo?: string;
   supplierName?: string;
+  /** T+ 存货编码/名称：物料匹配锚点（编码 ↔ ProcMaterial.tpInventoryCode）。 */
+  inventoryCode?: string;
+  inventoryName?: string;
+  spec?: string;
+  unit?: string;
   orderedQty: number;
   receivedQty: number;
   unitPrice?: number;
@@ -75,6 +82,7 @@ export class TplusSyncService {
     private readonly prisma: PrismaService,
     private readonly procurement: ProcurementService,
     private readonly secureConfig: SecureConfigService,
+    private readonly poMatch: TplusPoMatchService,
   ) {}
 
   private async findConfigRow() {
@@ -127,22 +135,31 @@ export class TplusSyncService {
       tokenExpireAt: openTokenExpireAt ? new Date(openTokenExpireAt).toISOString() : null,
       refreshExpireAt: refreshTokenExpireAt ? new Date(refreshTokenExpireAt).toISOString() : null,
       updatedAt: config?.updatedAt?.toISOString() ?? null,
+      // 每日自动同步：默认开启，显式 false 才关
+      autoSync: meta.autoSync !== false,
+      lastAutoSyncAt: typeof meta.lastAutoSyncAt === 'string' ? meta.lastAutoSyncAt : null,
+      lastAutoSyncSummary: typeof meta.lastAutoSyncSummary === 'string' ? meta.lastAutoSyncSummary : null,
     };
   }
 
-  /** 录入/更新配置：appSecret 落库加密，不传则保留已存值。 */
+  /** 录入/更新配置：appSecret 落库加密；appKey/appSecret 不传则保留已存值。 */
   async saveConfig(dto: TplusConfigDto, actorId: string) {
     const existing = await this.findConfigRow();
     const meta = (existing?.metadata ?? {}) as Record<string, unknown>;
+    const appKey = dto.appKey?.trim() || (typeof meta.appKey === 'string' ? meta.appKey : '');
+    if (!appKey) {
+      throw new BadRequestException('首次配置必须提供 appKey');
+    }
     const appSecret = dto.appSecret?.trim();
     const encryptedSecret = appSecret
       ? this.secureConfig.encryptForStorage(appSecret)
       : existing?.encryptedSecret ?? '';
     const metadata = {
       ...meta,
-      baseUrl: dto.baseUrl?.trim() || DEFAULT_BASE_URL,
-      appKey: dto.appKey.trim(),
+      baseUrl: dto.baseUrl?.trim() || (typeof meta.baseUrl === 'string' && meta.baseUrl ? meta.baseUrl : DEFAULT_BASE_URL),
+      appKey,
       ...(dto.redirectUri !== undefined ? { redirectUri: dto.redirectUri.trim() } : {}),
+      ...(dto.autoSync !== undefined ? { autoSync: dto.autoSync } : {}),
       updatedBy: actorId,
     } as Prisma.InputJsonObject;
     if (existing) {
@@ -162,6 +179,141 @@ export class TplusSyncService {
       });
     }
     return this.getConfig();
+  }
+
+  // ── 开放平台消息接收 + 永久授权码自愈链 ──────────────────────────────────────
+
+  /**
+   * 处理开放平台「消息接收地址」推送（POST，公网、无登录态）。
+   * 消息类型（对齐官方消息列表文档）：APP_TEST 配置验证；APP_TICKET 每 10 分钟推送的
+   * 应用票据（换 appAccessToken 的原料）；TEMP_AUTH_CODE 企业临时授权码（10 分钟有效，
+   * 收到立即串链换成企业永久授权码落库）；APP_CANCEL_* 取消开通/授权告警。
+   * 无论处理结果如何都应答成功，避免平台重试轰炸；原始报文留最近 20 条（票据消息除外，太频繁）。
+   */
+  async handlePlatformMessage(body: Record<string, unknown>) {
+    const msgType = String(body?.msgType ?? '').toUpperCase();
+    const biz = (body?.bizContent ?? {}) as Record<string, unknown>;
+    const config = await this.findConfigRow();
+    if (!config) {
+      this.logger.warn(`收到 T+ 平台消息但集成未配置：${msgType}`);
+      return { result: 'success' };
+    }
+    const meta = (config.metadata ?? {}) as Record<string, unknown>;
+    const patch: Record<string, unknown> = {};
+    if (msgType !== 'APP_TICKET') {
+      const log = Array.isArray(meta.notifyLog) ? (meta.notifyLog as unknown[]) : [];
+      patch.notifyLog = [
+        { msgType, at: new Date().toISOString(), raw: JSON.stringify(body).slice(0, 800) },
+        ...log,
+      ].slice(0, 20);
+    }
+
+    try {
+      if (msgType === 'APP_TICKET') {
+        // 公网端点：入库字符串一律截断，防恶意超长报文撑爆 metadata
+        const ticket = String(biz.appTicket ?? '').slice(0, 256);
+        if (ticket) {
+          patch.appTicket = ticket;
+          patch.appTicketAt = new Date().toISOString();
+        }
+      } else if (msgType === 'TEMP_AUTH_CODE') {
+        const tempAuthCode = String(biz.tempAuthCode ?? '').slice(0, 256);
+        this.logger.log('收到企业临时授权码，尝试换取企业永久授权码');
+        const appTicket = String(meta.appTicket ?? '');
+        if (tempAuthCode && appTicket) {
+          // 临时授权码 10 分钟有效，收到立即串链
+          const appAccessToken = await this.fetchAppAccessToken(appTicket);
+          const result = await this.authPost('/auth/orgAuth/getPermanentAuthCode', {
+            appAccessToken,
+            tempAuthCode,
+          });
+          if (result.permanentAuthCode) {
+            patch.orgPermanentAuthCode = String(result.permanentAuthCode);
+            patch.orgPermanentAuthCodeAt = new Date().toISOString();
+            this.logger.log('企业永久授权码已入库（token 自愈链就绪）');
+          }
+        } else if (tempAuthCode) {
+          // appTicket 尚未收到过（每 10 分钟推一次），暂存临时码等待下次开通重试
+          patch.tempAuthCode = tempAuthCode;
+          this.logger.warn('暂无 appTicket，企业临时授权码已暂存（10 分钟内有效）');
+        }
+      } else if (msgType === 'APP_CANCEL_OPEN' || msgType === 'APP_CANCEL_AUTHORIZATION') {
+        this.logger.warn(`T+ 平台通知：${msgType === 'APP_CANCEL_OPEN' ? '应用被取消开通' : '应用被取消授权'}，同步将失效`);
+      }
+    } catch (error) {
+      // 串链失败不影响应答：下次「开通授权」会再推临时码
+      this.logger.warn(`平台消息 ${msgType} 处理失败：${(error as Error).message}`);
+    }
+
+    if (Object.keys(patch).length > 0) {
+      await this.prisma.integrationConfig.update({
+        where: { id: config.id },
+        data: { metadata: { ...meta, ...patch } as Prisma.InputJsonObject },
+      });
+    }
+    // 应答格式对齐开放平台校验要求：必须是 {'result':'success'}
+    return { result: 'success' };
+  }
+
+  /** 鉴权类 POST（appKey/appSecret 放 header），成功返回 result 对象。 */
+  private async authPost(path: string, payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const cred = await this.loadCredentials();
+    if (!cred) {
+      throw new ServiceUnavailableException('畅捷通 T+ 未配置：请先录入 appKey / appSecret');
+    }
+    const res = await fetch(`${cred.baseUrl.replace(/\/+$/, '')}${path}`, {
+      method: 'POST',
+      headers: { appKey: cred.appKey, appSecret: cred.appSecret, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const body = (await res.json().catch(() => null)) as {
+      code?: string | number;
+      msg?: string;
+      message?: string;
+      result?: Record<string, unknown>;
+    } | null;
+    if (!res.ok || !body || String(body.code) !== '200' || !body.result) {
+      const reason = body?.msg ?? body?.message ?? `HTTP ${res.status}`;
+      throw new ServiceUnavailableException(`畅捷通鉴权失败（${path.split('/').pop()}）：${reason}`);
+    }
+    return body.result;
+  }
+
+  private async fetchAppAccessToken(appTicket: string): Promise<string> {
+    const result = await this.authPost('/auth/appAuth/getAppAccessToken', { appTicket });
+    const token = String(result.appAccessToken ?? '');
+    if (!token) throw new ServiceUnavailableException('应用凭证响应缺少 appAccessToken');
+    return token;
+  }
+
+  /**
+   * 永久授权码自愈：refresh 链断掉时用「企业凭证 + 用户永久授权码」重新铸 token。
+   * 依赖三个已落库的根凭证：appTicket（10 分钟推送）、orgPermanentAuthCode（开通消息串链）、
+   * userAuthPermanentCode（授权/刷新响应留存）。任一缺失则抛错由调用方回落「待授权」。
+   */
+  private async mintTokenByPermanentCode(): Promise<string> {
+    const config = await this.findConfigRow();
+    const meta = (config?.metadata ?? {}) as Record<string, unknown>;
+    const appTicket = String(meta.appTicket ?? '');
+    const orgPermanentAuthCode = String(meta.orgPermanentAuthCode ?? '');
+    const userAuthPermanentCode = String(meta.userAuthPermanentCode ?? '');
+    if (!appTicket || !orgPermanentAuthCode || !userAuthPermanentCode) {
+      throw new ServiceUnavailableException('永久授权码自愈链凭证不全（需消息接收地址已配置并完成过一次开通授权）');
+    }
+    const appAccessToken = await this.fetchAppAccessToken(appTicket);
+    const org = await this.authPost('/auth/orgAuth/getOrgAccessToken', {
+      appAccessToken,
+      permanentAuthCode: orgPermanentAuthCode,
+    });
+    const orgAccessToken = String(org.orgAccessToken ?? '');
+    if (!orgAccessToken) throw new ServiceUnavailableException('企业凭证响应缺少 orgAccessToken');
+    const result = await this.authPost('/auth/token/getTokenByPermanentCode', {
+      orgAccessToken,
+      userAuthPermanentCode,
+    });
+    await this.saveTokens(result);
+    this.logger.log('token 已通过永久授权码自愈换新');
+    return String(result.access_token ?? '');
   }
 
   // ── OAuth token 管理（方式二：授权码换 token + refresh_token 自动续期）────────
@@ -209,6 +361,10 @@ export class TplusSyncService {
           openTokenExpireAt: expiresIn > 0 ? now + expiresIn * 1000 : 0,
           refreshTokenExpireAt: refreshExpiresIn > 0 ? now + refreshExpiresIn * 1000 : 0,
           orgId: result.org_id !== undefined ? String(result.org_id) : (meta.orgId ?? ''),
+          // 官方推荐的续命根凭证（授权码换 token 才返回；刷新接口不返回则保留已存值）
+          ...(result.user_auth_permanent_code
+            ? { userAuthPermanentCode: String(result.user_auth_permanent_code) }
+            : {}),
         } as Prisma.InputJsonObject,
       },
     });
@@ -241,9 +397,15 @@ export class TplusSyncService {
     const fresh = openToken && expireAt - Date.now() > 12 * 3600 * 1000;
     if (fresh) return openToken;
     if (!refreshToken) {
-      throw new ServiceUnavailableException(
-        '畅捷通 T+ 尚未完成授权：请在「T+ 集成」里完成开放平台授权（或粘贴授权码）',
-      );
+      // 无刷新令牌也先试永久授权码自愈（消息链就绪时可免人工重授权）
+      try {
+        return await this.mintTokenByPermanentCode();
+      } catch (mintError) {
+        this.logger.warn(`永久授权码自愈失败：${(mintError as Error).message}`);
+        throw new ServiceUnavailableException(
+          '畅捷通 T+ 尚未完成授权：请在「T+ 集成」里完成开放平台授权（或粘贴授权码）',
+        );
+      }
     }
     try {
       const qs = new URLSearchParams({ grantType: 'refresh_token', refreshToken });
@@ -251,7 +413,12 @@ export class TplusSyncService {
       await this.saveTokens(result);
       return String(result.access_token ?? '');
     } catch (error) {
-      // refresh_token 过期/被作废：清空令牌，让前端显示「待授权」引导重新授权
+      // refresh 链断掉：先走永久授权码自愈；自愈也不行才清空令牌让前端显示「待授权」
+      try {
+        return await this.mintTokenByPermanentCode();
+      } catch (mintError) {
+        this.logger.warn(`永久授权码自愈失败：${(mintError as Error).message}`);
+      }
       if (config) {
         await this.prisma.integrationConfig.update({
           where: { id: config.id },
@@ -465,9 +632,15 @@ export class TplusSyncService {
   // ── 外部调用出口（唯一） ─────────────────────────────────────────────────────
 
   /**
-   * 调用 T+ OpenAPI。凭据未配置/未授权时抛 503——不返回假数据，避免上层把空结果当成「库存为 0」。
+   * 调用 T+ OpenAPI（常规单据接口：请求体包 { param }）。
+   * 凭据未配置/未授权时抛 503——不返回假数据，避免上层把空结果当成「库存为 0」。
    */
   private async fetchFromTplus(path: string, param: Record<string, unknown> = {}): Promise<unknown> {
+    return this.postTplus(path, { param });
+  }
+
+  /** 底层 POST：FindVoucherList 系列的请求体不包 param，与常规接口共用凭据/错误处理。 */
+  private async postTplus(path: string, payload: Record<string, unknown>): Promise<unknown> {
     const cred = await this.loadCredentials();
     if (!cred) {
       throw new ServiceUnavailableException(
@@ -485,7 +658,7 @@ export class TplusSyncService {
         appSecret: cred.appSecret,
         openToken,
       },
-      body: JSON.stringify({ param }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -580,16 +753,30 @@ export class TplusSyncService {
     if (!dto) return [];
     const orderNo = String(dto.Code ?? '');
     if (!orderNo) return [];
-    const partner = (dto.Partner ?? null) as Record<string, unknown> | null;
+    // 真实账套里 Partner/Unit 直接是字符串（"网购"/"个"），部分版本才是 { Name } 对象，两种都兼容
+    const nameOf = (value: unknown): string | undefined => {
+      if (typeof value === 'string' && value) return value;
+      if (value && typeof value === 'object') {
+        const name = (value as Record<string, unknown>).Name;
+        if (name) return String(name);
+      }
+      return undefined;
+    };
     const state = (dto.VoucherState ?? null) as Record<string, unknown> | null;
     const details = Array.isArray(dto.PurchaseOrderDetails)
       ? (dto.PurchaseOrderDetails as Record<string, unknown>[])
       : [];
-    return details.map((detail, index) => ({
+    return details.map((detail, index) => {
+      const inventory = (detail.Inventory ?? null) as Record<string, unknown> | null;
+      return {
       orderNo,
       orderId: dto.ID !== undefined ? String(dto.ID) : undefined,
       lineNo: detail.RowNo !== undefined ? String(detail.RowNo) : String(index + 1),
-      supplierName: partner?.Name ? String(partner.Name) : undefined,
+      supplierName: nameOf(dto.Partner),
+      inventoryCode: inventory?.Code ? String(inventory.Code) : undefined,
+      inventoryName: inventory?.Name ? String(inventory.Name) : undefined,
+      spec: inventory?.Specification ? String(inventory.Specification) : undefined,
+      unit: nameOf(detail.Unit),
       orderedQty: Number(detail.Quantity ?? 0),
       receivedQty: Number(detail.CountQuantity ?? 0),
       unitPrice:
@@ -606,6 +793,179 @@ export class TplusSyncService {
           : undefined,
       approvalStatus: state?.Name ? String(state.Name) : undefined,
       status: state?.Code ? String(state.Code) : undefined,
-    }));
+      };
+    });
+  }
+
+  // ── 全量镜像同步 ─────────────────────────────────────────────────────────────
+
+  /**
+   * 全量拉取 T+ 采购订单到镜像表：FindVoucherList 只取单号清单（对未知响应结构的依赖
+   * 压到最小），明细复用已验证字段映射的 GetVoucherDTO 逐单精查。
+   * 日期过滤（近 days 天）失败时自动降级为无过滤拉取（部分账套 paramDic 键名不同）。
+   */
+  async syncPurchaseOrderMirror(days = 90) {
+    const codes = await this.fetchOrderCodes(days);
+    let upserted = 0;
+    let failed = 0;
+    let matchedMaterials = 0;
+    for (const orderNo of codes) {
+      let lines: TplusPurchaseOrderLine[] = [];
+      try {
+        const raw = await this.fetchFromTplus(
+          '/tplus/api/v2/PurchaseOrderOpenApi/GetVoucherDTO',
+          { voucherCode: orderNo },
+        );
+        lines = this.mapVoucherLines(this.unwrapVoucher(raw));
+      } catch (error) {
+        failed += 1;
+        this.logger.warn(`采购单 ${orderNo} 明细查询失败：${(error as Error).message}`);
+        continue;
+      }
+      for (const line of lines) {
+        // 存货编码精确匹配物料（确定性）；匹配不上留空给规则/AI 匹配任务时兜底
+        let materialId: string | null = null;
+        if (line.inventoryCode) {
+          const material = await this.prisma.procMaterial.findUnique({
+            where: { tpInventoryCode: line.inventoryCode },
+            select: { id: true },
+          });
+          materialId = material?.id ?? null;
+          if (materialId) matchedMaterials += 1;
+        }
+        const lineNo = line.lineNo ?? '';
+        const data = {
+          tpOrderId: line.orderId ?? null,
+          supplierName: line.supplierName ?? '',
+          inventoryCode: line.inventoryCode ?? '',
+          inventoryName: line.inventoryName ?? '',
+          spec: line.spec ?? '',
+          unit: line.unit ?? '',
+          orderedQty: new Prisma.Decimal(line.orderedQty),
+          receivedQty: new Prisma.Decimal(line.receivedQty),
+          unitPrice: line.unitPrice === undefined ? null : new Prisma.Decimal(line.unitPrice),
+          orderDate: line.orderDate ? new Date(line.orderDate) : null,
+          etaDate: line.etaDate ? new Date(line.etaDate) : null,
+          approvalStatus: line.approvalStatus ?? null,
+          status: line.status ?? null,
+          materialId,
+          syncedAt: new Date(),
+        };
+        await this.prisma.procPurchaseOrderMirror.upsert({
+          where: { tpOrderNo_tpLineNo: { tpOrderNo: orderNo, tpLineNo: lineNo } },
+          create: { tpOrderNo: orderNo, tpLineNo: lineNo, ...data },
+          update: data,
+        });
+        upserted += 1;
+      }
+    }
+    // 顺带刷新任务已关联单据的到货量（同一套单号来源，避免用户再点一次）
+    const refSync = await this.syncPurchaseOrders().catch(() => null);
+    return { orders: codes.length, lines: upserted, failed, matchedMaterials, refSync };
+  }
+
+  /** FindVoucherList 分页拉单号：先带日期区间过滤，失败降级为无过滤。 */
+  private async fetchOrderCodes(days: number): Promise<string[]> {
+    const end = new Date();
+    const start = new Date(end.getTime() - days * 24 * 3600 * 1000);
+    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    // 官方结构（已在真实账套验证）：paramDic 里日期字段给 [起, 止] 两元素即区间过滤
+    const withDate = {
+      'PurchaseOrder.VoucherDate': [
+        { text: fmt(start), value: fmt(start) },
+        { text: fmt(end), value: fmt(end) },
+      ],
+    };
+    try {
+      return await this.fetchCodesPaged(withDate);
+    } catch (error) {
+      this.logger.warn(`按日期过滤拉单失败，降级为全量：${(error as Error).message}`);
+      return this.fetchCodesPaged({});
+    }
+  }
+
+  // ── 每日自动同步 ─────────────────────────────────────────────────────────────
+
+  /** 每天 3:00 自动同步（服务器时区）：错开业务高峰与 T+ 账套日结。 */
+  @Cron('0 3 * * *', { name: 'tplus-auto-sync' })
+  async autoSyncCron() {
+    await this.autoSync().catch((error) => {
+      this.logger.warn(`T+ 自动同步异常退出：${(error as Error).message}`);
+    });
+  }
+
+  /**
+   * 全链路自动同步：供应商 → 库存 → 采购单全量（含任务到货回推）→ 匹配建议。
+   * 未配置/未授权/开关关闭时跳过；单步失败记日志并继续，结果摘要落 metadata 供前端展示。
+   */
+  async autoSync() {
+    const config = await this.getConfig();
+    if (!config.configured || !config.authorized) {
+      this.logger.debug('T+ 自动同步跳过：未配置或未授权');
+      return { skipped: true as const, reason: '未配置或未授权' };
+    }
+    if (!config.autoSync) {
+      return { skipped: true as const, reason: '自动同步已关闭' };
+    }
+    const parts: string[] = [];
+    const step = async (label: string, run: () => Promise<Record<string, unknown>>) => {
+      try {
+        const result = await run();
+        parts.push(`${label} ✓ ${Object.entries(result).filter(([, v]) => typeof v === 'number').map(([k, v]) => `${k}=${v}`).join(',')}`);
+      } catch (error) {
+        parts.push(`${label} ✗ ${(error as Error).message}`);
+        this.logger.warn(`T+ 自动同步「${label}」失败：${(error as Error).message}`);
+      }
+    };
+    await step('供应商', () => this.syncSuppliers());
+    await step('库存', () => this.syncInventory());
+    await step('采购单全量', () => this.syncPurchaseOrderMirror());
+    await step('匹配', () => this.poMatch.runMatch());
+
+    const summary = parts.join('；');
+    const row = await this.findConfigRow();
+    if (row) {
+      const meta = (row.metadata ?? {}) as Record<string, unknown>;
+      await this.prisma.integrationConfig.update({
+        where: { id: row.id },
+        data: {
+          metadata: {
+            ...meta,
+            lastAutoSyncAt: new Date().toISOString(),
+            lastAutoSyncSummary: summary.slice(0, 500),
+          } as Prisma.InputJsonObject,
+        },
+      });
+    }
+    this.logger.log(`T+ 自动同步完成：${summary}`);
+    return { skipped: false as const, summary };
+  }
+
+  /**
+   * FindVoucherList 官方结构（真实账套验证）：请求体不包 param、pageIndex 从 0 起、
+   * selectFields 为 `PurchaseOrder.Code` 风格数组；响应为 data.Columns + data.Rows 二维数组。
+   */
+  private async fetchCodesPaged(paramDic: Record<string, unknown>): Promise<string[]> {
+    const codes = new Set<string>();
+    const pageSize = 100;
+    for (let page = 0; page < 100; page += 1) {
+      const raw = (await this.postTplus('/tplus/api/v2/PurchaseOrderOpenApi/FindVoucherList', {
+        pageSize,
+        pageIndex: page,
+        selectFields: ['PurchaseOrder.Code'],
+        paramDic,
+      })) as Record<string, unknown> | null;
+      const data = (raw?.data ?? {}) as Record<string, unknown>;
+      const columns = Array.isArray(data.Columns) ? data.Columns.map((c) => String(c).toLowerCase()) : [];
+      const codeIdx = Math.max(0, columns.indexOf('code'));
+      const rows = Array.isArray(data.Rows) ? (data.Rows as unknown[][]) : [];
+      for (const row of rows) {
+        const value = Array.isArray(row) ? row[codeIdx] : undefined;
+        if (value) codes.add(String(value));
+      }
+      const totalPages = Number(data.TotalPageNum ?? 0);
+      if (rows.length === 0 || (totalPages > 0 && page + 1 >= totalPages)) break;
+    }
+    return [...codes];
   }
 }

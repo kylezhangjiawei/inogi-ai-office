@@ -426,10 +426,11 @@ export class TplusConfigDto {
   @MaxLength(200)
   baseUrl?: string;
 
+  /** 不传则保留已存值（如仅切换 autoSync 开关）；首次配置必须传。 */
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(128)
-  appKey!: string;
+  appKey?: string;
 
   @IsOptional()
   @IsString()
@@ -441,6 +442,11 @@ export class TplusConfigDto {
   @IsString()
   @MaxLength(300)
   redirectUri?: string;
+
+  /** 每日自动同步开关（默认开启；不传则保留已存值）。 */
+  @IsOptional()
+  @IsBoolean()
+  autoSync?: boolean;
 }
 
 /** 手动粘贴授权码换 token（回调直达不可用时的兜底）。 */
