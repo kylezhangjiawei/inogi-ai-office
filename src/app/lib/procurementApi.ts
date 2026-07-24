@@ -199,6 +199,8 @@ export interface BuyerRosterMember {
   id: string;
   name: string;
   department?: string;
+  /** 岗位备注（如「电子料询价」「包材/耗材」） */
+  note?: string;
   disabled?: boolean;
 }
 
@@ -208,6 +210,16 @@ export async function getBuyerRoster(): Promise<{ members: BuyerRosterMember[] }
 
 export async function addBuyerRosterMember(userId: string): Promise<{ members: BuyerRosterMember[] }> {
   return request("/buyer-roster", { method: "POST", body: JSON.stringify({ userId }) });
+}
+
+export async function updateBuyerRosterMember(
+  userId: string,
+  note: string,
+): Promise<{ members: BuyerRosterMember[] }> {
+  return request(`/buyer-roster/${encodeURIComponent(userId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ note }),
+  });
 }
 
 export async function removeBuyerRosterMember(userId: string): Promise<{ members: BuyerRosterMember[] }> {

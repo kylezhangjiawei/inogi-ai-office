@@ -1054,46 +1054,63 @@ export class ProcurementService {
 
   private static readonly BUYER_ROSTER_KEY = 'procurement:buyer-roster:v1';
 
-  private async readBuyerRoster(): Promise<string[]> {
+  /** 名录条目：兼容早期纯 userId 字符串数组格式。 */
+  private async readBuyerRosterEntries(): Promise<Array<{ userId: string; note?: string }>> {
     const row = await this.prisma.runtimeState.findUnique({
       where: { key: ProcurementService.BUYER_ROSTER_KEY },
     });
     if (!row) return [];
     try {
       const parsed = JSON.parse(row.value) as unknown;
-      return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .map((x) => {
+          if (typeof x === 'string') return { userId: x };
+          if (x && typeof x === 'object' && typeof (x as { userId?: unknown }).userId === 'string') {
+            const note = (x as { note?: unknown }).note;
+            return { userId: (x as { userId: string }).userId, note: typeof note === 'string' ? note : undefined };
+          }
+          return null;
+        })
+        .filter((x): x is { userId: string; note?: string } => Boolean(x));
     } catch {
       return [];
     }
   }
 
-  private async writeBuyerRoster(ids: string[]) {
-    const value = JSON.stringify([...new Set(ids)]);
+  private async readBuyerRoster(): Promise<string[]> {
+    return (await this.readBuyerRosterEntries()).map((e) => e.userId);
+  }
+
+  private async writeBuyerRosterEntries(entries: Array<{ userId: string; note?: string }>) {
+    const seen = new Set<string>();
+    const unique = entries.filter((e) => (seen.has(e.userId) ? false : (seen.add(e.userId), true)));
     await this.prisma.runtimeState.upsert({
       where: { key: ProcurementService.BUYER_ROSTER_KEY },
-      create: { key: ProcurementService.BUYER_ROSTER_KEY, value },
-      update: { value },
+      create: { key: ProcurementService.BUYER_ROSTER_KEY, value: JSON.stringify(unique) },
+      update: { value: JSON.stringify(unique) },
     });
   }
 
   /** 名录成员（实时回填姓名/部门；已禁用用户标记出来供清理）。 */
   async getBuyerRoster() {
-    const ids = await this.readBuyerRoster();
-    if (ids.length === 0) return { members: [] };
+    const entries = await this.readBuyerRosterEntries();
+    if (entries.length === 0) return { members: [] };
     const users = await this.prisma.user.findMany({
-      where: { id: { in: ids } },
+      where: { id: { in: entries.map((e) => e.userId) } },
       select: { id: true, name: true, department: true, status: true },
     });
     const byId = new Map(users.map((u) => [u.id, u]));
     return {
-      members: ids
-        .map((id) => byId.get(id))
-        .filter((u): u is NonNullable<typeof u> => Boolean(u))
-        .map((u) => ({
-          id: u.id,
-          name: u.name,
-          department: u.department ?? undefined,
-          disabled: u.status === 'DISABLED',
+      members: entries
+        .map((e) => ({ entry: e, user: byId.get(e.userId) }))
+        .filter((x): x is { entry: { userId: string; note?: string }; user: NonNullable<ReturnType<typeof byId.get>> } => Boolean(x.user))
+        .map(({ entry, user }) => ({
+          id: user.id,
+          name: user.name,
+          department: user.department ?? undefined,
+          note: entry.note,
+          disabled: user.status === 'DISABLED',
         })),
     };
   }
@@ -1101,17 +1118,27 @@ export class ProcurementService {
   async addBuyerRosterMember(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
     if (!user) throw new NotFoundException('用户不存在');
-    const ids = await this.readBuyerRoster();
-    if (!ids.includes(userId)) {
-      ids.push(userId);
-      await this.writeBuyerRoster(ids);
+    const entries = await this.readBuyerRosterEntries();
+    if (!entries.some((e) => e.userId === userId)) {
+      entries.push({ userId });
+      await this.writeBuyerRosterEntries(entries);
     }
     return this.getBuyerRoster();
   }
 
+  /** 更新成员岗位备注（如「电子料询价」「包材/耗材」），仅名录内成员。 */
+  async updateBuyerRosterMember(userId: string, note: string) {
+    const entries = await this.readBuyerRosterEntries();
+    const entry = entries.find((e) => e.userId === userId);
+    if (!entry) throw new NotFoundException('该用户不在成员名录中');
+    entry.note = note.trim().slice(0, 100) || undefined;
+    await this.writeBuyerRosterEntries(entries);
+    return this.getBuyerRoster();
+  }
+
   async removeBuyerRosterMember(userId: string) {
-    const ids = await this.readBuyerRoster();
-    await this.writeBuyerRoster(ids.filter((id) => id !== userId));
+    const entries = await this.readBuyerRosterEntries();
+    await this.writeBuyerRosterEntries(entries.filter((e) => e.userId !== userId));
     return this.getBuyerRoster();
   }
 

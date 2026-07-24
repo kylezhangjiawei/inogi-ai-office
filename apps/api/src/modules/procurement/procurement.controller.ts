@@ -84,6 +84,12 @@ export class ProcurementController {
     return this.service.addBuyerRosterMember(body.userId);
   }
 
+  @Patch('buyer-roster/:userId')
+  @Permissions('proc-task:reassign')
+  updateBuyerRosterMember(@Param('userId') userId: string, @Body() body: { note?: string }) {
+    return this.service.updateBuyerRosterMember(userId, body?.note ?? '');
+  }
+
   @Delete('buyer-roster/:userId')
   @Permissions('proc-task:reassign')
   removeBuyerRosterMember(@Param('userId') userId: string) {

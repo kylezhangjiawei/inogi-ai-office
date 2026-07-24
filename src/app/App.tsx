@@ -68,6 +68,7 @@ const PurchaseOrdersPage = lazyNamed(() => import("./order-processing"), "Purcha
 const ProcurementCockpitPage = lazyNamed(() => import("./procurement"), "ProcurementCockpitPage");
 const ProcMyWorkspacePage = lazyNamed(() => import("./procurement"), "ProcMyWorkspacePage");
 const MaterialWorkbenchPage = lazyNamed(() => import("./procurement"), "MaterialWorkbenchPage");
+const ProcPeopleManagementPage = lazyNamed(() => import("./procurement"), "ProcPeopleManagementPage");
 const PersonalCenterPage = lazyNamed(() => import("./PersonalCenterPage"), "PersonalCenterPage");
 const ContractReviewPage = lazyNamed(() => import("./ContractReviewPage"), "ContractReviewPage");
 const QualityDMSPage = lazyNamed(() => import("./QualityDMSPage"), "QualityDMSPage");
@@ -363,6 +364,8 @@ const router = createBrowserRouter([
       // 采购分类详情二级页：注册路由与权限，但不进侧边栏菜单（routesConfig 未收录即不显示）
       { path: "proc-my-workspace", element: makeLazyProtected(<ProcMyWorkspacePage />, "page:proc-my-workspace") },
       { path: "proc-materials", element: makeLazyProtected(<MaterialWorkbenchPage />, "page:proc-materials") },
+      // 采购人员管理独立页：从驾驶舱进入，不进侧边栏菜单（对齐研发 rd-people-management 模式）
+      { path: "proc-people-management", element: makeLazyProtected(<ProcPeopleManagementPage />, "page:proc-cockpit") },
       { path: "resume-screening", element: makeLazyProtected(<ResumeScreeningPage />, "page:resume-screening") },
       { path: "employee-archive", element: makeLazyProtected(<EmployeeArchivePage />, "page:employee-archive") },
       { path: "attendance", element: makeLazyProtected(<AttendancePage />, "page:quick-capture") },

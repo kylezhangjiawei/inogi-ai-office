@@ -2,3 +2,4 @@
 export { ProcurementCockpitPage } from "./ProcurementCockpitPage";
 export { ProcMyWorkspacePage } from "./ProcMyWorkspacePage";
 export { MaterialWorkbenchPage } from "./MaterialWorkbenchPage";
+export { ProcPeopleManagementPage } from "./ProcPeopleManagementPage";
