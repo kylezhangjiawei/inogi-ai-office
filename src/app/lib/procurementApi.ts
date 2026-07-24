@@ -181,15 +181,37 @@ export async function getProcSummary(signal?: AbortSignal): Promise<ProcSummary>
   return request<ProcSummary>("/summary", { signal });
 }
 
-/** 负责人候选（转派/建单人员选择）：全部启用用户，采购部排前。 */
+/** 负责人候选（转派/建单人员选择）：成员名录 > 采购部 > 全员。 */
 export interface BuyerCandidate {
   id: string;
   name: string;
   department?: string;
+  /** 是否在采购成员名录内 */
+  inRoster?: boolean;
 }
 
 export async function listBuyerCandidates(signal?: AbortSignal): Promise<BuyerCandidate[]> {
   return request<BuyerCandidate[]>("/buyers", { signal });
+}
+
+/** 采购成员名录（人员管理里维护；分配任务候选优先显示名录成员）。 */
+export interface BuyerRosterMember {
+  id: string;
+  name: string;
+  department?: string;
+  disabled?: boolean;
+}
+
+export async function getBuyerRoster(): Promise<{ members: BuyerRosterMember[] }> {
+  return request("/buyer-roster");
+}
+
+export async function addBuyerRosterMember(userId: string): Promise<{ members: BuyerRosterMember[] }> {
+  return request("/buyer-roster", { method: "POST", body: JSON.stringify({ userId }) });
+}
+
+export async function removeBuyerRosterMember(userId: string): Promise<{ members: BuyerRosterMember[] }> {
+  return request(`/buyer-roster/${encodeURIComponent(userId)}`, { method: "DELETE" });
 }
 
 export interface CreateProcTaskInput {

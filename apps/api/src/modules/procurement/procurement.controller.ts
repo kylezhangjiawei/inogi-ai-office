@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Put, Query, Request } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Put, Query, Request } from '@nestjs/common';
 
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import {
@@ -69,6 +69,25 @@ export class ProcurementController {
   @Get('buyers')
   listBuyers() {
     return this.service.listBuyerCandidates();
+  }
+
+  /** 采购成员名录（读仅需登录；增删与转派同权限，由采购管理者维护）。 */
+  @Get('buyer-roster')
+  getBuyerRoster() {
+    return this.service.getBuyerRoster();
+  }
+
+  @Post('buyer-roster')
+  @Permissions('proc-task:reassign')
+  addBuyerRosterMember(@Body() body: { userId?: string }) {
+    if (!body?.userId) throw new BadRequestException('缺少 userId');
+    return this.service.addBuyerRosterMember(body.userId);
+  }
+
+  @Delete('buyer-roster/:userId')
+  @Permissions('proc-task:reassign')
+  removeBuyerRosterMember(@Param('userId') userId: string) {
+    return this.service.removeBuyerRosterMember(userId);
   }
 
   @Get('tasks/:id')

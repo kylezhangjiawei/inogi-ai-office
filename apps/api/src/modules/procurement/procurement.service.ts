@@ -1021,19 +1021,98 @@ export class ProcurementService {
   }
 
   /**
-   * 转派/建单的负责人候选：全部启用用户的 id/name/部门（采购部排前）。
+   * 转派/建单的负责人候选：全部启用用户的 id/name/部门。
+   * 排序：采购成员名录 > 部门含「采购」 > 其余按姓名；名录成员带 inRoster 标记。
    * 开放度与 GET /auth/avatars 一致（登录即可读全员 id/name），不落敏感字段。
    */
   async listBuyerCandidates() {
-    const users = await this.prisma.user.findMany({
-      where: { status: { not: 'DISABLED' } },
-      select: { id: true, name: true, department: true },
-      orderBy: { name: 'asc' },
-    });
+    const [users, roster] = await Promise.all([
+      this.prisma.user.findMany({
+        where: { status: { not: 'DISABLED' } },
+        select: { id: true, name: true, department: true },
+        orderBy: { name: 'asc' },
+      }),
+      this.readBuyerRoster(),
+    ]);
+    const rosterSet = new Set(roster);
     const isProc = (d: string | null) => Boolean(d && d.includes('采购'));
     return users
-      .sort((a, b) => Number(isProc(b.department)) - Number(isProc(a.department)))
-      .map((u) => ({ id: u.id, name: u.name, department: u.department ?? undefined }));
+      .sort(
+        (a, b) =>
+          Number(rosterSet.has(b.id)) - Number(rosterSet.has(a.id)) ||
+          Number(isProc(b.department)) - Number(isProc(a.department)),
+      )
+      .map((u) => ({
+        id: u.id,
+        name: u.name,
+        department: u.department ?? undefined,
+        inRoster: rosterSet.has(u.id),
+      }));
+  }
+
+  // ── 采购成员名录（对齐研发人员名录模式；KV 存储免 migration）────────────────
+
+  private static readonly BUYER_ROSTER_KEY = 'procurement:buyer-roster:v1';
+
+  private async readBuyerRoster(): Promise<string[]> {
+    const row = await this.prisma.runtimeState.findUnique({
+      where: { key: ProcurementService.BUYER_ROSTER_KEY },
+    });
+    if (!row) return [];
+    try {
+      const parsed = JSON.parse(row.value) as unknown;
+      return Array.isArray(parsed) ? parsed.filter((x): x is string => typeof x === 'string') : [];
+    } catch {
+      return [];
+    }
+  }
+
+  private async writeBuyerRoster(ids: string[]) {
+    const value = JSON.stringify([...new Set(ids)]);
+    await this.prisma.runtimeState.upsert({
+      where: { key: ProcurementService.BUYER_ROSTER_KEY },
+      create: { key: ProcurementService.BUYER_ROSTER_KEY, value },
+      update: { value },
+    });
+  }
+
+  /** 名录成员（实时回填姓名/部门；已禁用用户标记出来供清理）。 */
+  async getBuyerRoster() {
+    const ids = await this.readBuyerRoster();
+    if (ids.length === 0) return { members: [] };
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, name: true, department: true, status: true },
+    });
+    const byId = new Map(users.map((u) => [u.id, u]));
+    return {
+      members: ids
+        .map((id) => byId.get(id))
+        .filter((u): u is NonNullable<typeof u> => Boolean(u))
+        .map((u) => ({
+          id: u.id,
+          name: u.name,
+          department: u.department ?? undefined,
+          disabled: u.status === 'DISABLED',
+        })),
+    };
+  }
+
+  async addBuyerRosterMember(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!user) throw new NotFoundException('用户不存在');
+    const ids = await this.readBuyerRoster();
+    if (!ids.includes(userId)) {
+      ids.push(userId);
+      await this.writeBuyerRoster(ids);
+    }
+    return this.getBuyerRoster();
+  }
+
+  async removeBuyerRosterMember(userId: string) {
+    const ids = await this.readBuyerRoster();
+    await this.writeBuyerRoster(ids.filter((id) => id !== userId));
+    return this.getBuyerRoster();
   }
 
   // ── 汇总 ────────────────────────────────────────────────────────────────────

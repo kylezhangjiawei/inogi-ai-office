@@ -1,11 +1,18 @@
-// 采购人员管理抽屉：按负责人聚合任务负载（进行中/待处理/在途逾期/本周到货），
-// 支持一键把某人全部在制任务交接给另一人（复用批量转派事务端点）。
-import { useMemo, useState } from "react";
-import { ArrowRightLeft, Loader2, X } from "lucide-react";
+// 采购人员管理抽屉：成员名录维护（对齐研发模式）+ 按负责人聚合任务负载
+// （进行中/待处理/在途逾期/本周到货），支持一键把某人全部在制任务交接给另一人。
+import { useEffect, useMemo, useState } from "react";
+import { ArrowRightLeft, Loader2, UserPlus, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "../../components/ui/utils";
 import { usePermission } from "../../hooks/usePermission";
-import { batchReassignProcTasks, type ProcurementTask } from "../../lib/procurementApi";
+import {
+  addBuyerRosterMember,
+  batchReassignProcTasks,
+  getBuyerRoster,
+  removeBuyerRosterMember,
+  type BuyerRosterMember,
+  type ProcurementTask,
+} from "../../lib/procurementApi";
 import { daysFromToday, refreshProcurement, useProcurementData } from "../data";
 import { BuyerSuggestDatalist, PersonAvatar, useBuyerDirectory } from "./common";
 import { AutoTranslatedText } from "../../components/TranslatableText";
@@ -37,6 +44,45 @@ export function PeopleManageDrawer({ onClose, onFocusPerson }: {
   const [handover, setHandover] = useState<string | null>(null);
   const [target, setTarget] = useState("");
   const [busy, setBusy] = useState(false);
+  const [roster, setRoster] = useState<BuyerRosterMember[]>([]);
+  const [addName, setAddName] = useState("");
+  const [rosterBusy, setRosterBusy] = useState(false);
+
+  useEffect(() => {
+    void getBuyerRoster().then((r) => setRoster(r.members)).catch(() => {});
+  }, []);
+
+  const addMember = async () => {
+    const name = addName.trim();
+    if (!name) return;
+    const userId = resolveUserId(name);
+    if (!userId) { toast.error(t("找不到该用户（或存在同名，请确认姓名）")); return; }
+    if (roster.some((m) => m.id === userId)) { toast.error(t("该成员已在名录中")); return; }
+    setRosterBusy(true);
+    try {
+      const r = await addBuyerRosterMember(userId);
+      setRoster(r.members);
+      setAddName("");
+      toast.success(t("已加入采购成员名录：{name}", { name }));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("添加失败"));
+    } finally {
+      setRosterBusy(false);
+    }
+  };
+
+  const removeMember = async (member: BuyerRosterMember) => {
+    setRosterBusy(true);
+    try {
+      const r = await removeBuyerRosterMember(member.id);
+      setRoster(r.members);
+      toast.success(t("已从名录移除：{name}（历史任务不受影响）", { name: member.name }));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("移除失败"));
+    } finally {
+      setRosterBusy(false);
+    }
+  };
 
   const people = useMemo<PersonLoad[]>(() => {
     const byBuyer = new Map<string, ProcurementTask[]>();
@@ -45,6 +91,10 @@ export function PeopleManageDrawer({ onClose, onFocusPerson }: {
       const key = task.buyer || UNASSIGNED;
       const list = byBuyer.get(key);
       if (list) list.push(task); else byBuyer.set(key, [task]);
+    }
+    // 名录成员即使当前零任务也显示（新成员/闲置成员可见，便于分配）
+    for (const m of roster) {
+      if (!byBuyer.has(m.name)) byBuyer.set(m.name, []);
     }
     const rows = Array.from(byBuyer.entries()).map(([key, active]) => ({
       key,
@@ -57,7 +107,7 @@ export function PeopleManageDrawer({ onClose, onFocusPerson }: {
     }));
     // 未指派置顶提醒处理，其余按在制任务量降序
     return rows.sort((a, b) => Number(b.key === UNASSIGNED) - Number(a.key === UNASSIGNED) || b.active.length - a.active.length);
-  }, [tasks, t]);
+  }, [tasks, roster, t]);
 
   const submitHandover = async (person: PersonLoad) => {
     const name = target.trim();
@@ -89,6 +139,40 @@ export function PeopleManageDrawer({ onClose, onFocusPerson }: {
         </div>
 
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-6 py-4">
+          {/* 成员名录：显式圈定采购组成员（分配任务候选优先显示名录成员；移除不影响历史任务） */}
+          <div className="mb-3 rounded-xl border border-slate-100 bg-slate-50/50 p-3">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-600">{t("成员名录（{n} 人）", { n: roster.length })}</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {roster.map((m) => (
+                <span key={m.id} className={cn("inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px]", m.disabled ? "border-slate-200 bg-slate-100 text-slate-400 line-through" : "border-indigo-200 bg-indigo-50 text-indigo-700")}>
+                  {m.name}{m.department ? <AutoTranslatedText as="span" className="text-[10px] opacity-60" text={m.department} /> : null}
+                  {canReassign && (
+                    <button type="button" disabled={rosterBusy} onClick={() => void removeMember(m)} className="ml-0.5 text-slate-400 hover:text-rose-500" title={t("从名录移除")}>×</button>
+                  )}
+                </span>
+              ))}
+              {roster.length === 0 && <span className="text-[11px] text-slate-400">{t("尚未添加成员；未添加时任务可分配给任何用户")}</span>}
+            </div>
+            {canReassign && (
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  value={addName}
+                  onChange={(e) => setAddName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") void addMember(); }}
+                  list="proc-buyer-list"
+                  placeholder={t("输入姓名添加成员…")}
+                  className="h-8 flex-1 rounded-lg border border-slate-200 bg-white px-2 text-sm outline-none focus:border-indigo-300"
+                />
+                <BuyerSuggestDatalist />
+                <button type="button" disabled={rosterBusy || !addName.trim()} onClick={() => void addMember()} className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">
+                  {rosterBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus className="h-3.5 w-3.5" />}{t("添加")}
+                </button>
+              </div>
+            )}
+          </div>
+
           {people.length === 0 && <div className="py-10 text-center text-sm text-slate-400">{t("当前没有在制任务")}</div>}
           {people.map((p) => (
             <div key={p.key} className={cn("rounded-xl border p-3", p.key === UNASSIGNED ? "border-amber-200 bg-amber-50/40" : "border-slate-100")}>
