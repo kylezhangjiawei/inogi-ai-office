@@ -153,6 +153,13 @@ export class ProcurementController {
     return this.service.cancelTask(id, dto, this.actor(req));
   }
 
+  /** 审核驳回研发流转任务（与「确认提交」同权限：能审核通过就能驳回）。 */
+  @Post('tasks/:id/reject')
+  @Permissions('proc-task:inquiry')
+  reject(@Param('id') id: string, @Body() dto: CancelProcTaskDto, @Request() req: AuthedRequest) {
+    return this.service.rejectRdTask(id, dto?.reason ?? '', this.actor(req));
+  }
+
   /** 手工登记到货：过渡期能力，T+ 接通后改由同步驱动并下线本端点。 */
   @Post('tasks/:id/receive')
   @Permissions('proc-task:receive')

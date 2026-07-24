@@ -1,8 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { ChatService } from '../chat/chat.service';
+import { ResearchDevelopmentService } from '../research-development/research-development.service';
 import { OSS_BUSINESS_TYPES, SIGNED_URL_TTL_SECONDS } from '../oss/oss.constants';
 import { OssService } from '../oss/oss.service';
 import {
@@ -90,6 +91,7 @@ export class ProcurementService {
     private readonly prisma: PrismaService,
     private readonly ossService: OssService,
     private readonly chatService: ChatService,
+    private readonly rdService: ResearchDevelopmentService,
   ) {}
 
   // ── 任务 ────────────────────────────────────────────────────────────────────
@@ -166,8 +168,46 @@ export class ProcurementService {
       where: { rdTaskId },
       include: { attachments: true, logs: true, purchaseOrderRefs: true },
     });
-    if (existing) {
+    if (existing && existing.status !== 'cancelled') {
       return { ...this.serializeTask(existing), alreadyTransferred: true };
+    }
+    if (existing) {
+      // 审核驳回（或取消）后的重新提交：更新需求内容、回到待处理重走审核，保留历史日志与旧附件
+      const updated = await this.prisma.procTask.update({
+        where: { id: existing.id },
+        data: {
+          materialName: dto.materialName,
+          spec: dto.spec ?? '',
+          unit: dto.unit ?? '',
+          quantity: new Prisma.Decimal(dto.quantity ?? 0),
+          method: dto.method ?? 'inquiry',
+          purchaseLink: dto.purchaseLink ?? null,
+          priority: dto.priority ?? 'medium',
+          needSample: dto.needSample ?? false,
+          needDate: parseDay(dto.needDate),
+          deadline: parseDay(dto.deadline),
+          rdTaskTitle: dto.rdTaskTitle ?? existing.rdTaskTitle,
+          rdContact: dto.rdContact ?? existing.rdContact,
+          consumableNote: dto.consumableNote ?? existing.consumableNote,
+          status: 'pending_confirm',
+          cancelReason: null,
+          ...(dto.attachments?.length
+            ? { attachments: { create: dto.attachments.map((a) => this.attachmentData(a, actor)) } }
+            : {}),
+          logs: {
+            create: {
+              kind: 'action',
+              text: '研发修改后重新提交转采购，待采购重新审核',
+              fromStatus: 'cancelled',
+              toStatus: 'pending_confirm',
+              actor: actor.name,
+              actorUserId: actor.id,
+            },
+          },
+        },
+        include: { attachments: true, logs: true, purchaseOrderRefs: true },
+      });
+      return { ...this.serializeTask(updated), alreadyTransferred: false };
     }
     if (!dto.attachments?.length) {
       // 研发侧不强制校验业务字段，但必须带附件（图纸/说明），否则采购无从下手
@@ -477,6 +517,53 @@ export class ProcurementService {
       },
       include: { attachments: true, logs: true, purchaseOrderRefs: true },
     });
+    return this.serializeTask(updated);
+  }
+
+  /**
+   * 审核驳回研发流转任务：仅限「待处理」的研发来源任务。落为 cancelled + 驳回理由留痕，
+   * 站内通知研发对接人；研发侧修改后可重新转采购（transferFromRd 对 cancelled 任务重激活）。
+   */
+  async rejectRdTask(id: string, reason: string, actor: ProcActor) {
+    const trimmed = reason.trim();
+    if (!trimmed) throw new BadRequestException('驳回必须填写理由');
+    const task = await this.requireTask(id);
+    if (task.source !== 'rd' || task.status !== 'pending_confirm') {
+      throw new BadRequestException('仅「待处理」的研发流转任务可审核驳回');
+    }
+    const updated = await this.prisma.procTask.update({
+      where: { id },
+      data: {
+        status: 'cancelled',
+        cancelReason: `审核驳回：${trimmed}`,
+        logs: {
+          create: {
+            kind: 'action',
+            text: `采购审核驳回：${trimmed}`,
+            fromStatus: task.status,
+            toStatus: 'cancelled',
+            actor: actor.name,
+            actorUserId: actor.id,
+          },
+        },
+      },
+      include: { attachments: true, logs: true, purchaseOrderRefs: true },
+    });
+    // 站内通知研发对接人/需求提出人（通知失败不影响驳回本身）
+    const recipient = task.rdContact || task.requester;
+    if (recipient) {
+      try {
+        await this.rdService.createMessage({
+          sender: { id: actor.id, name: actor.name, role: '采购' },
+          recipient_name: recipient,
+          subject: '转采购需求被驳回',
+          body: `你转采购的需求「${task.materialName}」（${task.code}${task.rdTaskTitle ? `，来源研发任务：${task.rdTaskTitle}` : ''}）被采购审核驳回。\n驳回理由：${trimmed}\n请在研发任务里修改后重新转采购。`,
+        });
+      } catch (error) {
+        // 同名多人等场景通知可能失败，驳回结果不回滚
+        new Logger(ProcurementService.name).warn(`驳回通知发送失败: ${(error as Error).message}`);
+      }
+    }
     return this.serializeTask(updated);
   }
 

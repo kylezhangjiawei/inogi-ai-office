@@ -339,6 +339,14 @@ export async function transitionProcTask(
   });
 }
 
+/** 审核驳回研发流转任务（须填理由；研发对接人会收到站内通知，修改后可重新转采购）。 */
+export async function rejectProcTask(id: string, reason: string): Promise<ProcurementTask> {
+  return request(`/tasks/${encodeURIComponent(id)}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
+  });
+}
+
 export async function cancelProcTask(id: string, reason?: string): Promise<ProcurementTask> {
   return request<ProcurementTask>(`/tasks/${encodeURIComponent(id)}/cancel`, {
     method: "POST",

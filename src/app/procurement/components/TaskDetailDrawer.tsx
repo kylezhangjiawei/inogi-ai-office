@@ -7,7 +7,9 @@ import { nextPermissionOf, useProcTaskAction } from "./taskActions";
 import { EditTaskModal } from "./modals";
 import { PriceHistoryModal } from "./PriceHistoryModal";
 import { taskRequester, type ProcurementTask } from "../data";
-import { listQuotations, type Quotation } from "../../lib/procurementApi";
+import { listQuotations, rejectProcTask, type Quotation } from "../../lib/procurementApi";
+import { refreshProcurement } from "../data";
+import { toast } from "sonner";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
 
@@ -32,6 +34,26 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
   const meta = PROC_STATUS_META[task.status];
   const flow = task.method === "direct" ? DIRECT_FLOW : INQUIRY_FLOW;
   const curIdx = flow.indexOf(task.status);
+  // 研发流转的待处理任务走「审核」语义：通过=确认提交，驳回须理由并通知研发
+  const isRdReview = task.source === "rd" && task.status === "pending_confirm";
+  const [rejecting, setRejecting] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const [rejectBusy, setRejectBusy] = useState(false);
+  const submitReject = async () => {
+    const reason = rejectReason.trim();
+    if (!reason) { toast.error(t("请填写驳回理由")); return; }
+    setRejectBusy(true);
+    try {
+      await rejectProcTask(task.id, reason);
+      await refreshProcurement();
+      toast.success(t("已驳回并通知研发对接人，研发修改后可重新提交"));
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("驳回失败"));
+    } finally {
+      setRejectBusy(false);
+    }
+  };
   // 报价按物料名跨任务聚合（与历史价格对比同源）
   const [quotes, setQuotes] = useState<Quotation[]>([]);
   useEffect(() => {
@@ -84,16 +106,41 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
         </div>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
-          {/* 下一步操作卡：动作码由系统管理配置到角色，无权限者只读 */}
+          {/* 下一步操作卡：动作码由系统管理配置到角色，无权限者只读。
+              研发流转的待处理任务是「审核」语义：通过（确认提交）或驳回（理由必填，通知研发）。 */}
           {meta.next && can(nextPermissionOf(task)) && (
             <div className="rounded-xl border border-indigo-200 bg-gradient-to-br from-indigo-50 to-violet-50 p-4">
               <div className="text-xs font-semibold text-indigo-500">{t('下一步 · 责任人：')}{task.status === "testing" ? task.rdContact ?? t("研发对接人") : task.buyer}</div>
-              <p className="mt-1 text-sm text-slate-700">{t('当前状态「{status}」，下一步：{next}。', { status: t(meta.label), next: t(meta.next) })}</p>
+              <p className="mt-1 text-sm text-slate-700">
+                {isRdReview
+                  ? t('研发流转需求待审核：通过后进入询价流程；驳回将通知研发对接人修改后重新提交。')
+                  : t('当前状态「{status}」，下一步：{next}。', { status: t(meta.label), next: t(meta.next) })}
+              </p>
               <div className="mt-3 flex items-center gap-2">
-                <button type="button" disabled={taskAction.busy} onClick={() => taskAction.runNext(task)} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm disabled:opacity-60">
-                  {t(meta.next)}{task.method === "direct" && task.status === "pending_purchase" && <ExternalLink className="h-4 w-4" />}
+                <button type="button" disabled={taskAction.busy || rejectBusy} onClick={() => taskAction.runNext(task)} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm disabled:opacity-60">
+                  {t(isRdReview ? '审核通过' : meta.next)}{task.method === "direct" && task.status === "pending_purchase" && <ExternalLink className="h-4 w-4" />}
                 </button>
+                {isRdReview && (
+                  <button type="button" disabled={taskAction.busy || rejectBusy} onClick={() => setRejecting((v) => !v)} className="inline-flex items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-4 py-2 text-sm font-medium text-rose-600 hover:bg-rose-50 disabled:opacity-60">
+                    {t('驳回')}
+                  </button>
+                )}
               </div>
+              {isRdReview && rejecting && (
+                <div className="mt-2 flex items-center gap-2">
+                  <input
+                    autoFocus
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") void submitReject(); if (e.key === "Escape") setRejecting(false); }}
+                    placeholder={t('驳回理由（必填，将通知研发对接人）')}
+                    className="h-9 flex-1 rounded-lg border border-rose-200 bg-white px-3 text-sm outline-none focus:border-rose-400"
+                  />
+                  <button type="button" disabled={rejectBusy || !rejectReason.trim()} onClick={() => void submitReject()} className="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-700 disabled:opacity-60">
+                    {rejectBusy ? t('提交中…') : t('确认驳回')}
+                  </button>
+                </div>
+              )}
             </div>
           )}
 

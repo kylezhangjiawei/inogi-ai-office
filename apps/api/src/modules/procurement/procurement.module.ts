@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { ChatModule } from '../chat/chat.module';
+import { ResearchDevelopmentModule } from '../research-development/research-development.module';
 import { SecurityModule } from '../security/security.module';
 import { MaterialClassifyService } from './material-classify.service';
 import { MaterialReplenishService } from './material-replenish.service';
@@ -18,7 +19,8 @@ import { TplusSyncService } from './tplus-sync.service';
  * SecurityModule 用于 T+ appSecret 的落库加密与读取解密。
  */
 @Module({
-  imports: [ChatModule, SecurityModule],
+  // ResearchDevelopmentModule 仅用于审核驳回时给研发对接人发站内通知（createMessage）
+  imports: [ChatModule, SecurityModule, ResearchDevelopmentModule],
   controllers: [ProcurementController, TplusSyncController],
   providers: [
     ProcurementService,
