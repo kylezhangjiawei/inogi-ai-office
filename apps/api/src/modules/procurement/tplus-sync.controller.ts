@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Put, Query, Request, Res } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, Put, Query, Request, Res } from '@nestjs/common';
 import type { Response } from 'express';
 
 import { Permissions } from '../auth/decorators/permissions.decorator';
@@ -50,6 +50,7 @@ export class TplusSyncController {
    */
   @Public()
   @Post('notify')
+  @HttpCode(200) // Nest 的 POST 默认 201，开放平台校验严格要求 200
   notify(@Body() body: Record<string, unknown>) {
     return this.sync.handlePlatformMessage(body ?? {});
   }
