@@ -572,7 +572,37 @@ export interface ClassifyPreview {
   rule2: number;
   aiPending: number;
   ruleCategories: Record<string, number>;
+  /** 当前全库分类分布（不含未分类）：分类结果的留存展示 */
+  currentCategories: Record<string, number>;
   aiSamples: string[];
+}
+
+/** 批量应用异步任务（AI 分类 / 安全库存共用）：启动即返回 jobId，轮询取进度与结果。 */
+export interface ApplyJobState<T> {
+  id: string;
+  kind: string;
+  status: "running" | "done" | "error";
+  progress: string;
+  result?: T;
+  error?: string;
+}
+
+export async function getApplyJob<T>(jobId: string): Promise<ApplyJobState<T>> {
+  return request(`/materials/apply-jobs/${encodeURIComponent(jobId)}`);
+}
+
+/** 轮询任务直到完成（3s 间隔）；任务丢失/失败抛错。 */
+export async function waitApplyJob<T>(
+  jobId: string,
+  onProgress?: (progress: string) => void,
+): Promise<T> {
+  for (;;) {
+    const job = await getApplyJob<T>(jobId);
+    if (job.status === "done") return job.result as T;
+    if (job.status === "error") throw new Error(job.error || "任务执行失败");
+    onProgress?.(job.progress);
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  }
 }
 
 export interface ClassifyReport {
@@ -589,8 +619,8 @@ export async function previewMaterialClassify(): Promise<ClassifyPreview> {
   return request("/materials/classify/preview");
 }
 
-/** 初步分类应用：规则直接落库，AI 高置信应用、低置信保持未分类。 */
-export async function applyMaterialClassify(): Promise<ClassifyReport> {
+/** 初步分类应用（异步）：返回 jobId，用 waitApplyJob 轮询结果。 */
+export async function applyMaterialClassify(): Promise<{ jobId: string }> {
   return request("/materials/classify/apply", { method: "POST" });
 }
 
@@ -618,8 +648,8 @@ export async function previewSafeStock(): Promise<SafeStockPreview> {
   return request("/materials/safe-stock/preview");
 }
 
-/** 安全库存初始化应用：只填 safeStock=0 的物料，人工值不覆盖。 */
-export async function applySafeStock(): Promise<SafeStockReport> {
+/** 安全库存初始化应用（异步）：返回 jobId，用 waitApplyJob 轮询结果。 */
+export async function applySafeStock(): Promise<{ jobId: string }> {
   return request("/materials/safe-stock/apply", { method: "POST" });
 }
 

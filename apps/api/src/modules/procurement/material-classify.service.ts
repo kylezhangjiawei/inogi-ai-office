@@ -19,7 +19,10 @@ import { ChatService } from '../chat/chat.service';
  */
 
 const UNCATEGORIZED = '未分类';
-const AI_BATCH_SIZE = 40;
+// 大批次在推理模型上易超时（安全库存侧实测 40 条/60s 必超时），批次放小、超时放宽
+const AI_BATCH_SIZE = 25;
+const AI_TIMEOUT_MS = 120_000;
+const AI_MAX_CONSECUTIVE_FAILURES = 2;
 const AI_CONFIDENCE_THRESHOLD = 0.7;
 
 interface UncatMaterial {
@@ -124,12 +127,19 @@ export class MaterialClassifyService {
     return { uncategorized, ruleAssignments, rule1Count, rule2Count, aiCandidates, vocabulary };
   }
 
-  /** 干跑：只统计不落库，给前端展示「规则能分多少、AI 要兜多少」。 */
+  /** 干跑：只统计不落库，给前端展示「规则能分多少、AI 要兜多少」+ 当前全库分类分布。 */
   async preview() {
     const plan = await this.buildPlan();
     const ruleCategories: Record<string, number> = {};
     for (const cat of plan.ruleAssignments.values()) {
       ruleCategories[cat] = (ruleCategories[cat] ?? 0) + 1;
+    }
+    // 当前全库分类分布：分类应用后的结果留存展示（每次打开都能看到最新分类情况）
+    const grouped = await this.prisma.procMaterial.groupBy({ by: ['category'], _count: { _all: true } });
+    const currentCategories: Record<string, number> = {};
+    for (const g of grouped) {
+      const cat = g.category.trim();
+      if (cat && cat !== UNCATEGORIZED) currentCategories[cat] = g._count._all;
     }
     return {
       uncategorized: plan.uncategorized.length,
@@ -137,12 +147,13 @@ export class MaterialClassifyService {
       rule2: plan.rule2Count,
       aiPending: plan.aiCandidates.length,
       ruleCategories,
+      currentCategories,
       aiSamples: plan.aiCandidates.slice(0, 10).map((m) => `${m.erpCode} ${m.name}`.trim()),
     };
   }
 
-  /** 应用：规则结果批量落库，AI 兜底逐条落库并在 metadata 留痕。 */
-  async apply(actorId: string) {
+  /** 应用：规则结果批量落库，AI 兜底逐条落库并在 metadata 留痕。onProgress 供异步任务上报进度。 */
+  async apply(actorId: string, onProgress?: (progress: string) => void) {
     const plan = await this.buildPlan();
 
     // 规则结果按分类分组 updateMany，避免上千条逐条写
@@ -163,16 +174,21 @@ export class MaterialClassifyService {
       ruleCategories[cat] = result.count;
     }
 
+    onProgress?.(`规则已应用 ${ruleApplied} 条，AI 判断 0/${plan.aiCandidates.length}`);
+
     const aiApplied: Array<{ code: string; name: string; category: string; confidence: number }> = [];
     const aiSkipped: Array<{ code: string; name: string; reason: string }> = [];
     let aiError: string | null = null;
     let model: string | null = null;
 
+    let consecutiveFailures = 0;
     if (plan.aiCandidates.length > 0 && plan.vocabulary.length > 0) {
       for (let i = 0; i < plan.aiCandidates.length; i += AI_BATCH_SIZE) {
+        onProgress?.(`规则已应用 ${ruleApplied} 条，AI 判断 ${i}/${plan.aiCandidates.length}`);
         const batch = plan.aiCandidates.slice(i, i + AI_BATCH_SIZE);
         try {
           const result = await this.classifyBatchWithAi(batch, plan.vocabulary);
+          consecutiveFailures = 0;
           model = result.model;
           for (const m of batch) {
             const verdict = result.items.get(m.id);
@@ -212,13 +228,19 @@ export class MaterialClassifyService {
             });
           }
         } catch (error) {
-          // AI 不可用：本批及之后全部标记跳过，规则结果不受影响
+          // 单批失败只弃当前批（偶发超时不拖累其余批次）；连续失败视为系统性问题止损退出
           aiError = (error as Error).message;
-          for (const m of plan.aiCandidates.slice(i)) {
+          consecutiveFailures += 1;
+          for (const m of batch) {
             aiSkipped.push({ code: m.erpCode, name: m.name, reason: 'AI 调用失败' });
           }
-          this.logger.warn(`物料 AI 分类降级：${aiError}`);
-          break;
+          this.logger.warn(`物料 AI 分类第 ${Math.floor(i / AI_BATCH_SIZE) + 1} 批失败：${aiError}`);
+          if (consecutiveFailures >= AI_MAX_CONSECUTIVE_FAILURES) {
+            for (const m of plan.aiCandidates.slice(i + AI_BATCH_SIZE)) {
+              aiSkipped.push({ code: m.erpCode, name: m.name, reason: 'AI 调用失败（提前止损）' });
+            }
+            break;
+          }
         }
       }
     } else {
@@ -247,7 +269,7 @@ export class MaterialClassifyService {
       messages: [{ role: 'user', content: lines.join('\n') }],
       json: true,
       temperature: 0,
-      timeoutMs: 60_000,
+      timeoutMs: AI_TIMEOUT_MS,
       maxRetries: 1,
       maxTokens: 2000,
     });

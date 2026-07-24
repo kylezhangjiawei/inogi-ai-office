@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Query, Request } from '@nestjs/common';
+import { Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Put, Query, Request } from '@nestjs/common';
 
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import {
@@ -20,6 +20,7 @@ import {
   UpdateProcTaskDto,
   UpsertMaterialDto,
 } from './dto/procurement.dto';
+import { getApplyJob, startApplyJob } from './apply-job.store';
 import { MaterialClassifyService } from './material-classify.service';
 import { MaterialReplenishService } from './material-replenish.service';
 import { MaterialSafeStockService } from './material-safestock.service';
@@ -275,11 +276,24 @@ export class ProcurementController {
     return this.classify.preview();
   }
 
-  /** 初步分类应用：规则结果直接落库，AI 兜底高置信应用、低置信保持未分类。 */
+  /**
+   * 初步分类应用（异步）：AI 批量要几分钟，同步等响应会被网关超时切成 502。
+   * 立即返回 jobId，前端轮询 GET materials/apply-jobs/:id 取进度与结果。
+   */
   @Post('materials/classify/apply')
   @Permissions('material:import')
   classifyApply(@Request() req: AuthedRequest) {
-    return this.classify.apply(req.user.id);
+    const job = startApplyJob('classify', (update) => this.classify.apply(req.user.id, update));
+    return { jobId: job.id };
+  }
+
+  /** 批量应用任务进度/结果（分类与安全库存共用）。 */
+  @Get('materials/apply-jobs/:id')
+  @Permissions('material:import')
+  applyJob(@Param('id') id: string) {
+    const job = getApplyJob(id);
+    if (!job) throw new NotFoundException('任务不存在或已被清理（服务可能重启过），请重新发起');
+    return job;
   }
 
   /** 安全库存初始化干跑：基于采购单镜像统计建议值，不落库。 */
@@ -289,11 +303,12 @@ export class ProcurementController {
     return this.safeStock.preview();
   }
 
-  /** 安全库存初始化应用：只填 safeStock=0 的物料，人工值不覆盖。 */
+  /** 安全库存初始化应用（异步，同分类）：只填 safeStock=0 的物料，人工值不覆盖。 */
   @Post('materials/safe-stock/apply')
   @Permissions('material:import')
   safeStockApply(@Request() req: AuthedRequest) {
-    return this.safeStock.apply(req.user.id);
+    const job = startApplyJob('safe-stock', (update) => this.safeStock.apply(req.user.id, update));
+    return { jobId: job.id };
   }
 
   /** 补货建议清单：缺口 = 安全库存 − 库存 − 在途 − 进行中任务，>0 才列出。 */

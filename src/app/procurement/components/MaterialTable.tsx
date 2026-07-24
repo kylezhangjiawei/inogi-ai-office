@@ -145,9 +145,10 @@ export function MaterialTable({ materials, tasks, filters, onFiltersChange, onOp
         </span>
       </div>
 
-      <div className="overflow-x-auto">
+      {/* 高度封顶在视口内（不超出父容器），行数多时内部滚动；表头吸顶 */}
+      <div className="max-h-[calc(100vh-320px)] overflow-auto">
         <table className="w-full min-w-[960px]">
-          <thead className="bg-slate-50/70">
+          <thead className="sticky top-0 z-10 bg-slate-50">
             <tr>
               <th className={th}>{t('编码 / 名称')}</th>
               <th className={th}>{t('规格')}</th>

@@ -108,7 +108,7 @@ export class MaterialSafeStockService {
     };
   }
 
-  async apply(actorId: string) {
+  async apply(actorId: string, onProgress?: (progress: string) => void) {
     const { rule, ai } = await this.buildCandidates();
 
     let ruleApplied = 0;
@@ -116,6 +116,7 @@ export class MaterialSafeStockService {
       await this.applyOne(c, 'rule', actorId, null);
       ruleApplied += 1;
     }
+    onProgress?.(`规则已应用 ${ruleApplied} 条，AI 判断 0/${ai.length}`);
 
     const aiApplied: Array<{ code: string; name: string; suggest: number; confidence: number }> = [];
     const aiSkipped: Array<{ code: string; name: string; reason: string }> = [];
@@ -124,6 +125,7 @@ export class MaterialSafeStockService {
 
     let consecutiveFailures = 0;
     for (let i = 0; i < ai.length; i += AI_BATCH_SIZE) {
+      onProgress?.(`规则已应用 ${ruleApplied} 条，AI 判断 ${i}/${ai.length}`);
       const batch = ai.slice(i, i + AI_BATCH_SIZE);
       try {
         const result = await this.judgeStockedWithAi(batch);

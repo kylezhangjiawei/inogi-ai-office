@@ -10,6 +10,7 @@ import {
   applyMaterialClassify,
   applySafeStock,
   batchReassignProcTasks,
+  waitApplyJob,
   confirmPoMatch,
   createProcTask,
   createReplenishTasks,
@@ -515,6 +516,7 @@ export function MaterialClassifyModal({ onClose }: { onClose: () => void }) {
   const [report, setReport] = useState<ClassifyReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
 
   useEffect(() => {
     previewMaterialClassify()
@@ -524,22 +526,28 @@ export function MaterialClassifyModal({ onClose }: { onClose: () => void }) {
 
   const run = async () => {
     setBusy(true);
+    setProgress(t('任务已启动…'));
     try {
-      const result = await applyMaterialClassify();
+      // 异步任务：立即拿 jobId，轮询进度（AI 批量要几分钟，同步等会被网关超时切断）
+      const { jobId } = await applyMaterialClassify();
+      const result = await waitApplyJob<ClassifyReport>(jobId, setProgress);
       setReport(result);
       await refreshProcurement();
+      // 刷新预演数据，让「当前分类分布」立即反映本次结果
+      setPreview(await previewMaterialClassify().catch(() => preview));
       toast.success(t('分类完成：规则 {rule} 条，AI {ai} 条', { rule: result.ruleApplied, ai: result.aiApplied.length }));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('分类失败'));
     } finally {
       setBusy(false);
+      setProgress(null);
     }
   };
 
   const catChips = (cats: Record<string, number>) => (
-    <div className="mt-1.5 flex flex-wrap gap-1.5">
+    <div className="mt-1.5 flex max-h-40 flex-wrap gap-1.5 overflow-y-auto">
       {Object.entries(cats).sort((a, b) => b[1] - a[1]).map(([c, n]) => (
-        <span key={c} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
+        <span key={c} className="h-fit rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] text-slate-600">
           <AutoTranslatedText as="span" text={c} /> · {n}
         </span>
       ))}
@@ -564,6 +572,20 @@ export function MaterialClassifyModal({ onClose }: { onClose: () => void }) {
 
       {error && <div className="py-8 text-center text-sm text-red-500">{error}</div>}
       {!error && !preview && <div className="py-8 text-center text-sm text-slate-400">{t('统计中')}…</div>}
+
+      {busy && progress && (
+        <div className="mb-3 flex items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50/50 p-3 text-sm text-indigo-700">
+          <Loader2 className="h-4 w-4 animate-spin" />{progress}
+        </div>
+      )}
+
+      {/* 当前分类分布：分类结果留存，每次打开都能看到最新情况 */}
+      {preview && Object.keys(preview.currentCategories).length > 0 && !report && (
+        <div className="mb-3 rounded-xl border border-slate-100 p-3">
+          <div className="text-xs font-medium text-slate-600">{t('当前分类分布（{n} 个分类）', { n: Object.keys(preview.currentCategories).length })}</div>
+          {catChips(preview.currentCategories)}
+        </div>
+      )}
 
       {preview && !report && (
         preview.uncategorized === 0 ? (
@@ -643,6 +665,7 @@ export function SafeStockModal({ onClose }: { onClose: () => void }) {
   const [report, setReport] = useState<SafeStockReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
 
   useEffect(() => {
     previewSafeStock()
@@ -652,8 +675,11 @@ export function SafeStockModal({ onClose }: { onClose: () => void }) {
 
   const run = async () => {
     setBusy(true);
+    setProgress(t('任务已启动…'));
     try {
-      const result = await applySafeStock();
+      // 异步任务：AI 判定要几分钟，轮询进度避免网关超时
+      const { jobId } = await applySafeStock();
+      const result = await waitApplyJob<SafeStockReport>(jobId, setProgress);
       setReport(result);
       await refreshProcurement();
       toast.success(t('安全库存已初始化：规则 {rule} 条，AI {ai} 条', { rule: result.ruleApplied, ai: result.aiApplied.length }));
@@ -661,6 +687,7 @@ export function SafeStockModal({ onClose }: { onClose: () => void }) {
       toast.error(err instanceof Error ? err.message : t('应用失败'));
     } finally {
       setBusy(false);
+      setProgress(null);
     }
   };
 
@@ -682,6 +709,12 @@ export function SafeStockModal({ onClose }: { onClose: () => void }) {
 
       {error && <div className="py-8 text-center text-sm text-red-500">{error}</div>}
       {!error && !preview && <div className="py-8 text-center text-sm text-slate-400">{t('统计中')}…</div>}
+
+      {busy && progress && (
+        <div className="mb-3 flex items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50/50 p-3 text-sm text-indigo-700">
+          <Loader2 className="h-4 w-4 animate-spin" />{progress}
+        </div>
+      )}
 
       {preview && !report && (
         preview.ruleCount === 0 && preview.aiPending === 0 ? (
