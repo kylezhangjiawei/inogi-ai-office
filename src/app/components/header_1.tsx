@@ -30,6 +30,9 @@ function getMsgSummary(msg: RdMessage): string {
       const resultLabel = b.result === "approved" ? "✅ 已批准" : "❌ 已打回";
       return `${resultLabel} 任务「${String(b.task_title ?? "")}」`;
     }
+    if (b.type === "discussion_mention") {
+      return `${String(b.actor_name ?? "任务成员")} 在「${String(b.task_title ?? "任务讨论")}」中提到了你`;
+    }
   } catch {
     // fallthrough
   }
@@ -37,6 +40,7 @@ function getMsgSummary(msg: RdMessage): string {
 }
 
 function resolveRouteTitle(pathname: string) {
+  if (/^\/(?:us-collab-)?rd-discussion\/[^/]+$/.test(pathname)) return "任务讨论";
   const directTitle = routeTitleMap[pathname];
   if (directTitle) return directTitle;
 

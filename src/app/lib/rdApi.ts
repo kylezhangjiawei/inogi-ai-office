@@ -1274,6 +1274,130 @@ export function markRdTaskNotesRead(taskId: string) {
   return requestJson<{ ok: boolean }>(`/task-progress-notes/${encodeURIComponent(taskId)}/read`, { method: "POST" });
 }
 
+// ── 任务协作对话（主会话 + 进度/消息原位线程）────────────────────────────
+
+export type RdDiscussionAnchorType = "task" | "progress_note" | "message";
+
+export type RdTaskDiscussionMessage = {
+  id: string;
+  author_id: string | null;
+  author_name: string;
+  author_role: string | null;
+  body: string;
+  attachments: RdTaskProgressAttachment[];
+  mentions: Array<{ user_id: string | null; name: string | null }>;
+  reply_to_id: string | null;
+  reply_to: { id: string; author_name: string; body: string } | null;
+  created_at: string;
+  edited_at: string | null;
+};
+
+export type RdTaskDiscussionThreadSummary = {
+  thread_id: string;
+  anchor_type: RdDiscussionAnchorType;
+  anchor_id: string | null;
+  message_count: number;
+  unread_count: number;
+  last_message_at: string | null;
+};
+
+export type RdTaskDiscussionAnchorPreview = {
+  type: Exclude<RdDiscussionAnchorType, "task">;
+  id: string | null;
+  author_id: string | null;
+  author_name: string;
+  body: string;
+  created_at: string;
+  attachments: RdTaskProgressAttachment[];
+};
+
+export type RdTaskDiscussionResponse = {
+  can_post: boolean;
+  access_scope: "task" | "thread_invitee";
+  task_title: string;
+  invitation: {
+    invited_by_id: string | null;
+    invited_by_name: string;
+    invited_at: string;
+  } | null;
+  anchor_preview: RdTaskDiscussionAnchorPreview | null;
+  thread: {
+    id: string;
+    task_id: string;
+    anchor_type: RdDiscussionAnchorType;
+    anchor_id: string | null;
+    message_count: number;
+    unread_count: number;
+  };
+  messages: RdTaskDiscussionMessage[];
+  thread_summaries: RdTaskDiscussionThreadSummary[];
+  page_info: {
+    has_more: boolean;
+    next_cursor: string | null;
+  };
+};
+
+function discussionQuery(
+  anchor?: { type: RdDiscussionAnchorType; id?: string | null },
+  page?: { cursor?: string | null; limit?: number },
+) {
+  const params = new URLSearchParams();
+  if (anchor?.type && anchor.type !== "task") {
+    params.set("anchor_type", anchor.type);
+    if (anchor.id) params.set("anchor_id", anchor.id);
+  }
+  if (page?.cursor) params.set("cursor", page.cursor);
+  if (page?.limit) params.set("limit", String(page.limit));
+  const qs = params.toString();
+  return qs ? `?${qs}` : "";
+}
+
+export function fetchRdTaskDiscussion(
+  taskId: string,
+  anchor?: { type: RdDiscussionAnchorType; id?: string | null },
+  page?: { cursor?: string | null; limit?: number },
+) {
+  return requestJson<RdTaskDiscussionResponse>(
+    `/task-discussions/${encodeURIComponent(taskId)}${discussionQuery(anchor, page)}`,
+  );
+}
+
+export function createRdTaskDiscussionMessage(payload: {
+  task_id: string;
+  anchor: { type: RdDiscussionAnchorType; id?: string | null };
+  text: string;
+  reply_to_id?: string | null;
+  mentions?: Array<{ user_id?: string; name: string }>;
+  files?: File[];
+}) {
+  const form = new FormData();
+  form.append("anchor_type", payload.anchor.type);
+  if (payload.anchor.id) form.append("anchor_id", payload.anchor.id);
+  form.append("text", payload.text);
+  if (payload.reply_to_id) form.append("reply_to_id", payload.reply_to_id);
+  if (payload.mentions?.length) form.append("mentions", JSON.stringify(payload.mentions));
+  for (const file of payload.files ?? []) form.append("files", file);
+  return requestJson<{ message: RdTaskDiscussionMessage; thread_id: string }>(
+    `/task-discussions/${encodeURIComponent(payload.task_id)}/messages`,
+    {
+      method: "POST",
+      body: form,
+      // 图片/视频会明显大于纯文本，给移动网络预留更充足的上传时间。
+      timeoutMs: 180_000,
+    },
+  );
+}
+
+export function markRdTaskDiscussionRead(taskId: string, threadId: string) {
+  return requestJson<{ ok: boolean }>(
+    `/task-discussions/${encodeURIComponent(taskId)}/read`,
+    {
+      method: "POST",
+      body: JSON.stringify({ thread_id: threadId }),
+    },
+  );
+}
+
 /** 驾驶舱备注回执：管理员/他人给任务留的备注，目标人是否已查看/已跟进（三态：待查看/已查看/已闭环隐藏）。 */
 export type RdTaskNoteReceipt = {
   author_name: string;
@@ -1640,6 +1764,64 @@ export type RdMessage = {
   meta?: Record<string, unknown> | null;
   created_at: string;
 };
+
+export type RdDiscussionMentionBody = {
+  type: "discussion_mention";
+  task_id: string;
+  task_title: string;
+  thread_id: string;
+  anchor_type: RdDiscussionAnchorType;
+  anchor_id: string | null;
+  message_id: string;
+  actor_name: string;
+  excerpt: string;
+  access_scope: "thread_invitee";
+};
+
+export function parseRdDiscussionMention(raw?: string | null): RdDiscussionMentionBody | null {
+  if (!raw) return null;
+  try {
+    const body = JSON.parse(raw) as Partial<RdDiscussionMentionBody>;
+    if (
+      body.type !== "discussion_mention"
+      || typeof body.task_id !== "string"
+      || typeof body.anchor_type !== "string"
+    ) return null;
+    if (!["task", "progress_note", "message"].includes(body.anchor_type)) return null;
+    return {
+      type: "discussion_mention",
+      task_id: body.task_id,
+      task_title: typeof body.task_title === "string" ? body.task_title : body.task_id,
+      thread_id: typeof body.thread_id === "string" ? body.thread_id : "",
+      anchor_type: body.anchor_type,
+      anchor_id: typeof body.anchor_id === "string" ? body.anchor_id : null,
+      message_id: typeof body.message_id === "string" ? body.message_id : "",
+      actor_name: typeof body.actor_name === "string" ? body.actor_name : "任务成员",
+      excerpt: typeof body.excerpt === "string" ? body.excerpt : "",
+      access_scope: "thread_invitee",
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function rdDiscussionMentionHref(
+  body: RdDiscussionMentionBody,
+  options?: { notificationId?: string; createdAt?: string | null },
+) {
+  const params = new URLSearchParams({
+    anchor_type: body.anchor_type,
+    task_title: body.task_title,
+    actor_name: body.actor_name,
+    excerpt: body.excerpt,
+  });
+  if (body.anchor_id) params.set("anchor_id", body.anchor_id);
+  if (body.message_id) params.set("message_id", body.message_id);
+  if (options?.notificationId) params.set("notification_id", options.notificationId);
+  if (options?.createdAt) params.set("created_at", options.createdAt);
+  const route = isUsCollabWorkspace() ? "/us-collab-rd-discussion" : "/rd-discussion";
+  return `${route}/${encodeURIComponent(body.task_id)}?${params.toString()}`;
+}
 
 export function fetchRdMessages(filters?: { recipient_id?: string; limit?: number }) {
   const params = new URLSearchParams();

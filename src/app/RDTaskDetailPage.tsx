@@ -12,6 +12,7 @@ import {
   Download,
   FileText,
   Loader2,
+  MessageCircleMore,
   Pencil,
   Send,
   ShoppingCart,
@@ -36,7 +37,8 @@ import { t, useI18n } from "./lib/i18n";
 import { AutoTranslatedText } from "./components/TranslatableText";
 import { AuditTimeline } from "./RDAuditTimeline";
 import { addAuditLogNote, recordAudit, useAuditActor, type AuditLog, useAuditLogs } from "./lib/auditLog";
-import { ProgressAttachmentGrid, ProgressNoteList, TaskImageGallery, formatRdFileSize } from "./RDProgressEvidence";
+import { ProgressAttachmentGrid, TaskImageGallery, formatRdFileSize } from "./RDProgressEvidence";
+import { RDTaskConversation } from "./RDTaskConversation";
 import {
   STATUS_CONFIG,
   PRIORITY_CONFIG,
@@ -78,7 +80,7 @@ import {
   type RdTaskProgressNote,
 } from "./lib/rdApi";
 
-type DetailTab = "notes" | "attachments" | "audit";
+type DetailTab = "notes" | "conversation" | "attachments" | "audit";
 
 /**
  * 研发任务 · 全屏详情页（双栏布局，与协同任务详情同款范式）：
@@ -113,8 +115,9 @@ export default function RDTaskDetailPage() {
   const [loadError, setLoadError] = useState("");
   const [notes, setNotes] = useState<RdTaskProgressNote[]>([]);
   const [notesLoading, setNotesLoading] = useState(true);
-  const [tab, setTab] = useState<DetailTab>("audit");
-  const [noteItemFilter, setNoteItemFilter] = useState<string>("all");
+  const [tab, setTab] = useState<DetailTab>("notes");
+  const [discussionUnread, setDiscussionUnread] = useState(0);
+  const [discussionThreadOpen, setDiscussionThreadOpen] = useState(false);
   const [people, setPeople] = useState<PersonProfile[]>([]);
   const [showHandover, setShowHandover] = useState(false);
   const [showEditInfo, setShowEditInfo] = useState(false);
@@ -234,22 +237,12 @@ export default function RDTaskDetailPage() {
   }, [taskId]);
 
   const noteCountByItem = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const n of notes) {
-      if (n.work_item_id) m.set(n.work_item_id, (m.get(n.work_item_id) ?? 0) + 1);
+    const counts = new Map<string, number>();
+    for (const note of notes) {
+      if (note.work_item_id) counts.set(note.work_item_id, (counts.get(note.work_item_id) ?? 0) + 1);
     }
-    return m;
+    return counts;
   }, [notes]);
-
-  const filteredNotes = useMemo(() => {
-    if (noteItemFilter === "all") return notes;
-    if (noteItemFilter === "main") {
-      // 「未关联」含孤儿留痕：关联的工作项被删除后，其留痕归入这里（承诺"删除工作项后留痕保留在主任务"）
-      const existingItemIds = new Set((task?.work_items ?? []).map((it) => it.id));
-      return notes.filter((n) => !n.work_item_id || !existingItemIds.has(n.work_item_id));
-    }
-    return notes.filter((n) => n.work_item_id === noteItemFilter);
-  }, [notes, noteItemFilter, task?.work_items]);
 
   const docAttachments = useMemo(
     () =>
@@ -860,9 +853,9 @@ export default function RDTaskDetailPage() {
       </div>
 
       {/* 美式 content-first 布局：主内容（描述/工作项/时间线）居左，Properties 侧栏居右（GitHub issue / Linear 范式） */}
-      <div className="grid min-h-0 flex-1 gap-5 lg:grid-cols-[minmax(0,1fr)_300px]">
+      <div className="grid min-h-0 flex-1 gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
         {/* ══ 右侧 Properties 栏（单一面板，分节细线分隔；超高自身内滚）══ */}
-        <div className="cockpit-scroll min-h-0 lg:order-2 lg:overflow-y-auto">
+        <div className="cockpit-scroll min-h-0 xl:order-2 xl:overflow-y-auto">
         <div className="material-card divide-y divide-slate-100">
           {/* 字段节 */}
           <div className="space-y-2.5 px-4 py-3.5">
@@ -1055,7 +1048,7 @@ export default function RDTaskDetailPage() {
         </div>
 
         {/* ══ 主内容列（左）：纵向过程叙事——Tab 卡吃掉剩余高度，内容内滚 ══ */}
-        <div className="flex min-h-0 min-w-0 flex-col gap-4 lg:order-1">
+        <div className="flex min-h-0 min-w-0 flex-col gap-4 xl:order-1">
           {/* 任务描述 */}
           {task.description && (
             <div className="shrink-0 material-card px-4 py-3">
@@ -1122,13 +1115,14 @@ export default function RDTaskDetailPage() {
             </div>
           )}
 
-          {/* Tab：操作记录 / 进展留痕 / 附件库 —— 卡片吃掉主列剩余高度，内容区各自内滚 */}
+          {/* Tab：进度留痕 / 任务讨论 / 操作记录 / 附件库 —— 卡片吃掉主列剩余高度，内容区各自内滚 */}
           <div className="material-card flex min-h-0 flex-1 flex-col overflow-hidden p-0 lg:min-h-[280px]">
-            <Tabs value={tab} onValueChange={(value) => setTab(value as DetailTab)} className="flex min-h-0 flex-1 flex-col">
-              <TabsList className="h-auto w-full shrink-0 justify-start gap-6 rounded-none border-b border-slate-200/80 bg-transparent p-0 px-4">
+            <Tabs value={tab} onValueChange={(value) => setTab(value as DetailTab)} className="flex min-h-0 flex-1 flex-col gap-0">
+              <TabsList className="cockpit-scroll h-auto w-full shrink-0 justify-start gap-3 overflow-x-auto rounded-none border-b border-slate-200/80 bg-transparent p-0 px-3 sm:gap-5 sm:px-4">
                 {([
-                  { key: "audit", label: t("操作记录"), count: timelineLogs.length },
                   { key: "notes", label: t("进展留痕"), count: notes.length },
+                  { key: "conversation", label: t("任务讨论"), count: discussionUnread },
+                  { key: "audit", label: t("操作记录"), count: timelineLogs.length },
                   { key: "attachments", label: t("附件库"), count: null },
                 ] as const).map((tabItem) => (
                   <TabsTrigger
@@ -1136,49 +1130,46 @@ export default function RDTaskDetailPage() {
                     value={tabItem.key}
                     className="-mb-px flex-none cursor-pointer gap-1.5 rounded-none border-0 border-b-2 border-transparent bg-transparent px-1 pb-3 pt-3.5 text-sm font-medium text-slate-500 shadow-none transition-colors hover:text-slate-800 data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent data-[state=active]:font-semibold data-[state=active]:text-slate-900 data-[state=active]:shadow-none"
                   >
+                    {tabItem.key === "conversation" && <MessageCircleMore className="h-3.5 w-3.5 text-indigo-500" />}
                     {tabItem.label}
                     {tabItem.count != null && tabItem.count > 0 && (
-                      <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-slate-500">{tabItem.count}</span>
+                      <span className={cn(
+                        "rounded-full px-1.5 py-0.5 text-[10px] font-semibold tabular-nums",
+                        tabItem.key === "conversation" ? "bg-rose-500 text-white" : "bg-slate-100 text-slate-500",
+                      )}>{tabItem.count}</span>
                     )}
                   </TabsTrigger>
                 ))}
               </TabsList>
 
-              <TabsContent value="notes" className="cockpit-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
-              <motion.div initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.16 }}>
-                {workItems.length > 0 && (
-                  <div className="mb-3 flex flex-wrap items-center gap-1">
-                    {[
-                      { key: "all", label: t("全部") },
-                      { key: "main", label: t("未关联") },
-                      ...workItems.map((it) => ({
-                        key: it.id,
-                        label: `${it.title}${(noteCountByItem.get(it.id) ?? 0) > 0 ? ` ${noteCountByItem.get(it.id)}` : ""}`,
-                      })),
-                    ].map((chip) => (
-                      <button
-                        key={chip.key}
-                        type="button"
-                        onClick={() => setNoteItemFilter(chip.key)}
-                        className={cn(
-                          "max-w-[200px] cursor-pointer truncate rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
-                          noteItemFilter === chip.key
-                            ? "border-indigo-300 bg-indigo-50 text-indigo-700"
-                            : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50",
-                        )}
-                        title={chip.label}
-                      >
-                        {chip.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <ProgressNoteList
-                  notes={filteredNotes}
-                  loading={notesLoading}
-                  emptyText={noteItemFilter === "all" ? t("暂无进展留痕") : t("该工作项暂无留痕")}
+              <TabsContent value="notes" className="min-h-0 min-w-0 flex-1 overflow-hidden data-[state=active]:flex">
+                <RDTaskConversation
+                  key={`progress-${task.task_id}`}
+                  taskId={task.task_id}
+                  taskTitle={task.title}
+                  notes={notes}
+                  mode="progress"
+                  variant="desktop"
+                  notesLoading={notesLoading}
+                  showHeader={false}
+                  threadLayout="replace"
+                  onUnreadChange={setDiscussionUnread}
+                  onThreadOpenChange={setDiscussionThreadOpen}
                 />
-              </motion.div>
+              </TabsContent>
+
+              <TabsContent value="conversation" className="min-h-0 min-w-0 flex-1 overflow-hidden data-[state=active]:flex">
+                <RDTaskConversation
+                  key={`conversation-${task.task_id}`}
+                  taskId={task.task_id}
+                  taskTitle={task.title}
+                  notes={notes}
+                  mode="task"
+                  variant="desktop"
+                  showHeader={false}
+                  threadLayout="replace"
+                  onUnreadChange={setDiscussionUnread}
+                />
               </TabsContent>
 
               <TabsContent value="attachments" className="cockpit-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
@@ -1256,8 +1247,8 @@ export default function RDTaskDetailPage() {
               </TabsContent>
             </Tabs>
 
-            {/* 评论式留痕框：卡底常驻（仅操作记录 Tab、任务参与人/管理员可见），在哪看就在哪写 */}
-            {tab === "audit" && canComposeNote && (
+            {/* 正式留痕输入框只属于“进度留痕”，避免与任务讨论输入框混淆。 */}
+            {tab === "notes" && canComposeNote && !discussionThreadOpen && (
               <div className="shrink-0 border-t border-slate-200/80 px-4 py-3">
                 <div className="relative">
                   <MentionSuggestionPanel

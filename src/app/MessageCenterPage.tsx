@@ -3,7 +3,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  ArrowRight,
   BellRing,
+  CheckCircle2,
   ChevronLeft,
   ChevronRight,
   Clock3,
@@ -25,8 +27,11 @@ import { cn } from "./components/ui/utils";
 import {
   fetchRdMessages,
   fetchRdPerformanceReports,
+  parseRdDiscussionMention,
   patchRdMessage,
+  rdDiscussionMentionHref,
   updateRdTask,
+  type RdDiscussionMentionBody,
   type RdMessage,
   type RdPerformanceReport,
 } from "./lib/rdApi";
@@ -71,6 +76,7 @@ type ParsedBody =
   | ReviewRequestBody
   | ReviewResultBody
   | PerfSelfAssessmentBody
+  | RdDiscussionMentionBody
   | { type: "unknown"; raw: string };
 
 function parseBody(raw: string): ParsedBody {
@@ -79,6 +85,7 @@ function parseBody(raw: string): ParsedBody {
     if (obj.type === "review_request") return obj as unknown as ReviewRequestBody;
     if (obj.type === "review_result") return obj as unknown as ReviewResultBody;
     if (obj.type === "perf_self_assessment") return obj as unknown as PerfSelfAssessmentBody;
+    if (obj.type === "discussion_mention") return parseRdDiscussionMention(raw) ?? { type: "unknown", raw };
     return { type: "unknown", raw };
   } catch {
     return { type: "unknown", raw };
@@ -277,6 +284,7 @@ function MessageCard({
   onApprove,
   onReject,
   onSelfAssess,
+  onHandle,
 }: {
   msg: RdMessage;
   canReview: boolean;
@@ -285,6 +293,7 @@ function MessageCard({
   onApprove: (msg: RdMessage, body: ReviewRequestBody) => void;
   onReject: (msg: RdMessage, body: ReviewRequestBody) => void;
   onSelfAssess: (msg: RdMessage, body: PerfSelfAssessmentBody) => void;
+  onHandle: (msg: RdMessage) => void;
 }) {
   const { lang } = useI18n();
   const navigate = useNavigate();
@@ -323,6 +332,57 @@ function MessageCard({
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [msg.created_at, lang]);
+
+  if (body.type === "discussion_mention") {
+    const openDiscussion = () => {
+      onOpen(msg);
+      navigate(rdDiscussionMentionHref(body, { notificationId: msg.id, createdAt: msg.created_at }));
+    };
+    return (
+      <article className="rounded-xl border border-indigo-100 bg-indigo-50/35 p-4 shadow-[0_4px_18px_rgba(79,70,229,0.05)]">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={cn("material-chip", msg.read ? "bg-slate-100 text-slate-500" : "bg-indigo-600 text-white")}>
+            {msg.read ? t("已读") : t("提及你")}
+          </span>
+          <span className="material-chip bg-white text-indigo-700 ring-1 ring-indigo-100">{t("受邀参与")}</span>
+          {msg.handled && <span className="material-chip bg-emerald-50 text-emerald-700">{t("已处理")}</span>}
+          <span className="ml-auto flex items-center gap-1 text-xs text-slate-400">
+            <Clock3 className="h-3.5 w-3.5" />
+            {timeLabel}
+          </span>
+        </div>
+        <div className="mt-2 text-sm font-bold text-slate-900">{body.task_title}</div>
+        <p className="mt-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-5 text-slate-700">
+          <span className="font-semibold text-indigo-700">{body.actor_name}</span>
+          {t(" 在讨论中提到了你：")}
+          {body.excerpt}
+        </p>
+        <p className="mt-1.5 text-[10px] text-slate-500">
+          {t("进入原消息所在讨论；打开即标为已读。你只会加入当前线程。")}
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={openDiscussion}
+            className="inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-xs font-bold text-white shadow-sm transition-colors hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 focus-visible:ring-offset-2"
+          >
+            {t("查看并回复")}
+            <ArrowRight className="h-3.5 w-3.5" />
+          </button>
+          {!msg.handled && (
+            <button
+              type="button"
+              onClick={() => onHandle(msg)}
+              className="inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-50 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {t("标记已处理")}
+            </button>
+          )}
+        </div>
+      </article>
+    );
+  }
 
   if (body.type === "review_request") {
     const rb = body;
@@ -664,6 +724,19 @@ export function MessageCenterPage() {
       .catch(() => {});
   }, []);
 
+  const markMessageHandled = useCallback((msg: RdMessage) => {
+    setMessages((prev) => prev.map((item) => (
+      item.id === msg.id ? { ...item, read: true, handled: true } : item
+    )));
+    void patchRdMessage(msg.id, { read: true, handled: true })
+      .then(() => window.dispatchEvent(new CustomEvent("rd:messages-updated")))
+      .catch(() => {
+        setMessages((prev) => prev.map((item) => (
+          item.id === msg.id ? { ...item, handled: msg.handled, read: msg.read } : item
+        )));
+      });
+  }, []);
+
   // 打开绩效自评：先标已读，按消息携带的月份拉取本人当月绩效，再开评分弹窗。
   const openSelfAssess = useCallback(
     async (msg: RdMessage, body: PerfSelfAssessmentBody) => {
@@ -708,6 +781,9 @@ export function MessageCenterPage() {
         parsed.type === "review_request" ? (parsed as ReviewRequestBody).submitter_name : "",
         parsed.type === "review_result" ? (parsed as ReviewResultBody).task_title : "",
         parsed.type === "review_result" ? (parsed as ReviewResultBody).reviewer_name : "",
+        parsed.type === "discussion_mention" ? parsed.task_title : "",
+        parsed.type === "discussion_mention" ? parsed.actor_name : "",
+        parsed.type === "discussion_mention" ? parsed.excerpt : "",
       ]
         .join(" ")
         .toLowerCase();
@@ -886,6 +962,7 @@ export function MessageCenterPage() {
                 onApprove={requestApprove}
                 onReject={(m, b) => setRejectTarget({ msg: m, body: b })}
                 onSelfAssess={openSelfAssess}
+                onHandle={markMessageHandled}
               />
             ))}
           </div>
