@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PDFParse } from 'pdf-parse';
 
@@ -117,6 +117,7 @@ type PurchaseOrderRow = Prisma.OrderProcessingPurchaseOrderGetPayload<{
 
 @Injectable()
 export class OrderProcessingService {
+  private readonly logger = new Logger(OrderProcessingService.name);
   private initializationPromise: Promise<void> | null = null;
 
   constructor(
@@ -847,6 +848,64 @@ export class OrderProcessingService {
 
     // 一次性清理历史版本遗留的演示订单 / 库存 / 出入库 / 采购订单数据。
     await this.clearLegacyDemoSeedData();
+    // v2：v1 的时间护栏（createdAt < 2026-06-03）把晚于该时间入库的演示数据保护了下来，
+    // 线上因此仍显示演示 SKU/采购单。经业务确认这批固定 ID 无人真实使用，按 ID 精确补删。
+    await this.clearLegacyDemoSeedDataV2();
+  }
+
+  private async clearLegacyDemoSeedDataV2() {
+    const cleared = await this.prisma.orderProcessingSetting.findUnique({
+      where: { key: `${DEMO_SEED_CLEARED_SETTING}-v2` },
+    });
+    if (cleared) return;
+
+    const demoOrderIds = [
+      'PO-20260524-01',
+      'PO-20260523-08',
+      'PO-20260523-07',
+      'PO-20260522-15',
+      'PO-20260522-11',
+      'PO-20260521-16',
+      'PO-20260521-03',
+      'PO-20260520-03',
+    ];
+    const demoInventoryIds = [
+      'BT-001', 'TC-002', 'PB-100', 'CH-018', 'SP-002', 'HS-005',
+      'HD-010', 'BOX-022', 'KB-008', 'MS-006', 'CL-020', 'AD-011',
+    ];
+    const demoMovementIds = ['MV-001', 'MV-002', 'MV-003', 'MV-004'];
+    const demoPurchaseOrderIds = [
+      'po-20260601-001',
+      'po-20260531-014',
+      'po-20260530-009',
+      'po-20260529-017',
+      'po-20260525-003',
+    ];
+
+    const result = await this.prisma.$transaction(async (tx) => {
+      const movements = await tx.orderProcessingStockMovement.deleteMany({
+        where: { id: { in: demoMovementIds } },
+      });
+      const orders = await tx.orderProcessingOrder.deleteMany({
+        where: { id: { in: demoOrderIds } },
+      });
+      const inventory = await tx.orderProcessingInventoryItem.deleteMany({
+        where: { id: { in: demoInventoryIds } },
+      });
+      const purchaseOrders = await tx.orderProcessingPurchaseOrder.deleteMany({
+        where: { id: { in: demoPurchaseOrderIds } },
+      });
+      await tx.orderProcessingSetting.create({
+        data: { key: `${DEMO_SEED_CLEARED_SETTING}-v2`, value: true },
+      });
+      return { movements: movements.count, orders: orders.count, inventory: inventory.count, purchaseOrders: purchaseOrders.count };
+    });
+    const total = result.movements + result.orders + result.inventory + result.purchaseOrders;
+    if (total > 0) {
+      this.logger.log(
+        `演示数据清理 v2：出入库 ${result.movements}、订货单 ${result.orders}、库存 ${result.inventory}、采购单 ${result.purchaseOrders}`,
+      );
+    }
   }
 
   /**

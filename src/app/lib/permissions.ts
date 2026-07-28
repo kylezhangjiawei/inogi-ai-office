@@ -18,7 +18,6 @@ export const PERMISSIONS = {
   PAGE_PURCHASE_ORDER_DETAIL: 'page:purchase-order-detail',
   PAGE_INVENTORY_MANAGEMENT: 'page:inventory-management',
   PAGE_PROC_COCKPIT: 'page:proc-cockpit',
-  PAGE_PROC_CATEGORY: 'page:proc-category',
   PAGE_PROC_MATERIALS: 'page:proc-materials',
   PAGE_RESUME_SCREENING: 'page:resume-screening',
   PAGE_EMPLOYEE_ARCHIVE: 'page:employee-archive',

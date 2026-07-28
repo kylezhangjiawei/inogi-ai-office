@@ -18,7 +18,14 @@ export class ContentSlotsController {
   @Post(':key/config')
   updateConfig(
     @Param('key') key: string,
-    @Body() body: { mode?: string; promptTemplate?: string; staticText?: string; staticImageObjectKey?: string },
+    @Body()
+    body: {
+      mode?: string;
+      promptTemplate?: string;
+      staticText?: string;
+      staticImageObjectKey?: string;
+      staticList?: string[];
+    },
   ) {
     return this.service.updateConfig(key, body ?? {});
   }
@@ -33,5 +40,16 @@ export class ContentSlotsController {
   @Get(':key/history')
   history(@Param('key') key: string) {
     return this.service.history(key);
+  }
+
+  /** AI 生成成本闸门：月度上限 + 本月已用 */
+  @Get('gen-budget')
+  getGenBudget() {
+    return this.service.getGenBudget();
+  }
+
+  @Post('gen-budget')
+  saveGenBudget(@Body() body: { monthlyCap?: number }) {
+    return this.service.saveGenBudget(typeof body?.monthlyCap === 'number' ? body.monthlyCap : 0);
   }
 }

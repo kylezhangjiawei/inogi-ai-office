@@ -1,30 +1,31 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
+import { ChatService } from '../chat/chat.service';
+import { ResearchDevelopmentService } from '../research-development/research-development.service';
 import { OSS_BUSINESS_TYPES, SIGNED_URL_TTL_SECONDS } from '../oss/oss.constants';
 import { OssService } from '../oss/oss.service';
 import {
+  AiParseTaskDto,
+  BatchReassignDto,
+  BomNodeInputDto,
   CancelProcTaskDto,
   CreateProcTaskDto,
   CreateQuotationDto,
+  ImportBomDto,
   ImportMaterialsDto,
   LinkPurchaseOrderDto,
   ProcAttachmentInputDto,
   ReassignProcTaskDto,
   ReceiveGoodsDto,
+  RenameCategoryDto,
   ReviewMaterialDto,
   TransferFromRdDto,
   TransitionProcTaskDto,
   UpdateProcTaskDto,
   UpsertMaterialDto,
 } from './dto/procurement.dto';
-import {
-  SEED_MATERIALS,
-  SEED_QUOTATIONS,
-  SEED_SUPPLIERS,
-  SEED_TASKS,
-} from './procurement.seed';
 import {
   PROC_ARRIVAL_STATUSES,
   PROC_STATUS_LABELS,
@@ -57,11 +58,40 @@ function parseDay(value: string | null | undefined): Date | null {
   return Number.isNaN(t.getTime()) ? null : t;
 }
 
+/** BOM 树出参节点。 */
+export interface BomTreeNode {
+  id: string;
+  name: string;
+  code: string | null;
+  level: number;
+  productLine: string;
+  qtyPer: number | null;
+  material: { id: string; name: string; spec: string; unit: string } | null;
+  children: BomTreeNode[];
+}
+
+/** AI 建单草稿（不落库，前端确认后走 createTask）。 */
+export interface AiTaskDraft {
+  materialName?: string;
+  materialId?: string;
+  spec?: string;
+  unit?: string;
+  quantity?: number;
+  method?: 'inquiry' | 'direct';
+  purchaseLink?: string;
+  needDate?: string;
+  deadline?: string;
+  priority?: 'high' | 'medium' | 'low';
+  needSample?: boolean;
+}
+
 @Injectable()
 export class ProcurementService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ossService: OssService,
+    private readonly chatService: ChatService,
+    private readonly rdService: ResearchDevelopmentService,
   ) {}
 
   // ── 任务 ────────────────────────────────────────────────────────────────────
@@ -138,8 +168,46 @@ export class ProcurementService {
       where: { rdTaskId },
       include: { attachments: true, logs: true, purchaseOrderRefs: true },
     });
-    if (existing) {
+    if (existing && existing.status !== 'cancelled') {
       return { ...this.serializeTask(existing), alreadyTransferred: true };
+    }
+    if (existing) {
+      // 审核驳回（或取消）后的重新提交：更新需求内容、回到待处理重走审核，保留历史日志与旧附件
+      const updated = await this.prisma.procTask.update({
+        where: { id: existing.id },
+        data: {
+          materialName: dto.materialName,
+          spec: dto.spec ?? '',
+          unit: dto.unit ?? '',
+          quantity: new Prisma.Decimal(dto.quantity ?? 0),
+          method: dto.method ?? 'inquiry',
+          purchaseLink: dto.purchaseLink ?? null,
+          priority: dto.priority ?? 'medium',
+          needSample: dto.needSample ?? false,
+          needDate: parseDay(dto.needDate),
+          deadline: parseDay(dto.deadline),
+          rdTaskTitle: dto.rdTaskTitle ?? existing.rdTaskTitle,
+          rdContact: dto.rdContact ?? existing.rdContact,
+          consumableNote: dto.consumableNote ?? existing.consumableNote,
+          status: 'pending_confirm',
+          cancelReason: null,
+          ...(dto.attachments?.length
+            ? { attachments: { create: dto.attachments.map((a) => this.attachmentData(a, actor)) } }
+            : {}),
+          logs: {
+            create: {
+              kind: 'action',
+              text: '研发修改后重新提交转采购，待采购重新审核',
+              fromStatus: 'cancelled',
+              toStatus: 'pending_confirm',
+              actor: actor.name,
+              actorUserId: actor.id,
+            },
+          },
+        },
+        include: { attachments: true, logs: true, purchaseOrderRefs: true },
+      });
+      return { ...this.serializeTask(updated), alreadyTransferred: false };
     }
     if (!dto.attachments?.length) {
       // 研发侧不强制校验业务字段，但必须带附件（图纸/说明），否则采购无从下手
@@ -166,6 +234,119 @@ export class ProcurementService {
       }
       throw error;
     }
+  }
+
+  /**
+   * AI 建单解析：自然语言/商品链接 → 建单草稿（不落库，前端确认后走 createTask）。
+   * AI 超时或输出不可解析时降级启发式（数量/单位/链接/日期正则），保证入口始终可用。
+   */
+  async aiParseTask(dto: AiParseTaskDto) {
+    const text = dto.text.trim();
+    let draft = this.heuristicParseTask(text);
+    let model = 'heuristic';
+    let usedAI = false;
+    try {
+      const result = await this.chatService.complete({
+        system: [
+          '你是采购需求解析助手。把用户输入的采购需求（可能含电商商品链接）解析为 JSON 对象，字段：',
+          'materialName(物料名称,string,必填,尽量简短规范)、spec(规格型号,string)、unit(单位,string,如 件/个/米)、',
+          'quantity(数量,number)、method("inquiry"询价|"direct"电商直购,含商品链接时为direct)、purchaseLink(商品链接,string)、',
+          'needDate(需求日期,YYYY-MM-DD)、deadline(最晚到货,YYYY-MM-DD)、priority("high"|"medium"|"low")、needSample(是否需要样品,boolean)。',
+          `今天是 ${new Date().toISOString().slice(0, 10)}，「7月中旬」这类模糊时间换算成具体日期。`,
+          '未提及的字段省略，不要编造。只输出 JSON。',
+        ].join('\n'),
+        messages: [{ role: 'user', content: text }],
+        json: true,
+        temperature: 0,
+        timeoutMs: 30_000,
+        maxRetries: 0,
+        maxTokens: 400,
+      });
+      const parsed = this.parseAiTaskDraft(result.content);
+      if (parsed?.materialName) {
+        draft = { ...draft, ...parsed };
+        model = result.model;
+        usedAI = true;
+      }
+    } catch {
+      // AI 不可用时静默降级启发式草稿
+    }
+    // 物料主数据匹配：命中已有物料则带上 materialId，规格/单位回填
+    if (draft.materialName) {
+      const material = await this.prisma.procMaterial.findFirst({
+        where: { name: { contains: draft.materialName.slice(0, 20), mode: 'insensitive' } },
+        select: { id: true, name: true, spec: true, unit: true },
+      });
+      if (material) {
+        draft.materialId = material.id;
+        draft.materialName = material.name;
+        if (!draft.spec) draft.spec = material.spec;
+        if (!draft.unit) draft.unit = material.unit;
+      }
+    }
+    return { draft, model, usedAI };
+  }
+
+  private parseAiTaskDraft(content: string): AiTaskDraft | null {
+    try {
+      const jsonText = content.replace(/^```(?:json)?\s*|\s*```$/g, '').trim();
+      const raw = JSON.parse(jsonText) as Record<string, unknown>;
+      const str = (v: unknown, max: number) =>
+        typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : undefined;
+      const draft: AiTaskDraft = {};
+      const materialName = str(raw.materialName, 200);
+      if (materialName) draft.materialName = materialName;
+      const spec = str(raw.spec, 200);
+      if (spec) draft.spec = spec;
+      const unit = str(raw.unit, 20);
+      if (unit) draft.unit = unit;
+      const quantity = Number(raw.quantity);
+      if (Number.isFinite(quantity) && quantity > 0) draft.quantity = quantity;
+      if (raw.method === 'inquiry' || raw.method === 'direct') draft.method = raw.method;
+      const purchaseLink = str(raw.purchaseLink, 1000);
+      if (purchaseLink) draft.purchaseLink = purchaseLink;
+      const dayRe = /^\d{4}-\d{2}-\d{2}$/;
+      const needDate = str(raw.needDate, 32);
+      if (needDate && dayRe.test(needDate)) draft.needDate = needDate;
+      const deadline = str(raw.deadline, 32);
+      if (deadline && dayRe.test(deadline)) draft.deadline = deadline;
+      if (raw.priority === 'high' || raw.priority === 'medium' || raw.priority === 'low')
+        draft.priority = raw.priority;
+      if (typeof raw.needSample === 'boolean') draft.needSample = raw.needSample;
+      return draft;
+    } catch {
+      return null;
+    }
+  }
+
+  /** 启发式兜底：链接/数量+单位/日期正则，物料名取去掉链接与数量后的主体。 */
+  private heuristicParseTask(text: string): AiTaskDraft {
+    const linkMatch = text.match(/https?:\/\/\S+/);
+    const qtyMatch = text.match(
+      /(\d+(?:\.\d+)?)\s*(件|个|只|米|张|套|条|台|支|卷|包|盒|片|公斤|千克|kg|吨|桶|瓶)/i,
+    );
+    const dateMatch = text.match(/(\d{4})[-/年.](\d{1,2})[-/月.](\d{1,2})/);
+    let name = text
+      .replace(/https?:\/\/\S+/g, ' ')
+      .replace(/(\d+(?:\.\d+)?)\s*(件|个|只|米|张|套|条|台|支|卷|包|盒|片|公斤|千克|kg|吨|桶|瓶)/gi, ' ')
+      .replace(/(\d{4})[-/年.](\d{1,2})[-/月.](\d{1,2})日?/g, ' ')
+      .replace(/^(采购|购买|需要|申购|求购|买)\s*/g, '')
+      .replace(/[，。,.;；:：]?(前到货|之前到货|到货|要求|尽快|急).*$/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+    if (name.length > 60) name = name.slice(0, 60);
+    return {
+      ...(name ? { materialName: name } : {}),
+      ...(qtyMatch ? { quantity: Number(qtyMatch[1]), unit: qtyMatch[2] } : {}),
+      ...(linkMatch
+        ? { method: 'direct' as const, purchaseLink: linkMatch[0].replace(/[，。,.;；]+$/, '') }
+        : { method: 'inquiry' as const }),
+      ...(dateMatch
+        ? {
+            needDate: `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`,
+          }
+        : {}),
+    };
   }
 
   private async insertTask(
@@ -339,6 +520,53 @@ export class ProcurementService {
     return this.serializeTask(updated);
   }
 
+  /**
+   * 审核驳回研发流转任务：仅限「待处理」的研发来源任务。落为 cancelled + 驳回理由留痕，
+   * 站内通知研发对接人；研发侧修改后可重新转采购（transferFromRd 对 cancelled 任务重激活）。
+   */
+  async rejectRdTask(id: string, reason: string, actor: ProcActor) {
+    const trimmed = reason.trim();
+    if (!trimmed) throw new BadRequestException('驳回必须填写理由');
+    const task = await this.requireTask(id);
+    if (task.source !== 'rd' || task.status !== 'pending_confirm') {
+      throw new BadRequestException('仅「待处理」的研发流转任务可审核驳回');
+    }
+    const updated = await this.prisma.procTask.update({
+      where: { id },
+      data: {
+        status: 'cancelled',
+        cancelReason: `审核驳回：${trimmed}`,
+        logs: {
+          create: {
+            kind: 'action',
+            text: `采购审核驳回：${trimmed}`,
+            fromStatus: task.status,
+            toStatus: 'cancelled',
+            actor: actor.name,
+            actorUserId: actor.id,
+          },
+        },
+      },
+      include: { attachments: true, logs: true, purchaseOrderRefs: true },
+    });
+    // 站内通知研发对接人/需求提出人（通知失败不影响驳回本身）
+    const recipient = task.rdContact || task.requester;
+    if (recipient) {
+      try {
+        await this.rdService.createMessage({
+          sender: { id: actor.id, name: actor.name, role: '采购' },
+          recipient_name: recipient,
+          subject: '转采购需求被驳回',
+          body: `你转采购的需求「${task.materialName}」（${task.code}${task.rdTaskTitle ? `，来源研发任务：${task.rdTaskTitle}` : ''}）被采购审核驳回。\n驳回理由：${trimmed}\n请在研发任务里修改后重新转采购。`,
+        });
+      } catch (error) {
+        // 同名多人等场景通知可能失败，驳回结果不回滚
+        new Logger(ProcurementService.name).warn(`驳回通知发送失败: ${(error as Error).message}`);
+      }
+    }
+    return this.serializeTask(updated);
+  }
+
   async cancelTask(id: string, dto: CancelProcTaskDto, actor: ProcActor) {
     const task = await this.requireTask(id);
     if (PROC_TERMINAL_STATUSES.includes(task.status as ProcStatus)) {
@@ -425,6 +653,45 @@ export class ProcurementService {
       include: { attachments: true, logs: true, purchaseOrderRefs: true },
     });
     return this.serializeTask(updated);
+  }
+
+  /** 批量转派：单事务原子执行，任一任务不存在/已完结则整体回滚。 */
+  async batchReassign(dto: BatchReassignDto, actor: ProcActor) {
+    const ids = Array.from(new Set(dto.taskIds));
+    if (ids.length === 0) throw new BadRequestException('请至少选择一个任务');
+    const tasks = await this.prisma.procTask.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, code: true, status: true },
+    });
+    if (tasks.length !== ids.length) {
+      throw new NotFoundException('部分任务不存在或已被删除，请刷新后重试');
+    }
+    const terminal = tasks.filter((t) => PROC_TERMINAL_STATUSES.includes(t.status as ProcStatus));
+    if (terminal.length > 0) {
+      throw new BadRequestException(
+        `任务 ${terminal.map((t) => t.code).join('、')} 已完结，不能转派`,
+      );
+    }
+    await this.prisma.$transaction(
+      ids.map((id) =>
+        this.prisma.procTask.update({
+          where: { id },
+          data: {
+            buyerUserId: dto.buyerUserId ?? null,
+            buyer: dto.buyer,
+            logs: {
+              create: {
+                kind: 'action',
+                text: `批量转派采购负责人为 ${dto.buyer}`,
+                actor: actor.name,
+                actorUserId: actor.id,
+              },
+            },
+          },
+        }),
+      ),
+    );
+    return { updated: ids.length };
   }
 
   async deleteTask(id: string) {
@@ -618,7 +885,8 @@ export class ProcurementService {
       ];
     }
     const page = Math.max(1, Number(query.page) || 1);
-    const pageSize = Math.min(500, Math.max(1, Number(query.pageSize) || 200));
+    // 物料主档全量供前端树形表使用（数千条量级，序列化后 <2MB）
+    const pageSize = Math.min(10000, Math.max(1, Number(query.pageSize) || 200));
 
     const [total, rows] = await this.prisma.$transaction([
       this.prisma.procMaterial.count({ where }),
@@ -640,24 +908,40 @@ export class ProcurementService {
   }
 
   async upsertMaterial(dto: UpsertMaterialDto, actor: ProcActor, id?: string) {
-    const data = {
-      name: dto.name,
-      spec: dto.spec ?? '',
-      unit: dto.unit ?? '',
-      category: dto.category ?? '',
-      productLine: dto.productLine ?? '',
-      erpCode: dto.erpCode ?? '',
-      tpInventoryCode: dto.tpInventoryCode || null,
-      isSpecial: dto.isSpecial ?? false,
-      isConsumable: dto.isConsumable ?? false,
-      safeStock: new Prisma.Decimal(dto.safeStock ?? 0),
-      remark: dto.remark ?? null,
-    };
-    const row = id
-      ? await this.prisma.procMaterial.update({ where: { id }, data })
-      : await this.prisma.procMaterial.create({
-          data: { ...data, reviewSource: 'manual', createdBy: actor.id },
-        });
+    if (id) {
+      // 更新走部分更新：只改 dto 里显式传入的字段，未传字段保留原值。
+      // 调用方（前端编辑表单 / Excel 导入）想清空某字段须显式传空串。
+      const data: Prisma.ProcMaterialUpdateInput = { name: dto.name };
+      if (dto.spec !== undefined) data.spec = dto.spec;
+      if (dto.unit !== undefined) data.unit = dto.unit;
+      if (dto.category !== undefined) data.category = dto.category;
+      if (dto.productLine !== undefined) data.productLine = dto.productLine;
+      if (dto.erpCode !== undefined) data.erpCode = dto.erpCode;
+      if (dto.tpInventoryCode !== undefined) data.tpInventoryCode = dto.tpInventoryCode || null;
+      if (dto.isSpecial !== undefined) data.isSpecial = dto.isSpecial;
+      if (dto.isConsumable !== undefined) data.isConsumable = dto.isConsumable;
+      if (dto.safeStock !== undefined) data.safeStock = new Prisma.Decimal(dto.safeStock);
+      if (dto.remark !== undefined) data.remark = dto.remark || null;
+      const row = await this.prisma.procMaterial.update({ where: { id }, data });
+      return this.serializeMaterial({ ...row, balances: [] });
+    }
+    const row = await this.prisma.procMaterial.create({
+      data: {
+        name: dto.name,
+        spec: dto.spec ?? '',
+        unit: dto.unit ?? '',
+        category: dto.category ?? '',
+        productLine: dto.productLine ?? '',
+        erpCode: dto.erpCode ?? '',
+        tpInventoryCode: dto.tpInventoryCode || null,
+        isSpecial: dto.isSpecial ?? false,
+        isConsumable: dto.isConsumable ?? false,
+        safeStock: new Prisma.Decimal(dto.safeStock ?? 0),
+        remark: dto.remark ?? null,
+        reviewSource: 'manual',
+        createdBy: actor.id,
+      },
+    });
     return this.serializeMaterial({ ...row, balances: [] });
   }
 
@@ -690,14 +974,259 @@ export class ProcurementService {
         updated += 1;
       } else {
         const row = await this.upsertMaterial(item, actor);
+        // 带 T+ 存货编码的视为 ERP 主档（事实源）免审核；其余进入审核队列
         await this.prisma.procMaterial.update({
           where: { id: row.id },
-          data: { reviewStatus: 'pending', reviewSource: 'import' },
+          data: item.tpInventoryCode
+            ? { reviewStatus: 'approved', reviewSource: 'import' }
+            : { reviewStatus: 'pending', reviewSource: 'import' },
         });
         created += 1;
       }
     }
     return { created, updated, total: dto.items.length };
+  }
+
+  // ── BOM ─────────────────────────────────────────────────────────────────────
+
+  /**
+   * BOM 导入：树形建 ProcBomNode（机型/部件/组件 → 原料叶子），
+   * 叶子 code 按 T+ 存货编码匹配物料并回填物料的产品线与 BOM 归属：
+   * 出现在单一机型 → 该机型；跨机型共用 → 「通用」。
+   */
+  async importBom(dto: ImportBomDto) {
+    if (dto.replace) await this.prisma.procBomNode.deleteMany({});
+    // 物料编码 → { productLines, systems }（systems=所属组件/部件名，供物料详情展示）
+    const usage = new Map<string, { lines: Set<string>; systems: Set<string> }>();
+    let nodeCount = 0;
+
+    const createNode = async (
+      node: BomNodeInputDto,
+      parentId: string | null,
+      level: number,
+      productLine: string,
+      chain: string[],
+      sortOrder: number,
+    ): Promise<void> => {
+      const line = node.productLine?.trim() || productLine;
+      const code = node.code?.trim() || null;
+      const material = code
+        ? await this.prisma.procMaterial.findUnique({ where: { tpInventoryCode: code }, select: { id: true } })
+        : null;
+      const row = await this.prisma.procBomNode.create({
+        data: {
+          parentId,
+          name: node.name,
+          code,
+          level,
+          productLine: line,
+          materialId: material?.id ?? null,
+          qtyPer: node.qtyPer === undefined ? null : new Prisma.Decimal(node.qtyPer),
+          sortOrder,
+        },
+        select: { id: true },
+      });
+      nodeCount += 1;
+      if (code && material) {
+        const u = usage.get(code) ?? { lines: new Set<string>(), systems: new Set<string>() };
+        if (line) u.lines.add(line);
+        if (chain.length > 0) u.systems.add(chain[chain.length - 1]);
+        usage.set(code, u);
+      }
+      for (const [index, child] of (node.children ?? []).entries()) {
+        await createNode(child, row.id, level + 1, line, [...chain, node.name], index);
+      }
+    };
+
+    for (const [index, root] of dto.roots.entries()) {
+      await createNode(root, null, 0, root.productLine?.trim() ?? '', [], index);
+    }
+
+    // 回填物料产品线与 BOM 归属
+    let touchedMaterials = 0;
+    for (const [code, u] of usage) {
+      const material = await this.prisma.procMaterial.findUnique({
+        where: { tpInventoryCode: code },
+        select: { id: true, metadata: true },
+      });
+      if (!material) continue;
+      const lines = [...u.lines].filter(Boolean);
+      const productLine = lines.length === 1 ? lines[0] : lines.length > 1 ? '通用' : '';
+      const meta = (material.metadata ?? {}) as Record<string, unknown>;
+      await this.prisma.procMaterial.update({
+        where: { id: material.id },
+        data: {
+          ...(productLine ? { productLine } : {}),
+          metadata: { ...meta, bom: { systems: [...u.systems], lines } } as Prisma.InputJsonObject,
+        },
+      });
+      touchedMaterials += 1;
+    }
+    return { nodes: nodeCount, matchedMaterials: usage.size, touchedMaterials };
+  }
+
+  /** BOM 树查询：全量返回（数据量为部件×原料级，数百节点）。 */
+  async getBomTree() {
+    const rows = await this.prisma.procBomNode.findMany({
+      orderBy: [{ level: 'asc' }, { sortOrder: 'asc' }],
+      include: { material: { select: { id: true, name: true, spec: true, unit: true } } },
+    });
+    const byId = new Map<string, BomTreeNode>();
+    const roots: BomTreeNode[] = [];
+    for (const r of rows) {
+      byId.set(r.id, {
+        id: r.id,
+        name: r.name,
+        code: r.code,
+        level: r.level,
+        productLine: r.productLine,
+        qtyPer: numOrNull(r.qtyPer),
+        material: r.material,
+        children: [],
+      });
+    }
+    for (const r of rows) {
+      const node = byId.get(r.id)!;
+      if (r.parentId && byId.has(r.parentId)) byId.get(r.parentId)!.children.push(node);
+      else roots.push(node);
+    }
+    return { roots };
+  }
+
+  /** 分类重命名/合并：目标名已存在即合并。分类没有独立表，直接改物料上的冗余字段。 */
+  async renameCategory(dto: RenameCategoryDto) {
+    const from = dto.from.trim();
+    const to = dto.to.trim();
+    if (!from || !to) throw new BadRequestException('分类名不能为空');
+    if (from === to) throw new BadRequestException('新旧分类名相同');
+    const result = await this.prisma.procMaterial.updateMany({
+      where: { category: from },
+      data: { category: to },
+    });
+    if (result.count === 0) throw new NotFoundException(`分类「${from}」下没有物料`);
+    return { updated: result.count };
+  }
+
+  /**
+   * 转派/建单的负责人候选：全部启用用户的 id/name/部门。
+   * 排序：采购成员名录 > 部门含「采购」 > 其余按姓名；名录成员带 inRoster 标记。
+   * 开放度与 GET /auth/avatars 一致（登录即可读全员 id/name），不落敏感字段。
+   */
+  async listBuyerCandidates() {
+    const [users, roster] = await Promise.all([
+      this.prisma.user.findMany({
+        where: { status: { not: 'DISABLED' } },
+        select: { id: true, name: true, department: true },
+        orderBy: { name: 'asc' },
+      }),
+      this.readBuyerRoster(),
+    ]);
+    const rosterSet = new Set(roster);
+    const isProc = (d: string | null) => Boolean(d && d.includes('采购'));
+    return users
+      .sort(
+        (a, b) =>
+          Number(rosterSet.has(b.id)) - Number(rosterSet.has(a.id)) ||
+          Number(isProc(b.department)) - Number(isProc(a.department)),
+      )
+      .map((u) => ({
+        id: u.id,
+        name: u.name,
+        department: u.department ?? undefined,
+        inRoster: rosterSet.has(u.id),
+      }));
+  }
+
+  // ── 采购成员名录（对齐研发人员名录模式；KV 存储免 migration）────────────────
+
+  private static readonly BUYER_ROSTER_KEY = 'procurement:buyer-roster:v1';
+
+  /** 名录条目：兼容早期纯 userId 字符串数组格式。 */
+  private async readBuyerRosterEntries(): Promise<Array<{ userId: string; note?: string }>> {
+    const row = await this.prisma.runtimeState.findUnique({
+      where: { key: ProcurementService.BUYER_ROSTER_KEY },
+    });
+    if (!row) return [];
+    try {
+      const parsed = JSON.parse(row.value) as unknown;
+      if (!Array.isArray(parsed)) return [];
+      return parsed
+        .map((x) => {
+          if (typeof x === 'string') return { userId: x };
+          if (x && typeof x === 'object' && typeof (x as { userId?: unknown }).userId === 'string') {
+            const note = (x as { note?: unknown }).note;
+            return { userId: (x as { userId: string }).userId, note: typeof note === 'string' ? note : undefined };
+          }
+          return null;
+        })
+        .filter((x): x is { userId: string; note?: string } => Boolean(x));
+    } catch {
+      return [];
+    }
+  }
+
+  private async readBuyerRoster(): Promise<string[]> {
+    return (await this.readBuyerRosterEntries()).map((e) => e.userId);
+  }
+
+  private async writeBuyerRosterEntries(entries: Array<{ userId: string; note?: string }>) {
+    const seen = new Set<string>();
+    const unique = entries.filter((e) => (seen.has(e.userId) ? false : (seen.add(e.userId), true)));
+    await this.prisma.runtimeState.upsert({
+      where: { key: ProcurementService.BUYER_ROSTER_KEY },
+      create: { key: ProcurementService.BUYER_ROSTER_KEY, value: JSON.stringify(unique) },
+      update: { value: JSON.stringify(unique) },
+    });
+  }
+
+  /** 名录成员（实时回填姓名/部门；已禁用用户标记出来供清理）。 */
+  async getBuyerRoster() {
+    const entries = await this.readBuyerRosterEntries();
+    if (entries.length === 0) return { members: [] };
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: entries.map((e) => e.userId) } },
+      select: { id: true, name: true, department: true, status: true },
+    });
+    const byId = new Map(users.map((u) => [u.id, u]));
+    return {
+      members: entries
+        .map((e) => ({ entry: e, user: byId.get(e.userId) }))
+        .filter((x): x is { entry: { userId: string; note?: string }; user: NonNullable<ReturnType<typeof byId.get>> } => Boolean(x.user))
+        .map(({ entry, user }) => ({
+          id: user.id,
+          name: user.name,
+          department: user.department ?? undefined,
+          note: entry.note,
+          disabled: user.status === 'DISABLED',
+        })),
+    };
+  }
+
+  async addBuyerRosterMember(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
+    if (!user) throw new NotFoundException('用户不存在');
+    const entries = await this.readBuyerRosterEntries();
+    if (!entries.some((e) => e.userId === userId)) {
+      entries.push({ userId });
+      await this.writeBuyerRosterEntries(entries);
+    }
+    return this.getBuyerRoster();
+  }
+
+  /** 更新成员岗位备注（如「电子料询价」「包材/耗材」），仅名录内成员。 */
+  async updateBuyerRosterMember(userId: string, note: string) {
+    const entries = await this.readBuyerRosterEntries();
+    const entry = entries.find((e) => e.userId === userId);
+    if (!entry) throw new NotFoundException('该用户不在成员名录中');
+    entry.note = note.trim().slice(0, 100) || undefined;
+    await this.writeBuyerRosterEntries(entries);
+    return this.getBuyerRoster();
+  }
+
+  async removeBuyerRosterMember(userId: string) {
+    const entries = await this.readBuyerRosterEntries();
+    await this.writeBuyerRosterEntries(entries.filter((e) => e.userId !== userId));
+    return this.getBuyerRoster();
   }
 
   // ── 汇总 ────────────────────────────────────────────────────────────────────
@@ -739,165 +1268,6 @@ export class ProcurementService {
       shortage,
       pendingReview,
     };
-  }
-
-  // ── 演示种子 ─────────────────────────────────────────────────────────────────
-
-  /**
-   * 灌入演示数据（与前端原 mock 同源）。
-   * 默认幂等保护：库中已有任务时直接返回 skipped，force=true 才清空重灌。
-   */
-  async seedDemoData(actor: ProcActor, force = false) {
-    const existing = await this.prisma.procTask.count();
-    if (existing > 0 && !force) {
-      return { skipped: true, reason: `已存在 ${existing} 条采购任务，如需重灌请传 force=true` };
-    }
-    if (force) {
-      // 顺序无关：附件/日志/报价/采购单引用均为级联删除
-      await this.prisma.procTask.deleteMany({});
-      await this.prisma.procQuotation.deleteMany({});
-      await this.prisma.procInventoryBalance.deleteMany({});
-      await this.prisma.procMaterial.deleteMany({});
-      await this.prisma.procSupplier.deleteMany({});
-    }
-
-    const base = new Date(new Date().toISOString().slice(0, 10));
-    const shift = (days: number | undefined | null): Date | null =>
-      days === undefined || days === null
-        ? null
-        : new Date(base.getTime() + days * 24 * 3600 * 1000);
-
-    for (const s of SEED_SUPPLIERS) {
-      await this.prisma.procSupplier.create({
-        data: { name: s.name, contact: s.contact, phone: s.phone, source: 'local' },
-      });
-    }
-
-    const materialIdByName = new Map<string, string>();
-    for (const m of SEED_MATERIALS) {
-      const row = await this.prisma.procMaterial.create({
-        data: {
-          name: m.name,
-          spec: m.spec,
-          unit: m.unit,
-          category: m.category,
-          productLine: m.productLine,
-          erpCode: m.erpCode,
-          isSpecial: m.isSpecial ?? false,
-          isConsumable: m.isConsumable ?? false,
-          safeStock: new Prisma.Decimal(m.safeStock),
-          reviewStatus: m.reviewStatus,
-          reviewSource: m.reviewSource ?? null,
-          latestPrice: m.latestPrice === undefined ? null : new Prisma.Decimal(m.latestPrice),
-          latestSupplier: m.latestSupplier ?? null,
-          latestQuoteDate: shift(m.latestQuoteDay),
-          createdBy: actor.id,
-        },
-      });
-      materialIdByName.set(m.name, row.id);
-      // 库存先落本地镜像（warehouse 留空），正式接 T+ 后由同步覆盖
-      await this.prisma.procInventoryBalance.create({
-        data: {
-          tpInventoryCode: m.erpCode,
-          materialId: row.id,
-          materialName: m.name,
-          spec: m.spec,
-          unit: m.unit,
-          warehouse: '',
-          stockQty: new Prisma.Decimal(m.stockQty),
-          availableQty: new Prisma.Decimal(m.stockQty),
-        },
-      });
-    }
-
-    let seq = 0;
-    const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-    for (const t of SEED_TASKS) {
-      seq += 1;
-      await this.prisma.procTask.create({
-        data: {
-          code: `PR-${stamp}-${String(seq).padStart(3, '0')}`,
-          materialId: materialIdByName.get(t.materialName) ?? null,
-          materialName: t.materialName,
-          spec: t.spec,
-          unit: t.unit,
-          quantity: new Prisma.Decimal(t.quantity),
-          method: t.method,
-          purchaseLink: t.purchaseLink ?? null,
-          source: t.source,
-          businessLine: t.businessLine,
-          status: t.status,
-          priority: t.priority,
-          needSample: t.needSample,
-          needDate: shift(t.needDay),
-          deadline: shift(t.deadlineDay),
-          expectedArrivalDate: shift(t.etaDay),
-          paymentDate: shift(t.paymentDay),
-          paymentStatus: t.paymentStatus,
-          paymentNote: t.paymentNote ?? null,
-          arrivedQty: new Prisma.Decimal(t.arrivedQty),
-          buyer: t.buyer,
-          rdTaskTitle: t.rdTaskTitle ?? null,
-          rdContact: t.rdContact ?? null,
-          requester: t.requester,
-          requesterDept: t.requesterDept,
-          consumableNote: t.consumableNote ?? null,
-          businessDone: t.status === 'completed',
-          createdBy: actor.id,
-          attachments: {
-            create: Array.from({ length: t.attachmentCount }, (_, i) => ({
-              fileName: `${t.materialName}-图纸${i + 1}.pdf`,
-              fileUrl: '',
-              kind: 'drawing',
-              uploadedBy: actor.id,
-            })),
-          },
-          logs: {
-            create: t.logs.map((l) => ({
-              kind: 'system',
-              text: l.text,
-              createdAt: shift(l.day) ?? base,
-            })),
-          },
-        },
-      });
-    }
-
-    for (const [materialName, quotes] of Object.entries(SEED_QUOTATIONS)) {
-      const materialId = materialIdByName.get(materialName) ?? null;
-      const task = await this.prisma.procTask.findFirst({
-        where: { materialName },
-        orderBy: { createdAt: 'desc' },
-        select: { id: true },
-      });
-      for (const q of quotes) {
-        const supplier = await this.prisma.procSupplier.findFirst({
-          where: { name: q.supplierName },
-          select: { id: true },
-        });
-        await this.prisma.procQuotation.create({
-          data: {
-            taskId: task?.id ?? null,
-            materialId,
-            materialName,
-            supplierId: supplier?.id ?? null,
-            supplierName: q.supplierName,
-            unitPrice: new Prisma.Decimal(q.unitPrice),
-            leadTimeDays: q.leadTimeDays,
-            quoteDate: shift(q.quoteDay) ?? base,
-            isSelected: q.isSelected ?? false,
-            createdBy: actor.id,
-          },
-        });
-      }
-    }
-
-    const [tasks, materials, quotations] = await this.prisma.$transaction([
-      this.prisma.procTask.count(),
-      this.prisma.procMaterial.count(),
-      this.prisma.procQuotation.count(),
-    ]);
-    return { skipped: false, tasks, materials, quotations };
   }
 
   // ── 序列化 ───────────────────────────────────────────────────────────────────

@@ -69,6 +69,7 @@ export interface ProcurementTask {
   rdTaskId?: string;
   rdTaskTitle?: string;
   buyer: string;
+  buyerUserId?: string;
   rdContact?: string;
   requester?: string;
   requesterDept?: string;
@@ -180,6 +181,51 @@ export async function getProcSummary(signal?: AbortSignal): Promise<ProcSummary>
   return request<ProcSummary>("/summary", { signal });
 }
 
+/** 负责人候选（转派/建单人员选择）：成员名录 > 采购部 > 全员。 */
+export interface BuyerCandidate {
+  id: string;
+  name: string;
+  department?: string;
+  /** 是否在采购成员名录内 */
+  inRoster?: boolean;
+}
+
+export async function listBuyerCandidates(signal?: AbortSignal): Promise<BuyerCandidate[]> {
+  return request<BuyerCandidate[]>("/buyers", { signal });
+}
+
+/** 采购成员名录（人员管理里维护；分配任务候选优先显示名录成员）。 */
+export interface BuyerRosterMember {
+  id: string;
+  name: string;
+  department?: string;
+  /** 岗位备注（如「电子料询价」「包材/耗材」） */
+  note?: string;
+  disabled?: boolean;
+}
+
+export async function getBuyerRoster(): Promise<{ members: BuyerRosterMember[] }> {
+  return request("/buyer-roster");
+}
+
+export async function addBuyerRosterMember(userId: string): Promise<{ members: BuyerRosterMember[] }> {
+  return request("/buyer-roster", { method: "POST", body: JSON.stringify({ userId }) });
+}
+
+export async function updateBuyerRosterMember(
+  userId: string,
+  note: string,
+): Promise<{ members: BuyerRosterMember[] }> {
+  return request(`/buyer-roster/${encodeURIComponent(userId)}`, {
+    method: "PATCH",
+    body: JSON.stringify({ note }),
+  });
+}
+
+export async function removeBuyerRosterMember(userId: string): Promise<{ members: BuyerRosterMember[] }> {
+  return request(`/buyer-roster/${encodeURIComponent(userId)}`, { method: "DELETE" });
+}
+
 export interface CreateProcTaskInput {
   materialId?: string;
   materialName: string;
@@ -193,6 +239,8 @@ export interface CreateProcTaskInput {
   needSample?: boolean;
   needDate?: string;
   deadline?: string;
+  buyer?: string;
+  buyerUserId?: string;
   requesterDept?: string;
   consumableNote?: string;
   attachments?: { fileName: string; fileUrl: string; fileKey?: string; fileSize?: number; mimeType?: string; kind?: "drawing" | "quote" | "other" }[];
@@ -200,6 +248,27 @@ export interface CreateProcTaskInput {
 
 export async function createProcTask(input: CreateProcTaskInput): Promise<ProcurementTask> {
   return request<ProcurementTask>("/tasks", { method: "POST", body: JSON.stringify(input) });
+}
+
+/** AI 建单解析出的草稿：不落库，用户在表单里确认/修改后走 createProcTask。 */
+export interface AiTaskDraft {
+  materialName?: string;
+  materialId?: string;
+  spec?: string;
+  unit?: string;
+  quantity?: number;
+  method?: ProcMethod;
+  purchaseLink?: string;
+  needDate?: string;
+  deadline?: string;
+  priority?: "high" | "medium" | "low";
+  needSample?: boolean;
+}
+
+export async function aiParseProcTask(
+  text: string,
+): Promise<{ draft: AiTaskDraft; model: string; usedAI: boolean }> {
+  return request("/tasks/ai-parse", { method: "POST", body: JSON.stringify({ text }) });
 }
 
 /** 研发侧转采购：必须带附件，后端会校验。 */
@@ -231,6 +300,30 @@ export async function uploadProcurementAttachment(file: File): Promise<Procureme
   return (await response.json()) as ProcurementUploadResult;
 }
 
+/** 任务信息编辑（与后端 UpdateProcTaskDto 对齐；仅提交有变化的字段）。 */
+export interface UpdateProcTaskInput {
+  quantity?: number;
+  priority?: "high" | "medium" | "low";
+  needDate?: string;
+  deadline?: string;
+  expectedArrivalDate?: string;
+  paymentDate?: string;
+  paymentStatus?: PaymentStatus;
+  paymentNote?: string;
+  consumableNote?: string;
+  purchaseLink?: string;
+}
+
+export async function updateProcTask(
+  id: string,
+  input: UpdateProcTaskInput,
+): Promise<ProcurementTask> {
+  return request<ProcurementTask>(`/tasks/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
 export async function confirmProcTask(id: string): Promise<ProcurementTask> {
   return request<ProcurementTask>(`/tasks/${encodeURIComponent(id)}/confirm`, { method: "POST" });
 }
@@ -243,6 +336,14 @@ export async function transitionProcTask(
   return request<ProcurementTask>(`/tasks/${encodeURIComponent(id)}/transition`, {
     method: "POST",
     body: JSON.stringify({ status, note }),
+  });
+}
+
+/** 审核驳回研发流转任务（须填理由；研发对接人会收到站内通知，修改后可重新转采购）。 */
+export async function rejectProcTask(id: string, reason: string): Promise<ProcurementTask> {
+  return request(`/tasks/${encodeURIComponent(id)}/reject`, {
+    method: "POST",
+    body: JSON.stringify({ reason }),
   });
 }
 
@@ -261,6 +362,18 @@ export async function reassignProcTask(
   return request<ProcurementTask>(`/tasks/${encodeURIComponent(id)}/reassign`, {
     method: "POST",
     body: JSON.stringify({ buyer, buyerUserId }),
+  });
+}
+
+/** 批量转派：后端事务原子执行，整体成功或整体回滚。 */
+export async function batchReassignProcTasks(
+  taskIds: string[],
+  buyer: string,
+  buyerUserId?: string,
+): Promise<{ updated: number }> {
+  return request<{ updated: number }>("/tasks/batch-reassign", {
+    method: "POST",
+    body: JSON.stringify({ taskIds, buyer, buyerUserId }),
   });
 }
 
@@ -324,7 +437,7 @@ export async function linkPurchaseOrder(
 // ── 物料 ──────────────────────────────────────────────────────────────────────
 
 export async function listMaterials(signal?: AbortSignal): Promise<Material[]> {
-  const data = await request<Paged<Material>>("/materials?pageSize=500", { signal });
+  const data = await request<Paged<Material>>("/materials?pageSize=10000", { signal });
   return data.items;
 }
 
@@ -336,5 +449,305 @@ export async function reviewMaterial(
   return request<Material>(`/materials/${encodeURIComponent(id)}/review`, {
     method: "PATCH",
     body: JSON.stringify({ reviewStatus, reviewNote }),
+  });
+}
+
+// ── 畅捷通 T+ 集成 ────────────────────────────────────────────────────────────
+
+export interface TplusConfigState {
+  configured: boolean;
+  baseUrl: string;
+  appKeyMasked: string | null;
+  hasSecret: boolean;
+  /** 已配置的 OAuth 回调地址（须与开放平台应用配置一致）。 */
+  redirectUri: string | null;
+  /** 是否已完成 OAuth 授权（openToken 就绪）。 */
+  authorized: boolean;
+  tokenExpireAt: string | null;
+  refreshExpireAt: string | null;
+  updatedAt: string | null;
+  /** 每日自动同步（3:00 服务器时区）开关，默认开。 */
+  autoSync: boolean;
+  lastAutoSyncAt: string | null;
+  lastAutoSyncSummary: string | null;
+}
+
+export async function getTplusConfig(): Promise<TplusConfigState> {
+  return request<TplusConfigState>("/tplus/config");
+}
+
+/** appSecret 走 HTTPS 明文传输、后端落库加密；不传则保留已存值。 */
+export async function saveTplusConfig(input: {
+  baseUrl?: string;
+  /** 不传保留已存值（如仅切换 autoSync）；首次配置必填。 */
+  appKey?: string;
+  appSecret?: string;
+  redirectUri?: string;
+  autoSync?: boolean;
+}): Promise<TplusConfigState> {
+  return request<TplusConfigState>("/tplus/config", {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+/** 手动粘贴授权码换 openToken（授权回调直达不可用时的兜底）。 */
+export async function exchangeTplusAuthCode(code: string): Promise<TplusConfigState> {
+  return request<TplusConfigState>("/tplus/oauth/exchange", {
+    method: "POST",
+    body: JSON.stringify({ code }),
+  });
+}
+
+export async function getTplusStatus(): Promise<{
+  configured: boolean;
+  authorized: boolean;
+  mirrored: { suppliers: number; balances: number; purchaseOrderRefs: number };
+}> {
+  return request("/tplus/status");
+}
+
+export async function triggerTplusSync(
+  kind: "suppliers" | "inventory" | "purchase-orders",
+): Promise<Record<string, number>> {
+  return request(`/tplus/sync/${kind}`, { method: "POST" });
+}
+
+export type TplusAutoSyncResult = { skipped: true; reason: string } | { skipped: false; summary: string };
+
+/** 一键全同步（异步任务）：供应商→库存→采购单全量→匹配，返回 jobId 轮询。 */
+export async function runTplusAutoSync(): Promise<{ jobId: string }> {
+  return request("/tplus/sync/auto", { method: "POST" });
+}
+
+export interface PoFullSyncResult {
+  orders: number;
+  lines: number;
+  failed: number;
+  matchedMaterials: number;
+}
+
+/** 采购单全量镜像同步（异步任务）：返回 jobId 轮询。 */
+export async function syncTplusPurchaseOrdersFull(): Promise<{ jobId: string }> {
+  return request("/tplus/sync/purchase-orders-full", { method: "POST" });
+}
+
+export interface PoMirrorRow {
+  id: string;
+  tpOrderNo: string;
+  tpLineNo: string;
+  supplierName: string;
+  inventoryCode: string;
+  inventoryName: string;
+  orderedQty: number;
+  receivedQty: number;
+  orderDate: string | null;
+  etaDate: string | null;
+  matchStatus: "unmatched" | "suggested" | "confirmed" | "ignored";
+  matchConfidence: number | null;
+  matchReason: string | null;
+  task: { id: string; code: string; materialName: string; quantity: number; status: string } | null;
+}
+
+export interface PoMirrorList {
+  counts: Record<string, number>;
+  rows: PoMirrorRow[];
+}
+
+export async function listPoMirror(status?: string): Promise<PoMirrorList> {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : "";
+  return request(`/tplus/purchase-orders/mirror${qs}`);
+}
+
+export interface PoMatchResult {
+  suggested: number;
+  aiSuggested: number;
+  unmatched: number;
+}
+
+/** 规则 + AI 生成「单据 ↔ 任务」匹配建议（异步任务）：返回 jobId 轮询。 */
+export async function runPoMatch(): Promise<{ jobId: string }> {
+  return request("/tplus/purchase-orders/match", { method: "POST" });
+}
+
+export async function confirmPoMatch(id: string, taskId?: string): Promise<PoMirrorList> {
+  return request(`/tplus/purchase-orders/mirror/${id}/confirm`, {
+    method: "POST",
+    body: JSON.stringify({ taskId }),
+  });
+}
+
+export async function ignorePoMatch(id: string): Promise<PoMirrorList> {
+  return request(`/tplus/purchase-orders/mirror/${id}/ignore`, { method: "POST" });
+}
+
+/** 批量导入的单条物料（与后端 UpsertMaterialDto 对齐；新建条目落为待审核）。 */
+export interface MaterialImportItem {
+  name: string;
+  spec?: string;
+  unit?: string;
+  category?: string;
+  productLine?: string;
+  erpCode?: string;
+  tpInventoryCode?: string;
+  isSpecial?: boolean;
+  isConsumable?: boolean;
+  safeStock?: number;
+  remark?: string;
+}
+
+/**
+ * 新增/编辑物料主数据。传 id 走更新，不传走新建（reviewSource=manual，落待审核）。
+ * 更新为部分更新：未传字段保留原值，想清空某字段须显式传空串。
+ */
+export async function upsertProcMaterial(
+  input: MaterialImportItem,
+  id?: string,
+): Promise<Material> {
+  return request<Material>(id ? `/materials/${encodeURIComponent(id)}` : "/materials", {
+    method: id ? "PUT" : "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function importProcMaterials(
+  items: MaterialImportItem[],
+): Promise<{ created: number; updated: number; total: number }> {
+  return request("/materials/import", { method: "POST", body: JSON.stringify({ items }) });
+}
+
+export interface ClassifyPreview {
+  uncategorized: number;
+  rule1: number;
+  rule2: number;
+  aiPending: number;
+  ruleCategories: Record<string, number>;
+  /** 当前全库分类分布（不含未分类）：分类结果的留存展示 */
+  currentCategories: Record<string, number>;
+  aiSamples: string[];
+}
+
+/** 批量应用异步任务（AI 分类 / 安全库存共用）：启动即返回 jobId，轮询取进度与结果。 */
+export interface ApplyJobState<T> {
+  id: string;
+  kind: string;
+  status: "running" | "done" | "error";
+  progress: string;
+  result?: T;
+  error?: string;
+}
+
+export async function getApplyJob<T>(jobId: string): Promise<ApplyJobState<T>> {
+  return request(`/materials/apply-jobs/${encodeURIComponent(jobId)}`);
+}
+
+/** T+ 同步/匹配任务的进度查询（与物料 apply 任务不同权限入口，同一个任务存储）。 */
+export async function getTplusSyncJob<T>(jobId: string): Promise<ApplyJobState<T>> {
+  return request(`/tplus/sync/jobs/${encodeURIComponent(jobId)}`);
+}
+
+/** 轮询任务直到完成（3s 间隔）；任务丢失/失败抛错。fetcher 缺省为物料 apply 任务端点。 */
+export async function waitApplyJob<T>(
+  jobId: string,
+  onProgress?: (progress: string) => void,
+  fetcher: (id: string) => Promise<ApplyJobState<T>> = getApplyJob,
+): Promise<T> {
+  for (;;) {
+    const job = await fetcher(jobId);
+    if (job.status === "done") return job.result as T;
+    if (job.status === "error") throw new Error(job.error || "任务执行失败");
+    onProgress?.(job.progress);
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  }
+}
+
+export interface ClassifyReport {
+  ruleApplied: number;
+  ruleCategories: Record<string, number>;
+  aiApplied: Array<{ code: string; name: string; category: string; confidence: number }>;
+  aiSkipped: Array<{ code: string; name: string; reason: string }>;
+  aiError: string | null;
+  model: string | null;
+}
+
+/** 初步分类干跑：规则可分多少、AI 要兜多少，不落库。 */
+export async function previewMaterialClassify(): Promise<ClassifyPreview> {
+  return request("/materials/classify/preview");
+}
+
+/** 初步分类应用（异步）：返回 jobId，用 waitApplyJob 轮询结果。 */
+export async function applyMaterialClassify(): Promise<{ jobId: string }> {
+  return request("/materials/classify/apply", { method: "POST" });
+}
+
+export interface SafeStockPreview {
+  windowDays: number;
+  coverFactor: number;
+  usageMaterialCount: number;
+  skippedManual: number;
+  ruleCount: number;
+  aiPending: number;
+  samples: Array<{ code: string; name: string; orders: number; monthlyAvg: number; suggest: number }>;
+  aiSamples: string[];
+}
+
+export interface SafeStockReport {
+  ruleApplied: number;
+  aiApplied: Array<{ code: string; name: string; suggest: number; confidence: number }>;
+  aiSkipped: Array<{ code: string; name: string; reason: string }>;
+  aiError: string | null;
+  model: string | null;
+}
+
+/** 安全库存初始化干跑：基于采购镜像统计建议值，不落库。 */
+export async function previewSafeStock(): Promise<SafeStockPreview> {
+  return request("/materials/safe-stock/preview");
+}
+
+/** 安全库存初始化应用（异步）：返回 jobId，用 waitApplyJob 轮询结果。 */
+export async function applySafeStock(): Promise<{ jobId: string }> {
+  return request("/materials/safe-stock/apply", { method: "POST" });
+}
+
+export interface ReplenishSuggestion {
+  materialId: string;
+  code: string;
+  name: string;
+  spec: string;
+  unit: string;
+  stock: number;
+  safeStock: number;
+  inTransit: number;
+  openTaskQty: number;
+  suggestQty: number;
+  /** 包装/起订粒度（历史采购量最大公约数）；建议量已按此向上取整 */
+  packStep: number | null;
+  lastSupplier: string | null;
+  lastPrice: number | null;
+}
+
+/** 补货建议清单：缺口 = 安全库存 − 库存 − 在途 − 进行中任务。 */
+export async function listReplenishSuggestions(): Promise<{ rows: ReplenishSuggestion[] }> {
+  return request("/materials/replenish/suggestions");
+}
+
+/** 勾选补货条目批量生成采购任务。 */
+export async function createReplenishTasks(
+  items: Array<{ materialId: string; quantity: number }>,
+): Promise<{ created: number; codes: string[] }> {
+  return request("/materials/replenish/create-tasks", {
+    method: "POST",
+    body: JSON.stringify({ items }),
+  });
+}
+
+/** 分类重命名/合并：目标分类已存在即合并。 */
+export async function renameProcCategory(
+  from: string,
+  to: string,
+): Promise<{ updated: number }> {
+  return request("/materials/categories/rename", {
+    method: "POST",
+    body: JSON.stringify({ from, to }),
   });
 }

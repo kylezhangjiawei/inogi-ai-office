@@ -1319,6 +1319,45 @@ model ProcInventoryBalance {
   @@index([materialId])
 }
 
+/// T+ 采购订单全量镜像（行级）：与任务无关的只读快照，来自 FindVoucherList + GetVoucherDTO。
+/// 与 ProcPurchaseOrderRef 分工：mirror 是「T+ 里有什么单」，ref 是「任务关联了哪张单」；
+/// 匹配确认时经 linkPurchaseOrder 生成 ref，mirror 只记 matchStatus，不反向依赖任务。
+model ProcPurchaseOrderMirror {
+  id              String    @id @default(cuid())
+  tpOrderNo       String
+  tpOrderId       String?
+  tpLineNo        String    @default("")
+  supplierName    String    @default("")
+  /// T+ 存货编码/名称：物料匹配锚点（编码 ↔ ProcMaterial.tpInventoryCode）
+  inventoryCode   String    @default("")
+  inventoryName   String    @default("")
+  spec            String    @default("")
+  unit            String    @default("")
+  orderedQty      Decimal   @default(0) @db.Decimal(14, 3)
+  receivedQty     Decimal   @default(0) @db.Decimal(14, 3)
+  unitPrice       Decimal?  @db.Decimal(12, 4)
+  orderDate       DateTime?
+  etaDate         DateTime?
+  approvalStatus  String?
+  status          String?
+  /// 按存货编码自动匹配到的物料（确定性，同步时回填）
+  materialId      String?
+  /// 规则/AI 建议或已确认关联的采购任务
+  matchTaskId     String?
+  /// unmatched | suggested | confirmed | ignored
+  matchStatus     String    @default("unmatched")
+  matchConfidence Decimal?  @db.Decimal(4, 3)
+  matchReason     String?
+  syncedAt        DateTime?
+  metadata        Json      @default("{}")
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([tpOrderNo, tpLineNo])
+  @@index([matchStatus])
+  @@index([materialId])
+}
+
 /// 采购任务留痕：状态流转与人工操作，前端时间线直接读这张表。
 model ProcTaskLog {
   id          String   @id @default(cuid())

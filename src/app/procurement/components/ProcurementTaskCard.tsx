@@ -4,8 +4,8 @@ import { cn } from "../../components/ui/utils";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
 import { taskRequester, type ProcurementTask } from "../data";
-import { BusinessLinePill, MainDateBadge, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill } from "./common";
-import { DECISION_STATUSES } from "./taskActions";
+import { BusinessLinePill, MainDateBadge, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, useProcCan } from "./common";
+import { DECISION_STATUSES, nextPermissionOf } from "./taskActions";
 
 /**
  * 卡片本身是 <button>，表单弹窗不能嵌在内部，
@@ -19,6 +19,7 @@ export function ProcurementTaskCard({ task, onOpen, onNext, onReassign, onRemove
   onRemove?: (t: ProcurementTask) => void;
 }) {
   const { t } = useI18n();
+  const can = useProcCan();
   const meta = PROC_STATUS_META[task.status];
   const requester = taskRequester(task);
   const pct = task.quantity > 0 ? Math.round((task.arrivedQty / task.quantity) * 100) : 0;
@@ -45,8 +46,8 @@ export function ProcurementTaskCard({ task, onOpen, onNext, onReassign, onRemove
       <div className="flex items-center justify-between text-[11px] text-slate-400">
         <span>{task.code}</span>
         <span className="flex items-center gap-2">
-          <span role="button" tabIndex={0} onClick={(e) => stop(e, () => onReassign?.(task))} className="cursor-pointer rounded px-1 py-0.5 hover:bg-slate-50 hover:text-slate-600">{t('转派')}</span>
-          <span role="button" tabIndex={0} onClick={(e) => stop(e, () => onRemove?.(task))} className="cursor-pointer rounded px-1 py-0.5 hover:bg-rose-50 hover:text-rose-600">{t('删除')}</span>
+          {can("proc-task:reassign") && <span role="button" tabIndex={0} onClick={(e) => stop(e, () => onReassign?.(task))} className="cursor-pointer rounded px-1 py-0.5 hover:bg-slate-50 hover:text-slate-600">{t('转派')}</span>}
+          {can("proc-task:delete") && <span role="button" tabIndex={0} onClick={(e) => stop(e, () => onRemove?.(task))} className="cursor-pointer rounded px-1 py-0.5 hover:bg-rose-50 hover:text-rose-600">{t('删除')}</span>}
         </span>
       </div>
 
@@ -88,7 +89,7 @@ export function ProcurementTaskCard({ task, onOpen, onNext, onReassign, onRemove
 
       {/* 下一步 + 负责人 */}
       <div className="mt-3 flex items-center justify-between">
-        {meta.next ? (
+        {meta.next && can(nextPermissionOf(task)) ? (
           <span
             role="button"
             tabIndex={0}

@@ -13,8 +13,14 @@ import {
   slotHistoryKey,
   type SlotHistoryEntry,
 } from '../chat/chat-streak.service';
+import {
+  CONTENT_SLOT_QUICK_SUGGESTIONS_KEY,
+  DEFAULT_QUICK_SUGGESTIONS,
+} from '../chat/chat-tools.service';
 
 export const CONTENT_SLOT_LOGIN_BG_KEY = 'content_slot.login_background';
+/** 运营素材 AI 生成月度上限配置 KV 键 */
+const GEN_BUDGET_KEY = 'content_slot.gen_budget';
 /** 登录背景 AI 每日生成的当日图存储键 */
 const LOGIN_BG_DAILY_KEY = 'content_slot_daily.login_background';
 /** 登录页默认背景（未配置静态素材 / 生成未就绪时回退） */
@@ -30,7 +36,7 @@ type SlotDef = {
   kvKey: string;
   name: string;
   location: string;
-  type: 'image' | 'text';
+  type: 'image' | 'text' | 'list';
   /** 生成/展示的归属：streak 由 MateChat 打卡服务负责，content 由本服务直接负责 */
   owner: 'streak' | 'content';
   modes: SlotMode[];
@@ -69,6 +75,19 @@ const SLOTS: SlotDef[] = [
     note: '这是生成文案用的 system 提示词；固定模式下改用下方「固定文案」',
   },
   {
+    key: 'matechat_quick_suggestions',
+    kvKey: CONTENT_SLOT_QUICK_SUGGESTIONS_KEY,
+    name: 'MateChat 快捷建议',
+    location: 'MateChat 输入框上方的快捷提问（个性化条目由系统按用户任务生成，此处配置通用兜底池）',
+    type: 'list',
+    owner: 'content',
+    modes: ['static', 'off'],
+    defaultMode: 'off',
+    defaultPrompt: '',
+    promptVars: [],
+    note: '固定模式使用下方自定义列表；关闭时使用系统内置默认建议',
+  },
+  {
     key: 'login_background',
     kvKey: CONTENT_SLOT_LOGIN_BG_KEY,
     name: '登录页背景图',
@@ -87,7 +106,9 @@ type SlotConfig = {
   mode: SlotMode;
   promptTemplate: string;
   staticImageObjectKey: string;
+  staticImagePool: string[];
   staticText: string;
+  staticList: string[];
 };
 
 @Injectable()
@@ -119,8 +140,29 @@ export class ContentSlotsService {
       promptTemplate:
         typeof v.promptTemplate === 'string' && v.promptTemplate.trim() ? v.promptTemplate : def.defaultPrompt,
       staticImageObjectKey: typeof v.staticImageObjectKey === 'string' ? v.staticImageObjectKey : '',
+      staticImagePool: this.parsePool(v.staticImagePool, v.staticImageObjectKey),
       staticText: typeof v.staticText === 'string' ? v.staticText : '',
+      staticList: Array.isArray(v.staticList)
+        ? v.staticList.map((x) => String(x).trim()).filter(Boolean)
+        : [],
     };
+  }
+
+  /** 解析图片池：优先 pool，回退旧单图 staticImageObjectKey（向后兼容） */
+  private parsePool(pool: unknown, single: unknown): string[] {
+    if (Array.isArray(pool)) {
+      const arr = pool.map((x) => String(x)).filter(Boolean);
+      if (arr.length > 0) return arr;
+    }
+    return typeof single === 'string' && single ? [single] : [];
+  }
+
+  /** 图片池按当日轮换选一张（同一天稳定、不同天变化） */
+  private pickFromPool(pool: string[]): string {
+    if (pool.length === 0) return '';
+    if (pool.length === 1) return pool[0];
+    const seed = [...this.today()].reduce((s, c) => s + c.charCodeAt(0), 0);
+    return pool[seed % pool.length];
   }
 
   private signStatic(objectKey: string): string | null {
@@ -133,7 +175,7 @@ export class ContentSlotsService {
       key: string;
       name: string;
       location: string;
-      type: 'image' | 'text';
+      type: 'image' | 'text' | 'list';
       modes: SlotMode[];
       prompt_vars: string[];
       note: string;
@@ -141,26 +183,31 @@ export class ContentSlotsService {
       mode: SlotMode;
       prompt_template: string;
       static_text: string;
+      static_list: string[];
       has_static_image: boolean;
-      current: { image_url: string | null; text: string | null; date: string | null } | null;
+      static_image_pool: Array<{ object_key: string; url: string | null }>;
+      current: { image_url: string | null; text: string | null; list: string[] | null; date: string | null } | null;
     }> = [];
     for (const def of SLOTS) {
       const config = await this.readConfig(def);
-      let current: { image_url: string | null; text: string | null; date: string | null } | null = null;
-      if (def.type === 'image') {
+      let current: { image_url: string | null; text: string | null; list: string[] | null; date: string | null } | null = null;
+      if (def.type === 'list') {
+        const list = config.mode === 'static' && config.staticList.length > 0 ? config.staticList : DEFAULT_QUICK_SUGGESTIONS;
+        current = { image_url: null, text: null, list, date: null };
+      } else if (def.type === 'image') {
         if (config.mode === 'static') {
-          current = { image_url: this.signStatic(config.staticImageObjectKey), text: null, date: null };
+          current = { image_url: this.signStatic(this.pickFromPool(config.staticImagePool)), text: null, list: null, date: null };
         } else if (def.key === 'matechat_mascot' && config.mode === 'ai_daily') {
           const m = await this.streakService.getCurrentMascot();
-          current = { image_url: m.url, text: null, date: m.date };
+          current = { image_url: m.url, text: null, list: null, date: m.date };
         } else if (def.key === 'login_background' && config.mode === 'ai_daily') {
           const daily = await this.readLoginBgDaily();
-          current = { image_url: daily.objectKey ? this.signStatic(daily.objectKey) : null, text: null, date: daily.date || null };
+          current = { image_url: daily.objectKey ? this.signStatic(daily.objectKey) : null, text: null, list: null, date: daily.date || null };
         } else if (def.key === 'login_background') {
-          current = { image_url: DEFAULT_LOGIN_BG, text: null, date: null };
+          current = { image_url: DEFAULT_LOGIN_BG, text: null, list: null, date: null };
         }
       } else if (config.mode === 'static') {
-        current = { image_url: null, text: config.staticText || null, date: null };
+        current = { image_url: null, text: config.staticText || null, list: null, date: null };
       }
       items.push({
         key: def.key,
@@ -174,7 +221,9 @@ export class ContentSlotsService {
         mode: config.mode,
         prompt_template: config.promptTemplate,
         static_text: config.staticText,
-        has_static_image: Boolean(config.staticImageObjectKey),
+        static_list: config.staticList,
+        has_static_image: config.staticImagePool.length > 0,
+        static_image_pool: config.staticImagePool.map((k) => ({ object_key: k, url: this.signStatic(k) })),
         current,
       });
     }
@@ -184,7 +233,14 @@ export class ContentSlotsService {
   /** 保存素材位配置（模式 + prompt + 固定文案 + 固定图 objectKey） */
   async updateConfig(
     key: string,
-    payload: { mode?: string; promptTemplate?: string; staticText?: string; staticImageObjectKey?: string },
+    payload: {
+      mode?: string;
+      promptTemplate?: string;
+      staticText?: string;
+      staticImageObjectKey?: string;
+      staticImagePool?: string[];
+      staticList?: string[];
+    },
   ) {
     const def = this.def(key);
     const current = await this.readConfig(def);
@@ -194,10 +250,13 @@ export class ContentSlotsService {
         : current.mode;
     if (!def.modes.includes(mode)) throw new BadRequestException('该素材位不支持此模式');
 
-    const newObjectKey =
-      typeof payload.staticImageObjectKey === 'string' && payload.staticImageObjectKey.trim()
-        ? payload.staticImageObjectKey.trim()
-        : current.staticImageObjectKey;
+    // 图片池：优先用传入的 pool；否则兼容旧单图字段（追加/替换到池）
+    let nextPool = current.staticImagePool;
+    if (Array.isArray(payload.staticImagePool)) {
+      nextPool = payload.staticImagePool.map((x) => String(x)).filter(Boolean).slice(0, 12);
+    } else if (typeof payload.staticImageObjectKey === 'string' && payload.staticImageObjectKey.trim()) {
+      nextPool = [...current.staticImagePool, payload.staticImageObjectKey.trim()].slice(0, 12);
+    }
     const next: SlotConfig = {
       mode,
       promptTemplate:
@@ -205,20 +264,21 @@ export class ContentSlotsService {
           ? payload.promptTemplate.trim()
           : current.promptTemplate,
       staticText: typeof payload.staticText === 'string' ? payload.staticText : current.staticText,
-      staticImageObjectKey: newObjectKey,
+      staticImageObjectKey: nextPool[0] ?? '', // 保留兼容字段指向池首项
+      staticImagePool: nextPool,
+      staticList: Array.isArray(payload.staticList)
+        ? payload.staticList.map((x) => String(x).trim()).filter(Boolean).slice(0, 12)
+        : current.staticList,
     };
     await this.prisma.systemSetting.upsert({
       where: { key: def.kvKey },
       create: { key: def.kvKey, category: 'content_slot', value: next, description: def.name },
       update: { value: next, description: def.name },
     });
-    // 新上传的固定图入历史
-    if (newObjectKey && newObjectKey !== current.staticImageObjectKey) {
-      await this.appendHistory(def.kvKey, {
-        date: this.today(),
-        objectKey: newObjectKey,
-        source: 'upload',
-      });
+    // 新增进池的图入历史
+    const added = nextPool.filter((k) => !current.staticImagePool.includes(k));
+    for (const objectKey of added) {
+      await this.appendHistory(def.kvKey, { date: this.today(), objectKey, source: 'upload' });
     }
     return { ok: true };
   }
@@ -257,6 +317,11 @@ export class ContentSlotsService {
   /** 立即重新生成 / 预览（仅 AI 模式的 streak 素材位支持） */
   async regenerate(key: string): Promise<{ image_url?: string | null; sample_text?: string }> {
     const def = this.def(key);
+    // 文案预览不消耗图像预算；图片生成受月度上限约束
+    if (def.type === 'image' && (await this.genBudgetExceeded())) {
+      const { monthly_cap, used_this_month } = await this.getGenBudget();
+      throw new BadRequestException(`本月 AI 生成已达上限（${used_this_month}/${monthly_cap}），请调高上限或下月再试`);
+    }
     if (def.key === 'matechat_mascot') {
       const m = await this.streakService.forceRegenerateMascot();
       return { image_url: m.url };
@@ -271,12 +336,50 @@ export class ContentSlotsService {
     throw new BadRequestException('该素材位不支持重新生成');
   }
 
+  // ── AI 生成成本闸门（月度次数上限）─────────────────────────────────────────
+
+  async getGenBudget(): Promise<{ monthly_cap: number; used_this_month: number }> {
+    const row = await this.prisma.systemSetting.findUnique({ where: { key: GEN_BUDGET_KEY }, select: { value: true } });
+    const v = (row?.value ?? {}) as { monthlyCap?: unknown };
+    const monthlyCap = typeof v.monthlyCap === 'number' && v.monthlyCap > 0 ? Math.floor(v.monthlyCap) : 0;
+    return { monthly_cap: monthlyCap, used_this_month: await this.countMonthlyAiGen() };
+  }
+
+  async saveGenBudget(monthlyCap: number): Promise<{ monthly_cap: number }> {
+    const cap = typeof monthlyCap === 'number' && monthlyCap > 0 ? Math.floor(monthlyCap) : 0;
+    await this.prisma.systemSetting.upsert({
+      where: { key: GEN_BUDGET_KEY },
+      create: { key: GEN_BUDGET_KEY, category: 'content_slot', value: { monthlyCap: cap }, description: '运营素材 AI 生成月度上限' },
+      update: { value: { monthlyCap: cap }, description: '运营素材 AI 生成月度上限' },
+    });
+    return { monthly_cap: cap };
+  }
+
+  /** 本月 AI 生成次数：统计各图片素材位历史里 source='ai' 且日期在当月的条目 */
+  private async countMonthlyAiGen(): Promise<number> {
+    const month = this.today().slice(0, 7); // YYYY-MM
+    const keys = [slotHistoryKey(CONTENT_SLOT_MASCOT_KEY), slotHistoryKey(CONTENT_SLOT_LOGIN_BG_KEY)];
+    let count = 0;
+    for (const key of keys) {
+      const row = await this.prisma.systemSetting.findUnique({ where: { key }, select: { value: true } });
+      const raw = ((row?.value as { items?: unknown })?.items ?? []) as SlotHistoryEntry[];
+      count += raw.filter((e) => e && e.source === 'ai' && typeof e.date === 'string' && e.date.startsWith(month)).length;
+    }
+    return count;
+  }
+
+  /** 闸门：达到月度上限时返回 true（force 手动重生成也受限，避免绕过）。上限 0 = 不限。 */
+  private async genBudgetExceeded(): Promise<boolean> {
+    const { monthly_cap, used_this_month } = await this.getGenBudget();
+    return monthly_cap > 0 && used_this_month >= monthly_cap;
+  }
+
   /** 登录页背景（公开，免鉴权）：AI 每日 > 静态素材 > 系统默认外链 */
   async getLoginBackground(): Promise<{ url: string }> {
     const def = this.def('login_background');
     const config = await this.readConfig(def);
     if (config.mode === 'static') {
-      const url = this.signStatic(config.staticImageObjectKey);
+      const url = this.signStatic(this.pickFromPool(config.staticImagePool));
       if (url) return { url };
     } else if (config.mode === 'ai_daily') {
       const daily = await this.readLoginBgDaily();
@@ -316,6 +419,10 @@ export class ContentSlotsService {
     const daily = await this.readLoginBgDaily();
     if (!force && daily.date === today && daily.objectKey) {
       return { url: this.signStatic(daily.objectKey) };
+    }
+    // 成本闸门：达到月度上限则不再自动生成（保留昨日/默认）
+    if (await this.genBudgetExceeded()) {
+      return { url: daily.objectKey ? this.signStatic(daily.objectKey) : null };
     }
     this.loginBgGenerating = true;
     try {

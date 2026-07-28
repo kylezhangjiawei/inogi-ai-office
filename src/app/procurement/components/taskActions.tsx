@@ -34,7 +34,7 @@ import {
   type Quotation,
 } from "../../lib/procurementApi";
 import { refreshProcurement } from "../data";
-import { fmtMoney } from "./common";
+import { BuyerSuggestDatalist, fmtMoney, useBuyerDirectory } from "./common";
 
 type FormKind = "quote" | "select" | "order" | "receive" | "reassign" | "confirm" | "test";
 
@@ -59,6 +59,31 @@ interface PendingForm {
  * 从卡片触发时只打开详情，不在卡片上弹决策框。
  */
 export const DECISION_STATUSES = ["inquiring", "testing"];
+
+/**
+ * 「下一步」按钮所需操作码（与后端各端点 @Permissions 一致），
+ * 供卡片/详情按码显隐按钮；终态无下一步返回 null。
+ */
+export function nextPermissionOf(task: ProcurementTask): string | null {
+  switch (task.status) {
+    case "pending_confirm":
+      return "proc-task:confirm";
+    case "pending_inquiry":
+    case "pending_sample":
+    case "testing":
+      return "proc-task:inquiry";
+    case "inquiring":
+      return "proc-task:select-quote";
+    case "priced":
+    case "pending_purchase":
+      return "proc-task:order";
+    case "in_transit":
+    case "partial_arrival":
+      return "proc-task:receive";
+    default:
+      return null;
+  }
+}
 
 /** 执行类动作的二次确认文案；返回 null 表示该状态走表单。 */
 function confirmSpecOf(task: ProcurementTask): ConfirmSpec | null {
@@ -215,6 +240,7 @@ function ActionModal({
 }) {
   const { t } = useI18n();
   const { kind, task, confirm } = pending;
+  const { resolveUserId } = useBuyerDirectory();
 
   const [supplierName, setSupplierName] = useState("");
   const [unitPrice, setUnitPrice] = useState("");
@@ -292,7 +318,8 @@ function ActionModal({
         toast.error(t("请填写采购负责人"));
         return;
       }
-      void onSubmit(() => reassignProcTask(task.id, buyer.trim()), t("已转派"));
+      // 命中用户目录时同步落 buyerUserId（同名冲突时只存名字）
+      void onSubmit(() => reassignProcTask(task.id, buyer.trim(), resolveUserId(buyer.trim())), t("已转派"));
     }
   };
 
@@ -424,7 +451,7 @@ function ActionModal({
           )}
 
           {kind === "reassign" && (
-            <div><span className={label}>{t("采购负责人")}</span><input value={buyer} onChange={(e) => setBuyer(e.target.value)} className={field} /></div>
+            <div><span className={label}>{t("采购负责人")}</span><input value={buyer} onChange={(e) => setBuyer(e.target.value)} list="proc-buyer-list" className={field} /><BuyerSuggestDatalist /></div>
           )}
         </div>
 

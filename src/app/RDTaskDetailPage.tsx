@@ -128,6 +128,8 @@ export default function RDTaskDetailPage() {
   const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
   const [generatingIssue, setGeneratingIssue] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
+  // 转采购操作码（系统管理·权限目录可配），已转的跳转芯片保持只读可见
+  const canTransferProc = useAnyPermission("proc-task:transfer");
   const [showMove, setShowMove] = useState(false);
   const [categories, setCategories] = useState<RdCategory[]>([]);
   const [products, setProducts] = useState<RdProductDef[]>([]);
@@ -1015,7 +1017,7 @@ export default function RDTaskDetailPage() {
                     task={procTask}
                     onJump={(procTaskId) => navigate(`/proc-cockpit?task=${encodeURIComponent(procTaskId)}`)}
                   />
-                ) : (
+                ) : canTransferProc ? (
                   <Button
                     type="button"
                     variant="outline"
@@ -1027,7 +1029,7 @@ export default function RDTaskDetailPage() {
                     <ShoppingCart className="h-3.5 w-3.5" />
                     {t("转采购")}
                   </Button>
-                )}
+                ) : null}
                 <Button
                   type="button"
                   variant="outline"

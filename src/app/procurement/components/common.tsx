@@ -1,14 +1,86 @@
 // 采购模块 · 共享展示组件与元数据（复刻研发驾驶舱同款视觉）。
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import { useAuth } from "../../auth";
 import { cn } from "../../components/ui/utils";
 import { useAvatarDirectory } from "../../lib/userAvatar";
+import { hasPermission } from "../../lib/permissions";
 import { i18nLocale, t as translate, useI18n } from "../../lib/i18n";
-import { taskMainDate, type BusinessLine, type ProcMethod, type ProcSource, type ProcStatus, type ProcurementTask } from "../data";
+import { listBuyerCandidates, type BuyerCandidate } from "../../lib/procurementApi";
+import { taskMainDate, useProcurementData, type BusinessLine, type ProcMethod, type ProcSource, type ProcStatus, type ProcurementTask } from "../data";
 
 /** 数据变更类动作统一轻提示（本阶段不接逻辑）。 */
 export function stageToast() {
   toast.info(translate("流程逻辑将在下一阶段接入"));
+}
+
+/**
+ * 操作码判断（动态码版）：can('proc-task:reassign')。
+ * 码在系统管理 · 权限目录里配置到角色；固定码场景用 usePermission 即可。
+ */
+export function useProcCan() {
+  const { user } = useAuth();
+  const permissions = user?.permissions;
+  return useCallback(
+    (code: string | null | undefined) => Boolean(code && hasPermission(permissions ?? [], code)),
+    [permissions],
+  );
+}
+
+// ── 负责人目录（转派/建单人员选择）──────────────────────────────────────────
+// 来源 GET /procurement/buyers（全部启用用户），并入现有任务里的历史负责人名。
+// 模块级单例 + Promise 去重：一次会话只拉一次。
+
+let buyerCache: BuyerCandidate[] | null = null;
+let buyerPromise: Promise<BuyerCandidate[]> | null = null;
+
+function loadBuyersOnce(): Promise<BuyerCandidate[]> {
+  if (buyerCache) return Promise.resolve(buyerCache);
+  if (!buyerPromise) {
+    buyerPromise = listBuyerCandidates()
+      .then((list) => { buyerCache = list; return list; })
+      .catch(() => { buyerPromise = null; return [] as BuyerCandidate[]; });
+  }
+  return buyerPromise;
+}
+
+/**
+ * 负责人目录：suggestions 供输入建议；resolveUserId 把输入的姓名映射为 userId
+ * （同名多人时返回 undefined，宁可只存名字也不张冠李戴，与头像目录同原则）。
+ */
+export function useBuyerDirectory() {
+  const { tasks } = useProcurementData();
+  const [users, setUsers] = useState<BuyerCandidate[]>(buyerCache ?? []);
+  useEffect(() => {
+    let alive = true;
+    void loadBuyersOnce().then((list) => { if (alive) setUsers(list); });
+    return () => { alive = false; };
+  }, []);
+  return useMemo(() => {
+    const idByName = new Map<string, string | null>(); // null = 同名冲突
+    const deptByName = new Map<string, string | undefined>();
+    for (const u of users) {
+      idByName.set(u.name, idByName.has(u.name) ? null : u.id);
+      if (!deptByName.has(u.name)) deptByName.set(u.name, u.department);
+    }
+    const names = new Set(users.map((u) => u.name));
+    for (const task of tasks) if (task.buyer) names.add(task.buyer);
+    return {
+      suggestions: Array.from(names),
+      deptOf: (name: string) => deptByName.get(name),
+      resolveUserId: (name: string): string | undefined => idByName.get(name) ?? undefined,
+    };
+  }, [users, tasks]);
+}
+
+/** 负责人输入建议：渲染一次，input 上加 list="proc-buyer-list"。 */
+export function BuyerSuggestDatalist() {
+  const { suggestions, deptOf } = useBuyerDirectory();
+  return (
+    <datalist id="proc-buyer-list">
+      {suggestions.map((name) => <option key={name} value={name} label={deptOf(name)} />)}
+    </datalist>
+  );
 }
 
 export const fmtMoney = (n?: number) => (typeof n === "number" ? `¥${n.toLocaleString(i18nLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—");

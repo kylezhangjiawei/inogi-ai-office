@@ -230,6 +230,14 @@ export class ReassignProcTaskDto {
   buyer!: string;
 }
 
+/** 批量转派：事务内整体成功或整体回滚。 */
+export class BatchReassignDto extends ReassignProcTaskDto {
+  @IsArray()
+  @ArrayMaxSize(200)
+  @IsString({ each: true })
+  taskIds!: string[];
+}
+
 /**
  * 手工登记到货（过渡期）。
  * T+ 接通后到货以同步为准，此入口应改为只读——届时删掉本 DTO 与对应端点即可。
@@ -390,6 +398,65 @@ export class UpsertMaterialDto {
   remark?: string;
 }
 
+/** AI 建单：粘贴自然语言需求（或含商品链接），解析出建单草稿。 */
+export class AiParseTaskDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(4000)
+  text!: string;
+}
+
+/** 分类重命名/合并：目标名已存在即为合并，两个分类下的物料归到一起。 */
+export class RenameCategoryDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  from!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(100)
+  to!: string;
+}
+
+/** 畅捷通 T+ 集成配置：appSecret 走 HTTPS 明文传输、落库加密；不传则保留已存值。 */
+export class TplusConfigDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  baseUrl?: string;
+
+  /** 不传则保留已存值（如仅切换 autoSync 开关）；首次配置必须传。 */
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  appKey?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(256)
+  appSecret?: string;
+
+  /** OAuth 回调地址：须与开放平台应用配置一致，换 token 时要原样带上。 */
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  redirectUri?: string;
+
+  /** 每日自动同步开关（默认开启；不传则保留已存值）。 */
+  @IsOptional()
+  @IsBoolean()
+  autoSync?: boolean;
+}
+
+/** 手动粘贴授权码换 token（回调直达不可用时的兜底）。 */
+export class TplusExchangeCodeDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(512)
+  code!: string;
+}
+
 export class ReviewMaterialDto {
   @IsIn(['approved', 'rejected'])
   reviewStatus!: 'approved' | 'rejected';
@@ -398,6 +465,50 @@ export class ReviewMaterialDto {
   @IsString()
   @MaxLength(500)
   reviewNote?: string;
+}
+
+/** BOM 树节点：机型/部件/组件为中间层，叶子为原料（code 按 T+ 存货编码匹配物料）。 */
+export class BomNodeInputDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  code?: string;
+
+  /** 根节点机型（R1 / R2 / 通用），子孙继承。 */
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  productLine?: string;
+
+  /** 单机用量（叶子原料）。 */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  qtyPer?: number;
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => BomNodeInputDto)
+  children?: BomNodeInputDto[];
+}
+
+export class ImportBomDto {
+  @IsArray()
+  @ArrayMaxSize(500)
+  @ValidateNested({ each: true })
+  @Type(() => BomNodeInputDto)
+  roots!: BomNodeInputDto[];
+
+  /** true 则先清空现有 BOM 再导入（全量替换）。 */
+  @IsOptional()
+  @IsBoolean()
+  replace?: boolean;
 }
 
 export class ImportMaterialsDto {
