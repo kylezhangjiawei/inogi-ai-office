@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   AlertTriangle,
@@ -44,6 +44,7 @@ import { MateChatStreakCardConnected } from "./components/matechat/MateChatStrea
 import { usePermission } from "./hooks/usePermission";
 import { useAuth } from "./auth";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
+import { RDTaskConversation } from "./RDTaskConversation";
 import { AuditTimeline } from "./RDAuditTimeline";
 import { ProgressAttachmentGrid, ProgressNoteList } from "./RDProgressEvidence";
 import { AuditActor, recordAudit, syncAuditLogsFromRemote, useAuditActor, useAuditLogs } from "./lib/auditLog";
@@ -66,7 +67,9 @@ import {
   fetchRdTaskProgressNotes,
   fetchRdWorkspace,
   moveRdTasks,
+  parseRdDiscussionMention,
   patchRdMessage,
+  rdDiscussionMentionHref,
   updateRdTask,
   type RdAiProgressAssessment,
   type RdCategory,
@@ -97,7 +100,7 @@ import { toast } from "sonner";
 type Priority = RdPriority;
 type TaskStatus = RdTaskStatus;
 type TaskRole = "primary" | "collaborator";
-type OperationTab = "detail" | "progress" | "handoff" | "submit";
+type OperationTab = "detail" | "discussion" | "progress" | "handoff" | "submit";
 type WorkspaceTask = RdWorkspaceTask;
 type AiSuggestion = RdAiSuggestion;
 type WorkspaceNotification = RdWorkspaceNotification;
@@ -776,6 +779,7 @@ function TaskOperationDrawer({
   const taskLogs = useAuditLogs({ resourceType: "task", resourceId: task.task_id });
   const [progressNotes, setProgressNotes] = useState<RdTaskProgressNote[]>([]);
   const [progressNotesReloadKey, setProgressNotesReloadKey] = useState(0);
+  const [discussionUnread, setDiscussionUnread] = useState(0);
   // 拉取本任务的进度留痕，把其中的附件/照片挂到「操作留痕」对应记录下展示。
   useEffect(() => {
     let cancelled = false;
@@ -974,8 +978,9 @@ function TaskOperationDrawer({
     .filter((person) => selectedCollaboratorKeys.has(rdPersonOptionValue(person)))
     .map(personToCollaborator);
 
-  const tabConfig: { key: OperationTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  const tabConfig: { key: OperationTab; label: string; icon: React.ComponentType<{ className?: string }>; count?: number }[] = [
     { key: "detail", label: t("任务详情"), icon: FileText },
+    { key: "discussion", label: t("任务讨论"), icon: MessageSquare, count: discussionUnread },
     { key: "progress", label: t("更新进度"), icon: RefreshCw },
     { key: "handoff", label: t("移交协作"), icon: GitBranch },
     { key: "submit", label: t("提交结果"), icon: Send },
@@ -1520,7 +1525,7 @@ function TaskOperationDrawer({
           </div>
         ) : (
           <>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(7rem,1fr))] gap-2">
               {tabConfig.map((item) => (
                 <button
                   key={item.key}
@@ -1538,11 +1543,16 @@ function TaskOperationDrawer({
                 >
                   <item.icon className="h-3.5 w-3.5" />
                   {item.label}
+                  {item.count != null && item.count > 0 && (
+                    <span className="min-w-4 rounded-full bg-rose-500 px-1 text-center text-[9px] leading-4 text-white">
+                      {item.count > 99 ? "99+" : item.count}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
 
-            <FlowSteps steps={flowSteps} />
+            {tab !== "discussion" && <FlowSteps steps={flowSteps} />}
           </>
         )}
 
@@ -1947,6 +1957,19 @@ function TaskOperationDrawer({
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {tab === "discussion" && (
+          <div className="h-[min(680px,calc(100dvh-220px))] min-h-[420px] overflow-hidden rounded-xl border border-slate-200">
+            <RDTaskConversation
+              taskId={task.task_id}
+              taskTitle={task.title}
+              notes={progressNotes}
+              mode="task"
+              variant="desktop"
+              onUnreadChange={setDiscussionUnread}
+            />
           </div>
         )}
 
@@ -2587,6 +2610,7 @@ function NotificationDrawer({
   onClose,
   onDismiss,
   onOpenTask,
+  onOpenDiscussion,
   canReview,
   onApprove,
   onReject,
@@ -2597,6 +2621,7 @@ function NotificationDrawer({
   onClose: () => void;
   onDismiss: () => void;
   onOpenTask: (task: WorkspaceTask, tab: OperationTab) => void;
+  onOpenDiscussion: (notification: WorkspaceNotification) => void;
   canReview?: boolean;
   onApprove?: () => void | Promise<void>;
   onReject?: (reason: string) => Promise<void>;
@@ -2618,6 +2643,7 @@ function NotificationDrawer({
   const isReviewRequest = msgBodyType === "review_request";
   const isReviewResult = msgBodyType === "review_result";
   const isPerfSelfAssessment = msgBodyType === "perf_self_assessment";
+  const discussionMention = parseRdDiscussionMention(notification.raw_body);
 
   // review_request fields
   const reviewType = isReviewRequest ? String(parsedBody!.review_type ?? "") : "";
@@ -2858,6 +2884,12 @@ function NotificationDrawer({
 
         {/* ── Action buttons ── */}
         <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-4">
+          {discussionMention && (
+            <ActionButton variant="primary" onClick={() => onOpenDiscussion(notification)}>
+              {t("查看并回复")}
+              <ArrowRight className="h-3.5 w-3.5" />
+            </ActionButton>
+          )}
           {showReviewButtons && (
             <>
               <ActionButton variant="primary" onClick={doApprove} disabled={isActing}>
@@ -3536,6 +3568,7 @@ function SubsystemPanorama({
 
 export function RDMyWorkspacePage() {
   useI18n(); // 订阅语言切换（页头/过滤条/任务卡/通知中心文案已 t() 化）
+  const navigate = useNavigate();
   const { user } = useAuth();
   const canProposeProject = usePermission(PERMISSIONS.RD_PROJECT_PROPOSE);
   const WORKSPACE_AUDIT_ACTOR = useAuditActor("研发成员");
@@ -3759,25 +3792,32 @@ export function RDMyWorkspacePage() {
 
   // ── 评论未读红点（微信式）：任务级未读数，打开任务即标记已读（全端同步消失）──
   const [noteUnread, setNoteUnread] = useState<Record<string, number>>({});
-  useEffect(() => {
-    let cancelled = false;
-    fetchRdNoteUnreadSummary()
-      .then((summary) => { if (!cancelled) setNoteUnread(summary); })
+  const refreshNoteUnread = useCallback(() => {
+    return fetchRdNoteUnreadSummary()
+      .then(setNoteUnread)
       .catch(() => {});
-    return () => { cancelled = true; };
   }, []);
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "visible") void refreshNoteUnread();
+    };
+    const interval = window.setInterval(refresh, 15_000);
+    void refreshNoteUnread();
+    window.addEventListener("focus", refresh);
+    window.addEventListener("rd:discussion-updated", refresh);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("rd:discussion-updated", refresh);
+    };
+  }, [refreshNoteUnread]);
 
   const openTask = (task: WorkspaceTask, tab: OperationTab, opts?: { abandon?: boolean }) => {
     setActivePanel({ kind: "task", task, tab, openedAt: Date.now(), abandon: opts?.abandon });
-    // 点开即读：乐观清除本地红点 + 上报服务端位点（失败不打扰，下次拉取自然校正）
-    if (noteUnread[task.task_id]) {
-      setNoteUnread((prev) => {
-        const next = { ...prev };
-        delete next[task.task_id];
-        return next;
-      });
-    }
-    void markRdTaskNotesRead(task.task_id).catch(() => {});
+    // 正式留痕与讨论使用不同已读游标；打开任务只清正式留痕，讨论需实际打开对应会话。
+    void markRdTaskNotesRead(task.task_id)
+      .catch(() => {})
+      .finally(() => { void refreshNoteUnread(); });
   };
 
   // 深链定位：MateChat 参考来源 / 通知等带 ?task=<编号> 进来时，任务数据就绪后自动打开该任务详情并锁定，
@@ -4556,6 +4596,14 @@ export function RDMyWorkspacePage() {
             })
           }
           onOpenTask={(task, tab) => setActivePanel({ kind: "task", task, tab, openedAt: Date.now() })}
+          onOpenDiscussion={(notification) => {
+            const body = parseRdDiscussionMention(notification.raw_body);
+            if (!body) return;
+            navigate(rdDiscussionMentionHref(body, {
+              notificationId: notification.id,
+              createdAt: notification.created_at,
+            }));
+          }}
           canReview={canReview}
           onSelfAssess={() => {
             const notif = activePanel!.kind === "notification" ? activePanel!.notification : null;

@@ -195,6 +195,71 @@ model SystemSetting {
   updatedAt   DateTime @updatedAt
 }
 
+/// 研发/中美协同任务的上下文讨论线程。
+/// 主会话使用 anchorType=task；围绕进度或消息展开的原位讨论分别使用
+/// anchorType=progress_note / message。workspace 与 JSON 任务池的命名空间保持一致。
+model RdTaskDiscussionThread {
+  id           String                        @id
+  workspace    String                        @default("rd")
+  taskId       String
+  anchorType   String                        @default("task")
+  anchorId     String?
+  messages     RdTaskDiscussionMessage[]
+  reads        RdTaskDiscussionRead[]
+  participants RdTaskDiscussionParticipant[]
+  createdAt    DateTime                      @default(now())
+  updatedAt    DateTime                      @updatedAt
+
+  @@index([workspace, taskId, updatedAt])
+  @@index([workspace, taskId, anchorType, anchorId])
+}
+
+/// 讨论消息与进度留痕相互独立：聊天可以引用、回复，正式进度/审计仍保持不可变。
+model RdTaskDiscussionMessage {
+  id         String                    @id @default(cuid())
+  threadId   String
+  thread     RdTaskDiscussionThread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  authorId   String?
+  authorName String
+  authorRole String?
+  body       String                    @db.Text
+  attachments Json                    @default("[]")
+  mentions   Json                      @default("[]")
+  replyToId  String?
+  replyTo    RdTaskDiscussionMessage?  @relation("RdTaskDiscussionReplies", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies    RdTaskDiscussionMessage[] @relation("RdTaskDiscussionReplies")
+  createdAt  DateTime                  @default(now())
+  editedAt   DateTime?
+
+  @@index([threadId, createdAt])
+  @@index([replyToId])
+}
+
+/// 每位成员在每个线程里的已读游标；打开一个线程不会误清除其他讨论的未读。
+model RdTaskDiscussionRead {
+  threadId  String
+  thread    RdTaskDiscussionThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  userId    String
+  lastReadAt DateTime               @default(now())
+
+  @@id([threadId, userId])
+  @@index([userId, lastReadAt])
+}
+
+/// 被 @ 的非任务协作者只获得当前线程的临时参与权，不扩大为整项任务的查看或编辑权限。
+model RdTaskDiscussionParticipant {
+  threadId      String
+  thread        RdTaskDiscussionThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  userId        String
+  invitedById   String?
+  invitedByName String
+  invitedAt     DateTime               @default(now())
+  revokedAt     DateTime?
+
+  @@id([threadId, userId])
+  @@index([userId, revokedAt, invitedAt])
+}
+
 model PermissionCatalogItem {
   id          String   @id @default(cuid())
   code        String   @unique

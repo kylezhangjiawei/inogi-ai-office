@@ -10,10 +10,12 @@ import {
   ChevronRight,
   Download,
   FileText,
+  History,
   Info,
   LayoutGrid,
   ListChecks,
   Loader2,
+  MessageCircleMore,
   Pencil,
   Plus,
   Search,
@@ -47,10 +49,12 @@ import {
   createRdTask,
   deleteRdTask,
   fetchRdDirectorDashboard,
+  fetchRdNoteUnreadSummary,
   fetchRdPeople,
   fetchRdTaskCategories,
   fetchRdTaskProgressNotes,
   fetchRdTaskProgressNoteMap,
+  markRdTaskNotesRead,
   recomputeRdDirectorDashboard,
   saveRdTaskCategories,
   sendRdMessage,
@@ -68,12 +72,12 @@ import {
   type RdTask,
   type RdTaskProgressNote,
   type RdTaskStatus,
-  getAttachmentUrl,
 } from "./lib/rdApi";
 import { ProgressAttachmentGrid } from "./RDProgressEvidence";
+import { RDTaskConversation } from "./RDTaskConversation";
 import { RDReportsPanel } from "./RDReportsPanel";
 import { RDPerformanceAssessmentPanel } from "./RDPerformanceAssessmentPanel";
-import { i18nLocale, t as translate, useI18n } from "./lib/i18n";
+import { t as translate, useI18n } from "./lib/i18n";
 
 const DIRECTOR_MOTION_EASE = [0.22, 1, 0.36, 1] as [number, number, number, number];
 const DIRECTOR_FAST_TRANSITION = { duration: 0.18, ease: DIRECTOR_MOTION_EASE };
@@ -151,13 +155,6 @@ const EMPTY_DIRECTOR_DASHBOARD: DirectorDashboardPayload = {
   blockedTasks: [],
   pendingAssign: [],
 };
-
-function formatBytes(size: number): string {
-  if (!Number.isFinite(size) || size <= 0) return "0 B";
-  if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(1)} MB`;
-  if (size >= 1024) return `${Math.ceil(size / 1024)} KB`;
-  return `${size} B`;
-}
 
 function normalizeDirectorDashboard(payload: Partial<DirectorDashboardPayload> | null | undefined): DirectorDashboardPayload {
   return {
@@ -540,6 +537,8 @@ function TaskDetailDrawer({
   onReviewTask,
   onUpdate,
   onDelete,
+  unreadCount = 0,
+  onDiscussionActivity,
 }: {
   task: TaskDetail;
   onClose: () => void;
@@ -548,7 +547,10 @@ function TaskDetailDrawer({
   onReviewTask?: (task: TaskDetail, decision: "approved" | "rejected") => void;
   onUpdate?: () => void;
   onDelete?: () => void;
+  unreadCount?: number;
+  onDiscussionActivity?: () => void;
 }) {
+  const shouldReduceMotion = useReducedMotion();
   const DIRECTOR_AUDIT_ACTOR = useAuditActor("研发主管");
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
@@ -565,16 +567,31 @@ function TaskDetailDrawer({
   const [deleting, setDeleting] = useState(false);
   const [progressNotes, setProgressNotes] = useState<RdTaskProgressNote[]>([]);
   const [notesLoading, setNotesLoading] = useState(false);
+  const [notesError, setNotesError] = useState<string | null>(null);
+  const [drawerTab, setDrawerTab] = useState<"progress" | "conversation" | "overview" | "audit">("progress");
 
-  useEffect(() => {
+  const loadProgressNotes = useCallback(() => {
     let cancelled = false;
     setNotesLoading(true);
+    setNotesError(null);
     fetchRdTaskProgressNotes(task.task_id)
-      .then((list) => { if (!cancelled) setProgressNotes(list); })
-      .catch(() => { if (!cancelled) setProgressNotes([]); })
+      .then((list) => {
+        if (cancelled) return;
+        setProgressNotes(list);
+        void markRdTaskNotesRead(task.task_id)
+          .catch(() => {})
+          .finally(() => onDiscussionActivity?.());
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        setProgressNotes([]);
+        setNotesError(error instanceof Error ? error.message : translate("进度留痕加载失败"));
+      })
       .finally(() => { if (!cancelled) setNotesLoading(false); });
     return () => { cancelled = true; };
-  }, [task.task_id]);
+  }, [onDiscussionActivity, task.task_id]);
+
+  useEffect(() => loadProgressNotes(), [loadProgressNotes]);
 
   const sCfg = TASK_STATUS_CONFIG[isEditing ? editForm.status : task.status] ?? TASK_STATUS_CONFIG.in_progress;
   const pCfg = TASK_PRIORITY_CONFIG[isEditing ? editForm.priority : task.priority] ?? TASK_PRIORITY_CONFIG.medium;
@@ -662,15 +679,20 @@ function TaskDetailDrawer({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex justify-end bg-slate-900/30 backdrop-blur-sm animate-rd-fade-in"
+      className="fixed inset-0 z-[70] flex justify-end bg-slate-900/30 backdrop-blur-sm animate-rd-fade-in"
     >
       <div
-        className="flex h-full w-full max-w-[620px] flex-col overflow-hidden border-l border-slate-100 bg-white shadow-[-12px_0_40px_rgba(15,23,42,0.12)] animate-in slide-in-from-right duration-300 sm:w-[min(620px,92vw)]"
+        className={cn(
+          "flex h-full w-full flex-col overflow-hidden border-l border-slate-100 bg-white shadow-[-12px_0_40px_rgba(15,23,42,0.12)] transition-[max-width,width] duration-300 ease-out animate-in slide-in-from-right",
+          drawerTab === "conversation" || drawerTab === "progress"
+            ? "max-w-[1000px] sm:w-[min(1000px,96vw)]"
+            : "max-w-[620px] sm:w-[min(620px,92vw)]",
+        )}
       >
         {/* Header */}
-        <header className="flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-6 py-4">
+        <header className="flex items-start justify-between gap-3 border-b border-slate-100 bg-white px-5 py-3">
           <div className="min-w-0 flex-1">
-            <div className="mb-1.5 flex items-center gap-2">
+            <div className="mb-1 flex items-center gap-2">
               <span className="font-mono text-xs text-slate-400">{task.task_id}</span>
               <span className={cn("inline-flex min-w-[72px] items-center justify-center gap-1 rounded-md border px-2 py-0.5 text-[11px] font-semibold", sCfg.bg, sCfg.text, sCfg.border)}>
                 <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
@@ -684,7 +706,10 @@ function TaskDetailDrawer({
           <div className="flex shrink-0 items-center gap-1">
             {canEditTask && !isEditing && (
               <button
-                onClick={() => setIsEditing(true)}
+                onClick={() => {
+                  setDrawerTab("overview");
+                  setIsEditing(true);
+                }}
                 className="rounded-md p-1.5 text-slate-400 transition-colors hover:bg-indigo-50 hover:text-indigo-600"
                 aria-label={translate("编辑任务")}
                 title={translate("编辑任务")}
@@ -831,7 +856,49 @@ function TaskDetailDrawer({
           </div>
         )}
 
+        {!isEditing && (
+          <nav className="flex shrink-0 items-center gap-1 border-b border-slate-100 bg-white px-4 py-1.5" aria-label={translate("任务详情视图")}>
+            {([
+              { key: "progress", label: translate("进度留痕"), icon: History },
+              { key: "conversation", label: translate("任务讨论"), icon: MessageCircleMore },
+              { key: "overview", label: translate("任务概览"), icon: LayoutGrid },
+              { key: "audit", label: translate("操作记录"), icon: ListChecks },
+            ] as const).map((item) => {
+              const Icon = item.icon;
+              const active = drawerTab === item.key;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setDrawerTab(item.key)}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "relative flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400",
+                    active ? "bg-indigo-50 text-indigo-700" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800",
+                  )}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                  {item.label}
+                  {item.key === "conversation" && unreadCount > 0 && (
+                    <span className="min-w-4 rounded-full bg-rose-500 px-1 text-center text-[9px] leading-4 text-white">
+                      {unreadCount > 99 ? "99+" : unreadCount}
+                    </span>
+                  )}
+                  {active && (
+                    <motion.span
+                      layoutId={`task-drawer-tab-${task.task_id}`}
+                      className="absolute inset-x-3 -bottom-1.5 h-0.5 rounded-full bg-indigo-600"
+                      transition={shouldReduceMotion ? { duration: 0 } : DIRECTOR_FAST_TRANSITION}
+                    />
+                  )}
+                </button>
+              );
+            })}
+          </nav>
+        )}
+
         {/* Content */}
+        {drawerTab === "overview" && (
         <div className="flex-1 space-y-5 overflow-auto px-6 py-5">
           {/* Blocked banner */}
           {task.status === "paused_blocked" && task.blocked_reason && (
@@ -939,91 +1006,50 @@ function TaskDetailDrawer({
             </section>
           )}
 
-          {/* Progress notes from workspace updates */}
-          <section>
-            <div className="mb-3 flex items-center justify-between">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">{translate("进度记录")}</h4>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
-                {notesLoading ? translate("加载中") : translate("{count} 条", { count: progressNotes.length })}
-              </span>
-            </div>
-            {notesLoading ? (
-              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-3 py-4 text-center text-xs text-slate-400">
-                {translate("读取中…")}
-              </div>
-            ) : progressNotes.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50/60 px-3 py-4 text-center text-xs text-slate-400">
-                {translate("暂无进度记录")}
-              </div>
-            ) : (
-              <ul className="space-y-3">
-                {progressNotes.map((note) => (
-                  <li key={note.id} className="rounded-lg border border-slate-200 bg-white p-3">
-                    <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
-                      <span className="font-medium text-slate-700">
-                        {note.actor.name}
-                        {note.actor.role ? <span className="ml-1 text-slate-400">· {note.actor.role}</span> : null}
-                      </span>
-                      <span className="tabular-nums">{new Date(note.created_at).toLocaleString(i18nLocale())}</span>
-                    </div>
-                    {typeof note.progress === "number" && (
-                      <div className="mt-1.5 inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">
-                        {translate("进度更新至 {progress}%", { progress: note.progress })}
-                      </div>
-                    )}
-                    <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-slate-800">{note.text}</p>
-                    {note.attachments.length > 0 && (
-                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                        {note.attachments.map((att) => {
-                          const isImage = att.mime.startsWith("image/");
-                          const attUrl = getAttachmentUrl(att);
-                          return isImage ? (
-                            <a
-                              key={att.id}
-                              href={attUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="group block overflow-hidden rounded-md border border-slate-200 bg-slate-50"
-                              title={`${att.name} · ${formatBytes(att.size)}`}
-                            >
-                              <img src={attUrl} alt={att.name} className="h-32 w-full object-cover transition-transform group-hover:scale-105" />
-                              <div className="truncate px-2 py-1 text-[10px] text-slate-500">{att.name}</div>
-                            </a>
-                          ) : (
-                            <a
-                              key={att.id}
-                              href={attUrl}
-                              download={att.name}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-2.5 py-2 text-xs text-slate-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50/40 hover:text-indigo-700"
-                            >
-                              <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />
-                              <span className="min-w-0 flex-1 truncate">{att.name}</span>
-                              <span className="shrink-0 text-[10px] text-slate-400">{formatBytes(att.size)}</span>
-                            </a>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+        </div>
+        )}
 
-          <section>
-            <div className="mb-3 flex items-center justify-between">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500">{translate("操作留痕")}</h4>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+        {drawerTab === "progress" && (
+          <RDTaskConversation
+            taskId={task.task_id}
+            taskTitle={task.title}
+            notes={progressNotes}
+            mode="progress"
+            notesLoading={notesLoading}
+            notesError={notesError}
+            onRetryNotes={loadProgressNotes}
+            variant="desktop"
+            onActivity={onDiscussionActivity}
+          />
+        )}
+
+        {drawerTab === "conversation" && (
+          <RDTaskConversation
+            taskId={task.task_id}
+            taskTitle={task.title}
+            notes={progressNotes}
+            mode="task"
+            variant="desktop"
+            onActivity={onDiscussionActivity}
+          />
+        )}
+
+        {drawerTab === "audit" && (
+          <div className="cockpit-scroll min-h-0 flex-1 overflow-y-auto px-6 py-5">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <h4 className="text-sm font-bold text-slate-900">{translate("操作记录")}</h4>
+                <p className="mt-0.5 text-xs text-slate-500">{translate("系统动作与审批记录保持不可修改")}</p>
+              </div>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-semibold text-slate-600">
                 {translate("{count} 条", { count: taskLogs.length })}
               </span>
             </div>
             <AuditTimeline logs={taskLogs} showResource={false} emptyText={translate("暂无此任务的操作记录")} />
-          </section>
-        </div>
+          </div>
+        )}
 
-        {!isEditing && (canReassignTask || (canEditTask && task.status !== "completed")) && (
+        {!isEditing && drawerTab === "overview" && (canReassignTask || (canEditTask && task.status !== "completed")) && (
           <footer className="flex items-center gap-2 border-t border-slate-100 bg-white px-6 py-3">
             {task.status === "pending_review" && canEditTask ? (
               <>
@@ -2775,6 +2801,7 @@ export function RDDirectorDashboardPage() {
   const [showCreateTask, setShowCreateTask] = useState(false);
   const [showClearData, setShowClearData] = useState(false);
   const [dashboard, setDashboard] = useState<DirectorDashboardPayload>(EMPTY_DIRECTOR_DASHBOARD);
+  const [noteUnread, setNoteUnread] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const canReassignTasks = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
@@ -2787,6 +2814,29 @@ export function RDDirectorDashboardPage() {
 
   const isMountedRef = useRef(true);
   useEffect(() => () => { isMountedRef.current = false; }, []);
+
+  const refreshNoteUnread = useCallback(() => {
+    return fetchRdNoteUnreadSummary()
+      .then((summary) => {
+        if (isMountedRef.current) setNoteUnread(summary);
+      })
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "visible") void refreshNoteUnread();
+    };
+    const interval = window.setInterval(refresh, 15_000);
+    void refreshNoteUnread();
+    window.addEventListener("focus", refresh);
+    window.addEventListener("rd:discussion-updated", refresh);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("rd:discussion-updated", refresh);
+    };
+  }, [refreshNoteUnread]);
 
   const loadDashboard = useCallback(() => {
     setLoading(true);
@@ -3485,7 +3535,17 @@ export function RDDirectorDashboardPage() {
                               className="cursor-pointer transition-colors hover:bg-slate-50/80"
                             >
                               <td className="px-3 py-3">
-                                <div className="max-w-[300px] truncate font-medium text-slate-800">{task.title}</div>
+                                <div className="flex max-w-[300px] items-center gap-1.5">
+                                  <span className="min-w-0 truncate font-medium text-slate-800">{task.title}</span>
+                                  {(noteUnread[task.task_id] ?? 0) > 0 && (
+                                    <span
+                                      className="min-w-5 shrink-0 rounded-full bg-rose-500 px-1.5 text-center text-[10px] font-bold leading-5 text-white"
+                                      aria-label={translate("{n} 条未读讨论", { n: noteUnread[task.task_id] })}
+                                    >
+                                      {noteUnread[task.task_id] > 99 ? "99+" : noteUnread[task.task_id]}
+                                    </span>
+                                  )}
+                                </div>
                                 <div className="mt-0.5 truncate text-[11px] text-slate-400">{task.category_path}</div>
                               </td>
                               <td className="px-3 py-3 text-sm text-slate-700">
@@ -4073,6 +4133,8 @@ export function RDDirectorDashboardPage() {
           onReviewTask={reviewTask}
           onUpdate={() => { setSelectedTask(null); reloadAll(); }}
           onDelete={() => { setSelectedTask(null); reloadAll(); }}
+          unreadCount={noteUnread[selectedTask.task_id] ?? 0}
+          onDiscussionActivity={refreshNoteUnread}
         />
       )}
       {selectedCategory && (

@@ -59,6 +59,13 @@ const WORKSPACE_EXEMPT_KEYS = new Set(['rd.messages']);
 const WORKSPACE_EXEMPT_URL = /\/messages(\/|\?|$)/;
 
 /**
+ * 讨论邀请是线程级能力链接：受邀成员可能没有研发/协同页面码，但 service 会继续按
+ * workspace + taskId + threadId + userId 做精确校验。这里只跳过“整池页面码”门禁，
+ * 不跳过工作区上下文，也不会因此获得任务列表或其他讨论的访问权。
+ */
+const DISCUSSION_CAPABILITY_URL = /\/task-discussions\/[^/?]+(?:\/|$|\?)/;
+
+/**
  * 「归属」码 ≠「准入」码，必须分开：
  * - 准入码（WORKSPACE_PAGE_CODES）：持有它能**进这个任务池**；
  * - 归属码（这里）：持有它说明**这个人属于该侧**，用于判断跨池特殊码该不该放行。
@@ -143,6 +150,7 @@ type AuthedRequest = {
 export class RdWorkspaceInterceptor implements NestInterceptor {
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
     const request = context.switchToHttp().getRequest<AuthedRequest>();
+    const requestUrl = (request as { url?: string })?.url ?? '';
     const raw = request?.query?.workspace;
     const workspace = typeof raw === 'string' && raw.trim() ? raw.trim() : RD_DEFAULT_WORKSPACE;
 
@@ -151,9 +159,10 @@ export class RdWorkspaceInterceptor implements NestInterceptor {
     }
 
     // 消息端点豁免池级准入（消息是用户级全局数据，存储键同样豁免改写），直接以默认池执行
-    if (WORKSPACE_EXEMPT_URL.test((request as { url?: string })?.url ?? '')) {
+    if (WORKSPACE_EXEMPT_URL.test(requestUrl)) {
       return next.handle();
     }
+    const discussionCapabilityRequest = DISCUSSION_CAPABILITY_URL.test(requestUrl);
 
     // 匿名请求（@Public 端点，如 oss-preview 的 HMAC 能力 URL，iframe 带不了 Authorization）：
     // 仅允许默认池且跳过页面码校验——这些端点有自己的 token 防护，且不按用户读池数据。
@@ -164,7 +173,7 @@ export class RdWorkspaceInterceptor implements NestInterceptor {
     } else {
       // 池级准入：页面码决定「能进哪个池」，操作码只决定「池内能做什么」。
       // 这样即便操作码（rd-task:* 等）在两池共享，也无法凭操作码跨池读写。
-      if (!isWorkspaceAllowed(workspace, request.user.permissions ?? [])) {
+      if (!discussionCapabilityRequest && !isWorkspaceAllowed(workspace, request.user.permissions ?? [])) {
         throw new ForbiddenException('没有访问该任务工作区的权限');
       }
     }

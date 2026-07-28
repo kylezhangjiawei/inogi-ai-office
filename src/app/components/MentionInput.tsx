@@ -209,6 +209,7 @@ export function MentionSuggestionPanel({
 export function renderTextWithMentions(
   text: string,
   mentions?: Array<{ user_id?: string | null; name?: string | null }> | null,
+  mentionClassName = "rounded bg-indigo-50 px-1 font-semibold text-indigo-700",
 ): React.ReactNode {
   const names = (mentions ?? [])
     .map((m) => (m.name ?? "").trim())
@@ -224,7 +225,7 @@ export function renderTextWithMentions(
     const idx = match.index ?? 0;
     if (idx > last) parts.push(text.slice(last, idx));
     parts.push(
-      <span key={`${idx}-${match[0]}`} className="font-medium text-indigo-600">
+      <span key={`${idx}-${match[0]}`} className={mentionClassName}>
         {match[0]}
       </span>,
     );

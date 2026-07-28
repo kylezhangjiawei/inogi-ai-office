@@ -84,6 +84,7 @@ const RDTaskManagementPage = lazyNamed(() => import("./RDTaskManagementPage"), "
 const RDMyWorkspacePage = lazyNamed(() => import("./RDMyWorkspacePage"), "RDMyWorkspacePage");
 const UsCollabTaskDetailPage = React.lazy(() => import("./UsCollabTaskDetailPage"));
 const RDTaskDetailPage = React.lazy(() => import("./RDTaskDetailPage"));
+const RDDiscussionInvitePage = React.lazy(() => import("./RDDiscussionInvitePage"));
 const RDKnowledgeBasePage = lazyNamed(() => import("./RDKnowledgeBasePage"), "RDKnowledgeBasePage");
 const RDPeopleManagementPage = lazyNamed(() => import("./RDPeopleManagementPage"), "RDPeopleManagementPage");
 const RDDirectorDashboardPage = lazyNamed(() => import("./RDDirectorDashboardPage"), "RDDirectorDashboardPage");
@@ -242,9 +243,12 @@ function ProtectedLayout() {
   // 工作区感知：协同路由（/us-collab-*）跳协同移动端，其余跳研发移动端——否则协同用户
   // 会被甩到研发池的移动驾驶舱（数据完全对不上）。
   if (isMobile) {
-    const target = location.pathname === "/chat-analytics"
-      ? "/m/chat-analytics"
-      : location.pathname.startsWith("/us-collab") ? "/us-collab-m" : "/m";
+    const discussionMatch = location.pathname.match(/^\/(us-collab-)?rd-discussion\/([^/]+)$/);
+    const target = discussionMatch
+      ? `${discussionMatch[1] ? "/us-collab-m" : "/m"}/discussion/${encodeURIComponent(discussionMatch[2])}${location.search}`
+      : location.pathname === "/chat-analytics"
+        ? "/m/chat-analytics"
+        : location.pathname.startsWith("/us-collab") ? "/us-collab-m" : "/m";
     return <Navigate to={target} replace />;
   }
 
@@ -317,6 +321,7 @@ const router = createBrowserRouter([
       { path: "issue-ai", element: makeLazyProtected(<IssueAiModule />, "page:issue-ai") },
       { path: "rd-people-management", element: makeLazyProtected(<RDPeopleManagementPage key="ws-rd" onBack={() => window.history.back()} />, "rd-people:manage") },
       { path: "rd-my-workspace", element: makeLazyProtected(<RDMyWorkspacePage key="ws-rd" />, "page:rd-my-workspace") },
+      { path: "rd-discussion/:taskId", element: lazyWrap(<RDDiscussionInvitePage />) },
       { path: "rd-sheet", element: makeLazyProtected(<RDSheetPage />, "page:rd-sheet") },
       { path: "rd-knowledge-base", element: makeLazyProtected(<RDKnowledgeBasePage key="kb-rd" />, "page:rd-knowledge-base") },
       // 部门知识库：8 个部门各一条路由，复用 RDKnowledgeBasePage（kbScope 切到部门库）
@@ -327,6 +332,7 @@ const router = createBrowserRouter([
       // 中美协同：复用研发驾驶舱（隐藏子系统全景）/ 个人工作台 / 知识库（独立 us-collab 库），独立权限码
       { path: "us-collab-cockpit", element: makeLazyProtected(<RDTaskManagementPage key="ws-us" hideSystemPanorama />, "page:us-collab-cockpit") },
       { path: "us-collab-workspace", element: makeLazyProtected(<RDMyWorkspacePage key="ws-us" />, "page:us-collab-workspace") },
+      { path: "us-collab-rd-discussion/:taskId", element: lazyWrap(<RDDiscussionInvitePage />) },
       // 协同人员管理：路径保持 /us-collab 前缀，rdApi 据此路由到独立的协同人员池
       { path: "us-collab-people-management", element: makeLazyProtected(<RDPeopleManagementPage key="ws-us" onBack={() => window.history.back()} />, "rd-people:manage") },
       // 协同任务全屏详情（双栏）：页面内部按协同页面码任一做门禁，不进侧边栏
@@ -411,6 +417,7 @@ const router = createBrowserRouter([
     Component: MobileLayout,
     children: [
       { index: true, element: <MobileRDCockpit /> },
+      { path: "discussion/:taskId", element: lazyWrap(<RDDiscussionInvitePage />) },
       { path: "chat-analytics", element: makeLazyProtected(<MobileChatAnalyticsPage />, "page:chat-analytics") },
       { path: "*", element: <Navigate to="/m" replace /> },
     ],
@@ -422,6 +429,7 @@ const router = createBrowserRouter([
     Component: MobileLayout,
     children: [
       { index: true, element: <MobileRDCockpit /> },
+      { path: "discussion/:taskId", element: lazyWrap(<RDDiscussionInvitePage />) },
       { path: "*", element: <Navigate to="/us-collab-m" replace /> },
     ],
   },

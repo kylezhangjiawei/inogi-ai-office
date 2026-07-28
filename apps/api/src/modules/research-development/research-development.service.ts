@@ -1,4 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { OcrService } from '../ocr/ocr.service';
@@ -72,6 +73,23 @@ type MessageRecipientIdentity = {
   nameKey: string;
   personIds: Set<string>;
 };
+type DiscussionAnchorType = 'task' | 'progress_note' | 'message';
+type DiscussionViewer = {
+  userId?: string;
+  userName?: string;
+  userRole?: string;
+  canAccessAny?: boolean;
+  canPost?: boolean;
+};
+type DiscussionAccess = {
+  task: JsonRecord;
+  scope: 'task' | 'thread_invitee';
+  invitation: {
+    invitedById: string | null;
+    invitedByName: string;
+    invitedAt: Date;
+  } | null;
+};
 type NormalizedAiSettings = JsonRecord & {
   scenes: JsonRecord[];
   file_policy: JsonRecord & { rules: JsonRecord[] };
@@ -114,6 +132,24 @@ const RD_MAIN_PRODUCT_ID = 'prod-portable-o2';
 const PROGRESS_NOTE_MAX_FILES = 10;
 const PROGRESS_NOTE_MAX_FILE_BYTES = 25 * 1024 * 1024;
 const PROGRESS_NOTE_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
+const BLOCKED_ATTACHMENT_EXTENSIONS = new Set([
+  'apk',
+  'app',
+  'bat',
+  'cmd',
+  'com',
+  'dmg',
+  'exe',
+  'msi',
+  'pkg',
+  'ps1',
+  'scr',
+]);
+const BLOCKED_ATTACHMENT_MIME_TYPES = new Set([
+  'application/x-dosexec',
+  'application/x-msdownload',
+  'application/vnd.microsoft.portable-executable',
+]);
 
 // ─── 研发数据表（B2：Univer 工作簿快照 · 已去除行级密级）─────────────────────
 // rd.sheets 存「单个 Univer 工作簿快照」：{ snapshot, updated_at, updated_by }。
@@ -2633,6 +2669,15 @@ export class ResearchDevelopmentService {
       if (changed) await this.writeValue('rd.taskProgressNotes', noteMap);
     });
 
+    // 协作讨论是任务的从属数据：任务被硬删除后线程已无可访问入口，必须同步清理，
+    // 由外键级联删除消息与已读游标，避免留下孤立文本和 data_url 附件。
+    await this.prisma.rdTaskDiscussionThread.deleteMany({
+      where: {
+        workspace: currentRdWorkspace(),
+        taskId: { in: removedTaskIds },
+      },
+    });
+
     // 连带清理：删除任务（含子任务）后，把它们关联的"待审核"通知标记为已处理，
     // 避免管理员收件箱残留指向已删任务的孤儿待审核卡片（清理立项脏数据时常见）。
     try {
@@ -3320,6 +3365,606 @@ export class ResearchDevelopmentService {
     return this.decorateNotesWithPreview([note])[0];
   }
 
+  // ── 任务协作对话：主会话 + 进度/消息原位线程 ───────────────────────────────
+
+  private normalizeDiscussionAnchor(
+    rawType?: string,
+    rawId?: string,
+  ): { anchorType: DiscussionAnchorType; anchorId: string | null } {
+    const anchorType: DiscussionAnchorType =
+      rawType === 'progress_note' || rawType === 'message' ? rawType : 'task';
+    const anchorId = anchorType === 'task' ? null : cleanText(rawId);
+    if (anchorType !== 'task' && !anchorId) {
+      throw new BadRequestException('讨论锚点不能为空');
+    }
+    return { anchorType, anchorId };
+  }
+
+  /** 线程 id 由工作区 + 任务 + 锚点稳定派生，GET 空线程不需要先写库，首次发送时再 upsert。 */
+  private discussionThreadId(taskId: string, anchorType: DiscussionAnchorType, anchorId: string | null): string {
+    const digest = createHash('sha256')
+      .update(`${currentRdWorkspace()}\u0000${taskId}\u0000${anchorType}\u0000${anchorId ?? ''}`)
+      .digest('hex')
+      .slice(0, 40);
+    return `rd-discussion-${digest}`;
+  }
+
+  private async requireDiscussionAccess(
+    taskId: string,
+    viewer: DiscussionViewer,
+    threadId: string,
+  ): Promise<DiscussionAccess> {
+    const cleanTaskId = cleanText(taskId);
+    if (!cleanTaskId) throw new BadRequestException('taskId 不能为空');
+    const task = await this.findTaskAcrossStores(cleanTaskId);
+    if (!task) throw new NotFoundException('任务不存在');
+    if (viewer.canAccessAny || isTaskParticipant(task, viewer.userId, viewer.userName)) {
+      return { task, scope: 'task', invitation: null };
+    }
+    const userId = cleanUserId(viewer.userId);
+    const invited = userId
+      ? await this.prisma.rdTaskDiscussionParticipant.findFirst({
+          where: {
+            threadId,
+            userId,
+            revokedAt: null,
+            thread: { workspace: currentRdWorkspace(), taskId: cleanTaskId },
+          },
+          select: { invitedById: true, invitedByName: true, invitedAt: true },
+        })
+      : null;
+    if (!invited) {
+      throw new ForbiddenException('你没有参与这条讨论的权限');
+    }
+    return {
+      task,
+      scope: 'thread_invitee',
+      invitation: {
+        invitedById: invited.invitedById,
+        invitedByName: invited.invitedByName,
+        invitedAt: invited.invitedAt,
+      },
+    };
+  }
+
+  private async assertDiscussionAnchorExists(
+    taskId: string,
+    anchorType: DiscussionAnchorType,
+    anchorId: string | null,
+  ): Promise<void> {
+    if (anchorType === 'task') return;
+    if (anchorType === 'progress_note') {
+      const map = await this.getProgressNoteMap();
+      if (!(map[taskId] ?? []).some((note) => String(note.id ?? '') === anchorId)) {
+        throw new NotFoundException('进度记录不存在');
+      }
+      return;
+    }
+    const anchor = await this.prisma.rdTaskDiscussionMessage.findUnique({
+      where: { id: anchorId ?? '' },
+      include: { thread: { select: { workspace: true, taskId: true } } },
+    });
+    if (!anchor || anchor.thread.workspace !== currentRdWorkspace() || anchor.thread.taskId !== taskId) {
+      throw new NotFoundException('被回复的消息不存在');
+    }
+  }
+
+  private async getDiscussionAnchorPreview(
+    taskId: string,
+    anchorType: DiscussionAnchorType,
+    anchorId: string | null,
+  ) {
+    if (anchorType === 'task') return null;
+    if (anchorType === 'progress_note') {
+      const map = await this.getProgressNoteMap();
+      const note = (map[taskId] ?? []).find((item) => String(item.id ?? '') === anchorId);
+      if (!note) return null;
+      const decorated = this.decorateNotesWithPreview([note])[0];
+      const actor = isRecord(note.actor) ? note.actor : null;
+      return {
+        type: anchorType,
+        id: anchorId,
+        author_id: cleanUserId(actor?.id) || null,
+        author_name: cleanText(actor?.name) || '同事',
+        body: cleanText(note.text),
+        created_at: cleanText(note.created_at),
+        attachments: asArray(decorated.attachments).filter(isRecord),
+      };
+    }
+    const message = await this.prisma.rdTaskDiscussionMessage.findUnique({
+      where: { id: anchorId ?? '' },
+      select: {
+        id: true,
+        authorId: true,
+        authorName: true,
+        body: true,
+        attachments: true,
+        createdAt: true,
+      },
+    });
+    if (!message) return null;
+    const decorated = this.decorateNotesWithPreview([
+      { attachments: Array.isArray(message.attachments) ? message.attachments.filter(isRecord) : [] },
+    ])[0];
+    return {
+      type: anchorType,
+      id: message.id,
+      author_id: message.authorId,
+      author_name: message.authorName,
+      body: message.body,
+      created_at: message.createdAt.toISOString(),
+      attachments: asArray(decorated.attachments).filter(isRecord),
+    };
+  }
+
+  private async resolveMentionTargetUserIds(
+    mentions: Array<{ user_id: string | null; name: string | null }>,
+    actorId: string | null,
+  ): Promise<string[]> {
+    const people = (await this.readArray('rd.people')).filter(isRecord);
+    const targets = new Set<string>();
+    for (const mention of mentions) {
+      let userId = cleanUserId(mention.user_id);
+      if (!userId) {
+        const nameKey = personNameLookupKey(mention.name);
+        if (!nameKey) continue;
+        const matched = people
+          .filter((person) => personNameLookupKey(person.name) === nameKey)
+          .map((person) => cleanUserId(person.user_id))
+          .filter((value): value is string => Boolean(value));
+        const unique = Array.from(new Set(matched));
+        if (unique.length === 1) userId = unique[0];
+      }
+      if (!userId || (actorId && userId === actorId)) continue;
+      targets.add(userId);
+    }
+    return Array.from(targets);
+  }
+
+  private serializeDiscussionMessage(message: {
+    id: string;
+    authorId: string | null;
+    authorName: string;
+    authorRole: string | null;
+    body: string;
+    attachments: unknown;
+    mentions: unknown;
+    replyToId: string | null;
+    createdAt: Date;
+    editedAt: Date | null;
+    replyTo?: {
+      id: string;
+      authorName: string;
+      body: string;
+    } | null;
+  }) {
+    const rawAttachments = Array.isArray(message.attachments)
+      ? message.attachments.filter(isRecord)
+      : [];
+    const decorated = this.decorateNotesWithPreview([{ attachments: rawAttachments }])[0];
+    const rawMentions = Array.isArray(message.mentions) ? message.mentions.filter(isRecord) : [];
+    return {
+      id: message.id,
+      author_id: message.authorId,
+      author_name: message.authorName,
+      author_role: message.authorRole,
+      body: message.body,
+      attachments: asArray(decorated.attachments).filter(isRecord),
+      mentions: rawMentions.map((mention) => ({
+        user_id: cleanUserId(mention.user_id) || null,
+        name: cleanText(mention.name) || null,
+      })),
+      reply_to_id: message.replyToId,
+      reply_to: message.replyTo
+        ? {
+            id: message.replyTo.id,
+            author_name: message.replyTo.authorName,
+            body: message.replyTo.body,
+          }
+        : null,
+      created_at: message.createdAt.toISOString(),
+      edited_at: message.editedAt?.toISOString() ?? null,
+    };
+  }
+
+  async getTaskDiscussion(
+    taskId: string,
+    query: { anchorType?: string; anchorId?: string; cursor?: string; limit?: string },
+    viewer: DiscussionViewer,
+  ) {
+    const cleanTaskId = cleanText(taskId);
+    const { anchorType, anchorId } = this.normalizeDiscussionAnchor(query.anchorType, query.anchorId);
+    const threadId = this.discussionThreadId(cleanTaskId, anchorType, anchorId);
+    const access = await this.requireDiscussionAccess(cleanTaskId, viewer, threadId);
+    await this.assertDiscussionAnchorExists(cleanTaskId, anchorType, anchorId);
+    const workspace = currentRdWorkspace();
+    const userId = cleanUserId(viewer.userId);
+    const requestedLimit = Number.parseInt(cleanText(query.limit), 10);
+    const pageLimit = Number.isFinite(requestedLimit) ? Math.min(200, Math.max(20, requestedLimit)) : 100;
+    const cursor = cleanText(query.cursor);
+    if (cursor) {
+      const validCursor = await this.prisma.rdTaskDiscussionMessage.findFirst({
+        where: { id: cursor, threadId },
+        select: { id: true },
+      });
+      if (!validCursor) throw new BadRequestException('消息分页游标无效');
+    }
+
+    type DiscussionSummaryRow = {
+      thread_id: string;
+      anchor_type: string;
+      anchor_id: string | null;
+      message_count: bigint;
+      unread_count: bigint;
+      last_message_at: Date | null;
+    };
+    const [messagePage, summaryRows] = await Promise.all([
+      this.prisma.rdTaskDiscussionMessage.findMany({
+        where: { threadId },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: pageLimit + 1,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        include: {
+          replyTo: { select: { id: true, authorName: true, body: true } },
+        },
+      }),
+      this.prisma.$queryRaw<DiscussionSummaryRow[]>`
+        SELECT
+          t."id" AS "thread_id",
+          t."anchorType" AS "anchor_type",
+          t."anchorId" AS "anchor_id",
+          COUNT(m."id")::bigint AS "message_count",
+          CASE
+            WHEN ${userId} = '' THEN 0::bigint
+            ELSE COUNT(m."id") FILTER (
+              WHERE m."authorId" IS DISTINCT FROM ${userId}
+                AND (r."lastReadAt" IS NULL OR m."createdAt" > r."lastReadAt")
+            )::bigint
+          END AS "unread_count",
+          MAX(m."createdAt") AS "last_message_at"
+        FROM "RdTaskDiscussionThread" t
+        LEFT JOIN "RdTaskDiscussionMessage" m ON m."threadId" = t."id"
+        LEFT JOIN "RdTaskDiscussionRead" r
+          ON r."threadId" = t."id" AND r."userId" = ${userId}
+        WHERE t."workspace" = ${workspace} AND t."taskId" = ${cleanTaskId}
+        GROUP BY t."id", t."anchorType", t."anchorId", r."lastReadAt"
+        ORDER BY MAX(m."createdAt") DESC NULLS LAST
+      `,
+    ]);
+    const hasMore = messagePage.length > pageLimit;
+    const pageMessages = (hasMore ? messagePage.slice(0, pageLimit) : messagePage).reverse();
+    const threadSummaries = summaryRows
+      .filter((item) => access.scope === 'task' || item.thread_id === threadId)
+      .map((item) => ({
+        thread_id: item.thread_id,
+        anchor_type: item.anchor_type as DiscussionAnchorType,
+        anchor_id: item.anchor_id,
+        message_count: Number(item.message_count),
+        unread_count: Number(item.unread_count),
+        last_message_at: item.last_message_at?.toISOString() ?? null,
+      }));
+    const currentSummary = threadSummaries.find((item) => item.thread_id === threadId);
+    const anchorPreview = await this.getDiscussionAnchorPreview(cleanTaskId, anchorType, anchorId);
+
+    return {
+      can_post: Boolean(viewer.canPost || access.scope === 'thread_invitee'),
+      access_scope: access.scope,
+      task_title: cleanText(access.task.title) || cleanTaskId,
+      invitation: access.invitation
+        ? {
+            invited_by_id: access.invitation.invitedById,
+            invited_by_name: access.invitation.invitedByName,
+            invited_at: access.invitation.invitedAt.toISOString(),
+          }
+        : null,
+      anchor_preview: anchorPreview,
+      thread: {
+        id: threadId,
+        task_id: cleanTaskId,
+        anchor_type: anchorType,
+        anchor_id: anchorId,
+        message_count: currentSummary?.message_count ?? 0,
+        unread_count: currentSummary?.unread_count ?? 0,
+      },
+      messages: pageMessages.map((message) => this.serializeDiscussionMessage(message)),
+      thread_summaries: threadSummaries,
+      page_info: {
+        has_more: hasMore,
+        next_cursor: hasMore && pageMessages.length > 0 ? pageMessages[0].id : null,
+      },
+    };
+  }
+
+  async createTaskDiscussionMessage(payload: {
+    taskId: string;
+    anchorType?: string;
+    anchorId?: string;
+    body?: string;
+    replyToId?: string;
+    mentions?: Array<{ user_id?: string; name?: string }>;
+    files: Array<{ originalname: string; mimetype?: string; size?: number; buffer: Buffer }>;
+    actor: { id?: string; name?: string; role?: string };
+    viewer: DiscussionViewer;
+  }) {
+    const taskId = cleanText(payload.taskId);
+    const { anchorType, anchorId } = this.normalizeDiscussionAnchor(payload.anchorType, payload.anchorId);
+    const workspace = currentRdWorkspace();
+    const threadId = this.discussionThreadId(taskId, anchorType, anchorId);
+    const access = await this.requireDiscussionAccess(taskId, payload.viewer, threadId);
+    const task = access.task;
+    if (!payload.viewer.canPost && access.scope !== 'thread_invitee') {
+      throw new ForbiddenException('你没有发送讨论消息的权限');
+    }
+    await this.assertDiscussionAnchorExists(taskId, anchorType, anchorId);
+    const body = cleanText(payload.body);
+    const files = Array.isArray(payload.files) ? payload.files : [];
+    if (!body && files.length === 0) {
+      throw new BadRequestException('消息内容或附件至少需要提供一项');
+    }
+    if (body.length > 4000) throw new BadRequestException('消息内容最多 4000 字');
+    if (files.length > PROGRESS_NOTE_MAX_FILES) {
+      throw new BadRequestException(`附件最多 ${PROGRESS_NOTE_MAX_FILES} 个`);
+    }
+    this.assertAttachmentFilesValid(files);
+    const totalSize = files.reduce((sum, file) => sum + (file.size ?? file.buffer.length), 0);
+    if (totalSize > PROGRESS_NOTE_MAX_TOTAL_BYTES) {
+      throw new BadRequestException('附件总大小超过 50MB 限制');
+    }
+
+    const mentions = (Array.isArray(payload.mentions) ? payload.mentions : [])
+      .map((mention) => ({
+        user_id: cleanUserId(mention?.user_id) || null,
+        name: cleanText(mention?.name) || null,
+      }))
+      .filter((mention) => mention.user_id || mention.name)
+      .slice(0, 20);
+    const actorId = cleanUserId(payload.actor.id) || null;
+    const actorName = cleanText(payload.actor.name) || '同事';
+    const actorRole = cleanText(payload.actor.role) || null;
+    const mentionedUserIds = await this.resolveMentionTargetUserIds(mentions, actorId);
+    const builtAttachments = await this.buildNoteAttachments(files);
+    const attachments = builtAttachments.map((item) => item.attachment);
+    const replyToId = cleanText(payload.replyToId) || null;
+    if (replyToId) {
+      const replyTarget = await this.prisma.rdTaskDiscussionMessage.findFirst({
+        where: { id: replyToId, threadId },
+        select: { id: true },
+      });
+      if (!replyTarget) throw new BadRequestException('引用的消息不属于当前讨论');
+    }
+
+    const now = new Date();
+    const saved = await this.prisma.$transaction(async (tx) => {
+      await tx.rdTaskDiscussionThread.upsert({
+        where: { id: threadId },
+        create: { id: threadId, workspace, taskId, anchorType, anchorId },
+        update: { updatedAt: now },
+      });
+      const message = await tx.rdTaskDiscussionMessage.create({
+        data: {
+          threadId,
+          authorId: actorId,
+          authorName: actorName,
+          authorRole: actorRole,
+          body,
+          attachments,
+          mentions,
+          replyToId,
+        },
+        include: {
+          replyTo: { select: { id: true, authorName: true, body: true } },
+        },
+      });
+      if (actorId) {
+        await tx.rdTaskDiscussionRead.upsert({
+          where: { threadId_userId: { threadId, userId: actorId } },
+          create: { threadId, userId: actorId, lastReadAt: now },
+          update: { lastReadAt: now },
+        });
+      }
+      for (const invitedUserId of mentionedUserIds) {
+        await tx.rdTaskDiscussionParticipant.upsert({
+          where: { threadId_userId: { threadId, userId: invitedUserId } },
+          create: {
+            threadId,
+            userId: invitedUserId,
+            invitedById: actorId,
+            invitedByName: actorName,
+            invitedAt: now,
+          },
+          update: {
+            invitedById: actorId,
+            invitedByName: actorName,
+            invitedAt: now,
+            revokedAt: null,
+          },
+        });
+      }
+      return message;
+    });
+
+    if (mentionedUserIds.length > 0) {
+      void this.notifyNoteMentions({
+        taskId,
+        noteText: body || '发送了一个附件',
+        mentions,
+        actorName,
+        actorId,
+        targetUserIds: mentionedUserIds,
+        discussion: {
+          threadId,
+          anchorType,
+          anchorId,
+          messageId: saved.id,
+        },
+      }).catch(() => {});
+    }
+    void this.notifyDiscussionRecipients({
+      task,
+      taskId,
+      anchorType,
+      anchorId,
+      replyToId,
+      actorId,
+      actorName,
+      body,
+      mentionedUserIds: new Set(mentionedUserIds),
+    }).catch(() => {});
+
+    return {
+      message: this.serializeDiscussionMessage(saved),
+      thread_id: threadId,
+    };
+  }
+
+  private async notifyDiscussionRecipients(params: {
+    task: JsonRecord;
+    taskId: string;
+    anchorType: DiscussionAnchorType;
+    anchorId: string | null;
+    replyToId: string | null;
+    actorId: string | null;
+    actorName: string;
+    body: string;
+    mentionedUserIds: Set<string>;
+  }): Promise<void> {
+    const recipients: Array<{ userId: string; personId: string; name: string }> = [];
+    const addRecipient = (userIdValue: unknown, personIdValue?: unknown, nameValue?: unknown) => {
+      const userId = cleanUserId(userIdValue);
+      const personId = cleanText(personIdValue);
+      const name = cleanText(nameValue);
+      if (userId || personId || name) recipients.push({ userId, personId, name });
+    };
+
+    if (params.replyToId) {
+      const target = await this.prisma.rdTaskDiscussionMessage.findUnique({
+        where: { id: params.replyToId },
+        select: { authorId: true, authorName: true },
+      });
+      addRecipient(target?.authorId, null, target?.authorName);
+    } else if (params.anchorType === 'message' && params.anchorId) {
+      const target = await this.prisma.rdTaskDiscussionMessage.findUnique({
+        where: { id: params.anchorId },
+        select: { authorId: true, authorName: true },
+      });
+      addRecipient(target?.authorId, null, target?.authorName);
+    } else if (params.anchorType === 'progress_note' && params.anchorId) {
+      const map = await this.getProgressNoteMap();
+      const note = (map[params.taskId] ?? []).find((item) => String(item.id ?? '') === params.anchorId);
+      const actor = note && isRecord(note.actor) ? note.actor : null;
+      addRecipient(actor?.id, null, actor?.name);
+    } else if (params.anchorType === 'task') {
+      // 主会话的新消息没有天然“被回复人”，默认通知主责人与全部协作人；
+      // @ 提及仍走专门通知，下面会按 user_id 去重，作者本人也不会收到自己的消息。
+      addRecipient(
+        params.task.primary_owner_user_id ?? params.task.owner_user_id,
+        null,
+        params.task.primary_owner ?? params.task.owner,
+      );
+      for (const collaborator of asArray(params.task.collaborators)) {
+        if (!isRecord(collaborator)) continue;
+        addRecipient(collaborator.user_id, collaborator.id, collaborator.name);
+      }
+    }
+
+    if (recipients.length === 0) return;
+    const title = cleanText(params.task.title) || params.taskId;
+    const excerpt = params.body
+      ? (params.body.length > 160 ? `${params.body.slice(0, 160)}…` : params.body)
+      : '发送了一个附件';
+    const seen = new Set<string>();
+    for (const recipient of recipients) {
+      if (recipient.userId && recipient.userId === params.actorId) continue;
+      if (recipient.userId && params.mentionedUserIds.has(recipient.userId)) continue;
+      const nameKey = personNameLookupKey(recipient.name);
+      const key = recipient.userId
+        ? `u:${recipient.userId}`
+        : recipient.personId
+          ? `p:${recipient.personId}`
+          : nameKey
+            ? `n:${nameKey}`
+            : '';
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      await this.createMessage({
+        sender: { id: params.actorId, name: params.actorName, role: null },
+        recipient_id: recipient.userId || null,
+        recipient_person_id: recipient.personId || null,
+        recipient_name: recipient.name || null,
+        subject: `协作对话：${title}`,
+        body: params.anchorType === 'task' && !params.replyToId
+          ? `${params.actorName} 在任务《${title}》发起了讨论：\n${excerpt}`
+          : `${params.actorName} 回复了任务《${title}》中的讨论：\n${excerpt}`,
+      });
+    }
+  }
+
+  async markTaskDiscussionRead(
+    taskId: string,
+    threadId: string,
+    viewer: DiscussionViewer,
+  ): Promise<{ ok: boolean }> {
+    const cleanTaskId = cleanText(taskId);
+    const userId = cleanUserId(viewer.userId);
+    if (!userId) return { ok: false };
+    const cleanThreadId = cleanText(threadId);
+    await this.requireDiscussionAccess(cleanTaskId, viewer, cleanThreadId);
+    const thread = await this.prisma.rdTaskDiscussionThread.findFirst({
+      where: { id: cleanThreadId, workspace: currentRdWorkspace(), taskId: cleanTaskId },
+      select: { id: true },
+    });
+    // 尚无消息的合成空线程无需落已读记录。
+    if (!thread) return { ok: true };
+    await this.prisma.rdTaskDiscussionRead.upsert({
+      where: { threadId_userId: { threadId: thread.id, userId } },
+      create: { threadId: thread.id, userId, lastReadAt: new Date() },
+      update: { lastReadAt: new Date() },
+    });
+    return { ok: true };
+  }
+
+  private async getDiscussionUnreadSummary(viewer: DiscussionViewer): Promise<Record<string, number>> {
+    const userId = cleanUserId(viewer.userId);
+    if (!userId) return {};
+    type UnreadTaskRow = { task_id: string; unread_count: bigint };
+    const workspace = currentRdWorkspace();
+    const [unreadRows, categories] = await Promise.all([
+      this.prisma.$queryRaw<UnreadTaskRow[]>`
+        SELECT
+          t."taskId" AS "task_id",
+          COUNT(m."id")::bigint AS "unread_count"
+        FROM "RdTaskDiscussionThread" t
+        JOIN "RdTaskDiscussionMessage" m ON m."threadId" = t."id"
+        LEFT JOIN "RdTaskDiscussionRead" r
+          ON r."threadId" = t."id" AND r."userId" = ${userId}
+        WHERE t."workspace" = ${workspace}
+          AND m."authorId" IS DISTINCT FROM ${userId}
+          AND (r."lastReadAt" IS NULL OR m."createdAt" > r."lastReadAt")
+        GROUP BY t."taskId"
+      `,
+      this.getMergedTaskCategories(),
+    ]);
+    const taskById = new Map<string, JsonRecord>();
+    for (const category of asArray(categories).filter(isRecord)) {
+      for (const child of asArray(category.children).filter(isRecord)) {
+        for (const task of asArray(child.tasks).filter(isRecord)) {
+          taskById.set(cleanText(task.task_id), task);
+          for (const subtask of asArray(task.subtasks).filter(isRecord)) {
+            taskById.set(cleanText(subtask.task_id), subtask);
+          }
+        }
+      }
+    }
+    const summary: Record<string, number> = {};
+    for (const row of unreadRows) {
+      const task = taskById.get(row.task_id);
+      if (!task || (!viewer.canAccessAny && !isTaskParticipant(task, viewer.userId, viewer.userName))) continue;
+      const count = Number(row.unread_count);
+      if (count > 0) summary[row.task_id] = count;
+    }
+    return summary;
+  }
+
   /** @ 提及通知：给被 @ 的成员发站内消息（含任务标题与评论摘录），失败仅告警不阻断留痕主流程。 */
   private async notifyNoteMentions(params: {
     taskId: string;
@@ -3327,38 +3972,39 @@ export class ResearchDevelopmentService {
     mentions: Array<{ user_id: string | null; name: string | null }>;
     actorName: string;
     actorId: string | null;
+    targetUserIds?: string[];
+    discussion?: {
+      threadId: string;
+      anchorType: DiscussionAnchorType;
+      anchorId: string | null;
+      messageId: string;
+    };
   }): Promise<void> {
     const task = await this.findTaskAcrossStores(params.taskId);
     const title = task ? String(task.title ?? params.taskId) : params.taskId;
     const excerpt = params.noteText.length > 200 ? `${params.noteText.slice(0, 200)}…` : params.noteText;
-
-    // 解析每个 mention 到唯一 user_id：优先客户端给的 user_id；否则按姓名在人员表精确解析。
-    // 姓名解析到 0 个或 >1 个 user_id 都不发——避免把评论内容泄露给重名的无关用户（隐私）。
-    const people = (await this.readArray('rd.people')).filter(isRecord);
-    const resolveUserId = (m: { user_id: string | null; name: string | null }): string | null => {
-      if (m.user_id) return m.user_id;
-      const nameKey = personNameLookupKey(m.name);
-      if (!nameKey) return null;
-      const matched = people
-        .map((p) => cleanUserId(p.user_id))
-        .filter((uid): uid is string => Boolean(uid) && people.some((p) => cleanUserId(p.user_id) === uid && personNameLookupKey(p.name) === nameKey));
-      const unique = Array.from(new Set(matched));
-      return unique.length === 1 ? unique[0] : null;
-    };
-
-    // 去重（同一 user_id 只发一条）+ 排除作者本人
-    const targets = new Set<string>();
-    for (const m of params.mentions) {
-      const uid = resolveUserId(m);
-      if (!uid || (params.actorId && uid === params.actorId)) continue;
-      targets.add(uid);
-    }
+    const targets = params.targetUserIds
+      ?? await this.resolveMentionTargetUserIds(params.mentions, params.actorId);
     for (const uid of targets) {
+      const body = params.discussion
+        ? JSON.stringify({
+            type: 'discussion_mention',
+            task_id: params.taskId,
+            task_title: title,
+            thread_id: params.discussion.threadId,
+            anchor_type: params.discussion.anchorType,
+            anchor_id: params.discussion.anchorId,
+            message_id: params.discussion.messageId,
+            actor_name: params.actorName,
+            excerpt,
+            access_scope: 'thread_invitee',
+          })
+        : `${params.actorName} 在任务《${title}》的评论中提到了你：\n${excerpt}`;
       await this.createMessage({
         sender: { id: params.actorId, name: params.actorName, role: null },
         recipient_id: uid,
         subject: `评论提及：${title}`,
-        body: `${params.actorName} 在任务《${title}》的评论中提到了你：\n${excerpt}`,
+        body,
       }).catch((err) => {
         this.logger.warn(`[评论@通知] 发送失败 (task=${params.taskId}, to=${uid}): ${err instanceof Error ? err.message : err}`);
       });
@@ -3370,7 +4016,7 @@ export class ResearchDevelopmentService {
   // 只统计「本人参与（主责/协作）的任务」——与工作台/移动端列表的展示范围一致。
 
   /** 当前用户的全部任务未读评论数（仅返回 >0 的项）。 */
-  async getNoteUnreadSummary(viewer: { userId?: string; userName?: string }): Promise<Record<string, number>> {
+  async getNoteUnreadSummary(viewer: DiscussionViewer): Promise<Record<string, number>> {
     const userId = cleanUserId(viewer.userId);
     if (!userId) return {};
     const [map, readsRaw, categories] = await Promise.all([
@@ -3407,7 +4053,7 @@ export class ResearchDevelopmentService {
     const summary: Record<string, number> = {};
     for (const [taskId, notes] of Object.entries(map)) {
       const task = taskById.get(taskId);
-      if (!task || !isTaskParticipant(task, viewer.userId, viewer.userName)) continue;
+      if (!task || (!viewer.canAccessAny && !isTaskParticipant(task, viewer.userId, viewer.userName))) continue;
       // 有效已读线 = max(任务位点, 用户基线)：任务级已读优先，未打开过则以上线基线兜底
       const taskRead = typeof reads[taskId] === 'string' ? (reads[taskId] as string) : '';
       const lastRead = taskRead > baseline ? taskRead : baseline;
@@ -3421,6 +4067,12 @@ export class ResearchDevelopmentService {
         return createdAt > lastRead; // ISO 字符串可直接字典序比较
       }).length;
       if (count > 0) summary[taskId] = count;
+    }
+    // 协作对话采用逐线程已读；任务卡上的总角标仍合并展示，进入任务后只有真正打开
+    // 对应会话/线程才会清除，避免“看了任务概览却把所有讨论都误标已读”。
+    const discussionUnread = await this.getDiscussionUnreadSummary(viewer);
+    for (const [taskId, count] of Object.entries(discussionUnread)) {
+      summary[taskId] = (summary[taskId] ?? 0) + count;
     }
     return summary;
   }
@@ -3636,7 +4288,13 @@ export class ResearchDevelopmentService {
   }
 
   /** 追加/替换共用的文件尺寸校验（单文件 25MB；变更后单条留痕总量 50MB 由锁内 mutator 校验） */
-  private assertAttachmentFilesValid(files: Array<{ originalname: string; size?: number; buffer: Buffer }>) {
+  private assertAttachmentFilesValid(files: Array<{ originalname: string; mimetype?: string; size?: number; buffer: Buffer }>) {
+    const blocked = files.find((file) => {
+      const extension = file.originalname.split('.').pop()?.toLocaleLowerCase('en-US') ?? '';
+      return BLOCKED_ATTACHMENT_EXTENSIONS.has(extension)
+        || BLOCKED_ATTACHMENT_MIME_TYPES.has(cleanText(file.mimetype).toLocaleLowerCase('en-US'));
+    });
+    if (blocked) throw new BadRequestException(`附件 ${blocked.originalname} 属于高风险可执行文件，不能上传`);
     const oversized = files.find((f) => (f.size ?? f.buffer.length) > PROGRESS_NOTE_MAX_FILE_BYTES);
     if (oversized) throw new BadRequestException(`附件 ${oversized.originalname} 超过单文件 25MB 限制`);
   }
@@ -5663,6 +6321,9 @@ export class ResearchDevelopmentService {
       this.writeValue('rd.taskProgressNotes', {}),
       this.writeValue('rd.dailyReports', []),
       this.writeValue('rd.proposalDrafts', []),
+      this.prisma.rdTaskDiscussionThread.deleteMany({
+        where: { workspace: currentRdWorkspace() },
+      }),
     ]);
     try {
       await this.markReviewRequestMessagesHandledForTasks(removedTaskIds);
@@ -6031,6 +6692,11 @@ export class ResearchDevelopmentService {
             ? `${reviewerName} 已批准任务「${taskTitle}」，任务已完成。`
             : `${reviewerName} 打回了任务「${taskTitle}」，请修改后重新提交。${reason ? `原因：${reason}` : ''}`;
         }
+      } else if (msgType === 'discussion_mention') {
+        const actorName = String(parsedBody!['actor_name'] ?? senderName);
+        const excerpt = String(parsedBody!['excerpt'] ?? '');
+        defaultTitle = `评论提及：${taskTitle}`;
+        displayMessage = `${actorName} 在任务《${taskTitle}》的讨论中提到了你：${excerpt}`;
       } else if (msgType === 'perf_self_assessment') {
         const periodLabel = String(parsedBody!['period_label'] ?? '');
         defaultTitle = `绩效自评：${periodLabel}月度绩效已生成，请完成自评`;

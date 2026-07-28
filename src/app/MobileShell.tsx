@@ -68,7 +68,7 @@ export function MobileLayout() {
   const shellTitle = isChatAnalytics
     ? "AI 使用与反馈"
     : isUsCollabWorkspace() ? t("协同任务驾驶舱") : t("研发任务驾驶舱");
-  const shellSubtitle = isChatAnalytics ? "管理移动视图" : t("移动只读视图");
+  const shellSubtitle = isChatAnalytics ? "管理移动视图" : t("移动协作视图");
 
   const goTo = (path: string) => {
     setMenuOpen(false);

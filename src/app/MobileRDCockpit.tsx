@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AlertTriangle, ArrowLeft, Clock, History, ImageIcon, Inbox, Loader2, RefreshCw, Search, Send, Users, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Clock, History, ImageIcon, Inbox, Loader2, MessageCircleMore, RefreshCw, Search, Send, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
 import { t, useI18n } from "./lib/i18n";
-import { ProgressNoteList, TaskImageGallery } from "./RDProgressEvidence";
 import { recordAudit, useAuditActor } from "./lib/auditLog";
 import { useRDCockpitData } from "./hooks/useRDCockpitData";
 import {
@@ -17,6 +16,7 @@ import {
   type RdTaskStatus,
 } from "./lib/rdApi";
 import { MentionSuggestionPanel, useMentions, type MentionCandidate } from "./components/MentionInput";
+import { RDTaskConversation } from "./RDTaskConversation";
 
 // ─── 文案 / 配色映射（移动端自带一份，与桌面同口径、样式独立）────────────────────
 const STATUS_META: Record<RdTaskStatus, { label: string; dot: string; tint: string }> = {
@@ -484,27 +484,34 @@ export function MobileRDCockpit() {
 
   // ── 评论未读红点（微信式）：任务级未读数，点开详情即标记已读（全端同步消失）──
   const [noteUnread, setNoteUnread] = useState<Record<string, number>>({});
-  useEffect(() => {
-    let cancelled = false;
-    fetchRdNoteUnreadSummary()
-      .then((summary) => { if (!cancelled) setNoteUnread(summary); })
+  const refreshNoteUnread = useCallback(() => {
+    return fetchRdNoteUnreadSummary()
+      .then(setNoteUnread)
       .catch(() => {});
-    return () => { cancelled = true; };
   }, []);
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState === "visible") void refreshNoteUnread();
+    };
+    const interval = window.setInterval(refresh, 15_000);
+    void refreshNoteUnread();
+    window.addEventListener("focus", refresh);
+    window.addEventListener("rd:discussion-updated", refresh);
+    return () => {
+      window.clearInterval(interval);
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("rd:discussion-updated", refresh);
+    };
+  }, [refreshNoteUnread]);
 
   // 打开任务详情：压入一条 history，使「系统返回键 / 详情内返回」都只关详情、不退出 /m。
   const openTask = (task: RdTask) => {
     window.history.pushState({ mobileTaskDetail: true }, "");
     setActiveTask(task);
-    // 点开即读：乐观清除本地红点 + 上报服务端位点
-    if (noteUnread[task.task_id]) {
-      setNoteUnread((prev) => {
-        const next = { ...prev };
-        delete next[task.task_id];
-        return next;
-      });
-    }
-    void markRdTaskNotesRead(task.task_id).catch(() => {});
+    // 只标记正式留痕已读；讨论仍按线程逐个已读，避免打开任务时把尚未查看的对话误清空。
+    void markRdTaskNotesRead(task.task_id)
+      .catch(() => {})
+      .finally(() => { void refreshNoteUnread(); });
   };
 
   // 首屏加载 / 错误（仅当还没有任何数据时占满）
@@ -702,7 +709,10 @@ export function MobileRDCockpit() {
           task={activeTask}
           isRisk={riskTaskIds.has(activeTask.task_id)}
           onClose={() => window.history.back()}
-          onAfterSubmit={reload}
+          onAfterSubmit={() => {
+            reload();
+            void refreshNoteUnread();
+          }}
         />
       )}
 
@@ -735,6 +745,7 @@ function MobileTaskDetail({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [detailTab, setDetailTab] = useState<"conversation" | "progress">("progress");
   const auditActor = useAuditActor("研发成员");
 
   // ── 评论 @ 提及（移动端呈现：输入框上方横向候选条，点选插入）──────────────
@@ -828,7 +839,7 @@ function MobileTaskDetail({
   return (
     <div className="fixed inset-0 z-[60] flex flex-col bg-slate-50">
       {/* 顶栏：返回 + 标题 + 状态/负责人 */}
-      <header className="flex items-center gap-1.5 border-b border-slate-200 bg-white px-2 py-2.5">
+      <header className="flex items-center gap-1.5 border-b border-slate-200 bg-white px-2 py-1.5">
         <button
           type="button"
           onClick={onClose}
@@ -855,65 +866,91 @@ function MobileTaskDetail({
         </div>
       </header>
 
-      {/* 内容：操作留痕（图片附件可点击放大预览）*/}
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        {/* 任务图片聚合相册：全部留痕的图片收拢一处，按日期分组横滑（移动端触摸横滑），点开大图左右切换 */}
-        <TaskImageGallery notes={notes} className="mb-3" />
-        <div className="mb-2.5 flex items-center gap-1.5 text-[13px] font-bold text-slate-900">
-          <History size={15} className="text-slate-400" />
-          {t("操作留痕")}
-</div>
-        {loadError ? (
-          <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-red-200 bg-white py-10 text-center">
-            <AlertTriangle className="text-red-400" size={24} />
-            <span className="px-6 text-xs text-slate-500">{loadError}</span>
+      <nav className="grid shrink-0 grid-cols-2 gap-1 border-b border-slate-200 bg-white px-3 py-1.5" aria-label={t("任务详情视图")}>
+        {([
+          { key: "progress", label: t("进度留痕"), icon: History },
+          { key: "conversation", label: t("任务讨论"), icon: MessageCircleMore },
+        ] as const).map((item) => {
+          const Icon = item.icon;
+          const active = detailTab === item.key;
+          return (
             <button
+              key={item.key}
               type="button"
-              onClick={() => void loadNotes()}
-              className="rounded-full bg-indigo-600 px-5 py-1.5 text-xs font-semibold text-white active:bg-indigo-700"
+              onClick={() => setDetailTab(item.key)}
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "flex h-9 items-center justify-center gap-1.5 rounded-xl text-xs font-bold transition-colors",
+                active ? "bg-indigo-50 text-indigo-700" : "text-slate-500 active:bg-slate-50",
+              )}
             >
-              {t("重试")}
+              <Icon size={14} />
+              {item.label}
             </button>
-          </div>
-        ) : (
-          <ProgressNoteList notes={notes} loading={loading} compact emptyText={t("暂无操作留痕")} />
-        )}
-      </div>
+          );
+        })}
+      </nav>
 
-      {/* 底部：备注输入（输入 @ 唤出候选条提及成员）*/}
-      <div className="border-t border-slate-200 bg-white px-3 py-2.5 [padding-bottom:calc(0.625rem+env(safe-area-inset-bottom))]">
-        <MentionSuggestionPanel
-          open={mention.open}
-          candidates={mention.filtered}
-          highlightIndex={mention.highlightIndex}
-          onPick={mention.pick}
+      {detailTab === "conversation" && (
+        <RDTaskConversation
+          taskId={task.task_id}
+          taskTitle={task.title}
+          notes={notes}
+          mode="task"
           variant="mobile"
+          onActivity={onAfterSubmit}
         />
-        <div className="flex items-end gap-2">
-          <textarea
-            ref={draftInputRef}
-            value={draft}
-            onChange={(e) => {
-              setDraft(e.target.value);
-              mention.syncActiveQuery();
-            }}
-            onKeyUp={mention.syncActiveQuery}
-            onClick={mention.syncActiveQuery}
-            rows={1}
-            placeholder={t("添加备注…输入 @ 可提及成员")}
-            className="max-h-28 min-h-[2.5rem] flex-1 resize-none rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-[14px] leading-snug text-slate-800 outline-none placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white"
-          />
-          <button
-            type="button"
-            onClick={submitNote}
-            disabled={!draft.trim() || submitting}
-            className="flex h-10 shrink-0 items-center gap-1 rounded-full bg-indigo-600 px-4 text-sm font-semibold text-white transition active:bg-indigo-700 disabled:opacity-40"
-          >
-            {submitting ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
-            {t("提交")}
-</button>
-        </div>
-      </div>
+      )}
+
+      {detailTab === "progress" && (
+        <RDTaskConversation
+          taskId={task.task_id}
+          taskTitle={task.title}
+          notes={notes}
+          mode="progress"
+          variant="mobile"
+          notesLoading={loading}
+          notesError={loadError}
+          onRetryNotes={() => void loadNotes()}
+          onActivity={onAfterSubmit}
+          progressComposer={(
+            <div className="border-t border-slate-200 bg-white px-3 py-2 [padding-bottom:calc(0.5rem+env(safe-area-inset-bottom))]">
+              <MentionSuggestionPanel
+                open={mention.open}
+                candidates={mention.filtered}
+                highlightIndex={mention.highlightIndex}
+                onPick={mention.pick}
+                variant="mobile"
+              />
+              <div className="flex items-end gap-2">
+                <textarea
+                  ref={draftInputRef}
+                  value={draft}
+                  onChange={(e) => {
+                    setDraft(e.target.value);
+                    mention.syncActiveQuery();
+                  }}
+                  onKeyUp={mention.syncActiveQuery}
+                  onClick={mention.syncActiveQuery}
+                  rows={1}
+                  aria-label={t("记录新进展")}
+                  placeholder={t("记录新进展，@ 提及成员…")}
+                  className="max-h-28 min-h-11 flex-1 resize-none rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-[14px] leading-snug text-slate-800 outline-none placeholder:text-slate-400 focus:border-indigo-300 focus:bg-white focus:ring-4 focus:ring-indigo-50"
+                />
+                <button
+                  type="button"
+                  onClick={submitNote}
+                  disabled={!draft.trim() || submitting}
+                  className="flex h-11 shrink-0 cursor-pointer items-center gap-1 rounded-full bg-indigo-600 px-4 text-sm font-semibold text-white transition-colors active:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {submitting ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}
+                  {t("留痕")}
+                </button>
+              </div>
+            </div>
+          )}
+        />
+      )}
     </div>
   );
 }

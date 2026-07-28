@@ -57,6 +57,29 @@ function buildViewer(req: AuthedRequest): { userId?: string; hasFullAccess: bool
   return { userId: req.user?.id, hasFullAccess, canReadAll };
 }
 
+function buildDiscussionViewer(req: AuthedRequest) {
+  const permissions = req.user?.permissions ?? [];
+  const canPost =
+    permissions.includes('*') ||
+    permissions.includes('page:rd-my-workspace') ||
+    permissions.includes('page:us-collab-workspace') ||
+    canManageAnyTask(permissions);
+  const canAccessAny =
+    permissions.includes('*') ||
+    permissions.includes('page:rd-task-management') ||
+    permissions.includes('page:rd-director-dashboard') ||
+    permissions.includes('page:us-collab-cockpit') ||
+    permissions.includes('rd-task:view-all') ||
+    canManageAnyTask(permissions);
+  return {
+    userId: req.user?.id,
+    userName: req.user?.name,
+    userRole: req.user?.role,
+    canAccessAny,
+    canPost,
+  };
+}
+
 /**
  * 知识库专用 viewer：「看全部」必须用 KB 自己的权限（* / rd-kb:manage），
  * 与上传/编辑侧 isKbManager 判定保持一致。
@@ -201,7 +224,7 @@ export class ResearchDevelopmentController {
 
   @Get('note-unread-summary')
   getNoteUnreadSummary(@Request() req: AuthedRequest) {
-    return this.rdService.getNoteUnreadSummary({ userId: req.user?.id, userName: req.user?.name });
+    return this.rdService.getNoteUnreadSummary(buildDiscussionViewer(req));
   }
 
   // 驾驶舱备注回执：所有有驾驶舱页面权限者可见（类级 @Permissions 已含 page:rd-task-management / us-collab-cockpit）
@@ -213,6 +236,79 @@ export class ResearchDevelopmentController {
   @Post('task-progress-notes/:taskId/read')
   markTaskNotesRead(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
     return this.rdService.markTaskNotesRead(taskId, { userId: req.user?.id });
+  }
+
+  // ── 任务协作对话：主会话 + 围绕进度/消息的原位讨论线程 ───────────────────
+
+  @Get('task-discussions/:taskId')
+  // 深链邀请可能来自没有研发页面码的普通成员；访问范围由 service 按任务成员/精确线程邀请校验。
+  @Permissions()
+  getTaskDiscussion(
+    @Param('taskId') taskId: string,
+    @Query('anchor_type') anchorType: string | undefined,
+    @Query('anchor_id') anchorId: string | undefined,
+    @Query('cursor') cursor: string | undefined,
+    @Query('limit') limit: string | undefined,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.rdService.getTaskDiscussion(
+      taskId,
+      { anchorType, anchorId, cursor, limit },
+      buildDiscussionViewer(req),
+    );
+  }
+
+  @Post('task-discussions/:taskId/messages')
+  // 受邀者无需获得整个研发工作台权限，只要仍是当前线程参与者即可回复；service 负责边界校验。
+  @Permissions()
+  @UseInterceptors(FilesInterceptor('files', 10))
+  createTaskDiscussionMessage(
+    @Param('taskId') taskId: string,
+    @UploadedFiles() files: Array<{ originalname: string; mimetype?: string; size?: number; buffer: Buffer }> | undefined,
+    @Body()
+    body: {
+      anchor_type?: string;
+      anchor_id?: string;
+      text?: string;
+      reply_to_id?: string;
+      mentions?: string;
+    },
+    @Request() req: AuthedRequest,
+  ) {
+    let mentions: Array<{ user_id?: string; name?: string }> | undefined;
+    if (typeof body.mentions === 'string' && body.mentions.trim()) {
+      try {
+        const parsed = JSON.parse(body.mentions);
+        if (Array.isArray(parsed)) mentions = parsed;
+      } catch {
+        // @ 是增强能力，非法 JSON 不阻断消息主流程
+      }
+    }
+    return this.rdService.createTaskDiscussionMessage({
+      taskId,
+      anchorType: body.anchor_type,
+      anchorId: body.anchor_id,
+      body: body.text,
+      replyToId: body.reply_to_id,
+      mentions,
+      files: files ?? [],
+      actor: { id: req.user?.id, name: req.user?.name, role: req.user?.role },
+      viewer: buildDiscussionViewer(req),
+    });
+  }
+
+  @Post('task-discussions/:taskId/read')
+  @Permissions()
+  markTaskDiscussionRead(
+    @Param('taskId') taskId: string,
+    @Body() body: { thread_id?: string },
+    @Request() req: AuthedRequest,
+  ) {
+    return this.rdService.markTaskDiscussionRead(
+      taskId,
+      body.thread_id ?? '',
+      buildDiscussionViewer(req),
+    );
   }
 
   /** 单任务 AI 小结（协同模块纵向视图）：任务近况浓缩成几句话；AI 未配置时本地兜底，不失败。 */
