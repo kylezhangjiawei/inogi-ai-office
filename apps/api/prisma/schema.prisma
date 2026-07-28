@@ -1070,6 +1070,7 @@ model ProcMaterial {
   bomNodes        ProcBomNode[]
   tasks           ProcTask[]
   quotations      ProcQuotation[]
+  supplierQuotes  ProcSupplierQuote[]
   balances        ProcInventoryBalance[]
   createdBy       String?
   createdAt       DateTime               @default(now())
@@ -1169,11 +1170,40 @@ model ProcSupplier {
   remark     String?
   metadata   Json            @default("{}")
   quotations ProcQuotation[]
+  supplierQuotes ProcSupplierQuote[]
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
 
   @@index([name])
   @@index([source])
+}
+
+/// 供应商报价库：商品(物料) × 厂家的现行报价档案，一对唯一。
+/// 与 ProcQuotation（任务询价流水）语义不同：这里是长期维护的比价基准，含起订量阶梯价。
+model ProcSupplierQuote {
+  id            String        @id @default(cuid())
+  materialId    String
+  material      ProcMaterial  @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  supplierId    String?
+  supplier      ProcSupplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  /// 厂家名快照：供应商删除后报价仍可读
+  supplierName  String
+  /// 厂家侧型号/品牌（同一商品各厂家命名可能不同）
+  supplierModel String        @default("")
+  currency      String        @default("CNY")
+  taxIncluded   Boolean       @default(true)
+  leadTimeDays  Int           @default(0)
+  /// 阶梯报价 [{minQty, unitPrice}]，按 minQty 升序；无阶梯时单档 minQty=0
+  tiers         Json          @default("[]")
+  quoteDate     DateTime?
+  validUntil    DateTime?
+  note          String?
+  createdBy     String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  @@unique([materialId, supplierName])
+  @@index([supplierId])
 }
 
 /// 供应商报价：本系统自有（T+ 不管报价）。来源 manual=手工录入 / mail=邮件解析。

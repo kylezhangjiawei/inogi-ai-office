@@ -1,7 +1,9 @@
 // 采购人员管理抽屉：成员名录维护（对齐研发模式）+ 按负责人聚合任务负载
 // （进行中/待处理/在途逾期/本周到货），支持一键把某人全部在制任务交接给另一人。
 import { useEffect, useMemo, useState } from "react";
-import { ArrowRightLeft, Loader2, UserPlus, X } from "lucide-react";
+import { Input } from "../../components/ui/input";
+import { ArrowRightLeft, Loader2, UserPlus } from "lucide-react";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "../../components/ui/sheet";
 import { toast } from "sonner";
 import { cn } from "../../components/ui/utils";
 import { usePermission } from "../../hooks/usePermission";
@@ -14,7 +16,7 @@ import {
   type ProcurementTask,
 } from "../../lib/procurementApi";
 import { daysFromToday, refreshProcurement, useProcurementData } from "../data";
-import { BuyerSuggestDatalist, PersonAvatar, useBuyerDirectory } from "./common";
+import { BuyerComboInput, PersonAvatar, useBuyerDirectory } from "./common";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
 
@@ -128,15 +130,12 @@ export function PeopleManageDrawer({ onClose, onFocusPerson }: {
   };
 
   return (
-    <div className="fixed inset-0 z-[70] flex justify-end bg-slate-900/30" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="flex h-full w-[620px] flex-col bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-          <div>
-            <h3 className="text-base font-bold text-slate-900">{t("人员管理（{count} 人在制）", { count: people.filter((p) => p.key !== UNASSIGNED).length })}</h3>
-            <p className="mt-0.5 text-xs text-slate-400">{t("按采购负责人查看任务负载；离职/休假时可一键把在制任务整体交接。")}</p>
-          </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-50"><X className="h-5 w-5" /></button>
-        </div>
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <SheetContent side="right" className="w-[620px] gap-0 p-0 sm:max-w-[620px]">
+        <SheetHeader className="border-b border-slate-100 px-6 py-4">
+          <SheetTitle className="text-base font-bold text-slate-900">{t("人员管理（{count} 人在制）", { count: people.filter((p) => p.key !== UNASSIGNED).length })}</SheetTitle>
+          <SheetDescription className="mt-0.5 text-xs text-slate-400">{t("按采购负责人查看任务负载；离职/休假时可一键把在制任务整体交接。")}</SheetDescription>
+        </SheetHeader>
 
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-6 py-4">
           {/* 成员名录：显式圈定采购组成员（分配任务候选优先显示名录成员；移除不影响历史任务） */}
@@ -157,15 +156,13 @@ export function PeopleManageDrawer({ onClose, onFocusPerson }: {
             </div>
             {canReassign && (
               <div className="mt-2 flex items-center gap-2">
-                <input
+                <BuyerComboInput
                   value={addName}
-                  onChange={(e) => setAddName(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") void addMember(); }}
-                  list="proc-buyer-list"
+                  onChange={setAddName}
+                  onEnter={() => void addMember()}
                   placeholder={t("输入姓名添加成员…")}
                   className="h-8 flex-1 rounded-lg border border-slate-200 bg-white px-2 text-sm outline-none focus:border-indigo-300"
                 />
-                <BuyerSuggestDatalist />
                 <button type="button" disabled={rosterBusy || !addName.trim()} onClick={() => void addMember()} className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">
                   {rosterBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <UserPlus className="h-3.5 w-3.5" />}{t("添加")}
                 </button>
@@ -213,16 +210,15 @@ export function PeopleManageDrawer({ onClose, onFocusPerson }: {
               </div>
               {handover === p.key && (
                 <div className="mt-2 flex items-center gap-2">
-                  <input
+                  <BuyerComboInput
                     autoFocus
                     value={target}
-                    onChange={(e) => setTarget(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") void submitHandover(p); if (e.key === "Escape") setHandover(null); }}
-                    list="proc-buyer-list"
+                    onChange={setTarget}
+                    onEnter={() => void submitHandover(p)}
+                    onEscape={() => setHandover(null)}
                     placeholder={t("接收人姓名")}
                     className="h-8 flex-1 rounded-lg border border-indigo-200 px-2 text-sm outline-none focus:border-indigo-400"
                   />
-                  <BuyerSuggestDatalist />
                   <button type="button" disabled={busy} onClick={() => void submitHandover(p)} className="inline-flex items-center gap-1 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">
                     {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
                     {t(p.key === UNASSIGNED ? "指派 {count} 个任务" : "交接 {count} 个任务", { count: p.active.length })}
@@ -232,7 +228,7 @@ export function PeopleManageDrawer({ onClose, onFocusPerson }: {
             </div>
           ))}
         </div>
-      </div>
-    </div>
+      </SheetContent>
+    </Sheet>
   );
 }

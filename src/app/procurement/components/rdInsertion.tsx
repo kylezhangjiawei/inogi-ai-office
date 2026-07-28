@@ -1,6 +1,8 @@
 // 研发侧「转采购」组件：真实查询关联任务、上传附件并调用采购接口。
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Input } from "../../components/ui/input";
 import { AlertTriangle, ExternalLink, Loader2, Paperclip, RotateCcw, ShoppingCart, Upload, X } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { toast } from "sonner";
 
 import { AutoTranslatedText } from "../../components/TranslatableText";
@@ -13,7 +15,7 @@ import {
 } from "../../lib/procurementApi";
 import { formatRdFileSize } from "../../RDProgressEvidence";
 import { refreshProcurement } from "../data";
-import { PROC_STATUS_META } from "./common";
+import { DateInput, PROC_STATUS_META } from "./common";
 
 /** 转采购可携带的研发任务附件。fileKey 用于采购侧按需重签访问地址。 */
 export type TransferAttachmentInput = {
@@ -257,26 +259,33 @@ export function TransferToProcurementModal({
   };
 
   const field = (key: keyof typeof form, label: string, placeholder = "", hint?: string, type = "text") => (
-    <label className="block">
+    <div>
       <span className="text-xs font-medium text-slate-500">{t(label)}</span>
-      <input
-        type={type}
-        value={form[key]}
-        onChange={(event) => setForm((current) => ({ ...current, [key]: event.target.value }))}
-        placeholder={placeholder ? t(placeholder) : ""}
-        className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-indigo-300"
-      />
+      {type === "date" ? (
+        <DateInput
+          value={form[key]}
+          onChange={(value) => setForm((current) => ({ ...current, [key]: value }))}
+          className="mt-1"
+        />
+      ) : (
+        <Input
+          type={type}
+          value={form[key]}
+          onChange={(event) => setForm((current) => ({ ...current, [key]: event.target.value }))}
+          placeholder={placeholder ? t(placeholder) : ""}
+          className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-indigo-300"
+        />
+      )}
       {hint && <span className="mt-0.5 block text-[10px] text-slate-400">{t(hint)}</span>}
-    </label>
+    </div>
   );
 
   return (
-    <div className="fixed inset-0 z-[85] flex items-center justify-center bg-slate-900/40 p-6" onClick={(event) => { if (event.target === event.currentTarget && !submitting) onClose(); }}>
-      <div className="w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-          <h3 className="text-base font-bold text-slate-900">{t("转采购 · 生成采购任务")}</h3>
-          <button type="button" disabled={submitting} onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-50 disabled:opacity-50"><X className="h-5 w-5" /></button>
-        </div>
+    <Dialog open onOpenChange={(o) => { if (!o && !submitting) onClose(); }}>
+      <DialogContent aria-describedby={undefined} className="gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-lg">
+        <DialogHeader className="border-b border-slate-100 px-6 py-4">
+          <DialogTitle className="text-base font-bold text-slate-900">{t("转采购 · 生成采购任务")}</DialogTitle>
+        </DialogHeader>
         <div className="max-h-[70vh] overflow-y-auto px-6 py-4">
           <div className="mb-3 flex items-start gap-2 rounded-xl border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-xs text-indigo-700">
             <ShoppingCart className="mt-0.5 h-4 w-4 shrink-0" />
@@ -304,7 +313,7 @@ export function TransferToProcurementModal({
                   )}
                   <label className="inline-flex cursor-pointer items-center gap-1 rounded-lg border border-indigo-200 px-2 py-1 text-[11px] font-medium text-indigo-600 hover:bg-indigo-50">
                     <Upload className="h-3 w-3" />{t("新增附件")}
-                    <input type="file" multiple className="hidden" onChange={(event) => { addManualFiles(event.target.files); event.target.value = ""; }} />
+                    <Input type="file" multiple className="hidden" onChange={(event) => { addManualFiles(event.target.files); event.target.value = ""; }} />
                   </label>
                 </div>
               </div>
@@ -329,7 +338,7 @@ export function TransferToProcurementModal({
             </div>
             <label className="col-span-2 block">
               <span className="text-xs font-medium text-slate-500">{t("低值易耗品备注")}</span>
-              <input value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} placeholder={t("如为低值易耗品可备注按年用量备货")} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-indigo-300" />
+              <Input value={form.note} onChange={(event) => setForm((current) => ({ ...current, note: event.target.value }))} placeholder={t("如为低值易耗品可备注按年用量备货")} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-indigo-300" />
             </label>
           </div>
         </div>
@@ -340,7 +349,7 @@ export function TransferToProcurementModal({
             {submitting ? t("正在生成…") : t("确认生成采购任务")}
           </button>
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

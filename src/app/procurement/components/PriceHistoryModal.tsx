@@ -1,6 +1,7 @@
 // 历史价格对比弹窗（任务详情与物料详情共用）：按物料过滤报价，支持按供应商分组、按时间/单价排序，顶部趋势折线。
 import { useEffect, useMemo, useState } from "react";
-import { ArrowDownUp, X } from "lucide-react";
+import { ArrowDownUp } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { cn } from "../../components/ui/utils";
 import { listQuotations, type Quotation } from "../../lib/procurementApi";
 import { fmtMoney } from "./common";
@@ -66,15 +67,12 @@ export function PriceHistoryModal({ materialName, open, onClose }: { materialNam
     </tr>
   );
   return (
-    <div className="fixed inset-0 z-[85] flex items-center justify-center bg-slate-900/40 p-6" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-start justify-between border-b border-slate-100 px-6 py-4">
-          <div>
-            <h3 className="flex text-base font-bold text-slate-900">{t('历史价格对比')} ·&nbsp;<AutoTranslatedText text={materialName} /></h3>
-            <p className="mt-0.5 text-xs text-slate-400">{t('跨供应商历史报价，支持分组与排序对比')}</p>
-          </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-50"><X className="h-5 w-5" /></button>
-        </div>
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-2xl">
+        <DialogHeader className="border-b border-slate-100 px-6 py-4">
+          <DialogTitle className="flex text-base font-bold text-slate-900">{t('历史价格对比')} ·&nbsp;<AutoTranslatedText text={materialName} /></DialogTitle>
+          <DialogDescription className="mt-0.5 text-xs text-slate-400">{t('跨供应商历史报价，支持分组与排序对比')}</DialogDescription>
+        </DialogHeader>
         <div className="px-6 py-4">
           {rows.length === 0 ? (
             <div className="py-10 text-center text-sm text-slate-400">{t('该物料暂无历史报价')}</div>
@@ -109,7 +107,7 @@ export function PriceHistoryModal({ materialName, open, onClose }: { materialNam
             </>
           )}
         </div>
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

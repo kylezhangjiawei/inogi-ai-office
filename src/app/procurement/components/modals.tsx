@@ -1,8 +1,13 @@
 // 采购模块弹窗/面板：新建需求 / 批量导入 / 分类管理 / 批量转派 / 任务编辑 / 物料表单。均走真实接口。
 // AiCreateModal 暂无入口（产品决定隐藏 AI 建单按钮），实现保留以便恢复；物料审核在 MaterialDetailDrawer 里做。
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Input } from "../../components/ui/input";
 import { FileDown, Loader2, Sparkles, Upload, X } from "lucide-react";
 import { toast } from "sonner";
+import { Checkbox } from "../../components/ui/checkbox";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../../components/ui/dialog";
+import { Textarea } from "../../components/ui/textarea";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { cn } from "../../components/ui/utils";
 import { refreshProcurement, useProcurementData, useProductLines } from "../data";
 import {
@@ -51,23 +56,23 @@ import {
   type TplusConfigState,
   type UpdateProcTaskInput,
 } from "../../lib/procurementApi";
-import { BuyerSuggestDatalist, useBuyerDirectory } from "./common";
+import { BuyerComboInput, ComboInput, DateInput, useBuyerDirectory, useConfirmDialog } from "./common";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
 
+/** 采购弹窗通用壳（Radix Dialog）：关闭 X 由 DialogContent 自带；宽度覆盖须带 sm: 断点（见 dialog.tsx 注释）。 */
 function Shell({ title, onClose, children, footer, wide }: { title: string; onClose: () => void; children: React.ReactNode; footer?: React.ReactNode; wide?: boolean }) {
   const { t } = useI18n();
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-6" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className={cn("w-full overflow-hidden rounded-2xl bg-white shadow-2xl", wide ? "max-w-2xl" : "max-w-lg")} onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
-          <h3 className="text-base font-bold text-slate-900">{t(title)}</h3>
-          <button type="button" onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-50"><X className="h-5 w-5" /></button>
-        </div>
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent aria-describedby={undefined} className={cn("gap-0 overflow-hidden rounded-2xl p-0", wide ? "sm:max-w-2xl" : "sm:max-w-lg")}>
+        <DialogHeader className="border-b border-slate-100 px-6 py-4">
+          <DialogTitle className="text-base font-bold text-slate-900">{t(title)}</DialogTitle>
+        </DialogHeader>
         <div className="max-h-[70vh] overflow-y-auto px-6 py-5">{children}</div>
-        {footer && <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">{footer}</div>}
-      </div>
-    </div>
+        {footer && <DialogFooter className="gap-2 border-t border-slate-100 px-6 py-3">{footer}</DialogFooter>}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -128,51 +133,60 @@ function DraftFields({ draft, setDraft, more, setMore }: {
       <div className="grid grid-cols-2 gap-3">
         <label className="block">
           <span className={label}>{t('物料名称')}<span className="ml-0.5 text-rose-500">*</span></span>
-          <input value={draft.materialName} onChange={(e) => set('materialName')(e.target.value)} placeholder={t('如 减震垫 DZC-950')} className={field} />
+          <Input value={draft.materialName} onChange={(e) => set('materialName')(e.target.value)} placeholder={t('如 减震垫 DZC-950')} className={field} />
         </label>
         <label className="block">
           <span className={label}>{t('数量')}<span className="ml-0.5 text-rose-500">*</span></span>
-          <input value={draft.quantity} onChange={(e) => set('quantity')(e.target.value)} inputMode="decimal" placeholder={t('如 2000')} className={field} />
+          <Input value={draft.quantity} onChange={(e) => set('quantity')(e.target.value)} inputMode="decimal" placeholder={t('如 2000')} className={field} />
         </label>
-        <label className="block">
+        <div>
           <span className={label}>{t('需求日期')}<span className="ml-0.5 text-rose-500">*</span></span>
-          <input type="date" value={draft.needDate} onChange={(e) => set('needDate')(e.target.value)} className={field} />
-        </label>
-        <label className="block">
+          <DateInput value={draft.needDate} onChange={set('needDate')} className="mt-1" />
+        </div>
+        <div>
           <span className={label}>{t('业务线')}</span>
-          <select value={draft.businessLine} onChange={(e) => set('businessLine')(e.target.value as BusinessLine)} className={field}>
-            <option value="production">{t('生产')}</option>
-            <option value="rd">{t('研发')}</option>
-          </select>
-        </label>
+          <Select value={draft.businessLine} onValueChange={(v) => set('businessLine')(v as BusinessLine)}>
+            <SelectTrigger className="mt-1 h-9 w-full rounded-lg border-slate-200 text-sm"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="production">{t('生产')}</SelectItem>
+              <SelectItem value="rd">{t('研发')}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
       </div>
       <button type="button" onClick={() => setMore(!more)} className="mt-3 text-xs font-medium text-indigo-600">{t(more ? "收起更多字段 ▲" : "展开更多字段 ▼")}</button>
       {more && (
         <div className="mt-2 grid grid-cols-2 gap-3">
-          <label className="block"><span className={label}>{t('规格')}</span><input value={draft.spec} onChange={(e) => set('spec')(e.target.value)} className={field} /></label>
-          <label className="block"><span className={label}>{t('单位')}</span><input value={draft.unit} onChange={(e) => set('unit')(e.target.value)} placeholder={t('如 件')} className={field} /></label>
-          <label className="block"><span className={label}>Deadline</span><input type="date" value={draft.deadline} onChange={(e) => set('deadline')(e.target.value)} className={field} /></label>
-          <label className="block">
+          <label className="block"><span className={label}>{t('规格')}</span><Input value={draft.spec} onChange={(e) => set('spec')(e.target.value)} className={field} /></label>
+          <label className="block"><span className={label}>{t('单位')}</span><Input value={draft.unit} onChange={(e) => set('unit')(e.target.value)} placeholder={t('如 件')} className={field} /></label>
+          <div><span className={label}>Deadline</span><DateInput value={draft.deadline} onChange={set('deadline')} className="mt-1" /></div>
+          <div>
             <span className={label}>{t('采购方式')}</span>
-            <select value={draft.method} onChange={(e) => set('method')(e.target.value as ProcMethod)} className={field}>
-              <option value="inquiry">{t('询价采购')}</option>
-              <option value="direct">{t('电商直购')}</option>
-            </select>
-          </label>
+            <Select value={draft.method} onValueChange={(v) => set('method')(v as ProcMethod)}>
+              <SelectTrigger className="mt-1 h-9 w-full rounded-lg border-slate-200 text-sm"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="inquiry">{t('询价采购')}</SelectItem>
+                <SelectItem value="direct">{t('电商直购')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
           {draft.method === "direct" && (
-            <label className="col-span-2 block"><span className={label}>{t('商品链接（直购）')}</span><input value={draft.purchaseLink} onChange={(e) => set('purchaseLink')(e.target.value)} placeholder="https://" className={field} /></label>
+            <label className="col-span-2 block"><span className={label}>{t('商品链接（直购）')}</span><Input value={draft.purchaseLink} onChange={(e) => set('purchaseLink')(e.target.value)} placeholder="https://" className={field} /></label>
           )}
-          <label className="block">
+          <div>
             <span className={label}>{t('优先级')}</span>
-            <select value={draft.priority} onChange={(e) => set('priority')(e.target.value as DraftState["priority"])} className={field}>
-              <option value="high">{t('高')}</option>
-              <option value="medium">{t('中')}</option>
-              <option value="low">{t('低')}</option>
-            </select>
-          </label>
-          <label className="block"><span className={label}>{t('采购负责人')}</span><input value={draft.buyer} onChange={(e) => set('buyer')(e.target.value)} list="proc-buyer-list" className={field} /><BuyerSuggestDatalist /></label>
-          <label className="col-span-2 mt-1 flex items-center gap-2 text-sm text-slate-600">
-            <input type="checkbox" checked={draft.needSample} onChange={(e) => set('needSample')(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-indigo-600" />
+            <Select value={draft.priority} onValueChange={(v) => set('priority')(v as DraftState["priority"])}>
+              <SelectTrigger className="mt-1 h-9 w-full rounded-lg border-slate-200 text-sm"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="high">{t('高')}</SelectItem>
+                <SelectItem value="medium">{t('中')}</SelectItem>
+                <SelectItem value="low">{t('低')}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div><span className={label}>{t('采购负责人')}</span><BuyerComboInput value={draft.buyer} onChange={set('buyer')} className={field} /></div>
+          <label className="col-span-2 mt-1 flex cursor-pointer items-center gap-2 text-sm text-slate-600">
+            <Checkbox checked={draft.needSample} onCheckedChange={(v) => set('needSample')(v === true)} />
             {t('需要样品（选定报价后先到样测试）')}
           </label>
         </div>
@@ -274,7 +288,7 @@ export function AiCreateModal({ onClose }: { onClose: () => void }) {
       {step === "input" ? (
         <>
           <div className="mb-3 flex items-start gap-2 rounded-xl border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-xs text-indigo-700"><Sparkles className="mt-0.5 h-4 w-4 shrink-0" />{t('粘贴文字或商品链接，AI 将解析生成采购任务（物料、规格、数量、方式等）。')}</div>
-          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={6} placeholder={t('例：采购 减震垫 DZC-950 橡胶 50×20mm 2000 件，7 月中旬前到货；或粘贴电商商品链接…')} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300" />
+          <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={6} placeholder={t('例：采购 减震垫 DZC-950 橡胶 50×20mm 2000 件，7 月中旬前到货；或粘贴电商商品链接…')} className="w-full rounded-lg border-slate-200 px-3 py-2 text-sm focus:border-indigo-300" />
         </>
       ) : (
         <>
@@ -431,7 +445,7 @@ export function ImportMaterialsModal({ onClose }: { onClose: () => void }) {
         <Upload className="h-8 w-8 text-indigo-400" />
         <span className="text-sm font-medium text-slate-600">{fileName || t('点击选择 Excel 文件')}</span>
         <span className="text-[11px] text-slate-400">{t('支持 .xlsx，按下方模板字段解析')}</span>
-        <input ref={inputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void pick(f); }} />
+        <Input ref={inputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void pick(f); }} />
       </label>
       {items.length > 0 && (
         <div className="mt-3 rounded-lg border border-emerald-100 bg-emerald-50/50 px-3 py-2 text-xs text-emerald-700">
@@ -455,6 +469,7 @@ export function ImportMaterialsModal({ onClose }: { onClose: () => void }) {
 export function CategoryManageModal({ onClose }: { onClose: () => void }) {
   const { t } = useI18n();
   const { materials } = useProcurementData();
+  const { confirm: confirmAction, confirmDialog } = useConfirmDialog();
   const [editing, setEditing] = useState<string | null>(null);
   const [newName, setNewName] = useState("");
   const [busy, setBusy] = useState(false);
@@ -470,12 +485,7 @@ export function CategoryManageModal({ onClose }: { onClose: () => void }) {
     return [...byCat.entries()].filter(([c]) => !kw || c.toLowerCase().includes(kw));
   }, [byCat, keyword]);
 
-  const rename = async (from: string) => {
-    const to = newName.trim();
-    if (!to) { toast.error(t('请填写新分类名')); return; }
-    if (to === from) { setEditing(null); return; }
-    const merging = byCat.has(to);
-    if (merging && !window.confirm(t('分类「{to}」已存在，将把「{from}」下的物料并入其中，是否继续？', { to, from }))) return;
+  const doRename = async (from: string, to: string, merging: boolean) => {
     setBusy(true);
     try {
       const result = await renameProcCategory(from, to);
@@ -489,11 +499,28 @@ export function CategoryManageModal({ onClose }: { onClose: () => void }) {
       setBusy(false);
     }
   };
+  const rename = async (from: string) => {
+    const to = newName.trim();
+    if (!to) { toast.error(t('请填写新分类名')); return; }
+    if (to === from) { setEditing(null); return; }
+    const merging = byCat.has(to);
+    if (merging) {
+      confirmAction({
+        title: t('合并分类'),
+        desc: t('分类「{to}」已存在，将把「{from}」下的物料并入其中，是否继续？', { to, from }),
+        actionLabel: t('合并'),
+        onConfirm: () => { void doRename(from, to, true); },
+      });
+      return;
+    }
+    await doRename(from, to, false);
+  };
 
   return (
     <Shell title={t("分类管理")} onClose={onClose} footer={<button type="button" onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">{t('关闭')}</button>}>
+      {confirmDialog}
       <p className="mb-3 text-xs text-slate-400">{t('分类由物料主数据聚合而来；重命名会同步更新该分类下所有物料，改成已有分类名即为合并。')}</p>
-      <input
+      <Input
         value={keyword}
         onChange={(e) => setKeyword(e.target.value)}
         placeholder={t('按分类名称过滤…')}
@@ -504,7 +531,7 @@ export function CategoryManageModal({ onClose }: { onClose: () => void }) {
           <div key={c} className="flex items-center justify-between gap-2 rounded-lg border border-slate-100 px-3 py-2 text-sm">
             {editing === c ? (
               <>
-                <input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void rename(c); if (e.key === "Escape") setEditing(null); }} placeholder={c} className="h-8 flex-1 rounded-lg border border-indigo-200 px-2 text-sm outline-none focus:border-indigo-400" />
+                <Input autoFocus value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") void rename(c); if (e.key === "Escape") setEditing(null); }} placeholder={c} className="h-8 flex-1 rounded-lg border border-indigo-200 px-2 text-sm outline-none focus:border-indigo-400" />
                 <button type="button" disabled={busy} onClick={() => void rename(c)} className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700 disabled:opacity-60">{busy ? t('处理中…') : t('保存')}</button>
                 <button type="button" disabled={busy} onClick={() => { setEditing(null); setNewName(""); }} className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-50">{t('取消')}</button>
               </>
@@ -889,19 +916,19 @@ export function ReplenishModal({ onClose }: { onClose: () => void }) {
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.materialId} className={cn("border-t border-slate-100", !selected.has(r.materialId) && "opacity-50")}>
-                    <td className="px-2 py-1.5"><input type="checkbox" checked={selected.has(r.materialId)} onChange={() => toggle(r.materialId, r.suggestQty)} className="h-3.5 w-3.5 accent-indigo-600" /></td>
+                    <td className="px-2 py-1.5"><Checkbox checked={selected.has(r.materialId)} onCheckedChange={() => toggle(r.materialId, r.suggestQty)} className="size-3.5" /></td>
                     <td className="max-w-[180px] truncate px-2 py-1.5 text-slate-700" title={r.name}>{r.code} <AutoTranslatedText as="span" text={r.name} /></td>
                     <td className={cn("px-2 py-1.5 text-right tabular-nums", r.stock <= 0 ? "font-semibold text-rose-600" : "text-amber-600")}>{r.stock.toLocaleString()} / {r.safeStock.toLocaleString()}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-slate-500">{r.inTransit.toLocaleString()}</td>
                     <td className="px-2 py-1.5 text-right tabular-nums text-slate-500">{r.openTaskQty.toLocaleString()}</td>
                     <td className="px-2 py-1.5 text-right">
-                      <input
+                      <Input
                         type="number"
                         min={1}
                         value={selected.get(r.materialId) ?? r.suggestQty}
                         disabled={!selected.has(r.materialId)}
                         onChange={(e) => setQty(r.materialId, Math.max(0, Math.floor(Number(e.target.value))))}
-                        className="h-6 w-20 rounded border border-slate-200 px-1.5 text-right text-xs tabular-nums outline-none focus:border-indigo-300 disabled:bg-slate-50"
+                        className="h-6 w-20 rounded border border-slate-200 px-1.5 text-right text-xs tabular-nums outline-none focus:border-indigo-300 disabled:bg-slate-50 md:text-xs"
                       />
                     </td>
                     <td className="max-w-[140px] truncate px-2 py-1.5 text-slate-400" title={r.lastSupplier ?? undefined}>
@@ -979,22 +1006,21 @@ export function BatchReassignModal({ tasks, onClose }: { tasks: ProcurementTask[
       <div className="mb-3 grid grid-cols-2 gap-3">
         <label className="block">
           <span className="text-xs font-medium text-slate-500">{t('新采购负责人')}<span className="ml-0.5 text-rose-500">*</span></span>
-          <input value={buyer} onChange={(e) => setBuyer(e.target.value)} list="proc-buyer-list" className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-indigo-300" />
-          <BuyerSuggestDatalist />
+          <BuyerComboInput value={buyer} onChange={setBuyer} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-indigo-300" />
         </label>
         <label className="block">
           <span className="text-xs font-medium text-slate-500">{t('筛选任务')}</span>
-          <input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder={t('搜索单号 / 物料 / 当前负责人')} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-indigo-300" />
+          <Input value={keyword} onChange={(e) => setKeyword(e.target.value)} placeholder={t('搜索单号 / 物料 / 当前负责人')} className="mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-indigo-300" />
         </label>
       </div>
-      <label className="mb-1 flex items-center gap-2 px-1 py-1 text-xs text-slate-500">
-        <input type="checkbox" checked={allChecked} onChange={toggleAll} className="h-4 w-4 rounded border-slate-300 text-indigo-600" />
+      <label className="mb-1 flex cursor-pointer items-center gap-2 px-1 py-1 text-xs text-slate-500">
+        <Checkbox checked={allChecked} onCheckedChange={toggleAll} />
         {t('全选（{count} 个进行中任务）', { count: candidates.length })}
       </label>
       <div className="max-h-72 space-y-1 overflow-y-auto">
         {candidates.map((task) => (
           <label key={task.id} className={cn("flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm", selected.has(task.id) ? "border-indigo-200 bg-indigo-50/50" : "border-slate-100 hover:bg-slate-50")}>
-            <input type="checkbox" checked={selected.has(task.id)} onChange={() => toggle(task.id)} className="h-4 w-4 rounded border-slate-300 text-indigo-600" />
+            <Checkbox checked={selected.has(task.id)} onCheckedChange={() => toggle(task.id)} />
             <span className="shrink-0 text-xs tabular-nums text-slate-400">{task.code}</span>
             <AutoTranslatedText className="min-w-0 flex-1 truncate text-slate-700" text={task.materialName} />
             <span className="shrink-0 text-xs text-slate-400">{t('当前')}：{task.buyer || t('未指派')}</span>
@@ -1073,37 +1099,43 @@ export function EditTaskModal({ task, onClose }: { task: ProcurementTask; onClos
     >
       <p className="mb-3 text-xs text-slate-400">{task.code} · <AutoTranslatedText as="span" text={task.materialName} />（{t('状态流转请用任务卡上的下一步操作，此处只改任务信息')}）</p>
       <div className="grid grid-cols-2 gap-3">
-        <label className="block"><span className={label}>{t('数量')}</span><input value={form.quantity} onChange={(e) => set('quantity')(e.target.value)} inputMode="decimal" className={field} /></label>
-        <label className="block">
+        <label className="block"><span className={label}>{t('数量')}</span><Input value={form.quantity} onChange={(e) => set('quantity')(e.target.value)} inputMode="decimal" className={field} /></label>
+        <div>
           <span className={label}>{t('优先级')}</span>
-          <select value={form.priority} onChange={(e) => set('priority')(e.target.value as typeof form.priority)} className={field}>
-            <option value="high">{t('高')}</option>
-            <option value="medium">{t('中')}</option>
-            <option value="low">{t('低')}</option>
-          </select>
-        </label>
-        <label className="block"><span className={label}>{t('需求日期')}</span><input type="date" value={form.needDate} onChange={(e) => set('needDate')(e.target.value)} className={field} /></label>
-        <label className="block"><span className={label}>Deadline</span><input type="date" value={form.deadline} onChange={(e) => set('deadline')(e.target.value)} className={field} /></label>
+          <Select value={form.priority} onValueChange={(v) => set('priority')(v as typeof form.priority)}>
+            <SelectTrigger className="mt-1 h-9 w-full rounded-lg border-slate-200 text-sm"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="high">{t('高')}</SelectItem>
+              <SelectItem value="medium">{t('中')}</SelectItem>
+              <SelectItem value="low">{t('低')}</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div><span className={label}>{t('需求日期')}</span><DateInput value={form.needDate} onChange={set('needDate')} className="mt-1" /></div>
+        <div><span className={label}>Deadline</span><DateInput value={form.deadline} onChange={set('deadline')} className="mt-1" /></div>
         {task.method === "direct" && (
-          <label className="col-span-2 block"><span className={label}>{t('商品链接')}</span><input value={form.purchaseLink} onChange={(e) => set('purchaseLink')(e.target.value)} className={field} /></label>
+          <label className="col-span-2 block"><span className={label}>{t('商品链接')}</span><Input value={form.purchaseLink} onChange={(e) => set('purchaseLink')(e.target.value)} className={field} /></label>
         )}
-        <label className="col-span-2 block"><span className={label}>{t('低值易耗品备注')}</span><input value={form.consumableNote} onChange={(e) => set('consumableNote')(e.target.value)} className={field} /></label>
+        <label className="col-span-2 block"><span className={label}>{t('低值易耗品备注')}</span><Input value={form.consumableNote} onChange={(e) => set('consumableNote')(e.target.value)} className={field} /></label>
       </div>
       {orderStage && (
         <div className="mt-4 rounded-xl border border-slate-100 bg-slate-50/50 p-3">
           <div className="mb-2 text-xs font-semibold text-slate-600">{t('下单与付款')}</div>
           <div className="grid grid-cols-2 gap-3">
-            <label className="block"><span className={label}>{t('预计到货')}</span><input type="date" value={form.expectedArrivalDate} onChange={(e) => set('expectedArrivalDate')(e.target.value)} className={field} /></label>
-            <label className="block">
+            <div><span className={label}>{t('预计到货')}</span><DateInput value={form.expectedArrivalDate} onChange={set('expectedArrivalDate')} className="mt-1" /></div>
+            <div>
               <span className={label}>{t('付款状态')}</span>
-              <select value={form.paymentStatus} onChange={(e) => set('paymentStatus')(e.target.value as PaymentStatus)} className={field}>
-                <option value="unpaid">{t('未付款')}</option>
-                <option value="partial">{t('部分付款')}</option>
-                <option value="paid">{t('已付款')}</option>
-              </select>
-            </label>
-            <label className="block"><span className={label}>{t('付款日期')}</span><input type="date" value={form.paymentDate} onChange={(e) => set('paymentDate')(e.target.value)} className={field} /></label>
-            <label className="block"><span className={label}>{t('付款备注')}</span><input value={form.paymentNote} onChange={(e) => set('paymentNote')(e.target.value)} placeholder={t('如：首付 30% 已付')} className={field} /></label>
+              <Select value={form.paymentStatus} onValueChange={(v) => set('paymentStatus')(v as PaymentStatus)}>
+                <SelectTrigger className="mt-1 h-9 w-full rounded-lg border-slate-200 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="unpaid">{t('未付款')}</SelectItem>
+                  <SelectItem value="partial">{t('部分付款')}</SelectItem>
+                  <SelectItem value="paid">{t('已付款')}</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div><span className={label}>{t('付款日期')}</span><DateInput value={form.paymentDate} onChange={set('paymentDate')} className="mt-1" /></div>
+            <label className="block"><span className={label}>{t('付款备注')}</span><Input value={form.paymentNote} onChange={(e) => set('paymentNote')(e.target.value)} placeholder={t('如：首付 30% 已付')} className={field} /></label>
           </div>
         </div>
       )}
@@ -1179,25 +1211,23 @@ export function MaterialFormModal({ material, onClose }: { material?: Material; 
       </>}
     >
       <div className="grid grid-cols-2 gap-3">
-        <label className="block"><span className={label}>{t('物料名称')}<span className="ml-0.5 text-rose-500">*</span></span><input value={form.name} onChange={(e) => set('name')(e.target.value)} className={field} /></label>
-        <label className="block"><span className={label}>{t('规格')}</span><input value={form.spec} onChange={(e) => set('spec')(e.target.value)} className={field} /></label>
-        <label className="block"><span className={label}>{t('单位')}</span><input value={form.unit} onChange={(e) => set('unit')(e.target.value)} placeholder={t('如 件')} className={field} /></label>
+        <label className="block"><span className={label}>{t('物料名称')}<span className="ml-0.5 text-rose-500">*</span></span><Input value={form.name} onChange={(e) => set('name')(e.target.value)} className={field} /></label>
+        <label className="block"><span className={label}>{t('规格')}</span><Input value={form.spec} onChange={(e) => set('spec')(e.target.value)} className={field} /></label>
+        <label className="block"><span className={label}>{t('单位')}</span><Input value={form.unit} onChange={(e) => set('unit')(e.target.value)} placeholder={t('如 件')} className={field} /></label>
         <label className="block">
           <span className={label}>{t('分类')}</span>
-          <input value={form.category} onChange={(e) => set('category')(e.target.value)} list="proc-cat-list" placeholder={t('输入或从已有分类中选')} className={field} />
-          <datalist id="proc-cat-list">{categories.map((c) => <option key={c} value={c} />)}</datalist>
+          <ComboInput value={form.category} onChange={set('category')} options={categories} placeholder={t('输入或从已有分类中选')} className={field} />
         </label>
         <label className="block">
           <span className={label}>{t('产品线')}</span>
-          <input value={form.productLine} onChange={(e) => set('productLine')(e.target.value)} list="proc-line-list" placeholder={t('如 R1 / R2 / 通用')} className={field} />
-          <datalist id="proc-line-list">{productLines.map((pl) => <option key={pl} value={pl} />)}</datalist>
+          <ComboInput value={form.productLine} onChange={set('productLine')} options={productLines} placeholder={t('如 R1 / R2 / 通用')} className={field} />
         </label>
-        <label className="block"><span className={label}>{t('ERP 编码')}</span><input value={form.erpCode} onChange={(e) => set('erpCode')(e.target.value)} className={field} /></label>
-        <label className="block"><span className={label}>{t('T+ 存货编码')}</span><input value={form.tpInventoryCode} onChange={(e) => set('tpInventoryCode')(e.target.value)} className={field} /></label>
-        <label className="block"><span className={label}>{t('安全库存')}</span><input value={form.safeStock} onChange={(e) => set('safeStock')(e.target.value)} inputMode="decimal" placeholder="0" className={field} /></label>
-        <label className="col-span-2 block"><span className={label}>{t('备注')}</span><input value={form.remark} onChange={(e) => set('remark')(e.target.value)} className={field} /></label>
-        <label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={form.isSpecial} onChange={(e) => set('isSpecial')(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-indigo-600" />{t('特殊物料')}</label>
-        <label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={form.isConsumable} onChange={(e) => set('isConsumable')(e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-indigo-600" />{t('低值易耗品')}</label>
+        <label className="block"><span className={label}>{t('ERP 编码')}</span><Input value={form.erpCode} onChange={(e) => set('erpCode')(e.target.value)} className={field} /></label>
+        <label className="block"><span className={label}>{t('T+ 存货编码')}</span><Input value={form.tpInventoryCode} onChange={(e) => set('tpInventoryCode')(e.target.value)} className={field} /></label>
+        <label className="block"><span className={label}>{t('安全库存')}</span><Input value={form.safeStock} onChange={(e) => set('safeStock')(e.target.value)} inputMode="decimal" placeholder="0" className={field} /></label>
+        <label className="col-span-2 block"><span className={label}>{t('备注')}</span><Input value={form.remark} onChange={(e) => set('remark')(e.target.value)} className={field} /></label>
+        <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-600"><Checkbox checked={form.isSpecial} onCheckedChange={(v) => set('isSpecial')(v === true)} />{t('特殊物料')}</label>
+        <label className="flex cursor-pointer items-center gap-2 text-sm text-slate-600"><Checkbox checked={form.isConsumable} onCheckedChange={(v) => set('isConsumable')(v === true)} />{t('低值易耗品')}</label>
       </div>
     </Shell>
   );
@@ -1259,8 +1289,8 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
     try {
       const { jobId } = await runTplusAutoSync();
       const r = await waitApplyJob<TplusAutoSyncResult>(jobId, setSyncProgress, getTplusSyncJob);
-      if (r.skipped) toast.warning(t('已跳过：{reason}', { reason: r.reason }));
-      else toast.success(t('全同步完成：{summary}', { summary: r.summary }));
+      if (r.skipped) toast.warning(t('已跳过：{reason}', { reason: r.reason ?? '' }));
+      else toast.success(t('全同步完成：{summary}', { summary: r.summary ?? '' }));
       void reload();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('同步失败'));
@@ -1350,13 +1380,13 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
       {/* 凭据表单：appSecret 不回显，留空表示保留已存值 */}
       <div className="space-y-3">
         <label className="block"><span className={label}>appKey<span className="ml-0.5 text-rose-500">*</span></span>
-          <input value={appKey} onChange={(e) => setAppKey(e.target.value)} placeholder={config?.appKeyMasked ? t('已配置（{masked}），重新填写将覆盖', { masked: config.appKeyMasked }) : t('开放平台应用的 appKey')} className={field} />
+          <Input value={appKey} onChange={(e) => setAppKey(e.target.value)} placeholder={config?.appKeyMasked ? t('已配置（{masked}），重新填写将覆盖', { masked: config.appKeyMasked }) : t('开放平台应用的 appKey')} className={field} />
         </label>
         <label className="block"><span className={label}>appSecret{!config?.hasSecret && <span className="ml-0.5 text-rose-500">*</span>}</span>
-          <input type="password" value={appSecret} onChange={(e) => setAppSecret(e.target.value)} placeholder={config?.hasSecret ? t('已加密存储，留空保持不变') : t('开放平台应用的 appSecret')} autoComplete="new-password" className={field} />
+          <Input type="password" value={appSecret} onChange={(e) => setAppSecret(e.target.value)} placeholder={config?.hasSecret ? t('已加密存储，留空保持不变') : t('开放平台应用的 appSecret')} autoComplete="new-password" className={field} />
         </label>
         <label className="block"><span className={label}>{t('网关地址')}</span>
-          <input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://openapi.chanjet.com" className={field} />
+          <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://openapi.chanjet.com" className={field} />
         </label>
         <p className="text-[11px] leading-5 text-slate-400">{t('appSecret 仅在保存时传输一次，后端加密存储、任何接口不回显。')}</p>
       </div>
@@ -1371,7 +1401,7 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
             <li>{t('若跳转失败但你拿到了授权码 code（10 分钟内有效），粘贴到下面手动换取：')}</li>
           </ol>
           <div className="mt-2 flex items-center gap-2">
-            <input value={authCode} onChange={(e) => setAuthCode(e.target.value)} placeholder={t('粘贴授权码 code')} className="h-8 flex-1 rounded-lg border border-amber-200 bg-white px-2 text-sm outline-none focus:border-amber-400" />
+            <Input value={authCode} onChange={(e) => setAuthCode(e.target.value)} placeholder={t('粘贴授权码 code')} className="h-8 flex-1 rounded-lg border border-amber-200 bg-white px-2 text-sm outline-none focus:border-amber-400" />
             <button
               type="button"
               disabled={busy || !authCode.trim()}
@@ -1412,7 +1442,7 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
         {config && (
           <div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-2 text-[11px] text-slate-500">
             <label className="inline-flex cursor-pointer items-center gap-1.5">
-              <input type="checkbox" checked={config.autoSync} onChange={(e) => void toggleAutoSync(e.target.checked)} className="h-3.5 w-3.5 accent-indigo-600" />
+              <Checkbox checked={config.autoSync} onCheckedChange={(v) => void toggleAutoSync(v === true)} className="size-3.5" />
               {t('每日 3:00 自动同步')}
             </label>
             {config.lastAutoSyncAt && (

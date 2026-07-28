@@ -2,6 +2,21 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { useAuth } from "../../auth";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "../../components/ui/alert-dialog";
+import { CalendarDays } from "lucide-react";
+import { Calendar } from "../../components/ui/calendar";
+import { Command, CommandItem, CommandList } from "../../components/ui/command";
+import { Input } from "../../components/ui/input";
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "../../components/ui/popover";
 import { cn } from "../../components/ui/utils";
 import { useAvatarDirectory } from "../../lib/userAvatar";
 import { hasPermission } from "../../lib/permissions";
@@ -73,15 +88,6 @@ export function useBuyerDirectory() {
   }, [users, tasks]);
 }
 
-/** 负责人输入建议：渲染一次，input 上加 list="proc-buyer-list"。 */
-export function BuyerSuggestDatalist() {
-  const { suggestions, deptOf } = useBuyerDirectory();
-  return (
-    <datalist id="proc-buyer-list">
-      {suggestions.map((name) => <option key={name} value={name} label={deptOf(name)} />)}
-    </datalist>
-  );
-}
 
 export const fmtMoney = (n?: number) => (typeof n === "number" ? `¥${n.toLocaleString(i18nLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—");
 
@@ -245,4 +251,201 @@ export function PlaceholderImage({ label, className }: { label: string; classNam
       <span className="px-1 text-center text-[10px] leading-tight">{label}</span>
     </div>
   );
+}
+
+// ── 联想输入组合框（替代原生 datalist：Input + Popover + Command）────────────
+
+export interface ComboOption {
+  value: string;
+  /** 右侧灰字提示（如部门），仅展示 */
+  hint?: string;
+}
+
+/**
+ * 可自由输入的联想组合框：输入过滤候选、点选回填，也允许提交列表外的自由文本。
+ * 候选点击用 onSelect（cmdk 处理 pointer 事件），焦点始终留在输入框。
+ */
+export function ComboInput({
+  value, onChange, options, placeholder, className, disabled, autoFocus, onEnter, onEscape,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  options: Array<ComboOption | string>;
+  placeholder?: string;
+  className?: string;
+  disabled?: boolean;
+  autoFocus?: boolean;
+  /** 回车（弹层已收起后）提交，如「输入姓名回车添加」 */
+  onEnter?: () => void;
+  onEscape?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const normalized = useMemo(
+    () => options.map((o) => (typeof o === "string" ? { value: o } : o)),
+    [options],
+  );
+  const kw = value.trim().toLowerCase();
+  const filtered = useMemo(() => {
+    const list = kw ? normalized.filter((o) => o.value.toLowerCase().includes(kw)) : normalized;
+    return list.slice(0, 50);
+  }, [normalized, kw]);
+  // 输入值恰好等于唯一候选时不再弹层（选完即收）
+  const show = open && filtered.length > 0 && !(filtered.length === 1 && filtered[0].value === value);
+  return (
+    // modal：在 Dialog/Sheet 内使用时，点击候选不被外层判定为 outside 而误关弹窗
+    <Popover modal open={show} onOpenChange={setOpen}>
+      <PopoverAnchor asChild>
+        <Input
+          value={value}
+          disabled={disabled}
+          autoFocus={autoFocus}
+          placeholder={placeholder}
+          className={className}
+          onChange={(e) => { onChange(e.target.value); setOpen(true); }}
+          // 用 pointerdown 而非 focus 触发：避免 Dialog/Sheet 打开时的自动聚焦把候选列表弹出来
+          onPointerDown={() => setOpen(true)}
+          onKeyDown={(e) => {
+            if (e.key === "Escape" || e.key === "Enter" || e.key === "Tab") setOpen(false);
+            if (e.key === "Enter") onEnter?.();
+            if (e.key === "Escape") onEscape?.();
+          }}
+        />
+      </PopoverAnchor>
+      <PopoverContent
+        align="start"
+        className="w-[var(--radix-popper-anchor-width)] p-1"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
+        <Command shouldFilter={false}>
+          <CommandList className="max-h-52">
+            {filtered.map((opt) => (
+              <CommandItem
+                key={opt.value}
+                value={opt.value}
+                // onMouseDown 先于 popover 的 dismiss 逻辑执行，避免弹层先收起吃掉 click
+                onMouseDown={(e) => { e.preventDefault(); onChange(opt.value); setOpen(false); }}
+                onSelect={() => { onChange(opt.value); setOpen(false); }}
+              >
+                <span className="truncate">{opt.value}</span>
+                {opt.hint && <span className="ml-auto shrink-0 text-xs text-slate-400">{opt.hint}</span>}
+              </CommandItem>
+            ))}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+// ── 日期选择（替代原生 type=date：按钮触发 Popover + Calendar，对齐研发模块形态）──
+
+function fmtDay(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** 日期输入：值为 YYYY-MM-DD 或空串；可清除。modal 模式保证在 Dialog/Sheet 内点选不误关外层弹窗。 */
+export function DateInput({
+  value, onChange, placeholder, className, clearable = true,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  className?: string;
+  clearable?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  // 用本地时区构造，避免 UTC 解析导致日期偏移一天
+  const selected = value ? new Date(`${value}T00:00:00`) : undefined;
+  return (
+    <Popover modal open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "flex h-9 w-full items-center justify-between gap-2 rounded-lg border border-slate-200 bg-input-background px-3 text-left text-sm outline-none focus:border-indigo-300",
+            !value && "text-slate-400",
+            className,
+          )}
+        >
+          <span className="tabular-nums">{value || placeholder || translate("选择日期")}</span>
+          <CalendarDays className="h-4 w-4 shrink-0 text-slate-400" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-auto p-0">
+        <Calendar
+          mode="single"
+          selected={selected}
+          defaultMonth={selected}
+          onSelect={(d) => { onChange(d ? fmtDay(d) : ""); setOpen(false); }}
+          // 中文界面本地化月份/星期（零依赖，不影响其他模块的 Calendar）；英文界面走默认
+          {...(i18nLocale() === "zh-CN"
+            ? {
+                formatters: {
+                  formatCaption: (month: Date) => `${month.getFullYear()} 年 ${month.getMonth() + 1} 月`,
+                  formatWeekdayName: (weekday: Date) => ["日", "一", "二", "三", "四", "五", "六"][weekday.getDay()],
+                },
+              }
+            : {})}
+        />
+        {clearable && value && (
+          <div className="border-t border-slate-100 px-3 py-2 text-right">
+            <button type="button" onClick={() => { onChange(""); setOpen(false); }} className="text-xs text-slate-500 hover:text-indigo-600">{translate("清除")}</button>
+          </div>
+        )}
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+/** 负责人联想输入：候选来自用户目录 + 历史负责人，hint 显示部门。 */
+export function BuyerComboInput(props: Omit<React.ComponentProps<typeof ComboInput>, "options">) {
+  const { suggestions, deptOf } = useBuyerDirectory();
+  const options = useMemo(
+    () => suggestions.map((name) => ({ value: name, hint: deptOf(name) })),
+    [suggestions, deptOf],
+  );
+  return <ComboInput {...props} options={options} />;
+}
+
+// ── 确认对话框（替代 window.confirm，Radix AlertDialog）──────────────────────
+
+interface ConfirmRequest {
+  title: string;
+  /** 已翻译的说明文案 */
+  desc?: string;
+  /** 确认按钮文案，缺省「确定」 */
+  actionLabel?: string;
+  /** danger = 红色确认键（删除类） */
+  tone?: "danger" | "default";
+  onConfirm: () => void;
+}
+
+/**
+ * 用法：const { confirm, confirmDialog } = useConfirmDialog();
+ * confirm({ title, desc, tone: 'danger', onConfirm: () => void doDelete() });
+ * 页面 JSX 末尾渲染 {confirmDialog}。文案由调用方先 t() 好再传入。
+ */
+export function useConfirmDialog() {
+  const [req, setReq] = useState<ConfirmRequest | null>(null);
+  const confirm = useCallback((request: ConfirmRequest) => setReq(request), []);
+  const confirmDialog = req ? (
+    <AlertDialog open onOpenChange={(open) => { if (!open) setReq(null); }}>
+      <AlertDialogContent className="rounded-2xl">
+        <AlertDialogHeader>
+          <AlertDialogTitle className="text-base font-bold text-slate-900">{req.title}</AlertDialogTitle>
+          {req.desc && <AlertDialogDescription className="text-sm text-slate-500">{req.desc}</AlertDialogDescription>}
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>{translate("取消")}</AlertDialogCancel>
+          <AlertDialogAction
+            className={cn(req.tone === "danger" && "bg-rose-600 text-white hover:bg-rose-700")}
+            onClick={() => { const run = req.onConfirm; setReq(null); run(); }}
+          >
+            {req.actionLabel ?? translate("确定")}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  ) : null;
+  return { confirm, confirmDialog };
 }

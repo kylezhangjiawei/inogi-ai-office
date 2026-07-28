@@ -147,7 +147,7 @@ export function PurchaseOrderDetail() {
     order.status === '已完成' ? 4 : order.status === '部分到货' ? 3 : order.status === '已下单' ? 2 : order.status === '异常' ? 2 : 1;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-slate-50 px-5 py-4">
+    <div className="flex min-h-0 flex-1 flex-col px-5 py-4">
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <Button

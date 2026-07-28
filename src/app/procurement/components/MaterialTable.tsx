@@ -1,6 +1,9 @@
 // 物料树形表格：大类（T+ 类别前缀）→ 分类 → 物料行；任一过滤激活时切扁平列表 + 分页。
 import { useMemo, useState } from "react";
+import { Input } from "../../components/ui/input";
 import { ChevronDown, ChevronRight, Search, X } from "lucide-react";
+import { Checkbox } from "../../components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { cn } from "../../components/ui/utils";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
@@ -121,21 +124,32 @@ export function MaterialTable({ materials, tasks, filters, onFiltersChange, onOp
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3">
         <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm">
           <Search className="h-4 w-4 text-slate-400" />
-          <input value={filters.keyword} onChange={(e) => setF("keyword", e.target.value)} placeholder={t('搜索名称 / 规格 / 编码')} className="w-52 bg-transparent outline-none placeholder:text-slate-400" />
+          <Input value={filters.keyword} onChange={(e) => setF("keyword", e.target.value)} placeholder={t('搜索名称 / 规格 / 编码')} className="w-52 bg-transparent outline-none placeholder:text-slate-400" />
           {filters.keyword && <button type="button" onClick={() => setF("keyword", "")}><X className="h-3.5 w-3.5 text-slate-400" /></button>}
         </div>
-        <select value={filters.productLine} onChange={(e) => setF("productLine", e.target.value)} className="h-9 rounded-lg border border-slate-200 px-2 text-sm text-slate-600 outline-none">
-          <option value="">{t('全部产品线')}</option>
-          {productLines.map((pl) => <option key={pl} value={pl}>{pl}</option>)}
-        </select>
-        <select value={filters.reviewStatus} onChange={(e) => setF("reviewStatus", e.target.value as MaterialFilters["reviewStatus"])} className="h-9 rounded-lg border border-slate-200 px-2 text-sm text-slate-600 outline-none">
-          <option value="">{t('全部状态')}</option>
-          <option value="pending">{t('待审核')}</option>
-          <option value="approved">{t('已通过')}</option>
-          <option value="rejected">{t('已驳回')}</option>
-        </select>
+        {/* "all" 哨兵：Radix SelectItem 不允许空字符串 value，全站同款约定 */}
+        <Select value={filters.productLine || "all"} onValueChange={(v) => setF("productLine", v === "all" ? "" : v)}>
+          <SelectTrigger className="h-9 w-36 rounded-lg border-slate-200 text-sm text-slate-600">
+            <SelectValue placeholder={t('全部产品线')} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t('全部产品线')}</SelectItem>
+            {productLines.map((pl) => <SelectItem key={pl} value={pl}>{pl}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={filters.reviewStatus || "all"} onValueChange={(v) => setF("reviewStatus", (v === "all" ? "" : v) as MaterialFilters["reviewStatus"])}>
+          <SelectTrigger className="h-9 w-32 rounded-lg border-slate-200 text-sm text-slate-600">
+            <SelectValue placeholder={t('全部状态')} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">{t('全部状态')}</SelectItem>
+            <SelectItem value="pending">{t('待审核')}</SelectItem>
+            <SelectItem value="approved">{t('已通过')}</SelectItem>
+            <SelectItem value="rejected">{t('已驳回')}</SelectItem>
+          </SelectContent>
+        </Select>
         <label className="flex cursor-pointer items-center gap-1.5 text-sm text-slate-600">
-          <input type="checkbox" checked={filters.onlyStock} onChange={(e) => setF("onlyStock", e.target.checked)} className="h-4 w-4 rounded border-slate-300 text-indigo-600" />
+          <Checkbox checked={filters.onlyStock} onCheckedChange={(v) => setF("onlyStock", v === true)} />
           {t('只看有库存')}
         </label>
         {filterActive && (

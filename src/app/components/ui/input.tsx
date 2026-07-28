@@ -2,9 +2,14 @@ import * as React from "react";
 
 import { cn } from "./utils";
 
-function Input({ className, type, ...props }: React.ComponentProps<"input">) {
+// forwardRef：React 18 函数组件不透传 ref；Radix asChild（如 PopoverAnchor 包输入框）需要 DOM ref 测量定位
+const Input = React.forwardRef<HTMLInputElement, React.ComponentProps<"input">>(function Input(
+  { className, type, ...props },
+  ref,
+) {
   return (
     <input
+      ref={ref}
       type={type}
       data-slot="input"
       className={cn(
@@ -16,6 +21,6 @@ function Input({ className, type, ...props }: React.ComponentProps<"input">) {
       {...props}
     />
   );
-}
+});
 
 export { Input };

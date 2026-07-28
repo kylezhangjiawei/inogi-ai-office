@@ -1,7 +1,10 @@
 // 物料详情抽屉：基本信息 + 库存与到货时间线 + 历史价格对比 + 关联采购任务列表 + 待审核物料的审核区。
 import { useState } from "react";
-import { HelpCircle, Loader2, Pencil, X } from "lucide-react";
+import { Input } from "../../components/ui/input";
+import { HelpCircle, Loader2, Pencil } from "lucide-react";
 import { toast } from "sonner";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../../components/ui/sheet";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../../components/ui/tooltip";
 import { cn } from "../../components/ui/utils";
 import { materialAggregates, refreshProcurement, useProcurementData, type Material } from "../data";
 import { reviewMaterial } from "../../lib/procurementApi";
@@ -45,22 +48,22 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
   const arrivals = related.filter((t) => t.arrivedQty > 0).map((t) => ({ code: t.code, qty: t.arrivedQty, date: t.expectedArrivalDate ?? t.needDate }));
 
   return (
-    <div className="fixed inset-0 z-[70] flex justify-end bg-slate-900/30" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="flex h-full w-[640px] flex-col bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-start justify-between border-b border-slate-100 px-6 py-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <AutoTranslatedText as="span" className="text-lg font-bold text-slate-900" text={material.name} />
-              {material.isSpecial && <span className="rounded border border-purple-200 bg-purple-50 px-1.5 py-0.5 text-[11px] text-purple-600">{t('特殊物料')}</span>}
-              {material.reviewStatus === "pending" ? <span className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700">{t('待审核')}</span> : <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-700">{t('已审核')}</span>}
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <SheetContent side="right" className="w-[640px] gap-0 p-0 sm:max-w-[640px]" aria-describedby={undefined}>
+        <SheetHeader className="border-b border-slate-100 px-6 py-4">
+          {/* pr-8 给 SheetContent 自带的关闭 X 留位 */}
+          <div className="flex items-start justify-between pr-8">
+            <div>
+              <div className="flex items-center gap-2">
+                <SheetTitle className="text-lg font-bold text-slate-900"><AutoTranslatedText as="span" text={material.name} /></SheetTitle>
+                {material.isSpecial && <span className="rounded border border-purple-200 bg-purple-50 px-1.5 py-0.5 text-[11px] text-purple-600">{t('特殊物料')}</span>}
+                {material.reviewStatus === "pending" ? <span className="rounded border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-700">{t('待审核')}</span> : <span className="rounded border border-emerald-200 bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-700">{t('已审核')}</span>}
+              </div>
+              <AutoTranslatedText as="div" className="mt-0.5 text-sm text-slate-500" text={`${material.spec} · ${material.category} · ${material.productLine}`} />
             </div>
-            <AutoTranslatedText as="div" className="mt-0.5 text-sm text-slate-500" text={`${material.spec} · ${material.category} · ${material.productLine}`} />
-          </div>
-          <div className="flex items-center gap-1">
             {can("proc-task:create") && <button type="button" onClick={() => setEditOpen(true)} title={t('编辑物料主数据')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"><Pencil className="h-3.5 w-3.5" />{t('编辑')}</button>}
-            <button type="button" onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-50"><X className="h-5 w-5" /></button>
           </div>
-        </div>
+        </SheetHeader>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
           {/* 审核区：待审核物料 + 持审核权限者可见；核对下方完整信息后再决定 */}
@@ -72,7 +75,7 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
               </div>
               <p className="mt-1 text-xs text-amber-700">{t('请核对下方规格、分类、历史价格与关联任务后决定；驳回原因会写入审核记录。')}</p>
               <div className="mt-2 flex items-center gap-2">
-                <input
+                <Input
                   value={reviewNote}
                   onChange={(e) => setReviewNote(e.target.value)}
                   placeholder={t('备注 / 驳回原因（可选）')}
@@ -115,10 +118,12 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
           <div className="rounded-xl border border-slate-100 p-4">
             <div className="mb-2 flex items-center gap-1 text-sm font-semibold text-slate-700">
               {t('库存与到货')}
-              <span className="group relative">
-                <HelpCircle className="h-3.5 w-3.5 text-slate-300" />
-                <span className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 hidden w-56 -translate-x-1/2 rounded bg-slate-800 px-2 py-1 text-[10px] leading-4 text-white group-hover:block">{t('V1 单边统计只增不减，不含领用扣减；V2 接 ERP 同步。')}</span>
-              </span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <HelpCircle className="h-3.5 w-3.5 text-slate-300" />
+                </TooltipTrigger>
+                <TooltipContent side="top" className="max-w-56">{t('V1 单边统计只增不减，不含领用扣减；V2 接 ERP 同步。')}</TooltipContent>
+              </Tooltip>
             </div>
             <div className="grid grid-cols-3 gap-1 rounded-lg bg-slate-50/70 py-2 text-center">
               <div><div className="text-lg font-bold tabular-nums text-slate-900">{material.stockQty.toLocaleString()}</div><div className="text-[10px] text-slate-400">{t('当前库存')}</div></div>
@@ -155,9 +160,9 @@ export function MaterialDetailDrawer({ material, onClose, onOpenTask }: { materi
             )}
           </div>
         </div>
-      </div>
-      <PriceHistoryModal materialName={material.name} open={historyOpen} onClose={() => setHistoryOpen(false)} />
-      {editOpen && <MaterialFormModal material={material} onClose={() => setEditOpen(false)} />}
-    </div>
+        <PriceHistoryModal materialName={material.name} open={historyOpen} onClose={() => setHistoryOpen(false)} />
+        {editOpen && <MaterialFormModal material={material} onClose={() => setEditOpen(false)} />}
+      </SheetContent>
+    </Sheet>
   );
 }

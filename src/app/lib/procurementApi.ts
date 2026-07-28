@@ -513,7 +513,8 @@ export async function triggerTplusSync(
   return request(`/tplus/sync/${kind}`, { method: "POST" });
 }
 
-export type TplusAutoSyncResult = { skipped: true; reason: string } | { skipped: false; summary: string };
+// 非 union：根 tsconfig strict=false 下 boolean discriminant 收窄不生效，会在使用侧误报 TS2339
+export type TplusAutoSyncResult = { skipped: boolean; reason?: string; summary?: string };
 
 /** 一键全同步（异步任务）：供应商→库存→采购单全量→匹配，返回 jobId 轮询。 */
 export async function runTplusAutoSync(): Promise<{ jobId: string }> {
@@ -749,5 +750,131 @@ export async function renameProcCategory(
   return request("/materials/categories/rename", {
     method: "POST",
     body: JSON.stringify({ from, to }),
+  });
+}
+
+// ── 供应商报价库 ──────────────────────────────────────────────────────────────
+
+/** 阶梯价档位：minQty=0 表示无起订量约束。 */
+export interface QuoteTier {
+  minQty: number;
+  unitPrice: number;
+}
+
+export interface SupplierQuote {
+  id: string;
+  materialId: string;
+  supplierId?: string;
+  supplierName: string;
+  supplierModel: string;
+  currency: string;
+  taxIncluded: boolean;
+  leadTimeDays: number;
+  tiers: QuoteTier[];
+  quoteDate?: string;
+  validUntil?: string;
+  note?: string;
+  updatedAt: string;
+}
+
+/** 报价库树形行：商品(物料) + 其下厂家报价。 */
+export interface QuoteBookRow {
+  id: string;
+  name: string;
+  spec: string;
+  unit: string;
+  category: string;
+  productLine: string;
+  latestPrice: number | null;
+  latestSupplier?: string;
+  latestQuoteDate?: string;
+  quotes: SupplierQuote[];
+}
+
+export interface SupplierOption {
+  id: string;
+  name: string;
+  shortName?: string;
+  source: string;
+}
+
+export interface UpsertSupplierQuoteInput {
+  materialId: string;
+  supplierId?: string;
+  supplierName: string;
+  supplierModel?: string;
+  currency?: string;
+  taxIncluded?: boolean;
+  leadTimeDays?: number;
+  tiers: QuoteTier[];
+  quoteDate?: string;
+  validUntil?: string;
+  note?: string;
+}
+
+export async function listQuoteBook(signal?: AbortSignal): Promise<QuoteBookRow[]> {
+  const data = await request<{ rows: QuoteBookRow[] }>("/quote-book", { signal });
+  return data.rows;
+}
+
+export async function listQuoteSuppliers(signal?: AbortSignal): Promise<SupplierOption[]> {
+  const data = await request<{ suppliers: SupplierOption[] }>("/quote-book/suppliers", { signal });
+  return data.suppliers;
+}
+
+export async function createSupplierQuote(input: UpsertSupplierQuoteInput): Promise<SupplierQuote> {
+  return request("/quote-book/quotes", { method: "POST", body: JSON.stringify(input) });
+}
+
+export async function updateSupplierQuote(
+  id: string,
+  input: UpsertSupplierQuoteInput,
+): Promise<SupplierQuote> {
+  return request(`/quote-book/quotes/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteSupplierQuote(id: string): Promise<{ ok: boolean }> {
+  return request(`/quote-book/quotes/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/** 导入行：按物料名匹配（找不到自动建待审核物料），同商品同厂家整条覆盖。 */
+export interface ImportSupplierQuoteItem {
+  materialName: string;
+  spec?: string;
+  unit?: string;
+  category?: string;
+  supplierName: string;
+  supplierModel?: string;
+  currency?: string;
+  taxIncluded?: boolean;
+  leadTimeDays?: number;
+  tiers: QuoteTier[];
+  quoteDate?: string;
+  validUntil?: string;
+  note?: string;
+}
+
+export interface ImportQuotesResult {
+  created: number;
+  updated: number;
+  materialsCreated: number;
+  errors: { materialName: string; supplierName: string; message: string }[];
+}
+
+export async function importSupplierQuotes(
+  items: ImportSupplierQuoteItem[],
+): Promise<ImportQuotesResult> {
+  return request("/quote-book/import", { method: "POST", body: JSON.stringify({ items }) });
+}
+
+/** 商品移出报价库：删除其下全部厂家报价，不动物料主数据。 */
+export async function clearMaterialQuotes(
+  materialId: string,
+): Promise<{ ok: boolean; deleted: number }> {
+  return request(`/quote-book/materials/${encodeURIComponent(materialId)}/quotes`, {
+    method: "DELETE",
   });
 }

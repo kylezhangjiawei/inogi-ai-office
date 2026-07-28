@@ -14,7 +14,10 @@
 //   决策类（要对比报价 / 看图纸样品）在卡片上点只会打开详情，避免盲选。
 // 所有写操作一律经过弹窗，不存在「点一下就变」的路径。
 import { useCallback, useEffect, useState } from "react";
-import { AlertTriangle, X } from "lucide-react";
+import { Input } from "../../components/ui/input";
+import { AlertTriangle } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "../../components/ui/dialog";
+import { Textarea } from "../../components/ui/textarea";
 import { toast } from "sonner";
 
 import { cn } from "../../components/ui/utils";
@@ -34,7 +37,7 @@ import {
   type Quotation,
 } from "../../lib/procurementApi";
 import { refreshProcurement } from "../data";
-import { BuyerSuggestDatalist, fmtMoney, useBuyerDirectory } from "./common";
+import { BuyerComboInput, DateInput, fmtMoney, useBuyerDirectory } from "./common";
 
 type FormKind = "quote" | "select" | "order" | "receive" | "reassign" | "confirm" | "test";
 
@@ -327,17 +330,14 @@ function ActionModal({
   const label = "mb-1 block text-xs font-medium text-slate-500";
 
   return (
-    <div className="fixed inset-0 z-[90] flex items-center justify-center bg-slate-900/40 p-6" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-start justify-between border-b border-slate-100 px-5 py-4">
-          <div>
-            <h3 className="text-base font-bold text-slate-900">
-              {kind === "confirm" ? t(confirm?.title ?? "请确认") : t(TITLES[kind])}
-            </h3>
-            <p className="mt-0.5 text-xs text-slate-400">{task.code} · {task.materialName}</p>
-          </div>
-          <button type="button" onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-50"><X className="h-5 w-5" /></button>
-        </div>
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="gap-0 overflow-hidden rounded-2xl p-0 sm:max-w-md">
+        <DialogHeader className="border-b border-slate-100 px-5 py-4">
+          <DialogTitle className="text-base font-bold text-slate-900">
+            {kind === "confirm" ? t(confirm?.title ?? "请确认") : t(TITLES[kind])}
+          </DialogTitle>
+          <DialogDescription className="mt-0.5 text-xs text-slate-400">{task.code} · {task.materialName}</DialogDescription>
+        </DialogHeader>
 
         <div className="space-y-3 px-5 py-4">
           {kind === "confirm" && confirm && (
@@ -358,11 +358,11 @@ function ActionModal({
                 {t("样品测试是否通过？不通过将退回「询价中」，可重新选择供应商。")}
               </p>
               <div><span className={label}>{t("测试结论（写入操作留痕）")}</span>
-                <textarea
+                <Textarea
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
                   rows={3}
-                  className={cn(field, "resize-none")}
+                  className={cn(field, "h-auto resize-none")}
                   placeholder={t("如：尺寸公差 ±0.05 合格，硬度达标")}
                 />
               </div>
@@ -395,12 +395,12 @@ function ActionModal({
 
           {kind === "quote" && (
             <>
-              <div><span className={label}>{t("供应商")}</span><input value={supplierName} onChange={(e) => setSupplierName(e.target.value)} className={field} placeholder={t("如：宁波恒力")} /></div>
+              <div><span className={label}>{t("供应商")}</span><Input value={supplierName} onChange={(e) => setSupplierName(e.target.value)} className={field} placeholder={t("如：宁波恒力")} /></div>
               <div className="grid grid-cols-2 gap-3">
-                <div><span className={label}>{t("单价（元）")}</span><input value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} className={field} inputMode="decimal" placeholder="0.00" /></div>
-                <div><span className={label}>{t("交期（天）")}</span><input value={leadTimeDays} onChange={(e) => setLeadTimeDays(e.target.value)} className={field} inputMode="numeric" placeholder="15" /></div>
+                <div><span className={label}>{t("单价（元）")}</span><Input value={unitPrice} onChange={(e) => setUnitPrice(e.target.value)} className={field} inputMode="decimal" placeholder="0.00" /></div>
+                <div><span className={label}>{t("交期（天）")}</span><Input value={leadTimeDays} onChange={(e) => setLeadTimeDays(e.target.value)} className={field} inputMode="numeric" placeholder="15" /></div>
               </div>
-              <div><span className={label}>{t("备注")}</span><input value={note} onChange={(e) => setNote(e.target.value)} className={field} /></div>
+              <div><span className={label}>{t("备注")}</span><Input value={note} onChange={(e) => setNote(e.target.value)} className={field} /></div>
             </>
           )}
 
@@ -433,10 +433,10 @@ function ActionModal({
 
           {kind === "order" && (
             <>
-              <div><span className={label}>{t("畅捷通 T+ 采购单号")}</span><input value={tpOrderNo} onChange={(e) => setTpOrderNo(e.target.value)} className={field} placeholder="CGDD-2026-0001" /></div>
+              <div><span className={label}>{t("畅捷通 T+ 采购单号")}</span><Input value={tpOrderNo} onChange={(e) => setTpOrderNo(e.target.value)} className={field} placeholder="CGDD-2026-0001" /></div>
               <div className="grid grid-cols-2 gap-3">
-                <div><span className={label}>{t("供应商")}</span><input value={supplierName} onChange={(e) => setSupplierName(e.target.value)} className={field} /></div>
-                <div><span className={label}>{t("预计到货")}</span><input type="date" value={etaDate} onChange={(e) => setEtaDate(e.target.value)} className={field} /></div>
+                <div><span className={label}>{t("供应商")}</span><Input value={supplierName} onChange={(e) => setSupplierName(e.target.value)} className={field} /></div>
+                <div><span className={label}>{t("预计到货")}</span><DateInput value={etaDate} onChange={setEtaDate} className="mb-1 mt-1" /></div>
               </div>
               <p className="text-xs text-slate-400">{t("采购单在畅捷通 T+ 中创建，本系统只登记关联关系。")}</p>
             </>
@@ -444,14 +444,14 @@ function ActionModal({
 
           {kind === "receive" && (
             <>
-              <div><span className={label}>{t("本次到货数量")}（{t("未到")} {remaining} {task.unit}）</span><input value={qty} onChange={(e) => setQty(e.target.value)} className={field} inputMode="decimal" placeholder={String(remaining)} /></div>
-              <div><span className={label}>{t("备注")}</span><input value={note} onChange={(e) => setNote(e.target.value)} className={field} /></div>
+              <div><span className={label}>{t("本次到货数量")}（{t("未到")} {remaining} {task.unit}）</span><Input value={qty} onChange={(e) => setQty(e.target.value)} className={field} inputMode="decimal" placeholder={String(remaining)} /></div>
+              <div><span className={label}>{t("备注")}</span><Input value={note} onChange={(e) => setNote(e.target.value)} className={field} /></div>
               <p className="text-xs text-amber-600">{t("过渡期手工登记；畅捷通 T+ 接通后到货以同步数据为准。")}</p>
             </>
           )}
 
           {kind === "reassign" && (
-            <div><span className={label}>{t("采购负责人")}</span><input value={buyer} onChange={(e) => setBuyer(e.target.value)} list="proc-buyer-list" className={field} /><BuyerSuggestDatalist /></div>
+            <div><span className={label}>{t("采购负责人")}</span><BuyerComboInput value={buyer} onChange={setBuyer} className={field} /></div>
           )}
         </div>
 
@@ -472,7 +472,7 @@ function ActionModal({
             </button>
           </div>
         )}
-      </div>
-    </div>
+      </DialogContent>
+    </Dialog>
   );
 }

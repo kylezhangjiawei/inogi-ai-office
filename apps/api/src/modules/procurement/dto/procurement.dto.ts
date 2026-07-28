@@ -518,3 +518,148 @@ export class ImportMaterialsDto {
   @Type(() => UpsertMaterialDto)
   items!: UpsertMaterialDto[];
 }
+
+// ── 供应商报价库 ─────────────────────────────────────────────────────────────
+
+/** 阶梯价档位：minQty=0 表示无起订量约束的单一价。 */
+export class QuoteTierDto {
+  @IsNumber()
+  @Min(0)
+  minQty!: number;
+
+  @IsNumber()
+  @Min(0)
+  unitPrice!: number;
+}
+
+/** 导入行：按物料名匹配（找不到自动建待审核物料），同商品同厂家合并 upsert。 */
+export class ImportSupplierQuoteItemDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  materialName!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  spec?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(20)
+  unit?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  category?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  supplierName!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  supplierModel?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  currency?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  taxIncluded?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  leadTimeDays?: number;
+
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => QuoteTierDto)
+  tiers!: QuoteTierDto[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  quoteDate?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  validUntil?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  note?: string;
+}
+
+export class ImportSupplierQuotesDto {
+  @IsArray()
+  @ArrayMaxSize(2000)
+  @ValidateNested({ each: true })
+  @Type(() => ImportSupplierQuoteItemDto)
+  items!: ImportSupplierQuoteItemDto[];
+}
+
+export class UpsertSupplierQuoteDto {
+  @IsString()
+  @MaxLength(64)
+  materialId!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(64)
+  supplierId?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  supplierName!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  supplierModel?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(10)
+  currency?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  taxIncluded?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  leadTimeDays?: number;
+
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => QuoteTierDto)
+  tiers!: QuoteTierDto[];
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  quoteDate?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  validUntil?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  note?: string;
+}

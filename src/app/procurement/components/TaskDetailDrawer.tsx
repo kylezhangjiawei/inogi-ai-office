@@ -1,6 +1,8 @@
 // 采购任务详情抽屉：步骤条(询价长/直购短) + 下一步操作卡 + 基本信息 + 报价 + 样品测试 + 下单付款 + 到货 + 日志。
 import { useEffect, useState } from "react";
-import { ChevronDown, ExternalLink, History, Paperclip, Pencil, X } from "lucide-react";
+import { Input } from "../../components/ui/input";
+import { ChevronDown, ExternalLink, History, Paperclip, Pencil } from "lucide-react";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../../components/ui/sheet";
 import { cn } from "../../components/ui/utils";
 import { BusinessLinePill, DIRECT_FLOW, INQUIRY_FLOW, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, fmtMoney, useProcCan } from "./common";
 import { nextPermissionOf, useProcTaskAction } from "./taskActions";
@@ -70,25 +72,22 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
   const orderStage = ["pending_purchase", "priced", "in_transit", "partial_arrival", "completed"].includes(task.status);
 
   return (
-    <div className="fixed inset-0 z-[70] flex justify-end bg-slate-900/30" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="flex h-full w-[720px] flex-col bg-white shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        {/* 头部 */}
-        <div className="border-b border-slate-100 px-6 py-4">
-          <div className="flex items-start justify-between">
+    <Sheet open onOpenChange={(o) => { if (!o) onClose(); }}>
+      <SheetContent side="right" className="w-[720px] gap-0 p-0 sm:max-w-[720px]" aria-describedby={undefined}>
+        {/* 头部（pr-8 给自带关闭 X 留位） */}
+        <SheetHeader className="block border-b border-slate-100 px-6 py-4">
+          <div className="flex items-start justify-between pr-8">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-lg font-bold text-slate-900">{task.code}</h3>
+              <SheetTitle className="text-lg font-bold text-slate-900">{task.code}</SheetTitle>
               <StatusPill status={task.status} />
               <BusinessLinePill line={task.businessLine} />
               <SourcePill source={task.source} />
               <MethodPill method={task.method} />
             </div>
-            <div className="flex items-center gap-1">
-              {/* 终态任务只读；状态流转走「下一步」操作卡，这里只改任务信息 */}
-              {!["completed", "cancelled"].includes(task.status) && can("proc-task:create") && (
-                <button type="button" onClick={() => setEditOpen(true)} title={t('编辑任务信息')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"><Pencil className="h-3.5 w-3.5" />{t('编辑')}</button>
-              )}
-              <button type="button" onClick={onClose} className="rounded-lg p-1 text-slate-400 hover:bg-slate-50"><X className="h-5 w-5" /></button>
-            </div>
+            {/* 终态任务只读；状态流转走「下一步」操作卡，这里只改任务信息 */}
+            {!["completed", "cancelled"].includes(task.status) && can("proc-task:create") && (
+              <button type="button" onClick={() => setEditOpen(true)} title={t('编辑任务信息')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"><Pencil className="h-3.5 w-3.5" />{t('编辑')}</button>
+            )}
           </div>
           <AutoTranslatedText as="div" className="mt-1 text-sm text-slate-500" text={`${task.materialName} · ${task.spec} · ${task.quantity}${task.unit}`} />
           {/* 步骤条 */}
@@ -103,7 +102,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
               </div>
             ))}
           </div>
-        </div>
+        </SheetHeader>
 
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
           {/* 下一步操作卡：动作码由系统管理配置到角色，无权限者只读。
@@ -128,7 +127,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
               </div>
               {isRdReview && rejecting && (
                 <div className="mt-2 flex items-center gap-2">
-                  <input
+                  <Input
                     autoFocus
                     value={rejectReason}
                     onChange={(e) => setRejectReason(e.target.value)}
@@ -254,10 +253,10 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
             {logsOpen && <ul className="space-y-2 border-t border-slate-100 px-4 py-3">{task.logs.map((l, i) => <li key={i} className="flex gap-3 text-sm"><span className="w-24 shrink-0 text-xs text-slate-400">{l.at}</span><AutoTranslatedText className="text-slate-600" text={l.text} /></li>)}</ul>}
           </div>
         </div>
-      </div>
-      <PriceHistoryModal materialName={task.materialName} open={historyOpen} onClose={() => setHistoryOpen(false)} />
-      {taskAction.modal}
-      {editOpen && <EditTaskModal task={task} onClose={() => setEditOpen(false)} />}
-    </div>
+        <PriceHistoryModal materialName={task.materialName} open={historyOpen} onClose={() => setHistoryOpen(false)} />
+        {taskAction.modal}
+        {editOpen && <EditTaskModal task={task} onClose={() => setEditOpen(false)} />}
+      </SheetContent>
+    </Sheet>
   );
 }

@@ -1,6 +1,7 @@
 // 采购人员管理独立页（对齐研发人员管理形态）：成员名录增删改（岗位备注）+
 // 按负责人聚合任务负载 + 一键交接；非名录但有在制任务的人提示入录。
 import { useEffect, useMemo, useState } from "react";
+import { Input } from "../components/ui/input";
 import { useNavigate } from "react-router";
 import { ArrowLeft, ArrowRightLeft, Loader2, Pencil, Search, Trash2, UserPlus, Users } from "lucide-react";
 import { toast } from "sonner";
@@ -16,7 +17,7 @@ import {
   type ProcurementTask,
 } from "../lib/procurementApi";
 import { daysFromToday, refreshProcurement, useProcurementData } from "./data";
-import { BuyerSuggestDatalist, PageHeader, PersonAvatar, useBuyerDirectory } from "./components/common";
+import { BuyerComboInput, PageHeader, PersonAvatar, useBuyerDirectory, useConfirmDialog } from "./components/common";
 import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
 
@@ -41,6 +42,7 @@ export function ProcPeopleManagementPage() {
   const { tasks } = useProcurementData();
   const { deptOf, resolveUserId } = useBuyerDirectory();
   const canManage = usePermission("proc-task:reassign");
+  const { confirm: confirmAction, confirmDialog } = useConfirmDialog();
 
   const [roster, setRoster] = useState<BuyerRosterMember[]>([]);
   const [keyword, setKeyword] = useState("");
@@ -105,19 +107,20 @@ export function ProcPeopleManagementPage() {
     }
   };
 
-  const removeMember = async (member: BuyerRosterMember) => {
-    if (!window.confirm(t("确定把 {name} 移出采购成员名录吗？历史任务不受影响。", { name: member.name }))) return;
-    setBusy(true);
-    try {
-      const r = await removeBuyerRosterMember(member.id);
-      setRoster(r.members);
-      toast.success(t("已从名录移除：{name}", { name: member.name }));
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("移除失败"));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const removeMember = (member: BuyerRosterMember) =>
+    confirmAction({
+      title: t("移出成员名录"),
+      desc: t("确定把 {name} 移出采购成员名录吗？历史任务不受影响。", { name: member.name }),
+      tone: "danger",
+      actionLabel: t("移出"),
+      onConfirm: () => {
+        setBusy(true);
+        void removeBuyerRosterMember(member.id)
+          .then((r) => { setRoster(r.members); toast.success(t("已从名录移除：{name}", { name: member.name })); })
+          .catch((err: unknown) => toast.error(err instanceof Error ? err.message : t("移除失败")))
+          .finally(() => setBusy(false));
+      },
+    });
 
   const saveNote = async (member: BuyerRosterMember) => {
     setBusy(true);
@@ -169,7 +172,7 @@ export function ProcPeopleManagementPage() {
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="relative">
           <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input
+          <Input
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             placeholder={t("搜索姓名 / 岗位备注…")}
@@ -179,15 +182,13 @@ export function ProcPeopleManagementPage() {
         <span className="text-xs text-slate-400">{t("名录成员 {n} 人", { n: roster.length })}</span>
         {canManage && (
           <div className="ml-auto flex items-center gap-2">
-            <input
+            <BuyerComboInput
               value={addName}
-              onChange={(e) => setAddName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === "Enter") void addMember(addName); }}
-              list="proc-buyer-list"
+              onChange={setAddName}
+              onEnter={() => void addMember(addName)}
               placeholder={t("输入姓名添加成员…")}
               className="h-9 w-56 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-indigo-300"
             />
-            <BuyerSuggestDatalist />
             <button type="button" disabled={busy || !addName.trim()} onClick={() => void addMember(addName)} className="material-button-primary inline-flex items-center gap-1.5 px-3 py-2 text-sm disabled:opacity-60">
               {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}{t("添加成员")}
             </button>
@@ -231,7 +232,7 @@ export function ProcPeopleManagementPage() {
                   </button>
                 )}
                 {canManage && p.member && (
-                  <button type="button" disabled={busy} onClick={() => void removeMember(p.member!)} className="rounded-lg border border-slate-200 p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-500" title={t("从名录移除")}>
+                  <button type="button" disabled={busy} onClick={() => removeMember(p.member!)} className="rounded-lg border border-slate-200 p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-500" title={t("从名录移除")}>
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 )}
@@ -240,7 +241,7 @@ export function ProcPeopleManagementPage() {
 
             {canManage && p.member && editingNote === p.member.id && (
               <div className="mt-2 flex items-center gap-2">
-                <input
+                <Input
                   autoFocus
                   value={noteDraft}
                   onChange={(e) => setNoteDraft(e.target.value)}
@@ -269,12 +270,12 @@ export function ProcPeopleManagementPage() {
 
             {handover === p.key && (
               <div className="mt-2 flex items-center gap-2">
-                <input
+                <BuyerComboInput
                   autoFocus
                   value={target}
-                  onChange={(e) => setTarget(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") void submitHandover(p); if (e.key === "Escape") setHandover(null); }}
-                  list="proc-buyer-list"
+                  onChange={setTarget}
+                  onEnter={() => void submitHandover(p)}
+                  onEscape={() => setHandover(null)}
                   placeholder={t("接收人姓名")}
                   className="h-8 flex-1 rounded-lg border border-indigo-200 px-2 text-sm outline-none focus:border-indigo-400"
                 />
@@ -287,6 +288,7 @@ export function ProcPeopleManagementPage() {
           </div>
         ))}
       </div>
+      {confirmDialog}
     </div>
   );
 }

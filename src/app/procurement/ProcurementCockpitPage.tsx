@@ -1,6 +1,7 @@
 // 采购任务驾驶舱（流程视角）：业务线 Tab + 操作行 + 统计条 + 人员泳道 + 三列瀑布流。
 // 分类/物料维度的浏览在「物料库」页，此页专注任务流。
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Input } from "../components/ui/input";
 import { useNavigate, useSearchParams } from "react-router";
 import { Activity, AlertTriangle, ClipboardList, Download, PackageCheck, Plus, Search, Truck, UserCog, Users } from "lucide-react";
 import { cn } from "../components/ui/utils";
@@ -196,7 +197,7 @@ export function ProcurementCockpitPage() {
         <div className="ml-auto flex items-center gap-2">
           <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 px-2 py-1 text-xs">
             <Search className="h-3.5 w-3.5 text-slate-400" />
-            <input value={kw} onChange={(e) => setKw(e.target.value)} placeholder={t('搜索单号 / 物料 / 人员')} className="w-40 bg-transparent outline-none placeholder:text-slate-400" />
+            <Input value={kw} onChange={(e) => setKw(e.target.value)} placeholder={t('搜索单号 / 物料 / 人员')} className="w-40 bg-transparent outline-none placeholder:text-slate-400" />
             {kw && <button type="button" onClick={() => setKw("")} className="text-slate-400 hover:text-slate-600">✕</button>}
           </div>
           <span className="text-xs text-slate-400">{filtered.length} {t('个任务')}</span>

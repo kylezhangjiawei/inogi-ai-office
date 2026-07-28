@@ -7,6 +7,8 @@ import { MaterialClassifyService } from './material-classify.service';
 import { MaterialReplenishService } from './material-replenish.service';
 import { MaterialSafeStockService } from './material-safestock.service';
 import { ProcurementController } from './procurement.controller';
+import { QuoteBookController } from './quote-book.controller';
+import { QuoteBookService } from './quote-book.service';
 import { TplusPoMatchService } from './tplus-po-match.service';
 import { ProcurementService } from './procurement.service';
 import { TplusSyncController } from './tplus-sync.controller';
@@ -21,9 +23,10 @@ import { TplusSyncService } from './tplus-sync.service';
 @Module({
   // ResearchDevelopmentModule 仅用于审核驳回时给研发对接人发站内通知（createMessage）
   imports: [ChatModule, SecurityModule, ResearchDevelopmentModule],
-  controllers: [ProcurementController, TplusSyncController],
+  controllers: [ProcurementController, QuoteBookController, TplusSyncController],
   providers: [
     ProcurementService,
+    QuoteBookService,
     TplusSyncService,
     MaterialClassifyService,
     MaterialSafeStockService,

@@ -183,7 +183,7 @@ export function PurchaseOrders() {
   const canLoadMore = orders.length < total;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col bg-slate-50 px-5 py-4">
+    <div className="flex min-h-0 flex-1 flex-col   px-5 py-4">
       <input
         ref={fileInputRef}
         type="file"
