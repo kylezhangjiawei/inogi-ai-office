@@ -136,7 +136,7 @@ export function taskMainDate(task: ProcurementTask): {
 export function taskRequester(task: ProcurementTask): { name: string; dept: string } {
   return {
     name: task.requester ?? task.rdContact ?? task.buyer,
-    dept: task.requesterDept ?? (task.source === "rd" ? "研发部" : "采购部"),
+    dept: task.requesterDept ?? "",
   };
 }
 

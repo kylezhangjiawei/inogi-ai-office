@@ -26,6 +26,9 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule, { bodyParser: false });
   app.use(text({ type: ['text/*', 'application/xml', 'text/xml'], limit: '5mb' }));
+  // 研发数据表会把高保真工作簿（含 base64 图片）作为 JSON 保存；当前线上快照
+  // 已超过通用 25 MB 上限。仅对此路由放宽，避免扩大其他 JSON 接口的攻击面。
+  app.use('/api/research-development/sheet-workbook', json({ limit: '50mb' }));
   app.use(json({ limit: '25mb' }));
   app.use(urlencoded({ extended: true, limit: '25mb' }));
   app.setGlobalPrefix('api');

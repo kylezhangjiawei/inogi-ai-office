@@ -3,11 +3,11 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
 const MOCK_EMPLOYEES = [
-  { rosterNo: 'MOCK-ATT-001', name: '林予安', department: '研发部', title: '注册工程师', hireDate: '2024-03-04' },
-  { rosterNo: 'MOCK-ATT-002', name: '周庭序', department: '质量部', title: '质量体系专员', hireDate: '2025-09-15' },
-  { rosterNo: 'MOCK-ATT-003', name: '许洛川', department: '生产部', title: '设备技术员', hireDate: '2026-05-06' },
-  { rosterNo: 'MOCK-ATT-004', name: '唐亦禾', department: '市场部', title: '商务助理', hireDate: '2026-06-24' },
-  { rosterNo: 'MOCK-ATT-005', name: '沈知夏', department: '人事部', title: '人事行政专员', hireDate: '2023-11-20' },
+  { rosterNo: 'MOCK-ATT-001', name: '林予安', department: '研发注册部', title: '注册工程师', hireDate: '2024-03-04' },
+  { rosterNo: 'MOCK-ATT-002', name: '周庭序', department: '法规质量部', title: '质量体系专员', hireDate: '2025-09-15' },
+  { rosterNo: 'MOCK-ATT-003', name: '许洛川', department: '生产运营部', title: '设备技术员', hireDate: '2026-05-06' },
+  { rosterNo: 'MOCK-ATT-004', name: '唐亦禾', department: '销售市场部', title: '商务助理', hireDate: '2026-06-24' },
+  { rosterNo: 'MOCK-ATT-005', name: '沈知夏', department: '人事行政部', title: '人事行政专员', hireDate: '2023-11-20' },
 ] as const;
 
 type MockEmployee = (typeof MOCK_EMPLOYEES)[number] & { id: string };
@@ -212,8 +212,8 @@ async function seedMonth(employees: MockEmployee[], month: string, currentMonth:
         entitledSickLeaveDays: 5,
         paidSickLeaveDays: employeeIndex % 2,
         unpaidSickLeaveDays: employeeIndex === 3 ? 0.5 : 0,
-        invertedHours: employee.department === '生产部' ? 12.5 : 0,
-        recoveredHours: employee.department === '生产部' ? 1.5 : 0,
+        invertedHours: employee.department === '生产运营部' ? 12.5 : 0,
+        recoveredHours: employee.department === '生产运营部' ? 1.5 : 0,
         signature: employeeIndex < 2 ? employee.name : '',
         note: employeeIndex === 3 ? 'Mock 月度结余示例' : '',
         updatedById: 'attendance-mock-seed',
@@ -228,8 +228,8 @@ async function seedMonth(employees: MockEmployee[], month: string, currentMonth:
         entitledSickLeaveDays: 5,
         paidSickLeaveDays: employeeIndex % 2,
         unpaidSickLeaveDays: employeeIndex === 3 ? 0.5 : 0,
-        invertedHours: employee.department === '生产部' ? 12.5 : 0,
-        recoveredHours: employee.department === '生产部' ? 1.5 : 0,
+        invertedHours: employee.department === '生产运营部' ? 12.5 : 0,
+        recoveredHours: employee.department === '生产运营部' ? 1.5 : 0,
         signature: employeeIndex < 2 ? employee.name : '',
         note: employeeIndex === 3 ? 'Mock 月度结余示例' : '',
         createdById: 'attendance-mock-seed',

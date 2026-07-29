@@ -1,8 +1,19 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
 
 export type UsageRange = 'today' | 'month' | 'year';
+
+export type AiUsageDetailsQuery = {
+  range?: string;
+  modality?: string;
+  model?: string;
+  userId?: string;
+  date?: string;
+  page?: string;
+  pageSize?: string;
+};
 
 export type AiUsageEntry = {
   userId: string;
@@ -91,6 +102,24 @@ export class AiUsageService {
     if (range === 'year') return new Date(Date.UTC(y, 0, 1) - SHANGHAI_OFFSET_MS);
     if (range === 'month') return new Date(Date.UTC(y, m, 1) - SHANGHAI_OFFSET_MS);
     return new Date(Date.UTC(y, m, d) - SHANGHAI_OFFSET_MS);
+  }
+
+  private shanghaiDayRange(dateInput?: string): { gte: Date; lt: Date } | null {
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateInput ?? '');
+    if (!match) return null;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const utcDay = new Date(Date.UTC(year, month - 1, day));
+    if (
+      utcDay.getUTCFullYear() !== year ||
+      utcDay.getUTCMonth() !== month - 1 ||
+      utcDay.getUTCDate() !== day
+    ) {
+      return null;
+    }
+    const start = new Date(utcDay.getTime() - SHANGHAI_OFFSET_MS);
+    return { gte: start, lt: new Date(start.getTime() + 24 * 3600 * 1000) };
   }
 
   async getDashboard(rangeInput?: string) {
@@ -196,10 +225,110 @@ export class AiUsageService {
     return { range, totals, by_model: byModel, by_user: byUser, trend };
   }
 
+  async getDetails(query: AiUsageDetailsQuery) {
+    const range: UsageRange =
+      query.range === 'month' || query.range === 'year' ? query.range : 'today';
+    const page = Math.max(1, Number.parseInt(query.page ?? '1', 10) || 1);
+    const pageSize = Math.min(100, Math.max(10, Number.parseInt(query.pageSize ?? '20', 10) || 20));
+    const dayRange = this.shanghaiDayRange(query.date);
+    const where: Prisma.AiUsageLogWhereInput = {
+      createdAt: dayRange ?? { gte: this.rangeSince(range) },
+    };
+    if (query.modality?.trim()) where.modality = query.modality.trim();
+    if (query.model?.trim()) where.model = query.model.trim();
+    if (query.userId?.trim()) where.userId = query.userId.trim();
+
+    const [total, sums, modalityGroups, rows] = await Promise.all([
+      this.prisma.aiUsageLog.count({ where }),
+      this.prisma.aiUsageLog.aggregate({
+        where,
+        _sum: {
+          promptTokens: true,
+          completionTokens: true,
+          totalTokens: true,
+          costYuan: true,
+          costUsd: true,
+          seconds: true,
+        },
+      }),
+      this.prisma.aiUsageLog.groupBy({
+        by: ['modality'],
+        where,
+        _count: { _all: true },
+      }),
+      this.prisma.aiUsageLog.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        include: {
+          user: {
+            select: { id: true, name: true, department: true },
+          },
+        },
+      }),
+    ]);
+
+    const modalityCalls = Object.fromEntries(
+      modalityGroups.map((group) => [group.modality, group._count._all]),
+    );
+    const costYuan = round2(sums._sum.costYuan ?? 0);
+    const costUsd = round2(sums._sum.costUsd ?? 0);
+
+    return {
+      filters: {
+        range,
+        modality: query.modality?.trim() || null,
+        model: query.model?.trim() || null,
+        user_id: query.userId?.trim() || null,
+        date: dayRange ? query.date : null,
+      },
+      summary: {
+        calls: total,
+        chat_calls: modalityCalls.chat ?? 0,
+        image_calls: modalityCalls.image ?? 0,
+        video_calls: modalityCalls.video ?? 0,
+        prompt_tokens: sums._sum.promptTokens ?? 0,
+        completion_tokens: sums._sum.completionTokens ?? 0,
+        total_tokens: sums._sum.totalTokens ?? 0,
+        cost_yuan: costYuan,
+        cost_usd: costUsd,
+        cost_cny_approx: round2(costYuan + costUsd * USD_TO_CNY),
+        seconds: sums._sum.seconds ?? 0,
+      },
+      items: rows.map((row) => ({
+        id: row.id,
+        created_at: row.createdAt.toISOString(),
+        user_id: row.userId,
+        user_name: row.user.name,
+        department: row.user.department,
+        modality: row.modality,
+        provider: row.provider,
+        model: row.model,
+        prompt_tokens: row.promptTokens,
+        completion_tokens: row.completionTokens,
+        total_tokens: row.totalTokens,
+        cost_yuan: round2(row.costYuan),
+        cost_usd: round2(row.costUsd),
+        cost_cny_approx: round2(row.costYuan + row.costUsd * USD_TO_CNY),
+        seconds: row.seconds,
+        estimated: row.estimated,
+        source: row.source,
+        ref_id: row.refId,
+      })),
+      pagination: {
+        page,
+        page_size: pageSize,
+        total,
+        total_pages: Math.max(1, Math.ceil(total / pageSize)),
+      },
+    };
+  }
+
   private async dailyTrend(days: number): Promise<Array<{ date: string; calls: number }>> {
     const since = new Date(Date.now() - days * 24 * 3600 * 1000);
     const rows = await this.prisma.$queryRawUnsafe<Array<{ date: string; calls: number }>>(
-      `SELECT to_char(("createdAt" AT TIME ZONE 'Asia/Shanghai')::date, 'YYYY-MM-DD') AS date, count(*)::int AS calls
+      `SELECT to_char(("createdAt" AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Shanghai')::date, 'YYYY-MM-DD') AS date, count(*)::int AS calls
        FROM "AiUsageLog" WHERE "createdAt" >= $1 GROUP BY 1`,
       since,
     );

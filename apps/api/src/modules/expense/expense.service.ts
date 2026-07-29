@@ -1714,21 +1714,25 @@ export class ExpenseService {
   }
 
   private async ensureInvoices(scope?: ExpenseScope) {
-    const list = (await this.listValues<ExpenseInvoiceValue>(RECORD_CATEGORIES.invoice)).map(
-      (item) => this.refreshExpenseFileUrl(item),
+    const current = await this.withCurrentDepartmentNames(
+      await this.listValues<ExpenseInvoiceValue>(RECORD_CATEGORIES.invoice),
     );
+    const list = current.map((item) => this.refreshExpenseFileUrl(item));
     return scope ? this.filterByScope(list, scope) : list;
   }
 
   private async ensureVouchers(scope?: ExpenseScope) {
-    const list = (await this.listValues<ExpenseVoucherValue>(RECORD_CATEGORIES.voucher)).map(
-      (item) => this.refreshExpenseFileUrl(item),
+    const current = await this.withCurrentDepartmentNames(
+      await this.listValues<ExpenseVoucherValue>(RECORD_CATEGORIES.voucher),
     );
+    const list = current.map((item) => this.refreshExpenseFileUrl(item));
     return scope ? this.filterByScope(list, scope) : list;
   }
 
   private async ensureReimbursements(scope?: ExpenseScope) {
-    const list = await this.listValues<ExpenseReimbursementValue>(RECORD_CATEGORIES.reimbursement);
+    const list = await this.withCurrentDepartmentNames(
+      await this.listValues<ExpenseReimbursementValue>(RECORD_CATEGORIES.reimbursement),
+    );
     return scope ? this.filterByScope(list, scope) : list;
   }
 
@@ -1773,6 +1777,29 @@ export class ExpenseService {
 
   private filterByScope<T extends { department_code?: string | null }>(list: T[], scope: ExpenseScope): T[] {
     return list.filter((rec) => this.recordInScope(rec, scope));
+  }
+
+  /** 当前业务记录按稳定 code 映射部门主数据名称；历史活动事件仍保留发生时快照。 */
+  private async withCurrentDepartmentNames<
+    T extends { department_code?: string | null; department_name?: string | null },
+  >(list: T[]): Promise<T[]> {
+    const codes = Array.from(
+      new Set(list.map((item) => item.department_code?.trim()).filter(Boolean)),
+    ) as string[];
+    if (codes.length === 0) return list;
+
+    const departments = await this.prisma.department.findMany({
+      where: { code: { in: codes } },
+      select: { code: true, name: true },
+    });
+    const names = new Map(departments.map((department) => [department.code, department.name]));
+    return list.map((item) => {
+      const code = item.department_code?.trim();
+      const currentName = code ? names.get(code) : null;
+      return currentName && currentName !== item.department_name
+        ? { ...item, department_name: currentName }
+        : item;
+    });
   }
 
   private validateUploadFiles(files: UploadedExpenseFile[], label: string) {
@@ -1843,16 +1870,14 @@ export class ExpenseService {
     }
   }
 
-  /** code → 部门名（改派时用，带 5 分钟缓存）。 */
-  private deptNameCache: { map: Map<string, string>; at: number } | null = null;
+  /** code → 当前部门名（改派时用）。 */
   private async resolveDeptNameByCode(code: string | null): Promise<string | null> {
     if (!code || code === UNASSIGNED_DEPT) return null;
-    const now = Date.now();
-    if (!this.deptNameCache || now - this.deptNameCache.at > 5 * 60 * 1000) {
-      const rows = await this.prisma.department.findMany({ select: { name: true, code: true } });
-      this.deptNameCache = { map: new Map(rows.map((r) => [r.code, r.name])), at: now };
-    }
-    return this.deptNameCache.map.get(code) ?? null;
+    const department = await this.prisma.department.findUnique({
+      where: { code },
+      select: { name: true },
+    });
+    return department?.name ?? null;
   }
 
   private async listValues<T>(category: string): Promise<T[]> {

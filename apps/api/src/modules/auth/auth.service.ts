@@ -478,16 +478,14 @@ export class AuthService implements OnModuleInit {
     };
   }
 
-  /** 部门名 → 稳定 code 的解析（带 5 分钟内存缓存，避免每次鉴权打库）。解析不到返回 null。 */
-  private deptCodeCache: { map: Map<string, string>; at: number } | null = null;
+  /** 部门名 → 稳定 code。直接读取主数据，避免部门改名后的进程内缓存继续返回旧映射。 */
   private async resolveDepartmentCodeByName(name: string | null): Promise<string | null> {
     if (!name || !name.trim()) return null;
-    const now = Date.now();
-    if (!this.deptCodeCache || now - this.deptCodeCache.at > 5 * 60 * 1000) {
-      const rows = await this.prisma.department.findMany({ select: { name: true, code: true } });
-      this.deptCodeCache = { map: new Map(rows.map((r) => [r.name, r.code])), at: now };
-    }
-    return this.deptCodeCache.map.get(name.trim()) ?? null;
+    const department = await this.prisma.department.findUnique({
+      where: { name: name.trim() },
+      select: { code: true },
+    });
+    return department?.code ?? null;
   }
 
   private resolveLoginPassword(password?: string, encryptedPassword?: string) {

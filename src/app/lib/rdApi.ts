@@ -6,6 +6,12 @@ const RD_API_BASE = "/api/research-development";
 const RD_DEFAULT_TIMEOUT_MS = 30_000;
 /** Longer timeout for AI inference / large file ingestion — must exceed server-side `RD_EXTRACT_TIMEOUT_MS` (300s). */
 const RD_AI_TIMEOUT_MS = 360_000;
+/**
+ * The high-fidelity workbook can contain base64-encoded images and exceed 30 MB.
+ * On a typical remote connection its transfer alone can take longer than the
+ * default 30-second RD request timeout.
+ */
+const RD_SHEET_WORKBOOK_TIMEOUT_MS = 180_000;
 
 type RequestJsonOptions = RequestInit & { timeoutMs?: number };
 
@@ -48,10 +54,15 @@ async function fetchWithTimeout(
 ): Promise<Response> {
   const { signal: callerSignal, ...rest } = init;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, timeoutMs);
+  const abortFromCaller = () => controller.abort();
   if (callerSignal) {
-    if (callerSignal.aborted) controller.abort();
-    else callerSignal.addEventListener("abort", () => controller.abort(), { once: true });
+    if (callerSignal.aborted) abortFromCaller();
+    else callerSignal.addEventListener("abort", abortFromCaller, { once: true });
   }
   try {
     const response = await authFetch(`${RD_API_BASE}${withWorkspace(path)}`, { ...rest, signal: controller.signal });
@@ -60,12 +71,13 @@ async function fetchWithTimeout(
     }
     return response;
   } catch (err) {
-    if (err instanceof Error && (err.name === "AbortError" || controller.signal.aborted)) {
+    if (timedOut) {
       throw new Error(`请求超时（>${Math.round(timeoutMs / 1000)}s），请检查网络或稍后再试`);
     }
     throw err;
   } finally {
     clearTimeout(timer);
+    callerSignal?.removeEventListener("abort", abortFromCaller);
   }
 }
 
@@ -508,16 +520,26 @@ export type RdSheetWorkbook = {
   updated_by: string | null;
 };
 
+/** 保存成功只返回元数据，避免将几十 MB 的快照再次下载一遍。 */
+export type RdSheetWorkbookSaveResult = {
+  updated_at: string;
+  updated_by: string | null;
+};
+
 /** 读取整簿快照（page:rd-sheet 只读 / rd-sheet:edit 可编辑，均拿全量；已无行级密级）。 */
-export function fetchRdSheetWorkbook() {
-  return requestJson<RdSheetWorkbook>("/sheet-workbook");
+export function fetchRdSheetWorkbook(signal?: AbortSignal) {
+  return requestJson<RdSheetWorkbook>("/sheet-workbook", {
+    signal,
+    timeoutMs: RD_SHEET_WORKBOOK_TIMEOUT_MS,
+  });
 }
 
 /** 保存整簿快照（仅 rd-sheet:edit / 超管）。 */
 export function saveRdSheetWorkbook(snapshot: unknown) {
-  return requestJson<RdSheetWorkbook>("/sheet-workbook", {
+  return requestJson<RdSheetWorkbookSaveResult>("/sheet-workbook", {
     method: "PUT",
     body: JSON.stringify({ snapshot }),
+    timeoutMs: RD_SHEET_WORKBOOK_TIMEOUT_MS,
   });
 }
 

@@ -18,6 +18,12 @@ export interface ContentSlot {
   has_static_image: boolean;
   static_image_pool: Array<{ object_key: string; url: string | null }>;
   current: { image_url: string | null; text: string | null; list: string[] | null; date: string | null } | null;
+  automation: {
+    active: boolean;
+    status: "ready" | "catching_up" | "on_demand" | "live" | "manual" | "disabled";
+    title: string;
+    detail: string;
+  };
 }
 
 async function json<T>(path: string, init?: RequestInit): Promise<T> {

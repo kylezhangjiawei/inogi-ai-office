@@ -752,10 +752,11 @@ export function MateChatBubble() {
     }
   }, [backfilling]);
 
-  // ── 个性化快捷建议：登录后按当前账号拉取一次（切换账号重拉；失败静默回退静态） ──
+  // ── 个性化快捷建议：每次打开都按最新任务/待办重算，避免长驻页面一直显示旧内容 ──
   useEffect(() => {
-    if (!user?.id) return;
+    if (!user?.id || !open) return;
     let cancelled = false;
+    setDynamicPrompts(null);
     authFetch("/api/chat/quick-suggestions")
       .then((res) => (res.ok ? res.json() : null))
       .then((data: { suggestions?: string[] } | null) => {
@@ -769,7 +770,7 @@ export function MateChatBubble() {
     return () => {
       cancelled = true;
     };
-  }, [user?.id]);
+  }, [user?.id, open]);
 
   // ── 切换会话时加载消息 ──────────────────────────────────────────────────────
 

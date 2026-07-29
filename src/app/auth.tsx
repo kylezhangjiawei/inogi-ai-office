@@ -15,6 +15,7 @@ import {
   saveAuthSession,
   type AuthUser,
 } from "./lib/authSession";
+import { subscribeDepartmentChanges } from "./lib/departmentDirectory";
 
 type LoginPayload = {
   account: string;
@@ -92,6 +93,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     return addAuthClearedListener(() => {
       setUser(null);
+    });
+  }, []);
+
+  useEffect(() => {
+    return subscribeDepartmentChanges(() => {
+      if (!getStoredAccessToken() && !getRefreshToken()) return;
+      void fetchCurrentUser()
+        .then((payload) => {
+          saveAuthSession({
+            accessToken: getStoredAccessToken() ?? "",
+            refreshToken: getRefreshToken() ?? "",
+            user: payload.user,
+          });
+          setUser(payload.user);
+        })
+        .catch(() => {
+          // 后端暂不可用时保留当前会话；下次请求或刷新会再次获取最新部门。
+        });
     });
   }, []);
 

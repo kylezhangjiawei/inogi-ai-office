@@ -408,7 +408,7 @@ function MonthAdjustmentEditor({
               <label className="block text-xs font-semibold text-slate-600">月度备注
                 <textarea rows={3} maxLength={500} value={draft.note} onChange={(event) => setDraft((current) => current ? { ...current, note: event.target.value } : current)} placeholder="结余说明、倒挂原因或其他月度备注" className="mt-1.5 w-full resize-y rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-indigo-400" />
               </label>
-              <div className="rounded-xl bg-indigo-50 px-4 py-3 text-xs leading-5 text-indigo-700">年度带薪病假额度固定为 5 天。生产部人员的工作日加班会自动抵扣剩余倒挂工时；法定节假日加班自动计入调休余额。此处只维护期初结余和人工调整。</div>
+              <div className="rounded-xl bg-indigo-50 px-4 py-3 text-xs leading-5 text-indigo-700">年度带薪病假额度固定为 5 天。生产部门人员的工作日加班会自动抵扣剩余倒挂工时；法定节假日加班自动计入调休余额。此处只维护期初结余和人工调整。</div>
             </div>
             <DialogFooter className="border-t border-slate-100 px-6 py-4">
               <button type="button" onClick={onClose} disabled={saving} className="material-button-secondary px-4 py-2.5 text-sm">取消</button>
@@ -469,7 +469,7 @@ function EmployeeAttendanceDetailDialog({
                 <div><h3 className="font-semibold text-slate-950">{detail.employee.name}</h3><p className="mt-0.5 text-xs text-slate-500">{detail.employee.rosterNo} · {detail.employee.department} · {detail.employee.title}</p></div>
               </div>
               <div className="flex flex-wrap gap-2 text-xs">
-                <span className={cn('rounded-full px-3 py-1.5 font-semibold', rules.ruleType === 'production_inverted' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}>{rules.ruleType === 'production_inverted' ? '生产部倒挂抵扣' : '常规加班统计'}</span>
+                <span className={cn('rounded-full px-3 py-1.5 font-semibold', rules.ruleType === 'production_inverted' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800')}>{rules.ruleType === 'production_inverted' ? `${detail.employee.department}倒挂抵扣` : '常规加班统计'}</span>
                 <span className="rounded-full bg-white px-3 py-1.5 font-semibold text-slate-600 shadow-sm">{monthLabel(detail.month)}</span>
               </div>
             </section>
@@ -478,7 +478,7 @@ function EmployeeAttendanceDetailDialog({
 
             <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <div className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-semibold text-slate-500">可统计加班</p><strong className="mt-1 block text-2xl text-slate-950">{rules.countableOvertimeHours}h</strong><p className="mt-1 text-[11px] text-slate-400">已排除倒挂抵扣与调休入账</p></div>
-              <div className="rounded-2xl border border-amber-100 bg-amber-50/60 p-4"><p className="text-xs font-semibold text-amber-700">倒挂抵扣 / 剩余</p><strong className="mt-1 block text-2xl text-amber-950">{rules.invertedOffsetHours} / {rules.remainingInvertedHours}h</strong><p className="mt-1 text-[11px] text-amber-700/70">仅生产部倒挂人员适用</p></div>
+              <div className="rounded-2xl border border-amber-100 bg-amber-50/60 p-4"><p className="text-xs font-semibold text-amber-700">倒挂抵扣 / 剩余</p><strong className="mt-1 block text-2xl text-amber-950">{rules.invertedOffsetHours} / {rules.remainingInvertedHours}h</strong><p className="mt-1 text-[11px] text-amber-700/70">仅生产部门倒挂人员适用</p></div>
               <div className="rounded-2xl border border-cyan-100 bg-cyan-50/60 p-4"><p className="text-xs font-semibold text-cyan-700">调休增加 / 余额</p><strong className="mt-1 block text-2xl text-cyan-950">+{rules.compTimeEarnedHours} / {rules.compTimeBalanceHours}h</strong><p className="mt-1 text-[11px] text-cyan-700/70">法定节假日加班自动入账</p></div>
               <div className="rounded-2xl border border-violet-100 bg-violet-50/60 p-4"><div className="flex items-center justify-between"><p className="text-xs font-semibold text-violet-700">年度带薪病假</p><HeartPulse className="h-4 w-4 text-violet-500" /></div><strong className="mt-1 block text-2xl text-violet-950">{rules.annualSickLeaveDays} / {rules.annualPaidSickLeaveAllowanceDays}天</strong><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-violet-100"><div className={cn('h-full rounded-full', rules.excessSickLeaveDays > 0 ? 'bg-red-500' : 'bg-violet-500')} style={{ width: `${sickProgress}%` }} /></div></div>
             </section>
@@ -522,7 +522,7 @@ function OvertimeLedger({
       <section className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         {[
           ['原始加班', `${data.summary.rawOvertimeHours}h`, '每日记录合计'],
-          ['倒挂抵扣', `${data.summary.invertedOffsetHours}h`, '生产部工作日加班'],
+          ['倒挂抵扣', `${data.summary.invertedOffsetHours}h`, '生产部门工作日加班'],
           ['计入调休', `${data.summary.compTimeEarnedHours}h`, '法定节假日加班'],
           ['可统计加班', `${data.summary.countableOvertimeHours}h`, '抵扣与调休分流后'],
         ].map(([label, value, helper], index) => <div key={label} className={cn('rounded-2xl border p-4', index === 3 ? 'border-slate-900 bg-slate-950 text-white' : 'border-slate-200 bg-white')}><p className={cn('text-xs font-semibold', index === 3 ? 'text-slate-300' : 'text-slate-500')}>{label}</p><strong className="mt-1 block text-2xl">{value}</strong><p className={cn('mt-1 text-[11px]', index === 3 ? 'text-slate-400' : 'text-slate-400')}>{helper}</p></div>)}
@@ -727,7 +727,7 @@ export function AttendancePage() {
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 items-center gap-3">
               <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-slate-900 text-white"><CalendarDays className="h-5 w-5" /></span>
-              <div className="min-w-0"><div className="flex items-center gap-2"><h2 className="text-base font-semibold text-slate-950">{activeView === 'attendance' ? '月度考勤表' : '加班时长表'}</h2>{activeView === 'attendance' ? <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">可编辑</span> : null}</div><p className="mt-0.5 text-xs text-slate-500">{activeView === 'attendance' ? '点击任意日期单元格即可补录或修正，也可查看单人完整详情' : '自动执行生产部倒挂抵扣、节假日调休入账和常规加班统计'}</p></div>
+              <div className="min-w-0"><div className="flex items-center gap-2"><h2 className="text-base font-semibold text-slate-950">{activeView === 'attendance' ? '月度考勤表' : '加班时长表'}</h2>{activeView === 'attendance' ? <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-700">可编辑</span> : null}</div><p className="mt-0.5 text-xs text-slate-500">{activeView === 'attendance' ? '点击任意日期单元格即可补录或修正，也可查看单人完整详情' : '自动执行生产部门倒挂抵扣、节假日调休入账和常规加班统计'}</p></div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <div className="flex items-center rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
@@ -813,7 +813,7 @@ export function AttendancePage() {
         </div>}
 
         <footer className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50/70 px-5 py-3 text-xs text-slate-500">
-          <span>{activeView === 'attendance' ? '出勤√　事假○　病假☆　学习△　旷工×　迟到※　早退◇　市内出差▲　调休●' : '工作日加班先抵扣生产部倒挂工时；法定节假日加班进入调休余额'}</span>
+          <span>{activeView === 'attendance' ? '出勤√　事假○　病假☆　学习△　旷工×　迟到※　早退◇　市内出差▲　调休●' : '工作日加班先抵扣生产部门倒挂工时；法定节假日加班进入调休余额'}</span>
           <span>{monthLabel(month)} · 共 {activeView === 'attendance' ? data.total : overtimeData?.total ?? 0} 人 · {activeView === 'attendance' ? '点击单元格编辑' : '点击详情查看个人记录'}</span>
         </footer>
       </section>

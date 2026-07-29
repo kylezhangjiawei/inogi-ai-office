@@ -1,7 +1,18 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { chatStreakApi, type MateChatStreak } from '../../lib/chatStreakApi';
 import { MATECHAT_ACTIVITY_EVENT } from './openMateChat';
+
+function shanghaiDateKey(): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Shanghai',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(new Date());
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
 
 /**
  * 自取数 hook：拉取当前用户的 MateChat 连续使用打卡数据。
@@ -11,6 +22,7 @@ export function useMateChatStreak() {
   const [data, setData] = useState<MateChatStreak | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const activeDateRef = useRef(shanghaiDateKey());
 
   const refresh = useCallback(async (force = false) => {
     setLoading(true);
@@ -36,6 +48,26 @@ export function useMateChatStreak() {
     };
     window.addEventListener(MATECHAT_ACTIVITY_EVENT, onActivity);
     return () => window.removeEventListener(MATECHAT_ACTIVITY_EVENT, onActivity);
+  }, [refresh]);
+
+  // 页面跨过上海零点或从后台恢复时，主动清掉昨日数据并获取新文案/新图片。
+  useEffect(() => {
+    const refreshOnDayChange = () => {
+      const currentDate = shanghaiDateKey();
+      if (currentDate === activeDateRef.current) return;
+      activeDateRef.current = currentDate;
+      chatStreakApi.invalidate();
+      void refresh(true);
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'visible') refreshOnDayChange();
+    };
+    const timer = window.setInterval(refreshOnDayChange, 60_000);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
   }, [refresh]);
 
   return { data, loading, error, refresh };

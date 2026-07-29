@@ -15,9 +15,13 @@ export class DepartmentsController {
   }
 
   @Get('options')
-  @Permissions('page:users', 'page:departments', 'page:rd-people-management', 'rd-people:manage')
   options() {
     return this.departmentsService.options();
+  }
+
+  @Get('directory')
+  directory() {
+    return this.departmentsService.directory();
   }
 
   @Post()

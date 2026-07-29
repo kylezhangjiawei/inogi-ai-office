@@ -34,15 +34,22 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (!user || user.status === 'DISABLED') {
       throw new UnauthorizedException();
     }
+    const department = user.department?.trim() || null;
+    const currentDepartment = department
+      ? await this.prisma.department.findUnique({
+          where: { name: department },
+          select: { code: true },
+        })
+      : null;
     return {
       id: user.id,
       name: user.name,
       email: user.email,
       roleId: user.roleId,
       permissions: payload.permissions,
-      // 部门名取库内最新值；稳定标识取签发时快照（TTL 内一致，改派后重登生效）。
-      department: user.department ?? null,
-      departmentCode: payload.departmentCode ?? null,
+      // 名称和稳定编码均取主数据最新值，部门改名后无需等待令牌过期或重新登录。
+      department,
+      departmentCode: currentDepartment?.code ?? null,
     };
   }
 }

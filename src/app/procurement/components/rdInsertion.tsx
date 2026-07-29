@@ -5,6 +5,7 @@ import { AlertTriangle, ExternalLink, Loader2, Paperclip, RotateCcw, ShoppingCar
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../../components/ui/dialog";
 import { toast } from "sonner";
 
+import { useAuth } from "../../auth";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
 import {
@@ -140,6 +141,7 @@ export function TransferToProcurementModal({
   onClose,
 }: TransferModalProps) {
   const { t } = useI18n();
+  const { user } = useAuth();
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
     materialName: taskTitle.replace(/选型|测试|复核|反馈|核查|调整|完善|沟通/g, "").trim() || taskTitle,
@@ -241,7 +243,7 @@ export function TransferToProcurementModal({
         priority,
         needDate: form.needDate || undefined,
         deadline: form.deadline || undefined,
-        requesterDept: "研发部",
+        requesterDept: user?.department ?? undefined,
         consumableNote: form.note.trim() || undefined,
         attachments: attachmentInputs,
       });

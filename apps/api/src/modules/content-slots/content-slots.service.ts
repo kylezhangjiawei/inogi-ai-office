@@ -9,7 +9,10 @@ import {
   CONTENT_SLOT_MASCOT_KEY,
   DEFAULT_DAILY_MESSAGE_PROMPT,
   DEFAULT_MASCOT_PROMPT,
+  MATECHAT_TIME_ZONE,
   SLOT_HISTORY_MAX,
+  dayOrdinal,
+  shanghaiDayKey,
   slotHistoryKey,
   type SlotHistoryEntry,
 } from '../chat/chat-streak.service';
@@ -111,6 +114,20 @@ type SlotConfig = {
   staticList: string[];
 };
 
+type SlotCurrent = {
+  image_url: string | null;
+  text: string | null;
+  list: string[] | null;
+  date: string | null;
+};
+
+type SlotAutomation = {
+  active: boolean;
+  status: 'ready' | 'catching_up' | 'on_demand' | 'live' | 'manual' | 'disabled';
+  title: string;
+  detail: string;
+};
+
 @Injectable()
 export class ContentSlotsService {
   constructor(
@@ -161,8 +178,7 @@ export class ContentSlotsService {
   private pickFromPool(pool: string[]): string {
     if (pool.length === 0) return '';
     if (pool.length === 1) return pool[0];
-    const seed = [...this.today()].reduce((s, c) => s + c.charCodeAt(0), 0);
-    return pool[seed % pool.length];
+    return pool[dayOrdinal(this.today()) % pool.length];
   }
 
   private signStatic(objectKey: string): string | null {
@@ -186,11 +202,12 @@ export class ContentSlotsService {
       static_list: string[];
       has_static_image: boolean;
       static_image_pool: Array<{ object_key: string; url: string | null }>;
-      current: { image_url: string | null; text: string | null; list: string[] | null; date: string | null } | null;
+      current: SlotCurrent | null;
+      automation: SlotAutomation;
     }> = [];
     for (const def of SLOTS) {
       const config = await this.readConfig(def);
-      let current: { image_url: string | null; text: string | null; list: string[] | null; date: string | null } | null = null;
+      let current: SlotCurrent | null = null;
       if (def.type === 'list') {
         const list = config.mode === 'static' && config.staticList.length > 0 ? config.staticList : DEFAULT_QUICK_SUGGESTIONS;
         current = { image_url: null, text: null, list, date: null };
@@ -200,9 +217,16 @@ export class ContentSlotsService {
         } else if (def.key === 'matechat_mascot' && config.mode === 'ai_daily') {
           const m = await this.streakService.getCurrentMascot();
           current = { image_url: m.url, text: null, list: null, date: m.date };
+          if (m.date !== this.today()) {
+            // 管理页本身也可触发幂等补跑，避免错过 6 点后一直显示昨天的图。
+            void this.streakService.ensureTodayMascot().catch(() => undefined);
+          }
         } else if (def.key === 'login_background' && config.mode === 'ai_daily') {
           const daily = await this.readLoginBgDaily();
           current = { image_url: daily.objectKey ? this.signStatic(daily.objectKey) : null, text: null, list: null, date: daily.date || null };
+          if (daily.date !== this.today()) {
+            void this.ensureLoginBgDaily(false).catch(() => undefined);
+          }
         } else if (def.key === 'login_background') {
           current = { image_url: DEFAULT_LOGIN_BG, text: null, list: null, date: null };
         }
@@ -225,9 +249,58 @@ export class ContentSlotsService {
         has_static_image: config.staticImagePool.length > 0,
         static_image_pool: config.staticImagePool.map((k) => ({ object_key: k, url: this.signStatic(k) })),
         current,
+        automation: this.automationStatus(def, config, current),
       });
     }
     return { items };
+  }
+
+  private automationStatus(def: SlotDef, config: SlotConfig, current: SlotCurrent | null): SlotAutomation {
+    if (def.key === 'matechat_quick_suggestions') {
+      return config.mode === 'static'
+        ? {
+            active: false,
+            status: 'manual',
+            title: '人工兜底列表',
+            detail: '个性化任务建议仍由系统实时生成，此列表只替换通用兜底内容。',
+          }
+        : {
+            active: true,
+            status: 'live',
+            title: '系统自动更新中',
+            detail: '每次打开 MateChat 都会按当前账号的任务、待办与权限重新匹配。',
+          };
+    }
+    if (config.mode === 'static') {
+      return { active: false, status: 'manual', title: '人工固定', detail: '将持续展示固定内容，直到手动修改模式或素材。' };
+    }
+    if (config.mode === 'off') {
+      return { active: false, status: 'disabled', title: '自动更新已停用', detail: def.note };
+    }
+    if (def.key === 'matechat_daily_message') {
+      return {
+        active: true,
+        status: 'on_demand',
+        title: '按用户每日自动生成',
+        detail: '每位用户每天首次查看时生成一句新文案；提示词只是生成规则，不会固定最终内容。',
+      };
+    }
+    const ready = current?.date === this.today() && Boolean(current.image_url);
+    return ready
+      ? {
+          active: true,
+          status: 'ready',
+          title: `今日素材已自动更新 · ${current?.date}`,
+          detail: def.key === 'matechat_mascot'
+            ? '每天 06:00（上海时间）生成；手动重生成只替换今天，明天仍会继续自动更新。'
+            : '每天 06:05（上海时间）生成；手动重生成只替换今天，明天仍会继续自动更新。',
+        }
+      : {
+          active: true,
+          status: 'catching_up',
+          title: '今日素材正在自动补跑',
+          detail: '错过定时点或服务重启后会自动补生成；生成完成后刷新即可看到今天的内容。',
+        };
   }
 
   /** 保存素材位配置（模式 + prompt + 固定文案 + 固定图 objectKey） */
@@ -280,12 +353,18 @@ export class ContentSlotsService {
     for (const objectKey of added) {
       await this.appendHistory(def.kvKey, { date: this.today(), objectKey, source: 'upload' });
     }
+    if (def.key === 'matechat_daily_message') {
+      this.streakService.invalidateDailyMessageCache();
+    } else if (mode === 'ai_daily' && def.key === 'matechat_mascot') {
+      void this.streakService.ensureTodayMascot().catch(() => undefined);
+    } else if (mode === 'ai_daily' && def.key === 'login_background') {
+      void this.ensureLoginBgDaily(false).catch(() => undefined);
+    }
     return { ok: true };
   }
 
   private today(): string {
-    const sh = new Date(Date.now() + 8 * 3600 * 1000);
-    return `${sh.getUTCFullYear()}-${String(sh.getUTCMonth() + 1).padStart(2, '0')}-${String(sh.getUTCDate()).padStart(2, '0')}`;
+    return shanghaiDayKey(new Date());
   }
 
   private async appendHistory(configKey: string, entry: SlotHistoryEntry): Promise<void> {
@@ -404,28 +483,34 @@ export class ContentSlotsService {
   }
 
   /** 每天 6:05 预生成登录背景（错开吉祥物 6:00） */
-  @Cron('5 6 * * *', { name: 'content-slots-login-bg-daily' })
+  @Cron('5 6 * * *', { name: 'content-slots-login-bg-daily', timeZone: MATECHAT_TIME_ZONE })
   async loginBgCron(): Promise<void> {
+    await this.ensureLoginBgDaily(false);
+  }
+
+  /** 6 点后的整点补跑，覆盖服务在 06:05 停机或重启的情况。 */
+  @Cron('35 6-23 * * *', { name: 'content-slots-login-bg-catch-up', timeZone: MATECHAT_TIME_ZONE })
+  async loginBgCatchUpCron(): Promise<void> {
     await this.ensureLoginBgDaily(false);
   }
 
   /** 确保当日登录背景已生成（幂等 + 防并发）。force 无视「今日已就绪」与「非 AI 模式」。 */
   async ensureLoginBgDaily(force: boolean): Promise<{ url: string | null }> {
-    const def = this.def('login_background');
-    const config = await this.readConfig(def);
-    if (!force && config.mode !== 'ai_daily') return { url: null };
     if (this.loginBgGenerating) return { url: null };
-    const today = this.today();
-    const daily = await this.readLoginBgDaily();
-    if (!force && daily.date === today && daily.objectKey) {
-      return { url: this.signStatic(daily.objectKey) };
-    }
-    // 成本闸门：达到月度上限则不再自动生成（保留昨日/默认）
-    if (await this.genBudgetExceeded()) {
-      return { url: daily.objectKey ? this.signStatic(daily.objectKey) : null };
-    }
     this.loginBgGenerating = true;
     try {
+      const def = this.def('login_background');
+      const config = await this.readConfig(def);
+      if (!force && config.mode !== 'ai_daily') return { url: null };
+      const today = this.today();
+      const daily = await this.readLoginBgDaily();
+      if (!force && daily.date === today && daily.objectKey) {
+        return { url: this.signStatic(daily.objectKey) };
+      }
+      // 成本闸门：达到月度上限则不再自动生成（保留昨日/默认）
+      if (await this.genBudgetExceeded()) {
+        return { url: daily.objectKey ? this.signStatic(daily.objectKey) : null };
+      }
       const prompt = config.promptTemplate.replace(/\{\{\s*date\s*\}\}/g, today);
       const objectKey = await this.streakService.generateImageForSlot(prompt);
       if (!objectKey) return { url: null };

@@ -146,6 +146,11 @@ export class ApiRequestLogInterceptor implements NestInterceptor {
         result[key] = '[redacted]';
       } else if (typeof rawValue === 'string' && rawValue.length > 500) {
         result[key] = `${rawValue.slice(0, 500)}...[truncated ${rawValue.length} chars]`;
+      } else if (normalizedKey === 'snapshot' && rawValue && typeof rawValue === 'object') {
+        // High-fidelity workbook snapshots may contain tens of MB of base64 images.
+        // Traversing and copying them into an API audit row delays the response and
+        // needlessly duplicates sensitive workbook content in the log database.
+        result[key] = '[workbook snapshot omitted]';
       } else {
         result[key] = this.sanitize(rawValue);
       }

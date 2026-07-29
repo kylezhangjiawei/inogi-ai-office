@@ -45,6 +45,67 @@ export interface UsageDashboard {
   trend: Array<{ date: string; calls: number }>;
 }
 
+export interface UsageDetailItem {
+  id: string;
+  created_at: string;
+  user_id: string;
+  user_name: string;
+  department: string | null;
+  modality: string;
+  provider: string;
+  model: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cost_yuan: number;
+  cost_usd: number;
+  cost_cny_approx: number;
+  seconds: number;
+  estimated: boolean;
+  source: string;
+  ref_id: string | null;
+}
+
+export interface UsageDetails {
+  filters: {
+    range: UsageRange;
+    modality: string | null;
+    model: string | null;
+    user_id: string | null;
+    date: string | null;
+  };
+  summary: {
+    calls: number;
+    chat_calls: number;
+    image_calls: number;
+    video_calls: number;
+    prompt_tokens: number;
+    completion_tokens: number;
+    total_tokens: number;
+    cost_yuan: number;
+    cost_usd: number;
+    cost_cny_approx: number;
+    seconds: number;
+  };
+  items: UsageDetailItem[];
+  pagination: {
+    page: number;
+    page_size: number;
+    total: number;
+    total_pages: number;
+  };
+}
+
+export interface UsageDetailsParams {
+  range: UsageRange;
+  modality?: string;
+  model?: string;
+  user_id?: string;
+  date?: string;
+  page?: number;
+  page_size?: number;
+}
+
 export async function fetchAiUsageDashboard(range: UsageRange): Promise<UsageDashboard> {
   const res = await authFetch(`/api/ai-usage/dashboard?range=${range}`);
   if (!res.ok) {
@@ -59,4 +120,19 @@ export async function backfillAiUsage(): Promise<{ chat: number; image: number; 
     throw new Error(await readErrorMessage(res, "回填失败"));
   }
   return (await res.json()) as { chat: number; image: number; video: number };
+}
+
+export async function fetchAiUsageDetails(params: UsageDetailsParams): Promise<UsageDetails> {
+  const query = new URLSearchParams({ range: params.range });
+  if (params.modality) query.set("modality", params.modality);
+  if (params.model) query.set("model", params.model);
+  if (params.user_id) query.set("user_id", params.user_id);
+  if (params.date) query.set("date", params.date);
+  query.set("page", String(params.page ?? 1));
+  query.set("page_size", String(params.page_size ?? 20));
+  const res = await authFetch(`/api/ai-usage/details?${query.toString()}`);
+  if (!res.ok) {
+    throw new Error(await readErrorMessage(res, "读取用量明细失败"));
+  }
+  return (await res.json()) as UsageDetails;
 }

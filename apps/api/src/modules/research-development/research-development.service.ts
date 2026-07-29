@@ -1187,7 +1187,8 @@ export class ResearchDevelopmentService {
         name,
         email: cleanText(person.email) || user?.email || '',
         username: user?.username ?? (typeof person.username === 'string' ? person.username : null),
-        department: cleanText(person.department) || user?.department || '',
+        // 绑定账号的成员始终跟随用户主档部门；person.department 仅作为未绑定成员的兜底。
+        department: user?.department || cleanText(person.department) || '',
         position: cleanText(person.position) || '研发成员',
         status: explicitStatus || (onLeave ? 'on_leave' : user?.status === 'DISABLED' ? 'resigned' : 'active'),
         user_status: user?.status ?? (typeof person.user_status === 'string' ? person.user_status : null),
@@ -8587,14 +8588,17 @@ export class ResearchDevelopmentService {
   }
 
   /** 保存整簿快照（仅 rd-sheet:edit / 超管，controller 守门）。 */
-  async saveSheetWorkbook(snapshot: unknown, editorId?: string | null): Promise<{ snapshot: JsonRecord; updated_at: string; updated_by: string | null }> {
+  async saveSheetWorkbook(
+    snapshot: unknown,
+    editorId?: string | null,
+  ): Promise<{ updated_at: string; updated_by: string | null }> {
     if (!isRecord(snapshot) || !isRecord((snapshot as JsonRecord).sheets)) {
       throw new BadRequestException('工作簿快照格式不正确');
     }
     const updated_at = new Date().toISOString();
     const updated_by = cleanText(editorId) || null;
     await this.writeValue('rd.sheets', { snapshot, updated_at, updated_by });
-    return { snapshot: snapshot as JsonRecord, updated_at, updated_by };
+    return { updated_at, updated_by };
   }
 
   private async readArray(key: RdStoreKey) {

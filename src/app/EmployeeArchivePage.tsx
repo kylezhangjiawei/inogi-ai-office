@@ -39,6 +39,7 @@ import badgeLaborTemplate from "../assets/employee-archive/badge-labor.jpeg";
 import badgeOfficialTemplate from "../assets/employee-archive/badge-official.jpeg";
 import { cn } from "./components/ui/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
+import { subscribeDepartmentChanges, useDepartmentDirectory } from "./lib/departmentDirectory";
 import { t as translate, useI18n } from "./lib/i18n";
 import {
   createEmployeeArchive,
@@ -182,7 +183,7 @@ const archiveEmployees: EmployeeArchive[] = [
     tenure: "2年4个月",
     status: "在职",
     workLocation: "上海",
-    department: "研发部",
+    department: "研发注册部",
     title: "注册工程师",
     employeeCode: "INOGI-001",
     name: "林予安",
@@ -232,7 +233,7 @@ const archiveEmployees: EmployeeArchive[] = [
     tenure: "9个月",
     status: "在职",
     workLocation: "上海",
-    department: "质量部",
+    department: "法规质量部",
     title: "质量体系专员",
     employeeCode: "INOGI-002",
     name: "周庭序",
@@ -282,7 +283,7 @@ const archiveEmployees: EmployeeArchive[] = [
     tenure: "1个月",
     status: "试用期",
     workLocation: "苏州",
-    department: "生产部",
+    department: "生产运营部",
     title: "设备技术员",
     employeeCode: "INOGI-003",
     name: "许洛川",
@@ -332,7 +333,7 @@ const archiveEmployees: EmployeeArchive[] = [
     tenure: "待转正",
     status: "待入职归档",
     workLocation: "上海",
-    department: "市场部",
+    department: "销售市场部",
     title: "商务助理",
     employeeCode: "INOGI-004",
     name: "唐亦禾",
@@ -1323,10 +1324,12 @@ const badgeRequirementMeta: Record<
 
 const departmentEnglish: Record<string, string> = {
   总经办: "Executive Office",
-  研发部: "Research & Development",
-  质量部: "Quality Assurance",
-  生产部: "Production",
-  市场部: "Marketing",
+  研发注册部: "R&D and Registration",
+  研发生产部: "R&D and Production",
+  法规质量部: "Regulatory and Quality",
+  生产运营部: "Production Operations",
+  销售市场部: "Sales and Marketing",
+  人事行政部: "HR and Administration",
 };
 
 const getBadgeEmployeeId = (employee: EmployeeArchive) => {
@@ -1776,6 +1779,7 @@ function EmployeeArchiveEditor({
   draft,
   mode,
   saving,
+  departmentOptions,
   onChange,
   onDocumentsChange,
   onCancel,
@@ -1784,6 +1788,7 @@ function EmployeeArchiveEditor({
   draft: EmployeeArchiveEditDraft;
   mode: "create" | "edit";
   saving: boolean;
+  departmentOptions: string[];
   onChange: (key: keyof EmployeeArchiveEditDraft, value: string) => void;
   onDocumentsChange: (documents: DocItem[]) => void;
   onCancel: () => void;
@@ -1910,7 +1915,26 @@ function EmployeeArchiveEditor({
                           {field.required ? <span className="text-red-500">*</span> : null}
                           {field.sensitive ? <ShieldCheck className="h-3.5 w-3.5 text-slate-400" /> : null}
                         </span>
-                        {field.type === "textarea" ? (
+                        {field.key === "department" ? (
+                          <Select
+                            value={value || undefined}
+                            onValueChange={(next) => onChange(field.key, next)}
+                            disabled={saving}
+                            name={String(field.key)}
+                            required={requiredInput}
+                          >
+                            <SelectTrigger className={cn(commonClassName, "h-auto data-[size=default]:h-auto")}>
+                              <SelectValue placeholder={translate("请选择")} />
+                            </SelectTrigger>
+                            <SelectContent className="z-[100] rounded-xl border-slate-200">
+                              {Array.from(new Set([...departmentOptions, ...(value ? [value] : [])])).map((option) => (
+                                <SelectItem key={option} value={option}>
+                                  {translate(option)}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        ) : field.type === "textarea" ? (
                           <textarea
                             rows={3}
                             value={value}
@@ -2803,6 +2827,7 @@ function BadgeAvatarEditor({
 
 export function EmployeeArchivePage() {
   useI18n();
+  const { items: departmentDirectory } = useDepartmentDirectory();
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const rosterInputRef = useRef<HTMLInputElement>(null);
   // 花名册数据：启动时先显示本地缓存，随后由服务端数据覆盖；不再把演示人员当成真实档案展示。
@@ -2840,6 +2865,24 @@ export function EmployeeArchivePage() {
   const [serverStats, setServerStats] = useState<EmployeeArchiveStats | null>(null);
   const [serverProbationReminders, setServerProbationReminders] = useState<Record<string, EmployeeProbationReminder>>({});
   const [isBadgeConfigSaving, setIsBadgeConfigSaving] = useState(false);
+
+  useEffect(
+    () =>
+      subscribeDepartmentChanges((change) => {
+        if (change.previousName === change.name) return;
+        setEmployees((current) => {
+          let changed = false;
+          const next = current.map((employee) => {
+            if (employee.department !== change.previousName) return employee;
+            changed = true;
+            return { ...employee, department: change.name };
+          });
+          if (changed) saveStoredEmployees(next);
+          return changed ? next : current;
+        });
+      }),
+    [],
+  );
 
   const refreshArchiveMeta = async (signal?: AbortSignal) => {
     const [statsResult, remindersResult] = await Promise.allSettled([
@@ -3568,6 +3611,7 @@ export function EmployeeArchivePage() {
           draft={employeeEditDraft}
           mode={employeeEditMode}
           saving={isEmployeeSaving}
+          departmentOptions={departmentDirectory.filter((item) => item.enabled).map((item) => item.name)}
           onChange={updateEmployeeEditDraft}
           onDocumentsChange={updateEmployeeEditDocuments}
           onCancel={() => setEmployeeEditDraft(null)}

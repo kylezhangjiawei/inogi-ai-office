@@ -52,6 +52,8 @@ export type NavItem = {
   label: string;
   path: string;
   icon: React.ComponentType<{ className?: string }>;
+  /** 绑定部门主数据时使用稳定 code 动态解析当前名称。 */
+  departmentCode?: string;
   /** Permission code required to see this item. Omit for always-visible items. */
   requiredPermission?: string;
 };
@@ -65,14 +67,14 @@ export type NavGroup = {
  * 部门知识库清单（与后端 dept-knowledge.constants.ts 的 DEPT_KBS 保持一致）。
  * id 为永久标识：路由 /dept-kb/{id}、页面码 page:dept-kb-{id}、存储键全部依赖它，确定后不可更名。
  */
-export const DEPT_KBS: { id: string; label: string }[] = [
-  { id: "gm", label: "总经办" },
-  { id: "hr", label: "人事行政部" },
+export const DEPT_KBS: { id: string; label: string; departmentCode?: string }[] = [
+  { id: "gm", label: "总经办", departmentCode: "GENERAL_OFFICE" },
+  { id: "hr", label: "人事行政部", departmentCode: "HR_ADMIN" },
   { id: "finance", label: "财务部" },
   { id: "purchasing", label: "采购部" },
-  { id: "production", label: "生产部" },
-  { id: "quality", label: "质量部" },
-  { id: "sales", label: "销售部" },
+  { id: "production", label: "生产部", departmentCode: "PRODUCTION" },
+  { id: "quality", label: "质量部", departmentCode: "REGULATORY_QUALITY" },
+  { id: "sales", label: "销售部", departmentCode: "SALES_MARKETING" },
 ];
 
 export const navGroups: NavGroup[] = [
@@ -123,6 +125,7 @@ export const navGroups: NavGroup[] = [
         label: `${d.label}知识库`,
         path: `/dept-kb/${d.id}`,
         icon: BookOpen,
+        departmentCode: d.departmentCode,
         requiredPermission: `page:dept-kb-${d.id}`,
       })),
       // 「研发知识库」并入本组展示：点击仍跳转到原全功能页 /rd-knowledge-base（RAG/密级/任务入库等不变）。

@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Eye, EyeOff, KeyRound, Pencil, Plus, RefreshCw, Search, Trash2, UserCheck, UserX } from "lucide-react";
 import { toast } from "sonner";
 import { authFetch } from "./lib/authSession";
+import { subscribeDepartmentChanges } from "./lib/departmentDirectory";
 import { useAuth } from "./auth";
 import { cn } from "./components/ui/utils";
 import { PermissionGuard } from "./components/PermissionGuard";
@@ -308,6 +309,12 @@ export function UserManagement() {
   }, []);
 
   useEffect(() => { void loadData(); }, [loadData]);
+  useEffect(
+    () => subscribeDepartmentChanges(() => {
+      void loadData();
+    }),
+    [loadData],
+  );
 
   const departmentFilterOptions = useMemo(() => {
     const assignedDepartmentNames = users.flatMap((user) => (user.department ? [user.department] : []));

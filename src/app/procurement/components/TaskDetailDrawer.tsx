@@ -4,7 +4,7 @@ import { Input } from "../../components/ui/input";
 import { ChevronDown, ExternalLink, History, Paperclip, Pencil } from "lucide-react";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../../components/ui/sheet";
 import { cn } from "../../components/ui/utils";
-import { BusinessLinePill, DIRECT_FLOW, INQUIRY_FLOW, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, fmtMoney, useProcCan } from "./common";
+import { BusinessLinePill, DIRECT_FLOW, INQUIRY_FLOW, MethodPill, PROC_STATUS_META, PersonAvatar, SourcePill, StatusPill, fmtMoney, useBuyerDirectory, useProcCan } from "./common";
 import { nextPermissionOf, useProcTaskAction } from "./taskActions";
 import { EditTaskModal } from "./modals";
 import { PriceHistoryModal } from "./PriceHistoryModal";
@@ -31,6 +31,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
   const [logsOpen, setLogsOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const can = useProcCan();
+  const { deptOf } = useBuyerDirectory();
   const taskAction = useProcTaskAction();
   const requester = taskRequester(task);
   const meta = PROC_STATUS_META[task.status];
@@ -165,7 +166,9 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
                   <span className="inline-flex items-center gap-1.5">
                     <PersonAvatar name={task.buyer} size="xs" />
                     <span className="font-medium">{task.buyer}</span>
-                    <span className="text-xs text-slate-400">{t('采购部')}</span>
+                    {deptOf(task.buyer) ? (
+                      <span className="text-xs text-slate-400">{t(deptOf(task.buyer) ?? '')}</span>
+                    ) : null}
                   </span>
                 } />
                 {task.rdContact && <Info label="研发对接人" value={task.rdContact} />}

@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useAuth } from "../auth";
 import { hasPermission } from "../lib/permissions";
 import { permissionCatalogApi } from "../lib/permissionCatalogApi";
+import { useDepartmentDirectory } from "../lib/departmentDirectory";
 import { navGroups } from "../routesConfig";
 import { t, useI18n } from "../lib/i18n";
 import { useLayoutChromeActions, useLayoutChromeState } from "../lib/layoutChrome";
@@ -16,6 +17,7 @@ export function Sidebar() {
   const { user } = useAuth();
   const { immersive, sidebarCollapsed: collapsed } = useLayoutChromeState();
   const { toggleSidebar } = useLayoutChromeActions();
+  const { nameByCode } = useDepartmentDirectory();
   const userPermissions = user?.permissions ?? [];
   const navScrollRef = useRef<HTMLElement>(null);
 
@@ -33,13 +35,22 @@ export function Sidebar() {
   const visibleGroups = navGroups
     .map((group) => ({
       ...group,
-      items: group.items.filter((item) => {
-        // Must have the required permission (or no permission required)
-        if (item.requiredPermission && !hasPermission(userPermissions, item.requiredPermission)) return false;
-        // Must not be marked as nav-hidden in the permission catalog
-        if (item.requiredPermission && navHiddenCodes.has(item.requiredPermission)) return false;
-        return true;
-      }),
+      items: group.items
+        .filter((item) => {
+          // Must have the required permission (or no permission required)
+          if (item.requiredPermission && !hasPermission(userPermissions, item.requiredPermission)) return false;
+          // Must not be marked as nav-hidden in the permission catalog
+          if (item.requiredPermission && navHiddenCodes.has(item.requiredPermission)) return false;
+          return true;
+        })
+        .map((item) =>
+          item.departmentCode
+            ? {
+                ...item,
+                label: `${nameByCode(item.departmentCode, item.label.replace(/知识库$/, ""))}知识库`,
+              }
+            : item,
+        ),
     }))
     .filter((group) => group.items.length > 0);
 
