@@ -136,7 +136,20 @@ export class ProcurementService {
       }),
     ]);
 
-    return { total, page, pageSize, items: rows.map((r) => this.serializeTask(r)) };
+    const requesterDepartments = await this.getRequesterDepartmentMap(rows);
+    return {
+      total,
+      page,
+      pageSize,
+      items: rows.map((row) =>
+        this.serializeTask(
+          row,
+          row.requesterUserId && requesterDepartments.has(row.requesterUserId)
+            ? requesterDepartments.get(row.requesterUserId)
+            : undefined,
+        ),
+      ),
+    };
   }
 
   async getTask(id: string) {
@@ -151,8 +164,14 @@ export class ProcurementService {
       },
     });
     if (!task) throw new NotFoundException('采购任务不存在');
+    const requesterDepartments = await this.getRequesterDepartmentMap([task]);
     return {
-      ...this.serializeTask(task),
+      ...this.serializeTask(
+        task,
+        task.requesterUserId && requesterDepartments.has(task.requesterUserId)
+          ? requesterDepartments.get(task.requesterUserId)
+          : undefined,
+      ),
       quotations: task.quotations.map((q) => this.serializeQuotation(q)),
     };
   }
@@ -164,6 +183,7 @@ export class ProcurementService {
   /** 研发侧「转采购」：落到待处理，由采购确认后才进入询价/直购分支。 */
   async transferFromRd(dto: TransferFromRdDto, actor: ProcActor) {
     const rdTaskId = dto.rdTaskId.trim();
+    const requesterDept = await this.resolveRequesterDepartment(actor.id, dto.requesterDept);
     const existing = await this.prisma.procTask.findUnique({
       where: { rdTaskId },
       include: { attachments: true, logs: true, purchaseOrderRefs: true },
@@ -188,6 +208,9 @@ export class ProcurementService {
           deadline: parseDay(dto.deadline),
           rdTaskTitle: dto.rdTaskTitle ?? existing.rdTaskTitle,
           rdContact: dto.rdContact ?? existing.rdContact,
+          requester: actor.name,
+          requesterUserId: actor.id,
+          requesterDept,
           consumableNote: dto.consumableNote ?? existing.consumableNote,
           status: 'pending_confirm',
           cancelReason: null,
@@ -371,6 +394,7 @@ export class ProcurementService {
     }
     const code = await this.nextTaskCode();
     const method = dto.method ?? 'inquiry';
+    const requesterDept = await this.resolveRequesterDepartment(actor.id, dto.requesterDept);
     const task = await this.prisma.procTask.create({
       data: {
         code,
@@ -395,7 +419,7 @@ export class ProcurementService {
         rdContact: extra.rdContact ?? null,
         requester: actor.name,
         requesterUserId: actor.id,
-        requesterDept: dto.requesterDept ?? null,
+        requesterDept,
         consumableNote: dto.consumableNote ?? null,
         createdBy: actor.id,
         attachments: { create: (dto.attachments ?? []).map((a) => this.attachmentData(a, actor)) },
@@ -1270,12 +1294,38 @@ export class ProcurementService {
     };
   }
 
+  private async resolveRequesterDepartment(userId: string, fallback?: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { department: true },
+    });
+    return user?.department?.trim() || fallback?.trim() || null;
+  }
+
+  private async getRequesterDepartmentMap(
+    tasks: Array<{ requesterUserId: string | null }>,
+  ): Promise<Map<string, string | null>> {
+    const userIds = Array.from(
+      new Set(tasks.map((task) => task.requesterUserId).filter(Boolean)),
+    ) as string[];
+    if (userIds.length === 0) return new Map();
+
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, department: true },
+    });
+    return new Map(
+      users.map((user) => [user.id, user.department?.trim() || null]),
+    );
+  }
+
   // ── 序列化 ───────────────────────────────────────────────────────────────────
 
   private serializeTask(
     task: Prisma.ProcTaskGetPayload<{
       include: { attachments: true; logs: true; purchaseOrderRefs: true };
     }>,
+    currentRequesterDepartment?: string | null,
   ) {
     return {
       id: task.id,
@@ -1305,7 +1355,10 @@ export class ProcurementService {
       rdTaskTitle: task.rdTaskTitle ?? undefined,
       rdContact: task.rdContact ?? undefined,
       requester: task.requester ?? undefined,
-      requesterDept: task.requesterDept ?? undefined,
+      requesterDept:
+        currentRequesterDepartment !== undefined
+          ? currentRequesterDepartment ?? undefined
+          : task.requesterDept ?? undefined,
       consumableNote: task.consumableNote ?? undefined,
       selectedQuotationId: task.selectedQuotationId ?? undefined,
       businessDone: task.businessDone,

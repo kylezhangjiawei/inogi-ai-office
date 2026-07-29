@@ -63,8 +63,8 @@ const bomRecords: BomRecord[] = [
     ],
     notifications: [
       { target: "采购部", channel: "企业微信", time: "2026-04-12 14:26", result: "已送达" },
-      { target: "生产部", channel: "邮件", time: "2026-04-12 14:27", result: "已送达" },
-      { target: "质量部", channel: "系统站内信", time: "2026-04-12 14:27", result: "已送达" },
+      { target: "生产运营部", channel: "邮件", time: "2026-04-12 14:27", result: "已送达" },
+      { target: "法规质量部", channel: "系统站内信", time: "2026-04-12 14:27", result: "已送达" },
     ],
   },
   {
@@ -87,7 +87,7 @@ const bomRecords: BomRecord[] = [
     ],
     notifications: [
       { target: "采购部", channel: "企业微信", time: "2026-04-09 10:10", result: "待发送" },
-      { target: "质量部", channel: "系统站内信", time: "2026-04-09 10:10", result: "待发送" },
+      { target: "法规质量部", channel: "系统站内信", time: "2026-04-09 10:10", result: "待发送" },
     ],
   },
   {
@@ -109,7 +109,7 @@ const bomRecords: BomRecord[] = [
       { title: "归档完成", detail: "待所有通知确认", status: "pending" },
     ],
     notifications: [
-      { target: "生产部", channel: "邮件", time: "2026-04-07 17:06", result: "已送达" },
+      { target: "生产运营部", channel: "邮件", time: "2026-04-07 17:06", result: "已送达" },
       { target: "设计部", channel: "企业微信", time: "2026-04-07 17:06", result: "已送达" },
       { target: "法规组", channel: "系统站内信", time: "2026-04-07 17:07", result: "待确认" },
     ],

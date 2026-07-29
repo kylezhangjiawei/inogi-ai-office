@@ -4,6 +4,7 @@ import { createBrowserRouter, Navigate, RouterProvider, useLocation, useParams }
 import { toast } from "sonner";
 import { materialTheme } from "../styles/materialTheme";
 import { AuthProvider, useAuth } from "./auth";
+import { useDepartmentDirectory } from "./lib/departmentDirectory";
 import { hasPermission } from "./lib/permissions";
 import { isMobileViewport } from "./lib/mobileRouting";
 import { DEPT_KBS, routePermissionMap } from "./routesConfig";
@@ -303,6 +304,18 @@ function lazyWrap(node: React.ReactNode) {
   return <Suspense fallback={<PageLoadingFallback />}>{node}</Suspense>;
 }
 
+function DepartmentKnowledgeBaseRoute({
+  definition,
+}: {
+  definition: (typeof DEPT_KBS)[number];
+}) {
+  const { nameByCode } = useDepartmentDirectory();
+  const label = definition.departmentCode
+    ? nameByCode(definition.departmentCode, definition.label)
+    : definition.label;
+  return <RDKnowledgeBasePage kbScope={{ kbId: definition.id, label }} />;
+}
+
 const router = createBrowserRouter([
   { path: "/login", Component: LoginPage },
   {
@@ -328,7 +341,10 @@ const router = createBrowserRouter([
       // 部门知识库：8 个部门各一条路由，复用 RDKnowledgeBasePage（kbScope 切到部门库）
       ...DEPT_KBS.map((d) => ({
         path: `dept-kb/${d.id}`,
-        element: makeLazyProtected(<RDKnowledgeBasePage key={`kb-${d.id}`} kbScope={{ kbId: d.id, label: d.label }} />, `page:dept-kb-${d.id}`),
+        element: makeLazyProtected(
+          <DepartmentKnowledgeBaseRoute key={`kb-${d.id}`} definition={d} />,
+          `page:dept-kb-${d.id}`,
+        ),
       })),
       // 中美协同：复用研发驾驶舱（隐藏子系统全景）/ 个人工作台 / 知识库（独立 us-collab 库），独立权限码
       { path: "us-collab-cockpit", element: makeLazyProtected(<RDTaskManagementPage key="ws-us" hideSystemPanorama />, "page:us-collab-cockpit") },

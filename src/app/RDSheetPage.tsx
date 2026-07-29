@@ -50,22 +50,43 @@ export function RDSheetPage() {
 
   const handleRef = useRef<RDSheetUniverHandle | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const loadAbortRef = useRef<AbortController | null>(null);
+  const loadRequestIdRef = useRef(0);
 
   const load = useCallback(() => {
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
+    loadAbortRef.current?.abort();
+    const controller = new AbortController();
+    loadAbortRef.current = controller;
+
     setLoading(true);
     setError(null);
-    fetchRdSheetWorkbook()
+    fetchRdSheetWorkbook(controller.signal)
       .then((res) => {
+        if (loadRequestIdRef.current !== requestId) return;
         setSnapshot(res.snapshot);
         setReloadKey((k) => k + 1);
         setDirty(false);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : t("加载数据表失败")))
-      .finally(() => setLoading(false));
+      .catch((e) => {
+        if (controller.signal.aborted || loadRequestIdRef.current !== requestId) return;
+        setError(e instanceof Error ? e.message : t("加载数据表失败"));
+      })
+      .finally(() => {
+        if (loadRequestIdRef.current !== requestId) return;
+        loadAbortRef.current = null;
+        setLoading(false);
+      });
   }, []);
 
   useEffect(() => {
     load();
+    return () => {
+      loadRequestIdRef.current += 1;
+      loadAbortRef.current?.abort();
+      loadAbortRef.current = null;
+    };
   }, [load]);
 
   // 离开前拦截未保存改动（仅编辑者且有改动时）。

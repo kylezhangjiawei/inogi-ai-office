@@ -1061,6 +1061,8 @@ const DICT = {
   "加载中…": "Loading…",
   "加载更多": "Load More",
   "协作": "Collaboration",
+  "协助": "Assisting",
+  "{name} 以协作人身份参与此任务": "{name} is participating in this task as a collaborator",
   "协作原因和影响": "Collaboration Reason and Impact",
   "协同人": "Collaborators",
   "单条留痕附件最多 {n} 个": "Up to {n} attachments per progress log",

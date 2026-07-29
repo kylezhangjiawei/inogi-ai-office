@@ -4,6 +4,16 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { SavePermissionCatalogItemDto } from './dto/save-permission-catalog-item.dto';
 import { DEFAULT_PERMISSION_CATALOG } from './permission-catalog.defaults';
 
+const DEPARTMENT_KB_ID_BY_CODE: Record<string, string> = {
+  GENERAL_OFFICE: 'gm',
+  HR_ADMIN: 'hr',
+  FINANCE: 'finance',
+  PURCHASING: 'purchasing',
+  PRODUCTION: 'production',
+  REGULATORY_QUALITY: 'quality',
+  SALES_MARKETING: 'sales',
+};
+
 @Injectable()
 export class PermissionCatalogService {
   private readonly logger = new Logger(PermissionCatalogService.name);
@@ -12,6 +22,7 @@ export class PermissionCatalogService {
 
   async listGroups(options: { enabledOnly?: boolean } = {}) {
     await this.ensureDefaults();
+    await this.syncDepartmentKnowledgeLabels();
     const items = await this.prisma.permissionCatalogItem.findMany({
       where: options.enabledOnly ? { enabled: true } : undefined,
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
@@ -35,6 +46,7 @@ export class PermissionCatalogService {
 
   async listItems() {
     await this.ensureDefaults();
+    await this.syncDepartmentKnowledgeLabels();
     return this.prisma.permissionCatalogItem.findMany({
       orderBy: [{ sortOrder: 'asc' }, { updatedAt: 'desc' }],
     });
@@ -159,5 +171,24 @@ export class PermissionCatalogService {
     } else if (okCount > 0) {
       this.logger.log(`[ensureDefaults] seeded ${okCount} new permission(s)`);
     }
+  }
+
+  private async syncDepartmentKnowledgeLabels() {
+    const departments = await this.prisma.department.findMany({
+      where: { code: { in: Object.keys(DEPARTMENT_KB_ID_BY_CODE) } },
+      select: { code: true, name: true },
+    });
+    await Promise.all(
+      departments.map((department) => {
+        const kbId = DEPARTMENT_KB_ID_BY_CODE[department.code];
+        return this.prisma.permissionCatalogItem.updateMany({
+          where: { code: `page:dept-kb-${kbId}` },
+          data: {
+            label: `${department.name}知识库`,
+            description: `${department.name}知识沉淀与分级查阅`,
+          },
+        });
+      }),
+    );
   }
 }

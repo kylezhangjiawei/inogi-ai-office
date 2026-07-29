@@ -96,7 +96,6 @@ const PERSON_STATUS_CONFIG: Record<
   resigned: { label: "已离职", dot: "bg-slate-400", text: "text-slate-500", bg: "bg-slate-100" },
 };
 
-const DEPARTMENTS = ["硬件组", "软件组", "质量组", "项目组", "工艺组", "法规组", "其他"];
 const PEOPLE_PAGE_SIZE = 5;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -270,7 +269,7 @@ function PersonFormModal({
     setErrors({});
   }, [person?.id]);
 
-  // 分组选项：来自后端 /api/departments/options；失败时回退到旧的硬编码兜底
+  // 分组选项统一来自部门主数据；编辑旧记录时只额外保留该记录当前值。
   const [departments, setDepartments] = useState<string[]>([]);
   const [creatingDept, setCreatingDept] = useState(false);
   const [newDeptName, setNewDeptName] = useState("");
@@ -284,10 +283,10 @@ function PersonFormModal({
         const names = list.map((d) => d.name).filter(Boolean);
         // 确保至少含有当前 form.department，避免编辑时下拉里没有当前值
         const merged = Array.from(new Set([...names, ...(form.department ? [form.department] : [])]));
-        setDepartments(merged.length > 0 ? merged : DEPARTMENTS);
+        setDepartments(merged);
       })
       .catch(() => {
-        if (!cancelled) setDepartments(DEPARTMENTS);
+        if (!cancelled) setDepartments(form.department ? [form.department] : []);
       });
     return () => { cancelled = true; };
     // 故意只在挂载时拉一次；新建后会手动 push 到 departments
@@ -706,6 +705,13 @@ export function RDPeopleManagementPage({
     });
   }, [people, keyword, statusFilter, deptFilter]);
 
+  const departmentFilters = useMemo(
+    () =>
+      Array.from(new Set(people.map((person) => person.department.trim()).filter(Boolean)))
+        .sort((a, b) => a.localeCompare(b, "zh-CN")),
+    [people],
+  );
+
   const totalPages = Math.max(1, Math.ceil(filtered.length / PEOPLE_PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const pagedPeople = filtered.slice(
@@ -927,7 +933,7 @@ export function RDPeopleManagementPage({
               className="cursor-pointer rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-medium text-slate-600 outline-none transition-all focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
             >
               <option value="all">{t("全部组")}</option>
-              {DEPARTMENTS.map((d) => (
+              {departmentFilters.map((d) => (
                 <option key={d} value={d}>
                   {d}
                 </option>

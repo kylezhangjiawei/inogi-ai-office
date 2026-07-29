@@ -134,6 +134,7 @@ import { getGradeTone } from "./lib/taskCompletionScore";
 import { openTaskCompletionReport, openBatchCompletionReport } from "./lib/taskCompletionReport";
 import { useAvatarDirectory } from "./lib/userAvatar";
 import { currentI18nLang, i18nLocale, t, useI18n } from "./lib/i18n";
+import { rdTaskMatchesAllText } from "./lib/rdTaskTextSearch";
 import { AutoTranslatedText, fetchContentTranslation } from "./components/TranslatableText";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
 import { RdTaskExportButton } from "./components/RdTaskExportButton";
@@ -998,13 +999,11 @@ function taskMatches(
   if (statusFilter !== "all" && task.status !== statusFilter) return false;
   if (priorityFilter !== "all" && task.final_priority !== priorityFilter) return false;
   if (!taskDueMatches(task, dueFilter)) return false;
-  if (!keyword) return true;
-  return (
-    task.title.includes(keyword) ||
-    task.task_id.includes(keyword) ||
-    task.primary_owner.includes(keyword) ||
-    task.category_path.includes(keyword)
-  );
+  return rdTaskMatchesAllText(task, keyword, [
+    STATUS_CONFIG[task.status]?.label ?? "",
+    PRIORITY_CONFIG[task.final_priority]?.label ?? "",
+    PRIORITY_CONFIG[task.ai_priority]?.label ?? "",
+  ]);
 }
 
 // Rollup stats helper — walks recursively through all descendants
@@ -8617,6 +8616,11 @@ function PersonTaskCockpit({
     options: { showOwner?: boolean } = {},
   ) => {
     const { showOwner = false } = options;
+    const isSelectedPersonCollaborator =
+      activeTab !== "all" &&
+      task.primary_owner !== activeTab &&
+      task.collaborators.some((collaborator) => collaborator.name === activeTab);
+    const shouldShowOwner = showOwner || isSelectedPersonCollaborator;
     const sCfg = STATUS_CONFIG[task.status] ?? STATUS_CONFIG.draft;
     const priorityKey: Priority = task.final_priority ?? task.ai_priority ?? "medium";
     const pCfg = PRIORITY_CONFIG[priorityKey] ?? PRIORITY_CONFIG.medium;
@@ -8833,7 +8837,19 @@ function PersonTaskCockpit({
 
           {/* ─── 元数据单行：人 · 状态 · 优先级 · 截止 · 风险 · 附件 ─── */}
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-xs text-slate-500">
-            {showOwner && task.primary_owner && (
+            {isSelectedPersonCollaborator && (
+              <>
+                <span
+                  className="inline-flex items-center gap-1 rounded-md bg-sky-50 px-1.5 py-0.5 text-[10px] font-semibold text-sky-700 ring-1 ring-inset ring-sky-200"
+                  title={t("{name} 以协作人身份参与此任务", { name: displayPersonName(activeTab) })}
+                >
+                  <Users className="size-3" />
+                  {t("协助")}
+                </span>
+                <span className="text-slate-300">·</span>
+              </>
+            )}
+            {shouldShowOwner && task.primary_owner && (
               <>
                 <span className="inline-flex items-center gap-1.5">
                   <OwnerAvatar name={task.primary_owner} userId={task.primary_owner_user_id} size="xs" />
@@ -8930,12 +8946,12 @@ function PersonTaskCockpit({
           {/* ── INS Stories-style 人员导航栏 (with visible horizontal scrollbar) ──
               外层 flex 承载底边框/底色：头像区可横向滚动，右端搜索控件钉死不随之滚走。 */}
           <div className="flex w-full items-center border-b border-indigo-100 bg-slate-50/50 pr-4">
-          <TabsList className="flex h-auto min-w-0 flex-1 justify-start gap-0 overflow-x-auto rounded-none border-none bg-transparent px-4 pt-4 pb-2 [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/70 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400">
+          <TabsList className="flex h-auto min-w-0 flex-1 snap-x snap-proximity justify-start gap-0 overflow-x-auto overscroll-x-contain rounded-none border-none bg-transparent px-4 pt-4 pb-2 touch-pan-x [&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-slate-300/70 [&::-webkit-scrollbar-thumb:hover]:bg-slate-400">
 
             {/* 全部 — 所有活跃任务入口 */}
             <TabsTrigger
               value="all"
-              className="flex shrink-0 flex-col items-center gap-1.5 rounded-none border-none bg-transparent px-3 py-0 shadow-none outline-none ring-0 transition-none focus-visible:ring-0"
+              className="flex min-w-24 shrink-0 snap-start flex-col items-center gap-1.5 rounded-none border-none bg-transparent px-3 py-0 shadow-none outline-none ring-0 transition-none focus-visible:ring-0"
             >
               <div className="relative">
                 <div
@@ -8989,7 +9005,7 @@ function PersonTaskCockpit({
                 <TabsTrigger
                   key={p.name}
                   value={p.name}
-                  className="flex shrink-0 flex-col items-center gap-1.5 rounded-none border-none bg-transparent px-3 py-0 shadow-none outline-none ring-0 transition-none focus-visible:ring-0"
+                  className="flex min-w-24 shrink-0 snap-start flex-col items-center gap-1.5 rounded-none border-none bg-transparent px-3 py-0 shadow-none outline-none ring-0 transition-none focus-visible:ring-0"
                 >
                   <div className="relative">
                     <div
@@ -9063,7 +9079,7 @@ function PersonTaskCockpit({
                       e.currentTarget.blur();
                     }
                   }}
-                  placeholder={t("任务、编号、负责人")}
+                  placeholder={t("搜索任务全部内容")}
                   className="h-9 w-40 rounded-full border border-slate-200 bg-white pl-8 pr-14 text-xs text-slate-700 shadow-sm outline-none transition-[border-color,box-shadow] focus:border-indigo-300 focus:ring-2 focus:ring-indigo-50 sm:w-52"
                 />
                 {cockpitSearch ? (
@@ -9091,7 +9107,7 @@ function PersonTaskCockpit({
                 type="button"
                 onClick={() => setSearchOpen(true)}
                 className="flex h-9 w-9 cursor-pointer items-center justify-center rounded-full border border-slate-200 bg-white text-slate-500 shadow-sm transition-colors hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600"
-                title={t("搜索任务（标题 / 编号 / 负责人 / 路径）")}
+                title={t("搜索任务全部内容（描述、人员、进度、工作项等）")}
                 aria-label={t("搜索任务")}
               >
                 <Search className="h-4 w-4" />

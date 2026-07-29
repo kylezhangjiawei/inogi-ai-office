@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { useAuth } from "../../auth";
 import { cn } from "../../components/ui/utils";
 import { useAvatarDirectory } from "../../lib/userAvatar";
+import { subscribeDepartmentChanges } from "../../lib/departmentDirectory";
 import { hasPermission } from "../../lib/permissions";
 import { i18nLocale, t as translate, useI18n } from "../../lib/i18n";
 import { listBuyerCandidates, type BuyerCandidate } from "../../lib/procurementApi";
@@ -53,8 +54,19 @@ export function useBuyerDirectory() {
   const [users, setUsers] = useState<BuyerCandidate[]>(buyerCache ?? []);
   useEffect(() => {
     let alive = true;
-    void loadBuyersOnce().then((list) => { if (alive) setUsers(list); });
-    return () => { alive = false; };
+    const refresh = () => {
+      void loadBuyersOnce().then((list) => { if (alive) setUsers(list); });
+    };
+    refresh();
+    const unsubscribe = subscribeDepartmentChanges(() => {
+      buyerCache = null;
+      buyerPromise = null;
+      refresh();
+    });
+    return () => {
+      alive = false;
+      unsubscribe();
+    };
   }, []);
   return useMemo(() => {
     const idByName = new Map<string, string | null>(); // null = 同名冲突

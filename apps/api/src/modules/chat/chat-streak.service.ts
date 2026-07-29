@@ -38,7 +38,51 @@ const FALLBACK_LINES = [
   '{n} 天连击！保持节奏，灵感不断电 ⚡',
 ];
 
-const NEW_USER_FALLBACK = '还没开始？向 MateChat 提第一个问题，点燃你的连续记录 🔥';
+const NEW_USER_FALLBACK_LINES = [
+  '今天也可以从第一个问题开始，MateChat 已就位 🔥',
+  '给 MateChat 一个问题，今天的灵感就开机了 ✨',
+  '把手头最卡的一件事交给 MateChat 试试 🚀',
+  '今天的 AI 连续记录，等你的第一个问题来点亮 💡',
+  '先问一个小问题，也是在给今天的效率加速 ⚡',
+  'MateChat 今日营业中，来开启你的第一问吧 🙌',
+];
+
+/** 每日文案创意主题池，按上海日期轮换，避免每天生成出相近套路。 */
+const DAILY_MESSAGE_THEMES = [
+  '轻松开工',
+  '效率加速',
+  '灵感续航',
+  '挑战打卡',
+  '成长复利',
+  '团队协作',
+  '问题拆解',
+  '下班前收尾',
+];
+
+export const MATECHAT_TIME_ZONE = 'Asia/Shanghai';
+
+/** 将任意时间统一归入上海自然日，避免部署服务器时区改变每日内容边界。 */
+export function shanghaiDayKey(date: Date): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: MATECHAT_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? '';
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
+function shiftDayKey(dateKey: string, days: number): string {
+  const date = new Date(`${dateKey}T12:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+/** 稳定的自然日序号，确保相邻日期轮换到相邻素材，而不是在 09→10 等进位时重复。 */
+export function dayOrdinal(dateKey: string): number {
+  return Math.floor(Date.parse(`${dateKey}T00:00:00.000Z`) / 86_400_000);
+}
 
 /** 每日吉祥物图存储键 */
 const MASCOT_SETTING_KEY = 'matechat.streak.daily_mascot';
@@ -93,15 +137,14 @@ export class ChatStreakService {
       where: { userId, eventType: 'question_submitted' },
       select: { createdAt: true },
     });
-    const dates = new Set(events.map((e) => this.dayKey(e.createdAt)));
+    const dates = new Set(events.map((e) => shanghaiDayKey(e.createdAt)));
 
-    const now = new Date();
-    const todayKey = this.dayKey(now);
+    const todayKey = shanghaiDayKey(new Date());
     const todayDone = dates.has(todayKey);
 
-    const currentStreak = this.computeCurrentStreak(dates, now);
+    const currentStreak = this.computeCurrentStreak(dates, todayKey);
     const bestStreak = this.computeBestStreak(dates);
-    const weekActivity = this.computeWeekActivity(dates, now);
+    const weekActivity = this.computeWeekActivity(dates, todayKey);
     const milestone = todayDone && MILESTONES.has(currentStreak);
 
     const message = await this.resolveDailyMessage(userId, todayKey, {
@@ -124,9 +167,18 @@ export class ChatStreakService {
   }
 
   /** 每天 6:00 预生成当日吉祥物（全员共享一张） */
-  @Cron('0 6 * * *', { name: 'matechat-streak-daily-mascot' })
+  @Cron('0 6 * * *', { name: 'matechat-streak-daily-mascot', timeZone: MATECHAT_TIME_ZONE })
   async dailyMascotCron(): Promise<void> {
-    await this.ensureDailyMascot(this.dayKey(new Date()));
+    await this.ensureTodayMascot();
+  }
+
+  /**
+   * 6 点后的整点补跑：服务若在 6 点停机或重启，不会一直沿用昨天图片。
+   * ensureDailyMascot 本身幂等，今日已生成时不会产生额外调用。
+   */
+  @Cron('20 6-23 * * *', { name: 'matechat-streak-daily-mascot-catch-up', timeZone: MATECHAT_TIME_ZONE })
+  async dailyMascotCatchUpCron(): Promise<void> {
+    await this.ensureTodayMascot();
   }
 
   /** 取当日吉祥物签名 URL；未生成则后台触发生成（fire-and-forget），本次返回 null。 */
@@ -211,18 +263,18 @@ export class ChatStreakService {
   /** 确保当日吉祥物已生成并入库（幂等 + 防并发）。force=true 时无视「今日已就绪」与「已停用」，强制重生成。 */
   private async ensureDailyMascot(dateKey: string, force = false): Promise<void> {
     if (this.mascotGenerating.has(dateKey)) return;
-    const config = await this.readSlotConfig(CONTENT_SLOT_MASCOT_KEY, DEFAULT_MASCOT_PROMPT);
-    // 仅「AI 每日」模式才自动生成；static/off 不生成（force 例外，供管理页强制预览）
-    if (!force && config.mode !== 'ai_daily') return;
-    const existing = await this.prisma.systemSetting.findUnique({
-      where: { key: MASCOT_SETTING_KEY },
-      select: { value: true },
-    });
-    const value = (existing?.value ?? null) as { date?: string; objectKey?: string } | null;
-    if (!force && value && value.date === dateKey && value.objectKey) return; // 今日已就绪
-
     this.mascotGenerating.add(dateKey);
     try {
+      const config = await this.readSlotConfig(CONTENT_SLOT_MASCOT_KEY, DEFAULT_MASCOT_PROMPT);
+      // 仅「AI 每日」模式才自动生成；static/off 不生成（force 例外，供管理页强制预览）
+      if (!force && config.mode !== 'ai_daily') return;
+      const existing = await this.prisma.systemSetting.findUnique({
+        where: { key: MASCOT_SETTING_KEY },
+        select: { value: true },
+      });
+      const value = (existing?.value ?? null) as { date?: string; objectKey?: string } | null;
+      if (!force && value && value.date === dateKey && value.objectKey) return; // 今日已就绪
+
       const userId = await this.resolveSystemUserId();
       if (!userId) return;
       const animal = MASCOT_ANIMALS[this.seedFromKey(dateKey) % MASCOT_ANIMALS.length];
@@ -313,22 +365,22 @@ export class ChatStreakService {
   }
 
   private seedFromKey(key: string): number {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(key)) return dayOrdinal(key);
     return [...key].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
   }
 
   /** 从今天（或今天未打卡时从昨天）往回数连续打卡天数 */
-  private computeCurrentStreak(dates: Set<string>, now: Date): number {
-    const cursor = new Date(now);
-    cursor.setHours(0, 0, 0, 0);
-    if (!dates.has(this.dayKey(cursor))) {
+  private computeCurrentStreak(dates: Set<string>, todayKey: string): number {
+    let cursor = todayKey;
+    if (!dates.has(cursor)) {
       // 今天没打卡：若昨天有则 streak 仍存活，从昨天往回数；否则已中断
-      cursor.setDate(cursor.getDate() - 1);
-      if (!dates.has(this.dayKey(cursor))) return 0;
+      cursor = shiftDayKey(cursor, -1);
+      if (!dates.has(cursor)) return 0;
     }
     let streak = 0;
-    while (dates.has(this.dayKey(cursor))) {
+    while (dates.has(cursor)) {
       streak += 1;
-      cursor.setDate(cursor.getDate() - 1);
+      cursor = shiftDayKey(cursor, -1);
     }
     return streak;
   }
@@ -348,30 +400,15 @@ export class ChatStreakService {
   }
 
   /** 本周一~周日的打卡情况 */
-  private computeWeekActivity(dates: Set<string>, now: Date): boolean[] {
-    const monday = new Date(now);
-    monday.setHours(0, 0, 0, 0);
-    const mondayOffset = (monday.getDay() + 6) % 7; // 周一=0 ... 周日=6
-    monday.setDate(monday.getDate() - mondayOffset);
-    return Array.from({ length: 7 }, (_, i) => {
-      const day = new Date(monday);
-      day.setDate(monday.getDate() + i);
-      return dates.has(this.dayKey(day));
-    });
-  }
-
-  /** 本地时区 YYYY-MM-DD */
-  private dayKey(date: Date): string {
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const d = String(date.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
+  private computeWeekActivity(dates: Set<string>, todayKey: string): boolean[] {
+    const today = new Date(`${todayKey}T12:00:00.000Z`);
+    const mondayOffset = (today.getUTCDay() + 6) % 7; // 周一=0 ... 周日=6
+    const mondayKey = shiftDayKey(todayKey, -mondayOffset);
+    return Array.from({ length: 7 }, (_, i) => dates.has(shiftDayKey(mondayKey, i)));
   }
 
   private isNextDay(prevKey: string, key: string): boolean {
-    const prev = new Date(`${prevKey}T00:00:00`);
-    prev.setDate(prev.getDate() + 1);
-    return this.dayKey(prev) === key;
+    return shiftDayKey(prevKey, 1) === key;
   }
 
   /** 取当日 AI 文案（按 userId+日期缓存，失败回退文案池） */
@@ -392,7 +429,7 @@ export class ChatStreakService {
       message = this.fallbackMessage(ctx.currentStreak, todayKey);
     } else {
       try {
-        message = await this.generateDailyMessage(ctx);
+        message = await this.generateDailyMessage(ctx, todayKey);
       } catch (error) {
         this.logger.warn(`每日文案生成失败，使用兜底：${error instanceof Error ? error.message : error}`);
         message = this.fallbackMessage(ctx.currentStreak, todayKey);
@@ -406,14 +443,20 @@ export class ChatStreakService {
     currentStreak: number;
     todayDone: boolean;
     bestStreak: number;
-  }): Promise<string> {
+  }, todayKey: string): Promise<string> {
     const config = await this.readSlotConfig(CONTENT_SLOT_DAILY_MESSAGE_KEY, DEFAULT_DAILY_MESSAGE_PROMPT);
     const system = config.promptTemplate;
-    const state = ctx.todayDone
+    const activityState = ctx.todayDone
       ? `用户今天已经用过 MateChat，当前连续 ${ctx.currentStreak} 天，历史最长 ${ctx.bestStreak} 天。夸奖并鼓励保持。`
       : ctx.currentStreak > 0
         ? `用户已连续 ${ctx.currentStreak} 天使用 MateChat，但今天还没用。提醒别中断连续记录，催他今天来提个问题。`
         : '用户还没有连续记录。用轻松的方式邀请他今天向 MateChat 提第一个问题。';
+    const theme = DAILY_MESSAGE_THEMES[this.seedFromKey(todayKey) % DAILY_MESSAGE_THEMES.length];
+    const state = [
+      `上海日期：${todayKey}，今日创意主题：${theme}。`,
+      activityState,
+      '请围绕今日主题换一种新表达，避免沿用前一天的句式或固定开场。',
+    ].join('\n');
 
     const result = await this.chatService.complete({
       system,
@@ -429,9 +472,9 @@ export class ChatStreakService {
   }
 
   private fallbackMessage(currentStreak: number, todayKey: string): string {
-    if (currentStreak <= 0) return NEW_USER_FALLBACK;
     // 按日期取模，保证同一天稳定、不同天变化
-    const seed = [...todayKey].reduce((sum, ch) => sum + ch.charCodeAt(0), 0);
+    const seed = dayOrdinal(todayKey);
+    if (currentStreak <= 0) return NEW_USER_FALLBACK_LINES[seed % NEW_USER_FALLBACK_LINES.length];
     const line = FALLBACK_LINES[seed % FALLBACK_LINES.length];
     return line.replace('{n}', String(currentStreak));
   }
@@ -449,9 +492,19 @@ export class ChatStreakService {
     return { url, date: value?.date ?? null };
   }
 
+  /** 供定时补跑、管理页加载及切回 AI 模式时确保当天素材存在。 */
+  async ensureTodayMascot(): Promise<void> {
+    await this.ensureDailyMascot(shanghaiDayKey(new Date()));
+  }
+
+  /** 修改每日文案规则后清理当日内存缓存，使新规则立即用于下一次读取。 */
+  invalidateDailyMessageCache(): void {
+    this.dailyMessageCache.clear();
+  }
+
   /** 强制重新生成当日吉祥物（管理页「立即重新生成」）；用当前配置的 prompt。 */
   async forceRegenerateMascot(): Promise<{ url: string | null; date: string | null }> {
-    const today = this.dayKey(new Date());
+    const today = shanghaiDayKey(new Date());
     await this.ensureDailyMascot(today, true);
     return this.getCurrentMascot();
   }
@@ -490,10 +543,11 @@ export class ChatStreakService {
 
   /** 生成一条示例每日文案（管理页预览用，不写缓存） */
   async generateSampleMessage(): Promise<string> {
+    const today = shanghaiDayKey(new Date());
     try {
-      return await this.generateDailyMessage({ currentStreak: 5, todayDone: true, bestStreak: 12 });
+      return await this.generateDailyMessage({ currentStreak: 5, todayDone: true, bestStreak: 12 }, today);
     } catch {
-      return this.fallbackMessage(5, this.dayKey(new Date()));
+      return this.fallbackMessage(5, today);
     }
   }
 }

@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Building2, Pencil, Plus, RefreshCw, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "./auth";
 import { PermissionGuard } from "./components/PermissionGuard";
 import { cn } from "./components/ui/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { authFetch } from "./lib/authSession";
+import { publishDepartmentChange } from "./lib/departmentDirectory";
 
 type Department = {
   id: string;
@@ -152,6 +154,7 @@ async function apiDeleteDepartment(id: string): Promise<void> {
 type DialogMode = "create" | "edit" | "deleteConfirm" | null;
 
 export function DepartmentManagement() {
+  const { refreshUser } = useAuth();
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [keyword, setKeyword] = useState("");
@@ -248,6 +251,7 @@ export function DepartmentManagement() {
     setSaving(true);
     try {
       const saved = await apiSaveDepartment(form);
+      const previous = selectedDepartment;
       const next = { ...saved, userCount: selectedDepartment?.userCount ?? 0 };
       setDepartments((prev) => {
         const idx = prev.findIndex((item) => item.id === saved.id);
@@ -258,6 +262,19 @@ export function DepartmentManagement() {
         }
         return [...prev, next].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
       });
+      if (
+        previous &&
+        (previous.name !== saved.name || previous.code !== saved.code)
+      ) {
+        publishDepartmentChange({
+          id: saved.id,
+          previousName: previous.name,
+          name: saved.name,
+          previousCode: previous.code,
+          code: saved.code,
+        });
+        void refreshUser().catch(() => undefined);
+      }
       toast.success(form.id ? "部门已更新" : "部门已创建");
       closeDialog();
       void loadDepartments();
@@ -486,7 +503,16 @@ export function DepartmentManagement() {
                 </div>
                 <div>
                   <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">部门编码 *</label>
-                  <input className="material-input w-full uppercase" value={form.code} onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))} placeholder="IT_SYSTEM" />
+                  <input
+                    className="material-input w-full uppercase disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500"
+                    value={form.code}
+                    onChange={(e) => setForm((f) => ({ ...f, code: e.target.value }))}
+                    placeholder="IT_SYSTEM"
+                    disabled={dialogMode === "edit"}
+                  />
+                  {dialogMode === "edit" && (
+                    <p className="mt-1 text-[11px] text-slate-400">部门编码用于跨模块关联，创建后不可修改</p>
+                  )}
                 </div>
               </div>
               <div className="grid gap-4 md:grid-cols-2">

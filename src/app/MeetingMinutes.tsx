@@ -31,7 +31,7 @@ const initialActions = [
   { id: 3, action: "补充 FDA 510(k) 资料清单", owner: "RA 专员李华", deadline: "2026-04-30", status: "待开始", statusColor: "bg-blue-50 text-blue-600" },
   { id: 4, action: "整理 Q1 销售数据并汇报", owner: "销售总监", deadline: "2026-04-12", status: "已完成", statusColor: "bg-green-50 text-green-600" },
   { id: 5, action: "确认越南市场合作条款修订", owner: "法务顾问", deadline: "2026-04-22", status: "进行中", statusColor: "bg-orange-50 text-orange-600" },
-  { id: 6, action: "输出客户培训资料目录", owner: "市场部", deadline: "2026-04-25", status: "待开始", statusColor: "bg-blue-50 text-blue-600" },
+  { id: 6, action: "输出客户培训资料目录", owner: "销售市场部", deadline: "2026-04-25", status: "待开始", statusColor: "bg-blue-50 text-blue-600" },
 ];
 
 const initialConclusions = [

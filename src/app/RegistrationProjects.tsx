@@ -55,7 +55,7 @@ const projects: Project[] = [
       { title: "资料提交", owner: "韩青", date: "2026-02-15", status: "done" },
       { title: "补充资料", owner: "刘畅", date: "2026-03-11", status: "done" },
       { title: "审评反馈", owner: "韩青", date: "2026-04-09", status: "current" },
-      { title: "整改闭环", owner: "质量部", date: "待排期", status: "pending" },
+      { title: "整改闭环", owner: "法规质量部", date: "待排期", status: "pending" },
       { title: "获批归档", owner: "RA 团队", date: "待排期", status: "pending" },
     ],
     docs: [
@@ -66,7 +66,7 @@ const projects: Project[] = [
     ],
     reminders: [
       { time: "2026-04-14 09:30", recipient: "韩青", message: "提醒确认 FDA 审评反馈回复口径" },
-      { time: "2026-04-13 16:20", recipient: "质量部", message: "请补充软件验证报告新版本" },
+      { time: "2026-04-13 16:20", recipient: "法规质量部", message: "请补充软件验证报告新版本" },
     ],
   },
   {
@@ -82,7 +82,7 @@ const projects: Project[] = [
       { title: "资料提交", owner: "周宁", date: "2026-03-18", status: "done" },
       { title: "补充资料", owner: "周宁", date: "2026-04-12", status: "current" },
       { title: "审评反馈", owner: "RA 团队", date: "待启动", status: "pending" },
-      { title: "整改闭环", owner: "质量部", date: "待启动", status: "pending" },
+      { title: "整改闭环", owner: "法规质量部", date: "待启动", status: "pending" },
       { title: "获批归档", owner: "RA 团队", date: "待启动", status: "pending" },
     ],
     docs: [
@@ -109,7 +109,7 @@ const projects: Project[] = [
       { title: "资料提交", owner: "刘晨", date: "2026-02-08", status: "done" },
       { title: "补充资料", owner: "刘晨", date: "2026-03-02", status: "done" },
       { title: "审评反馈", owner: "审评沟通组", date: "2026-03-28", status: "done" },
-      { title: "整改闭环", owner: "研发部", date: "2026-04-15", status: "current" },
+      { title: "整改闭环", owner: "研发注册部", date: "2026-04-15", status: "current" },
       { title: "获批归档", owner: "法规组", date: "待启动", status: "pending" },
     ],
     docs: [
@@ -119,7 +119,7 @@ const projects: Project[] = [
       { name: "临床豁免说明", status: "已有" },
     ],
     reminders: [
-      { time: "2026-04-15 08:40", recipient: "研发部", message: "请在 4 天内完成 NMPA 整改闭环并上传对照表" },
+      { time: "2026-04-15 08:40", recipient: "研发注册部", message: "请在 4 天内完成 NMPA 整改闭环并上传对照表" },
       { time: "2026-04-14 17:10", recipient: "刘晨", message: "项目临近截止，请确认获批归档准备情况" },
     ],
   },

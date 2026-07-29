@@ -256,11 +256,7 @@ function PermissionMatrix({
             )}
           >
             {/* Group header */}
-            <button
-              type="button"
-              onClick={() => toggleGroup(group.label)}
-              className="group/grp flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-200"
-            >
+            <div className="group/grp flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-50/50">
               <Checkbox
                 checked={allSelected ? true : selectedCount > 0 ? "indeterminate" : false}
                 disabled={isWildcard}
@@ -273,19 +269,25 @@ function PermissionMatrix({
                   allSelected && "data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500",
                 )}
               />
-              <span
-                className={cn(
-                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors",
-                  allSelected
-                    ? "bg-emerald-100 text-emerald-600"
-                    : !noneSelected
-                      ? "bg-blue-100 text-blue-600"
-                      : "bg-slate-100 text-slate-400",
-                )}
+              <button
+                type="button"
+                onClick={() => toggleGroup(group.label)}
+                className="flex min-w-0 flex-1 items-center gap-3 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
               >
-                <Icon className="h-3.5 w-3.5" />
-              </span>
-              <span className="flex-1 text-sm font-semibold text-slate-800">{group.label}</span>
+                <span
+                  className={cn(
+                    "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors",
+                    allSelected
+                      ? "bg-emerald-100 text-emerald-600"
+                      : !noneSelected
+                        ? "bg-blue-100 text-blue-600"
+                        : "bg-slate-100 text-slate-400",
+                  )}
+                >
+                  <Icon className="h-3.5 w-3.5" />
+                </span>
+                <span className="flex-1 text-sm font-semibold text-slate-800">{group.label}</span>
+              </button>
 
               {/* Progress + count */}
               <div className="flex items-center gap-2.5 shrink-0">
@@ -310,14 +312,21 @@ function PermissionMatrix({
                         "bg-slate-100 [&>[data-slot=progress-indicator]]:bg-slate-400",
                   )}
                 />
+                <button
+                  type="button"
+                  onClick={() => toggleGroup(group.label)}
+                  aria-label={`${isOpen ? "收起" : "展开"}${group.label}`}
+                  className="rounded-sm p-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
+                >
                 <ChevronDown
                   className={cn(
                     "h-4 w-4 text-slate-400 transition-transform duration-200 ease-out",
                     isOpen && "rotate-180",
                   )}
                 />
+                </button>
               </div>
-            </button>
+            </div>
 
             {/* Animated permission grid */}
             <div

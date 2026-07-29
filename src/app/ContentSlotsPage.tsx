@@ -1,15 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { History, ImageIcon, Loader2, Palette, RefreshCw, RotateCcw, Sparkles, Type, Upload, X } from "lucide-react";
+import {
+  CheckCircle2,
+  Clock3,
+  History,
+  ImageIcon,
+  Loader2,
+  Palette,
+  RefreshCw,
+  RotateCcw,
+  Sparkles,
+  Type,
+  Upload,
+  X,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { cn } from "./components/ui/utils";
 import { contentSlotsApi, uploadSlotImage, type ContentSlot, type SlotMode } from "./lib/contentSlotsApi";
 
-const MODE_LABEL: Record<SlotMode, string> = {
-  ai_daily: "AI 每日生成",
-  static: "固定素材",
-  off: "关闭",
-};
+function modeLabel(slot: ContentSlot, mode: SlotMode): string {
+  if (slot.key === "matechat_quick_suggestions" && mode === "off") return "系统自动";
+  if (mode === "ai_daily") return "自动每日更新";
+  if (mode === "static") return "人工固定";
+  return "停用";
+}
 
 function SlotCard({ slot, onChanged }: { slot: ContentSlot; onChanged: () => void }) {
   const [mode, setMode] = useState<SlotMode>(slot.mode);
@@ -25,6 +39,17 @@ function SlotCard({ slot, onChanged }: { slot: ContentSlot; onChanged: () => voi
   const [history, setHistory] = useState<Array<{ date: string; url: string | null; source: string }>>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  // 保存、重生成或手动刷新后，父级会返回新的 slot；同步本地预览，避免仍显示旧日期/旧图片。
+  useEffect(() => {
+    setMode(slot.mode);
+    setPrompt(slot.prompt_template);
+    setStaticText(slot.static_text);
+    setStaticList(slot.static_list ?? []);
+    setPool(slot.static_image_pool ?? []);
+    setPreviewImg(slot.current?.image_url ?? null);
+    setPreviewText(null);
+  }, [slot]);
 
   async function toggleHistory() {
     const next = !historyOpen;
@@ -124,6 +149,11 @@ function SlotCard({ slot, onChanged }: { slot: ContentSlot; onChanged: () => voi
 
   const isImage = slot.type === "image";
   const isList = slot.type === "list";
+  const automation = mode === slot.mode ? slot.automation : null;
+  const automationPending = mode !== slot.mode;
+  const automationHealthy =
+    automation?.status === "ready" || automation?.status === "on_demand" || automation?.status === "live";
+  const automationCatchingUp = automation?.status === "catching_up";
 
   return (
     <section className="material-card p-6">
@@ -133,7 +163,7 @@ function SlotCard({ slot, onChanged }: { slot: ContentSlot; onChanged: () => voi
           {isImage ? (
             <div className="flex aspect-video items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-slate-900/95">
               {mode === "off" ? (
-                <span className="text-xs text-slate-400">已关闭</span>
+                <span className="text-xs text-slate-400">已停用</span>
               ) : previewImg ? (
                 <img src={previewImg} alt={slot.name} className="h-full w-full object-cover" />
               ) : (
@@ -145,7 +175,9 @@ function SlotCard({ slot, onChanged }: { slot: ContentSlot; onChanged: () => voi
             </div>
           ) : isList ? (
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-              <div className="mb-1.5 text-[11px] font-medium text-slate-400">当前展示</div>
+              <div className="mb-1.5 text-[11px] font-medium text-slate-400">
+                {mode === "off" ? "系统通用兜底" : "人工兜底列表"}
+              </div>
               <ul className="space-y-1">
                 {(slot.current?.list ?? []).slice(0, 5).map((s, i) => (
                   <li key={i} className="truncate rounded-lg bg-white px-2.5 py-1.5 text-xs text-slate-600" title={s}>
@@ -196,17 +228,56 @@ function SlotCard({ slot, onChanged }: { slot: ContentSlot; onChanged: () => voi
                   mode === m ? "bg-white text-indigo-600 shadow-sm" : "text-slate-500 hover:text-slate-700",
                 )}
               >
-                {MODE_LABEL[m]}
+                {modeLabel(slot, m)}
               </button>
             ))}
           </div>
+
+          {automationPending ? (
+            <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+              <Clock3 className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <div className="font-semibold">模式尚未保存</div>
+                <div className="mt-0.5 leading-5">
+                  {mode === "ai_daily"
+                    ? "保存后恢复自动生成，并立即检查、补齐今天的素材。"
+                    : mode === "static"
+                      ? "保存后改为人工固定，后续不会自动替换这项内容。"
+                      : slot.key === "matechat_quick_suggestions"
+                        ? "保存后由系统在每次打开 MateChat 时自动更新个性化建议。"
+                        : "保存后停用该素材位的自动更新。"}
+                </div>
+              </div>
+            </div>
+          ) : automation ? (
+            <div
+              className={cn(
+                "flex items-start gap-2 rounded-xl border px-3 py-2.5 text-xs",
+                automationHealthy && "border-emerald-200 bg-emerald-50 text-emerald-800",
+                automationCatchingUp && "border-amber-200 bg-amber-50 text-amber-800",
+                !automationHealthy && !automationCatchingUp && "border-slate-200 bg-slate-50 text-slate-600",
+              )}
+            >
+              {automationHealthy ? (
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+              ) : automationCatchingUp ? (
+                <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" />
+              ) : (
+                <Clock3 className="mt-0.5 h-4 w-4 shrink-0" />
+              )}
+              <div>
+                <div className="font-semibold">{automation.title}</div>
+                <div className="mt-0.5 leading-5 opacity-80">{automation.detail}</div>
+              </div>
+            </div>
+          ) : null}
 
           {/* AI 模式：prompt */}
           {mode === "ai_daily" && slot.default_prompt && (
             <div>
               <div className="mb-1.5 flex items-center justify-between">
                 <label className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">
-                  {isImage ? "生成提示词" : "文案生成提示词（system）"}
+                  {isImage ? "自动生成规则（提示词）" : "自动文案规则（system 提示词）"}
                 </label>
                 <button
                   type="button"
@@ -227,6 +298,9 @@ function SlotCard({ slot, onChanged }: { slot: ContentSlot; onChanged: () => voi
                   可用变量：{slot.prompt_vars.map((v) => <code key={v} className="mx-0.5 rounded bg-slate-100 px-1">{v}</code>)} · {slot.note}
                 </p>
               )}
+              <p className="mt-1.5 text-xs leading-5 text-slate-400">
+                这里保存的是每天自动生成时使用的规则，不是固定成品；保存后明天仍会生成新内容。
+              </p>
             </div>
           )}
 
@@ -325,7 +399,9 @@ function SlotCard({ slot, onChanged }: { slot: ContentSlot; onChanged: () => voi
             </div>
           )}
 
-          {mode === "off" && <p className="text-sm text-slate-400">{slot.note}</p>}
+          {mode === "off" && slot.key !== "matechat_quick_suggestions" && (
+            <p className="text-sm text-slate-400">{slot.note}</p>
+          )}
 
           <div className="flex flex-wrap items-center gap-2 pt-1">
             <button
@@ -345,7 +421,7 @@ function SlotCard({ slot, onChanged }: { slot: ContentSlot; onChanged: () => voi
                 disabled={busy}
               >
                 {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                {isImage ? "立即重新生成" : "预览文案"}
+                {isImage ? "重新生成今天" : "预览今日文案"}
               </button>
             )}
             {isImage && (
@@ -492,8 +568,9 @@ export function ContentSlotsPage() {
           </button>
         </div>
         <p className="mt-2 text-sm leading-7 text-slate-600">
-          统一管理项目里 AI 每日生成 / 动态刷新的素材位（MateChat 吉祥物图、激励文案、登录页背景等）。每个素材位可选
-          <b> AI 每日生成 / 固定素材 / 关闭</b> 三种模式：AI 模式可改提示词并立即重新生成；固定模式可上传图片或填写文案。改动即时生效，无需发版。
+          这里管理的是自动化规则，不会因为打开或保存这个页面就停止每日刷新。保持
+          <b> 自动每日更新</b> 时，MateChat 会按上海时间每天生成新图片、按用户每天生成新文案；人工重生成只替换今天，
+          明天仍会继续自动更新。只有明确切换到<b> 人工固定</b>或<b> 停用</b>并保存，才会停止对应自动生成。
         </p>
       </section>
 

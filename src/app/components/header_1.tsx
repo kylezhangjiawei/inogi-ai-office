@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Bell, ChevronDown, Languages, LogOut, MessageSquareText, Search, UserRound } from "lucide-react";
 import { useLocation, useNavigate } from "react-router";
 import { getRoleLabel, useAuth } from "../auth";
-import { routeTitleMap } from "../routesConfig";
+import { DEPT_KBS, routeTitleMap } from "../routesConfig";
+import { useDepartmentDirectory } from "../lib/departmentDirectory";
 import { useUserAvatar } from "../lib/userAvatar";
 import { i18nLocale, setI18nLang, t, useI18n } from "../lib/i18n";
 import { AutoTranslatedText } from "./TranslatableText";
@@ -57,6 +58,7 @@ export function Header() {
   const { user, logout } = useAuth();
   const { lang } = useI18n();
   const { immersive } = useLayoutChromeState();
+  const { nameByCode } = useDepartmentDirectory();
   const avatar = useUserAvatar(user?.id);
   const [open, setOpen] = useState(false);
   const [rdMessages, setRdMessages] = useState<RdMessage[]>([]);
@@ -107,7 +109,18 @@ export function Header() {
   const unreadCount = useMemo(() => rdMessages.filter((m) => !m.read).length, [rdMessages]);
   const previewMessages = useMemo(() => rdMessages.slice(0, 5), [rdMessages]);
 
-  const title = useMemo(() => resolveRouteTitle(location.pathname), [location.pathname]);
+  const title = useMemo(() => {
+    const departmentKb = DEPT_KBS.find(
+      (item) => location.pathname === `/dept-kb/${item.id}`,
+    );
+    if (departmentKb) {
+      const departmentName = departmentKb.departmentCode
+        ? nameByCode(departmentKb.departmentCode, departmentKb.label)
+        : departmentKb.label;
+      return `${departmentName}知识库`;
+    }
+    return resolveRouteTitle(location.pathname);
+  }, [location.pathname, nameByCode]);
   const breadcrumb = useMemo(
     () => (location.pathname === "/" ? ["首页", "系统总览"] : ["首页", title]),
     [location.pathname, title],

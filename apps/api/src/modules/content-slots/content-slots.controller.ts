@@ -24,6 +24,7 @@ export class ContentSlotsController {
       promptTemplate?: string;
       staticText?: string;
       staticImageObjectKey?: string;
+      staticImagePool?: string[];
       staticList?: string[];
     },
   ) {

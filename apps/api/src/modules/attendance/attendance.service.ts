@@ -94,7 +94,7 @@ export class AttendanceService {
       : this.dateValue(`${year}-${String(monthNumber + 1).padStart(2, '0')}-01`);
     const yearStart = this.dateValue(`${year}-01-01`);
     const nextYearStart = this.dateValue(`${year + 1}-01-01`);
-    const [allEmployees, records, monthSettings, annualSickLeaveRecords] = await Promise.all([
+    const [allEmployees, records, monthSettings, annualSickLeaveRecords, productionDepartment] = await Promise.all([
       this.prisma.employeeArchive.findMany({
         select: employeeSelect,
         orderBy: [{ department: 'asc' }, { rosterNo: 'asc' }],
@@ -111,6 +111,10 @@ export class AttendanceService {
           status: 'sick_leave',
         },
         select: { employeeId: true },
+      }),
+      this.prisma.department.findUnique({
+        where: { code: 'PRODUCTION' },
+        select: { name: true },
       }),
     ]);
 
@@ -153,6 +157,7 @@ export class AttendanceService {
           summary,
           adjustment,
           annualSickLeaveByEmployee.get(employee.id) ?? 0,
+          employee.department === productionDepartment?.name,
         ),
       };
     });
@@ -551,9 +556,10 @@ export class AttendanceService {
     summary: ReturnType<AttendanceService['buildMonthlyEmployeeSummary']>,
     adjustment: EmployeeAttendanceMonth | ReturnType<AttendanceService['emptyMonthAdjustment']>,
     annualSickLeaveDays: number,
+    isProductionDepartment: boolean,
   ) {
     const round = (value: number) => Number(value.toFixed(2));
-    const productionWithInvertedHours = /生产/.test(employee.department) && adjustment.invertedHours > 0;
+    const productionWithInvertedHours = isProductionDepartment && adjustment.invertedHours > 0;
     const availableInvertedHours = Math.max(0, adjustment.invertedHours - adjustment.recoveredHours);
     const invertedOffsetHours = productionWithInvertedHours
       ? Math.min(availableInvertedHours, summary.workdayOvertimeHours)
