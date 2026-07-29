@@ -1,6 +1,6 @@
 // 供应商报价库：树形维护同一商品跨厂家的报价与起订量阶梯价（商品行 → 厂家子行 chips）。
 // 商品即物料（复用物料主数据），历史采购价格复用 PriceHistoryModal 跨任务聚合。
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "../components/ui/input";
 import { ChevronDown, ChevronRight, Download, FileSpreadsheet, History, Pencil, Plus, Search, Store, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
@@ -22,6 +22,7 @@ import { QuoteImportModal } from "./components/QuoteImportModal";
 import { MaterialFormModal } from "./components/modals";
 import { downloadQuoteBookTemplate, exportQuoteBookXlsx } from "./quoteBookXlsx";
 import { AutoTranslatedText } from "../components/TranslatableText";
+import { useSearchParams } from "react-router";
 
 /** 起订量展示：1000 → 1k；0（不限）由调用侧配 t("不限") 文案。 */
 export function fmtMinQty(qty: number): string {
@@ -79,6 +80,12 @@ function TierChips({ quote, bestPrice, today }: { quote: SupplierQuote; bestPric
 
 export function QuoteBookPage() {
   const { t } = useI18n();
+  const [searchParams] = useSearchParams();
+  const focusedMaterialId = searchParams.get("materialId");
+  const focusedMaterialName = searchParams.get("materialName");
+  const focusedSearch = searchParams.get("search");
+  const focusedAction = searchParams.get("action");
+  const focusHandledRef = useRef("");
   const [rows, setRows] = useState<QuoteBookRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -114,6 +121,27 @@ export function QuoteBookPage() {
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, []);
+
+  // 从采购任务“无合适报价”跳转时，直接定位对应物料并打开新增厂家报价抽屉。
+  useEffect(() => {
+    if (loading || rows.length === 0 || (!focusedMaterialId && !focusedMaterialName && !focusedSearch)) return;
+    const focusKey = `${focusedMaterialId ?? ""}:${focusedMaterialName ?? ""}:${focusedSearch ?? ""}:${focusedAction ?? ""}`;
+    if (focusHandledRef.current === focusKey) return;
+    if (!focusedMaterialId && !focusedMaterialName && focusedSearch) {
+      focusHandledRef.current = focusKey;
+      setSearch(focusedSearch);
+      return;
+    }
+    const material = rows.find((row) =>
+      focusedMaterialId ? row.id === focusedMaterialId : row.name === focusedMaterialName,
+    );
+    focusHandledRef.current = focusKey;
+    if (!material) return;
+    setShowAll(true);
+    setSearch(material.name);
+    setExpanded((current) => new Set(current).add(material.id));
+    if (focusedAction === "add" && canWrite) setDrawer({ material });
+  }, [canWrite, focusedAction, focusedMaterialId, focusedMaterialName, focusedSearch, loading, rows]);
 
   const removeQuote = (quote: SupplierQuote) =>
     confirmAction({
@@ -375,6 +403,15 @@ function QuoteBookMaterialRows({
         <td className="px-4 py-2.5">
           <div className="flex items-center gap-2">
             <Caret className={cn("h-4 w-4 shrink-0", row.quotes.length ? "text-slate-400" : "text-slate-200")} />
+            {row.imageUrl && (
+              <img
+                src={row.imageUrl}
+                alt=""
+                title={t("点击查看商品图片")}
+                onClick={(event) => { event.stopPropagation(); onPreviewImage(row.imageUrl!); }}
+                className="h-10 w-10 shrink-0 cursor-zoom-in rounded-lg border border-slate-200 bg-white object-cover"
+              />
+            )}
             <div className="min-w-0">
               <div className="truncate font-semibold text-slate-800"><AutoTranslatedText text={row.name} /></div>
               {row.spec && <div className="truncate text-xs text-slate-400">{row.spec}</div>}

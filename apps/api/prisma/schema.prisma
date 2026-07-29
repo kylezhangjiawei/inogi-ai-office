@@ -1130,6 +1130,8 @@ model ProcMaterial {
   latestPrice     Decimal?               @db.Decimal(12, 4)
   latestSupplier  String?
   latestQuoteDate DateTime?
+  /// 商品主图 OSS 对象 key；列表读取时动态生成签名 URL
+  imageKey        String?                @db.VarChar(500)
   remark          String?
   metadata        Json                   @default("{}")
   bomNodes        ProcBomNode[]
@@ -1183,6 +1185,11 @@ model ProcTask {
   requesterDept       String?
   consumableNote      String?
   selectedQuotationId String?
+  /// 已确认报价金额汇总；最终总价 = 小计 - 折扣金额
+  quotationSubtotal   Decimal?               @db.Decimal(20, 4)
+  quotationDiscount   Decimal?               @db.Decimal(20, 4)
+  quotationTotal      Decimal?               @db.Decimal(20, 4)
+  quotationCurrency   String?
   /// 业务完结：到货齐 + 结算完，与状态解耦，供统计口径使用
   businessDone        Boolean                @default(false)
   cancelReason        String?
@@ -1273,7 +1280,7 @@ model ProcSupplierQuote {
   @@index([supplierId])
 }
 
-/// 供应商报价：本系统自有（T+ 不管报价）。来源 manual=手工录入 / mail=邮件解析。
+/// 任务报价快照与历史价格流水。任务报价由供应商报价库复制生成（channel=quote-book），后续库内更新不回写任务。
 model ProcQuotation {
   id           String        @id @default(cuid())
   taskId       String?
@@ -1285,6 +1292,9 @@ model ProcQuotation {
   supplier     ProcSupplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   supplierName String
   unitPrice    Decimal       @db.Decimal(12, 4)
+  /// 本任务确认的采购数量与对应行金额（单价 × 数量）
+  quantity     Decimal?      @db.Decimal(14, 3)
+  lineTotal    Decimal?      @db.Decimal(20, 4)
   currency     String        @default("CNY")
   leadTimeDays Int           @default(0)
   minOrderQty  Decimal?      @db.Decimal(14, 3)

@@ -107,7 +107,7 @@ export const fmtMoney = (n?: number) => (typeof n === "number" ? `¥${n.toLocale
 // ── 状态元数据（含「下一步」按钮文案）─────────────────────────────────────────
 export const PROC_STATUS_META: Record<ProcStatus, { label: string; pill: string; next?: string }> = {
   pending_confirm: { label: "待处理", pill: "border-rose-300 bg-rose-50 text-rose-700", next: "确认提交" },
-  pending_inquiry: { label: "待询价", pill: "border-amber-200 bg-amber-50 text-amber-700", next: "录报价" },
+  pending_inquiry: { label: "待询价", pill: "border-amber-200 bg-amber-50 text-amber-700", next: "选择报价" },
   inquiring: { label: "询价中", pill: "border-blue-200 bg-blue-50 text-blue-700", next: "选定报价" },
   pending_sample: { label: "待到样", pill: "border-violet-200 bg-violet-50 text-violet-700", next: "样品已到" },
   testing: { label: "测试中", pill: "border-cyan-200 bg-cyan-50 text-cyan-700", next: "录入测试结论" },

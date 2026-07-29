@@ -184,7 +184,7 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'proc-task:create', label: '新建 / 编辑采购任务', description: '采购自建需求、维护任务信息与附件、维护物料主数据', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1600 },
   { code: 'proc-task:transfer', label: '转采购', description: '研发侧将任务转为采购需求（需带附件）', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1610 },
   { code: 'proc-task:confirm', label: '确认接收', description: '采购确认接收流转来的任务，进入询价 / 直购分支', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1620 },
-  { code: 'proc-task:inquiry', label: '询价 / 推进状态', description: '录入供应商报价并推进任务状态（打样、测试、到货）', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1630 },
+  { code: 'proc-task:inquiry', label: '询价 / 推进状态', description: '从供应商报价库选择报价并推进任务状态（打样、测试、到货）', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1630 },
   { code: 'proc-task:select-quote', label: '选定报价', description: '在多份报价中定标，回写物料最新价格', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1640 },
   { code: 'proc-task:order', label: '关联采购单', description: '把任务关联到畅捷通 T+ 的采购单据（本系统不创建单据）', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1650 },
   { code: 'proc-task:receive', label: '登记到货', description: '手工登记到货数量（过渡期能力，畅捷通 T+ 接通后改由同步驱动）', groupLabel: '操作权限 · 采购管理', type: 'action', sortOrder: 1655 },

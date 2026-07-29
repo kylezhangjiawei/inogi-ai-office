@@ -2,7 +2,7 @@
 // AiCreateModal 暂无入口（产品决定隐藏 AI 建单按钮），实现保留以便恢复；物料审核在 MaterialDetailDrawer 里做。
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "../../components/ui/input";
-import { FileDown, Loader2, Sparkles, Upload, X } from "lucide-react";
+import { FileDown, ImagePlus, Loader2, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { toast } from "sonner";
 import { Checkbox } from "../../components/ui/checkbox";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "../../components/ui/dialog";
@@ -36,6 +36,7 @@ import {
   saveTplusConfig,
   triggerTplusSync,
   updateProcTask,
+  uploadProcurementAttachment,
   upsertProcMaterial,
   type AiTaskDraft,
   type BusinessLine,
@@ -1145,6 +1146,9 @@ export function EditTaskModal({ task, onClose }: { task: ProcurementTask; onClos
 
 // ── 物料新增/编辑 ─────────────────────────────────────────────────────────────
 
+const MATERIAL_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const MATERIAL_IMAGE_MAX_SIZE = 10 * 1024 * 1024;
+
 /** 物料主数据表单：传 material 为编辑（后端 PUT 全量覆盖，务必带全字段），不传为新建。 */
 export function MaterialFormModal({ material, onClose }: { material?: Material; onClose: () => void }) {
   const { t } = useI18n();
@@ -1164,10 +1168,63 @@ export function MaterialFormModal({ material, onClose }: { material?: Material; 
     safeStock: material != null ? String(material.safeStock) : "",
     remark: material?.remark ?? "",
   }));
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const localPreviewUrlRef = useRef<string | null>(null);
+  const [imageKeyPatch, setImageKeyPatch] = useState<string | undefined>(undefined);
+  const [imagePreview, setImagePreview] = useState<string | null>(material?.imageUrl ?? null);
+  const [imageName, setImageName] = useState(material?.imageUrl ? t("已保存的商品图片") : "");
+  const [imageBusy, setImageBusy] = useState(false);
+  const [imageDragging, setImageDragging] = useState(false);
   const set = <K extends keyof typeof form>(key: K) => (value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }));
   const categories = useMemo(() => Array.from(new Set(materials.map((m) => m.category).filter(Boolean))), [materials]);
   const field = "mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-indigo-300";
   const label = "text-xs font-medium text-slate-500";
+
+  const replaceImagePreview = (url: string | null, local = false) => {
+    if (localPreviewUrlRef.current) URL.revokeObjectURL(localPreviewUrlRef.current);
+    localPreviewUrlRef.current = local && url ? url : null;
+    setImagePreview(url);
+  };
+
+  useEffect(
+    () => () => {
+      if (localPreviewUrlRef.current) URL.revokeObjectURL(localPreviewUrlRef.current);
+    },
+    [],
+  );
+
+  const uploadImage = async (file: File | undefined) => {
+    if (!file) return;
+    if (!MATERIAL_IMAGE_TYPES.has(file.type)) {
+      toast.error(t("请选择 JPG、PNG、WebP 或 GIF 图片"));
+      return;
+    }
+    if (file.size > MATERIAL_IMAGE_MAX_SIZE) {
+      toast.error(t("商品图片不能超过 10 MB"));
+      return;
+    }
+    setImageBusy(true);
+    try {
+      const uploaded = await uploadProcurementAttachment(file);
+      const localUrl = uploaded.signedUrl ? null : URL.createObjectURL(file);
+      replaceImagePreview(uploaded.signedUrl ?? localUrl, Boolean(localUrl));
+      setImageKeyPatch(uploaded.objectKey);
+      setImageName(file.name);
+      toast.success(t("商品图片已上传，保存商品后生效"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("商品图片上传失败"));
+    } finally {
+      setImageBusy(false);
+      setImageDragging(false);
+    }
+  };
+
+  const removeImage = () => {
+    setImageKeyPatch("");
+    replaceImagePreview(null);
+    setImageName("");
+    if (imageInputRef.current) imageInputRef.current.value = "";
+  };
 
   const submit = async () => {
     if (!form.name.trim()) { toast.error(t('请填写物料名称')); return; }
@@ -1188,6 +1245,8 @@ export function MaterialFormModal({ material, onClose }: { material?: Material; 
         isConsumable: form.isConsumable,
         safeStock: Number.isFinite(safeStock) && safeStock >= 0 ? safeStock : undefined,
         remark: str(form.remark),
+        // undefined 表示编辑时保留原图，空串表示移除图片。
+        imageKey: imageKeyPatch,
       }, material?.id);
       await refreshProcurement();
       toast.success(t(material ? '物料已更新' : '物料已创建，进入审核队列'));
@@ -1205,7 +1264,7 @@ export function MaterialFormModal({ material, onClose }: { material?: Material; 
       onClose={onClose}
       footer={<>
         <button type="button" onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">{t('取消')}</button>
-        <button type="button" disabled={busy} onClick={() => void submit()} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm disabled:opacity-60">
+        <button type="button" disabled={busy || imageBusy} onClick={() => void submit()} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm disabled:opacity-60">
           {busy && <Loader2 className="h-4 w-4 animate-spin" />}{t('保存')}
         </button>
       </>}
@@ -1213,6 +1272,72 @@ export function MaterialFormModal({ material, onClose }: { material?: Material; 
       <div className="grid grid-cols-2 gap-3">
         <label className="block"><span className={label}>{t('物料名称')}<span className="ml-0.5 text-rose-500">*</span></span><Input value={form.name} onChange={(e) => set('name')(e.target.value)} className={field} /></label>
         <label className="block"><span className={label}>{t('规格')}</span><Input value={form.spec} onChange={(e) => set('spec')(e.target.value)} className={field} /></label>
+        <div className="col-span-2">
+          <span className={label}>{t('商品图片')} <span className="font-normal text-slate-400">{t('（选填）')}</span></span>
+          <input
+            ref={imageInputRef}
+            type="file"
+            accept=".jpg,.jpeg,.png,.webp,.gif"
+            className="sr-only"
+            onChange={(event) => {
+              void uploadImage(event.target.files?.[0]);
+              event.target.value = "";
+            }}
+          />
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label={t("点击选择或拖拽上传商品图片")}
+            onClick={() => { if (!imageBusy) imageInputRef.current?.click(); }}
+            onKeyDown={(event) => {
+              if (!imageBusy && (event.key === "Enter" || event.key === " ")) {
+                event.preventDefault();
+                imageInputRef.current?.click();
+              }
+            }}
+            onDragEnter={(event) => { event.preventDefault(); if (!imageBusy) setImageDragging(true); }}
+            onDragOver={(event) => { event.preventDefault(); }}
+            onDragLeave={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setImageDragging(false);
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              setImageDragging(false);
+              if (!imageBusy) void uploadImage(event.dataTransfer.files?.[0]);
+            }}
+            className={cn(
+              "mt-1 flex min-h-28 cursor-pointer items-center gap-4 rounded-xl border-2 border-dashed px-4 py-3 outline-none transition",
+              imageDragging
+                ? "border-indigo-400 bg-indigo-50 ring-2 ring-indigo-100"
+                : "border-slate-200 bg-slate-50/60 hover:border-indigo-300 hover:bg-indigo-50/40 focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100",
+              imageBusy && "cursor-wait opacity-70",
+            )}
+          >
+            {imagePreview ? (
+              <>
+                <img src={imagePreview} alt={t("商品图片预览")} className="h-20 w-20 shrink-0 rounded-lg border border-slate-200 bg-white object-cover" />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-slate-700">{imageName || t("商品图片")}</p>
+                  <p className="mt-1 text-xs text-slate-400">{imageBusy ? t("正在上传…") : t("点击或拖入新图片可更换")}</p>
+                </div>
+                <button
+                  type="button"
+                  disabled={imageBusy}
+                  onClick={(event) => { event.stopPropagation(); removeImage(); }}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs text-slate-500 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />{t("移除")}
+                </button>
+              </>
+            ) : (
+              <div className="flex w-full flex-col items-center justify-center py-2 text-center">
+                {imageBusy ? <Loader2 className="h-6 w-6 animate-spin text-indigo-500" /> : <ImagePlus className="h-7 w-7 text-indigo-500" />}
+                <p className="mt-2 text-sm font-medium text-slate-700">{imageBusy ? t("正在上传商品图片…") : t("点击选择或拖拽上传商品图片")}</p>
+                <p className="mt-1 text-xs text-slate-400">{t("支持 JPG、PNG、WebP、GIF，最大 10 MB；可不上传")}</p>
+              </div>
+            )}
+          </div>
+        </div>
         <label className="block"><span className={label}>{t('单位')}</span><Input value={form.unit} onChange={(e) => set('unit')(e.target.value)} placeholder={t('如 件')} className={field} /></label>
         <label className="block">
           <span className={label}>{t('分类')}</span>

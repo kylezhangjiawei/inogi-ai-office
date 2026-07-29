@@ -3,11 +3,12 @@ import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, 
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import {
   AiParseTaskDto,
+  ApplyQuoteBookQuotesDto,
   BatchReassignDto,
   CancelProcTaskDto,
+  ConfirmQuoteBookQuotesDto,
   ImportBomDto,
   CreateProcTaskDto,
-  CreateQuotationDto,
   ImportMaterialsDto,
   LinkPurchaseOrderDto,
   ProcAttachmentInputDto,
@@ -211,14 +212,33 @@ export class ProcurementController {
     return this.service.listQuotations({ materialId, materialName, taskId });
   }
 
-  @Post('tasks/:id/quotations')
+  /** 查询本任务可用的报价库记录；服务端按任务数量匹配对应阶梯价。 */
+  @Get('tasks/:id/quote-book-options')
   @Permissions('proc-task:inquiry')
-  addQuotation(
+  listTaskQuoteBookOptions(@Param('id') id: string) {
+    return this.service.listTaskQuoteBookOptions(id);
+  }
+
+  /** 从报价库批量带入报价，任务内只保存当次不可变快照。 */
+  @Post('tasks/:id/quotations/from-quote-book')
+  @Permissions('proc-task:inquiry')
+  addQuotationsFromQuoteBook(
     @Param('id') id: string,
-    @Body() dto: CreateQuotationDto,
+    @Body() dto: ApplyQuoteBookQuotesDto,
     @Request() req: AuthedRequest,
   ) {
-    return this.service.addQuotation(id, dto, this.actor(req));
+    return this.service.addQuotationsFromQuoteBook(id, dto, this.actor(req));
+  }
+
+  /** 从报价库批量带入并直接确认，多条报价作为同一批次一起生效。 */
+  @Post('tasks/:id/quotations/from-quote-book/confirm')
+  @Permissions('proc-task:inquiry')
+  confirmQuotationsFromQuoteBook(
+    @Param('id') id: string,
+    @Body() dto: ConfirmQuoteBookQuotesDto,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.service.confirmQuotationsFromQuoteBook(id, dto, this.actor(req));
   }
 
   @Post('tasks/:id/quotations/:quotationId/select')

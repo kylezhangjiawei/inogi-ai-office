@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  ArrayMinSize,
   IsArray,
   IsBoolean,
   IsIn,
@@ -258,53 +259,38 @@ export class ReceiveGoodsDto {
   note?: string;
 }
 
-export class CreateQuotationDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(64)
-  supplierId?: string;
+/** 从供应商报价库选择现行报价，服务端按任务数量匹配阶梯并生成任务报价快照。 */
+export class ApplyQuoteBookQuotesDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(50)
+  @IsString({ each: true })
+  quoteIds!: string[];
+}
 
+export class ConfirmQuoteBookQuoteItemDto {
   @IsString()
-  @MaxLength(200)
-  supplierName!: string;
+  quoteId!: string;
 
-  @IsNumber()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 3 })
+  @Min(0.001)
+  quantity!: number;
+}
+
+/** 批量确认报价：逐条提交采购数量，折扣按金额从报价小计中扣减。 */
+export class ConfirmQuoteBookQuotesDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => ConfirmQuoteBookQuoteItemDto)
+  selections!: ConfirmQuoteBookQuoteItemDto[];
+
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 4 })
   @Min(0)
-  unitPrice!: number;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(10)
-  currency?: string;
-
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  leadTimeDays?: number;
-
-  @IsOptional()
-  @IsNumber()
-  @Min(0)
-  minOrderQty?: number;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(32)
-  quoteDate?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(32)
-  validUntil?: string;
-
-  @IsOptional()
-  @IsIn(['manual', 'mail'])
-  channel?: 'manual' | 'mail';
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  note?: string;
+  discountAmount!: number;
 }
 
 /** 关联 T+ 采购单：本系统不创建采购单，只登记接缝。 */
@@ -396,6 +382,11 @@ export class UpsertMaterialDto {
   @IsString()
   @MaxLength(500)
   remark?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  imageKey?: string;
 }
 
 /** AI 建单：粘贴自然语言需求（或含商品链接），解析出建单草稿。 */

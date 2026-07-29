@@ -81,6 +81,10 @@ export interface ProcurementTask {
   purchaseOrders: ProcTaskPurchaseOrder[];
   consumableNote?: string;
   selectedQuotationId?: string;
+  quotationSubtotal?: number;
+  quotationDiscount?: number;
+  quotationTotal?: number;
+  quotationCurrency?: string;
   businessDone: boolean;
   cancelReason?: string;
   status: ProcStatus;
@@ -113,6 +117,7 @@ export interface Material {
   latestPrice: number | null;
   latestSupplier?: string;
   latestQuoteDate?: string;
+  imageUrl?: string;
   remark?: string;
 }
 
@@ -123,6 +128,8 @@ export interface Quotation {
   materialName: string;
   supplierName: string;
   unitPrice: number;
+  quantity?: number;
+  lineTotal?: number;
   currency: string;
   leadTimeDays: number;
   minOrderQty: number | null;
@@ -131,6 +138,34 @@ export interface Quotation {
   channel: string;
   isSelected: boolean;
   note?: string;
+}
+
+/** 采购任务按需求数量匹配后的供应商报价库选项。 */
+export interface TaskQuoteBookOption {
+  id: string;
+  materialId: string;
+  materialName: string;
+  materialSpec: string;
+  supplierId?: string;
+  supplierName: string;
+  supplierModel: string;
+  currency: string;
+  taxIncluded: boolean;
+  leadTimeDays: number;
+  tiers: QuoteTier[];
+  matchedTier: QuoteTier;
+  belowMinOrder: boolean;
+  quoteDate?: string;
+  validUntil?: string;
+  note?: string;
+  updatedAt: string;
+}
+
+export interface TaskQuoteBookOptions {
+  materialId: string | null;
+  quantity: number;
+  scope: "material" | "all";
+  quotes: TaskQuoteBookOption[];
 }
 
 export interface ProcSummary {
@@ -406,14 +441,37 @@ export async function listQuotations(params: {
   return request<Quotation[]>(`/quotations?${qs.toString()}`);
 }
 
-export async function addQuotation(
+export async function listTaskQuoteBookOptions(
   taskId: string,
-  input: { supplierName: string; unitPrice: number; leadTimeDays?: number; quoteDate?: string; note?: string },
-): Promise<Quotation> {
-  return request<Quotation>(`/tasks/${encodeURIComponent(taskId)}/quotations`, {
-    method: "POST",
-    body: JSON.stringify(input),
-  });
+  signal?: AbortSignal,
+): Promise<TaskQuoteBookOptions> {
+  return request<TaskQuoteBookOptions>(
+    `/tasks/${encodeURIComponent(taskId)}/quote-book-options`,
+    { signal },
+  );
+}
+
+export async function addQuotationsFromQuoteBook(
+  taskId: string,
+  quoteIds: string[],
+): Promise<Quotation[]> {
+  return request<Quotation[]>(
+    `/tasks/${encodeURIComponent(taskId)}/quotations/from-quote-book`,
+    { method: "POST", body: JSON.stringify({ quoteIds }) },
+  );
+}
+
+export async function confirmQuotationsFromQuoteBook(
+  taskId: string,
+  input: {
+    selections: Array<{ quoteId: string; quantity: number }>;
+    discountAmount: number;
+  },
+): Promise<ProcurementTask> {
+  return request<ProcurementTask>(
+    `/tasks/${encodeURIComponent(taskId)}/quotations/from-quote-book/confirm`,
+    { method: "POST", body: JSON.stringify(input) },
+  );
 }
 
 export async function selectQuotation(taskId: string, quotationId: string): Promise<ProcurementTask> {
@@ -595,6 +653,7 @@ export interface MaterialImportItem {
   isConsumable?: boolean;
   safeStock?: number;
   remark?: string;
+  imageKey?: string;
 }
 
 /**
@@ -787,6 +846,7 @@ export interface QuoteBookRow {
   unit: string;
   category: string;
   productLine: string;
+  imageUrl?: string;
   latestPrice: number | null;
   latestSupplier?: string;
   latestQuoteDate?: string;

@@ -8,11 +8,12 @@ import { OSS_BUSINESS_TYPES, SIGNED_URL_TTL_SECONDS } from '../oss/oss.constants
 import { OssService } from '../oss/oss.service';
 import {
   AiParseTaskDto,
+  ApplyQuoteBookQuotesDto,
   BatchReassignDto,
   BomNodeInputDto,
   CancelProcTaskDto,
+  ConfirmQuoteBookQuotesDto,
   CreateProcTaskDto,
-  CreateQuotationDto,
   ImportBomDto,
   ImportMaterialsDto,
   LinkPurchaseOrderDto,
@@ -83,6 +84,33 @@ export interface AiTaskDraft {
   deadline?: string;
   priority?: 'high' | 'medium' | 'low';
   needSample?: boolean;
+}
+
+export interface TaskQuoteBookOption {
+  id: string;
+  materialId: string;
+  materialName: string;
+  materialSpec: string;
+  supplierId?: string;
+  supplierName: string;
+  supplierModel: string;
+  currency: string;
+  taxIncluded: boolean;
+  leadTimeDays: number;
+  tiers: Array<{ minQty: number; unitPrice: number }>;
+  matchedTier: { minQty: number; unitPrice: number };
+  belowMinOrder: boolean;
+  quoteDate?: string;
+  validUntil?: string;
+  note?: string;
+  updatedAt: string;
+}
+
+export interface TaskQuoteBookOptionsResult {
+  materialId: string | null;
+  quantity: number;
+  scope: 'material' | 'all';
+  quotes: TaskQuoteBookOption[];
 }
 
 @Injectable()
@@ -740,41 +768,284 @@ export class ProcurementService {
 
   // ── 报价 ────────────────────────────────────────────────────────────────────
 
-  async addQuotation(taskId: string, dto: CreateQuotationDto, actor: ProcActor) {
+  /**
+   * 任务可选的报价库记录。
+   * 只返回当前有效报价，并按任务数量自动匹配阶梯；数量低于首档时仍返回首档并标记需按 MOQ 采购。
+   */
+  async listTaskQuoteBookOptions(taskId: string): Promise<TaskQuoteBookOptionsResult> {
     const task = await this.requireTask(taskId);
-    const quotation = await this.prisma.procQuotation.create({
-      data: {
-        taskId,
-        materialId: task.materialId,
-        materialName: task.materialName,
-        supplierId: dto.supplierId ?? null,
-        supplierName: dto.supplierName,
-        unitPrice: new Prisma.Decimal(dto.unitPrice),
-        currency: dto.currency ?? 'CNY',
-        leadTimeDays: dto.leadTimeDays ?? 0,
-        minOrderQty: dto.minOrderQty === undefined ? null : new Prisma.Decimal(dto.minOrderQty),
-        quoteDate: parseDay(dto.quoteDate) ?? new Date(),
-        validUntil: parseDay(dto.validUntil),
-        channel: dto.channel ?? 'manual',
-        note: dto.note ?? null,
-        createdBy: actor.id,
+    const quantity = num(task.quantity);
+    const materialId = task.materialId ?? (
+      await this.prisma.procMaterial.findFirst({
+        where: {
+          name: task.materialName,
+          ...(task.spec ? { spec: task.spec } : {}),
+        },
+        select: { id: true },
+      })
+    )?.id;
+
+    const today = new Date(`${new Date().toISOString().slice(0, 10)}T00:00:00.000Z`);
+    const rows = await this.prisma.procSupplierQuote.findMany({
+      where: {
+        ...(materialId ? { materialId } : {}),
+        OR: [{ validUntil: null }, { validUntil: { gte: today } }],
       },
+      include: { material: { select: { name: true, spec: true } } },
+      orderBy: [{ updatedAt: 'desc' }],
     });
-    // 首次录入报价即视为进入询价中
+
+    const quotes: TaskQuoteBookOption[] = rows.flatMap((quote): TaskQuoteBookOption[] => {
+      const tiers = this.readQuoteBookTiers(quote.tiers);
+      const matchedTier = this.matchQuoteBookTier(tiers, quantity);
+      if (!matchedTier) return [];
+      return [{
+        id: quote.id,
+        materialId: quote.materialId,
+        materialName: quote.material.name,
+        materialSpec: quote.material.spec,
+        supplierId: quote.supplierId ?? undefined,
+        supplierName: quote.supplierName,
+        supplierModel: quote.supplierModel,
+        currency: quote.currency,
+        taxIncluded: quote.taxIncluded,
+        leadTimeDays: quote.leadTimeDays,
+        tiers,
+        matchedTier,
+        belowMinOrder: matchedTier.minQty > quantity,
+        quoteDate: day(quote.quoteDate),
+        validUntil: day(quote.validUntil),
+        note: quote.note ?? undefined,
+        updatedAt: quote.updatedAt.toISOString(),
+      }];
+    }).sort((a, b) =>
+      a.materialName.localeCompare(b.materialName, 'zh-CN')
+      || a.supplierName.localeCompare(b.supplierName, 'zh-CN'),
+    );
+
+    return { materialId: materialId ?? null, quantity, scope: materialId ? 'material' : 'all', quotes };
+  }
+
+  /** 从供应商报价库生成任务报价快照；客户端不能提交或改写价格字段。 */
+  async addQuotationsFromQuoteBook(
+    taskId: string,
+    dto: ApplyQuoteBookQuotesDto,
+    actor: ProcActor,
+  ) {
+    const task = await this.requireTask(taskId);
+    if (!['pending_inquiry', 'inquiring'].includes(task.status)) {
+      throw new BadRequestException('只有「待询价」或「询价中」的任务可从报价库带入报价');
+    }
+
+    const requestedIds = Array.from(new Set(dto.quoteIds));
+    const options = await this.listTaskQuoteBookOptions(taskId);
+    const availableById = new Map(options.quotes.map((quote) => [quote.id, quote] as const));
+    const selected = requestedIds.map((id) => availableById.get(id));
+    if (selected.some((quote) => !quote)) {
+      throw new BadRequestException('所选报价不存在、已过期或当前任务不可用，请刷新后重试');
+    }
+
+    const existing = await this.prisma.procQuotation.findMany({
+      where: { taskId, channel: 'quote-book' },
+      select: { materialId: true, supplierName: true },
+    });
+    const existingKeys = new Set(existing.map((quote) => `${quote.materialId ?? ''}\u0000${quote.supplierName}`));
+    const additions = selected
+      .filter((quote): quote is NonNullable<typeof quote> => Boolean(quote))
+      .filter((quote) => !existingKeys.has(`${quote.materialId}\u0000${quote.supplierName}`));
+    if (additions.length === 0) throw new BadRequestException('所选报价已带入当前任务');
+
+    await this.prisma.procQuotation.createMany({
+      data: additions.map((quote) => ({
+        taskId,
+        materialId: task.materialId ?? quote.materialId,
+        materialName: task.materialId ? task.materialName : quote.materialName,
+        supplierId: quote.supplierId ?? null,
+        supplierName: quote.supplierName,
+        unitPrice: new Prisma.Decimal(quote.matchedTier.unitPrice),
+        currency: quote.currency,
+        leadTimeDays: quote.leadTimeDays,
+        minOrderQty: new Prisma.Decimal(quote.matchedTier.minQty),
+        quoteDate: parseDay(quote.quoteDate) ?? new Date(),
+        validUntil: parseDay(quote.validUntil),
+        channel: 'quote-book',
+        note: [
+          quote.supplierModel ? `供应商型号：${quote.supplierModel}` : '',
+          `税费：${quote.taxIncluded ? '含税' : '未税'}`,
+          quote.belowMinOrder ? `任务数量低于起订量，按 MOQ ${quote.matchedTier.minQty} 计价` : '',
+          quote.note ?? '',
+        ].filter(Boolean).join('；'),
+        createdBy: actor.id,
+      })),
+    });
+
     if (task.status === 'pending_inquiry') {
-      await this.applyTransition(taskId, 'inquiring', actor, '已录入供应商报价，进入询价中');
+      await this.applyTransition(
+        taskId,
+        'inquiring',
+        actor,
+        `从供应商报价库带入 ${additions.length} 条报价，进入询价中`,
+      );
     } else {
       await this.prisma.procTaskLog.create({
         data: {
           taskId,
           kind: 'action',
-          text: `录入 ${dto.supplierName} 报价 ${dto.unitPrice}`,
+          text: `从供应商报价库补充 ${additions.length} 条报价`,
           actor: actor.name,
           actorUserId: actor.id,
         },
       });
     }
-    return this.serializeQuotation(quotation);
+
+    return this.listQuotations({ taskId });
+  }
+
+  /**
+   * 从报价库批量生成并确认任务报价。
+   * 这是「待询价」阶段的完整业务动作：一次保存多条不可变快照，并直接进入待到样/已定价，
+   * 不再要求采购人员在下一节点逐条单选。selectedQuotationId 仅保留首条用于兼容旧客户端。
+   */
+  async confirmQuotationsFromQuoteBook(
+    taskId: string,
+    dto: ConfirmQuoteBookQuotesDto,
+    actor: ProcActor,
+  ) {
+    const task = await this.requireTask(taskId);
+    if (task.status !== 'pending_inquiry') {
+      throw new BadRequestException('只有「待询价」的任务可从报价库批量确认报价');
+    }
+
+    if (
+      !Number.isFinite(dto.discountAmount)
+      || dto.discountAmount < 0
+      || dto.selections.some((selection) => !Number.isFinite(selection.quantity) || selection.quantity <= 0)
+    ) {
+      throw new BadRequestException('采购数量或折扣金额无效');
+    }
+    const requestedIds = dto.selections.map((selection) => selection.quoteId);
+    if (new Set(requestedIds).size !== requestedIds.length) {
+      throw new BadRequestException('同一条供应商报价不能重复确认');
+    }
+    const options = await this.listTaskQuoteBookOptions(taskId);
+    const availableById = new Map(options.quotes.map((quote) => [quote.id, quote] as const));
+    const selected = dto.selections.map((selection) => {
+      const quote = availableById.get(selection.quoteId);
+      if (!quote) return null;
+      const matchedTier = this.matchQuoteBookTier(quote.tiers, selection.quantity);
+      if (!matchedTier) return null;
+      const quantity = new Prisma.Decimal(selection.quantity);
+      const unitPrice = new Prisma.Decimal(matchedTier.unitPrice);
+      return {
+        quote,
+        quantity,
+        unitPrice,
+        matchedTier,
+        lineTotal: unitPrice.mul(quantity).toDecimalPlaces(4),
+      };
+    });
+    if (selected.some((row) => !row)) {
+      throw new BadRequestException('所选报价不存在、已过期或当前任务不可用，请刷新后重试');
+    }
+    const selectedRows = selected.filter(
+      (row): row is NonNullable<typeof row> => Boolean(row),
+    );
+    if (selectedRows.length === 0) {
+      throw new BadRequestException('请至少选择一条供应商报价');
+    }
+    const currencies = new Set(selectedRows.map((row) => row.quote.currency));
+    if (currencies.size !== 1) {
+      throw new BadRequestException('不同币种的报价不能合并计算总价，请分开确认');
+    }
+    const currency = selectedRows[0].quote.currency;
+    const subtotal = selectedRows
+      .reduce((sum, row) => sum.plus(row.lineTotal), new Prisma.Decimal(0))
+      .toDecimalPlaces(4);
+    const discount = new Prisma.Decimal(dto.discountAmount).toDecimalPlaces(4);
+    if (discount.gt(subtotal)) {
+      throw new BadRequestException('折扣金额不能大于报价小计');
+    }
+    const total = subtotal.minus(discount).toDecimalPlaces(4);
+
+    const next: ProcStatus = task.needSample ? 'pending_sample' : 'priced';
+    await this.prisma.$transaction(async (tx) => {
+      const snapshots: Prisma.ProcQuotationGetPayload<object>[] = [];
+      for (const row of selectedRows) {
+        const { quote } = row;
+        snapshots.push(await tx.procQuotation.create({
+          data: {
+            taskId,
+            materialId: task.materialId ?? quote.materialId,
+            materialName: task.materialId ? task.materialName : quote.materialName,
+            supplierId: quote.supplierId ?? null,
+            supplierName: quote.supplierName,
+            unitPrice: row.unitPrice,
+            quantity: row.quantity,
+            lineTotal: row.lineTotal,
+            currency: quote.currency,
+            leadTimeDays: quote.leadTimeDays,
+            minOrderQty: new Prisma.Decimal(row.matchedTier.minQty),
+            quoteDate: parseDay(quote.quoteDate) ?? new Date(),
+            validUntil: parseDay(quote.validUntil),
+            channel: 'quote-book',
+            isSelected: true,
+            note: [
+              quote.supplierModel ? `供应商型号：${quote.supplierModel}` : '',
+              `税费：${quote.taxIncluded ? '含税' : '未税'}`,
+              row.matchedTier.minQty > num(row.quantity)
+                ? `采购数量低于起订量，按 MOQ ${row.matchedTier.minQty} 计价`
+                : '',
+              quote.note ?? '',
+            ].filter(Boolean).join('；'),
+            createdBy: actor.id,
+          },
+        }));
+      }
+
+      // 物料主数据只有一个「最新报价」槽位；同一物料多条同时确认时，以最低单价作为最新参考价。
+      const latestByMaterial = new Map<string, (typeof snapshots)[number]>();
+      for (const quotation of snapshots) {
+        if (!quotation.materialId) continue;
+        const current = latestByMaterial.get(quotation.materialId);
+        if (!current || num(quotation.unitPrice) < num(current.unitPrice)) {
+          latestByMaterial.set(quotation.materialId, quotation);
+        }
+      }
+      for (const [materialId, quotation] of latestByMaterial) {
+        await tx.procMaterial.updateMany({
+          where: { id: materialId },
+          data: {
+            latestPrice: quotation.unitPrice,
+            latestSupplier: quotation.supplierName,
+            latestQuoteDate: quotation.quoteDate,
+          },
+        });
+      }
+
+      await tx.procTask.update({
+        where: { id: taskId },
+        data: {
+          status: next,
+          selectedQuotationId: snapshots[0]?.id ?? null,
+          quotationSubtotal: subtotal,
+          quotationDiscount: discount,
+          quotationTotal: total,
+          quotationCurrency: currency,
+          logs: {
+            create: {
+              kind: 'action',
+              text: `从供应商报价库批量确认 ${snapshots.length} 条报价，报价小计 ${currency} ${subtotal.toFixed(4)}，折扣 ${discount.toFixed(4)}，最终总价 ${total.toFixed(4)}`,
+              fromStatus: task.status,
+              toStatus: next,
+              actor: actor.name,
+              actorUserId: actor.id,
+            },
+          },
+        },
+      });
+    });
+
+    return this.getTask(taskId);
   }
 
   /** 选定报价：需样 → 待到样，免样 → 已定价；同时回写物料最新价。 */
@@ -784,12 +1055,27 @@ export class ProcurementService {
     if (!quotation || quotation.taskId !== taskId) throw new NotFoundException('报价不存在');
     if (task.status !== 'inquiring') throw new BadRequestException('只有「询价中」的任务可选定报价');
 
+    const selectedQuantity = quotation.quantity ?? task.quantity;
+    const selectedLineTotal = quotation.unitPrice.mul(selectedQuantity).toDecimalPlaces(4);
     await this.prisma.$transaction([
       this.prisma.procQuotation.updateMany({ where: { taskId }, data: { isSelected: false } }),
-      this.prisma.procQuotation.update({ where: { id: quotationId }, data: { isSelected: true } }),
+      this.prisma.procQuotation.update({
+        where: { id: quotationId },
+        data: {
+          isSelected: true,
+          quantity: selectedQuantity,
+          lineTotal: selectedLineTotal,
+        },
+      }),
       this.prisma.procTask.update({
         where: { id: taskId },
-        data: { selectedQuotationId: quotationId },
+        data: {
+          selectedQuotationId: quotationId,
+          quotationSubtotal: selectedLineTotal,
+          quotationDiscount: new Prisma.Decimal(0),
+          quotationTotal: selectedLineTotal,
+          quotationCurrency: quotation.currency,
+        },
       }),
     ]);
     if (task.materialId) {
@@ -823,6 +1109,34 @@ export class ProcurementService {
       take: 200,
     });
     return rows.map((r) => this.serializeQuotation(r));
+  }
+
+  private readQuoteBookTiers(value: Prisma.JsonValue): Array<{ minQty: number; unitPrice: number }> {
+    if (!Array.isArray(value)) return [];
+    return value
+      .map((tier) => {
+        if (!tier || typeof tier !== 'object' || Array.isArray(tier)) return null;
+        const row = tier as Record<string, Prisma.JsonValue>;
+        const minQty = Number(row.minQty);
+        const unitPrice = Number(row.unitPrice);
+        if (!Number.isFinite(minQty) || minQty < 0 || !Number.isFinite(unitPrice) || unitPrice <= 0) return null;
+        return { minQty, unitPrice };
+      })
+      .filter((tier): tier is { minQty: number; unitPrice: number } => Boolean(tier))
+      .sort((a, b) => a.minQty - b.minQty);
+  }
+
+  private matchQuoteBookTier(
+    tiers: Array<{ minQty: number; unitPrice: number }>,
+    quantity: number,
+  ): { minQty: number; unitPrice: number } | null {
+    if (tiers.length === 0) return null;
+    let matched = tiers[0];
+    for (const tier of tiers) {
+      if (tier.minQty > quantity) break;
+      matched = tier;
+    }
+    return matched;
   }
 
   // ── T+ 采购单接缝 ───────────────────────────────────────────────────────────
@@ -946,6 +1260,7 @@ export class ProcurementService {
       if (dto.isConsumable !== undefined) data.isConsumable = dto.isConsumable;
       if (dto.safeStock !== undefined) data.safeStock = new Prisma.Decimal(dto.safeStock);
       if (dto.remark !== undefined) data.remark = dto.remark || null;
+      if (dto.imageKey !== undefined) data.imageKey = dto.imageKey.trim() || null;
       const row = await this.prisma.procMaterial.update({ where: { id }, data });
       return this.serializeMaterial({ ...row, balances: [] });
     }
@@ -962,6 +1277,7 @@ export class ProcurementService {
         isConsumable: dto.isConsumable ?? false,
         safeStock: new Prisma.Decimal(dto.safeStock ?? 0),
         remark: dto.remark ?? null,
+        imageKey: dto.imageKey?.trim() || null,
         reviewSource: 'manual',
         createdBy: actor.id,
       },
@@ -1361,6 +1677,10 @@ export class ProcurementService {
           : task.requesterDept ?? undefined,
       consumableNote: task.consumableNote ?? undefined,
       selectedQuotationId: task.selectedQuotationId ?? undefined,
+      quotationSubtotal: numOrNull(task.quotationSubtotal) ?? undefined,
+      quotationDiscount: numOrNull(task.quotationDiscount) ?? undefined,
+      quotationTotal: numOrNull(task.quotationTotal) ?? undefined,
+      quotationCurrency: task.quotationCurrency ?? undefined,
       businessDone: task.businessDone,
       cancelReason: task.cancelReason ?? undefined,
       // 前端 ProcurementTask.attachments 是数量占位，这里同时给出数量与明细
@@ -1408,6 +1728,8 @@ export class ProcurementService {
       supplierId: q.supplierId ?? undefined,
       supplierName: q.supplierName,
       unitPrice: num(q.unitPrice),
+      quantity: numOrNull(q.quantity) ?? undefined,
+      lineTotal: numOrNull(q.lineTotal) ?? undefined,
       currency: q.currency,
       leadTimeDays: q.leadTimeDays,
       minOrderQty: numOrNull(q.minOrderQty),
@@ -1444,6 +1766,9 @@ export class ProcurementService {
       latestPrice: numOrNull(m.latestPrice),
       latestSupplier: m.latestSupplier ?? undefined,
       latestQuoteDate: day(m.latestQuoteDate),
+      imageUrl: m.imageKey
+        ? this.ossService.getSignedUrl(m.imageKey, SIGNED_URL_TTL_SECONDS.DOCUMENT) ?? undefined
+        : undefined,
       remark: m.remark ?? undefined,
     };
   }

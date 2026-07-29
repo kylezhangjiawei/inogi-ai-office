@@ -57,17 +57,29 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
       setRejectBusy(false);
     }
   };
-  // 报价按物料名跨任务聚合（与历史价格对比同源）
+  // 当前任务报价与跨任务历史价分开读取，避免把历史报价误显示成当前候选。
   const [quotes, setQuotes] = useState<Quotation[]>([]);
+  const [historyQuotes, setHistoryQuotes] = useState<Quotation[]>([]);
   useEffect(() => {
     let alive = true;
-    void listQuotations({ materialName: task.materialName })
-      .then((list) => { if (alive) setQuotes(list); })
-      .catch(() => { if (alive) setQuotes([]); });
+    void Promise.all([
+      listQuotations({ taskId: task.id }),
+      listQuotations({ materialId: task.materialId ?? undefined, materialName: task.materialId ? undefined : task.materialName }),
+    ])
+      .then(([taskQuotes, materialQuotes]) => {
+        if (!alive) return;
+        setQuotes(taskQuotes);
+        setHistoryQuotes(materialQuotes);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setQuotes([]);
+        setHistoryQuotes([]);
+      });
     return () => { alive = false; };
-  }, [task.materialName]);
-  const histLow = quotes.length ? quotes.reduce((a, b) => (a.unitPrice <= b.unitPrice ? a : b)) : null;
-  const selected = quotes.find((q) => q.isSelected);
+  }, [task.id, task.materialId, task.materialName, task.updatedAt]);
+  const histLow = historyQuotes.length ? historyQuotes.reduce((a, b) => (a.unitPrice <= b.unitPrice ? a : b)) : null;
+  const selectedQuotes = quotes.filter((q) => q.isSelected);
   const pct = task.quantity > 0 ? Math.round((task.arrivedQty / task.quantity) * 100) : 0;
   // 是否已进入下单阶段（此前「下单与付款」「到货记录」还没有内容，不展示）
   const orderStage = ["pending_purchase", "priced", "in_transit", "partial_arrival", "completed"].includes(task.status);
@@ -210,12 +222,43 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
               <div className="rounded-xl border border-slate-100">
                 <div className="border-b border-slate-100 px-4 py-2 text-sm font-semibold text-slate-700">{t('供应商报价（{count}）', { count: quotes.length })}</div>
                 <ul className="divide-y divide-slate-100">
-                  {quotes.map((q, i) => (
-                    <li key={i} className={cn("flex items-center justify-between px-4 py-2.5", q.isSelected && "bg-emerald-50/40")}>
-                      <span className="flex items-center gap-3"><span className="text-sm font-medium text-slate-700">{q.supplierName}</span><span className="text-sm font-semibold tabular-nums text-slate-900">{fmtMoney(q.unitPrice)}</span><span className="text-xs text-slate-400">{t('交期 {count} 天', { count: q.leadTimeDays })}</span>{q.isSelected && <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-600">{t('已选定')}</span>}</span>
+                  {quotes.map((q) => (
+                    <li key={q.id} className={cn("px-4 py-2.5", q.isSelected && "bg-emerald-50/40")}>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="flex min-w-0 items-center gap-3">
+                          <span className="truncate text-sm font-medium text-slate-700">{q.supplierName}</span>
+                          <span className="text-sm font-semibold tabular-nums text-slate-900">{q.currency === "CNY" ? fmtMoney(q.unitPrice) : `${q.currency} ${q.unitPrice}`}</span>
+                          {q.channel === "quote-book" && <span className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[11px] text-indigo-600">{t('报价库')}</span>}
+                          {q.isSelected && <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-600">{t('已确认')}</span>}
+                        </span>
+                        <span className="shrink-0 text-xs text-slate-400">{t('交期 {count} 天', { count: q.leadTimeDays })}</span>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-400">
+                        {q.quantity != null && <span>{t('采购数量')} {q.quantity.toLocaleString()} {t(task.unit)}</span>}
+                        {q.lineTotal != null && <span className="font-medium text-slate-600">{t('行金额')} {q.currency === "CNY" ? fmtMoney(q.lineTotal) : `${q.currency} ${q.lineTotal}`}</span>}
+                        {q.minOrderQty != null && <span>{t('起订量')} {q.minOrderQty.toLocaleString()}</span>}
+                        {q.validUntil && <span>{t('有效期至 {date}', { date: q.validUntil })}</span>}
+                        {q.note && <span className="min-w-0 truncate">{q.note}</span>}
+                      </div>
                     </li>
                   ))}
                 </ul>
+                {task.quotationTotal != null && (
+                  <div className="space-y-1 border-t border-slate-100 bg-slate-50/70 px-4 py-3 text-xs text-slate-600">
+                    <div className="flex justify-between">
+                      <span>{t('报价小计')}</span>
+                      <b>{task.quotationCurrency === "CNY" ? fmtMoney(task.quotationSubtotal ?? 0) : `${task.quotationCurrency ?? ""} ${task.quotationSubtotal ?? 0}`}</b>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>{t('减：折扣金额')}</span>
+                      <b>- {task.quotationCurrency === "CNY" ? fmtMoney(task.quotationDiscount ?? 0) : `${task.quotationCurrency ?? ""} ${task.quotationDiscount ?? 0}`}</b>
+                    </div>
+                    <div className="flex justify-between border-t border-slate-200 pt-1.5 text-sm text-indigo-700">
+                      <b>{t('最终总价')}</b>
+                      <b>{task.quotationCurrency === "CNY" ? fmtMoney(task.quotationTotal) : `${task.quotationCurrency ?? ""} ${task.quotationTotal}`}</b>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -224,7 +267,20 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
           {task.needSample && (
             <div className="rounded-xl border border-slate-100 p-4">
               <div className="mb-2 text-sm font-semibold text-slate-700">{t('样品与测试')}</div>
-              {selected && <Info label="打样报价" value={t('{supplier} · {price} · 交期 {count} 天', { supplier: selected.supplierName, price: fmtMoney(selected.unitPrice), count: selected.leadTimeDays })} />}
+              {selectedQuotes.length > 0 && (
+                <Info
+                  label="已确认报价"
+                  value={(
+                    <span className="space-y-1">
+                      {selectedQuotes.map((quote) => (
+                        <span key={quote.id} className="block">
+                          {quote.materialName} · {quote.supplierName} · {quote.quantity != null ? `${quote.quantity.toLocaleString()} ${t(task.unit)} · ` : ""}{quote.currency === "CNY" ? fmtMoney(quote.lineTotal ?? quote.unitPrice) : `${quote.currency} ${quote.lineTotal ?? quote.unitPrice}`} · {t("交期 {count} 天", { count: quote.leadTimeDays })}
+                        </span>
+                      ))}
+                    </span>
+                  )}
+                />
+              )}
               <Info label="到样时间" value={t(["pending_sample"].includes(task.status) ? "待到样" : "已到样")} />
               {(task.status === "testing" || ["priced", "in_transit", "partial_arrival", "completed"].includes(task.status)) && (
                 <Info label="测试结论" value={t(task.status === "testing" ? "测试中" : "测试通过")} />
