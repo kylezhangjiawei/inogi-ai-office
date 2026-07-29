@@ -1,10 +1,39 @@
 import 'reflect-metadata';
 
+import { gzip } from 'node:zlib';
+
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { json, text, urlencoded } from 'express';
+import { json, text, urlencoded, type NextFunction, type Request, type Response } from 'express';
 
 import { AppModule } from './app.module';
+
+/**
+ * 研发数据表快照响应 gzip（零依赖，Node 内置 zlib 异步压缩，不阻塞事件循环）。
+ * 快照 JSON 文本压缩率 5~10 倍，是「打开慢」的直接止血项；nginx 若已开 gzip 也不冲突
+ * （响应已带 Content-Encoding 时 nginx 不会二次压缩）。仅挂在该路由，不影响其他接口。
+ */
+function gzipJsonResponses(req: Request, res: Response, next: NextFunction) {
+  if (!/\bgzip\b/i.test(String(req.headers['accept-encoding'] ?? ''))) return next();
+  const originalJson = res.json.bind(res);
+  res.json = (body: unknown) => {
+    const payload = JSON.stringify(body);
+    // 小响应（保存返回的元数据等）不值得压缩
+    if (payload.length < 1024) return originalJson(body);
+    gzip(Buffer.from(payload), (err, zipped) => {
+      if (err || res.headersSent) {
+        originalJson(body);
+        return;
+      }
+      res.setHeader('Content-Encoding', 'gzip');
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Vary', 'Accept-Encoding');
+      res.send(zipped);
+    });
+    return res;
+  };
+  next();
+}
 
 const defaultCorsOrigins = [
   'http://localhost:5173',
@@ -29,6 +58,8 @@ async function bootstrap() {
   // 研发数据表会把高保真工作簿（含 base64 图片）作为 JSON 保存；当前线上快照
   // 已超过通用 25 MB 上限。仅对此路由放宽，避免扩大其他 JSON 接口的攻击面。
   app.use('/api/research-development/sheet-workbook', json({ limit: '50mb' }));
+  // 大快照读取的下行提速（图片出仓后快照为纯文本，压缩率 5~10x）
+  app.use('/api/research-development/sheet-workbook', gzipJsonResponses);
   app.use(json({ limit: '25mb' }));
   app.use(urlencoded({ extended: true, limit: '25mb' }));
   app.setGlobalPrefix('api');

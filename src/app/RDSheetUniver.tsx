@@ -45,6 +45,11 @@ export type RDSheetUniverHandle = {
    * 逐张：读取图源 → 插入到其锚点单元格（读不到锚点则退回当前选中格）→ 确认成功后删除原浮动图。返回转换数量。
    */
   convertFloatingImagesToCells: () => Promise<{ converted: number; total: number }>;
+  /**
+   * 自适应行高：选中多行/多列时只调整选中行；单格或无选区时调整整表数据范围。
+   * 行被标记为自动高度（ia=1）后随内容变化持续自适应，且随快照保存往返。
+   */
+  autoFitRows: () => { rows: number; scope: "selection" | "sheet" };
 };
 
 type Props = {
@@ -80,7 +85,34 @@ export const RDSheetUniver = forwardRef<RDSheetUniverHandle, Props>(function RDS
     () => ({
       getSnapshot: () => {
         try {
-          return apiRef.current?.getActiveWorkbook()?.save() ?? null;
+          const wb = apiRef.current?.getActiveWorkbook();
+          const snap = wb?.save() ?? null;
+          if (!snap) return null;
+          // 固化自动行高：save() 导出的 rowData.ah 可能与当前展示高度不同步（自动高度重算
+          // 是异步分帧的），重载后 ia 行会以过期的 ah/h 渲染（实测塌回默认 24），直到再次编辑才恢复。
+          // 这里以运行时行高（getRowHeight 聚合 ah 口径）为准写回 ah 与 h，重载初始渲染即正确。
+          try {
+            /* eslint-disable @typescript-eslint/no-explicit-any */
+            const sheets = (snap as any).sheets ?? {};
+            for (const [sheetId, sheetData] of Object.entries<any>(sheets)) {
+              const rowData = sheetData?.rowData;
+              if (!rowData || typeof rowData !== "object") continue;
+              const fws = (wb as any).getSheetBySheetId?.(sheetId);
+              if (!fws) continue;
+              for (const [rStr, row] of Object.entries<any>(rowData)) {
+                if (!row || row.ia !== 1) continue;
+                const runtimeH = fws.getRowHeight?.(Number(rStr));
+                if (typeof runtimeH === "number" && runtimeH > 0) {
+                  row.ah = runtimeH;
+                  row.h = runtimeH;
+                }
+              }
+            }
+            /* eslint-enable @typescript-eslint/no-explicit-any */
+          } catch {
+            /* 固化失败不阻塞保存：仅重载初始行高可能偏小 */
+          }
+          return snap;
         } catch {
           return null;
         }
@@ -176,6 +208,59 @@ export const RDSheetUniver = forwardRef<RDSheetUniverHandle, Props>(function RDS
         if (converted > 0) onDirtyRef.current?.();
         return { converted, total: images.length };
       },
+      autoFitRows: () => {
+        /* eslint-disable @typescript-eslint/no-explicit-any */
+        const api = apiRef.current as any;
+        const ws = api?.getActiveWorkbook?.()?.getActiveSheet?.();
+        if (!ws) return { rows: 0, scope: "sheet" as const };
+
+        // 列只覆盖到数据范围：整表两万行 × 全列写 wrap 样式会撑爆快照
+        const lastCol = Math.max(0, ws.getLastColumn?.() ?? 0);
+        const lastRow = Math.max(0, ws.getLastRow?.() ?? 0);
+
+        // 选区行数>1 视为「明确框选」→ 只调选中行；单格/无选区 → 调整表数据范围
+        const ranges: Array<{ startRow: number; endRow: number; startColumn: number; endColumn: number }> = [];
+        try {
+          const list = ws.getSelection?.()?.getActiveRangeList?.() ?? [];
+          for (const r of Array.isArray(list) ? list : []) {
+            const range = r?._range ?? {
+              startRow: r?.getRow?.(),
+              endRow: (r?.getRow?.() ?? 0) + (r?.getHeight?.() ?? 1) - 1,
+            };
+            if (typeof range?.startRow === "number" && typeof range?.endRow === "number") {
+              ranges.push({
+                startRow: range.startRow,
+                endRow: Math.min(range.endRow, 100_000),
+                startColumn: 0,
+                endColumn: lastCol,
+              });
+            }
+          }
+        } catch { /* 拿不到选区走整表 */ }
+
+        const meaningful = ranges.some((r) => r.endRow > r.startRow);
+        let scope: "selection" | "sheet" = "selection";
+        let targets = ranges;
+        if (!meaningful) {
+          scope = "sheet";
+          targets = [{ startRow: 0, endRow: lastRow, startColumn: 0, endColumn: lastCol }];
+        }
+
+        try {
+          // 与 Univer 官方 autoFitRow 同序：先开自动换行（自动行高只对换行单元格按多行测量，
+          // 否则长文本被视作单行溢出、行高恒为默认值），再标记行自动高度（ia=1，持续自适应）。
+          for (const r of targets) {
+            ws.getRange(r.startRow, 0, r.endRow - r.startRow + 1, lastCol + 1)?.setWrap?.(true);
+          }
+          ws.setRangesAutoHeight?.(targets);
+        } catch {
+          return { rows: 0, scope };
+        }
+        /* eslint-enable @typescript-eslint/no-explicit-any */
+        const rows = targets.reduce((acc, r) => acc + (r.endRow - r.startRow + 1), 0);
+        if (rows > 0) onDirtyRef.current?.();
+        return { rows, scope };
+      },
     }),
     [],
   );
@@ -212,6 +297,19 @@ export const RDSheetUniver = forwardRef<RDSheetUniverHandle, Props>(function RDS
       (window as unknown as Record<string, unknown>).__univerAPI = univerAPI;
     }
 
+    // 修复粘贴多行文本每行后多一个空行：Windows 剪贴板换行是 \r\n，Univer 粘贴解析按 \n 切行后
+    // 每格尾部残留 \r，而 \r 恰是 Univer 文档模型的段落分隔符 → 渲染成一个空行。
+    // BeforeClipboardPaste 事件只读不可改内容；直接 patch 剪贴板服务又受 identifier 双实例影响，
+    // 故在命令层拦截：Ctrl+V 必经 SheetPasteShortKeyCommand，执行前原地把 \r\n / 孤立 \r 规范成 \n
+    //（handler 与此处共享同一 params 对象引用）。html 路径（自 Excel/WPS 复制）无此问题，不动。
+    const pasteNormalizeDisposable = univerAPI.onBeforeCommandExecute?.((commandInfo: { id?: string; params?: unknown }) => {
+      if (commandInfo?.id !== "sheet.command.paste-by-short-key") return;
+      const params = commandInfo.params as { textContent?: unknown } | undefined;
+      if (params && typeof params.textContent === "string" && /\r/.test(params.textContent)) {
+        params.textContent = params.textContent.replace(/\r\n?/g, "\n");
+      }
+    });
+
     univerAPI.createWorkbook(snapshotRef.current);
 
     // 初始装载结束后再监听值变更，避免装载本身触发 dirty。
@@ -231,6 +329,11 @@ export const RDSheetUniver = forwardRef<RDSheetUniverHandle, Props>(function RDS
     return () => {
       try {
         disposable?.dispose?.();
+      } catch {
+        /* ignore */
+      }
+      try {
+        (pasteNormalizeDisposable as { dispose?: () => void } | undefined)?.dispose?.();
       } catch {
         /* ignore */
       }

@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -8587,18 +8587,295 @@ export class ResearchDevelopmentService {
     return { snapshot: ResearchDevelopmentService.buildEmptyWorkbookSnapshot(), updated_at: new Date().toISOString(), updated_by: null };
   }
 
-  /** 保存整簿快照（仅 rd-sheet:edit / 超管，controller 守门）。 */
+  /**
+   * 保存整簿快照（仅 rd-sheet:edit / 超管，controller 守门）。
+   *
+   * - 乐观锁：调用方传 baseUpdatedAt（其加载/上次保存时的版本），与当前存储版本不一致且未
+   *   显式 force 时抛 409，防止多人编辑时后保存者无声覆盖先保存者。
+   * - 历史留档：被覆盖的旧版本自动存入历史（最近 10 版），恢复见 restoreSheetWorkbookVersion。
+   */
   async saveSheetWorkbook(
     snapshot: unknown,
-    editorId?: string | null,
+    editor?: { id?: string | null; name?: string | null },
+    opts?: { baseUpdatedAt?: string | null; force?: boolean },
   ): Promise<{ updated_at: string; updated_by: string | null }> {
     if (!isRecord(snapshot) || !isRecord((snapshot as JsonRecord).sheets)) {
       throw new BadRequestException('工作簿快照格式不正确');
     }
+    const prevRaw = await this.readValue('rd.sheets');
+    const prev = isRecord(prevRaw) && isRecord((prevRaw as JsonRecord).snapshot) ? (prevRaw as JsonRecord) : null;
+
+    if (prev && opts?.baseUpdatedAt && !opts?.force) {
+      const prevAt = cleanText(prev.updated_at);
+      if (prevAt && prevAt !== opts.baseUpdatedAt) {
+        const who = cleanText(prev.updated_by_name) || cleanText(prev.updated_by) || '他人';
+        throw new ConflictException(
+          `保存冲突：${who} 已于 ${new Date(prevAt).toLocaleString('zh-CN')} 保存了新版本。`,
+        );
+      }
+    }
+
     const updated_at = new Date().toISOString();
-    const updated_by = cleanText(editorId) || null;
-    await this.writeValue('rd.sheets', { snapshot, updated_at, updated_by });
+    const updated_by = cleanText(editor?.id) || null;
+    const updated_by_name = cleanText(editor?.name) || null;
+    await this.writeValue('rd.sheets', { snapshot, updated_at, updated_by, updated_by_name });
+
+    // 历史留档尽力而为：失败绝不能反过来阻塞保存本身
+    if (prev) {
+      try {
+        await this.pushSheetWorkbookHistory(prev);
+      } catch (err) {
+        this.logger.warn(`研发数据表历史留档失败（保存本身已成功）: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
     return { updated_at, updated_by };
+  }
+
+  // ─── 研发数据表：历史版本（每次保存自动留档，最近 10 版）──────────────────────
+
+  private static readonly RD_SHEET_HISTORY_KEEP = 10;
+  /** 未出仓的大快照（含 base64 图片）不入历史，避免历史表被撑爆；出仓后快照远小于此阈值。 */
+  private static readonly RD_SHEET_HISTORY_MAX_BYTES = 20 * 1024 * 1024;
+
+  private sheetHistoryPrefix(): string {
+    // 走 resolveRdStoreKey：与主键同一工作区命名空间（默认池 rd.sheets.history.*）
+    return `${resolveRdStoreKey('rd.sheets')}.history.`;
+  }
+
+  private async pushSheetWorkbookHistory(prev: JsonRecord): Promise<void> {
+    const serialized = JSON.stringify(prev);
+    if (serialized.length > ResearchDevelopmentService.RD_SHEET_HISTORY_MAX_BYTES) {
+      this.logger.warn(`研发数据表历史留档跳过：快照 ${Math.round(serialized.length / 1024 / 1024)}MB 超过上限（请先执行图片出仓）`);
+      return;
+    }
+    const at = cleanText(prev.updated_at) || new Date().toISOString();
+    const key = this.sheetHistoryPrefix() + at;
+    const value = { ...prev, size_bytes: serialized.length };
+    await this.prisma.systemSetting.upsert({
+      where: { key },
+      create: { category: CATEGORY, key, value: value as any, description: 'R&D sheet workbook history' },
+      update: { category: CATEGORY, value: value as any },
+    });
+    // 裁剪：ISO 时间戳按字典序即时间序，倒序保留最近 N 版
+    const rows = await this.prisma.systemSetting.findMany({
+      where: { key: { startsWith: this.sheetHistoryPrefix() } },
+      select: { key: true },
+      orderBy: { key: 'desc' },
+    });
+    const excess = rows.slice(ResearchDevelopmentService.RD_SHEET_HISTORY_KEEP).map((r) => r.key);
+    if (excess.length > 0) {
+      await this.prisma.systemSetting.deleteMany({ where: { key: { in: excess } } });
+    }
+  }
+
+  async listSheetWorkbookVersions(): Promise<
+    Array<{ id: string; updated_at: string; updated_by: string | null; updated_by_name: string | null; size_bytes: number }>
+  > {
+    const prefix = this.sheetHistoryPrefix();
+    // 原生 SQL 只取标量元数据：避免为了几个字段把最多 10 版完整快照（可达数十 MB）拉进内存。
+    // prefix 无 LIKE 通配符（无下划线/百分号），按字面前缀匹配。
+    const rows = await this.prisma.$queryRaw<
+      Array<{ key: string; updated_at: string | null; updated_by: string | null; updated_by_name: string | null; size_bytes: bigint | number | null }>
+    >`
+      SELECT key,
+             value->>'updated_at'      AS updated_at,
+             value->>'updated_by'      AS updated_by,
+             value->>'updated_by_name' AS updated_by_name,
+             (value->>'size_bytes')::bigint AS size_bytes
+      FROM "SystemSetting"
+      WHERE key LIKE ${prefix + '%'}
+      ORDER BY key DESC
+      LIMIT ${ResearchDevelopmentService.RD_SHEET_HISTORY_KEEP}
+    `;
+    return rows.map((row) => {
+      const id = row.key.slice(prefix.length);
+      return {
+        id,
+        updated_at: cleanText(row.updated_at) || id,
+        updated_by: cleanText(row.updated_by) || null,
+        updated_by_name: cleanText(row.updated_by_name) || null,
+        size_bytes: row.size_bytes == null ? 0 : Number(row.size_bytes),
+      };
+    });
+  }
+
+  /** 恢复到指定历史版本：当前版本先入历史（可再恢复回来），随后历史快照成为当前版本。 */
+  async restoreSheetWorkbookVersion(
+    id: string,
+    editor?: { id?: string | null; name?: string | null },
+  ): Promise<{ updated_at: string; updated_by: string | null }> {
+    const cleanId = cleanText(id);
+    // 只接受 ISO 时间戳形态的版本 id，防止拼出任意存储键
+    if (!/^\d{4}-\d{2}-\d{2}T[0-9:.]+Z$/.test(cleanId)) {
+      throw new BadRequestException('版本标识不正确');
+    }
+    const row = await this.prisma.systemSetting.findUnique({
+      where: { key: this.sheetHistoryPrefix() + cleanId },
+      select: { value: true },
+    });
+    const rec = row && isRecord(row.value) ? (row.value as JsonRecord) : null;
+    if (!rec || !isRecord(rec.snapshot)) {
+      throw new NotFoundException('历史版本不存在或已被清理');
+    }
+    return this.saveSheetWorkbook(rec.snapshot, editor, { force: true });
+  }
+
+  // ─── 研发数据表：图片资产出仓（base64 → OSS，快照瘦身核心）──────────────────────
+
+  private static readonly RD_SHEET_ASSET_BUSINESS = 'rd-sheet-assets';
+  /** 资产内容不可变、快照长期引用 → 能力 URL 签 10 年（signPreviewToken 按天对齐保持稳定）。 */
+  private static readonly RD_SHEET_ASSET_EXPIRES_SECONDS = 10 * 365 * 24 * 3600;
+
+  /** 数据表资产的同源能力 URL（HMAC 防伪，<img> 可直接加载，无需 Authorization 头）。 */
+  buildSheetAssetUrl(objectKey: string): string {
+    const { exp, sig } = this.ossService.signPreviewToken(
+      objectKey,
+      ResearchDevelopmentService.RD_SHEET_ASSET_EXPIRES_SECONDS,
+    );
+    return `/api/research-development/sheet-workbook/assets?key=${encodeURIComponent(objectKey)}&exp=${exp}&sig=${sig}`;
+  }
+
+  /** 校验资产 key 落在数据表资产前缀下（防止能力 URL 被用于读取桶内其他对象）。 */
+  isSheetAssetKey(objectKey: string): boolean {
+    return this.ossService.isKeyUnderBusinessType(objectKey, ResearchDevelopmentService.RD_SHEET_ASSET_BUSINESS);
+  }
+
+  /** 资产 MIME 白名单：排除 SVG 等可执行内容——资产 GET 是同源公开端点，SVG 内嵌脚本会构成存储型 XSS。 */
+  private static readonly RD_SHEET_ASSET_MIMES = new Set([
+    'image/png',
+    'image/jpeg',
+    'image/gif',
+    'image/webp',
+    'image/bmp',
+  ]);
+
+  /** 上传单张数据表图片资产。OSS 未配置返回 { url: null, reason: 'oss_disabled' }（前端据此停止后续上传）。 */
+  async uploadSheetAsset(
+    buffer: Buffer,
+    originalname: string,
+    mimetype?: string,
+  ): Promise<{ url: string | null; reason?: string }> {
+    if (!ResearchDevelopmentService.RD_SHEET_ASSET_MIMES.has((mimetype ?? '').toLowerCase())) {
+      throw new BadRequestException('仅支持 png / jpg / gif / webp / bmp 图片资产');
+    }
+    if (!this.ossService.isEnabled) return { url: null, reason: 'oss_disabled' };
+    const objectKey = await this.ossService.uploadBuffer(
+      buffer,
+      ResearchDevelopmentService.RD_SHEET_ASSET_BUSINESS,
+      originalname,
+      mimetype,
+    );
+    if (!objectKey) return { url: null, reason: 'upload_failed' };
+    return { url: this.buildSheetAssetUrl(objectKey) };
+  }
+
+  /** 深度收集快照对象树里的 base64 图源持有者（source + imageSourceType 并存的对象）。 */
+  private static collectSheetImageHolders(
+    node: unknown,
+    out: Array<JsonRecord & { source: string; imageSourceType: string }>,
+  ): void {
+    if (!node || typeof node !== 'object') return;
+    if (Array.isArray(node)) {
+      for (const item of node) ResearchDevelopmentService.collectSheetImageHolders(item, out);
+      return;
+    }
+    const rec = node as JsonRecord;
+    // 长度阈值/排除 SVG 与前端 rdSheetAssets 一致：微型图标出仓得不偿失；SVG 被资产白名单拒收
+    if (
+      typeof rec.source === 'string' &&
+      rec.source.startsWith('data:image/') &&
+      !rec.source.startsWith('data:image/svg') &&
+      rec.source.length >= 4096 &&
+      typeof rec.imageSourceType === 'string'
+    ) {
+      out.push(rec as JsonRecord & { source: string; imageSourceType: string });
+      return;
+    }
+    for (const value of Object.values(rec)) ResearchDevelopmentService.collectSheetImageHolders(value, out);
+  }
+
+  /**
+   * 存量快照图片出仓（管理员一次性操作）：把当前已存储快照里的 base64 图片上传 OSS、
+   * 替换为资产 URL 后重新落库。上线后调用一次，旧数据立即瘦身，不必等编辑者重新保存。
+   * 单张失败保留 base64（不影响功能），可重复调用直至 failed=0。
+   */
+  async extractSheetWorkbookAssets(
+    editor?: { id?: string | null; name?: string | null },
+  ): Promise<{ total: number; converted: number; failed: number; size_before: number; size_after: number }> {
+    if (!this.ossService.isEnabled) {
+      throw new BadRequestException('OSS 未配置，无法执行图片出仓');
+    }
+    const current = await this.getSheetWorkbook();
+    const snapshot = current.snapshot;
+    const sizeBefore = JSON.stringify(snapshot).length;
+
+    const holders: Array<JsonRecord & { source: string; imageSourceType: string }> = [];
+    // resources 是 JSON 字符串形态：先解析再收集，替换后回写
+    const resources = Array.isArray(snapshot.resources) ? (snapshot.resources as JsonRecord[]) : [];
+    const parsedResources: Array<{ holder: JsonRecord; parsed: unknown }> = [];
+    for (const res of resources) {
+      if (typeof res?.data === 'string' && res.data.includes('data:image/')) {
+        try {
+          const parsed = JSON.parse(res.data) as unknown;
+          ResearchDevelopmentService.collectSheetImageHolders(parsed, holders);
+          parsedResources.push({ holder: res, parsed });
+        } catch {
+          /* 解析失败原样保留 */
+        }
+      }
+    }
+    for (const [key, value] of Object.entries(snapshot)) {
+      if (key === 'resources') continue;
+      ResearchDevelopmentService.collectSheetImageHolders(value, holders);
+    }
+
+    if (holders.length === 0) {
+      return { total: 0, converted: 0, failed: 0, size_before: sizeBefore, size_after: sizeBefore };
+    }
+
+    // 同图去重（内容 sha256）：复制粘贴多处的同一张图只传一份
+    const urlBySource = new Map<string, string | null>();
+    for (const holder of holders) {
+      if (urlBySource.has(holder.source)) continue;
+      const commaAt = holder.source.indexOf(',');
+      const mime = holder.source.slice(5, holder.source.indexOf(';'));
+      const ext = mime.includes('jpeg') ? 'jpg' : mime.includes('gif') ? 'gif' : mime.includes('webp') ? 'webp' : 'png';
+      try {
+        const buffer = Buffer.from(holder.source.slice(commaAt + 1), 'base64');
+        const hash = createHash('sha256').update(buffer).digest('hex').slice(0, 16);
+        const { url } = await this.uploadSheetAsset(buffer, `${hash}.${ext}`, mime);
+        urlBySource.set(holder.source, url);
+      } catch {
+        urlBySource.set(holder.source, null);
+      }
+    }
+
+    let converted = 0;
+    let failed = 0;
+    for (const url of urlBySource.values()) {
+      if (url) converted += 1;
+      else failed += 1;
+    }
+    for (const holder of holders) {
+      const url = urlBySource.get(holder.source);
+      if (url) {
+        holder.source = url;
+        holder.imageSourceType = 'URL';
+      }
+    }
+    for (const { holder, parsed } of parsedResources) {
+      try {
+        holder.data = JSON.stringify(parsed);
+      } catch {
+        /* 序列化失败原样保留 */
+      }
+    }
+
+    const sizeAfter = JSON.stringify(snapshot).length;
+    if (converted > 0) {
+      await this.saveSheetWorkbook(snapshot, editor, { force: true });
+    }
+    return { total: urlBySource.size, converted, failed, size_before: sizeBefore, size_after: sizeAfter };
   }
 
   private async readArray(key: RdStoreKey) {

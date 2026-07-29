@@ -15,6 +15,9 @@ const RD_SHEET_WORKBOOK_TIMEOUT_MS = 180_000;
 
 type RequestJsonOptions = RequestInit & { timeoutMs?: number };
 
+/** 研发接口错误：message 为服务端可读文案，status 为 HTTP 状态码（网络层失败时为 undefined）。 */
+export type RdApiError = Error & { status?: number };
+
 /**
  * 任务工作区：中美协同路由（/us-collab-*）下所有研发接口自动带 ?workspace=us-collab，
  * 后端据此切换到独立的协同任务池（任务/人员/审批流/AI 策略/留痕与研发池完全隔离）。
@@ -67,7 +70,10 @@ async function fetchWithTimeout(
   try {
     const response = await authFetch(`${RD_API_BASE}${withWorkspace(path)}`, { ...rest, signal: controller.signal });
     if (!response.ok) {
-      throw new Error(await readErrorMessage(response, fallbackErrorMessage));
+      // 附带 HTTP 状态码：调用方据此区分「可重试的网络/网关错误」与「业务拒绝」（如 409 保存冲突）
+      const error: RdApiError = new Error(await readErrorMessage(response, fallbackErrorMessage));
+      error.status = response.status;
+      throw error;
     }
     return response;
   } catch (err) {
@@ -534,12 +540,83 @@ export function fetchRdSheetWorkbook(signal?: AbortSignal) {
   });
 }
 
-/** 保存整簿快照（仅 rd-sheet:edit / 超管）。 */
-export function saveRdSheetWorkbook(snapshot: unknown) {
+/**
+ * 保存整簿快照（仅 rd-sheet:edit / 超管）。
+ * baseUpdatedAt：乐观锁基线（加载/上次保存时的 updated_at）；服务器版本不一致时返回 409，
+ * 防止多人编辑时后保存者无声覆盖先保存者。force=true 显式覆盖。
+ */
+export function saveRdSheetWorkbook(
+  snapshot: unknown,
+  opts?: { baseUpdatedAt?: string | null; force?: boolean },
+) {
   return requestJson<RdSheetWorkbookSaveResult>("/sheet-workbook", {
     method: "PUT",
-    body: JSON.stringify({ snapshot }),
+    body: JSON.stringify({
+      snapshot,
+      base_updated_at: opts?.baseUpdatedAt ?? null,
+      force: !!opts?.force,
+    }),
     timeoutMs: RD_SHEET_WORKBOOK_TIMEOUT_MS,
+  });
+}
+
+/**
+ * 上传数据表图片资产（图片出仓）：返回可长期使用的同源资产 URL（HMAC 能力链接）。
+ * url=null 表示未上传成功（reason=oss_disabled 时 OSS 未配置，调用方应停止后续上传）。
+ */
+export async function uploadRdSheetAsset(
+  blob: Blob,
+  filename: string,
+  mime?: string,
+): Promise<{ url: string | null; reason?: string }> {
+  const form = new FormData();
+  form.append("file", new File([blob], filename, { type: mime || blob.type || "image/png" }));
+  const response = await fetchWithTimeout(
+    "/sheet-workbook/assets",
+    { method: "POST", body: form },
+    120_000,
+    "图片资产上传失败",
+  );
+  return (await response.json()) as { url: string | null; reason?: string };
+}
+
+/** 历史版本元数据（服务器每次保存自动留档，最多保留最近 10 版）。 */
+export type RdSheetVersionMeta = {
+  id: string;
+  updated_at: string;
+  updated_by: string | null;
+  updated_by_name: string | null;
+  size_bytes: number;
+};
+
+export function fetchRdSheetVersions() {
+  return requestJson<RdSheetVersionMeta[]>("/sheet-workbook/versions");
+}
+
+/** 恢复到某个历史版本（当前版本会先入历史，可再次恢复回来）。 */
+export function restoreRdSheetVersion(id: string) {
+  return requestJson<RdSheetWorkbookSaveResult>("/sheet-workbook/versions/restore", {
+    method: "POST",
+    body: JSON.stringify({ id }),
+  });
+}
+
+export type RdSheetExtractAssetsResult = {
+  total: number;
+  converted: number;
+  failed: number;
+  size_before: number;
+  size_after: number;
+};
+
+/**
+ * 服务端「存量快照图片出仓」：把当前已存储快照里的 base64 图片迁移到 OSS（管理员一次性操作）。
+ * 上线后调用一次即可让旧数据立刻瘦身，不必等编辑者重新保存。
+ */
+export function extractRdSheetAssets() {
+  return requestJson<RdSheetExtractAssetsResult>("/sheet-workbook/extract-assets", {
+    method: "POST",
+    timeoutMs: RD_AI_TIMEOUT_MS,
   });
 }
 

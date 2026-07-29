@@ -898,11 +898,104 @@ export class ResearchDevelopmentController {
     return this.rdService.getSheetWorkbook();
   }
 
-  /** 保存整簿快照（仅编辑者 rd-sheet:edit / 超管）。 */
+  /**
+   * 保存整簿快照（仅编辑者 rd-sheet:edit / 超管）。
+   * base_updated_at 为乐观锁基线：与服务器当前版本不一致且未 force 时返回 409（被覆盖版本自动入历史）。
+   */
   @Put('sheet-workbook')
   @Permissions('rd-sheet:edit')
-  saveSheetWorkbook(@Body() body: { snapshot?: unknown }, @Request() req: AuthedRequest) {
-    return this.rdService.saveSheetWorkbook(body?.snapshot, req.user?.id);
+  saveSheetWorkbook(
+    @Body() body: { snapshot?: unknown; base_updated_at?: unknown; force?: unknown },
+    @Request() req: AuthedRequest,
+  ) {
+    return this.rdService.saveSheetWorkbook(
+      body?.snapshot,
+      { id: req.user?.id, name: req.user?.name },
+      {
+        baseUpdatedAt: typeof body?.base_updated_at === 'string' ? body.base_updated_at : null,
+        force: body?.force === true,
+      },
+    );
+  }
+
+  /**
+   * 上传数据表图片资产（图片出仓）：保存前前端把快照内 base64 图片逐张传到这里换取
+   * 同源永久资产 URL，快照只存 URL → 打开/保存的 JSON 从几十 MB 降到 MB 级。
+   */
+  @Post('sheet-workbook/assets')
+  @Permissions('rd-sheet:edit')
+  @UseInterceptors(FilesInterceptor('file', 1, { limits: { fileSize: 20 * 1024 * 1024 } }))
+  uploadSheetAsset(
+    @UploadedFiles() files: Array<{ originalname: string; mimetype?: string; buffer: Buffer }> | undefined,
+  ) {
+    const file = files?.[0];
+    if (!file) throw new BadRequestException('图片资产不能为空');
+    return this.rdService.uploadSheetAsset(file.buffer, file.originalname, file.mimetype);
+  }
+
+  /**
+   * 数据表图片资产读取：Public + HMAC 能力 URL（Univer 通过 <img> 加载，带不了 Authorization）。
+   * 内容按 key 不可变 → 允许浏览器长缓存一年，二次打开图片零流量。
+   */
+  @Public()
+  @Permissions()
+  @SkipThrottle()
+  @Get('sheet-workbook/assets')
+  async getSheetAsset(
+    @Query('key') key: string,
+    @Query('exp') exp: string,
+    @Query('sig') sig: string,
+    @Res() res: Response,
+  ) {
+    if (
+      !key ||
+      !this.rdService.isSheetAssetKey(key) ||
+      !this.ossService.verifyPreviewToken(key, Number(exp), sig)
+    ) {
+      throw new NotFoundException();
+    }
+    const obj = await this.ossService.getObjectStream(key);
+    if (!obj) throw new NotFoundException();
+
+    res.setHeader('Content-Type', obj.contentType || 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('Cache-Control', 'private, max-age=31536000, immutable');
+    // 双保险（上传侧已白名单排除 SVG 等可执行内容）：禁止 MIME 嗅探 + 禁止任何脚本执行，
+    // 确保该同源公开端点即使被直开也不可能执行内容。
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'");
+    if (obj.size > 0) res.setHeader('Content-Length', String(obj.size));
+
+    obj.stream.on('error', () => {
+      if (res.headersSent) res.end();
+      else res.status(500).end();
+    });
+    obj.stream.pipe(res);
+  }
+
+  /** 历史版本列表（每次保存自动留档，最近 10 版）。 */
+  @Get('sheet-workbook/versions')
+  @Permissions('page:rd-sheet', 'rd-sheet:edit')
+  listSheetWorkbookVersions() {
+    return this.rdService.listSheetWorkbookVersions();
+  }
+
+  /** 恢复到指定历史版本（当前版本先入历史，可再恢复回来）。 */
+  @Post('sheet-workbook/versions/restore')
+  @Permissions('rd-sheet:edit')
+  restoreSheetWorkbookVersion(@Body() body: { id?: unknown }, @Request() req: AuthedRequest) {
+    if (typeof body?.id !== 'string' || !body.id) throw new BadRequestException('缺少版本标识');
+    return this.rdService.restoreSheetWorkbookVersion(body.id, { id: req.user?.id, name: req.user?.name });
+  }
+
+  /**
+   * 存量快照图片出仓（管理员一次性操作）：把已存储快照中的 base64 图片迁移到 OSS。
+   * 上线后调用一次即可让旧数据立刻瘦身，不必等编辑者重新保存。可重复调用直至 failed=0。
+   */
+  @Post('sheet-workbook/extract-assets')
+  @Permissions('rd-sheet:edit')
+  extractSheetWorkbookAssets(@Request() req: AuthedRequest) {
+    return this.rdService.extractSheetWorkbookAssets({ id: req.user?.id, name: req.user?.name });
   }
 
   // ── Knowledge Base ────────────────────────────────────────────────────────
