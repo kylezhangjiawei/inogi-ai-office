@@ -532,6 +532,24 @@ export class QuoteTierDto {
   unitPrice!: number;
 }
 
+/** 历史轮次价格（导入表里被最新价覆盖的早前轮次 /「6.2报价」类额外价格列）。 */
+export class HistoryPriceDto {
+  @IsNumber()
+  @Min(0)
+  unitPrice!: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  minQty?: number;
+
+  /** 轮次说明（如列头「6.2报价」/「早前轮次」） */
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  label?: string;
+}
+
 /** 导入行：按物料名匹配（找不到自动建待审核物料），同商品同厂家合并 upsert。 */
 export class ImportSupplierQuoteItemDto {
   @IsString()
@@ -598,6 +616,19 @@ export class ImportSupplierQuoteItemDto {
   @IsString()
   @MaxLength(500)
   note?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  imageKey?: string;
+
+  /** 历史轮次价格：写入 ProcQuotation 流水（channel=quote-book），供历史价格弹窗展示 */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => HistoryPriceDto)
+  historyPrices?: HistoryPriceDto[];
 }
 
 export class ImportSupplierQuotesDto {
@@ -606,6 +637,14 @@ export class ImportSupplierQuotesDto {
   @ValidateNested({ each: true })
   @Type(() => ImportSupplierQuoteItemDto)
   items!: ImportSupplierQuoteItemDto[];
+}
+
+/** AI 识别报价表：前端把工作簿序列化为 CSV 文本后提交。 */
+export class AiParseQuotesDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(80_000)
+  text!: string;
 }
 
 export class UpsertSupplierQuoteDto {
@@ -662,4 +701,9 @@ export class UpsertSupplierQuoteDto {
   @IsString()
   @MaxLength(500)
   note?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  imageKey?: string;
 }

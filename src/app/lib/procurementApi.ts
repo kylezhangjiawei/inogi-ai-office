@@ -774,6 +774,8 @@ export interface SupplierQuote {
   quoteDate?: string;
   validUntil?: string;
   note?: string;
+  /** 商品图片（OSS 签名 URL，来自导入的 xlsx 嵌入图） */
+  imageUrl?: string;
   updatedAt: string;
 }
 
@@ -810,6 +812,8 @@ export interface UpsertSupplierQuoteInput {
   quoteDate?: string;
   validUntil?: string;
   note?: string;
+  /** 商品图片 OSS key：不传=保持不变；空串=移除图片 */
+  imageKey?: string;
 }
 
 export async function listQuoteBook(signal?: AbortSignal): Promise<QuoteBookRow[]> {
@@ -855,6 +859,10 @@ export interface ImportSupplierQuoteItem {
   quoteDate?: string;
   validUntil?: string;
   note?: string;
+  /** 商品图片 OSS 对象 key（导入前先上传） */
+  imageKey?: string;
+  /** 历史轮次价格：写入报价流水（channel=quote-book），历史价格弹窗可见 */
+  historyPrices?: { unitPrice: number; minQty?: number; label?: string }[];
 }
 
 export interface ImportQuotesResult {
@@ -868,6 +876,24 @@ export async function importSupplierQuotes(
   items: ImportSupplierQuoteItem[],
 ): Promise<ImportQuotesResult> {
   return request("/quote-book/import", { method: "POST", body: JSON.stringify({ items }) });
+}
+
+/** AI 识别报价表兜底：提交表格 CSV 文本，返回结构化 items（不落库）。 */
+export async function aiParseSupplierQuotes(
+  text: string,
+): Promise<{ items: ImportSupplierQuoteItem[]; model?: string; error?: string }> {
+  return request("/quote-book/ai-parse", { method: "POST", body: JSON.stringify({ text }) });
+}
+
+/** 图片表格导入：OCR 提文本 + AI 抽取（不落库）。 */
+export async function ocrParseSupplierQuotes(
+  file: File,
+): Promise<{ items: ImportSupplierQuoteItem[]; model?: string; error?: string }> {
+  const form = new FormData();
+  form.append("file", file);
+  const response = await authFetch("/api/procurement/quote-book/ocr-parse", { method: "POST", body: form });
+  if (!response.ok) throw new Error(await readErrorMessage(response, "图片识别失败"));
+  return (await response.json()) as { items: ImportSupplierQuoteItem[]; model?: string; error?: string };
 }
 
 /** 商品移出报价库：删除其下全部厂家报价，不动物料主数据。 */

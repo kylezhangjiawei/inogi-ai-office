@@ -15,6 +15,7 @@ import {
 import { CalendarDays } from "lucide-react";
 import { Calendar } from "../../components/ui/calendar";
 import { Command, CommandItem, CommandList } from "../../components/ui/command";
+import { Dialog, DialogContent, DialogTitle } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "../../components/ui/popover";
 import { cn } from "../../components/ui/utils";
@@ -405,6 +406,19 @@ export function BuyerComboInput(props: Omit<React.ComponentProps<typeof ComboInp
     [suggestions, deptOf],
   );
   return <ComboInput {...props} options={options} />;
+}
+
+// ── 图片大图预览（OSS bucket 强制下载，导航打开会变下载；img 渲染不受影响）──
+
+export function ImageLightbox({ url, onClose }: { url: string; onClose: () => void }) {
+  return (
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent aria-describedby={undefined} className="w-auto max-w-[90vw] border-none bg-transparent p-0 shadow-none">
+        <DialogTitle className="sr-only">{translate("商品图片")}</DialogTitle>
+        <img src={url} alt="" className="max-h-[85vh] max-w-full rounded-xl bg-white object-contain shadow-2xl" />
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 // ── 确认对话框（替代 window.confirm，Radix AlertDialog）──────────────────────

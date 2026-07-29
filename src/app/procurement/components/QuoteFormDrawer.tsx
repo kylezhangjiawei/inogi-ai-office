@@ -1,17 +1,18 @@
 // 供应商报价新增/编辑抽屉：厂家（可选已有供应商或直接输入新厂家）+ 交期/币种/含税/有效期 + 阶梯价行编辑。
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "../../components/ui/input";
-import { Loader2, Plus, Trash2 } from "lucide-react";
+import { ImagePlus, Loader2, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Checkbox } from "../../components/ui/checkbox";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "../../components/ui/sheet";
-import { ComboInput, DateInput } from "./common";
+import { ComboInput, DateInput, ImageLightbox } from "./common";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { useI18n } from "../../lib/i18n";
 import {
   createSupplierQuote,
   listQuoteSuppliers,
   updateSupplierQuote,
+  uploadProcurementAttachment,
   type SupplierOption,
   type SupplierQuote,
   type UpsertSupplierQuoteInput,
@@ -54,6 +55,28 @@ export function QuoteFormDrawer({
       : [{ minQty: "", unitPrice: "" }],
   );
   const set = <K extends keyof typeof form>(key: K) => (value: (typeof form)[K]) => setForm((f) => ({ ...f, [key]: value }));
+
+  // 商品图片：undefined=保持不变；""=移除；其他=新上传的 OSS key
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const [imageKeyPatch, setImageKeyPatch] = useState<string | undefined>(undefined);
+  const [imagePreview, setImagePreview] = useState<string | null>(quote?.imageUrl ?? null);
+  const [imageBusy, setImageBusy] = useState(false);
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const pickImage = async (file: File | undefined) => {
+    if (!file) return;
+    if (!/^image\//.test(file.type)) { toast.error(t("请选择图片文件")); return; }
+    setImageBusy(true);
+    try {
+      const uploaded = await uploadProcurementAttachment(file);
+      setImageKeyPatch(uploaded.objectKey);
+      setImagePreview(uploaded.signedUrl ?? URL.createObjectURL(file));
+      toast.success(t("图片已上传，点击下方「保存」后生效"));
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("图片上传失败"));
+    } finally {
+      setImageBusy(false);
+    }
+  };
 
   useEffect(() => {
     let alive = true;
@@ -98,6 +121,8 @@ export function QuoteFormDrawer({
       quoteDate: form.quoteDate || undefined,
       validUntil: form.validUntil || undefined,
       note: form.note.trim() || undefined,
+      // undefined 不进 JSON → 后端保持原图不动
+      imageKey: imageKeyPatch,
     };
     setBusy(true);
     try {
@@ -151,6 +176,37 @@ export function QuoteFormDrawer({
             <div><span className={LABEL}>{t("报价日期")}</span><DateInput value={form.quoteDate} onChange={set("quoteDate")} className="mt-1" /></div>
             <div><span className={LABEL}>{t("有效期至")}</span><DateInput value={form.validUntil} onChange={set("validUntil")} className="mt-1" placeholder={t("留空为长期有效")} /></div>
             <label className="col-span-2 block"><span className={LABEL}>{t("备注")}</span><Input value={form.note} onChange={(e) => set("note")(e.target.value)} placeholder={t("如：不含抛光费用")} className={FIELD} /></label>
+            {/* 商品图片：导入 .xlsx 可自动带图，这里支持手动上传/更换/移除 */}
+            <div className="col-span-2">
+              <span className={LABEL}>{t("商品图片")}</span>
+              <Input ref={imageInputRef} type="file" accept="image/*" className="hidden" onChange={(e) => void pickImage(e.target.files?.[0])} />
+              <div className="mt-1 flex items-center gap-3">
+                {imagePreview ? (
+                  <img
+                    src={imagePreview}
+                    alt=""
+                    onClick={() => setLightboxOpen(true)}
+                    className="h-16 w-16 cursor-zoom-in rounded-lg border border-slate-200 object-cover"
+                  />
+                ) : (
+                  <button
+                    type="button"
+                    disabled={imageBusy}
+                    onClick={() => imageInputRef.current?.click()}
+                    className="flex h-16 w-16 flex-col items-center justify-center gap-0.5 rounded-lg border-2 border-dashed border-slate-200 text-slate-400 hover:border-indigo-300 hover:text-indigo-500 disabled:opacity-60"
+                  >
+                    {imageBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImagePlus className="h-4 w-4" />}
+                    <span className="text-[10px]">{t("上传")}</span>
+                  </button>
+                )}
+                {imagePreview && (
+                  <div className="flex flex-col gap-1 text-xs">
+                    <button type="button" disabled={imageBusy} onClick={() => imageInputRef.current?.click()} className="text-left text-indigo-600 hover:underline disabled:opacity-60">{imageBusy ? t("上传中…") : t("更换图片")}</button>
+                    <button type="button" onClick={() => { setImageKeyPatch(""); setImagePreview(null); }} className="text-left text-slate-400 hover:text-rose-500">{t("移除图片")}</button>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* 阶梯报价：起订量 → 单价，档位可增删 */}
@@ -184,6 +240,7 @@ export function QuoteFormDrawer({
             {busy && <Loader2 className="h-4 w-4 animate-spin" />}{t("保存")}
           </button>
         </div>
+        {lightboxOpen && imagePreview && <ImageLightbox url={imagePreview} onClose={() => setLightboxOpen(false)} />}
       </SheetContent>
     </Sheet>
   );

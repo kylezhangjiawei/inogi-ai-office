@@ -1,7 +1,20 @@
-import { Body, Controller, Delete, Get, Param, Post, Put, Request } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Post,
+  Put,
+  Request,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 import { Permissions } from '../auth/decorators/permissions.decorator';
-import { ImportSupplierQuotesDto, UpsertSupplierQuoteDto } from './dto/procurement.dto';
+import { AiParseQuotesDto, ImportSupplierQuotesDto, UpsertSupplierQuoteDto } from './dto/procurement.dto';
 import { QuoteBookService } from './quote-book.service';
 import type { ProcActor } from './procurement.types';
 
@@ -58,6 +71,29 @@ export class QuoteBookController {
   @Permissions('quote-book:manage', 'proc-task:inquiry')
   importQuotes(@Body() dto: ImportSupplierQuotesDto, @Request() req: AuthedRequest) {
     return this.service.importQuotes(dto, this.actor(req));
+  }
+
+  /** AI 识别报价表兜底：入参为表格 CSV 文本，产出结构化 items（不落库，前端确认后走 import）。 */
+  @Post('ai-parse')
+  @Permissions('quote-book:manage', 'proc-task:inquiry')
+  aiParseQuotes(@Body() dto: AiParseQuotesDto) {
+    return this.service.aiParseQuotes(dto);
+  }
+
+  /** 图片表格导入：OCR 提取文本后走 AI 抽取（不落库）。 */
+  @Post('ocr-parse')
+  @Permissions('quote-book:manage', 'proc-task:inquiry')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 15 * 1024 * 1024, files: 1 } }))
+  ocrParseQuotes(
+    @UploadedFile() file?: { originalname: string; buffer: Buffer; mimetype: string },
+  ) {
+    if (!file) throw new BadRequestException('缺少图片文件');
+    if (!/^image\//.test(file.mimetype)) throw new BadRequestException('仅支持图片文件（png/jpg 等）');
+    return this.service.ocrParseQuotes({
+      originalname: file.originalname,
+      buffer: file.buffer,
+      mimetype: file.mimetype,
+    });
   }
 
   @Delete('materials/:materialId/quotes')

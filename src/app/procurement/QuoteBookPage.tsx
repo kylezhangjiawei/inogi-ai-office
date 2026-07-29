@@ -15,7 +15,7 @@ import {
 } from "../lib/procurementApi";
 import { Checkbox } from "../components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
-import { PageHeader, useConfirmDialog, useProcCan } from "./components/common";
+import { ImageLightbox, PageHeader, useConfirmDialog, useProcCan } from "./components/common";
 import { PriceHistoryModal } from "./components/PriceHistoryModal";
 import { QuoteFormDrawer } from "./components/QuoteFormDrawer";
 import { QuoteImportModal } from "./components/QuoteImportModal";
@@ -84,10 +84,12 @@ export function QuoteBookPage() {
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("");
-  const [onlyMissing, setOnlyMissing] = useState(false);
+  // 默认只显示已有报价的商品：物料主数据（T+ 同步）有数千条，全列出会淹没报价库主视角
+  const [showAll, setShowAll] = useState(false);
   const [onlyExpired, setOnlyExpired] = useState(false);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [historyFor, setHistoryFor] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
   // 抽屉：material 必有；quote 有则编辑、无则新增
   const [drawer, setDrawer] = useState<{ material: QuoteBookRow; quote?: SupplierQuote } | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
@@ -146,8 +148,9 @@ export function QuoteBookPage() {
   const filtered = useMemo(() => {
     const kw = search.trim().toLowerCase();
     const list = rows.filter((row) => {
+      // 默认视角只看已报价商品；搜索时放开到全库（搜型号通常是为了给它添加报价）
+      if (!showAll && !kw && row.quotes.length === 0) return false;
       if (category && row.category !== category) return false;
-      if (onlyMissing && row.quotes.length > 0) return false;
       if (onlyExpired && !row.quotes.some((q) => isExpired(q, today))) return false;
       if (!kw) return true;
       return (
@@ -158,11 +161,11 @@ export function QuoteBookPage() {
     });
     // 已有报价的商品排前面：报价库主视角是维护比价，缺报价长尾沉底
     return list.sort((a, b) => Number(b.quotes.length > 0) - Number(a.quotes.length > 0));
-  }, [rows, search, category, onlyMissing, onlyExpired, today]);
+  }, [rows, search, category, showAll, onlyExpired, today]);
 
   // 物料量在千级，树形表按商品行分页
   const [page, setPage] = useState(1);
-  useEffect(() => { setPage(1); }, [search, category, onlyMissing, onlyExpired]);
+  useEffect(() => { setPage(1); }, [search, category, showAll, onlyExpired]);
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageSafe = Math.min(page, totalPages);
   const pageRows = filtered.slice((pageSafe - 1) * PAGE_SIZE, pageSafe * PAGE_SIZE);
@@ -202,7 +205,12 @@ export function QuoteBookPage() {
             )}
             <button
               type="button"
-              onClick={() => void exportQuoteBookXlsx(filtered).then((n) => toast.success(t("已导出 {count} 行报价", { count: n })))}
+              onClick={() => {
+                if (!filtered.some((r) => r.quotes.length > 0)) { toast.warning(t("当前没有厂家报价可导出，请先录入或导入报价")); return; }
+                void exportQuoteBookXlsx(filtered)
+                  .then((n) => toast.success(t("已导出 {count} 行报价", { count: n })))
+                  .catch((err: unknown) => toast.error(err instanceof Error ? err.message : t("导出失败")));
+              }}
               className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm"
             >
               <Download className="h-4 w-4" />{t("导出")}
@@ -238,8 +246,8 @@ export function QuoteBookPage() {
           </SelectContent>
         </Select>
         <label className="inline-flex cursor-pointer items-center gap-1.5 text-sm text-slate-600">
-          <Checkbox checked={onlyMissing} onCheckedChange={(v) => setOnlyMissing(v === true)} />
-          {t("只看缺报价")}
+          <Checkbox checked={showAll} onCheckedChange={(v) => setShowAll(v === true)} />
+          {t("显示全部商品（含未报价）")}
         </label>
         <label className="inline-flex cursor-pointer items-center gap-1.5 text-sm text-slate-600">
           <Checkbox checked={onlyExpired} onCheckedChange={(v) => setOnlyExpired(v === true)} />
@@ -256,7 +264,9 @@ export function QuoteBookPage() {
       ) : loading ? (
         <div className="material-card py-12 text-center text-sm text-slate-400">{t("加载中")}…</div>
       ) : (
-        <div className="material-card min-h-0 flex-1 overflow-auto">
+        /* 卡片占满剩余高度：表格区内部滚动，分页条固定在卡片底部（对齐物料库表格布局） */
+        <div className="material-card flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="min-h-0 flex-1 overflow-auto">
           <table className="w-full text-sm">
             <thead className="sticky top-0 z-10 bg-slate-50 text-left text-xs text-slate-500">
               <tr>
@@ -271,7 +281,23 @@ export function QuoteBookPage() {
             </thead>
             <tbody>
               {pageRows.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-400">{t("没有匹配的商品")}</td></tr>
+                <tr>
+                  <td colSpan={7} className="px-4 py-14 text-center">
+                    {!showAll && !search.trim() && quotedCount === 0 ? (
+                      <div className="flex flex-col items-center gap-3">
+                        <span className="text-sm text-slate-400">{t("报价库还是空的：导入业务报价表，或搜索商品逐条添加厂家报价")}</span>
+                        {canWrite && (
+                          <button type="button" onClick={() => setImportOpen(true)} className="material-button-primary inline-flex items-center gap-1.5 px-4 py-2 text-sm">
+                            <Upload className="h-4 w-4" />{t("批量导入报价")}
+                          </button>
+                        )}
+                        <button type="button" onClick={() => setShowAll(true)} className="text-xs text-indigo-600 hover:underline">{t("或显示全部商品（含未报价）")}</button>
+                      </div>
+                    ) : (
+                      <span className="text-slate-400">{t("没有匹配的商品")}</span>
+                    )}
+                  </td>
+                </tr>
               )}
               {pageRows.map((row) => {
                 const open = expanded.has(row.id) || hitsSupplier(row);
@@ -290,12 +316,14 @@ export function QuoteBookPage() {
                     onEditQuote={(quote) => setDrawer({ material: row, quote })}
                     onDeleteQuote={removeQuote}
                     onClear={() => clearMaterial(row)}
+                    onPreviewImage={setPreviewImage}
                   />
                 );
               })}
             </tbody>
           </table>
-          <div className="sticky bottom-0 flex items-center justify-between border-t border-slate-100 bg-white px-4 py-2">
+          </div>
+          <div className="flex shrink-0 items-center justify-between border-t border-slate-100 bg-white px-4 py-2">
             <span className="text-xs text-slate-400">{t("第 {page} / {total} 页", { page: pageSafe, total: totalPages })}</span>
             <div className="flex items-center gap-2">
               <button type="button" disabled={pageSafe <= 1} onClick={() => setPage(pageSafe - 1)} className="rounded-lg border border-slate-200 px-3 py-1 text-xs text-slate-600 disabled:opacity-40">{t("上一页")}</button>
@@ -317,13 +345,14 @@ export function QuoteBookPage() {
       {/* 新增商品复用物料表单（商品即物料）；关闭后刷新树，把新商品带进报价库 */}
       {createOpen && <MaterialFormModal onClose={() => { setCreateOpen(false); reload(); }} />}
       {importOpen && <QuoteImportModal rows={rows} onClose={() => setImportOpen(false)} onImported={reload} />}
+      {previewImage && <ImageLightbox url={previewImage} onClose={() => setPreviewImage(null)} />}
       {confirmDialog}
     </div>
   );
 }
 
 function QuoteBookMaterialRows({
-  row, open, best, today, canWrite, onToggle, onHistory, onAddQuote, onEditQuote, onDeleteQuote, onClear,
+  row, open, best, today, canWrite, onToggle, onHistory, onAddQuote, onEditQuote, onDeleteQuote, onClear, onPreviewImage,
 }: {
   row: QuoteBookRow;
   open: boolean;
@@ -336,6 +365,7 @@ function QuoteBookMaterialRows({
   onEditQuote: (quote: SupplierQuote) => void;
   onDeleteQuote: (quote: SupplierQuote) => void;
   onClear: () => void;
+  onPreviewImage: (url: string) => void;
 }) {
   const { t } = useI18n();
   const Caret = open ? ChevronDown : ChevronRight;
@@ -418,6 +448,15 @@ function QuoteBookMaterialRows({
             <td className="py-2 pl-12 pr-4">
               <div className="flex items-center gap-2">
                 <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-indigo-300" />
+                {quote.imageUrl && (
+                  <img
+                    src={quote.imageUrl}
+                    alt=""
+                    title={t("点击查看商品图片")}
+                    onClick={(e) => { e.stopPropagation(); onPreviewImage(quote.imageUrl!); }}
+                    className="h-9 w-9 shrink-0 cursor-zoom-in rounded-md border border-slate-200 object-cover"
+                  />
+                )}
                 <div className="min-w-0">
                   <div className="truncate text-[13px] font-medium text-slate-700">{quote.supplierName}</div>
                   {quote.supplierModel && <div className="truncate text-xs text-slate-400">{quote.supplierModel}</div>}

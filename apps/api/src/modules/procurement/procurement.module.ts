@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { ChatModule } from '../chat/chat.module';
+import { OcrModule } from '../ocr/ocr.module';
 import { ResearchDevelopmentModule } from '../research-development/research-development.module';
 import { SecurityModule } from '../security/security.module';
 import { MaterialClassifyService } from './material-classify.service';
@@ -22,7 +23,8 @@ import { TplusSyncService } from './tplus-sync.service';
  */
 @Module({
   // ResearchDevelopmentModule 仅用于审核驳回时给研发对接人发站内通知（createMessage）
-  imports: [ChatModule, SecurityModule, ResearchDevelopmentModule],
+  // OcrModule 仅用于报价库「图片表格 OCR + AI」导入兜底
+  imports: [ChatModule, OcrModule, SecurityModule, ResearchDevelopmentModule],
   controllers: [ProcurementController, QuoteBookController, TplusSyncController],
   providers: [
     ProcurementService,

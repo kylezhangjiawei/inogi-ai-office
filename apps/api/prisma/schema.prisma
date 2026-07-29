@@ -1263,6 +1263,8 @@ model ProcSupplierQuote {
   quoteDate     DateTime?
   validUntil    DateTime?
   note          String?
+  /// 商品图片 OSS 对象 key（导入 .xlsx 时提取的嵌入图），读取时重签 URL
+  imageKey      String?       @db.VarChar(500)
   createdBy     String?
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
