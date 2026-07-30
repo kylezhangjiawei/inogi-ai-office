@@ -58,6 +58,40 @@ test('TplusOperationsService aggregates multi-warehouse inventory and computes s
   assert.equal(result.syncedAt, '2026-07-29T09:00:00.000Z');
 });
 
+test('TplusOperationsService uses available quantity instead of on-hand quantity for inventory status', async () => {
+  const prisma = {
+    procInventoryBalance: {
+      findMany: async () => [{
+        materialId: 'material-1',
+        tpInventoryCode: 'BT-001',
+        materialName: '电池上壳',
+        spec: '',
+        unit: '件',
+        warehouse: '上海仓',
+        stockQty: 0,
+        availableQty: 2,
+        inTransitQty: 0,
+        syncedAt: new Date('2026-07-29T09:00:00.000Z'),
+        material: {
+          id: 'material-1',
+          name: '电池上壳',
+          spec: '',
+          unit: '件',
+          category: '结构件',
+          safeStock: 0,
+        },
+      }],
+    },
+  };
+  const service = new TplusOperationsService(prisma as never);
+
+  const result = await service.listInventory({ page: 1, pageSize: 50 });
+
+  assert.equal(result.inventory.items[0].stock, 0);
+  assert.equal(result.inventory.items[0].available, 2);
+  assert.equal(result.inventory.items[0].status, '正常');
+});
+
 test('TplusOperationsService groups T+ purchase-order lines and derives arrival status', async () => {
   const common = {
     tpOrderId: 'tplus-order-1',

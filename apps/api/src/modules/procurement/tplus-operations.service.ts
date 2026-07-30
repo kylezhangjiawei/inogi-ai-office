@@ -132,7 +132,7 @@ export class TplusOperationsService {
 
     const allRows = Array.from(grouped.values()).map((row) => ({
       ...row,
-      status: this.inventoryStatus(row.stock, row.safe),
+      status: this.inventoryStatus(row.available, row.safe),
     }));
     const q = this.text(query.q).toLowerCase();
     const category = this.text(query.category);
@@ -416,9 +416,9 @@ export class TplusOperationsService {
     return '已下单';
   }
 
-  private inventoryStatus(stock: number, safe: number): InventoryStatus {
-    if (stock <= 0) return '缺货';
-    if (safe > 0 && stock < safe) return '偏低';
+  private inventoryStatus(available: number, safe: number): InventoryStatus {
+    if (available <= 0) return '缺货';
+    if (safe > 0 && available < safe) return '偏低';
     return '正常';
   }
 
