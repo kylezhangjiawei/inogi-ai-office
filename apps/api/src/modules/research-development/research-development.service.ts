@@ -159,6 +159,20 @@ const BLOCKED_ATTACHMENT_MIME_TYPES = new Set([
 const RD_SHEET_WORKBOOK_ID = 'rd-sheet-workbook';
 const RD_SHEET_IMAGE_MARK_RE = /\[图片:[^\[\]\s]+\]/g;
 
+/**
+ * 任务在分类树中的结构位置。parentTaskId 由「所处数组」决定（顶层任务为 null），
+ * 不读任务上的 parent_task_id 字段——存量子任务并没有该字段。
+ */
+type TaskSlot = {
+  productId: string;
+  categoryId: string;
+  categoryLabel: string;
+  subProjectId: string;
+  subProjectLabel: string;
+  parentTaskId: string | null;
+  task: JsonRecord;
+};
+
 // ─── 审核类型「单一事实源」───────────────────────────────────────────────
 // 四种审核类型的标签、通过后目标状态、审计动作集中在此定义，前后端各处只引用、
 // 不再各写各的，避免不同类型的文案/流程互相污染（立项被记成成果、成果被当协作等）。
@@ -804,9 +818,13 @@ function ensurePocBomTaskCategories(rawCategories: unknown[]): JsonRecord[] {
       const bomTarget = findBomTarget(task, sourceCategory, sourceChild, normalized);
       if (bomTarget) {
         const tasks = asArray(bomTarget.child.tasks);
+        // 必须 append：这里按源顺序遍历，prepend 会把任务列表整体反序，导致
+        // readNormalizedTaskCategories 每次都判定「变了」并写回 —— 纯读也写库、
+        // 且顺序在两个状态间来回翻。append 保持存储顺序，读操作因此幂等。
+        // （新任务在前由 createTask 的插入顺序决定，不该由归一化器翻转。）
         bomTarget.child.tasks = [
-          normalizeTaskShape(task, bomTarget.systemLabel, bomTarget.partLabel),
           ...tasks,
+          normalizeTaskShape(task, bomTarget.systemLabel, bomTarget.partLabel),
         ];
         continue;
       }
@@ -817,9 +835,10 @@ function ensurePocBomTaskCategories(rawCategories: unknown[]): JsonRecord[] {
         normalized.push(sourceShell);
       }
       const targetChild = ensureChild(sourceShell, String(sourceChild.label ?? '未命名子项'), String(sourceChild.id ?? ''));
+      // 同上：自定义分类一侧同样必须 append，否则同样反序 + 每读必写
       targetChild.tasks = [
-        normalizeTaskShape(task, String(sourceShell.label ?? '未命名分类'), String(targetChild.label ?? '未命名子项')),
         ...asArray(targetChild.tasks),
+        normalizeTaskShape(task, String(sourceShell.label ?? '未命名分类'), String(targetChild.label ?? '未命名子项')),
       ];
     }
   }
@@ -1794,19 +1813,287 @@ export class ResearchDevelopmentService {
     ];
   }
 
+  // ── 子任务（一层）：直建 / 把已有任务挂为子任务 / 取消子任务关系 ──────────────
+  //
+  // 数据形态沿用既有的 task.subtasks 递归数组（无需迁移）；新增标记字段：
+  // - parent_task_id：父任务 id（顶层任务为 null）
+  // - subtask_origin：'created'（在父任务下直建）| 'attached'（把已有任务挂进来）
+  // - subtask_attached_at / _by / _by_id：挂载留痕（仅 attached）
+  //
+  // ⚠️ 父子关系的判定一律走「结构位置」（是否位于某任务的 subtasks 数组内），
+  // 不依赖 parent_task_id 标记：存量数据里已存在带 subtasks 的任务，其子任务没有该字段。
+
+  /**
+   * 读入「主库 + 各产品库」的分类树工作副本（productId → 树），并连带返回产品库原始 store。
+   * 调用方须已持有任务树写锁。单库改动用 writeTaskCategoriesForProduct；
+   * 跨库改动必须用 commitTaskTrees（原始 store 用于保留未改动的其他产品条目）。
+   */
+  private async readAllTaskTrees(): Promise<{
+    trees: Map<string, JsonRecord[]>;
+    store: Record<string, unknown>;
+  }> {
+    const trees = new Map<string, JsonRecord[]>();
+    trees.set(RD_MAIN_PRODUCT_ID, await this.readNormalizedTaskCategories());
+    const store = await this.readProductCategoryStore();
+    for (const [pid, raw] of Object.entries(store)) {
+      if (pid === RD_MAIN_PRODUCT_ID) continue;
+      trees.set(pid, ensurePocBomTaskCategories(asArray(raw)));
+    }
+    return { trees, store };
+  }
+
+  /**
+   * 原子写回受影响的 store（与 moveTasksUnlocked 同一模型）：主库与产品库各构造一个
+   * upsert，用单个 $transaction 提交。跨库操作必须走这里，否则会出现
+   * 「源库已摘出、目标库未写入」的中间态——任务凭空消失。
+   * originalStore 用于保留未改动的其他产品条目（产品库是一个整体 JSON，不能只写一个 key）。
+   */
+  private async commitTaskTrees(
+    dirty: Map<string, JsonRecord[]>,
+    originalStore: Record<string, unknown>,
+  ): Promise<void> {
+    const writeOps: ReturnType<ResearchDevelopmentService['buildSettingUpsert']>[] = [];
+    const mainTree = dirty.get(RD_MAIN_PRODUCT_ID);
+    if (mainTree) writeOps.push(this.buildSettingUpsert('rd.taskCategories', mainTree));
+    const productPids = [...dirty.keys()].filter((pid) => pid !== RD_MAIN_PRODUCT_ID);
+    if (productPids.length > 0) {
+      const nextStore: Record<string, unknown> = { ...originalStore };
+      for (const pid of productPids) nextStore[pid] = dirty.get(pid) ?? [];
+      writeOps.push(this.buildSettingUpsert('rd.productTaskCategories', nextStore));
+    }
+    if (writeOps.length > 0) await this.prisma.$transaction(writeOps);
+  }
+
+  /** 在工作副本里按 task_id 定位任务及其结构位置（含所属库/分类/子项目/结构父任务）。 */
+  private locateTaskInTrees(trees: Map<string, JsonRecord[]>, taskId: string): TaskSlot | null {
+    const id = cleanText(taskId);
+    if (!id) return null;
+    for (const [productId, categories] of trees) {
+      for (const cat of categories) {
+        if (!isRecord(cat)) continue;
+        for (const child of asArray(cat.children).filter(isRecord)) {
+          const walk = (tasks: unknown[], parentTaskId: string | null): TaskSlot | null => {
+            for (const t of tasks) {
+              if (!isRecord(t)) continue;
+              if (cleanText(t.task_id) === id) {
+                return {
+                  productId,
+                  categoryId: cleanText(cat.id),
+                  categoryLabel: String(cat.label ?? ''),
+                  subProjectId: cleanText(child.id),
+                  subProjectLabel: String(child.label ?? ''),
+                  parentTaskId,
+                  task: t,
+                };
+              }
+              const hit = walk(asArray(t.subtasks), cleanText(t.task_id));
+              if (hit) return hit;
+            }
+            return null;
+          };
+          const found = walk(asArray(child.tasks), null);
+          if (found) return found;
+        }
+      }
+    }
+    return null;
+  }
+
+  /** 子任务的 category_path 跟随父任务所在分类，任务类型段（第三段）保留自身。 */
+  private subtaskCategoryPath(task: JsonRecord, parent: TaskSlot): string {
+    const taskType = splitCategoryPath(task.category_path)[2] || DEFAULT_BOM_TASK_TYPE;
+    return `${parent.categoryLabel} / ${parent.subProjectLabel} / ${taskType}`;
+  }
+
+  /**
+   * 把一个已有的顶层任务整体挂到目标父任务下成为子任务。
+   * 任务自身完整保留（标题/主责/协作人/进度/留痕/附件均不动），仅改变树中位置并打挂载标记。
+   * 与归档式合并（applyTaskMerge）是两个独立能力：这里不归档、不改写描述、不动主责。
+   */
+  async attachTaskAsSubtask(
+    taskId: string,
+    parentTaskId: string,
+    actor?: { userId?: string; userName?: string },
+  ) {
+    return this.withTaskTreeLock(() => this.attachTaskAsSubtaskUnlocked(taskId, parentTaskId, actor ?? {}));
+  }
+
+  private async attachTaskAsSubtaskUnlocked(
+    taskId: string,
+    parentTaskId: string,
+    actor: { userId?: string; userName?: string },
+  ) {
+    const childId = cleanText(taskId);
+    const parentId = cleanText(parentTaskId);
+    if (!childId || !parentId) throw new BadRequestException('缺少任务或父任务 id');
+    if (childId === parentId) throw new BadRequestException('不能把任务挂到自己下面');
+
+    const { trees, store } = await this.readAllTaskTrees();
+    const childSlot = this.locateTaskInTrees(trees, childId);
+    if (!childSlot) throw new NotFoundException('任务不存在');
+    const parentSlot = this.locateTaskInTrees(trees, parentId);
+    if (!parentSlot) throw new NotFoundException('父任务不存在');
+
+    if (childSlot.parentTaskId) throw new BadRequestException('该任务已经是子任务，不能重复挂载');
+    if (parentSlot.parentTaskId) {
+      throw new BadRequestException('目标任务本身已是子任务，子任务下不能再挂子任务');
+    }
+    if (asArray(childSlot.task.subtasks).filter(isRecord).length > 0) {
+      throw new BadRequestException('该任务自身已带子任务，无法再挂到别的任务下（子任务仅支持一层）');
+    }
+
+    const crossStore = childSlot.productId !== parentSlot.productId;
+    const nowIso = new Date().toISOString();
+    const attached: JsonRecord = {
+      ...childSlot.task,
+      parent_task_id: parentId,
+      subtask_origin: 'attached',
+      subtask_attached_at: nowIso,
+      subtask_attached_by: cleanText(actor.userName) || '研发管理员',
+      subtask_attached_by_id: cleanUserId(actor.userId) || null,
+      // 跨库挂载时子任务随父任务迁到目标产品库，分类路径一并跟随父任务
+      category_path: this.subtaskCategoryPath(childSlot.task, parentSlot),
+      updated_at: nowIso,
+    };
+
+    // 从源库摘出。
+    let removed = false;
+    const sourceRebuilt = (trees.get(childSlot.productId) ?? []).map((cat) => {
+      if (!isRecord(cat)) return cat;
+      return {
+        ...cat,
+        children: asArray(cat.children).map((child) => {
+          if (!isRecord(child)) return child;
+          return {
+            ...child,
+            tasks: asArray(child.tasks).filter((t) => {
+              if (isRecord(t) && cleanText(t.task_id) === childId) {
+                removed = true;
+                return false;
+              }
+              return true;
+            }),
+          };
+        }),
+      };
+    });
+
+    // 插入父任务的 subtasks。同库时基于已摘出的副本继续改，跨库时改目标库副本。
+    let inserted = false;
+    const targetBase = crossStore ? (trees.get(parentSlot.productId) ?? []) : sourceRebuilt;
+    const targetRebuilt = targetBase.map((cat) => {
+      if (!isRecord(cat)) return cat;
+      return {
+        ...cat,
+        children: asArray(cat.children).map((child) => {
+          if (!isRecord(child)) return child;
+          return {
+            ...child,
+            tasks: asArray(child.tasks).map((t) => {
+              if (!isRecord(t) || cleanText(t.task_id) !== parentId) return t;
+              inserted = true;
+              return { ...t, subtasks: [...asArray(t.subtasks), attached], updated_at: nowIso };
+            }),
+          };
+        }),
+      };
+    });
+    // 二者必须都命中才写库，否则抛错 → 工作副本整体丢弃，不产生部分写。
+    if (!removed || !inserted) throw new BadRequestException('挂载失败：任务或父任务定位失败');
+
+    // 跨库时两个 store 在同一个 $transaction 里提交，不会出现「源已删、目标未写」。
+    const dirty = new Map<string, JsonRecord[]>();
+    if (crossStore) dirty.set(childSlot.productId, sourceRebuilt as JsonRecord[]);
+    dirty.set(parentSlot.productId, targetRebuilt as JsonRecord[]);
+    await this.commitTaskTrees(dirty, store);
+
+    await this.recomputeDirectorDashboard();
+    void this.syncTaskToRag(childId);
+    return { ok: true as const, task_id: childId, parent_task_id: parentId };
+  }
+
+  /** 取消子任务关系：把子任务提升为顶层任务，落在原父任务所在子项目里（与父任务同级）。 */
+  async detachSubtask(taskId: string, actor?: { userId?: string; userName?: string }) {
+    void actor;
+    return this.withTaskTreeLock(() => this.detachSubtaskUnlocked(taskId));
+  }
+
+  private async detachSubtaskUnlocked(taskId: string) {
+    const childId = cleanText(taskId);
+    if (!childId) throw new BadRequestException('缺少任务 id');
+
+    // 子任务必然与其父任务同库，提升后仍落在同一个库 → 单库写回即可
+    const { trees } = await this.readAllTaskTrees();
+    const slot = this.locateTaskInTrees(trees, childId);
+    if (!slot) throw new NotFoundException('任务不存在');
+    if (!slot.parentTaskId) throw new BadRequestException('该任务不是子任务');
+
+    const nowIso = new Date().toISOString();
+    const detached: JsonRecord = {
+      ...slot.task,
+      parent_task_id: null,
+      subtask_origin: null,
+      subtask_attached_at: null,
+      subtask_attached_by: null,
+      subtask_attached_by_id: null,
+      updated_at: nowIso,
+    };
+
+    let found = false;
+    const categories = trees.get(slot.productId) ?? [];
+    const rebuilt = categories.map((cat) => {
+      if (!isRecord(cat)) return cat;
+      return {
+        ...cat,
+        children: asArray(cat.children).map((child) => {
+          if (!isRecord(child)) return child;
+          let hit = false;
+          const tasks = asArray(child.tasks).map((t) => {
+            if (!isRecord(t) || cleanText(t.task_id) !== slot.parentTaskId) return t;
+            const subs = asArray(t.subtasks);
+            const nextSubs = subs.filter((s) => !(isRecord(s) && cleanText(s.task_id) === childId));
+            if (nextSubs.length === subs.length) return t;
+            hit = true;
+            found = true;
+            return { ...t, subtasks: nextSubs, updated_at: nowIso };
+          });
+          // 提升后的任务插到父任务所在子项目列表头部，与父任务同级。
+          return { ...child, tasks: hit ? [detached, ...tasks] : tasks };
+        }),
+      };
+    });
+    if (!found) throw new BadRequestException('取消子任务失败：父任务定位失败');
+
+    await this.writeTaskCategoriesForProduct(slot.productId, rebuilt);
+    await this.recomputeDirectorDashboard();
+    void this.syncTaskToRag(childId);
+    return { ok: true as const, task_id: childId };
+  }
+
   async createTask(payload: JsonRecord) {
     // 建任务同为「读树→插入→写回」，纳入任务树写锁防并发互相覆盖
     return this.withTaskTreeLock(() => this.createTaskUnlocked(payload));
   }
 
   private async createTaskUnlocked(payload: JsonRecord) {
+    // 带 parent_task_id → 走子任务直建分支（分类继承父任务，不要求传 category_id）
+    const parentTaskId = cleanText(payload.parent_task_id);
+    if (parentTaskId) return this.createSubtaskUnlocked(payload, parentTaskId);
+
     const productId = cleanText(payload.product_id) || RD_MAIN_PRODUCT_ID;
     const [categories, identity] = await Promise.all([
       this.readTaskCategoriesForProduct(productId),
       this.getIdentityContext(),
     ]);
-    const { category_id, sub_project_id, product_id: _productId, ...taskData } = payload;
+    const {
+      category_id,
+      sub_project_id,
+      product_id: _productId,
+      parent_task_id: _parentTaskId,
+      ...taskData
+    } = payload;
     void _productId;
+    void _parentTaskId;
     const categoryId = typeof category_id === 'string' ? category_id.trim() : '';
     const requestedSubProjectId = typeof sub_project_id === 'string' ? sub_project_id.trim() : '';
 
@@ -1894,6 +2181,101 @@ export class ResearchDevelopmentService {
       void this.notifyAdminsOfPendingReview(newTask, {});
     }
     // 任务入向量索引（fire-and-forget）：AI 问答可按语义检索到任务
+    void this.syncTaskToRag(String(newTask.task_id ?? ''));
+    return newTask;
+  }
+
+  /**
+   * 在指定父任务下直建子任务。分类（库/系统/子项目/category_path）一律继承父任务，
+   * 因此不要求调用方传 product_id / category_id —— 父任务在哪，子任务就在哪。
+   */
+  private async createSubtaskUnlocked(payload: JsonRecord, parentTaskId: string) {
+    // 新子任务直接建在父任务所在库 → 单库写回即可
+    const { trees } = await this.readAllTaskTrees();
+    const parentSlot = this.locateTaskInTrees(trees, parentTaskId);
+    if (!parentSlot) throw new NotFoundException('父任务不存在');
+    if (parentSlot.parentTaskId) {
+      throw new BadRequestException('目标任务本身已是子任务，子任务下不能再挂子任务');
+    }
+
+    const identity = await this.getIdentityContext();
+    const {
+      category_id: _categoryId,
+      sub_project_id: _subProjectId,
+      product_id: _productId,
+      parent_task_id: _parentTaskId,
+      category_path: _categoryPath,
+      ...taskData
+    } = payload;
+    void _categoryId;
+    void _subProjectId;
+    void _productId;
+    void _parentTaskId;
+    void _categoryPath;
+
+    const nowIso = new Date().toISOString();
+    const newTask = this.normalizeTaskIdentity(
+      withGeneratedId('rd-task', {
+        ...taskData,
+        task_id:
+          typeof taskData.task_id === 'string' && taskData.task_id.trim()
+            ? taskData.task_id.trim()
+            : generateTaskId(),
+        status: taskData.status ?? 'draft',
+        progress: typeof taskData.progress === 'number' ? taskData.progress : 0,
+        ai_priority: taskData.ai_priority ?? taskData.final_priority ?? 'medium',
+        final_priority: taskData.final_priority ?? taskData.ai_priority ?? 'medium',
+        archived: false,
+        attachments: 0,
+        collaborators: normalizeCollaboratorList(taskData.collaborators, {
+          name: typeof taskData.primary_owner === 'string' ? taskData.primary_owner : null,
+          user_id:
+            typeof taskData.primary_owner_user_id === 'string'
+              ? taskData.primary_owner_user_id
+              : null,
+        }),
+        subtasks: [],
+        parent_task_id: cleanText(parentSlot.task.task_id),
+        subtask_origin: 'created',
+        category_path: this.subtaskCategoryPath(taskData, parentSlot),
+        created_at: nowIso,
+        updated_at: nowIso,
+      }),
+      identity.people,
+      identity.users,
+    );
+
+    // 与 createTaskUnlocked 的状态钩子对齐：直建即阻塞要打阻塞起点
+    if (newTask.status === 'paused_blocked' && !cleanText(newTask.blocked_since)) {
+      (newTask as JsonRecord).blocked_since = nowIso;
+    }
+
+    let inserted = false;
+    const categories = trees.get(parentSlot.productId) ?? [];
+    const updated = categories.map((cat) => {
+      if (!isRecord(cat)) return cat;
+      return {
+        ...cat,
+        children: asArray(cat.children).map((child) => {
+          if (!isRecord(child)) return child;
+          return {
+            ...child,
+            tasks: asArray(child.tasks).map((t) => {
+              if (!isRecord(t) || cleanText(t.task_id) !== cleanText(parentSlot.task.task_id)) return t;
+              inserted = true;
+              return { ...t, subtasks: [...asArray(t.subtasks), newTask], updated_at: nowIso };
+            }),
+          };
+        }),
+      };
+    });
+    if (!inserted) throw new NotFoundException('父任务定位失败');
+
+    await this.writeTaskCategoriesForProduct(parentSlot.productId, updated);
+    await this.recomputeDirectorDashboard();
+    if (newTask.status === 'pending_review') {
+      void this.notifyAdminsOfPendingReview(newTask, {});
+    }
     void this.syncTaskToRag(String(newTask.task_id ?? ''));
     return newTask;
   }

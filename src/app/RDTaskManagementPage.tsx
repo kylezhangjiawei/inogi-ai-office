@@ -17,7 +17,6 @@ import {
   CircleDot,
   Code2,
   Cpu,
-  Download,
   FileUp,
   Flame,
   FolderPlus,
@@ -27,7 +26,6 @@ import {
   ListChecks,
   Loader2,
   Lock,
-  Maximize2,
   Paperclip,
   FileText,
   Pencil,
@@ -39,10 +37,8 @@ import {
   UserPlus,
   RefreshCw,
   RotateCcw,
-  FileSearch,
   Search,
   Send,
-  ShoppingCart,
   Sparkles,
   Target,
   TimerReset,
@@ -52,8 +48,6 @@ import {
   Settings2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { createHttpIssueService } from "./lib/issue/issueHttpService";
-import { ProcurementActivitySection, ProcurementLinkChip, TransferToProcurementModal, useProcurementTaskLink } from "./procurement/components/rdInsertion";
 import { Input } from "./components/ui/input";
 import { NativeSelect } from "./components/ui/native-select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
@@ -63,9 +57,7 @@ import { CollapseTransition } from "./components/CollapseTransition";
 import { useAuth } from "./auth";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./components/ui/tooltip";
 import { usePermission, useAnyPermission } from "./hooks/usePermission";
-import { AuditTimeline } from "./RDAuditTimeline";
-import { addAuditLogNote, AuditActor, AuditChange, AuditLog, recordAudit, useAuditActor, useAuditLogs } from "./lib/auditLog";
-import { getReviewTypeMeta } from "./lib/reviewTypes";
+import { AuditActor, AuditChange, AuditLog, recordAudit, useAuditActor } from "./lib/auditLog";
 import { taskOverdueDays, isTaskOverdue } from "./lib/taskDue";
 import {
   AlertDialog,
@@ -115,19 +107,15 @@ import {
   type RdTaskProgressAttachment,
   type RdTaskProgressNote,
   type RdWorkItem,
-  type RdTaskBrief,
   isUsCollabWorkspace,
   workItemsFeatureEnabled,
-  generateRdTaskBrief,
   blockedDaysOf,
   type RdTaskStatus,
   type RdProductDef,
   type RdProductStatus,
   getAttachmentUrl,
-  getAttachmentPreviewUrl,
   getAttachmentThumbUrl,
 } from "./lib/rdApi";
-import { ProgressAttachmentGrid, TaskImageGallery } from "./RDProgressEvidence";
 import { RDReportsPanel } from "./RDReportsPanel";
 import { fetchRdDailyReports, fetchRdTaskNoteReceipts, markRdTaskNotesRead, type RdDailyReport, type RdTaskNoteReceipt } from "./lib/rdApi";
 import { getGradeTone } from "./lib/taskCompletionScore";
@@ -419,6 +407,27 @@ export function flattenTasks(tasks: Task[]): Task[] {
   }
   walk(tasks);
   return result;
+}
+
+/**
+ * 父子索引：子任务 task_id → 其父任务。以「结构位置」为准（谁在谁的 subtasks 里），
+ * 不看 parent_task_id 字段——存量子任务没有该字段，只认字段会把它们误判成顶层任务。
+ */
+export function buildSubtaskParentIndex(categories: Category[]): Map<string, Task> {
+  const index = new Map<string, Task>();
+  const walk = (tasks: Task[], parent: Task | null) => {
+    for (const task of tasks) {
+      if (parent) index.set(task.task_id, parent);
+      if (task.subtasks?.length) walk(task.subtasks, task);
+    }
+  };
+  for (const cat of categories) for (const sub of cat.children) walk(sub.tasks, null);
+  return index;
+}
+
+/** 顶层任务（不在任何任务的 subtasks 里）。用于「并入已有任务」的候选列表与统计口径标注。 */
+export function collectTopLevelTasks(categories: Category[]): Task[] {
+  return categories.flatMap((cat) => cat.children.flatMap((sub) => sub.tasks));
 }
 
 export function computeRisks(categories: Category[]): Risk[] {
@@ -858,6 +867,8 @@ function TaskItem({
         {/* Title + latest progress summary */}
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <div className="flex min-w-0 items-baseline gap-2">
+            {/* depth>0 即处于父任务的 subtasks 里 → 打子任务身份徽标 */}
+            {depth > 0 && <SubtaskBadge task={task} />}
             <span
               className={cn(
                 "truncate",
@@ -1033,6 +1044,45 @@ function subtaskContainerBg(depth: number): string {
   return "bg-slate-300/60";
 }
 
+/**
+ * 子任务身份徽标：一眼区分「这不是独立任务」，并区分来源。
+ * - created：在父任务下直建
+ * - attached：由已有独立任务并入
+ * - 缺省（存量子任务无 subtask_origin）：只显示中性「子」，不猜来源
+ */
+export function SubtaskBadge({ task, className }: { task: Task; className?: string }) {
+  useI18n();
+  const origin = task.subtask_origin;
+  const cfg =
+    origin === "attached"
+      ? { label: t("并入"), cls: "bg-amber-50 text-amber-700 ring-amber-200" }
+      : origin === "created"
+        ? { label: t("子建"), cls: "bg-sky-50 text-sky-700 ring-sky-200" }
+        : { label: t("子"), cls: "bg-slate-100 text-slate-600 ring-slate-200" };
+  const title =
+    origin === "attached"
+      ? [
+          t("由已有任务并入为子任务"),
+          task.subtask_attached_by ? t("操作人：{name}", { name: task.subtask_attached_by }) : "",
+          task.subtask_attached_at ? t("时间：{time}", { time: task.subtask_attached_at.slice(0, 16).replace("T", " ") }) : "",
+        ].filter(Boolean).join("\n")
+      : origin === "created"
+        ? t("在父任务下直接创建的子任务")
+        : t("子任务");
+  return (
+    <span
+      title={title}
+      className={cn(
+        "shrink-0 rounded px-1 py-px text-[10px] font-semibold leading-tight ring-1 ring-inset",
+        cfg.cls,
+        className,
+      )}
+    >
+      {cfg.label}
+    </span>
+  );
+}
+
 function SubtaskBlock({
   tasks,
   depth,
@@ -1125,6 +1175,8 @@ function SubtaskRow({
           {task.archived ? <Lock className="h-3 w-3 text-slate-400" /> : <StatusDot status={task.status} />}
         </span>
 
+        <SubtaskBadge task={task} />
+
         <span
           className={cn(
             "min-w-0 flex-1 truncate text-sm",
@@ -1181,20 +1233,6 @@ function SubtaskRow({
       </div>
     </div>
   );
-}
-
-// Backwards-compatible alias
-function SubtaskCardRow({
-  task,
-  depth,
-  onOpen,
-}: {
-  task: Task;
-  depth: number;
-  onOpen: (t: Task) => void;
-  isLast?: boolean;
-}) {
-  return <SubtaskRow task={task} depth={depth} onOpen={onOpen} />;
 }
 
 /** 备注回执 map：驾驶舱深层卡片经 context 读取（管理视角：他人给任务留的备注是否被目标人查看/跟进）。 */
@@ -4356,1231 +4394,6 @@ export function WorkItemsSection({
   );
 }
 
-function TaskDetailDrawer({
-  task,
-  onClose,
-  onOpenPerson,
-  onDescriptionUpdated,
-  onTaskPatched,
-  onTaskCompleted,
-  onTaskMutated,
-  onMoveTask,
-  people,
-}: {
-  task: Task;
-  onClose: () => void;
-  onOpenPerson?: (name: string) => void;
-  onDescriptionUpdated?: (taskId: string, description: string) => void;
-  /** 抽屉内直接编辑字段（标题/优先级）后，父组件用来即时回填打开中的 selectedTask，让抽屉立刻显示新值 */
-  onTaskPatched?: (taskId: string, patch: Partial<Task>) => void;
-  onTaskCompleted?: (task: Task) => void;
-  /** 任意会影响任务数据（协作人/移交/字段更新等）的动作后回调，父组件用来重新拉数据刷新列表 */
-  onTaskMutated?: () => void;
-  onMoveTask?: () => void;
-  people?: PersonProfile[];
-}) {
-  useI18n();
-  const RD_ADMIN_AUDIT_ACTOR = useAuditActor("研发管理员");
-  const shouldReduceMotion = useReducedMotion();
-  const navigate = useNavigate();
-  const issueService = useMemo(() => createHttpIssueService(), []);
-  const [generatingIssue, setGeneratingIssue] = useState(false);
-  const [transferOpen, setTransferOpen] = useState(false);
-  const { task: procLink, setTask: setProcLink } = useProcurementTaskLink(task.task_id);
-  const { user } = useAuth();
-  const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
-  const canReviewProjectL1 = usePermission(PERMISSIONS.RD_PROJECT_REVIEW_L1);
-  const canReviewProjectL2 = usePermission(PERMISSIONS.RD_PROJECT_REVIEW_L2);
-  const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
-  const canReassignTasks = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
-  const canCreateIssue = usePermission("issue:create");
-  const [editingDesc, setEditingDesc] = useState(false);
-  const [descDraft, setDescDraft] = useState(task.description ?? "");
-  const [savingDesc, setSavingDesc] = useState(false);
-  const [editingTitle, setEditingTitle] = useState(false);
-  const [titleDraft, setTitleDraft] = useState(task.title);
-  const [savingTitle, setSavingTitle] = useState(false);
-  const [savingPriority, setSavingPriority] = useState(false);
-  const [showSubmitConfirm, setShowSubmitConfirm] = useState(false);
-  const [showCompleteConfirm, setShowCompleteConfirm] = useState(false);
-  const [showHandoverDialog, setShowHandoverDialog] = useState(false);
-  const [showAddCollaboratorsDialog, setShowAddCollaboratorsDialog] = useState(false);
-  const [showApprovalDialog, setShowApprovalDialog] = useState<"approve" | "reject" | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
-  const statusCfg = STATUS_CONFIG[task.status];
-  const taskLogs = useAuditLogs({ resourceType: "task", resourceId: task.task_id });
-  const [progressNotes, setProgressNotes] = useState<RdTaskProgressNote[]>([]);
-  const [progressNotesLoading, setProgressNotesLoading] = useState(false);
-  // 留痕 Tab：'all' 全部 / 'main' 主任务（未关联工作项） / 工作项 id
-  const [traceTab, setTraceTab] = useState<string>("all");
-  // ── 中美协同专属（按路由条件启用，研发驾驶舱不受影响）：AI 小结 / 导出报告 / 阻塞天数 ──
-  const usCollab = isUsCollabWorkspace();
-  const [taskBrief, setTaskBrief] = useState<RdTaskBrief | null>(null);
-  const [briefLoading, setBriefLoading] = useState(false);
-  const collabBlockedDays = usCollab ? blockedDaysOf(task) : null;
-  const handleGenerateBrief = async () => {
-    if (briefLoading) return;
-    setBriefLoading(true);
-    try {
-      setTaskBrief(await generateRdTaskBrief(task.task_id));
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : t("生成任务小结失败"));
-    } finally {
-      setBriefLoading(false);
-    }
-  };
-  useEffect(() => {
-    setTaskBrief(null);
-  }, [task.task_id]);
-  // 进度留痕已并入操作留痕：把每条「更新了任务进度」的留痕附件挂到对应的操作记录下。
-  // 关联优先用 metadata.note_id（新数据精确）；老数据回退「同进度值 + 2 分钟内」启发式，并保证一条留痕只挂一处。
-  const logNoteMatches = useMemo(() => {
-    const map = new Map<string, RdTaskProgressNote>();
-    const used = new Set<string>();
-    const progressLogs = taskLogs.filter((log) => log.action === "task.progress_updated");
-    for (const log of progressLogs) {
-      const noteId = typeof log.metadata?.note_id === "string" ? log.metadata.note_id : "";
-      if (!noteId) continue;
-      const note = progressNotes.find((n) => n.id === noteId);
-      if (note && !used.has(note.id)) {
-        map.set(log.id, note);
-        used.add(note.id);
-      }
-    }
-    for (const log of progressLogs) {
-      if (map.has(log.id)) continue;
-      const after = log.changes?.find((c) => c.field === "progress")?.after;
-      const logTime = new Date(log.timestamp).getTime();
-      let best: RdTaskProgressNote | undefined;
-      let bestDelta = Infinity;
-      for (const note of progressNotes) {
-        if (used.has(note.id)) continue;
-        if (typeof after === "number" && typeof note.progress === "number" && note.progress !== after) continue;
-        const delta = Math.abs(new Date(note.created_at).getTime() - logTime);
-        if (delta > 120_000 || delta >= bestDelta) continue;
-        best = note;
-        bestDelta = delta;
-      }
-      if (best) {
-        map.set(log.id, best);
-        used.add(best.id);
-      }
-    }
-    return map;
-  }, [taskLogs, progressNotes]);
-  // 追溯显示：把「没有对应『进度更新』操作留痕条目」的进度备注（历史数据、或早期移动端只建 note 未记 audit 的备注）
-  // 合成为时间线条目，一并并入操作留痕，保证 PC 也能看到。已匹配到真实 audit 条目的备注不重复合成。
-  const orphanNoteLogs = useMemo<AuditLog[]>(() => {
-    const usedNoteIds = new Set(Array.from(logNoteMatches.values(), (n) => n.id));
-    return progressNotes
-      .filter((n) => !usedNoteIds.has(n.id))
-      .map((n) => ({
-        id: `note-log-${n.id}`,
-        timestamp: n.created_at,
-        actor: { id: n.actor?.id ?? null, name: n.actor?.name ?? "研发成员", role: n.actor?.role ?? "研发成员" },
-        action: "task.progress_updated" as const,
-        resource: { type: "task" as const, id: task.task_id, name: task.title },
-        comment: n.text || "更新任务进度",
-        metadata: { note_id: n.id, synthetic: true },
-        source: "web" as const,
-      }));
-  }, [progressNotes, logNoteMatches, task.task_id, task.title]);
-  const orphanNoteById = useMemo(() => {
-    const m = new Map<string, RdTaskProgressNote>();
-    for (const n of progressNotes) m.set(`note-log-${n.id}`, n);
-    return m;
-  }, [progressNotes]);
-  const mergedTaskLogs = useMemo(
-    () =>
-      [...taskLogs, ...orphanNoteLogs].sort(
-        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
-      ),
-    [taskLogs, orphanNoteLogs],
-  );
-  const taskAttachmentTotal = useMemo(
-    () => progressNotes.reduce((sum, note) => sum + note.attachments.length, 0),
-    [progressNotes],
-  );
-  // 转采购弹窗默认带入的任务附件（全部进度留痕附件拍平）
-  const transferAttachments = useMemo(
-    () => progressNotes.flatMap((note) => note.attachments.map((a) => ({
-      id: a.id,
-      name: a.name,
-      size: a.size,
-      mimeType: a.mime,
-      fileUrl: getAttachmentUrl(a),
-      fileKey: a.object_key,
-    }))).filter((attachment) => Boolean(attachment.fileUrl)),
-    [progressNotes],
-  );
-  const canManageTaskFlow = canDirectProject || canReviewProjectL1 || canReviewProjectL2 || canManagePeople || canReassignTasks;
-  const userIdentityKeys = new Set([
-    normalizeIdentity(user?.name),
-    normalizeIdentity(user?.username),
-    normalizeIdentity(user?.email),
-  ].filter(Boolean));
-  const isCurrentOwner =
-    Boolean(user?.id && task.primary_owner_user_id && task.primary_owner_user_id === user.id) ||
-    userIdentityKeys.has(normalizeIdentity(task.primary_owner));
-  const isCurrentCollaborator = (task.collaborators ?? []).some((c) =>
-    Boolean(
-      (user?.id && c.user_id && c.user_id === user.id) ||
-      userIdentityKeys.has(normalizeIdentity(c.name)),
-    ),
-  );
-  // 完成质量评分可见性：任务关联人员（主责人 / 协作人）和管理员可见
-  const canViewCompletionScore = isCurrentOwner || isCurrentCollaborator || canManageTaskFlow;
-  const canSubmitForReview = task.status === "in_progress" && isCurrentOwner && !canManageTaskFlow;
-  const canCompleteDirectly = task.status === "in_progress" && canManageTaskFlow;
-  const canReviewPendingTask = task.status === "pending_review" && canManageTaskFlow;
-  const canHandoverTask = task.status === "in_progress" && canManageTaskFlow;
-  // 生成问题：把当前任务内容（描述+进度留痕+附件名）一键在「问题记录与 AI 定位」建成一条问题，省去手动新建。
-  const canGenerateIssue = !task.archived && canCreateIssue;
-  // 转采购操作码（系统管理·权限目录可配），已转的跳转芯片保持只读可见
-  const canTransferProc = usePermission("proc-task:transfer");
-  // 非归档任务始终显示操作栏（至少含「转采购」/「生成问题」）
-  const showActionBar = !task.archived;
-
-  const handleGenerateIssue = async () => {
-    if (generatingIssue) return;
-    setGeneratingIssue(true);
-    try {
-      const parts: string[] = [];
-      if (task.description?.trim()) parts.push(task.description.trim());
-      const noteTexts = progressNotes.map((n) => (n.text ?? "").trim()).filter(Boolean);
-      if (noteTexts.length > 0) parts.push("【进展 / 问题记录】\n" + noteTexts.map((t, i) => `${i + 1}. ${t}`).join("\n"));
-      parts.push(`（自研发任务生成：${task.task_id}${task.category_path ? "｜" + task.category_path : ""}）`);
-
-      // 二期：把任务进度留痕里的附件（图片/文档）真正搬到问题模块——经同源 preview_url 取回字节，
-      // 走问题模块现有 uploadAttachment（落 OSS/FileAsset 并归属当前用户）拿 fileId，随问题入库。
-      const seen = new Set<string>();
-      const srcAtts = progressNotes
-        .flatMap((n) => n.attachments)
-        .filter((a) => {
-          const k = a.id || `${a.name}-${a.size}`;
-          if (seen.has(k)) return false;
-          seen.add(k);
-          return true;
-        });
-      if (srcAtts.length > 0) toast.info(t("正在搬运 {count} 个附件到问题…", { count: srcAtts.length }));
-      const issueAttachments: NonNullable<Parameters<typeof issueService.create>[0]["attachments"]> = [];
-      for (const a of srcAtts) {
-        try {
-          const url = getAttachmentPreviewUrl(a) || getAttachmentUrl(a);
-          if (!url) continue;
-          const resp = await fetch(url);
-          if (!resp.ok) continue;
-          const blob = await resp.blob();
-          const raw = await issueService.uploadAttachment({
-            fileName: a.name,
-            fileType: a.mime || blob.type || "application/octet-stream",
-            size: a.size ?? blob.size,
-            dataUrl: await blobToDataUrl(blob),
-          });
-          const processed = await issueService.processAttachment(raw, "ai").catch(() => raw);
-          // 关键：图片在问题侧 processAttachment 不做 OCR（返回空），必须回传 RD 侧已抽取的 OCR/视觉/文档文本，
-          // 否则 AI（尤其 OCR 模式）看不到附件内容。优先问题侧解析结果，回退 RD 侧 extracted_text。
-          const extractedText = (processed.extractedText && processed.extractedText.trim()) || (a.extracted_text && a.extracted_text.trim()) || undefined;
-          issueAttachments.push({ id: processed.id, fileName: processed.fileName, fileType: processed.fileType, fileUrl: processed.fileUrl, extractedText });
-        } catch {
-          // 单个附件搬运失败不阻断整体生成
-        }
-      }
-      // 搬运有缺失时，把附件名补进描述作兜底记录
-      if (issueAttachments.length < srcAtts.length) {
-        const names = srcAtts.map((a) => a.name).join("、");
-        if (names) parts.splice(parts.length - 1, 0, "【相关附件】" + names);
-      }
-
-      const issue = await issueService.create({
-        title: task.title,
-        description: parts.join("\n\n"),
-        source: "rd",
-        attachments: issueAttachments.length > 0 ? issueAttachments : undefined,
-      });
-      toast.success(t("已生成问题{attachments}，正在跳转…", { attachments: issueAttachments.length > 0 ? t("（含 {count} 个附件）", { count: issueAttachments.length }) : "" }));
-      navigate(`/issue-ai?issue=${encodeURIComponent(issue.id)}`);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : t("生成问题失败，请重试"));
-      setGeneratingIssue(false);
-    }
-  };
-  useEffect(() => {
-    let cancelled = false;
-    setProgressNotesLoading(true);
-    fetchRdTaskProgressNotes(task.task_id)
-      .then((notes) => {
-        if (!cancelled) setProgressNotes(notes);
-      })
-      .catch(() => {
-        if (!cancelled) setProgressNotes([]);
-      })
-      .finally(() => {
-        if (!cancelled) setProgressNotesLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [task.task_id]);
-
-  // 切换任务时重置留痕 Tab
-  useEffect(() => {
-    setTraceTab("all");
-  }, [task.task_id]);
-
-  // 留痕条目 → 关联的进度留痕（metadata.note_id 精确匹配 / 老数据启发式，与附件挂载同一张映射）
-  const noteOfLog = useCallback(
-    (logId: string) => logNoteMatches.get(logId) ?? orphanNoteById.get(logId),
-    [logNoteMatches, orphanNoteById],
-  );
-
-  // 各工作项已关联的进展留痕数（工作项区块「N 条留痕」徽标）
-  const noteCountByItem = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const n of progressNotes) {
-      if (n.work_item_id) m.set(n.work_item_id, (m.get(n.work_item_id) ?? 0) + 1);
-    }
-    return m;
-  }, [progressNotes]);
-
-  // 留痕条目 → 所属工作项：进展留痕看 note.work_item_id，工作项操作记录（创建/完成/删除）看 metadata.work_item_id
-  const workItemOfLog = useCallback(
-    (log: AuditLog): string | undefined =>
-      noteOfLog(log.id)?.work_item_id ??
-      (typeof log.metadata?.work_item_id === "string" ? log.metadata.work_item_id : undefined),
-    [noteOfLog],
-  );
-
-  // 留痕 Tab 徽标计数：该工作项的全部记录数（进展留痕 + 操作记录）
-  const traceCountByItem = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const log of mergedTaskLogs) {
-      const wid = workItemOfLog(log);
-      if (wid) m.set(wid, (m.get(wid) ?? 0) + 1);
-    }
-    return m;
-  }, [mergedTaskLogs, workItemOfLog]);
-
-  // 留痕区按 Tab 展示：全部 / 未关联工作项的条目 / 单个工作项的完整时间线（创建→进展→完成）
-  const displayTraceLogs = useMemo(() => {
-    const hasItems = (task.work_items ?? []).length > 0;
-    if (!hasItems || traceTab === "all") return mergedTaskLogs;
-    if (traceTab === "main") {
-      // 「未关联」含孤儿：关联的工作项被删除后（Tab 已不存在），其历史留痕归入这里而不是凭空消失
-      const existingItemIds = new Set((task.work_items ?? []).map((it) => it.id));
-      return mergedTaskLogs.filter((log) => {
-        const wid = workItemOfLog(log);
-        return !wid || !existingItemIds.has(wid);
-      });
-    }
-    return mergedTaskLogs.filter((log) => workItemOfLog(log) === traceTab);
-  }, [traceTab, mergedTaskLogs, workItemOfLog, task.work_items]);
-
-  const saveDescription = async () => {
-    if (savingDesc) return;
-    setSavingDesc(true);
-    try {
-      await updateRdTask(task.task_id, { description: descDraft.trim() });
-      recordAudit({
-        actor: RD_ADMIN_AUDIT_ACTOR,
-        action: "task.updated",
-        resource: { type: "task", id: task.task_id, name: task.title },
-        changes: [{ field: "description", before: task.description ?? "", after: descDraft.trim() }],
-        comment: "更新任务描述",
-        source: "web",
-      });
-      onDescriptionUpdated?.(task.task_id, descDraft.trim());
-      setEditingDesc(false);
-      toast.success(t("描述已保存"));
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("保存失败"));
-    } finally {
-      setSavingDesc(false);
-    }
-  };
-
-  const saveTitle = async () => {
-    if (savingTitle) return;
-    const next = titleDraft.trim();
-    if (!next) {
-      toast.error(t("任务标题不能为空"));
-      return;
-    }
-    if (next === task.title.trim()) {
-      setEditingTitle(false);
-      return;
-    }
-    setSavingTitle(true);
-    try {
-      await updateRdTask(task.task_id, { title: next });
-      recordAudit({
-        actor: RD_ADMIN_AUDIT_ACTOR,
-        action: "task.updated",
-        resource: { type: "task", id: task.task_id, name: next },
-        changes: [{ field: "title", before: task.title, after: next }],
-        comment: "更新任务标题",
-        source: "web",
-      });
-      onTaskPatched?.(task.task_id, { title: next });
-      onTaskMutated?.();
-      setEditingTitle(false);
-      toast.success(t("标题已保存"));
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("保存失败"));
-    } finally {
-      setSavingTitle(false);
-    }
-  };
-
-  const savePriority = async (next: Priority) => {
-    if (savingPriority || next === task.final_priority) return;
-    const prev = task.final_priority;
-    setSavingPriority(true);
-    try {
-      await updateRdTask(task.task_id, { final_priority: next });
-      recordAudit({
-        actor: RD_ADMIN_AUDIT_ACTOR,
-        action: "task.updated",
-        resource: { type: "task", id: task.task_id, name: task.title },
-        changes: [{ field: "priority", before: PRIORITY_CONFIG[prev].label, after: PRIORITY_CONFIG[next].label }],
-        comment: "更新任务优先级",
-        source: "web",
-      });
-      onTaskPatched?.(task.task_id, { final_priority: next });
-      onTaskMutated?.();
-      toast.success(t("优先级已调整为「{priority}」", { priority: t(PRIORITY_CONFIG[next].label) }));
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("保存失败"));
-    } finally {
-      setSavingPriority(false);
-    }
-  };
-
-  const handleSubmitForReview = async () => {
-    setSubmitting(true);
-    try {
-      await updateRdTask(task.task_id, { status: "pending_review", progress: 100 });
-      const changes: AuditChange[] = [
-        { field: "status", before: task.status, after: "pending_review" },
-      ];
-      if (task.progress !== 100) {
-        changes.push({ field: "progress", before: String(task.progress), after: "100" });
-      }
-      recordAudit({
-        actor: RD_ADMIN_AUDIT_ACTOR,
-        action: "task.updated",
-        resource: { type: "task", id: task.task_id, name: task.title },
-        changes,
-        comment: "提交任务审核，进度自动置为 100%",
-        source: "web",
-      });
-      toast.success(t("任务已提交审核，等待确认"));
-      window.dispatchEvent(new CustomEvent('rd:review-submitted'));
-      setShowSubmitConfirm(false);
-      onClose();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("提交失败"));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleDirectComplete = async () => {
-    setSubmitting(true);
-    try {
-      await updateRdTask(task.task_id, { status: "completed", progress: 100 });
-      recordAudit({
-        actor: RD_ADMIN_AUDIT_ACTOR,
-        action: "task.updated",
-        resource: { type: "task", id: task.task_id, name: task.title },
-        changes: [
-          { field: "status", before: task.status, after: "completed" },
-          { field: "progress", before: String(task.progress), after: "100" },
-        ],
-        comment: "管理员直接标记任务完成",
-        source: "web",
-      });
-      toast.success(t("任务已标记完成"));
-      setShowCompleteConfirm(false);
-      onTaskCompleted?.({ ...task, status: "completed", progress: 100 });
-      onClose();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("操作失败"));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleHandover = async (newOwner: string) => {
-    // 与其它写操作处理器一致：try/catch + setSubmitting，移交失败时给出报错、避免重复点击，
-    // 也防止 updateRdTask reject 变成未捕获的 Promise rejection。
-    setSubmitting(true);
-    try {
-      // _actor_name 让后端通知里能显示"谁移交的"，而不是默认的"管理员"
-      await updateRdTask(task.task_id, {
-        primary_owner: newOwner,
-        _actor_name: user?.name || "管理员",
-      } as Partial<Omit<Task, "task_id">> & { _actor_name?: string });
-      recordAudit({
-        actor: RD_ADMIN_AUDIT_ACTOR,
-        action: "task.updated",
-        resource: { type: "task", id: task.task_id, name: task.title },
-        changes: [{ field: "primary_owner", before: task.primary_owner, after: newOwner }],
-        comment: `移交任务给 ${newOwner}`,
-        source: "web",
-      });
-      toast.success(t("任务已移交给 {name}", { name: newOwner }));
-      setShowHandoverDialog(false);
-      onTaskMutated?.(); // 移交后老/新主责人的任务数量都变了，需要刷新
-      onClose();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("移交失败"));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  // 管理员直接添加协作人：写 collaborators 字段，不带 _review_action / pending_review_type，
-  // 后端会作为普通字段更新立即生效（updateTask 仅当 _review_action 存在时才走审核分支）
-  const handleAddCollaboratorsDirect = async (newCollaborators: RdCollaborator[]) => {
-    const merged = [...(task.collaborators ?? []), ...newCollaborators];
-    try {
-      await updateRdTask(task.task_id, {
-        collaborators: merged,
-        _actor_name: user?.name || "管理员",
-      } as Partial<Omit<Task, "task_id">> & { _actor_name?: string });
-      recordAudit({
-        actor: RD_ADMIN_AUDIT_ACTOR,
-        action: "task.updated",
-        resource: { type: "task", id: task.task_id, name: task.title },
-        comment: `管理员直接添加协作人：${newCollaborators.map((c) => c.name).join("、")}`,
-        source: "web",
-      });
-      toast.success(t("已添加 {count} 位协作人", { count: newCollaborators.length }));
-      setShowAddCollaboratorsDialog(false);
-      onTaskMutated?.(); // 触发父组件重新拉数据，刷新驾驶舱任务列表 + 人员头像计数
-      onClose();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("添加协作人失败"));
-    }
-  };
-
-  const handleApproval = async (reason?: string, rollbackProgress?: number) => {
-    if (!showApprovalDialog) return;
-    setSubmitting(true);
-    try {
-      const isApprove = showApprovalDialog === "approve";
-      const meta = getReviewTypeMeta(task.pending_review_type);
-      if (!meta) {
-        toast.error(t("无法识别该任务的审核类型，请刷新后重试"));
-        return;
-      }
-      // 自审（审核人＝提交人）：允许，但在留痕中标记，便于追溯。
-      const isSelfReview = !!user?.id && task.primary_owner_user_id === user.id;
-      // 统一走后端 _review_action：通过/驳回后的状态、pending 落地与清空、待审核通知标记已处理、
-      // 通知提交人、成果通过触发 AI 复盘评分，全部由后端按 pending_review_type 唯一裁决。
-      // 前端不再自行拼 status / completed，杜绝"立项被误判完成"等类型错配。
-      await updateRdTask(task.task_id, {
-        _review_action: isApprove ? "approve" : "reject",
-        _reviewer_name: RD_ADMIN_AUDIT_ACTOR.name,
-        ...(isApprove ? {} : { _reject_reason: reason ?? `驳回${meta.label}` }),
-        // 驳回时若审核人调整了回退进度，一并带上（后端只裁决状态，progress 透传保留）
-        ...(!isApprove && typeof rollbackProgress === "number" ? { progress: rollbackProgress } : {}),
-      } as Parameters<typeof updateRdTask>[1]);
-      recordAudit({
-        actor: RD_ADMIN_AUDIT_ACTOR,
-        action: isApprove ? meta.approveAction : meta.rejectAction,
-        resource: { type: "task", id: task.task_id, name: task.title },
-        changes: [
-          ...(meta.key === "due_date" && isApprove
-            ? [{ field: "due_date", before: task.due_date ?? "", after: task.pending_due_date ?? task.due_date ?? "" }]
-            : []),
-          ...(meta.key === "collaboration" && isApprove
-            ? [{
-                field: "collaborators",
-                before: (task.collaborators ?? []).map((item) => item.name).join("、"),
-                after: (task.pending_collaborators ?? task.collaborators ?? []).map((item) => item.name).join("、"),
-              }]
-            : []),
-        ],
-        comment: `${isApprove ? "审核通过" : "驳回"}了${meta.label}${reason ? `：${reason}` : ""}${isSelfReview ? "（本人自审）" : ""}`,
-        metadata: { task_id: task.task_id, pending_review_type: task.pending_review_type, self_review: isSelfReview },
-        source: "web",
-      });
-      toast.success(`${t(meta.label)}${isApprove ? t("已通过") : t("已驳回")}${isSelfReview ? t("（自审）") : ""}`);
-      setShowApprovalDialog(null);
-      // 成果审核通过 → 任务进入已完成，通知父组件刷新完成态
-      if (isApprove && meta.key === "result") {
-        onTaskCompleted?.({ ...task, status: "completed", progress: 100 });
-      }
-      onClose();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("操作失败"));
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const isDescDirty = editingDesc && descDraft.trim() !== (task.description ?? "").trim();
-  const isTitleDirty = editingTitle && titleDraft.trim().length > 0 && titleDraft.trim() !== task.title.trim();
-  const hasUnsavedEdits = isDescDirty || isTitleDirty;
-  const hasNestedDialog =
-    showSubmitConfirm ||
-    showCompleteConfirm ||
-    showHandoverDialog ||
-    showAddCollaboratorsDialog ||
-    showApprovalDialog !== null;
-  // 关闭意图统一入口：仅当有未保存的内联编辑（描述/标题）时弹确认，否则直接关闭。
-  const requestClose = () => {
-    if (hasUnsavedEdits) {
-      setShowCloseConfirm(true);
-      return;
-    }
-    onClose();
-  };
-  // Esc 关闭；有嵌套弹窗 / 确认框打开时让位给上层，避免误关抽屉。
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      if (hasNestedDialog || showCloseConfirm) return;
-      event.stopPropagation();
-      if (hasUnsavedEdits) setShowCloseConfirm(true);
-      else onClose();
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [hasNestedDialog, showCloseConfirm, hasUnsavedEdits, onClose]);
-
-  return (
-    <motion.div
-      className="fixed inset-0 z-50 flex justify-end"
-      initial={shouldReduceMotion ? false : { opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      transition={RD_FAST_TRANSITION}
-    >
-      {/* 点击面板外空白处关闭（透明遮罩，保留原有「页面不变暗」观感）；脏检查在 requestClose 内处理 */}
-      <div className="absolute inset-0" aria-hidden onClick={requestClose} />
-      <motion.div
-        className="relative z-10 flex h-full w-full max-w-[620px] flex-col overflow-hidden border-l border-slate-200 bg-white shadow-2xl sm:w-[min(620px,92vw)]"
-        initial={shouldReduceMotion ? false : { opacity: 0, x: 36 }}
-        animate={{ opacity: 1, x: 0 }}
-        exit={{ opacity: 0, x: 28 }}
-        transition={RD_PANEL_TRANSITION}
-      >
-        <div className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200 bg-white px-6 py-4">
-          <div className="min-w-0 flex-1">
-            <div className="text-xs font-mono text-slate-400">{task.task_id}</div>
-            {editingTitle ? (
-              <div className="mt-1 flex items-center gap-1.5">
-                <Input
-                  value={titleDraft}
-                  onChange={(e) => setTitleDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") { e.preventDefault(); saveTitle(); }
-                  }}
-                  autoFocus
-                  placeholder={t("任务标题")}
-                  className="h-8 flex-1 text-base font-semibold"
-                />
-                <button
-                  type="button"
-                  onClick={() => { setEditingTitle(false); setTitleDraft(task.title); }}
-                  className="cursor-pointer rounded px-2 py-0.5 text-[11px] text-slate-500 hover:bg-slate-100"
-                >
-                  {t("取消")}
-                </button>
-                <button
-                  type="button"
-                  onClick={saveTitle}
-                  disabled={savingTitle}
-                  className="flex cursor-pointer items-center gap-1 rounded bg-indigo-600 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
-                >
-                  {savingTitle ? <RefreshCw className="h-2.5 w-2.5 animate-spin" /> : <CheckCircle2 className="h-2.5 w-2.5" />}
-                  {t("保存")}
-                </button>
-              </div>
-            ) : (
-              <div className="flex items-center gap-1.5">
-                <AutoTranslatedText as="div" className="truncate text-base font-semibold text-slate-800" text={task.title} />
-                {canManageTaskFlow && !task.archived && (
-                  <button
-                    type="button"
-                    onClick={() => { setTitleDraft(task.title); setEditingTitle(true); }}
-                    title={t("编辑任务标题")}
-                    className="shrink-0 cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                  >
-                    <Pencil className="h-3 w-3" />
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            {/* 协同专属：进入全屏双栏详情页（Velzon 任务详情式布局），其他驾驶舱不显示 */}
-            {usCollab && (
-              <button
-                type="button"
-                onClick={() => navigate(`/us-collab-task/${encodeURIComponent(task.task_id)}`)}
-                title={t("全屏查看任务详情")}
-                className="cursor-pointer rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-              >
-                <Maximize2 className="h-4 w-4" />
-              </button>
-            )}
-            <button type="button" onClick={requestClose} className="cursor-pointer rounded-lg p-1.5 hover:bg-slate-100">
-              <X className="h-4 w-4 text-slate-500" />
-            </button>
-          </div>
-        </div>
-
-        <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-6">
-          {task.archived && (
-            <div className="flex items-center gap-2 rounded-[8px] border border-slate-200 bg-slate-50 px-4 py-3">
-              <Lock className="h-4 w-4 text-slate-400" />
-              <span className="text-sm text-slate-500">{t("此任务已封存（只读），全部历史记录已保留")}</span>
-            </div>
-          )}
-
-          <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <div className="mb-1 text-xs text-slate-400">{t("状态")}</div>
-              <span className={cn("inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium", statusCfg.bg, statusCfg.text)}>
-                <StatusDot status={task.status} />
-                {t(statusCfg.label)}
-              </span>
-            </div>
-            <div>
-              <div className="mb-1 text-xs text-slate-400">{t("优先级")}</div>
-              {canManageTaskFlow && !task.archived ? (
-                <div className="flex items-center gap-2">
-                  <NativeSelect
-                    value={task.final_priority}
-                    disabled={savingPriority}
-                    onChange={(e) => savePriority(e.target.value as Priority)}
-                    className="w-[96px] border-slate-200 text-xs"
-                  >
-                    <option value="high">{t("高")}</option>
-                    <option value="medium">{t("中")}</option>
-                    <option value="low">{t("低")}</option>
-                  </NativeSelect>
-                  {savingPriority && <RefreshCw className="h-3 w-3 animate-spin text-slate-400" />}
-                  {task.ai_priority && task.ai_priority !== task.final_priority && (
-                    <span className="text-[11px] text-slate-400" title={t("AI 初始建议")}>
-                      {t("AI 建议:")} {t(PRIORITY_CONFIG[task.ai_priority].label)}
-                    </span>
-                  )}
-                </div>
-              ) : (
-                <PriorityPill priority={task.final_priority} aiPriority={task.ai_priority} />
-              )}
-            </div>
-            <div>
-              <div className="mb-1 text-xs text-slate-400">{t("主责人")}</div>
-              <button
-                type="button"
-                onClick={() => onOpenPerson?.(task.primary_owner)}
-                disabled={/已离职|待指派|外部机构/.test(task.primary_owner)}
-                className="flex items-center gap-2 rounded-md py-0.5 font-medium text-slate-700 transition-colors enabled:cursor-pointer enabled:hover:text-indigo-600 disabled:cursor-default"
-              >
-                <OwnerAvatar name={task.primary_owner} userId={task.primary_owner_user_id} />
-                {task.primary_owner}
-                {!/已离职|待指派|外部机构/.test(task.primary_owner) && <ChevronRight className="h-3 w-3 text-slate-300" />}
-              </button>
-            </div>
-            <div>
-              <div className="mb-1 text-xs text-slate-400">{t("截止日期")}</div>
-              <div className="font-medium text-slate-700">{task.due_date ?? "—"}</div>
-            </div>
-            <div className="col-span-2">
-              <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
-                <span>{t("协作人")}</span>
-                {canManageTaskFlow && !task.archived && (
-                  <button
-                    type="button"
-                    onClick={() => setShowAddCollaboratorsDialog(true)}
-                    className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50"
-                    title={t("管理员直接添加协作人，不走审核流程")}
-                  >
-                    <UserPlus className="h-3 w-3" />
-                    {t("添加")}
-                  </button>
-                )}
-              </div>
-              {task.collaborators.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {task.collaborators.map((c) => (
-                    <span key={c.id} className="flex items-center gap-1.5 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1 text-xs text-slate-600">
-                      <OwnerAvatar name={c.name} userId={c.user_id} size="xs" />
-                      {c.name} · {c.role}
-                    </span>
-                  ))}
-                </div>
-              ) : (
-                <span className="text-xs text-slate-400">—</span>
-              )}
-            </div>
-            <div className="col-span-2">
-              <div className="mb-2 flex items-center justify-between text-xs text-slate-400">
-                <span>{t("完成进度")}</span>
-                <span className="font-semibold text-slate-600">{task.progress}%</span>
-              </div>
-              <div className="h-2 overflow-hidden rounded-full bg-slate-100">
-                <div
-                    className={cn("h-full rounded-full", task.progress === 100 ? "bg-emerald-500" : "bg-indigo-500")}
-                    style={{ width: `${task.progress}%` }}
-                />
-              </div>
-            </div>
-            <div className="col-span-2">
-              <div className="mb-1 flex items-center justify-between text-xs text-slate-400">
-                <span>{t("分类路径")}</span>
-                {onMoveTask && !task.archived && (
-                  <button
-                    type="button"
-                    onClick={onMoveTask}
-                    className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-indigo-500 hover:bg-indigo-50 hover:text-indigo-700"
-                  >
-                    <ArrowRight className="h-2.5 w-2.5" />
-                    {t("移动到其他类目")}
-                  </button>
-                )}
-              </div>
-              <div className="font-medium text-slate-700">{task.category_path}</div>
-            </div>
-          </div>
-
-          {/* ── 任务描述（可内联编辑）── */}
-          <div className="rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <span className="text-xs font-semibold text-slate-500">{t("任务描述")}</span>
-              {!task.archived && (
-                editingDesc ? (
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => { setEditingDesc(false); setDescDraft(task.description ?? ""); }}
-                      className="cursor-pointer rounded px-2 py-0.5 text-[11px] text-slate-500 hover:bg-slate-200"
-                    >
-                      {t("取消")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={saveDescription}
-                      disabled={savingDesc}
-                      className="flex cursor-pointer items-center gap-1 rounded bg-indigo-600 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
-                    >
-                      {savingDesc ? <RefreshCw className="h-2.5 w-2.5 animate-spin" /> : <CheckCircle2 className="h-2.5 w-2.5" />}
-                      {t("保存")}
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setEditingDesc(true)}
-                    className="flex cursor-pointer items-center gap-1 rounded px-2 py-0.5 text-[11px] text-slate-400 hover:bg-slate-200 hover:text-slate-700"
-                  >
-                    <Pencil className="h-2.5 w-2.5" />
-                    {t("编辑")}
-                  </button>
-                )
-              )}
-            </div>
-            {editingDesc ? (
-              <Textarea
-                value={descDraft}
-                onChange={(e) => setDescDraft(e.target.value)}
-                rows={4}
-                placeholder={t("描述这个任务具体要做什么、目标和预期输出…")}
-                className="w-full resize-none rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
-                autoFocus
-              />
-            ) : task.description ? (
-              <AutoTranslatedText as="p" className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700" text={task.description} />
-            ) : (
-              <button
-                type="button"
-                onClick={() => !task.archived && setEditingDesc(true)}
-                className={cn(
-                  "w-full rounded-lg border border-dashed border-slate-200 py-3 text-center text-xs text-slate-400",
-                  !task.archived && "cursor-pointer hover:border-indigo-300 hover:text-indigo-500",
-                )}
-              >
-                {t("暂无描述，点击添加")}
-              </button>
-            )}
-          </div>
-
-          <TaskLifecycleTimeline task={task} />
-
-          {/* 工作项清单（只读展示）：驾驶舱只看不建——创建/勾选/删除入口在协同工作台，
-              由成员按需自建。受 workItemsFeatureEnabled 开关控制（当前仅协同模块） */}
-          {workItemsFeatureEnabled() && (
-            <WorkItemsSection
-              task={task}
-              canEdit={false}
-              noteCountByItem={noteCountByItem}
-              onTaskPatched={onTaskPatched}
-              onTaskMutated={onTaskMutated}
-            />
-          )}
-
-          {task.status === "completed" && (
-            <TaskCompletionScoreCard
-              task={task}
-              notes={progressNotes}
-              loading={progressNotesLoading}
-              canView={canViewCompletionScore}
-            />
-          )}
-
-          {procLink && (
-            <div className="mb-3">
-              <ProcurementActivitySection task={procLink} />
-            </div>
-          )}
-
-          {/* 协同专属：阻塞时长显性化——跨时区协作里阻塞最容易被静默拖着 */}
-          {usCollab && task.status === "paused_blocked" && (
-            <div className="flex items-start gap-2 rounded-[8px] border border-red-100 bg-red-50 px-4 py-3">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
-              <div className="text-sm text-red-700">
-                <span className="font-semibold">{collabBlockedDays != null ? t("任务阻塞中，已阻塞 {n} 天", { n: collabBlockedDays }) : t("任务阻塞中")}</span>
-                {collabBlockedDays != null && collabBlockedDays >= 3 && <span>{t("，建议尽快协调对方团队解除依赖。")}</span>}
-              </div>
-            </div>
-          )}
-
-          {/* 任务图片聚合相册：全部留痕的图片收拢一处，按日期分组横滑 + 全屏大图左右切换 */}
-          <TaskImageGallery notes={progressNotes} />
-
-          <div className="flex min-h-0 flex-1 flex-col">
-            <div className="mb-2 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">{t("操作留痕")}</div>
-                {/* 协同专属：AI 小结 + 单任务过程报告导出 */}
-                {usCollab && (
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => void handleGenerateBrief()}
-                      disabled={briefLoading}
-                      className="flex cursor-pointer items-center gap-1 rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-[10px] font-semibold text-indigo-600 hover:bg-indigo-100 disabled:opacity-50"
-                    >
-                      {briefLoading ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : <Sparkles className="h-2.5 w-2.5" />}
-                      {t("AI 小结")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void downloadUsCollabTaskReport(task, mergedTaskLogs, noteOfLog)}
-                      className="flex cursor-pointer items-center gap-1 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-50"
-                      title={t("导出本任务的完整过程报告（Word），可直接发给对方团队")}
-                    >
-                      <Download className="h-2.5 w-2.5" />
-                      {t("导出报告")}
-                    </button>
-                  </div>
-                )}
-              </div>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
-                {t("{n} 条", { n: displayTraceLogs.length })}{taskAttachmentTotal > 0 ? ` · ${t("{n} 个附件", { n: taskAttachmentTotal })}` : ""}
-              </span>
-            </div>
-            {/* 协同专属：AI 小结卡片 */}
-            {usCollab && taskBrief && (
-              <div className="mb-2 rounded-lg border border-indigo-100 bg-indigo-50/60 px-3 py-2.5">
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="flex items-center gap-1 text-[11px] font-semibold text-indigo-700">
-                    <Sparkles className="h-3 w-3" />
-                    {t("任务小结")}{taskBrief.source === "local" ? t("（AI 未配置，基础事实版）") : ""}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setTaskBrief(null)}
-                    className="cursor-pointer rounded p-0.5 text-indigo-300 hover:bg-indigo-100 hover:text-indigo-500"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
-                </div>
-                <AutoTranslatedText as="p" className="whitespace-pre-wrap text-xs leading-relaxed text-slate-700" text={taskBrief.text} />
-              </div>
-            )}
-            {/* 工作项留痕 Tab：全部 / 未关联 / 各工作项；无工作项或功能未启用时不显示，行为不变 */}
-            {workItemsFeatureEnabled() && (task.work_items ?? []).length > 0 && (
-              <div className="mb-2 flex flex-wrap items-center gap-1">
-                {[
-                  { key: "all", label: t("全部") },
-                  { key: "main", label: t("未关联") },
-                  ...(task.work_items ?? []).map((it) => ({
-                    key: it.id,
-                    label: `${it.title}${(traceCountByItem.get(it.id) ?? 0) > 0 ? ` ${traceCountByItem.get(it.id)}` : ""}`,
-                  })),
-                ].map((tab) => (
-                  <button
-                    key={tab.key}
-                    type="button"
-                    onClick={() => setTraceTab(tab.key)}
-                    className={cn(
-                      "max-w-[180px] cursor-pointer truncate rounded-full border px-2.5 py-1 text-[11px] font-medium transition-colors",
-                      traceTab === tab.key
-                        ? "border-indigo-300 bg-indigo-50 text-indigo-700"
-                        : "border-slate-200 bg-white text-slate-500 hover:bg-slate-50 hover:text-slate-700",
-                    )}
-                    title={tab.label}
-                  >
-                    {tab.label}
-                  </button>
-                ))}
-              </div>
-            )}
-            {/* 占满剩余高度 + 内部滚动：留痕区自适应填满详情面板的剩余空间，内容超出时仅在区内滚动 */}
-            <div className="min-h-[220px] flex-1 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/40 px-2 py-2">
-              <AuditTimeline
-                logs={displayTraceLogs}
-                showResource={false}
-                emptyText={traceTab === "all" || traceTab === "main" ? t("暂无此任务的操作记录") : t("该工作项暂无留痕，成员在工作台更新进度时可关联工作项")}
-                canAddNote={canManageTaskFlow}
-                onAddNote={async (logId, text) => {
-                  await addAuditLogNote(logId, { text, actor: RD_ADMIN_AUDIT_ACTOR });
-                }}
-                renderExtra={(log) => {
-                  const note = noteOfLog(log.id);
-                  if (!note || note.attachments.length === 0) return null;
-                  return <ProgressAttachmentGrid attachments={note.attachments} compact />;
-                }}
-              />
-            </div>
-          </div>
-
-          {task.status === "paused_leave" && (
-            <div className="flex items-start gap-2 rounded-[8px] border border-amber-100 bg-amber-50 px-4 py-3">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-              <div className="text-sm text-amber-700">{t('主责人请假中，任务周期已顺延。复岗后自动恢复为"进行中"。')}</div>
-            </div>
-          )}
-
-          {task.status === "pending_assign" && (
-            <div className="flex items-start gap-2 rounded-[8px] border border-violet-100 bg-violet-50 px-4 py-3">
-              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-violet-500" />
-              <div className="text-sm text-violet-700">{t("规则未能自动匹配责任人，请组长手动指派。")}</div>
-            </div>
-          )}
-
-          {task.status === "pending_review" && getReviewTypeMeta(task.pending_review_type) ? (
-            <div className="flex items-center gap-2">
-              <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${getReviewTypeMeta(task.pending_review_type)!.badgeClass}`}>
-                {t("{type}审核", { type: t(getReviewTypeMeta(task.pending_review_type)!.label) })}
-              </span>
-              <span className="text-xs text-slate-400">{t("该任务正在等待{type}审核", { type: t(getReviewTypeMeta(task.pending_review_type)!.label) })}</span>
-            </div>
-          ) : null}
-
-          {task.pending_review_type === "collaboration" && (
-            <div className="rounded-[8px] border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-700">
-              <div className="font-semibold">{t("协同人变更待审核")}</div>
-              <div className="mt-1">
-                {t("拟协同人：")}{(task.pending_collaborators ?? []).map((item) => item.name).join("、") || t("未选择")}
-              </div>
-              {task.pending_collaboration_reason && (
-                <div className="mt-1 text-indigo-600">{t("说明：")}<AutoTranslatedText text={task.pending_collaboration_reason} /></div>
-              )}
-            </div>
-          )}
-
-          {task.pending_review_type === "due_date" && (
-            <div className="rounded-[8px] border border-sky-100 bg-sky-50 px-4 py-3 text-sm text-sky-700">
-              <div className="font-semibold">{t("截止日期变更待审核")}</div>
-              <div className="mt-1">
-                {task.due_date || t("未设置")} → <span className="font-semibold">{task.pending_due_date || t("未填写")}</span>
-              </div>
-              {task.pending_due_date_reason && (
-                <div className="mt-1 text-sky-600">{t("说明：")}<AutoTranslatedText text={task.pending_due_date_reason} /></div>
-              )}
-            </div>
-          )}
-
-        </div>
-
-        {/* ── 操作按钮区 ── */}
-        {showActionBar && (
-          <div className="sticky bottom-0 border-t border-slate-100 bg-white px-6 py-3 flex gap-2 justify-end">
-            {task.status === "in_progress" && (
-              <>
-                {canSubmitForReview && (
-                  <button
-                    type="button"
-                    onClick={() => setShowSubmitConfirm(true)}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-indigo-700"
-                  >
-                    <Send className="h-3.5 w-3.5" />
-                    {t("提交审核")}
-                  </button>
-                )}
-                {canHandoverTask && (
-                  <button
-                    type="button"
-                    onClick={() => setShowHandoverDialog(true)}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50"
-                  >
-                    <ArrowRight className="h-3.5 w-3.5" />
-                    {t("移交任务")}
-                  </button>
-                )}
-                {canCompleteDirectly && (
-                  <button
-                    type="button"
-                    onClick={() => setShowCompleteConfirm(true)}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700"
-                  >
-                    <CheckCircle2 className="h-3.5 w-3.5" />
-                    {t("标记完成")}
-                  </button>
-                )}
-              </>
-            )}
-            {!task.archived && (
-              procLink ? (
-                <ProcurementLinkChip task={procLink} onJump={(procTaskId) => navigate(`/proc-cockpit?task=${encodeURIComponent(procTaskId)}`)} />
-              ) : canTransferProc ? (
-                <button
-                  type="button"
-                  onClick={() => setTransferOpen(true)}
-                  title={t("把本任务转为采购任务（需携带图纸附件）")}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-700 transition-colors hover:bg-indigo-100"
-                >
-                  <ShoppingCart className="h-3.5 w-3.5" />
-                  {t("转采购")}
-                </button>
-              ) : null
-            )}
-            {canGenerateIssue && (
-              <button
-                type="button"
-                onClick={handleGenerateIssue}
-                disabled={generatingIssue}
-                title={t("把本任务内容（描述/进度留痕/附件名）一键在「问题记录与 AI 定位」建成问题")}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-700 transition-colors hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                <FileSearch className="h-3.5 w-3.5" />
-                {generatingIssue ? t("生成中…") : t("生成问题")}
-              </button>
-            )}
-            {canReviewPendingTask && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setShowApprovalDialog("approve")}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-emerald-700"
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  {t("审核通过")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowApprovalDialog("reject")}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 transition-colors hover:bg-red-100"
-                >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                  {t("打回修改")}
-                </button>
-              </>
-            )}
-          </div>
-        )}
-
-      </motion.div>
-
-      {/* ── Nested dialogs ── */}
-      <AnimatePresence>
-        {showSubmitConfirm && (
-          <SubmitConfirmDialog
-            key="submit-confirm"
-            taskTitle={task.title}
-            onConfirm={handleSubmitForReview}
-            onCancel={() => setShowSubmitConfirm(false)}
-            submitting={submitting}
-          />
-        )}
-        {showCompleteConfirm && (
-          <CompleteConfirmDialog
-            key="complete-confirm"
-            taskTitle={task.title}
-            onConfirm={handleDirectComplete}
-            onCancel={() => setShowCompleteConfirm(false)}
-            submitting={submitting}
-          />
-        )}
-        {showHandoverDialog && (
-          <HandoverDialog
-            key="handover"
-            taskId={task.task_id}
-            taskTitle={task.title}
-            currentOwner={task.primary_owner}
-            people={people ?? []}
-            onConfirm={handleHandover}
-            onCancel={() => setShowHandoverDialog(false)}
-          />
-        )}
-        {showAddCollaboratorsDialog && (
-          <AddCollaboratorsDialog
-            key="add-collaborators"
-            taskTitle={task.title}
-            currentOwner={task.primary_owner}
-            existingCollaborators={task.collaborators ?? []}
-            people={people ?? []}
-            onConfirm={handleAddCollaboratorsDirect}
-            onCancel={() => setShowAddCollaboratorsDialog(false)}
-          />
-        )}
-        {showApprovalDialog && (
-          <ApprovalActionDialog
-            key="approval"
-            mode={showApprovalDialog}
-            task={task}
-            onConfirm={handleApproval}
-            onCancel={() => setShowApprovalDialog(null)}
-            submitting={submitting}
-          />
-        )}
-      </AnimatePresence>
-
-      {transferOpen && (
-        <TransferToProcurementModal
-          taskId={task.task_id}
-          taskTitle={task.title}
-          owner={task.primary_owner}
-          priority={task.final_priority}
-          dueDate={task.due_date}
-          attachments={transferAttachments}
-          onTransferred={setProcLink}
-          onClose={() => setTransferOpen(false)}
-        />
-      )}
-
-      <AlertDialog open={showCloseConfirm} onOpenChange={(open) => { if (!open) setShowCloseConfirm(false); }}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("放弃未保存的修改？")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("还有未保存的内联编辑（任务标题或描述），关闭后这些修改将丢失。")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("继续编辑")}</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-600 text-white hover:bg-red-700 focus:ring-red-600"
-              onClick={() => { setShowCloseConfirm(false); onClose(); }}
-            >
-              {t("放弃并关闭")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-    </motion.div>
-  );
-}
-
 // ─── Command Center ──────────────────────────────────────────────────────────
 
 type CommandMetricProps = {
@@ -5608,12 +4421,18 @@ function CommandMetric({ label, value, helper, tone, Icon }: CommandMetricProps)
 
 function CommandCenter({
   totalActive,
+  activeSubtasks,
   risks,
   pendingAssign,
   averageProgress,
   onCreate,
 }: {
   totalActive: number;
+  /**
+   * 活跃任务里属于子任务的条数。仅用于在 helper 里标注口径，
+   * totalActive 本身仍是「含子任务」的总数——各驾驶舱/工作台统计同源，改总数会连带影响那几页。
+   */
+  activeSubtasks: number;
   risks: Risk[];
   pendingAssign: number;
   averageProgress: number;
@@ -5624,7 +4443,13 @@ function CommandCenter({
   return (
     <section className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200/80 bg-white px-5 py-3">
       <div className="flex flex-1 flex-wrap gap-2">
-        <CommandMetric label={t("活跃任务")} value={String(totalActive)} helper={t("当前任务池")} tone="text-indigo-500" Icon={Target} />
+        <CommandMetric
+          label={t("活跃任务")}
+          value={String(totalActive)}
+          helper={activeSubtasks > 0 ? t("含 {n} 个子任务", { n: activeSubtasks }) : t("当前任务池")}
+          tone="text-indigo-500"
+          Icon={Target}
+        />
         <CommandMetric label={t("平均进度")} value={`${averageProgress}%`} helper={t("全部活跃任务")} tone="text-emerald-500" Icon={Gauge} />
         <CommandMetric label={t("高风险")} value={String(criticalRisks)} helper={t("需要优先处理")} tone="text-red-500" Icon={AlertTriangle} />
         <CommandMetric label={t("待指派")} value={String(pendingAssign)} helper={t("等待确认负责人")} tone="text-violet-500" Icon={Users} />
@@ -11195,7 +10020,6 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   const [deleteTaskTarget, setDeleteTaskTarget] = useState<Task | null>(null);
   const [showClearData, setShowClearData] = useState(false);
   const [showProposalDialog, setShowProposalDialog] = useState(false);
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   // 驾驶舱备注回执（管理视角）：他人给任务留的备注是否被目标人查看/跟进，经 NoteReceiptContext 下发。
   const [noteReceipts, setNoteReceipts] = useState<Record<string, RdTaskNoteReceipt>>({});
   const reloadReceipts = useCallback(() => {
@@ -11482,12 +10306,6 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
       const crossProduct = targetProductId !== boardProductId;
       const productLabel = products.find((p) => p.id === targetProductId)?.name ?? "";
       const movedPath = `${result.targetCategoryLabel} / ${result.targetSubLabel}`;
-      // 移出当前产品后，该任务已不在当前树中 → 关闭其详情抽屉；同产品内则同步路径
-      if (crossProduct) {
-        setSelectedTask((prev) => (prev && prev.task_id === task.task_id ? null : prev));
-      } else {
-        setSelectedTask((prev) => (prev && prev.task_id === task.task_id ? { ...prev, category_path: movedPath } : prev));
-      }
       recordAudit({
         actor: RD_ADMIN_AUDIT_ACTOR,
         action: "task.updated",
@@ -11569,6 +10387,11 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
     });
   }, [categories]);
   const totalActive = useMemo(() => allTasks.filter((t) => !t.archived).length, [allTasks]);
+  /** 活跃任务里的子任务条数（仅用于统计卡 helper 标注口径，不改 totalActive 的含子任务总数）。 */
+  const activeSubtasks = useMemo(() => {
+    const parents = buildSubtaskParentIndex(categories);
+    return allTasks.filter((t) => !t.archived && parents.has(t.task_id)).length;
+  }, [allTasks, categories]);
   const pendingAssign = useMemo(() => allTasks.filter((t) => t.status === "pending_assign").length, [allTasks]);
   const averageProgress = useMemo(() => {
     const activeTasks = allTasks.filter((t) => !t.archived);
@@ -11729,31 +10552,6 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
           </AlertDialogContent>
         </AlertDialog>
         <AnimatePresence>
-          {selectedTask && (
-            <TaskDetailDrawer
-              key={selectedTask.task_id}
-              task={selectedTask}
-              onClose={() => setSelectedTask(null)}
-              onOpenPerson={(name) => {
-                setSelectedTask(null);
-                openPersonDetail(name);
-              }}
-              onDescriptionUpdated={(taskId, description) => {
-                setSelectedTask((prev) => prev && prev.task_id === taskId ? { ...prev, description } : prev);
-              }}
-              onTaskPatched={(taskId, patch) => {
-                setSelectedTask((prev) => prev && prev.task_id === taskId ? { ...prev, ...patch } : prev);
-              }}
-              onTaskCompleted={(completedTask) => {
-                setSelectedTask(null);
-                setCompletedTaskNotice(completedTask);
-                loadCategories();
-              }}
-              onTaskMutated={loadCategories}
-              onMoveTask={canMoveTask ? () => setMoveTaskTarget(selectedTask) : undefined}
-              people={peopleProfiles}
-            />
-          )}
           {completedTaskNotice && (
             <TaskCompletedCelebration
               key="completed-notice"
@@ -11892,6 +10690,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <CommandCenter
             totalActive={totalActive}
+            activeSubtasks={activeSubtasks}
             risks={risks}
             pendingAssign={pendingAssign}
             averageProgress={averageProgress}
@@ -12029,31 +10828,6 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
           )}
         </AnimatePresence>
         <AnimatePresence>
-          {selectedTask && (
-            <TaskDetailDrawer
-              key={selectedTask.task_id}
-              task={selectedTask}
-              onClose={() => setSelectedTask(null)}
-              onOpenPerson={(name) => {
-                setSelectedTask(null);
-                openPersonDetail(name);
-              }}
-              onDescriptionUpdated={(taskId, description) => {
-                setSelectedTask((prev) => prev && prev.task_id === taskId ? { ...prev, description } : prev);
-              }}
-              onTaskPatched={(taskId, patch) => {
-                setSelectedTask((prev) => prev && prev.task_id === taskId ? { ...prev, ...patch } : prev);
-              }}
-              onTaskCompleted={(completedTask) => {
-                setSelectedTask(null);
-                setCompletedTaskNotice(completedTask);
-                loadCategories();
-              }}
-              onTaskMutated={loadCategories}
-              onMoveTask={canMoveTask ? () => setMoveTaskTarget(selectedTask) : undefined}
-              people={peopleProfiles}
-            />
-          )}
           {completedTaskNotice && (
             <TaskCompletedCelebration
               key="completed-notice-board"
