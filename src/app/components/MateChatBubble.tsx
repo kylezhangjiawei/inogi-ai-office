@@ -161,6 +161,7 @@ type FeedbackDraft = {
 // ─── 常量 ─────────────────────────────────────────────────────────────────────
 
 const FLOATING_MARGIN = 24;
+const FLOATING_BOTTOM_SAFE_AREA = 88;
 const FLOATING_FALLBACK_SIZE = { width: 224, height: 72 };
 const AI_AVATAR = "https://matechat.gitcode.com/logo.svg";
 
@@ -278,7 +279,7 @@ function getDefaultFloatingPosition(element?: HTMLElement | null) {
 
   return {
     x: Math.max(FLOATING_MARGIN, window.innerWidth - width - FLOATING_MARGIN),
-    y: Math.max(FLOATING_MARGIN, window.innerHeight - height - FLOATING_MARGIN),
+    y: Math.max(FLOATING_MARGIN, window.innerHeight - height - FLOATING_BOTTOM_SAFE_AREA),
   };
 }
 

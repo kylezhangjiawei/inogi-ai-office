@@ -70,7 +70,9 @@ export function ProcurementTaskCard({ task, onOpen, onNext, onReassign, onRemove
 
       {/* 标题 */}
       <div className="mt-2 text-sm font-semibold text-slate-900">
-        <AutoTranslatedText text={task.materialName} /> · <AutoTranslatedText text={task.spec} /> <span className="text-slate-400">× {task.quantity}{t(task.unit)}</span>
+        <AutoTranslatedText text={task.materialName} />
+        {task.spec && <> · <AutoTranslatedText text={task.spec} /></>}
+        {" "}<span className="text-slate-400">× {task.quantity}{t(task.unit)}</span>
       </div>
 
       {/* 主日期（最大字号） */}

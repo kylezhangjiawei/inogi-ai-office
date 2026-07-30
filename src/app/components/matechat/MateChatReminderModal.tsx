@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Flame, Sparkles, X } from 'lucide-react';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { useLocation } from 'react-router';
 
 import { useAuth } from '../../auth';
 import { chatStreakApi, type MateChatStreak } from '../../lib/chatStreakApi';
@@ -37,10 +38,15 @@ const CHECK_INTERVAL = 5 * 60 * 1000; // 5 分钟检查一次（大多数情况�
 export function MateChatReminderModal() {
   const { lang, t } = useI18n();
   const { user } = useAuth();
+  const location = useLocation();
   const reduce = useReducedMotion();
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<MateChatStreak | null>(null);
   const checkingRef = useRef(false);
+  const isProcurementRoute =
+    location.pathname.startsWith('/proc-')
+    || location.pathname.startsWith('/purchase-orders')
+    || location.pathname.startsWith('/inventory-management');
 
   // 切换账号（user.id 变化）时清掉共享缓存，避免读到上一个账号的连续数据
   useEffect(() => {
@@ -48,7 +54,7 @@ export function MateChatReminderModal() {
   }, [user?.id]);
 
   const maybeShow = useCallback(async () => {
-    if (!user || open || checkingRef.current) return;
+    if (!user || open || checkingRef.current || isProcurementRoute) return;
     const period = currentPeriod();
     if (!period) return;
     const key = storageKey(user.id, period);
@@ -68,7 +74,12 @@ export function MateChatReminderModal() {
     } finally {
       checkingRef.current = false;
     }
-  }, [user, open]);
+  }, [user, open, isProcurementRoute]);
+
+  // 采购工作台属于连续操作场景，不自动弹出使用提醒；用户仍可主动打开悬浮入口。
+  useEffect(() => {
+    if (isProcurementRoute) setOpen(false);
+  }, [isProcurementRoute]);
 
   // 预览/测试：URL 带 ?matechatReminder=preview 时，无视时段/是否已用/是否已弹，强制弹出一次
   useEffect(() => {

@@ -102,7 +102,11 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
               <button type="button" onClick={() => setEditOpen(true)} title={t('编辑任务信息')} className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-50"><Pencil className="h-3.5 w-3.5" />{t('编辑')}</button>
             )}
           </div>
-          <AutoTranslatedText as="div" className="mt-1 text-sm text-slate-500" text={`${task.materialName} · ${task.spec} · ${task.quantity}${task.unit}`} />
+          <AutoTranslatedText
+            as="div"
+            className="mt-1 text-sm text-slate-500"
+            text={[task.materialName, task.spec, `${task.quantity}${task.unit}`].filter(Boolean).join(" · ")}
+          />
           {/* 步骤条 */}
           <div className="mt-4 flex items-center overflow-x-auto pb-1">
             {flow.map((s, i) => (
@@ -161,7 +165,7 @@ export function TaskDetailDrawer({ task, onClose }: { task: ProcurementTask; onC
             <div className="mb-1 text-sm font-semibold text-slate-700">{t('基本信息')}</div>
             <div className="grid grid-cols-2 gap-x-6">
               <div>
-                <Info label="物料 / 规格" value={<AutoTranslatedText text={`${task.materialName} · ${task.spec}`} />} />
+                <Info label="物料 / 规格" value={<AutoTranslatedText text={[task.materialName, task.spec].filter(Boolean).join(" · ")} />} />
                 <Info label="数量" value={`${task.quantity} ${t(task.unit)}`} />
                 <Info label="需求日期" value={task.needDate} />
                 {task.deadline && <Info label="Deadline" value={task.deadline} />}
