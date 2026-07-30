@@ -8,7 +8,7 @@ import { cn } from "../components/ui/utils";
 import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
 import { toast } from "sonner";
-import { daysFromToday, taskMainDate, taskRequester, useProcurementData, type ProcStatus, type ProcurementTask } from "./data";
+import { daysFromToday, isProcurementTaskOverdue, taskMainDate, taskRequester, useProcurementData, type ProcStatus, type ProcurementTask } from "./data";
 import { PersonAvatar, StatCell } from "./components/common";
 import { ProcurementTaskCard } from "./components/ProcurementTaskCard";
 import { useProcTaskAction } from "./components/taskActions";
@@ -64,7 +64,6 @@ export function ProcurementCockpitPage() {
     setOpen((cur) => (cur ? tasks.find((x) => x.id === cur.id) ?? null : cur));
   }, [tasks]);
 
-  const isOverdue = (t: ProcurementTask) => TRANSIT_STATUSES.includes(t.status) && (daysFromToday(t.expectedArrivalDate) ?? 99) < 0;
   const isThisWeek = (t: ProcurementTask) => { const d = daysFromToday(t.expectedArrivalDate); return TRANSIT_STATUSES.includes(t.status) && d != null && d >= 0 && d <= 7; };
 
   // Tab 数量徽标按全量任务计，作用域内数据一律用 lineTasks
@@ -80,7 +79,7 @@ export function ProcurementCockpitPage() {
     pending: lineTasks.filter((t) => t.status === "pending_confirm").length,
     inquiring: lineTasks.filter((t) => t.status === "inquiring").length,
     transit: lineTasks.filter((t) => TRANSIT_STATUSES.includes(t.status)).length,
-    overdue: lineTasks.filter(isOverdue).length,
+    overdue: lineTasks.filter(isProcurementTaskOverdue).length,
     week: lineTasks.filter(isThisWeek).length,
   }), [lineTasks]);
 
@@ -101,7 +100,7 @@ export function ProcurementCockpitPage() {
       if (stat === "pending") return t.status === "pending_confirm";
       if (stat === "inquiring") return t.status === "inquiring";
       if (stat === "transit") return TRANSIT_STATUSES.includes(t.status);
-      if (stat === "overdue") return isOverdue(t);
+      if (stat === "overdue") return isProcurementTaskOverdue(t);
       if (stat === "week") return isThisWeek(t);
       return true;
     });

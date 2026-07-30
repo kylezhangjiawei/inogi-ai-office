@@ -132,6 +132,11 @@ export function taskMainDate(task: ProcurementTask): {
   return { label: task.deadline ? "Deadline" : "需求日期", date, days: daysFromToday(date) };
 }
 
+/** 统一采购逾期口径：下单前看 Deadline/需求日期，下单后看预计到货日。 */
+export function isProcurementTaskOverdue(task: ProcurementTask): boolean {
+  return (taskMainDate(task).days ?? Number.POSITIVE_INFINITY) < 0;
+}
+
 /** 需求提出人：优先取显式 requester；研发流转回退研发对接人，自建回退采购负责人。 */
 export function taskRequester(task: ProcurementTask): { name: string; dept: string } {
   return {

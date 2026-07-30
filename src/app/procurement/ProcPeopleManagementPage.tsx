@@ -17,7 +17,7 @@ import {
   type BuyerRosterMember,
   type ProcurementTask,
 } from "../lib/procurementApi";
-import { daysFromToday, refreshProcurement, useProcurementData } from "./data";
+import { daysFromToday, isProcurementTaskOverdue, refreshProcurement, useProcurementData } from "./data";
 import { BuyerComboInput, PageHeader, PersonAvatar, useBuyerDirectory, useConfirmDialog } from "./components/common";
 import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
@@ -78,7 +78,7 @@ export function ProcPeopleManagementPage() {
         active,
         pending: active.filter((x) => x.status === "pending_confirm").length,
         transit: active.filter((x) => TRANSIT.includes(x.status)).length,
-        overdue: active.filter((x) => TRANSIT.includes(x.status) && (daysFromToday(x.expectedArrivalDate) ?? 99) < 0).length,
+        overdue: active.filter(isProcurementTaskOverdue).length,
         week: active.filter((x) => { const d = daysFromToday(x.expectedArrivalDate); return TRANSIT.includes(x.status) && d != null && d >= 0 && d <= 7; }).length,
       }))
       .filter((r) => !kw || r.key === UNASSIGNED || r.name.toLowerCase().includes(kw) || (r.member?.note ?? "").toLowerCase().includes(kw))

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Activity, AlertTriangle, ClipboardList, GanttChartSquare, PackageCheck } from "lucide-react";
 import { useAuth } from "../auth";
 import { useI18n } from "../lib/i18n";
-import { daysFromToday, taskMainDate, useProcurementData, type ProcStatus, type ProcurementTask } from "./data";
+import { daysFromToday, isProcurementTaskOverdue, useProcurementData, type ProcStatus, type ProcurementTask } from "./data";
 import { PageHeader, StatCell } from "./components/common";
 import { ProcurementTaskCard } from "./components/ProcurementTaskCard";
 import { TaskDetailDrawer } from "./components/TaskDetailDrawer";
@@ -41,8 +41,7 @@ export function ProcMyWorkspacePage() {
   );
   const active = useMemo(() => mine.filter((task) => !TERMINAL.includes(task.status)), [mine]);
 
-  // 逾期口径取主日期（Deadline/需求日期/预计到货随阶段切换），个人视角比驾驶舱的「在途逾期」更全面
-  const isOverdue = (task: ProcurementTask) => (taskMainDate(task).days ?? 99) < 0;
+  // 逾期口径与驾驶舱、人员管理一致：Deadline/需求日期/预计到货随阶段切换。
   const isThisWeek = (task: ProcurementTask) => {
     const d = daysFromToday(task.expectedArrivalDate);
     return TRANSIT.includes(task.status) && d != null && d >= 0 && d <= 7;
@@ -51,14 +50,14 @@ export function ProcMyWorkspacePage() {
   const counts = useMemo(() => ({
     active: active.length,
     pending: active.filter((task) => task.status === "pending_confirm").length,
-    overdue: active.filter(isOverdue).length,
+    overdue: active.filter(isProcurementTaskOverdue).length,
     week: active.filter(isThisWeek).length,
   }), [active]);
 
   const filtered = useMemo(() => {
     if (!stat || stat === "active") return active;
     if (stat === "pending") return active.filter((task) => task.status === "pending_confirm");
-    if (stat === "overdue") return active.filter(isOverdue);
+    if (stat === "overdue") return active.filter(isProcurementTaskOverdue);
     return active.filter(isThisWeek);
   }, [active, stat]);
 
