@@ -4,6 +4,7 @@ import { Permissions } from '../auth/decorators/permissions.decorator';
 import {
   AiParseTaskDto,
   ApplyQuoteBookQuotesDto,
+  BatchLinkPurchaseOrdersDto,
   BatchReassignDto,
   CancelProcTaskDto,
   ConfirmQuoteBookQuotesDto,
@@ -268,6 +269,16 @@ export class ProcurementController {
     @Request() req: AuthedRequest,
   ) {
     return this.service.linkPurchaseOrder(id, dto, this.actor(req));
+  }
+
+  @Post('tasks/:id/purchase-orders/batch')
+  @Permissions('proc-task:order')
+  linkPurchaseOrders(
+    @Param('id') id: string,
+    @Body() dto: BatchLinkPurchaseOrdersDto,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.service.linkPurchaseOrders(id, dto.items, this.actor(req));
   }
 
   @Delete('tasks/:id/purchase-orders/:refId')

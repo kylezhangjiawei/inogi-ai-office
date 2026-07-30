@@ -504,6 +504,25 @@ export async function linkPurchaseOrder(
   });
 }
 
+export interface PurchaseOrderLinkInput {
+  tpOrderNo: string;
+  supplierName?: string;
+  orderedQty?: number;
+  orderDate?: string;
+  etaDate?: string;
+}
+
+/** 将按供应商拆分的采购单关联一次性保存。 */
+export async function linkPurchaseOrders(
+  taskId: string,
+  items: PurchaseOrderLinkInput[],
+): Promise<ProcurementTask> {
+  return request<ProcurementTask>(`/tasks/${encodeURIComponent(taskId)}/purchase-orders/batch`, {
+    method: "POST",
+    body: JSON.stringify({ items }),
+  });
+}
+
 // ── 物料 ──────────────────────────────────────────────────────────────────────
 
 export async function listMaterials(signal?: AbortSignal): Promise<Material[]> {

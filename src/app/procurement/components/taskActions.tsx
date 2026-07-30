@@ -38,7 +38,7 @@ import {
   confirmQuotationsFromQuoteBook,
   confirmProcTask,
   deleteProcTask,
-  linkPurchaseOrder,
+  linkPurchaseOrders,
   listTaskQuoteBookOptions,
   listQuotations,
   reassignProcTask,
@@ -256,6 +256,14 @@ function matchQuoteTier(
   return matched;
 }
 
+interface PurchaseOrderDraft {
+  key: string;
+  supplierName: string;
+  orderedQty: number;
+  tpOrderNo: string;
+  etaDate: string;
+}
+
 function formatQuoteAmount(value: number, currency: string): string {
   return currency === "CNY"
     ? fmtMoney(value)
@@ -278,9 +286,8 @@ function ActionModal({
   const { resolveUserId } = useBuyerDirectory();
   const navigate = useNavigate();
 
-  const [supplierName, setSupplierName] = useState("");
-  const [tpOrderNo, setTpOrderNo] = useState("");
-  const [etaDate, setEtaDate] = useState("");
+  const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrderDraft[]>([]);
+  const [purchaseOrdersLoading, setPurchaseOrdersLoading] = useState(false);
   const [qty, setQty] = useState("");
   const [note, setNote] = useState("");
   const [buyer, setBuyer] = useState(task.buyer);
@@ -354,6 +361,59 @@ function ActionModal({
       .catch(() => { if (alive) setQuotes([]); });
     return () => { alive = false; };
   }, [kind, task.id]);
+
+  useEffect(() => {
+    if (kind !== "order") return;
+    let alive = true;
+    setPurchaseOrdersLoading(true);
+    void listQuotations({ taskId: task.id })
+      .then((list) => {
+        if (!alive) return;
+        const selected = list.filter((quotation) => quotation.isSelected);
+        const grouped = new Map<string, { supplierName: string; orderedQty: number }>();
+        for (const quotation of selected) {
+          const supplierName = quotation.supplierName.trim();
+          const key = supplierName || "__unknown__";
+          const current = grouped.get(key) ?? { supplierName, orderedQty: 0 };
+          current.orderedQty += quotation.quantity ?? task.quantity;
+          grouped.set(key, current);
+        }
+        const drafts = [...grouped.entries()].map(([key, value]) => ({
+          key,
+          supplierName: value.supplierName,
+          orderedQty: value.orderedQty,
+          tpOrderNo: "",
+          etaDate: "",
+        }));
+        setPurchaseOrders(drafts.length > 0 ? drafts : [{
+          key: "__direct__",
+          supplierName: "",
+          orderedQty: task.quantity,
+          tpOrderNo: "",
+          etaDate: "",
+        }]);
+      })
+      .catch(() => {
+        if (!alive) return;
+        setPurchaseOrders([{
+          key: "__direct__",
+          supplierName: "",
+          orderedQty: task.quantity,
+          tpOrderNo: "",
+          etaDate: "",
+        }]);
+      })
+      .finally(() => {
+        if (alive) setPurchaseOrdersLoading(false);
+      });
+    return () => { alive = false; };
+  }, [kind, task.id, task.quantity]);
+
+  const updatePurchaseOrder = (key: string, patch: Partial<PurchaseOrderDraft>) => {
+    setPurchaseOrders((current) => current.map((item) => (
+      item.key === key ? { ...item, ...patch } : item
+    )));
+  };
 
   useEffect(() => {
     if (kind !== "quote") return;
@@ -451,18 +511,18 @@ function ActionModal({
       return;
     }
     if (kind === "order") {
-      if (!tpOrderNo.trim()) {
-        toast.error(t("请填写畅捷通 T+ 采购单号"));
+      if (purchaseOrders.length === 0 || purchaseOrders.some((item) => !item.tpOrderNo.trim())) {
+        toast.error(t("请填写每家供应商的畅捷通 T+ 采购单号"));
         return;
       }
       void onSubmit(
-        () => linkPurchaseOrder(task.id, {
-          tpOrderNo: tpOrderNo.trim(),
-          supplierName: supplierName.trim() || undefined,
-          orderedQty: task.quantity,
-          etaDate: etaDate || undefined,
-        }),
-        t("已关联采购单，任务转为已下单"),
+        () => linkPurchaseOrders(task.id, purchaseOrders.map((item) => ({
+          tpOrderNo: item.tpOrderNo.trim(),
+          supplierName: item.supplierName.trim() || undefined,
+          orderedQty: item.orderedQty,
+          etaDate: item.etaDate || undefined,
+        }))),
+        t("已关联 {count} 张采购单，任务转为已下单", { count: purchaseOrders.length }),
       );
       return;
     }
@@ -494,7 +554,7 @@ function ActionModal({
   return (
     <>
       <Dialog open onOpenChange={(o) => { if (!o && !quoteConfirmOpen) onClose(); }}>
-        <DialogContent className={cn("gap-0 overflow-hidden rounded-2xl p-0", kind === "quote" ? "sm:max-w-2xl" : "sm:max-w-md")}>
+        <DialogContent className={cn("gap-0 overflow-hidden rounded-2xl p-0", kind === "quote" ? "sm:max-w-2xl" : kind === "order" ? "sm:max-w-xl" : "sm:max-w-md")}>
         <DialogHeader className="border-b border-slate-100 px-5 py-4">
           <DialogTitle className="text-base font-bold text-slate-900">
             {kind === "confirm" ? t(confirm?.title ?? "请确认") : t(TITLES[kind])}
@@ -787,14 +847,64 @@ function ActionModal({
           )}
 
           {kind === "order" && (
-            <>
-              <div><span className={label}>{t("畅捷通 T+ 采购单号")}</span><Input value={tpOrderNo} onChange={(e) => setTpOrderNo(e.target.value)} className={field} placeholder="CGDD-2026-0001" /></div>
-              <div className="grid grid-cols-2 gap-3">
-                <div><span className={label}>{t("供应商")}</span><Input value={supplierName} onChange={(e) => setSupplierName(e.target.value)} className={field} /></div>
-                <div><span className={label}>{t("预计到货")}</span><DateInput value={etaDate} onChange={setEtaDate} className="mb-1 mt-1" /></div>
-              </div>
+            <div className="space-y-3">
+              {purchaseOrders.length > 1 && (
+                <div className="rounded-lg border border-indigo-100 bg-indigo-50/60 px-3 py-2 text-xs leading-relaxed text-indigo-700">
+                  {t("已按确认报价识别出 {count} 家供应商。请分别填写采购单号，确认后将一次性保存全部关联。", { count: purchaseOrders.length })}
+                </div>
+              )}
+              {purchaseOrdersLoading ? (
+                <div className="flex min-h-28 items-center justify-center gap-2 text-sm text-slate-400">
+                  <Loader2 className="h-4 w-4 animate-spin" />{t("正在读取已确认报价…")}
+                </div>
+              ) : (
+                <div className="max-h-[380px] space-y-3 overflow-y-auto pr-1">
+                  {purchaseOrders.map((item, index) => (
+                    <div key={item.key} className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+                      <div className="mb-2 flex items-center justify-between gap-3">
+                        <b className="truncate text-sm text-slate-800">
+                          {item.supplierName || t("未指定供应商")}
+                        </b>
+                        <span className="shrink-0 text-xs text-slate-500">
+                          {t("采购数量")} {item.orderedQty.toLocaleString()} {t(task.unit)}
+                        </span>
+                      </div>
+                      <div>
+                        <span className={label}>
+                          {t("畅捷通 T+ 采购单号")}
+                          {purchaseOrders.length > 1 ? ` ${index + 1}` : ""}
+                        </span>
+                        <Input
+                          value={item.tpOrderNo}
+                          onChange={(event) => updatePurchaseOrder(item.key, { tpOrderNo: event.target.value })}
+                          className={field}
+                          placeholder={`CGDD-2026-${String(index + 1).padStart(4, "0")}`}
+                        />
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-3">
+                        <div>
+                          <span className={label}>{t("供应商")}</span>
+                          <Input
+                            value={item.supplierName}
+                            onChange={(event) => updatePurchaseOrder(item.key, { supplierName: event.target.value })}
+                            className={field}
+                          />
+                        </div>
+                        <div>
+                          <span className={label}>{t("预计到货")}</span>
+                          <DateInput
+                            value={item.etaDate}
+                            onChange={(value) => updatePurchaseOrder(item.key, { etaDate: value })}
+                            className="mb-1 mt-1"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               <p className="text-xs text-slate-400">{t("采购单在畅捷通 T+ 中创建，本系统只登记关联关系。")}</p>
-            </>
+            </div>
           )}
 
           {kind === "receive" && (
@@ -822,7 +932,11 @@ function ActionModal({
               <button type="button" onClick={onClose} className="rounded-lg border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50">{t("取消")}</button>
               <button
                 type="button"
-                disabled={busy || (kind === "quote" && (quoteBookLoading || selectedQuoteIds.length === 0))}
+                disabled={
+                  busy
+                  || (kind === "quote" && (quoteBookLoading || selectedQuoteIds.length === 0))
+                  || (kind === "order" && purchaseOrdersLoading)
+                }
                 onClick={submit}
                 className={cn(
                   "rounded-lg px-4 py-2 text-sm font-semibold text-white transition disabled:opacity-60",

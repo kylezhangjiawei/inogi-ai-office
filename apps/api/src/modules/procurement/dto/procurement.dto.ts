@@ -330,6 +330,16 @@ export class LinkPurchaseOrderDto {
   etaDate?: string;
 }
 
+/** 一次关联多张采购单：用于一项任务的确认报价来自多个供应商时原子提交。 */
+export class BatchLinkPurchaseOrdersDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(50)
+  @ValidateNested({ each: true })
+  @Type(() => LinkPurchaseOrderDto)
+  items!: LinkPurchaseOrderDto[];
+}
+
 export class UpsertMaterialDto {
   @IsString()
   @MaxLength(200)

@@ -1206,26 +1206,55 @@ export class ProcurementService {
 
   /** 关联 T+ 采购单：任务进入「已下单」。本系统不创建 T+ 单据，只登记引用。 */
   async linkPurchaseOrder(taskId: string, dto: LinkPurchaseOrderDto, actor: ProcActor) {
+    return this.linkPurchaseOrders(taskId, [dto], actor);
+  }
+
+  /** 多供应商采购单一次性关联；任意一条失败则全部回滚。 */
+  async linkPurchaseOrders(taskId: string, items: LinkPurchaseOrderDto[], actor: ProcActor) {
     const task = await this.requireTask(taskId);
     if (!['priced', 'pending_purchase', 'in_transit', 'partial_arrival'].includes(task.status)) {
       throw new BadRequestException('当前状态不允许关联采购单');
     }
-    await this.prisma.procPurchaseOrderRef.create({
-      data: {
-        taskId,
-        tpOrderNo: dto.tpOrderNo,
-        tpOrderId: dto.tpOrderId ?? null,
-        tpLineNo: dto.tpLineNo ?? null,
-        supplierName: dto.supplierName ?? '',
-        orderedQty: new Prisma.Decimal(dto.orderedQty ?? 0),
-        orderDate: parseDay(dto.orderDate),
-        etaDate: parseDay(dto.etaDate),
-        linkedBy: actor.id,
-      },
-    });
-    if (task.status === 'priced' || task.status === 'pending_purchase') {
-      return this.applyTransition(taskId, 'in_transit', actor, `关联采购单 ${dto.tpOrderNo}`);
+    const normalized = items.map((item) => ({ ...item, tpOrderNo: item.tpOrderNo.trim() }));
+    if (normalized.some((item) => !item.tpOrderNo)) {
+      throw new BadRequestException('采购单号不能为空');
     }
+    const keys = normalized.map((item) => `${item.tpOrderNo}\u0000${item.tpLineNo ?? ''}`);
+    if (new Set(keys).size !== keys.length) {
+      throw new BadRequestException('同一采购单及行号不能重复关联');
+    }
+    const nextStatus = task.status === 'priced' || task.status === 'pending_purchase' ? 'in_transit' : task.status;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.procPurchaseOrderRef.createMany({
+        data: normalized.map((item) => ({
+          taskId,
+          tpOrderNo: item.tpOrderNo,
+          tpOrderId: item.tpOrderId ?? null,
+          tpLineNo: item.tpLineNo ?? null,
+          supplierName: item.supplierName?.trim() ?? '',
+          orderedQty: new Prisma.Decimal(item.orderedQty ?? 0),
+          orderDate: parseDay(item.orderDate),
+          etaDate: parseDay(item.etaDate),
+          linkedBy: actor.id,
+        })),
+      });
+      await tx.procTask.update({
+        where: { id: taskId },
+        data: {
+          status: nextStatus,
+          logs: {
+            create: {
+              kind: 'system',
+              text: `一次关联 ${normalized.length} 张采购单：${normalized.map((item) => item.tpOrderNo).join('、')}`,
+              fromStatus: task.status,
+              toStatus: nextStatus,
+              actor: actor.name,
+              actorUserId: actor.id,
+            },
+          },
+        },
+      });
+    });
     return this.getTask(taskId);
   }
 
