@@ -68,8 +68,8 @@ export class ProcurementController {
 
   /** 负责人候选目录（转派/建单人员选择），读操作与其他采购读接口一致仅需登录。 */
   @Get('buyers')
-  listBuyers() {
-    return this.service.listBuyerCandidates();
+  listBuyers(@Query('scope') scope?: string) {
+    return this.service.listBuyerCandidates(scope === 'all');
   }
 
   /** 采购成员名录（读仅需登录；增删与转派同权限，由采购管理者维护）。 */
@@ -95,6 +95,13 @@ export class ProcurementController {
   @Permissions('proc-task:reassign')
   removeBuyerRosterMember(@Param('userId') userId: string) {
     return this.service.removeBuyerRosterMember(userId);
+  }
+
+  /** 将全部未指派的进行中任务按采购成员当前负载自动均衡分配。 */
+  @Post('buyer-roster/auto-assign')
+  @Permissions('proc-task:reassign')
+  autoAssignBuyerTasks(@Request() req: AuthedRequest) {
+    return this.service.autoAssignUnassigned(this.actor(req));
   }
 
   @Get('tasks/:id')

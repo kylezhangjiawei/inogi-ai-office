@@ -423,6 +423,10 @@ export class ProcurementService {
     const code = await this.nextTaskCode();
     const method = dto.method ?? 'inquiry';
     const requesterDept = await this.resolveRequesterDepartment(actor.id, dto.requesterDept);
+    const requestedBuyer = dto.buyer?.trim();
+    const automaticBuyer = requestedBuyer ? null : await this.pickAutomaticBuyer();
+    const buyer = requestedBuyer || automaticBuyer?.name || '';
+    const buyerUserId = dto.buyerUserId ?? automaticBuyer?.id ?? null;
     const task = await this.prisma.procTask.create({
       data: {
         code,
@@ -440,8 +444,8 @@ export class ProcurementService {
         needSample: dto.needSample ?? false,
         needDate: parseDay(dto.needDate),
         deadline: parseDay(dto.deadline),
-        buyer: dto.buyer ?? '',
-        buyerUserId: dto.buyerUserId ?? null,
+        buyer,
+        buyerUserId,
         rdTaskId: extra.rdTaskId ?? null,
         rdTaskTitle: extra.rdTaskTitle ?? null,
         rdContact: extra.rdContact ?? null,
@@ -456,8 +460,8 @@ export class ProcurementService {
             kind: 'system',
             text:
               extra.source === 'rd'
-                ? `由研发任务「${extra.rdTaskTitle ?? extra.rdTaskId ?? '-'}」流转生成，待采购确认`
-                : '采购自建任务',
+                ? `由研发任务「${extra.rdTaskTitle ?? extra.rdTaskId ?? '-'}」流转生成，待采购确认${automaticBuyer ? `；按当前负载自动分配给 ${automaticBuyer.name}` : ''}`
+                : `采购自建任务${automaticBuyer ? `；按当前负载自动分配给 ${automaticBuyer.name}` : ''}`,
             toStatus: extra.status,
             actor: actor.name,
             actorUserId: actor.id,
@@ -744,6 +748,65 @@ export class ProcurementService {
       ),
     );
     return { updated: ids.length };
+  }
+
+  /** 把全部未指派的进行中任务按当前在制负载均衡分给采购成员。 */
+  async autoAssignUnassigned(actor: ProcActor) {
+    const candidates = await this.listBuyerCandidates(false);
+    if (candidates.length === 0) {
+      throw new BadRequestException('没有可用的采购成员，请先在部门管理中配置采购部门人员');
+    }
+    const [tasks, active] = await Promise.all([
+      this.prisma.procTask.findMany({
+        where: {
+          buyer: '',
+          status: { notIn: PROC_TERMINAL_STATUSES },
+        },
+        select: { id: true, code: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.procTask.groupBy({
+        by: ['buyerUserId'],
+        where: {
+          buyerUserId: { in: candidates.map((candidate) => candidate.id) },
+          status: { notIn: PROC_TERMINAL_STATUSES },
+        },
+        _count: { _all: true },
+      }),
+    ]);
+    if (tasks.length === 0) return { assigned: 0, distribution: [] };
+
+    const load = new Map(candidates.map((candidate) => [candidate.id, 0]));
+    for (const row of active) {
+      if (row.buyerUserId) load.set(row.buyerUserId, row._count._all);
+    }
+    const distribution = new Map<string, { id: string; name: string; count: number }>();
+    const updates = tasks.map((task) => {
+      const candidate = [...candidates].sort(
+        (a, b) => (load.get(a.id) ?? 0) - (load.get(b.id) ?? 0) || a.name.localeCompare(b.name, 'zh-CN'),
+      )[0];
+      load.set(candidate.id, (load.get(candidate.id) ?? 0) + 1);
+      const current = distribution.get(candidate.id) ?? { id: candidate.id, name: candidate.name, count: 0 };
+      current.count += 1;
+      distribution.set(candidate.id, current);
+      return this.prisma.procTask.update({
+        where: { id: task.id },
+        data: {
+          buyer: candidate.name,
+          buyerUserId: candidate.id,
+          logs: {
+            create: {
+              kind: 'action',
+              text: `系统按负载自动分配采购负责人为 ${candidate.name}`,
+              actor: actor.name,
+              actorUserId: actor.id,
+            },
+          },
+        },
+      });
+    });
+    await this.prisma.$transaction(updates);
+    return { assigned: tasks.length, distribution: [...distribution.values()] };
   }
 
   async deleteTask(id: string) {
@@ -1452,7 +1515,7 @@ export class ProcurementService {
    * 排序：采购成员名录 > 部门含「采购」 > 其余按姓名；名录成员带 inRoster 标记。
    * 开放度与 GET /auth/avatars 一致（登录即可读全员 id/name），不落敏感字段。
    */
-  async listBuyerCandidates() {
+  async listBuyerCandidates(includeAll = false) {
     const [users, roster] = await Promise.all([
       this.prisma.user.findMany({
         where: { status: { not: 'DISABLED' } },
@@ -1464,6 +1527,7 @@ export class ProcurementService {
     const rosterSet = new Set(roster);
     const isProc = (d: string | null) => Boolean(d && d.includes('采购'));
     return users
+      .filter((user) => includeAll || rosterSet.has(user.id) || isProc(user.department))
       .sort(
         (a, b) =>
           Number(rosterSet.has(b.id)) - Number(rosterSet.has(a.id)) ||
@@ -1473,8 +1537,26 @@ export class ProcurementService {
         id: u.id,
         name: u.name,
         department: u.department ?? undefined,
-        inRoster: rosterSet.has(u.id),
+        inRoster: rosterSet.has(u.id) || isProc(u.department),
       }));
+  }
+
+  /** 新任务默认分配给当前在制任务最少的采购成员。 */
+  private async pickAutomaticBuyer() {
+    const candidates = await this.listBuyerCandidates(false);
+    if (candidates.length === 0) return null;
+    const grouped = await this.prisma.procTask.groupBy({
+      by: ['buyerUserId'],
+      where: {
+        buyerUserId: { in: candidates.map((candidate) => candidate.id) },
+        status: { notIn: PROC_TERMINAL_STATUSES },
+      },
+      _count: { _all: true },
+    });
+    const load = new Map(grouped.map((row) => [row.buyerUserId, row._count._all]));
+    return [...candidates].sort(
+      (a, b) => (load.get(a.id) ?? 0) - (load.get(b.id) ?? 0) || a.name.localeCompare(b.name, 'zh-CN'),
+    )[0];
   }
 
   // ── 采购成员名录（对齐研发人员名录模式；KV 存储免 migration）────────────────
@@ -1522,14 +1604,29 @@ export class ProcurementService {
   /** 名录成员（实时回填姓名/部门；已禁用用户标记出来供清理）。 */
   async getBuyerRoster() {
     const entries = await this.readBuyerRosterEntries();
-    if (entries.length === 0) return { members: [] };
+    const procurementUsers = await this.prisma.user.findMany({
+      where: {
+        status: { not: 'DISABLED' },
+        department: { contains: '采购', mode: 'insensitive' },
+      },
+      select: { id: true, name: true, department: true, status: true },
+      orderBy: { name: 'asc' },
+    });
+    const procurementIds = new Set(procurementUsers.map((user) => user.id));
+    const effectiveEntries = [
+      ...entries,
+      ...procurementUsers
+        .filter((user) => !entries.some((entry) => entry.userId === user.id))
+        .map((user) => ({ userId: user.id })),
+    ];
+    if (effectiveEntries.length === 0) return { members: [] };
     const users = await this.prisma.user.findMany({
-      where: { id: { in: entries.map((e) => e.userId) } },
+      where: { id: { in: effectiveEntries.map((e) => e.userId) } },
       select: { id: true, name: true, department: true, status: true },
     });
     const byId = new Map(users.map((u) => [u.id, u]));
     return {
-      members: entries
+      members: effectiveEntries
         .map((e) => ({ entry: e, user: byId.get(e.userId) }))
         .filter((x): x is { entry: { userId: string; note?: string }; user: NonNullable<ReturnType<typeof byId.get>> } => Boolean(x.user))
         .map(({ entry, user }) => ({
@@ -1538,6 +1635,7 @@ export class ProcurementService {
           department: user.department ?? undefined,
           note: entry.note,
           disabled: user.status === 'DISABLED',
+          managedByDepartment: procurementIds.has(user.id),
         })),
     };
   }
@@ -1556,14 +1654,31 @@ export class ProcurementService {
   /** 更新成员岗位备注（如「电子料询价」「包材/耗材」），仅名录内成员。 */
   async updateBuyerRosterMember(userId: string, note: string) {
     const entries = await this.readBuyerRosterEntries();
-    const entry = entries.find((e) => e.userId === userId);
-    if (!entry) throw new NotFoundException('该用户不在成员名录中');
+    let entry = entries.find((e) => e.userId === userId);
+    if (!entry) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: { department: true, status: true },
+      });
+      if (user?.status === 'DISABLED' || !user?.department?.includes('采购')) {
+        throw new NotFoundException('该用户不在采购成员名录中');
+      }
+      entry = { userId };
+      entries.push(entry);
+    }
     entry.note = note.trim().slice(0, 100) || undefined;
     await this.writeBuyerRosterEntries(entries);
     return this.getBuyerRoster();
   }
 
   async removeBuyerRosterMember(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { department: true, status: true },
+    });
+    if (user?.status !== 'DISABLED' && user?.department?.includes('采购')) {
+      throw new BadRequestException('采购部门在职成员由系统自动维护，请先在部门管理中调整该人员所属部门');
+    }
     const entries = await this.readBuyerRosterEntries();
     await this.writeBuyerRosterEntries(entries.filter((e) => e.userId !== userId));
     return this.getBuyerRoster();

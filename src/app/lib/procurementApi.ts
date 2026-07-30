@@ -225,8 +225,11 @@ export interface BuyerCandidate {
   inRoster?: boolean;
 }
 
-export async function listBuyerCandidates(signal?: AbortSignal): Promise<BuyerCandidate[]> {
-  return request<BuyerCandidate[]>("/buyers", { signal });
+export async function listBuyerCandidates(
+  signal?: AbortSignal,
+  includeAll = false,
+): Promise<BuyerCandidate[]> {
+  return request<BuyerCandidate[]>(`/buyers${includeAll ? "?scope=all" : ""}`, { signal });
 }
 
 /** 采购成员名录（人员管理里维护；分配任务候选优先显示名录成员）。 */
@@ -237,6 +240,8 @@ export interface BuyerRosterMember {
   /** 岗位备注（如「电子料询价」「包材/耗材」） */
   note?: string;
   disabled?: boolean;
+  /** true 表示由采购部门成员关系自动维护，不能在名录里单独移除。 */
+  managedByDepartment?: boolean;
 }
 
 export async function getBuyerRoster(): Promise<{ members: BuyerRosterMember[] }> {
@@ -259,6 +264,13 @@ export async function updateBuyerRosterMember(
 
 export async function removeBuyerRosterMember(userId: string): Promise<{ members: BuyerRosterMember[] }> {
   return request(`/buyer-roster/${encodeURIComponent(userId)}`, { method: "DELETE" });
+}
+
+export async function autoAssignBuyerTasks(): Promise<{
+  assigned: number;
+  distribution: Array<{ id: string; name: string; count: number }>;
+}> {
+  return request("/buyer-roster/auto-assign", { method: "POST" });
 }
 
 export interface CreateProcTaskInput {

@@ -9,6 +9,7 @@ import { cn } from "../components/ui/utils";
 import { usePermission } from "../hooks/usePermission";
 import {
   addBuyerRosterMember,
+  autoAssignBuyerTasks,
   batchReassignProcTasks,
   getBuyerRoster,
   removeBuyerRosterMember,
@@ -41,6 +42,7 @@ export function ProcPeopleManagementPage() {
   const navigate = useNavigate();
   const { tasks } = useProcurementData();
   const { deptOf, resolveUserId } = useBuyerDirectory();
+  const { resolveUserId: resolveAnyUserId } = useBuyerDirectory({ includeAll: true });
   const canManage = usePermission("proc-task:reassign");
   const { confirm: confirmAction, confirmDialog } = useConfirmDialog();
 
@@ -91,7 +93,7 @@ export function ProcPeopleManagementPage() {
   const addMember = async (name: string) => {
     const trimmed = name.trim();
     if (!trimmed) return;
-    const userId = resolveUserId(trimmed);
+    const userId = resolveAnyUserId(trimmed);
     if (!userId) { toast.error(t("找不到该用户（或存在同名，请确认姓名）")); return; }
     if (roster.some((m) => m.id === userId)) { toast.error(t("该成员已在名录中")); return; }
     setBusy(true);
@@ -102,6 +104,26 @@ export function ProcPeopleManagementPage() {
       toast.success(t("已加入采购成员名录：{name}", { name: trimmed }));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("添加失败"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const autoAssign = async () => {
+    setBusy(true);
+    try {
+      const result = await autoAssignBuyerTasks();
+      await refreshProcurement();
+      const distribution = result.distribution
+        .map(({ name, count }) => `${name} ${count}`)
+        .join("、");
+      toast.success(
+        result.assigned > 0
+          ? t("已自动分派 {count} 个任务：{distribution}", { count: result.assigned, distribution })
+          : t("当前没有待分派任务"),
+      );
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("自动分派失败"));
     } finally {
       setBusy(false);
     }
@@ -182,7 +204,19 @@ export function ProcPeopleManagementPage() {
         <span className="text-xs text-slate-400">{t("名录成员 {n} 人", { n: roster.length })}</span>
         {canManage && (
           <div className="ml-auto flex items-center gap-2">
+            {tasks.some((task) => !TERMINAL.includes(task.status) && !task.buyer) && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void autoAssign()}
+                className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm disabled:opacity-60"
+              >
+                {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRightLeft className="h-4 w-4" />}
+                {t("智能分派未分配任务")}
+              </button>
+            )}
             <BuyerComboInput
+              includeAll
               value={addName}
               onChange={setAddName}
               onEnter={() => void addMember(addName)}
@@ -206,7 +240,7 @@ export function ProcPeopleManagementPage() {
               <span className="text-sm font-semibold text-slate-800">{p.name}</span>
               {p.member ? (
                 <span className={cn("rounded-full border px-1.5 py-0.5 text-[10px]", p.member.disabled ? "border-slate-200 bg-slate-100 text-slate-400" : "border-indigo-200 bg-indigo-50 text-indigo-600")}>
-                  {t(p.member.disabled ? "名录 · 账号已禁用" : "名录成员")}
+                  {t(p.member.disabled ? "名录 · 账号已禁用" : p.member.managedByDepartment ? "采购部门同步" : "名录成员")}
                 </span>
               ) : p.key !== UNASSIGNED ? (
                 <span className="rounded-full border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[10px] text-slate-400">{t("未入名录")}</span>
@@ -231,7 +265,7 @@ export function ProcPeopleManagementPage() {
                     <ArrowRightLeft className="h-3.5 w-3.5" />{t(p.key === UNASSIGNED ? "指派" : "交接")}
                   </button>
                 )}
-                {canManage && p.member && (
+                {canManage && p.member && !p.member.managedByDepartment && (
                   <button type="button" disabled={busy} onClick={() => removeMember(p.member!)} className="rounded-lg border border-slate-200 p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-500" title={t("从名录移除")}>
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>

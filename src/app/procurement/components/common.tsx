@@ -48,42 +48,49 @@ export function useProcCan() {
 // 来源 GET /procurement/buyers（全部启用用户），并入现有任务里的历史负责人名。
 // 模块级单例 + Promise 去重：一次会话只拉一次。
 
-let buyerCache: BuyerCandidate[] | null = null;
-let buyerPromise: Promise<BuyerCandidate[]> | null = null;
+const buyerCache = new Map<"eligible" | "all", BuyerCandidate[]>();
+const buyerPromise = new Map<"eligible" | "all", Promise<BuyerCandidate[]>>();
 
-function loadBuyersOnce(): Promise<BuyerCandidate[]> {
-  if (buyerCache) return Promise.resolve(buyerCache);
-  if (!buyerPromise) {
-    buyerPromise = listBuyerCandidates()
-      .then((list) => { buyerCache = list; return list; })
-      .catch(() => { buyerPromise = null; return [] as BuyerCandidate[]; });
+function loadBuyersOnce(includeAll: boolean): Promise<BuyerCandidate[]> {
+  const scope = includeAll ? "all" : "eligible";
+  const cached = buyerCache.get(scope);
+  if (cached) return Promise.resolve(cached);
+  if (!buyerPromise.has(scope)) {
+    buyerPromise.set(
+      scope,
+      listBuyerCandidates(undefined, includeAll)
+        .then((list) => { buyerCache.set(scope, list); return list; })
+        .catch(() => { buyerPromise.delete(scope); return [] as BuyerCandidate[]; }),
+    );
   }
-  return buyerPromise;
+  return buyerPromise.get(scope)!;
 }
 
 /**
  * 负责人目录：suggestions 供输入建议；resolveUserId 把输入的姓名映射为 userId
  * （同名多人时返回 undefined，宁可只存名字也不张冠李戴，与头像目录同原则）。
  */
-export function useBuyerDirectory() {
+export function useBuyerDirectory(options?: { includeAll?: boolean }) {
   const { tasks } = useProcurementData();
-  const [users, setUsers] = useState<BuyerCandidate[]>(buyerCache ?? []);
+  const includeAll = options?.includeAll ?? false;
+  const scope = includeAll ? "all" : "eligible";
+  const [users, setUsers] = useState<BuyerCandidate[]>(buyerCache.get(scope) ?? []);
   useEffect(() => {
     let alive = true;
     const refresh = () => {
-      void loadBuyersOnce().then((list) => { if (alive) setUsers(list); });
+      void loadBuyersOnce(includeAll).then((list) => { if (alive) setUsers(list); });
     };
     refresh();
     const unsubscribe = subscribeDepartmentChanges(() => {
-      buyerCache = null;
-      buyerPromise = null;
+      buyerCache.clear();
+      buyerPromise.clear();
       refresh();
     });
     return () => {
       alive = false;
       unsubscribe();
     };
-  }, []);
+  }, [includeAll]);
   return useMemo(() => {
     const idByName = new Map<string, string | null>(); // null = 同名冲突
     const deptByName = new Map<string, string | undefined>();
@@ -411,8 +418,11 @@ export function DateInput({
 }
 
 /** 负责人联想输入：候选来自用户目录 + 历史负责人，hint 显示部门。 */
-export function BuyerComboInput(props: Omit<React.ComponentProps<typeof ComboInput>, "options">) {
-  const { suggestions, deptOf } = useBuyerDirectory();
+export function BuyerComboInput({
+  includeAll = false,
+  ...props
+}: Omit<React.ComponentProps<typeof ComboInput>, "options"> & { includeAll?: boolean }) {
+  const { suggestions, deptOf } = useBuyerDirectory({ includeAll });
   const options = useMemo(
     () => suggestions.map((name) => ({ value: name, hint: deptOf(name) })),
     [suggestions, deptOf],
