@@ -883,19 +883,27 @@
  * 这里用 MobileShell 挂载时打到 <html> 上的 .mobile-route 作用域解除上述约束：
  * 不写进 @layer（无层级样式天然压过 @layer base），且只在 /m 期间存在，桌面端零影响。
  * ──────────────────────────────────────────────────────────────────────────── */
+/* 登录页（.login-route）与 /m 同样需要解除桌面约束：它是独立的居中卡片，不存在
+ * 「最小 1024 才排得开」的前提，被 min-width:1024 撑住会让手机端横向滚动、内容被截；
+ * #root 固定 100vh 还会让软键盘弹出时无处可滚。两者规则完全一致，故共用同一组覆盖。 */
 html.mobile-route,
 html.mobile-route body,
-html.mobile-route #root {
+html.mobile-route #root,
+html.login-route,
+html.login-route body,
+html.login-route #root {
   min-width: 0;
 }
 
-html.mobile-route body {
+html.mobile-route body,
+html.login-route body {
   overflow-x: hidden;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
 }
 
-html.mobile-route #root {
+html.mobile-route #root,
+html.login-route #root {
   height: auto;
   min-height: 100dvh;
   overflow: visible;
