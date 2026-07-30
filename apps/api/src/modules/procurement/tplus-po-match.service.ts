@@ -13,7 +13,8 @@ import type { ProcActor } from './procurement.types';
  * 自动生成建议（suggested），人工只做一次确认；确认即复用 linkPurchaseOrder 建关联，
  * 任务自动流转在途，到货量随同步回推。
  *
- * 规则打分（确定性优先）：物料一致 0.6 + 数量接近(≤5%:0.25 / ≤20%:0.15) + 时间窗吻合 0.15，
+ * 规则打分（确定性优先）：物料一致/规范化名称一致 0.6（名称高度相似 0.5）
+ * + 数量接近(≤5%:0.25 / ≤20%:0.15) + 时间窗吻合 0.15，
  * ≥0.7 才建议。AI 名称匹配置信 ≥0.75 才建议，且在 matchReason 标明来源便于人工甄别。
  */
 
@@ -33,6 +34,14 @@ interface OpenTask {
   createdAt: Date;
   needDate: Date | null;
   deadline: Date | null;
+}
+
+/** 只消除书写噪音，不删除型号文字，避免不同物料被过度归一化。 */
+function normalizeMaterialName(value: string): string {
+  return value
+    .normalize('NFKC')
+    .toLocaleLowerCase('zh-CN')
+    .replace(/[\s\p{P}]+/gu, '');
 }
 
 @Injectable()
@@ -156,18 +165,42 @@ export class TplusPoMatchService {
   }
 
   private bestRuleMatch(
-    row: { materialId: string | null; tpOrderNo: string; orderedQty: Prisma.Decimal; orderDate: Date | null },
+    row: {
+      materialId: string | null;
+      inventoryName: string;
+      tpOrderNo: string;
+      orderedQty: Prisma.Decimal;
+      orderDate: Date | null;
+    },
     tasks: OpenTask[],
     linkedPairs: Set<string>,
   ) {
-    if (!row.materialId) return null;
     const orderedQty = Number(row.orderedQty);
+    const rowName = normalizeMaterialName(row.inventoryName);
     let best: { task: OpenTask; score: number; reason: string } | null = null;
     for (const task of tasks) {
-      if (task.materialId !== row.materialId) continue;
       if (linkedPairs.has(`${task.id}|${row.tpOrderNo}`)) continue;
-      let score = 0.6;
-      const reasons = ['物料一致'];
+      let score = 0;
+      const reasons: string[] = [];
+      if (row.materialId) {
+        if (task.materialId !== row.materialId) continue;
+        score = 0.6;
+        reasons.push('物料一致');
+      } else {
+        const taskName = normalizeMaterialName(task.materialName);
+        if (!rowName || !taskName) continue;
+        if (rowName === taskName) {
+          score = 0.6;
+          reasons.push('名称规范化一致');
+        } else {
+          const shorter = rowName.length <= taskName.length ? rowName : taskName;
+          const longer = rowName.length > taskName.length ? rowName : taskName;
+          const coverage = shorter.length / longer.length;
+          if (shorter.length < 4 || coverage < 0.75 || !longer.includes(shorter)) continue;
+          score = 0.5;
+          reasons.push('名称高度相似');
+        }
+      }
       if (task.quantity > 0 && orderedQty > 0) {
         const diff = Math.abs(orderedQty - task.quantity) / task.quantity;
         if (diff <= 0.05) {
