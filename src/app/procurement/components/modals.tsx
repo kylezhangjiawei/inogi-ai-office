@@ -1360,9 +1360,23 @@ export function MaterialFormModal({ material, onClose }: { material?: Material; 
 
 // ── 畅捷通 T+ 集成 ────────────────────────────────────────────────────────────
 
+function formatTplusAutoSyncTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(date).replaceAll("/", "-");
+}
+
 /**
  * T+ 集成弹窗：凭据录入（appSecret 由管理员现场填写，后端落库加密、不回显）
- * + 同步状态与三个手动同步触发。授权（openToken）流程接入前，同步会返回待授权提示。
+ * + 同步状态、手动同步、OAuth 授权与每日自动同步配置。
  */
 export function TplusConfigModal({ onClose }: { onClose: () => void }) {
   const { t } = useI18n();
@@ -1474,6 +1488,9 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
 
   const field = "mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-indigo-300";
   const label = "text-xs font-medium text-slate-500";
+  const lastAutoSyncText = config?.lastAutoSyncAt
+    ? `${t('上次自动同步')} ${formatTplusAutoSyncTime(config.lastAutoSyncAt)}${config.lastAutoSyncSummary ? ` · ${config.lastAutoSyncSummary}` : ''}`
+    : t('尚未执行自动同步');
 
   return (
     <Shell
@@ -1565,16 +1582,14 @@ export function TplusConfigModal({ onClose }: { onClose: () => void }) {
           </div>
         )}
         {config && (
-          <div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-2 text-[11px] text-slate-500">
-            <label className="inline-flex cursor-pointer items-center gap-1.5">
+          <div className="mt-2 grid grid-cols-[max-content_minmax(0,1fr)] items-center gap-4 border-t border-slate-100 pt-2 text-[11px] text-slate-500">
+            <label className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap">
               <Checkbox checked={config.autoSync} onCheckedChange={(v) => void toggleAutoSync(v === true)} className="size-3.5" />
-              {t('每日 3:00 自动同步')}
+              {t('每日 3:00（北京时间）自动同步')}
             </label>
-            {config.lastAutoSyncAt && (
-              <span className="truncate pl-3 text-slate-400" title={config.lastAutoSyncSummary ?? undefined}>
-                {t('上次自动同步')} {config.lastAutoSyncAt.slice(0, 16).replace('T', ' ')}{config.lastAutoSyncSummary ? ` · ${config.lastAutoSyncSummary}` : ''}
-              </span>
-            )}
+            <span className="block min-w-0 truncate text-right text-slate-400 tabular-nums" title={lastAutoSyncText}>
+              {lastAutoSyncText}
+            </span>
           </div>
         )}
       </div>

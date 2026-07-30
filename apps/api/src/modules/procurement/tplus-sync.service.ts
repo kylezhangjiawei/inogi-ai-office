@@ -19,12 +19,13 @@ import { TplusPoMatchService } from './tplus-po-match.service';
  * 凭据模型（对齐开放平台文档 open.chanjet.com）：
  * - appKey / appSecret：应用凭据，经配置端点录入（secret 落库加密）；
  * - openToken：OAuth2 动态令牌（授权码换取，6 天有效 + refreshToken 轮转），
- *   授权与刷新流程尚未接入——配置好凭据后 fetchFromTplus 仍会 503 提示待授权。
+ *   已接入授权回调、刷新令牌轮转与失效后的重新授权。
  * 网关默认 https://openapi.chanjet.com，业务路径 /tplus/api/v2/...。
  */
 
 const CONFIG_KIND = 'tplus';
 const DEFAULT_BASE_URL = 'https://openapi.chanjet.com';
+const TPLUS_SYNC_TIME_ZONE = 'Asia/Shanghai';
 
 export interface TplusCredentials {
   baseUrl: string;
@@ -889,8 +890,8 @@ export class TplusSyncService {
 
   // ── 每日自动同步 ─────────────────────────────────────────────────────────────
 
-  /** 每天 3:00 自动同步（服务器时区）：错开业务高峰与 T+ 账套日结。 */
-  @Cron('0 3 * * *', { name: 'tplus-auto-sync' })
+  /** 每天北京时间 3:00 自动同步：不受服务器部署时区影响。 */
+  @Cron('0 3 * * *', { name: 'tplus-auto-sync', timeZone: TPLUS_SYNC_TIME_ZONE })
   async autoSyncCron() {
     await this.autoSync().catch((error) => {
       this.logger.warn(`T+ 自动同步异常退出：${(error as Error).message}`);

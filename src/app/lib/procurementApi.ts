@@ -555,7 +555,7 @@ export interface TplusConfigState {
   tokenExpireAt: string | null;
   refreshExpireAt: string | null;
   updatedAt: string | null;
-  /** 每日自动同步（3:00 服务器时区）开关，默认开。 */
+  /** 每日自动同步（北京时间 3:00）开关，默认开。 */
   autoSync: boolean;
   lastAutoSyncAt: string | null;
   lastAutoSyncSummary: string | null;
