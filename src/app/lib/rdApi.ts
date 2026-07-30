@@ -173,6 +173,18 @@ export type RdTask = {
   ai_modified?: boolean;
   latest_progress_summary?: RdLatestProgressSummary | null;
   subtasks?: RdTask[];
+  /**
+   * 子任务标记（一层）。父任务侧仍以 subtasks 数组为结构事实源；这三个字段用于展示区分：
+   * - parent_task_id：所属父任务（顶层任务为 null / 缺省）
+   * - subtask_origin：'created' 在父任务下直建 | 'attached' 由已有任务挂载进来
+   * - subtask_attached_*：挂载留痕（仅 attached 有值）
+   * ⚠️ 存量子任务没有这些字段，判断"是不是子任务"须以结构（父任务的 subtasks）为准。
+   */
+  parent_task_id?: string | null;
+  subtask_origin?: "created" | "attached" | null;
+  subtask_attached_at?: string | null;
+  subtask_attached_by?: string | null;
+  subtask_attached_by_id?: string | null;
   /** 任务内部的轻量工作项清单（见 RdWorkItem）：随任务对象持久化，全系统统计对其零感知。 */
   work_items?: RdWorkItem[];
   /** 进入 paused_blocked 的时间点（离开时清除），协同模块显示"已阻塞 N 天"。 */
@@ -651,6 +663,11 @@ export function createRdTask(payload: {
   product_id?: string;
   category_id?: string;
   sub_project_id?: string;
+  /**
+   * 直建子任务：传父任务 id。此时产品/分类/category_path 全部继承父任务，
+   * 无需传 product_id / category_id。父任务本身是子任务时后端拒绝（子任务仅一层）。
+   */
+  parent_task_id?: string;
   title: string;
   primary_owner: string;
   primary_owner_user_id?: string | null;
@@ -686,6 +703,26 @@ export function deleteRdTask(taskId: string) {
   return requestJson<{ ok: true }>(
     `/task-categories/tasks/${encodeURIComponent(taskId)}`,
     { method: "DELETE" },
+  );
+}
+
+/**
+ * 把已有顶层任务挂为目标任务的子任务（一层，直接生效不走审批）。
+ * 任务本体完整保留（标题/主责/进度/留痕/附件），仅改变在任务树中的位置。
+ * 与「合并申请」(updateRdTask + pending_merge_target) 不同：那个会归档源任务并改写目标描述。
+ */
+export function attachRdTaskToParent(taskId: string, parentTaskId: string) {
+  return requestJson<{ ok: true; task_id: string; parent_task_id: string }>(
+    `/task-categories/tasks/${encodeURIComponent(taskId)}/attach-parent`,
+    { method: "POST", body: JSON.stringify({ parent_task_id: parentTaskId }) },
+  );
+}
+
+/** 取消子任务关系：提升为顶层任务，落在原父任务所在子项目里（与父任务同级）。 */
+export function detachRdSubtask(taskId: string) {
+  return requestJson<{ ok: true; task_id: string }>(
+    `/task-categories/tasks/${encodeURIComponent(taskId)}/detach-parent`,
+    { method: "POST" },
   );
 }
 

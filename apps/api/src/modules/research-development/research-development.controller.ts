@@ -155,6 +155,33 @@ export class ResearchDevelopmentController {
     return this.rdService.deleteTask(taskId, { userId: req.user?.id, userName: req.user?.name });
   }
 
+  /**
+   * 把已有任务挂为目标任务的子任务（一层）。任务本体完整保留，仅改变树中位置。
+   * 与「合并申请」(pending_review_type=merge → applyTaskMerge 归档式合并) 是两个独立能力。
+   */
+  @Post('task-categories/tasks/:taskId/attach-parent')
+  @Permissions('rd-task:edit')
+  attachTaskAsSubtask(
+    @Param('taskId') taskId: string,
+    @Body() payload: { parent_task_id?: unknown },
+    @Request() req: AuthedRequest,
+  ) {
+    return this.rdService.attachTaskAsSubtask(taskId, String(payload?.parent_task_id ?? ''), {
+      userId: req.user?.id,
+      userName: req.user?.name,
+    });
+  }
+
+  /** 取消子任务关系：提升为顶层任务（落在原父任务所在子项目，与父任务同级）。 */
+  @Post('task-categories/tasks/:taskId/detach-parent')
+  @Permissions('rd-task:edit')
+  detachSubtask(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
+    return this.rdService.detachSubtask(taskId, {
+      userId: req.user?.id,
+      userName: req.user?.name,
+    });
+  }
+
   @Post('task-categories/tasks/move')
   @Permissions('rd-task:move', 'rd-task:edit', 'rd-task:reassign', 'page:rd-my-workspace', 'page:us-collab-workspace')
   moveTasks(

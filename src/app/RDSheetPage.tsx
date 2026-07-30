@@ -104,7 +104,8 @@ export function RDSheetPage() {
     const snap = handleRef.current?.getSnapshot();
     if (!snap) return false;
     return saveRdSheetDraft({
-      snapshot: snap as Snapshot,
+      // IWorkbookData 运行时即纯 JSON 对象，只是类型上缺索引签名 → 经 unknown 转
+      snapshot: snap as unknown as Snapshot,
       saved_at: new Date().toISOString(),
       base_updated_at: baseUpdatedAtRef.current,
     });
@@ -257,7 +258,7 @@ export function RDSheetPage() {
       // ① 图片出仓：base64 → OSS 资产 URL，快照瘦身后再上传（根治大包超时）。
       //    任何一张失败都保留 base64 继续保存，功能不受影响。
       const assetStats = await externalizeSnapshotImages(
-        snap as Snapshot,
+        snap as unknown as Snapshot,
         assetCacheRef.current,
         (done, total) => setNotice(t("正在转存图片资源 {done}/{total}…", { done, total })),
       );
