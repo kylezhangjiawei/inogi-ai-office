@@ -22,7 +22,7 @@ function TrendLine({ rows }: { rows: Quotation[] }) {
     <svg width={w} height={h} className="w-full">
       <path d={path} fill="none" stroke="#6D5CFF" strokeWidth={2} />
       {co.map((c) => (
-        <g key={(c.p.quoteDate ?? "") + c.p.supplierName}>
+        <g key={c.p.id}>
           <circle cx={c.x} cy={c.y} r={3} fill="#6D5CFF" />
           <text x={c.x} y={c.y - 6} textAnchor="middle" className="fill-slate-500 text-[9px]">{c.p.unitPrice.toFixed(2)}</text>
         </g>
@@ -94,13 +94,13 @@ export function PriceHistoryModal({ materialName, open, onClose }: { materialNam
                   grouped.map(([sup, list]) => (
                     <div key={sup}>
                       <div className="bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-500">{sup} · {t('{count} 条', { count: list.length })}</div>
-                      <table className="w-full text-sm"><tbody>{list.map((r, i) => <Row key={i} r={r} />)}</tbody></table>
+                      <table className="w-full text-sm"><tbody>{list.map((r) => <Row key={r.id} r={r} />)}</tbody></table>
                     </div>
                   ))
                 ) : (
                   <table className="w-full text-sm">
                     <thead><tr className="bg-slate-50 text-left text-xs text-slate-500"><th className="px-3 py-2 font-medium">{t('供应商')}</th><th className="px-3 py-2 font-medium">{t('单价')}</th><th className="px-3 py-2 font-medium">{t('交期')}</th><th className="px-3 py-2 font-medium">{t('报价日期')}</th></tr></thead>
-                    <tbody>{sorted.map((r, i) => <Row key={i} r={r} />)}</tbody>
+                    <tbody>{sorted.map((r) => <Row key={r.id} r={r} />)}</tbody>
                   </table>
                 )}
               </div>
