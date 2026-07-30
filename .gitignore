@@ -14,6 +14,8 @@ __pycache__/
 .idea/
 .claude/
 tmp/*.log
+.codex-dev-qa.*.log
+.gstack/qa-chrome-profile/
 local-db-backups/
 # 一次性联调种子脚本（费用报销统计），不入库；运行后用 --clean 清理 SEED-* 数据
 **/.tmp_*.cjs
