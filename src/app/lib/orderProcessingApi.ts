@@ -1,6 +1,7 @@
 import { authFetch, readErrorMessage } from "./authSession";
 
 const API_BASE = "/api/order-processing";
+const TPLUS_VIEWS_BASE = "/api/procurement/tplus/views";
 
 export type OrderSource = "wecom_mail" | "gmail" | "upload";
 export type OrderStatusType = "warning" | "error" | "success";
@@ -133,6 +134,10 @@ export type InventoryItem = {
   in: number;
   out: number;
   status: InventoryStatus;
+  unit?: string;
+  available?: number;
+  warehouses?: Array<{ name: string; stock: number; available: number; inTransit: number }>;
+  syncedAt?: string | null;
 };
 
 export type StockMovement = {
@@ -157,12 +162,30 @@ export type InventoryResponse = {
   categories: string[];
   statuses: InventoryStatus[];
   recentMovements: StockMovement[];
+  source?: "tplus";
+  readOnly?: boolean;
+  syncedAt?: string | null;
 };
 
 export type InventoryDetailResponse = {
   item: InventoryItem;
   movements: StockMovement[];
   relatedOrders: Array<OrderProduct & { orderId: string; customer: string; date: string }>;
+  relatedPurchaseOrders?: Array<{
+    id: string;
+    poNo: string;
+    supplier: string;
+    orderedQty: number;
+    receivedQty: number;
+    unitPrice: number;
+    orderDate: string;
+    etaDate: string;
+    approvalStatus?: string | null;
+    status: PurchaseOrderStatus;
+    syncedAt?: string | null;
+  }>;
+  source?: "tplus";
+  readOnly?: boolean;
 };
 
 export type StockInItem = { id: string; qty: number };
@@ -218,6 +241,16 @@ export type PurchaseOrder = {
   remark?: string;
   items?: PurchaseOrderLine[];
   sourceFile?: string;
+  syncedAt?: string | null;
+  taskLinks?: Array<{
+    id: string;
+    code: string;
+    materialName: string;
+    status: string;
+    quantity: number;
+    arrivedQty: number;
+    buyer: string;
+  }>;
 };
 
 export type PurchaseOrderStats = {
@@ -232,6 +265,9 @@ export type PurchaseOrdersResponse = {
   orders: PageResult<PurchaseOrder>;
   suppliers: string[];
   stats: PurchaseOrderStats;
+  source?: "tplus";
+  readOnly?: boolean;
+  syncedAt?: string | null;
 };
 
 export type DownloadPayload = {
@@ -244,6 +280,12 @@ export type DownloadPayload = {
 
 async function requestJson<T>(path: string, init: RequestInit = {}, fallback = "请求失败"): Promise<T> {
   const response = await authFetch(`${API_BASE}${path}`, init);
+  if (!response.ok) throw new Error(await readErrorMessage(response, fallback));
+  return response.json() as Promise<T>;
+}
+
+async function requestTplusView<T>(path: string, init: RequestInit = {}, fallback = "畅捷通数据请求失败"): Promise<T> {
+  const response = await authFetch(`${TPLUS_VIEWS_BASE}${path}`, init);
   if (!response.ok) throw new Error(await readErrorMessage(response, fallback));
   return response.json() as Promise<T>;
 }
@@ -352,11 +394,11 @@ export const orderProcessingApi = {
   },
 
   getInventory(params: { q?: string; category?: string; status?: string; timeFilter?: string; startDate?: string; endDate?: string; page?: number; pageSize?: number }) {
-    return requestJson<InventoryResponse>(`/inventory${buildQuery(params)}`);
+    return requestTplusView<InventoryResponse>(`/inventory${buildQuery(params)}`);
   },
 
   getInventoryDetail(itemId: string) {
-    return requestJson<InventoryDetailResponse>(`/inventory/${encodeURIComponent(itemId)}`);
+    return requestTplusView<InventoryDetailResponse>(`/inventory/${encodeURIComponent(itemId)}`);
   },
 
   recognizeStockIn(files: File[] = []) {
@@ -383,7 +425,7 @@ export const orderProcessingApi = {
   },
 
   async exportInventory(params: { q?: string; category?: string; status?: string; timeFilter?: string; startDate?: string; endDate?: string }) {
-    const payload = await requestJson<DownloadPayload>(`/inventory/export${buildQuery(params)}`, { method: "POST" });
+    const payload = await requestTplusView<DownloadPayload>(`/inventory/export${buildQuery(params)}`, { method: "POST" });
     downloadFile(payload);
     return payload;
   },
@@ -397,11 +439,11 @@ export const orderProcessingApi = {
     page?: number;
     pageSize?: number;
   }) {
-    return requestJson<PurchaseOrdersResponse>(`/purchase-orders${buildQuery(params)}`);
+    return requestTplusView<PurchaseOrdersResponse>(`/purchase-orders${buildQuery(params)}`);
   },
 
   getPurchaseOrder(id: string) {
-    return requestJson<{ order: PurchaseOrder }>(`/purchase-orders/${encodeURIComponent(id)}`);
+    return requestTplusView<{ order: PurchaseOrder }>(`/purchase-orders/${encodeURIComponent(id)}`);
   },
 
   importPurchaseOrders(files: File[] = []) {

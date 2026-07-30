@@ -17,6 +17,11 @@ export type DepartmentChange = {
   code: string;
 };
 
+type StoredDepartmentChange = DepartmentChange & {
+  emittedAt?: number;
+  nonce?: string;
+};
+
 const DEPARTMENT_CHANGE_EVENT = "inogi-department-directory-changed";
 const DEPARTMENT_CHANGE_STORAGE_KEY = "inogi-department-directory-change";
 const EMPLOYEE_ROSTER_STORAGE_KEY = "employee-archive-roster";
@@ -92,6 +97,42 @@ export function publishDepartmentChange(change: DepartmentChange) {
     );
   } catch {
     // 同页事件已经发出；隐私模式或存储配额问题只影响跨标签页通知。
+  }
+}
+
+export function readPendingDepartmentChange(): StoredDepartmentChange | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(DEPARTMENT_CHANGE_STORAGE_KEY);
+    if (!raw) return null;
+    const change = JSON.parse(raw) as StoredDepartmentChange;
+    if (
+      !change?.id ||
+      !change.previousName?.trim() ||
+      !change.name?.trim() ||
+      change.previousName === change.name
+    ) {
+      return null;
+    }
+    return change;
+  } catch {
+    return null;
+  }
+}
+
+export function clearPendingDepartmentChange(change: DepartmentChange) {
+  if (typeof window === "undefined") return;
+  try {
+    const current = readPendingDepartmentChange();
+    if (
+      current?.id === change.id &&
+      current.previousName === change.previousName &&
+      current.name === change.name
+    ) {
+      window.localStorage.removeItem(DEPARTMENT_CHANGE_STORAGE_KEY);
+    }
+  } catch {
+    // 修复已在服务端完成；本地存储不可用只会导致下次再执行一次幂等同步。
   }
 }
 

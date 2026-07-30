@@ -6,7 +6,11 @@ import { PermissionGuard } from "./components/PermissionGuard";
 import { cn } from "./components/ui/utils";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { authFetch } from "./lib/authSession";
-import { publishDepartmentChange } from "./lib/departmentDirectory";
+import {
+  clearPendingDepartmentChange,
+  publishDepartmentChange,
+  readPendingDepartmentChange,
+} from "./lib/departmentDirectory";
 
 type Department = {
   id: string;
@@ -121,10 +125,13 @@ async function apiListDepartments(): Promise<Department[]> {
   return res.json() as Promise<Department[]>;
 }
 
-async function apiSaveDepartment(payload: DepartmentFormData): Promise<Department> {
+async function apiSaveDepartment(
+  payload: DepartmentFormData,
+  previousName?: string,
+): Promise<Department> {
   const res = await authFetch("/api/departments", {
     method: "POST",
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, previousName }),
   });
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))) as { message?: string | string[] };
@@ -169,7 +176,30 @@ export function DepartmentManagement() {
   const loadDepartments = useCallback(async () => {
     setLoading(true);
     try {
-      setDepartments(await apiListDepartments());
+      let items = await apiListDepartments();
+      const pending = readPendingDepartmentChange();
+      const target = pending
+        ? items.find((department) => department.id === pending.id)
+        : undefined;
+      if (pending && target && target.name === pending.name) {
+        await apiSaveDepartment(
+          {
+            id: target.id,
+            code: target.code,
+            name: target.name,
+            category: target.category,
+            manager: target.manager,
+            description: target.description,
+            sortOrder: target.sortOrder,
+            enabled: target.enabled,
+          },
+          pending.previousName,
+        );
+        clearPendingDepartmentChange(pending);
+        items = await apiListDepartments();
+        toast.success(`已自动同步“${pending.previousName}”的历史部门引用`);
+      }
+      setDepartments(items);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "部门数据加载失败");
     } finally {
@@ -250,7 +280,7 @@ export function DepartmentManagement() {
 
     setSaving(true);
     try {
-      const saved = await apiSaveDepartment(form);
+      const saved = await apiSaveDepartment(form, selectedDepartment?.name);
       const previous = selectedDepartment;
       const next = { ...saved, userCount: selectedDepartment?.userCount ?? 0 };
       setDepartments((prev) => {

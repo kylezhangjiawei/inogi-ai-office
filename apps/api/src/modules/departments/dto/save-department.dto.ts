@@ -16,6 +16,15 @@ export class SaveDepartmentDto {
   @MaxLength(80)
   name!: string;
 
+  /**
+   * 前端编辑时看到的改名前名称。
+   * 后端仍以数据库中的当前名称为准，同时用它修复旧版本遗留的孤儿引用。
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  previousName?: string;
+
   @IsString()
   @MaxLength(80)
   code!: string;

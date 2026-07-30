@@ -579,6 +579,11 @@ export async function runTplusAutoSync(): Promise<{ jobId: string }> {
   return request("/tplus/sync/auto", { method: "POST" });
 }
 
+/** 采购订单 / 库存管理页面手动同步：库存→近 90 天采购单→任务匹配。 */
+export async function syncTplusOperations(): Promise<{ jobId: string }> {
+  return request("/tplus/sync/operations", { method: "POST" });
+}
+
 export interface PoFullSyncResult {
   orders: number;
   lines: number;

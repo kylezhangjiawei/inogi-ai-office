@@ -6,6 +6,7 @@ import { Public } from '../auth/decorators/public.decorator';
 import { getApplyJob, startApplyJob } from './apply-job.store';
 import { TplusConfigDto, TplusExchangeCodeDto } from './dto/procurement.dto';
 import { TplusPoMatchService } from './tplus-po-match.service';
+import { TplusOperationsService } from './tplus-operations.service';
 import { TplusSyncService } from './tplus-sync.service';
 
 type AuthedRequest = { user: { id: string; name?: string; username?: string; permissions: string[] } };
@@ -16,6 +17,7 @@ export class TplusSyncController {
   constructor(
     private readonly sync: TplusSyncService,
     private readonly poMatch: TplusPoMatchService,
+    private readonly operations: TplusOperationsService,
   ) {}
 
   @Get('status')
@@ -112,6 +114,22 @@ export class TplusSyncController {
     return { jobId: job.id };
   }
 
+  /** 采购订单 / 库存管理页面的一键同步，不受每日自动同步开关影响。 */
+  @Post('sync/operations')
+  @Permissions('proc:sync-erp')
+  syncOperations() {
+    const job = startApplyJob('tplus-operations-sync', async (update) => {
+      update('正在同步库存…');
+      const inventory = await this.sync.syncInventory();
+      update('库存已同步，正在同步近 90 天采购订单…');
+      const purchaseOrders = await this.sync.syncPurchaseOrderMirror(90, update);
+      update('采购订单已同步，正在匹配采购任务…');
+      const matches = await this.poMatch.runMatch();
+      return { inventory, purchaseOrders, matches };
+    });
+    return { jobId: job.id };
+  }
+
   /** 同步/匹配任务进度查询（同步权限或采购员下单权限任一即可）。 */
   @Get('sync/jobs/:id')
   @Permissions('proc:sync-erp', 'proc-task:order')
@@ -125,6 +143,32 @@ export class TplusSyncController {
   @Get('purchase-orders/mirror')
   listMirror(@Query('status') status?: string) {
     return this.poMatch.listMirror(status);
+  }
+
+  /** 给“采购订单 / 库存管理”页面使用的 T+ 只读视图。 */
+  @Get('views/inventory')
+  inventoryView(@Query() query: Record<string, unknown>) {
+    return this.operations.listInventory(query);
+  }
+
+  @Post('views/inventory/export')
+  inventoryExport(@Query() query: Record<string, unknown>) {
+    return this.operations.exportInventory(query);
+  }
+
+  @Get('views/inventory/:id')
+  inventoryDetail(@Param('id') id: string) {
+    return this.operations.getInventoryDetail(id);
+  }
+
+  @Get('views/purchase-orders')
+  purchaseOrdersView(@Query() query: Record<string, unknown>) {
+    return this.operations.listPurchaseOrders(query);
+  }
+
+  @Get('views/purchase-orders/:id')
+  purchaseOrderView(@Param('id') id: string) {
+    return this.operations.getPurchaseOrder(id);
   }
 
   /** 跑规则 + AI 匹配（异步：AI 名称匹配单次调用可超网关时限），生成建议。 */

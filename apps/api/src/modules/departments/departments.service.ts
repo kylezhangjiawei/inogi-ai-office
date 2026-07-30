@@ -171,24 +171,32 @@ export class DepartmentsService {
 
         const previousIdentity = { name: existing.name, code: existing.code };
         const nextIdentity = { name: updated.name, code: updated.code };
+        const referenceNames = Array.from(
+          new Set(
+            [previousIdentity.name, payload.previousName?.trim()]
+              .filter((name): name is string => Boolean(name))
+              .filter((name) => name !== nextIdentity.name),
+          ),
+        );
         if (
           previousIdentity.name === nextIdentity.name &&
-          previousIdentity.code === nextIdentity.code
+          previousIdentity.code === nextIdentity.code &&
+          referenceNames.length === 0
         ) {
           return updated;
         }
 
-        if (previousIdentity.name !== nextIdentity.name) {
+        if (referenceNames.length > 0) {
           await tx.user.updateMany({
-            where: { department: previousIdentity.name },
+            where: { department: { in: referenceNames } },
             data: { department: nextIdentity.name },
           });
           await tx.employeeArchive.updateMany({
-            where: { department: previousIdentity.name },
+            where: { department: { in: referenceNames } },
             data: { department: nextIdentity.name },
           });
           await tx.procTask.updateMany({
-            where: { requesterDept: previousIdentity.name },
+            where: { requesterDept: { in: referenceNames } },
             data: { requesterDept: nextIdentity.name },
           });
         }
@@ -218,16 +226,22 @@ export class DepartmentsService {
         });
 
         for (const setting of settings) {
-          const replaced = replaceDepartmentReferences(
-            setting.value,
-            previousIdentity,
-            nextIdentity,
-          );
-          if (!replaced.changed) continue;
+          let nextValue = setting.value as unknown;
+          let changed = false;
+          for (const name of referenceNames) {
+            const replaced = replaceDepartmentReferences(
+              nextValue,
+              { name, code: previousIdentity.code },
+              nextIdentity,
+            );
+            nextValue = replaced.value;
+            changed ||= replaced.changed;
+          }
+          if (!changed) continue;
           await tx.systemSetting.update({
             where: { id: setting.id },
             data: {
-              value: JSON.parse(JSON.stringify(replaced.value)) as Prisma.InputJsonValue,
+              value: JSON.parse(JSON.stringify(nextValue)) as Prisma.InputJsonValue,
             },
           });
         }

@@ -11,6 +11,7 @@ import { ProcurementController } from './procurement.controller';
 import { QuoteBookController } from './quote-book.controller';
 import { QuoteBookService } from './quote-book.service';
 import { TplusPoMatchService } from './tplus-po-match.service';
+import { TplusOperationsService } from './tplus-operations.service';
 import { ProcurementService } from './procurement.service';
 import { TplusSyncController } from './tplus-sync.controller';
 import { TplusSyncService } from './tplus-sync.service';
@@ -34,6 +35,7 @@ import { TplusSyncService } from './tplus-sync.service';
     MaterialSafeStockService,
     MaterialReplenishService,
     TplusPoMatchService,
+    TplusOperationsService,
   ],
   exports: [ProcurementService],
 })

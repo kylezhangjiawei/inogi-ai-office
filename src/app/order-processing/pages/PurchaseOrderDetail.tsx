@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   ClipboardCheck,
   FileText,
+  Link2,
   Loader2,
   Mail,
   PackageCheck,
@@ -62,7 +63,7 @@ function InfoItem({ label, value }: { label: string; value?: React.ReactNode }) 
   return (
     <div className="flex items-start justify-between gap-4 border-b border-slate-50 py-2.5 last:border-b-0">
       <span className="shrink-0 text-sm text-slate-400">{label}</span>
-      <span className="text-right text-sm font-medium text-slate-800">{value || '-'}</span>
+      <span className="text-right text-sm font-medium text-slate-800 text-pretty">{value || '-'}</span>
     </div>
   );
 }
@@ -114,6 +115,8 @@ export function PurchaseOrderDetail() {
   const itemAmount = items.reduce((sum, item) => sum + item.qty * item.unitPrice, 0);
   const receivedTotal = items.reduce((sum, item) => sum + item.receivedQty, 0);
   const orderedTotal = items.reduce((sum, item) => sum + item.qty, 0);
+  const fulfillment = orderedTotal > 0 ? Math.min(100, Math.round((receivedTotal / orderedTotal) * 100)) : 0;
+  const taskLinks = order?.taskLinks ?? [];
 
   if (loading) {
     return (
@@ -129,7 +132,7 @@ export function PurchaseOrderDetail() {
       <div className="flex min-h-[520px] flex-col items-center justify-center rounded-2xl border border-slate-100 bg-white p-8 text-center shadow-sm">
         <PackageCheck className="h-12 w-12 text-slate-300" />
         <h1 className="mt-4 text-xl font-semibold text-slate-900">{t('未找到采购订单')}</h1>
-        <p className="mt-2 text-sm text-slate-500"><AutoTranslatedText text={errorMessage || t('当前链接对应的采购订单不存在，可能已被清理或尚未导入。')} /></p>
+        <p className="mt-2 text-sm text-slate-500"><AutoTranslatedText text={errorMessage || t('当前畅捷通采购订单不存在，请先执行同步。')} /></p>
         <Button className="mt-5" onClick={() => navigate('/purchase-orders')}>
           {t('返回采购订单')}
         </Button>
@@ -164,7 +167,7 @@ export function PurchaseOrderDetail() {
               <PackageCheck className="h-4 w-4 text-blue-500" />
               {t('采购订单详情')}
             </div>
-            <h1 className="mt-1 font-mono text-2xl font-semibold tracking-normal text-slate-900">{order.poNo}</h1>
+            <h1 className="mt-1 font-mono text-2xl font-semibold text-slate-900 text-balance">{order.poNo}</h1>
           </div>
         </div>
         <Badge variant="secondary" className={`rounded-full px-3 py-1 font-medium ${statusBadgeClass(order.status)}`}>
@@ -172,34 +175,47 @@ export function PurchaseOrderDetail() {
         </Badge>
       </div>
 
-      <div className="mb-4 grid gap-3 lg:grid-cols-4">
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <div className="rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
           <div className="flex items-center justify-between text-xs text-slate-500">
             <span>{t('订单金额')}</span>
             <FileText className="h-4 w-4 text-blue-500" />
           </div>
-          <div className="mt-2 text-xl font-semibold text-slate-900">{formatCurrency(order.amount, order.currency)}</div>
+          <div className="mt-2 text-xl font-semibold text-slate-900 tabular-nums">{formatCurrency(order.amount, order.currency)}</div>
         </div>
         <div className="rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
           <div className="flex items-center justify-between text-xs text-slate-500">
             <span>{t('SKU / 数量')}</span>
             <PackageCheck className="h-4 w-4 text-indigo-500" />
           </div>
-          <div className="mt-2 text-xl font-semibold text-slate-900">{items.length} / {orderedTotal}</div>
+          <div className="mt-2 text-xl font-semibold text-slate-900 tabular-nums">{items.length} / {orderedTotal}</div>
         </div>
         <div className="rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
           <div className="flex items-center justify-between text-xs text-slate-500">
             <span>{t('已到货数量')}</span>
             <CheckCircle2 className="h-4 w-4 text-emerald-500" />
           </div>
-          <div className="mt-2 text-xl font-semibold text-slate-900">{receivedTotal}</div>
+          <div className="mt-2 text-xl font-semibold text-slate-900 tabular-nums">{receivedTotal}</div>
         </div>
         <div className="rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
           <div className="flex items-center justify-between text-xs text-slate-500">
             <span>{t('预计到货')}</span>
             <CalendarDays className="h-4 w-4 text-amber-500" />
           </div>
-          <div className="mt-2 text-xl font-semibold text-slate-900">{order.etaDate}</div>
+          <div className="mt-2 text-xl font-semibold text-slate-900 tabular-nums">{order.etaDate}</div>
+        </div>
+        <div className="rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
+          <div className="flex items-center justify-between text-xs text-slate-500">
+            <span>{t('到货进度')}</span>
+            <Truck className="h-4 w-4 text-blue-500" />
+          </div>
+          <div className="mt-2 flex items-end justify-between gap-3">
+            <span className="text-xl font-semibold text-slate-900 tabular-nums">{fulfillment}%</span>
+            <span className="text-xs text-slate-400 tabular-nums">{receivedTotal}/{orderedTotal}</span>
+          </div>
+          <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
+            <div className="h-full rounded-full bg-blue-600" style={{ width: `${fulfillment}%` }} />
+          </div>
         </div>
       </div>
 
@@ -207,7 +223,7 @@ export function PurchaseOrderDetail() {
         <div className="min-h-0 space-y-4">
           <div className="rounded-2xl border border-slate-100 bg-white shadow-sm">
             <div className="border-b border-slate-100 px-4 py-3">
-              <h2 className="text-base font-semibold text-slate-900">{t('商品明细')}</h2>
+              <h2 className="text-base font-semibold text-slate-900 text-balance">{t('商品明细')}</h2>
             </div>
             <Table>
               <TableHeader className="bg-slate-50">
@@ -217,6 +233,7 @@ export function PurchaseOrderDetail() {
                   <TableHead>{t('规格')}</TableHead>
                   <TableHead className="text-right">{t('采购数量')}</TableHead>
                   <TableHead className="text-right">{t('已到货')}</TableHead>
+                  <TableHead className="text-right">{t('进度')}</TableHead>
                   <TableHead className="text-right">{t('单价')}</TableHead>
                   <TableHead className="text-right">{t('小计')}</TableHead>
                 </TableRow>
@@ -229,6 +246,11 @@ export function PurchaseOrderDetail() {
                     <TableCell className="text-slate-600"><AutoTranslatedText text={item.spec} /></TableCell>
                     <TableCell className="text-right text-slate-700">{item.qty} {t(item.unit)}</TableCell>
                     <TableCell className="text-right text-slate-700">{item.receivedQty} {t(item.unit)}</TableCell>
+                    <TableCell className="text-right">
+                      <span className="tabular-nums text-slate-600">
+                        {item.qty > 0 ? Math.min(100, Math.round((item.receivedQty / item.qty) * 100)) : 0}%
+                      </span>
+                    </TableCell>
                     <TableCell className="text-right text-slate-700">{formatCurrency(item.unitPrice, order.currency)}</TableCell>
                     <TableCell className="text-right font-semibold text-slate-900">{formatCurrency(item.qty * item.unitPrice, order.currency)}</TableCell>
                   </TableRow>
@@ -264,13 +286,49 @@ export function PurchaseOrderDetail() {
               <InfoItem label={t('交付方式')} value={<AutoTranslatedText text={order.deliveryTerm || t('未配置')} />} />
               <InfoItem label={t('发票类型')} value={<AutoTranslatedText text={order.invoiceType || t('未配置')} />} />
               <InfoItem label={t('审批状态')} value={<AutoTranslatedText text={order.approvalStatus || t('未配置')} />} />
-              <InfoItem label={t('来源文件')} value={<AutoTranslatedText text={order.sourceFile || t('系统样例')} />} />
+              <InfoItem label={t('数据来源')} value={<AutoTranslatedText text={order.sourceFile || t('畅捷通 T+')} />} />
+              <InfoItem label={t('最后同步')} value={order.syncedAt ? new Date(order.syncedAt).toLocaleString() : '-'} />
               <InfoItem label={t('内部 ID')} value={<span className="font-mono">{order.id}</span>} />
             </div>
           </div>
         </div>
 
         <aside className="space-y-4">
+          <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-base font-semibold text-slate-900 text-balance">
+                <Link2 className="h-4 w-4 text-blue-500" />
+                {t('关联采购任务')}
+              </div>
+              <span className="text-xs text-slate-400 tabular-nums">{taskLinks.length}</span>
+            </div>
+            {taskLinks.length > 0 ? (
+              <div className="space-y-2">
+                {taskLinks.map((task) => (
+                  <button
+                    key={task.id}
+                    type="button"
+                    onClick={() => navigate(`/proc-cockpit?task=${encodeURIComponent(task.id)}`)}
+                    className="w-full rounded-xl border border-slate-100 bg-slate-50 p-3 text-left hover:border-blue-200 hover:bg-blue-50">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-mono text-sm font-medium text-blue-700">{task.code}</span>
+                      <span className="text-xs text-slate-500">{t(task.status)}</span>
+                    </div>
+                    <div className="mt-1 truncate text-sm text-slate-700"><AutoTranslatedText text={task.materialName} /></div>
+                    <div className="mt-1 flex justify-between text-xs text-slate-400 tabular-nums">
+                      <span>{task.buyer || t('未分配采购员')}</span>
+                      <span>{task.arrivedQty}/{task.quantity}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-xl bg-slate-50 px-3 py-5 text-center text-sm text-slate-400 text-pretty">
+                {t('该采购单尚未关联采购任务')}
+              </div>
+            )}
+          </div>
+
           <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
             <div className="mb-4 flex items-center gap-2 text-base font-semibold text-slate-900">
               <Truck className="h-4 w-4 text-blue-500" />
@@ -285,7 +343,7 @@ export function PurchaseOrderDetail() {
 
           <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm">
             <div className="mb-3 text-base font-semibold text-slate-900">{t('备注')}</div>
-            <p className="min-h-24 rounded-xl bg-slate-50 px-3 py-3 text-sm leading-6 text-slate-600">
+            <p className="min-h-24 rounded-xl bg-slate-50 px-3 py-3 text-sm leading-6 text-slate-600 text-pretty">
               <AutoTranslatedText text={order.remark || t('暂无备注')} />
             </p>
           </div>

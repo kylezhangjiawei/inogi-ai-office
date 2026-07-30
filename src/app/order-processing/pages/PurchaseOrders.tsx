@@ -1,10 +1,9 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import {
   AlertCircle,
   CalendarDays,
-  Download,
   Eye,
   FileSpreadsheet,
   Filter,
@@ -13,7 +12,6 @@ import {
   RefreshCw,
   Search,
   Truck,
-  Upload,
 } from 'lucide-react';
 
 import { Badge } from '../../components/ui/badge';
@@ -42,14 +40,20 @@ import {
   type PurchaseOrderStatus,
 } from '../../lib/orderProcessingApi';
 import { i18nLocale, useI18n } from '../../lib/i18n';
+import { usePermission } from '../../hooks/usePermission';
+import {
+  getTplusStatus,
+  getTplusSyncJob,
+  syncTplusOperations,
+  waitApplyJob,
+} from '../../lib/procurementApi';
+import { DataPagination } from '../components/DataPagination';
 
 export type { PurchaseOrder, PurchaseOrderLine, PurchaseOrderStatus } from '../../lib/orderProcessingApi';
 
 export const STATUS_OPTIONS: PurchaseOrderStatus[] = ['待确认', '已下单', '部分到货', '已完成', '异常'];
 
 const EMPTY_STATS: PurchaseOrderStats = { total: 0, open: 0, inbound: 0, abnormal: 0, amount: 0 };
-const PAGE_SIZE = 50;
-
 export function formatCurrency(value: number, currency: PurchaseOrder['currency']) {
   return new Intl.NumberFormat(i18nLocale(), {
     style: 'currency',
@@ -76,7 +80,7 @@ export function statusBadgeClass(status: PurchaseOrderStatus) {
 export function PurchaseOrders() {
   const navigate = useNavigate();
   const { t } = useI18n();
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const canSync = usePermission('proc:sync-erp');
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [stats, setStats] = useState<PurchaseOrderStats>(EMPTY_STATS);
   const [suppliers, setSuppliers] = useState<string[]>([]);
@@ -86,12 +90,17 @@ export function PurchaseOrders() {
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   const [total, setTotal] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
   const [loading, setLoading] = useState(false);
-  const [importing, setImporting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState('');
+  const [syncedAt, setSyncedAt] = useState<string | null>(null);
+  const [integration, setIntegration] = useState<{ configured: boolean; authorized: boolean } | null>(null);
 
   const loadOrders = useCallback(
-    async (nextPage = 1) => {
+    async () => {
       setLoading(true);
       try {
         const data = await orderProcessingApi.getPurchaseOrders({
@@ -100,31 +109,42 @@ export function PurchaseOrders() {
           supplier: supplierFilter,
           dateFrom,
           dateTo,
-          page: nextPage,
-          pageSize: PAGE_SIZE,
+          page,
+          pageSize,
         });
         setStats(data.stats);
         setSuppliers(data.suppliers);
+        setSyncedAt(data.syncedAt ?? null);
         setTotal(data.orders.total);
         setPage(data.orders.page);
-        setOrders((current) => {
-          if (nextPage <= 1) return data.orders.items;
-          const merged = new Map(current.map((order) => [order.id, order]));
-          data.orders.items.forEach((order) => merged.set(order.id, order));
-          return Array.from(merged.values());
-        });
+        setTotalPages(data.orders.totalPages);
+        setOrders(data.orders.items);
       } catch (error) {
         toast.error(error instanceof Error ? error.message : t('采购订单加载失败'));
       } finally {
         setLoading(false);
       }
     },
-    [dateFrom, dateTo, query, statusFilter, supplierFilter, t],
+    [dateFrom, dateTo, page, pageSize, query, statusFilter, supplierFilter, t],
   );
 
   useEffect(() => {
-    void loadOrders(1);
+    void loadOrders();
   }, [loadOrders]);
+
+  useEffect(() => {
+    let alive = true;
+    getTplusStatus()
+      .then((status) => {
+        if (alive) setIntegration(status);
+      })
+      .catch(() => {
+        if (alive) setIntegration(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   const resetFilters = () => {
     setQuery('');
@@ -132,97 +152,66 @@ export function PurchaseOrders() {
     setSupplierFilter('all');
     setDateFrom('');
     setDateTo('');
+    setPage(1);
   };
 
-  const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-
-    setImporting(true);
+  const handleSync = async () => {
+    setSyncing(true);
+    setSyncProgress(t('正在启动畅捷通同步…'));
     try {
-      const result = await orderProcessingApi.importPurchaseOrders([file]);
-      toast.success(result.message);
-      await loadOrders(1);
+      const { jobId } = await syncTplusOperations();
+      await waitApplyJob(jobId, setSyncProgress, getTplusSyncJob);
+      const [status] = await Promise.all([getTplusStatus(), loadOrders()]);
+      setIntegration(status);
+      toast.success(t('畅捷通采购订单和库存已同步'));
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : t('采购订单导入失败'));
+      toast.error(error instanceof Error ? error.message : t('畅捷通同步失败'));
     } finally {
-      setImporting(false);
+      setSyncing(false);
+      setSyncProgress('');
     }
   };
 
-  const downloadTemplate = () => {
-    const header = [
-      '采购单号',
-      '供应商',
-      '采购员',
-      '状态',
-      '下单日期',
-      '预计到货日',
-      'SKU',
-      '商品名称',
-      '规格',
-      '单位',
-      '采购数量',
-      '单价',
-      '币种',
-      '仓库',
-      '采购组',
-    ];
-    const sample = ['PO-20260601-001', '示例供应商', '王芳', '待确认', '2026-06-01', '2026-06-08', 'BT-001', '无线蓝牙耳机', '黑色', '个', '120', '89', 'CNY', '主仓 - 上海', '采购一组'];
-    const blob = new Blob([`\uFEFF${header.join(',')}\n${sample.join(',')}`], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = t('采购订单导入模板.csv');
-    anchor.click();
-    URL.revokeObjectURL(url);
-  };
-
   const displayedAmount = useMemo(() => orders.reduce((sum, order) => sum + order.amount, 0), [orders]);
-  const canLoadMore = orders.length < total;
-
   return (
-    <div className="flex min-h-0 flex-1 flex-col   px-5 py-4">
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".xlsx,.xls,.csv,.tsv"
-        className="hidden"
-        onChange={handleImport}
-      />
-
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden px-5 py-4">
+      <div className="mb-4 flex shrink-0 flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 text-xs text-slate-500">
             <PackageCheck className="h-4 w-4 text-blue-500" />
             {t('订单与库存')}
           </div>
-          <h1 className="mt-1 text-2xl font-semibold tracking-normal text-slate-900">{t('采购订单')}</h1>
+          <h1 className="mt-1 text-2xl font-semibold text-slate-900 text-balance">{t('采购订单')}</h1>
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-slate-500">
+            <span>{t('数据来源：畅捷通 T+（只读）')}</span>
+            <span>·</span>
+            <span>{t('最后同步')}：{syncedAt ? new Date(syncedAt).toLocaleString(i18nLocale()) : '-'}</span>
+            {syncProgress ? <span className="text-blue-600">· {syncProgress}</span> : null}
+          </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={downloadTemplate}
-            className="h-9 border-slate-200 bg-white px-3 text-slate-600 shadow-sm hover:bg-slate-50">
-            <Download className="h-4 w-4" />
-            {t('模板')}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            disabled={importing}
-            onClick={() => fileInputRef.current?.click()}
-            className="h-9 bg-blue-600 px-3 text-white shadow-sm shadow-blue-200 hover:bg-blue-700">
-            {importing ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-            {t('导入')}
-          </Button>
+          <Badge
+            variant="secondary"
+            className={integration?.authorized
+              ? 'rounded-full border border-emerald-100 bg-emerald-50 text-emerald-700'
+              : 'rounded-full border border-amber-100 bg-amber-50 text-amber-700'}>
+            {integration?.authorized ? t('T+ 已授权') : t('T+ 未授权')}
+          </Badge>
+          {canSync ? (
+            <Button
+              type="button"
+              size="sm"
+              disabled={syncing || !integration?.configured || !integration?.authorized}
+              onClick={() => void handleSync()}
+              className="h-9 bg-blue-600 px-3 text-white shadow-sm shadow-blue-200 hover:bg-blue-700">
+              <RefreshCw className={`h-4 w-4 ${syncing ? 'animate-spin' : ''}`} />
+              {syncing ? t('同步中') : t('同步畅捷通')}
+            </Button>
+          ) : null}
         </div>
       </div>
 
-      <div className="mb-4 grid gap-3 md:grid-cols-4">
+      <div className="mb-4 grid shrink-0 gap-3 md:grid-cols-4">
         <div className="rounded-2xl border border-slate-100 bg-white px-4 py-3 shadow-sm">
           <div className="flex items-center justify-between text-xs text-slate-500">
             <span>{t('采购单数')}</span>
@@ -253,19 +242,25 @@ export function PurchaseOrders() {
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-slate-100 bg-white shadow-sm">
-        <div className="border-b border-slate-100 px-4 py-3">
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-slate-100 bg-white shadow-sm">
+        <div className="shrink-0 border-b border-slate-100 px-4 py-3">
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative min-w-[220px] flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <Input
                 value={query}
-                onChange={(event) => setQuery(event.target.value)}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setPage(1);
+                }}
                 placeholder={t('搜索采购单号、供应商、采购员...')}
                 className="h-9 rounded-full border-slate-200 bg-slate-50 pl-9 text-sm"
               />
             </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select value={statusFilter} onValueChange={(value) => {
+              setStatusFilter(value);
+              setPage(1);
+            }}>
               <SelectTrigger className="h-9 w-[132px] rounded-full border-slate-200 bg-white text-sm">
                 <SelectValue placeholder={t('状态')} />
               </SelectTrigger>
@@ -278,7 +273,10 @@ export function PurchaseOrders() {
                 ))}
               </SelectContent>
             </Select>
-            <Select value={supplierFilter} onValueChange={setSupplierFilter}>
+            <Select value={supplierFilter} onValueChange={(value) => {
+              setSupplierFilter(value);
+              setPage(1);
+            }}>
               <SelectTrigger className="h-9 w-[176px] rounded-full border-slate-200 bg-white text-sm">
                 <SelectValue placeholder={t('供应商')} />
               </SelectTrigger>
@@ -294,13 +292,19 @@ export function PurchaseOrders() {
             <Input
               type="date"
               value={dateFrom}
-              onChange={(event) => setDateFrom(event.target.value)}
+              onChange={(event) => {
+                setDateFrom(event.target.value);
+                setPage(1);
+              }}
               className="h-9 w-[148px] rounded-full border-slate-200 bg-white text-sm"
             />
             <Input
               type="date"
               value={dateTo}
-              onChange={(event) => setDateTo(event.target.value)}
+              onChange={(event) => {
+                setDateTo(event.target.value);
+                setPage(1);
+              }}
               className="h-9 w-[148px] rounded-full border-slate-200 bg-white text-sm"
             />
             <Button
@@ -315,8 +319,8 @@ export function PurchaseOrders() {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-hidden">
-          <Table containerClassName="max-h-full overflow-auto">
+        <div className="relative min-h-0 flex-1">
+          <Table containerClassName="absolute inset-0 h-full overflow-auto">
             <TableHeader className="sticky top-0 z-10 bg-slate-50">
               <TableRow className="border-slate-100">
                 <TableHead className="px-4">{t('采购单号')}</TableHead>
@@ -348,7 +352,7 @@ export function PurchaseOrders() {
                   <TableCell className="text-right text-slate-700">{order.itemCount}</TableCell>
                   <TableCell className="text-right font-semibold text-slate-900">{formatCurrency(order.amount, order.currency)}</TableCell>
                   <TableCell className="text-slate-600"><AutoTranslatedText text={order.warehouse} /></TableCell>
-                  <TableCell className="max-w-[160px] truncate text-slate-500"><AutoTranslatedText text={order.sourceFile || t('系统样例')} /></TableCell>
+                  <TableCell className="max-w-[160px] truncate text-slate-500"><AutoTranslatedText text={order.sourceFile || t('畅捷通 T+')} /></TableCell>
                   <TableCell className="sticky right-0 bg-white text-right">
                     <Button
                       type="button"
@@ -383,26 +387,21 @@ export function PurchaseOrders() {
           </Table>
         </div>
 
-        <div className="flex items-center justify-between border-t border-slate-100 px-4 py-3 text-xs text-slate-500">
-          <span>
-            {t('显示')} {orders.length} / {t('共')} {total} {t('条')}
-          </span>
-          <div className="flex items-center gap-3">
-            <span>{t('当前合计')} {formatCurrency(displayedAmount, 'CNY')} / {t('总额')} {formatCurrency(stats.amount, 'CNY')}</span>
-            {canLoadMore && (
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={loading}
-                onClick={() => void loadOrders(page + 1)}
-                className="h-8 rounded-full border-slate-200 px-3 text-xs text-slate-600">
-                {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
-                {t('加载更多')}
-              </Button>
-            )}
-          </div>
+        <div className="shrink-0 border-t border-slate-100 px-4 py-2 text-right text-xs text-slate-500 tabular-nums">
+          {t('当前页合计')} {formatCurrency(displayedAmount, 'CNY')} / {t('筛选结果总额')} {formatCurrency(stats.amount, 'CNY')}
         </div>
+        <DataPagination
+          page={page}
+          pageSize={pageSize}
+          total={total}
+          totalPages={totalPages}
+          loading={loading}
+          onPageChange={setPage}
+          onPageSizeChange={(nextPageSize) => {
+            setPageSize(nextPageSize);
+            setPage(1);
+          }}
+        />
       </div>
     </div>
   );

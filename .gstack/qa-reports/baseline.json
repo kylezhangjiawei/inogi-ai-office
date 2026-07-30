@@ -1,37 +1,81 @@
 {
-  "date": "2026-05-19",
+  "date": "2026-07-30",
   "url": "http://localhost:5173",
-  "scope": "研发任务管理模块",
-  "healthScore": 93,
-  "verdict": "release_ready",
+  "scope": "采购管理全链路",
+  "healthScore": 58,
+  "verdict": "blocked",
   "issues": [
     {
-      "id": "RD-QA-001",
-      "title": "提交审核路径无法从 UI 完成审批闭环",
-      "severity": "resolved",
+      "id": "PROC-QA-001",
+      "title": "T+ 未完成授权，采购单和库存同步失败",
+      "severity": "high",
+      "category": "integration"
+    },
+    {
+      "id": "PROC-QA-002",
+      "title": "660 张 T+ 单据未匹配，本地任务与采购订单无追溯关系",
+      "severity": "high",
       "category": "functional"
     },
     {
-      "id": "RD-QA-002",
-      "title": "审批流配置页面把多类流程权限混在立项审批配置下，存在认知风险",
+      "id": "PROC-QA-003",
+      "title": "采购人员名录为空，进行中任务全部未指派",
+      "severity": "high",
+      "category": "workflow"
+    },
+    {
+      "id": "PROC-QA-004",
+      "title": "已确认报价无法正确转换为多供应商采购单",
+      "severity": "high",
+      "category": "functional"
+    },
+    {
+      "id": "PROC-QA-005",
+      "title": "库存缺货判定与可用数量矛盾",
       "severity": "medium",
+      "category": "data"
+    },
+    {
+      "id": "PROC-QA-006",
+      "title": "已完成采购单仍显示等待供应商确认交付方式",
+      "severity": "medium",
+      "category": "data"
+    },
+    {
+      "id": "PROC-QA-007",
+      "title": "报价历史存在重复记录并触发 React 重复 key 错误",
+      "severity": "medium",
+      "category": "console"
+    },
+    {
+      "id": "PROC-QA-008",
+      "title": "采购转派候选包含全部部门用户",
+      "severity": "medium",
+      "category": "permissions"
+    },
+    {
+      "id": "PROC-QA-009",
+      "title": "MateChat 弹窗和悬浮按钮干扰采购操作",
+      "severity": "low",
       "category": "ux"
     },
     {
-      "id": "RD-QA-003",
-      "title": "前端主 chunk 体积较大",
+      "id": "PROC-QA-010",
+      "title": "采购页面存在少量文案和格式问题",
       "severity": "low",
-      "category": "performance"
+      "category": "content"
     }
   ],
   "categoryScores": {
-    "console": 100,
-    "links": 95,
-    "visual": 95,
-    "functional": 94,
-    "ux": 88,
+    "console": 70,
+    "links": 96,
+    "visual": 88,
+    "functional": 48,
+    "ux": 72,
     "performance": 90,
-    "content": 95,
-    "accessibility": 82
+    "content": 86,
+    "accessibility": 80,
+    "integration": 25,
+    "dataConsistency": 45
   }
 }
