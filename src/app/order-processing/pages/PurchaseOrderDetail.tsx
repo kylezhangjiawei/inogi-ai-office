@@ -140,11 +140,62 @@ export function PurchaseOrderDetail() {
     );
   }
 
+  const isCompleted = order.status === '已完成';
+  const isPartial = order.status === '部分到货';
+  const warehouseKnown = Boolean(order.warehouse && order.warehouse !== '-');
+  const etaKnown = Boolean(order.etaDate && order.etaDate !== '-');
   const timeline = [
-    { key: 'created', title: t('创建采购单'), desc: t('{date} 由 {buyer} 创建，所属 {owner}', { date: order.orderDate, buyer: order.buyer, owner: order.owner }) },
-    { key: 'approved', title: t('审批确认'), desc: order.approvalStatus ? t(order.approvalStatus) : t('等待采购主管确认') },
-    { key: 'ordered', title: t('供应商履约'), desc: order.deliveryTerm ? t(order.deliveryTerm) : t('等待供应商确认交付方式') },
-    { key: 'inbound', title: t('到货入库'), desc: t('目标仓库：{warehouse}，预计 {date} 到货', { warehouse: t(order.warehouse), date: order.etaDate }) },
+    {
+      key: 'created',
+      title: t('创建采购单'),
+      desc: t('{date} 由 {buyer} 创建，所属 {owner}', {
+        date: order.orderDate,
+        buyer: order.buyer,
+        owner: order.owner,
+      }),
+    },
+    {
+      key: 'approved',
+      title: t('审批确认'),
+      desc: order.approvalStatus
+        ? t(order.approvalStatus)
+        : isCompleted
+          ? t('订单已完成，畅捷通未返回独立审批状态')
+          : t('畅捷通未返回独立审批状态'),
+    },
+    {
+      key: 'ordered',
+      title: t('供应商履约'),
+      desc: order.deliveryTerm
+        ? t(order.deliveryTerm)
+        : isCompleted
+          ? t('供应商已完成本单履约')
+          : isPartial
+            ? t('供应商持续履约，已到货 {received}/{ordered}', { received: receivedTotal, ordered: orderedTotal })
+            : t('采购单已下达，畅捷通未返回交付方式'),
+    },
+    {
+      key: 'inbound',
+      title: t('到货入库'),
+      desc: isCompleted
+        ? t('已全部到货 {received}/{ordered}{warehouse}', {
+          received: receivedTotal,
+          ordered: orderedTotal,
+          warehouse: warehouseKnown ? t('，入库仓库：{name}', { name: order.warehouse }) : '',
+        })
+        : isPartial
+          ? t('已到货 {received}/{ordered}{eta}', {
+            received: receivedTotal,
+            ordered: orderedTotal,
+            eta: etaKnown ? t('，预计 {date} 完成', { date: order.etaDate }) : '',
+          })
+          : warehouseKnown || etaKnown
+            ? t('目标仓库：{warehouse}，预计到货：{date}', {
+              warehouse: warehouseKnown ? t(order.warehouse) : t('暂未提供'),
+              date: etaKnown ? order.etaDate : t('暂未提供'),
+            })
+            : t('等待畅捷通同步仓库及预计到货信息'),
+    },
   ];
   const activeTimelineCount =
     order.status === '已完成' ? 4 : order.status === '部分到货' ? 3 : order.status === '已下单' ? 2 : order.status === '异常' ? 2 : 1;
