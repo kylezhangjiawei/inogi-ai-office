@@ -188,7 +188,13 @@ export class ChatStreakService {
     if (config.mode === 'static') {
       // 固定素材：图片池按当日轮换选一张
       const objectKey = this.pickFromPool(config.staticImagePool, todayKey);
-      return objectKey ? this.ossService.getSignedUrl(objectKey, 3600) : null;
+      return objectKey
+        ? this.ossService.getSignedUrl(
+            objectKey,
+            24 * 3600,
+            'image/resize,m_lfit,w_800/format,webp/quality,q_82',
+          )
+        : null;
     }
     const setting = await this.prisma.systemSetting.findUnique({
       where: { key: MASCOT_SETTING_KEY },
@@ -197,7 +203,11 @@ export class ChatStreakService {
     const value = (setting?.value ?? null) as { date?: string; objectKey?: string } | null;
     if (value && value.date === todayKey && value.objectKey) {
       // 私有 Bucket：每次返回新的短时签名 URL
-      return this.ossService.getSignedUrl(value.objectKey, 3600);
+      return this.ossService.getSignedUrl(
+        value.objectKey,
+        24 * 3600,
+        'image/resize,m_lfit,w_800/format,webp/quality,q_82',
+      );
     }
     // 当日尚未就绪：后台触发生成，不阻塞本次响应
     void this.ensureDailyMascot(todayKey);
@@ -488,7 +498,13 @@ export class ChatStreakService {
       select: { value: true },
     });
     const value = (setting?.value ?? null) as { date?: string; objectKey?: string } | null;
-    const url = value?.objectKey ? this.ossService.getSignedUrl(value.objectKey, 3600) : null;
+    const url = value?.objectKey
+      ? this.ossService.getSignedUrl(
+          value.objectKey,
+          24 * 3600,
+          'image/resize,m_lfit,w_800/format,webp/quality,q_82',
+        )
+      : null;
     return { url, date: value?.date ?? null };
   }
 

@@ -9,12 +9,10 @@ import { hasPermission } from "./lib/permissions";
 import { isMobileViewport } from "./lib/mobileRouting";
 import { DEPT_KBS, routePermissionMap } from "./routesConfig";
 
-// 首屏即需，保持同步加载：登录页、首页、桌面外壳、移动外壳。
+// 首屏即需，保持同步加载：登录页、桌面外壳、移动外壳。
 import { LoginPage } from "./LoginPage";
-import { Dashboard } from "./Dashboard";
 import { Root } from "./Root";
 import { MobileLayout } from "./MobileShell";
-import { MobileRDCockpit } from "./MobileRDCockpit";
 
 /**
  * 路由级懒加载工具：把命名导出的页面组件包成 React.lazy 的 default 形态。
@@ -31,6 +29,7 @@ function lazyNamed<M extends Record<string, unknown>, K extends keyof M>(
 }
 
 const AfterSalesDetails = lazyNamed(() => import("./AfterSalesDetails"), "AfterSalesDetails");
+const Dashboard = lazyNamed(() => import("./Dashboard"), "Dashboard");
 const AfterSalesForm = lazyNamed(() => import("./AfterSalesForm"), "AfterSalesForm");
 const AfterSalesList = lazyNamed(() => import("./AfterSalesList"), "AfterSalesList");
 const AiModelManagementPage = lazyNamed(() => import("./AiModelManagementPage"), "AiModelManagementPage");
@@ -38,6 +37,7 @@ const AiUsageDashboardPage = lazyNamed(() => import("./AiUsageDashboardPage"), "
 const ContentSlotsPage = lazyNamed(() => import("./ContentSlotsPage"), "ContentSlotsPage");
 const ChatAnalyticsPage = lazyNamed(() => import("./ChatAnalyticsPage"), "ChatAnalyticsPage");
 const MobileChatAnalyticsPage = lazyNamed(() => import("./MobileChatAnalyticsPage"), "MobileChatAnalyticsPage");
+const MobileRDCockpit = lazyNamed(() => import("./MobileRDCockpit"), "MobileRDCockpit");
 const I18nManagementPage = lazyNamed(() => import("./I18nManagementPage"), "I18nManagementPage");
 const BOMArchive = lazyNamed(() => import("./BOMArchive"), "BOMArchive");
 const BugLogPage = lazyNamed(() => import("./BugLogPage"), "BugLogPage");
@@ -323,7 +323,7 @@ const router = createBrowserRouter([
     path: "/",
     Component: ProtectedLayout,
     children: [
-      { index: true, element: makeProtected(<Dashboard />, routePermissionMap["/"] ?? "page:dashboard") },
+      { index: true, element: makeLazyProtected(<Dashboard />, routePermissionMap["/"] ?? "page:dashboard") },
       { path: "profile", element: lazyWrap(<PersonalCenterPage />) },
       { path: "message-center", element: lazyWrap(<MessageCenterPage />) },
       { path: "after-sales", element: makeLazyProtected(<AfterSalesList />, "page:after-sales") },
@@ -437,7 +437,7 @@ const router = createBrowserRouter([
     path: "/m",
     Component: MobileLayout,
     children: [
-      { index: true, element: <MobileRDCockpit /> },
+      { index: true, element: lazyWrap(<MobileRDCockpit />) },
       { path: "discussion/:taskId", element: lazyWrap(<RDDiscussionInvitePage />) },
       { path: "chat-analytics", element: makeLazyProtected(<MobileChatAnalyticsPage />, "page:chat-analytics") },
       { path: "*", element: <Navigate to="/m" replace /> },
@@ -449,7 +449,7 @@ const router = createBrowserRouter([
     path: "/us-collab-m",
     Component: MobileLayout,
     children: [
-      { index: true, element: <MobileRDCockpit /> },
+      { index: true, element: lazyWrap(<MobileRDCockpit />) },
       { path: "discussion/:taskId", element: lazyWrap(<RDDiscussionInvitePage />) },
       { path: "*", element: <Navigate to="/us-collab-m" replace /> },
     ],

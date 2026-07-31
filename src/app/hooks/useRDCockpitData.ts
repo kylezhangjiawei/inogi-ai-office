@@ -8,7 +8,7 @@ import {
   type CatStat,
   type PersonLoad,
   type Risk,
-} from "../RDTaskManagementPage";
+} from "../lib/rdCockpitMetrics";
 
 export type RDCockpitSummary = {
   /** 非归档任务总数 */
@@ -52,23 +52,23 @@ export function useRDCockpitData(): RDCockpitData {
   const reload = useCallback(() => setReloadToken((t) => t + 1), []);
 
   useEffect(() => {
-    let cancelled = false;
+    const controller = new AbortController();
     setLoading(true);
     setError(null);
-    fetchRdTaskCategories()
+    fetchRdTaskCategories({ includeCovers: true, signal: controller.signal })
       .then((next) => {
-        if (!cancelled) setCategories(next);
+        if (!controller.signal.aborted) setCategories(next);
       })
       .catch((e) => {
-        if (cancelled) return;
+        if (controller.signal.aborted) return;
         setCategories([]);
         setError(e instanceof Error ? e.message : "研发任务接口加载失败");
       })
       .finally(() => {
-        if (!cancelled) setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       });
     return () => {
-      cancelled = true;
+      controller.abort();
     };
   }, [reloadToken]);
 

@@ -1,4 +1,8 @@
 import { authFetch, readErrorMessage } from "./authSession";
+import { buildRdTaskAttachmentPayload } from "./rdAttachmentPayload";
+import { compressImageFile } from "./resourceImage";
+
+export { buildRdTaskAttachmentPayload } from "./rdAttachmentPayload";
 
 const RD_API_BASE = "/api/research-development";
 
@@ -197,6 +201,8 @@ export type RdTask = {
   last_activity_at?: string;
   /** 后端派生（仅读取时计算）：进度留痕里的图片附件 URL，按留痕时间倒序、上限 6 张，供移动端流式卡片做封面缩略图。 */
   cover_images?: string[];
+  /** 与 cover_images 一一对应的 480px WebP；卡片只加载此数组，点开预览后再加载原图。 */
+  cover_image_thumbnails?: string[];
   /** 后端派生（仅读取时计算）：已完成任务的 AI 复盘评分摘要（总分 + 等级）。 */
   completion_score?: { total: number; grade: string } | null;
 };
@@ -511,8 +517,11 @@ export type RdFileIngestionPlan = {
 
 // ── API functions ─────────────────────────────────────────────────────────────
 
-export function fetchRdTaskCategories() {
-  return requestJson<RdCategory[]>("/task-categories");
+export function fetchRdTaskCategories(options: { includeCovers?: boolean; signal?: AbortSignal } = {}) {
+  return requestJson<RdCategory[]>(
+    `/task-categories${options.includeCovers ? "?include_covers=1" : ""}`,
+    options.signal ? { signal: options.signal } : undefined,
+  );
 }
 
 /** 主库 + 所有产品库合并的分类树。用于驾驶舱概览「人员任务」跨产品聚合（与个人工作台主责同源）。 */
@@ -1115,9 +1124,11 @@ export type RdTaskProgressAttachment = {
   oss_url?: string;
   /** 同源内联预览代理 URL（后端 HMAC 签名）。iframe 预览用，规避 OSS 强制下载。 */
   preview_url?: string;
+  /** CDN/OSS 下载地址；与内联预览分离，确保跨域链接也能触发下载。 */
+  download_url?: string;
   /** base64 data URI（OSS 未配置时的降级方案）。 */
   data_url?: string;
-  /** 图片附件的 OSS 实时缩放缩略图（480px webp），网格缩略位优先使用，避免加载原图。 */
+  /** 图片附件的 OSS 实时缩放缩略图（列表 240px、详情 320px、移动卡片 480px WebP）。 */
   thumb_url?: string;
   /** AI 抽取出的文本内容（OCR/文档抽取/视觉模型），用于 AI 评分上下文。上传后由后台异步填充。 */
   extracted_text?: string;
@@ -1157,8 +1168,23 @@ export function getAttachmentUrl(
   if (!att) return "";
   // `oss_url` stored in historical progress notes expires after 30 days. Every
   // notes response includes a newly signed same-origin `preview_url`, so all
-  // image/fullscreen/download call sites must prefer it as well as iframes do.
+  // Image/fullscreen call sites prefer it as well as iframes do; downloads use download_url.
   const url = att.preview_url ?? att.oss_url ?? att.data_url ?? "";
+  if (url) ensurePreconnect(url);
+  return url;
+}
+
+/** 下载地址与内联预览分开，CDN 跨域时不依赖浏览器对 download 属性的兼容行为。 */
+export function getAttachmentDownloadUrl(
+  att: {
+    download_url?: string;
+    preview_url?: string;
+    oss_url?: string;
+    data_url?: string;
+  } | null | undefined,
+): string {
+  if (!att) return "";
+  const url = att.download_url ?? getAttachmentUrl(att);
   if (url) ensurePreconnect(url);
   return url;
 }
@@ -1218,8 +1244,130 @@ export type RdWorkItem = {
   done: boolean;
 };
 
-export function fetchRdTaskProgressNotes(taskId: string) {
-  return requestJson<RdTaskProgressNote[]>(`/task-progress-notes/${encodeURIComponent(taskId)}`);
+export function fetchRdTaskProgressNotes(taskId: string, signal?: AbortSignal) {
+  return requestJson<RdTaskProgressNote[]>(
+    `/task-progress-notes/${encodeURIComponent(taskId)}`,
+    signal ? { signal } : undefined,
+  );
+}
+
+export type RdTaskAttachmentPreview = {
+  attachment_count: number;
+  attachments: RdTaskProgressAttachment[];
+};
+
+const RD_ATTACHMENT_CACHE_TTL_MS = 5 * 60_000;
+const rdAttachmentPreviewCache = new Map<string, { at: number; data: RdTaskAttachmentPreview }>();
+const rdAttachmentPreviewInflight = new Map<string, Promise<Record<string, RdTaskAttachmentPreview>>>();
+const rdTaskAttachmentCache = new Map<string, { at: number; data: RdTaskAttachmentPreview }>();
+const rdTaskAttachmentInflight = new Map<string, Promise<RdTaskAttachmentPreview>>();
+let rdAttachmentCacheGeneration = 0;
+
+function rdAttachmentCacheKey(taskId: string): string {
+  return `${currentRdWorkspace() ?? "rd"}|${taskId}`;
+}
+
+/** Invalidate cached attachment metadata after create/add/replace/delete mutations. */
+export function clearRdTaskAttachmentCache(taskId?: string) {
+  rdAttachmentCacheGeneration += 1;
+  if (!taskId) {
+    rdAttachmentPreviewCache.clear();
+    rdAttachmentPreviewInflight.clear();
+    rdTaskAttachmentCache.clear();
+    rdTaskAttachmentInflight.clear();
+    return;
+  }
+  const key = rdAttachmentCacheKey(taskId);
+  rdAttachmentPreviewCache.delete(key);
+  rdTaskAttachmentCache.delete(key);
+  rdTaskAttachmentInflight.delete(key);
+  for (const inflightKey of rdAttachmentPreviewInflight.keys()) {
+    if (inflightKey.split("|").slice(1).includes(taskId)) {
+      rdAttachmentPreviewInflight.delete(inflightKey);
+    }
+  }
+}
+
+/** 驾驶舱卡片批量摘要：单请求返回最多 60 个任务、每任务最多 5 个轻量附件预览。 */
+export async function fetchRdTaskAttachmentPreviews(
+  taskIds: string[],
+  options?: { signal?: AbortSignal },
+) {
+  const ids = Array.from(new Set(taskIds.map((id) => id.trim()).filter(Boolean))).slice(0, 60);
+  if (ids.length === 0) return {};
+  const now = Date.now();
+  const output: Record<string, RdTaskAttachmentPreview> = {};
+  const missing: string[] = [];
+  for (const taskId of ids) {
+    const cached = rdAttachmentPreviewCache.get(rdAttachmentCacheKey(taskId));
+    if (cached && now - cached.at < RD_ATTACHMENT_CACHE_TTL_MS) output[taskId] = cached.data;
+    else missing.push(taskId);
+  }
+  if (missing.length === 0) return output;
+
+  const wsKey = currentRdWorkspace() ?? "rd";
+  const sortedMissing = missing.slice().sort();
+  const inflightKey = `${wsKey}|${sortedMissing.join("|")}`;
+  const generation = rdAttachmentCacheGeneration;
+  const query = new URLSearchParams({ task_ids: sortedMissing.join(",") });
+  const loadMissing = (signal?: AbortSignal) => requestJson<Record<string, RdTaskAttachmentPreview>>(
+    `/task-attachment-previews?${query.toString()}`,
+    signal ? { signal } : undefined,
+  ).then((data) => {
+    if (generation !== rdAttachmentCacheGeneration) return data;
+    const cachedAt = Date.now();
+    for (const [taskId, preview] of Object.entries(data)) {
+      rdAttachmentPreviewCache.set(rdAttachmentCacheKey(taskId), { at: cachedAt, data: preview });
+    }
+    return data;
+  });
+
+  // A view-scoped request must be independently abortable. It deliberately does not join the
+  // global in-flight promise, because unmounting one cockpit must not cancel another consumer.
+  if (options?.signal) {
+    return { ...output, ...await loadMissing(options.signal) };
+  }
+
+  let request = rdAttachmentPreviewInflight.get(inflightKey);
+  if (!request) {
+    request = loadMissing()
+      .finally(() => {
+        if (rdAttachmentPreviewInflight.get(inflightKey) === request) {
+          rdAttachmentPreviewInflight.delete(inflightKey);
+        }
+      });
+    rdAttachmentPreviewInflight.set(inflightKey, request);
+  }
+  return { ...output, ...await request };
+}
+
+/** Load every attachment for one task only after an explicit view-all/gallery action. */
+export async function fetchRdTaskAttachments(taskId: string) {
+  const key = rdAttachmentCacheKey(taskId);
+  const cached = rdTaskAttachmentCache.get(key);
+  if (cached && Date.now() - cached.at < RD_ATTACHMENT_CACHE_TTL_MS) return cached.data;
+  const existing = rdTaskAttachmentInflight.get(key);
+  if (existing) return existing;
+  const generation = rdAttachmentCacheGeneration;
+  const request = (async () => {
+    try {
+      return await requestJson<RdTaskAttachmentPreview>(`/task-attachments/${encodeURIComponent(taskId)}`);
+    } catch (error) {
+      if ((error as RdApiError).status !== 404) throw error;
+      return buildRdTaskAttachmentPayload(await fetchRdTaskProgressNotes(taskId));
+    }
+  })()
+    .then((data) => {
+      if (generation === rdAttachmentCacheGeneration) {
+        rdTaskAttachmentCache.set(key, { at: Date.now(), data });
+      }
+      return data;
+    })
+    .finally(() => {
+      if (rdTaskAttachmentInflight.get(key) === request) rdTaskAttachmentInflight.delete(key);
+    });
+  rdTaskAttachmentInflight.set(key, request);
+  return request;
 }
 
 /**
@@ -1240,6 +1388,7 @@ const noteMapInflightByWs = new Map<string, Promise<Record<string, RdTaskProgres
 export function clearRdTaskProgressNoteMapCache() {
   noteMapCacheByWs.clear();
   noteMapInflightByWs.clear();
+  clearRdTaskAttachmentCache();
 }
 
 export function fetchRdTaskProgressNoteMap(options?: { force?: boolean }) {
@@ -1296,11 +1445,29 @@ export type RdTaskCompletionScore = {
 };
 
 /** 拉取已完成任务的 AI 复盘评分；404 / null 表示尚未评分或当前用户无权查看。 */
-export async function fetchRdTaskCompletionScore(taskId: string): Promise<RdTaskCompletionScore | null> {
+export async function fetchRdTaskCompletionScore(
+  taskId: string,
+  signal?: AbortSignal,
+): Promise<RdTaskCompletionScore | null> {
   const result = await requestJson<RdTaskCompletionScore | null>(
     `/task-completion-scores/${encodeURIComponent(taskId)}`,
+    signal ? { signal } : undefined,
   );
   return result ?? null;
+}
+
+/** One permission-filtered request for every visible completed task. */
+export async function fetchRdTaskCompletionScores(
+  taskIds: string[],
+  signal?: AbortSignal,
+): Promise<Record<string, RdTaskCompletionScore | null>> {
+  const ids = Array.from(new Set(taskIds.map((id) => id.trim()).filter(Boolean))).slice(0, 60);
+  if (ids.length === 0) return {};
+  const query = new URLSearchParams({ task_ids: ids.join(",") });
+  return requestJson<Record<string, RdTaskCompletionScore | null>>(
+    `/task-completion-scores?${query.toString()}`,
+    signal ? { signal } : undefined,
+  );
 }
 
 export type RdTaskCompletionScoreDebug = RdTaskCompletionScore & {
@@ -1369,6 +1536,179 @@ export function backfillRdTaskProgressNoteExtraction(
   );
 }
 
+type DirectProgressNoteUpload = {
+  objectKey: string;
+  originalname: string;
+  mimetype: string;
+  size: number;
+  cleanupExp?: number;
+  cleanupSig?: string;
+};
+
+type DirectProgressNotePresign = {
+  enabled: boolean;
+  files: Array<{
+    objectKey: string;
+    putUrl: string | null;
+    contentType: string;
+    cacheControl?: string;
+    cleanupExp?: number;
+    cleanupSig?: string;
+  }>;
+};
+
+const RD_IMAGE_COMPRESSION_TRIGGER_BYTES = 8 * 1024 * 1024;
+const RD_IMAGE_COMPRESSION_TARGET_BYTES = 4 * 1024 * 1024;
+const RD_IMAGE_HARD_LIMIT_BYTES = 25 * 1024 * 1024;
+const RD_IMAGE_MAX_EDGE = 2560;
+
+export type PreparedRdProgressNoteFiles = {
+  files: File[];
+  compressedCount: number;
+  savedBytes: number;
+};
+
+async function compressTaskImage(file: File): Promise<File> {
+  const compressed = await compressImageFile(file, {
+    triggerBytes: RD_IMAGE_COMPRESSION_TRIGGER_BYTES,
+    targetBytes: RD_IMAGE_COMPRESSION_TARGET_BYTES,
+    hardLimitBytes: RD_IMAGE_HARD_LIMIT_BYTES,
+    maxEdge: RD_IMAGE_MAX_EDGE,
+    minEdge: 720,
+    outputType: "image/webp",
+    qualities: [0.86, 0.78, 0.7, 0.62],
+  });
+  if (compressed) return compressed;
+  throw new Error(`图片 ${file.name} 自动压缩后仍超过 25MB，请裁剪或转换为 JPG/PNG/WebP 后重试`);
+}
+
+/**
+ * Compress oversized task images before AI analysis or upload. Concurrency is capped at two to
+ * avoid decoding several 20MB+ images into hundreds of megabytes of bitmap memory at once.
+ */
+export async function prepareRdProgressNoteFiles(files: File[]): Promise<PreparedRdProgressNoteFiles> {
+  const prepared = new Array<File>(files.length);
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(2, files.length) }, async () => {
+    while (cursor < files.length) {
+      const index = cursor++;
+      prepared[index] = await compressTaskImage(files[index]!);
+    }
+  });
+  await Promise.all(workers);
+  const compressedCount = prepared.reduce((count, file, index) => count + (file !== files[index] ? 1 : 0), 0);
+  const originalBytes = files.reduce((sum, file) => sum + file.size, 0);
+  const preparedBytes = prepared.reduce((sum, file) => sum + file.size, 0);
+  return {
+    files: prepared,
+    compressedCount,
+    savedBytes: Math.max(0, originalBytes - preparedBytes),
+  };
+}
+
+async function cleanupProgressNoteUploads(files: DirectProgressNoteUpload[]): Promise<void> {
+  if (files.length === 0) return;
+  await requestJson("/task-progress-notes/abort-upload", {
+    method: "POST",
+    body: JSON.stringify({ files }),
+  }).catch(() => undefined);
+}
+
+async function putProgressNoteFile(
+  file: File,
+  signed: DirectProgressNotePresign["files"][number],
+): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 180_000);
+    try {
+      const response = await fetch(signed.putUrl!, {
+        method: "PUT",
+        headers: {
+          "Content-Type": signed.contentType,
+          ...(signed.cacheControl ? { "Cache-Control": signed.cacheControl } : {}),
+        },
+        body: file,
+        signal: controller.signal,
+      });
+      if (response.ok) return;
+      lastError = new Error(`附件 ${file.name} 上传 OSS 失败（HTTP ${response.status}）`);
+      if (
+        response.status >= 400
+        && response.status < 500
+        && response.status !== 408
+        && response.status !== 429
+      ) break;
+    } catch (error) {
+      lastError = controller.signal.aborted
+        ? new Error(`附件 ${file.name} 上传超时，请检查网络后重试`)
+        : error;
+    } finally {
+      clearTimeout(timer);
+    }
+    if (attempt < 2) await new Promise((resolve) => setTimeout(resolve, 500 * 2 ** attempt));
+  }
+  throw lastError instanceof Error ? lastError : new Error(`附件 ${file.name} 上传失败`);
+}
+
+/**
+ * Upload note attachments straight to OSS with a small concurrency cap. Returns null only when
+ * OSS is disabled, allowing the existing API-buffered path to remain a local-development fallback.
+ */
+async function uploadProgressNoteFilesDirect(files: File[]): Promise<{
+  files: File[];
+  directUploads: DirectProgressNoteUpload[] | null;
+}> {
+  const prepared = await prepareRdProgressNoteFiles(files);
+  if (prepared.files.length === 0) return { files: [], directUploads: [] };
+  const presign = await requestJson<DirectProgressNotePresign>("/task-progress-notes/presign-upload", {
+    method: "POST",
+    body: JSON.stringify({
+      files: prepared.files.map((file) => ({
+        filename: file.name,
+        content_type: file.type || "application/octet-stream",
+        file_size: file.size,
+      })),
+    }),
+  });
+  if (!presign.enabled) return { files: prepared.files, directUploads: null };
+  if (
+    presign.files.length !== prepared.files.length
+    || presign.files.some((file) => !file.objectKey || !file.putUrl)
+  ) {
+    throw new Error("附件直传签名不完整，请稍后重试");
+  }
+
+  let cursor = 0;
+  const workers = Array.from({ length: Math.min(3, prepared.files.length) }, async () => {
+    while (cursor < prepared.files.length) {
+      const index = cursor++;
+      const file = prepared.files[index]!;
+      const signed = presign.files[index]!;
+      await putProgressNoteFile(file, signed);
+    }
+  });
+  const directUploads = presign.files.map((signed, index) => ({
+    objectKey: signed.objectKey,
+    originalname: prepared.files[index]!.name,
+    mimetype: signed.contentType,
+    size: prepared.files[index]!.size,
+    cleanupExp: signed.cleanupExp,
+    cleanupSig: signed.cleanupSig,
+  }));
+  const results = await Promise.allSettled(workers);
+  const failed = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+  if (failed) {
+    await cleanupProgressNoteUploads(directUploads);
+    throw failed.reason;
+  }
+  return {
+    files: prepared.files,
+    directUploads,
+  };
+}
+
 export async function createRdTaskProgressNote(payload: {
   task_id: string;
   text: string;
@@ -1379,18 +1719,21 @@ export async function createRdTaskProgressNote(payload: {
   /** 可选：@ 提及的成员（服务端存结构化字段并给每人发站内消息）。 */
   mentions?: Array<{ user_id?: string; name: string }>;
 }): Promise<RdTaskProgressNote> {
+  const files = payload.files ?? [];
+  const upload = await uploadProgressNoteFilesDirect(files);
   const form = new FormData();
   form.append("task_id", payload.task_id);
   form.append("text", payload.text);
   if (typeof payload.progress === "number") form.append("progress", String(payload.progress));
   if (payload.work_item_id) form.append("work_item_id", payload.work_item_id);
   if (payload.mentions && payload.mentions.length > 0) form.append("mentions", JSON.stringify(payload.mentions));
-  (payload.files ?? []).forEach((file) => form.append("files", file));
+  if (upload.directUploads) form.append("oss_files", JSON.stringify(upload.directUploads));
+  else upload.files.forEach((file) => form.append("files", file));
 
   const response = await fetchWithTimeout(
     "/task-progress-notes",
     { method: "POST", body: form },
-    60_000,
+    upload.directUploads ? 30_000 : 60_000,
     "进度记录保存失败",
   );
   // 新增留痕后失效聚合缓存，保证新附件在驾驶舱/日报等处即时可见。
@@ -1551,12 +1894,14 @@ export function fetchRdTaskNoteReceipts() {
 // 三个操作都返回更新后的完整留痕，调用方据此原位更新本地状态。
 
 export async function addRdNoteAttachments(taskId: string, noteId: string, files: File[]): Promise<RdTaskProgressNote> {
+  const upload = await uploadProgressNoteFilesDirect(files);
   const form = new FormData();
-  files.forEach((file) => form.append("files", file));
+  if (upload.directUploads) form.append("oss_files", JSON.stringify(upload.directUploads));
+  else upload.files.forEach((file) => form.append("files", file));
   const response = await fetchWithTimeout(
     `/task-progress-notes/${encodeURIComponent(taskId)}/${encodeURIComponent(noteId)}/attachments`,
     { method: "POST", body: form },
-    60_000,
+    upload.directUploads ? 30_000 : 60_000,
     "附件新增失败",
   );
   clearRdTaskProgressNoteMapCache();
@@ -1564,12 +1909,14 @@ export async function addRdNoteAttachments(taskId: string, noteId: string, files
 }
 
 export async function replaceRdNoteAttachment(taskId: string, noteId: string, attachmentId: string, file: File): Promise<RdTaskProgressNote> {
+  const upload = await uploadProgressNoteFilesDirect([file]);
   const form = new FormData();
-  form.append("file", file);
+  if (upload.directUploads) form.append("oss_files", JSON.stringify(upload.directUploads));
+  else form.append("file", upload.files[0]!);
   const response = await fetchWithTimeout(
     `/task-progress-notes/${encodeURIComponent(taskId)}/${encodeURIComponent(noteId)}/attachments/${encodeURIComponent(attachmentId)}`,
     { method: "PUT", body: form },
-    60_000,
+    upload.directUploads ? 30_000 : 60_000,
     "附件替换失败",
   );
   clearRdTaskProgressNoteMapCache();
@@ -2214,7 +2561,14 @@ export function classifyKbFiles(filenames: string[], kbId?: string): Promise<KbC
 
 type PresignResult = {
   enabled: boolean;
-  files: Array<{ objectKey: string; putUrl: string | null; contentType: string }>;
+  files: Array<{
+    objectKey: string;
+    putUrl: string | null;
+    contentType: string;
+    cacheControl?: string;
+    cleanupExp?: number;
+    cleanupSig?: string;
+  }>;
 };
 
 // ── 大文件分片上传 ────────────────────────────────────────────────────────────
@@ -2253,9 +2607,25 @@ type KbMultipartInit = {
   partSize?: number;
   partCount?: number;
   contentType?: string;
+  cleanupExp?: number;
+  cleanupSig?: string;
 };
 
-type KbCheckpoint = { objectKey: string; uploadId: string; partSize: number; savedAt: number };
+type KbCheckpoint = {
+  objectKey: string;
+  uploadId: string;
+  partSize: number;
+  savedAt: number;
+  cleanupExp?: number;
+  cleanupSig?: string;
+};
+
+type KbUploadedObject = {
+  objectKey: string;
+  contentType: string;
+  cleanupExp?: number;
+  cleanupSig?: string;
+};
 
 /** 断点续传靠这个 key 认出「还是上次那个文件」 */
 function kbCheckpointKey(file: File, kbId?: string): string {
@@ -2341,11 +2711,43 @@ async function putKbPartWithRetry(
  * 分片上传单个大文件，返回 objectKey。
  * 传到一半中断后，重新选同一个文件会自动跳过 OSS 上已存在的分片接着传。
  */
+async function putKbFileWithRetry(
+  signed: PresignResult['files'][number],
+  file: File,
+): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= KB_PART_MAX_RETRY; attempt += 1) {
+    try {
+      const response = await fetch(signed.putUrl!, {
+        method: 'PUT',
+        body: file,
+        headers: {
+          'Content-Type': signed.contentType,
+          ...(signed.cacheControl ? { 'Cache-Control': signed.cacheControl } : {}),
+        },
+      });
+      if (response.ok) return;
+      lastError = new Error(`HTTP ${response.status}`);
+      if (
+        response.status >= 400
+        && response.status < 500
+        && response.status !== 408
+        && response.status !== 429
+      ) break;
+    } catch (error) {
+      lastError = error;
+    }
+    if (attempt < KB_PART_MAX_RETRY) await kbSleep(500 * 2 ** attempt);
+  }
+  const detail = lastError instanceof Error ? lastError.message : '未知错误';
+  throw new Error(`OSS 直传失败（${file.name}）：${detail}`);
+}
+
 async function uploadKbFileInParts(
   file: File,
   kbId: string | undefined,
   onProgress?: (loaded: number, total: number) => void,
-): Promise<{ objectKey: string; contentType: string }> {
+): Promise<KbUploadedObject> {
   const contentType = file.type || 'application/octet-stream';
   let checkpoint = readKbCheckpoint(file, kbId);
   let donePartNumbers = new Set<number>();
@@ -2388,6 +2790,8 @@ async function uploadKbFileInParts(
       uploadId: init.uploadId,
       partSize: init.partSize,
       savedAt: Date.now(),
+      cleanupExp: init.cleanupExp,
+      cleanupSig: init.cleanupSig,
     };
     writeKbCheckpoint(file, kbId, checkpoint);
   }
@@ -2431,7 +2835,26 @@ async function uploadKbFileInParts(
   });
 
   clearKbCheckpoint(file, kbId);
-  return { objectKey, contentType };
+  return {
+    objectKey,
+    contentType,
+    cleanupExp: checkpoint.cleanupExp,
+    cleanupSig: checkpoint.cleanupSig,
+  };
+}
+
+async function cleanupKbObjects(objects: KbUploadedObject[], kbId?: string): Promise<void> {
+  if (objects.length === 0) return;
+  await requestJson(`${kbBase(kbId)}/objects/cleanup`, {
+    method: 'POST',
+    body: JSON.stringify({
+      files: objects.map((object) => ({
+        object_key: object.objectKey,
+        cleanup_exp: object.cleanupExp,
+        cleanup_sig: object.cleanupSig,
+      })),
+    }),
+  }).catch(() => undefined);
 }
 
 /**
@@ -2468,7 +2891,7 @@ export async function uploadKbFiles(params: {
   });
 
   // 每个文件传完后的 objectKey，下标与 params.files 对齐
-  const uploaded: Array<{ objectKey: string; contentType: string } | null> = params.files.map(() => null);
+  const uploaded: Array<KbUploadedObject | null> = params.files.map(() => null);
 
   // ── 大文件：逐个分片传。单文件内部已并发 4 片，多个文件再并行只会互相抢带宽
   for (const i of largeIndexes) {
@@ -2494,7 +2917,10 @@ export async function uploadKbFiles(params: {
     } catch (err) {
       // 已有大文件传上 OSS 时不能再回退到服务端中转：两条路径没法在一次建条目里表达，
       // 而且大文件本来就过不了 nginx 的 body 上限。直接把错误抛出去。
-      if (largeIndexes.length > 0) throw err;
+      if (largeIndexes.length > 0) {
+        await cleanupKbObjects(uploaded.filter((item): item is KbUploadedObject => item !== null), kbId);
+        throw err;
+      }
       // 纯小文件时维持原行为：presign 失败就走服务端中转
       presign = { enabled: false, files: [] };
     }
@@ -2507,20 +2933,32 @@ export async function uploadKbFiles(params: {
 
   if (canDirectUpload) {
     // Upload all files to OSS in parallel — one HTTP hop per file, no server involved
-    await Promise.all(
-      presign.files.map((pf, k) => {
-        const file = params.files[smallIndexes[k]!]!;
-        return fetch(pf.putUrl!, {
-          method: 'PUT',
-          body: file,
-          headers: { 'Content-Type': pf.contentType },
-        }).then((res) => {
-          if (!res.ok) throw new Error(`OSS 直传失败 (${file.name}): HTTP ${res.status}`);
-        });
-      }),
-    );
+    try {
+      await Promise.all(
+        presign.files.map((pf, k) => {
+          const file = params.files[smallIndexes[k]!]!;
+          return putKbFileWithRetry(pf, file);
+        }),
+      );
+    } catch (error) {
+      await cleanupKbObjects([
+        ...uploaded.filter((item): item is KbUploadedObject => item !== null),
+        ...presign.files.map((file) => ({
+          objectKey: file.objectKey,
+          contentType: file.contentType,
+          cleanupExp: file.cleanupExp,
+          cleanupSig: file.cleanupSig,
+        })),
+      ], kbId);
+      throw error;
+    }
     presign.files.forEach((pf, k) => {
-      uploaded[smallIndexes[k]!] = { objectKey: pf.objectKey, contentType: pf.contentType };
+      uploaded[smallIndexes[k]!] = {
+        objectKey: pf.objectKey,
+        contentType: pf.contentType,
+        cleanupExp: pf.cleanupExp,
+        cleanupSig: pf.cleanupSig,
+      };
     });
 
     // Notify server to create KB entries for the already-uploaded objects
@@ -2532,6 +2970,8 @@ export async function uploadKbFiles(params: {
           filename: params.files[i]!.name,
           file_size: params.files[i]!.size,
           content_type: u!.contentType,
+          cleanup_exp: u!.cleanupExp,
+          cleanup_sig: u!.cleanupSig,
         })),
         category_id: params.category_id,
         description: params.description,

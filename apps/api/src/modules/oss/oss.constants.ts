@@ -11,6 +11,7 @@ export const OSS_BUSINESS_TYPES = {
   ISSUE_ATTACHMENTS: 'issue/attachments',
   EMPLOYEE_BADGE_AVATAR: 'employee-archive/badge-avatar',
   EXTERNAL_DOCS: 'external-docs',
+  CONTENT_SLOTS_STATIC: 'content-slots-static',
   ASSETS: 'assets',
 } as const;
 
@@ -29,6 +30,7 @@ export const OSS_MAX_FILE_SIZE: Record<OssBusinessType, number> = {
   'issue/attachments': 20 * 1024 * 1024,
   'employee-archive/badge-avatar': 5 * 1024 * 1024,
   'external-docs': 25 * 1024 * 1024,
+  'content-slots-static': 10 * 1024 * 1024,
   'assets': 50 * 1024 * 1024,
 };
 
@@ -62,11 +64,12 @@ export const OSS_ALLOWED_MIME_TYPES: Record<OssBusinessType, string[]> = {
   'issue/attachments': ['*/*'],
   'employee-archive/badge-avatar': ['image/jpeg', 'image/png', 'image/webp'],
   'external-docs': ['*/*'],
+  'content-slots-static': ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
   'assets': ['*/*'],
 };
 
 export const SIGNED_URL_TTL_SECONDS = {
-  DEFAULT: 600,         // 10 minutes — for FilesModule endpoints
+  DEFAULT: 86400,       // 24 hours — stable URLs let browser disk cache survive route changes
   DOCUMENT: 2592000,    // 30 days — for expense/RD JSON-stored links
   IMAGE_LIST: 600,      // 10 minutes — for image listing responses
 } as const;

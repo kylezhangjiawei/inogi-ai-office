@@ -29,6 +29,8 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { authFetch } from "../lib/authSession";
 import { i18nLocale } from "../lib/i18n";
+import { compressImageFile } from "../lib/resourceImage";
+import { uploadResourceFile } from "../lib/resourceUpload";
 import { useAuth } from "../auth";
 import { cn } from "./ui/utils";
 import { MATECHAT_OPEN_EVENT, notifyMateChatActivity } from "./matechat/openMateChat";
@@ -57,6 +59,7 @@ type AttachmentView = {
   mime: string;
   size: number;
   url: string | null;
+  thumbnailUrl?: string | null;
   isImage: boolean;
 };
 
@@ -204,59 +207,17 @@ function isImageFile(file: File): boolean {
   return /\.(png|jpe?g|gif|webp|bmp|heic|heif|avif)$/i.test(file.name || "");
 }
 
-/** canvas.toBlob 的 Promise 包装 */
-function canvasToBlob(canvas: HTMLCanvasElement, type: string, quality: number): Promise<Blob | null> {
-  return new Promise((resolve) => canvas.toBlob((b) => resolve(b), type, quality));
-}
-
-/** 压缩后统一输出 JPEG，把文件名扩展名换成 .jpg */
-function renameToJpg(name: string): string {
-  const dot = name.lastIndexOf(".");
-  const base = dot > 0 ? name.slice(0, dot) : name;
-  return `${base || "image"}.jpg`;
-}
-
-/**
- * 客户端压缩图片到 maxBytes 以内：先把最长边限制到 2560px，再逐级降低 JPEG 质量；
- * 仍超限则进一步缩小尺寸重试。解码失败或压到最小仍超限返回 null（调用方据此提示）。
- */
 async function compressImageToLimit(file: File, maxBytes: number): Promise<File | null> {
-  let bitmap: ImageBitmap;
-  try {
-    bitmap = await createImageBitmap(file);
-  } catch {
-    return null; // 浏览器无法解码（如 HEIC）
-  }
-  try {
-    const canvas = document.createElement("canvas");
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return null;
-    let maxEdge = Math.min(Math.max(bitmap.width, bitmap.height), 2560);
-    for (let i = 0; i < 8 && maxEdge >= 480; i++) {
-      const ratio = Math.min(1, maxEdge / Math.max(bitmap.width, bitmap.height));
-      const w = Math.max(1, Math.round(bitmap.width * ratio));
-      const h = Math.max(1, Math.round(bitmap.height * ratio));
-      canvas.width = w;
-      canvas.height = h;
-      ctx.clearRect(0, 0, w, h);
-      ctx.fillStyle = "#ffffff"; // JPEG 无透明通道，铺白底避免黑块
-      ctx.fillRect(0, 0, w, h);
-      ctx.drawImage(bitmap, 0, 0, w, h);
-      for (const quality of [0.82, 0.7, 0.6, 0.5]) {
-        const blob = await canvasToBlob(canvas, "image/jpeg", quality);
-        if (blob && blob.size <= maxBytes) {
-          return new File([blob], renameToJpg(file.name), {
-            type: "image/jpeg",
-            lastModified: Date.now(),
-          });
-        }
-      }
-      maxEdge = Math.round(maxEdge * 0.75); // 仍超限则进一步缩小尺寸
-    }
-    return null;
-  } finally {
-    bitmap.close();
-  }
+  return compressImageFile(file, {
+    triggerBytes: maxBytes,
+    targetBytes: maxBytes,
+    hardLimitBytes: maxBytes,
+    maxEdge: 2560,
+    minEdge: 480,
+    outputType: "image/jpeg",
+    qualities: [0.82, 0.7, 0.6, 0.5],
+    background: "#ffffff",
+  });
 }
 
 function fmtTime(iso: string) {
@@ -370,16 +331,7 @@ type UploadResult = {
 
 /** 上传单个文件到通用文件接口（uploads-temp 桶，允许任意类型 ≤20MB），返回权威文件信息 */
 async function apiUploadFile(file: File): Promise<UploadResult> {
-  const form = new FormData();
-  form.append("file", file);
-  form.append("businessType", "uploads-temp");
-  // 注意：FormData 不能手动设 Content-Type（authFetch 仅对 string body 加 JSON 头，这里会让浏览器自动带 boundary）
-  const res = await authFetch("/api/files/upload", { method: "POST", body: form });
-  if (!res.ok) {
-    const err = (await res.json().catch(() => ({}))) as { message?: string };
-    throw new Error(err.message ?? "上传失败");
-  }
-  return res.json() as Promise<UploadResult>;
+  return uploadResourceFile(file, "uploads-temp");
 }
 
 async function apiListModels(): Promise<ModelOption[]> {
@@ -1954,7 +1906,13 @@ export function MateChatBubble() {
                                         className="block overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
                                         title={att.name}
                                       >
-                                        <img src={att.url} alt={att.name} className="max-h-44 max-w-[220px] object-cover" />
+                                        <img
+                                          src={att.thumbnailUrl ?? att.url}
+                                          alt={att.name}
+                                          loading="lazy"
+                                          decoding="async"
+                                          className="max-h-44 max-w-[220px] object-cover"
+                                        />
                                       </a>
                                     ) : (
                                       <a

@@ -70,6 +70,7 @@ export class KbMultipartService {
       throw new BadRequestException('初始化分片上传失败');
     }
 
+    const cleanup = this.ossService.signCleanupToken(objectKey, 7 * 24 * 3600);
     return {
       enabled: true as const,
       objectKey,
@@ -77,6 +78,8 @@ export class KbMultipartService {
       partSize,
       partCount: Math.ceil(fileSize / partSize),
       contentType: ct,
+      cleanupExp: cleanup.exp,
+      cleanupSig: cleanup.sig,
     };
   }
 

@@ -1,7 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as OSS from 'ali-oss';
-import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { extname } from 'path';
 
 @Injectable()
@@ -13,6 +13,17 @@ export class OssService implements OnModuleInit {
   private publicClient: OSS | null = null;
   private bucket: string = '';
   private basePrefix: string = 'prod';
+  /** Optional CDN read domain. Uploads always keep using the OSS public endpoint. */
+  private cdnDomain: string = '';
+  /** Alibaba Cloud CDN Type A primary/secondary key. Never expose this value to the browser. */
+  private cdnAuthKey: string = '';
+  /** Must match the URL-signing TTL configured for the accelerated domain in the CDN console. */
+  private cdnAuthTtlSeconds = 7 * 24 * 3600;
+  /** Stable URLs let the browser reuse its disk cache across renders and route changes. */
+  private cdnStableWindowSeconds = 24 * 3600;
+  /** Reuse identical signed URLs briefly so browser/CDN caches are not fragmented by a new expiry each render. */
+  private readonly signedUrlCache = new Map<string, { url: string; freshUntil: number }>();
+  private readonly cdnUrlCache = new Map<string, { url: string; freshUntil: number }>();
 
   constructor(private readonly config: ConfigService) {}
 
@@ -22,8 +33,33 @@ export class OssService implements OnModuleInit {
     const accessKeySecret = this.config.get<string>('OSS_ACCESS_KEY_SECRET');
     const internalEndpoint = this.config.get<string>('OSS_ENDPOINT');
     const publicEndpoint = this.config.get<string>('OSS_PUBLIC_ENDPOINT');
+    this.cdnDomain = this.normalizeCdnDomain(this.config.get<string>('OSS_CDN_DOMAIN'));
+    this.cdnAuthKey = (this.config.get<string>('OSS_CDN_AUTH_KEY') ?? '').trim();
+    const cdnAuthType = (this.config.get<string>('OSS_CDN_AUTH_TYPE') ?? 'A').trim().toUpperCase();
+    this.cdnAuthTtlSeconds = this.readPositiveInt(
+      this.config.get<string>('OSS_CDN_AUTH_TTL_SECONDS'),
+      7 * 24 * 3600,
+      60,
+      365 * 24 * 3600,
+    );
+    this.cdnStableWindowSeconds = this.readPositiveInt(
+      this.config.get<string>('OSS_CDN_URL_STABLE_SECONDS'),
+      24 * 3600,
+      60,
+      Math.max(60, Math.floor(this.cdnAuthTtlSeconds / 2)),
+    );
     this.bucket = this.config.get<string>('OSS_BUCKET') ?? '';
     this.basePrefix = this.config.get<string>('OSS_BASE_PREFIX') ?? 'prod';
+
+    if (this.cdnDomain && cdnAuthType !== 'A') {
+      this.logger.warn(`OSS CDN 当前仅支持 Type A URL 鉴权，已忽略 OSS_CDN_AUTH_TYPE=${cdnAuthType}`);
+      this.cdnDomain = '';
+    } else if (this.cdnDomain && !this.cdnAuthKey) {
+      // A private bucket origin does not make CDN edge URLs private. Never emit unsigned
+      // attachment URLs merely because a CDN domain was configured.
+      this.logger.warn('OSS_CDN_DOMAIN 已配置但 OSS_CDN_AUTH_KEY 缺失，CDN 读取已禁用并回退 OSS/API 预览');
+      this.cdnDomain = '';
+    }
 
     const isConfigured =
       region && accessKeyId && accessKeySecret &&
@@ -41,12 +77,23 @@ export class OssService implements OnModuleInit {
       ...(internalEndpoint ? { endpoint: internalEndpoint } : {}),
     });
 
-    this.publicClient = new OSS({
-      ...shared,
-      ...(publicEndpoint ? { endpoint: publicEndpoint } : {}),
-    });
+    // Local/default deployments commonly leave both endpoints blank. In that case the two
+    // clients are equivalent; sharing the instance avoids retrying the same public endpoint
+    // twice after a failed internal attempt. When only OSS_ENDPOINT is configured it is an
+    // internal VPC endpoint, so keep a separate default public client for browser URLs.
+    this.publicClient = internalEndpoint === publicEndpoint
+      ? this.internalClient
+      : new OSS({
+          ...shared,
+          ...(publicEndpoint ? { endpoint: publicEndpoint } : {}),
+        });
 
     this.logger.log(`OSS 已初始化: bucket=${this.bucket}, region=${region}`);
+    if (this.cdnDomain) {
+      this.logger.log(
+        `OSS CDN 读取已启用: domain=${this.cdnDomain}, auth=Type A, ttl=${this.cdnAuthTtlSeconds}s`,
+      );
+    }
   }
 
   get isEnabled(): boolean {
@@ -99,7 +146,7 @@ export class OssService implements OnModuleInit {
     const objectKey = this.buildObjectKey(businessType, originalname);
     const putOptions = {
       mime: mimetype ?? this.guessMime(ext),
-      headers: { 'Cache-Control': 'max-age=31536000' },
+      headers: { 'Cache-Control': 'public, max-age=31536000, immutable' },
     };
 
     // 收集所有尝试的错误，便于一次性暴露给调用方
@@ -146,12 +193,25 @@ export class OssService implements OnModuleInit {
   getSignedUrl(objectKey: string, expiresSeconds = 600, process?: string): string | null {
     if (!this.publicClient) return null;
     try {
+      const cacheKey = `${objectKey}|${expiresSeconds}|${process ?? ''}`;
+      const cached = this.signedUrlCache.get(cacheKey);
+      const now = Date.now();
+      if (cached && cached.freshUntil > now) return cached.url;
       // process：OSS 图片处理参数（如 image/resize,w_256/format,webp/quality,q_80），
       // 读取时实时缩放/压缩/转格式，原图只存一份。签名会覆盖该参数，不可被篡改。
-      return this.publicClient.signatureUrl(objectKey, {
+      const url = this.publicClient.signatureUrl(objectKey, {
         expires: expiresSeconds,
         ...(process ? { process } : {}),
       });
+      // Reuse the exact URL until one minute before expiry (capped at one day). Query-string
+      // stability is required for the browser's disk cache to hit the same immutable resource.
+      const reuseMs = Math.max(
+        1_000,
+        Math.min(24 * 3600 * 1000, expiresSeconds * 1000 - 60_000),
+      );
+      if (this.signedUrlCache.size >= 10_000) this.signedUrlCache.clear();
+      this.signedUrlCache.set(cacheKey, { url, freshUntil: now + reuseMs });
+      return url;
     } catch {
       return null;
     }
@@ -281,9 +341,17 @@ export class OssService implements OnModuleInit {
   }
 
   /** 初始化分片上传，返回 uploadId。OSS 未配置或失败时返回 null。 */
-  async initMultipartUpload(objectKey: string, contentType: string): Promise<string | null> {
+  async initMultipartUpload(
+    objectKey: string,
+    contentType: string,
+    cacheControl = 'private, max-age=31536000, immutable',
+  ): Promise<string | null> {
     const res = await this.withOssFallback('initMultipartUpload', (client, timeout) =>
-      client.initMultipartUpload(objectKey, { mime: contentType, ...(timeout ? { timeout } : {}) }),
+      client.initMultipartUpload(objectKey, {
+        mime: contentType,
+        headers: { 'Cache-Control': cacheControl },
+        ...(timeout ? { timeout } : {}),
+      }),
     );
     return res?.uploadId ?? null;
   }
@@ -413,24 +481,83 @@ export class OssService implements OnModuleInit {
 
   /** Delete an object from OSS. Silently ignores errors (e.g. object already gone). */
   async deleteObject(objectKey: string): Promise<void> {
-    if (!this.internalClient) return;
-    try {
-      await this.internalClient.delete(objectKey);
-    } catch (err) {
-      this.logger.warn(`OSS 删除失败 (忽略): ${objectKey}`, err);
-    }
+    await this.withOssFallback('deleteObject', (client, timeout) =>
+      client.delete(objectKey, timeout ? { timeout } : {}),
+    );
   }
 
   /** Check if an object exists and return its size and content-type. Returns null if not found. */
   async headObject(objectKey: string): Promise<{ size: number; contentType: string } | null> {
-    if (!this.internalClient) return null;
+    const attempts: OSS[] = [];
+    if (this.internalClient) attempts.push(this.internalClient);
+    if (this.publicClient && this.publicClient !== this.internalClient) attempts.push(this.publicClient);
+    for (const client of attempts) {
+      try {
+        const result = await client.head(objectKey);
+        return {
+          size: Number(result.res.headers['content-length'] ?? 0),
+          contentType: String(result.res.headers['content-type'] ?? ''),
+        };
+      } catch {
+        // Try the public endpoint when local development cannot reach the VPC endpoint.
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Generate a stable, edge-authenticated CDN URL for immutable OSS objects.
+   *
+   * Alibaba Cloud CDN Type A:
+   *   auth_key=<timestamp>-0-0-md5("<encoded-uri>-<timestamp>-0-0-<key>")
+   *
+   * The authentication query is stripped by CDN before cache-key generation/origin fetch. Image
+   * processing remains a separate x-oss-process query so each thumbnail size gets its own cache.
+   * Returns null until both OSS_CDN_DOMAIN and OSS_CDN_AUTH_KEY are configured.
+   */
+  getCdnReadUrl(
+    objectKey: string,
+    process?: string,
+    responseContentDisposition?: string,
+  ): string | null {
+    if (!this.cdnDomain || !this.cdnAuthKey || !objectKey) return null;
     try {
-      const result = await this.internalClient.head(objectKey);
-      return {
-        size: Number(result.res.headers['content-length'] ?? 0),
-        contentType: String(result.res.headers['content-type'] ?? ''),
-      };
-    } catch {
+      const encodedPath = `/${objectKey
+        .split('/')
+        .map((segment) => encodeURIComponent(segment))
+        .join('/')}`;
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      const timestamp = Math.floor(nowSeconds / this.cdnStableWindowSeconds) * this.cdnStableWindowSeconds;
+      const cacheKey = `${encodedPath}|${timestamp}|${process ?? ''}|${responseContentDisposition ?? ''}`;
+      const cached = this.cdnUrlCache.get(cacheKey);
+      if (cached && cached.freshUntil > Date.now()) return cached.url;
+
+      const digest = createHash('md5')
+        .update(`${encodedPath}-${timestamp}-0-0-${this.cdnAuthKey}`)
+        .digest('hex');
+      const url = new URL(encodedPath, `${this.cdnDomain}/`);
+      url.searchParams.set('auth_key', `${timestamp}-0-0-${digest}`);
+      if (process) url.searchParams.set('x-oss-process', process);
+      if (responseContentDisposition) {
+        url.searchParams.set('response-content-disposition', responseContentDisposition);
+      }
+
+      const rendered = url.toString();
+      const validityRemainingSeconds = Math.max(
+        60,
+        timestamp + this.cdnAuthTtlSeconds - nowSeconds,
+      );
+      if (this.cdnUrlCache.size >= 10_000) this.cdnUrlCache.clear();
+      this.cdnUrlCache.set(cacheKey, {
+        url: rendered,
+        freshUntil: Date.now() + Math.min(
+          this.cdnStableWindowSeconds,
+          validityRemainingSeconds,
+        ) * 1000,
+      });
+      return rendered;
+    } catch (error) {
+      this.logger.warn(`OSS CDN URL 生成失败(${objectKey}): ${(error as Error)?.message ?? error}`);
       return null;
     }
   }
@@ -443,7 +570,16 @@ export class OssService implements OnModuleInit {
    */
   async getObjectStream(
     objectKey: string,
-  ): Promise<{ stream: NodeJS.ReadableStream; contentType: string; size: number } | null> {
+    options: { range?: string; process?: string } = {},
+  ): Promise<{
+    stream: NodeJS.ReadableStream;
+    contentType: string;
+    size: number;
+    status: number;
+    contentRange?: string;
+    etag?: string;
+    lastModified?: string;
+  } | null> {
     // Internal endpoint first (free OSS→ECS transfer inside the VPC), then public. The internal
     // attempt gets a short timeout so that outside the VPC (e.g. local dev, where the internal
     // endpoint is unreachable) we fail over to public in ~2s instead of hanging on the TLS
@@ -454,12 +590,20 @@ export class OssService implements OnModuleInit {
 
     for (const { client, timeout } of attempts) {
       try {
-        const result = await client.getStream(objectKey, timeout ? { timeout } : {});
+        const result = await client.getStream(objectKey, {
+          ...(timeout ? { timeout } : {}),
+          ...(options.process ? { process: options.process } : {}),
+          ...(options.range ? { headers: { Range: options.range } } : {}),
+        });
         const headers = (result.res?.headers ?? {}) as Record<string, string>;
         return {
           stream: result.stream as NodeJS.ReadableStream,
           contentType: String(headers['content-type'] ?? '') || 'application/octet-stream',
           size: Number(headers['content-length'] ?? 0),
+          status: Number(result.res?.status ?? 200),
+          ...(headers['content-range'] ? { contentRange: String(headers['content-range']) } : {}),
+          ...(headers.etag ? { etag: String(headers.etag) } : {}),
+          ...(headers['last-modified'] ? { lastModified: String(headers['last-modified']) } : {}),
         };
       } catch (err) {
         this.logger.warn(`OSS getStream 失败(${objectKey}): ${(err as Error)?.message ?? err}`);
@@ -495,6 +639,26 @@ export class OssService implements OnModuleInit {
     return timingSafeEqual(a, b);
   }
 
+  /** A cleanup token is purpose-separated from preview tokens and cannot authorize object reads. */
+  signCleanupToken(objectKey: string, expiresSeconds = 2 * 3600): { exp: number; sig: string } {
+    const exp = Math.floor(Date.now() / 1000) + expiresSeconds;
+    const sig = createHmac('sha256', this.previewSecret())
+      .update(`cleanup|${objectKey}|${exp}`)
+      .digest('hex');
+    return { exp, sig };
+  }
+
+  verifyCleanupToken(objectKey: string, exp: number, sig: string): boolean {
+    if (!objectKey || !sig || !Number.isFinite(exp) || exp < Math.floor(Date.now() / 1000)) return false;
+    const expected = createHmac('sha256', this.previewSecret())
+      .update(`cleanup|${objectKey}|${exp}`)
+      .digest('hex');
+    const actualBuffer = Buffer.from(sig);
+    const expectedBuffer = Buffer.from(expected);
+    return actualBuffer.length === expectedBuffer.length
+      && timingSafeEqual(actualBuffer, expectedBuffer);
+  }
+
   private guessMime(ext: string): string {
     const map: Record<string, string> = {
       '.jpg': 'image/jpeg',
@@ -511,5 +675,29 @@ export class OssService implements OnModuleInit {
       '.txt': 'text/plain',
     };
     return map[ext.toLowerCase()] ?? 'application/octet-stream';
+  }
+
+  private normalizeCdnDomain(value?: string): string {
+    const raw = (value ?? '').trim().replace(/\/+$/, '');
+    if (!raw) return '';
+    try {
+      const url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+      if (!url.hostname || url.pathname !== '/') return '';
+      return `${url.protocol}//${url.host}`;
+    } catch {
+      this.logger.warn('OSS_CDN_DOMAIN 格式无效，CDN 读取已禁用');
+      return '';
+    }
+  }
+
+  private readPositiveInt(
+    value: string | undefined,
+    fallback: number,
+    min: number,
+    max: number,
+  ): number {
+    const parsed = Number.parseInt(value ?? '', 10);
+    if (!Number.isFinite(parsed)) return fallback;
+    return Math.max(min, Math.min(max, parsed));
   }
 }

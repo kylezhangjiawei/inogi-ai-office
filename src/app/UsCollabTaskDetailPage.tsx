@@ -61,6 +61,7 @@ import {
   fetchRdPeople,
   fetchRdTaskProgressNotes,
   generateRdTaskBrief,
+  getAttachmentDownloadUrl,
   getAttachmentUrl,
   markRdTaskNotesRead,
   updateRdTask,
@@ -1018,7 +1019,7 @@ export default function UsCollabTaskDetailPage() {
                               <TableCell className="whitespace-nowrap text-xs text-slate-500">{actor || "—"}</TableCell>
                               <TableCell className="whitespace-nowrap">
                                 <a
-                                  href={getAttachmentUrl(att)}
+                                  href={getAttachmentDownloadUrl(att)}
                                   download={att.name}
                                   target="_blank"
                                   rel="noopener noreferrer"

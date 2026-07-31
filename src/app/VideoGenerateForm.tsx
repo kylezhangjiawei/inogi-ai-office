@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ImagePlus, Loader2, Sparkles, Wand2, X } from "lucide-react";
 import { toast } from "sonner";
 
-import { authFetch, readErrorMessage } from "./lib/authSession";
 import { cn } from "./components/ui/utils";
 import { MaterialSelect } from "./components/MaterialFields";
+import { uploadResourceFile } from "./lib/resourceUpload";
 import { videoGenerationApi, type VideoGateEvaluation } from "./lib/videoGenerationApi";
 import { extractVideoKeyframes, readImageAsDataUrl } from "./lib/videoFrames";
 
@@ -35,13 +35,7 @@ const RATIOS = ["16:9", "9:16", "1:1", "4:3", "3:4"];
 const STUDIO_IMAGE_MAX_BYTES = 20 * 1024 * 1024;
 
 async function uploadImage(file: File): Promise<{ fileId: string }> {
-  const form = new FormData();
-  form.append("file", file);
-  form.append("businessType", "uploads-temp");
-  const res = await authFetch("/api/files/upload", { method: "POST", body: form });
-  if (!res.ok) throw new Error(await readErrorMessage(res, "上传失败"));
-  const data = (await res.json()) as { fileId: string };
-  return data;
+  return uploadResourceFile(file, "uploads-temp");
 }
 
 export function VideoGenerateForm({ onSubmitted }: { onSubmitted: () => void }) {

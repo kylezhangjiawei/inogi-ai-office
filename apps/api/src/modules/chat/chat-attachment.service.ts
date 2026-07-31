@@ -32,6 +32,7 @@ export type ChatAttachmentView = {
   mime: string;
   size: number;
   url: string | null;
+  thumbnailUrl: string | null;
   isImage: boolean;
 };
 
@@ -126,14 +127,23 @@ export class ChatAttachmentService {
    * 这里复用 research-development 的 oss-preview 代理（Content-Disposition: inline + HMAC 短期令牌）。
    */
   signForDisplay(raw: unknown): ChatAttachmentView[] {
-    return this.normalizeStored(raw).map((a) => ({
-      fileId: a.fileId,
-      name: a.name,
-      mime: a.mime,
-      size: a.size,
-      isImage: this.isImage(a.mime),
-      url: this.buildPreviewUrl(a.objectKey),
-    }));
+    return this.normalizeStored(raw).map((a) => {
+      const isImage = this.isImage(a.mime);
+      return {
+        fileId: a.fileId,
+        name: a.name,
+        mime: a.mime,
+        size: a.size,
+        isImage,
+        url: this.buildPreviewUrl(a.objectKey),
+        thumbnailUrl: isImage
+          ? this.buildPreviewUrl(
+              a.objectKey,
+              'image/resize,m_lfit,w_480/format,webp/quality,q_80',
+            )
+          : null,
+      };
+    });
   }
 
   /**
@@ -152,11 +162,19 @@ export class ChatAttachmentService {
   }
 
   /** 构造同源内联预览代理 URL（HMAC 令牌 24h 有效）；objectKey 为空或异常时返回 null。 */
-  private buildPreviewUrl(objectKey: string): string | null {
+  private buildPreviewUrl(objectKey: string, process?: string): string | null {
     if (!objectKey) return null;
     try {
-      const { exp, sig } = this.oss.signPreviewToken(objectKey, 24 * 3600);
-      const params = new URLSearchParams({ key: objectKey, exp: String(exp), sig });
+      const cdnUrl = this.oss.getCdnReadUrl(objectKey, process, 'inline');
+      if (cdnUrl) return cdnUrl;
+      const tokenSubject = process ? `${objectKey}|process:${process}` : objectKey;
+      const { exp, sig } = this.oss.signPreviewToken(tokenSubject, 24 * 3600);
+      const params = new URLSearchParams({
+        key: objectKey,
+        exp: String(exp),
+        sig,
+        ...(process ? { process } : {}),
+      });
       return `/api/research-development/oss-preview?${params.toString()}`;
     } catch {
       return null;

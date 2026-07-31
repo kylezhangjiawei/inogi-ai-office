@@ -124,7 +124,9 @@ function ChatTurn({
             className="group relative block w-full cursor-zoom-in overflow-hidden bg-slate-100"
           >
             <img
-              src={item.imageUrl || item.imageData}
+              src={item.thumbnailUrl || item.imageUrl || item.imageData}
+              loading="lazy"
+              decoding="async"
               alt={item.prompt}
               className="mx-auto max-h-[56vh] w-full object-contain transition duration-200 group-hover:opacity-95"
             />

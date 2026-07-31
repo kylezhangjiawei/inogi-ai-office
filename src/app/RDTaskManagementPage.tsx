@@ -79,8 +79,12 @@ import {
   fetchRdTaskCategories,
   fetchMergedTaskCategories,
   fetchRdTaskCompletionScore,
+  fetchRdTaskCompletionScores,
   fetchRdTaskCompletionScoreDebug,
+  fetchRdTaskAttachmentPreviews,
+  fetchRdTaskAttachments,
   fetchRdTaskProgressNotes,
+  buildRdTaskAttachmentPayload,
   createRdTask,
   deleteRdTask,
   extractRdTasksFromFile,
@@ -104,6 +108,7 @@ import {
   type RdTask,
   type RdTaskCompletionScore,
   type RdTaskCompletionScoreDebug,
+  type RdTaskAttachmentPreview,
   type RdTaskProgressAttachment,
   type RdTaskProgressNote,
   type RdWorkItem,
@@ -117,6 +122,7 @@ import {
   getAttachmentThumbUrl,
 } from "./lib/rdApi";
 import { RDReportsPanel } from "./RDReportsPanel";
+import { ProgressAttachmentGrid } from "./RDProgressEvidence";
 import { fetchRdDailyReports, fetchRdTaskNoteReceipts, markRdTaskNotesRead, type RdDailyReport, type RdTaskNoteReceipt } from "./lib/rdApi";
 import { getGradeTone } from "./lib/taskCompletionScore";
 import { openTaskCompletionReport, openBatchCompletionReport } from "./lib/taskCompletionReport";
@@ -3681,13 +3687,18 @@ export function TaskCompletionScoreCard({
       setAiFetched(true);
       return;
     }
-    let cancelled = false;
+    const controller = new AbortController();
     setAiLoading(true);
-    fetchRdTaskCompletionScore(task.task_id)
-      .then((score) => { if (!cancelled) setAiScore(score); })
-      .catch(() => { if (!cancelled) setAiScore(null); })
-      .finally(() => { if (!cancelled) { setAiLoading(false); setAiFetched(true); } });
-    return () => { cancelled = true; };
+    fetchRdTaskCompletionScore(task.task_id, controller.signal)
+      .then((score) => { if (!controller.signal.aborted) setAiScore(score); })
+      .catch(() => { if (!controller.signal.aborted) setAiScore(null); })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setAiLoading(false);
+          setAiFetched(true);
+        }
+      });
+    return () => { controller.abort(); };
   }, [task.task_id, canView]);
 
   if (!canView) {
@@ -6698,7 +6709,7 @@ function loadRingGradient(ratio: number, onLeave: boolean) {
   return { from: "#34d399", to: "#059669" };                   // emerald
 }
 
-const TASK_PAGE_SIZE = 4; // 每次滚动加载的任务数
+const TASK_PAGE_SIZE = 6; // 首批 6 个，后续滚动每批再加载 6 个
 const MAX_ATTACHMENT_PREVIEW = 5;
 
 // ─── Image lightbox (gallery preview) ─────────────────────────────────────────
@@ -6763,7 +6774,9 @@ function ImageGallery({
           transition={{ duration: 0.15, ease: RD_MOTION_EASE }}
           className="max-h-[78vh] max-w-[82vw] rounded-2xl object-contain shadow-2xl"
           onClick={(e) => e.stopPropagation()}
-          loading="lazy"
+          loading="eager"
+          decoding="async"
+          fetchPriority="high"
         />
       </AnimatePresence>
 
@@ -6812,18 +6825,24 @@ function ImageGallery({
 // ─── Task image strip inside card ─────────────────────────────────────────────
 function TaskAttachmentStrip({
   attachments,
+  totalCount,
   onOpenGallery,
+  onOpenAll,
+  loadingFull,
+  priority = false,
 }: {
   attachments: RdTaskProgressAttachment[];
+  totalCount: number;
   onOpenGallery: (startIdx: number) => void;
+  onOpenAll: () => void;
+  loadingFull: boolean;
+  priority?: boolean;
 }) {
   const images = attachments.filter((attachment) => attachment.mime.startsWith("image/"));
   const files = attachments.filter((attachment) => !attachment.mime.startsWith("image/"));
   const visibleImages = images.slice(0, MAX_ATTACHMENT_PREVIEW);
   const visibleFiles = files.slice(0, Math.max(0, MAX_ATTACHMENT_PREVIEW - visibleImages.length));
-  const extraCount = attachments.length - visibleImages.length - visibleFiles.length;
-
-  if (attachments.length === 0) return null;
+  const extraCount = Math.max(0, totalCount - visibleImages.length - visibleFiles.length);
 
   return (
     <div className="border-b border-indigo-100 bg-indigo-50/50 px-4 py-3">
@@ -6834,19 +6853,31 @@ function TaskAttachmentStrip({
           </span>
           <span className="truncate">{t("附件")}</span>
           <span className="rounded-full bg-white px-1.5 py-0.5 tabular-nums text-indigo-700 ring-1 ring-indigo-200 shadow-[0_4px_12px_rgba(79,70,229,0.06)]">
-            {attachments.length}
+            {totalCount}
           </span>
         </div>
-        {images.length > 0 && (
+        <div className="flex shrink-0 items-center gap-1.5">
+          {images.length > 0 && (
+            <button
+              type="button"
+              disabled={loadingFull}
+              onClick={(e) => { e.stopPropagation(); onOpenGallery(0); }}
+              className="rounded-md border border-indigo-200 bg-white px-2 py-1 text-[10px] font-semibold text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-800 disabled:cursor-wait disabled:opacity-60"
+            >
+              {loadingFull ? <Loader2 className="mr-1 inline h-3 w-3 animate-spin align-[-2px]" /> : <ImageIcon className="mr-1 inline h-3 w-3 align-[-2px]" />}
+              {t("查看图片")}
+            </button>
+          )}
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); onOpenGallery(0); }}
-            className="shrink-0 rounded-md border border-indigo-200 bg-white px-2 py-1 text-[10px] font-semibold text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-800"
+            disabled={loadingFull}
+            onClick={(e) => { e.stopPropagation(); onOpenAll(); }}
+            className="rounded-md border border-indigo-200 bg-white px-2 py-1 text-[10px] font-semibold text-indigo-700 transition-colors hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-800 disabled:cursor-wait disabled:opacity-60"
           >
-            <ImageIcon className="mr-1 inline h-3 w-3 align-[-2px]" />
-            {t("查看图片")}
+            {loadingFull ? <Loader2 className="mr-1 inline h-3 w-3 animate-spin align-[-2px]" /> : <Paperclip className="mr-1 inline h-3 w-3 align-[-2px]" />}
+            {t("查看全部")}
           </button>
-        )}
+        </div>
       </div>
 
       <div className="mt-2 flex gap-2 overflow-x-auto pb-0.5">
@@ -6854,7 +6885,8 @@ function TaskAttachmentStrip({
           <button
             key={img.id}
             type="button"
-            className="group/att relative h-16 w-20 shrink-0 cursor-pointer overflow-hidden rounded-lg border border-indigo-100 bg-white shadow-[0_8px_18px_rgba(79,70,229,0.08)] transition-all hover:border-indigo-300 hover:shadow-[0_12px_24px_rgba(79,70,229,0.14)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
+            disabled={loadingFull}
+            className="group/att relative h-16 w-20 shrink-0 cursor-pointer overflow-hidden rounded-lg border border-indigo-100 bg-white shadow-[0_8px_18px_rgba(79,70,229,0.08)] transition-all hover:border-indigo-300 hover:shadow-[0_12px_24px_rgba(79,70,229,0.14)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200 disabled:cursor-wait disabled:opacity-60"
             onClick={(e) => { e.stopPropagation(); onOpenGallery(imageIndex); }}
             title={img.name}
           >
@@ -6862,16 +6894,20 @@ function TaskAttachmentStrip({
               src={getAttachmentThumbUrl(img)}
               alt={img.name}
               className="h-full w-full object-cover transition-transform duration-300 group-hover/att:scale-[1.04]"
-              loading="lazy"
+              loading={priority && imageIndex === 0 ? "eager" : "lazy"}
               decoding="async"
+              fetchPriority={priority && imageIndex === 0 ? "high" : "auto"}
             />
           </button>
         ))}
 
         {visibleFiles.map((file) => (
-          <div
+          <button
             key={file.id}
-            className="flex h-16 w-28 shrink-0 items-center gap-2 rounded-lg border border-indigo-100 bg-white/90 px-2 shadow-[0_8px_18px_rgba(79,70,229,0.07)]"
+            type="button"
+            disabled={loadingFull}
+            onClick={(event) => { event.stopPropagation(); onOpenAll(); }}
+            className="flex h-16 w-28 shrink-0 items-center gap-2 rounded-lg border border-indigo-100 bg-white/90 px-2 text-left shadow-[0_8px_18px_rgba(79,70,229,0.07)] transition-colors hover:border-indigo-300 hover:bg-indigo-50 disabled:cursor-wait disabled:opacity-60"
             title={file.name}
           >
             <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-indigo-50 text-indigo-600 ring-1 ring-indigo-100">
@@ -6880,14 +6916,63 @@ function TaskAttachmentStrip({
             <span className="line-clamp-2 min-w-0 text-[10px] font-medium leading-snug text-slate-600">
               {file.name}
             </span>
-          </div>
+          </button>
         ))}
 
         {extraCount > 0 && (
-          <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-dashed border-indigo-200 bg-white/70 text-xs font-bold tabular-nums text-indigo-600">
+          <button
+            type="button"
+            disabled={loadingFull}
+            onClick={(event) => { event.stopPropagation(); onOpenAll(); }}
+            aria-label={t("查看其余 {count} 个附件", { count: extraCount })}
+            className="flex h-16 w-16 shrink-0 items-center justify-center rounded-lg border border-dashed border-indigo-200 bg-white/70 text-xs font-bold tabular-nums text-indigo-600 transition-colors hover:border-indigo-400 hover:bg-indigo-50 disabled:cursor-wait disabled:opacity-60"
+          >
             +{extraCount}
-          </div>
+          </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+function TaskAttachmentCollectionDialog({
+  taskTitle,
+  attachments,
+  onClose,
+}: {
+  taskTitle: string;
+  attachments: RdTaskProgressAttachment[];
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-[85] flex items-center justify-center bg-slate-950/72 px-4 py-6 backdrop-blur-sm" role="dialog" aria-modal="true">
+      <button type="button" className="absolute inset-0 cursor-default" onClick={onClose} aria-label={t("关闭附件列表")} />
+      <div className="relative flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-xl border border-white/10 bg-white shadow-2xl">
+        <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+          <div className="min-w-0">
+            <div className="truncate text-sm font-semibold text-slate-900">{taskTitle}</div>
+            <div className="mt-0.5 text-xs text-slate-500">{t("全部附件")} · {attachments.length}</div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition hover:bg-slate-50 hover:text-slate-800"
+            aria-label={t("关闭附件列表")}
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <ProgressAttachmentGrid attachments={attachments} />
+        </div>
       </div>
     </div>
   );
@@ -7020,8 +7105,9 @@ function PersonTaskCockpit({
     }
   }, [activeTab, personLoads]);
 
-  // ── Notes (images) lazy fetch ──
+  // Full notes are reserved for reports/details; cockpit cards use a dedicated lightweight batch map.
   const [notesMap, setNotesMap] = useState<Record<string, RdTaskProgressNote[]>>({});
+  const [attachmentPreviewMap, setAttachmentPreviewMap] = useState<Record<string, RdTaskAttachmentPreview>>({});
   const [loadingNotes, setLoadingNotes] = useState(false);
   // ── AI 完成质量评分 lazy fetch（已完成任务，按需拉取）──
   // 值为 null 表示已请求但后端尚未生成评分（或当前用户无权查看）
@@ -7121,9 +7207,8 @@ function PersonTaskCockpit({
   }, [extractionBackfillBusy]);
 
   // ── Per-tab visible counts (for infinite scroll pagination) ──
-  // 协同驾驶舱任务量小：首屏直接全量渲染（上限 96 防极端；留痕预取有并发 4 保护不会打爆限流），
-  // 滚动加载机制自然不触发；研发驾驶舱维持每批 4 条的分批渲染，行为不变
-  const taskPageSize = isUsCollabWorkspace() ? 96 : TASK_PAGE_SIZE;
+  // 研发与协同驾驶舱统一：首批只渲染 6 条，后续按滚动增量加载。
+  const taskPageSize = TASK_PAGE_SIZE;
   const [visibleCounts, setVisibleCounts] = useState<Record<string, number>>({});
   // 当前激活 tab 的滚动容器。用 callback-ref 把节点存进 state，而不是 useRef：
   // AnimatePresence mode="wait" 下切 tab 时旧容器会先退场动画(~220ms)再卸载、新容器随后才挂载；
@@ -7208,6 +7293,82 @@ function PersonTaskCockpit({
 
   // ── Gallery lightbox ──
   const [galleryState, setGalleryState] = useState<{ images: RdTaskProgressAttachment[]; startIndex: number } | null>(null);
+  const [attachmentCollectionState, setAttachmentCollectionState] = useState<{
+    taskTitle: string;
+    attachments: RdTaskProgressAttachment[];
+  } | null>(null);
+  const [attachmentLoadingTaskId, setAttachmentLoadingTaskId] = useState<string | null>(null);
+  const fullAttachmentCacheRef = useRef(new Map<string, RdTaskAttachmentPreview>());
+  const fullAttachmentInflightRef = useRef(new Map<string, Promise<RdTaskAttachmentPreview>>());
+  const attachmentOpenSequenceRef = useRef(0);
+
+  const loadAllTaskAttachments = useCallback(async (taskId: string, expectedCount: number) => {
+    const cached = fullAttachmentCacheRef.current.get(taskId);
+    if (cached && (expectedCount <= 0 || cached.attachment_count === expectedCount)) return cached;
+    const inflight = fullAttachmentInflightRef.current.get(taskId);
+    if (inflight) return inflight;
+    const request = fetchRdTaskAttachments(taskId);
+    fullAttachmentInflightRef.current.set(taskId, request);
+    try {
+      const result = await request;
+      fullAttachmentCacheRef.current.set(taskId, result);
+      return result;
+    } finally {
+      if (fullAttachmentInflightRef.current.get(taskId) === request) {
+        fullAttachmentInflightRef.current.delete(taskId);
+      }
+    }
+  }, []);
+
+  const openCompleteImageGallery = useCallback(async (
+    task: Task,
+    previewImages: RdTaskProgressAttachment[],
+    startIndex: number,
+    expectedCount: number,
+  ) => {
+    const requestSequence = ++attachmentOpenSequenceRef.current;
+    setAttachmentLoadingTaskId(task.task_id);
+    try {
+      const result = await loadAllTaskAttachments(task.task_id, expectedCount);
+      if (requestSequence !== attachmentOpenSequenceRef.current) return;
+      const images = result.attachments.filter((attachment) => attachment.mime.startsWith("image/"));
+      if (images.length === 0) {
+        toast.info(t("该任务暂无图片附件"));
+        return;
+      }
+      const startAttachmentId = previewImages[startIndex]?.id;
+      const resolvedIndex = startAttachmentId
+        ? images.findIndex((attachment) => attachment.id === startAttachmentId)
+        : 0;
+      setGalleryState({ images, startIndex: Math.max(0, resolvedIndex) });
+    } catch (error) {
+      if (requestSequence === attachmentOpenSequenceRef.current) {
+        toast.error(error instanceof Error ? error.message : t("完整附件加载失败"));
+      }
+    } finally {
+      if (requestSequence === attachmentOpenSequenceRef.current) {
+        setAttachmentLoadingTaskId(null);
+      }
+    }
+  }, [loadAllTaskAttachments]);
+
+  const openCompleteAttachmentCollection = useCallback(async (task: Task, expectedCount: number) => {
+    const requestSequence = ++attachmentOpenSequenceRef.current;
+    setAttachmentLoadingTaskId(task.task_id);
+    try {
+      const result = await loadAllTaskAttachments(task.task_id, expectedCount);
+      if (requestSequence !== attachmentOpenSequenceRef.current) return;
+      setAttachmentCollectionState({ taskTitle: task.title, attachments: result.attachments });
+    } catch (error) {
+      if (requestSequence === attachmentOpenSequenceRef.current) {
+        toast.error(error instanceof Error ? error.message : t("完整附件加载失败"));
+      }
+    } finally {
+      if (requestSequence === attachmentOpenSequenceRef.current) {
+        setAttachmentLoadingTaskId(null);
+      }
+    }
+  }, [loadAllTaskAttachments]);
 
   // ── Sort helper: newest activity first ──
   // 排序键用后端派生的 last_activity_at（= max(updated_at, 最新留痕时间)），与卡片「最近更新」
@@ -7291,12 +7452,31 @@ function PersonTaskCockpit({
     setBatchExportBusy(true);
     const toastId = toast.loading(t("正在汇总 {count} 个任务的评分…", { count: scopeTasks.length }));
     try {
-      // 1) 拉评分（并发上限 6），优先用已缓存的 aiScoreMap
-      const scoreEntries = await mapWithConcurrency(scopeTasks, 6, async (t) => {
-        const cached = aiScoreMap[t.task_id];
-        const score = cached !== undefined ? cached : await fetchRdTaskCompletionScore(t.task_id).catch(() => null);
-        return [t, score] as const;
+      // 1) 评分接口每批最多 60 个；批量导出不再按任务放大成 N 个请求。
+      const missingScoreIds = scopeTasks
+        .filter((task) => aiScoreMap[task.task_id] === undefined)
+        .map((task) => task.task_id);
+      const scoreBatches = Array.from(
+        { length: Math.ceil(missingScoreIds.length / 60) },
+        (_, index) => missingScoreIds.slice(index * 60, (index + 1) * 60),
+      );
+      const fetchedScoreMaps = await mapWithConcurrency(scoreBatches, 2, async (batch) => {
+        try {
+          return await fetchRdTaskCompletionScores(batch);
+        } catch {
+          // Rolling deploy compatibility for an older API instance.
+          const entries = await mapWithConcurrency(batch, 4, async (taskId) => [
+            taskId,
+            await fetchRdTaskCompletionScore(taskId).catch(() => null),
+          ] as const);
+          return Object.fromEntries(entries);
+        }
       });
+      const fetchedScores = Object.assign({}, ...fetchedScoreMaps) as Record<string, RdTaskCompletionScore | null>;
+      const scoreEntries = scopeTasks.map((task) => [
+        task,
+        aiScoreMap[task.task_id] !== undefined ? aiScoreMap[task.task_id] : fetchedScores[task.task_id] ?? null,
+      ] as const);
       const scored = scoreEntries.filter(
         (e): e is readonly [Task, RdTaskCompletionScore] => e[1] != null,
       );
@@ -7334,48 +7514,52 @@ function PersonTaskCockpit({
     setVisibleCounts({});
   }, [kpiFilter, cockpitSearch]);
 
-  // Lazy-fetch notes when person tab opens
-  // 仅拉「当前分页可见」内、有附件、且未缓存的任务，并发上限 4。
-  // 之前对该成员名下「全部」有附件任务一次性 Promise.all，成员任务多时瞬间打出上百个
-  // GET /task-progress-notes/:id，触发后端 100 次/60s 限流 → 满屏 429。改为按 visibleCounts 分页 +
-  // 限并发后，单次突发被压到 ≤4，随滚动增量补拉。
+  // One card-summary request per visible page. The previous implementation emitted one full-notes
+  // request per task and repeated the backend's full JSON scans, which scaled poorly with task count.
   useEffect(() => {
-    if (activeTab === "all") return;
-    const personTasks = personTasksMap.get(activeTab) ?? [];
     const visibleCount = visibleCounts[activeTab] ?? taskPageSize;
-    const toFetch = personTasks.slice(0, visibleCount).filter((t) => t.attachments > 0 && !(t.task_id in notesMap));
-    if (toFetch.length === 0) return;
-    let cancelled = false;
+    const sourceTasks = activeTab === "all"
+      ? allActiveTasks
+      : (personTasksMap.get(activeTab) ?? []);
+    const toFetch = sourceTasks
+      .slice(0, visibleCount)
+      .filter((task) => task.attachments > 0 && !(task.task_id in attachmentPreviewMap));
+    if (toFetch.length === 0) {
+      setLoadingNotes(false);
+      return;
+    }
+    const controller = new AbortController();
     setLoadingNotes(true);
-    mapWithConcurrency(toFetch, 4, (t) =>
-      fetchRdTaskProgressNotes(t.task_id)
-        .then((notes) => [t.task_id, notes] as const)
-        .catch(() => [t.task_id, []] as const),
+    fetchRdTaskAttachmentPreviews(
+      toFetch.map((task) => task.task_id),
+      { signal: controller.signal },
     )
-      .then((entries) => { if (!cancelled) setNotesMap((prev) => ({ ...prev, ...Object.fromEntries(entries) })); })
-      .finally(() => { if (!cancelled) setLoadingNotes(false); });
-    return () => { cancelled = true; };
-  }, [activeTab, personTasksMap, visibleCounts]);
-
-  // Lazy-fetch notes for "全部" tab — fetch attachments of visible tasks
-  useEffect(() => {
-    if (activeTab !== "all") return;
-    const visibleCount = visibleCounts["all"] ?? taskPageSize;
-    const visibleTasks = allActiveTasks.slice(0, visibleCount);
-    const toFetch = visibleTasks.filter((t) => t.attachments > 0 && !(t.task_id in notesMap));
-    if (toFetch.length === 0) return;
-    let cancelled = false;
-    setLoadingNotes(true);
-    // 限并发 4，避免一页内可见任务过多时一次性把后端 100 次/60s 限流打爆（429）。
-    mapWithConcurrency(toFetch, 4, (t) =>
-      fetchRdTaskProgressNotes(t.task_id)
-        .then((notes) => [t.task_id, notes] as const)
-        .catch(() => [t.task_id, []] as const),
-    )
-      .then((entries) => { if (!cancelled) setNotesMap((prev) => ({ ...prev, ...Object.fromEntries(entries) })); })
-      .finally(() => { if (!cancelled) setLoadingNotes(false); });
-    return () => { cancelled = true; };
-  }, [activeTab, allActiveTasks, visibleCounts]);
+      .catch(async (error) => {
+        if (controller.signal.aborted) return null;
+        // Rolling deploy/dev compatibility: a newer frontend can briefly run against an API that
+        // does not have the batch-summary route yet. Fall back to the established per-task notes
+        // endpoint instead of translating an integration error into "this task has no attachments".
+        const entries = await mapWithConcurrency(toFetch, 3, async (task) => {
+          try {
+            const notes = await fetchRdTaskProgressNotes(task.task_id, controller.signal);
+            return [task.task_id, buildRdTaskAttachmentPayload(notes, MAX_ATTACHMENT_PREVIEW)] as const;
+          } catch {
+            return [
+              task.task_id,
+              { attachment_count: task.attachments, attachments: [] as RdTaskProgressAttachment[] },
+            ] as const;
+          }
+        });
+        return Object.fromEntries(entries);
+      })
+      .then((previews) => {
+        if (!controller.signal.aborted && previews) {
+          setAttachmentPreviewMap((prev) => ({ ...prev, ...previews }));
+        }
+      })
+      .finally(() => { if (!controller.signal.aborted) setLoadingNotes(false); });
+    return () => { controller.abort(); };
+  }, [activeTab, allActiveTasks, personTasksMap, visibleCounts, attachmentPreviewMap]);
 
   // Lazy-fetch AI completion scores — 仅针对可见的已完成任务
   useEffect(() => {
@@ -7389,36 +7573,28 @@ function PersonTaskCockpit({
       .slice(0, visibleCount)
       .filter((t) => t.status === "completed" && !(t.task_id in aiScoreMap));
     if (visibleCompleted.length === 0) return;
-    let cancelled = false;
-    // 限并发 4，与进度留痕拉取同口径，避免可见已完成任务多时的评分请求突发触发 429。
-    mapWithConcurrency(visibleCompleted, 4, (t) =>
-      fetchRdTaskCompletionScore(t.task_id)
-        .then((score) => [t.task_id, score] as const)
-        .catch(() => [t.task_id, null] as const),
-    ).then((entries) => {
-      if (!cancelled) setAiScoreMap((prev) => ({ ...prev, ...Object.fromEntries(entries) }));
-    });
-    return () => { cancelled = true; };
+    const controller = new AbortController();
+    fetchRdTaskCompletionScores(
+      visibleCompleted.map((task) => task.task_id),
+      controller.signal,
+    )
+      .catch(async () => {
+        if (controller.signal.aborted) return null;
+        // Rolling deploy compatibility for an older API instance.
+        const entries = await mapWithConcurrency(visibleCompleted, 4, (task) =>
+          fetchRdTaskCompletionScore(task.task_id, controller.signal)
+            .then((score) => [task.task_id, score] as const)
+            .catch(() => [task.task_id, null] as const),
+        );
+        return Object.fromEntries(entries);
+      })
+      .then((scores) => {
+        if (!controller.signal.aborted && scores) {
+          setAiScoreMap((prev) => ({ ...prev, ...scores }));
+        }
+      });
+    return () => { controller.abort(); };
   }, [activeTab, allActiveTasks, personTasksMap, visibleCounts]);
-
-  // 自动填充：瀑布流把卡片分到多列后，少量卡片(如初始只显示 4 条而总数更多)撑不满 480px 容器→
-  // 无滚动条→onScroll 永不触发→加载更多被永久卡死。此处在内容未达可滚动阈值且仍有更多时主动
-  // 加载下一页，直到出现滚动空间或全部加载完。依赖 scrollEl(节点挂载即重跑，修复切 tab 时序)、
-  // masonryColumns(响应式列数变化后重评估)、visibleCounts(每次加载后迭代直至填满)。
-  useEffect(() => {
-    if (!scrollEl) return;
-    const total = activeTab === "all"
-      ? allActiveTasks.length
-      : (personTasksMap.get(activeTab)?.length ?? 0);
-    const shown = visibleCounts[activeTab] ?? taskPageSize;
-    if (shown >= total) return;
-    if (scrollEl.scrollHeight - scrollEl.clientHeight >= 120) return;
-    setVisibleCounts((prev) => {
-      const current = prev[activeTab] ?? taskPageSize;
-      if (current >= total) return prev;
-      return { ...prev, [activeTab]: Math.min(current + TASK_PAGE_SIZE, total) };
-    });
-  }, [scrollEl, activeTab, visibleCounts, masonryColumns, allActiveTasks, personTasksMap, headerCollapsed]);
 
   // Slide variants for tab content transitions
   const slideVariants = {
@@ -7449,10 +7625,10 @@ function PersonTaskCockpit({
     const sCfg = STATUS_CONFIG[task.status] ?? STATUS_CONFIG.draft;
     const priorityKey: Priority = task.final_priority ?? task.ai_priority ?? "medium";
     const pCfg = PRIORITY_CONFIG[priorityKey] ?? PRIORITY_CONFIG.medium;
-    const taskNotes = notesMap[task.task_id] ?? [];
-    const taskAttachments: RdTaskProgressAttachment[] = taskNotes.flatMap((n) => n.attachments);
+    const attachmentPreview = attachmentPreviewMap[task.task_id];
+    const taskAttachments: RdTaskProgressAttachment[] = attachmentPreview?.attachments ?? [];
     const taskImages = taskAttachments.filter((a) => a.mime.startsWith("image/"));
-    const hasLoadedAttachments = taskAttachments.length > 0;
+    const hasLoadedAttachments = Boolean(attachmentPreview && attachmentPreview.attachment_count > 0);
     const isRisk = riskTaskIds.has(task.task_id);
     // 最近更新时间：用后端派生的 last_activity_at（= max(updated_at, 最新留痕时间)），与列表排序同口径。
     // 兜底依次回退到留痕时间 / updated_at，保证后端字段缺失时仍能显示。
@@ -7485,6 +7661,7 @@ function PersonTaskCockpit({
     return (
       <motion.div
         key={task.task_id}
+        style={{ contentVisibility: "auto", containIntrinsicSize: "360px" }}
         // 协同侧：筛选/切换泳道时卡片平滑重排归位（layout 动画）；研发侧维持原进场行为
         layout={spaciousCards && !shouldReduceMotion ? "position" : undefined}
         initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
@@ -7502,7 +7679,23 @@ function PersonTaskCockpit({
         {hasLoadedAttachments && (
           <TaskAttachmentStrip
             attachments={taskAttachments}
-            onOpenGallery={(startIdx) => setGalleryState({ images: taskImages, startIndex: startIdx })}
+            totalCount={attachmentPreview?.attachment_count ?? task.attachments}
+            loadingFull={attachmentLoadingTaskId === task.task_id}
+            priority={taskIdx < 2}
+            onOpenGallery={(startIdx) => {
+              void openCompleteImageGallery(
+                task,
+                taskImages,
+                startIdx,
+                attachmentPreview?.attachment_count ?? task.attachments,
+              );
+            }}
+            onOpenAll={() => {
+              void openCompleteAttachmentCollection(
+                task,
+                attachmentPreview?.attachment_count ?? task.attachments,
+              );
+            }}
           />
         )}
 
@@ -7759,6 +7952,13 @@ function PersonTaskCockpit({
           />
         )}
       </AnimatePresence>
+      {attachmentCollectionState && (
+        <TaskAttachmentCollectionDialog
+          taskTitle={attachmentCollectionState.taskTitle}
+          attachments={attachmentCollectionState.attachments}
+          onClose={() => setAttachmentCollectionState(null)}
+        />
+      )}
 
       <motion.div
         initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}

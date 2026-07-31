@@ -14,6 +14,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Request } from 'express';
 
+import { AbortFileUploadDto, PresignFileUploadDto, RegisterFileUploadDto } from './dto/direct-file-upload.dto';
 import { FilesService } from './files.service';
 import { UploadFileDto } from './dto/upload-file.dto';
 
@@ -33,6 +34,21 @@ export class FilesController {
     const userId = this.getUserId(req);
     if (!file) throw new BadRequestException('未上传文件');
     return this.filesService.uploadFile(userId, file, dto.businessType, dto.businessId);
+  }
+
+  @Post('presign-upload')
+  presignUpload(@Req() req: Request, @Body() dto: PresignFileUploadDto) {
+    return this.filesService.presignUpload(this.getUserId(req), dto);
+  }
+
+  @Post('register-upload')
+  registerUpload(@Req() req: Request, @Body() dto: RegisterFileUploadDto) {
+    return this.filesService.registerUpload(this.getUserId(req), dto);
+  }
+
+  @Post('abort-upload')
+  abortUpload(@Req() req: Request, @Body() dto: AbortFileUploadDto) {
+    return this.filesService.abortUpload(this.getUserId(req), dto);
   }
 
   @Get(':id/signed-url')

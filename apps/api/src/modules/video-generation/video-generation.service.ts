@@ -497,17 +497,23 @@ export class VideoGenerationService implements OnModuleInit {
     // 转存 OSS（失败则回退到上游 24h 临时 URL，不阻断任务完成）
     const objectKey = upstreamUrl ? await this.transferToOss(id, upstreamUrl) : '';
 
-    const updated = await this.prisma.videoGeneration.update({
-      where: { id },
-      data: {
-        status: 'succeeded',
-        upstreamVideoUrl: upstreamUrl,
-        videoObjectKey: objectKey ?? '',
-        billedSeconds,
-        costYuan: actualCost,
-        errorMessage: null,
-      },
-    });
+    let updated;
+    try {
+      updated = await this.prisma.videoGeneration.update({
+        where: { id },
+        data: {
+          status: 'succeeded',
+          upstreamVideoUrl: upstreamUrl,
+          videoObjectKey: objectKey ?? '',
+          billedSeconds,
+          costYuan: actualCost,
+          errorMessage: null,
+        },
+      });
+    } catch (error) {
+      if (objectKey) await this.ossService.deleteObject(objectKey);
+      throw error;
+    }
     this.logger.log(`视频任务 ${id} 完成（计费 ${billedSeconds}s / ¥${actualCost}）`);
     this.aiUsageService.record({
       userId: updated.userId,

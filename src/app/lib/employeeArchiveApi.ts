@@ -1,4 +1,5 @@
 import { authFetch, readErrorMessage } from './authSession';
+import { uploadResourceFile } from './resourceUpload';
 
 export type EmployeeArchiveStatus = 'complete' | 'review' | 'missing' | 'onboarding';
 export type EmployeeArchiveDocumentStatus = 'done' | 'review' | 'missing';
@@ -309,17 +310,8 @@ export async function saveEmployeeBadgeConfig(id: string, config: EmployeeArchiv
 
 export async function uploadEmployeeBadgeAvatar(employeeId: string, dataUrl: string, fileName: string) {
   const blob = await fetch(dataUrl).then((response) => response.blob());
-  const form = new FormData();
-  form.append('file', blob, fileName || 'badge-avatar.png');
-  form.append('businessType', 'employee-archive/badge-avatar');
-  form.append('businessId', employeeId);
-  const response = await authFetch('/api/files/upload', { method: 'POST', body: form });
-  return parseResponse<{
-    fileId: string;
-    objectKey: string;
-    fileName: string;
-    mimeType: string;
-    fileSize: number;
-    signedUrl: string | null;
-  }>(response, '上传胸牌头像失败');
+  const file = new File([blob], fileName || 'badge-avatar.png', {
+    type: blob.type || 'image/png',
+  });
+  return uploadResourceFile(file, 'employee-archive/badge-avatar', { businessId: employeeId });
 }

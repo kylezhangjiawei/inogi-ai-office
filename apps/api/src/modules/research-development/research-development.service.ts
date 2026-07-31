@@ -5,6 +5,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { OcrService } from '../ocr/ocr.service';
 import { OssService } from '../oss/oss.service';
 import { RagService } from '../rag/rag.service';
+import { isBlockedProgressAttachment } from './attachment-security';
 import { DEPT_KBS, DEPT_KB_DEFAULT_CATEGORIES, LEVEL_FILTERED_DEPT_KB_IDS, deptKbPageCode } from './dept-knowledge.constants';
 import { RdAiService } from './rd-ai.service';
 import { RD_WORKSPACE_IDS, WORKSPACE_PAGE_CODES, currentRdWorkspace, resolveRdStoreKey, runInRdWorkspace } from './rd-workspace.context';
@@ -132,25 +133,30 @@ const RD_MAIN_PRODUCT_ID = 'prod-portable-o2';
 const PROGRESS_NOTE_MAX_FILES = 10;
 const PROGRESS_NOTE_MAX_FILE_BYTES = 25 * 1024 * 1024;
 const PROGRESS_NOTE_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
-const BLOCKED_ATTACHMENT_EXTENSIONS = new Set([
-  'apk',
-  'app',
-  'bat',
-  'cmd',
-  'com',
-  'dmg',
-  'exe',
-  'msi',
-  'pkg',
-  'ps1',
-  'scr',
-]);
-const BLOCKED_ATTACHMENT_MIME_TYPES = new Set([
-  'application/x-dosexec',
-  'application/x-msdownload',
-  'application/vnd.microsoft.portable-executable',
-]);
-
+const IMMUTABLE_RESOURCE_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+type DirectProgressNoteUpload = {
+  objectKey: string;
+  originalname: string;
+  mimetype?: string;
+  size?: number;
+  cleanupExp?: number;
+  cleanupSig?: string;
+};
+type StoredProgressNoteAttachment = {
+  id: string;
+  name: string;
+  mime: string;
+  size: number;
+  object_key?: string;
+  oss_url?: string;
+  data_url?: string;
+};
+type ProgressNoteAttachmentBuild = {
+  attachment: StoredProgressNoteAttachment;
+  buffer?: Buffer;
+  mimetype?: string;
+  originalname: string;
+};
 // ─── 研发数据表（B2：Univer 工作簿快照 · 已去除行级密级）─────────────────────
 // rd.sheets 存「单个 Univer 工作簿快照」：{ snapshot, updated_at, updated_by }。
 // 图片以 base64 内嵌在快照（SHEET_DRAWING_PLUGIN 资源）里，无需 OSS；不再做行级密级裁剪，
@@ -869,6 +875,11 @@ function resolveCategoryTarget(
 @Injectable()
 export class ResearchDevelopmentService {
   private readonly logger = new Logger(ResearchDevelopmentService.name);
+  private rdStoreReadCache?: Map<string, { value: unknown; freshUntil: number }>;
+  private rdTaskResourceCache?: Map<string, { value: unknown; freshUntil: number }>;
+
+  private static readonly RD_STORE_READ_CACHE_TTL_MS = 15_000;
+  private static readonly RD_TASK_RESOURCE_CACHE_TTL_MS = 15_000;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -1380,14 +1391,24 @@ export class ResearchDevelopmentService {
     };
   }
 
-  async getTaskCategories() {
+  async getTaskCategories(options: { includeCovers?: boolean } = {}) {
+    const cacheKey = this.taskResourceCacheKey(
+      options.includeCovers ? 'task-categories:covers' : 'task-categories',
+      [],
+      { hasFullAccess: true },
+    );
+    const cached = this.readTaskResourceCache<JsonRecord[]>(cacheKey);
+    if (cached) return cached;
     const [categories, noteMap, scoresRaw] = await Promise.all([
       this.readNormalizedTaskCategories(),
       this.getProgressNoteMap(),
       this.readValue('rd.taskCompletionScores'),
     ]);
     const scoreMap: JsonRecord = isRecord(scoresRaw) ? scoresRaw : {};
-    return this.applyProgressAttachmentCounts(categories, noteMap, scoreMap);
+    return this.writeTaskResourceCache(
+      cacheKey,
+      this.applyProgressAttachmentCounts(categories, noteMap, scoreMap, options),
+    );
   }
 
   /**
@@ -1397,13 +1418,19 @@ export class ResearchDevelopmentService {
    * 不被「当前产品库」切分，故概览头像负载与个人工作台口径一致。
    */
   async getMergedTaskCategories() {
+    const cacheKey = this.taskResourceCacheKey('merged-task-categories', [], { hasFullAccess: true });
+    const cached = this.readTaskResourceCache<JsonRecord[]>(cacheKey);
+    if (cached) return cached;
     const [categories, noteMap, scoresRaw] = await Promise.all([
       this.readMergedTaskCategories(),
       this.getProgressNoteMap(),
       this.readValue('rd.taskCompletionScores'),
     ]);
     const scoreMap: JsonRecord = isRecord(scoresRaw) ? scoresRaw : {};
-    return this.applyProgressAttachmentCounts(categories, noteMap, scoreMap);
+    return this.writeTaskResourceCache(
+      cacheKey,
+      this.applyProgressAttachmentCounts(categories, noteMap, scoreMap),
+    );
   }
 
   async saveTaskCategories(payload: unknown[]) {
@@ -1616,7 +1643,13 @@ export class ResearchDevelopmentService {
       for (const pid of dirtyProducts) nextStore[pid] = productTrees.get(pid) ?? [];
       writeOps.push(this.buildSettingUpsert('rd.productTaskCategories', nextStore));
     }
-    if (writeOps.length > 0) await this.prisma.$transaction(writeOps);
+    if (writeOps.length > 0) {
+      await this.prisma.$transaction(writeOps);
+      this.invalidateCachedStoreValues([
+        ...(mainDirty ? ['rd.taskCategories' as const] : []),
+        ...(dirtyProducts.size > 0 ? ['rd.productTaskCategories' as const] : []),
+      ]);
+    }
 
     await this.recomputeDirectorDashboard();
 
@@ -1861,7 +1894,13 @@ export class ResearchDevelopmentService {
       for (const pid of productPids) nextStore[pid] = dirty.get(pid) ?? [];
       writeOps.push(this.buildSettingUpsert('rd.productTaskCategories', nextStore));
     }
-    if (writeOps.length > 0) await this.prisma.$transaction(writeOps);
+    if (writeOps.length > 0) {
+      await this.prisma.$transaction(writeOps);
+      this.invalidateCachedStoreValues([
+        ...(mainTree ? ['rd.taskCategories' as const] : []),
+        ...(productPids.length > 0 ? ['rd.productTaskCategories' as const] : []),
+      ]);
+    }
   }
 
   /** 在工作副本里按 task_id 定位任务及其结构位置（含所属库/分类/子项目/结构父任务）。 */
@@ -3489,42 +3528,82 @@ export class ResearchDevelopmentService {
 
   // ── Task progress notes (text + attachments) ───────────────────────────
 
-  /** Build a same-origin inline-preview proxy URL for an OSS-backed attachment, deriving the objectKey from its signed oss_url. */
-  private buildAttachmentPreviewUrl(ossUrl: string): string | null {
+  /** Resolve the immutable OSS object key from new attachments or historical signed URLs. */
+  private attachmentObjectKey(attachmentOrUrl: JsonRecord | string): string | null {
+    if (isRecord(attachmentOrUrl)) {
+      const storedKey = cleanText(attachmentOrUrl.object_key);
+      if (storedKey) return storedKey;
+      return this.attachmentObjectKey(cleanText(attachmentOrUrl.oss_url));
+    }
+    if (!attachmentOrUrl) return null;
     try {
-      const objectKey = decodeURIComponent(new URL(ossUrl).pathname).replace(/^\/+/, '');
-      if (!objectKey) return null;
-      const { exp, sig } = this.ossService.signPreviewToken(objectKey, 24 * 3600);
-      const params = new URLSearchParams({ key: objectKey, exp: String(exp), sig });
-      return `/api/research-development/oss-preview?${params.toString()}`;
+      return decodeURIComponent(new URL(attachmentOrUrl).pathname).replace(/^\/+/, '') || null;
     } catch {
       return null;
     }
   }
 
-  /** 图片附件缩略图的 OSS 实时处理参数：等比缩到 480px + webp 压缩，网格缩略位不再加载原图。 */
-  private static readonly ATTACHMENT_THUMB_PROCESS = 'image/resize,m_lfit,w_480/format,webp/quality,q_80';
+  /** Prefer a stable CDN capability URL; fall back to the same-origin preview proxy. */
+  private buildAttachmentPreviewUrl(attachmentOrUrl: JsonRecord | string): string | null {
+    const objectKey = this.attachmentObjectKey(attachmentOrUrl);
+    if (!objectKey) return null;
+    const cdnUrl = this.ossService.getCdnReadUrl(objectKey, undefined, 'inline');
+    if (cdnUrl) return cdnUrl;
+    const { exp, sig } = this.ossService.signPreviewToken(objectKey, 24 * 3600);
+    const params = new URLSearchParams({ key: objectKey, exp: String(exp), sig });
+    return `/api/research-development/oss-preview?${params.toString()}`;
+  }
+
+  /** Force a download response while keeping the object bytes on the CDN path. */
+  private buildAttachmentDownloadUrl(attachmentOrUrl: JsonRecord | string): string | null {
+    const objectKey = this.attachmentObjectKey(attachmentOrUrl);
+    if (!objectKey) return null;
+    const rawName = isRecord(attachmentOrUrl) ? cleanText(attachmentOrUrl.name) : '';
+    const safeName = (rawName || objectKey.split('/').pop() || 'attachment')
+      .replace(/["\r\n]/g, '_')
+      .slice(0, 180);
+    const disposition = `attachment; filename*=UTF-8''${encodeURIComponent(safeName)}`;
+    return this.ossService.getCdnReadUrl(objectKey, undefined, disposition)
+      ?? this.buildAttachmentPreviewUrl(attachmentOrUrl);
+  }
+
   /** 缩略图签名 URL 记忆化（24h 复用同一 URL，保证浏览器缓存可命中；签名 TTL 48h 留余量）。 */
   private readonly attachmentThumbCache = new Map<string, { url: string; freshUntil: number }>();
 
-  /** 为图片附件生成稳定的缩略图签名 URL（非图片 / OSS 未启用 / 解析失败返回 null）。 */
-  private buildAttachmentThumbUrl(ossUrl: string, mime: unknown): string | null {
+  /** Generate a size-appropriate WebP thumbnail instead of loading the original on list cards. */
+  private buildAttachmentThumbUrl(
+    attachmentOrUrl: JsonRecord | string,
+    mime: unknown,
+    width = 320,
+  ): string | null {
     if (typeof mime !== 'string' || !mime.startsWith('image/')) return null;
-    try {
-      const objectKey = decodeURIComponent(new URL(ossUrl).pathname).replace(/^\/+/, '');
-      if (!objectKey) return null;
-      const cached = this.attachmentThumbCache.get(objectKey);
-      const now = Date.now();
-      if (cached && cached.freshUntil > now) return cached.url;
-      const url = this.ossService.getSignedUrl(objectKey, 48 * 3600, ResearchDevelopmentService.ATTACHMENT_THUMB_PROCESS);
-      if (!url) return null;
-      // 上限防泄漏：长期运行进程只保留活跃工作集，超限整体清空（重建成本仅为一次签名）
-      if (this.attachmentThumbCache.size >= 5000) this.attachmentThumbCache.clear();
-      this.attachmentThumbCache.set(objectKey, { url, freshUntil: now + 24 * 3600 * 1000 });
-      return url;
-    } catch {
-      return null;
-    }
+    const objectKey = this.attachmentObjectKey(attachmentOrUrl);
+    if (!objectKey) return null;
+    const safeWidth = Math.max(120, Math.min(1280, Math.round(width)));
+    const cacheKey = `${objectKey}|${safeWidth}`;
+    const cached = this.attachmentThumbCache.get(cacheKey);
+    const now = Date.now();
+    if (cached && cached.freshUntil > now) return cached.url;
+    const process = `image/resize,m_lfit,w_${safeWidth}/format,webp/quality,q_72`;
+    const url = this.ossService.getCdnReadUrl(objectKey, process, 'inline')
+      ?? this.ossService.getSignedUrl(objectKey, 48 * 3600, process);
+    if (!url) return null;
+    // 上限防泄漏：长期运行进程只保留活跃工作集，超限整体清空（重建成本仅为一次签名）
+    if (this.attachmentThumbCache.size >= 5000) this.attachmentThumbCache.clear();
+    this.attachmentThumbCache.set(cacheKey, { url, freshUntil: now + 24 * 3600 * 1000 });
+    return url;
+  }
+
+  private decorateAttachmentForDisplay(att: JsonRecord, thumbnailWidth = 320): JsonRecord {
+    const previewUrl = this.buildAttachmentPreviewUrl(att);
+    const downloadUrl = this.buildAttachmentDownloadUrl(att);
+    const thumbUrl = this.buildAttachmentThumbUrl(att, att.mime, thumbnailWidth);
+    return {
+      ...att,
+      ...(previewUrl ? { preview_url: previewUrl } : {}),
+      ...(downloadUrl ? { download_url: downloadUrl } : {}),
+      ...(thumbUrl ? { thumb_url: thumbUrl } : {}),
+    };
   }
 
   /** Decorate progress-note attachments with `preview_url` (same-origin inline proxy) so the client can iframe-preview OSS files. */
@@ -3534,14 +3613,8 @@ export class ResearchDevelopmentService {
       const attachments = isRecord(note) ? note.attachments : null;
       if (!Array.isArray(attachments)) return note;
       const decorated = attachments.map((att) => {
-        if (!isRecord(att) || typeof att.oss_url !== 'string' || !att.oss_url) return att;
-        const previewUrl = this.buildAttachmentPreviewUrl(att.oss_url);
-        const thumbUrl = this.buildAttachmentThumbUrl(att.oss_url, att.mime);
-        return {
-          ...att,
-          ...(previewUrl ? { preview_url: previewUrl } : {}),
-          ...(thumbUrl ? { thumb_url: thumbUrl } : {}),
-        };
+        if (!isRecord(att)) return att;
+        return this.decorateAttachmentForDisplay(att);
       });
       return { ...note, attachments: decorated };
     });
@@ -3587,6 +3660,110 @@ export class ResearchDevelopmentService {
     }));
   }
 
+  /**
+   * Card-only attachment summaries for many tasks in one request.
+   * This intentionally excludes note text, extracted_text and embedded data URLs: the cockpit
+   * only needs five recent attachment tiles, while full notes remain lazy-loaded on detail open.
+   */
+  async getTaskAttachmentPreviews(
+    rawTaskIds: string[],
+    viewer?: { userId?: string; hasFullAccess?: boolean; canReadAll?: boolean; userName?: string },
+  ) {
+    const taskIds = Array.from(new Set(rawTaskIds.map((id) => cleanText(id)).filter(Boolean))).slice(0, 60);
+    if (taskIds.length === 0) return {};
+    const cacheKey = this.taskResourceCacheKey('attachment-previews', taskIds, viewer);
+    const cached = this.readTaskResourceCache<Record<string, { attachment_count: number; attachments: JsonRecord[] }>>(
+      cacheKey,
+    );
+    if (cached) return cached;
+    const [noteMap, categories] = await Promise.all([
+      this.getProgressNoteMap(),
+      this.readMergedTaskCategories(),
+    ]);
+    const taskById = new Map(
+      this.collectAllCategoryTasks(categories).map((task) => [String(task.task_id ?? ''), task] as const),
+    );
+    const output: Record<string, { attachment_count: number; attachments: JsonRecord[] }> = {};
+
+    for (const taskId of taskIds) {
+      const task = taskById.get(taskId);
+      const allNotes = noteMap[taskId] ?? [];
+      let visibleNotes = allNotes;
+      if (!viewer?.hasFullAccess && !viewer?.canReadAll) {
+        if (!task || !isTaskParticipant(task, viewer?.userId, viewer?.userName)) {
+          visibleNotes = viewer?.userId
+            ? allNotes.filter((note) => isRecord(note.actor) && note.actor.id === viewer.userId)
+            : [];
+        }
+      }
+      const orderedNotes = visibleNotes
+        .slice()
+        .sort((a, b) => cleanText(b.created_at).localeCompare(cleanText(a.created_at)));
+      const allAttachments = orderedNotes.flatMap((note) =>
+        Array.isArray(note.attachments) ? note.attachments.filter(isRecord) : [],
+      );
+      // Preserve the old card behavior: show recent images first, then fill remaining slots with
+      // files. Simply slicing the first five could hide every image behind a note's document batch.
+      const previewAttachments = [
+        ...allAttachments.filter((attachment) => cleanText(attachment.mime).startsWith('image/')),
+        ...allAttachments.filter((attachment) => !cleanText(attachment.mime).startsWith('image/')),
+      ].slice(0, 5);
+      const attachments = previewAttachments.map((attachment) => {
+        const decorated = this.decorateAttachmentForDisplay(attachment, 240);
+        return {
+          id: String(decorated.id ?? ''),
+          name: String(decorated.name ?? ''),
+          mime: String(decorated.mime ?? 'application/octet-stream'),
+          size: typeof decorated.size === 'number' ? decorated.size : 0,
+          ...(typeof decorated.preview_url === 'string' ? { preview_url: decorated.preview_url } : {}),
+          ...(typeof decorated.download_url === 'string' ? { download_url: decorated.download_url } : {}),
+          ...(typeof decorated.thumb_url === 'string' ? { thumb_url: decorated.thumb_url } : {}),
+        };
+      });
+      output[taskId] = { attachment_count: allAttachments.length, attachments };
+    }
+    return this.writeTaskResourceCache(cacheKey, output);
+  }
+
+  /**
+   * Full attachment metadata for one task, loaded only after an explicit user action.
+   * The cockpit's batch endpoint intentionally returns five previews; this endpoint preserves the
+   * complete business view without sending note bodies, extraction text, or embedded fallback data
+   * unless the embedded data is the attachment's only usable source.
+   */
+  async getTaskAttachments(
+    taskId: string,
+    viewer?: { userId?: string; hasFullAccess?: boolean; canReadAll?: boolean; userName?: string },
+  ) {
+    const cacheKey = this.taskResourceCacheKey('task-attachments', [taskId], viewer);
+    const cached = this.readTaskResourceCache<{ attachment_count: number; attachments: JsonRecord[] }>(cacheKey);
+    if (cached) return cached;
+    const notes = await this.getTaskProgressNotes(taskId, viewer);
+    const orderedNotes = notes
+      .slice()
+      .sort((a, b) => cleanText(b.created_at).localeCompare(cleanText(a.created_at)));
+    const allAttachments = orderedNotes.flatMap((note) =>
+      Array.isArray(note.attachments) ? note.attachments.filter(isRecord) : [],
+    );
+    const attachments = allAttachments.map((attachment) => ({
+      id: String(attachment.id ?? ''),
+      name: String(attachment.name ?? ''),
+      mime: String(attachment.mime ?? 'application/octet-stream'),
+      size: typeof attachment.size === 'number' ? attachment.size : 0,
+      ...(typeof attachment.object_key === 'string' ? { object_key: attachment.object_key } : {}),
+      ...(typeof attachment.preview_url === 'string' ? { preview_url: attachment.preview_url } : {}),
+      ...(typeof attachment.download_url === 'string' ? { download_url: attachment.download_url } : {}),
+      ...(typeof attachment.thumb_url === 'string' ? { thumb_url: attachment.thumb_url } : {}),
+      ...(typeof attachment.oss_url === 'string' ? { oss_url: attachment.oss_url } : {}),
+      ...(typeof attachment.data_url === 'string'
+        && typeof attachment.preview_url !== 'string'
+        && typeof attachment.object_key !== 'string'
+        ? { data_url: attachment.data_url }
+        : {}),
+    }));
+    return this.writeTaskResourceCache(cacheKey, { attachment_count: attachments.length, attachments });
+  }
+
   async listAllTaskProgressNotes(viewer?: { userId?: string; hasFullAccess?: boolean; canReadAll?: boolean }) {
     const map = await this.getProgressNoteMap();
     // 管理权限或只读跨部门查看权（rd-task:view-all）均可看到全部留痕与附件。
@@ -3608,12 +3785,100 @@ export class ResearchDevelopmentService {
     return filtered;
   }
 
+  /**
+   * Sign browser-to-OSS uploads for progress-note attachments. Bytes no longer pass through
+   * Nest/multer, so concurrent large attachments do not consume API memory or upstream bandwidth.
+   */
+  async presignTaskProgressNoteUploads(
+    files: Array<{ originalname?: string; mimetype?: string; size?: number }>,
+    requesterUserId?: string,
+  ) {
+    const userId = cleanUserId(requesterUserId);
+    if (!userId) throw new ForbiddenException('登录状态无效，无法上传附件');
+    const normalized = (Array.isArray(files) ? files : []).map((file) => ({
+      originalname: cleanText(file.originalname),
+      mimetype: cleanText(file.mimetype) || 'application/octet-stream',
+      size: typeof file.size === 'number' ? Math.max(0, Math.round(file.size)) : 0,
+    }));
+    if (normalized.length === 0) throw new BadRequestException('至少需要提供一个附件');
+    if (normalized.length > PROGRESS_NOTE_MAX_FILES) {
+      throw new BadRequestException(`附件最多 ${PROGRESS_NOTE_MAX_FILES} 个`);
+    }
+    this.assertAttachmentFilesValid(normalized);
+    const totalSize = normalized.reduce((sum, file) => sum + file.size, 0);
+    if (totalSize > PROGRESS_NOTE_MAX_TOTAL_BYTES) {
+      throw new BadRequestException('附件总大小超过 50MB 限制');
+    }
+    if (!this.ossService.isEnabled) return { enabled: false, files: [] };
+
+    const businessType = this.progressNoteUploadBusinessType(userId);
+    return {
+      enabled: true,
+      files: normalized.map((file) => {
+        const objectKey = this.ossService.buildObjectKey(businessType, file.originalname);
+        const cleanup = this.ossService.signCleanupToken(objectKey);
+        return {
+          objectKey,
+          putUrl: this.ossService.generatePutSignedUrl(objectKey, file.mimetype, 3600),
+          contentType: file.mimetype,
+          cacheControl: IMMUTABLE_RESOURCE_CACHE_CONTROL,
+          cleanupExp: cleanup.exp,
+          cleanupSig: cleanup.sig,
+        };
+      }),
+    };
+  }
+
+  /**
+   * Delete direct-uploaded objects that never became attachments. Referenced keys are always
+   * retained, which makes cleanup safe when a client times out after the server already committed.
+   */
+  async cleanupUnregisteredProgressNoteUploads(
+    files: DirectProgressNoteUpload[],
+    requesterUserId?: string,
+  ) {
+    const userId = cleanUserId(requesterUserId);
+    if (!userId) throw new ForbiddenException('登录状态无效，无法清理附件');
+    const businessType = this.progressNoteUploadBusinessType(userId);
+    const candidates = (Array.isArray(files) ? files : []).slice(0, PROGRESS_NOTE_MAX_FILES);
+    const noteMap = await this.getProgressNoteMap();
+    const referenced = new Set<string>();
+    for (const notes of Object.values(noteMap)) {
+      for (const note of notes) {
+        for (const attachment of asArray(note.attachments)) {
+          if (isRecord(attachment) && typeof attachment.object_key === 'string') {
+            referenced.add(attachment.object_key);
+          }
+        }
+      }
+    }
+
+    let deleted = 0;
+    let retained = 0;
+    for (const file of candidates) {
+      const owned = this.ossService.isKeyUnderBusinessType(file.objectKey, businessType);
+      const authorized = this.ossService.verifyCleanupToken(
+        file.objectKey,
+        Number(file.cleanupExp),
+        String(file.cleanupSig ?? ''),
+      );
+      if (!owned || !authorized || referenced.has(file.objectKey)) {
+        retained += 1;
+        continue;
+      }
+      await this.ossService.deleteObject(file.objectKey);
+      deleted += 1;
+    }
+    return { success: true, deleted, retained };
+  }
+
   async createTaskProgressNote(payload: {
     taskId: string;
     text: string;
     progress?: number;
     actor?: { id?: string; name?: string; role?: string };
     files: Array<{ originalname: string; mimetype?: string; size?: number; buffer: Buffer }>;
+    uploadedFiles?: DirectProgressNoteUpload[];
     requesterUserId?: string;
     requesterName?: string;
     canEditAny?: boolean;
@@ -3638,26 +3903,26 @@ export class ResearchDevelopmentService {
 
     const text = (payload.text ?? '').trim();
     const files = Array.isArray(payload.files) ? payload.files : [];
+    const uploadedFiles = Array.isArray(payload.uploadedFiles) ? payload.uploadedFiles : [];
 
-    if (!text && files.length === 0) {
+    if (!text && files.length + uploadedFiles.length === 0) {
       throw new BadRequestException('进展说明或附件至少需要提供一项');
     }
 
-    if (files.length > PROGRESS_NOTE_MAX_FILES) {
+    if (files.length + uploadedFiles.length > PROGRESS_NOTE_MAX_FILES) {
       throw new BadRequestException(`附件最多 ${PROGRESS_NOTE_MAX_FILES} 个`);
     }
-    const oversized = files.find((f) => (f.size ?? f.buffer.length) > PROGRESS_NOTE_MAX_FILE_BYTES);
-    if (oversized) {
-      throw new BadRequestException(`附件 ${oversized.originalname} 超过单文件 25MB 限制`);
-    }
-    const totalSize = files.reduce((sum, file) => sum + (file.size ?? file.buffer.length), 0);
+    this.assertAttachmentFilesValid([...files, ...uploadedFiles]);
+    const totalSize = [...files, ...uploadedFiles]
+      .reduce((sum, file) => sum + (file.size ?? ('buffer' in file ? file.buffer.length : 0)), 0);
     if (totalSize > PROGRESS_NOTE_MAX_TOTAL_BYTES) {
       throw new BadRequestException('附件总大小超过 50MB 限制');
     }
 
-    // 保留 buffer 引用，附件保存后用于异步 AI 抽取。
-    // 附件对象构造与「追加/替换附件」共用 buildNoteAttachments 单一实现，格式不允许分叉。
-    const attachmentsWithBuffers = await this.buildNoteAttachments(files);
+    const attachmentsWithBuffers = [
+      ...(await this.buildNoteAttachments(files)),
+      ...(await this.buildRegisteredNoteAttachments(uploadedFiles, payload.requesterUserId)),
+    ];
     const attachments = attachmentsWithBuffers.map((a) => a.attachment);
 
     // @ 提及：结构化清洗（至少要有 user_id 或 name），封顶 20 人防滥用
@@ -4648,10 +4913,55 @@ export class ResearchDevelopmentService {
     });
   }
 
+  private progressNoteUploadBusinessType(userId: string): string {
+    return `rd/progress-notes/${userId.replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+  }
+
+  /** Verify direct-uploaded objects before registering them as note attachments. */
+  private async buildRegisteredNoteAttachments(
+    files: DirectProgressNoteUpload[],
+    requesterUserId?: string,
+  ): Promise<ProgressNoteAttachmentBuild[]> {
+    if (files.length === 0) return [];
+    const userId = cleanUserId(requesterUserId);
+    if (!userId) throw new ForbiddenException('登录状态无效，无法登记附件');
+    const businessType = this.progressNoteUploadBusinessType(userId);
+    this.assertAttachmentFilesValid(files);
+
+    return Promise.all(files.map(async (file, i) => {
+      if (!this.ossService.isKeyUnderBusinessType(file.objectKey, businessType)) {
+        throw new ForbiddenException('附件对象不属于当前用户的上传目录');
+      }
+      const head = await this.ossService.headObject(file.objectKey);
+      if (!head) throw new BadRequestException(`附件 ${file.originalname} 尚未上传完成`);
+      if (head.size > PROGRESS_NOTE_MAX_FILE_BYTES) {
+        throw new BadRequestException(`附件 ${file.originalname} 超过单文件 25MB 限制`);
+      }
+      if (typeof file.size === 'number' && file.size !== head.size) {
+        throw new BadRequestException(`附件 ${file.originalname} 大小校验失败，请重新上传`);
+      }
+      const mimetype = head.contentType || file.mimetype || 'application/octet-stream';
+      const ossUrl = this.ossService.getSignedUrl(file.objectKey, 30 * 24 * 3600);
+      if (!ossUrl) throw new BadRequestException(`附件 ${file.originalname} 无法生成访问地址`);
+      return {
+        attachment: {
+          id: `att-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`,
+          name: file.originalname,
+          mime: mimetype,
+          size: head.size,
+          object_key: file.objectKey,
+          oss_url: ossUrl,
+        },
+        mimetype,
+        originalname: file.originalname,
+      };
+    }));
+  }
+
   /** 上传文件并构造留痕附件对象（创建留痕与追加/替换共用同一实现，格式不允许分叉）。 */
   private async buildNoteAttachments(
     files: Array<{ originalname: string; mimetype?: string; size?: number; buffer: Buffer }>,
-  ) {
+  ): Promise<ProgressNoteAttachmentBuild[]> {
     return Promise.all(files.map(async (f, i) => {
       const id = `att-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 8)}`;
       const objectKey = await this.ossService.uploadBuffer(f.buffer, 'rd/progress-notes', f.originalname, f.mimetype);
@@ -4661,8 +4971,8 @@ export class ResearchDevelopmentService {
         name: f.originalname,
         mime: f.mimetype ?? 'application/octet-stream',
         size: f.size ?? f.buffer.length,
-        ...(ossUrl
-          ? { oss_url: ossUrl }
+        ...(objectKey && ossUrl
+          ? { object_key: objectKey, oss_url: ossUrl }
           : { data_url: `data:${f.mimetype ?? 'application/octet-stream'};base64,${f.buffer.toString('base64')}` }
         ),
       };
@@ -4671,14 +4981,12 @@ export class ResearchDevelopmentService {
   }
 
   /** 追加/替换共用的文件尺寸校验（单文件 25MB；变更后单条留痕总量 50MB 由锁内 mutator 校验） */
-  private assertAttachmentFilesValid(files: Array<{ originalname: string; mimetype?: string; size?: number; buffer: Buffer }>) {
-    const blocked = files.find((file) => {
-      const extension = file.originalname.split('.').pop()?.toLocaleLowerCase('en-US') ?? '';
-      return BLOCKED_ATTACHMENT_EXTENSIONS.has(extension)
-        || BLOCKED_ATTACHMENT_MIME_TYPES.has(cleanText(file.mimetype).toLocaleLowerCase('en-US'));
-    });
+  private assertAttachmentFilesValid(
+    files: Array<{ originalname: string; mimetype?: string; size?: number; buffer?: Buffer }>,
+  ) {
+    const blocked = files.find((file) => isBlockedProgressAttachment(file.originalname, file.mimetype));
     if (blocked) throw new BadRequestException(`附件 ${blocked.originalname} 属于高风险可执行文件，不能上传`);
-    const oversized = files.find((f) => (f.size ?? f.buffer.length) > PROGRESS_NOTE_MAX_FILE_BYTES);
+    const oversized = files.find((f) => (f.size ?? f.buffer?.length ?? 0) > PROGRESS_NOTE_MAX_FILE_BYTES);
     if (oversized) throw new BadRequestException(`附件 ${oversized.originalname} 超过单文件 25MB 限制`);
   }
 
@@ -4725,7 +5033,7 @@ export class ResearchDevelopmentService {
     taskId: string;
     noteId: string;
     updatedNote: JsonRecord;
-    added?: Array<{ attachment: JsonRecord; buffer: Buffer; mimetype?: string; originalname: string }>;
+    added?: ProgressNoteAttachmentBuild[];
     removed?: JsonRecord[];
     actorId?: string;
     actorName?: string;
@@ -4795,17 +5103,22 @@ export class ResearchDevelopmentService {
     taskId: string;
     noteId: string;
     files: Array<{ originalname: string; mimetype?: string; size?: number; buffer: Buffer }>;
+    uploadedFiles?: DirectProgressNoteUpload[];
     requesterUserId?: string;
     requesterName?: string;
     requesterRole?: string;
     canEditAny?: boolean;
   }) {
     const files = Array.isArray(params.files) ? params.files : [];
-    if (files.length === 0) throw new BadRequestException('至少需要提供一个附件');
-    this.assertAttachmentFilesValid(files);
+    const uploadedFiles = Array.isArray(params.uploadedFiles) ? params.uploadedFiles : [];
+    if (files.length + uploadedFiles.length === 0) throw new BadRequestException('至少需要提供一个附件');
+    this.assertAttachmentFilesValid([...files, ...uploadedFiles]);
     await this.precheckTaskAttachmentMutation(params.taskId);
 
-    const added = await this.buildNoteAttachments(files);
+    const added = [
+      ...(await this.buildNoteAttachments(files)),
+      ...(await this.buildRegisteredNoteAttachments(uploadedFiles, params.requesterUserId)),
+    ];
     const { task, note } = await this.mutateNoteAttachments({
       ...params,
       mutator: (attachments) => {
@@ -4839,7 +5152,26 @@ export class ResearchDevelopmentService {
     return this.decorateNotesWithPreview([note])[0];
   }
 
-  /** 删除留痕中的单个附件（OSS 对象保留，只解除关联）。 */
+  /** Delete removed OSS objects only after confirming that no progress note still references them. */
+  private async deleteAttachmentObjectsIfUnreferenced(attachments: JsonRecord[]) {
+    const keys = new Set(
+      attachments
+        .map((attachment) => cleanText(attachment.object_key))
+        .filter(Boolean),
+    );
+    if (keys.size === 0) return;
+
+    const noteMap = await this.getProgressNoteMap();
+    for (const notes of Object.values(noteMap)) {
+      for (const note of notes) {
+        for (const attachment of asArray(note.attachments)) {
+          if (isRecord(attachment)) keys.delete(cleanText(attachment.object_key));
+        }
+      }
+    }
+    await Promise.all([...keys].map((key) => this.ossService.deleteObject(key)));
+  }
+
   async deleteTaskProgressNoteAttachment(params: {
     taskId: string;
     noteId: string;
@@ -4875,6 +5207,7 @@ export class ResearchDevelopmentService {
       updatedNote: note,
       removed: [removed],
     });
+    await this.deleteAttachmentObjectsIfUnreferenced([removed]);
     return this.decorateNotesWithPreview([note])[0];
   }
 
@@ -4883,18 +5216,25 @@ export class ResearchDevelopmentService {
     taskId: string;
     noteId: string;
     attachmentId: string;
-    file: { originalname: string; mimetype?: string; size?: number; buffer: Buffer };
+    file?: { originalname: string; mimetype?: string; size?: number; buffer: Buffer };
+    uploadedFile?: DirectProgressNoteUpload;
     requesterUserId?: string;
     requesterName?: string;
     requesterRole?: string;
     canEditAny?: boolean;
   }) {
     const file = params.file;
-    if (!file || !file.buffer) throw new BadRequestException('替换附件不能为空');
-    this.assertAttachmentFilesValid([file]);
+    const uploadedFile = params.uploadedFile;
+    if ((!file || !file.buffer) && !uploadedFile) throw new BadRequestException('替换附件不能为空');
+    this.assertAttachmentFilesValid([
+      ...(file ? [file] : []),
+      ...(uploadedFile ? [uploadedFile] : []),
+    ]);
     await this.precheckTaskAttachmentMutation(params.taskId);
 
-    const [added] = await this.buildNoteAttachments([file]);
+    const [added] = file
+      ? await this.buildNoteAttachments([file])
+      : await this.buildRegisteredNoteAttachments([uploadedFile!], params.requesterUserId);
     const { task, note, result: removed } = await this.mutateNoteAttachments<JsonRecord>({
       ...params,
       mutator: (attachments) => {
@@ -4929,6 +5269,7 @@ export class ResearchDevelopmentService {
       actorId: params.requesterUserId,
       actorName: params.requesterName,
     });
+    await this.deleteAttachmentObjectsIfUnreferenced([removed]);
     return this.decorateNotesWithPreview([note])[0];
   }
 
@@ -5037,6 +5378,26 @@ export class ResearchDevelopmentService {
 
   /** 从 OSS 签名 URL 或 base64 data URI 还原附件 Buffer。失败返回 null。 */
   private async downloadAttachmentBuffer(attachment: JsonRecord): Promise<Buffer | null> {
+    const objectKey = this.attachmentObjectKey(attachment);
+    if (objectKey) {
+      try {
+        const object = await this.ossService.getObjectStream(objectKey);
+        if (object) {
+          if (object.size > PROGRESS_NOTE_MAX_FILE_BYTES) return null;
+          const chunks: Buffer[] = [];
+          let total = 0;
+          for await (const chunk of object.stream as unknown as AsyncIterable<Buffer | Uint8Array | string>) {
+            const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+            total += buffer.length;
+            if (total > PROGRESS_NOTE_MAX_FILE_BYTES) return null;
+            chunks.push(buffer);
+          }
+          return Buffer.concat(chunks, total);
+        }
+      } catch {
+        // Historical URLs remain a final fallback below.
+      }
+    }
     const dataUrl = typeof attachment.data_url === 'string' ? attachment.data_url : '';
     if (dataUrl.startsWith('data:')) {
       const commaIdx = dataUrl.indexOf(',');
@@ -5071,14 +5432,16 @@ export class ResearchDevelopmentService {
   private async backfillAttachmentExtractedTexts(
     taskId: string,
     noteId: string,
-    items: Array<{ attachment: JsonRecord; buffer: Buffer; mimetype?: string; originalname: string }>,
+    items: ProgressNoteAttachmentBuild[],
   ): Promise<void> {
     for (const item of items) {
       try {
+        const buffer = item.buffer ?? await this.downloadAttachmentBuffer(item.attachment);
+        if (!buffer || buffer.length === 0) throw new Error('附件内容读取失败');
         const result = await this.rdAiService.extractAttachmentText({
           originalname: item.originalname,
           mimetype: item.mimetype,
-          buffer: item.buffer,
+          buffer,
         });
         await this.updateAttachmentExtractedText(
           taskId,
@@ -5216,11 +5579,12 @@ export class ResearchDevelopmentService {
     categories: JsonRecord[],
     noteMap: Record<string, JsonRecord[]>,
     scoreMap: JsonRecord = {},
+    options: { includeCovers?: boolean } = {},
   ): JsonRecord[] {
     const attachmentCounts = new Map<string, number>();
     const latestNotes = new Map<string, JsonRecord>();
-    // 每个任务的图片附件 URL（按留痕时间倒序、去重、上限 6 张），供移动端卡片做封面缩略图。
-    const coverImages = new Map<string, string[]>();
+    // 移动端卡片只加载 480px WebP；原图能力 URL 仅在用户点开灯箱后加载。
+    const coverImages = new Map<string, { full: string[]; thumbnails: string[] }>();
     for (const [taskId, notes] of Object.entries(noteMap)) {
       const count = notes.reduce((sum, note) => {
         return sum + (Array.isArray(note.attachments) ? note.attachments.length : 0);
@@ -5230,17 +5594,30 @@ export class ResearchDevelopmentService {
         .slice()
         .sort((a, b) => cleanText(b.created_at).localeCompare(cleanText(a.created_at)));
       if (ordered[0]) latestNotes.set(taskId, ordered[0]);
-      const urls: string[] = [];
-      for (const note of ordered) {
-        if (!Array.isArray(note.attachments)) continue;
-        for (const att of note.attachments) {
-          if (!isRecord(att)) continue;
-          const mime = typeof att.mime === 'string' ? att.mime : '';
-          const ossUrl = typeof att.oss_url === 'string' ? att.oss_url : '';
-          if (mime.startsWith('image/') && ossUrl && !urls.includes(ossUrl)) urls.push(ossUrl);
+      if (options.includeCovers) {
+        const fullUrls: string[] = [];
+        const thumbnailUrls: string[] = [];
+        const seenObjectKeys = new Set<string>();
+        for (const note of ordered) {
+          if (!Array.isArray(note.attachments)) continue;
+          for (const att of note.attachments) {
+            if (!isRecord(att)) continue;
+            const mime = typeof att.mime === 'string' ? att.mime : '';
+            if (!mime.startsWith('image/')) continue;
+            const objectKey = this.attachmentObjectKey(att);
+            if (!objectKey || seenObjectKeys.has(objectKey)) continue;
+            const fullUrl = this.buildAttachmentPreviewUrl(att);
+            const thumbnailUrl = this.buildAttachmentThumbUrl(att, mime, 480);
+            if (!fullUrl || !thumbnailUrl) continue;
+            seenObjectKeys.add(objectKey);
+            fullUrls.push(fullUrl);
+            thumbnailUrls.push(thumbnailUrl);
+            if (fullUrls.length >= 6) break;
+          }
+          if (fullUrls.length >= 6) break;
         }
+        if (fullUrls.length) coverImages.set(taskId, { full: fullUrls, thumbnails: thumbnailUrls });
       }
-      if (urls.length) coverImages.set(taskId, urls.slice(0, 6));
     }
 
     const updateTasks = (tasks: unknown[]): unknown[] =>
@@ -5264,6 +5641,7 @@ export class ResearchDevelopmentService {
           latest_progress_summary: _latestProgressSummary,
           last_activity_at: _lastActivityAt,
           cover_images: _coverImages,
+          cover_image_thumbnails: _coverImageThumbnails,
           completion_score: _completionScore,
           ...taskRest
         } = task;
@@ -5272,7 +5650,12 @@ export class ResearchDevelopmentService {
           attachments: Math.max(existing, progressAttachmentCount),
           ...(latestProgressSummary ? { latest_progress_summary: latestProgressSummary } : {}),
           ...(lastActivityAt ? { last_activity_at: lastActivityAt } : {}),
-          ...(taskCovers && taskCovers.length ? { cover_images: taskCovers } : {}),
+          ...(taskCovers?.full.length
+            ? {
+                cover_images: taskCovers.full,
+                cover_image_thumbnails: taskCovers.thumbnails,
+              }
+            : {}),
           ...(scoreSummary ? { completion_score: scoreSummary } : {}),
           subtasks: Array.isArray(task.subtasks) ? updateTasks(task.subtasks) : task.subtasks,
         };
@@ -7410,25 +7793,51 @@ export class ResearchDevelopmentService {
     taskId: string,
     viewer: { userId?: string; hasFullAccess: boolean },
   ): Promise<JsonRecord | null> {
+    const scores = await this.getTaskCompletionScores([taskId], viewer);
+    return scores[taskId] ?? null;
+  }
+
+  async getTaskCompletionScores(
+    rawTaskIds: string[],
+    viewer: { userId?: string; hasFullAccess: boolean },
+  ): Promise<Record<string, JsonRecord | null>> {
+    const taskIds = Array.from(new Set(rawTaskIds.map((id) => cleanText(id)).filter(Boolean))).slice(0, 60);
+    if (taskIds.length === 0) return {};
     const allScores = await this.readValue('rd.taskCompletionScores');
     const map = isRecord(allScores) ? allScores : {};
-    const raw = map[taskId];
-    if (!isRecord(raw)) return null;
-
-    // 可见性：主责人 / 协作人 / 拥有 hasFullAccess（管理员）可见
-    let allowed = false;
+    const allowedTaskIds = new Set<string>();
     if (viewer.hasFullAccess) {
-      allowed = true;
+      for (const taskId of taskIds) allowedTaskIds.add(taskId);
     } else if (viewer.userId) {
-      const taskOwners = await this.collectTaskParticipantUserIds(taskId);
-      if (taskOwners.has(viewer.userId)) allowed = true;
+      const requested = new Set(taskIds);
+      const categories = await this.readMergedTaskCategories();
+      for (const task of this.collectAllCategoryTasks(categories)) {
+        const taskId = cleanText(task.task_id);
+        if (!requested.has(taskId)) continue;
+        const participantIds = new Set<string>();
+        const ownerId = cleanUserId(task.primary_owner_user_id ?? task.owner_user_id);
+        if (ownerId) participantIds.add(ownerId);
+        for (const collaborator of asArray(task.collaborators).filter(isRecord)) {
+          const collaboratorId = cleanUserId(collaborator.user_id);
+          if (collaboratorId) participantIds.add(collaboratorId);
+        }
+        if (participantIds.has(viewer.userId)) allowedTaskIds.add(taskId);
+      }
     }
-    if (!allowed) return null;
 
-    // 一般查询去掉 _debug 字段（含原始 prompt + 响应，仅超管可见）
-    const { _debug, ...publicFields } = raw as JsonRecord & { _debug?: unknown };
-    void _debug;
-    return publicFields;
+    const output: Record<string, JsonRecord | null> = {};
+    for (const taskId of taskIds) {
+      const raw = map[taskId];
+      if (!allowedTaskIds.has(taskId) || !isRecord(raw)) {
+        output[taskId] = null;
+        continue;
+      }
+      // 一般查询去掉 _debug 字段（含原始 prompt + 响应，仅超管可见）
+      const { _debug, ...publicFields } = raw as JsonRecord & { _debug?: unknown };
+      void _debug;
+      output[taskId] = publicFields;
+    }
+    return output;
   }
 
   /**
@@ -8691,6 +9100,38 @@ export class ResearchDevelopmentService {
     return this.rdAiService.classifyKbFiles({ filenames, categories });
   }
 
+  async cleanupUnregisteredKnowledgeObjects(
+    kbId: string | undefined,
+    businessType: string,
+    files: Array<{ objectKey: string; cleanupExp?: number; cleanupSig?: string }>,
+  ) {
+    const entriesRaw = await this.readValue(this.kbEntriesKey(kbId));
+    const referenced = new Set<string>();
+    for (const entry of Array.isArray(entriesRaw) ? entriesRaw : []) {
+      if (!isRecord(entry)) continue;
+      const key = this.attachmentObjectKey(entry);
+      if (key) referenced.add(key);
+    }
+
+    let deleted = 0;
+    let retained = 0;
+    for (const file of (Array.isArray(files) ? files : []).slice(0, 100)) {
+      const owned = this.ossService.isKeyUnderBusinessType(file.objectKey, businessType);
+      const authorized = this.ossService.verifyCleanupToken(
+        file.objectKey,
+        Number(file.cleanupExp),
+        String(file.cleanupSig ?? ''),
+      );
+      if (!owned || !authorized || referenced.has(file.objectKey)) {
+        retained += 1;
+        continue;
+      }
+      await this.ossService.deleteObject(file.objectKey);
+      deleted += 1;
+    }
+    return { success: true, deleted, retained };
+  }
+
   async createKnowledgeEntry(payload: {
     title: string;
     description?: string;
@@ -9110,6 +9551,8 @@ export class ResearchDevelopmentService {
 
   /** 数据表资产的同源能力 URL（HMAC 防伪，<img> 可直接加载，无需 Authorization 头）。 */
   buildSheetAssetUrl(objectKey: string): string {
+    const cdnUrl = this.ossService.getCdnReadUrl(objectKey, undefined, 'inline');
+    if (cdnUrl) return cdnUrl;
     const { exp, sig } = this.ossService.signPreviewToken(
       objectKey,
       ResearchDevelopmentService.RD_SHEET_ASSET_EXPIRES_SECONDS,
@@ -9264,14 +9707,80 @@ export class ResearchDevelopmentService {
     return asArray(await this.readValue(key));
   }
 
+  private cloneCachedValue<T>(value: T): T {
+    if (value === null || value === undefined) return value;
+    return JSON.parse(JSON.stringify(value)) as T;
+  }
+
+  private getStoreReadCache() {
+    this.rdStoreReadCache ??= new Map();
+    return this.rdStoreReadCache;
+  }
+
+  private getTaskResourceCache() {
+    this.rdTaskResourceCache ??= new Map();
+    return this.rdTaskResourceCache;
+  }
+
+  private taskResourceCacheKey(
+    resource: string,
+    taskIds: string[],
+    viewer?: { userId?: string; hasFullAccess?: boolean; canReadAll?: boolean; userName?: string },
+  ) {
+    const scope = viewer?.hasFullAccess || viewer?.canReadAll
+      ? 'all'
+      : `user:${cleanText(viewer?.userId)}:${personNameLookupKey(viewer?.userName)}`;
+    return `${currentRdWorkspace()}|${resource}|${scope}|${taskIds.slice().sort().join(',')}`;
+  }
+
+  private readTaskResourceCache<T>(key: string): T | undefined {
+    const cache = this.getTaskResourceCache();
+    const cached = cache.get(key);
+    if (!cached) return undefined;
+    if (cached.freshUntil <= Date.now()) {
+      cache.delete(key);
+      return undefined;
+    }
+    return this.cloneCachedValue(cached.value as T);
+  }
+
+  private writeTaskResourceCache<T>(key: string, value: T): T {
+    const cache = this.getTaskResourceCache();
+    if (cache.size >= 1_000) cache.clear();
+    cache.set(key, {
+      value: this.cloneCachedValue(value),
+      freshUntil: Date.now() + ResearchDevelopmentService.RD_TASK_RESOURCE_CACHE_TTL_MS,
+    });
+    return value;
+  }
+
+  private invalidateCachedStoreValues(keys: RdStoreKey[]) {
+    const cache = this.getStoreReadCache();
+    for (const key of keys) cache.delete(resolveRdStoreKey(key));
+    this.getTaskResourceCache().clear();
+  }
+
   // 存储咽喉点：所有 rd.* 键经 resolveRdStoreKey 按当前工作区改写（默认研发池原样，
   // us-collab 协同池改写为 rdws.us-collab.*），实现任务/人员/审批流/AI 策略/留痕的池级隔离。
   private async readValue(key: RdStoreKey) {
+    const storeKey = resolveRdStoreKey(key);
+    const cache = this.getStoreReadCache();
+    const cached = cache.get(storeKey);
+    if (cached && cached.freshUntil > Date.now()) {
+      return this.cloneCachedValue(cached.value);
+    }
+    if (cached) cache.delete(storeKey);
     const setting = await this.prisma.systemSetting.findUnique({
-      where: { key: resolveRdStoreKey(key) },
+      where: { key: storeKey },
       select: { value: true },
     });
-    return setting?.value ?? null;
+    const value = setting?.value ?? null;
+    if (cache.size >= 200) cache.clear();
+    cache.set(storeKey, {
+      value: this.cloneCachedValue(value),
+      freshUntil: Date.now() + ResearchDevelopmentService.RD_STORE_READ_CACHE_TTL_MS,
+    });
+    return this.cloneCachedValue(value);
   }
 
   /** 构造单个 store 的 upsert 操作（不执行），供 writeValue 与 $transaction 批量原子写复用。 */
@@ -9294,7 +9803,13 @@ export class ResearchDevelopmentService {
 
   private async writeValue(key: RdStoreKey, value: unknown) {
     const setting = await this.buildSettingUpsert(key, value);
-    return setting.value;
+    const storeKey = resolveRdStoreKey(key);
+    this.getStoreReadCache().set(storeKey, {
+      value: this.cloneCachedValue(setting.value),
+      freshUntil: Date.now() + ResearchDevelopmentService.RD_STORE_READ_CACHE_TTL_MS,
+    });
+    this.getTaskResourceCache().clear();
+    return this.cloneCachedValue(setting.value);
   }
 
   private normalizeAiSettings(value: unknown): NormalizedAiSettings {

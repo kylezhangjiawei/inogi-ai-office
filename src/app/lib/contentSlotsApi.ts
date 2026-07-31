@@ -1,4 +1,5 @@
 import { authFetch, readErrorMessage } from "./authSession";
+import { uploadResourceFile } from "./resourceUpload";
 
 export type SlotMode = "ai_daily" | "static" | "off";
 
@@ -34,13 +35,7 @@ async function json<T>(path: string, init?: RequestInit): Promise<T> {
 
 /** 上传固定素材图片（持久业务类型），返回 objectKey */
 export async function uploadSlotImage(file: File): Promise<string> {
-  const form = new FormData();
-  form.append("file", file);
-  form.append("businessType", "content-slots-static");
-  const res = await authFetch("/api/files/upload", { method: "POST", body: form });
-  if (!res.ok) throw new Error(await readErrorMessage(res, "上传失败"));
-  const data = (await res.json()) as { objectKey: string };
-  return data.objectKey;
+  return (await uploadResourceFile(file, "content-slots-static")).objectKey;
 }
 
 export const contentSlotsApi = {

@@ -309,6 +309,7 @@ export class ExpenseService {
       ),
     );
     if (objectKeys.some((key) => !key)) {
+      await Promise.all(objectKeys.filter((key): key is string => Boolean(key)).map((key) => this.ossService.deleteObject(key)));
       throw new ServiceUnavailableException('部分原始发票未能保存到对象存储，本批次未生成票据记录，请检查 OSS 后重试');
     }
     const created = await Promise.all(
@@ -341,6 +342,7 @@ export class ExpenseService {
       ),
     );
     if (objectKeys.some((key) => !key)) {
+      await Promise.all(objectKeys.filter((key): key is string => Boolean(key)).map((key) => this.ossService.deleteObject(key)));
       throw new ServiceUnavailableException('部分原始付款凭证未能保存到对象存储，本批次未生成凭证记录，请检查 OSS 后重试');
     }
     const created = await Promise.all(

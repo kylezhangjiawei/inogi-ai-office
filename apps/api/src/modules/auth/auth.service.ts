@@ -108,7 +108,10 @@ export class AuthService implements OnModuleInit {
       throw new BadRequestException('仅支持 jpg / png / webp / gif 格式');
     }
 
-    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { id: true, status: true } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, status: true, avatarObjectKey: true },
+    });
     if (!user || user.status === 'DISABLED') {
       throw new UnauthorizedException();
     }
@@ -123,17 +126,28 @@ export class AuthService implements OnModuleInit {
       throw new BadRequestException('OSS 未配置或上传失败，请联系管理员');
     }
 
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { avatarObjectKey: objectKey },
-    });
+    try {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { avatarObjectKey: objectKey },
+      });
+    } catch (error) {
+      await this.ossService.deleteObject(objectKey);
+      throw error;
+    }
+    if (user.avatarObjectKey && user.avatarObjectKey !== objectKey) {
+      await this.ossService.deleteObject(user.avatarObjectKey);
+    }
 
     return { avatarUrl: this.ossService.getSignedUrl(objectKey, AVATAR_SIGNED_URL_TTL_SECONDS) };
   }
 
   /** 重置头像（清空 DB 字段，下次 me 返回 avatarUrl=null） */
   async resetAvatar(userId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { status: true } });
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { status: true, avatarObjectKey: true },
+    });
     if (!user || user.status === 'DISABLED') {
       throw new UnauthorizedException();
     }
@@ -141,6 +155,7 @@ export class AuthService implements OnModuleInit {
       where: { id: userId },
       data: { avatarObjectKey: null },
     });
+    if (user.avatarObjectKey) await this.ossService.deleteObject(user.avatarObjectKey);
     return { ok: true };
   }
 

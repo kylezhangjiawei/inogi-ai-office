@@ -629,12 +629,22 @@ export class ImageGenerationService {
     // imageUrl 字段存的是 objectKey（私有 Bucket）；响应时转为 10 分钟签名 URL。
     // 旧数据 imageUrl 为 http(s) URL 时原样返回（兼容历史记录）。
     const items = rawItems.map((item) => {
+      const objectKey = item.imageUrl && !item.imageUrl.startsWith('http') ? item.imageUrl : null;
       const resolvedUrl = item.imageUrl
-        ? (item.imageUrl.startsWith('http') ? item.imageUrl : this.ossService.getSignedUrl(item.imageUrl, 600))
+        ? (item.imageUrl.startsWith('http')
+            ? item.imageUrl
+            : this.ossService.getSignedUrl(item.imageUrl, 24 * 3600))
         : null;
       return {
         ...item,
         imageUrl: resolvedUrl,
+        thumbnailUrl: objectKey
+          ? this.ossService.getSignedUrl(
+              objectKey,
+              24 * 3600,
+              'image/resize,m_lfit,w_640/format,webp/quality,q_82',
+            )
+          : resolvedUrl,
         imageData: resolvedUrl ? undefined : item.imageData,
       };
     });
@@ -1018,7 +1028,12 @@ export class ImageGenerationService {
       const buffer = Buffer.from(match[2], 'base64');
       const objectKey = await this.ossService.uploadBuffer(buffer, 'images/generated', `${id}${ext}`, mimeType);
       if (objectKey) {
-        await this.prisma.generatedImage.update({ where: { id }, data: { imageUrl: objectKey } });
+        try {
+          await this.prisma.generatedImage.update({ where: { id }, data: { imageUrl: objectKey } });
+        } catch (error) {
+          await this.ossService.deleteObject(objectKey);
+          throw error;
+        }
       }
       return objectKey ? this.ossService.getSignedUrl(objectKey, 600) : null;
     } catch (err) {
@@ -2071,7 +2086,16 @@ export class ImageGenerationService {
       quality: img.quality,
       imageData: img.imageUrl ? undefined : img.imageData,
       imageUrl: img.imageUrl
-        ? (img.imageUrl.startsWith('http') ? img.imageUrl : this.ossService.getSignedUrl(img.imageUrl, 600))
+        ? (img.imageUrl.startsWith('http') ? img.imageUrl : this.ossService.getSignedUrl(img.imageUrl, 24 * 3600))
+        : null,
+      thumbnailUrl: img.imageUrl
+        ? (img.imageUrl.startsWith('http')
+            ? img.imageUrl
+            : this.ossService.getSignedUrl(
+                img.imageUrl,
+                24 * 3600,
+                'image/resize,m_lfit,w_640/format,webp/quality,q_82',
+              ))
         : null,
       model: img.model,
       isFavorite: img.isFavorite,

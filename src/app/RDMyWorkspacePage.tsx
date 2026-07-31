@@ -69,6 +69,7 @@ import {
   moveRdTasks,
   parseRdDiscussionMention,
   patchRdMessage,
+  prepareRdProgressNoteFiles,
   rdDiscussionMentionHref,
   updateRdTask,
   type RdAiProgressAssessment,
@@ -690,6 +691,7 @@ function TaskOperationDrawer({
   const [aiAssessment, setAiAssessment] = useState<ProgressAssessment | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [noteAttachments, setNoteAttachments] = useState<File[]>([]);
+  const [preparingNoteFiles, setPreparingNoteFiles] = useState(false);
   // 工作项清单（任务内部轻量拆分）：本地镜像即时反映增删勾选，父级数据下次刷新自然同步。
   // 参与人（主责/协作）可直接增删勾选，无需审批——工作项不是任务、不走立项审批流。
   const [workItems, setWorkItems] = useState<RdWorkItem[]>(task.work_items ?? []);
@@ -863,21 +865,21 @@ function TaskOperationDrawer({
       toast.error(t("单条留痕附件最多 {n} 个", { n: NOTE_ATTACHMENT_MAX_FILES }));
       return;
     }
-    const oversized = files.find((f) => f.size > NOTE_ATTACHMENT_MAX_FILE_BYTES);
-    if (oversized) {
-      toast.error(t("附件 {name} 超过单文件 25MB 限制", { name: oversized.name }));
-      return;
-    }
-    const totalBytes = note.attachments.reduce((sum, a) => sum + (a.size ?? 0), 0) + files.reduce((sum, f) => sum + f.size, 0);
-    if (totalBytes > NOTE_ATTACHMENT_MAX_TOTAL_BYTES) {
-      toast.error(t("附件总大小超过单条留痕 50MB 限制"));
-      return;
-    }
     setAttachmentBusy(true);
     try {
-      const updated = await addRdNoteAttachments(task.task_id, note.id, files);
+      const prepared = await prepareRdProgressNoteFiles(files);
+      const oversized = prepared.files.find((file) => file.size > NOTE_ATTACHMENT_MAX_FILE_BYTES);
+      if (oversized) throw new Error(t("附件 {name} 超过单文件 25MB 限制", { name: oversized.name }));
+      const totalBytes = note.attachments.reduce((sum, a) => sum + (a.size ?? 0), 0)
+        + prepared.files.reduce((sum, file) => sum + file.size, 0);
+      if (totalBytes > NOTE_ATTACHMENT_MAX_TOTAL_BYTES) {
+        throw new Error(t("附件总大小超过单条留痕 50MB 限制"));
+      }
+      const updated = await addRdNoteAttachments(task.task_id, note.id, prepared.files);
       applyUpdatedNote(updated);
-      toast.success(t("已新增 {n} 个附件", { n: files.length }));
+      toast.success(prepared.compressedCount > 0
+        ? t("已新增 {n} 个附件，其中 {count} 张图片已自动压缩", { n: files.length, count: prepared.compressedCount })
+        : t("已新增 {n} 个附件", { n: files.length }));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "附件新增失败");
     } finally {
@@ -887,15 +889,16 @@ function TaskOperationDrawer({
 
   const handleReplaceAttachmentFile = async (note: RdTaskProgressNote, att: RdTaskProgressAttachment, file: File) => {
     if (attachmentBusy) return;
-    if (file.size > NOTE_ATTACHMENT_MAX_FILE_BYTES) {
-      toast.error(t("附件 {name} 超过单文件 25MB 限制", { name: file.name }));
-      return;
-    }
     setAttachmentBusy(true);
     try {
-      const updated = await replaceRdNoteAttachment(task.task_id, note.id, att.id, file);
+      const prepared = await prepareRdProgressNoteFiles([file]);
+      const nextFile = prepared.files[0]!;
+      if (nextFile.size > NOTE_ATTACHMENT_MAX_FILE_BYTES) {
+        throw new Error(t("附件 {name} 超过单文件 25MB 限制", { name: nextFile.name }));
+      }
+      const updated = await replaceRdNoteAttachment(task.task_id, note.id, att.id, nextFile);
       applyUpdatedNote(updated);
-      toast.success(t("附件已替换"));
+      toast.success(prepared.compressedCount > 0 ? t("附件已替换，图片已自动压缩") : t("附件已替换"));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "附件替换失败");
     } finally {
@@ -1449,27 +1452,39 @@ function TaskOperationDrawer({
   };
 
   // ── 进度附件入列：文件选择 / 拖拽 / 粘贴三处共用同一套校验，避免重复 ──
-  const addNoteFiles = (incoming: File[]) => {
+  const addNoteFiles = async (incoming: File[]) => {
     const files = incoming.filter((f) => f.size > 0);
-    if (files.length === 0) return;
+    if (files.length === 0 || preparingNoteFiles) return;
     if (noteAttachments.length >= NOTE_ATTACHMENT_MAX_FILES) {
       toast.error(`最多上传 ${NOTE_ATTACHMENT_MAX_FILES} 个附件`);
       return;
     }
-    const oversized = files.find((f) => f.size > NOTE_ATTACHMENT_MAX_FILE_BYTES);
-    if (oversized) {
-      toast.error(`${oversized.name || "文件"} 超过单文件 25MB 限制`);
-      return;
+    setPreparingNoteFiles(true);
+    try {
+      const prepared = await prepareRdProgressNoteFiles(files);
+      const oversized = prepared.files.find((file) => file.size > NOTE_ATTACHMENT_MAX_FILE_BYTES);
+      if (oversized) {
+        toast.error(`${oversized.name || "文件"} 超过单文件 25MB 限制`);
+        return;
+      }
+      const merged = [...noteAttachments, ...prepared.files].slice(0, NOTE_ATTACHMENT_MAX_FILES);
+      if (merged.reduce((sum, file) => sum + file.size, 0) > NOTE_ATTACHMENT_MAX_TOTAL_BYTES) {
+        toast.error(t("附件总大小不能超过 50MB"));
+        return;
+      }
+      const added = merged.length - noteAttachments.length;
+      setNoteAttachments(merged);
+      if (added > 0) {
+        toast.success(prepared.compressedCount > 0
+          ? t("已添加 {n} 个附件，其中 {count} 张图片已自动压缩", { n: added, count: prepared.compressedCount })
+          : `已添加 ${added} 个附件`);
+      }
+      if (added < prepared.files.length) toast.error(`超出 ${NOTE_ATTACHMENT_MAX_FILES} 个上限，部分文件未添加`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("图片压缩失败"));
+    } finally {
+      setPreparingNoteFiles(false);
     }
-    const merged = [...noteAttachments, ...files].slice(0, NOTE_ATTACHMENT_MAX_FILES);
-    if (merged.reduce((sum, f) => sum + f.size, 0) > NOTE_ATTACHMENT_MAX_TOTAL_BYTES) {
-      toast.error(t("附件总大小不能超过 50MB"));
-      return;
-    }
-    const added = merged.length - noteAttachments.length;
-    setNoteAttachments(merged);
-    if (added > 0) toast.success(`已添加 ${added} 个附件`);
-    if (added < files.length) toast.error(`超出 ${NOTE_ATTACHMENT_MAX_FILES} 个上限，部分文件未添加`);
   };
 
   // 从剪贴板/拖拽数据里抽出文件；截图粘贴通常无有意义文件名（Chrome 给 "image.png"），
@@ -1492,11 +1507,11 @@ function TaskOperationDrawer({
   };
 
   const handleNotePaste = (e: React.ClipboardEvent) => {
-    if (savingNote || aiLoading) return;
+    if (savingNote || aiLoading || preparingNoteFiles) return;
     const files = extractDataTransferFiles(e.clipboardData?.items);
     if (files.length > 0) {
       e.preventDefault(); // 仅在含文件时拦截，纯文本粘贴保持默认行为
-      addNoteFiles(files);
+      void addNoteFiles(files);
     }
   };
 
@@ -2131,13 +2146,13 @@ function TaskOperationDrawer({
             <div
               tabIndex={0}
               onPaste={handleNotePaste}
-              onDragOver={(e) => { e.preventDefault(); if (!savingNote && !aiLoading) setNoteDragOver(true); }}
+              onDragOver={(e) => { e.preventDefault(); if (!savingNote && !aiLoading && !preparingNoteFiles) setNoteDragOver(true); }}
               onDragLeave={(e) => { e.preventDefault(); setNoteDragOver(false); }}
               onDrop={(e) => {
                 e.preventDefault();
                 setNoteDragOver(false);
-                if (savingNote || aiLoading) return;
-                addNoteFiles(extractDataTransferFiles(e.dataTransfer.items));
+                if (savingNote || aiLoading || preparingNoteFiles) return;
+                void addNoteFiles(extractDataTransferFiles(e.dataTransfer.items));
               }}
               className={cn(
                 "rounded-xl border px-3 py-3 outline-none transition-colors",
@@ -2151,21 +2166,21 @@ function TaskOperationDrawer({
                 <label
                   className={cn(
                     "inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
-                    savingNote || aiLoading
+                    savingNote || aiLoading || preparingNoteFiles
                       ? "cursor-not-allowed bg-slate-200 text-slate-500"
                       : "cursor-pointer border border-slate-200 bg-white text-slate-700 hover:border-indigo-300 hover:text-indigo-700",
                   )}
                 >
                   <UploadCloud className="h-3.5 w-3.5" />
-                  {t("添加文件/图片")}
+                  {preparingNoteFiles ? t("正在压缩图片…") : t("添加文件/图片")}
                   <Input
                     type="file"
                     multiple
-                    disabled={savingNote || aiLoading}
+                    disabled={savingNote || aiLoading || preparingNoteFiles}
                     className="sr-only"
                     accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.zip,.rar,.png,.jpg,.jpeg,.webp,.bmp"
                     onChange={(event) => {
-                      addNoteFiles(Array.from(event.target.files ?? []));
+                      void addNoteFiles(Array.from(event.target.files ?? []));
                       event.target.value = "";
                     }}
                   />
@@ -2174,7 +2189,7 @@ function TaskOperationDrawer({
               {noteDragOver ? (
                 <p className="mt-2 text-[11px] font-medium text-indigo-600">{t("松开鼠标即可上传到此任务")}</p>
               ) : noteAttachments.length === 0 ? (
-                <p className="mt-2 text-[11px] text-slate-400">{t("最多 10 个，单文件 25MB 以内，总计 50MB。可点上方按钮、把文件拖到此处、或直接 Ctrl/⌘+V 粘贴截图。填写说明 / 上传附件后点「AI 解析」获取进度建议。")}</p>
+                <p className="mt-2 text-[11px] text-slate-400">{t("最多 10 个、总计 50MB；超过 8MB 的 JPG/PNG/WebP 会先自动压缩，单文件压缩后需在 25MB 内。支持选择、拖拽或 Ctrl/⌘+V 粘贴。")}</p>
               ) : (
                 <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
                   {noteAttachments.map((file, idx) => (
@@ -2975,7 +2990,7 @@ function formatFileSize(size: number) {
 }
 
 
-const WORKSPACE_PAGE_SIZE = 8;
+const WORKSPACE_PAGE_SIZE = 6;
 const NOTIF_PAGE_SIZE = 5;
 
 const WS_PRIORITY_GRAD: Record<string, { from: string; to: string }> = {

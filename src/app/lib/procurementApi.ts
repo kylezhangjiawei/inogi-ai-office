@@ -1,5 +1,6 @@
 // 采购管理接口客户端。类型与后端 procurement.service 的序列化出口对齐。
 import { authFetch, readErrorMessage } from "./authSession";
+import { uploadResourceFile } from "./resourceUpload";
 
 export type ProcMethod = "inquiry" | "direct";
 export type PaymentStatus = "unpaid" | "partial" | "paid";
@@ -339,12 +340,7 @@ export type ProcurementUploadResult = {
 
 /** 转采购弹窗新增的本地附件先落通用文件库，再把 OSS 引用登记到采购任务。 */
 export async function uploadProcurementAttachment(file: File): Promise<ProcurementUploadResult> {
-  const form = new FormData();
-  form.append("file", file);
-  form.append("businessType", "assets");
-  const response = await authFetch("/api/files/upload", { method: "POST", body: form });
-  if (!response.ok) throw new Error(await readErrorMessage(response, `附件「${file.name}」上传失败`));
-  return (await response.json()) as ProcurementUploadResult;
+  return uploadResourceFile(file, "assets");
 }
 
 /** 任务信息编辑（与后端 UpdateProcTaskDto 对齐；仅提交有变化的字段）。 */

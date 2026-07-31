@@ -179,7 +179,15 @@ export class DeptKnowledgeController {
       const ct = content_type || 'application/octet-stream';
       const objectKey = this.ossService.buildObjectKey(prefix, filename);
       const putUrl = this.ossService.generatePutSignedUrl(objectKey, ct);
-      return { objectKey, putUrl, contentType: ct };
+      const cleanup = this.ossService.signCleanupToken(objectKey, 7 * 24 * 3600);
+      return {
+        objectKey,
+        putUrl,
+        contentType: ct,
+        cacheControl: 'private, max-age=31536000, immutable',
+        cleanupExp: cleanup.exp,
+        cleanupSig: cleanup.sig,
+      };
     });
     return { enabled: true, files };
   }
@@ -266,7 +274,14 @@ export class DeptKnowledgeController {
   async createEntriesFromOssKeys(
     @Param('kbId') kbId: string,
     @Body() body: {
-      oss_files: Array<{ oss_key: string; filename: string; file_size?: number; content_type?: string }>;
+      oss_files: Array<{
+        oss_key: string;
+        filename: string;
+        file_size?: number;
+        content_type?: string;
+        cleanup_exp?: number;
+        cleanup_sig?: string;
+      }>;
       category_id?: string;
       description?: string;
       permission_level?: number;
@@ -276,25 +291,55 @@ export class DeptKnowledgeController {
     @Request() req: AuthedRequest,
   ) {
     const permissionLevel = this.resolveLevel(req, body.permission_level);
-    return Promise.all((body.oss_files ?? []).map(async (f) => {
-      const ext = f.filename.includes('.') ? f.filename.split('.').pop()!.toLowerCase() : '';
-      const ossUrl = this.ossService.getSignedUrl(f.oss_key, 30 * 24 * 3600) ?? undefined;
-      return this.rdService.createKnowledgeEntry({
-        title: f.filename,
-        description: body.description,
-        category_id: body.category_id ?? 'kb-other',
-        tags: body.tags ? String(body.tags).split(',').map((t) => t.trim()).filter(Boolean) : [],
-        visibility: body.visibility ?? 'internal',
-        permission_level: permissionLevel,
-        source: 'manual',
-        file_name: f.filename,
-        file_type: ext,
-        file_size: f.file_size,
-        oss_url: ossUrl,
-        created_by_id: req.user?.id,
-        created_by_name: req.user?.name,
-      }, kbId);
+    const prefix = this.rdService.buildKbOssPrefix(kbId);
+    const cleanupFiles = (body.oss_files ?? []).map((file) => ({
+      objectKey: file.oss_key,
+      cleanupExp: file.cleanup_exp,
+      cleanupSig: file.cleanup_sig,
     }));
+    try {
+      return await Promise.all((body.oss_files ?? []).map(async (f) => {
+        const ext = f.filename.includes('.') ? f.filename.split('.').pop()!.toLowerCase() : '';
+        const ossUrl = this.ossService.getSignedUrl(f.oss_key, 30 * 24 * 3600) ?? undefined;
+        return this.rdService.createKnowledgeEntry({
+          title: f.filename,
+          description: body.description,
+          category_id: body.category_id ?? 'kb-other',
+          tags: body.tags ? String(body.tags).split(',').map((t) => t.trim()).filter(Boolean) : [],
+          visibility: body.visibility ?? 'internal',
+          permission_level: permissionLevel,
+          source: 'manual',
+          file_name: f.filename,
+          file_type: ext,
+          file_size: f.file_size,
+          oss_url: ossUrl,
+          created_by_id: req.user?.id,
+          created_by_name: req.user?.name,
+        }, kbId);
+      }));
+    } catch (error) {
+      await this.rdService.cleanupUnregisteredKnowledgeObjects(kbId, prefix, cleanupFiles);
+      throw error;
+    }
+  }
+
+  @Post('objects/cleanup')
+  @DeptKbOp(DEPT_KB_OPS.UPLOAD)
+  cleanupObjects(
+    @Param('kbId') kbId: string,
+    @Body() body: {
+      files?: Array<{ object_key: string; cleanup_exp?: number; cleanup_sig?: string }>;
+    },
+  ) {
+    return this.rdService.cleanupUnregisteredKnowledgeObjects(
+      kbId,
+      this.rdService.buildKbOssPrefix(kbId),
+      (body.files ?? []).map((file) => ({
+        objectKey: file.object_key,
+        cleanupExp: file.cleanup_exp,
+        cleanupSig: file.cleanup_sig,
+      })),
+    );
   }
 
   @Post('entries')

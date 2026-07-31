@@ -1,11 +1,12 @@
 import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Put, Query, Request, Res, UploadedFiles, UseInterceptors } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import { SkipThrottle } from '@nestjs/throttler';
-import { Response } from 'express';
+import { Request as ExpressRequest, Response } from 'express';
 
 import { Permissions } from '../auth/decorators/permissions.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import { OssService } from '../oss/oss.service';
+import { canInlineAttachment, isActiveAttachmentContent } from './attachment-security';
 import { KbMultipartService } from './kb-multipart.service';
 import { RdWorkspaceInterceptor } from './rd-workspace.context';
 import { ResearchDevelopmentService } from './research-development.service';
@@ -46,6 +47,35 @@ function canManageAnyTask(permissions: string[]): boolean {
 }
 
 type AuthedRequest = { user?: { id?: string; name?: string; role?: string; permissions?: string[] } };
+type DirectProgressNoteUpload = {
+  objectKey: string;
+  originalname: string;
+  mimetype?: string;
+  size?: number;
+  cleanupExp?: number;
+  cleanupSig?: string;
+};
+
+function parseDirectProgressNoteUploads(value: unknown): DirectProgressNoteUpload[] {
+  if (typeof value !== 'string' || !value.trim()) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object'))
+      .map((item) => ({
+        objectKey: typeof item.objectKey === 'string' ? item.objectKey : '',
+        originalname: typeof item.originalname === 'string' ? item.originalname : '',
+        mimetype: typeof item.mimetype === 'string' ? item.mimetype : undefined,
+        size: typeof item.size === 'number' ? item.size : undefined,
+        cleanupExp: typeof item.cleanupExp === 'number' ? item.cleanupExp : undefined,
+        cleanupSig: typeof item.cleanupSig === 'string' ? item.cleanupSig : undefined,
+      }))
+      .filter((item) => item.objectKey && item.originalname);
+  } catch {
+    throw new BadRequestException('OSS 附件登记参数格式不正确');
+  }
+}
 
 /** Determines if the current request belongs to a manager who can view all cross-user data. */
 function buildViewer(req: AuthedRequest): { userId?: string; hasFullAccess: boolean; canReadAll: boolean } {
@@ -109,8 +139,8 @@ export class ResearchDevelopmentController {
   }
 
   @Get('task-categories')
-  taskCategories() {
-    return this.rdService.getTaskCategories();
+  taskCategories(@Query('include_covers') includeCovers?: string) {
+    return this.rdService.getTaskCategories({ includeCovers: includeCovers === '1' });
   }
 
   /** 主库 + 所有产品库合并的分类树。供研发驾驶舱概览「人员任务」跨产品聚合，与个人工作台主责口径一致。 */
@@ -357,6 +387,25 @@ export class ResearchDevelopmentController {
     });
   }
 
+  @Get('task-attachment-previews')
+  getTaskAttachmentPreviews(
+    @Query('task_ids') taskIds: string | undefined,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.rdService.getTaskAttachmentPreviews(
+      (taskIds ?? '').split(','),
+      { ...buildViewer(req), userName: req.user?.name },
+    );
+  }
+
+  @Get('task-attachments/:taskId')
+  getTaskAttachments(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
+    return this.rdService.getTaskAttachments(taskId, {
+      ...buildViewer(req),
+      userName: req.user?.name,
+    });
+  }
+
   @Get('task-progress-notes/:taskId')
   getTaskProgressNotes(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
     // 单任务读取额外带上 userName：参与人（含历史仅按姓名指派的任务）可见该任务全部进展。
@@ -384,16 +433,40 @@ export class ResearchDevelopmentController {
     @Query('key') key: string,
     @Query('exp') exp: string,
     @Query('sig') sig: string,
+    @Query('process') process: string | undefined,
+    @Request() req: ExpressRequest,
     @Res() res: Response,
   ) {
-    if (!key || !this.ossService.verifyPreviewToken(key, Number(exp), sig)) {
+    const safeProcess = typeof process === 'string'
+      && process.length <= 160
+      && /^image\/[a-zA-Z0-9_,/-]+$/.test(process)
+      ? process
+      : undefined;
+    const tokenSubject = safeProcess ? `${key}|process:${safeProcess}` : key;
+    if (!key || (process && !safeProcess) || !this.ossService.verifyPreviewToken(tokenSubject, Number(exp), sig)) {
       throw new NotFoundException();
     }
-    const obj = await this.ossService.getObjectStream(key);
+    const requestedRange = typeof req.headers.range === 'string' && /^bytes=\d*-\d*$/.test(req.headers.range)
+      ? req.headers.range
+      : undefined;
+    const obj = await this.ossService.getObjectStream(key, {
+      range: requestedRange,
+      process: safeProcess,
+    });
     if (!obj) throw new NotFoundException();
 
-    res.setHeader('Content-Type', obj.contentType || 'application/octet-stream');
-    res.setHeader('Content-Disposition', 'inline');
+    if (obj.status === 206) res.status(206);
+    const contentType = obj.contentType || 'application/octet-stream';
+    const inline = canInlineAttachment(key, contentType);
+    res.setHeader('Content-Type', isActiveAttachmentContent(key, contentType) ? 'application/octet-stream' : contentType);
+    res.setHeader('Content-Disposition', inline ? 'inline' : 'attachment');
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
+    res.setHeader('Referrer-Policy', 'no-referrer');
+    if (obj.contentRange) res.setHeader('Content-Range', obj.contentRange);
+    if (obj.etag) res.setHeader('ETag', obj.etag);
+    if (obj.lastModified) res.setHeader('Last-Modified', obj.lastModified);
     // OSS 对象按 key 内容不变，token 已按天稳定 → 允许浏览器缓存一整天，避免附件反复重下
     res.setHeader('Cache-Control', 'private, max-age=86400, immutable');
     if (obj.size > 0) res.setHeader('Content-Length', String(obj.size));
@@ -403,6 +476,14 @@ export class ResearchDevelopmentController {
       else res.status(500).end();
     });
     obj.stream.pipe(res);
+  }
+
+  @Get('task-completion-scores')
+  getTaskCompletionScores(
+    @Query('task_ids') taskIds: string | undefined,
+    @Request() req: AuthedRequest,
+  ) {
+    return this.rdService.getTaskCompletionScores((taskIds ?? '').split(','), buildViewer(req));
   }
 
   @Get('task-completion-scores/:taskId')
@@ -435,10 +516,36 @@ export class ResearchDevelopmentController {
     return this.rdService.backfillTaskProgressNoteExtraction({ maxItems });
   }
 
+  @Post('task-progress-notes/presign-upload')
+  @Permissions('page:rd-my-workspace', 'page:us-collab-workspace', ...RD_TASK_MANAGER_PERMISSIONS)
+  presignTaskProgressNoteUploads(
+    @Body() body: { files?: Array<{ filename?: string; content_type?: string; file_size?: number }> },
+    @Request() req: AuthedRequest,
+  ) {
+    return this.rdService.presignTaskProgressNoteUploads(
+      (Array.isArray(body.files) ? body.files : []).map((file) => ({
+        originalname: file.filename,
+        mimetype: file.content_type,
+        size: file.file_size,
+      })),
+      req.user?.id,
+    );
+  }
+
+  @Post('task-progress-notes/abort-upload')
+  @Permissions('page:rd-my-workspace', 'page:us-collab-workspace', ...RD_TASK_MANAGER_PERMISSIONS)
+  abortTaskProgressNoteUploads(
+    @Body() body: { files?: DirectProgressNoteUpload[] },
+    @Request() req: AuthedRequest,
+  ) {
+    const files = parseDirectProgressNoteUploads(JSON.stringify(Array.isArray(body.files) ? body.files : []));
+    return this.rdService.cleanupUnregisteredProgressNoteUploads(files, req.user?.id);
+  }
+
   @Post('task-progress-notes')
   @Permissions('page:rd-my-workspace', 'page:us-collab-workspace', ...RD_TASK_MANAGER_PERMISSIONS)
   @UseInterceptors(FilesInterceptor('files', 10))
-  createTaskProgressNote(
+  async createTaskProgressNote(
     @UploadedFiles() files: Array<{ originalname: string; mimetype?: string; size?: number; buffer: Buffer }> | undefined,
     @Body()
     body: {
@@ -451,6 +558,8 @@ export class ResearchDevelopmentController {
       work_item_id?: string;
       /** 可选：@ 提及的成员，multipart 里以 JSON 字符串传输：[{user_id,name}] */
       mentions?: string;
+      /** 浏览器已直传 OSS 的对象元数据；服务端会校验用户目录、对象存在性与真实大小。 */
+      oss_files?: string;
     },
     @Request() req: AuthedRequest,
   ) {
@@ -474,7 +583,9 @@ export class ResearchDevelopmentController {
     // 越权防护：管理员级权限可为任意任务记进展，普通成员由服务层按 owner/协作人兜底校验。
     const perms = req.user?.permissions ?? [];
     const canEditAny = canManageAnyTask(perms);
-    return this.rdService.createTaskProgressNote({
+    const uploadedFiles = parseDirectProgressNoteUploads(body.oss_files);
+    try {
+      return await this.rdService.createTaskProgressNote({
       taskId: body.task_id ?? '',
       text: body.text ?? '',
       progress: Number.isFinite(progress) ? (progress as number) : undefined,
@@ -486,11 +597,16 @@ export class ResearchDevelopmentController {
         role: body.actor_role || req.user?.role,
       },
       files: files ?? [],
+      uploadedFiles,
       // 归属校验只信任服务端鉴权得到的 req.user 身份（不用可被前端覆盖的 actor_name）
       requesterUserId: req.user?.id,
       requesterName: req.user?.name,
-      canEditAny,
-    });
+        canEditAny,
+      });
+    } catch (error) {
+      await this.rdService.cleanupUnregisteredProgressNoteUploads(uploadedFiles, req.user?.id);
+      throw error;
+    }
   }
 
   // ── 留痕附件管理（工作台）：新增 / 替换 / 删除 ────────────────────────────
@@ -499,45 +615,64 @@ export class ResearchDevelopmentController {
   @Post('task-progress-notes/:taskId/:noteId/attachments')
   @Permissions('page:rd-my-workspace', 'page:us-collab-workspace', ...RD_TASK_MANAGER_PERMISSIONS)
   @UseInterceptors(FilesInterceptor('files', 10))
-  addTaskProgressNoteAttachments(
+  async addTaskProgressNoteAttachments(
     @Param('taskId') taskId: string,
     @Param('noteId') noteId: string,
     @UploadedFiles() files: Array<{ originalname: string; mimetype?: string; size?: number; buffer: Buffer }> | undefined,
+    @Body() body: { oss_files?: string },
     @Request() req: AuthedRequest,
   ) {
-    return this.rdService.addTaskProgressNoteAttachments({
-      taskId,
-      noteId,
-      files: files ?? [],
-      requesterUserId: req.user?.id,
-      requesterName: req.user?.name,
-      requesterRole: req.user?.role,
-      canEditAny: canManageAnyTask(req.user?.permissions ?? []),
-    });
+    const uploadedFiles = parseDirectProgressNoteUploads(body.oss_files);
+    try {
+      return await this.rdService.addTaskProgressNoteAttachments({
+        taskId,
+        noteId,
+        files: files ?? [],
+        uploadedFiles,
+        requesterUserId: req.user?.id,
+        requesterName: req.user?.name,
+        requesterRole: req.user?.role,
+        canEditAny: canManageAnyTask(req.user?.permissions ?? []),
+      });
+    } catch (error) {
+      await this.rdService.cleanupUnregisteredProgressNoteUploads(uploadedFiles, req.user?.id);
+      throw error;
+    }
   }
 
   @Put('task-progress-notes/:taskId/:noteId/attachments/:attachmentId')
   @Permissions('page:rd-my-workspace', 'page:us-collab-workspace', ...RD_TASK_MANAGER_PERMISSIONS)
   @UseInterceptors(FilesInterceptor('file', 1))
-  replaceTaskProgressNoteAttachment(
+  async replaceTaskProgressNoteAttachment(
     @Param('taskId') taskId: string,
     @Param('noteId') noteId: string,
     @Param('attachmentId') attachmentId: string,
     @UploadedFiles() files: Array<{ originalname: string; mimetype?: string; size?: number; buffer: Buffer }> | undefined,
+    @Body() body: { oss_files?: string },
     @Request() req: AuthedRequest,
   ) {
     const file = files?.[0];
-    if (!file) throw new BadRequestException('替换附件不能为空');
-    return this.rdService.replaceTaskProgressNoteAttachment({
-      taskId,
-      noteId,
-      attachmentId,
-      file,
-      requesterUserId: req.user?.id,
-      requesterName: req.user?.name,
-      requesterRole: req.user?.role,
-      canEditAny: canManageAnyTask(req.user?.permissions ?? []),
-    });
+    const uploadedFile = parseDirectProgressNoteUploads(body.oss_files)[0];
+    if (!file && !uploadedFile) throw new BadRequestException('替换附件不能为空');
+    try {
+      return await this.rdService.replaceTaskProgressNoteAttachment({
+        taskId,
+        noteId,
+        attachmentId,
+        file,
+        uploadedFile,
+        requesterUserId: req.user?.id,
+        requesterName: req.user?.name,
+        requesterRole: req.user?.role,
+        canEditAny: canManageAnyTask(req.user?.permissions ?? []),
+      });
+    } catch (error) {
+      await this.rdService.cleanupUnregisteredProgressNoteUploads(
+        uploadedFile ? [uploadedFile] : [],
+        req.user?.id,
+      );
+      throw error;
+    }
   }
 
   @Delete('task-progress-notes/:taskId/:noteId/attachments/:attachmentId')
@@ -1105,7 +1240,15 @@ export class ResearchDevelopmentController {
       const ct = content_type || 'application/octet-stream';
       const objectKey = this.ossService.buildObjectKey('rd/knowledge', filename);
       const putUrl = this.ossService.generatePutSignedUrl(objectKey, ct);
-      return { objectKey, putUrl, contentType: ct };
+      const cleanup = this.ossService.signCleanupToken(objectKey, 7 * 24 * 3600);
+      return {
+        objectKey,
+        putUrl,
+        contentType: ct,
+        cacheControl: 'private, max-age=31536000, immutable',
+        cleanupExp: cleanup.exp,
+        cleanupSig: cleanup.sig,
+      };
     });
     return { enabled: true, files };
   }
@@ -1184,7 +1327,14 @@ export class ResearchDevelopmentController {
   @Permissions('rd-kb:upload', 'rd-task:create')
   async createKbEntriesFromOssKeys(
     @Body() body: {
-      oss_files: Array<{ oss_key: string; filename: string; file_size?: number; content_type?: string }>;
+      oss_files: Array<{
+        oss_key: string;
+        filename: string;
+        file_size?: number;
+        content_type?: string;
+        cleanup_exp?: number;
+        cleanup_sig?: string;
+      }>;
       category_id?: string;
       description?: string;
       permission_level?: number;
@@ -1198,26 +1348,53 @@ export class ResearchDevelopmentController {
       { userId: req.user?.id, permissions: req.user?.permissions },
       body.permission_level,
     );
-    return Promise.all((body.oss_files ?? []).map(async (f) => {
-      const ext = f.filename.includes('.') ? f.filename.split('.').pop()!.toLowerCase() : '';
-      // Generate a long-lived signed GET URL (30 days) for this object
-      const ossUrl = this.ossService.getSignedUrl(f.oss_key, 30 * 24 * 3600) ?? undefined;
-      return this.rdService.createKnowledgeEntry({
-        title: f.filename,
-        description: body.description,
-        category_id: body.category_id ?? 'kb-other',
-        tags: body.tags ? String(body.tags).split(',').map(t => t.trim()).filter(Boolean) : [],
-        visibility: body.visibility ?? 'internal',
-        permission_level: permissionLevel,
-        source: 'manual',
-        file_name: f.filename,
-        file_type: ext,
-        file_size: f.file_size,
-        oss_url: ossUrl,
-        created_by_id: req.user?.id,
-        created_by_name: req.user?.name,
-      });
+    const cleanupFiles = (body.oss_files ?? []).map((file) => ({
+      objectKey: file.oss_key,
+      cleanupExp: file.cleanup_exp,
+      cleanupSig: file.cleanup_sig,
     }));
+    try {
+      return await Promise.all((body.oss_files ?? []).map(async (f) => {
+        const ext = f.filename.includes('.') ? f.filename.split('.').pop()!.toLowerCase() : '';
+        const ossUrl = this.ossService.getSignedUrl(f.oss_key, 30 * 24 * 3600) ?? undefined;
+        return this.rdService.createKnowledgeEntry({
+          title: f.filename,
+          description: body.description,
+          category_id: body.category_id ?? 'kb-other',
+          tags: body.tags ? String(body.tags).split(',').map(t => t.trim()).filter(Boolean) : [],
+          visibility: body.visibility ?? 'internal',
+          permission_level: permissionLevel,
+          source: 'manual',
+          file_name: f.filename,
+          file_type: ext,
+          file_size: f.file_size,
+          oss_url: ossUrl,
+          created_by_id: req.user?.id,
+          created_by_name: req.user?.name,
+        });
+      }));
+    } catch (error) {
+      await this.rdService.cleanupUnregisteredKnowledgeObjects(undefined, 'rd/knowledge', cleanupFiles);
+      throw error;
+    }
+  }
+
+  @Post('knowledge/objects/cleanup')
+  @Permissions('rd-kb:upload', 'rd-task:create')
+  cleanupKnowledgeObjects(
+    @Body() body: {
+      files?: Array<{ object_key: string; cleanup_exp?: number; cleanup_sig?: string }>;
+    },
+  ) {
+    return this.rdService.cleanupUnregisteredKnowledgeObjects(
+      undefined,
+      'rd/knowledge',
+      (body.files ?? []).map((file) => ({
+        objectKey: file.object_key,
+        cleanupExp: file.cleanup_exp,
+        cleanupSig: file.cleanup_sig,
+      })),
+    );
   }
 
   @Post('knowledge/entries')

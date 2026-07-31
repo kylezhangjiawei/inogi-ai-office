@@ -6,6 +6,7 @@
  * Attachment.id 即 FileAsset.id（兼作 fileId），发送时回传给后端解析多模态/抽取文本。
  */
 import { authFetch, readErrorMessage } from "../authSession";
+import { uploadResourceFile } from "../resourceUpload";
 import type {
   AiConfig,
   AiModelChoice,
@@ -179,19 +180,19 @@ export function createHttpIssueService(): IssueService {
     });
 
   const uploadAttachment = async (file: UploadFileInput): Promise<Attachment> => {
-    const form = new FormData();
+    let localFile: File;
     if (file.dataUrl) {
       const blob = await dataUrlToBlob(file.dataUrl);
-      form.append("file", blob, file.fileName);
+      localFile = new File([blob], file.fileName, {
+        type: blob.type || file.fileType || "application/octet-stream",
+      });
     } else {
       // 无二进制内容时退化为空占位（后端会因缺文件报错，调用方应保证带 dataUrl）
-      form.append("file", new Blob([]), file.fileName);
+      localFile = new File([], file.fileName, {
+        type: file.fileType || "application/octet-stream",
+      });
     }
-    form.append("businessType", "issue/attachments");
-    const res = await request<{ fileId: string; signedUrl?: string; fileName: string; mimeType: string }>(
-      `/api/files/upload`,
-      { method: "POST", body: form },
-    );
+    const res = await uploadResourceFile(localFile, "issue/attachments");
     return {
       id: res.fileId,
       fileName: res.fileName ?? file.fileName,

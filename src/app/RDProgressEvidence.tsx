@@ -4,7 +4,7 @@ import { cn } from "./components/ui/utils";
 import { currentI18nLang, i18nLocale, t, useI18n } from "./lib/i18n";
 import { renderTextWithMentions } from "./components/MentionInput";
 import { AutoTranslatedText } from "./components/TranslatableText";
-import { getAttachmentPreviewUrl, getAttachmentThumbUrl, getAttachmentUrl, type RdTaskProgressAttachment, type RdTaskProgressNote } from "./lib/rdApi";
+import { getAttachmentDownloadUrl, getAttachmentPreviewUrl, getAttachmentThumbUrl, getAttachmentUrl, type RdTaskProgressAttachment, type RdTaskProgressNote } from "./lib/rdApi";
 import { parseXlsxForPreview, type XlsxPreviewSheet } from "./lib/xlsxPreview";
 
 /** 文件名/MIME 判断是否为 Excel 表格（xlsx/xls）。 */
@@ -181,7 +181,7 @@ function TaskImageLightbox({
         </div>
         <div className="flex shrink-0 items-center gap-1.5">
           <a
-            href={getAttachmentUrl(current.att)}
+            href={getAttachmentDownloadUrl(current.att)}
             download={current.att.name}
             target="_blank"
             rel="noopener noreferrer"
@@ -216,6 +216,9 @@ function TaskImageLightbox({
         <img
           src={getAttachmentUrl(current.att)}
           alt={current.att.name}
+          loading="eager"
+          decoding="async"
+          fetchPriority="high"
           className="relative max-h-full max-w-full rounded-lg object-contain shadow-2xl"
         />
         {hasNext && (
@@ -416,8 +419,8 @@ function AttachmentPreviewModal({
     isImage ||
     isVideo ||
     attachment.mime === "application/pdf" ||
-    attachment.mime.startsWith("text/") ||
-    attachment.mime.includes("json");
+    attachment.mime === "text/plain" ||
+    attachment.mime === "application/json";
 
   return (
     <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/72 px-4 py-6 backdrop-blur-sm" role="dialog" aria-modal="true">
@@ -432,7 +435,7 @@ function AttachmentPreviewModal({
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <a
-              href={getAttachmentUrl(attachment)}
+              href={getAttachmentDownloadUrl(attachment)}
               download={attachment.name}
               target="_blank"
               rel="noopener noreferrer"
@@ -454,7 +457,14 @@ function AttachmentPreviewModal({
         <div className="min-h-0 flex-1 overflow-auto bg-slate-100 p-4">
           {isImage ? (
             <div className="flex min-h-[52vh] items-center justify-center">
-              <img src={getAttachmentUrl(attachment)} alt={attachment.name} className="max-h-[72vh] max-w-full rounded-[8px] bg-white object-contain shadow-sm" />
+              <img
+                src={getAttachmentUrl(attachment)}
+                alt={attachment.name}
+                loading="eager"
+                decoding="async"
+                fetchPriority="high"
+                className="max-h-[72vh] max-w-full rounded-[8px] bg-white object-contain shadow-sm"
+              />
             </div>
           ) : isVideo ? (
             <div className="flex min-h-[52vh] items-center justify-center">
@@ -474,6 +484,8 @@ function AttachmentPreviewModal({
             <iframe
               src={getAttachmentPreviewUrl(attachment)}
               title={attachment.name}
+              sandbox=""
+              referrerPolicy="no-referrer"
               className="h-[72vh] w-full rounded-[8px] border border-slate-200 bg-white"
             />
           ) : (

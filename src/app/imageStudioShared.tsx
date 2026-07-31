@@ -51,6 +51,7 @@ export type GeneratedImage = {
   quality: string;
   imageData?: string;
   imageUrl?: string | null;
+  thumbnailUrl?: string | null;
   model: string;
   isFavorite: boolean;
   createdAt: string;
@@ -669,7 +670,13 @@ export function ArtworkCard({
   return (
     <article className="group overflow-hidden rounded-[10px] border border-border/80 bg-surface-container-lowest shadow-[0_16px_34px_rgba(15,23,42,0.055)] ring-1 ring-white/70 transition duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-[0_24px_48px_rgba(15,23,42,0.1)]">
       <div className="relative aspect-[16/10] overflow-hidden bg-slate-100">
-        <img src={item.imageUrl || item.imageData} alt={item.prompt} className="h-full w-full object-cover" />
+        <img
+          src={item.thumbnailUrl || item.imageUrl || item.imageData}
+          alt={item.prompt}
+          loading="lazy"
+          decoding="async"
+          className="h-full w-full object-cover"
+        />
         <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(15,23,42,0.04)_0%,transparent_42%,rgba(15,23,42,0.2)_100%)] opacity-80 transition group-hover:opacity-60" />
         <div className="absolute left-4 top-4 rounded-[8px] border border-white/25 bg-slate-950/68 px-3 py-1 text-[11px] font-semibold text-white shadow-sm backdrop-blur-md">
           {String(index + 1).padStart(2, "0")}

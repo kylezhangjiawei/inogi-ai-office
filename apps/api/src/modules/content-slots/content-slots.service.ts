@@ -182,7 +182,13 @@ export class ContentSlotsService {
   }
 
   private signStatic(objectKey: string): string | null {
-    return objectKey ? this.ossService.getSignedUrl(objectKey, 3600) : null;
+    return objectKey
+      ? this.ossService.getSignedUrl(
+          objectKey,
+          24 * 3600,
+          'image/resize,m_lfit,w_1600/format,webp/quality,q_82',
+        )
+      : null;
   }
 
   /** 列出所有素材位（含配置与当前内容预览） */

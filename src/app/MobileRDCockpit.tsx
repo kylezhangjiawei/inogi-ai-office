@@ -41,7 +41,7 @@ const FILTERS: Array<{ key: MobileFilter; label: string }> = [
   { key: "risk", label: "风险" },
 ];
 
-const TASK_PAGE = 12;
+const TASK_PAGE = 6;
 
 function daysLeft(due?: string): number | null {
   if (!due) return null;
@@ -135,10 +135,12 @@ function scoreChipTint(grade: string): string {
 // ─── 图片预览灯箱（流式卡片封面点击放大；纯图片、支持多图切换）────────────────────
 function ImageLightbox({
   images,
+  thumbnails,
   startIndex,
   onClose,
 }: {
   images: string[];
+  thumbnails?: string[];
   startIndex: number;
   onClose: () => void;
 }) {
@@ -179,7 +181,14 @@ function ImageLightbox({
         className="flex min-h-0 flex-1 items-center justify-center px-4 pb-4"
         onClick={(e) => e.stopPropagation()}
       >
-        <img src={current} alt="附件预览" className="max-h-full max-w-full rounded-lg object-contain" />
+        <img
+          src={current}
+          alt="附件预览"
+          loading="eager"
+          decoding="async"
+          fetchPriority="high"
+          className="max-h-full max-w-full rounded-lg object-contain"
+        />
       </div>
       {images.length > 1 && (
         <div
@@ -196,7 +205,13 @@ function ImageLightbox({
                 i === safeIdx ? "ring-white" : "opacity-60 ring-transparent",
               )}
             >
-              <img src={u} alt="" className="h-full w-full object-cover" />
+              <img
+                src={thumbnails?.[i] ?? u}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                className="h-full w-full object-cover"
+              />
             </button>
           ))}
         </div>
@@ -212,13 +227,15 @@ function MobileFeedCard({
   onOpen,
   onPreview,
   unreadCount = 0,
+  priority = false,
 }: {
   task: RdTask;
   isRisk: boolean;
   onOpen: () => void;
-  onPreview: (images: string[], index: number) => void;
+  onPreview: (images: string[], thumbnails: string[], index: number) => void;
   /** 未读评论数（微信式红点，>0 才显示） */
   unreadCount?: number;
+  priority?: boolean;
 }) {
   const status = STATUS_META[task.status] ?? STATUS_META.draft;
   const due = formatDue(task.due_date);
@@ -228,6 +245,7 @@ function MobileFeedCard({
   const cat = lastCategory(task.category_path);
   const isHigh = (task.final_priority ?? task.ai_priority) === "high";
   const cover = task.cover_images ?? [];
+  const coverThumbnails = task.cover_image_thumbnails ?? cover;
   const score = task.completion_score;
   const freshness = activityFreshness(
     task.last_activity_at ?? task.latest_progress_summary?.created_at ?? task.updated_at,
@@ -235,6 +253,7 @@ function MobileFeedCard({
 
   return (
     <article
+      style={{ contentVisibility: "auto", containIntrinsicSize: "420px" }}
       role="button"
       tabIndex={0}
       onClick={onOpen}
@@ -295,16 +314,18 @@ function MobileFeedCard({
           type="button"
           onClick={(e) => {
             e.stopPropagation();
-            onPreview(cover, 0);
+            onPreview(cover, coverThumbnails, 0);
           }}
           aria-label="预览附件图片"
           className="mt-2.5 block w-full px-3"
         >
           <div className="relative overflow-hidden rounded-xl bg-slate-100">
             <img
-              src={cover[0]}
+              src={coverThumbnails[0] ?? cover[0]}
               alt="附件封面"
-              loading="lazy"
+              loading={priority ? "eager" : "lazy"}
+              decoding="async"
+              fetchPriority={priority ? "high" : "auto"}
               className="aspect-[4/3] w-full object-cover"
             />
             {cover.length > 1 && (
@@ -386,7 +407,7 @@ export function MobileRDCockpit() {
   const [activeTask, setActiveTask] = useState<RdTask | null>(null);
   // 灯箱状态提升到页面级：避免在 columns 多列容器里渲染 fixed 元素的布局怪相，
   // 也避免灯箱作为卡片子节点时 onClick 经 React 树冒泡回卡片误开详情。
-  const [lightbox, setLightbox] = useState<{ images: string[]; index: number } | null>(null);
+  const [lightbox, setLightbox] = useState<{ images: string[]; thumbnails: string[]; index: number } | null>(null);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
 
   const riskTaskIds = useMemo(() => new Set(risks.map((r) => r.task.task_id)), [risks]);
@@ -454,7 +475,7 @@ export function MobileRDCockpit() {
           setVisible((v) => (v < filteredTasks.length ? v + TASK_PAGE : v));
         }
       },
-      { rootMargin: "320px" },
+      { rootMargin: "120px" },
     );
     io.observe(el);
     return () => io.disconnect();
@@ -681,13 +702,14 @@ export function MobileRDCockpit() {
           <div className="flex items-start gap-3">
             {[0, 1].map((col) => (
               <div key={col} className="flex min-w-0 flex-1 flex-col gap-3">
-                {shownTasks.filter((_, i) => i % 2 === col).map((t) => (
+                {shownTasks.filter((_, i) => i % 2 === col).map((t, columnIndex) => (
                   <MobileFeedCard
                     key={t.task_id}
                     task={t}
                     isRisk={riskTaskIds.has(t.task_id)}
+                    priority={columnIndex === 0}
                     onOpen={() => openTask(t)}
-                    onPreview={(images, index) => setLightbox({ images, index })}
+                    onPreview={(images, thumbnails, index) => setLightbox({ images, thumbnails, index })}
                     unreadCount={noteUnread[t.task_id] ?? 0}
                   />
                 ))}
@@ -720,6 +742,7 @@ export function MobileRDCockpit() {
       {lightbox && (
         <ImageLightbox
           images={lightbox.images}
+          thumbnails={lightbox.thumbnails}
           startIndex={lightbox.index}
           onClose={() => setLightbox(null)}
         />
