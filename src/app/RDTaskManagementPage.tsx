@@ -7240,6 +7240,13 @@ function PersonTaskCockpit({
   // 收起/展开切换后的短暂冷却：feed 高度变化会让浏览器把超出新范围的 scrollTop 夹紧、回弹出一串
   // 反向滚动事件；锁定窗口内只同步基准、不改变状态，避免「收起↔展开」来回横跳。
   const collapseLockUntilRef = useRef(0);
+  const loadNextTaskPage = useCallback((tabKey: string, totalTasks: number) => {
+    setVisibleCounts((prev) => {
+      const current = prev[tabKey] ?? taskPageSize;
+      if (current >= totalTasks) return prev;
+      return { ...prev, [tabKey]: Math.min(current + TASK_PAGE_SIZE, totalTasks) };
+    });
+  }, [taskPageSize]);
 
   // 固定高度容器内的 onScroll 触发分页
   const handleTaskScroll = useCallback(
@@ -7247,11 +7254,7 @@ function PersonTaskCockpit({
       const el = e.currentTarget;
       const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
       if (nearBottom) {
-        setVisibleCounts((prev) => {
-          const current = prev[tabKey] ?? taskPageSize;
-          if (current >= totalTasks) return prev;
-          return { ...prev, [tabKey]: Math.min(current + TASK_PAGE_SIZE, totalTasks) };
-        });
+        loadNextTaskPage(tabKey, totalTasks);
       }
       // 顶部模块「下滑收起 / 上滑或回顶展开」：滞回阈值(累计>6px 才响应、下滑须越过 80px)避免抖动；
       // 只在状态需要真正翻转时触发，并设冷却锁吸收高度变化引发的回弹。父级在「钉住」时忽略该信号。
@@ -7286,7 +7289,7 @@ function PersonTaskCockpit({
         }
       }
     },
-    [onHeaderCollapseChange, headerCollapsed],
+    [headerCollapsed, loadNextTaskPage, onHeaderCollapseChange],
   );
 
   // ── Gallery lightbox ──
@@ -7593,6 +7596,30 @@ function PersonTaskCockpit({
       });
     return () => { controller.abort(); };
   }, [activeTab, allActiveTasks, personTasksMap, visibleCounts]);
+
+  // 三列瀑布流在首批 6 张卡片较矮时可能没有滚动条，onScroll 因而永远不会触发。
+  // 内容不足时自动追加一批，直到产生可滚动空间或全部展示；底部按钮仍保留手动兜底。
+  useEffect(() => {
+    if (!scrollEl) return;
+    const totalTasks = activeTab === "all"
+      ? allActiveTasks.length
+      : (personTasksMap.get(activeTab)?.length ?? 0);
+    const visibleCount = visibleCounts[activeTab] ?? taskPageSize;
+    if (visibleCount >= totalTasks) return;
+    if (scrollEl.scrollHeight - scrollEl.clientHeight >= 120) return;
+    loadNextTaskPage(activeTab, totalTasks);
+  }, [
+    activeTab,
+    allActiveTasks,
+    attachmentPreviewMap,
+    headerCollapsed,
+    loadNextTaskPage,
+    masonryColumns,
+    personTasksMap,
+    scrollEl,
+    taskPageSize,
+    visibleCounts,
+  ]);
 
   // Slide variants for tab content transitions
   const slideVariants = {
@@ -8316,10 +8343,14 @@ function PersonTaskCockpit({
                           </div>
 
                           {hasMore ? (
-                            <div className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400">
+                            <button
+                              type="button"
+                              onClick={() => loadNextTaskPage("all", allActiveTasks.length)}
+                              className="flex w-full cursor-pointer items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400 transition-colors hover:bg-indigo-50/50 hover:text-indigo-600"
+                            >
                               <ChevronDown className="h-3 w-3 animate-bounce" />
                               <span>{t("继续向下滚动 · 已显示")} <span className="font-semibold tabular-nums text-slate-500">{shownTasks.length}</span> / {t("共")} <span className="font-semibold tabular-nums text-slate-500">{allActiveTasks.length}</span> {t("个任务")}</span>
-                            </div>
+                            </button>
                           ) : (
                             <div className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400">
                               <CheckCircle2 className="h-3 w-3 text-emerald-400" />
@@ -8417,10 +8448,14 @@ function PersonTaskCockpit({
 
                           {/* 底部状态 */}
                           {hasMore ? (
-                            <div className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400">
+                            <button
+                              type="button"
+                              onClick={() => loadNextTaskPage(p.name, tasks.length)}
+                              className="flex w-full cursor-pointer items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400 transition-colors hover:bg-indigo-50/50 hover:text-indigo-600"
+                            >
                               <ChevronDown className="h-3 w-3 animate-bounce" />
                               <span>{t("继续向下滚动 · 已显示")} <span className="font-semibold tabular-nums text-slate-500">{shownTasks.length}</span> / {t("共")} <span className="font-semibold tabular-nums text-slate-500">{tasks.length}</span> {t("个任务")}</span>
-                            </div>
+                            </button>
                           ) : tasks.length > 0 ? (
                             <div className="flex items-center justify-center gap-1.5 py-3.5 text-[11px] text-slate-400">
                               <CheckCircle2 className="h-3 w-3 text-emerald-400" />

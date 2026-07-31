@@ -1,4 +1,5 @@
 import * as assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
 import { buildRdTaskAttachmentPayload } from '../../../src/app/lib/rdAttachmentPayload.ts';
@@ -45,4 +46,32 @@ test('legacy fallback keeps the full attachment count while limiting only card p
   ]);
   assert.equal(full.attachment_count, 8);
   assert.equal(full.attachments.length, 8);
+});
+
+test('cockpit pagination cannot stall when the first six cards do not create a scrollbar', async () => {
+  const source = await readFile(
+    new URL('../../../src/app/RDTaskManagementPage.tsx', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(
+    source,
+    /if \(scrollEl\.scrollHeight - scrollEl\.clientHeight >= 120\) return;/,
+    'underfilled task feeds must proactively add another page',
+  );
+  assert.match(
+    source,
+    /loadNextTaskPage\(activeTab, totalTasks\);/,
+    'the underfilled-feed effect must advance the active tab',
+  );
+  assert.match(
+    source,
+    /onClick=\{\(\) => loadNextTaskPage\("all", allActiveTasks\.length\)\}/,
+    'the all-task footer must provide a clickable pagination fallback',
+  );
+  assert.match(
+    source,
+    /onClick=\{\(\) => loadNextTaskPage\(p\.name, tasks\.length\)\}/,
+    'each person-task footer must provide a clickable pagination fallback',
+  );
 });
