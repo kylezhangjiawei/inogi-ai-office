@@ -186,7 +186,6 @@ function ImageLightbox({
           alt="附件预览"
           loading="eager"
           decoding="async"
-          fetchPriority="high"
           className="max-h-full max-w-full rounded-lg object-contain"
         />
       </div>
@@ -325,7 +324,6 @@ function MobileFeedCard({
               alt="附件封面"
               loading={priority ? "eager" : "lazy"}
               decoding="async"
-              fetchPriority={priority ? "high" : "auto"}
               className="aspect-[4/3] w-full object-cover"
             />
             {cover.length > 1 && (

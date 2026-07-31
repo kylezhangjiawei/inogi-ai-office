@@ -218,7 +218,6 @@ function TaskImageLightbox({
           alt={current.att.name}
           loading="eager"
           decoding="async"
-          fetchPriority="high"
           className="relative max-h-full max-w-full rounded-lg object-contain shadow-2xl"
         />
         {hasNext && (
@@ -462,7 +461,6 @@ function AttachmentPreviewModal({
                 alt={attachment.name}
                 loading="eager"
                 decoding="async"
-                fetchPriority="high"
                 className="max-h-[72vh] max-w-full rounded-[8px] bg-white object-contain shadow-sm"
               />
             </div>

@@ -6776,7 +6776,6 @@ function ImageGallery({
           onClick={(e) => e.stopPropagation()}
           loading="eager"
           decoding="async"
-          fetchPriority="high"
         />
       </AnimatePresence>
 
@@ -6896,7 +6895,6 @@ function TaskAttachmentStrip({
               className="h-full w-full object-cover transition-transform duration-300 group-hover/att:scale-[1.04]"
               loading={priority && imageIndex === 0 ? "eager" : "lazy"}
               decoding="async"
-              fetchPriority={priority && imageIndex === 0 ? "high" : "auto"}
             />
           </button>
         ))}
