@@ -364,8 +364,9 @@ const router = createBrowserRouter([
       { path: "us-collab-approval-flow", element: makeLazyProtected(<RDApprovalFlowPage key="ws-us" />, "page:us-collab-approval-flow") },
       { path: "us-collab-audit-log", element: makeLazyProtected(<RDAuditLogPage key="ws-us" />, "page:us-collab-audit-log") },
       { path: "us-collab-ai-settings", element: makeLazyProtected(<RDAiSettingsPage key="ws-us" />, "page:us-collab-ai-settings") },
-      // 研发主管驾驶舱 — 导航可见性由页面路由管理中的「导航」开关控制（默认隐藏）
-      { path: "rd-director-dashboard", element: makeLazyProtected(<RDDirectorDashboardPage />, "page:rd-director-dashboard") },
+      // 生产驾驶舱复用原主管驾驶舱能力；旧地址只做兼容跳转，既有收藏链接继续有效。
+      { path: "production-dashboard", element: makeLazyProtected(<RDDirectorDashboardPage />, "page:rd-director-dashboard") },
+      { path: "rd-director-dashboard", element: makeLazyProtected(<Navigate to="/production-dashboard" replace />, "page:rd-director-dashboard") },
       { path: "rd-approval-flow", element: makeLazyProtected(<RDApprovalFlowPage />, "page:rd-approval-flow") },
       { path: "rd-audit-log", element: makeLazyProtected(<RDAuditLogPage />, "page:rd-audit-log") },
       { path: "rd-ai-settings", element: makeLazyProtected(<RDAiSettingsPage />, "page:rd-ai-settings") },

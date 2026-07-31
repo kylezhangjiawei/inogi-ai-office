@@ -51,9 +51,9 @@ import {
   fetchRdDirectorDashboard,
   fetchRdNoteUnreadSummary,
   fetchRdPeople,
+  fetchRdTaskAttachmentPreviews,
   fetchRdTaskCategories,
   fetchRdTaskProgressNotes,
-  fetchRdTaskProgressNoteMap,
   markRdTaskNotesRead,
   recomputeRdDirectorDashboard,
   saveRdTaskCategories,
@@ -70,6 +70,7 @@ import {
   type RdPriority,
   type RdSubProject,
   type RdTask,
+  type RdTaskAttachmentPreview,
   type RdTaskProgressNote,
   type RdTaskStatus,
 } from "./lib/rdApi";
@@ -82,6 +83,7 @@ import { t as translate, useI18n } from "./lib/i18n";
 const DIRECTOR_MOTION_EASE = [0.22, 1, 0.36, 1] as [number, number, number, number];
 const DIRECTOR_FAST_TRANSITION = { duration: 0.18, ease: DIRECTOR_MOTION_EASE };
 const DIRECTOR_PANEL_TRANSITION = { duration: 0.24, ease: DIRECTOR_MOTION_EASE };
+const PERSON_TASK_PAGE_SIZE = 6;
 
 const POC_BOM_CATEGORY_IDS = new Set([
   "cat-power",
@@ -551,7 +553,7 @@ function TaskDetailDrawer({
   onDiscussionActivity?: () => void;
 }) {
   const shouldReduceMotion = useReducedMotion();
-  const DIRECTOR_AUDIT_ACTOR = useAuditActor("研发主管");
+  const DIRECTOR_AUDIT_ACTOR = useAuditActor("生产驾驶舱");
   const [isEditing, setIsEditing] = useState(false);
   const [editForm, setEditForm] = useState({
     title: task.title,
@@ -616,7 +618,7 @@ function TaskDetailDrawer({
         actor: DIRECTOR_AUDIT_ACTOR,
         action: "task.edited",
         resource: { type: "task", id: task.task_id, name: task.title },
-        comment: "从研发主管驾驶舱编辑并保存任务",
+        comment: "从生产驾驶舱编辑并保存任务",
         source: "web",
       });
       toast.success(translate("任务已保存"));
@@ -638,7 +640,7 @@ function TaskDetailDrawer({
         actor: DIRECTOR_AUDIT_ACTOR,
         action: "task.edited",
         resource: { type: "task", id: task.task_id, name: task.title },
-        comment: "从研发主管驾驶舱删除任务",
+        comment: "从生产驾驶舱删除任务",
         source: "web",
       });
       toast.success(translate("任务已删除"));
@@ -665,7 +667,7 @@ function TaskDetailDrawer({
           { field: "status", before: task.status, after: "completed" },
           { field: "progress", before: task.progress, after: 100 },
         ],
-        comment: "从研发主管驾驶舱标记任务完成",
+        comment: "从生产驾驶舱标记任务完成",
         source: "web",
       });
       toast.success(translate("任务已标记完成"));
@@ -1614,7 +1616,7 @@ function BatchReassignModal({
   initialTaskIds?: string[];
   onUpdated?: () => void;
 }) {
-  const DIRECTOR_AUDIT_ACTOR = useAuditActor("研发主管");
+  const DIRECTOR_AUDIT_ACTOR = useAuditActor("生产驾驶舱");
   const shouldReduceMotion = useReducedMotion();
   const [selectedTasks, setSelectedTasks] = useState<Set<string>>(() => new Set(initialTaskIds?.length ? initialTaskIds : initialTaskId ? [initialTaskId] : []));
   const [targetPerson, setTargetPerson] = useState<PersonLoad | null>(null);
@@ -2406,7 +2408,7 @@ function CreateTaskModalV2({
 }
 
 function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleared: () => void }) {
-  const DIRECTOR_AUDIT_ACTOR = useAuditActor("研发主管");
+  const DIRECTOR_AUDIT_ACTOR = useAuditActor("生产驾驶舱");
   const shouldReduceMotion = useReducedMotion();
   const [confirm, setConfirm] = useState("");
   const [clearing, setClearing] = useState(false);
@@ -2463,7 +2465,7 @@ function ClearDataDialog({ onClose, onCleared }: { onClose: () => void; onCleare
             <ul className="list-disc pl-4 space-y-0.5 text-xs">
               <li>{translate("所有研发任务分类、子项目及任务（含子任务）")}</li>
               <li>{translate("个人工作台任务数据")}</li>
-              <li>{translate("研发主管驾驶舱看板数据（分类进度、人员负载、阻塞、待指派）")}</li>
+              <li>{translate("生产驾驶舱看板数据（分类进度、人员负载、阻塞、待指派）")}</li>
             </ul>
             <p className="mt-2 text-xs text-red-500">{translate("注：人员档案、审批流、AI 策略、操作留痕不受影响。")}</p>
           </div>
@@ -2810,7 +2812,7 @@ export function RDDirectorDashboardPage() {
   const canCreateTask = usePermission(PERMISSIONS.RD_TASK_CREATE);
   const canClearData = usePermission(PERMISSIONS.RD_DATA_CLEAR);
   const canEditTasks = usePermission(PERMISSIONS.RD_TASK_EDIT);
-  const DIRECTOR_AUDIT_ACTOR = useAuditActor("研发主管");
+  const DIRECTOR_AUDIT_ACTOR = useAuditActor("生产驾驶舱");
 
   const isMountedRef = useRef(true);
   useEffect(() => () => { isMountedRef.current = false; }, []);
@@ -2887,26 +2889,14 @@ export function RDDirectorDashboardPage() {
 
   useEffect(() => { loadCategories(); }, [loadCategories]);
 
-  // 进度记录映射（task_id → 进度记录），供「按人」标签页的图片组使用。
-  // 复用最近日报的 note_refs 反查关联任务，避免逐任务拉取。日报本体已迁出至共享组件 RDDailyReportPanel。
-  const [progressNoteMap, setProgressNoteMap] = useState<Record<string, RdTaskProgressNote[]>>({});
-
-  const loadProgressNotes = useCallback(() => {
-    // 一次性拉「全部留痕」聚合接口（按权限过滤），替代「逐任务并发 N 个 GET」。
-    // 后者任务多时会瞬间打出上百请求触发后端 100 次/60s 限流 → 429；消费端均按 task_id 索引，
-    // 多出的键不会被读取，行为不变。
-    fetchRdTaskProgressNoteMap()
-      .then((noteMap) => { if (isMountedRef.current) setProgressNoteMap(noteMap); })
-      .catch(() => { if (isMountedRef.current) setProgressNoteMap({}); });
-  }, []);
-
-  useEffect(() => { loadProgressNotes(); }, [loadProgressNotes]);
+  // 与研发驾驶舱共用轻量附件摘要与内存缓存；不在首屏拉取全部任务留痕。
+  const [attachmentPreviewMap, setAttachmentPreviewMap] = useState<Record<string, RdTaskAttachmentPreview>>({});
 
   const reloadAll = useCallback(() => {
     loadDashboard();
     loadCategories();
-    loadProgressNotes();
-  }, [loadDashboard, loadCategories, loadProgressNotes]);
+    setAttachmentPreviewMap({});
+  }, [loadDashboard, loadCategories]);
 
   // Flat task map: task_id → RdTask (includes subtasks)
   const taskMap = useMemo(() => {
@@ -2947,6 +2937,34 @@ export function RDDirectorDashboardPage() {
 
   // Person-task nav tab (人员任务驾驶台)
   const [personTabId, setPersonTabId] = useState("all");
+  const [personVisibleCounts, setPersonVisibleCounts] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    if (personTabId === "all") return;
+    const person = PERSON_LOADS.find((item) => item.id === personTabId);
+    if (!person) return;
+
+    const visibleCount = personVisibleCounts[person.id] ?? PERSON_TASK_PAGE_SIZE;
+    const taskIds = person.tasks
+      .slice(0, visibleCount)
+      .filter((taskId) => {
+        const task = taskMap.get(taskId);
+        return (task?.attachments ?? 0) > 0 && !(taskId in attachmentPreviewMap);
+      });
+    if (taskIds.length === 0) return;
+
+    const controller = new AbortController();
+    fetchRdTaskAttachmentPreviews(taskIds, { signal: controller.signal })
+      .then((previews) => {
+        if (!controller.signal.aborted && isMountedRef.current) {
+          setAttachmentPreviewMap((current) => ({ ...current, ...previews }));
+        }
+      })
+      .catch(() => {
+        // 卡片附件摘要失败不阻断任务列表；进入任务详情仍会读取完整附件。
+      });
+    return () => controller.abort();
+  }, [attachmentPreviewMap, personTabId, personVisibleCounts, PERSON_LOADS, taskMap]);
 
   // KPI filter for the task list
   type TaskKpiFilter = "all" | "completed" | "in_progress" | "blocked" | "pending_review";
@@ -3240,7 +3258,7 @@ export function RDDirectorDashboardPage() {
         {/* Header */}
         <div className="mb-5 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white bg-white/70 px-5 py-4 shadow-sm">
           <div>
-            <h1 className="text-xl font-bold text-slate-900">{translate("研发主管驾驶舱")}</h1>
+            <h1 className="text-xl font-bold text-slate-900">{translate("生产驾驶舱")}</h1>
             <p className="mt-0.5 text-sm text-slate-500">{translate("全局视图 · 高级权限专属 · 实时同步")}</p>
           </div>
           <div className="flex flex-wrap items-center justify-end gap-2">
@@ -3897,9 +3915,12 @@ export function RDDirectorDashboardPage() {
                   const personTasks = person.tasks
                     .map((id) => taskMap.get(id))
                     .filter((t): t is RdTask => t !== undefined);
+                  const personVisibleCount = personVisibleCounts[person.id] ?? PERSON_TASK_PAGE_SIZE;
+                  const visiblePersonTasks = personTasks.slice(0, personVisibleCount);
                   const personAllImages = person.tasks
-                    .flatMap((id) => progressNoteMap[id] ?? [])
-                    .flatMap((n) => n.attachments.filter((a) => a.mime.startsWith("image/")));
+                    .slice(0, personVisibleCount)
+                    .flatMap((id) => attachmentPreviewMap[id]?.attachments ?? [])
+                    .filter((attachment) => attachment.mime.startsWith("image/"));
 
                   return (
                     <TabsContent key={person.id} value={person.id} className="mt-0 p-5">
@@ -3963,14 +3984,15 @@ export function RDDirectorDashboardPage() {
                         />
                       ) : (
                         <div className="space-y-2.5">
-                          {personTasks.map((task) => {
+                          {visiblePersonTasks.map((task) => {
                             const sCfg = TASK_STATUS_CONFIG[task.status] ?? TASK_STATUS_CONFIG.in_progress;
                             const pCfg = TASK_PRIORITY_CONFIG[task.final_priority] ?? TASK_PRIORITY_CONFIG.medium;
-                            const taskImages = (progressNoteMap[task.task_id] ?? [])
-                              .flatMap((n) => n.attachments.filter((a) => a.mime.startsWith("image/")));
+                            const taskImages = (attachmentPreviewMap[task.task_id]?.attachments ?? [])
+                              .filter((attachment) => attachment.mime.startsWith("image/"));
                             return (
                               <div
                                 key={task.task_id}
+                                style={{ contentVisibility: "auto", containIntrinsicSize: "180px" }}
                                 onClick={() => openTask(task.task_id, person.name)}
                                 className="group cursor-pointer rounded-xl border border-slate-100 bg-white px-4 py-3.5 transition-all duration-150 hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_8px_20px_rgba(79,70,229,0.07)] active:translate-y-0"
                               >
@@ -4022,14 +4044,31 @@ export function RDDirectorDashboardPage() {
                               </div>
                             );
                           })}
+                          {visiblePersonTasks.length < personTasks.length && (
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setPersonVisibleCounts((current) => ({
+                                  ...current,
+                                  [person.id]: personVisibleCount + PERSON_TASK_PAGE_SIZE,
+                                }))
+                              }
+                              className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-indigo-200 bg-indigo-50/40 px-4 py-2.5 text-xs font-semibold text-indigo-600 transition hover:border-indigo-300 hover:bg-indigo-50"
+                            >
+                              {translate("继续加载")}
+                              <span className="font-normal text-slate-400">
+                                {visiblePersonTasks.length}/{personTasks.length}
+                              </span>
+                            </button>
+                          )}
                         </div>
                       )}
 
-                      {/* 人员全部进度图片汇总（跨任务） */}
+                      {/* 当前已加载任务的进度图片汇总（跨任务）；继续加载任务时同步追加。 */}
                       {personAllImages.length > 0 && (
                         <div className="mt-5 border-t border-slate-100 pt-4">
                           <div className="mb-2 text-[11px] font-semibold text-slate-500">
-                            {translate("进度图片汇总 · {count} 张", { count: personAllImages.length })}
+                            {translate("已加载进度图片 · {count} 张", { count: personAllImages.length })}
                           </div>
                           <ProgressAttachmentGrid
                             attachments={personAllImages.slice(0, 12)}

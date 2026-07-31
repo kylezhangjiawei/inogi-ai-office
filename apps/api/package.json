@@ -16,7 +16,7 @@
     "test:expense": "node --test -r ts-node/register -r tsconfig-paths/register test/expense.service.spec.ts",
     "test:departments": "node --test -r ts-node/register -r tsconfig-paths/register test/departments.service.spec.ts",
     "test:tplus-operations": "node --test -r ts-node/register -r tsconfig-paths/register test/tplus-operations.service.spec.ts",
-    "test:rd-resources": "node --test -r ts-node/register -r tsconfig-paths/register test/rd-resource-loading.spec.ts test/oss-cdn-url.spec.ts test/files-direct-upload.spec.ts && node --test test/rd-attachment-payload.spec.mts"
+    "test:rd-resources": "node --test -r ts-node/register -r tsconfig-paths/register test/rd-resource-loading.spec.ts test/oss-cdn-url.spec.ts test/files-direct-upload.spec.ts && node --test test/rd-attachment-payload.spec.mts test/production-dashboard-config.spec.mts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.0",
