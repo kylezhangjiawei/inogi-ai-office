@@ -1911,7 +1911,6 @@ const DICT = {
   "版本": "Version",
   "版本与留痕": "Versions & Audit Trail",
   "现象 / 复现条件 / 影响范围…": "Symptoms / reproduction steps / impact…",
-  "生产部门": "Production Department",
   "生产驾驶舱": "Production Cockpit",
   "继续加载": "Load more",
   "已加载进度图片 · {count} 张": "Loaded progress images · {count}",

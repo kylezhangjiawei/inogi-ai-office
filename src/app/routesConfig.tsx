@@ -92,13 +92,6 @@ export const navGroups: NavGroup[] = [
     ],
   },
   {
-    label: "生产部门",
-    items: [
-      // 复用原主管驾驶舱的完整能力与权限码，避免既有角色授权和历史链接失效。
-      { label: "生产驾驶舱", path: "/production-dashboard", icon: Telescope, requiredPermission: "page:rd-director-dashboard" },
-    ],
-  },
-  {
     label: "研发任务管理",
     items: [
       { label: "研发任务驾驶舱", path: "/rd-task-management", icon: LayoutGrid, requiredPermission: "page:rd-task-management" },
@@ -196,6 +189,8 @@ export const navGroups: NavGroup[] = [
   {
     label: "质量与生产",
     items: [
+      // 复用原主管驾驶舱的完整能力与权限码，避免既有角色授权和历史链接失效。
+      { label: "生产驾驶舱", path: "/production-dashboard", icon: Telescope, requiredPermission: "page:rd-director-dashboard" },
       { label: "电子批记录", path: "/ebpr", icon: ListChecks, requiredPermission: "page:ebpr" },
       { label: "检验与放行", path: "/inspection-release", icon: BadgeCheck, requiredPermission: "page:inspection-release" },
       { label: "BUG 日志分析", path: "/bug-log", icon: Bug, requiredPermission: "page:bug-log" },

@@ -19,7 +19,7 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'page:rd-knowledge-base', label: '研发知识库', description: '研发团队内部知识沉淀与权限分级查阅', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-knowledge-base', sortOrder: 65 },
   { code: 'page:rd-sheet', label: '研发数据表', description: '类 WPS 表格，按密级行级管控的研发敏感数据；不同权限的人看到的行数不同', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-sheet', sortOrder: 66 },
   // 保留历史权限码和路由，生产驾驶舱迁移后既有角色授权、接口鉴权和收藏链接继续有效。
-  { code: 'page:rd-director-dashboard', label: '生产驾驶舱', description: '生产部门全局进度、人员负载热力图、批量重分配（高级权限）', groupLabel: '页面访问 · 生产部门', type: 'page', routePath: '/production-dashboard', sortOrder: 40 },
+  { code: 'page:rd-director-dashboard', label: '生产驾驶舱', description: '生产部门全局进度、人员负载热力图、批量重分配（高级权限）', groupLabel: '页面访问 · 质量与生产', type: 'page', routePath: '/production-dashboard', sortOrder: 590 },
   { code: 'page:rd-people-management', label: '研发人员管理', description: '新增、编辑、删除研发成员，设置任务容量与知识库权限等级', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-people-management', navHidden: true, sortOrder: 73 },
   { code: 'page:rd-approval-flow', label: '审批流配置', description: '配置立项/任务审批的节点、模式、SLA', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-approval-flow', sortOrder: 75 },
   { code: 'page:rd-audit-log', label: '操作留痕', description: '查看研发任务管理关键操作的审计时间轴', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-audit-log', sortOrder: 76 },
