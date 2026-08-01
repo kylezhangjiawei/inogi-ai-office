@@ -18,6 +18,7 @@ import {
 } from "./lib/rdApi";
 import { MentionSuggestionPanel, useMentions, type MentionCandidate } from "./components/MentionInput";
 import { RDTaskConversation } from "./RDTaskConversation";
+import { MobileAttachmentPreviewHost } from "./RDProgressEvidence";
 import {
   closeMobileOverlay,
   isCurrentMobileOverlay,
@@ -172,7 +173,7 @@ function ImageLightbox({
   const current = images[safeIdx];
 
   return createPortal(
-    <div className="fixed inset-0 z-[1000] flex flex-col overscroll-none bg-slate-950/90 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="图片预览" onClick={onClose}>
+    <div className="fixed inset-0 z-[1000] flex flex-col overscroll-none bg-slate-950/90 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="图片预览">
       <div className="flex shrink-0 items-center justify-between px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] text-white/90">
         <span className="text-xs tabular-nums">
           {safeIdx + 1} / {images.length}
@@ -755,6 +756,9 @@ export function MobileRDCockpit() {
           onClose={() => closeMobileOverlay(CARD_IMAGE_OVERLAY, dismissLightbox)}
         />
       )}
+
+      {/* 常驻于任务页级别，避免讨论轮询/消息卡片重建导致附件预览被卸载。 */}
+      <MobileAttachmentPreviewHost />
     </div>
   );
 }

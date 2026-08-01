@@ -16,6 +16,21 @@ import {
 
 const TASK_GALLERY_OVERLAY = "rd-task-image-gallery";
 const ATTACHMENT_PREVIEW_OVERLAY = "rd-attachment-preview";
+const MOBILE_ATTACHMENT_PREVIEW_EVENT = "rd:open-mobile-attachment-preview";
+
+function isMobileRoute(): boolean {
+  return document.documentElement.classList.contains("mobile-route");
+}
+
+/**
+ * iOS/Android WebView may deliver a delayed compatibility click after the
+ * thumbnail tap. By then the full-screen backdrop is under the finger and the
+ * click would immediately close the preview. Mobile previews therefore close
+ * only through the explicit close button or the system Back action.
+ */
+function shouldCloseFromBackdrop(event: React.MouseEvent<HTMLElement>): boolean {
+  return !isMobileRoute() && event.target === event.currentTarget;
+}
 
 /** 文件名/MIME 判断是否为 Excel 表格（xlsx/xls）。 */
 function isSpreadsheetAttachment(att: { name?: string; mime?: string }): boolean {
@@ -220,7 +235,7 @@ function TaskImageLightbox({
       <div
         className="relative flex min-h-0 flex-1 items-center justify-center px-14 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
         onClick={(event) => {
-          if (event.target === event.currentTarget) onClose();
+          if (shouldCloseFromBackdrop(event)) onClose();
         }}
       >
         {hasPrev && (
@@ -276,10 +291,23 @@ export function ProgressAttachmentGrid({
   const managed = Boolean(onDeleteAttachment || onReplaceAttachment);
 
   const openPreview = (attachment: RdTaskProgressAttachment) => {
+    if (isMobileRoute()) {
+      const event = new CustomEvent<RdTaskProgressAttachment>(MOBILE_ATTACHMENT_PREVIEW_EVENT, {
+        detail: attachment,
+        cancelable: true,
+      });
+      // The mobile page-level host owns the preview so polling or rebuilding a
+      // message card cannot unmount it. Fall back to local state on pages that
+      // do not mount the host.
+      if (!window.dispatchEvent(event)) return;
+    }
     pushMobileOverlayState(ATTACHMENT_PREVIEW_OVERLAY);
     setPreview(attachment);
   };
-  const closePreview = () => closeMobileOverlay(ATTACHMENT_PREVIEW_OVERLAY, dismissPreview);
+  const closePreview = useCallback(
+    () => closeMobileOverlay(ATTACHMENT_PREVIEW_OVERLAY, dismissPreview),
+    [dismissPreview],
+  );
 
   useEffect(() => {
     if (!preview) return undefined;
@@ -288,7 +316,7 @@ export function ProgressAttachmentGrid({
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [preview]);
+  }, [closePreview, preview]);
 
   if (!attachments.length) return null;
 
@@ -433,6 +461,45 @@ export function ProgressAttachmentGrid({
   );
 }
 
+/**
+ * Mobile-only persistent preview owner. It is mounted above the conversation
+ * cards so background refreshes, thread hydration and list reconciliation do
+ * not destroy an already-open attachment preview.
+ */
+export function MobileAttachmentPreviewHost() {
+  const [preview, setPreview] = useState<RdTaskProgressAttachment | null>(null);
+  const dismissPreview = useCallback(() => setPreview(null), []);
+  const closePreview = useCallback(
+    () => closeMobileOverlay(ATTACHMENT_PREVIEW_OVERLAY, dismissPreview),
+    [dismissPreview],
+  );
+
+  useMobileOverlayBack(Boolean(preview), ATTACHMENT_PREVIEW_OVERLAY, dismissPreview);
+
+  useEffect(() => {
+    const handleOpen = (event: Event) => {
+      const attachment = (event as CustomEvent<RdTaskProgressAttachment>).detail;
+      if (!attachment) return;
+      event.preventDefault();
+      pushMobileOverlayState(ATTACHMENT_PREVIEW_OVERLAY);
+      setPreview(attachment);
+    };
+    window.addEventListener(MOBILE_ATTACHMENT_PREVIEW_EVENT, handleOpen);
+    return () => window.removeEventListener(MOBILE_ATTACHMENT_PREVIEW_EVENT, handleOpen);
+  }, []);
+
+  useEffect(() => {
+    if (!preview) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closePreview();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [closePreview, preview]);
+
+  return preview ? <AttachmentPreviewModal attachment={preview} onClose={closePreview} /> : null;
+}
+
 function AttachmentPreviewModal({
   attachment,
   onClose,
@@ -458,7 +525,7 @@ function AttachmentPreviewModal({
       aria-modal="true"
       aria-label={`附件预览：${attachment.name}`}
       onClick={(event) => {
-        if (event.target === event.currentTarget) onClose();
+        if (shouldCloseFromBackdrop(event)) onClose();
       }}
     >
       <div className="relative flex max-h-[88dvh] w-full max-w-5xl flex-col overflow-hidden rounded-[8px] border border-white/10 bg-white shadow-2xl">
