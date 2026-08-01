@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { AlertTriangle, ArrowLeft, Clock, History, ImageIcon, Inbox, Loader2, MessageCircleMore, RefreshCw, Search, Send, Users, X } from "lucide-react";
 import { toast } from "sonner";
@@ -83,6 +83,13 @@ function progressColor(status: RdTaskStatus): string {
 function ownerInitial(owner: string): string {
   const trimmed = owner.trim();
   return trimmed ? trimmed[0].toUpperCase() : "?";
+}
+
+function sameUnreadCounts(current: Record<string, number>, next: Record<string, number>): boolean {
+  const currentKeys = Object.keys(current);
+  const nextKeys = Object.keys(next);
+  return currentKeys.length === nextKeys.length
+    && currentKeys.every((key) => current[key] === next[key]);
 }
 
 /** 取分类路径最后一级作为话题标签（小红书风格的 # 标签）。 */
@@ -492,6 +499,10 @@ export function MobileRDCockpit() {
 
   const dismissActiveTask = useCallback(() => setActiveTask(null), []);
   const dismissLightbox = useCallback(() => setLightbox(null), []);
+  const closeActiveTask = useCallback(
+    () => closeMobileOverlay(TASK_DETAIL_OVERLAY, dismissActiveTask),
+    [dismissActiveTask],
+  );
   useMobileOverlayBack(Boolean(activeTask), TASK_DETAIL_OVERLAY, dismissActiveTask);
   useMobileOverlayBack(Boolean(lightbox), CARD_IMAGE_OVERLAY, dismissLightbox);
 
@@ -513,9 +524,18 @@ export function MobileRDCockpit() {
   const [noteUnread, setNoteUnread] = useState<Record<string, number>>({});
   const refreshNoteUnread = useCallback(() => {
     return fetchRdNoteUnreadSummary()
-      .then(setNoteUnread)
+      .then((next) => {
+        setNoteUnread((current) => sameUnreadCounts(current, next) ? current : next);
+      })
       .catch(() => {});
   }, []);
+  const handleTaskDataChanged = useCallback(() => {
+    reload();
+    void refreshNoteUnread();
+  }, [refreshNoteUnread, reload]);
+  const handleDiscussionActivity = useCallback(() => {
+    void refreshNoteUnread();
+  }, [refreshNoteUnread]);
   useEffect(() => {
     const refresh = () => {
       if (document.visibilityState === "visible") void refreshNoteUnread();
@@ -739,11 +759,9 @@ export function MobileRDCockpit() {
         <MobileTaskDetail
           task={activeTask}
           isRisk={riskTaskIds.has(activeTask.task_id)}
-          onClose={() => closeMobileOverlay(TASK_DETAIL_OVERLAY, dismissActiveTask)}
-          onAfterSubmit={() => {
-            reload();
-            void refreshNoteUnread();
-          }}
+          onClose={closeActiveTask}
+          onAfterSubmit={handleTaskDataChanged}
+          onDiscussionActivity={handleDiscussionActivity}
         />
       )}
 
@@ -764,16 +782,18 @@ export function MobileRDCockpit() {
 }
 
 // ─── 任务详情覆盖层：操作留痕（含图片附件点击放大）+ 底部备注输入 ──────────────────
-function MobileTaskDetail({
+const MobileTaskDetail = memo(function MobileTaskDetail({
   task,
   isRisk,
   onClose,
   onAfterSubmit,
+  onDiscussionActivity,
 }: {
   task: RdTask;
   isRisk: boolean;
   onClose: () => void;
   onAfterSubmit?: () => void;
+  onDiscussionActivity?: () => void;
 }) {
   const [notes, setNotes] = useState<RdTaskProgressNote[]>([]);
   const [loading, setLoading] = useState(true);
@@ -934,7 +954,7 @@ function MobileTaskDetail({
           notes={notes}
           mode="task"
           variant="mobile"
-          onActivity={onAfterSubmit}
+          onActivity={onDiscussionActivity}
         />
       )}
 
@@ -948,7 +968,7 @@ function MobileTaskDetail({
           notesLoading={loading}
           notesError={loadError}
           onRetryNotes={() => void loadNotes()}
-          onActivity={onAfterSubmit}
+          onActivity={onDiscussionActivity}
           progressComposer={(
             <div className="border-t border-slate-200 bg-white px-3 py-2 [padding-bottom:calc(0.5rem+env(safe-area-inset-bottom))]">
               <MentionSuggestionPanel
@@ -989,4 +1009,4 @@ function MobileTaskDetail({
       )}
     </div>
   );
-}
+});
