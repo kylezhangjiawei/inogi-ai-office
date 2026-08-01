@@ -248,9 +248,9 @@ function ProtectedLayout() {
   if (isMobile) {
     const discussionMatch = location.pathname.match(/^\/(us-collab-)?rd-discussion\/([^/]+)$/);
     const target = discussionMatch
-      ? `${discussionMatch[1] ? "/us-collab-m" : "/m"}/discussion/${encodeURIComponent(discussionMatch[2])}${location.search}`
+      ? `${discussionMatch[1] ? "/us-collab-m" : "/m"}/discussion/${encodeURIComponent(discussionMatch[2])}${location.search}${location.hash}`
       : location.pathname === "/chat-analytics"
-        ? "/m/chat-analytics"
+        ? `/m/chat-analytics${location.search}${location.hash}`
         : location.pathname.startsWith("/us-collab") ? "/us-collab-m" : "/m";
     return <Navigate to={target} replace />;
   }

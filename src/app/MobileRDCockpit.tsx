@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { AlertTriangle, ArrowLeft, Clock, History, ImageIcon, Inbox, Loader2, MessageCircleMore, RefreshCw, Search, Send, Users, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
@@ -17,6 +18,16 @@ import {
 } from "./lib/rdApi";
 import { MentionSuggestionPanel, useMentions, type MentionCandidate } from "./components/MentionInput";
 import { RDTaskConversation } from "./RDTaskConversation";
+import {
+  closeMobileOverlay,
+  isCurrentMobileOverlay,
+  pushMobileOverlayState,
+  useBodyScrollLock,
+  useMobileOverlayBack,
+} from "./hooks/useMobileOverlay";
+
+const TASK_DETAIL_OVERLAY = "rd-mobile-task-detail";
+const CARD_IMAGE_OVERLAY = "rd-mobile-card-image";
 
 // ─── 文案 / 配色映射（移动端自带一份，与桌面同口径、样式独立）────────────────────
 const STATUS_META: Record<RdTaskStatus, { label: string; dot: string; tint: string }> = {
@@ -145,26 +156,24 @@ function ImageLightbox({
   onClose: () => void;
 }) {
   const [idx, setIdx] = useState(startIndex);
+  useBodyScrollLock(true);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
     };
     document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
     };
   }, [onClose]);
 
   const safeIdx = Math.min(Math.max(idx, 0), images.length - 1);
   const current = images[safeIdx];
 
-  return (
-    <div className="fixed inset-0 z-[80] flex flex-col bg-slate-950/90 backdrop-blur-sm" onClick={onClose}>
-      <div className="flex shrink-0 items-center justify-between px-4 py-3 text-white/90">
+  return createPortal(
+    <div className="fixed inset-0 z-[1000] flex flex-col overscroll-none bg-slate-950/90 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="图片预览" onClick={onClose}>
+      <div className="flex shrink-0 items-center justify-between px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] text-white/90">
         <span className="text-xs tabular-nums">
           {safeIdx + 1} / {images.length}
         </span>
@@ -191,7 +200,7 @@ function ImageLightbox({
       </div>
       {images.length > 1 && (
         <div
-          className="flex shrink-0 gap-2 overflow-x-auto px-4 py-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="flex shrink-0 gap-2 overflow-x-auto px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           onClick={(e) => e.stopPropagation()}
         >
           {images.map((u, i) => (
@@ -215,7 +224,8 @@ function ImageLightbox({
           ))}
         </div>
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -479,18 +489,15 @@ export function MobileRDCockpit() {
     return () => io.disconnect();
   }, [filteredTasks.length]);
 
-  // 详情打开时监听返回：系统/浏览器返回键触发 popstate → 关闭详情（消费掉 pushState 那条记录）。
-  useEffect(() => {
-    if (!activeTask) return;
-    const onPop = () => setActiveTask(null);
-    window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
-  }, [activeTask]);
+  const dismissActiveTask = useCallback(() => setActiveTask(null), []);
+  const dismissLightbox = useCallback(() => setLightbox(null), []);
+  useMobileOverlayBack(Boolean(activeTask), TASK_DETAIL_OVERLAY, dismissActiveTask);
+  useMobileOverlayBack(Boolean(lightbox), CARD_IMAGE_OVERLAY, dismissLightbox);
 
   const shownTasks = filteredTasks.slice(0, visible);
 
   const scrollTop = () => {
-    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "auto" });
   };
   const pickStatus = (k: MobileFilter) => {
     setFilter(k);
@@ -525,7 +532,7 @@ export function MobileRDCockpit() {
 
   // 打开任务详情：压入一条 history，使「系统返回键 / 详情内返回」都只关详情、不退出 /m。
   const openTask = (task: RdTask) => {
-    window.history.pushState({ mobileTaskDetail: true }, "");
+    pushMobileOverlayState(TASK_DETAIL_OVERLAY);
     setActiveTask(task);
     // 只标记正式留痕已读；讨论仍按线程逐个已读，避免打开任务时把尚未查看的对话误清空。
     void markRdTaskNotesRead(task.task_id)
@@ -559,7 +566,7 @@ export function MobileRDCockpit() {
   }
 
   return (
-    <div className="w-full pb-10">
+    <div className="w-full pb-[max(2.5rem,env(safe-area-inset-bottom))]">
       {/* ── 页头过滤区（吸顶）────────────────────────────────────────────── */}
       <div className="sticky top-0 z-20 border-b border-slate-200/70 bg-slate-50/95 backdrop-blur-md">
         {/* 状态过滤：手机宽度固定五等分，避免末项被刷新按钮挤出视口。 */}
@@ -707,7 +714,10 @@ export function MobileRDCockpit() {
                     isRisk={riskTaskIds.has(t.task_id)}
                     priority={columnIndex === 0}
                     onOpen={() => openTask(t)}
-                    onPreview={(images, thumbnails, index) => setLightbox({ images, thumbnails, index })}
+                    onPreview={(images, thumbnails, index) => {
+                      pushMobileOverlayState(CARD_IMAGE_OVERLAY);
+                      setLightbox({ images, thumbnails, index });
+                    }}
                     unreadCount={noteUnread[t.task_id] ?? 0}
                   />
                 ))}
@@ -728,7 +738,7 @@ export function MobileRDCockpit() {
         <MobileTaskDetail
           task={activeTask}
           isRisk={riskTaskIds.has(activeTask.task_id)}
-          onClose={() => window.history.back()}
+          onClose={() => closeMobileOverlay(TASK_DETAIL_OVERLAY, dismissActiveTask)}
           onAfterSubmit={() => {
             reload();
             void refreshNoteUnread();
@@ -742,7 +752,7 @@ export function MobileRDCockpit() {
           images={lightbox.images}
           thumbnails={lightbox.thumbnails}
           startIndex={lightbox.index}
-          onClose={() => setLightbox(null)}
+          onClose={() => closeMobileOverlay(CARD_IMAGE_OVERLAY, dismissLightbox)}
         />
       )}
     </div>
@@ -815,14 +825,15 @@ function MobileTaskDetail({
     void loadNotes();
   }, [loadNotes]);
 
-  // 详情打开期间锁住身后的列表滚动（移动路由下 body 才是滚动容器，行内样式压过样式表）。
+  useBodyScrollLock(true);
+
   useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && isCurrentMobileOverlay(TASK_DETAIL_OVERLAY)) onClose();
     };
-  }, []);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
 
   const submitNote = async () => {
     const text = draft.trim();
@@ -858,9 +869,9 @@ function MobileTaskDetail({
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex flex-col bg-slate-50">
+    <div className="fixed inset-0 z-[60] flex flex-col overscroll-none bg-slate-50" role="dialog" aria-modal="true" aria-label={t("任务详情")}>
       {/* 顶栏：返回 + 标题 + 状态/负责人 */}
-      <header className="flex items-center gap-1.5 border-b border-slate-200 bg-white px-2 py-1.5">
+      <header className="flex items-center gap-1.5 border-b border-slate-200 bg-white px-2 pb-1.5 pt-[max(0.375rem,env(safe-area-inset-top))]">
         <button
           type="button"
           onClick={onClose}

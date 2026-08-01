@@ -61,7 +61,7 @@ export function RDDiscussionInvitePage() {
       : t("任务讨论");
 
   return (
-    <div className={mobile ? "flex h-[calc(100dvh-65px)] min-h-0 flex-col bg-white" : "flex h-full min-h-[620px] flex-col p-4 lg:p-5"}>
+    <div className={mobile ? "flex h-full min-h-0 flex-col bg-white" : "flex h-full min-h-[620px] flex-col p-4 lg:p-5"}>
       <section className={mobile
         ? "flex min-h-0 flex-1 flex-col overflow-hidden bg-white"
         : "mx-auto flex min-h-0 w-full max-w-[1120px] flex-1 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-[0_14px_40px_rgba(15,23,42,0.08)]"

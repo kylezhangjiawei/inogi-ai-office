@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   ArrowLeft,
+  ChevronDown,
   Eye,
   FileText,
   ImageIcon,
@@ -46,6 +47,7 @@ const DISCUSSION_MAX_FILES = 10;
 const DISCUSSION_MAX_FILE_BYTES = 25 * 1024 * 1024;
 const DISCUSSION_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
 const DISCUSSION_POLL_INTERVAL_MS = 5_000;
+const STICK_TO_BOTTOM_THRESHOLD_PX = 72;
 const DISCUSSION_BLOCKED_EXTENSIONS = new Set([
   "apk",
   "app",
@@ -785,43 +787,72 @@ function AnchorPreview({
 }) {
   const attachments = anchor.note?.attachments ?? anchor.message?.attachments ?? anchor.attachments ?? [];
   const authorId = anchor.note?.actor.id ?? anchor.message?.author_id ?? anchor.authorId ?? null;
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    setExpanded(false);
+  }, [anchor.id, anchor.type]);
+
   return (
-    <div className="border-b border-slate-200 bg-slate-50/80 px-3 py-2">
-      <div className="flex items-center gap-2 text-[10px] font-bold tracking-[0.08em] text-indigo-600">
-        {anchor.type === "progress_note" ? <Sparkles className="h-3.5 w-3.5" /> : <MessageCircleMore className="h-3.5 w-3.5" />}
-        {anchor.type === "progress_note" ? t("原始进度记录") : t("原始任务消息")}
-      </div>
-      <div className="mt-1.5 rounded-lg border border-slate-200 border-l-2 border-l-indigo-400 bg-white px-2.5 py-2 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <ConversationAvatar name={anchor.author} userId={authorId} size="xs" />
-            <div className="truncate text-[11px] font-semibold text-slate-700">{anchor.author}</div>
-          </div>
-          <div className="shrink-0 text-[10px] tabular-nums text-slate-400">
-            {new Date(anchor.createdAt).toLocaleString(i18nLocale(), {
-              month: "numeric",
-              day: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </div>
-        </div>
-        <div className="mt-1 line-clamp-2 whitespace-pre-wrap text-xs leading-4 text-slate-600">
+    <div className="shrink-0 border-b border-slate-200 bg-slate-50/80">
+      <button
+        type="button"
+        onClick={() => setExpanded((current) => !current)}
+        aria-expanded={expanded}
+        className="flex min-h-11 w-full cursor-pointer items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-indigo-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400"
+      >
+        <span className="flex shrink-0 items-center gap-1.5 text-[10px] font-bold tracking-[0.06em] text-indigo-600">
+          {anchor.type === "progress_note" ? <Sparkles className="h-3.5 w-3.5" /> : <MessageCircleMore className="h-3.5 w-3.5" />}
+          {anchor.type === "progress_note" ? t("原始进度记录") : t("原始任务消息")}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[11px] text-slate-500">
           {anchor.preview || t("附件消息")}
-        </div>
-        {attachments.length > 0 && !compact && (
-          <ProgressAttachmentGrid attachments={attachments} compact className="mt-1.5" />
-        )}
-        {attachments.length > 0 && compact && (
-          <div className="mt-1 text-[10px] font-semibold text-slate-500">
+        </span>
+        {attachments.length > 0 && (
+          <span className="shrink-0 rounded-full bg-white px-1.5 py-0.5 text-[9px] font-semibold text-slate-500 ring-1 ring-slate-200">
             {t("{n} 个附件", { n: attachments.length })}
-          </div>
+          </span>
         )}
-      </div>
-      {anchor.type === "progress_note" && (
-        <p className="mt-1 text-[10px] leading-4 text-slate-500">
-          {t("回复只显示在本条进度下，不会修改原始记录。")}
-        </p>
+        <ChevronDown
+          className={cn("h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200", expanded && "rotate-180")}
+          aria-hidden="true"
+        />
+      </button>
+      {expanded && (
+        <div className="cockpit-scroll max-h-[min(42dvh,22rem)] overflow-y-auto overscroll-contain px-3 pb-2">
+          <div className="rounded-lg border border-slate-200 border-l-2 border-l-indigo-400 bg-white px-2.5 py-2 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <ConversationAvatar name={anchor.author} userId={authorId} size="xs" />
+                <div className="truncate text-[11px] font-semibold text-slate-700">{anchor.author}</div>
+              </div>
+              <div className="shrink-0 text-[10px] tabular-nums text-slate-400">
+                {new Date(anchor.createdAt).toLocaleString(i18nLocale(), {
+                  month: "numeric",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </div>
+            </div>
+            <div className="mt-1 whitespace-pre-wrap text-xs leading-4 text-slate-600">
+              {anchor.preview || t("附件消息")}
+            </div>
+            {attachments.length > 0 && !compact && (
+              <ProgressAttachmentGrid attachments={attachments} compact className="mt-1.5" />
+            )}
+            {attachments.length > 0 && compact && (
+              <div className="mt-1 text-[10px] font-semibold text-slate-500">
+                {t("{n} 个附件", { n: attachments.length })}
+              </div>
+            )}
+          </div>
+          {anchor.type === "progress_note" && (
+            <p className="mt-1 text-[10px] leading-4 text-slate-500">
+              {t("回复只显示在本条进度下，不会修改原始记录。")}
+            </p>
+          )}
+        </div>
       )}
     </div>
   );
@@ -921,7 +952,21 @@ export function RDTaskConversation({
   const threadScrollRef = useRef<HTMLDivElement>(null);
   const preserveMainScrollRef = useRef(false);
   const preserveThreadScrollRef = useRef(false);
+  const mainStickToBottomRef = useRef(true);
+  const threadStickToBottomRef = useRef(true);
+  const mainInitialScrollRef = useRef(true);
+  const threadInitialScrollRef = useRef(true);
   const focusOpenedRef = useRef("");
+
+  const updateStickToBottom = useCallback((scroller: HTMLDivElement, target: { current: boolean }) => {
+    const distanceFromBottom = scroller.scrollHeight - scroller.clientHeight - Math.max(0, scroller.scrollTop);
+    target.current = distanceFromBottom <= STICK_TO_BOTTOM_THRESHOLD_PX;
+  }, []);
+
+  useEffect(() => {
+    mainStickToBottomRef.current = true;
+    mainInitialScrollRef.current = true;
+  }, [mode, taskId]);
 
   useEffect(() => {
     onThreadOpenChange?.(Boolean(activeAnchor));
@@ -1078,8 +1123,13 @@ export function RDTaskConversation({
       preserveMainScrollRef.current = false;
       return;
     }
+    if (!mainInitialScrollRef.current && !mainStickToBottomRef.current) return;
     const frame = requestAnimationFrame(() => {
-      if (mainScrollRef.current) mainScrollRef.current.scrollTop = mainScrollRef.current.scrollHeight;
+      if (mainScrollRef.current) {
+        mainScrollRef.current.scrollTop = mainScrollRef.current.scrollHeight;
+        mainStickToBottomRef.current = true;
+        mainInitialScrollRef.current = false;
+      }
     });
     return () => cancelAnimationFrame(frame);
   }, [feedItems.length, mainLoading, mode, notesLoading]);
@@ -1136,6 +1186,8 @@ export function RDTaskConversation({
   }, [onActivity, taskId]);
 
   const openThread = useCallback(async (anchor: ConversationAnchor) => {
+    threadStickToBottomRef.current = true;
+    threadInitialScrollRef.current = true;
     setActiveAnchor(anchor);
     setReplyTarget(null);
     await loadThread(anchor, true);
@@ -1206,8 +1258,13 @@ export function RDTaskConversation({
       preserveThreadScrollRef.current = false;
       return;
     }
+    if (!threadInitialScrollRef.current && !threadStickToBottomRef.current) return;
     const frame = requestAnimationFrame(() => {
-      if (threadScrollRef.current) threadScrollRef.current.scrollTop = threadScrollRef.current.scrollHeight;
+      if (threadScrollRef.current) {
+        threadScrollRef.current.scrollTop = threadScrollRef.current.scrollHeight;
+        threadStickToBottomRef.current = true;
+        threadInitialScrollRef.current = false;
+      }
     });
     return () => cancelAnimationFrame(frame);
   }, [thread?.messages.length, threadLoading]);
@@ -1235,6 +1292,7 @@ export function RDTaskConversation({
   };
 
   const appendMainMessage = (message: RdTaskDiscussionMessage) => {
+    mainStickToBottomRef.current = true;
     setMain((current) => current
       ? {
           ...current,
@@ -1247,6 +1305,7 @@ export function RDTaskConversation({
   };
 
   const appendThreadMessage = (message: RdTaskDiscussionMessage) => {
+    threadStickToBottomRef.current = true;
     setThread((current) => current
       ? {
           ...current,
@@ -1271,7 +1330,12 @@ export function RDTaskConversation({
           compact={variant === "mobile"}
         />
       )}
-      <div ref={mainScrollRef} className="cockpit-scroll min-h-0 flex-1 overflow-y-auto px-2.5 pb-2 sm:px-4" aria-live="polite">
+      <div
+        ref={mainScrollRef}
+        onScroll={(event) => updateStickToBottom(event.currentTarget, mainStickToBottomRef)}
+        className="cockpit-scroll min-h-0 flex-1 overflow-y-auto px-2.5 pb-2 sm:px-4"
+        aria-live="polite"
+      >
         {mainLoading || (mode === "progress" && notesLoading) ? (
           <div className="space-y-3 py-5">
             {[0, 1, 2].map((item) => (
@@ -1522,7 +1586,12 @@ export function RDTaskConversation({
                 anchor={activeAnchor}
                 compact={variant === "desktop" && threadLayout === "replace"}
               />
-              <div ref={threadScrollRef} className="cockpit-scroll min-h-0 flex-1 overflow-y-auto bg-slate-50/60 px-2.5 py-2" aria-live="polite">
+              <div
+                ref={threadScrollRef}
+                onScroll={(event) => updateStickToBottom(event.currentTarget, threadStickToBottomRef)}
+                className="cockpit-scroll min-h-0 flex-1 overflow-y-auto bg-slate-50/60 px-2.5 py-2"
+                aria-live="polite"
+              >
                 {threadLoading ? (
                   <div className="flex h-full items-center justify-center text-slate-400">
                     <Loader2 className="h-5 w-5 animate-spin" />
