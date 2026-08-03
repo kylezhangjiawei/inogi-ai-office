@@ -12,6 +12,8 @@ import {
 } from "lucide-react";
 import { Link } from "react-router";
 import { cn } from "./components/ui/utils";
+// 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
+import { routePath } from "./lib/routePaths";
 
 type BomRecord = {
   id: string;
@@ -147,11 +149,11 @@ export function BOMArchive() {
             </div>
           </div>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:gap-3">
-            <Link to="/design-changes" className="material-button-secondary w-full justify-center sm:w-auto">
+            <Link to={routePath("page:design-changes", "/design-changes")} className="material-button-secondary w-full justify-center sm:w-auto">
               去设计变更
               <ArrowRight className="h-4 w-4" />
             </Link>
-            <Link to="/quality-dms" className="material-button-secondary w-full justify-center sm:w-auto">
+            <Link to={routePath("page:quality-dms", "/quality-dms")} className="material-button-secondary w-full justify-center sm:w-auto">
               去质量 DMS
               <ArrowRight className="h-4 w-4" />
             </Link>

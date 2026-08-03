@@ -21,14 +21,17 @@ export class PermissionCatalogController {
   }
 
   /**
-   * Returns an array of permission codes that are marked as nav-hidden.
-   * Used by the sidebar to filter which nav items to show.
-   * Requires only basic login (page:dashboard is the minimum permission any user has).
+   * 导航与路由元数据：{ code, routePath, navHidden }[]。
+   * 侧边栏据此过滤导航项，路由层据此决定每个页面挂在哪个路径。
+   * 只要求最低权限（page:dashboard 是任何用户都有的）—— 普通用户同样需要拿到自定义路径，
+   * 否则管理员在页面路由管理里改的路径对他们不生效。
+   *
+   * 取代原 GET nav-hidden（只返回 code 数组）；前端已同步改用本接口。
    */
-  @Get('nav-hidden')
+  @Get('nav-meta')
   @Permissions('page:dashboard')
-  getNavHiddenCodes() {
-    return this.permissionCatalogService.getNavHiddenCodes();
+  getNavMeta() {
+    return this.permissionCatalogService.getNavMeta();
   }
 
   @Post('items')

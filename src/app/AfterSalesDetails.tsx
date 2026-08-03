@@ -22,6 +22,8 @@ import { Dialog, DialogActions, DialogContent, DialogTitle } from "@mui/material
 import { Link, useParams } from "react-router";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
+// 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
+import { routePath } from "./lib/routePaths";
 
 type Attachment = {
   id: string;
@@ -139,7 +141,7 @@ export function AfterSalesDetails() {
   return (
     <div className="mx-auto max-w-7xl space-y-5 animate-in fade-in slide-in-from-bottom-4 duration-500 sm:space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <Link to="/after-sales" className="inline-flex items-center gap-2 text-sm font-medium text-gray-500 transition-colors hover:text-gray-800 group">
+        <Link to={routePath("page:after-sales", "/after-sales")} className="inline-flex items-center gap-2 text-sm font-medium text-gray-500 transition-colors hover:text-gray-800 group">
           <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1" />
           返回列表
         </Link>

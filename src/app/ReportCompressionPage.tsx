@@ -10,6 +10,8 @@ import {
 import { Link } from "react-router";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
+// 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
+import { routePath } from "./lib/routePaths";
 
 type InputMode = "paste" | "upload";
 type CompressionMode = "周报" | "经营汇报" | "会议纪要";
@@ -174,7 +176,7 @@ export function ReportCompressionPage() {
         <section className="material-card p-5">
           <div className="flex items-center justify-between">
             <h3 className="text-sm font-semibold text-slate-800">最近任务</h3>
-            <Link to="/meeting" className="material-button-secondary text-xs">
+            <Link to={routePath("page:meeting", "/meeting")} className="material-button-secondary text-xs">
               去会议纪要
             </Link>
           </div>

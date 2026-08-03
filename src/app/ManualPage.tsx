@@ -15,6 +15,8 @@ import { ArrowLeft, BookOpen, GanttChartSquare, LayoutGrid } from "lucide-react"
 import { Link, Navigate, useParams } from "react-router";
 import { cn } from "./components/ui/utils";
 import { t, useI18n, type I18nLang } from "./lib/i18n";
+// 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
+import { routePath } from "./lib/routePaths";
 
 type ShotMarker = { n: number; x: number; y: number };
 
@@ -732,7 +734,7 @@ function TopicIndexCard({ topic }: { topic: ManualTopic }) {
   const Icon = topic.icon;
   return (
     <Link
-      to={`/manual/${topic.id}`}
+      to={`${routePath("page:manual", "/manual")}/${topic.id}`}
       className={cn(
         "group relative min-h-[170px] overflow-hidden rounded-[4px] bg-gradient-to-r px-5 py-6 text-white transition duration-200 hover:-translate-y-0.5 sm:min-h-[190px] sm:px-9 sm:py-9",
         topic.gradient,
@@ -786,7 +788,7 @@ export function ManualTopicPage() {
   const { topicId } = useParams();
   const topic = TOPICS.find((item) => item.id === topicId);
 
-  if (!topic) return <Navigate to="/manual" replace />;
+  if (!topic) return <Navigate to={routePath("page:manual", "/manual")} replace />;
 
   const shotSrc = manualShotSrc(topic.shot, lang);
 
@@ -794,7 +796,7 @@ export function ManualTopicPage() {
     <div className="mx-auto max-w-[1680px] overflow-hidden rounded-sm bg-white shadow-[0_12px_28px_rgba(15,23,42,0.06)]">
       <div className="sticky top-0 z-10 flex flex-col gap-3 border-b border-slate-100 bg-white px-4 py-4 shadow-[0_6px_18px_rgba(15,23,42,0.06)] sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-          <Link to="/manual" className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-indigo-600 transition hover:bg-indigo-50">
+          <Link to={routePath("page:manual", "/manual")} className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-indigo-600 transition hover:bg-indigo-50">
             <ArrowLeft className="h-5 w-5" />
           </Link>
           <div className="min-w-0">
@@ -822,7 +824,7 @@ export function ManualTopicPage() {
               {t(item.label)}
             </a>
           ))}
-          <Link to="/manual" className="ml-1 inline-flex shrink-0 justify-center rounded bg-indigo-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-[0_8px_14px_rgba(79,70,229,0.28)] transition hover:bg-indigo-600">
+          <Link to={routePath("page:manual", "/manual")} className="ml-1 inline-flex shrink-0 justify-center rounded bg-indigo-500 px-3.5 py-1.5 text-xs font-semibold text-white shadow-[0_8px_14px_rgba(79,70,229,0.28)] transition hover:bg-indigo-600">
             {t("其他页面")}
           </Link>
         </nav>

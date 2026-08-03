@@ -114,6 +114,9 @@ const FIELD_LABELS: Record<string, string> = {
   notes: "备注",
   comment: "评论",
   duration_basis: "工期依据",
+  // 子任务关系（一层）：并入/取消关系的留痕会带这两个字段
+  parent_task_id: "父任务",
+  subtask_origin: "子任务来源",
   // 权限 / 角色
   permissions: "权限",
   permission: "权限编码",
@@ -169,6 +172,7 @@ const VALUE_LABELS: Record<string, Record<string, string>> = {
   priority: { high: "高", medium: "中", low: "低" },
   final_priority: { high: "高", medium: "中", low: "低" },
   ai_priority: { high: "高", medium: "中", low: "低" },
+  subtask_origin: { attached: "由已有任务并入", created: "在父任务下直建" },
   source: {
     text: "文本",
     file_text: "文件文本",
@@ -225,7 +229,11 @@ function labelForValue(field: string, value: unknown): string {
 function formatRelative(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
   const min = Math.floor(diffMs / 60000);
-  if (min < 1) return t("刚刚");
+  if (min < 1) {
+    // 一分钟内也给到秒，不再笼统显示「刚刚」
+    const sec = Math.floor(diffMs / 1000);
+    return sec > 0 ? t("{n} 秒前", { n: sec }) : t("刚刚");
+  }
   if (min < 60) return t("{n} 分钟前", { n: min });
   const hr = Math.floor(min / 60);
   if (hr < 24) return t("{n} 小时前", { n: hr });
@@ -234,12 +242,14 @@ function formatRelative(iso: string): string {
   return new Date(iso).toLocaleDateString(i18nLocale(), { month: "2-digit", day: "2-digit" });
 }
 
+/** 操作留痕的绝对时间：保持 MM-DD 的紧凑排版（时间线密度高、不显示年），但精确到秒。 */
 function formatAbsolute(iso: string): string {
   return new Date(iso).toLocaleString(i18nLocale(), {
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    second: "2-digit",
     hour12: false,
   });
 }
@@ -248,7 +258,9 @@ function formatAbsolute(iso: string): string {
 
 function formatChangeValue(v: unknown): string {
   if (v === null || v === undefined) return "—";
-  if (typeof v === "string") return v;
+  // 空串与 null 同义（"此前无值"）：并入子任务的 parent_task_id 留痕 before 就是空串，
+  // 原样渲染会在 diff 左侧留一个空洞，看着像渲染坏了。
+  if (typeof v === "string") return v === "" ? "—" : v;
   if (typeof v === "number" || typeof v === "boolean") return String(v);
   if (Array.isArray(v)) return v.join(", ");
   return JSON.stringify(v);
@@ -486,10 +498,11 @@ function AuditLogEntry({
         )}
 
         {/* Timestamp */}
-        <div className="mt-1 flex items-center gap-2 text-[10px] text-slate-400">
-          <span title={formatAbsolute(log.timestamp)}>{formatRelative(log.timestamp)}</span>
+        {/* 时间加秒后这行更宽：允许整体换行、但单个时间值本身不折断，窄屏下退化为换行而非溢出裁切 */}
+        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-slate-400">
+          <span className="whitespace-nowrap" title={formatAbsolute(log.timestamp)}>{formatRelative(log.timestamp)}</span>
           <span className="text-slate-300">·</span>
-          <span className="tabular-nums">{formatAbsolute(log.timestamp)}</span>
+          <span className="whitespace-nowrap tabular-nums">{formatAbsolute(log.timestamp)}</span>
           {log.source !== "web" && (
             <>
               <span className="text-slate-300">·</span>

@@ -41,6 +41,25 @@ const RD_TASK_MANAGER_PERMISSIONS = [
   'rd-people:manage',
 ] as const;
 
+/**
+ * 「任务结构管理员」口径：可任意重挂/摘出任务的父子关系（attach-parent / detach-parent）。
+ * ⚠️ 刻意不含 rd-task:edit —— 默认「研发人员」角色就持有该码，若沿用 RD_TASK_MANAGER_PERMISSIONS，
+ * canEditAny 对普通成员恒为真，服务层的归属校验会整段失效（端点本身又要求 rd-task:edit 才能进，
+ * 等于谁都能绕过）。与前端 RDTaskDetailPage 的 canManage 是同一组权限码。
+ */
+const RD_TASK_STRUCTURE_MANAGER_PERMISSIONS = [
+  'rd-task:reassign',
+  'rd-project:direct',
+  'rd-project:review-l1',
+  'rd-project:review-l2',
+  'rd-people:manage',
+] as const;
+
+function canManageTaskStructure(permissions: string[]): boolean {
+  return permissions.includes('*')
+    || RD_TASK_STRUCTURE_MANAGER_PERMISSIONS.some((code) => permissions.includes(code));
+}
+
 function canManageAnyTask(permissions: string[]): boolean {
   return permissions.includes('*') || RD_TASK_MANAGER_PERMISSIONS.some((code) => permissions.includes(code));
 }
@@ -166,9 +185,12 @@ export class ResearchDevelopmentController {
     @Body() payload: { parent_task_id?: unknown },
     @Request() req: AuthedRequest,
   ) {
+    // 越权防护口径与 updateTask 一致：任务管理员/审核人可重挂任意任务；
+    // 仅持工作台页面权限的普通成员由服务层按 owner/协作人兜底校验（源任务与目标父任务都要过）。
     return this.rdService.attachTaskAsSubtask(taskId, String(payload?.parent_task_id ?? ''), {
       userId: req.user?.id,
       userName: req.user?.name,
+      canEditAny: canManageTaskStructure(req.user?.permissions ?? []),
     });
   }
 
@@ -179,6 +201,7 @@ export class ResearchDevelopmentController {
     return this.rdService.detachSubtask(taskId, {
       userId: req.user?.id,
       userName: req.user?.name,
+      canEditAny: canManageTaskStructure(req.user?.permissions ?? []),
     });
   }
 
@@ -512,7 +535,7 @@ export class ResearchDevelopmentController {
       requesterUserId: req.user?.id,
       requesterName: req.user?.name,
       requesterRole: req.user?.role,
-      canEditAny: canManageAnyTask(req.user?.permissions ?? []),
+      canEditAny: canManageTaskStructure(req.user?.permissions ?? []),
     });
   }
 
@@ -536,7 +559,7 @@ export class ResearchDevelopmentController {
       requesterUserId: req.user?.id,
       requesterName: req.user?.name,
       requesterRole: req.user?.role,
-      canEditAny: canManageAnyTask(req.user?.permissions ?? []),
+      canEditAny: canManageTaskStructure(req.user?.permissions ?? []),
     });
   }
 
@@ -555,7 +578,7 @@ export class ResearchDevelopmentController {
       requesterUserId: req.user?.id,
       requesterName: req.user?.name,
       requesterRole: req.user?.role,
-      canEditAny: canManageAnyTask(req.user?.permissions ?? []),
+      canEditAny: canManageTaskStructure(req.user?.permissions ?? []),
     });
   }
 

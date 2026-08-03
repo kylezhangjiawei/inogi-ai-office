@@ -1913,7 +1913,7 @@ export class ResearchDevelopmentService {
   async attachTaskAsSubtask(
     taskId: string,
     parentTaskId: string,
-    actor?: { userId?: string; userName?: string },
+    actor?: { userId?: string; userName?: string; canEditAny?: boolean },
   ) {
     return this.withTaskTreeLock(() => this.attachTaskAsSubtaskUnlocked(taskId, parentTaskId, actor ?? {}));
   }
@@ -1921,7 +1921,7 @@ export class ResearchDevelopmentService {
   private async attachTaskAsSubtaskUnlocked(
     taskId: string,
     parentTaskId: string,
-    actor: { userId?: string; userName?: string },
+    actor: { userId?: string; userName?: string; canEditAny?: boolean },
   ) {
     const childId = cleanText(taskId);
     const parentId = cleanText(parentTaskId);
@@ -1933,6 +1933,18 @@ export class ResearchDevelopmentService {
     if (!childSlot) throw new NotFoundException('任务不存在');
     const parentSlot = this.locateTaskInTrees(trees, parentId);
     if (!parentSlot) throw new NotFoundException('父任务不存在');
+
+    // 越权防护（与 updateTask / moveTasks 同口径）：仅持工作台页面权限的普通成员只能重挂
+    // 「自己负责」的任务，且目标父任务也须是自己参与的——否则可把任务塞进任意他人的任务下。
+    // 管理员级权限(canEditAny)完全跳过，行为不变。此处仅读了内存副本、尚未写库，抛错即安全。
+    if (!actor.canEditAny) {
+      if (!isTaskParticipant(childSlot.task, actor.userId, actor.userName)) {
+        throw new ForbiddenException('只能操作自己负责的任务');
+      }
+      if (!isTaskParticipant(parentSlot.task, actor.userId, actor.userName)) {
+        throw new ForbiddenException('只能并入自己负责的任务');
+      }
+    }
 
     if (childSlot.parentTaskId) throw new BadRequestException('该任务已经是子任务，不能重复挂载');
     if (parentSlot.parentTaskId) {
@@ -2013,12 +2025,14 @@ export class ResearchDevelopmentService {
   }
 
   /** 取消子任务关系：把子任务提升为顶层任务，落在原父任务所在子项目里（与父任务同级）。 */
-  async detachSubtask(taskId: string, actor?: { userId?: string; userName?: string }) {
-    void actor;
-    return this.withTaskTreeLock(() => this.detachSubtaskUnlocked(taskId));
+  async detachSubtask(taskId: string, actor?: { userId?: string; userName?: string; canEditAny?: boolean }) {
+    return this.withTaskTreeLock(() => this.detachSubtaskUnlocked(taskId, actor ?? {}));
   }
 
-  private async detachSubtaskUnlocked(taskId: string) {
+  private async detachSubtaskUnlocked(
+    taskId: string,
+    actor: { userId?: string; userName?: string; canEditAny?: boolean },
+  ) {
     const childId = cleanText(taskId);
     if (!childId) throw new BadRequestException('缺少任务 id');
 
@@ -2027,6 +2041,11 @@ export class ResearchDevelopmentService {
     const slot = this.locateTaskInTrees(trees, childId);
     if (!slot) throw new NotFoundException('任务不存在');
     if (!slot.parentTaskId) throw new BadRequestException('该任务不是子任务');
+
+    // 越权防护：与 attachTaskAsSubtask 同口径，普通成员只能摘出自己负责的子任务
+    if (!actor.canEditAny && !isTaskParticipant(slot.task, actor.userId, actor.userName)) {
+      throw new ForbiddenException('只能操作自己负责的任务');
+    }
 
     const nowIso = new Date().toISOString();
     const detached: JsonRecord = {
@@ -6859,8 +6878,42 @@ export class ResearchDevelopmentService {
     return { text: lines.join('\n'), model: 'local', provider: 'local', source: 'local', generated_at: new Date().toISOString() };
   }
 
-  private toWorkspaceTask(task: JsonRecord, role: 'primary' | 'collaborator', collabRole?: string) {
+  /**
+   * childTaskId → 父任务记录。按「结构位置」建索引，不看 parent_task_id 字段——
+   * 存量子任务没有该字段，只认字段会把它们当成顶层任务（与前端 RDTaskDetailPage 同口径）。
+   */
+  private collectSubtaskParents(categories: unknown[]): Map<string, JsonRecord> {
+    const parents = new Map<string, JsonRecord>();
+    const walk = (tasks: unknown[]) => {
+      for (const task of tasks) {
+        if (!isRecord(task)) continue;
+        const subtasks = asArray(task.subtasks);
+        for (const sub of subtasks) {
+          if (!isRecord(sub)) continue;
+          const id = cleanText(sub.task_id);
+          if (id) parents.set(id, task);
+        }
+        walk(subtasks);
+      }
+    };
+    for (const category of categories) {
+      if (!isRecord(category)) continue;
+      for (const child of asArray(category.children)) {
+        if (isRecord(child)) walk(asArray(child.tasks));
+      }
+    }
+    return parents;
+  }
+
+  private toWorkspaceTask(
+    task: JsonRecord,
+    role: 'primary' | 'collaborator',
+    collabRole?: string,
+    /** 本任务的父任务（本任务是子任务时非空）。由 collectSubtaskParents 按结构位置解析后传入。 */
+    parentTask?: JsonRecord,
+  ) {
     const dueDate = cleanText(task.due_date);
+    const subtaskOrigin = cleanText(task.subtask_origin);
     return {
       task_id: cleanText(task.task_id),
       title: cleanText(task.title) || '未命名任务',
@@ -6908,6 +6961,41 @@ export class ResearchDevelopmentService {
           done: it.done === true,
         }))
         .filter((it) => it.id && it.title),
+      // ── 子任务关系（一层）：工作台据此显示身份徽标 / 父任务归属 / 子任务清单 ──
+      // parent_* 一律以结构位置为准（parentTask 由 collectSubtaskParents 解析），不回读字段。
+      parent_task_id: parentTask ? cleanText(parentTask.task_id) || null : null,
+      parent_title: parentTask ? cleanText(parentTask.title) || null : null,
+      // origin 只在确实是子任务时下发；存量子任务无此字段 → null（前端按"中性子任务"渲染）
+      subtask_origin: parentTask && (subtaskOrigin === 'attached' || subtaskOrigin === 'created')
+        ? subtaskOrigin
+        : null,
+      subtask_attached_at: parentTask ? cleanText(task.subtask_attached_at) || null : null,
+      subtask_attached_by: parentTask ? cleanText(task.subtask_attached_by) || null : null,
+      /**
+       * 是否带子任务——含已归档的。
+       * ⚠️ 与下面的 subtasks 清单口径不同且必须不同：清单是给人看的（滤掉归档项），
+       * 而 attachTaskAsSubtaskUnlocked 拒绝「自身已带子任务」时统计的是**未过滤**的原数组。
+       * 前端的并入门控必须用这个标志，否则「只剩归档子任务」的任务会放行按钮、提交必被后端拒。
+       */
+      has_subtasks: asArray(task.subtasks).filter(isRecord).length > 0,
+      // 子任务清单（本任务是父任务时非空）。已归档的不下发，与工作台"仅排除已归档"的可见口径一致。
+      subtasks: asArray(task.subtasks)
+        .filter(isRecord)
+        .filter((sub) => !isArchivedTask(sub))
+        .map((sub) => {
+          const origin = cleanText(sub.subtask_origin);
+          return {
+            task_id: cleanText(sub.task_id),
+            title: cleanText(sub.title) || '未命名任务',
+            status: cleanText(sub.status) || 'in_progress',
+            status_label: this.taskStatusLabel(sub.status),
+            progress: typeof sub.progress === 'number' ? sub.progress : 0,
+            owner: cleanText(sub.primary_owner ?? sub.owner),
+            owner_user_id: cleanUserId(sub.primary_owner_user_id ?? sub.owner_user_id) || null,
+            subtask_origin: origin === 'attached' || origin === 'created' ? origin : null,
+          };
+        })
+        .filter((sub) => sub.task_id),
       description: cleanText(task.description),
       next_action: role === 'primary' ? '推进当前节点并同步最新进展。' : '配合主责人完成协作事项。',
       deliverables: asArray(task.deliverables).map((item) => cleanText(item)).filter(Boolean),
@@ -6976,13 +7064,17 @@ export class ResearchDevelopmentService {
       return undefined;
     };
 
+    // 子任务父子索引：按结构位置解析一次，myTasks/collabTasks 共用
+    const subtaskParents = this.collectSubtaskParents(categories);
+    const parentOf = (task: JsonRecord) => subtaskParents.get(cleanText(task.task_id));
+
     const myTasks = visibleTasks
       .filter(isPrimary)
-      .map((task) => this.toWorkspaceTask(task, 'primary'));
+      .map((task) => this.toWorkspaceTask(task, 'primary', undefined, parentOf(task)));
     const collabTasks = visibleTasks
       .map((task) => ({ task, role: collaboratorRole(task) }))
       .filter((item) => item.role && !isPrimary(item.task))
-      .map((item) => this.toWorkspaceTask(item.task, 'collaborator', item.role));
+      .map((item) => this.toWorkspaceTask(item.task, 'collaborator', item.role, parentOf(item.task)));
     const dueTasks = [...myTasks, ...collabTasks]
       .filter((task) => task.status !== 'completed' && task.due_date)
       .sort((a, b) => a.due_date.localeCompare(b.due_date))

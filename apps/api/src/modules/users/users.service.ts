@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'crypto';
 
@@ -44,7 +44,47 @@ export class UsersService {
     return user;
   }
 
+  /**
+   * 角色与部门的完整性校验。
+   *
+   * 此前两者都是「照单全收」：roleId 不验证是否存在、department 是自由文本不比对部门主数据，
+   * 于是能创建出没有角色（登录后零权限、首页都打不开）或挂着不存在部门（数据隔离全部落空）的账号。
+   *
+   * ⚠️ User.department 存的是部门**名称**而非外键（见 schema.prisma），部门改名时由
+   * departments.service 级联改写。因此这里只能按 name 比对，并要求部门处于启用状态。
+   */
+  private async assertRoleAndDepartment(payload: SaveUserDto, isCreate: boolean) {
+    if (isCreate && !payload.roleId) {
+      throw new BadRequestException('请为用户指定角色：无角色的账号登录后没有任何权限');
+    }
+    if (payload.roleId) {
+      const role = await this.prisma.role.findUnique({
+        where: { id: payload.roleId },
+        select: { id: true },
+      });
+      if (!role) throw new BadRequestException('指定的角色不存在，可能已被删除，请重新选择');
+    }
+
+    const department = payload.department?.trim();
+    if (isCreate && !department) {
+      throw new BadRequestException('请为用户指定部门：部门决定数据可见范围，不能为空');
+    }
+    if (department) {
+      const found = await this.prisma.department.findUnique({
+        where: { name: department },
+        select: { enabled: true },
+      });
+      if (!found) {
+        throw new BadRequestException(`部门「${department}」不存在，请从部门列表中选择`);
+      }
+      if (!found.enabled) {
+        throw new BadRequestException(`部门「${department}」已停用，不能再分配用户`);
+      }
+    }
+  }
+
   async save(payload: SaveUserDto) {
+    await this.assertRoleAndDepartment(payload, !payload.id);
     if (payload.id) {
       const existing = await this.prisma.user.findUnique({
         where: { id: payload.id },
@@ -64,7 +104,10 @@ export class UsersService {
           ...(payload.email ? { email: payload.email } : {}),
           username: payload.username ?? undefined,
           department: payload.department ?? undefined,
-          roleId: payload.roleId ?? null,
+          // ⚠️ 必须是 undefined（保持原值）而非 null（清空）：前端在角色下拉为空时发送
+          // roleId: undefined，旧写法会把该用户的角色一并抹掉，使其登录后零权限。
+          // 与上面 department 的处理保持一致——未提供即不改动。
+          roleId: payload.roleId ?? undefined,
           status: payload.status ?? 'ACTIVE',
         },
         select: USER_SELECT,

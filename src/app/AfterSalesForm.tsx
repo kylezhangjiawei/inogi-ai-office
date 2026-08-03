@@ -21,6 +21,8 @@ import {
 import { Link, useNavigate } from "react-router";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
+// 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
+import { routePath } from "./lib/routePaths";
 
 const steps = [
   { id: 1, name: "填写信息", icon: User },
@@ -168,14 +170,14 @@ export function AfterSalesForm() {
 
   const handleSubmit = () => {
     toast.success("售后工单已提交，已进入待受理列表");
-    navigate("/after-sales");
+    navigate(routePath("page:after-sales", "/after-sales"));
   };
 
   return (
     <div className="mx-auto max-w-[860px] px-3 py-5 pb-32 sm:px-4 sm:py-8 sm:pb-32">
       <div className="mb-8">
         <Link
-          to="/after-sales"
+          to={routePath("page:after-sales", "/after-sales")}
           className="group mb-4 inline-flex items-center gap-2 text-sm font-medium text-slate-500 transition hover:text-slate-800"
         >
           <ArrowLeft className="h-4 w-4 transition group-hover:-translate-x-1" />

@@ -4,6 +4,8 @@ import { Link, Navigate, useParams } from "react-router";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
 import { CLASH_SUBSCRIPTION_URL } from "./lib/appConfig";
+// 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
+import { routePath } from "./lib/routePaths";
 
 type PlatformId = "windows" | "android" | "ios" | "mac";
 
@@ -482,7 +484,7 @@ export function DownloadTutorialPage() {
           return (
             <Link
               key={platform.id}
-              to={`/downloads/${platform.id}`}
+              to={`${routePath("page:downloads", "/downloads")}/${platform.id}`}
               className={cn(
                 "group relative min-h-[170px] overflow-hidden rounded-[4px] bg-gradient-to-r px-5 py-6 text-white transition duration-200 hover:-translate-y-0.5 sm:min-h-[190px] sm:px-9 sm:py-9",
                 platform.gradient,
@@ -512,18 +514,18 @@ export function PlatformTutorialPage() {
   const { platformId } = useParams();
   const platform = platformConfigs[platformId as PlatformId];
 
-  if (!platform) return <Navigate to="/downloads" replace />;
+  if (!platform) return <Navigate to={routePath("page:downloads", "/downloads")} replace />;
 
   return (
     <div className="mx-auto max-w-[1680px] overflow-hidden rounded-sm bg-white shadow-[0_12px_28px_rgba(15,23,42,0.06)]">
       <div className="sticky top-0 z-10 flex flex-col gap-3 border-b border-slate-100 bg-white px-4 py-4 shadow-[0_6px_18px_rgba(15,23,42,0.06)] sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <div className="flex min-w-0 items-center gap-3 sm:gap-4">
-          <Link to="/downloads" className="flex h-9 w-9 items-center justify-center rounded-full text-indigo-600 transition hover:bg-indigo-50">
+          <Link to={routePath("page:downloads", "/downloads")} className="flex h-9 w-9 items-center justify-center rounded-full text-indigo-600 transition hover:bg-indigo-50">
             <ArrowLeft className="h-5 w-5" />
           </Link>
           <h2 className="min-w-0 truncate text-xl font-bold tracking-tight text-[#20264f] sm:text-2xl">{platform.title}</h2>
         </div>
-        <Link to="/downloads" className="inline-flex justify-center rounded bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_14px_rgba(79,70,229,0.28)] transition hover:bg-indigo-600">
+        <Link to={routePath("page:downloads", "/downloads")} className="inline-flex justify-center rounded bg-indigo-500 px-4 py-2 text-sm font-semibold text-white shadow-[0_8px_14px_rgba(79,70,229,0.28)] transition hover:bg-indigo-600">
           其他客户端
         </Link>
       </div>

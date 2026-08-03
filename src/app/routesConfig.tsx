@@ -1,4 +1,5 @@
 import React from "react";
+import { routePath } from "./lib/routePaths";
 import {
   Activity,
   BarChart3,
@@ -64,20 +65,32 @@ export type NavGroup = {
 };
 
 /**
- * 部门知识库清单（与后端 dept-knowledge.constants.ts 的 DEPT_KBS 保持一致）。
+ * 部门知识库清单。
+ *
+ * ⚠️ 事实源在后端 `dept-knowledge.constants.ts` 的 DEPT_KBS —— 那里同时派生出
+ *    DEPARTMENT_KB_ID_BY_CODE，供部门改名级联与权限目录标签同步使用。本文件是它的前端镜像，
+ *    **两边的 departmentCode 必须逐条一致**：此前 finance / purchasing 在前端漏填，导致部门改名后
+ *    权限目录里的标签变了、侧边栏与页面标题却仍显示旧名。
+ *
+ * departmentCode 的作用：据此从部门主数据解析该库的当前显示名（nameByCode），使库名跟随部门改名。
+ * 不填则固定用 label。
+ *
  * id 为永久标识：路由 /dept-kb/{id}、页面码 page:dept-kb-{id}、存储键全部依赖它，确定后不可更名。
  */
 export const DEPT_KBS: { id: string; label: string; departmentCode?: string }[] = [
   { id: "gm", label: "总经办", departmentCode: "GENERAL_OFFICE" },
   { id: "hr", label: "人事行政部", departmentCode: "HR_ADMIN" },
-  { id: "finance", label: "财务部" },
-  { id: "purchasing", label: "采购部" },
+  { id: "finance", label: "财务部", departmentCode: "FINANCE" },
+  { id: "purchasing", label: "采购部", departmentCode: "PURCHASING" },
   { id: "production", label: "生产部", departmentCode: "PRODUCTION" },
   { id: "quality", label: "质量部", departmentCode: "REGULATORY_QUALITY" },
   { id: "sales", label: "销售部", departmentCode: "SALES_MARKETING" },
 ];
 
-export const navGroups: NavGroup[] = [
+/**
+ * 导航定义（内置默认路径）。实际生效路径见下方 navGroups —— 会按「页面路由管理」的配置解析。
+ */
+const BASE_NAV_GROUPS: NavGroup[] = [
   {
     label: "总览",
     items: [{ label: "系统首页", path: "/", icon: LayoutDashboard, requiredPermission: "page:dashboard" }],
@@ -232,6 +245,21 @@ export const navGroups: NavGroup[] = [
     ],
   },
 ];
+
+/**
+ * 生效的导航分组：路径按各项 requiredPermission 从「页面路由管理」解析，
+ * 目录无配置或值非法时回退到上面的内置默认路径。
+ * 在导出处统一解析（而非逐条改写 70 多个字面量），改一处即全量生效，也不会漏改。
+ */
+export const navGroups: NavGroup[] = BASE_NAV_GROUPS.map((group) => ({
+  ...group,
+  items: group.items.map((item) =>
+    item.requiredPermission
+      ? { ...item, path: routePath(item.requiredPermission, item.path) }
+      : item,
+  ),
+}));
+
 
 export const routeTitleMap = navGroups
   .flatMap((group) => group.items)

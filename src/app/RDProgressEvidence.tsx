@@ -7,6 +7,27 @@ import { AutoTranslatedText } from "./components/TranslatableText";
 import { getAttachmentPreviewUrl, getAttachmentThumbUrl, getAttachmentUrl, type RdTaskProgressAttachment, type RdTaskProgressNote } from "./lib/rdApi";
 import { parseXlsxForPreview, type XlsxPreviewSheet } from "./lib/xlsxPreview";
 
+/**
+ * 留痕时间的统一格式化：完整日期 + 时分秒，按浏览器本地时区。
+ * 全站「留痕」相关的时间展示（进展留痕、附件上传、子任务并入）都走这里，避免各处
+ * 各写一套导致粒度不一。
+ * ⚠️ 不要用 iso.slice(0,16) 之类的字符串截断——那截出来的是 UTC，会比本地时间少 8 小时。
+ */
+export function formatTraceDateTime(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString(i18nLocale(), {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
 /** 文件名/MIME 判断是否为 Excel 表格（xlsx/xls）。 */
 function isSpreadsheetAttachment(att: { name?: string; mime?: string }): boolean {
   const ext = (att.name ?? "").split(".").pop()?.toLowerCase() ?? "";
@@ -637,7 +658,7 @@ export function ProgressNoteList({
                 {note.actor.role ? <span className="ml-1 text-slate-400">· {t(note.actor.role)}</span> : null}
               </span>
             </span>
-            <span className="shrink-0 tabular-nums">{new Date(note.created_at).toLocaleString(i18nLocale())}</span>
+            <span className="shrink-0 whitespace-nowrap tabular-nums">{formatTraceDateTime(note.created_at)}</span>
           </div>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
             {typeof note.progress === "number" && (

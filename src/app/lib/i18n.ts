@@ -335,6 +335,65 @@ const BUILTIN_EN_FALLBACKS: Record<string, string> = {
   "胸牌图片导出失败，请重试": "Badge image export failed. Try again.",
   "本地草稿更新失败": "Failed to update the local draft.",
   "头像草稿已移除": "Avatar draft removed.",
+  // 个人工作台子任务（一层）+ 留痕时间精确到秒（2026-07-31）。
+  // 协同池与研发池共用 RDMyWorkspacePage 及全部留痕组件，英文界面同样会命中这批文案。
+  "(无标题)": "(Untitled)",
+  "（选填）": "(optional)",
+  "处理中…": "Working…",
+  "刚刚": "Just now",
+  "{n} 秒前": "{n}s ago",
+  "时间：{time}": "Time: {time}",
+  "（{time}）": "({time})",
+  // 子任务关系
+  "子任务（{n}）": "Subtasks ({n})",
+  "含 {n} 子任务": "{n} subtasks",
+  "本任务含 {n} 个子任务": "This task has {n} subtasks",
+  "本任务是以下任务的子任务": "This task is a subtask of",
+  "属于：{title}": "Under: {title}",
+  "平均进度 {p}%": "Avg progress {p}%",
+  "由 {name} 于 {time} 并入": "Merged in by {name} at {time}",
+  // 并入为子任务
+  "并入其他任务成为子任务": "Make this a subtask of another task",
+  "确认后立即生效，无需审核": "Takes effect immediately — no review needed",
+  "立即生效，无需审核": "Takes effect immediately — no review needed",
+  "请选择要并入的目标任务": "Select the task to merge into",
+  "并入说明": "Note",
+  "简述为何把这个任务并入目标任务，会记入操作留痕": "Briefly note why this task is being merged in — it is recorded in the audit trail",
+  "确认并入": "Merge in",
+  "并入失败，请重试": "Merge failed. Please try again.",
+  "已并入目标任务，成为其子任务": "Merged in as a subtask of the target task",
+  "本任务「{title}」将成为所选任务的子任务。任务本体完整保留：标题、主责人、进度、进度留痕与附件都不变，只是在任务树中的位置改变。之后可随时取消关系提升回独立任务。":
+    "\"{title}\" will become a subtask of the selected task. The task itself is fully preserved — title, owner, progress, progress notes and attachments are unchanged; only its position in the task tree moves. You can detach it back into a standalone task at any time.",
+  "候选中不含已完成/已归档的任务，也不含子任务本身——子任务下不能再挂子任务（仅支持一层）。":
+    "Completed and archived tasks are excluded, as are subtasks themselves — a subtask cannot hold subtasks (one level only).",
+  // 取消子任务关系
+  "取消子任务关系": "Detach from parent",
+  "确认取消关系": "Detach",
+  "将把「{title}」提升为独立的顶层任务，与原父任务同级。":
+    "\"{title}\" will be promoted to a standalone top-level task, alongside its former parent.",
+  "任务本体不受影响：标题/主责/进度/留痕/附件全部保留":
+    "The task itself is unaffected — title, owner, progress, notes and attachments are all kept",
+  "提升后落在原父任务所在的子项目里": "It lands in the sub-project that holds the former parent",
+  "已取消子任务关系，该任务已提升为独立任务": "Detached — the task is now a standalone task",
+  "取消子任务关系失败，请重试": "Failed to detach from parent. Please try again.",
+  // 任务驾驶舱 KPI：「活跃」改为「总任务」（2026-07-31）
+  // 同排的另外几个标签此前也没有兜底，英文下会中英混排，一并补上。
+  // 「完成」全站 9 处均为状态/统计标签（无操作按钮），统一译作 Completed 无歧义。
+  "完成率": "Completion rate",
+  "进行中": "In progress",
+  "完成": "Completed",
+  "阻塞/待派": "Blocked / Unassigned",
+  "风险": "Risks",
+  "总任务": "Total tasks",
+  "{n} 个任务": "{n} tasks",
+  "全部注册在案的任务，含已完成与已归档": "Every task on record, including completed and archived",
+  "已完成 ÷ 未归档任务数（{n}）；分母不含已归档，故与「总任务」不同源":
+    "Completed ÷ non-archived tasks ({n}). The denominator excludes archived tasks, so it differs from \"Total tasks\".",
+  // 操作留痕的字段/取值标签（RDAuditTimeline 的 FIELD_LABELS / VALUE_LABELS 都过 t()）
+  "父任务": "Parent task",
+  "子任务来源": "Subtask origin",
+  "由已有任务并入": "Merged in from an existing task",
+  "在父任务下直建": "Created under the parent task",
 };
 let dict: Record<string, string> = {};
 let dictLoaded = false;

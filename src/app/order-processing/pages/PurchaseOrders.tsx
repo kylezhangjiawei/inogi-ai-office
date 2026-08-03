@@ -48,6 +48,8 @@ import {
   waitApplyJob,
 } from '../../lib/procurementApi';
 import { DataPagination } from '../components/DataPagination';
+// 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
+import { routePath } from "../../lib/routePaths";
 
 export type { PurchaseOrder, PurchaseOrderLine, PurchaseOrderStatus } from '../../lib/orderProcessingApi';
 
@@ -358,7 +360,7 @@ export function PurchaseOrders() {
                       type="button"
                       variant="outline"
                       size="sm"
-                      onClick={() => navigate(`/purchase-orders/${encodeURIComponent(order.id)}`)}
+                      onClick={() => navigate(`${routePath("page:purchase-orders", "/purchase-orders")}/${encodeURIComponent(order.id)}`)}
                       className="h-8 rounded-full border-blue-100 bg-blue-50 px-3 text-xs font-medium text-blue-700 hover:bg-blue-100">
                       <Eye className="h-3.5 w-3.5" />
                       {t('查看')}

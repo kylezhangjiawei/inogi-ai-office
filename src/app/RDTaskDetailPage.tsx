@@ -37,7 +37,7 @@ import { t, useI18n } from "./lib/i18n";
 import { AutoTranslatedText } from "./components/TranslatableText";
 import { AuditTimeline } from "./RDAuditTimeline";
 import { addAuditLogNote, recordAudit, useAuditActor, type AuditLog, useAuditLogs } from "./lib/auditLog";
-import { ProgressAttachmentGrid, ProgressNoteList, TaskImageGallery, formatRdFileSize } from "./RDProgressEvidence";
+import { ProgressAttachmentGrid, ProgressNoteList, TaskImageGallery, formatRdFileSize, formatTraceDateTime } from "./RDProgressEvidence";
 import { RDTaskConversation } from "./RDTaskConversation";
 import {
   STATUS_CONFIG,
@@ -62,6 +62,8 @@ import {
 import { ProcurementActivitySection, ProcurementLinkChip, TransferToProcurementModal, useProcurementTaskLink } from "./procurement/components/rdInsertion";
 import { createHttpIssueService } from "./lib/issue/issueHttpService";
 import { getReviewTypeMeta } from "./lib/reviewTypes";
+// 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
+import { routePath } from "./lib/routePaths";
 import {
   attachRdTaskToParent,
   blockedDaysOf,
@@ -971,7 +973,7 @@ export default function RDTaskDetailPage() {
         <p className="text-sm">{loadError || t("任务不存在")}</p>
         <button
           type="button"
-          onClick={() => navigate("/rd-task-management")}
+          onClick={() => navigate(routePath("page:rd-task-management", "/rd-task-management"))}
           className="cursor-pointer rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
         >
           {t("返回驾驶舱")}
@@ -998,7 +1000,7 @@ export default function RDTaskDetailPage() {
       {/* ── 顶部：返回 + 标题 + 徽章 ── */}
       <div className="flex shrink-0 flex-wrap items-center gap-3">
         {/* 直接回驾驶舱（不用 navigate(-1)：序列导航翻过 N 条任务后逐条回退历史体验极差） */}
-        <Button type="button" variant="outline" size="sm" onClick={() => navigate("/rd-task-management")} className="gap-1">
+        <Button type="button" variant="outline" size="sm" onClick={() => navigate(routePath("page:rd-task-management", "/rd-task-management"))} className="gap-1">
           <ArrowLeft className="h-3.5 w-3.5" />
           {t("返回")}
         </Button>
@@ -1153,7 +1155,7 @@ export default function RDTaskDetailPage() {
                 <p className="mt-1.5 text-[11px] text-slate-500">
                   {t("由独立任务并入")}
                   {task.subtask_attached_by ? t("，操作人 {name}", { name: task.subtask_attached_by }) : ""}
-                  {t("（{time}）", { time: task.subtask_attached_at.slice(0, 16).replace("T", " ") })}
+                  {t("（{time}）", { time: formatTraceDateTime(task.subtask_attached_at) })}
                 </p>
               )}
               {canManage && !task.archived && (
@@ -1613,7 +1615,7 @@ export default function RDTaskDetailPage() {
                                 </span>
                               </TableCell>
                               <TableCell className="whitespace-nowrap text-xs text-slate-500">{formatRdFileSize(att.size)}</TableCell>
-                              <TableCell className="whitespace-nowrap text-xs text-slate-500">{(createdAt ?? "").slice(0, 10)}</TableCell>
+                              <TableCell className="whitespace-nowrap text-xs text-slate-500">{formatTraceDateTime(createdAt)}</TableCell>
                               <TableCell className="whitespace-nowrap text-xs text-slate-500">{actor || "—"}</TableCell>
                               <TableCell className="whitespace-nowrap">
                                 <a

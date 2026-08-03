@@ -18,6 +18,8 @@ import {
 import { Link } from "react-router";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
+// 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
+import { routePath } from "./lib/routePaths";
 
 // ─── Mock Data ────────────────────────────────────────────────────────────────
 
@@ -237,7 +239,7 @@ export function QualityDMSPage() {
             <Shield className="h-5 w-5 text-indigo-600" />
             <h1 className="truncate text-lg font-semibold text-gray-900">质量文件管理系统（DMS）</h1>
           </div>
-          <Link to="/qa-traceability" className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-sm font-medium text-indigo-700 transition hover:bg-indigo-100">
+          <Link to={routePath("page:qa-traceability", "/qa-traceability")} className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-sm font-medium text-indigo-700 transition hover:bg-indigo-100">
             去全链路追溯
           </Link>
         </div>

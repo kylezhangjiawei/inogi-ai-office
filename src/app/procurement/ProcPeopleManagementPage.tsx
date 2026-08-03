@@ -21,6 +21,8 @@ import { daysFromToday, isProcurementTaskOverdue, refreshProcurement, useProcure
 import { BuyerComboInput, PageHeader, PersonAvatar, useBuyerDirectory, useConfirmDialog } from "./components/common";
 import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
+// 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
+import { routePath } from "../lib/routePaths";
 
 const TERMINAL = ["completed", "cancelled"];
 const TRANSIT = ["in_transit", "partial_arrival"];
@@ -184,7 +186,7 @@ export function ProcPeopleManagementPage() {
         title={t("采购人员管理")}
         description={t("维护采购组成员名录（分配任务候选优先显示名录成员）；按负责人查看任务负载，离职/休假可一键整体交接。")}
         right={
-          <button type="button" onClick={() => navigate("/proc-cockpit")} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm">
+          <button type="button" onClick={() => navigate(routePath("page:proc-cockpit", "/proc-cockpit"))} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-2 text-sm">
             <ArrowLeft className="h-4 w-4" />{t("返回驾驶舱")}
           </button>
         }
