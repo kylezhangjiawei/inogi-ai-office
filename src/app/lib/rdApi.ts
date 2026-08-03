@@ -185,7 +185,7 @@ export type RdTask = {
   latest_progress_summary?: RdLatestProgressSummary | null;
   subtasks?: RdTask[];
   /**
-   * 子任务标记（一层）。父任务侧仍以 subtasks 数组为结构事实源；这三个字段用于展示区分：
+   * 子任务树标记。父任务侧仍以递归 subtasks 数组为结构事实源；这些字段用于展示直接父子关系：
    * - parent_task_id：所属父任务（顶层任务为 null / 缺省）
    * - subtask_origin：'created' 在父任务下直建 | 'attached' 由已有任务挂载进来
    * - subtask_attached_*：挂载留痕（仅 attached 有值）
@@ -315,7 +315,7 @@ export type RdWorkspaceTask = {
   /** 工作项清单（任务内部轻量拆分），留痕表单据此提供「关联工作项」选择。 */
   work_items?: RdWorkItem[];
   /**
-   * 子任务关系（一层）。服务端按「结构位置」解析后下发，不是回读 parent_task_id 字段——
+   * 子任务树关系。服务端按「结构位置」解析直接父任务后下发，不是回读 parent_task_id 字段——
    * 存量子任务没有该字段。parent_task_id 非空即表示本任务是某个任务的子任务。
    */
   parent_task_id?: string | null;
@@ -324,10 +324,7 @@ export type RdWorkspaceTask = {
   subtask_origin?: "created" | "attached" | null;
   subtask_attached_at?: string | null;
   subtask_attached_by?: string | null;
-  /**
-   * 是否带子任务（**含已归档**）。并入门控必须用它而不是 subtasks.length——后端拒绝
-   * 「自身已带子任务」时统计的是未过滤的原数组，只剩归档子任务的任务用清单判会误放行。
-   */
+  /** 是否带直接子任务（含已归档）；用于工作台展示任务树摘要。 */
   has_subtasks?: boolean;
   /** 本任务的子任务清单（本任务是父任务时非空），已排除归档项，仅供展示。 */
   subtasks?: RdWorkspaceSubtask[];
@@ -600,8 +597,11 @@ function normalizeArchivedFlags(categories: RdCategory[]): RdCategory[] {
   return touched ? next : categories;
 }
 
-export function fetchRdTaskCategories() {
-  return requestJson<RdCategory[]>("/task-categories").then(normalizeArchivedFlags);
+export function fetchRdTaskCategories(options: { includeCovers?: boolean; signal?: AbortSignal } = {}) {
+  return requestJson<RdCategory[]>(
+    `/task-categories${options.includeCovers ? "?include_covers=1" : ""}`,
+    options.signal ? { signal: options.signal } : undefined,
+  ).then(normalizeArchivedFlags);
 }
 
 /** 主库 + 所有产品库合并的分类树。用于驾驶舱概览「人员任务」跨产品聚合（与个人工作台主责同源）。 */
@@ -754,7 +754,7 @@ export function createRdTask(payload: {
   sub_project_id?: string;
   /**
    * 直建子任务：传父任务 id。此时产品/分类/category_path 全部继承父任务，
-   * 无需传 product_id / category_id。父任务本身是子任务时后端拒绝（子任务仅一层）。
+   * 无需传 product_id / category_id。父任务本身是子任务时后端拒绝；多级树通过整树并入形成。
    */
   parent_task_id?: string;
   title: string;
@@ -796,7 +796,7 @@ export function deleteRdTask(taskId: string) {
 }
 
 /**
- * 把已有顶层任务挂为目标任务的子任务（一层，直接生效不走审批）。
+ * 把已有顶层任务（可自带完整子任务树）整体挂为目标任务的子任务，直接生效不走审批。
  * 任务本体完整保留（标题/主责/进度/留痕/附件），仅改变在任务树中的位置。
  * 与「合并申请」(updateRdTask + pending_merge_target) 不同：那个会归档源任务并改写目标描述。
  */

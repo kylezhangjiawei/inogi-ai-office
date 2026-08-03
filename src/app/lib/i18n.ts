@@ -335,7 +335,7 @@ const BUILTIN_EN_FALLBACKS: Record<string, string> = {
   "胸牌图片导出失败，请重试": "Badge image export failed. Try again.",
   "本地草稿更新失败": "Failed to update the local draft.",
   "头像草稿已移除": "Avatar draft removed.",
-  // 个人工作台子任务（一层）+ 留痕时间精确到秒（2026-07-31）。
+  // 个人工作台子任务树 + 留痕时间精确到秒（2026-07-31）。
   // 协同池与研发池共用 RDMyWorkspacePage 及全部留痕组件，英文界面同样会命中这批文案。
   "(无标题)": "(Untitled)",
   "（选填）": "(optional)",
@@ -352,6 +352,19 @@ const BUILTIN_EN_FALLBACKS: Record<string, string> = {
   "属于：{title}": "Under: {title}",
   "平均进度 {p}%": "Avg progress {p}%",
   "由 {name} 于 {time} 并入": "Merged in by {name} at {time}",
+  "当前": "Current",
+  "{n} 个下级": "{n} descendants",
+  "含 {n} 个下级": "{n} descendants",
+  "合并关系": "Merge hierarchy",
+  "合并层级": "Merge hierarchy",
+  "任务并入后会永久保留原有上下级结构。点击任意节点可跳转到对应任务详情。":
+    "Merged tasks permanently retain their original hierarchy. Select any node to open its task details.",
+  "暂无合并关系": "No merge hierarchy",
+  "并入已有任务后，层级关系会显示在这里。": "The hierarchy will appear here after a task is merged in.",
+  "新建项会直接归属当前任务；若要保留已有的多级任务结构，请使用「并入已有任务」。":
+    "A new item is added directly under this task. To preserve an existing multi-level structure, use Merge existing task.",
+  "并入后任务本体及其全部下级层级永久保留，仅整棵任务树的归属发生变化，可随时取消。跨产品库时，整棵任务树会一并迁入当前产品库。":
+    "The task and its complete descendant hierarchy are preserved; only the whole tree's parent changes, and it can be detached later. Across product libraries, the full tree moves together.",
   // 并入为子任务
   "并入其他任务成为子任务": "Make this a subtask of another task",
   "确认后立即生效，无需审核": "Takes effect immediately — no review needed",
@@ -362,6 +375,10 @@ const BUILTIN_EN_FALLBACKS: Record<string, string> = {
   "确认并入": "Merge in",
   "并入失败，请重试": "Merge failed. Please try again.",
   "已并入目标任务，成为其子任务": "Merged in as a subtask of the target task",
+  "本任务「{title}」及其全部下级将整体并入所选任务。原有层级、主责人、进度、进展留痕与附件均保持不变，之后可随时取消关系并整体提升回独立任务。":
+    "\"{title}\" and all of its descendants will move under the selected task as one tree. The existing hierarchy, owners, progress, notes and attachments remain unchanged, and the whole tree can be detached later.",
+  "候选中不含已完成、已归档或已处于其他任务下的任务；已有下级任务不会被拍平。":
+    "Completed, archived, and already nested tasks are excluded. Existing descendants will not be flattened.",
   "本任务「{title}」将成为所选任务的子任务。任务本体完整保留：标题、主责人、进度、进度留痕与附件都不变，只是在任务树中的位置改变。之后可随时取消关系提升回独立任务。":
     "\"{title}\" will become a subtask of the selected task. The task itself is fully preserved — title, owner, progress, progress notes and attachments are unchanged; only its position in the task tree moves. You can detach it back into a standalone task at any time.",
   "候选中不含已完成/已归档的任务，也不含子任务本身——子任务下不能再挂子任务（仅支持一层）。":

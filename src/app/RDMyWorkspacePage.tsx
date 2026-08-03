@@ -1382,25 +1382,22 @@ function TaskOperationDrawer({
     }
   };
 
-  // ── 子任务关系（一层，免审批直接生效） ───────────────────────────────────
+  // ── 子任务树关系（免审批直接生效） ──────────────────────────────────────
   // 本任务是否已是子任务 / 是否带子任务。父子关系由服务端按结构位置下发，不回读字段。
   const isSubtask = Boolean(task.parent_task_id);
   const childSubtasks = task.subtasks ?? [];
   const isTaskActive = ["in_progress", "paused_leave", "paused_blocked", "on_hold"].includes(task.status);
   /**
-   * 可并入：主责人 + 活跃状态（与放弃同门控），且本任务既不是子任务、自身也不带子任务
-   * ——后端拒绝重复挂载与两层嵌套（attachTaskAsSubtaskUnlocked），前端先拦掉避免必然报错。
+   * 可并入：主责人 + 活跃状态（与放弃同门控），且本任务当前是顶层任务。
+   * 本任务可以自带完整子任务树；并入后原层级保持不变。
    */
-  // 用 has_subtasks（含归档）而非 childSubtasks.length（已滤归档）——与后端拒绝条件同源
-  const canAttachSubtask = task.role === "primary" && isTaskActive && !isSubtask && !task.has_subtasks;
+  const canAttachSubtask = task.role === "primary" && isTaskActive && !isSubtask;
   /** 可取消关系：主责人 + 本任务确实是子任务（已完成/归档任务不再改结构）。 */
   const canDetachSubtask = task.role === "primary" && isTaskActive && isSubtask;
 
   // 打开并入弹窗时拉取候选父任务（全部产品库展平）。
-  // ⚠️ 一层约束是「子不能带子、父不能是子」两条，方向不同，别混：
-  //   - 「本任务不能已带子任务」是对**本任务**的约束，已在 canAttachSubtask 里拦掉；
-  //   - 候选父任务**允许**已经带子任务（父任务本就会累积多个子任务，这是常态）。
-  // 故此处只排除：本任务自身 / 已归档 / 已完成。子任务不会出现在候选里——只遍历顶层。
+  // 候选父任务允许已有子任务，但自身必须仍是顶层；源任务也必须是顶层，因此不会形成循环。
+  // 此处只排除：本任务自身 / 已归档 / 已完成。子任务不会出现在候选里——只遍历顶层。
   useEffect(() => {
     if (!attachOpen) return;
     let alive = true;
@@ -1408,7 +1405,7 @@ function TaskOperationDrawer({
     fetchMergedTaskCategories()
       .then((cats) => {
         const out: Array<{ task_id: string; title: string; primary_owner: string }> = [];
-        // 仅遍历顶层任务、不下钻 subtasks：子任务下不能再挂子任务，所以子任务不是合法父任务
+        // 仅遍历顶层任务、不下钻 subtasks：当前入口只允许选择顶层目标，避免形成循环挂载。
         const collectTopLevel = (tasks: unknown): void => {
           for (const item of Array.isArray(tasks) ? tasks : []) {
             const rec = item as { task_id?: string; title?: string; primary_owner?: string; archived?: boolean; status?: string };
@@ -1987,8 +1984,7 @@ function TaskOperationDrawer({
               </div>
             )}
 
-            {/* ── 子任务关系（一层）：本任务是子任务 → 显示父任务归属 + 取消关系；
-                   本任务带子任务 → 显示子任务清单与进度汇总。两者互斥（子任务下不能再挂子任务）。 ── */}
+            {/* 任务树摘要：嵌套节点优先显示直接父任务；完整递归层级在任务详情的「合并关系」页签查看。 */}
             {(isSubtask || childSubtasks.length > 0) && (
               <div className="rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
                 {isSubtask ? (
@@ -2549,7 +2545,7 @@ function TaskOperationDrawer({
       )}
 
       {/* 并入其他任务成为子任务：选目标父任务，确认后立即生效（不走审批）。
-          本任务完整保留（标题/主责/进度/留痕/附件），仅改变在任务树中的位置。 */}
+          本任务及其全部下级完整保留，仅改变整棵任务树的位置。 */}
       {attachOpen && (
         <div
           className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-[2px]"
@@ -2573,7 +2569,7 @@ function TaskOperationDrawer({
             </div>
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-5">
               <div className="rounded-xl bg-cyan-50/60 px-4 py-3 text-xs leading-5 text-cyan-800 ring-1 ring-cyan-100">
-                {t("本任务「{title}」将成为所选任务的子任务。任务本体完整保留：标题、主责人、进度、进度留痕与附件都不变，只是在任务树中的位置改变。之后可随时取消关系提升回独立任务。", { title: task.title })}
+                {t("本任务「{title}」及其全部下级将整体并入所选任务。原有层级、主责人、进度、进展留痕与附件均保持不变，之后可随时取消关系并整体提升回独立任务。", { title: task.title })}
               </div>
               <div>
                 <label className="text-sm font-semibold text-slate-900">{t("选择目标任务")}<span className="ml-0.5 text-rose-500">{t("（必选）")}</span></label>
@@ -2614,7 +2610,7 @@ function TaskOperationDrawer({
                   })()}
                 </div>
                 <p className="mt-1.5 text-[11px] leading-4 text-slate-400">
-                  {t("候选中不含已完成/已归档的任务，也不含子任务本身——子任务下不能再挂子任务（仅支持一层）。")}
+                  {t("候选中不含已完成、已归档或已处于其他任务下的任务；已有下级任务不会被拍平。")}
                 </p>
               </div>
               <div>

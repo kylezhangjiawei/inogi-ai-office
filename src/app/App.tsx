@@ -369,8 +369,9 @@ const router = createBrowserRouter([
       { path: asChildPath(routePath("page:us-collab-approval-flow", "/us-collab-approval-flow")), element: makeLazyProtected(<RDApprovalFlowPage key="ws-us" />, "page:us-collab-approval-flow") },
       { path: asChildPath(routePath("page:us-collab-audit-log", "/us-collab-audit-log")), element: makeLazyProtected(<RDAuditLogPage key="ws-us" />, "page:us-collab-audit-log") },
       { path: asChildPath(routePath("page:us-collab-ai-settings", "/us-collab-ai-settings")), element: makeLazyProtected(<RDAiSettingsPage key="ws-us" />, "page:us-collab-ai-settings") },
-      // 研发主管驾驶舱 — 导航可见性由页面路由管理中的「导航」开关控制（默认隐藏）
-      { path: asChildPath(routePath("page:rd-director-dashboard", "/rd-director-dashboard")), element: makeLazyProtected(<RDDirectorDashboardPage />, "page:rd-director-dashboard") },
+      // 生产驾驶舱与研发任务驾驶舱共用页面实现，但使用独立工作区数据；旧主管驾驶舱链接继续跳转兼容。
+      { path: "production-dashboard", element: makeLazyProtected(<RDTaskManagementPage key="ws-production" />, "page:rd-director-dashboard") },
+      { path: "rd-director-dashboard", element: makeLazyProtected(<Navigate to="/production-dashboard" replace />, "page:rd-director-dashboard") },
       { path: asChildPath(routePath("page:rd-approval-flow", "/rd-approval-flow")), element: makeLazyProtected(<RDApprovalFlowPage />, "page:rd-approval-flow") },
       { path: asChildPath(routePath("page:rd-audit-log", "/rd-audit-log")), element: makeLazyProtected(<RDAuditLogPage />, "page:rd-audit-log") },
       { path: asChildPath(routePath("page:rd-ai-settings", "/rd-ai-settings")), element: makeLazyProtected(<RDAiSettingsPage />, "page:rd-ai-settings") },

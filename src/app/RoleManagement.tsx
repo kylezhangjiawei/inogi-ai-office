@@ -18,7 +18,11 @@ import { toast } from "sonner";
 import { authFetch } from "./lib/authSession";
 import { cn } from "./components/ui/utils";
 import { PermissionGuard } from "./components/PermissionGuard";
-import { PermissionCatalogGroup, permissionCatalogApi } from "./lib/permissionCatalogApi";
+import {
+  type PermissionCatalogGroup,
+  type PermissionCatalogPermission,
+  permissionCatalogApi,
+} from "./lib/permissionCatalogApi";
 import { Button } from "./components/ui/button";
 import { Input } from "./components/ui/input";
 import { Textarea } from "./components/ui/textarea";
@@ -93,17 +97,163 @@ async function apiDeleteRole(id: string): Promise<void> {
 
 // ─── Permission Matrix ────────────────────────────────────────────────────────
 
-function getGroupIcon(label: string) {
-  if (label.startsWith("操作权限") || label.includes("操作")) {
-    return MousePointerClick;
-  }
-  return FileText;
-}
-
 /** 从组标签（"页面访问 · 研发任务管理" / "操作权限 · 研发任务管理"）取模块名（· 之后的部分）。 */
 function moduleOf(label: string): string {
   const idx = label.indexOf("·");
   return (idx >= 0 ? label.slice(idx + 1) : label).trim();
+}
+
+type PermissionPageNode = {
+  page: PermissionCatalogPermission;
+  actions: PermissionCatalogPermission[];
+};
+
+type PermissionModuleNode = {
+  name: string;
+  pages: PermissionPageNode[];
+  sharedActions: PermissionCatalogPermission[];
+};
+
+type DisplayPermissionGroup = PermissionCatalogGroup & {
+  key: string;
+  kind: "page" | "shared";
+  routePath?: string;
+};
+
+type CatalogAction = {
+  groupName: string;
+  permission: PermissionCatalogPermission;
+};
+
+const CODE_TOKEN_ALIASES: Record<string, string> = {
+  departments: "department",
+  materials: "material",
+  roles: "role",
+  users: "user",
+};
+
+const CODE_TOKEN_NOISE = new Set([
+  "center",
+  "cockpit",
+  "dashboard",
+  "management",
+  "manage",
+  "page",
+  "settings",
+  "workspace",
+]);
+
+function normalizeLabel(value: string) {
+  return value.toLowerCase().replace(/[\s·/()（）_-]+/g, "");
+}
+
+function permissionCodeTokens(code: string) {
+  const namespace = code.replace(/^page:/, "").split(":", 1)[0];
+  return namespace
+    .split("-")
+    .map((token) => CODE_TOKEN_ALIASES[token] ?? token)
+    .filter((token) => token && !CODE_TOKEN_NOISE.has(token));
+}
+
+function actionPageScore(action: CatalogAction, page: PermissionCatalogPermission) {
+  const actionTokens = permissionCodeTokens(action.permission.code);
+  const pageTokens = new Set(permissionCodeTokens(page.code));
+  const matchedTokens = actionTokens.filter((token) => pageTokens.has(token)).length;
+  const codeScore = actionTokens.length > 0 ? (matchedTokens / actionTokens.length) * 200 : 0;
+
+  const groupLabel = normalizeLabel(action.groupName);
+  const pageLabel = normalizeLabel(page.label);
+  const labelScore =
+    groupLabel === pageLabel
+      ? 140
+      : groupLabel.length >= 2 && pageLabel.length >= 2 &&
+          (groupLabel.includes(pageLabel) || pageLabel.includes(groupLabel))
+        ? 80
+        : 0;
+
+  return codeScore + labelScore;
+}
+
+function uniqueCodes(permissions: PermissionCatalogPermission[]) {
+  return Array.from(new Set(permissions.map((permission) => permission.code)));
+}
+
+/**
+ * 把权限目录转换成「模块 → 页面 → 按钮/功能」树。
+ *
+ * 页面所属模块以页面路由管理中的 groupLabel 为准。操作权限优先按页面码前缀和分组名称归档；
+ * 无法唯一确认页面时留在模块公共权限中，避免把同一按钮错误挂到多个页面。
+ */
+function buildPermissionModules(groups: PermissionCatalogGroup[]): PermissionModuleNode[] {
+  const modules = new Map<string, PermissionModuleNode>();
+  const moduleOrder: string[] = [];
+  const actions: CatalogAction[] = [];
+
+  function ensureModule(name: string) {
+    const existing = modules.get(name);
+    if (existing) return existing;
+    const next: PermissionModuleNode = { name, pages: [], sharedActions: [] };
+    modules.set(name, next);
+    moduleOrder.push(name);
+    return next;
+  }
+
+  for (const group of groups) {
+    const groupName = moduleOf(group.label);
+    const pagePermissions = group.permissions.filter(
+      (permission) => permission.type === "page" || group.label.startsWith("页面访问"),
+    );
+    if (pagePermissions.length > 0) {
+      const module = ensureModule(groupName);
+      for (const page of pagePermissions) module.pages.push({ page, actions: [] });
+    }
+
+    for (const permission of group.permissions) {
+      if (permission.type === "action" || group.label.startsWith("操作权限")) {
+        actions.push({ groupName, permission });
+      }
+    }
+  }
+
+  const allPages = Array.from(modules.values()).flatMap((module) =>
+    module.pages.map((page) => ({ module, page })),
+  );
+
+  for (const action of actions) {
+    const namedModule = modules.get(action.groupName);
+    const candidates = namedModule
+      ? namedModule.pages.map((page) => ({ module: namedModule, page }))
+      : allPages;
+    const scored = candidates
+      .map((candidate) => ({ ...candidate, score: actionPageScore(action, candidate.page.page) }))
+      .sort((left, right) => right.score - left.score);
+    const bestScore = scored[0]?.score ?? 0;
+    const best = scored.filter((candidate) => candidate.score === bestScore);
+
+    if (bestScore >= 180 && best.length === 1) {
+      best[0].page.actions.push(action.permission);
+      continue;
+    }
+
+    if (namedModule) {
+      namedModule.sharedActions.push(action.permission);
+      continue;
+    }
+
+    const moduleFrequency = new Map<PermissionModuleNode, number>();
+    for (const candidate of best) {
+      moduleFrequency.set(candidate.module, (moduleFrequency.get(candidate.module) ?? 0) + 1);
+    }
+    const rankedModules = Array.from(moduleFrequency.entries()).sort((left, right) => right[1] - left[1]);
+    if (bestScore > 0 && rankedModules[0] && rankedModules[0][1] > (rankedModules[1]?.[1] ?? 0)) {
+      rankedModules[0][0].sharedActions.push(action.permission);
+      continue;
+    }
+
+    ensureModule(action.groupName).sharedActions.push(action.permission);
+  }
+
+  return moduleOrder.map((name) => modules.get(name)!);
 }
 
 // ── 中美协同：展示层合成「操作权限」分组 ─────────────────────────────────────
@@ -141,15 +291,15 @@ function withUsCollabActionGroup(groups: PermissionCatalogGroup[]): PermissionCa
 }
 
 function computeInitialCollapsed(
-  groups: PermissionCatalogGroup[],
+  groups: DisplayPermissionGroup[],
   selected: string[],
   isWildcard: boolean,
 ): Record<string, boolean> {
-  if (isWildcard) return {};
+  if (isWildcard) return Object.fromEntries(groups.map((group) => [group.key, true]));
   const next: Record<string, boolean> = {};
   for (const group of groups) {
     const hasAnySelected = group.permissions.some((p) => selected.includes(p.code));
-    if (!hasAnySelected) next[group.label] = true;
+    if (!hasAnySelected) next[group.key] = true;
   }
   return next;
 }
@@ -167,16 +317,50 @@ function PermissionMatrix({
 }) {
   // 展示层注入中美协同共享操作码分组（勾选与研发分组同码联动）
   const displayGroups = useMemo(() => withUsCollabActionGroup(groups), [groups]);
+  const selectedSet = useMemo(() => new Set(selected), [selected]);
+  const orderedModules = useMemo(
+    () => buildPermissionModules(displayGroups).map((module) => ({
+      name: module.name,
+      groups: [
+        ...module.pages.map<DisplayPermissionGroup>((page) => ({
+          key: `${module.name}::${page.page.code}`,
+          kind: "page",
+          label: page.page.label,
+          routePath: page.page.routePath,
+          permissions: [page.page, ...page.actions],
+        })),
+        ...(module.sharedActions.length > 0
+          ? [{
+              key: `${module.name}::shared-actions`,
+              kind: "shared" as const,
+              label: "模块公共功能权限",
+              permissions: module.sharedActions,
+            }]
+          : []),
+      ],
+    })),
+    [displayGroups],
+  );
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>(() =>
-    computeInitialCollapsed(displayGroups, selected, isWildcard),
+    computeInitialCollapsed(orderedModules.flatMap((module) => module.groups), selected, isWildcard),
   );
 
-  function toggleGroup(label: string) {
-    setCollapsed((prev) => ({ ...prev, [label]: !prev[label] }));
+  function toggleGroup(key: string) {
+    setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  function setAllCollapsed(value: boolean) {
+    if (!value) {
+      setCollapsed({});
+      return;
+    }
+    setCollapsed(Object.fromEntries(
+      orderedModules.flatMap((module) => module.groups.map((group) => [group.key, true])),
+    ));
   }
 
   function togglePermission(code: string) {
-    if (selected.includes(code)) {
+    if (selectedSet.has(code)) {
       onChange(selected.filter((p) => p !== code));
     } else {
       onChange([...selected, code]);
@@ -184,7 +368,7 @@ function PermissionMatrix({
   }
 
   function toggleGroupAll(codes: string[]) {
-    const allSelected = codes.every((c) => selected.includes(c));
+    const allSelected = codes.every((c) => selectedSet.has(c));
     if (allSelected) {
       onChange(selected.filter((p) => !codes.includes(p)));
     } else {
@@ -192,66 +376,60 @@ function PermissionMatrix({
     }
   }
 
-  // 按模块归类：把「页面访问·X / 操作权限·X」这类组，聚到同一个模块 X 下（页面权限在前、操作权限在后），
-  // 模块顺序取首次出现序（沿用后端 sortOrder），避免同一模块的页面权限与操作权限被其它模块隔开。
-  const orderedModules = useMemo(() => {
-    const order: string[] = [];
-    const byModule = new Map<string, PermissionCatalogGroup[]>();
-    for (const g of displayGroups) {
-      const mod = moduleOf(g.label);
-      if (!byModule.has(mod)) {
-        byModule.set(mod, []);
-        order.push(mod);
-      }
-      byModule.get(mod)!.push(g);
-    }
-    const kindRank = (label: string) =>
-      label.startsWith("页面访问") ? 0 : label.startsWith("操作权限") ? 1 : 2;
-    return order.map((name) => ({
-      name,
-      groups: [...(byModule.get(name) ?? [])].sort((a, b) => kindRank(a.label) - kindRank(b.label)),
-    }));
-  }, [displayGroups]);
-
   return (
     <div className="space-y-5">
+      <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-pretty text-xs leading-5 text-slate-500">
+          权限按模块和页面归档，展开页面即可配置对应的页面访问、按钮与功能权限。
+        </p>
+        <div className="flex shrink-0 items-center gap-1">
+          <Button type="button" variant="ghost" size="sm" onClick={() => setAllCollapsed(false)}>
+            展开全部
+          </Button>
+          <Button type="button" variant="ghost" size="sm" onClick={() => setAllCollapsed(true)}>
+            收起全部
+          </Button>
+        </div>
+      </div>
       {orderedModules.map((mod) => {
-        const modCodes = mod.groups.flatMap((g) => g.permissions.map((p) => p.code));
+        const modCodes = uniqueCodes(mod.groups.flatMap((group) => group.permissions));
         const modSelected = isWildcard
           ? modCodes.length
-          : modCodes.filter((c) => selected.includes(c)).length;
+          : modCodes.filter((c) => selectedSet.has(c)).length;
         return (
-          <div key={mod.name}>
-            {/* 模块小标题 */}
-            <div className="mb-2 flex items-center gap-2 px-0.5">
+          <section key={mod.name} className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50/60">
+            <div className="flex items-center gap-2 border-b border-slate-200 bg-white px-4 py-3">
               <span className="h-3.5 w-1 shrink-0 rounded-full bg-indigo-400" />
-              <span className="text-sm font-bold text-slate-900">{mod.name}</span>
+              <span className="text-balance text-sm font-bold text-slate-900">{mod.name}</span>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500 tabular-nums">
+                {mod.groups.filter((group) => group.kind === "page").length} 个页面
+              </span>
               <span className="text-[11px] tabular-nums text-slate-400">
                 {modSelected}/{modCodes.length}
               </span>
               <span className="h-px flex-1 bg-slate-100" />
             </div>
-            <div className="space-y-2.5">
+            <div className="space-y-2 p-3">
               {mod.groups.map((group) => {
-        const groupCodes = group.permissions.map((p) => p.code);
+        const groupCodes = uniqueCodes(group.permissions);
         const selectedCount = isWildcard
           ? groupCodes.length
-          : groupCodes.filter((c) => selected.includes(c)).length;
+          : groupCodes.filter((c) => selectedSet.has(c)).length;
         const allSelected = selectedCount === groupCodes.length;
         const noneSelected = selectedCount === 0;
-        const isOpen = !collapsed[group.label];
-        const Icon = getGroupIcon(group.label);
+        const isOpen = !collapsed[group.key];
+        const Icon = group.kind === "shared" ? MousePointerClick : FileText;
         const progress = groupCodes.length === 0 ? 0 : (selectedCount / groupCodes.length) * 100;
 
         return (
           <div
-            key={group.label}
+            key={group.key}
             className={cn(
               "overflow-hidden rounded-lg border transition-colors duration-200",
               allSelected
-                ? "border-emerald-200 bg-emerald-50/40"
+                ? "border-indigo-200 bg-indigo-50/60"
                 : !noneSelected
-                  ? "border-blue-200 bg-blue-50/30"
+                  ? "border-indigo-200 bg-indigo-50/30"
                   : "border-slate-200 bg-white",
             )}
           >
@@ -266,27 +444,34 @@ function PermissionMatrix({
                 onClick={(e) => e.stopPropagation()}
                 className={cn(
                   "shrink-0",
-                  allSelected && "data-[state=checked]:bg-emerald-500 data-[state=checked]:border-emerald-500",
+                  allSelected && "data-[state=checked]:border-indigo-600 data-[state=checked]:bg-indigo-600",
                 )}
               />
               <button
                 type="button"
-                onClick={() => toggleGroup(group.label)}
+                onClick={() => toggleGroup(group.key)}
                 className="flex min-w-0 flex-1 items-center gap-3 rounded-sm text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
               >
                 <span
                   className={cn(
                     "flex h-7 w-7 shrink-0 items-center justify-center rounded-md transition-colors",
                     allSelected
-                      ? "bg-emerald-100 text-emerald-600"
+                      ? "bg-indigo-100 text-indigo-600"
                       : !noneSelected
-                        ? "bg-blue-100 text-blue-600"
+                        ? "bg-indigo-100 text-indigo-600"
                         : "bg-slate-100 text-slate-400",
                   )}
                 >
                   <Icon className="h-3.5 w-3.5" />
                 </span>
-                <span className="flex-1 text-sm font-semibold text-slate-800">{group.label}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm font-semibold text-slate-800">{group.label}</span>
+                  {group.routePath ? (
+                    <span className="mt-0.5 block truncate font-mono text-[10px] text-slate-400">
+                      {group.routePath}
+                    </span>
+                  ) : null}
+                </span>
               </button>
 
               {/* Progress + count */}
@@ -295,9 +480,9 @@ function PermissionMatrix({
                   className={cn(
                     "text-xs tabular-nums font-medium",
                     allSelected
-                      ? "text-emerald-600"
+                      ? "text-indigo-600"
                       : !noneSelected
-                        ? "text-blue-600"
+                        ? "text-indigo-600"
                         : "text-slate-400",
                   )}
                 >
@@ -307,14 +492,14 @@ function PermissionMatrix({
                   value={progress}
                   className={cn(
                     "w-16 h-1.5 transition-colors",
-                    allSelected ? "bg-emerald-100 [&>[data-slot=progress-indicator]]:bg-emerald-500" :
-                      !noneSelected ? "bg-blue-100 [&>[data-slot=progress-indicator]]:bg-blue-500" :
+                    allSelected ? "bg-indigo-100 [&>[data-slot=progress-indicator]]:bg-indigo-600" :
+                      !noneSelected ? "bg-indigo-100 [&>[data-slot=progress-indicator]]:bg-indigo-500" :
                         "bg-slate-100 [&>[data-slot=progress-indicator]]:bg-slate-400",
                   )}
                 />
                 <button
                   type="button"
-                  onClick={() => toggleGroup(group.label)}
+                  onClick={() => toggleGroup(group.key)}
                   aria-label={`${isOpen ? "收起" : "展开"}${group.label}`}
                   className="rounded-sm p-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-200"
                 >
@@ -328,26 +513,19 @@ function PermissionMatrix({
               </div>
             </div>
 
-            {/* Animated permission grid */}
-            <div
-              className={cn(
-                "grid transition-all duration-300 ease-out",
-                isOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
-              )}
-            >
-              <div className="overflow-hidden">
-                <div className="border-t border-slate-100 bg-white">
+            {isOpen ? (
+              <div className="border-t border-slate-100 bg-white">
                   <div className="grid grid-cols-1 gap-2 p-3 sm:grid-cols-2 md:grid-cols-3">
                     {group.permissions.map((perm) => {
-                      const checked = isWildcard || selected.includes(perm.code);
+                      const checked = isWildcard || selectedSet.has(perm.code);
                       const ItemIcon = perm.type === "action" ? MousePointerClick : FileText;
                       return (
                         <label
                           key={perm.code}
                           className={cn(
-                            "group/perm flex cursor-pointer items-start gap-2.5 rounded-md border p-2.5 text-sm transition-all duration-150",
+                            "group/perm flex cursor-pointer items-start gap-2.5 rounded-md border p-2.5 text-sm transition-colors duration-150",
                             checked
-                              ? "border-blue-200 bg-blue-50/70 hover:border-blue-300"
+                              ? "border-indigo-200 bg-indigo-50/70 hover:border-indigo-300"
                               : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50",
                             isWildcard && "cursor-default opacity-70",
                           )}
@@ -363,13 +541,16 @@ function PermissionMatrix({
                           <ItemIcon
                             className={cn(
                               "mt-0.5 h-3.5 w-3.5 shrink-0 transition-colors",
-                              checked ? "text-blue-500" : "text-slate-300 group-hover/perm:text-slate-400",
+                              checked ? "text-indigo-500" : "text-slate-300 group-hover/perm:text-slate-400",
                             )}
                           />
                           <div className="min-w-0 flex-1">
+                            <div className="mb-1 text-[10px] font-medium text-slate-400">
+                              {perm.type === "action" ? "按钮 / 功能权限" : "页面访问权限"}
+                            </div>
                             <div className={cn(
                               "text-sm font-medium transition-colors leading-tight",
-                              checked ? "text-blue-800" : "text-slate-700",
+                              checked ? "text-indigo-800" : "text-slate-700",
                             )}>
                               {perm.label}
                             </div>
@@ -383,14 +564,13 @@ function PermissionMatrix({
                       );
                     })}
                   </div>
-                </div>
               </div>
-            </div>
+            ) : null}
           </div>
         );
               })}
             </div>
-          </div>
+          </section>
         );
       })}
     </div>
@@ -529,19 +709,19 @@ export function RoleManagement() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-5 animate-rd-fade-in">
+    <div className="mx-auto flex max-w-7xl flex-col gap-5 xl:h-full xl:min-h-0 xl:overflow-hidden">
       {/* ── Header ──────────────────────────────────────────────────── */}
-      <section className="material-card overflow-hidden">
+      <section className="material-card shrink-0 overflow-hidden">
         <div className="h-0.5 bg-indigo-600" />
         <div className="flex flex-col gap-4 p-6 lg:flex-row lg:items-center lg:justify-between md:p-8">
           <div className="min-w-0">
-            <span className="material-chip bg-indigo-50 text-indigo-700 text-xs tracking-wide">
+            <span className="material-chip bg-indigo-50 text-xs text-indigo-700">
               Permission Matrix
             </span>
-            <h2 className="mt-3 text-2xl font-bold tracking-tight text-slate-950 sm:text-[1.75rem]">
+            <h2 className="mt-3 text-balance text-2xl font-bold text-slate-950 sm:text-[1.75rem]">
               角色与权限
             </h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+            <p className="mt-2 max-w-2xl text-pretty text-sm leading-6 text-slate-500">
               配置角色的页面访问权限与操作权限。权限变更实时生效——用户下次刷新 Token 后即可感知。
             </p>
           </div>
@@ -575,9 +755,10 @@ export function RoleManagement() {
         </div>
       </section>
 
-      <section className="grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)] xl:gap-5">
+      <section className="grid gap-4 xl:min-h-0 xl:flex-1 xl:grid-cols-[300px_minmax(0,1fr)] xl:gap-5 xl:overflow-hidden">
         {/* ── Role list ──────────────────────────────────────────── */}
-        <div className="material-card p-3">
+        <div className="material-card min-h-0 overflow-hidden xl:flex xl:flex-col">
+          <div className="material-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
           {loading ? (
             <div className="flex flex-col items-center justify-center gap-2 py-12 text-slate-400">
               <RefreshCw className="h-5 w-5 animate-spin" />
@@ -601,7 +782,7 @@ export function RoleManagement() {
                     key={role.id}
                     onClick={() => setActiveRoleId(role.id)}
                     className={cn(
-                      "group/role relative flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-all duration-200",
+                      "group/role relative flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors duration-150",
                       isActive
                         ? "border-indigo-200 bg-indigo-50 shadow-[0_1px_2px_rgba(15,23,42,0.04)]"
                         : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60",
@@ -615,9 +796,9 @@ export function RoleManagement() {
                     {/* Role icon */}
                     <span
                       className={cn(
-                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-md transition-colors",
+                        "flex size-8 shrink-0 items-center justify-center rounded-md transition-colors",
                         isSuper
-                          ? "bg-linear-to-br from-amber-100 to-orange-100 text-amber-600 ring-1 ring-amber-200"
+                          ? "bg-amber-100 text-amber-600 ring-1 ring-amber-200"
                           : isActive
                             ? "bg-indigo-100 text-indigo-600 ring-1 ring-indigo-200"
                             : "bg-slate-100 text-slate-500 ring-1 ring-slate-200 group-hover/role:bg-slate-200",
@@ -637,7 +818,7 @@ export function RoleManagement() {
                           {role.name}
                         </span>
                         {isSuper && (
-                          <Badge className="shrink-0 h-4 px-1 text-[10px] font-bold gap-0.5 bg-linear-to-r from-amber-400 to-orange-400 text-white border-0 hover:from-amber-500 hover:to-orange-500">
+                          <Badge className="h-4 shrink-0 gap-0.5 border-0 bg-amber-500 px-1 text-[10px] font-bold text-white hover:bg-amber-600">
                             <Sparkles className="h-2 w-2" />
                             超级
                           </Badge>
@@ -669,7 +850,8 @@ export function RoleManagement() {
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-6 w-6 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50"
+                                aria-label={`编辑角色 ${role.name}`}
+                                className="size-6 text-slate-500 hover:bg-indigo-50 hover:text-indigo-600"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   openEdit(role);
@@ -687,7 +869,8 @@ export function RoleManagement() {
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-6 w-6 text-slate-400 hover:text-red-500 hover:bg-red-50"
+                                aria-label={`删除角色 ${role.name}`}
+                                className="size-6 text-slate-400 hover:bg-red-50 hover:text-red-500"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   openDelete(role);
@@ -706,25 +889,27 @@ export function RoleManagement() {
               })}
             </div>
           )}
+          </div>
         </div>
 
         {/* ── Permission matrix for active role ────────────────── */}
-        <div className="material-card min-w-0 p-4 sm:p-6">
+        <div className="material-card min-h-0 min-w-0 overflow-hidden xl:flex xl:flex-col">
           {!activeRole ? (
-            <div className="flex h-48 flex-col items-center justify-center gap-2 text-slate-400">
+            <div className="flex h-48 flex-col items-center justify-center gap-2 p-6 text-slate-400 xl:h-full">
               <Shield className="h-8 w-8 text-slate-200" />
               <span className="text-sm">请从左侧选择角色</span>
             </div>
           ) : (
             <>
+              <div className="shrink-0 p-4 pb-0 sm:p-6 sm:pb-0">
               <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span
                       className={cn(
-                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg",
+                        "flex size-9 shrink-0 items-center justify-center rounded-lg",
                         isWildcard
-                          ? "bg-linear-to-br from-amber-100 to-orange-100 text-amber-600 ring-1 ring-amber-200"
+                          ? "bg-amber-100 text-amber-600 ring-1 ring-amber-200"
                           : "bg-indigo-100 text-indigo-600 ring-1 ring-indigo-200",
                       )}
                     >
@@ -732,7 +917,7 @@ export function RoleManagement() {
                     </span>
                     <h3 className="text-lg font-bold text-slate-900">{activeRole.name}</h3>
                     {isWildcard && (
-                      <Badge className="h-5 px-1.5 text-[11px] font-bold gap-0.5 bg-linear-to-r from-amber-400 to-orange-400 text-white border-0">
+                      <Badge className="h-5 gap-0.5 border-0 bg-amber-500 px-1.5 text-[11px] font-bold text-white">
                         <Sparkles className="h-2.5 w-2.5" />
                         超级权限
                       </Badge>
@@ -759,7 +944,9 @@ export function RoleManagement() {
               </div>
 
               <Separator className="mb-4" />
+              </div>
 
+              <div className="material-scrollbar min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 pt-0 sm:p-6 sm:pt-0">
               <PermissionMatrix
                 key={activeRole.id}
                 selected={activeRole.permissions}
@@ -774,6 +961,7 @@ export function RoleManagement() {
                   void handleQuickSavePermissions(activeRole, permissions);
                 }}
               />
+              </div>
             </>
           )}
         </div>

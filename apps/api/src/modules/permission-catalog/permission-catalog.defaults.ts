@@ -18,7 +18,8 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'page:rd-my-workspace', label: '个人工作台', description: '我的任务、协作任务、今日待办、待审核 AI 建议', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-my-workspace', sortOrder: 60 },
   { code: 'page:rd-knowledge-base', label: '研发知识库', description: '研发团队内部知识沉淀与权限分级查阅', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-knowledge-base', sortOrder: 65 },
   { code: 'page:rd-sheet', label: '研发数据表', description: '类 WPS 表格，按密级行级管控的研发敏感数据；不同权限的人看到的行数不同', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-sheet', sortOrder: 66 },
-  { code: 'page:rd-director-dashboard', label: '研发主管驾驶舱', description: '全局进度、人员负载热力图、批量重分配（高级权限）', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-director-dashboard', navHidden: true, sortOrder: 70 },
+  // 保留历史权限码，生产驾驶舱迁移后既有角色授权和接口鉴权继续有效。
+  { code: 'page:rd-director-dashboard', label: '生产驾驶舱', description: '与研发任务驾驶舱同版界面，使用独立生产任务池并只读展示研发同步任务', groupLabel: '页面访问 · 质量与生产', type: 'page', routePath: '/production-dashboard', sortOrder: 590 },
   // 「研发人员管理」页（/rd-people-management）实际由动作码 rd-people:manage 守卫（见 App.tsx），
   // 这里的 page: 码从未被任何守卫或导航引用，属冗余登记，已移除。授权仍走 rd-people:manage。
   { code: 'page:rd-approval-flow', label: '审批流配置', description: '配置立项/任务审批的节点、模式、SLA', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-approval-flow', sortOrder: 75 },

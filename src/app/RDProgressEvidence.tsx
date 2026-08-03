@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, ChevronLeft, ChevronRight, Download, FileText, ImageIcon, Loader2, Paperclip, PlayCircle, RefreshCw, Table2, Trash2, Video, X } from "lucide-react";
 import { cn } from "./components/ui/utils";
@@ -69,12 +69,56 @@ export function formatRdFileSize(size: number): string {
 
 // ── 任务图片聚合相册 ──────────────────────────────────────────────────────────
 
-type GalleryImage = {
+export type GalleryImage = {
   att: RdTaskProgressAttachment;
   createdAt: string;
   date: string;
   actor: string;
 };
+
+type MobileAttachmentPreviewDetail =
+  | { kind: "image-gallery"; images: GalleryImage[]; index: number }
+  | { kind: "attachment"; attachment: RdTaskProgressAttachment };
+
+const TaskImageGalleryContext = createContext<GalleryImage[] | null>(null);
+
+function collectTaskGalleryImages(notes: RdTaskProgressNote[]): GalleryImage[] {
+  const images: GalleryImage[] = [];
+  for (const note of notes) {
+    for (const att of note.attachments ?? []) {
+      if ((att.mime ?? "").startsWith("image/")) {
+        images.push({
+          att,
+          createdAt: note.created_at ?? "",
+          date: (note.created_at ?? "").slice(0, 10) || "未知日期",
+          actor: note.actor?.name ?? "",
+        });
+      }
+    }
+  }
+  return images.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+function attachmentsToGalleryImages(attachments: RdTaskProgressAttachment[]): GalleryImage[] {
+  return attachments
+    .filter((att) => (att.mime ?? "").startsWith("image/"))
+    .map((att) => ({ att, createdAt: "", date: "未知日期", actor: "" }));
+}
+
+/**
+ * 给任务详情中的所有附件卡片共享同一份图片序列。这样从任意一条留痕点开图片，
+ * 都能继续浏览当前任务其他留痕里的图片，而不必关闭弹窗再逐张打开。
+ */
+export function TaskImageGalleryScope({
+  notes,
+  children,
+}: {
+  notes: RdTaskProgressNote[];
+  children: React.ReactNode;
+}) {
+  const images = useMemo(() => collectTaskGalleryImages(notes), [notes]);
+  return <TaskImageGalleryContext.Provider value={images}>{children}</TaskImageGalleryContext.Provider>;
+}
 
 /**
  * 任务图片聚合相册：把任务全部进度留痕里的图片拍平收拢到一处，按日期分组、
@@ -90,23 +134,7 @@ export function TaskImageGallery({
   defaultCollapsed?: boolean;
   className?: string;
 }) {
-  const images = useMemo<GalleryImage[]>(() => {
-    const list: GalleryImage[] = [];
-    for (const note of notes) {
-      for (const att of note.attachments ?? []) {
-        if ((att.mime ?? "").startsWith("image/")) {
-          list.push({
-            att,
-            createdAt: note.created_at ?? "",
-            date: (note.created_at ?? "").slice(0, 10) || "未知日期",
-            actor: note.actor?.name ?? "",
-          });
-        }
-      }
-    }
-    // 新 → 旧（最近的照片最先看到）
-    return list.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  }, [notes]);
+  const images = useMemo(() => collectTaskGalleryImages(notes), [notes]);
 
   const groups = useMemo(() => {
     const byDate = new Map<string, GalleryImage[]>();
@@ -194,7 +222,7 @@ export function TaskImageGallery({
 }
 
 /** 全屏大图预览：左右切换（按钮 + 键盘 ←→）、序号、文件信息、下载。 */
-function TaskImageLightbox({
+export function TaskImageLightbox({
   images,
   index,
   onIndexChange,
@@ -208,17 +236,73 @@ function TaskImageLightbox({
   const current = images[index];
   const hasPrev = index > 0;
   const hasNext = index < images.length - 1;
+  const currentUrl = getAttachmentUrl(current.att);
+  const imageFrameRef = useRef<HTMLDivElement>(null);
+  const pointerStartXRef = useRef<number | null>(null);
+  const pointerIdRef = useRef<number | null>(null);
+  const draggedRef = useRef(false);
+  const suppressBackdropClickRef = useRef(false);
+  const lastWheelNavigationRef = useRef(0);
+  const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
   useBodyScrollLock(true);
+
+  const moveTo = useCallback((nextIndex: number) => {
+    if (nextIndex < 0 || nextIndex >= images.length || nextIndex === index) return;
+    onIndexChange(nextIndex);
+  }, [images.length, index, onIndexChange]);
+
+  const setDragOffset = useCallback((offset: number, animate: boolean) => {
+    const frame = imageFrameRef.current;
+    if (!frame) return;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    frame.style.transition = animate && !reduceMotion ? "transform 160ms ease-out" : "none";
+    frame.style.transform = `translate3d(${offset}px, 0, 0)`;
+  }, []);
+
+  const finishPointerGesture = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (pointerIdRef.current !== event.pointerId || pointerStartXRef.current == null) return;
+    const deltaX = event.clientX - pointerStartXRef.current;
+    const threshold = Math.min(120, Math.max(48, event.currentTarget.clientWidth * 0.08));
+    const nextIndex = deltaX < 0 ? index + 1 : index - 1;
+    const canMove = Math.abs(deltaX) >= threshold && nextIndex >= 0 && nextIndex < images.length;
+    suppressBackdropClickRef.current = draggedRef.current;
+    pointerStartXRef.current = null;
+    pointerIdRef.current = null;
+    draggedRef.current = false;
+    setDragOffset(0, !canMove);
+    if (canMove) moveTo(nextIndex);
+  }, [images.length, index, moveTo, setDragOffset]);
+
+  const cancelPointerGesture = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (pointerIdRef.current !== event.pointerId) return;
+    suppressBackdropClickRef.current = draggedRef.current;
+    pointerStartXRef.current = null;
+    pointerIdRef.current = null;
+    draggedRef.current = false;
+    setDragOffset(0, true);
+  }, [setDragOffset]);
+
+  useEffect(() => {
+    setDragOffset(0, false);
+    const neighborUrls = [images[index - 1], images[index + 1]]
+      .filter((image): image is GalleryImage => Boolean(image))
+      .map((image) => getAttachmentUrl(image.att))
+      .filter(Boolean);
+    for (const url of neighborUrls) {
+      const preload = new Image();
+      preload.src = url;
+    }
+  }, [images, index, setDragOffset]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
-      if (event.key === "ArrowLeft" && hasPrev) onIndexChange(index - 1);
-      if (event.key === "ArrowRight" && hasNext) onIndexChange(index + 1);
+      if (event.key === "ArrowLeft" && hasPrev) moveTo(index - 1);
+      if (event.key === "ArrowRight" && hasNext) moveTo(index + 1);
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [index, hasPrev, hasNext, onIndexChange, onClose]);
+  }, [index, hasPrev, hasNext, moveTo, onClose]);
 
   return createPortal(
     <div className="fixed inset-0 z-[1000] flex flex-col overscroll-none bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={`图片预览：${current.att.name}`}>
@@ -254,33 +338,70 @@ function TaskImageLightbox({
       </div>
 
       <div
-        className="relative flex min-h-0 flex-1 items-center justify-center px-14 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+        className="relative flex min-h-0 flex-1 touch-pan-y select-none items-center justify-center px-2 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-14"
+        onPointerDown={(event) => {
+          if (!event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) return;
+          pointerStartXRef.current = event.clientX;
+          pointerIdRef.current = event.pointerId;
+          draggedRef.current = false;
+          event.currentTarget.setPointerCapture(event.pointerId);
+        }}
+        onPointerMove={(event) => {
+          if (pointerIdRef.current !== event.pointerId || pointerStartXRef.current == null) return;
+          let deltaX = event.clientX - pointerStartXRef.current;
+          if (Math.abs(deltaX) > 6) draggedRef.current = true;
+          if ((!hasPrev && deltaX > 0) || (!hasNext && deltaX < 0)) deltaX *= 0.22;
+          setDragOffset(deltaX, false);
+        }}
+        onPointerUp={finishPointerGesture}
+        onPointerCancel={cancelPointerGesture}
+        onWheel={(event) => {
+          if (Math.abs(event.deltaX) <= Math.abs(event.deltaY) || Math.abs(event.deltaX) < 36) return;
+          event.preventDefault();
+          const now = Date.now();
+          if (now - lastWheelNavigationRef.current < 320) return;
+          lastWheelNavigationRef.current = now;
+          moveTo(event.deltaX > 0 ? index + 1 : index - 1);
+        }}
         onClick={(event) => {
+          if (suppressBackdropClickRef.current) {
+            suppressBackdropClickRef.current = false;
+            return;
+          }
           if (shouldCloseFromBackdrop(event)) onClose();
         }}
       >
         {hasPrev && (
           <button
             type="button"
-            onClick={() => onIndexChange(index - 1)}
-            className="absolute left-2 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/25"
+            onClick={() => moveTo(index - 1)}
+            className="absolute left-2 top-1/2 z-10 hidden size-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/25 sm:flex"
             aria-label="上一张"
           >
             <ChevronLeft className="h-6 w-6" />
           </button>
         )}
-        <img
-          src={getAttachmentUrl(current.att)}
-          alt={current.att.name}
-          loading="eager"
-          decoding="async"
-          className="relative max-h-full max-w-full rounded-lg object-contain shadow-2xl"
-        />
+        <div ref={imageFrameRef} className="relative flex h-full w-full items-center justify-center will-change-transform">
+          {loadedUrl !== currentUrl && <Loader2 className="absolute size-7 animate-spin text-white/70" aria-hidden="true" />}
+          <img
+            key={currentUrl}
+            src={currentUrl}
+            alt={current.att.name}
+            loading="eager"
+            decoding="async"
+            draggable={false}
+            onLoad={() => setLoadedUrl(currentUrl)}
+            className={cn(
+              "relative max-h-full max-w-full rounded-lg object-contain shadow-2xl transition-opacity duration-150",
+              loadedUrl === currentUrl ? "opacity-100" : "opacity-0",
+            )}
+          />
+        </div>
         {hasNext && (
           <button
             type="button"
-            onClick={() => onIndexChange(index + 1)}
-            className="absolute right-2 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/25"
+            onClick={() => moveTo(index + 1)}
+            className="absolute right-2 top-1/2 z-10 hidden size-11 -translate-y-1/2 cursor-pointer items-center justify-center rounded-full bg-white/10 text-white transition hover:bg-white/25 sm:flex"
             aria-label="下一张"
           >
             <ChevronRight className="h-6 w-6" />
@@ -307,14 +428,28 @@ export function ProgressAttachmentGrid({
   onReplaceAttachment?: (att: RdTaskProgressAttachment) => void;
 }) {
   const [preview, setPreview] = useState<RdTaskProgressAttachment | null>(null);
-  const dismissPreview = useCallback(() => setPreview(null), []);
-  useMobileOverlayBack(Boolean(preview), ATTACHMENT_PREVIEW_OVERLAY, dismissPreview);
+  const [galleryPreview, setGalleryPreview] = useState<{ images: GalleryImage[]; index: number } | null>(null);
+  const taskImages = useContext(TaskImageGalleryContext);
+  const dismissGalleryPreview = useCallback(() => setGalleryPreview(null), []);
+  const dismissAnyPreview = useCallback(() => {
+    setPreview(null);
+    setGalleryPreview(null);
+  }, []);
+  useMobileOverlayBack(Boolean(preview || galleryPreview), ATTACHMENT_PREVIEW_OVERLAY, dismissAnyPreview);
   const managed = Boolean(onDeleteAttachment || onReplaceAttachment);
 
   const openPreview = (attachment: RdTaskProgressAttachment) => {
+    const isImage = (attachment.mime ?? "").startsWith("image/");
+    const scopedImages = taskImages?.some((image) => image.att.id === attachment.id)
+      ? taskImages
+      : attachmentsToGalleryImages(attachments);
+    const galleryIndex = isImage ? scopedImages.findIndex((image) => image.att.id === attachment.id) : -1;
+    const detail: MobileAttachmentPreviewDetail = isImage && galleryIndex >= 0
+      ? { kind: "image-gallery", images: scopedImages, index: galleryIndex }
+      : { kind: "attachment", attachment };
     if (isMobileRoute()) {
-      const event = new CustomEvent<RdTaskProgressAttachment>(MOBILE_ATTACHMENT_PREVIEW_EVENT, {
-        detail: attachment,
+      const event = new CustomEvent<MobileAttachmentPreviewDetail>(MOBILE_ATTACHMENT_PREVIEW_EVENT, {
+        detail,
         cancelable: true,
       });
       // The mobile page-level host owns the preview so polling or rebuilding a
@@ -323,11 +458,12 @@ export function ProgressAttachmentGrid({
       if (!window.dispatchEvent(event)) return;
     }
     pushMobileOverlayState(ATTACHMENT_PREVIEW_OVERLAY);
-    setPreview(attachment);
+    if (detail.kind === "image-gallery") setGalleryPreview({ images: detail.images, index: detail.index });
+    else setPreview(detail.attachment);
   };
   const closePreview = useCallback(
-    () => closeMobileOverlay(ATTACHMENT_PREVIEW_OVERLAY, dismissPreview),
-    [dismissPreview],
+    () => closeMobileOverlay(ATTACHMENT_PREVIEW_OVERLAY, dismissAnyPreview),
+    [dismissAnyPreview],
   );
 
   useEffect(() => {
@@ -478,6 +614,14 @@ export function ProgressAttachmentGrid({
         })}
       </div>
       {preview && <AttachmentPreviewModal attachment={preview} onClose={closePreview} />}
+      {galleryPreview && galleryPreview.images[galleryPreview.index] && (
+        <TaskImageLightbox
+          images={galleryPreview.images}
+          index={galleryPreview.index}
+          onIndexChange={(next) => setGalleryPreview((currentPreview) => currentPreview ? { ...currentPreview, index: next } : null)}
+          onClose={() => closeMobileOverlay(ATTACHMENT_PREVIEW_OVERLAY, dismissGalleryPreview)}
+        />
+      )}
     </>
   );
 }
@@ -488,7 +632,7 @@ export function ProgressAttachmentGrid({
  * not destroy an already-open attachment preview.
  */
 export function MobileAttachmentPreviewHost() {
-  const [preview, setPreview] = useState<RdTaskProgressAttachment | null>(null);
+  const [preview, setPreview] = useState<MobileAttachmentPreviewDetail | null>(null);
   const dismissPreview = useCallback(() => setPreview(null), []);
   const closePreview = useCallback(
     () => closeMobileOverlay(ATTACHMENT_PREVIEW_OVERLAY, dismissPreview),
@@ -499,18 +643,18 @@ export function MobileAttachmentPreviewHost() {
 
   useEffect(() => {
     const handleOpen = (event: Event) => {
-      const attachment = (event as CustomEvent<RdTaskProgressAttachment>).detail;
-      if (!attachment) return;
+      const detail = (event as CustomEvent<MobileAttachmentPreviewDetail>).detail;
+      if (!detail) return;
       event.preventDefault();
       pushMobileOverlayState(ATTACHMENT_PREVIEW_OVERLAY);
-      setPreview(attachment);
+      setPreview(detail);
     };
     window.addEventListener(MOBILE_ATTACHMENT_PREVIEW_EVENT, handleOpen);
     return () => window.removeEventListener(MOBILE_ATTACHMENT_PREVIEW_EVENT, handleOpen);
   }, []);
 
   useEffect(() => {
-    if (!preview) return undefined;
+    if (!preview || preview.kind === "image-gallery") return undefined;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") closePreview();
     };
@@ -518,7 +662,18 @@ export function MobileAttachmentPreviewHost() {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [closePreview, preview]);
 
-  return preview ? <AttachmentPreviewModal attachment={preview} onClose={closePreview} /> : null;
+  if (!preview) return null;
+  if (preview.kind === "image-gallery") {
+    return preview.images[preview.index] ? (
+      <TaskImageLightbox
+        images={preview.images}
+        index={preview.index}
+        onIndexChange={(next) => setPreview((currentPreview) => currentPreview?.kind === "image-gallery" ? { ...currentPreview, index: next } : currentPreview)}
+        onClose={closePreview}
+      />
+    ) : null;
+  }
+  return <AttachmentPreviewModal attachment={preview.attachment} onClose={closePreview} />;
 }
 
 function AttachmentPreviewModal({
@@ -745,6 +900,13 @@ export function ProgressNoteList({
   renderSource?: (note: RdTaskProgressNote) => React.ReactNode;
 }) {
   useI18n(); // 共享组件自行订阅语言切换（不依赖父级是否订阅）
+  const sortedNotes = useMemo(
+    () => [...notes].sort((a, b) => {
+      const timeOrder = (b.created_at ?? "").localeCompare(a.created_at ?? "");
+      return timeOrder || b.id.localeCompare(a.id);
+    }),
+    [notes],
+  );
   if (loading) {
     return (
       <div className="rounded-[8px] border border-dashed border-slate-200 bg-slate-50/70 px-3 py-4 text-center text-xs text-slate-400">
@@ -762,9 +924,10 @@ export function ProgressNoteList({
   }
 
   return (
-    <ul className="space-y-3">
-      {notes.map((note) => (
-        <li key={note.id} className="rounded-[8px] border border-slate-200 bg-white p-3">
+    <TaskImageGalleryScope notes={sortedNotes}>
+      <ul className="space-y-3">
+        {sortedNotes.map((note) => (
+          <li key={note.id} className="rounded-[8px] border border-slate-200 bg-white p-3">
           <div className="flex items-start justify-between gap-2 text-[11px] text-slate-500">
             <span className="flex min-w-0 flex-wrap items-center gap-1.5 font-medium text-slate-700">
               {renderSource?.(note)}
@@ -804,8 +967,9 @@ export function ProgressNoteList({
             )
           )}
           <ProgressAttachmentGrid attachments={note.attachments} compact={compact} className="mt-3" />
-        </li>
-      ))}
-    </ul>
+          </li>
+        ))}
+      </ul>
+    </TaskImageGalleryScope>
   );
 }

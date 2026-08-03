@@ -167,3 +167,135 @@ test('completion score batch reads score/category stores once and preserves per-
   assert.equal(result['task-hidden'], null);
   assert.equal(result['task-missing'], null);
 });
+
+test('attaching a task with descendants preserves the full hierarchy', async () => {
+  const categories = [{
+    id: 'system-a',
+    label: '系统 A',
+    children: [
+      {
+        id: 'target-project',
+        label: '目标项目',
+        tasks: [{
+          task_id: 'target',
+          title: '目标任务',
+          category_path: '系统 A / 目标项目 / 研发任务',
+          subtasks: [],
+        }],
+      },
+      {
+        id: 'source-project',
+        label: '源项目',
+        tasks: [{
+          task_id: 'source',
+          title: '源主任务',
+          category_path: '系统 A / 源项目 / 研发任务',
+          subtasks: [{
+            task_id: 'child-a',
+            title: '一级子任务',
+            category_path: '系统 A / 源项目 / 测试任务',
+            subtasks: [{
+              task_id: 'child-b',
+              title: '二级子任务',
+              category_path: '系统 A / 源项目 / 验证任务',
+              subtasks: [],
+            }],
+          }],
+        }],
+      },
+    ],
+  }];
+  let written: Array<Record<string, unknown>> | null = null;
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  service.readAllTaskTrees = async () => ({
+    trees: new Map([['prod-portable-o2', categories]]),
+    store: {},
+  });
+  service.commitTaskTrees = async (dirty: Map<string, Array<Record<string, unknown>>>) => {
+    written = dirty.get('prod-portable-o2') ?? null;
+  };
+  service.recomputeDirectorDashboard = async () => undefined;
+  service.syncTaskToRag = () => undefined;
+
+  await service.attachTaskAsSubtaskUnlocked('source', 'target', {
+    canEditAny: true,
+    userId: 'admin-1',
+    userName: '管理员',
+  });
+
+  const savedTree = written as Array<Record<string, unknown>> | null;
+  assert.ok(savedTree);
+  const children = (savedTree[0].children as Array<Record<string, unknown>>);
+  const targetTasks = children[0].tasks as Array<Record<string, unknown>>;
+  const sourceTasks = children[1].tasks as Array<Record<string, unknown>>;
+  assert.equal(sourceTasks.length, 0);
+  const attached = (targetTasks[0].subtasks as Array<Record<string, unknown>>)[0];
+  const childA = (attached.subtasks as Array<Record<string, unknown>>)[0];
+  const childB = (childA.subtasks as Array<Record<string, unknown>>)[0];
+  assert.equal(attached.task_id, 'source');
+  assert.equal(attached.parent_task_id, 'target');
+  assert.equal(attached.subtask_origin, 'attached');
+  assert.equal(childA.parent_task_id, 'source');
+  assert.equal(childB.parent_task_id, 'child-a');
+  assert.equal(attached.category_path, '系统 A / 目标项目 / 研发任务');
+  assert.equal(childA.category_path, '系统 A / 目标项目 / 测试任务');
+  assert.equal(childB.category_path, '系统 A / 目标项目 / 验证任务');
+});
+
+test('detaching a nested task lifts its entire subtree without flattening it', async () => {
+  const categories = [{
+    id: 'system-a',
+    label: '系统 A',
+    children: [{
+      id: 'project-a',
+      label: '项目 A',
+      tasks: [{
+        task_id: 'root',
+        title: '根任务',
+        subtasks: [{
+          task_id: 'middle',
+          title: '中间任务',
+          parent_task_id: 'root',
+          subtasks: [{
+            task_id: 'nested',
+            title: '待提升任务',
+            parent_task_id: 'middle',
+            subtask_origin: 'attached',
+            subtasks: [{
+              task_id: 'leaf',
+              title: '原有下级',
+              parent_task_id: 'nested',
+              subtasks: [],
+            }],
+          }],
+        }],
+      }],
+    }],
+  }];
+  let written: Array<Record<string, unknown>> | null = null;
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  service.readAllTaskTrees = async () => ({
+    trees: new Map([['prod-portable-o2', categories]]),
+    store: {},
+  });
+  service.writeTaskCategoriesForProduct = async (_productId: string, value: Array<Record<string, unknown>>) => {
+    written = value;
+  };
+  service.recomputeDirectorDashboard = async () => undefined;
+  service.syncTaskToRag = () => undefined;
+
+  await service.detachSubtaskUnlocked('nested', { canEditAny: true });
+
+  const savedTree = written as Array<Record<string, unknown>> | null;
+  assert.ok(savedTree);
+  const tasks = ((savedTree[0].children as Array<Record<string, unknown>>)[0]
+    .tasks as Array<Record<string, unknown>>);
+  assert.deepEqual(tasks.map((task) => task.task_id), ['nested', 'root']);
+  const detached = tasks[0];
+  const root = tasks[1];
+  const middle = (root.subtasks as Array<Record<string, unknown>>)[0];
+  assert.equal((middle.subtasks as Array<Record<string, unknown>>).length, 0);
+  assert.equal(detached.parent_task_id, null);
+  assert.equal(detached.subtask_origin, null);
+  assert.equal(((detached.subtasks as Array<Record<string, unknown>>)[0]).task_id, 'leaf');
+});

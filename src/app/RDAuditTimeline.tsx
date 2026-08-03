@@ -114,7 +114,7 @@ const FIELD_LABELS: Record<string, string> = {
   notes: "备注",
   comment: "评论",
   duration_basis: "工期依据",
-  // 子任务关系（一层）：并入/取消关系的留痕会带这两个字段
+  // 子任务树关系：并入/取消关系的留痕会带这两个字段
   parent_task_id: "父任务",
   subtask_origin: "子任务来源",
   // 权限 / 角色

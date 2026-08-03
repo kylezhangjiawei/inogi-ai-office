@@ -56,7 +56,7 @@ test('production cockpit renders the same page implementation as the R&D task co
   );
 
   const rdRoute = appSource.match(
-    /\{ path: "rd-task-management", element: makeLazyProtected\(<RDTaskManagementPage key="([^"]+)" \/>, "page:rd-task-management"\) \}/,
+    /\{ path: asChildPath\(routePath\("page:rd-task-management", "\/rd-task-management"\)\), element: makeLazyProtected\(<RDTaskManagementPage key="([^"]+)" \/>, "page:rd-task-management"\) \}/,
   );
   const productionRoute = appSource.match(
     /\{ path: "production-dashboard", element: makeLazyProtected\(<RDTaskManagementPage key="([^"]+)" \/>, "page:rd-director-dashboard"\) \}/,
@@ -71,4 +71,5 @@ test('production cockpit renders the same page implementation as the R&D task co
     appSource,
     /path: "production-dashboard"[^\n]*RDDirectorDashboardPage/,
   );
+  assert.doesNotMatch(appSource, /<RDDirectorDashboardPage\s*\/>/);
 });

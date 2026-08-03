@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Download,
   FileText,
+  GitBranch,
   Lock,
   Loader2,
   MessageCircleMore,
@@ -40,7 +41,7 @@ import { t, useI18n } from "./lib/i18n";
 import { AutoTranslatedText } from "./components/TranslatableText";
 import { AuditTimeline } from "./RDAuditTimeline";
 import { addAuditLogNote, recordAudit, useAuditActor, type AuditLog, useAuditLogs } from "./lib/auditLog";
-import { ProgressAttachmentGrid, ProgressNoteList, TaskImageGallery, formatRdFileSize, formatTraceDateTime } from "./RDProgressEvidence";
+import { ProgressAttachmentGrid, TaskImageGallery, TaskImageGalleryScope, formatRdFileSize, formatTraceDateTime } from "./RDProgressEvidence";
 import { RDTaskConversation } from "./RDTaskConversation";
 import {
   STATUS_CONFIG,
@@ -98,10 +99,99 @@ import {
   type RdProductionTaskSync,
 } from "./lib/rdApi";
 
-type DetailTab = "notes" | "conversation" | "attachments" | "audit";
+type DetailTab = "notes" | "conversation" | "attachments" | "audit" | "relations";
 
 /** 模块级常量：保证 useAuditLogs 的订阅条件恒定，避免任何重订阅/重拉取。 */
 const TASK_AUDIT_FILTER = { resourceType: "task" } as const;
+
+function countRelationNodes(task: RdTask): number {
+  return 1 + (task.subtasks ?? []).reduce((total, child) => total + countRelationNodes(child), 0);
+}
+
+type TaskRelationNodeProps = {
+  task: RdTask;
+  currentTaskId: string;
+  isRoot?: boolean;
+  onOpen: (task: RdTask) => void;
+};
+
+function TaskRelationNode({ task, currentTaskId, isRoot = false, onOpen }: TaskRelationNodeProps) {
+  const status = STATUS_CONFIG[task.status] ?? STATUS_CONFIG.in_progress;
+  const children = task.subtasks ?? [];
+  const current = task.task_id === currentTaskId;
+
+  return (
+    <li>
+      <button
+        type="button"
+        aria-current={current ? "page" : undefined}
+        onClick={() => onOpen(task)}
+        className={cn(
+          "flex w-full cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-left transition-colors",
+          current
+            ? "border-indigo-200 bg-indigo-50 text-indigo-900"
+            : "border-slate-200 bg-white text-slate-700 hover:border-indigo-200 hover:bg-slate-50",
+        )}
+      >
+        <span className={cn("size-2 shrink-0 rounded-full", status.dot)} />
+        {isRoot ? (
+          <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">
+            {t("主任务")}
+          </span>
+        ) : (
+          <SubtaskBadge task={task} />
+        )}
+        <span className="min-w-0 flex-1">
+          <span className="flex items-center gap-1.5">
+            <span className="truncate text-sm font-medium"><AutoTranslatedText text={task.title} /></span>
+            {current ? (
+              <span className="shrink-0 rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700">
+                {t("当前")}
+              </span>
+            ) : null}
+          </span>
+          <span className="mt-0.5 flex min-w-0 items-center gap-2 text-[11px] text-slate-400">
+            <span className="shrink-0 font-mono">{task.task_id}</span>
+            <span className="truncate">{displayPersonName(task.primary_owner)}</span>
+            {children.length > 0 ? (
+              <span className="shrink-0 tabular-nums">{t("{n} 个下级", { n: children.length })}</span>
+            ) : null}
+          </span>
+        </span>
+        <span className="shrink-0 text-xs tabular-nums text-slate-500">{task.progress}%</span>
+        <ChevronRight className="size-4 shrink-0 text-slate-400" />
+      </button>
+      {children.length > 0 ? (
+        <ul className="ml-5 mt-1.5 space-y-1.5 border-l border-slate-200 pl-3">
+          {children.map((child) => (
+            <TaskRelationNode
+              key={child.task_id}
+              task={child}
+              currentTaskId={currentTaskId}
+              onOpen={onOpen}
+            />
+          ))}
+        </ul>
+      ) : null}
+    </li>
+  );
+}
+
+function TaskRelationTree({
+  root,
+  currentTaskId,
+  onOpen,
+}: {
+  root: RdTask;
+  currentTaskId: string;
+  onOpen: (task: RdTask) => void;
+}) {
+  return (
+    <ul className="space-y-1.5">
+      <TaskRelationNode task={root} currentTaskId={currentTaskId} isRoot onOpen={onOpen} />
+    </ul>
+  );
+}
 
 /**
  * 研发任务 · 全屏详情页（双栏布局，与协同任务详情同款范式）：
@@ -149,16 +239,6 @@ export default function RDTaskDetailPage() {
   const [showCreateSubtask, setShowCreateSubtask] = useState(false);
   const [showAttachSubtasks, setShowAttachSubtasks] = useState(false);
   const [detaching, setDetaching] = useState(false);
-  /**
-   * 留痕/操作记录的视图范围：
-   * - 'all'  主线：本任务 + 全部子任务的记录混排，每条标出来源（只读，写入需先选定具体任务）
-   * - 'self' 仅本任务（原行为，带撰写框）
-   * - 其他   某个子任务的 task_id（带撰写框，写入落到该子任务）
-   * 有子任务时默认落在主线。
-   */
-  const [traceScope, setTraceScope] = useState<string>("self");
-  /** 各子任务的留痕（按 task_id 缓存），主线聚合与子任务视图共用。 */
-  const [subtaskNotes, setSubtaskNotes] = useState<Record<string, RdTaskProgressNote[]>>({});
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [notes, setNotes] = useState<RdTaskProgressNote[]>([]);
@@ -331,89 +411,21 @@ export default function RDTaskDetailPage() {
     return counts;
   }, [notes]);
 
-  // 子任务留痕：一层结构下数量有限，按 task_id 并行拉取（单任务路由带参与人可见性口径，
-  // 比 listAllTaskProgressNotes 的全量拉取更省且权限语义正确）。
-  const subtaskIdsKey = (task?.subtasks ?? []).map((s) => s.task_id).join(",");
-  useEffect(() => {
-    const ids = subtaskIdsKey ? subtaskIdsKey.split(",") : [];
-    if (ids.length === 0) { setSubtaskNotes({}); return; }
-    let cancelled = false;
-    void Promise.all(
-      ids.map((id) =>
-        fetchRdTaskProgressNotes(id)
-          .then((data) => [id, data] as const)
-          .catch(() => [id, [] as RdTaskProgressNote[]] as const),
-      ),
-    ).then((pairs) => { if (!cancelled) setSubtaskNotes(Object.fromEntries(pairs)); });
-    return () => { cancelled = true; };
-  }, [subtaskIdsKey]);
-
-  // 有子任务的任务默认落在「主线」；无子任务（或切换到别的任务）回到仅本任务。
-  useEffect(() => {
-    setTraceScope(subtaskIdsKey ? "all" : "self");
-  }, [taskId, subtaskIdsKey]);
-
-  // 讨论 Tab 没有「主线」选项（见范围条注释）→ 从主线切进讨论时落回仅主任务
-  useEffect(() => {
-    if (tab === "conversation") setTraceScope((prev) => (prev === "all" ? "self" : prev));
-  }, [tab]);
-
-  // ── 留痕视图范围（主线 / 本任务 / 某个子任务）────────────────────────────────
-
   const subtasks = useMemo(() => task?.subtasks ?? [], [task]);
 
-  /** taskId → 任务标题（含子任务），供来源标签与合成日志取名。 */
-  const traceTitleOf = useMemo(() => {
-    const m = new Map<string, string>();
-    if (task) m.set(taskId, task.title);
-    for (const s of subtasks) m.set(s.task_id, s.title);
-    return m;
-  }, [task, taskId, subtasks]);
-
-  /**
-   * 留痕 id → 所属任务 id。用旁挂 Map 而不是往留痕对象上加字段：
-   * 单任务范围可以直接复用原数组引用（零拷贝、引用稳定，不会让下游 memo 全部失效）。
-   * 留痕 id 全局唯一（note-<ts>-<rand>），跨任务同表不会撞键。
-   */
-  const noteSourceOf = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const n of notes) m.set(n.id, taskId);
-    for (const s of subtasks) for (const n of subtaskNotes[s.task_id] ?? []) m.set(n.id, s.task_id);
-    return m;
-  }, [notes, subtaskNotes, subtasks, taskId]);
-
-  /** 当前范围下的留痕（主线按时间倒序混排；单任务范围原样返回，不做拷贝）。 */
-  const scopedNotes = useMemo(() => {
-    if (traceScope === "self") return notes;
-    if (traceScope !== "all") return subtaskNotes[traceScope] ?? [];
-    return [...notes, ...subtasks.flatMap((s) => subtaskNotes[s.task_id] ?? [])].sort((a, b) =>
-      (b.created_at ?? "").localeCompare(a.created_at ?? ""),
-    );
-  }, [traceScope, notes, subtaskNotes, subtasks]);
-
-  /** 讨论/留痕撰写指向的具体任务：主线与「仅主任务」都落到本任务，否则落到选中的子任务。 */
-  const conversationTaskId = traceScope === "all" || traceScope === "self" ? taskId : traceScope;
-
-  /** 当前范围覆盖的任务 id 集合，用于过滤审计日志。 */
-  const traceTaskIds = useMemo(() => {
-    if (traceScope === "all") return new Set([taskId, ...subtasks.map((s) => s.task_id)]);
-    if (traceScope === "self") return new Set([taskId]);
-    return new Set([traceScope]);
-  }, [traceScope, taskId, subtasks]);
-
   const auditLogs = useMemo(
-    () => allTaskAuditLogs.filter((log) => traceTaskIds.has(log.resource.id)),
-    [allTaskAuditLogs, traceTaskIds],
+    () => allTaskAuditLogs.filter((log) => log.resource.id === taskId),
+    [allTaskAuditLogs, taskId],
   );
 
   const docAttachments = useMemo(
     () =>
-      scopedNotes.flatMap((n) =>
+      notes.flatMap((n) =>
         (n.attachments ?? [])
           .filter((att) => !(att.mime ?? "").startsWith("image/"))
           .map((att) => ({ att, createdAt: n.created_at, actor: n.actor?.name ?? "" })),
       ),
-    [scopedNotes],
+    [notes],
   );
 
   // 导出报告用：audit 记录 + 无对应 audit 的留痕合成条目（保证报告时间线完整）
@@ -422,7 +434,7 @@ export default function RDTaskDetailPage() {
     const matchedNoteIds = new Set(
       auditLogs.map((log) => (typeof log.metadata?.note_id === "string" ? log.metadata.note_id : "")).filter(Boolean),
     );
-    const orphanLogs: AuditLog[] = scopedNotes
+    const orphanLogs: AuditLog[] = notes
       .filter((n) => !matchedNoteIds.has(n.id))
       .map((n) => ({
         id: `report-note-${n.id}`,
@@ -431,16 +443,16 @@ export default function RDTaskDetailPage() {
         action: "task.progress_updated" as const,
         resource: {
           type: "task" as const,
-          id: noteSourceOf.get(n.id) ?? taskId,
-          name: traceTitleOf.get(noteSourceOf.get(n.id) ?? taskId) ?? task?.title ?? "",
+          id: taskId,
+          name: task?.title ?? "",
         },
         comment: n.text || "更新任务进度",
         metadata: { note_id: n.id, synthetic: true },
         source: "web" as const,
       }));
     return [...auditLogs, ...orphanLogs];
-  }, [auditLogs, scopedNotes, noteSourceOf, traceTitleOf, taskId, task?.title]);
-  const noteById = useMemo(() => new Map(scopedNotes.map((n) => [n.id, n] as const)), [scopedNotes]);
+  }, [auditLogs, notes, taskId, task?.title]);
+  const noteById = useMemo(() => new Map(notes.map((n) => [n.id, n] as const)), [notes]);
   const reportNoteOf = useCallback(
     (logId: string) => {
       const log = reportLogs.find((l) => l.id === logId);
@@ -470,8 +482,7 @@ export default function RDTaskDetailPage() {
       toast.error(t("写点什么或附上文件再发送"));
       return;
     }
-    // 留痕落到当前范围指向的任务：子任务范围写进该子任务，主线/仅主任务写进本任务
-    const targetId = conversationTaskId;
+    const targetId = taskId;
     setSendingNote(true);
     try {
       await createRdTaskProgressNote({
@@ -486,14 +497,9 @@ export default function RDTaskDetailPage() {
       setComposerFiles([]);
       setComposerItemId("");
       toast.success(t("进展已记录"));
-      // 重拉留痕让时间线/附件库即时可见（子任务范围只刷该子任务那一份）
+      // 重拉当前任务留痕，让时间线与附件库即时可见。
       try {
-        if (targetId === task.task_id) {
-          setNotes(await fetchRdTaskProgressNotes(task.task_id));
-        } else {
-          const fresh = await fetchRdTaskProgressNotes(targetId);
-          setSubtaskNotes((prev) => ({ ...prev, [targetId]: fresh }));
-        }
+        setNotes(await fetchRdTaskProgressNotes(task.task_id));
       } catch {
         /* 拉取失败不影响已提交结果 */
       }
@@ -858,13 +864,34 @@ export default function RDTaskDetailPage() {
     }
   };
 
-  // ── 子任务（一层）：父任务面包屑 / 子任务清单 / 直建 / 并入已有任务 / 取消关系 ──
+  // ── 子任务树：父任务面包屑 / 子任务清单 / 整树并入 / 取消关系 ───────────────
 
   /** 当前任务的父任务（本任务是子任务时非空）。按结构索引判定，不看 parent_task_id 字段。 */
   const parentTask = subtaskParents.get(taskId) ?? null;
+  /** 当前任务所在关系树的根节点；关系页签始终展示完整上下文，不把中间层拍平。 */
+  const relationRoot = useMemo(() => {
+    if (!task) return null;
+    let root = task;
+    const visited = new Set([task.task_id]);
+    while (true) {
+      const parent = subtaskParents.get(root.task_id);
+      if (!parent || visited.has(parent.task_id)) return root;
+      visited.add(parent.task_id);
+      root = parent;
+    }
+  }, [task, subtaskParents]);
+  const relationNodeCount = useMemo(
+    () => (relationRoot ? countRelationNodes(relationRoot) : 0),
+    [relationRoot],
+  );
+  const openRelationTask = useCallback((target: RdTask) => {
+    if (target.task_id !== taskId) {
+      navigate(taskDetailPath(target.task_id), { state: { task: target } });
+    }
+  }, [navigate, taskDetailPath, taskId]);
   /**
-   * 可并入为子任务的候选：顶层任务、非自身、未归档、且自身不带子任务
-   * （后端拒绝把带子任务的任务挂到别处——子任务仅支持一层）。
+   * 可并入为子任务的候选：顶层任务、非自身、未归档。
+   * 候选可以自带完整子任务树；挂载后原层级永久保留。
    */
   const attachCandidates = useMemo(
     () =>
@@ -872,8 +899,7 @@ export default function RDTaskDetailPage() {
         (candidate) =>
           candidate.task_id !== taskId &&
           !candidate.archived &&
-          candidate.status !== "archived" &&
-          !(candidate.subtasks?.length),
+          candidate.status !== "archived",
       ),
     [topLevelTasks, taskId],
   );
@@ -1041,7 +1067,8 @@ export default function RDTaskDetailPage() {
 
   // 大屏（lg+）视口内布局：整页不滚，AI 小结/时间线各自内滚；窄屏维持自然文档流
   return (
-    <motion.div
+    <TaskImageGalleryScope notes={notes}>
+      <motion.div
       ref={rootRef}
       initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
@@ -1212,7 +1239,7 @@ export default function RDTaskDetailPage() {
             </div>
           )}
 
-          {/* ── 子任务关系节（一层）──
+          {/* ── 子任务关系节 ──
               子任务态：显示父任务面包屑 + 取消关系；顶层态：子任务清单 + 直建/并入入口。 */}
           {parentTask ? (
             <div className="bg-sky-50/60 px-4 py-3.5">
@@ -1300,7 +1327,7 @@ export default function RDTaskDetailPage() {
                       {Math.round(subtasks.reduce((sum, s) => sum + s.progress, 0) / subtasks.length)}%
                     </span>
                   </div>
-                  <div className="space-y-1">
+                  <div className="cockpit-scroll max-h-72 space-y-1 overflow-y-auto pr-1">
                     {subtasks.map((sub) => {
                       const subCfg = STATUS_CONFIG[sub.status] ?? STATUS_CONFIG.in_progress;
                       return (
@@ -1315,6 +1342,11 @@ export default function RDTaskDetailPage() {
                           <span className="min-w-0 flex-1 truncate text-xs text-slate-700">
                             <AutoTranslatedText text={sub.title} />
                           </span>
+                          {(sub.subtasks?.length ?? 0) > 0 ? (
+                            <span className="shrink-0 text-[10px] tabular-nums text-slate-400">
+                              {t("{n} 个下级", { n: sub.subtasks!.length })}
+                            </span>
+                          ) : null}
                           <span className="shrink-0 text-[11px] tabular-nums text-slate-400">{sub.progress}%</span>
                         </button>
                       );
@@ -1533,15 +1565,16 @@ export default function RDTaskDetailPage() {
             </div>
           )}
 
-          {/* Tab：进度留痕 / 任务讨论 / 操作记录 / 附件库 —— 卡片吃掉主列剩余高度，内容区各自内滚 */}
+          {/* Tab：当前任务过程数据 + 独立的合并关系树。卡片吃掉主列剩余高度，内容区各自内滚。 */}
           <div className="material-card flex min-h-0 flex-1 flex-col overflow-hidden p-0 lg:min-h-[280px]">
             <Tabs value={tab} onValueChange={(value) => setTab(value as DetailTab)} className="flex min-h-0 flex-1 flex-col gap-0">
               <TabsList className="cockpit-scroll h-auto w-full shrink-0 justify-start gap-3 overflow-x-auto rounded-none border-b border-slate-200/80 bg-transparent p-0 px-3 sm:gap-5 sm:px-4">
                 {([
-                  { key: "notes", label: t("进展留痕"), count: scopedNotes.length },
+                  { key: "notes", label: t("进展留痕"), count: notes.length },
                   { key: "conversation", label: t("任务讨论"), count: discussionUnread },
                   { key: "audit", label: t("操作记录"), count: timelineLogs.length },
                   { key: "attachments", label: t("附件库"), count: null },
+                  { key: "relations", label: t("合并关系"), count: Math.max(0, relationNodeCount - 1) },
                 ] as const).map((tabItem) => (
                   <TabsTrigger
                     key={tabItem.key}
@@ -1549,6 +1582,7 @@ export default function RDTaskDetailPage() {
                     className="-mb-px flex-none cursor-pointer gap-1.5 rounded-none border-0 border-b-2 border-transparent bg-transparent px-1 pb-3 pt-3.5 text-sm font-medium text-slate-500 shadow-none transition-colors hover:text-slate-800 data-[state=active]:border-indigo-600 data-[state=active]:bg-transparent data-[state=active]:font-semibold data-[state=active]:text-slate-900 data-[state=active]:shadow-none"
                   >
                     {tabItem.key === "conversation" && <MessageCircleMore className="h-3.5 w-3.5 text-indigo-500" />}
+                    {tabItem.key === "relations" && <GitBranch className="h-3.5 w-3.5 text-indigo-500" />}
                     {tabItem.label}
                     {tabItem.count != null && tabItem.count > 0 && (
                       <span className={cn(
@@ -1560,104 +1594,28 @@ export default function RDTaskDetailPage() {
                 ))}
               </TabsList>
 
-              {/* ── 范围切换条（仅有子任务时出现，作用于「进展留痕」「操作记录」「任务讨论」）──
-                  主线把本任务与全部子任务的记录混排并标出来源；切到具体任务才可写入。
-                  ⚠️ 任务讨论不提供「主线」：讨论是每任务一套线程 + 独立已读游标，
-                  跨任务合并会误清其他任务的未读，只允许切到具体任务看它自己的讨论。 */}
-              {subtasks.length > 0 && (tab === "notes" || tab === "audit" || tab === "conversation") && (
-                <div className="flex shrink-0 flex-wrap items-center gap-1.5 border-b border-slate-100 bg-slate-50/60 px-3 py-2 sm:px-4">
-                  <span className="mr-0.5 text-[11px] font-semibold text-slate-400">{t("范围")}</span>
-                  {[
-                    ...(tab === "conversation"
-                      ? []
-                      : [{ id: "all", label: t("主线（全部）"), count: notes.length + subtasks.reduce((n, s) => n + (subtaskNotes[s.task_id]?.length ?? 0), 0) }]),
-                    { id: "self", label: t("仅主任务"), count: notes.length },
-                    ...subtasks.map((s) => ({ id: s.task_id, label: s.title, count: subtaskNotes[s.task_id]?.length ?? 0, sub: s })),
-                  ].map((opt) => {
-                    const active = traceScope === opt.id;
-                    return (
-                      <button
-                        key={opt.id}
-                        type="button"
-                        onClick={() => setTraceScope(opt.id)}
-                        title={opt.label}
-                        className={cn(
-                          "flex max-w-[220px] cursor-pointer items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] font-medium transition",
-                          active
-                            ? "border-indigo-300 bg-indigo-50 text-indigo-700"
-                            : "border-slate-200 bg-white text-slate-600 hover:border-indigo-200 hover:bg-indigo-50/40",
-                        )}
-                      >
-                        {"sub" in opt && opt.sub ? <SubtaskBadge task={opt.sub} /> : null}
-                        <span className="min-w-0 truncate">{opt.label}</span>
-                        <span className={cn("shrink-0 tabular-nums", active ? "text-indigo-500" : "text-slate-400")}>
-                          {opt.count}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-
               <TabsContent value="notes" className="min-h-0 min-w-0 flex-1 overflow-hidden data-[state=active]:flex">
-                {traceScope === "all" && subtasks.length > 0 ? (
-                  // 主线：跨任务混排，只读（写入需先切到具体任务——留痕必须落到唯一的目标任务）
-                  <div className="cockpit-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
-                    <p className="mb-2.5 rounded-lg bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-500">
-                      {t("主线汇总本任务与 {n} 个子任务的全部进展留痕。要记录新进展，请先切到「仅主任务」或某个子任务。", { n: subtasks.length })}
-                    </p>
-                    <ProgressNoteList
-                      notes={scopedNotes}
-                      loading={notesLoading}
-                      emptyText={t("本任务与其子任务暂无进展留痕")}
-                      renderSource={(note) => {
-                        const sourceId = noteSourceOf.get(note.id);
-                        if (!sourceId || sourceId === taskId) {
-                          return (
-                            <span className="shrink-0 rounded bg-slate-100 px-1.5 py-px text-[10px] font-semibold text-slate-600 ring-1 ring-inset ring-slate-200">
-                              {t("主任务")}
-                            </span>
-                          );
-                        }
-                        const sub = subtasks.find((s) => s.task_id === sourceId);
-                        return (
-                          <button
-                            type="button"
-                            onClick={() => navigate(taskDetailPath(sourceId))}
-                            className="flex max-w-[200px] shrink-0 cursor-pointer items-center gap-1 rounded bg-sky-50 px-1.5 py-px text-[10px] font-semibold text-sky-700 ring-1 ring-inset ring-sky-200 hover:bg-sky-100"
-                            title={traceTitleOf.get(sourceId) ?? sourceId}
-                          >
-                            {sub ? <SubtaskBadge task={sub} /> : null}
-                            <span className="min-w-0 truncate">{traceTitleOf.get(sourceId) ?? sourceId}</span>
-                          </button>
-                        );
-                      }}
-                    />
-                  </div>
-                ) : (
-                  <RDTaskConversation
-                    key={`progress-${conversationTaskId}`}
-                    taskId={conversationTaskId}
-                    taskTitle={traceTitleOf.get(conversationTaskId) ?? task.title}
-                    notes={scopedNotes}
-                    mode="progress"
-                    variant="desktop"
-                    notesLoading={notesLoading}
-                    showHeader={false}
-                    threadLayout="replace"
-                    onUnreadChange={setDiscussionUnread}
-                    onThreadOpenChange={setDiscussionThreadOpen}
-                  />
-                )}
+                <RDTaskConversation
+                  key={`progress-${taskId}`}
+                  taskId={taskId}
+                  taskTitle={task.title}
+                  notes={notes}
+                  mode="progress"
+                  variant="desktop"
+                  notesLoading={notesLoading}
+                  showHeader={false}
+                  threadLayout="replace"
+                  onUnreadChange={setDiscussionUnread}
+                  onThreadOpenChange={setDiscussionThreadOpen}
+                />
               </TabsContent>
 
               <TabsContent value="conversation" className="min-h-0 min-w-0 flex-1 overflow-hidden data-[state=active]:flex">
-                {/* 讨论绑定到范围选中的任务（无「主线」）；key 带 taskId 保证切换时线程与已读游标整体重建 */}
                 <RDTaskConversation
-                  key={`conversation-${conversationTaskId}`}
-                  taskId={conversationTaskId}
-                  taskTitle={traceTitleOf.get(conversationTaskId) ?? task.title}
-                  notes={scopedNotes}
+                  key={`conversation-${taskId}`}
+                  taskId={taskId}
+                  taskTitle={task.title}
+                  notes={notes}
                   mode="task"
                   variant="desktop"
                   showHeader={false}
@@ -1668,7 +1626,7 @@ export default function RDTaskDetailPage() {
 
               <TabsContent value="attachments" className="cockpit-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
               <motion.div initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.16 }} className="space-y-3">
-                <TaskImageGallery notes={scopedNotes} />
+                <TaskImageGallery notes={notes} />
                 <div>
                   <div className="mb-2 text-xs font-semibold text-slate-500">{t("文档附件（{n}）", { n: docAttachments.length })}</div>
                   {docAttachments.length === 0 ? (
@@ -1719,13 +1677,36 @@ export default function RDTaskDetailPage() {
               </motion.div>
               </TabsContent>
 
+              <TabsContent value="relations" className="cockpit-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
+                {relationRoot && relationNodeCount > 1 ? (
+                  <div className="space-y-3">
+                    <div>
+                      <h3 className="text-balance text-sm font-semibold text-slate-800">{t("合并层级")}</h3>
+                      <p className="mt-1 text-pretty text-xs leading-relaxed text-slate-500">
+                        {t("任务并入后会永久保留原有上下级结构。点击任意节点可跳转到对应任务详情。")}
+                      </p>
+                    </div>
+                    <TaskRelationTree
+                      root={relationRoot}
+                      currentTaskId={taskId}
+                      onOpen={openRelationTask}
+                    />
+                  </div>
+                ) : (
+                  <div className="flex min-h-44 flex-col items-center justify-center gap-2 text-center">
+                    <GitBranch className="size-7 text-slate-300" />
+                    <p className="text-sm font-medium text-slate-500">{t("暂无合并关系")}</p>
+                    <p className="text-pretty text-xs text-slate-400">{t("并入已有任务后，层级关系会显示在这里。")}</p>
+                  </div>
+                )}
+              </TabsContent>
+
               <TabsContent value="audit" className="cockpit-scroll min-h-0 min-w-0 flex-1 overflow-y-auto px-4 pb-4 pt-3">
               <motion.div initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.16 }} className="px-1 py-1">
                 {/* 完整时间线：操作动作 + 进展留痕合成，进展条目下挂附件缩略图（与抽屉口径一致） */}
                 <AuditTimeline
                   logs={timelineLogs}
-                  // 主线视图跨任务混排 → 打开归属任务名，否则分不清哪条属于哪个子任务
-                  showResource={traceScope === "all" && subtasks.length > 0}
+                  showResource={false}
                   emptyText={t("暂无操作记录")}
                   canAddNote={canManage}
                   onAddNote={async (logId, text) => {
@@ -1742,10 +1723,8 @@ export default function RDTaskDetailPage() {
               </TabsContent>
             </Tabs>
 
-            {/* 正式留痕输入框只属于“进度留痕”，避免与任务讨论输入框混淆。
-                主线范围下隐藏：留痕必须落到唯一目标任务，跨任务混排时无法确定写给谁。 */}
-            {tab === "notes" && canComposeNote && !discussionThreadOpen
-              && !(traceScope === "all" && subtasks.length > 0) && (
+            {/* 正式留痕输入框只属于当前任务的“进度留痕”，避免与任务讨论输入框混淆。 */}
+            {tab === "notes" && canComposeNote && !discussionThreadOpen && (
               <div className="shrink-0 border-t border-slate-200/80 px-4 py-3">
                 <div className="relative">
                   <MentionSuggestionPanel
@@ -1966,7 +1945,8 @@ export default function RDTaskDetailPage() {
           </div>
         </DialogContent>
       </Dialog>
-    </motion.div>
+      </motion.div>
+    </TaskImageGalleryScope>
   );
 }
 
@@ -2190,7 +2170,7 @@ function CreateSubtaskDialog({
             />
           </div>
           <p className="rounded-lg bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-500">
-            {t("子任务的产品库与分类路径继承父任务；子任务下不能再挂子任务（仅支持一层）。")}
+            {t("新建项会直接归属当前任务；若要保留已有的多级任务结构，请使用「并入已有任务」。")}
           </p>
         </div>
         <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-3">
@@ -2328,6 +2308,11 @@ function AttachSubtasksDialog({
                   <span className="min-w-0 flex-1 truncate text-sm text-slate-700">
                     <AutoTranslatedText text={c.title} />
                   </span>
+                  {(c.subtasks?.length ?? 0) > 0 ? (
+                    <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] tabular-nums text-slate-500">
+                      {t("含 {n} 个下级", { n: countRelationNodes(c) - 1 })}
+                    </span>
+                  ) : null}
                   <span className="shrink-0 text-[11px] text-slate-400">{displayPersonName(c.primary_owner)}</span>
                   <span className="shrink-0 font-mono text-[11px] text-slate-400">{c.task_id}</span>
                 </button>
@@ -2337,7 +2322,7 @@ function AttachSubtasksDialog({
         </div>
         <div className="border-t border-slate-100 px-6 py-3">
           <p className="mb-2 text-[11px] leading-relaxed text-slate-500">
-            {t("并入后任务本体完整保留（标题 / 主责人 / 进度 / 留痕 / 附件），仅归属变为本任务的子任务，可随时取消。跨产品库的任务会一并迁到本任务所在产品库。")}
+            {t("并入后任务本体及其全部下级层级永久保留，仅整棵任务树的归属发生变化，可随时取消。跨产品库时，整棵任务树会一并迁入当前产品库。")}
           </p>
           <div className="flex items-center justify-between gap-2">
             <span className="text-[11px] text-slate-500">{t("已选 {n} 个", { n: picked.size })}</span>

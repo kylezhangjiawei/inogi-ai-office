@@ -2181,7 +2181,7 @@ export class ResearchDevelopmentService {
     ];
   }
 
-  // ── 子任务（一层）：直建 / 把已有任务挂为子任务 / 取消子任务关系 ──────────────
+  // ── 子任务树：直建 / 把已有任务树挂为子任务 / 取消子任务关系 ────────────────
   //
   // 数据形态沿用既有的 task.subtasks 递归数组（无需迁移）；新增标记字段：
   // - parent_task_id：父任务 id（顶层任务为 null）
@@ -2281,7 +2281,8 @@ export class ResearchDevelopmentService {
 
   /**
    * 把一个已有的顶层任务整体挂到目标父任务下成为子任务。
-   * 任务自身完整保留（标题/主责/协作人/进度/留痕/附件均不动），仅改变树中位置并打挂载标记。
+   * 任务自身及其原有子任务树完整保留（标题/主责/协作人/进度/留痕/附件均不动），
+   * 仅改变整棵树在任务结构中的位置，并在根节点记录本次挂载信息。
    * 与归档式合并（applyTaskMerge）是两个独立能力：这里不归档、不改写描述、不动主责。
    */
   async attachTaskAsSubtask(
@@ -2326,23 +2327,31 @@ export class ResearchDevelopmentService {
     if (parentSlot.parentTaskId) {
       throw new BadRequestException('目标任务本身已是子任务，子任务下不能再挂子任务');
     }
-    if (asArray(childSlot.task.subtasks).filter(isRecord).length > 0) {
-      throw new BadRequestException('该任务自身已带子任务，无法再挂到别的任务下（子任务仅支持一层）');
-    }
 
     const crossStore = childSlot.productId !== parentSlot.productId;
     const nowIso = new Date().toISOString();
-    const attached: JsonRecord = {
-      ...childSlot.task,
-      parent_task_id: parentId,
-      subtask_origin: 'attached',
-      subtask_attached_at: nowIso,
-      subtask_attached_by: cleanText(actor.userName) || '研发管理员',
-      subtask_attached_by_id: cleanUserId(actor.userId) || null,
-      // 跨库挂载时子任务随父任务迁到目标产品库，分类路径一并跟随父任务
-      category_path: this.subtaskCategoryPath(childSlot.task, parentSlot),
-      updated_at: nowIso,
+    const rehomeTaskTree = (node: JsonRecord, structuralParentId: string, root: boolean): JsonRecord => {
+      const nodeId = cleanText(node.task_id);
+      return {
+        ...node,
+        parent_task_id: structuralParentId,
+        ...(root
+          ? {
+              subtask_origin: 'attached',
+              subtask_attached_at: nowIso,
+              subtask_attached_by: cleanText(actor.userName) || '研发管理员',
+              subtask_attached_by_id: cleanUserId(actor.userId) || null,
+              updated_at: nowIso,
+            }
+          : {}),
+        // 整棵树随父任务迁到目标分类；同时补齐存量子任务缺失的结构父 id。
+        category_path: this.subtaskCategoryPath(node, parentSlot),
+        subtasks: asArray(node.subtasks)
+          .filter(isRecord)
+          .map((subtask) => rehomeTaskTree(subtask, nodeId, false)),
+      };
     };
+    const attached = rehomeTaskTree(childSlot.task, parentId, true);
 
     // 从源库摘出。
     let removed = false;
@@ -2437,24 +2446,41 @@ export class ResearchDevelopmentService {
 
     let found = false;
     const categories = trees.get(slot.productId) ?? [];
+    const removeFromParent = (tasks: unknown[]): { tasks: unknown[]; removed: boolean } => {
+      let removed = false;
+      const nextTasks = tasks.map((task) => {
+        if (!isRecord(task)) return task;
+        if (cleanText(task.task_id) === slot.parentTaskId) {
+          const subtasks = asArray(task.subtasks);
+          const nextSubtasks = subtasks.filter(
+            (subtask) => !(isRecord(subtask) && cleanText(subtask.task_id) === childId),
+          );
+          if (nextSubtasks.length !== subtasks.length) {
+            removed = true;
+            return { ...task, subtasks: nextSubtasks, updated_at: nowIso };
+          }
+        }
+        const nested = removeFromParent(asArray(task.subtasks));
+        if (!nested.removed) return task;
+        removed = true;
+        return { ...task, subtasks: nested.tasks };
+      });
+      return { tasks: nextTasks, removed };
+    };
+
     const rebuilt = categories.map((cat) => {
       if (!isRecord(cat)) return cat;
       return {
         ...cat,
         children: asArray(cat.children).map((child) => {
           if (!isRecord(child)) return child;
-          let hit = false;
-          const tasks = asArray(child.tasks).map((t) => {
-            if (!isRecord(t) || cleanText(t.task_id) !== slot.parentTaskId) return t;
-            const subs = asArray(t.subtasks);
-            const nextSubs = subs.filter((s) => !(isRecord(s) && cleanText(s.task_id) === childId));
-            if (nextSubs.length === subs.length) return t;
-            hit = true;
-            found = true;
-            return { ...t, subtasks: nextSubs, updated_at: nowIso };
-          });
+          if (cleanText(cat.id) !== slot.categoryId || cleanText(child.id) !== slot.subProjectId) {
+            return child;
+          }
+          const result = removeFromParent(asArray(child.tasks));
+          if (result.removed) found = true;
           // 提升后的任务插到父任务所在子项目列表头部，与父任务同级。
-          return { ...child, tasks: hit ? [detached, ...tasks] : tasks };
+          return { ...child, tasks: result.removed ? [detached, ...result.tasks] : result.tasks };
         }),
       };
     });
@@ -7716,7 +7742,7 @@ export class ResearchDevelopmentService {
           done: it.done === true,
         }))
         .filter((it) => it.id && it.title),
-      // ── 子任务关系（一层）：工作台据此显示身份徽标 / 父任务归属 / 子任务清单 ──
+      // ── 子任务树关系：工作台据此显示身份徽标 / 直接父任务归属 / 直接子任务清单 ──
       // parent_* 一律以结构位置为准（parentTask 由 collectSubtaskParents 解析），不回读字段。
       parent_task_id: parentTask ? cleanText(parentTask.task_id) || null : null,
       parent_title: parentTask ? cleanText(parentTask.title) || null : null,
@@ -7726,12 +7752,7 @@ export class ResearchDevelopmentService {
         : null,
       subtask_attached_at: parentTask ? cleanText(task.subtask_attached_at) || null : null,
       subtask_attached_by: parentTask ? cleanText(task.subtask_attached_by) || null : null,
-      /**
-       * 是否带子任务——含已归档的。
-       * ⚠️ 与下面的 subtasks 清单口径不同且必须不同：清单是给人看的（滤掉归档项），
-       * 而 attachTaskAsSubtaskUnlocked 拒绝「自身已带子任务」时统计的是**未过滤**的原数组。
-       * 前端的并入门控必须用这个标志，否则「只剩归档子任务」的任务会放行按钮、提交必被后端拒。
-       */
+      /** 是否带直接子任务——含已归档的；清单本身会过滤归档项。 */
       has_subtasks: asArray(task.subtasks).filter(isRecord).length > 0,
       // 子任务清单（本任务是父任务时非空）。已归档的不下发，与工作台"仅排除已归档"的可见口径一致。
       subtasks: asArray(task.subtasks)

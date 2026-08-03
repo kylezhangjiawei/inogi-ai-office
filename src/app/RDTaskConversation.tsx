@@ -41,7 +41,7 @@ import {
 } from "./lib/rdApi";
 import { i18nLocale, t, useI18n } from "./lib/i18n";
 import { useAvatarDirectory } from "./lib/userAvatar";
-import { formatRdFileSize, ProgressAttachmentGrid, TaskImageGallery } from "./RDProgressEvidence";
+import { formatRdFileSize, ProgressAttachmentGrid, TaskImageGallery, TaskImageGalleryScope } from "./RDProgressEvidence";
 
 const CHAT_EASE = [0.22, 1, 0.36, 1] as const;
 const DISCUSSION_MAX_FILES = 10;
@@ -522,8 +522,8 @@ function ThreadButton({
 // ── 进度留痕瀑布流 ───────────────────────────────────────────────────────────
 // 留痕卡高度天然参差（有无正文/附件/讨论数各不相同）。CSS grid 的行高按该行最高卡对齐，
 // 矮卡下方会拉出大片空白，所以改成 N 个各自纵向堆叠、互不影响高度的独立列。
-// 轮转分配（第 i 条进第 i % N 列）保留原 grid 的「先左后右、逐行往下」阅读顺序，
-// 且对前缀稳定：追加新留痕不会挪动已有卡片。
+// 轮转分配（第 i 条进第 i % N 列）保留原 grid 的「先左后右、逐行往下」阅读顺序；
+// 输入列表已按时间倒序，因此最左上角始终是最新留痕。
 function distributeIntoColumns<T>(items: T[], columnCount: number): T[][] {
   const columns: T[][] = Array.from({ length: columnCount }, () => []);
   items.forEach((item, index) => columns[index % columnCount].push(item));
@@ -1259,7 +1259,9 @@ export function RDTaskConversation({
           createdAt: message.created_at,
           message,
         }));
-    return items.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+    return items.sort((a, b) => mode === "progress"
+      ? b.createdAt.localeCompare(a.createdAt)
+      : a.createdAt.localeCompare(b.createdAt));
   }, [main?.messages, mode, notes]);
 
   // 进度留痕瀑布流：先滤出留痕条目再分列，保证各列条数均衡
@@ -1293,6 +1295,18 @@ export function RDTaskConversation({
     if (preserveMainScrollRef.current) {
       preserveMainScrollRef.current = false;
       return;
+    }
+    // 进度留痕按最新优先展示，首次进入时应停在列表顶部；任务讨论仍保持聊天式的底部定位。
+    if (mode === "progress") {
+      if (!mainInitialScrollRef.current) return;
+      const frame = requestAnimationFrame(() => {
+        if (mainScrollRef.current) {
+          mainScrollRef.current.scrollTop = 0;
+          mainStickToBottomRef.current = false;
+          mainInitialScrollRef.current = false;
+        }
+      });
+      return () => cancelAnimationFrame(frame);
     }
     if (!mainInitialScrollRef.current && !mainStickToBottomRef.current) return;
     const frame = requestAnimationFrame(() => {
@@ -1700,7 +1714,8 @@ export function RDTaskConversation({
   );
 
   return (
-    <div className={cn("relative flex min-h-0 flex-1 overflow-hidden bg-white", className)}>
+    <TaskImageGalleryScope notes={notes}>
+      <div className={cn("relative flex min-h-0 flex-1 overflow-hidden bg-white", className)}>
       {mainContent}
       <AnimatePresence initial={false}>
         {activeAnchor && (
@@ -1843,6 +1858,7 @@ export function RDTaskConversation({
           </>
         )}
       </AnimatePresence>
-    </div>
+      </div>
+    </TaskImageGalleryScope>
   );
 }

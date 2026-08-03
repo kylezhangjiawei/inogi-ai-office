@@ -37,7 +37,7 @@ import { t, useI18n } from "./lib/i18n";
 import { AutoTranslatedText } from "./components/TranslatableText";
 import { AuditTimeline } from "./RDAuditTimeline";
 import { addAuditLogNote, recordAudit, useAuditActor, type AuditLog, useAuditLogs } from "./lib/auditLog";
-import { ProgressAttachmentGrid, TaskImageGallery, formatRdFileSize, formatTraceDateTime } from "./RDProgressEvidence";
+import { ProgressAttachmentGrid, TaskImageGallery, TaskImageGalleryScope, formatRdFileSize, formatTraceDateTime } from "./RDProgressEvidence";
 import { RDTaskConversation } from "./RDTaskConversation";
 import {
   STATUS_CONFIG,
@@ -639,7 +639,8 @@ export default function UsCollabTaskDetailPage() {
 
   // 大屏（lg+）视口内布局：整页不滚，AI 小结/时间线各自内滚；窄屏维持自然文档流
   return (
-    <motion.div
+    <TaskImageGalleryScope notes={notes}>
+      <motion.div
       ref={rootRef}
       initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
@@ -1239,7 +1240,8 @@ export default function UsCollabTaskDetailPage() {
           </div>
         </DialogContent>
       </Dialog>
-    </motion.div>
+      </motion.div>
+    </TaskImageGalleryScope>
   );
 }
 
