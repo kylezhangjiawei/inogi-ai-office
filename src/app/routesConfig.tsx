@@ -85,6 +85,13 @@ export const DEPT_KBS: { id: string; label: string; departmentCode?: string }[] 
   { id: "production", label: "生产部", departmentCode: "PRODUCTION" },
   { id: "quality", label: "质量部", departmentCode: "REGULATORY_QUALITY" },
   { id: "sales", label: "销售部", departmentCode: "SALES_MARKETING" },
+  { id: "after-sales", label: "售后服务部", departmentCode: "AFTER_SALES" },
+  { id: "rd-registration", label: "研发注册部", departmentCode: "RD_REGISTRATION" },
+  { id: "customs", label: "关务单证部", departmentCode: "CUSTOMS_DOCUMENTS" },
+  { id: "legal", label: "法务合同部", departmentCode: "LEGAL_CONTRACT" },
+  { id: "it", label: "信息系统部", departmentCode: "IT_SYSTEM" },
+  // ⚠️ 不能叫 production —— 已被生产运营部占用
+  { id: "rd-production", label: "研发生产部", departmentCode: "PRODUCTION_DEPARTMENT" },
 ];
 
 /**

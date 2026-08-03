@@ -60,6 +60,14 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   // 技术研发部不单设部门库：研发团队统一用「研发知识库」(page:rd-knowledge-base)，故此处不再有 page:dept-kb-tech-rd。
   { code: 'page:dept-kb-quality', label: '质量部知识库', description: '质量部门知识沉淀与分级查阅', groupLabel: '页面访问 · 部门知识库', type: 'page', routePath: '/dept-kb/quality', sortOrder: 666 },
   { code: 'page:dept-kb-sales', label: '销售部知识库', description: '销售部门知识沉淀与分级查阅', groupLabel: '页面访问 · 部门知识库', type: 'page', routePath: '/dept-kb/sales', sortOrder: 667 },
+  // 补齐「每个部门一个知识库」。标签会在读取时按部门主数据当前名同步覆盖（syncDepartmentKnowledgeLabels），
+  // 这里的字面值只是首次落库前的占位。
+  { code: 'page:dept-kb-after-sales', label: '售后服务部知识库', description: '售后服务部门知识沉淀与分级查阅', groupLabel: '页面访问 · 部门知识库', type: 'page', routePath: '/dept-kb/after-sales', sortOrder: 680 },
+  { code: 'page:dept-kb-rd-registration', label: '研发注册部知识库', description: '研发注册部门知识沉淀与分级查阅', groupLabel: '页面访问 · 部门知识库', type: 'page', routePath: '/dept-kb/rd-registration', sortOrder: 681 },
+  { code: 'page:dept-kb-customs', label: '关务单证部知识库', description: '关务单证部门知识沉淀与分级查阅', groupLabel: '页面访问 · 部门知识库', type: 'page', routePath: '/dept-kb/customs', sortOrder: 682 },
+  { code: 'page:dept-kb-legal', label: '法务合同部知识库', description: '法务合同部门知识沉淀与分级查阅', groupLabel: '页面访问 · 部门知识库', type: 'page', routePath: '/dept-kb/legal', sortOrder: 683 },
+  { code: 'page:dept-kb-it', label: '信息系统部知识库', description: '信息系统部门知识沉淀与分级查阅', groupLabel: '页面访问 · 部门知识库', type: 'page', routePath: '/dept-kb/it', sortOrder: 684 },
+  { code: 'page:dept-kb-rd-production', label: '研发生产部知识库', description: '研发生产部门知识沉淀与分级查阅', groupLabel: '页面访问 · 部门知识库', type: 'page', routePath: '/dept-kb/rd-production', sortOrder: 685 },
 
   // ─── 中美协同（美国团队使用，中国研发团队支持；驾驶舱/工作台复用研发页面，知识库为独立 dept KB 库 us-collab）────
   { code: 'page:us-collab-cockpit', label: '协同任务驾驶舱', description: '中美协同任务驾驶舱（复用研发驾驶舱能力，不含子系统全景）', groupLabel: '页面访问 · 中美协同', type: 'page', routePath: '/us-collab-cockpit', sortOrder: 690 },
