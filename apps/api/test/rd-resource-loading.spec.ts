@@ -1,7 +1,21 @@
 import * as assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { test } from 'node:test';
 
 import { ResearchDevelopmentService } from '../src/modules/research-development/research-development.service';
+
+test('image gallery controls are excluded before the swipe surface captures a pointer', () => {
+  const source = readFileSync(
+    resolve(__dirname, '../../../src/app/RDProgressEvidence.tsx'),
+    'utf8',
+  );
+  const controlGuard = source.indexOf('event.target instanceof Element && event.target.closest("button, a")');
+  const pointerCapture = source.indexOf('event.currentTarget.setPointerCapture(event.pointerId)');
+
+  assert.ok(controlGuard >= 0, 'gallery pointer handling must ignore button and link controls');
+  assert.ok(pointerCapture > controlGuard, 'interactive-control guard must run before pointer capture');
+});
 
 test('cockpit attachment previews batch reads once and returns only five lightweight items per task', async () => {
   const taskIds = ['task-a', 'task-b'];

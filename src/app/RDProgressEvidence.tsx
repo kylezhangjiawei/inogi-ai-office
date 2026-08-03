@@ -341,6 +341,9 @@ export function TaskImageLightbox({
         className="relative flex min-h-0 flex-1 touch-pan-y select-none items-center justify-center px-2 pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:px-14"
         onPointerDown={(event) => {
           if (!event.isPrimary || (event.pointerType === "mouse" && event.button !== 0)) return;
+          // 导航按钮属于点击控件，不能让外层滑动区捕获它的 pointer。
+          // 否则 pointerup/click 会被重定向到遮罩容器并触发关闭预览。
+          if (event.target instanceof Element && event.target.closest("button, a")) return;
           pointerStartXRef.current = event.clientX;
           pointerIdRef.current = event.pointerId;
           draggedRef.current = false;

@@ -285,6 +285,21 @@ function DateDivider({ iso }: { iso: string }) {
   );
 }
 
+function ProgressDateHeader({ iso }: { iso: string }) {
+  const label = formatDayLabel(iso);
+  return (
+    <div className="flex items-center gap-2 py-1" role="separator" aria-label={label}>
+      <time
+        dateTime={localDayKey(iso)}
+        className="shrink-0 rounded-md bg-slate-100 px-2 py-1 text-[11px] font-semibold tabular-nums text-slate-600"
+      >
+        {label}
+      </time>
+      <span className="h-px flex-1 bg-slate-200" aria-hidden="true" />
+    </div>
+  );
+}
+
 function summaryFor(
   summaries: RdTaskDiscussionThreadSummary[],
   type: "progress_note" | "message",
@@ -586,7 +601,7 @@ function ProgressAnchorCard({
             {note.progress}%
           </span>
         )}
-        <time className="shrink-0 font-mono text-[9px] tabular-nums text-slate-500">{formatCompactDateTime(note.created_at)}</time>
+        <time className="shrink-0 font-mono text-[9px] tabular-nums text-slate-500">{formatTimeWithSeconds(note.created_at)}</time>
       </div>
       <div className="px-2.5 py-1.5">
         {note.text && (
@@ -1269,6 +1284,20 @@ export function RDTaskConversation({
     () => feedItems.filter((item): item is Extract<ConversationFeedItem, { kind: "note" }> => item.kind === "note"),
     [feedItems],
   );
+  const progressFeedGroups = useMemo(() => {
+    const groups: Array<{
+      dayKey: string;
+      firstCreatedAt: string;
+      items: typeof progressFeedNotes;
+    }> = [];
+    for (const item of progressFeedNotes) {
+      const dayKey = localDayKey(item.createdAt);
+      const lastGroup = groups[groups.length - 1];
+      if (lastGroup?.dayKey === dayKey) lastGroup.items.push(item);
+      else groups.push({ dayKey, firstCreatedAt: item.createdAt, items: [item] });
+    }
+    return groups;
+  }, [progressFeedNotes]);
   const [progressFeedEl, setProgressFeedEl] = useState<HTMLDivElement | null>(null);
   // 列数不超过条数：留痕只有 1~2 条时不留空列（对齐原 grid `auto-fit` 折叠空轨道的行为）
   const progressColumns = Math.min(useProgressColumns(progressFeedEl), Math.max(1, progressFeedNotes.length));
@@ -1627,29 +1656,36 @@ export function RDTaskConversation({
               </section>
             )}
             {mode === "progress" ? (
-              <div ref={setProgressFeedEl} className="mt-1.5 flex items-start gap-1.5">
-                {distributeIntoColumns(progressFeedNotes, progressColumns).map((column, columnIndex) => (
-                  <div key={columnIndex} className="flex min-w-0 flex-1 flex-col gap-1.5">
-                    {column.map((item) => {
-                      const noteSummary = summaryFor(main?.thread_summaries ?? [], "progress_note", item.note.id);
-                      const anchor: ConversationAnchor = {
-                        type: "progress_note",
-                        id: item.note.id,
-                        author: item.note.actor.name,
-                        preview: item.note.text,
-                        createdAt: item.note.created_at,
-                        note: item.note,
-                      };
-                      return (
-                        <ProgressAnchorCard
-                          key={item.note.id}
-                          note={item.note}
-                          summary={noteSummary}
-                          onOpenThread={() => void openThread(anchor)}
-                        />
-                      );
-                    })}
-                  </div>
+              <div ref={setProgressFeedEl} className="mt-1.5 space-y-3">
+                {progressFeedGroups.map((group) => (
+                  <section key={group.dayKey} aria-label={formatDayLabel(group.firstCreatedAt)}>
+                    <ProgressDateHeader iso={group.firstCreatedAt} />
+                    <div className="mt-1 flex items-start gap-1.5">
+                      {distributeIntoColumns(group.items, Math.min(progressColumns, group.items.length)).map((column, columnIndex) => (
+                        <div key={columnIndex} className="flex min-w-0 flex-1 flex-col gap-1.5">
+                          {column.map((item) => {
+                            const noteSummary = summaryFor(main?.thread_summaries ?? [], "progress_note", item.note.id);
+                            const anchor: ConversationAnchor = {
+                              type: "progress_note",
+                              id: item.note.id,
+                              author: item.note.actor.name,
+                              preview: item.note.text,
+                              createdAt: item.note.created_at,
+                              note: item.note,
+                            };
+                            return (
+                              <ProgressAnchorCard
+                                key={item.note.id}
+                                note={item.note}
+                                summary={noteSummary}
+                                onOpenThread={() => void openThread(anchor)}
+                              />
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  </section>
                 ))}
               </div>
             ) : (
