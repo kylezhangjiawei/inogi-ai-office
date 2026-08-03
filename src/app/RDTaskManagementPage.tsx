@@ -84,6 +84,7 @@ import {
   fetchRdTaskAttachmentPreviews,
   fetchRdTaskAttachments,
   fetchRdTaskProgressNotes,
+  fetchRdProductionTaskSyncs,
   buildRdTaskAttachmentPayload,
   createRdTask,
   deleteRdTask,
@@ -97,6 +98,8 @@ import {
   saveRdProducts,
   fetchProductTaskCategories,
   saveProductTaskCategories,
+  revokeRdTaskProductionSync,
+  syncRdTaskToProduction,
   type RdAiPersonContext,
   type RdAiSettingsPayload,
   type RdAiTaskDraft,
@@ -113,6 +116,8 @@ import {
   type RdTaskProgressNote,
   type RdWorkItem,
   isUsCollabWorkspace,
+  isProductionWorkspace,
+  isProductionMirrorTask,
   workItemsFeatureEnabled,
   blockedDaysOf,
   type RdTaskStatus,
@@ -7041,6 +7046,10 @@ function PersonTaskCockpit({
   onReassignTask,
   canDelete,
   onDeleteTask,
+  canSyncProduction,
+  syncedProductionTaskIds,
+  syncingProductionTaskId,
+  onToggleProductionSync,
   kpiFilter = "all",
   onClearKpiFilter,
   headerCollapsed = false,
@@ -7055,6 +7064,10 @@ function PersonTaskCockpit({
   onReassignTask?: (task: Task) => void;
   canDelete?: boolean;
   onDeleteTask?: (task: Task) => void;
+  canSyncProduction?: boolean;
+  syncedProductionTaskIds?: Set<string>;
+  syncingProductionTaskId?: string | null;
+  onToggleProductionSync?: (task: Task) => void;
   kpiFilter?: KpiFilter;
   onClearKpiFilter?: () => void;
   /** 顶部模块当前是否收起：收起时把任务 feed 增高到 ~84vh 以最大化可视区 */
@@ -7655,6 +7668,9 @@ function PersonTaskCockpit({
     const taskImages = taskAttachments.filter((a) => a.mime.startsWith("image/"));
     const hasLoadedAttachments = Boolean(attachmentPreview && attachmentPreview.attachment_count > 0);
     const isRisk = riskTaskIds.has(task.task_id);
+    const productionMirror = isProductionMirrorTask(task);
+    const productionSynced = syncedProductionTaskIds?.has(task.task_id) ?? false;
+    const showProductionSyncAction = Boolean(canSyncProduction && onToggleProductionSync && !productionMirror);
     // 最近更新时间：用后端派生的 last_activity_at（= max(updated_at, 最新留痕时间)），与列表排序同口径。
     // 兜底依次回退到留痕时间 / updated_at，保证后端字段缺失时仍能显示。
     const lastUpdateIso =
@@ -7734,7 +7750,7 @@ function PersonTaskCockpit({
 
         <div className={cn("flex min-w-0 flex-col", spaciousCards ? "gap-2.5 px-5 py-4" : "gap-2 px-4 py-3.5")}>
           {/* ─── 关键指标条（顶部、左对齐）：时间戳（主） + AI 评分（次） ─── */}
-          {(completionScore || showPendingScoreBadge || relativeUpdate) && (
+          {(completionScore || showPendingScoreBadge || relativeUpdate || showProductionSyncAction) && (
             <div className="flex flex-wrap items-center gap-2">
               {/* 时间戳（中性白底徽标 + 彩色圆点/文字，字号 14px 与 AI 评分同字号；
                   去掉填充色块，和右侧「转派/删除」白底胶囊统一，让 AI 评分成为唯一高亮）*/}
@@ -7816,8 +7832,28 @@ function PersonTaskCockpit({
                 </div>
               )}
 
-              {((canReassign && onReassignTask && task.status !== "completed") || (canDelete && onDeleteTask)) && (
+              {!productionMirror && (showProductionSyncAction || (canReassign && onReassignTask && task.status !== "completed") || (canDelete && onDeleteTask)) && (
                 <div className="ml-auto flex items-center gap-2">
+                  {showProductionSyncAction && onToggleProductionSync && (
+                    <button
+                      type="button"
+                      disabled={syncingProductionTaskId === task.task_id}
+                      onClick={(e) => { e.stopPropagation(); onToggleProductionSync(task); }}
+                      className={cn(
+                        "inline-flex h-7 items-center gap-1 rounded-md border bg-white px-2 text-[11px] font-semibold transition-colors disabled:cursor-wait disabled:opacity-60",
+                        productionSynced
+                          ? "border-amber-200 text-amber-700 hover:bg-amber-50"
+                          : "border-sky-200 text-sky-700 hover:bg-sky-50",
+                      )}
+                    >
+                      {syncingProductionTaskId === task.task_id
+                        ? <RefreshCw className="h-3 w-3 animate-spin" />
+                        : productionSynced
+                          ? <RotateCcw className="h-3 w-3" />
+                          : <RefreshCw className="h-3 w-3" />}
+                      {productionSynced ? t("撤销同步") : t("同步到生产驾驶舱")}
+                    </button>
+                  )}
                   {canReassign && onReassignTask && task.status !== "completed" && (
                     <button
                       type="button"
@@ -7851,6 +7887,13 @@ function PersonTaskCockpit({
             </h3>
             <ChevronRight className="h-4 w-4 shrink-0 self-center text-slate-300 opacity-0 transition-all duration-150 group-hover:translate-x-0.5 group-hover:opacity-100" />
           </div>
+
+          {productionMirror && (
+            <div className="inline-flex w-fit items-center gap-1.5 rounded-md border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-semibold text-sky-700">
+              <Lock className="h-3 w-3" />
+              {t("研发同步 · 只读")}
+            </div>
+          )}
 
           {/* ─── 备注回执状态条（管理视角：他人给任务留的备注是否被目标人查看/跟进） ─── */}
           {(() => {
@@ -8521,7 +8564,7 @@ function TaskReassignModal({
   const AUDIT_ACTOR = useAuditActor("研发管理员");
   const shouldReduceMotion = useReducedMotion();
   const assignableTasks: ReassignableTask[] = allTasks
-    .filter((t) => !t.archived && t.status !== "completed")
+    .filter((t) => !isProductionMirrorTask(t) && !t.archived && t.status !== "completed")
     .map((t) => ({ task_id: t.task_id, title: t.title, owner: t.primary_owner, priority: t.final_priority }));
   const [selectedTasks, setSelectedTasks] = useState<Set<string>>(
     () => new Set(initialTaskId ? [initialTaskId] : []),
@@ -9307,6 +9350,10 @@ function ExecutiveOverview({
   onReassignTask,
   canDelete,
   onDeleteTask,
+  canSyncProduction,
+  syncedProductionTaskIds,
+  syncingProductionTaskId,
+  onToggleProductionSync,
   onManageProducts,
   canManageProducts,
   panoramaReloadToken,
@@ -9335,6 +9382,10 @@ function ExecutiveOverview({
   onReassignTask?: (t: Task) => void;
   canDelete?: boolean;
   onDeleteTask?: (t: Task) => void;
+  canSyncProduction?: boolean;
+  syncedProductionTaskIds?: Set<string>;
+  syncingProductionTaskId?: string | null;
+  onToggleProductionSync?: (task: Task) => void;
   onManageProducts?: () => void;
   canManageProducts?: boolean;
   panoramaReloadToken?: number;
@@ -9735,6 +9786,10 @@ function ExecutiveOverview({
               onReassignTask={onReassignTask}
               canDelete={canDelete}
               onDeleteTask={onDeleteTask}
+              canSyncProduction={canSyncProduction}
+              syncedProductionTaskIds={syncedProductionTaskIds}
+              syncingProductionTaskId={syncingProductionTaskId}
+              onToggleProductionSync={onToggleProductionSync}
               kpiFilter={kpiFilter}
               onClearKpiFilter={() => setKpiFilter("all")}
               headerCollapsed={headerCollapsed}
@@ -9816,7 +9871,6 @@ export function MoveTaskDialog({
   const { targetProductId, setTargetProductId, targetCategories, loadingTree } =
     useMoveTargetTree(categories, products);
   const isCrossProduct = targetProductId !== MAIN_PRODUCT_ID;
-
   // Find which sub the task currently lives in (源始终是主产品)
   const currentSubId = useMemo(() => {
     for (const cat of categories) {
@@ -9997,6 +10051,10 @@ function MoveTasksDialog({
   const { targetProductId, setTargetProductId, targetCategories, loadingTree } =
     useMoveTargetTree(categories, products);
   const isCrossProduct = targetProductId !== MAIN_PRODUCT_ID;
+  const movableTasks = useMemo(
+    () => fromSub.tasks.filter((task) => !isProductionMirrorTask(task)),
+    [fromSub.tasks],
+  );
 
   // All subs except the source（跨产品时不排除任何子项）
   const allTargetOptions = useMemo(() => {
@@ -10028,10 +10086,10 @@ function MoveTasksDialog({
   };
 
   const toggleAll = () => {
-    if (selectedIds.size === fromSub.tasks.length) {
+    if (selectedIds.size === movableTasks.length) {
       setSelectedIds(new Set());
     } else {
-      setSelectedIds(new Set(fromSub.tasks.map((t) => t.task_id)));
+      setSelectedIds(new Set(movableTasks.map((t) => t.task_id)));
     }
   };
 
@@ -10083,15 +10141,15 @@ function MoveTasksDialog({
         <div className="space-y-4 p-6">
           <div>
             <div className="mb-2 flex items-center justify-between text-sm font-medium text-slate-700">
-              <span>{t("选择任务")} ({selectedIds.size}/{fromSub.tasks.length})</span>
+              <span>{t("选择任务")} ({selectedIds.size}/{movableTasks.length})</span>
               <button type="button" onClick={toggleAll} className="text-xs text-indigo-600 hover:underline">
-                {selectedIds.size === fromSub.tasks.length ? t("取消全选") : t("全选")}
+                {selectedIds.size === movableTasks.length && movableTasks.length > 0 ? t("取消全选") : t("全选")}
               </button>
             </div>
             <div className="cockpit-scroll space-y-2 overflow-y-auto" style={{ maxHeight: "min(240px, 35vh)" }}>
-              {fromSub.tasks.length === 0 ? (
-                <p className="py-4 text-center text-sm text-slate-400">{t("该子项下暂无任务")}</p>
-              ) : fromSub.tasks.map((taskItem) => (
+              {movableTasks.length === 0 ? (
+                <p className="py-4 text-center text-sm text-slate-400">{t("该子项下暂无可移动任务")}</p>
+              ) : movableTasks.map((taskItem) => (
                 <label key={taskItem.task_id} className="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-100 px-3 py-2 hover:bg-slate-50">
                   <Checkbox
                     checked={selectedIds.has(taskItem.task_id)}
@@ -10236,8 +10294,13 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   const navigate = useNavigate();
   const { lang } = useI18n();
   const usCollab = location.pathname.startsWith("/us-collab");
+  const productionWorkspace = isProductionWorkspace();
   // 协同路由下人员管理跳协同入口（rdApi 按 /us-collab 前缀路由到独立人员池）
-  const peopleManagementPath = usCollab ? "/us-collab-people-management" : "/rd-people-management";
+  const peopleManagementPath = usCollab
+    ? "/us-collab-people-management"
+    : productionWorkspace
+      ? "/production-people-management"
+      : "/rd-people-management";
   const canCreateTask = usePermission(PERMISSIONS.RD_TASK_CREATE);
   const canManagePeople = usePermission(PERMISSIONS.RD_PEOPLE_MANAGE);
   const canReassignTasks = usePermission(PERMISSIONS.RD_TASK_REASSIGN);
@@ -10246,13 +10309,51 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   // 「移动到其他类目」按钮门控：专职移动权限，或具备转派/编辑的高级角色（与后端 move 接口一致）。
   const canMoveTask = useAnyPermission(PERMISSIONS.RD_TASK_MOVE, PERMISSIONS.RD_TASK_REASSIGN, PERMISSIONS.RD_TASK_EDIT);
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
-  const RD_ADMIN_AUDIT_ACTOR = useAuditActor(usCollab ? "协同管理员" : "研发管理员");
+  const canSyncProductionPermission = usePermission(PERMISSIONS.RD_TASK_SYNC_PRODUCTION);
+  const canSyncProduction = canSyncProductionPermission && !usCollab && !productionWorkspace;
+  const RD_ADMIN_AUDIT_ACTOR = useAuditActor(usCollab ? "协同管理员" : productionWorkspace ? "生产管理员" : "研发管理员");
   const [showCreate, setShowCreate] = useState(false);
   const [showReassign, setShowReassign] = useState(false);
   const [reassignTaskId, setReassignTaskId] = useState<string | null>(null);
   const [deleteTaskTarget, setDeleteTaskTarget] = useState<Task | null>(null);
   const [showClearData, setShowClearData] = useState(false);
   const [showProposalDialog, setShowProposalDialog] = useState(false);
+  const [syncedProductionTaskIds, setSyncedProductionTaskIds] = useState<Set<string>>(() => new Set());
+  const [syncingProductionTaskId, setSyncingProductionTaskId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!canSyncProduction) {
+      setSyncedProductionTaskIds(new Set());
+      return;
+    }
+    let cancelled = false;
+    fetchRdProductionTaskSyncs()
+      .then((records) => {
+        if (!cancelled) setSyncedProductionTaskIds(new Set(records.filter((record) => record.active).map((record) => record.task_id)));
+      })
+      .catch(() => { if (!cancelled) setSyncedProductionTaskIds(new Set()); });
+    return () => { cancelled = true; };
+  }, [canSyncProduction]);
+  const handleToggleProductionSync = useCallback(async (task: Task) => {
+    if (!canSyncProduction || syncingProductionTaskId) return;
+    const currentlySynced = syncedProductionTaskIds.has(task.task_id);
+    setSyncingProductionTaskId(task.task_id);
+    try {
+      const next = currentlySynced
+        ? await revokeRdTaskProductionSync(task.task_id)
+        : await syncRdTaskToProduction(task.task_id);
+      setSyncedProductionTaskIds((previous) => {
+        const updated = new Set(previous);
+        if (next.active) updated.add(task.task_id);
+        else updated.delete(task.task_id);
+        return updated;
+      });
+      toast.success(next.active ? t("已同步到生产驾驶舱") : t("已撤销生产驾驶舱同步"));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("同步操作失败，请重试"));
+    } finally {
+      setSyncingProductionTaskId(null);
+    }
+  }, [canSyncProduction, syncedProductionTaskIds, syncingProductionTaskId]);
   // 驾驶舱备注回执（管理视角）：他人给任务留的备注是否被目标人查看/跟进，经 NoteReceiptContext 下发。
   const [noteReceipts, setNoteReceipts] = useState<Record<string, RdTaskNoteReceipt>>({});
   const reloadReceipts = useCallback(() => {
@@ -10273,6 +10374,10 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
       void markRdTaskNotesRead(task.task_id).catch(() => {});
       if (isUsCollabWorkspace()) {
         navigate(`/us-collab-task/${encodeURIComponent(task.task_id)}`, { state: { task } });
+        return;
+      }
+      if (isProductionWorkspace()) {
+        navigate(`/production-task/${encodeURIComponent(task.task_id)}`, { state: { task } });
         return;
       }
       navigate(`/rd-task/${encodeURIComponent(task.task_id)}`, { state: { task } });
@@ -10737,6 +10842,10 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
           onReassignTask={(task) => { setReassignTaskId(task.task_id); setShowReassign(true); }}
           canDelete={canDeleteTasks}
           onDeleteTask={(task) => setDeleteTaskTarget(task)}
+          canSyncProduction={canSyncProduction}
+          syncedProductionTaskIds={syncedProductionTaskIds}
+          syncingProductionTaskId={syncingProductionTaskId}
+          onToggleProductionSync={handleToggleProductionSync}
           onManageProducts={canCreateTask ? () => setShowProductManage(true) : undefined}
           canManageProducts={canCreateTask}
           panoramaReloadToken={panoramaReloadToken}

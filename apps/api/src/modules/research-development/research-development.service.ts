@@ -7,6 +7,13 @@ import { OssService } from '../oss/oss.service';
 import { RagService } from '../rag/rag.service';
 import { isBlockedProgressAttachment } from './attachment-security';
 import { DEPT_KBS, DEPT_KB_DEFAULT_CATEGORIES, LEVEL_FILTERED_DEPT_KB_IDS, deptKbPageCode } from './dept-knowledge.constants';
+import {
+  PRODUCTION_WORKSPACE,
+  buildProductionMirrorTask,
+  isProductionMirrorTask,
+  mergeProductionMirrorTasks,
+  type ProductionMirrorPlacement,
+} from './production-task-sync';
 import { RdAiService } from './rd-ai.service';
 import { RD_WORKSPACE_IDS, WORKSPACE_PAGE_CODES, currentRdWorkspace, resolveRdStoreKey, runInRdWorkspace } from './rd-workspace.context';
 
@@ -91,6 +98,7 @@ type DiscussionAccess = {
     invitedAt: Date;
   } | null;
 };
+type TaskDiscussionResponse = JsonRecord & { can_post: boolean };
 type NormalizedAiSettings = JsonRecord & {
   scenes: JsonRecord[];
   file_policy: JsonRecord & { rules: JsonRecord[] };
@@ -117,6 +125,9 @@ type RdStoreKey =
   | 'rd.knowledgeCategories'
   | 'rd.knowledgeEntries'
   | 'rd.taskCompletionScores'
+  // 研发 → 生产同步登记与不可变更的操作轨迹。仅存于默认研发工作区，生产池不直接维护。
+  | 'rd.productionTaskSyncs'
+  | 'rd.productionTaskSyncAudit'
   | 'rd.sheets'
   // 部门知识库：复用知识库 CRUD，按 kbId 切换存储键（缺省 kbId = 研发库走上面的 rd.* 键）
   | `deptkb.${string}.knowledgeCategories`
@@ -177,6 +188,18 @@ type TaskSlot = {
   subProjectLabel: string;
   parentTaskId: string | null;
   task: JsonRecord;
+};
+
+type ProductionTaskSyncRecord = {
+  task_id: string;
+  active: boolean;
+  first_synced_at: string;
+  synced_at: string;
+  synced_by_id: string | null;
+  synced_by_name: string;
+  revoked_at: string | null;
+  revoked_by_id: string | null;
+  revoked_by_name: string | null;
 };
 
 // ─── 审核类型「单一事实源」───────────────────────────────────────────────
@@ -1391,7 +1414,8 @@ export class ResearchDevelopmentService {
     };
   }
 
-  async getTaskCategories(options: { includeCovers?: boolean } = {}) {
+  async getTaskCategories(options: { includeCovers?: boolean; skipMirrorRefresh?: boolean } = {}) {
+    if (!options.skipMirrorRefresh) await this.refreshProductionMirrorsIfNeeded();
     const cacheKey = this.taskResourceCacheKey(
       options.includeCovers ? 'task-categories:covers' : 'task-categories',
       [],
@@ -1418,6 +1442,7 @@ export class ResearchDevelopmentService {
    * 不被「当前产品库」切分，故概览头像负载与个人工作台口径一致。
    */
   async getMergedTaskCategories() {
+    await this.refreshProductionMirrorsIfNeeded();
     const cacheKey = this.taskResourceCacheKey('merged-task-categories', [], { hasFullAccess: true });
     const cached = this.readTaskResourceCache<JsonRecord[]>(cacheKey);
     if (cached) return cached;
@@ -1433,8 +1458,308 @@ export class ResearchDevelopmentService {
     );
   }
 
+  // ── 研发任务同步到生产驾驶舱 ─────────────────────────────────────────────
+
+  private productionMirrorRefreshLock: Promise<unknown> = Promise.resolve();
+  private productionMirrorFreshUntil = 0;
+
+  private withProductionMirrorRefreshLock<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.productionMirrorRefreshLock.then(fn, fn);
+    this.productionMirrorRefreshLock = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  }
+
+  private assertDefaultResearchWorkspace(): void {
+    if (currentRdWorkspace() !== 'rd') {
+      throw new ForbiddenException('同步到生产驾驶舱只能在研发任务驾驶舱中操作');
+    }
+  }
+
+  private normalizeProductionSyncRegistry(value: unknown): Record<string, ProductionTaskSyncRecord> {
+    if (!isRecord(value)) return {};
+    const result: Record<string, ProductionTaskSyncRecord> = {};
+    for (const [taskId, raw] of Object.entries(value)) {
+      if (!isRecord(raw) || !cleanText(taskId)) continue;
+      const firstSyncedAt = cleanText(raw.first_synced_at) || cleanText(raw.synced_at);
+      const syncedAt = cleanText(raw.synced_at) || firstSyncedAt;
+      if (!firstSyncedAt || !syncedAt) continue;
+      result[taskId] = {
+        task_id: taskId,
+        active: raw.active === true,
+        first_synced_at: firstSyncedAt,
+        synced_at: syncedAt,
+        synced_by_id: cleanUserId(raw.synced_by_id) || null,
+        synced_by_name: cleanText(raw.synced_by_name) || '研发成员',
+        revoked_at: cleanText(raw.revoked_at) || null,
+        revoked_by_id: cleanUserId(raw.revoked_by_id) || null,
+        revoked_by_name: cleanText(raw.revoked_by_name) || null,
+      };
+    }
+    return result;
+  }
+
+  private async readProductionSyncRegistry(): Promise<Record<string, ProductionTaskSyncRecord>> {
+    return this.normalizeProductionSyncRegistry(await this.readValue('rd.productionTaskSyncs'));
+  }
+
+  async listProductionTaskSyncs(): Promise<ProductionTaskSyncRecord[]> {
+    this.assertDefaultResearchWorkspace();
+    const registry = await this.readProductionSyncRegistry();
+    return Object.values(registry).sort((a, b) => b.synced_at.localeCompare(a.synced_at));
+  }
+
+  private async appendProductionSyncAudit(entry: JsonRecord): Promise<void> {
+    const current = await this.readArray('rd.productionTaskSyncAudit');
+    const next = {
+      id: `rd-production-sync-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      timestamp: new Date().toISOString(),
+      ...entry,
+    }
+    // 独立审计表不随撤销删除；保留足够长的操作历史，同时避免设置表无限膨胀。
+    await this.writeValue('rd.productionTaskSyncAudit', [next, ...current].slice(0, 5000));
+  }
+
+  async syncTaskToProduction(
+    taskId: string,
+    actor?: { userId?: string; userName?: string },
+  ): Promise<ProductionTaskSyncRecord> {
+    this.assertDefaultResearchWorkspace();
+    const id = cleanText(taskId);
+    if (!id) throw new BadRequestException('taskId 不能为空');
+    const task = await this.findTaskAcrossStores(id);
+    if (!task) throw new NotFoundException('任务不存在');
+
+    const registry = await this.readProductionSyncRegistry();
+    const previous = registry[id];
+    const now = new Date().toISOString();
+    const record: ProductionTaskSyncRecord = {
+      task_id: id,
+      active: true,
+      first_synced_at: previous?.first_synced_at ?? now,
+      synced_at: now,
+      synced_by_id: cleanUserId(actor?.userId) || null,
+      synced_by_name: cleanText(actor?.userName) || '研发成员',
+      revoked_at: null,
+      revoked_by_id: null,
+      revoked_by_name: null,
+    };
+    await this.writeValue('rd.productionTaskSyncs', { ...registry, [id]: record });
+    await this.appendProductionSyncAudit({
+      action: previous?.active ? 'task.production_sync_refreshed' : 'task.production_sync_enabled',
+      task_id: id,
+      actor: { id: record.synced_by_id, name: record.synced_by_name },
+    });
+    await this.createAuditLog({
+      actor: { id: record.synced_by_id, name: record.synced_by_name },
+      action: previous?.active ? 'task.production_sync_refreshed' : 'task.production_sync_enabled',
+      resource: { type: 'task', id, name: cleanText(task.title) || id },
+      comment: previous?.active ? '更新同步到生产驾驶舱的任务镜像' : '同步任务到生产驾驶舱',
+      source: 'api',
+    });
+    await this.refreshProductionMirrors(true);
+    return record;
+  }
+
+  async revokeTaskProductionSync(
+    taskId: string,
+    actor?: { userId?: string; userName?: string },
+  ): Promise<ProductionTaskSyncRecord> {
+    this.assertDefaultResearchWorkspace();
+    const id = cleanText(taskId);
+    if (!id) throw new BadRequestException('taskId 不能为空');
+    const registry = await this.readProductionSyncRegistry();
+    const previous = registry[id];
+    if (!previous) throw new NotFoundException('该任务尚未同步到生产驾驶舱');
+    if (!previous.active) return previous;
+
+    const now = new Date().toISOString();
+    const record: ProductionTaskSyncRecord = {
+      ...previous,
+      active: false,
+      revoked_at: now,
+      revoked_by_id: cleanUserId(actor?.userId) || null,
+      revoked_by_name: cleanText(actor?.userName) || '研发成员',
+    };
+    await this.writeValue('rd.productionTaskSyncs', { ...registry, [id]: record });
+    await this.appendProductionSyncAudit({
+      action: 'task.production_sync_revoked',
+      task_id: id,
+      actor: { id: record.revoked_by_id, name: record.revoked_by_name },
+    });
+    await this.createAuditLog({
+      actor: { id: record.revoked_by_id, name: record.revoked_by_name },
+      action: 'task.production_sync_revoked',
+      resource: { type: 'task', id, name: id },
+      comment: '撤销同步到生产驾驶舱',
+      source: 'api',
+    });
+    await this.refreshProductionMirrors(true);
+    return record;
+  }
+
+  private collectTaskTreeIds(task: JsonRecord): string[] {
+    const ids: string[] = [];
+    const walk = (item: JsonRecord) => {
+      const id = cleanText(item.task_id);
+      if (id) ids.push(id);
+      for (const child of asArray(item.subtasks).filter(isRecord)) walk(child);
+    };
+    walk(task);
+    return ids;
+  }
+
+  private async refreshProductionMirrorsIfNeeded(): Promise<void> {
+    if (currentRdWorkspace() === PRODUCTION_WORKSPACE) {
+      await this.refreshProductionMirrors();
+    }
+  }
+
+  /** Materialize the latest active R&D snapshots into the isolated production task/note/score stores. */
+  private refreshProductionMirrors(force = false): Promise<void> {
+    return this.withProductionMirrorRefreshLock(async () => {
+      // 驾驶舱首屏会并行请求分类树、合并树和附件预览；短时间内合并为一次源数据刷新。
+      if (!force && this.productionMirrorFreshUntil > Date.now()) return;
+      const source = await runInRdWorkspace('rd', async () => {
+        const [registry, allTrees, noteMap, scoreRaw] = await Promise.all([
+          this.readProductionSyncRegistry(),
+          this.readAllTaskTrees(),
+          this.getProgressNoteMap(),
+          this.readValue('rd.taskCompletionScores'),
+        ]);
+        const placements: ProductionMirrorPlacement[] = [];
+        const mirroredNotes: Record<string, JsonRecord[]> = {};
+        const mirroredScores: JsonRecord = {};
+        const scoreMap = isRecord(scoreRaw) ? scoreRaw : {};
+        const activeSources = Object.values(registry)
+          .filter((record) => record.active)
+          .map((record) => ({
+            record,
+            slot: this.locateTaskInTrees(allTrees.trees, record.task_id),
+          }))
+          .filter((item): item is { record: ProductionTaskSyncRecord; slot: TaskSlot } => Boolean(item.slot))
+          // 父任务先投影；如果子任务也被单独同步，后续会因已被父树覆盖而跳过，保证生产池 task_id 唯一。
+          .sort((a, b) => this.collectTaskTreeIds(b.slot.task).length - this.collectTaskTreeIds(a.slot.task).length);
+        const coveredTaskIds = new Set<string>();
+
+        for (const { record, slot } of activeSources) {
+          if (coveredTaskIds.has(record.task_id)) continue;
+          const mirror = buildProductionMirrorTask(slot.task, {
+            rootTaskId: record.task_id,
+            syncedAt: record.synced_at,
+          });
+          // 独立同步子任务时，它在生产侧作为顶层镜像展示；真实父子关系仍保留在来源信息中。
+          mirror.parent_task_id = null;
+          placements.push({
+            categoryId: slot.categoryId,
+            categoryLabel: slot.categoryLabel,
+            subProjectId: slot.subProjectId,
+            subProjectLabel: slot.subProjectLabel,
+            task: mirror,
+          });
+          for (const sourceTaskId of this.collectTaskTreeIds(slot.task)) {
+            coveredTaskIds.add(sourceTaskId);
+            if (Array.isArray(noteMap[sourceTaskId])) mirroredNotes[sourceTaskId] = noteMap[sourceTaskId];
+            if (isRecord(scoreMap[sourceTaskId])) mirroredScores[sourceTaskId] = scoreMap[sourceTaskId];
+          }
+        }
+        return { placements, mirroredNotes, mirroredScores };
+      });
+
+      await runInRdWorkspace(PRODUCTION_WORKSPACE, () => this.withTaskTreeLock(async () => {
+        const [currentCategories, currentNotesRaw, currentScoresRaw] = await Promise.all([
+          this.readNormalizedTaskCategories(),
+          this.readValue('rd.taskProgressNotes'),
+          this.readValue('rd.taskCompletionScores'),
+        ]);
+        const previousMirrorIds = new Set<string>();
+        for (const task of this.collectAllCategoryTasks(currentCategories)) {
+          if (isProductionMirrorTask(task)) previousMirrorIds.add(cleanText(task.task_id));
+        }
+        const nextCategories = mergeProductionMirrorTasks(currentCategories, source.placements);
+        const nextNotes: Record<string, JsonRecord[]> = isRecord(currentNotesRaw)
+          ? { ...(currentNotesRaw as Record<string, JsonRecord[]>) }
+          : {};
+        const nextScores: JsonRecord = isRecord(currentScoresRaw) ? { ...currentScoresRaw } : {};
+        for (const id of previousMirrorIds) {
+          delete nextNotes[id];
+          delete nextScores[id];
+        }
+        Object.assign(nextNotes, source.mirroredNotes);
+        Object.assign(nextScores, source.mirroredScores);
+
+        const operations: ReturnType<ResearchDevelopmentService['buildSettingUpsert']>[] = [];
+        if (JSON.stringify(currentCategories) !== JSON.stringify(nextCategories)) {
+          operations.push(this.buildSettingUpsert('rd.taskCategories', nextCategories));
+        }
+        if (JSON.stringify(currentNotesRaw ?? {}) !== JSON.stringify(nextNotes)) {
+          operations.push(this.buildSettingUpsert('rd.taskProgressNotes', nextNotes));
+        }
+        if (JSON.stringify(currentScoresRaw ?? {}) !== JSON.stringify(nextScores)) {
+          operations.push(this.buildSettingUpsert('rd.taskCompletionScores', nextScores));
+        }
+        if (operations.length > 0) {
+          await this.prisma.$transaction(operations);
+          this.invalidateCachedStoreValues([
+            'rd.taskCategories',
+            'rd.taskProgressNotes',
+            'rd.taskCompletionScores',
+          ]);
+        }
+      }));
+      this.productionMirrorFreshUntil = Date.now() + 1_000;
+    });
+  }
+
+  private assertTaskWritable(task: JsonRecord): void {
+    if (isProductionMirrorTask(task)) {
+      throw new ForbiddenException('该任务由研发同步，在生产驾驶舱中为只读，不能执行任何操作');
+    }
+  }
+
+  private async assertTaskIdWritable(taskId: string): Promise<JsonRecord> {
+    await this.refreshProductionMirrorsIfNeeded();
+    const task = await this.findTaskAcrossStores(taskId);
+    if (!task) throw new NotFoundException('任务不存在');
+    this.assertTaskWritable(task);
+    return task;
+  }
+
+  private async isProductionMirrorTaskId(taskId: string): Promise<boolean> {
+    if (currentRdWorkspace() !== PRODUCTION_WORKSPACE) return false;
+    await this.refreshProductionMirrorsIfNeeded();
+    const task = await this.findTaskAcrossStores(taskId);
+    return Boolean(task && isProductionMirrorTask(task));
+  }
+
+  private productionMirrorFingerprint(categories: JsonRecord[]): string {
+    const mirrors: unknown[] = [];
+    for (const category of categories) {
+      for (const subProject of asArray(category.children).filter(isRecord)) {
+        for (const task of asArray(subProject.tasks).filter(isRecord)) {
+          if (!isProductionMirrorTask(task)) continue;
+          mirrors.push({
+            category_id: cleanText(category.id),
+            sub_project_id: cleanText(subProject.id),
+            task,
+          });
+        }
+      }
+    }
+    return JSON.stringify(mirrors);
+  }
+
   async saveTaskCategories(payload: unknown[]) {
+    await this.refreshProductionMirrorsIfNeeded();
     const normalized = ensurePocBomTaskCategories(payload);
+    if (currentRdWorkspace() === PRODUCTION_WORKSPACE) {
+      const current = await this.readNormalizedTaskCategories();
+      if (this.productionMirrorFingerprint(current) !== this.productionMirrorFingerprint(normalized)) {
+        throw new ForbiddenException('研发同步任务在生产驾驶舱中为只读，不能修改、移动或删除');
+      }
+    }
     // 整树 PUT 与锁内单任务读改写互斥，避免旧快照整体覆盖刚落库的任务更新（仅 controller 调用，无锁内重入）
     const saved = await this.withTaskTreeLock(() => this.writeValue('rd.taskCategories', normalized));
     await this.recomputeDirectorDashboard();
@@ -1474,6 +1799,14 @@ export class ResearchDevelopmentService {
   async saveProductTaskCategoriesForProduct(productId: string, categories: unknown[]): Promise<{ ok: boolean }> {
     const store = await this.readProductCategoryStore();
     const normalized = ensurePocBomTaskCategories(categories);
+    if (currentRdWorkspace() === PRODUCTION_WORKSPACE) {
+      const current = Array.isArray(store[productId])
+        ? ensurePocBomTaskCategories(store[productId] as unknown[])
+        : ensurePocBomTaskCategories([]);
+      if (this.productionMirrorFingerprint(current) !== this.productionMirrorFingerprint(normalized)) {
+        throw new ForbiddenException('研发同步任务在生产驾驶舱中为只读，不能修改、移动或删除');
+      }
+    }
     await this.saveProductCategoryStore({ ...store, [productId]: normalized });
     return { ok: true };
   }
@@ -1596,6 +1929,8 @@ export class ResearchDevelopmentService {
 
     if (collected.size === 0) throw new NotFoundException('任务不存在');
 
+    for (const task of collected.values()) this.assertTaskWritable(task);
+
     // 部分 id 未在任何顶层任务中命中（多为子任务 id 或已不存在的 id）。
     // 旧逻辑会静默丢弃这些 id、只移动命中的部分，导致「提示成功实则少移」的数据静默丢失。
     // 这里改为明确报错。移动选择 UI 仅会传入顶层任务 id，正常流程不会触发；
@@ -1656,7 +1991,7 @@ export class ResearchDevelopmentService {
     return {
       ok: true,
       movedCount: collected.size,
-      categories: await this.getTaskCategories(),
+      categories: await this.getTaskCategories({ skipMirrorRefresh: true }),
       targetProductId,
       targetCategoryLabel: targetCatLabel,
       targetSubLabel,
@@ -1972,6 +2307,8 @@ export class ResearchDevelopmentService {
     if (!childSlot) throw new NotFoundException('任务不存在');
     const parentSlot = this.locateTaskInTrees(trees, parentId);
     if (!parentSlot) throw new NotFoundException('父任务不存在');
+    this.assertTaskWritable(childSlot.task);
+    this.assertTaskWritable(parentSlot.task);
 
     if (childSlot.parentTaskId) throw new BadRequestException('该任务已经是子任务，不能重复挂载');
     if (parentSlot.parentTaskId) {
@@ -2065,6 +2402,7 @@ export class ResearchDevelopmentService {
     const { trees } = await this.readAllTaskTrees();
     const slot = this.locateTaskInTrees(trees, childId);
     if (!slot) throw new NotFoundException('任务不存在');
+    this.assertTaskWritable(slot.task);
     if (!slot.parentTaskId) throw new BadRequestException('该任务不是子任务');
 
     const nowIso = new Date().toISOString();
@@ -2233,6 +2571,7 @@ export class ResearchDevelopmentService {
     const { trees } = await this.readAllTaskTrees();
     const parentSlot = this.locateTaskInTrees(trees, parentTaskId);
     if (!parentSlot) throw new NotFoundException('父任务不存在');
+    this.assertTaskWritable(parentSlot.task);
     if (parentSlot.parentTaskId) {
       throw new BadRequestException('目标任务本身已是子任务，子任务下不能再挂子任务');
     }
@@ -2369,6 +2708,7 @@ export class ResearchDevelopmentService {
       return tasks.map((t) => {
         if (!isRecord(t)) return t;
         if (t.task_id === taskId) {
+          this.assertTaskWritable(t);
           found = true;
           originalTask = { ...t };
 
@@ -3043,16 +3383,22 @@ export class ResearchDevelopmentService {
       asArray(t.subtasks).forEach((s) => { if (isRecord(s)) collectIds(s); });
     };
 
-    function deleteFromTasks(tasks: unknown[]): unknown[] {
+    const deleteFromTasks = (tasks: unknown[]): unknown[] => {
       const filtered = tasks.filter((t) => {
-        if (isRecord(t) && t.task_id === taskId) { found = true; removedTask = t; collectIds(t); return false; }
+        if (isRecord(t) && t.task_id === taskId) {
+          this.assertTaskWritable(t);
+          found = true;
+          removedTask = t;
+          collectIds(t);
+          return false;
+        }
         return true;
       });
       return filtered.map((t) => {
         if (!isRecord(t) || !Array.isArray(t.subtasks)) return t;
         return { ...t, subtasks: deleteFromTasks(t.subtasks) };
       });
-    }
+    };
 
     await this.mutateTaskAcrossStores((categories) => {
       const updated = categories.map((cat) => {
@@ -3624,6 +3970,7 @@ export class ResearchDevelopmentService {
     taskId: string,
     viewer?: { userId?: string; hasFullAccess?: boolean; canReadAll?: boolean; userName?: string; canEditAttachments?: boolean },
   ) {
+    await this.refreshProductionMirrorsIfNeeded();
     const map = await this.getProgressNoteMap();
     const notes = map[taskId] ?? [];
     // 任务取一次：既用于参与人可见性判断，也用于附件可编辑标记（锁定/主责人判定）
@@ -3669,6 +4016,7 @@ export class ResearchDevelopmentService {
     rawTaskIds: string[],
     viewer?: { userId?: string; hasFullAccess?: boolean; canReadAll?: boolean; userName?: string },
   ) {
+    await this.refreshProductionMirrorsIfNeeded();
     const taskIds = Array.from(new Set(rawTaskIds.map((id) => cleanText(id)).filter(Boolean))).slice(0, 60);
     if (taskIds.length === 0) return {};
     const cacheKey = this.taskResourceCacheKey('attachment-previews', taskIds, viewer);
@@ -3765,6 +4113,7 @@ export class ResearchDevelopmentService {
   }
 
   async listAllTaskProgressNotes(viewer?: { userId?: string; hasFullAccess?: boolean; canReadAll?: boolean }) {
+    await this.refreshProductionMirrorsIfNeeded();
     const map = await this.getProgressNoteMap();
     // 管理权限或只读跨部门查看权（rd-task:view-all）均可看到全部留痕与附件。
     if (viewer?.hasFullAccess || viewer?.canReadAll) {
@@ -3889,13 +4238,12 @@ export class ResearchDevelopmentService {
   }) {
     const taskId = (payload.taskId ?? '').trim();
     if (!taskId) throw new BadRequestException('taskId 不能为空');
+    const task = await this.assertTaskIdWritable(taskId);
 
     // 越权防护：进展留痕会带附件入知识库并参与 AI 评分，必须防止向他人任务注入内容。
     // 非管理员（仅 page:rd-my-workspace）只能为"自己负责"的任务（主责人或协作人）添加进展；
     // 管理员级权限(canEditAny)跳过，行为不变。用可信的 req.user 身份校验，不信任前端传入的 actor.name。
     if (!payload.canEditAny) {
-      const task = await this.findTaskAcrossStores(taskId);
-      if (!task) throw new NotFoundException('任务不存在');
       if (!isTaskParticipant(task, payload.requesterUserId, payload.requesterName)) {
         throw new ForbiddenException('只能为自己负责的任务添加进展');
       }
@@ -4219,8 +4567,16 @@ export class ResearchDevelopmentService {
     taskId: string,
     query: { anchorType?: string; anchorId?: string; cursor?: string; limit?: string },
     viewer: DiscussionViewer,
-  ) {
+  ): Promise<TaskDiscussionResponse> {
     const cleanTaskId = cleanText(taskId);
+    if (await this.isProductionMirrorTaskId(cleanTaskId)) {
+      const sourceDiscussion = await runInRdWorkspace('rd', () => this.getTaskDiscussion(
+        cleanTaskId,
+        query,
+        { ...viewer, canAccessAny: true, canPost: false },
+      ));
+      return { ...sourceDiscussion, can_post: false };
+    }
     const { anchorType, anchorId } = this.normalizeDiscussionAnchor(query.anchorType, query.anchorId);
     const threadId = this.discussionThreadId(cleanTaskId, anchorType, anchorId);
     const access = await this.requireDiscussionAccess(cleanTaskId, viewer, threadId);
@@ -4335,6 +4691,7 @@ export class ResearchDevelopmentService {
     viewer: DiscussionViewer;
   }) {
     const taskId = cleanText(payload.taskId);
+    await this.assertTaskIdWritable(taskId);
     const { anchorType, anchorId } = this.normalizeDiscussionAnchor(payload.anchorType, payload.anchorId);
     const workspace = currentRdWorkspace();
     const threadId = this.discussionThreadId(taskId, anchorType, anchorId);
@@ -4553,6 +4910,13 @@ export class ResearchDevelopmentService {
     viewer: DiscussionViewer,
   ): Promise<{ ok: boolean }> {
     const cleanTaskId = cleanText(taskId);
+    if (await this.isProductionMirrorTaskId(cleanTaskId)) {
+      return runInRdWorkspace('rd', () => this.markTaskDiscussionRead(
+        cleanTaskId,
+        threadId,
+        { ...viewer, canAccessAny: true, canPost: false },
+      ));
+    }
     const userId = cleanUserId(viewer.userId);
     if (!userId) return { ok: false };
     const cleanThreadId = cleanText(threadId);
@@ -4848,6 +5212,7 @@ export class ResearchDevelopmentService {
 
   /** 任务是否允许修改留痕附件（未完成且未归档） */
   private taskAttachmentsMutable(task: JsonRecord): boolean {
+    if (isProductionMirrorTask(task)) return false;
     const status = String(task.status ?? '');
     return !(task.archived === true || status === 'archived' || status === 'completed');
   }
@@ -4870,8 +5235,7 @@ export class ResearchDevelopmentService {
 
   /** 上传前的快速失败预检（只查任务级状态，不读留痕 map；权限等最终校验在锁内） */
   private async precheckTaskAttachmentMutation(taskId: string): Promise<void> {
-    const task = await this.findTaskAcrossStores(taskId);
-    if (!task) throw new NotFoundException('任务不存在');
+    const task = await this.assertTaskIdWritable(taskId);
     if (!this.taskAttachmentsMutable(task)) {
       throw new ForbiddenException('已完成或已归档任务的附件已锁定，不可修改');
     }
@@ -4892,6 +5256,7 @@ export class ResearchDevelopmentService {
     return this.withProgressNoteLock(async () => {
       const task = await this.findTaskAcrossStores(params.taskId);
       if (!task) throw new NotFoundException('任务不存在');
+      this.assertTaskWritable(task);
       if (!this.taskAttachmentsMutable(task)) {
         throw new ForbiddenException('已完成或已归档任务的附件已锁定，不可修改');
       }
@@ -5288,13 +5653,20 @@ export class ResearchDevelopmentService {
     has_more: boolean;
     failed_ids: string[];
   }> {
+    await this.refreshProductionMirrorsIfNeeded();
     const maxItems = Math.max(1, Math.min(200, opts.maxItems ?? 50));
     const map = await this.getProgressNoteMap();
+    const mirrorTaskIds = new Set(
+      this.collectAllCategoryTasks(await this.readMergedTaskCategories())
+        .filter(isProductionMirrorTask)
+        .map((task) => cleanText(task.task_id)),
+    );
 
     // 收集所有待处理的附件（带 taskId / noteId / attachment 引用）
     type PendingItem = { taskId: string; noteId: string; attachment: JsonRecord };
     const pending: PendingItem[] = [];
     for (const [taskId, notes] of Object.entries(map)) {
+      if (mirrorTaskIds.has(taskId)) continue;
       for (const note of notes) {
         if (!isRecord(note)) continue;
         const noteId = String(note.id ?? '');
@@ -8228,7 +8600,7 @@ export class ResearchDevelopmentService {
     const collect = (tasks: unknown[]): void => {
       for (const t of tasks) {
         if (!isRecord(t)) continue;
-        if (t.status === 'completed' && typeof t.task_id === 'string') {
+        if (!isProductionMirrorTask(t) && t.status === 'completed' && typeof t.task_id === 'string') {
           completedIds.push(t.task_id);
         }
         if (Array.isArray(t.subtasks)) collect(t.subtasks);
@@ -8359,6 +8731,7 @@ export class ResearchDevelopmentService {
         this.logger.warn(`[triggerTaskCompletionScoring] task not found: ${taskId}`);
         return;
       }
+      if (isProductionMirrorTask(foundTask)) return;
 
       const notesMap = await this.getProgressNoteMap();
       const notes = notesMap[taskId] ?? [];

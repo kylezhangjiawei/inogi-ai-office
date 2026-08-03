@@ -11,12 +11,15 @@ import {
   ChevronRight,
   Download,
   FileText,
+  Lock,
   Loader2,
   MessageCircleMore,
   Pencil,
   Send,
   ShoppingCart,
   Sparkles,
+  RefreshCw,
+  Undo2,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -28,7 +31,7 @@ import { Progress } from "./components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
-import { useAnyPermission } from "./hooks/usePermission";
+import { useAnyPermission, usePermission } from "./hooks/usePermission";
 import { useAuth } from "./auth";
 import { Input } from "./components/ui/input";
 import { Textarea } from "./components/ui/textarea";
@@ -73,18 +76,24 @@ import {
   fetchRdProducts,
   fetchRdTaskCategories,
   fetchRdTaskProgressNotes,
+  fetchRdProductionTaskSyncs,
   getAttachmentDownloadUrl,
   getAttachmentPreviewUrl,
   getAttachmentUrl,
   markRdTaskNotesRead,
   moveRdTasks,
+  revokeRdTaskProductionSync,
+  syncRdTaskToProduction,
   updateRdTask,
+  isProductionMirrorTask,
+  isProductionWorkspace,
   type RdCategory,
   type RdCollaborator,
   type RdPriority,
   type RdProductDef,
   type RdTask,
   type RdTaskProgressNote,
+  type RdProductionTaskSync,
 } from "./lib/rdApi";
 
 type DetailTab = "notes" | "conversation" | "attachments" | "audit";
@@ -104,22 +113,33 @@ const TASK_AUDIT_FILTER = { resourceType: "task" } as const;
 export default function RDTaskDetailPage() {
   const { taskId = "" } = useParams();
   const navigate = useNavigate();
+  const productionWorkspace = isProductionWorkspace();
+  const cockpitPath = productionWorkspace ? "/production-dashboard" : "/rd-task-management";
+  const taskDetailPath = useCallback(
+    (id: string) => `${productionWorkspace ? "/production-task" : "/rd-task"}/${encodeURIComponent(id)}`,
+    [productionWorkspace],
+  );
   const shouldReduceMotion = useReducedMotion();
   const { lang } = useI18n(); // i18n：订阅语言切换（本页文案已 t() 化）
   void lang;
   const { user } = useAuth();
-  const canView = useAnyPermission("page:rd-task-management");
+  const canView = useAnyPermission(PERMISSIONS.PAGE_RD_TASK_MANAGEMENT, PERMISSIONS.PAGE_RD_DIRECTOR_DASHBOARD);
   // 管理动作口径与驾驶舱抽屉的 canManageTaskFlow 一致
-  const canManage = useAnyPermission(
+  const canManagePermission = useAnyPermission(
     PERMISSIONS.RD_PROJECT_DIRECT,
     PERMISSIONS.RD_PROJECT_REVIEW_L1,
     PERMISSIONS.RD_PROJECT_REVIEW_L2,
     PERMISSIONS.RD_PEOPLE_MANAGE,
     PERMISSIONS.RD_TASK_REASSIGN,
   );
-  const AUDIT_ACTOR = useAuditActor("研发管理员");
+  const canSyncProduction = usePermission(PERMISSIONS.RD_TASK_SYNC_PRODUCTION);
+  const AUDIT_ACTOR = useAuditActor(productionWorkspace ? "生产管理员" : "研发管理员");
 
   const [task, setTask] = useState<RdTask | null>(null);
+  const taskReadOnly = isProductionMirrorTask(task);
+  const canManage = canManagePermission && !taskReadOnly;
+  const [productionSync, setProductionSync] = useState<RdProductionTaskSync | null>(null);
+  const [productionSyncing, setProductionSyncing] = useState(false);
   const [allTasks, setAllTasks] = useState<RdTask[]>([]);
   // 子任务上下文：父子关系按「结构位置」建索引（存量子任务无 parent_task_id 字段，只认字段会漏判）
   const [subtaskParents, setSubtaskParents] = useState<Map<string, RdTask>>(() => new Map());
@@ -155,7 +175,8 @@ export default function RDTaskDetailPage() {
   const [generatingIssue, setGeneratingIssue] = useState(false);
   const [transferOpen, setTransferOpen] = useState(false);
   // 转采购操作码（系统管理·权限目录可配），已转的跳转芯片保持只读可见
-  const canTransferProc = useAnyPermission("proc-task:transfer");
+  const canTransferProcPermission = useAnyPermission("proc-task:transfer");
+  const canTransferProc = canTransferProcPermission && !taskReadOnly;
   const [showMove, setShowMove] = useState(false);
   const [categories, setCategories] = useState<RdCategory[]>([]);
   const [products, setProducts] = useState<RdProductDef[]>([]);
@@ -253,6 +274,36 @@ export default function RDTaskDetailPage() {
     void loadTask({ silent: hasSeed });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadTask, taskId]);
+
+  useEffect(() => {
+    if (productionWorkspace || !canSyncProduction) {
+      setProductionSync(null);
+      return;
+    }
+    let cancelled = false;
+    fetchRdProductionTaskSyncs()
+      .then((records) => {
+        if (!cancelled) setProductionSync(records.find((record) => record.task_id === taskId) ?? null);
+      })
+      .catch(() => { if (!cancelled) setProductionSync(null); });
+    return () => { cancelled = true; };
+  }, [canSyncProduction, productionWorkspace, taskId]);
+
+  const toggleProductionSync = async () => {
+    if (!task || productionSyncing || productionWorkspace || !canSyncProduction) return;
+    setProductionSyncing(true);
+    try {
+      const next = productionSync?.active
+        ? await revokeRdTaskProductionSync(task.task_id)
+        : await syncRdTaskToProduction(task.task_id);
+      setProductionSync(next);
+      toast.success(next.active ? t("已同步到生产驾驶舱") : t("已撤销生产驾驶舱同步"));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t("同步操作失败，请重试"));
+    } finally {
+      setProductionSyncing(false);
+    }
+  };
 
   useEffect(() => {
     fetchRdPeople()
@@ -408,7 +459,7 @@ export default function RDTaskDetailPage() {
     if (task.primary_owner_user_id === user.id || task.primary_owner === user.name) return true;
     return (task.collaborators ?? []).some((c) => c.user_id === user.id || c.name === user.name);
   }, [task, user]);
-  const canComposeNote = Boolean(task && !task.archived && task.status !== "completed" && (canManage || isParticipant));
+  const canComposeNote = Boolean(task && !taskReadOnly && !task.archived && task.status !== "completed" && (canManage || isParticipant));
 
   const submitComposerNote = async () => {
     if (!task || sendingNote) return;
@@ -656,7 +707,7 @@ export default function RDTaskDetailPage() {
       task.primary_owner === user.name
     ),
   );
-  const canSubmitForReview = Boolean(task && task.status === "in_progress" && isCurrentOwner && !canManage);
+  const canSubmitForReview = Boolean(task && !taskReadOnly && task.status === "in_progress" && isCurrentOwner && !canManage);
 
   /** 转采购弹窗默认带入的任务附件（全部进度留痕附件拍平） */
   const transferAttachments = useMemo(
@@ -931,9 +982,9 @@ export default function RDTaskDetailPage() {
   const gotoSeq = useCallback(
     (offset: number) => {
       const target = taskSeq[seqIndex + offset];
-      if (target) navigate(`/rd-task/${encodeURIComponent(target.task_id)}`, { state: { task: target } });
+      if (target) navigate(taskDetailPath(target.task_id), { state: { task: target } });
     },
-    [taskSeq, seqIndex, navigate],
+    [taskSeq, seqIndex, navigate, taskDetailPath],
   );
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -972,7 +1023,7 @@ export default function RDTaskDetailPage() {
         <p className="text-sm">{loadError || t("任务不存在")}</p>
         <button
           type="button"
-          onClick={() => navigate("/rd-task-management")}
+          onClick={() => navigate(cockpitPath)}
           className="cursor-pointer rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
         >
           {t("返回驾驶舱")}
@@ -999,7 +1050,7 @@ export default function RDTaskDetailPage() {
       {/* ── 顶部：返回 + 标题 + 徽章 ── */}
       <div className="flex shrink-0 flex-wrap items-center gap-3">
         {/* 直接回驾驶舱（不用 navigate(-1)：序列导航翻过 N 条任务后逐条回退历史体验极差） */}
-        <Button type="button" variant="outline" size="sm" onClick={() => navigate("/rd-task-management")} className="gap-1">
+        <Button type="button" variant="outline" size="sm" onClick={() => navigate(cockpitPath)} className="gap-1">
           <ArrowLeft className="h-3.5 w-3.5" />
           {t("返回")}
         </Button>
@@ -1032,6 +1083,12 @@ export default function RDTaskDetailPage() {
           </div>
         )}
         <span className="font-mono text-xs text-slate-400">{task.task_id}</span>
+        {taskReadOnly && (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-sky-200 bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700">
+            <Lock className="h-3.5 w-3.5" />
+            {t("研发同步 · 完全只读")}
+          </span>
+        )}
         <h1 className="min-w-0 flex-1 truncate text-xl font-bold text-slate-900">
           <AutoTranslatedText text={task.title} />
           {canManage && !task.archived && (
@@ -1049,6 +1106,28 @@ export default function RDTaskDetailPage() {
           <span className={cn("h-1.5 w-1.5 rounded-full", sCfg.dot)} />
           {t(sCfg.label)}
         </span>
+        {!productionWorkspace && canSyncProduction && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={productionSyncing}
+            onClick={() => void toggleProductionSync()}
+            className={cn(
+              "h-8 gap-1.5 text-xs",
+              productionSync?.active
+                ? "border-amber-200 text-amber-700 hover:bg-amber-50"
+                : "border-sky-200 text-sky-700 hover:bg-sky-50",
+            )}
+          >
+            {productionSyncing
+              ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              : productionSync?.active
+                ? <Undo2 className="h-3.5 w-3.5" />
+                : <RefreshCw className="h-3.5 w-3.5" />}
+            {productionSync?.active ? t("撤销同步") : t("同步到生产驾驶舱")}
+          </Button>
+        )}
         {canManage && !task.archived && task.status !== "completed" ? (
           <Select value={task.final_priority} disabled={savingPriority} onValueChange={(value) => void savePriority(value as RdPriority)}>
             <SelectTrigger
@@ -1141,7 +1220,7 @@ export default function RDTaskDetailPage() {
               </div>
               <button
                 type="button"
-                onClick={() => navigate(`/rd-task/${encodeURIComponent(parentTask.task_id)}`)}
+                onClick={() => navigate(taskDetailPath(parentTask.task_id))}
                 className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-sky-200 bg-white px-3 py-2 text-left transition hover:border-sky-300 hover:bg-sky-50/60"
               >
                 <ChevronLeft className="h-3.5 w-3.5 shrink-0 text-sky-500" />
@@ -1226,7 +1305,7 @@ export default function RDTaskDetailPage() {
                         <button
                           key={sub.task_id}
                           type="button"
-                          onClick={() => navigate(`/rd-task/${encodeURIComponent(sub.task_id)}`)}
+                          onClick={() => navigate(taskDetailPath(sub.task_id))}
                           className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-slate-100 px-2.5 py-1.5 text-left transition hover:border-indigo-200 hover:bg-indigo-50/40"
                         >
                           <span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", subCfg.dot)} />
@@ -1347,7 +1426,7 @@ export default function RDTaskDetailPage() {
             )}
             {/* 研发侧特有：转采购 / 生成问题（非归档任务始终可用，与抽屉口径一致）。
                 已转采购的任务显示跳转芯片而非再次转出 */}
-            {!task.archived && (
+            {!task.archived && !taskReadOnly && (
               <>
                 {procTask ? (
                   <ProcurementLinkChip
@@ -1542,7 +1621,7 @@ export default function RDTaskDetailPage() {
                         return (
                           <button
                             type="button"
-                            onClick={() => navigate(`/rd-task/${encodeURIComponent(sourceId)}`)}
+                            onClick={() => navigate(taskDetailPath(sourceId))}
                             className="flex max-w-[200px] shrink-0 cursor-pointer items-center gap-1 rounded bg-sky-50 px-1.5 py-px text-[10px] font-semibold text-sky-700 ring-1 ring-inset ring-sky-200 hover:bg-sky-100"
                             title={traceTitleOf.get(sourceId) ?? sourceId}
                           >
@@ -1870,7 +1949,7 @@ export default function RDTaskDetailPage() {
                     type="button"
                     onClick={() => {
                       setPersonTasksFor(null);
-                      if (t.task_id !== taskId) navigate(`/rd-task/${encodeURIComponent(t.task_id)}`);
+                      if (t.task_id !== taskId) navigate(taskDetailPath(t.task_id));
                     }}
                     className="flex w-full cursor-pointer items-center gap-2.5 rounded-lg border border-slate-100 px-3 py-2 text-left transition hover:border-indigo-200 hover:bg-indigo-50/40"
                   >

@@ -90,7 +90,6 @@ const RDTaskDetailPage = React.lazy(() => import("./RDTaskDetailPage"));
 const RDDiscussionInvitePage = React.lazy(() => import("./RDDiscussionInvitePage"));
 const RDKnowledgeBasePage = lazyNamed(() => import("./RDKnowledgeBasePage"), "RDKnowledgeBasePage");
 const RDPeopleManagementPage = lazyNamed(() => import("./RDPeopleManagementPage"), "RDPeopleManagementPage");
-const RDDirectorDashboardPage = lazyNamed(() => import("./RDDirectorDashboardPage"), "RDDirectorDashboardPage");
 const RDApprovalFlowPage = lazyNamed(() => import("./RDApprovalFlowPage"), "RDApprovalFlowPage");
 const RDAuditLogPage = lazyNamed(() => import("./RDAuditLogPage"), "RDAuditLogPage");
 const RDAiSettingsPage = lazyNamed(() => import("./RDAiSettingsPage"), "RDAiSettingsPage");
@@ -353,10 +352,12 @@ const router = createBrowserRouter([
       { path: "us-collab-rd-discussion/:taskId", element: lazyWrap(<RDDiscussionInvitePage />) },
       // 协同人员管理：路径保持 /us-collab 前缀，rdApi 据此路由到独立的协同人员池
       { path: "us-collab-people-management", element: makeLazyProtected(<RDPeopleManagementPage key="ws-us" onBack={() => window.history.back()} />, "rd-people:manage") },
+      { path: "production-people-management", element: makeLazyProtected(<RDPeopleManagementPage key="ws-production" onBack={() => window.history.back()} />, "rd-people:manage") },
       // 协同任务全屏详情（双栏）：页面内部按协同页面码任一做门禁，不进侧边栏
       { path: "us-collab-task/:taskId", element: lazyWrap(<UsCollabTaskDetailPage />) },
       // 研发任务全屏详情（双栏，协同同款范式的独立复刻）：路径无 /us-collab 前缀 → rdApi 落研发池；页面内部按研发驾驶舱页面码门禁
       { path: "rd-task/:taskId", element: lazyWrap(<RDTaskDetailPage />) },
+      { path: "production-task/:taskId", element: makeLazyProtected(<RDTaskDetailPage key="ws-production-detail" />, "page:rd-director-dashboard") },
       { path: "us-collab-kb", element: makeLazyProtected(<RDKnowledgeBasePage key="kb-us-collab" kbScope={{ kbId: "us-collab", label: "协同" }} />, "page:dept-kb-us-collab") },
       // 协同审批流 / 留痕 / AI 策略：与上面三行一样是研发页面的原样复用，隔离全靠 /us-collab 路径前缀
       // —— rdApi 据此给请求带 ?workspace=us-collab，后端把 rd.* 存储键改写成 rdws.us-collab.*。
@@ -364,8 +365,8 @@ const router = createBrowserRouter([
       { path: "us-collab-approval-flow", element: makeLazyProtected(<RDApprovalFlowPage key="ws-us" />, "page:us-collab-approval-flow") },
       { path: "us-collab-audit-log", element: makeLazyProtected(<RDAuditLogPage key="ws-us" />, "page:us-collab-audit-log") },
       { path: "us-collab-ai-settings", element: makeLazyProtected(<RDAiSettingsPage key="ws-us" />, "page:us-collab-ai-settings") },
-      // 生产驾驶舱复用原主管驾驶舱能力；旧地址只做兼容跳转，既有收藏链接继续有效。
-      { path: "production-dashboard", element: makeLazyProtected(<RDDirectorDashboardPage />, "page:rd-director-dashboard") },
+      // 生产驾驶舱与研发任务驾驶舱保持同一套页面内容；保留原页面码，避免既有角色授权失效。
+      { path: "production-dashboard", element: makeLazyProtected(<RDTaskManagementPage key="ws-production" />, "page:rd-director-dashboard") },
       { path: "rd-director-dashboard", element: makeLazyProtected(<Navigate to="/production-dashboard" replace />, "page:rd-director-dashboard") },
       { path: "rd-approval-flow", element: makeLazyProtected(<RDApprovalFlowPage />, "page:rd-approval-flow") },
       { path: "rd-audit-log", element: makeLazyProtected(<RDAuditLogPage />, "page:rd-audit-log") },

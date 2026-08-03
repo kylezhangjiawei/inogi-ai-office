@@ -70,6 +70,7 @@ export const PERMISSIONS = {
   RD_TASK_ARCHIVE: 'rd-task:archive',
   RD_TASK_REASSIGN: 'rd-task:reassign',
   RD_TASK_MOVE: 'rd-task:move',
+  RD_TASK_SYNC_PRODUCTION: 'rd-task:sync-production',
   RD_TASK_OVERRIDE_PRIORITY: 'rd-task:override-priority',
   RD_PEOPLE_MANAGE: 'rd-people:manage',
   RD_APPROVAL_FLOW_MANAGE: 'rd-approval-flow:manage',

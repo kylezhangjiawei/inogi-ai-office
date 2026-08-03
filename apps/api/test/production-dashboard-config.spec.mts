@@ -38,7 +38,7 @@ test('production cockpit is visible in Quality & Production without invalidating
   assert.doesNotMatch(routesSource, /label: "生产部门"/);
   assert.match(
     appSource,
-    /\{ path: "production-dashboard", element: makeLazyProtected\(<RDDirectorDashboardPage \/>/,
+    /\{ path: "production-dashboard", element: makeLazyProtected\(<RDTaskManagementPage key="ws-production" \/>, "page:rd-director-dashboard"\) \}/,
   );
   assert.match(
     appSource,
@@ -49,14 +49,26 @@ test('production cockpit is visible in Quality & Production without invalidating
   assert.match(migrationSource, /"groupLabel" = '页面访问 · 质量与生产'/);
 });
 
-test('production cockpit follows the R&D cockpit attachment loading strategy', async () => {
-  const source = await readFile(
-    new URL('../../../src/app/RDDirectorDashboardPage.tsx', import.meta.url),
+test('production cockpit renders the same page implementation as the R&D task cockpit', async () => {
+  const appSource = await readFile(
+    new URL('../../../src/app/App.tsx', import.meta.url),
     'utf8',
   );
 
-  assert.match(source, /const PERSON_TASK_PAGE_SIZE = 6;/);
-  assert.match(source, /fetchRdTaskAttachmentPreviews\(taskIds/);
-  assert.match(source, /personTasks\.slice\(0, personVisibleCount\)/);
-  assert.doesNotMatch(source, /fetchRdTaskProgressNoteMap/);
+  const rdRoute = appSource.match(
+    /\{ path: "rd-task-management", element: makeLazyProtected\(<RDTaskManagementPage key="([^"]+)" \/>, "page:rd-task-management"\) \}/,
+  );
+  const productionRoute = appSource.match(
+    /\{ path: "production-dashboard", element: makeLazyProtected\(<RDTaskManagementPage key="([^"]+)" \/>, "page:rd-director-dashboard"\) \}/,
+  );
+
+  assert.ok(rdRoute, '研发任务驾驶舱路由必须使用标准驾驶舱页面');
+  assert.ok(productionRoute, '生产驾驶舱必须复用研发任务驾驶舱页面');
+  assert.equal(rdRoute[1], 'ws-rd');
+  assert.equal(productionRoute[1], 'ws-production');
+  assert.notEqual(productionRoute[1], rdRoute[1], '跨工作区路由必须强制重挂载，避免复用上一工作区的任务 state');
+  assert.doesNotMatch(
+    appSource,
+    /path: "production-dashboard"[^\n]*RDDirectorDashboardPage/,
+  );
 });

@@ -19,7 +19,7 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'page:rd-knowledge-base', label: '研发知识库', description: '研发团队内部知识沉淀与权限分级查阅', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-knowledge-base', sortOrder: 65 },
   { code: 'page:rd-sheet', label: '研发数据表', description: '类 WPS 表格，按密级行级管控的研发敏感数据；不同权限的人看到的行数不同', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-sheet', sortOrder: 66 },
   // 保留历史权限码和路由，生产驾驶舱迁移后既有角色授权、接口鉴权和收藏链接继续有效。
-  { code: 'page:rd-director-dashboard', label: '生产驾驶舱', description: '生产部门全局进度、人员负载热力图、批量重分配（高级权限）', groupLabel: '页面访问 · 质量与生产', type: 'page', routePath: '/production-dashboard', sortOrder: 590 },
+  { code: 'page:rd-director-dashboard', label: '生产驾驶舱', description: '与研发任务驾驶舱同版界面，使用独立生产任务池并只读展示研发同步任务', groupLabel: '页面访问 · 质量与生产', type: 'page', routePath: '/production-dashboard', sortOrder: 590 },
   { code: 'page:rd-people-management', label: '研发人员管理', description: '新增、编辑、删除研发成员，设置任务容量与知识库权限等级', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-people-management', navHidden: true, sortOrder: 73 },
   { code: 'page:rd-approval-flow', label: '审批流配置', description: '配置立项/任务审批的节点、模式、SLA', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-approval-flow', sortOrder: 75 },
   { code: 'page:rd-audit-log', label: '操作留痕', description: '查看研发任务管理关键操作的审计时间轴', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-audit-log', sortOrder: 76 },
@@ -32,6 +32,7 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'rd-task:reassign', label: '转派任务', description: '批量或单条任务重分配（高级权限）', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 83 },
   { code: 'rd-task:view-all', label: '只读查看全部留痕', description: '跨部门只读查看研发驾驶舱的全部进度留痕与附件（不含编辑/转派等管理权限）', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 83.5 },
   { code: 'rd-task:move', label: '移动任务归类', description: '将任务移动到其他系统、子项或产品（含跨产品移动）', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 84 },
+  { code: 'rd-task:sync-production', label: '同步任务到生产驾驶舱', description: '将研发任务同步或撤销同步到生产驾驶舱；生产侧镜像始终只读', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 84.5 },
   { code: 'rd-task:override-priority', label: '覆盖优先级', description: '覆盖 AI 判定的优先级（组长及以上）', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 85 },
   { code: 'rd-people:manage', label: '管理研发人员', description: '新增、编辑、删除研发成员和任务容量', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 86 },
   { code: 'rd-approval-flow:manage', label: '管理审批流', description: '新增、调整、保存、重置研发审批流节点', groupLabel: '操作权限 · 研发任务管理', type: 'action', sortOrder: 87 },

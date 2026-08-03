@@ -32,6 +32,11 @@ export function isUsCollabWorkspace(): boolean {
   return currentRdWorkspace() === "us-collab";
 }
 
+/** 当前是否处于生产驾驶舱及其任务详情页。 */
+export function isProductionWorkspace(): boolean {
+  return currentRdWorkspace() === "production";
+}
+
 /**
  * 工作项功能开关：控制「工作项区块 / 留痕分 Tab / 卡片完成度徽标 / 留痕关联下拉 / AI 归属预选」
  * 的所有 UI 入口。当前仅中美协同模块启用；其他模块需要时改这一个函数即可放开
@@ -42,9 +47,11 @@ export function workItemsFeatureEnabled(): boolean {
   return isUsCollabWorkspace();
 }
 
-function currentRdWorkspace(): string | null {
+export function currentRdWorkspace(): "us-collab" | "production" | null {
   if (typeof window === "undefined") return null;
-  return window.location.pathname.startsWith("/us-collab") ? "us-collab" : null;
+  if (window.location.pathname.startsWith("/us-collab")) return "us-collab";
+  if (window.location.pathname.startsWith("/production-")) return "production";
+  return null;
 }
 
 function withWorkspace(path: string): string {
@@ -205,7 +212,19 @@ export type RdTask = {
   cover_image_thumbnails?: string[];
   /** 后端派生（仅读取时计算）：已完成任务的 AI 复盘评分摘要（总分 + 等级）。 */
   completion_score?: { total: number; grade: string } | null;
+  /** 生产工作区中的研发同步镜像。存在时前后端均强制只读。 */
+  production_sync?: {
+    source_workspace: "rd";
+    source_task_id: string;
+    root_source_task_id: string;
+    synced_at: string;
+    read_only: true;
+  } | null;
 };
+
+export function isProductionMirrorTask(task: Pick<RdTask, "production_sync"> | null | undefined): boolean {
+  return task?.production_sync?.source_workspace === "rd" && task.production_sync.read_only === true;
+}
 
 export type RdSubProject = { id: string; label: string; tasks: RdTask[] };
 export type RdCategory = { id: string; label: string; children: RdSubProject[] };
@@ -1172,6 +1191,36 @@ export function getAttachmentUrl(
   const url = att.preview_url ?? att.oss_url ?? att.data_url ?? "";
   if (url) ensurePreconnect(url);
   return url;
+}
+
+export type RdProductionTaskSync = {
+  task_id: string;
+  active: boolean;
+  first_synced_at: string;
+  synced_at: string;
+  synced_by_id: string | null;
+  synced_by_name: string;
+  revoked_at: string | null;
+  revoked_by_id: string | null;
+  revoked_by_name: string | null;
+};
+
+export function fetchRdProductionTaskSyncs() {
+  return requestJson<RdProductionTaskSync[]>("/production-task-syncs");
+}
+
+export function syncRdTaskToProduction(taskId: string) {
+  return requestJson<RdProductionTaskSync>(
+    `/tasks/${encodeURIComponent(taskId)}/sync-production`,
+    { method: "POST" },
+  );
+}
+
+export function revokeRdTaskProductionSync(taskId: string) {
+  return requestJson<RdProductionTaskSync>(
+    `/tasks/${encodeURIComponent(taskId)}/sync-production`,
+    { method: "DELETE" },
+  );
 }
 
 /** 下载地址与内联预览分开，CDN 跨域时不依赖浏览器对 download 属性的兼容行为。 */

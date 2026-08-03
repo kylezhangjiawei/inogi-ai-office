@@ -149,6 +149,31 @@ export class ResearchDevelopmentController {
     return this.rdService.getMergedTaskCategories();
   }
 
+  /** 研发侧查询当前同步状态；撤销后的记录继续返回，供按钮与审计状态判断。 */
+  @Get('production-task-syncs')
+  @Permissions('rd-task:sync-production')
+  productionTaskSyncs() {
+    return this.rdService.listProductionTaskSyncs();
+  }
+
+  @Post('tasks/:taskId/sync-production')
+  @Permissions('rd-task:sync-production')
+  syncTaskToProduction(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
+    return this.rdService.syncTaskToProduction(taskId, {
+      userId: req.user?.id,
+      userName: req.user?.name,
+    });
+  }
+
+  @Delete('tasks/:taskId/sync-production')
+  @Permissions('rd-task:sync-production')
+  revokeTaskProductionSync(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
+    return this.rdService.revokeTaskProductionSync(taskId, {
+      userId: req.user?.id,
+      userName: req.user?.name,
+    });
+  }
+
   @Put('task-categories')
   @Permissions('rd-task:create', 'rd-task:edit')
   saveTaskCategories(@Body() payload: unknown[]) {

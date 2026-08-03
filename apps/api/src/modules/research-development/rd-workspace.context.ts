@@ -17,7 +17,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { Observable } from 'rxjs';
 
 export const RD_DEFAULT_WORKSPACE = 'rd';
-export const RD_WORKSPACE_IDS: ReadonlySet<string> = new Set([RD_DEFAULT_WORKSPACE, 'us-collab']);
+export const RD_WORKSPACE_IDS: ReadonlySet<string> = new Set([RD_DEFAULT_WORKSPACE, 'us-collab', 'production']);
 
 /**
  * 各工作区的准入码（拥有其一即可访问该池；超管 '*' 通行）。
@@ -30,7 +30,6 @@ export const WORKSPACE_PAGE_CODES: Record<string, string[]> = {
   rd: [
     'page:rd-task-management',
     'page:rd-my-workspace',
-    'page:rd-director-dashboard',
     'page:rd-approval-flow',
     'page:rd-audit-log',
     'page:rd-ai-settings',
@@ -45,6 +44,9 @@ export const WORKSPACE_PAGE_CODES: Record<string, string[]> = {
     'page:us-collab-audit-log',
     'page:us-collab-ai-settings',
     'rd-people:manage',
+  ],
+  production: [
+    'page:rd-director-dashboard',
   ],
 };
 
@@ -80,6 +82,7 @@ const WORKSPACE_OWNERSHIP_CODES: Record<string, readonly string[]> = {
     ...WORKSPACE_PAGE_CODES['us-collab'].filter((code) => code.startsWith('page:')),
     'page:dept-kb-us-collab',
   ],
+  production: WORKSPACE_PAGE_CODES.production.filter((code) => code.startsWith('page:')),
 };
 
 /**
