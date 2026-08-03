@@ -17,10 +17,14 @@ import {
   Settings2,
   Table2,
   Trash2,
+  Upload,
   Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
+import { useAuth } from './auth';
+import { hasPermission } from './lib/permissions';
+import { AttendanceImportDialog } from './components/AttendanceImportDialog';
 import {
   Dialog,
   DialogContent,
@@ -169,6 +173,7 @@ function createEmptyRecord(employee: AttendanceEmployee, attendanceDate: string)
     deductionMinutes: 0,
     overtimeMinutes: 0,
     overtimeType: '',
+    leaveDayFraction: 1,
     source: '',
     note: '',
     employee,
@@ -555,6 +560,10 @@ export function AttendancePage() {
   const [clockingEmployeeId, setClockingEmployeeId] = useState('');
   const [deleting, setDeleting] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const { user } = useAuth();
+  // 导入会批量覆盖考勤，权限独立于「查看考勤页」，没授权就不显示入口
+  const canImport = hasPermission(user?.permissions ?? [], 'attendance:import');
   const [overtimeData, setOvertimeData] = useState<AttendanceOvertimeResponse | null>(null);
   const [overtimeLoading, setOvertimeLoading] = useState(false);
   const [overtimeError, setOvertimeError] = useState('');
@@ -737,6 +746,7 @@ export function AttendancePage() {
               </div>
               {month !== currentMonth ? <button type="button" onClick={() => setMonth(currentMonth)} className="material-button-secondary px-3 py-2 text-xs">本月</button> : null}
               <button type="button" onClick={reload} disabled={loading} className="material-button-secondary px-3 py-2 text-xs disabled:opacity-50"><RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />刷新</button>
+              {canImport ? <button type="button" onClick={() => setImportOpen(true)} className="material-button-secondary px-3 py-2 text-xs"><Upload className="h-3.5 w-3.5" />导入考勤数据</button> : null}
               <button type="button" onClick={() => void handleExport()} disabled={exporting} className="material-button-primary px-3 py-2 text-xs disabled:opacity-60">{exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}导出正式考勤表</button>
             </div>
           </div>
@@ -821,6 +831,15 @@ export function AttendancePage() {
       <AttendanceEditor record={editorRecord} saving={saving} deleting={deleting} onClose={() => setEditorRecord(null)} onSaved={(draft) => void handleSave(draft)} onDeleted={(record) => void handleDelete(record)} />
       <MonthAdjustmentEditor item={adjustmentItem} month={month} saving={savingAdjustment} onClose={() => setAdjustmentItem(null)} onSaved={(payload) => void handleSaveAdjustment(payload)} />
       <EmployeeAttendanceDetailDialog open={Boolean(detailEmployee)} loading={detailLoading} detail={employeeDetail} onClose={() => setDetailEmployee(null)} onEdit={openEditorFromDetail} />
+      <AttendanceImportDialog
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={(importedMonth) => {
+          // 导入的月份可能不是当前查看的月份，切过去才看得到结果
+          if (importedMonth !== month) setMonth(importedMonth);
+          reload();
+        }}
+      />
     </div>
   );
 }

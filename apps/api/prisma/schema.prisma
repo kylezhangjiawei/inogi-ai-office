@@ -985,6 +985,8 @@ model EmployeeArchive {
   socialSecurityFirstMonth String                    @default("")
   note                     String                    @default("")
   costCenter               String                    @default("")
+  /// 企业微信账号(userid)。考勤导入首次按姓名匹配成功后自动回填，之后走精确匹配。
+  wecomUserId              String                    @default("")
   archiveStatus            String                    @default("onboarding")
   archiveScore             Int                       @default(0)
   missingFields            String[]                  @default([])
@@ -1025,6 +1027,8 @@ model EmployeeAttendance {
   deductionMinutes  Int             @default(0)
   overtimeMinutes   Int             @default(0)
   overtimeType      String          @default("")
+  /// 该日请假占多少天：1=整天，0.5=半天。非请假状态恒为 1，历史数据默认 1 即原行为。
+  leaveDayFraction  Float           @default(1)
   source            String          @default("manual")
   note              String          @default("")
   createdById       String?

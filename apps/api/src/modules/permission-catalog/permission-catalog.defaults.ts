@@ -120,6 +120,7 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'page:resume-screening', label: '简历筛选', groupLabel: '页面访问 · 人事行政', type: 'page', routePath: '/resume-screening', sortOrder: 500 },
   { code: 'page:employee-archive', label: '员工入职归档', groupLabel: '页面访问 · 人事行政', type: 'page', routePath: '/employee-archive', sortOrder: 510 },
   { code: 'page:quick-capture', label: '人员考勤', description: '每日打卡、考勤异常、补录修正与考勤导出', groupLabel: '页面访问 · 人事行政', type: 'page', routePath: '/attendance', sortOrder: 520 },
+  { code: 'attendance:import', label: '考勤数据导入', description: '导入企业微信打卡日报，会批量覆盖当期考勤记录', groupLabel: '页面访问 · 人事行政', type: 'action', sortOrder: 521 },
   { code: 'page:expense-center', label: '费用报销统计', groupLabel: '页面访问 · 人事行政', type: 'page', routePath: '/expense-center', sortOrder: 530 },
 
   { code: 'page:ebpr', label: '电子批记录', groupLabel: '页面访问 · 质量与生产', type: 'page', routePath: '/ebpr', sortOrder: 600 },
