@@ -9,24 +9,44 @@
  *    否则历史数据与已分配角色会全部失效。
  */
 
-export type DeptKbDef = { id: string; label: string };
+export type DeptKbDef = {
+  id: string;
+  /** 兜底显示名。库实际展示名以对应 Department 的当前名称为准（见 departmentCode）。 */
+  label: string;
+  /**
+   * 对应部门的稳定编码（Department.code）。有此字段的库，其名称跟随部门改名自动同步：
+   * 部门保存时会改写权限目录中 page:dept-kb-{id} 的标签，前端再据此展示。
+   * 无此字段（如 us-collab）表示该库不对应任何部门主数据，固定用 label。
+   */
+  departmentCode?: string;
+};
 
 /**
  * 部门知识库清单（固定硬编码，不绑定 DB 的 Department 表）。
  * 技术研发部不单设部门库——研发团队统一用「研发知识库」(page:rd-knowledge-base / 全功能页)，
  * 故这里不含 tech-rd；其页面码 page:dept-kb-tech-rd 已从权限目录默认值移除。
+ *
+ * ⚠️ 本文件是「库 id ↔ 部门编码」的唯一事实源。departments.service / permission-catalog.service
+ *    一律从这里派生，禁止再各自维护一份映射——此前三处副本已出现漂移（前端漏了 finance/purchasing）。
  */
 export const DEPT_KBS: DeptKbDef[] = [
-  { id: 'gm', label: '总经办' },
-  { id: 'hr', label: '人事行政部' },
-  { id: 'finance', label: '财务部' },
-  { id: 'purchasing', label: '采购部' },
-  { id: 'production', label: '生产部' },
-  { id: 'quality', label: '质量部' },
-  { id: 'sales', label: '销售部' },
+  { id: 'gm', label: '总经办', departmentCode: 'GENERAL_OFFICE' },
+  { id: 'hr', label: '人事行政部', departmentCode: 'HR_ADMIN' },
+  { id: 'finance', label: '财务部', departmentCode: 'FINANCE' },
+  { id: 'purchasing', label: '采购部', departmentCode: 'PURCHASING' },
+  { id: 'production', label: '生产部', departmentCode: 'PRODUCTION' },
+  { id: 'quality', label: '质量部', departmentCode: 'REGULATORY_QUALITY' },
+  { id: 'sales', label: '销售部', departmentCode: 'SALES_MARKETING' },
   // 中美协同知识库：给美国团队协同页面配套的独立库（前端入口在「中美协同」分组，不在部门知识库分组展示）
   { id: 'us-collab', label: '协同' },
 ];
+
+/** 部门编码 → 知识库 id。由 DEPT_KBS 派生，不单独维护。 */
+export const DEPARTMENT_KB_ID_BY_CODE: Readonly<Record<string, string>> = Object.freeze(
+  Object.fromEntries(
+    DEPT_KBS.filter((kb) => kb.departmentCode).map((kb) => [kb.departmentCode as string, kb.id]),
+  ),
+);
 
 export const DEPT_KB_IDS: ReadonlySet<string> = new Set(DEPT_KBS.map((d) => d.id));
 

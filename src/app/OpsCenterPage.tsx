@@ -46,6 +46,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from ".
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./components/ui/select";
 import { cn } from "./components/ui/utils";
 import { opsCenterApi, type OpsCenterSectionData, type OpsErrorAnalysis } from "./lib/opsCenterApi";
+// 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
+import { routePath } from "./lib/routePaths";
 
 type OpsSection = "overview" | "api-errors" | "database" | "services-tasks" | "alerts-audit";
 type Tone = "healthy" | "info" | "warning" | "danger" | "neutral";
@@ -692,7 +694,7 @@ function OverviewPage({ data }: { data: OpsCenterSectionData | null }) {
             {issues.map((item: any) => (
               <Link
                 key={item.id}
-                to="/ops-center/api-errors"
+                to={routePath("page:ops-api-errors", "/ops-center/api-errors")}
                 className="block rounded border border-slate-200 bg-white p-4 transition-colors hover:border-indigo-200 hover:bg-indigo-50/35"
               >
                 <div className="flex items-start justify-between gap-4">

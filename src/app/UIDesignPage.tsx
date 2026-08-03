@@ -31,6 +31,8 @@ import {
   formatAiModelOptionLabel,
 } from "./lib/aiModelOptions";
 import { useAiModelOptions } from "./lib/useAiModelOptions";
+// 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
+import { routePath } from "./lib/routePaths";
 import {
   apiEditImage,
   apiGenerate,
@@ -477,7 +479,7 @@ export function UIDesignPage() {
             <Wand2 className="h-4 w-4" />
           </div>
           <Link
-            to="/image-library"
+            to={routePath("page:image-library", "/image-library")}
             className="flex h-9 w-9 items-center justify-center rounded-[12px] border border-border bg-surface-container-low text-slate-600 transition hover:border-primary/30 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
             aria-label="打开图像作品库"
             title="图像作品库"
@@ -615,7 +617,7 @@ export function UIDesignPage() {
 
           <div className="shrink-0 border-t border-border/70 p-3">
             <Link
-              to="/image-library"
+              to={routePath("page:image-library", "/image-library")}
               className="flex w-full items-center justify-center gap-2 rounded-[14px] border border-border bg-surface-container-low px-3 py-2.5 text-xs font-semibold text-slate-600 transition hover:border-primary/30 hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
             >
               <Images className="h-4 w-4" />

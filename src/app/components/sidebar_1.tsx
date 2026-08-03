@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useAuth } from "../auth";
 import { hasPermission } from "../lib/permissions";
 import { permissionCatalogApi } from "../lib/permissionCatalogApi";
+import { cacheRoutePaths } from "../lib/routePaths";
 import { useDepartmentDirectory } from "../lib/departmentDirectory";
 import { navGroups } from "../routesConfig";
 import { t, useI18n } from "../lib/i18n";
@@ -27,8 +28,12 @@ export function Sidebar() {
   useEffect(() => {
     if (!user) return;
     permissionCatalogApi
-      .getNavHiddenCodes()
-      .then((codes) => setNavHiddenCodes(new Set(codes)))
+      .getNavMeta()
+      .then((items) => {
+        setNavHiddenCodes(new Set(items.filter((i) => i.navHidden).map((i) => i.code)));
+        // 顺带把自定义路径写入缓存，供**下次加载**建路由时使用（本次会话的路由表已定型）
+        cacheRoutePaths(items);
+      })
       .catch(() => { /* silently ignore — show all items on error */ });
   }, [user]);
 

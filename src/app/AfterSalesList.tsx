@@ -4,6 +4,8 @@ import { Link } from "react-router";
 import { Plus, Search, Filter, MoreHorizontal, ChevronRight, Clock, AlertCircle, CheckCircle2, User, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
+// 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
+import { routePath, subRoutePath } from "./lib/routePaths";
 
 const initialTickets = [
   { id: "CS-2024-0892", customer: "Medline International", product: "OC-5", sn: "20240315001", issue: "不出氧", priority: "P2", status: "处理中", assignee: "王工", date: "2024-04-07", updated: "1小时前" },
@@ -103,7 +105,7 @@ export function AfterSalesList() {
           </p>
         </div>
         <Link
-          to="/after-sales/new"
+          to={subRoutePath("page:after-sales", "/after-sales", "new")}
           className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#1976D2] text-white rounded-xl text-sm font-bold shadow-lg shadow-blue-900/10 hover:shadow-xl hover:-translate-y-0.5 transition-all"
         >
           <Plus className="w-4 h-4" />
@@ -225,7 +227,7 @@ export function AfterSalesList() {
                 return (
                   <motion.tr key={ticket.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: index * 0.03 }} className="hover:bg-blue-50/20 transition-colors group">
                     <td className="px-5 py-4">
-                      <Link to={`/after-sales/${ticket.id}`} onMouseEnter={() => setSelectedTicketId(ticket.id)} className="font-mono text-sm font-bold text-[#1976D2] hover:underline">
+                      <Link to={`${routePath("page:after-sales", "/after-sales")}/${ticket.id}`} onMouseEnter={() => setSelectedTicketId(ticket.id)} className="font-mono text-sm font-bold text-[#1976D2] hover:underline">
                         {ticket.id}
                       </Link>
                     </td>
@@ -260,7 +262,7 @@ export function AfterSalesList() {
                         <button className="rounded-lg border border-gray-100 px-2.5 py-1.5 text-[11px] font-bold text-gray-500 hover:bg-gray-50" onClick={() => advanceTicket(ticket.id)}>
                           推进一步
                         </button>
-                        <Link to={`/after-sales/${ticket.id}`} className="p-1.5 hover:bg-gray-100 rounded-lg inline-flex">
+                        <Link to={`${routePath("page:after-sales", "/after-sales")}/${ticket.id}`} className="p-1.5 hover:bg-gray-100 rounded-lg inline-flex">
                           <ChevronRight className="w-4 h-4 text-gray-400" />
                         </Link>
                       </div>

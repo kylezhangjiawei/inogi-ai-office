@@ -12,6 +12,8 @@ import {
 import { Link } from "react-router";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
+// 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
+import { routePath } from "./lib/routePaths";
 
 type TargetLang = "English" | "Español";
 type Tone = "正式" | "友好" | "强硬" | "委婉拒绝";
@@ -213,7 +215,7 @@ export function EmailAIPage() {
               {isGenerating ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
               生成邮件
             </button>
-            <Link to="/inquiry" className="material-button-secondary">
+            <Link to={routePath("page:inquiry", "/inquiry")} className="material-button-secondary">
               返回询盘页
             </Link>
           </div>
@@ -355,7 +357,7 @@ export function EmailAIPage() {
                 <h3 className="text-sm font-semibold text-slate-800">最近生成</h3>
                 <p className="mt-1 text-sm text-slate-500">保留团队最近处理过的邮件场景，方便快速复用。</p>
               </div>
-              <Link to="/report-compression" className="material-button-secondary text-xs">
+              <Link to={routePath("page:report-compression", "/report-compression")} className="material-button-secondary text-xs">
                 去汇报压缩
               </Link>
             </div>

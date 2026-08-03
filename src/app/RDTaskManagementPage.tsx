@@ -53,6 +53,7 @@ import { NativeSelect } from "./components/ui/native-select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./components/ui/tabs";
 import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
+import { formatTraceDateTime } from "./RDProgressEvidence";
 import { CollapseTransition } from "./components/CollapseTransition";
 import { useAuth } from "./auth";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "./components/ui/tooltip";
@@ -455,7 +456,7 @@ export function computeRisks(categories: Category[]): Risk[] {
 }
 
 function calcCategoryProgress(cat: Category): number {
-  const tasks = flattenTasks(cat.children.flatMap((s) => s.tasks)).filter((t) => !t.archived);
+  const tasks = flattenTasks(cat.children.flatMap((s) => s.tasks)).filter((t) => !isArchivedTask(t));
   if (tasks.length === 0) return 0;
   return Math.round(tasks.reduce((s, t) => s + t.progress, 0) / tasks.length);
 }
@@ -1061,7 +1062,11 @@ function subtaskContainerBg(depth: number): string {
  * - attached：由已有独立任务并入
  * - 缺省（存量子任务无 subtask_origin）：只显示中性「子」，不猜来源
  */
-export function SubtaskBadge({ task, className }: { task: Task; className?: string }) {
+export function SubtaskBadge({ task, className }: {
+  // 只取子任务身份三字段（结构型），使任务树 Task 与个人工作台 RdWorkspaceTask 都能直接传入
+  task: Pick<Task, "subtask_origin" | "subtask_attached_by" | "subtask_attached_at">;
+  className?: string;
+}) {
   useI18n();
   const origin = task.subtask_origin;
   const cfg =
@@ -1075,7 +1080,7 @@ export function SubtaskBadge({ task, className }: { task: Task; className?: stri
       ? [
           t("由已有任务并入为子任务"),
           task.subtask_attached_by ? t("操作人：{name}", { name: task.subtask_attached_by }) : "",
-          task.subtask_attached_at ? t("时间：{time}", { time: task.subtask_attached_at.slice(0, 16).replace("T", " ") }) : "",
+          task.subtask_attached_at ? t("时间：{time}", { time: formatTraceDateTime(task.subtask_attached_at) }) : "",
         ].filter(Boolean).join("\n")
       : origin === "created"
         ? t("在父任务下直接创建的子任务")
@@ -1551,6 +1556,12 @@ function SubProjectSection({
 
 export type CatStat = {
   cat: Category;
+  /**
+   * 注册在案的任务总数：该分类下**全部**任务，含已完成、含已归档（放弃通过的、
+   * 归档式合并的源任务也计入）。与 total 的区别是不做任何过滤。
+   */
+  registered: number;
+  /** 未归档任务数（含已完成）。历史字段名叫 total，完成率仍以它为分母。 */
   total: number;
   inProgress: number;
   done: number;
@@ -1571,13 +1582,24 @@ const KPI_FILTER_LABEL: Record<KpiFilter, string> = {
   risk: "风险任务",
 };
 
+/**
+ * 「已归档」的统一判定，与后端 isArchivedTask 完全一致：archived 标志 **或** status==='archived'。
+ * 只认 archived 标志会漏判——虽然当前唯一的归档写入路径（applyTaskMerge）两个字段都会写，
+ * 但历史/导入数据未必，统计口径按两者取或才不会被歪掉。
+ */
+export function isArchivedTask(task: Pick<Task, "archived" | "status">): boolean {
+  return task.archived === true || task.status === "archived";
+}
+
 export function buildCatStats(categories: Category[], risks: Risk[]): CatStat[] {
   return categories.map((cat) => {
     const tasks = flattenTasks(cat.children.flatMap((s) => s.tasks));
-    const active = tasks.filter((t) => !t.archived);
+    const active = tasks.filter((t) => !isArchivedTask(t));
     const catRisks = risks.filter((r) => r.category.id === cat.id);
     return {
       cat,
+      // flattenTasks 已递归展开子任务，故子任务同样计入「注册在案」总数
+      registered: tasks.length,
       total: active.length,
       inProgress: active.filter((t) => t.status === "in_progress").length,
       done: active.filter((t) => t.status === "completed").length,
@@ -1694,8 +1716,7 @@ export function computePersonLoads(categories: Category[], maxPerPerson = 8): Pe
   // 数据范围由调用方决定：概览传「所有产品库合并树」=> 跨产品；进入某产品库 board => 该库。
   function walk(tasks: Task[]) {
     for (const t of tasks) {
-      const isArchived = t.archived || t.status === "archived";
-      const isActive = !isArchived && t.status !== "completed";
+      const isActive = !isArchivedTask(t) && t.status !== "completed";
       // Skip placeholder owners like "待指派" and "(已离职)"
       if (isActive && !/已离职|待指派/.test(t.primary_owner)) {
         counts.set(t.primary_owner, (counts.get(t.primary_owner) ?? 0) + 1);
@@ -5283,7 +5304,6 @@ const MAIN_PRODUCT_ID = "prod-portable-o2";
 
 function SystemPanorama({
   mainCatStats,
-  mainRisks,
   products,
   onSelectSystem,
   onManageProducts,
@@ -5291,7 +5311,6 @@ function SystemPanorama({
   reloadToken = 0,
 }: {
   mainCatStats: CatStat[];          // 便携式制氧机的全局 catStats
-  mainRisks: Risk[];
   products: ProductDef[];
   onSelectSystem: (catId: string, productId: string) => void; // 进入该产品的完整驾驶舱
   onManageProducts: () => void;
@@ -9328,6 +9347,7 @@ function UsCollabReportsDigest({ canRegenerate }: { canRegenerate: boolean }) {
 
 function ExecutiveOverview({
   catStats,
+  kpiStats,
   products,
   risks,
   personLoads,
@@ -9360,7 +9380,10 @@ function ExecutiveOverview({
   hideSystemPanorama,
 }: {
   catStats: CatStat[];
+  /** KPI 数字专用统计（概览模式跨全部产品库）。只求和，不可用于渲染分类卡或跳转。 */
+  kpiStats: CatStat[];
   products: ProductDef[];
+  /** 与 allTasks 同范围的风险集（概览下跨库）：KPI「风险」计数与风险筛选据此，二者才对得上。 */
   risks: Risk[];
   personLoads: PersonLoad[];
   allTasks: Task[];
@@ -9395,10 +9418,15 @@ function ExecutiveOverview({
   const shouldReduceMotion = useReducedMotion();
   // i18n 试点（P0 验证链路）：订阅语言切换；t() 中文态原样返回，研发侧零影响
   const { lang } = useI18n();
-  const totalActive = catStats.reduce((s, c) => s + c.total, 0);
-  const inProgress = catStats.reduce((s, c) => s + c.inProgress, 0);
-  const done = catStats.reduce((s, c) => s + c.done, 0);
-  const blocked = catStats.reduce((s, c) => s + c.blocked, 0);
+  // KPI 一律用 kpiStats（概览跨库、board 内为本库），与下方按当前库渲染的分类卡刻意不同源
+  // 注册在案的任务总数（含已完成 + 已归档），KPI 首格「总任务」用它
+  const totalRegistered = kpiStats.reduce((s, c) => s + c.registered, 0);
+  const totalActive = kpiStats.reduce((s, c) => s + c.total, 0);
+  const inProgress = kpiStats.reduce((s, c) => s + c.inProgress, 0);
+  const done = kpiStats.reduce((s, c) => s + c.done, 0);
+  const blocked = kpiStats.reduce((s, c) => s + c.blocked, 0);
+  // ⚠️ 完成率分母刻意仍用「未归档数」而非 totalRegistered：把已放弃/已合并走的任务算进分母
+  // 会让完成率无故变低，历史数字也会突变。两格不同源，靠 hint 向用户说明。
   const rate = totalActive > 0 ? Math.round((done / totalActive) * 100) : 0;
 
   // KPI 卡片筛选：点击切换；再点一次取消。
@@ -9409,12 +9437,12 @@ function ExecutiveOverview({
 
   // KPI 定义（研发的格子卡与协同的 stat strip 共享同一份数据与筛选交互）
   const kpiItems = [
-    { label: t("活跃"), value: totalActive, Icon: Target, tone: "text-indigo-700", bg: "from-indigo-50 to-white", filterKey: null, activeRing: "ring-indigo-300" },
-    { label: t("完成率"), value: `${rate}%`, Icon: Gauge, tone: "text-slate-900", bg: "from-slate-50 to-white", filterKey: null, activeRing: "ring-slate-300" },
-    { label: t("进行中"), value: inProgress, Icon: CircleDot, tone: "text-indigo-600", bg: "from-indigo-50 to-white", filterKey: "in_progress" as KpiFilter, activeRing: "ring-indigo-400" },
-    { label: t("完成"), value: done, Icon: CheckCircle2, tone: "text-emerald-700", bg: "from-emerald-50 to-white", filterKey: "completed" as KpiFilter, activeRing: "ring-emerald-400" },
-    { label: t("阻塞/待派"), value: blocked, Icon: Users, tone: blocked > 0 ? "text-amber-700" : "text-slate-400", bg: blocked > 0 ? "from-amber-50 to-white" : "from-slate-50 to-white", filterKey: "blocked" as KpiFilter, activeRing: "ring-amber-400" },
-    { label: t("风险"), value: risks.length, Icon: AlertTriangle, tone: risks.length > 0 ? "text-red-700" : "text-slate-400", bg: risks.length > 0 ? "from-red-50 to-white" : "from-slate-50 to-white", filterKey: "risk" as KpiFilter, activeRing: "ring-red-400" },
+    { label: t("总任务"), value: totalRegistered, hint: t("全部注册在案的任务，含已完成与已归档"), Icon: Target, tone: "text-indigo-700", bg: "from-indigo-50 to-white", filterKey: null, activeRing: "ring-indigo-300" },
+    { label: t("完成率"), value: `${rate}%`, hint: t("已完成 ÷ 未归档任务数（{n}）；分母不含已归档，故与「总任务」不同源", { n: totalActive }), Icon: Gauge, tone: "text-slate-900", bg: "from-slate-50 to-white", filterKey: null, activeRing: "ring-slate-300" },
+    { label: t("进行中"), value: inProgress, hint: "", Icon: CircleDot, tone: "text-indigo-600", bg: "from-indigo-50 to-white", filterKey: "in_progress" as KpiFilter, activeRing: "ring-indigo-400" },
+    { label: t("完成"), value: done, hint: "", Icon: CheckCircle2, tone: "text-emerald-700", bg: "from-emerald-50 to-white", filterKey: "completed" as KpiFilter, activeRing: "ring-emerald-400" },
+    { label: t("阻塞/待派"), value: blocked, hint: "", Icon: Users, tone: blocked > 0 ? "text-amber-700" : "text-slate-400", bg: blocked > 0 ? "from-amber-50 to-white" : "from-slate-50 to-white", filterKey: "blocked" as KpiFilter, activeRing: "ring-amber-400" },
+    { label: t("风险"), value: risks.length, hint: "", Icon: AlertTriangle, tone: risks.length > 0 ? "text-red-700" : "text-slate-400", bg: risks.length > 0 ? "from-red-50 to-white" : "from-slate-50 to-white", filterKey: "risk" as KpiFilter, activeRing: "ring-red-400" },
   ] as const;
 
   // 协同侧页头采用三层结构（页头条 / stat strip / 报表全宽），研发侧维持原两卡布局
@@ -9520,7 +9548,8 @@ function ExecutiveOverview({
               <div>
                 <h2 className="text-xl font-bold tracking-tight text-slate-900">{t("协同任务驾驶舱")}</h2>
                 <p className="mt-1 text-sm text-slate-400">
-                  {new Date().toLocaleDateString(lang === "en" ? "en-US" : "zh-CN", { month: "long", day: "numeric", weekday: "long" })} · {t("{n} 个活跃任务", { n: totalActive })}
+                  {/* 与下方 KPI 首格同源：页头再报一个不同口径的任务数只会让人对不上账 */}
+                  {new Date().toLocaleDateString(lang === "en" ? "en-US" : "zh-CN", { month: "long", day: "numeric", weekday: "long" })} · {t("{n} 个任务", { n: totalRegistered })}
                   {risks.length > 0 && <span className="ml-2 font-semibold text-red-500">{t("{n} 个风险", { n: risks.length })}</span>}
                 </p>
               </div>
@@ -9585,7 +9614,10 @@ function ExecutiveOverview({
                           "aria-pressed": active,
                           title: active ? t("已筛选「{label}」· 再次点击取消", { label: item.label }) : t("按「{label}」筛选任务列表", { label: item.label }),
                         }
-                      : {})}
+                      // 不可点的格子（总任务/完成率）用 hint 说明统计口径
+                      : item.hint
+                        ? { title: item.hint }
+                        : {})}
                     className={cn(
                       "flex flex-col items-start px-5 py-1 text-left transition-colors",
                       clickable && "cursor-pointer hover:bg-slate-50/80",
@@ -9639,7 +9671,10 @@ function ExecutiveOverview({
                           "aria-pressed": active,
                           title: active ? t("已筛选「{label}」· 再次点击取消", { label: item.label }) : t("按「{label}」筛选任务列表", { label: item.label }),
                         }
-                      : {})}
+                      // 不可点的格子（总任务/完成率）用 hint 说明统计口径
+                      : item.hint
+                        ? { title: item.hint }
+                        : {})}
                     className={cn(
                       "flex min-w-0 items-center gap-2.5 rounded-xl border bg-white px-3 py-2.5 transition-all",
                       active
@@ -9799,7 +9834,6 @@ function ExecutiveOverview({
             {!hideSystemPanorama && (
               <SystemPanorama
                 mainCatStats={catStats}
-                mainRisks={risks}
                 products={products}
                 onSelectSystem={onSelectSystem}
                 onManageProducts={onManageProducts ?? (() => {})}
@@ -10683,11 +10717,27 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
     }
   }, [location.search]);
 
+  // 分类卡片 / 风险列表 / enterBoard 跳转一律用「当前产品库」——合并树是跨库拼接，
+  // 各库带着同一套 id 的 POC/BOM 分类，喂给 buildCatStats 会让分类卡重复渲染、跳转选错库。
   const risks = useMemo(() => computeRisks(categories), [categories]);
   const catStats = useMemo(() => buildCatStats(categories, risks), [categories, risks]);
-  // 概览「人员任务」跨所有产品库聚合（与个人工作台「主责」同源）；进入某产品库 board 后回到该库口径。
-  // mergedCategories 未就绪时回退主库 categories，避免空窗。
-  const peopleCategories = mode === "overview" ? (mergedCategories ?? categories) : categories;
+  /**
+   * KPI 数字的统计范围：概览模式跨所有产品库，进入某产品库 board 后回到该库。
+   * 只用于「求和」，所以合并树里 id 重复的分类不会造成问题（本就是不同库的不同分类，各自带各自的任务）；
+   * 但正因为会重复，它绝不能拿去渲染分类卡片或参与跳转——那两件事仍走上面的 catStats。
+   * mergedCategories 仅在概览模式拉取，未就绪时回退主库 categories，避免空窗。
+   */
+  const kpiCategories = mode === "overview" ? (mergedCategories ?? categories) : categories;
+  const kpiRisks = useMemo(
+    () => (kpiCategories === categories ? risks : computeRisks(kpiCategories)),
+    [kpiCategories, categories, risks],
+  );
+  const kpiStats = useMemo(
+    () => (kpiCategories === categories ? catStats : buildCatStats(kpiCategories, kpiRisks)),
+    [kpiCategories, categories, catStats, kpiRisks],
+  );
+  // 「人员任务」与 KPI 同范围（与个人工作台「主责」同源）
+  const peopleCategories = kpiCategories;
   const personLoads = useMemo(() => computePersonLoads(peopleCategories), [peopleCategories]);
   // 概览模式下喂给「人员任务驾驶舱」的任务全集：跨产品库（与角标同范围，保证点开头像看到的就是该范围的任务）。
   const peopleAllTasks = useMemo(() => {
@@ -10818,11 +10868,14 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
         <div className={cn(isUsCollabWorkspace() && "mx-auto w-full max-w-[1200px] px-1 sm:px-3 2xl:px-0")}>
         <ExecutiveOverview
           catStats={catStats}
+          // KPI 数字跨产品库（概览），分类卡与跳转仍按当前库的 catStats
+          kpiStats={kpiStats}
           products={products}
-          risks={risks}
+          // 风险集与 allTasks 同范围，否则概览下其他产品库的任务永远不显示风险标记、
+          // 且 KPI「风险」数与点开后筛出的条数对不上
+          risks={kpiRisks}
           personLoads={personLoads}
-          // 概览「人员任务」用跨所有产品库的任务全集（与 personLoads 角标同范围）；
-          // 其余系统/分类统计仍按主库 catStats 不变。
+          // 概览「人员任务」用跨所有产品库的任务全集（与 personLoads 角标同范围）
           allTasks={peopleAllTasks}
           onSelectSystem={enterBoard}
           onSelectTask={openTaskDetail}

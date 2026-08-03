@@ -57,6 +57,8 @@ import {
 } from '../../lib/procurementApi';
 import { i18nLocale, useI18n } from '../../lib/i18n';
 import { DataPagination } from '../components/DataPagination';
+// 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
+import { routePath } from "../../lib/routePaths";
 
 const EMPTY_SUMMARY = { totalSku: 0, normal: 0, low: 0, shortage: 0 };
 
@@ -510,7 +512,7 @@ export function Inventory() {
                           <TableCell className="px-4">
                             <button
                               type="button"
-                              onClick={() => navigate(`/purchase-orders/${encodeURIComponent(order.poNo)}`)}
+                              onClick={() => navigate(`${routePath("page:purchase-orders", "/purchase-orders")}/${encodeURIComponent(order.poNo)}`)}
                               className="font-mono text-blue-700 hover:underline">
                               {order.poNo}
                             </button>

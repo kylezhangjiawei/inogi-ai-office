@@ -19,6 +19,8 @@ import { Link } from "react-router";
 import { Input } from "./components/ui/input";
 import { Textarea } from "./components/ui/textarea";
 import { cn } from "./components/ui/utils";
+// 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
+import { routePath } from "./lib/routePaths";
 
 type IssueCategory = "hardware" | "software" | "production" | "configuration";
 
@@ -151,11 +153,11 @@ export function RDIssues() {
             </div>
           </div>
           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:gap-3">
-            <Link to="/after-sales" className="material-button-secondary w-full justify-center sm:w-auto">
+            <Link to={routePath("page:after-sales", "/after-sales")} className="material-button-secondary w-full justify-center sm:w-auto">
               查看售后 Case
               <ChevronRight className="h-4 w-4" />
             </Link>
-            <Link to="/ra-knowledge" className="material-button-secondary w-full justify-center sm:w-auto">
+            <Link to={routePath("page:ra-knowledge", "/ra-knowledge")} className="material-button-secondary w-full justify-center sm:w-auto">
               打开法规知识库
               <ChevronRight className="h-4 w-4" />
             </Link>

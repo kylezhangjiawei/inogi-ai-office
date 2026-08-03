@@ -17,15 +17,8 @@ const DEPARTMENT_SELECT = {
   updatedAt: true,
 };
 
-const DEPARTMENT_KB_ID_BY_CODE: Record<string, string> = {
-  GENERAL_OFFICE: 'gm',
-  HR_ADMIN: 'hr',
-  FINANCE: 'finance',
-  PURCHASING: 'purchasing',
-  PRODUCTION: 'production',
-  REGULATORY_QUALITY: 'quality',
-  SALES_MARKETING: 'sales',
-};
+// 映射的唯一事实源在 dept-knowledge.constants，切勿在此另建副本（曾因三处副本产生漂移）
+import { DEPARTMENT_KB_ID_BY_CODE } from '../research-development/dept-knowledge.constants';
 
 const CURRENT_EXPENSE_DEPARTMENT_CATEGORIES = [
   'expense_invoice',

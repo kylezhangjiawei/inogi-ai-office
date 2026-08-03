@@ -6,6 +6,8 @@ import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
 import { DEFAULT_IMAGE_MODEL_OPTION } from "./lib/aiModelOptions";
 import { useAiModelOptions } from "./lib/useAiModelOptions";
+// 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
+import { routePath } from "./lib/routePaths";
 import {
   apiList,
   apiToggleFavorite,
@@ -170,7 +172,7 @@ export function ImageLibraryPage() {
           })}
         </div>
         <Link
-          to="/ui-design"
+          to={routePath("page:ui-design", "/ui-design")}
           className="inline-flex h-9 w-fit shrink-0 cursor-pointer items-center gap-1.5 rounded-[12px] border border-border bg-surface-container-low px-3.5 text-xs font-semibold text-slate-600 transition hover:border-primary/30 hover:bg-primary-container hover:text-on-primary-container focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -288,7 +290,7 @@ export function ImageLibraryPage() {
                   : "前往生成器创建你的第一张图像，作品会自动归档到这里。"}
               </p>
               <Link
-                to="/ui-design"
+                to={routePath("page:ui-design", "/ui-design")}
                 className="mt-5 inline-flex h-10 cursor-pointer items-center gap-2 rounded-[14px] bg-primary px-5 text-xs font-semibold text-primary-foreground transition hover:brightness-105 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary/25"
               >
                 去生成图像

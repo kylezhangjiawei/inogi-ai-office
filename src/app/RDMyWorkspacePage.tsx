@@ -46,13 +46,15 @@ import { useAuth } from "./auth";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
 import { RDTaskConversation } from "./RDTaskConversation";
 import { AuditTimeline } from "./RDAuditTimeline";
-import { ProgressAttachmentGrid, ProgressNoteList } from "./RDProgressEvidence";
+import { ProgressAttachmentGrid, ProgressNoteList, formatTraceDateTime } from "./RDProgressEvidence";
 import { AuditActor, recordAudit, syncAuditLogsFromRemote, useAuditActor, useAuditLogs } from "./lib/auditLog";
 import { PERMISSIONS } from "./lib/permissions";
 import { isTaskOverdue, taskOverdueDays } from "./lib/taskDue";
 import {
   addRdNoteAttachments,
   assessRdTaskProgress,
+  attachRdTaskToParent,
+  detachRdSubtask,
   createRdTaskProgressNote,
   deleteRdNoteAttachment,
   fetchRdNoteUnreadSummary,
@@ -92,6 +94,7 @@ import {
   type RdWorkspaceNotification,
   type RdPerformanceReport,
 } from "./lib/rdApi";
+import { SubtaskBadge } from "./RDTaskManagementPage";
 import { i18nLocale, t, useI18n } from "./lib/i18n";
 import { MentionSuggestionPanel, useMentions, type MentionCandidate } from "./components/MentionInput";
 import { AutoTranslatedText } from "./components/TranslatableText";
@@ -664,6 +667,7 @@ function TaskOperationDrawer({
   onRequestConfirm,
   onSubmittedForReview,
   onCollaborationChanged,
+  onSubtaskChanged,
   autoAbandon,
 }: {
   task: WorkspaceTask;
@@ -674,6 +678,8 @@ function TaskOperationDrawer({
   onRequestConfirm: (config: ConfirmDialogConfig) => void;
   onSubmittedForReview: (taskId: string, options?: { progress?: number }) => void | Promise<void>;
   onCollaborationChanged: (taskId: string, collaborators: RdCollaborator[], status?: TaskStatus) => void | Promise<void>;
+  /** 并入/取消子任务后：任务在树中的位置变了，只能整表重拉（无法局部乐观更新）。 */
+  onSubtaskChanged: (taskId: string) => void | Promise<void>;
   autoAbandon?: boolean;
 }) {
   useI18n(); // 订阅语言切换（抽屉 Tab/流程步骤/表单文案已 t() 化）
@@ -771,13 +777,15 @@ function TaskOperationDrawer({
   const [abandonOpen, setAbandonOpen] = useState(false);
   const [abandonReason, setAbandonReason] = useState("");
   const [abandonSubmitting, setAbandonSubmitting] = useState(false);
-  const [mergeOpen, setMergeOpen] = useState(false);
-  const [mergeReason, setMergeReason] = useState("");
-  const [mergeTargetId, setMergeTargetId] = useState("");
-  const [mergeSearch, setMergeSearch] = useState("");
-  const [mergeSubmitting, setMergeSubmitting] = useState(false);
-  const [mergeLoading, setMergeLoading] = useState(false);
-  const [mergeCandidates, setMergeCandidates] = useState<Array<{ task_id: string; title: string; primary_owner: string }>>([]);
+  // 并入为子任务（免审批直接生效）。命名保留 attach 前缀，与后端 attach-parent / 详情页同语义。
+  const [attachOpen, setAttachOpen] = useState(false);
+  const [attachReason, setAttachReason] = useState("");
+  const [attachTargetId, setAttachTargetId] = useState("");
+  const [attachSearch, setAttachSearch] = useState("");
+  const [attachSubmitting, setAttachSubmitting] = useState(false);
+  const [attachLoading, setAttachLoading] = useState(false);
+  const [attachCandidates, setAttachCandidates] = useState<Array<{ task_id: string; title: string; primary_owner: string }>>([]);
+  const [detaching, setDetaching] = useState(false);
   const taskLogs = useAuditLogs({ resourceType: "task", resourceId: task.task_id });
   const [progressNotes, setProgressNotes] = useState<RdTaskProgressNote[]>([]);
   const [progressNotesReloadKey, setProgressNotesReloadKey] = useState(0);
@@ -1374,80 +1382,111 @@ function TaskOperationDrawer({
     }
   };
 
-  // 申请合并：与放弃同门控（主责人 + 活跃状态）。一律走审批；通过后本任务并入目标并归档保留。
-  const canMerge =
-    task.role === "primary" &&
-    ["in_progress", "paused_leave", "paused_blocked", "on_hold"].includes(task.status);
+  // ── 子任务关系（一层，免审批直接生效） ───────────────────────────────────
+  // 本任务是否已是子任务 / 是否带子任务。父子关系由服务端按结构位置下发，不回读字段。
+  const isSubtask = Boolean(task.parent_task_id);
+  const childSubtasks = task.subtasks ?? [];
+  const isTaskActive = ["in_progress", "paused_leave", "paused_blocked", "on_hold"].includes(task.status);
+  /**
+   * 可并入：主责人 + 活跃状态（与放弃同门控），且本任务既不是子任务、自身也不带子任务
+   * ——后端拒绝重复挂载与两层嵌套（attachTaskAsSubtaskUnlocked），前端先拦掉避免必然报错。
+   */
+  // 用 has_subtasks（含归档）而非 childSubtasks.length（已滤归档）——与后端拒绝条件同源
+  const canAttachSubtask = task.role === "primary" && isTaskActive && !isSubtask && !task.has_subtasks;
+  /** 可取消关系：主责人 + 本任务确实是子任务（已完成/归档任务不再改结构）。 */
+  const canDetachSubtask = task.role === "primary" && isTaskActive && isSubtask;
 
-  // 打开合并弹窗时拉取候选目标任务（全部产品库展平，排除本任务/已归档/已完成）。同库校验由后端在审核通过时执行。
+  // 打开并入弹窗时拉取候选父任务（全部产品库展平）。
+  // ⚠️ 一层约束是「子不能带子、父不能是子」两条，方向不同，别混：
+  //   - 「本任务不能已带子任务」是对**本任务**的约束，已在 canAttachSubtask 里拦掉；
+  //   - 候选父任务**允许**已经带子任务（父任务本就会累积多个子任务，这是常态）。
+  // 故此处只排除：本任务自身 / 已归档 / 已完成。子任务不会出现在候选里——只遍历顶层。
   useEffect(() => {
-    if (!mergeOpen) return;
+    if (!attachOpen) return;
     let alive = true;
-    setMergeLoading(true);
+    setAttachLoading(true);
     fetchMergedTaskCategories()
       .then((cats) => {
         const out: Array<{ task_id: string; title: string; primary_owner: string }> = [];
-        const walk = (tasks: unknown): void => {
-          for (const t of Array.isArray(tasks) ? tasks : []) {
-            const rec = t as { task_id?: string; title?: string; primary_owner?: string; archived?: boolean; status?: string; subtasks?: unknown };
-            if (rec?.task_id && rec.task_id !== task.task_id && !rec.archived && rec.status !== "completed") {
-              out.push({ task_id: rec.task_id, title: rec.title ?? t("(无标题)"), primary_owner: rec.primary_owner ?? "" });
-            }
-            if (Array.isArray(rec?.subtasks)) walk(rec.subtasks);
+        // 仅遍历顶层任务、不下钻 subtasks：子任务下不能再挂子任务，所以子任务不是合法父任务
+        const collectTopLevel = (tasks: unknown): void => {
+          for (const item of Array.isArray(tasks) ? tasks : []) {
+            const rec = item as { task_id?: string; title?: string; primary_owner?: string; archived?: boolean; status?: string };
+            if (!rec?.task_id || rec.task_id === task.task_id) continue;
+            if (rec.archived || rec.status === "completed" || rec.status === "archived") continue;
+            out.push({ task_id: rec.task_id, title: rec.title ?? t("(无标题)"), primary_owner: rec.primary_owner ?? "" });
           }
         };
         for (const c of Array.isArray(cats) ? cats : []) {
           for (const ch of Array.isArray((c as { children?: unknown }).children) ? (c as { children: unknown[] }).children : []) {
-            walk((ch as { tasks?: unknown }).tasks);
+            collectTopLevel((ch as { tasks?: unknown }).tasks);
           }
         }
-        if (alive) setMergeCandidates(out);
+        if (alive) setAttachCandidates(out);
       })
       .catch(() => {
-        if (alive) setMergeCandidates([]);
+        if (alive) setAttachCandidates([]);
       })
       .finally(() => {
-        if (alive) setMergeLoading(false);
+        if (alive) setAttachLoading(false);
       });
     return () => {
       alive = false;
     };
-  }, [mergeOpen, task.task_id]);
+  }, [attachOpen, task.task_id]);
 
-  const submitMergeRequest = async () => {
-    if (!mergeTargetId) {
-      toast.error(t("请选择要合并到的目标任务"));
+  /** 并入为子任务：直接生效，不再提交审批。留痕口径与详情页 handleAttachSubtasks 一致。 */
+  const submitAttachSubtask = async () => {
+    if (!attachTargetId) {
+      toast.error(t("请选择要并入的目标任务"));
       return;
     }
-    setMergeSubmitting(true);
+    setAttachSubmitting(true);
     try {
-      await updateRdTask(task.task_id, {
-        status: "pending_review",
-        pending_review_type: "merge",
-        pending_merge_target: mergeTargetId,
-        pending_merge_reason: mergeReason.trim(),
-        pending_merge_requested_at: new Date().toISOString(),
-        pending_merge_requested_by: WORKSPACE_AUDIT_ACTOR.name,
-        pending_merge_requested_by_id: WORKSPACE_AUDIT_ACTOR.id,
-      } as Parameters<typeof updateRdTask>[1]);
+      await attachRdTaskToParent(task.task_id, attachTargetId);
+      const target = attachCandidates.find((c) => c.task_id === attachTargetId);
       recordAudit({
         actor: WORKSPACE_AUDIT_ACTOR,
-        action: "task.merge_requested",
+        action: "task.updated",
         resource: { type: "task", id: task.task_id, name: task.title },
-        changes: [{ field: "status", before: task.status, after: "pending_review" }],
-        comment: mergeReason.trim() || `申请合并到 ${mergeTargetId}`,
-        metadata: { merge_target: mergeTargetId },
+        changes: [{ field: "parent_task_id", before: "", after: attachTargetId }],
+        comment: attachReason.trim()
+          || `并入任务 ${attachTargetId}${target?.title ? `（${target.title}）` : ""} 成为其子任务`,
+        metadata: { parent_task_id: attachTargetId, subtask_origin: "attached" },
         source: "web",
       });
-      toast.success(t("{taskId} 已提交合并申请", { taskId: task.task_id }));
-      onLog(`${task.task_id} 已提交合并申请`);
-      window.dispatchEvent(new CustomEvent("rd:review-submitted"));
-      await onSubmittedForReview(task.task_id);
-      setMergeOpen(false);
+      toast.success(t("已并入目标任务，成为其子任务"));
+      onLog(`${task.task_id} 已并入 ${attachTargetId} 成为子任务`);
+      setAttachOpen(false);
+      await onSubtaskChanged(task.task_id);
       onClose();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : t("提交合并申请失败，请重试"));
-      setMergeSubmitting(false);
+      toast.error(err instanceof Error ? err.message : t("并入失败，请重试"));
+      setAttachSubmitting(false);
+    }
+  };
+
+  /** 取消子任务关系：提升为顶层任务（落在原父任务所在子项目，与父任务同级）。 */
+  const handleDetachSubtask = async () => {
+    if (detaching) return;
+    setDetaching(true);
+    try {
+      await detachRdSubtask(task.task_id);
+      recordAudit({
+        actor: WORKSPACE_AUDIT_ACTOR,
+        action: "task.updated",
+        resource: { type: "task", id: task.task_id, name: task.title },
+        changes: [{ field: "parent_task_id", before: task.parent_task_id ?? "", after: "" }],
+        comment: "取消子任务关系，提升为顶层任务",
+        source: "web",
+      });
+      toast.success(t("已取消子任务关系，该任务已提升为独立任务"));
+      onLog(`${task.task_id} 已取消子任务关系`);
+      await onSubtaskChanged(task.task_id);
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : t("取消子任务关系失败，请重试"));
+      setDetaching(false);
     }
   };
 
@@ -1948,17 +1987,93 @@ function TaskOperationDrawer({
               </div>
             )}
 
+            {/* ── 子任务关系（一层）：本任务是子任务 → 显示父任务归属 + 取消关系；
+                   本任务带子任务 → 显示子任务清单与进度汇总。两者互斥（子任务下不能再挂子任务）。 ── */}
+            {(isSubtask || childSubtasks.length > 0) && (
+              <div className="rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
+                {isSubtask ? (
+                  <>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <SubtaskBadge task={task} />
+                      <span className="text-xs text-slate-500">{t("本任务是以下任务的子任务")}</span>
+                    </div>
+                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                      <span className="min-w-0 truncate text-sm font-semibold text-slate-800">
+                        {task.parent_title || task.parent_task_id}
+                      </span>
+                      <span className="shrink-0 font-mono text-[11px] text-slate-400">{task.parent_task_id}</span>
+                    </div>
+                    {task.subtask_origin === "attached" && task.subtask_attached_by && (
+                      <p className="mt-1 text-[11px] text-slate-400">
+                        {t("由 {name} 于 {time} 并入", {
+                          name: task.subtask_attached_by,
+                          time: formatTraceDateTime(task.subtask_attached_at),
+                        })}
+                      </p>
+                    )}
+                    {canDetachSubtask && (
+                      <button
+                        type="button"
+                        disabled={detaching}
+                        onClick={() =>
+                          onRequestConfirm({
+                            title: t("取消子任务关系"),
+                            message: t("将把「{title}」提升为独立的顶层任务，与原父任务同级。", { title: task.title }),
+                            confirmLabel: t("确认取消关系"),
+                            details: [
+                              t("任务本体不受影响：标题/主责/进度/留痕/附件全部保留"),
+                              t("提升后落在原父任务所在的子项目里"),
+                              t("立即生效，无需审核"),
+                            ],
+                            onConfirm: () => handleDetachSubtask(),
+                          })
+                        }
+                        className="mt-2.5 cursor-pointer text-xs font-medium text-slate-400 underline-offset-4 transition-colors hover:text-rose-600 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {detaching ? t("处理中…") : t("取消子任务关系")}
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-semibold text-slate-600">
+                        {t("子任务（{n}）", { n: childSubtasks.length })}
+                      </span>
+                      <span className="shrink-0 text-[11px] tabular-nums text-slate-400">
+                        {t("平均进度 {p}%", {
+                          p: Math.round(
+                            childSubtasks.reduce((sum, sub) => sum + (sub.progress ?? 0), 0) / childSubtasks.length,
+                          ),
+                        })}
+                      </span>
+                    </div>
+                    <ul className="mt-2 space-y-1.5">
+                      {childSubtasks.map((sub) => (
+                        <li key={sub.task_id} className="flex items-center gap-2 rounded-lg bg-white px-2.5 py-1.5 ring-1 ring-slate-200/80">
+                          <SubtaskBadge task={sub} />
+                          <span className="min-w-0 flex-1 truncate text-xs text-slate-700">{sub.title}</span>
+                          {sub.owner && <span className="shrink-0 text-[11px] text-slate-400">{sub.owner}</span>}
+                          <span className="shrink-0 text-[11px] tabular-nums text-slate-500">{sub.progress ?? 0}%</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </>
+                )}
+              </div>
+            )}
+
             {/* 方案2：低强调的次级文字按钮，置于详情底部，点击打开聚焦的放弃原因弹窗。
                 仅主责人 + 活跃状态可见（待审核/已完成等不显示）。 */}
-            {(canAbandon || canMerge) && (
+            {(canAbandon || canAttachSubtask) && (
               <div className="flex justify-center gap-4 pt-1">
-                {canMerge && (
+                {canAttachSubtask && (
                   <button
                     type="button"
-                    onClick={() => { setMergeReason(""); setMergeTargetId(""); setMergeSearch(""); setMergeOpen(true); }}
+                    onClick={() => { setAttachReason(""); setAttachTargetId(""); setAttachSearch(""); setAttachOpen(true); }}
                     className="cursor-pointer text-xs font-medium text-slate-400 underline-offset-4 transition-colors hover:text-cyan-600 hover:underline"
                   >
-                    {t("申请合并到其他任务")}
+                    {t("并入其他任务成为子任务")}
                   </button>
                 )}
                 {canAbandon && (
@@ -2433,46 +2548,47 @@ function TaskOperationDrawer({
         </div>
       )}
 
-      {/* 申请合并到其他任务：选目标 + 原因，提交给主管审核；通过后本任务并入目标并归档。 */}
-      {mergeOpen && (
+      {/* 并入其他任务成为子任务：选目标父任务，确认后立即生效（不走审批）。
+          本任务完整保留（标题/主责/进度/留痕/附件），仅改变在任务树中的位置。 */}
+      {attachOpen && (
         <div
           className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/40 px-4 backdrop-blur-[2px]"
-          onClick={mergeSubmitting ? undefined : () => setMergeOpen(false)}
+          onClick={attachSubmitting ? undefined : () => setAttachOpen(false)}
         >
           <div
             className="flex max-h-[86vh] w-full max-w-md flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
             onClick={(event) => event.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-labelledby="workspace-merge-title"
+            aria-labelledby="workspace-attach-title"
           >
             <div className="flex items-start gap-3 border-b border-cyan-100 bg-cyan-50/70 px-6 py-5">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-cyan-100 text-cyan-700">
                 <Sparkles className="h-5 w-5" />
               </span>
               <div>
-                <h3 id="workspace-merge-title" className="text-base font-bold text-slate-900">{t("申请合并到其他任务")}</h3>
-                <p className="mt-1 text-sm text-slate-500">{t("提交后将流转给研发主管审核")}</p>
+                <h3 id="workspace-attach-title" className="text-base font-bold text-slate-900">{t("并入其他任务成为子任务")}</h3>
+                <p className="mt-1 text-sm text-slate-500">{t("确认后立即生效，无需审核")}</p>
               </div>
             </div>
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-5">
               <div className="rounded-xl bg-cyan-50/60 px-4 py-3 text-xs leading-5 text-cyan-800 ring-1 ring-cyan-100">
-                {t("审核通过后，本任务「{title}」将并入所选目标任务（进度留痕/附件/协作人一并迁移，子任务随迁），本任务归档保留；合并后由你担任目标任务的主责人。仅支持同一产品库内的任务合并。", { title: task.title })}
+                {t("本任务「{title}」将成为所选任务的子任务。任务本体完整保留：标题、主责人、进度、进度留痕与附件都不变，只是在任务树中的位置改变。之后可随时取消关系提升回独立任务。", { title: task.title })}
               </div>
               <div>
                 <label className="text-sm font-semibold text-slate-900">{t("选择目标任务")}<span className="ml-0.5 text-rose-500">{t("（必选）")}</span></label>
                 <input
-                  value={mergeSearch}
-                  onChange={(e) => setMergeSearch(e.target.value)}
+                  value={attachSearch}
+                  onChange={(e) => setAttachSearch(e.target.value)}
                   placeholder={t("搜索任务标题 / 编号")}
                   className="mt-2 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-cyan-300 focus:ring-2 focus:ring-cyan-100"
                 />
                 <div className="mt-2 max-h-52 overflow-y-auto rounded-lg border border-slate-200">
-                  {mergeLoading ? (
+                  {attachLoading ? (
                     <div className="px-3 py-6 text-center text-sm text-slate-400">{t("加载候选任务…")}</div>
                   ) : (() => {
-                    const kw = mergeSearch.trim().toLowerCase();
-                    const list = mergeCandidates.filter(
+                    const kw = attachSearch.trim().toLowerCase();
+                    const list = attachCandidates.filter(
                       (c) => !kw || c.title.toLowerCase().includes(kw) || c.task_id.toLowerCase().includes(kw),
                     );
                     if (list.length === 0) {
@@ -2482,13 +2598,13 @@ function TaskOperationDrawer({
                       <button
                         key={c.task_id}
                         type="button"
-                        onClick={() => setMergeTargetId(c.task_id)}
+                        onClick={() => setAttachTargetId(c.task_id)}
                         className={cn(
                           "flex w-full items-center gap-2 border-b border-slate-100 px-3 py-2 text-left last:border-0 hover:bg-slate-50",
-                          mergeTargetId === c.task_id && "bg-cyan-50",
+                          attachTargetId === c.task_id && "bg-cyan-50",
                         )}
                       >
-                        <span className={cn("h-3.5 w-3.5 shrink-0 rounded-full border", mergeTargetId === c.task_id ? "border-cyan-500 bg-cyan-500" : "border-slate-300")} />
+                        <span className={cn("h-3.5 w-3.5 shrink-0 rounded-full border", attachTargetId === c.task_id ? "border-cyan-500 bg-cyan-500" : "border-slate-300")} />
                         <span className="min-w-0 flex-1">
                           <span className="block truncate text-sm font-medium text-slate-800">{c.title}</span>
                           <span className="block truncate text-[11px] text-slate-400">{c.task_id}{c.primary_owner ? ` · ${c.primary_owner}` : ""}</span>
@@ -2497,14 +2613,17 @@ function TaskOperationDrawer({
                     ));
                   })()}
                 </div>
+                <p className="mt-1.5 text-[11px] leading-4 text-slate-400">
+                  {t("候选中不含已完成/已归档的任务，也不含子任务本身——子任务下不能再挂子任务（仅支持一层）。")}
+                </p>
               </div>
               <div>
-                <label className="text-sm font-semibold text-slate-900">{t("合并原因")}<span className="ml-1 text-xs font-normal text-slate-400">{t("（选填）")}</span></label>
+                <label className="text-sm font-semibold text-slate-900">{t("并入说明")}<span className="ml-1 text-xs font-normal text-slate-400">{t("（选填）")}</span></label>
                 <Textarea
-                  value={mergeReason}
-                  onChange={(event) => setMergeReason(event.target.value)}
+                  value={attachReason}
+                  onChange={(event) => setAttachReason(event.target.value)}
                   rows={3}
-                  placeholder={t("简述为何要合并这两个任务，便于主管审核")}
+                  placeholder={t("简述为何把这个任务并入目标任务，会记入操作留痕")}
                   className="mt-2"
                 />
               </div>
@@ -2512,19 +2631,19 @@ function TaskOperationDrawer({
             <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-4">
               <button
                 type="button"
-                disabled={mergeSubmitting}
-                onClick={() => setMergeOpen(false)}
+                disabled={attachSubmitting}
+                onClick={() => setAttachOpen(false)}
                 className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {t("取消")}
               </button>
               <button
                 type="button"
-                disabled={mergeSubmitting || !mergeTargetId}
-                onClick={submitMergeRequest}
+                disabled={attachSubmitting || !attachTargetId}
+                onClick={submitAttachSubtask}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-cyan-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {mergeSubmitting ? t("提交中…") : t("提交合并申请")}
+                {attachSubmitting ? t("处理中…") : t("确认并入")}
               </button>
             </div>
           </div>
@@ -3342,6 +3461,17 @@ function WorkspaceTaskCard({
             )}>
               {task.role === "primary" ? t("主责") : `${t("协作")}${task.collab_role ? ` · ${task.collab_role}` : ""}`}
             </span>
+            {/* 子任务身份：一眼看出"这不是独立任务"，并区分子建/并入 */}
+            {task.parent_task_id && <SubtaskBadge task={task} />}
+            {/* 父任务侧：标出带几个子任务，与驾驶舱「含 N 个子任务」同口径 */}
+            {(task.subtasks?.length ?? 0) > 0 && (
+              <span
+                className="inline-flex shrink-0 items-center rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600"
+                title={t("本任务含 {n} 个子任务", { n: task.subtasks!.length })}
+              >
+                {t("含 {n} 子任务", { n: task.subtasks!.length })}
+              </span>
+            )}
             {task.ai_pending && (
               <span className="inline-flex items-center gap-0.5 rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-semibold text-violet-600">
                 <Sparkles className="h-2.5 w-2.5" />
@@ -3378,6 +3508,12 @@ function WorkspaceTaskCard({
             )}
             {!isUsCollabWorkspace() && task.category_path && (
               <span className="truncate">{task.category_path}</span>
+            )}
+            {/* 子任务归属：卡片上直接标出父任务，不用点进抽屉才知道挂在谁下面 */}
+            {task.parent_task_id && (
+              <span className="min-w-0 truncate" title={task.parent_title || task.parent_task_id}>
+                {t("属于：{title}", { title: task.parent_title || task.parent_task_id })}
+              </span>
             )}
           </div>
 
@@ -4493,6 +4629,11 @@ export function RDMyWorkspacePage() {
               myTasks: updateTaskCollaboratorsList(prev.myTasks, taskId, collaborators, status),
               collabTasks: updateTaskCollaboratorsList(prev.collabTasks, taskId, collaborators, status),
             }));
+            setActivePanel(null);
+            await loadWorkspace({ silent: true });
+          }}
+          onSubtaskChanged={async () => {
+            // 任务在树中的位置变了（父子关系增删），无法局部更新，直接整表重拉
             setActivePanel(null);
             await loadWorkspace({ silent: true });
           }}

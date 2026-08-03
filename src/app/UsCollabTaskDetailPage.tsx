@@ -37,7 +37,7 @@ import { t, useI18n } from "./lib/i18n";
 import { AutoTranslatedText } from "./components/TranslatableText";
 import { AuditTimeline } from "./RDAuditTimeline";
 import { addAuditLogNote, recordAudit, useAuditActor, type AuditLog, useAuditLogs } from "./lib/auditLog";
-import { ProgressAttachmentGrid, TaskImageGallery, formatRdFileSize } from "./RDProgressEvidence";
+import { ProgressAttachmentGrid, TaskImageGallery, formatRdFileSize, formatTraceDateTime } from "./RDProgressEvidence";
 import { RDTaskConversation } from "./RDTaskConversation";
 import {
   STATUS_CONFIG,
@@ -54,6 +54,8 @@ import {
   type PersonProfile,
 } from "./RDTaskManagementPage";
 import { getReviewTypeMeta } from "./lib/reviewTypes";
+// 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
+import { routePath } from "./lib/routePaths";
 import {
   blockedDaysOf,
   createRdTaskProgressNote,
@@ -621,7 +623,7 @@ export default function UsCollabTaskDetailPage() {
         <p className="text-sm">{loadError || t("任务不存在")}</p>
         <button
           type="button"
-          onClick={() => navigate("/us-collab-cockpit")}
+          onClick={() => navigate(routePath("page:us-collab-cockpit", "/us-collab-cockpit"))}
           className="cursor-pointer rounded-xl border border-slate-200 px-4 py-2 text-sm text-slate-600 hover:bg-slate-50"
         >
           {t("返回驾驶舱")}
@@ -648,7 +650,7 @@ export default function UsCollabTaskDetailPage() {
       {/* ── 顶部：返回 + 标题 + 徽章 ── */}
       <div className="flex shrink-0 flex-wrap items-center gap-3">
         {/* 直接回驾驶舱（不用 navigate(-1)：序列导航翻过 N 条任务后逐条回退历史体验极差） */}
-        <Button type="button" variant="outline" size="sm" onClick={() => navigate("/us-collab-cockpit")} className="gap-1">
+        <Button type="button" variant="outline" size="sm" onClick={() => navigate(routePath("page:us-collab-cockpit", "/us-collab-cockpit"))} className="gap-1">
           <ArrowLeft className="h-3.5 w-3.5" />
           {t("返回")}
         </Button>
@@ -1015,7 +1017,7 @@ export default function UsCollabTaskDetailPage() {
                                 </span>
                               </TableCell>
                               <TableCell className="whitespace-nowrap text-xs text-slate-500">{formatRdFileSize(att.size)}</TableCell>
-                              <TableCell className="whitespace-nowrap text-xs text-slate-500">{(createdAt ?? "").slice(0, 10)}</TableCell>
+                              <TableCell className="whitespace-nowrap text-xs text-slate-500">{formatTraceDateTime(createdAt)}</TableCell>
                               <TableCell className="whitespace-nowrap text-xs text-slate-500">{actor || "—"}</TableCell>
                               <TableCell className="whitespace-nowrap">
                                 <a

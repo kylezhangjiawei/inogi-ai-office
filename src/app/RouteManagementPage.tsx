@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronRight,
   Edit3,
@@ -45,6 +45,7 @@ import {
   SavePermissionCatalogItemPayload,
   permissionCatalogApi,
 } from "./lib/permissionCatalogApi";
+import { cacheRoutePaths } from "./lib/routePaths";
 
 type DialogMode = "create" | "edit" | "delete" | null;
 
@@ -135,6 +136,8 @@ export function RouteManagementPage() {
   const [navFilter, setNavFilter] = useState<"all" | "visible" | "hidden">("all");
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  /** 编辑弹窗打开时的原始访问路径，用于判断保存后是否需要提示刷新（新建时为空串）。 */
+  const originalRoutePathRef = useRef("");
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [dialogMode, setDialogMode] = useState<DialogMode>(null);
   const [selected, setSelected] = useState<PermissionCatalogItem | null>(null);
@@ -186,9 +189,12 @@ export function RouteManagementPage() {
   const loadItems = useCallback(async () => {
     setLoading(true);
     try {
-      setItems(await permissionCatalogApi.listItems());
+      const fresh = await permissionCatalogApi.listItems();
+      setItems(fresh);
+      return fresh;
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "页面路由目录加载失败");
+      return null;
     } finally {
       setLoading(false);
     }
@@ -239,6 +245,8 @@ export function RouteManagementPage() {
       groupLabel: groupOptions[0] ?? "页面访问 · 系统管理",
       sortOrder: (items[items.length - 1]?.sortOrder ?? 1000) + 10,
     });
+    // 清掉上一次编辑残留的路径，否则新增时会与旧值比较、误触发「刷新后生效」提示
+    originalRoutePathRef.current = "";
     setDialogMode("create");
   }
 
@@ -256,6 +264,8 @@ export function RouteManagementPage() {
       navHidden: item.navHidden,
       sortOrder: item.sortOrder,
     });
+    // 记下打开时的路径，保存后据此判断是否需要提示「刷新才生效」
+    originalRoutePathRef.current = item.routePath ?? "";
     setDialogMode("edit");
   }
 
@@ -291,8 +301,17 @@ export function RouteManagementPage() {
         routePath: form.routePath?.trim(),
       });
       toast.success(dialogMode === "edit" ? "权限目录已更新" : "权限目录已新增");
+      // 路由表在页面加载时建立，改了访问路径必须刷新才会应用；不提示的话管理员会以为没生效。
+      // 仅编辑既有页面时提示：新增的权限码尚无页面组件绑定，谈不上"路径变更生效"。
+      if (dialogMode === "edit" && form.type === "page" && form.routePath?.trim() !== originalRoutePathRef.current) {
+        toast.info("访问路径已变更，刷新页面后全站生效（导航、页内跳转一并更新）", { duration: 6000 });
+      }
       closeDialog();
-      await loadItems();
+      const fresh = await loadItems();
+      // 立刻把最新路径写入缓存。否则要刷两次才生效：第一次刷新时 navGroups/路由表已在
+      // 模块加载阶段用旧缓存求值完毕，本次拉取只更新了缓存，要等第二次刷新才被读到。
+      // 实测确认过这个行为，这里补上使「保存 → 刷新一次」即可全站生效。
+      if (fresh) cacheRoutePaths(fresh);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "保存权限目录失败");
     } finally {
@@ -644,18 +663,25 @@ export function RouteManagementPage() {
                                         </TooltipTrigger>
                                         <TooltipContent side="top" sideOffset={4}>编辑</TooltipContent>
                                       </Tooltip>
+                                      {/* 内置条目删了会被 ensureDefaults 补回、且页面由代码提供，
+                                          删除对它无意义。禁用而非隐藏，配合提示说明该用「停用」。 */}
                                       <Tooltip>
                                         <TooltipTrigger asChild>
-                                          <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-7 w-7 text-slate-400 hover:text-red-500 hover:bg-red-50"
-                                            onClick={() => openDelete(item)}
-                                          >
-                                            <Trash2 className="h-3.5 w-3.5" />
-                                          </Button>
+                                          <span>
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              disabled={item.builtIn}
+                                              className="h-7 w-7 text-slate-400 hover:text-red-500 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-slate-400"
+                                              onClick={() => openDelete(item)}
+                                            >
+                                              <Trash2 className="h-3.5 w-3.5" />
+                                            </Button>
+                                          </span>
                                         </TooltipTrigger>
-                                        <TooltipContent side="top" sideOffset={4}>删除</TooltipContent>
+                                        <TooltipContent side="top" sideOffset={4}>
+                                          {item.builtIn ? "系统内置项不可删除，如需下线请用「停用」" : "删除"}
+                                        </TooltipContent>
                                       </Tooltip>
                                     </div>
                                   </div>
@@ -735,6 +761,18 @@ export function RouteManagementPage() {
                 onChange={(e) => setForm((c) => ({ ...c, routePath: e.target.value }))}
                 placeholder="页面权限填写，如 /roles"
               />
+              {form.type === "page" && (
+                <p className="text-[11px] leading-4 text-slate-500">
+                  改此路径会同步改变侧边栏链接与页面实际地址，刷新后全站生效。
+                  不支持参数与通配符——详情页等子路由会按主路径自动派生。
+                  {dialogMode !== "edit" && (
+                    <span className="mt-1 block text-amber-600">
+                      注意：新增页面码只是登记了「可授权的页面」，页面本身仍需在代码中绑定组件；
+                      未绑定时该路径不会存在，勾了权限也打不开。
+                    </span>
+                  )}
+                </p>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="perm-sort">排序</Label>

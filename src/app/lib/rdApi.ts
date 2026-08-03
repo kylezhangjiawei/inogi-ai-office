@@ -254,7 +254,8 @@ export function saveRdProducts(products: RdProductDef[]) {
 }
 
 export function fetchProductTaskCategories(productId: string) {
-  return requestJson<RdCategory[]>(`/product-task-categories/${encodeURIComponent(productId)}`);
+  return requestJson<RdCategory[]>(`/product-task-categories/${encodeURIComponent(productId)}`)
+    .then(normalizeArchivedFlags);
 }
 
 export function saveProductTaskCategories(productId: string, categories: RdCategory[]) {
@@ -267,6 +268,18 @@ export function saveProductTaskCategories(productId: string, categories: RdCateg
 // ── Workspace payload ─────────────────────────────────────────────────────────
 
 export type RdTodayTodo = { text: string; task_id?: string };
+
+/** 个人工作台的子任务清单条目：只带展示所需字段，不是完整任务对象。 */
+export type RdWorkspaceSubtask = {
+  task_id: string;
+  title: string;
+  status: RdTaskStatus;
+  status_label: string;
+  progress: number;
+  owner: string;
+  owner_user_id?: string | null;
+  subtask_origin?: "created" | "attached" | null;
+};
 
 export type RdWorkspaceTask = {
   task_id: string;
@@ -301,6 +314,23 @@ export type RdWorkspaceTask = {
   latest_progress_summary?: RdLatestProgressSummary | null;
   /** 工作项清单（任务内部轻量拆分），留痕表单据此提供「关联工作项」选择。 */
   work_items?: RdWorkItem[];
+  /**
+   * 子任务关系（一层）。服务端按「结构位置」解析后下发，不是回读 parent_task_id 字段——
+   * 存量子任务没有该字段。parent_task_id 非空即表示本任务是某个任务的子任务。
+   */
+  parent_task_id?: string | null;
+  parent_title?: string | null;
+  /** 'created' 在父任务下直建 | 'attached' 由已有任务并入；存量子任务为 null（渲染中性徽标）。 */
+  subtask_origin?: "created" | "attached" | null;
+  subtask_attached_at?: string | null;
+  subtask_attached_by?: string | null;
+  /**
+   * 是否带子任务（**含已归档**）。并入门控必须用它而不是 subtasks.length——后端拒绝
+   * 「自身已带子任务」时统计的是未过滤的原数组，只剩归档子任务的任务用清单判会误放行。
+   */
+  has_subtasks?: boolean;
+  /** 本任务的子任务清单（本任务是父任务时非空），已排除归档项，仅供展示。 */
+  subtasks?: RdWorkspaceSubtask[];
   /** 进入 paused_blocked 的时间点（离开时清除），协同工作台显示"已阻塞 N 天"。 */
   blocked_since?: string | null;
   description: string;
@@ -536,16 +566,47 @@ export type RdFileIngestionPlan = {
 
 // ── API functions ─────────────────────────────────────────────────────────────
 
-export function fetchRdTaskCategories(options: { includeCovers?: boolean; signal?: AbortSignal } = {}) {
-  return requestJson<RdCategory[]>(
-    `/task-categories${options.includeCovers ? "?include_covers=1" : ""}`,
-    options.signal ? { signal: options.signal } : undefined,
-  );
+/**
+ * 任务树读取归一：把「只有 status==='archived'、却没有 archived 标志」的任务补齐标志位。
+ *
+ * 后端判归档是 `archived === true || status === 'archived'`（isArchivedTask），而前端有 60+ 处
+ * 直接读 `t.archived`。逐个改成复合判断既啰嗦又必然漏改，所以在唯一的数据入口归一一次，
+ * 下游所有判断自动与后端对齐。子任务同样递归处理。
+ *
+ * ⚠️ 副作用：若某处把读到的树原样 PUT 回去（saveRdTaskCategories），补齐的标志位会被持久化。
+ * 这只是把本就为真的事实写实，幂等且无害，但需知晓。
+ */
+function normalizeArchivedFlags(categories: RdCategory[]): RdCategory[] {
+  let touched = false;
+  const fixTask = (task: RdTask): RdTask => {
+    let subtasks = task.subtasks;
+    if (task.subtasks?.length) {
+      const mapped = task.subtasks.map(fixTask);
+      // ⚠️ map 一定产生新数组，必须逐项比对才知道是否真的变了；
+      //    直接用 `mapped !== task.subtasks` 会让每个带子任务的任务都被判定为已变更，
+      //    引用稳定性优化随之失效（每次拉取都返回全新对象，打断上游 useMemo）。
+      if (mapped.some((sub, i) => sub !== task.subtasks![i])) subtasks = mapped;
+    }
+    const needsFlag = task.status === "archived" && task.archived !== true;
+    if (!needsFlag && subtasks === task.subtasks) return task;
+    touched = true;
+    return { ...task, ...(needsFlag ? { archived: true } : {}), ...(subtasks ? { subtasks } : {}) };
+  };
+  const next = categories.map((cat) => ({
+    ...cat,
+    children: cat.children.map((sub) => ({ ...sub, tasks: sub.tasks.map(fixTask) })),
+  }));
+  // 无脏数据时返回原引用，避免每次读取都产生新对象、打断上游 useMemo 的引用相等优化
+  return touched ? next : categories;
+}
+
+export function fetchRdTaskCategories() {
+  return requestJson<RdCategory[]>("/task-categories").then(normalizeArchivedFlags);
 }
 
 /** 主库 + 所有产品库合并的分类树。用于驾驶舱概览「人员任务」跨产品聚合（与个人工作台主责同源）。 */
 export function fetchMergedTaskCategories() {
-  return requestJson<RdCategory[]>("/merged-task-categories");
+  return requestJson<RdCategory[]>("/merged-task-categories").then(normalizeArchivedFlags);
 }
 
 export function saveRdTaskCategories(payload: RdCategory[]) {

@@ -220,10 +220,23 @@ function ConversationAvatar({
   );
 }
 
+/** 讨论气泡时间：刻意只到分钟——聊天流逐条显示秒太吵。留痕请用 formatTimeWithSeconds。 */
 function formatTime(iso: string) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleTimeString(i18nLocale(), { hour: "2-digit", minute: "2-digit" });
+}
+
+/** 留痕时间：精确到秒（进展留痕卡、留痕引用卡）。 */
+function formatTimeWithSeconds(iso: string) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleTimeString(i18nLocale(), {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
 }
 
 function formatCompactDateTime(iso: string) {
@@ -238,7 +251,8 @@ function formatCompactDateTime(iso: string) {
     : diff === 1
       ? t("昨天")
       : `${date.getMonth() + 1}/${date.getDate()}`;
-  return `${day} ${formatTime(iso)}`;
+  // 留痕卡的时间戳 → 精确到秒
+  return `${day} ${formatTimeWithSeconds(iso)}`;
 }
 
 function localDayKey(iso: string) {
@@ -503,6 +517,45 @@ function ThreadButton({
       )}
     </button>
   );
+}
+
+// ── 进度留痕瀑布流 ───────────────────────────────────────────────────────────
+// 留痕卡高度天然参差（有无正文/附件/讨论数各不相同）。CSS grid 的行高按该行最高卡对齐，
+// 矮卡下方会拉出大片空白，所以改成 N 个各自纵向堆叠、互不影响高度的独立列。
+// 轮转分配（第 i 条进第 i % N 列）保留原 grid 的「先左后右、逐行往下」阅读顺序，
+// 且对前缀稳定：追加新留痕不会挪动已有卡片。
+function distributeIntoColumns<T>(items: T[], columnCount: number): T[][] {
+  const columns: T[][] = Array.from({ length: columnCount }, () => []);
+  items.forEach((item, index) => columns[index % columnCount].push(item));
+  return columns;
+}
+
+/** 20rem / gap-1.5：与原 `repeat(auto-fit, minmax(min(100%,20rem),1fr))` 保持同一口径 */
+const PROGRESS_COLUMN_MIN_PX = 320;
+const PROGRESS_COLUMN_GAP_PX = 6;
+
+/**
+ * 列数跟随「容器」宽度而非视口：本组件会被放进任务详情页主列、驾驶舱抽屉、移动端全屏，
+ * 同一视口下可用宽度差别很大，用媒体查询断点必然算错（抽屉里会误判成 3 列）。
+ */
+function useProgressColumns(element: HTMLElement | null): number {
+  const [columns, setColumns] = useState(1);
+  // useLayoutEffect：首帧就量好列数，否则会看到「先 1 列、再跳到 3 列」的闪动
+  React.useLayoutEffect(() => {
+    if (!element) return undefined;
+    const update = () => {
+      const width = element.clientWidth;
+      if (!width) return;
+      setColumns(Math.max(1, Math.floor(
+        (width + PROGRESS_COLUMN_GAP_PX) / (PROGRESS_COLUMN_MIN_PX + PROGRESS_COLUMN_GAP_PX),
+      )));
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [element]);
+  return columns;
 }
 
 function ProgressAnchorCard({
@@ -912,65 +965,45 @@ function AnchorPreview({
   }, [anchor.id, anchor.type]);
 
   return (
-    <div className="shrink-0 border-b border-slate-200 bg-slate-50/80">
-      <button
-        type="button"
-        onClick={() => setExpanded((current) => !current)}
-        aria-expanded={expanded}
-        className="flex min-h-11 w-full cursor-pointer items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-indigo-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400"
-      >
-        <span className="flex shrink-0 items-center gap-1.5 text-[10px] font-bold tracking-[0.06em] text-indigo-600">
-          {anchor.type === "progress_note" ? <Sparkles className="h-3.5 w-3.5" /> : <MessageCircleMore className="h-3.5 w-3.5" />}
-          {anchor.type === "progress_note" ? t("原始进度记录") : t("原始任务消息")}
-        </span>
-        <span className="min-w-0 flex-1 truncate text-[11px] text-slate-500">
-          {anchor.preview || t("附件消息")}
-        </span>
-        {attachments.length > 0 && (
-          <span className="shrink-0 rounded-full bg-white px-1.5 py-0.5 text-[9px] font-semibold text-slate-500 ring-1 ring-slate-200">
-            {t("{n} 个附件", { n: attachments.length })}
-          </span>
-        )}
-        <ChevronDown
-          className={cn("h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200", expanded && "rotate-180")}
-          aria-hidden="true"
-        />
-      </button>
-      {expanded && (
-        <div className="cockpit-scroll max-h-[min(42dvh,22rem)] overflow-y-auto overscroll-contain px-3 pb-2">
-          <div className="rounded-lg border border-slate-200 border-l-2 border-l-indigo-400 bg-white px-2.5 py-2 shadow-sm">
-            <div className="flex items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-1.5">
-                <ConversationAvatar name={anchor.author} userId={authorId} size="xs" />
-                <div className="truncate text-[11px] font-semibold text-slate-700">{anchor.author}</div>
-              </div>
-              <div className="shrink-0 text-[10px] tabular-nums text-slate-400">
-                {new Date(anchor.createdAt).toLocaleString(i18nLocale(), {
-                  month: "numeric",
-                  day: "numeric",
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })}
-              </div>
-            </div>
-            <div className="mt-1 whitespace-pre-wrap text-xs leading-4 text-slate-600">
-              {anchor.preview || t("附件消息")}
-            </div>
-            {attachments.length > 0 && !compact && (
-              <ProgressAttachmentGrid attachments={attachments} compact className="mt-1.5" />
-            )}
-            {attachments.length > 0 && compact && (
-              <div className="mt-1 text-[10px] font-semibold text-slate-500">
-                {t("{n} 个附件", { n: attachments.length })}
-              </div>
-            )}
+    <div className="border-b border-slate-200 bg-slate-50/80 px-3 py-2">
+      <div className="flex items-center gap-2 text-[10px] font-bold tracking-[0.08em] text-indigo-600">
+        {anchor.type === "progress_note" ? <Sparkles className="h-3.5 w-3.5" /> : <MessageCircleMore className="h-3.5 w-3.5" />}
+        {anchor.type === "progress_note" ? t("原始进度记录") : t("原始任务消息")}
+      </div>
+      <div className="mt-1.5 rounded-lg border border-slate-200 border-l-2 border-l-indigo-400 bg-white px-2.5 py-2 shadow-sm">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-1.5">
+            <ConversationAvatar name={anchor.author} userId={authorId} size="xs" />
+            <div className="truncate text-[11px] font-semibold text-slate-700">{anchor.author}</div>
           </div>
-          {anchor.type === "progress_note" && (
-            <p className="mt-1 text-[10px] leading-4 text-slate-500">
-              {t("回复只显示在本条进度下，不会修改原始记录。")}
-            </p>
-          )}
+          <div className="shrink-0 text-[10px] tabular-nums text-slate-400">
+            {/* 留痕引用卡：精确到秒 */}
+            {new Date(anchor.createdAt).toLocaleString(i18nLocale(), {
+              month: "numeric",
+              day: "numeric",
+              hour: "2-digit",
+              minute: "2-digit",
+              second: "2-digit",
+              hour12: false,
+            })}
+          </div>
         </div>
+        <div className="mt-1 line-clamp-2 whitespace-pre-wrap text-xs leading-4 text-slate-600">
+          {anchor.preview || t("附件消息")}
+        </div>
+        {attachments.length > 0 && !compact && (
+          <ProgressAttachmentGrid attachments={attachments} compact className="mt-1.5" />
+        )}
+        {attachments.length > 0 && compact && (
+          <div className="mt-1 text-[10px] font-semibold text-slate-500">
+            {t("{n} 个附件", { n: attachments.length })}
+          </div>
+        )}
+      </div>
+      {anchor.type === "progress_note" && (
+        <p className="mt-1 text-[10px] leading-4 text-slate-500">
+          {t("回复只显示在本条进度下，不会修改原始记录。")}
+        </p>
       )}
     </div>
   );
@@ -1228,6 +1261,15 @@ export function RDTaskConversation({
         }));
     return items.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   }, [main?.messages, mode, notes]);
+
+  // 进度留痕瀑布流：先滤出留痕条目再分列，保证各列条数均衡
+  const progressFeedNotes = useMemo(
+    () => feedItems.filter((item): item is Extract<ConversationFeedItem, { kind: "note" }> => item.kind === "note"),
+    [feedItems],
+  );
+  const [progressFeedEl, setProgressFeedEl] = useState<HTMLDivElement | null>(null);
+  // 列数不超过条数：留痕只有 1~2 条时不留空列（对齐原 grid `auto-fit` 折叠空轨道的行为）
+  const progressColumns = Math.min(useProgressColumns(progressFeedEl), Math.max(1, progressFeedNotes.length));
 
   const relatedProgressThreads = useMemo(() => {
     if (mode !== "task") return [];
@@ -1551,7 +1593,8 @@ export function RDTaskConversation({
                         <span className="min-w-0 flex-1">
                           <span className="flex items-center gap-2 text-[10px] text-slate-500">
                             <span className="truncate font-semibold text-slate-700">{note.actor.name}</span>
-                            <span className="ml-auto shrink-0 tabular-nums">{formatDayLabel(note.created_at)}</span>
+                            {/* 这是某条留痕的时间（不是日期分隔条），精确到秒 */}
+                            <span className="ml-auto shrink-0 tabular-nums">{formatCompactDateTime(note.created_at)}</span>
                           </span>
                           <span className="mt-0.5 block truncate text-xs text-slate-600">{note.text || t("附件进度记录")}</span>
                           <span className="mt-0.5 inline-flex items-center gap-1 text-[10px] font-bold text-indigo-700">
@@ -1570,27 +1613,30 @@ export function RDTaskConversation({
               </section>
             )}
             {mode === "progress" ? (
-              <div className="mt-1.5 grid grid-cols-[repeat(auto-fit,minmax(min(100%,20rem),1fr))] items-start gap-1.5">
-                {feedItems.map((item) => {
-                  if (item.kind !== "note") return null;
-                  const noteSummary = summaryFor(main?.thread_summaries ?? [], "progress_note", item.note.id);
-                  const anchor: ConversationAnchor = {
-                    type: "progress_note",
-                    id: item.note.id,
-                    author: item.note.actor.name,
-                    preview: item.note.text,
-                    createdAt: item.note.created_at,
-                    note: item.note,
-                  };
-                  return (
-                    <ProgressAnchorCard
-                      key={item.note.id}
-                      note={item.note}
-                      summary={noteSummary}
-                      onOpenThread={() => void openThread(anchor)}
-                    />
-                  );
-                })}
+              <div ref={setProgressFeedEl} className="mt-1.5 flex items-start gap-1.5">
+                {distributeIntoColumns(progressFeedNotes, progressColumns).map((column, columnIndex) => (
+                  <div key={columnIndex} className="flex min-w-0 flex-1 flex-col gap-1.5">
+                    {column.map((item) => {
+                      const noteSummary = summaryFor(main?.thread_summaries ?? [], "progress_note", item.note.id);
+                      const anchor: ConversationAnchor = {
+                        type: "progress_note",
+                        id: item.note.id,
+                        author: item.note.actor.name,
+                        preview: item.note.text,
+                        createdAt: item.note.created_at,
+                        note: item.note,
+                      };
+                      return (
+                        <ProgressAnchorCard
+                          key={item.note.id}
+                          note={item.note}
+                          summary={noteSummary}
+                          onOpenThread={() => void openThread(anchor)}
+                        />
+                      );
+                    })}
+                  </div>
+                ))}
               </div>
             ) : (
               feedItems.map((item, index) => {

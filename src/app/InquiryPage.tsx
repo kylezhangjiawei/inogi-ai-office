@@ -15,6 +15,8 @@ import {
 import { Link } from "react-router";
 import { toast } from "sonner";
 import { cn } from "./components/ui/utils";
+// 页面路径以「页面路由管理」的配置为准，随主路径变更自动跟随
+import { routePath } from "./lib/routePaths";
 
 type Channel = "WhatsApp" | "Email" | "LinkedIn";
 type Intent = "询价" | "型号咨询" | "认证资质" | "售后问题" | "合作意向";
@@ -455,7 +457,7 @@ export function InquiryPage() {
               <div className="material-card-flat p-4">
                 <div className="text-xs uppercase tracking-[0.24em] text-slate-400">Flow Links</div>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Link to="/email-ai" className="material-button-secondary text-xs">
+                  <Link to={routePath("page:email-ai", "/email-ai")} className="material-button-secondary text-xs">
                     去邮件写作
                   </Link>
                   <Link to={selected.intent === "售后问题" ? "/after-sales" : "/external-docs"} className="material-button-secondary text-xs">

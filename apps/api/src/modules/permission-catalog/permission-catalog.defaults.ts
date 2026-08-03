@@ -18,9 +18,9 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'page:rd-my-workspace', label: '个人工作台', description: '我的任务、协作任务、今日待办、待审核 AI 建议', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-my-workspace', sortOrder: 60 },
   { code: 'page:rd-knowledge-base', label: '研发知识库', description: '研发团队内部知识沉淀与权限分级查阅', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-knowledge-base', sortOrder: 65 },
   { code: 'page:rd-sheet', label: '研发数据表', description: '类 WPS 表格，按密级行级管控的研发敏感数据；不同权限的人看到的行数不同', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-sheet', sortOrder: 66 },
-  // 保留历史权限码和路由，生产驾驶舱迁移后既有角色授权、接口鉴权和收藏链接继续有效。
-  { code: 'page:rd-director-dashboard', label: '生产驾驶舱', description: '与研发任务驾驶舱同版界面，使用独立生产任务池并只读展示研发同步任务', groupLabel: '页面访问 · 质量与生产', type: 'page', routePath: '/production-dashboard', sortOrder: 590 },
-  { code: 'page:rd-people-management', label: '研发人员管理', description: '新增、编辑、删除研发成员，设置任务容量与知识库权限等级', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-people-management', navHidden: true, sortOrder: 73 },
+  { code: 'page:rd-director-dashboard', label: '研发主管驾驶舱', description: '全局进度、人员负载热力图、批量重分配（高级权限）', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-director-dashboard', navHidden: true, sortOrder: 70 },
+  // 「研发人员管理」页（/rd-people-management）实际由动作码 rd-people:manage 守卫（见 App.tsx），
+  // 这里的 page: 码从未被任何守卫或导航引用，属冗余登记，已移除。授权仍走 rd-people:manage。
   { code: 'page:rd-approval-flow', label: '审批流配置', description: '配置立项/任务审批的节点、模式、SLA', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-approval-flow', sortOrder: 75 },
   { code: 'page:rd-audit-log', label: '操作留痕', description: '查看研发任务管理关键操作的审计时间轴', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-audit-log', sortOrder: 76 },
   { code: 'page:rd-ai-settings', label: '研发 AI 策略', description: '配置研发模块 AI 场景模型、文件解析顺序、OCR 兜底与披露策略', groupLabel: '页面访问 · 研发任务管理', type: 'page', routePath: '/rd-ai-settings', sortOrder: 77 },
@@ -135,9 +135,9 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'page:ops-services-tasks', label: '服务与任务', description: '查看第三方服务、阿里云集成与业务任务日志', groupLabel: '页面访问 · 系统运维中心', type: 'page', routePath: '/ops-center/services-tasks', sortOrder: 830 },
   { code: 'page:ops-alerts-audit', label: '告警与审计设置', description: '查看告警规则、日志策略、脱敏设置与操作审计', groupLabel: '页面访问 · 系统运维中心', type: 'page', routePath: '/ops-center/alerts-audit', sortOrder: 840 },
 
-  // ─── 隐藏系统页面（可访问但不出现在导航栏）──────────────────────────────────────
-  { code: 'page:profile', label: '个人中心', description: '查看和修改个人信息、密码、头像', groupLabel: '页面访问 · 隐藏页面', type: 'page', routePath: '/profile', navHidden: true, sortOrder: 860 },
-  { code: 'page:message-center', label: '消息中心', description: '查看系统消息、审核通知与站内信', groupLabel: '页面访问 · 隐藏页面', type: 'page', routePath: '/message-center', navHidden: true, sortOrder: 870 },
+  // 「个人中心」/「消息中心」曾在此登记为隐藏页面，但两者的路由是 lazyWrap（任意登录用户可访问、
+  // 无权限门），页面码从未被任何守卫或导航使用，留在目录里只会让角色编辑器多出勾了也没用的选项。
+  // 已移除；若要重新做成受控页面，需同时给 App.tsx 的路由加回 makeLazyProtected。
 
   { code: 'page:mailbox-management', label: '邮箱管理', description: '邮箱集成管理页面', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/mailbox-management', sortOrder: 900 },
   { code: 'page:ai-model-management', label: 'AI 模型管理', description: 'AI 模型配置页面', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/ai-model-management', sortOrder: 910 },
@@ -153,6 +153,9 @@ export const DEFAULT_PERMISSION_CATALOG: DefaultPermissionCatalogItem[] = [
   { code: 'page:roles', label: '角色权限', description: '查看角色权限页面', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/roles', sortOrder: 950 },
   { code: 'page:route-management', label: '页面路由管理', description: '维护页面与按钮权限目录', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/route-management', sortOrder: 960 },
   { code: 'page:settings', label: '字典配置', description: '查看系统字典页面', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/settings', sortOrder: 970 },
+  // ⚠️ 码名沿用 i18n:manage（而非 page: 前缀）：它已被 4 个后端接口的 @Permissions 和既有角色数据引用，
+  // 改名会同时打断鉴权与存量授权。类型登记为 page —— 它守卫的就是 /i18n-management 这一整个页面。
+  { code: 'i18n:manage', label: '翻译管理', description: '维护英文词条字典、导入导出翻译', groupLabel: '页面访问 · 系统管理', type: 'page', routePath: '/i18n-management', sortOrder: 980 },
 
   { code: 'department:create', label: '新建部门', description: '创建公司部门主数据', groupLabel: '操作权限 · 部门管理', type: 'action', sortOrder: 1000 },
   { code: 'department:edit', label: '编辑部门', description: '修改部门信息与启停状态', groupLabel: '操作权限 · 部门管理', type: 'action', sortOrder: 1010 },

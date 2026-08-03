@@ -14,6 +14,7 @@ import { resolveEnglishName } from '../../common/english-name';
 import { PrismaService } from '../../prisma/prisma.service';
 import { SecureConfigService } from '../security/secure-config.service';
 import { OssService } from '../oss/oss.service';
+import { PermissionCatalogService } from '../permission-catalog/permission-catalog.service';
 import { JwtPayload } from './strategies/jwt.strategy';
 
 const REFRESH_TOKEN_TTL_DAYS = 30;
@@ -82,6 +83,7 @@ export class AuthService implements OnModuleInit {
     private readonly configService: ConfigService,
     private readonly secureConfigService: SecureConfigService,
     private readonly ossService: OssService,
+    private readonly permissionCatalog: PermissionCatalogService,
   ) {
     this.jwtSecret = this.configService.getOrThrow<string>('JWT_SECRET');
   }
@@ -482,9 +484,11 @@ export class AuthService implements OnModuleInit {
       email: user.email,
       roleId: user.roleId,
       roleName: user.role?.name ?? null,
-      permissions: Array.isArray(user.role?.permissions)
-        ? (user.role.permissions as string[])
-        : [],
+      // 与 jwt.strategy 同一套口径：剔除权限目录里被停用的码，保证前端看到的权限
+      // 与后端守卫实际判定完全一致（否则会出现「界面有入口、接口 403」）
+      permissions: await this.permissionCatalog.filterDisabled(
+        Array.isArray(user.role?.permissions) ? (user.role.permissions as string[]) : [],
+      ),
       department,
       departmentCode: await this.resolveDepartmentCodeByName(department),
       // 每次返回都现签 URL，30 天 TTL 内长期可用；无自定义头像时按 user_id 派发默认预置头像
