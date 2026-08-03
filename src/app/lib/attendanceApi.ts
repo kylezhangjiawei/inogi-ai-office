@@ -42,6 +42,8 @@ export interface AttendanceEmployee {
   department: string;
   title: string;
   employmentStatus: string;
+  /** 是否参与倒挂抵扣：为 true 才记扣除工时并累计成倒挂欠账 */
+  deductsInvertedHours: boolean;
 }
 
 export interface AttendanceRecord {
@@ -59,6 +61,8 @@ export interface AttendanceRecord {
   earlyLeaveMinutes: number;
   deductionMinutes: number;
   overtimeMinutes: number;
+  /** 当日请假占多少天：1=整天，0.5=半天 */
+  leaveDayFraction: number;
   overtimeType: AttendanceOvertimeType | '';
   source: string;
   note: string;
@@ -127,6 +131,11 @@ export interface AttendanceRuleSummary {
   annualSickLeaveDays: number;
   paidSickLeaveUsedDays: number;
   excessSickLeaveDays: number;
+  /** 当月扣除工时汇总出的倒挂工时（没干活却发了工资的时长） */
+  autoInvertedHours: number;
+  /** 月度结余里手工填的倒挂工时，>0 时覆盖自动值 */
+  manualInvertedHours: number;
+  /** 实际生效的倒挂工时：手工值优先，否则用自动值 */
   startingInvertedHours: number;
   manuallyRecoveredHours: number;
   availableInvertedHours: number;
@@ -162,6 +171,8 @@ export interface AttendanceMonthAdjustment {
 
 export type SaveAttendanceMonthPayload = Omit<AttendanceMonthAdjustment, 'id' | 'year' | 'month'> & {
   month: string;
+  /** 人员长期属性，写入员工档案而非本月结余 */
+  deductsInvertedHours?: boolean;
 };
 
 export interface AttendanceMonthlyResponse {
@@ -220,6 +231,69 @@ export interface SaveAttendancePayload {
   overtimeMinutes?: number;
   overtimeType?: AttendanceOvertimeType;
   note?: string;
+}
+
+/** 导入预览里按人分组的统计，勾选与写库影响预估都以此为单位。 */
+export interface AttendanceImportGroup {
+  employeeId: string;
+  employeeName: string;
+  rosterNo: string;
+  department: string;
+  wecomDepartment: string;
+  rowCount: number;
+  punchedDays: number;
+  absentDays: number;
+  leaveDays: number;
+  restDays: number;
+  overtimeHours: number;
+  createCount: number;
+  overwriteCount: number;
+  manualSkipCount: number;
+}
+
+export interface AttendanceImportPreview {
+  /** 行数最多的月份，导入后页面切到这里 */
+  month: string;
+  /** 文件实际覆盖的日期区间，覆盖写入只发生在区间内 */
+  startDate: string;
+  endDate: string;
+  /** 覆盖到的月份及行数，跨考勤周期导出时会有两个 */
+  months: Array<{ month: string; rowCount: number }>;
+  /** 节假日日历未登记的年份，这些年的节假日加班会退化成休息日加班 */
+  yearsMissingHolidayCalendar: number[];
+  fileName: string;
+  totalRows: number;
+  parsedRows: number;
+  groups: AttendanceImportGroup[];
+  /** 整月无有效打卡（多为不用企微打卡的外包人员），默认不勾选 */
+  noPunchGroups: AttendanceImportGroup[];
+  unmatched: string[];
+  ambiguous: Array<{ name: string; candidates: Array<{ rosterNo: string; department: string }> }>;
+  halfDayLeaves: Array<{ attendanceDate: string; employeeName: string; status: AttendanceStatus; note: string }>;
+  summary: {
+    employeeCount: number;
+    rowCount: number;
+    createCount: number;
+    overwriteCount: number;
+    manualSkipCount: number;
+    overtimeRows: number;
+    overtimeHours: number;
+    filteredOvertimeRows: number;
+    filteredOvertimeHours: number;
+  };
+}
+
+export interface AttendanceImportResult {
+  month: string;
+  startDate: string;
+  endDate: string;
+  employeeCount: number;
+  importedCount: number;
+  createdCount: number;
+  overwrittenCount: number;
+  manualSkipCount: number;
+  /** 本次新建立的「档案 ↔ 企微账号」映射数，之后导入按账号精确匹配 */
+  linkedAccountCount: number;
 }
 
 async function parseResponse<T>(response: Response, fallback: string): Promise<T> {
@@ -301,4 +375,21 @@ export async function clockAttendance(employeeId: string, type: 'check-in' | 'ch
 export async function deleteAttendanceRecord(id: string) {
   const response = await authFetch(`/api/attendance/record/${encodeURIComponent(id)}`, { method: 'DELETE' });
   return parseResponse<{ success: true; id: string }>(response, '清除考勤记录失败');
+}
+
+/** 企业微信打卡日报预览：只解析比对，不写库。 */
+export async function previewAttendanceImport(file: File, signal?: AbortSignal) {
+  const form = new FormData();
+  form.append('file', file);
+  const response = await authFetch('/api/attendance/import/preview', { method: 'POST', body: form, signal });
+  return parseResponse<AttendanceImportPreview>(response, '解析考勤文件失败');
+}
+
+/** 导入确认：文件随勾选的员工一并重传，服务端重新解析后写库。 */
+export async function confirmAttendanceImport(file: File, employeeIds: string[]) {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('employeeIds', JSON.stringify(employeeIds));
+  const response = await authFetch('/api/attendance/import/confirm', { method: 'POST', body: form });
+  return parseResponse<AttendanceImportResult>(response, '导入考勤数据失败');
 }

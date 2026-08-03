@@ -20,11 +20,19 @@ const employeeSelect = {
   department: true,
   title: true,
   employmentStatus: true,
+  deductsInvertedHours: true,
 } as const;
 
 type AttendanceEmployee = Pick<
   EmployeeArchive,
-  'id' | 'rosterNo' | 'name' | 'company' | 'department' | 'title' | 'employmentStatus'
+  | 'id'
+  | 'rosterNo'
+  | 'name'
+  | 'company'
+  | 'department'
+  | 'title'
+  | 'employmentStatus'
+  | 'deductsInvertedHours'
 >;
 
 type ManualAttendanceStatus = (typeof MANUAL_ATTENDANCE_STATUSES)[number];
@@ -39,17 +47,16 @@ export class AttendanceService {
   async daily(query: AttendanceDailyQueryDto) {
     const date = this.normalizeDate(query.date) || this.todayInShanghai();
     const attendanceDate = this.dateValue(date);
-    const [allEmployees, records] = await Promise.all([
-      this.prisma.employeeArchive.findMany({
-        select: employeeSelect,
-        orderBy: [{ department: 'asc' }, { rosterNo: 'asc' }],
-      }),
+    const [rawEmployees, records, departmentList] = await Promise.all([
+      this.prisma.employeeArchive.findMany({ select: employeeSelect }),
       this.prisma.employeeAttendance.findMany({
         where: { attendanceDate },
         include: { employee: { select: employeeSelect } },
       }),
+      this.prisma.department.findMany({ select: { name: true, sortOrder: true } }),
     ]);
 
+    const allEmployees = this.sortByDepartment(rawEmployees, this.buildDepartmentOrder(departmentList));
     const employees = allEmployees.filter((employee) => this.isAttendanceEmployee(employee.employmentStatus));
     const recordByEmployee = new Map(records.map((record) => [record.employeeId, record]));
     const allItems = employees.map((employee) => {
@@ -94,11 +101,8 @@ export class AttendanceService {
       : this.dateValue(`${year}-${String(monthNumber + 1).padStart(2, '0')}-01`);
     const yearStart = this.dateValue(`${year}-01-01`);
     const nextYearStart = this.dateValue(`${year + 1}-01-01`);
-    const [allEmployees, records, monthSettings, annualSickLeaveRecords, productionDepartment] = await Promise.all([
-      this.prisma.employeeArchive.findMany({
-        select: employeeSelect,
-        orderBy: [{ department: 'asc' }, { rosterNo: 'asc' }],
-      }),
+    const [rawEmployees, records, monthSettings, annualSickLeaveRecords, departmentList] = await Promise.all([
+      this.prisma.employeeArchive.findMany({ select: employeeSelect }),
       this.prisma.employeeAttendance.findMany({
         where: { attendanceDate: { gte: monthStart, lt: nextMonth } },
         include: { employee: { select: employeeSelect } },
@@ -110,18 +114,18 @@ export class AttendanceService {
           attendanceDate: { gte: yearStart, lt: nextYearStart },
           status: 'sick_leave',
         },
-        select: { employeeId: true },
+        select: { employeeId: true, leaveDayFraction: true },
       }),
-      this.prisma.department.findUnique({
-        where: { code: 'PRODUCTION' },
-        select: { name: true },
-      }),
+      this.prisma.department.findMany({ select: { code: true, name: true, sortOrder: true } }),
     ]);
+
+    const departmentOrder = this.buildDepartmentOrder(departmentList);
+    const allEmployees = this.sortByDepartment(rawEmployees, departmentOrder);
 
     const departments = [...new Set(allEmployees
       .filter((employee) => this.isAttendanceEmployee(employee.employmentStatus))
       .map((employee) => employee.department)
-      .filter(Boolean))].sort();
+      .filter(Boolean))];
     const search = query.search?.trim().toLowerCase();
     const employees = allEmployees.filter((employee) => {
       if (!this.isAttendanceEmployee(employee.employmentStatus)) return false;
@@ -137,8 +141,9 @@ export class AttendanceService {
       recordsByEmployee.set(record.employeeId, current);
     });
     const monthSettingByEmployee = new Map(monthSettings.map((setting) => [setting.employeeId, setting]));
+    // 年度病假额度按天累加而非按条数，半天病假只消耗 0.5 天额度
     const annualSickLeaveByEmployee = annualSickLeaveRecords.reduce((result, record) => {
-      result.set(record.employeeId, (result.get(record.employeeId) ?? 0) + 1);
+      result.set(record.employeeId, (result.get(record.employeeId) ?? 0) + record.leaveDayFraction);
       return result;
     }, new Map<string, number>());
 
@@ -157,7 +162,7 @@ export class AttendanceService {
           summary,
           adjustment,
           annualSickLeaveByEmployee.get(employee.id) ?? 0,
-          employee.department === productionDepartment?.name,
+          employee.deductsInvertedHours,
         ),
       };
     });
@@ -247,6 +252,15 @@ export class AttendanceService {
     if (!employee) throw new NotFoundException('员工不存在，请先维护员工入职归档');
     const month = this.normalizeMonth(dto.month);
     if (!month) throw new BadRequestException('考勤月份无效');
+    // 是否参与倒挂抵扣是人员长期属性（存在档案上），不随月份变化，
+    // 但入口放在月度结余弹窗里，HR 调倒挂工时时顺手就能改。
+    if (dto.deductsInvertedHours !== undefined
+      && dto.deductsInvertedHours !== employee.deductsInvertedHours) {
+      await this.prisma.employeeArchive.update({
+        where: { id: dto.employeeId },
+        data: { deductsInvertedHours: dto.deductsInvertedHours },
+      });
+    }
     const year = Number(month.slice(0, 4));
     const monthNumber = Number(month.slice(5, 7));
     const values = {
@@ -299,7 +313,11 @@ export class AttendanceService {
       checkOutAt,
       dto.manualStatus ?? 'auto',
     );
-    const deductionMinutes = dto.deductionMinutes ?? (metrics.lateMinutes + metrics.earlyLeaveMinutes);
+    // 扣除工时只对参与倒挂抵扣的人有意义（没任务提前放人 → 倒挂欠账）；
+    // 其余岗位的迟到早退是纪律问题，不进倒挂，故恒为 0。
+    const deductionMinutes = employee.deductsInvertedHours
+      ? dto.deductionMinutes ?? (metrics.lateMinutes + metrics.earlyLeaveMinutes)
+      : 0;
     const overtimeMinutes = dto.overtimeMinutes ?? 0;
     const overtimeType = overtimeMinutes > 0
       ? dto.overtimeType ?? this.defaultOvertimeType(dto.attendanceDate, dto.manualStatus)
@@ -451,6 +469,7 @@ export class AttendanceService {
       deductionMinutes: 0,
       overtimeMinutes: 0,
       overtimeType: '',
+      leaveDayFraction: 1,
       source: '',
       note: '',
       employee,
@@ -474,6 +493,7 @@ export class AttendanceService {
       deductionMinutes: record.deductionMinutes,
       overtimeMinutes: record.overtimeMinutes,
       overtimeType: record.overtimeType,
+      leaveDayFraction: record.leaveDayFraction,
       source: record.source,
       note: record.note,
       employee,
@@ -482,6 +502,33 @@ export class AttendanceService {
 
   private isAttendanceEmployee(status: string) {
     return !/(离职|待入职|停薪)/.test(status);
+  }
+
+  private buildDepartmentOrder(departments: Array<{ name: string; sortOrder: number }>) {
+    return new Map(departments.map((department) => [department.name, department.sortOrder]));
+  }
+
+  /**
+   * 人员排序：先按部门在组织架构里的既定顺序（Department.sortOrder），同部门内按工号。
+   *
+   * 不能交给数据库的 ORDER BY department：中文字符串比较走 Unicode 码点，排出来的部门
+   * 次序对人没有意义（总经办 U+603B 会掉到人事行政部 U+4EBA 后面）。部门表里没登记的
+   * 部门（例如企微日报带进来的车间名）统一排在已配置部门之后，再按名称聚拢。
+   */
+  private sortByDepartment<T extends { department: string; rosterNo: string }>(
+    employees: T[],
+    departmentOrder: Map<string, number>,
+  ) {
+    const orderOf = (department: string) => departmentOrder.get(department) ?? Number.MAX_SAFE_INTEGER;
+    return [...employees].sort((left, right) => {
+      const gap = orderOf(left.department) - orderOf(right.department);
+      if (gap !== 0) return gap;
+      if (left.department !== right.department) {
+        return left.department.localeCompare(right.department, 'zh-Hans-CN');
+      }
+      // 工号是字符串列，直接比会让 "31" 排在 "5" 前面，这里按数字段落做自然排序
+      return left.rosterNo.localeCompare(right.rosterNo, 'zh-Hans-CN', { numeric: true });
+    });
   }
 
   private normalizeDate(value?: string) {
@@ -503,6 +550,11 @@ export class AttendanceService {
     records: ReturnType<AttendanceService['emptyRecord']>[],
   ) {
     const count = (statuses: string[]) => records.filter((record) => statuses.includes(record.status)).length;
+    // 请假类天数按 leaveDayFraction 累加：半天假记 0.5，否则 19 行半天假会被虚增成 19 天
+    const days = (statuses: string[]) => Number(records
+      .filter((record) => statuses.includes(record.status))
+      .reduce((total, record) => total + record.leaveDayFraction, 0)
+      .toFixed(2));
     const recordByDate = new Map(records.map((record) => [record.attendanceDate, record]));
     let expectedDays = 0;
     let missingDays = 0;
@@ -511,7 +563,10 @@ export class AttendanceService {
       const date = `${year}-${String(monthNumber).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
       const record = recordByDate.get(date);
       const sunday = new Date(`${date}T00:00:00Z`).getUTCDay() === 0;
-      const excluded = record && ['rest', 'holiday', 'compensatory_leave'].includes(record.status);
+      // 半天假仍有半天出勤义务，不整天剔除；rest 恒为整天，不受影响
+      const excluded = record
+        && ['rest', 'holiday', 'compensatory_leave'].includes(record.status)
+        && record.leaveDayFraction >= 1;
       if (sunday || excluded) continue;
       expectedDays += 1;
       if (date <= today && (!record || record.status === 'missing')) missingDays += 1;
@@ -519,21 +574,21 @@ export class AttendanceService {
     const hours = (type?: string) => Number((records
       .filter((record) => !type || record.overtimeType === type)
       .reduce((total, record) => total + record.overtimeMinutes, 0) / 60).toFixed(2));
-    const leaveDays = count(['leave', 'holiday', 'sick_leave', 'personal_leave', 'annual_leave', 'paternity_leave', 'compensatory_leave']);
+    const leaveDays = days(['leave', 'holiday', 'sick_leave', 'personal_leave', 'annual_leave', 'paternity_leave', 'compensatory_leave']);
     return {
       expectedDays,
       normalDays: count(['normal', 'late', 'early', 'late_early']),
       restDays: count(['rest']),
-      holidayDays: count(['leave', 'holiday', 'compensatory_leave']),
-      sickLeaveDays: count(['sick_leave']),
-      personalLeaveDays: count(['personal_leave']),
-      annualLeaveDays: count(['annual_leave']),
+      holidayDays: days(['leave', 'holiday', 'compensatory_leave']),
+      sickLeaveDays: days(['sick_leave']),
+      personalLeaveDays: days(['personal_leave']),
+      annualLeaveDays: days(['annual_leave']),
       absentDays: count(['absent']),
       lateEarlyCount: count(['late', 'early', 'late_early']),
-      paternityLeaveDays: count(['paternity_leave']),
-      compensatoryLeaveDays: count(['compensatory_leave']),
-      businessTripDays: count(['business_trip']),
-      studyDays: count(['study']),
+      paternityLeaveDays: days(['paternity_leave']),
+      compensatoryLeaveDays: days(['compensatory_leave']),
+      businessTripDays: days(['business_trip']),
+      studyDays: days(['study']),
       workdayOvertimeHours: hours('workday'),
       sundayOvertimeHours: hours('sunday'),
       holidayOvertimeHours: hours('holiday'),
@@ -556,11 +611,15 @@ export class AttendanceService {
     summary: ReturnType<AttendanceService['buildMonthlyEmployeeSummary']>,
     adjustment: EmployeeAttendanceMonth | ReturnType<AttendanceService['emptyMonthAdjustment']>,
     annualSickLeaveDays: number,
-    isProductionDepartment: boolean,
+    isProduction: boolean,
   ) {
     const round = (value: number) => Number(value.toFixed(2));
-    const productionWithInvertedHours = isProductionDepartment && adjustment.invertedHours > 0;
-    const availableInvertedHours = Math.max(0, adjustment.invertedHours - adjustment.recoveredHours);
+    // 倒挂工时 = 当月扣除工时合计（没干活却发了工资的时长），由考勤记录自动汇总；
+    // 月度结余里手工填了非 0 值时以手工为准，用于录入上月结转的欠账或人工订正。
+    const autoInvertedHours = round(summary.deductionMinutes / 60);
+    const effectiveInvertedHours = adjustment.invertedHours > 0 ? adjustment.invertedHours : autoInvertedHours;
+    const productionWithInvertedHours = isProduction && effectiveInvertedHours > 0;
+    const availableInvertedHours = Math.max(0, effectiveInvertedHours - adjustment.recoveredHours);
     const invertedOffsetHours = productionWithInvertedHours
       ? Math.min(availableInvertedHours, summary.workdayOvertimeHours)
       : 0;
@@ -577,11 +636,15 @@ export class AttendanceService {
 
     return {
       ruleType: productionWithInvertedHours ? 'production_inverted' as const : 'regular' as const,
+      /** 由当月扣除工时汇总出来的倒挂工时，供页面显示「自动算得多少」 */
+      autoInvertedHours,
+      /** 月度结余里手工填的倒挂工时；>0 时覆盖自动值 */
+      manualInvertedHours: round(adjustment.invertedHours),
       annualPaidSickLeaveAllowanceDays: ANNUAL_PAID_SICK_LEAVE_DAYS,
       annualSickLeaveDays: round(annualSickLeaveDays),
       paidSickLeaveUsedDays: round(Math.min(annualSickLeaveDays, ANNUAL_PAID_SICK_LEAVE_DAYS)),
       excessSickLeaveDays: round(excessSickLeaveDays),
-      startingInvertedHours: round(adjustment.invertedHours),
+      startingInvertedHours: round(effectiveInvertedHours),
       manuallyRecoveredHours: round(adjustment.recoveredHours),
       availableInvertedHours: round(availableInvertedHours),
       invertedOffsetHours: round(invertedOffsetHours),

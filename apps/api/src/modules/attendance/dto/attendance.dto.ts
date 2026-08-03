@@ -1,5 +1,8 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsISO8601,
@@ -237,6 +240,40 @@ export class SaveAttendanceMonthDto {
   @IsString()
   @MaxLength(500)
   note?: string;
+
+  /** 人员长期属性，写入员工档案而非本月结余；不传则不改动 */
+  @IsOptional()
+  @IsBoolean()
+  deductsInvertedHours?: boolean;
+}
+
+/**
+ * 导入确认：文件走 multipart 重传，这里只接勾选的员工。
+ * multipart 的字段都是字符串，employeeIds 允许传 JSON 数组文本或重复字段。
+ */
+export class ConfirmAttendanceImportDto {
+  @Transform(({ value }) => normalizeStringArray(value))
+  @IsArray()
+  @ArrayMaxSize(2000)
+  @IsString({ each: true })
+  @MaxLength(80, { each: true })
+  employeeIds!: string[];
+}
+
+function normalizeStringArray(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  if (typeof value !== 'string') return [];
+  const text = value.trim();
+  if (!text) return [];
+  if (text.startsWith('[')) {
+    try {
+      const parsed: unknown = JSON.parse(text);
+      if (Array.isArray(parsed)) return parsed.map((item) => String(item).trim()).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }
+  return text.split(',').map((item) => item.trim()).filter(Boolean);
 }
 
 export class ClockAttendanceDto {

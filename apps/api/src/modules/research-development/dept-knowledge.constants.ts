@@ -37,6 +37,15 @@ export const DEPT_KBS: DeptKbDef[] = [
   { id: 'production', label: '生产部', departmentCode: 'PRODUCTION' },
   { id: 'quality', label: '质量部', departmentCode: 'REGULATORY_QUALITY' },
   { id: 'sales', label: '销售部', departmentCode: 'SALES_MARKETING' },
+  // 以下 6 个补齐「每个部门都有独立知识库」：各部门资料需按人做可见范围控制，
+  // 故均登记进 LEVEL_FILTERED_DEPT_KB_IDS（见下）。
+  // ⚠️ rd-production 不能叫 production —— 那个 id 已被生产运营部占用。
+  { id: 'after-sales', label: '售后服务部', departmentCode: 'AFTER_SALES' },
+  { id: 'rd-registration', label: '研发注册部', departmentCode: 'RD_REGISTRATION' },
+  { id: 'customs', label: '关务单证部', departmentCode: 'CUSTOMS_DOCUMENTS' },
+  { id: 'legal', label: '法务合同部', departmentCode: 'LEGAL_CONTRACT' },
+  { id: 'it', label: '信息系统部', departmentCode: 'IT_SYSTEM' },
+  { id: 'rd-production', label: '研发生产部', departmentCode: 'PRODUCTION_DEPARTMENT' },
   // 中美协同知识库：给美国团队协同页面配套的独立库（前端入口在「中美协同」分组，不在部门知识库分组展示）
   { id: 'us-collab', label: '协同' },
 ];
@@ -55,7 +64,19 @@ export const DEPT_KB_IDS: ReadonlySet<string> = new Set(DEPT_KBS.map((d) => d.id
  * （deptkb.{id}.memberLevels），普通成员只能看到 permission_level ≤ 本人分值的条目；
  * 未登记成员按 0 处理（仅可见完全公开条目）。其余部门库维持一期「成员全可见」。
  */
-export const LEVEL_FILTERED_DEPT_KB_IDS: ReadonlySet<string> = new Set(['us-collab', 'purchasing']);
+export const LEVEL_FILTERED_DEPT_KB_IDS: ReadonlySet<string> = new Set([
+  'us-collab',
+  'purchasing',
+  // 2026-08 新增的 6 个部门库一律启用按人分值过滤（各部门资料需按人控制可见范围）。
+  // ⚠️ 刻意不改动 gm/hr/finance/production/quality/sales —— 那几个库现有资料是「成员全可见」，
+  //    改成过滤会让未登记分值的成员立刻看不到已有内容，属破坏性变更。要开需先维护好分值表。
+  'after-sales',
+  'rd-registration',
+  'customs',
+  'legal',
+  'it',
+  'rd-production',
+]);
 
 export const isDeptKbId = (id: string | undefined | null): boolean =>
   typeof id === 'string' && DEPT_KB_IDS.has(id);
