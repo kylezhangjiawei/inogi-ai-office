@@ -7,6 +7,15 @@ import { initI18n, t, useI18n } from "./lib/i18n";
 import { hasPermission } from "./lib/permissions";
 import { cn } from "./components/ui/utils";
 import { Toaster } from "./components/ui/sonner";
+import {
+  closeMobileOverlay,
+  isCurrentMobileOverlay,
+  pushMobileOverlayState,
+  useBodyScrollLock,
+  useMobileOverlayBack,
+} from "./hooks/useMobileOverlay";
+
+const MENU_OVERLAY = "mobile-shell-menu";
 
 /**
  * 移动端布局（独立路由树 `/m` 的外壳）：
@@ -35,6 +44,18 @@ export function MobileLayout() {
     root.classList.add("mobile-route");
     return () => root.classList.remove("mobile-route");
   }, []);
+
+  useBodyScrollLock(menuOpen);
+  useMobileOverlayBack(menuOpen, MENU_OVERLAY, () => setMenuOpen(false));
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closeMobileOverlay(MENU_OVERLAY, () => setMenuOpen(false));
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [menuOpen]);
 
   if (!hydrated) {
     return (
@@ -71,13 +92,22 @@ export function MobileLayout() {
   const shellSubtitle = isChatAnalytics ? "管理移动视图" : t("移动协作视图");
 
   const goTo = (path: string) => {
+    const replaceOverlayEntry = isCurrentMobileOverlay(MENU_OVERLAY);
     setMenuOpen(false);
-    navigate(path);
+    navigate(path, { replace: replaceOverlayEntry });
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "auto" }));
   };
 
+  const openMenu = () => {
+    pushMobileOverlayState(MENU_OVERLAY);
+    setMenuOpen(true);
+  };
+
+  const closeMenu = () => closeMobileOverlay(MENU_OVERLAY, () => setMenuOpen(false));
+
   return (
-    <div className="flex min-h-[100dvh] flex-col bg-slate-50">
-      <header className="flex items-center justify-between border-b border-slate-200 bg-white/90 px-4 py-3 backdrop-blur-md">
+    <div className="flex h-[100dvh] flex-col bg-slate-50">
+      <header className="flex shrink-0 items-center justify-between border-b border-slate-200 bg-white/90 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur-md">
         <div className="flex min-w-0 items-center gap-2.5">
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-indigo-600 font-black text-white shadow-[0_4px_12px_-4px_rgba(79,70,229,0.5)]">
             {isChatAnalytics ? <BarChart3 size={18} /> : <span className="text-base">{isUsCollabWorkspace() ? "协" : "研"}</span>}
@@ -93,7 +123,7 @@ export function MobileLayout() {
         </div>
         <button
           type="button"
-          onClick={() => setMenuOpen(true)}
+          onClick={openMenu}
           aria-label="打开菜单"
           className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl text-slate-500 active:bg-slate-100"
         >
@@ -101,15 +131,16 @@ export function MobileLayout() {
         </button>
       </header>
 
-      <main className="flex-1">
+      <main className="min-h-0 flex-1">
         <Outlet />
       </main>
 
       {menuOpen && (
-        <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" onClick={() => setMenuOpen(false)}>
+        <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="移动端菜单" onClick={closeMenu}>
           <div className="absolute inset-0 bg-slate-900/30 backdrop-blur-sm" />
           <div
-            className="absolute right-3 top-3 w-72 max-w-[calc(100vw-24px)] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+            className="absolute right-3 top-[max(0.75rem,env(safe-area-inset-top))] w-72 max-w-[calc(100vw-24px)] overflow-y-auto rounded-2xl border border-slate-200 bg-white shadow-2xl"
+            style={{ maxHeight: "calc(100dvh - max(1.5rem, env(safe-area-inset-top)) - env(safe-area-inset-bottom))" }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center gap-3 border-b border-slate-100 px-5 py-4">

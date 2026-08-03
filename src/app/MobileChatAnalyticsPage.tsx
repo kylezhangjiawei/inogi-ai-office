@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Activity,
   AlertTriangle,
@@ -24,6 +24,12 @@ import { toast } from 'sonner';
 
 import { cn } from './components/ui/utils';
 import {
+  closeMobileOverlay,
+  pushMobileOverlayState,
+  useBodyScrollLock,
+  useMobileOverlayBack,
+} from './hooks/useMobileOverlay';
+import {
   chatAnalyticsApi,
   type ChatAnalyticsData,
   type ChatAnalyticsUserDetail,
@@ -35,6 +41,8 @@ type MobileTab = 'overview' | 'people' | 'feedback';
 type PeopleStage = 'all' | 'repeat' | 'light' | 'one_time' | 'not_used';
 type FeedbackReaction = 'all' | ChatFeedbackRow['reaction'];
 type FeedbackStatus = 'all' | ChatFeedbackRow['status'];
+
+const PERSON_DETAIL_OVERLAY = 'chat-analytics-person-detail';
 
 const RANGE_OPTIONS: Array<{ value: RangeDays; label: string }> = [
   { value: 7, label: '7 天' },
@@ -66,7 +74,9 @@ const PEOPLE_STAGES: Array<{ value: PeopleStage; label: string }> = [
 
 function formatDateTime(value: string | null) {
   if (!value) return '—';
-  return new Date(value).toLocaleString('zh-CN', {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString('zh-CN', {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
@@ -76,7 +86,9 @@ function formatDateTime(value: string | null) {
 
 function formatDate(value: string | null) {
   if (!value) return '—';
-  return new Date(value).toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleDateString('zh-CN', { month: '2-digit', day: '2-digit' });
 }
 
 function stageMeta(row: ChatAnalyticsData['userAdoption'][number]) {
@@ -142,11 +154,12 @@ function PersonDetail({
   const [feedbackStatus, setFeedbackStatus] = useState<FeedbackStatus>('all');
   const [feedbackPage, setFeedbackPage] = useState(1);
   const pageSize = 5;
+  useBodyScrollLock(true);
 
   const scenarios = [...new Set((detail?.recentActivity ?? []).map((row) => row.scenario))].sort();
   const filteredActivity = (detail?.recentActivity ?? []).filter((row) => {
     const keyword = activityQuery.trim().toLowerCase();
-    return (!keyword || [row.question, row.answer, row.model ?? ''].some((value) => value.toLowerCase().includes(keyword)))
+    return (!keyword || [row.question, row.answer, row.model].some((value) => String(value ?? '').toLowerCase().includes(keyword)))
       && (activityScenario === 'all' || row.scenario === activityScenario);
   });
   const safeActivityPage = Math.min(activityPage, Math.max(1, Math.ceil(filteredActivity.length / pageSize)));
@@ -159,10 +172,17 @@ function PersonDetail({
 
   useEffect(() => setActivityPage(1), [activityQuery, activityScenario]);
   useEffect(() => setFeedbackPage(1), [feedbackReaction, feedbackStatus]);
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
 
   return (
-    <div className="fixed inset-0 z-[70] flex flex-col bg-[#f5f7fb]">
-      <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-slate-200 bg-white/95 px-3 py-2.5 backdrop-blur">
+    <div className="fixed inset-0 z-[70] flex flex-col overscroll-none bg-[#f5f7fb]" role="dialog" aria-modal="true" aria-label="人员使用详情">
+      <header className="sticky top-0 z-10 flex items-center gap-3 border-b border-slate-200 bg-white/95 px-3 pb-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] backdrop-blur">
         <button type="button" aria-label="返回" onClick={onClose} className="flex h-11 w-11 items-center justify-center rounded-xl text-slate-600 active:bg-slate-100"><ArrowLeft size={21} /></button>
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-base font-bold text-slate-950">{detail?.person.name ?? '人员详情'}</h2>
@@ -171,7 +191,7 @@ function PersonDetail({
         <button type="button" aria-label="关闭" onClick={onClose} className="flex h-11 w-11 items-center justify-center rounded-xl text-slate-400 active:bg-slate-100"><X size={20} /></button>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4">
+      <div className="min-h-0 flex-1 overscroll-contain overflow-y-auto px-3 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
         {loading ? (
           <div className="space-y-3"><div className="h-28 animate-pulse rounded-2xl bg-white" /><div className="h-80 animate-pulse rounded-2xl bg-white" /></div>
         ) : detail ? (
@@ -210,7 +230,7 @@ function PersonDetail({
                     <select value={feedbackReaction} onChange={(event) => setFeedbackReaction(event.target.value as FeedbackReaction)} className="h-11 rounded-xl border border-slate-200 bg-white px-2 text-xs"><option value="all">全部类型</option><option value="like">有帮助</option><option value="dislike">需改进</option></select>
                     <select value={feedbackStatus} onChange={(event) => setFeedbackStatus(event.target.value as FeedbackStatus)} className="h-11 rounded-xl border border-slate-200 bg-white px-2 text-xs"><option value="all">全部状态</option>{Object.entries(STATUS_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
                   </div>
-                  <div className="mt-3 space-y-2">{pagedFeedback.map((row) => <article key={row.id} className="rounded-2xl border border-slate-200 p-3 text-xs"><div className="flex items-center justify-between"><span className={cn('rounded-full px-2 py-1 font-semibold', row.reaction === 'like' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700')}>{row.reaction === 'like' ? '有帮助' : '需改进'}</span><span className={cn('rounded-full px-2 py-1', STATUS_TONE[row.status])}>{STATUS_LABEL[row.status]}</span></div>{row.reasonLabels.length > 0 && <p className="mt-2 leading-5 text-slate-700">{row.reasonLabels.join('、')}</p>}{row.comment && <p className="mt-1 leading-5 text-slate-500">“{row.comment}”</p>}</article>)}</div>
+                  <div className="mt-3 space-y-2">{pagedFeedback.map((row) => <article key={row.id} className="rounded-2xl border border-slate-200 p-3 text-xs"><div className="flex items-center justify-between"><span className={cn('rounded-full px-2 py-1 font-semibold', row.reaction === 'like' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700')}>{row.reaction === 'like' ? '有帮助' : '需改进'}</span><span className={cn('rounded-full px-2 py-1', STATUS_TONE[row.status])}>{STATUS_LABEL[row.status]}</span></div>{(row.reasonLabels ?? []).length > 0 && <p className="mt-2 leading-5 text-slate-700">{(row.reasonLabels ?? []).join('、')}</p>}{row.comment && <p className="mt-1 leading-5 text-slate-500">“{row.comment}”</p>}</article>)}</div>
                   <div className="mt-3"><MobilePager page={safeFeedbackPage} pageSize={pageSize} total={filteredFeedback.length} onChange={setFeedbackPage} /></div>
                 </section>
               )}
@@ -239,19 +259,32 @@ export function MobileChatAnalyticsPage() {
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [userDetail, setUserDetail] = useState<ChatAnalyticsUserDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const dashboardRequestRef = useRef(0);
+  const mountedRef = useRef(true);
   const pageSize = 8;
 
   const load = useCallback(async () => {
+    const requestId = ++dashboardRequestRef.current;
     setLoading(true);
     try {
-      setData(await chatAnalyticsApi.getDashboard(days));
+      const next = await chatAnalyticsApi.getDashboard(days);
+      if (mountedRef.current && requestId === dashboardRequestRef.current) setData(next);
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : '使用数据加载失败');
+      if (mountedRef.current && requestId === dashboardRequestRef.current) {
+        toast.error(error instanceof Error ? error.message : '使用数据加载失败');
+      }
     } finally {
-      setLoading(false);
+      if (mountedRef.current && requestId === dashboardRequestRef.current) setLoading(false);
     }
   }, [days]);
 
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      dashboardRequestRef.current += 1;
+    };
+  }, []);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     if (!selectedUserId) { setUserDetail(null); return; }
@@ -264,12 +297,36 @@ export function MobileChatAnalyticsPage() {
     return () => { active = false; };
   }, [days, selectedUserId]);
 
+  const dismissPersonDetail = useCallback(() => {
+    setSelectedUserId(null);
+    setUserDetail(null);
+  }, []);
+  useMobileOverlayBack(Boolean(selectedUserId), PERSON_DETAIL_OVERLAY, dismissPersonDetail);
+
+  const openPersonDetail = (userId: string) => {
+    pushMobileOverlayState(PERSON_DETAIL_OVERLAY);
+    setUserDetail(null);
+    setSelectedUserId(userId);
+  };
+
+  const closePersonDetail = () => closeMobileOverlay(PERSON_DETAIL_OVERLAY, dismissPersonDetail);
+
+  const selectRange = (nextDays: RangeDays) => {
+    if (nextDays === days) return;
+    // 立即隐藏旧周期数据，并让尚未返回的旧请求失效，避免标签与数据周期错位。
+    dashboardRequestRef.current += 1;
+    setData(null);
+    setLoading(true);
+    setDays(nextDays);
+  };
+
   const departments = useMemo(() => [...new Set((data?.userAdoption ?? []).map((row) => row.department))].sort(), [data]);
   const feedbackDepartments = useMemo(() => [...new Set((data?.recentFeedback ?? []).map((row) => row.department))].sort(), [data]);
   const filteredPeople = useMemo(() => {
     const keyword = peopleQuery.trim().toLowerCase();
     return (data?.userAdoption ?? []).filter((row) => {
-      const matchesKeyword = !keyword || [row.name, row.department, row.role, row.primaryScenario].some((value) => value.toLowerCase().includes(keyword));
+      const matchesKeyword = !keyword || [row.name, row.department, row.role, row.primaryScenario]
+        .some((value) => String(value ?? '').toLowerCase().includes(keyword));
       const matchesDepartment = peopleDepartment === 'all' || row.department === peopleDepartment;
       const matchesStage = peopleStage === 'all'
         || (peopleStage === 'repeat' && row.activeDays >= 2)
@@ -285,7 +342,8 @@ export function MobileChatAnalyticsPage() {
   const filteredFeedback = useMemo(() => {
     const keyword = feedbackQuery.trim().toLowerCase();
     return (data?.recentFeedback ?? []).filter((row) => {
-      const matchesKeyword = !keyword || [row.user, row.department, row.question, row.answer, row.comment, ...row.reasonLabels].some((value) => value.toLowerCase().includes(keyword));
+      const matchesKeyword = !keyword || [row.user, row.department, row.question, row.answer, row.comment, ...(row.reasonLabels ?? [])]
+        .some((value) => String(value ?? '').toLowerCase().includes(keyword));
       return matchesKeyword
         && (feedbackReaction === 'all' || row.reaction === feedbackReaction)
         && (feedbackStatus === 'all' || row.status === feedbackStatus)
@@ -314,13 +372,17 @@ export function MobileChatAnalyticsPage() {
         ? '采用正在起步，复用仍不足'
         : summary.activeUsers > 0 ? '仍处于早期验证阶段' : '尚未形成实际使用';
 
+  const selectTab = (nextTab: MobileTab) => {
+    setTab(nextTab);
+    window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'auto' }));
+  };
+
   const openPeople = (stage: PeopleStage) => {
     setPeopleQuery('');
     setPeopleDepartment('all');
     setPeopleStage(stage);
     setPeoplePage(1);
-    setTab('people');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    selectTab('people');
   };
 
   const openFeedback = () => {
@@ -329,8 +391,7 @@ export function MobileChatAnalyticsPage() {
     setFeedbackStatus(summary?.openFeedback ? 'open' : 'all');
     setFeedbackDepartment('all');
     setFeedbackPage(1);
-    setTab('feedback');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    selectTab('feedback');
   };
 
   return (
@@ -344,7 +405,7 @@ export function MobileChatAnalyticsPage() {
           <button type="button" onClick={() => void load()} disabled={loading} className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 text-slate-600 active:bg-slate-100 disabled:opacity-40" aria-label="刷新数据"><RefreshCw size={18} className={loading ? 'animate-spin' : ''} /></button>
         </div>
         <div className="mt-3 grid grid-cols-3 gap-1 rounded-2xl bg-slate-100 p-1">
-          {RANGE_OPTIONS.map((option) => <button key={option.value} type="button" onClick={() => setDays(option.value)} className={cn('h-11 rounded-xl text-xs font-bold transition', days === option.value ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500')}>{option.label}</button>)}
+          {RANGE_OPTIONS.map((option) => <button key={option.value} type="button" onClick={() => selectRange(option.value)} className={cn('h-11 rounded-xl text-xs font-bold transition', days === option.value ? 'bg-white text-indigo-700 shadow-sm' : 'text-slate-500')}>{option.label}</button>)}
         </div>
       </section>
 
@@ -353,7 +414,7 @@ export function MobileChatAnalyticsPage() {
           ['overview', '概览', BarChart3],
           ['people', '人员', Users],
           ['feedback', '反馈', MessageSquareText],
-        ] as const).map(([value, label, Icon]) => <button key={value} type="button" onClick={() => setTab(value)} className={cn('relative flex h-12 items-center justify-center gap-1.5 text-xs font-bold', tab === value ? 'text-indigo-700' : 'text-slate-400')}><Icon size={15} />{label}{tab === value && <span className="absolute inset-x-5 bottom-0 h-0.5 rounded-full bg-indigo-600" />}</button>)}
+        ] as const).map(([value, label, Icon]) => <button key={value} type="button" onClick={() => selectTab(value)} className={cn('relative flex h-12 items-center justify-center gap-1.5 text-xs font-bold', tab === value ? 'text-indigo-700' : 'text-slate-400')}><Icon size={15} />{label}{tab === value && <span className="absolute inset-x-5 bottom-0 h-0.5 rounded-full bg-indigo-600" />}</button>)}
       </nav>
 
       {loading && !data ? (
@@ -399,7 +460,7 @@ export function MobileChatAnalyticsPage() {
 
               <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center gap-2"><Building2 size={17} className="text-indigo-500" /><h2 className="text-sm font-bold text-slate-900">部门采用</h2></div>
-                <div className="mt-4 space-y-3">{data.departments.slice(0, 5).map((department) => <button key={department.department} type="button" onClick={() => { setPeopleDepartment(department.department); setPeopleStage('all'); setTab('people'); }} className="block min-h-11 w-full rounded-xl px-1 py-1 text-left active:bg-slate-50"><div className="flex items-center justify-between text-xs"><span className="font-semibold text-slate-700">{department.department}</span><span className="font-bold text-slate-900">{department.adoptionRate}%</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-indigo-500" style={{ width: `${department.adoptionRate}%` }} /></div><p className="mt-1 text-[10px] text-slate-400">{department.activeUsers}/{department.eligibleUsers} 人 · 较上期 {department.adoptionRate - department.previousAdoptionRate >= 0 ? '+' : ''}{Number((department.adoptionRate - department.previousAdoptionRate).toFixed(1))}pp</p></button>)}</div>
+                <div className="mt-4 space-y-3">{data.departments.slice(0, 5).map((department) => <button key={department.department} type="button" onClick={() => { setPeopleDepartment(department.department); setPeopleStage('all'); selectTab('people'); }} className="block min-h-11 w-full rounded-xl px-1 py-1 text-left active:bg-slate-50"><div className="flex items-center justify-between text-xs"><span className="font-semibold text-slate-700">{department.department}</span><span className="font-bold text-slate-900">{department.adoptionRate}%</span></div><div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-indigo-500" style={{ width: `${department.adoptionRate}%` }} /></div><p className="mt-1 text-[10px] text-slate-400">{department.activeUsers}/{department.eligibleUsers} 人 · 较上期 {department.adoptionRate - department.previousAdoptionRate >= 0 ? '+' : ''}{Number((department.adoptionRate - department.previousAdoptionRate).toFixed(1))}pp</p></button>)}</div>
               </section>
 
               <section className={cn('rounded-2xl border p-4 shadow-sm', sampleInsufficient ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50')}>
@@ -416,7 +477,7 @@ export function MobileChatAnalyticsPage() {
                 <select value={peopleDepartment} onChange={(event) => setPeopleDepartment(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm text-slate-700"><option value="all">全部部门</option>{departments.map((department) => <option key={department} value={department}>{department}</option>)}</select>
                 <div className="mt-3 flex gap-2 overflow-x-auto pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">{PEOPLE_STAGES.map((stage) => <button key={stage.value} type="button" onClick={() => setPeopleStage(stage.value)} className={cn('h-11 shrink-0 rounded-full px-3.5 text-xs font-bold', peopleStage === stage.value ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600')}>{stage.label}</button>)}</div>
               </section>
-              <div className="space-y-3">{pagedPeople.map((row) => { const stage = stageMeta(row); return <button key={row.userId} type="button" onClick={() => setSelectedUserId(row.userId)} className="block w-full rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm active:scale-[0.99]"><div className="flex items-start gap-3"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 text-base font-black text-indigo-700">{row.name.slice(0, 1)}</span><span className="min-w-0 flex-1"><span className="flex items-center gap-2"><strong className="truncate text-sm text-slate-950">{row.name}</strong><span className={cn('shrink-0 rounded-full px-2 py-1 text-[10px] font-bold', stage.className)}>{stage.label}</span></span><span className="mt-1 block truncate text-[11px] text-slate-400">{row.department}{row.role ? ` · ${row.role}` : ''}</span></span><ChevronRight size={18} className="mt-2 shrink-0 text-slate-300" /></div><div className="mt-4 grid grid-cols-3 divide-x divide-slate-100 rounded-xl bg-slate-50 py-2.5 text-center"><span><strong className="block text-sm text-slate-900">{row.questions}</strong><small className="text-[10px] text-slate-400">提问</small></span><span><strong className="block text-sm text-slate-900">{row.activeDays}</strong><small className="text-[10px] text-slate-400">活跃天</small></span><span><strong className="block truncate px-1 text-xs text-slate-700">{row.primaryScenario}</strong><small className="text-[10px] text-slate-400">主要用途</small></span></div><p className="mt-3 flex items-center gap-1.5 text-[11px] text-slate-400"><Clock3 size={12} />最近使用 {formatDateTime(row.lastActiveAt)}</p></button>; })}{filteredPeople.length === 0 && <div className="rounded-2xl border border-slate-200 bg-white px-5 py-12 text-center text-sm text-slate-400">没有符合条件的人员</div>}</div>
+              <div className="space-y-3">{pagedPeople.map((row) => { const stage = stageMeta(row); return <button key={row.userId} type="button" onClick={() => openPersonDetail(row.userId)} className="block w-full rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm active:scale-[0.99]"><div className="flex items-start gap-3"><span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-indigo-50 text-base font-black text-indigo-700">{String(row.name ?? '').slice(0, 1) || '?'}</span><span className="min-w-0 flex-1"><span className="flex items-center gap-2"><strong className="truncate text-sm text-slate-950">{row.name}</strong><span className={cn('shrink-0 rounded-full px-2 py-1 text-[10px] font-bold', stage.className)}>{stage.label}</span></span><span className="mt-1 block truncate text-[11px] text-slate-400">{row.department}{row.role ? ` · ${row.role}` : ''}</span></span><ChevronRight size={18} className="mt-2 shrink-0 text-slate-300" /></div><div className="mt-4 grid grid-cols-3 divide-x divide-slate-100 rounded-xl bg-slate-50 py-2.5 text-center"><span><strong className="block text-sm text-slate-900">{row.questions}</strong><small className="text-[10px] text-slate-400">提问</small></span><span><strong className="block text-sm text-slate-900">{row.activeDays}</strong><small className="text-[10px] text-slate-400">活跃天</small></span><span><strong className="block truncate px-1 text-xs text-slate-700">{row.primaryScenario}</strong><small className="text-[10px] text-slate-400">主要用途</small></span></div><p className="mt-3 flex items-center gap-1.5 text-[11px] text-slate-400"><Clock3 size={12} />最近使用 {formatDateTime(row.lastActiveAt)}</p></button>; })}{filteredPeople.length === 0 && <div className="rounded-2xl border border-slate-200 bg-white px-5 py-12 text-center text-sm text-slate-400">没有符合条件的人员</div>}</div>
               <MobilePager page={safePeoplePage} pageSize={pageSize} total={filteredPeople.length} onChange={setPeoplePage} />
             </div>
           )}
@@ -429,14 +490,14 @@ export function MobileChatAnalyticsPage() {
                 <div className="mt-2 grid grid-cols-2 gap-2"><select value={feedbackReaction} onChange={(event) => setFeedbackReaction(event.target.value as FeedbackReaction)} className="h-11 rounded-xl border border-slate-200 bg-white px-2 text-xs"><option value="all">全部类型</option><option value="like">有帮助</option><option value="dislike">需改进</option></select><select value={feedbackStatus} onChange={(event) => setFeedbackStatus(event.target.value as FeedbackStatus)} className="h-11 rounded-xl border border-slate-200 bg-white px-2 text-xs"><option value="all">全部状态</option>{Object.entries(STATUS_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
                 <select value={feedbackDepartment} onChange={(event) => setFeedbackDepartment(event.target.value)} className="mt-2 h-11 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm"><option value="all">全部部门</option>{feedbackDepartments.map((department) => <option key={department} value={department}>{department}</option>)}</select>
               </section>
-              <div className="space-y-3">{pagedFeedback.map((row) => <article key={row.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-start justify-between gap-2"><button type="button" onClick={() => setSelectedUserId(row.userId)} className="min-h-11 min-w-0 py-1 text-left"><strong className="block truncate text-sm text-slate-950">{row.user}</strong><span className="mt-1 block text-[11px] text-slate-400">{row.department}</span></button><span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold', STATUS_TONE[row.status])}>{STATUS_LABEL[row.status]}</span></div><div className="mt-3 flex items-center gap-2"><span className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold', row.reaction === 'like' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700')}>{row.reaction === 'like' ? <ThumbsUp size={11} /> : <ThumbsDown size={11} />}{row.reaction === 'like' ? '有帮助' : '需改进'}</span><span className="text-[10px] text-slate-400">{formatDateTime(row.submittedAt)}</span></div>{row.reasonLabels.length > 0 && <p className="mt-3 text-xs font-semibold leading-5 text-slate-700">{row.reasonLabels.join('、')}</p>}{row.comment && <p className="mt-1 text-xs leading-5 text-slate-500">“{row.comment}”</p>}<div className="mt-3 space-y-2 rounded-2xl bg-slate-50 p-3 text-xs leading-5"><p className="line-clamp-2 text-slate-700"><strong className="text-slate-400">问：</strong>{row.question || '—'}</p><p className="line-clamp-3 text-slate-500"><strong className="text-slate-400">答：</strong>{row.answer || '—'}</p></div>{row.resolutionNote && <p className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800">处理结论：{row.resolutionNote}</p>}</article>)}{filteredFeedback.length === 0 && <div className="rounded-2xl border border-slate-200 bg-white px-5 py-12 text-center"><AlertTriangle size={22} className="mx-auto text-slate-300" /><p className="mt-2 text-sm text-slate-400">没有符合条件的反馈</p></div>}</div>
+              <div className="space-y-3">{pagedFeedback.map((row) => <article key={row.id} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"><div className="flex items-start justify-between gap-2"><button type="button" onClick={() => openPersonDetail(row.userId)} className="min-h-11 min-w-0 py-1 text-left"><strong className="block truncate text-sm text-slate-950">{row.user}</strong><span className="mt-1 block text-[11px] text-slate-400">{row.department}</span></button><span className={cn('shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold', STATUS_TONE[row.status])}>{STATUS_LABEL[row.status]}</span></div><div className="mt-3 flex items-center gap-2"><span className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold', row.reaction === 'like' ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700')}>{row.reaction === 'like' ? <ThumbsUp size={11} /> : <ThumbsDown size={11} />}{row.reaction === 'like' ? '有帮助' : '需改进'}</span><span className="text-[10px] text-slate-400">{formatDateTime(row.submittedAt)}</span></div>{(row.reasonLabels ?? []).length > 0 && <p className="mt-3 text-xs font-semibold leading-5 text-slate-700">{(row.reasonLabels ?? []).join('、')}</p>}{row.comment && <p className="mt-1 text-xs leading-5 text-slate-500">“{row.comment}”</p>}<div className="mt-3 space-y-2 rounded-2xl bg-slate-50 p-3 text-xs leading-5"><p className="line-clamp-2 text-slate-700"><strong className="text-slate-400">问：</strong>{row.question || '—'}</p><p className="line-clamp-3 text-slate-500"><strong className="text-slate-400">答：</strong>{row.answer || '—'}</p></div>{row.resolutionNote && <p className="mt-3 rounded-xl bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-800">处理结论：{row.resolutionNote}</p>}</article>)}{filteredFeedback.length === 0 && <div className="rounded-2xl border border-slate-200 bg-white px-5 py-12 text-center"><AlertTriangle size={22} className="mx-auto text-slate-300" /><p className="mt-2 text-sm text-slate-400">没有符合条件的反馈</p></div>}</div>
               <MobilePager page={safeFeedbackPage} pageSize={pageSize} total={filteredFeedback.length} onChange={setFeedbackPage} />
             </div>
           )}
         </main>
-      ) : <div className="px-3 py-16 text-center text-sm text-rose-600">使用数据暂时无法加载</div>}
+      ) : <div className="px-3 py-16 text-center"><p className="text-sm text-rose-600">使用数据暂时无法加载</p><button type="button" onClick={() => void load()} className="mt-4 min-h-11 rounded-xl bg-indigo-600 px-5 text-sm font-bold text-white active:bg-indigo-700">重新加载</button></div>}
 
-      {selectedUserId && <PersonDetail detail={userDetail} loading={detailLoading} onClose={() => setSelectedUserId(null)} />}
+      {selectedUserId && <PersonDetail detail={userDetail} loading={detailLoading} onClose={closePersonDetail} />}
     </div>
   );
 }

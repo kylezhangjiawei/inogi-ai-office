@@ -343,10 +343,19 @@ let dictVersion = 0;
 let snapshot = { lang: currentLang, dictVersion };
 const listeners = new Set<() => void>();
 
+function syncDocumentLanguage() {
+  if (typeof document !== "undefined") {
+    document.documentElement.lang = currentLang === "en" ? "en" : "zh-CN";
+  }
+}
+
 function emit() {
+  syncDocumentLanguage();
   snapshot = { lang: currentLang, dictVersion };
   for (const fn of listeners) fn();
 }
+
+syncDocumentLanguage();
 
 function subscribe(fn: () => void) {
   listeners.add(fn);

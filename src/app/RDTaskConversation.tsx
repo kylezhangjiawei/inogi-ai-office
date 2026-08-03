@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import {
   ArrowLeft,
+  ChevronDown,
   Eye,
   FileText,
   ImageIcon,
@@ -35,6 +36,7 @@ import {
   type RdTaskDiscussionMessage,
   type RdTaskDiscussionResponse,
   type RdTaskDiscussionThreadSummary,
+  type RdTaskProgressAttachment,
   type RdTaskProgressNote,
 } from "./lib/rdApi";
 import { i18nLocale, t, useI18n } from "./lib/i18n";
@@ -46,6 +48,7 @@ const DISCUSSION_MAX_FILES = 10;
 const DISCUSSION_MAX_FILE_BYTES = 25 * 1024 * 1024;
 const DISCUSSION_MAX_TOTAL_BYTES = 50 * 1024 * 1024;
 const DISCUSSION_POLL_INTERVAL_MS = 5_000;
+const STICK_TO_BOTTOM_THRESHOLD_PX = 72;
 const DISCUSSION_BLOCKED_EXTENSIONS = new Set([
   "apk",
   "app",
@@ -287,6 +290,123 @@ function mergeDiscussionMessages(
     const timeOrder = a.created_at.localeCompare(b.created_at);
     return timeOrder || a.id.localeCompare(b.id);
   });
+}
+
+function sameAttachments(
+  current: RdTaskProgressAttachment[] | undefined,
+  next: RdTaskProgressAttachment[] | undefined,
+): boolean {
+  const left = current ?? [];
+  const right = next ?? [];
+  return left.length === right.length && left.every((attachment, index) => {
+    const candidate = right[index];
+    return attachment.id === candidate.id
+      && attachment.name === candidate.name
+      && attachment.mime === candidate.mime
+      && attachment.size === candidate.size
+      && attachment.object_key === candidate.object_key
+      && attachment.preview_url === candidate.preview_url
+      && attachment.download_url === candidate.download_url
+      && attachment.thumb_url === candidate.thumb_url;
+  });
+}
+
+function sameDiscussionMessage(
+  current: RdTaskDiscussionMessage,
+  next: RdTaskDiscussionMessage,
+): boolean {
+  return current.id === next.id
+    && current.author_id === next.author_id
+    && current.author_name === next.author_name
+    && current.author_role === next.author_role
+    && current.body === next.body
+    && current.reply_to_id === next.reply_to_id
+    && current.created_at === next.created_at
+    && current.edited_at === next.edited_at
+    && current.reply_to?.id === next.reply_to?.id
+    && current.reply_to?.author_name === next.reply_to?.author_name
+    && current.reply_to?.body === next.reply_to?.body
+    && sameAttachments(current.attachments, next.attachments)
+    && current.mentions.length === next.mentions.length
+    && current.mentions.every((mention, index) => (
+      mention.user_id === next.mentions[index]?.user_id
+      && mention.name === next.mentions[index]?.name
+    ));
+}
+
+function sameThreadSummary(
+  current: RdTaskDiscussionThreadSummary,
+  next: RdTaskDiscussionThreadSummary,
+): boolean {
+  return current.thread_id === next.thread_id
+    && current.anchor_type === next.anchor_type
+    && current.anchor_id === next.anchor_id
+    && current.message_count === next.message_count
+    && current.unread_count === next.unread_count
+    && current.last_message_at === next.last_message_at;
+}
+
+/**
+ * Returning the existing state for an unchanged poll keeps the motion/chat
+ * tree and its scroll container untouched. The comparison deliberately avoids
+ * reading large data-URI attachment payloads, which could itself cause a frame
+ * hitch on low-memory phones.
+ */
+function sameDiscussionResponse(
+  current: RdTaskDiscussionResponse,
+  next: RdTaskDiscussionResponse,
+): boolean {
+  const currentInvitation = current.invitation;
+  const nextInvitation = next.invitation;
+  const sameInvitation = currentInvitation === nextInvitation || Boolean(
+    currentInvitation
+    && nextInvitation
+    && currentInvitation.invited_by_id === nextInvitation.invited_by_id
+    && currentInvitation.invited_by_name === nextInvitation.invited_by_name
+    && currentInvitation.invited_at === nextInvitation.invited_at,
+  );
+  const currentAnchor = current.anchor_preview;
+  const nextAnchor = next.anchor_preview;
+  const sameAnchor = currentAnchor === nextAnchor || Boolean(
+    currentAnchor
+    && nextAnchor
+    && currentAnchor.type === nextAnchor.type
+    && currentAnchor.id === nextAnchor.id
+    && currentAnchor.author_id === nextAnchor.author_id
+    && currentAnchor.author_name === nextAnchor.author_name
+    && currentAnchor.body === nextAnchor.body
+    && currentAnchor.created_at === nextAnchor.created_at
+    && sameAttachments(currentAnchor.attachments, nextAnchor.attachments),
+  );
+  return current.can_post === next.can_post
+    && current.access_scope === next.access_scope
+    && current.task_title === next.task_title
+    && sameInvitation
+    && sameAnchor
+    && current.thread.id === next.thread.id
+    && current.thread.task_id === next.thread.task_id
+    && current.thread.anchor_type === next.thread.anchor_type
+    && current.thread.anchor_id === next.thread.anchor_id
+    && current.thread.message_count === next.thread.message_count
+    && current.thread.unread_count === next.thread.unread_count
+    && current.messages.length === next.messages.length
+    && current.messages.every((message, index) => sameDiscussionMessage(message, next.messages[index]))
+    && current.thread_summaries.length === next.thread_summaries.length
+    && current.thread_summaries.every((summary, index) => sameThreadSummary(summary, next.thread_summaries[index]))
+    && current.page_info.has_more === next.page_info.has_more
+    && current.page_info.next_cursor === next.page_info.next_cursor;
+}
+
+function sameConversationAnchor(current: ConversationAnchor, next: ConversationAnchor): boolean {
+  return current.type === next.type
+    && current.id === next.id
+    && current.author === next.author
+    && current.authorId === next.authorId
+    && current.preview === next.preview
+    && current.createdAt === next.createdAt
+    && current.note === next.note
+    && current.message === next.message
+    && sameAttachments(current.attachments, next.attachments);
 }
 
 function LoadEarlierButton({
@@ -785,43 +905,72 @@ function AnchorPreview({
 }) {
   const attachments = anchor.note?.attachments ?? anchor.message?.attachments ?? anchor.attachments ?? [];
   const authorId = anchor.note?.actor.id ?? anchor.message?.author_id ?? anchor.authorId ?? null;
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    setExpanded(false);
+  }, [anchor.id, anchor.type]);
+
   return (
-    <div className="border-b border-slate-200 bg-slate-50/80 px-3 py-2">
-      <div className="flex items-center gap-2 text-[10px] font-bold tracking-[0.08em] text-indigo-600">
-        {anchor.type === "progress_note" ? <Sparkles className="h-3.5 w-3.5" /> : <MessageCircleMore className="h-3.5 w-3.5" />}
-        {anchor.type === "progress_note" ? t("原始进度记录") : t("原始任务消息")}
-      </div>
-      <div className="mt-1.5 rounded-lg border border-slate-200 border-l-2 border-l-indigo-400 bg-white px-2.5 py-2 shadow-sm">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <ConversationAvatar name={anchor.author} userId={authorId} size="xs" />
-            <div className="truncate text-[11px] font-semibold text-slate-700">{anchor.author}</div>
-          </div>
-          <div className="shrink-0 text-[10px] tabular-nums text-slate-400">
-            {new Date(anchor.createdAt).toLocaleString(i18nLocale(), {
-              month: "numeric",
-              day: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </div>
-        </div>
-        <div className="mt-1 line-clamp-2 whitespace-pre-wrap text-xs leading-4 text-slate-600">
+    <div className="shrink-0 border-b border-slate-200 bg-slate-50/80">
+      <button
+        type="button"
+        onClick={() => setExpanded((current) => !current)}
+        aria-expanded={expanded}
+        className="flex min-h-11 w-full cursor-pointer items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-indigo-50/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400"
+      >
+        <span className="flex shrink-0 items-center gap-1.5 text-[10px] font-bold tracking-[0.06em] text-indigo-600">
+          {anchor.type === "progress_note" ? <Sparkles className="h-3.5 w-3.5" /> : <MessageCircleMore className="h-3.5 w-3.5" />}
+          {anchor.type === "progress_note" ? t("原始进度记录") : t("原始任务消息")}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-[11px] text-slate-500">
           {anchor.preview || t("附件消息")}
-        </div>
-        {attachments.length > 0 && !compact && (
-          <ProgressAttachmentGrid attachments={attachments} compact className="mt-1.5" />
-        )}
-        {attachments.length > 0 && compact && (
-          <div className="mt-1 text-[10px] font-semibold text-slate-500">
+        </span>
+        {attachments.length > 0 && (
+          <span className="shrink-0 rounded-full bg-white px-1.5 py-0.5 text-[9px] font-semibold text-slate-500 ring-1 ring-slate-200">
             {t("{n} 个附件", { n: attachments.length })}
-          </div>
+          </span>
         )}
-      </div>
-      {anchor.type === "progress_note" && (
-        <p className="mt-1 text-[10px] leading-4 text-slate-500">
-          {t("回复只显示在本条进度下，不会修改原始记录。")}
-        </p>
+        <ChevronDown
+          className={cn("h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200", expanded && "rotate-180")}
+          aria-hidden="true"
+        />
+      </button>
+      {expanded && (
+        <div className="cockpit-scroll max-h-[min(42dvh,22rem)] overflow-y-auto overscroll-contain px-3 pb-2">
+          <div className="rounded-lg border border-slate-200 border-l-2 border-l-indigo-400 bg-white px-2.5 py-2 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <ConversationAvatar name={anchor.author} userId={authorId} size="xs" />
+                <div className="truncate text-[11px] font-semibold text-slate-700">{anchor.author}</div>
+              </div>
+              <div className="shrink-0 text-[10px] tabular-nums text-slate-400">
+                {new Date(anchor.createdAt).toLocaleString(i18nLocale(), {
+                  month: "numeric",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </div>
+            </div>
+            <div className="mt-1 whitespace-pre-wrap text-xs leading-4 text-slate-600">
+              {anchor.preview || t("附件消息")}
+            </div>
+            {attachments.length > 0 && !compact && (
+              <ProgressAttachmentGrid attachments={attachments} compact className="mt-1.5" />
+            )}
+            {attachments.length > 0 && compact && (
+              <div className="mt-1 text-[10px] font-semibold text-slate-500">
+                {t("{n} 个附件", { n: attachments.length })}
+              </div>
+            )}
+          </div>
+          {anchor.type === "progress_note" && (
+            <p className="mt-1 text-[10px] leading-4 text-slate-500">
+              {t("回复只显示在本条进度下，不会修改原始记录。")}
+            </p>
+          )}
+        </div>
       )}
     </div>
   );
@@ -921,15 +1070,36 @@ export function RDTaskConversation({
   const threadScrollRef = useRef<HTMLDivElement>(null);
   const preserveMainScrollRef = useRef(false);
   const preserveThreadScrollRef = useRef(false);
+  const mainStickToBottomRef = useRef(true);
+  const threadStickToBottomRef = useRef(true);
+  const mainInitialScrollRef = useRef(true);
+  const threadInitialScrollRef = useRef(true);
   const focusOpenedRef = useRef("");
+  const onActivityRef = useRef(onActivity);
+
+  useEffect(() => {
+    onActivityRef.current = onActivity;
+  }, [onActivity]);
+
+  const updateStickToBottom = useCallback((scroller: HTMLDivElement, target: { current: boolean }) => {
+    const distanceFromBottom = scroller.scrollHeight - scroller.clientHeight - Math.max(0, scroller.scrollTop);
+    target.current = distanceFromBottom <= STICK_TO_BOTTOM_THRESHOLD_PX;
+  }, []);
+
+  useEffect(() => {
+    mainStickToBottomRef.current = true;
+    mainInitialScrollRef.current = true;
+  }, [mode, taskId]);
 
   useEffect(() => {
     onThreadOpenChange?.(Boolean(activeAnchor));
     return () => onThreadOpenChange?.(false);
   }, [activeAnchor, onThreadOpenChange]);
 
+  const skipMainDiscussion = Boolean(focusAnchor && focusAnchor.type !== "task");
+
   const loadMain = useCallback(async (showLoading = true) => {
-    if (focusAnchor && focusAnchor.type !== "task") {
+    if (skipMainDiscussion) {
       setMainLoading(false);
       return;
     }
@@ -943,25 +1113,27 @@ export function RDTaskConversation({
           unread_count: mode === "task" ? 0 : response.thread.unread_count,
         },
       };
-      setMain((current) => showLoading || !current
-        ? normalized
-        : {
-            ...normalized,
-            messages: mergeDiscussionMessages(current.messages, normalized.messages),
-            page_info: current.page_info,
-          });
+      setMain((current) => {
+        if (showLoading || !current) return normalized;
+        const next = {
+          ...normalized,
+          messages: mergeDiscussionMessages(current.messages, normalized.messages),
+          page_info: current.page_info,
+        };
+        return sameDiscussionResponse(current, next) ? current : next;
+      });
       if (mode === "task" && response.thread.unread_count > 0) {
         void markRdTaskDiscussionRead(taskId, response.thread.id)
           .then(() => announceDiscussionUpdated(taskId))
           .catch(() => {});
-        onActivity?.();
+        onActivityRef.current?.();
       }
     } catch (error) {
       if (showLoading) toast.error(error instanceof Error ? error.message : t("协作对话加载失败"));
     } finally {
       if (showLoading) setMainLoading(false);
     }
-  }, [focusAnchor, mode, onActivity, taskId]);
+  }, [mode, skipMainDiscussion, taskId]);
 
   const loadEarlierMain = useCallback(async () => {
     const cursor = main?.page_info.next_cursor;
@@ -972,13 +1144,15 @@ export function RDTaskConversation({
     const previousTop = scroller?.scrollTop ?? 0;
     try {
       const response = await fetchRdTaskDiscussion(taskId, { type: "task" }, { cursor });
-      setMain((current) => current
-        ? {
+      setMain((current) => {
+        if (!current) return response;
+        const next = {
             ...current,
             messages: mergeDiscussionMessages(response.messages, current.messages),
             page_info: response.page_info,
-          }
-        : response);
+          };
+        return sameDiscussionResponse(current, next) ? current : next;
+      });
       preserveMainScrollRef.current = true;
       requestAnimationFrame(() => {
         if (scroller) scroller.scrollTop = previousTop + (scroller.scrollHeight - previousHeight);
@@ -1078,8 +1252,13 @@ export function RDTaskConversation({
       preserveMainScrollRef.current = false;
       return;
     }
+    if (!mainInitialScrollRef.current && !mainStickToBottomRef.current) return;
     const frame = requestAnimationFrame(() => {
-      if (mainScrollRef.current) mainScrollRef.current.scrollTop = mainScrollRef.current.scrollHeight;
+      if (mainScrollRef.current) {
+        mainScrollRef.current.scrollTop = mainScrollRef.current.scrollHeight;
+        mainStickToBottomRef.current = true;
+        mainInitialScrollRef.current = false;
+      }
     });
     return () => cancelAnimationFrame(frame);
   }, [feedItems.length, mainLoading, mode, notesLoading]);
@@ -1093,38 +1272,44 @@ export function RDTaskConversation({
       const response = await fetchRdTaskDiscussion(taskId, { type: anchor.type, id: anchor.id });
       if (response.anchor_preview) {
         const preview = response.anchor_preview;
-        setActiveAnchor((current) => current
-          ? {
-              ...current,
-              author: preview.author_name,
-              authorId: preview.author_id,
-              preview: preview.body,
-              createdAt: preview.created_at,
-              attachments: preview.attachments,
-            }
-          : current);
+        setActiveAnchor((current) => {
+          if (!current) return current;
+          const next = {
+            ...current,
+            author: preview.author_name,
+            authorId: preview.author_id,
+            preview: preview.body,
+            createdAt: preview.created_at,
+            attachments: preview.attachments,
+          };
+          return sameConversationAnchor(current, next) ? current : next;
+        });
       }
       const normalized = { ...response, thread: { ...response.thread, unread_count: 0 } };
-      setThread((current) => showLoading || !current
-        ? normalized
-        : {
-            ...normalized,
-            messages: mergeDiscussionMessages(current.messages, normalized.messages),
-            page_info: current.page_info,
-          });
+      setThread((current) => {
+        if (showLoading || !current) return normalized;
+        const next = {
+          ...normalized,
+          messages: mergeDiscussionMessages(current.messages, normalized.messages),
+          page_info: current.page_info,
+        };
+        return sameDiscussionResponse(current, next) ? current : next;
+      });
       if (response.thread.unread_count > 0) {
         await markRdTaskDiscussionRead(taskId, response.thread.id);
         announceDiscussionUpdated(taskId);
-        onActivity?.();
+        onActivityRef.current?.();
       }
-      setMain((current) => current
-        ? {
-            ...current,
-            thread_summaries: response.thread_summaries.map((item) =>
-              item.thread_id === response.thread.id ? { ...item, unread_count: 0 } : item,
-            ),
-          }
-        : current);
+      setMain((current) => {
+        if (!current) return current;
+        const next = {
+          ...current,
+          thread_summaries: response.thread_summaries.map((item) =>
+            item.thread_id === response.thread.id ? { ...item, unread_count: 0 } : item,
+          ),
+        };
+        return sameDiscussionResponse(current, next) ? current : next;
+      });
     } catch (error) {
       if (showLoading) {
         toast.error(error instanceof Error ? error.message : t("讨论线程加载失败"));
@@ -1133,9 +1318,11 @@ export function RDTaskConversation({
     } finally {
       if (showLoading) setThreadLoading(false);
     }
-  }, [onActivity, taskId]);
+  }, [taskId]);
 
   const openThread = useCallback(async (anchor: ConversationAnchor) => {
+    threadStickToBottomRef.current = true;
+    threadInitialScrollRef.current = true;
     setActiveAnchor(anchor);
     setReplyTarget(null);
     await loadThread(anchor, true);
@@ -1169,13 +1356,15 @@ export function RDTaskConversation({
         { type: activeAnchor.type, id: activeAnchor.id },
         { cursor },
       );
-      setThread((current) => current
-        ? {
+      setThread((current) => {
+        if (!current) return response;
+        const next = {
             ...current,
             messages: mergeDiscussionMessages(response.messages, current.messages),
             page_info: response.page_info,
-          }
-        : response);
+          };
+        return sameDiscussionResponse(current, next) ? current : next;
+      });
       preserveThreadScrollRef.current = true;
       requestAnimationFrame(() => {
         if (scroller) scroller.scrollTop = previousTop + (scroller.scrollHeight - previousHeight);
@@ -1206,8 +1395,13 @@ export function RDTaskConversation({
       preserveThreadScrollRef.current = false;
       return;
     }
+    if (!threadInitialScrollRef.current && !threadStickToBottomRef.current) return;
     const frame = requestAnimationFrame(() => {
-      if (threadScrollRef.current) threadScrollRef.current.scrollTop = threadScrollRef.current.scrollHeight;
+      if (threadScrollRef.current) {
+        threadScrollRef.current.scrollTop = threadScrollRef.current.scrollHeight;
+        threadStickToBottomRef.current = true;
+        threadInitialScrollRef.current = false;
+      }
     });
     return () => cancelAnimationFrame(frame);
   }, [thread?.messages.length, threadLoading]);
@@ -1235,6 +1429,7 @@ export function RDTaskConversation({
   };
 
   const appendMainMessage = (message: RdTaskDiscussionMessage) => {
+    mainStickToBottomRef.current = true;
     setMain((current) => current
       ? {
           ...current,
@@ -1247,6 +1442,7 @@ export function RDTaskConversation({
   };
 
   const appendThreadMessage = (message: RdTaskDiscussionMessage) => {
+    threadStickToBottomRef.current = true;
     setThread((current) => current
       ? {
           ...current,
@@ -1271,8 +1467,13 @@ export function RDTaskConversation({
           compact={variant === "mobile"}
         />
       )}
-      <div ref={mainScrollRef} className="cockpit-scroll min-h-0 flex-1 overflow-y-auto px-2.5 pb-2 sm:px-4" aria-live="polite">
-        {mainLoading || (mode === "progress" && notesLoading) ? (
+      <div
+        ref={mainScrollRef}
+        onScroll={(event) => updateStickToBottom(event.currentTarget, mainStickToBottomRef)}
+        className="cockpit-scroll min-h-0 flex-1 overflow-y-auto px-2.5 pb-2 sm:px-4"
+        aria-live="polite"
+      >
+        {(mainLoading && !main) || (mode === "progress" && notesLoading && notes.length === 0) ? (
           <div className="space-y-3 py-5">
             {[0, 1, 2].map((item) => (
               <div key={item} className={cn("flex animate-pulse gap-2", item % 2 ? "justify-end" : "justify-start")}>
@@ -1522,7 +1723,12 @@ export function RDTaskConversation({
                 anchor={activeAnchor}
                 compact={variant === "desktop" && threadLayout === "replace"}
               />
-              <div ref={threadScrollRef} className="cockpit-scroll min-h-0 flex-1 overflow-y-auto bg-slate-50/60 px-2.5 py-2" aria-live="polite">
+              <div
+                ref={threadScrollRef}
+                onScroll={(event) => updateStickToBottom(event.currentTarget, threadStickToBottomRef)}
+                className="cockpit-scroll min-h-0 flex-1 overflow-y-auto bg-slate-50/60 px-2.5 py-2"
+                aria-live="polite"
+              >
                 {threadLoading ? (
                   <div className="flex h-full items-center justify-center text-slate-400">
                     <Loader2 className="h-5 w-5 animate-spin" />

@@ -908,3 +908,11 @@ html.login-route #root {
   min-height: 100dvh;
   overflow: visible;
 }
+
+/* iOS Safari 会在字号小于 16px 的表单控件获得焦点时强制缩放页面。移动页筛选器和
+ * 讨论输入框大量使用紧凑字号，在这里统一保底，避免输入后页面放大、横向偏移。 */
+html.mobile-route input:not([type="checkbox"]):not([type="radio"]),
+html.mobile-route textarea,
+html.mobile-route select {
+  font-size: 16px;
+}

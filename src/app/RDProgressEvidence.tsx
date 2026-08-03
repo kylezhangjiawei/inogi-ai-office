@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown, ChevronLeft, ChevronRight, Download, FileText, ImageIcon, Loader2, Paperclip, PlayCircle, RefreshCw, Table2, Trash2, Video, X } from "lucide-react";
 import { cn } from "./components/ui/utils";
 import { currentI18nLang, i18nLocale, t, useI18n } from "./lib/i18n";
@@ -6,6 +7,30 @@ import { renderTextWithMentions } from "./components/MentionInput";
 import { AutoTranslatedText } from "./components/TranslatableText";
 import { getAttachmentDownloadUrl, getAttachmentPreviewUrl, getAttachmentThumbUrl, getAttachmentUrl, type RdTaskProgressAttachment, type RdTaskProgressNote } from "./lib/rdApi";
 import { parseXlsxForPreview, type XlsxPreviewSheet } from "./lib/xlsxPreview";
+import {
+  closeMobileOverlay,
+  pushMobileOverlayState,
+  useBodyScrollLock,
+  useMobileOverlayBack,
+} from "./hooks/useMobileOverlay";
+
+const TASK_GALLERY_OVERLAY = "rd-task-image-gallery";
+const ATTACHMENT_PREVIEW_OVERLAY = "rd-attachment-preview";
+const MOBILE_ATTACHMENT_PREVIEW_EVENT = "rd:open-mobile-attachment-preview";
+
+function isMobileRoute(): boolean {
+  return document.documentElement.classList.contains("mobile-route");
+}
+
+/**
+ * iOS/Android WebView may deliver a delayed compatibility click after the
+ * thumbnail tap. By then the full-screen backdrop is under the finger and the
+ * click would immediately close the preview. Mobile previews therefore close
+ * only through the explicit close button or the system Back action.
+ */
+function shouldCloseFromBackdrop(event: React.MouseEvent<HTMLElement>): boolean {
+  return !isMobileRoute() && event.target === event.currentTarget;
+}
 
 /** 文件名/MIME 判断是否为 Excel 表格（xlsx/xls）。 */
 function isSpreadsheetAttachment(att: { name?: string; mime?: string }): boolean {
@@ -75,6 +100,8 @@ export function TaskImageGallery({
   useI18n(); // 共享组件自行订阅语言切换
   const [collapsed, setCollapsed] = useState(defaultCollapsed);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const dismissLightbox = useCallback(() => setLightboxIndex(null), []);
+  useMobileOverlayBack(lightboxIndex != null, TASK_GALLERY_OVERLAY, dismissLightbox);
   const indexOf = useMemo(() => {
     const m = new Map<string, number>();
     images.forEach((img, i) => m.set(img.att.id, i));
@@ -111,7 +138,10 @@ export function TaskImageGallery({
                   <button
                     key={img.att.id}
                     type="button"
-                    onClick={() => setLightboxIndex(indexOf.get(img.att.id) ?? 0)}
+                    onClick={() => {
+                      pushMobileOverlayState(TASK_GALLERY_OVERLAY);
+                      setLightboxIndex(indexOf.get(img.att.id) ?? 0);
+                    }}
                     title={`${img.att.name}${img.actor ? ` · ${img.actor}` : ""}`}
                     className="h-[72px] w-[72px] shrink-0 cursor-pointer overflow-hidden rounded-lg border border-slate-200 bg-slate-100 transition hover:border-indigo-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
                   >
@@ -135,7 +165,7 @@ export function TaskImageGallery({
           images={images}
           index={lightboxIndex}
           onIndexChange={setLightboxIndex}
-          onClose={() => setLightboxIndex(null)}
+          onClose={() => closeMobileOverlay(TASK_GALLERY_OVERLAY, dismissLightbox)}
         />
       )}
     </div>
@@ -157,6 +187,7 @@ function TaskImageLightbox({
   const current = images[index];
   const hasPrev = index > 0;
   const hasNext = index < images.length - 1;
+  useBodyScrollLock(true);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -168,9 +199,9 @@ function TaskImageLightbox({
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [index, hasPrev, hasNext, onIndexChange, onClose]);
 
-  return (
-    <div className="fixed inset-0 z-[90] flex flex-col bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true">
-      <div className="flex items-center justify-between gap-3 px-4 py-3 text-white">
+  return createPortal(
+    <div className="fixed inset-0 z-[1000] flex flex-col overscroll-none bg-slate-950/85 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={`图片预览：${current.att.name}`}>
+      <div className="flex items-center justify-between gap-3 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] text-white">
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold">{current.att.name}</div>
           <div className="mt-0.5 text-xs text-white/60">
@@ -201,8 +232,12 @@ function TaskImageLightbox({
         </div>
       </div>
 
-      <div className="relative flex min-h-0 flex-1 items-center justify-center px-14 pb-6">
-        <button type="button" className="absolute inset-0 cursor-default" onClick={onClose} aria-label="关闭预览背景" />
+      <div
+        className="relative flex min-h-0 flex-1 items-center justify-center px-14 pb-[max(1.5rem,env(safe-area-inset-bottom))]"
+        onClick={(event) => {
+          if (shouldCloseFromBackdrop(event)) onClose();
+        }}
+      >
         {hasPrev && (
           <button
             type="button"
@@ -231,7 +266,8 @@ function TaskImageLightbox({
           </button>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -250,16 +286,37 @@ export function ProgressAttachmentGrid({
   onReplaceAttachment?: (att: RdTaskProgressAttachment) => void;
 }) {
   const [preview, setPreview] = useState<RdTaskProgressAttachment | null>(null);
+  const dismissPreview = useCallback(() => setPreview(null), []);
+  useMobileOverlayBack(Boolean(preview), ATTACHMENT_PREVIEW_OVERLAY, dismissPreview);
   const managed = Boolean(onDeleteAttachment || onReplaceAttachment);
+
+  const openPreview = (attachment: RdTaskProgressAttachment) => {
+    if (isMobileRoute()) {
+      const event = new CustomEvent<RdTaskProgressAttachment>(MOBILE_ATTACHMENT_PREVIEW_EVENT, {
+        detail: attachment,
+        cancelable: true,
+      });
+      // The mobile page-level host owns the preview so polling or rebuilding a
+      // message card cannot unmount it. Fall back to local state on pages that
+      // do not mount the host.
+      if (!window.dispatchEvent(event)) return;
+    }
+    pushMobileOverlayState(ATTACHMENT_PREVIEW_OVERLAY);
+    setPreview(attachment);
+  };
+  const closePreview = useCallback(
+    () => closeMobileOverlay(ATTACHMENT_PREVIEW_OVERLAY, dismissPreview),
+    [dismissPreview],
+  );
 
   useEffect(() => {
     if (!preview) return undefined;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setPreview(null);
+      if (event.key === "Escape") closePreview();
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [preview]);
+  }, [closePreview, preview]);
 
   if (!attachments.length) return null;
 
@@ -309,7 +366,7 @@ export function ProgressAttachmentGrid({
                 {renderActions(att)}
                 <button
                   type="button"
-                  onClick={() => setPreview(att)}
+                  onClick={() => openPreview(att)}
                   title={`${att.name} · ${formatRdFileSize(att.size)}`}
                   className="group block w-full cursor-pointer overflow-hidden rounded-[8px] border border-slate-200 bg-slate-50 text-left transition hover:border-indigo-200 hover:shadow-[0_8px_18px_rgba(79,70,229,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
                 >
@@ -344,7 +401,7 @@ export function ProgressAttachmentGrid({
                 {renderActions(att)}
                 <button
                   type="button"
-                  onClick={() => setPreview(att)}
+                  onClick={() => openPreview(att)}
                   title={`${att.name} · ${formatRdFileSize(att.size)}`}
                   className="group block w-full cursor-pointer overflow-hidden rounded-[8px] border border-slate-200 bg-slate-950 text-left transition hover:border-indigo-300 hover:shadow-[0_8px_18px_rgba(79,70,229,0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
                 >
@@ -384,7 +441,7 @@ export function ProgressAttachmentGrid({
               {renderActions(att)}
               <button
                 type="button"
-                onClick={() => setPreview(att)}
+                onClick={() => openPreview(att)}
                 title={`${att.name} · ${formatRdFileSize(att.size)}`}
                 className={cn(
                   "flex w-full min-w-0 cursor-pointer items-center gap-2 rounded-[8px] border border-slate-200 bg-slate-50 px-2.5 text-left text-xs text-slate-700 transition hover:border-blue-200 hover:bg-blue-50/60 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-300",
@@ -399,9 +456,48 @@ export function ProgressAttachmentGrid({
           );
         })}
       </div>
-      {preview && <AttachmentPreviewModal attachment={preview} onClose={() => setPreview(null)} />}
+      {preview && <AttachmentPreviewModal attachment={preview} onClose={closePreview} />}
     </>
   );
+}
+
+/**
+ * Mobile-only persistent preview owner. It is mounted above the conversation
+ * cards so background refreshes, thread hydration and list reconciliation do
+ * not destroy an already-open attachment preview.
+ */
+export function MobileAttachmentPreviewHost() {
+  const [preview, setPreview] = useState<RdTaskProgressAttachment | null>(null);
+  const dismissPreview = useCallback(() => setPreview(null), []);
+  const closePreview = useCallback(
+    () => closeMobileOverlay(ATTACHMENT_PREVIEW_OVERLAY, dismissPreview),
+    [dismissPreview],
+  );
+
+  useMobileOverlayBack(Boolean(preview), ATTACHMENT_PREVIEW_OVERLAY, dismissPreview);
+
+  useEffect(() => {
+    const handleOpen = (event: Event) => {
+      const attachment = (event as CustomEvent<RdTaskProgressAttachment>).detail;
+      if (!attachment) return;
+      event.preventDefault();
+      pushMobileOverlayState(ATTACHMENT_PREVIEW_OVERLAY);
+      setPreview(attachment);
+    };
+    window.addEventListener(MOBILE_ATTACHMENT_PREVIEW_EVENT, handleOpen);
+    return () => window.removeEventListener(MOBILE_ATTACHMENT_PREVIEW_EVENT, handleOpen);
+  }, []);
+
+  useEffect(() => {
+    if (!preview) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") closePreview();
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [closePreview, preview]);
+
+  return preview ? <AttachmentPreviewModal attachment={preview} onClose={closePreview} /> : null;
 }
 
 function AttachmentPreviewModal({
@@ -420,11 +516,19 @@ function AttachmentPreviewModal({
     attachment.mime === "application/pdf" ||
     attachment.mime === "text/plain" ||
     attachment.mime === "application/json";
+  useBodyScrollLock(true);
 
-  return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/72 px-4 py-6 backdrop-blur-sm" role="dialog" aria-modal="true">
-      <button type="button" className="absolute inset-0 cursor-default" onClick={onClose} aria-label="关闭预览背景" />
-      <div className="relative flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-[8px] border border-white/10 bg-white shadow-2xl">
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[1000] flex items-center justify-center overscroll-none bg-slate-950/72 px-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[max(1.5rem,env(safe-area-inset-top))] backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`附件预览：${attachment.name}`}
+      onClick={(event) => {
+        if (shouldCloseFromBackdrop(event)) onClose();
+      }}
+    >
+      <div className="relative flex max-h-[88dvh] w-full max-w-5xl flex-col overflow-hidden rounded-[8px] border border-white/10 bg-white shadow-2xl">
         <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
           <div className="min-w-0">
             <div className="truncate text-sm font-semibold text-slate-900">{attachment.name}</div>
@@ -497,7 +601,8 @@ function AttachmentPreviewModal({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
