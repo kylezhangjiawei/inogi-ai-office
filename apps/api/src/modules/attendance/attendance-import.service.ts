@@ -135,7 +135,7 @@ export class AttendanceImportService {
           continue;
         }
         if (current) overwriteIds.push(current.id);
-        creates.push(this.toRecordData(employee.id, row, actorId));
+        creates.push(this.toRecordData(employee, row, actorId));
       }
     }
 
@@ -241,6 +241,7 @@ export class AttendanceImportService {
         department: true,
         employmentStatus: true,
         wecomUserId: true,
+        deductsInvertedHours: true,
       },
     });
 
@@ -300,8 +301,9 @@ export class AttendanceImportService {
    * 档案里存的通常是其中某一级，所以逐级比对；恰好命中一人才算数。
    */
   private narrowByDepartment<T extends { department: string }>(candidates: T[], departmentPaths: string[]) {
+    // 分号分隔多部门、斜杠分隔层级，两种都要拆开才能逐级比对
     const segments = new Set(
-      departmentPaths.flatMap((path) => path.split('/').map((part) => part.trim()).filter(Boolean)),
+      departmentPaths.flatMap((path) => path.split(/[;/]/).map((part) => part.trim()).filter(Boolean)),
     );
     if (segments.size === 0) return undefined;
     const hits = candidates.filter((candidate) => candidate.department && segments.has(candidate.department));
@@ -391,11 +393,15 @@ export class AttendanceImportService {
    * 直接采用企微判定好的状态与迟到/早退分钟，不用打卡时间重算：企微的判定包含了
    * 企业在后台配置的弹性打卡、宽限期等规则，本地重算会与 HR 手上的企微报表对不上。
    */
-  private toRecordData(employeeId: string, row: WeComDailyRow, actorId: string) {
+  private toRecordData(
+    employee: { id: string; deductsInvertedHours: boolean },
+    row: WeComDailyRow,
+    actorId: string,
+  ) {
     const checkInAt = row.checkInTime ? this.dateTimeValue(row.attendanceDate, row.checkInTime) : null;
     const checkOutAt = row.checkOutTime ? this.dateTimeValue(row.attendanceDate, row.checkOutTime) : null;
     return {
-      employeeId,
+      employeeId: employee.id,
       attendanceDate: new Date(`${row.attendanceDate}T00:00:00.000Z`),
       shiftName: row.shiftName,
       scheduledStart: row.scheduledStart,
@@ -406,7 +412,8 @@ export class AttendanceImportService {
       workMinutes: this.workMinutes(checkInAt, checkOutAt),
       lateMinutes: row.lateMinutes,
       earlyLeaveMinutes: row.earlyLeaveMinutes,
-      deductionMinutes: row.deductionMinutes,
+      // 只有参与倒挂抵扣的人记扣除工时（没任务提前放人 → 倒挂欠账），其余岗位恒为 0
+      deductionMinutes: employee.deductsInvertedHours ? row.deductionMinutes : 0,
       overtimeMinutes: row.overtimeMinutes,
       overtimeType: row.overtimeType,
       leaveDayFraction: row.leaveDayFraction,

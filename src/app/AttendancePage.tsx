@@ -352,21 +352,33 @@ function MonthAdjustmentEditor({
   onSaved: (payload: SaveAttendanceMonthPayload) => void;
 }) {
   const [draft, setDraft] = useState<AttendanceMonthAdjustment | null>(item?.adjustment ?? null);
+  // 人员长期属性，存在员工档案上，不属于本月结余；放这里是因为紧邻倒挂工时，改起来顺手
+  const [deductsInverted, setDeductsInverted] = useState(false);
 
   useEffect(() => {
     setDraft(item?.adjustment ?? null);
+    setDeductsInverted(item?.employee.deductsInvertedHours ?? false);
   }, [item]);
 
   const updateNumber = (key: keyof AttendanceMonthAdjustment, value: string) => {
     setDraft((current) => current ? { ...current, [key]: Number(value) || 0 } : current);
   };
-  const numberFields: Array<{ key: keyof AttendanceMonthAdjustment; label: string; unit: string }> = [
+  const numberFields: Array<{ key: keyof AttendanceMonthAdjustment; label: string; unit: string; hint?: string }> = [
     { key: 'previousOvertimeBalance', label: '上月加班结余', unit: '小时' },
     { key: 'previousCompTimeBalanceHours', label: '上月调休结余', unit: '小时' },
     { key: 'previousMonthSickLeaveDays', label: '上月病假', unit: '天' },
     { key: 'paidSickLeaveDays', label: '已休带薪病假', unit: '天' },
     { key: 'unpaidSickLeaveDays', label: '非带薪病假', unit: '天' },
-    { key: 'invertedHours', label: '倒挂工时', unit: '小时' },
+    {
+      key: 'invertedHours',
+      label: '倒挂工时',
+      unit: '小时',
+      hint: !deductsInverted
+        ? '该员工未参与倒挂抵扣，不记扣除工时'
+        : item
+          ? `留 0 则按当月扣除工时自动算得 ${item.rules.autoInvertedHours} 小时；填非 0 则以填写值为准`
+          : undefined,
+    },
     { key: 'recoveredHours', label: '已补工时', unit: '小时' },
   ];
 
@@ -390,6 +402,7 @@ function MonthAdjustmentEditor({
                 recoveredHours: draft.recoveredHours,
                 signature: draft.signature,
                 note: draft.note,
+                deductsInvertedHours: deductsInverted,
               });
             }}
           >
@@ -400,10 +413,28 @@ function MonthAdjustmentEditor({
               </div>
             </DialogHeader>
             <div className="space-y-5 px-6 py-5">
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 bg-slate-50/60 px-4 py-3">
+                <input
+                  type="checkbox"
+                  checked={deductsInverted}
+                  onChange={(event) => setDeductsInverted(event.target.checked)}
+                  disabled={saving}
+                  className="mt-0.5 h-4 w-4 cursor-pointer accent-indigo-600"
+                />
+                <span className="min-w-0">
+                  <span className="block text-xs font-semibold text-slate-800">参与倒挂抵扣</span>
+                  <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-500">
+                    生产没任务时工资照发，这些人提前下班的分钟数记为扣除工时、累计成倒挂欠账，后续加班优先冲抵。
+                    这是<span className="font-semibold text-slate-700">人员长期设置</span>（保存到员工档案），不只影响本月；
+                    未勾选的人不记扣除工时。
+                  </span>
+                </span>
+              </label>
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {numberFields.map((field) => (
                   <label key={field.key} className="text-xs font-semibold text-slate-600">{field.label}
                     <span className="relative mt-1.5 block"><input type="number" min={0} step="0.01" value={Number(draft[field.key]) || 0} onChange={(event) => updateNumber(field.key, event.target.value)} className="h-10 w-full rounded-xl border border-slate-200 px-3 pr-12 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" /><span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-normal text-slate-400">{field.unit}</span></span>
+                    {field.hint ? <span className="mt-1 block text-[10px] font-normal leading-tight text-slate-400">{field.hint}</span> : null}
                   </label>
                 ))}
               </div>

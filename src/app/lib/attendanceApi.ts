@@ -42,6 +42,8 @@ export interface AttendanceEmployee {
   department: string;
   title: string;
   employmentStatus: string;
+  /** 是否参与倒挂抵扣：为 true 才记扣除工时并累计成倒挂欠账 */
+  deductsInvertedHours: boolean;
 }
 
 export interface AttendanceRecord {
@@ -129,6 +131,11 @@ export interface AttendanceRuleSummary {
   annualSickLeaveDays: number;
   paidSickLeaveUsedDays: number;
   excessSickLeaveDays: number;
+  /** 当月扣除工时汇总出的倒挂工时（没干活却发了工资的时长） */
+  autoInvertedHours: number;
+  /** 月度结余里手工填的倒挂工时，>0 时覆盖自动值 */
+  manualInvertedHours: number;
+  /** 实际生效的倒挂工时：手工值优先，否则用自动值 */
   startingInvertedHours: number;
   manuallyRecoveredHours: number;
   availableInvertedHours: number;
@@ -164,6 +171,8 @@ export interface AttendanceMonthAdjustment {
 
 export type SaveAttendanceMonthPayload = Omit<AttendanceMonthAdjustment, 'id' | 'year' | 'month'> & {
   month: string;
+  /** 人员长期属性，写入员工档案而非本月结余 */
+  deductsInvertedHours?: boolean;
 };
 
 export interface AttendanceMonthlyResponse {

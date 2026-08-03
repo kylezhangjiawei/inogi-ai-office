@@ -337,10 +337,18 @@ function parseTime(value: unknown) {
   return matched ? matched[0] : '';
 }
 
-/** 「南京壹诺吉医疗科技有限公司/生产中心/产线」→「产线」 */
+/**
+ * 「南京壹诺吉医疗科技有限公司/生产中心/产线」→「产线」。
+ *
+ * 一个人可能同时挂多个部门，企微用分号分隔整条路径，例如
+ * 「生产中心;南京壹诺吉医疗科技有限公司/生产中心/鼎业人员」。取最后一条路径的末级，
+ * 它通常是最具体的那个岗位归属。
+ */
 function lastPathSegment(value: string) {
-  const segments = value.split('/').filter(Boolean);
-  return segments.length > 0 ? segments[segments.length - 1] : '';
+  const paths = value.split(';').map((path) => path.trim()).filter(Boolean);
+  const deepest = paths[paths.length - 1] ?? '';
+  const segments = deepest.split('/').filter(Boolean);
+  return segments.length > 0 ? segments[segments.length - 1]! : '';
 }
 
 /** 「梁虓（已离职）」→「梁虓」：企微会把离职标记写进姓名，匹配前需剥掉。 */

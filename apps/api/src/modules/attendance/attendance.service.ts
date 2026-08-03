@@ -20,11 +20,19 @@ const employeeSelect = {
   department: true,
   title: true,
   employmentStatus: true,
+  deductsInvertedHours: true,
 } as const;
 
 type AttendanceEmployee = Pick<
   EmployeeArchive,
-  'id' | 'rosterNo' | 'name' | 'company' | 'department' | 'title' | 'employmentStatus'
+  | 'id'
+  | 'rosterNo'
+  | 'name'
+  | 'company'
+  | 'department'
+  | 'title'
+  | 'employmentStatus'
+  | 'deductsInvertedHours'
 >;
 
 type ManualAttendanceStatus = (typeof MANUAL_ATTENDANCE_STATUSES)[number];
@@ -112,7 +120,6 @@ export class AttendanceService {
     ]);
 
     const departmentOrder = this.buildDepartmentOrder(departmentList);
-    const productionDepartment = departmentList.find((item) => item.code === 'PRODUCTION');
     const allEmployees = this.sortByDepartment(rawEmployees, departmentOrder);
 
     const departments = [...new Set(allEmployees
@@ -155,7 +162,7 @@ export class AttendanceService {
           summary,
           adjustment,
           annualSickLeaveByEmployee.get(employee.id) ?? 0,
-          employee.department === productionDepartment?.name,
+          employee.deductsInvertedHours,
         ),
       };
     });
@@ -245,6 +252,15 @@ export class AttendanceService {
     if (!employee) throw new NotFoundException('员工不存在，请先维护员工入职归档');
     const month = this.normalizeMonth(dto.month);
     if (!month) throw new BadRequestException('考勤月份无效');
+    // 是否参与倒挂抵扣是人员长期属性（存在档案上），不随月份变化，
+    // 但入口放在月度结余弹窗里，HR 调倒挂工时时顺手就能改。
+    if (dto.deductsInvertedHours !== undefined
+      && dto.deductsInvertedHours !== employee.deductsInvertedHours) {
+      await this.prisma.employeeArchive.update({
+        where: { id: dto.employeeId },
+        data: { deductsInvertedHours: dto.deductsInvertedHours },
+      });
+    }
     const year = Number(month.slice(0, 4));
     const monthNumber = Number(month.slice(5, 7));
     const values = {
@@ -297,7 +313,11 @@ export class AttendanceService {
       checkOutAt,
       dto.manualStatus ?? 'auto',
     );
-    const deductionMinutes = dto.deductionMinutes ?? (metrics.lateMinutes + metrics.earlyLeaveMinutes);
+    // 扣除工时只对参与倒挂抵扣的人有意义（没任务提前放人 → 倒挂欠账）；
+    // 其余岗位的迟到早退是纪律问题，不进倒挂，故恒为 0。
+    const deductionMinutes = employee.deductsInvertedHours
+      ? dto.deductionMinutes ?? (metrics.lateMinutes + metrics.earlyLeaveMinutes)
+      : 0;
     const overtimeMinutes = dto.overtimeMinutes ?? 0;
     const overtimeType = overtimeMinutes > 0
       ? dto.overtimeType ?? this.defaultOvertimeType(dto.attendanceDate, dto.manualStatus)
@@ -591,11 +611,15 @@ export class AttendanceService {
     summary: ReturnType<AttendanceService['buildMonthlyEmployeeSummary']>,
     adjustment: EmployeeAttendanceMonth | ReturnType<AttendanceService['emptyMonthAdjustment']>,
     annualSickLeaveDays: number,
-    isProductionDepartment: boolean,
+    isProduction: boolean,
   ) {
     const round = (value: number) => Number(value.toFixed(2));
-    const productionWithInvertedHours = isProductionDepartment && adjustment.invertedHours > 0;
-    const availableInvertedHours = Math.max(0, adjustment.invertedHours - adjustment.recoveredHours);
+    // 倒挂工时 = 当月扣除工时合计（没干活却发了工资的时长），由考勤记录自动汇总；
+    // 月度结余里手工填了非 0 值时以手工为准，用于录入上月结转的欠账或人工订正。
+    const autoInvertedHours = round(summary.deductionMinutes / 60);
+    const effectiveInvertedHours = adjustment.invertedHours > 0 ? adjustment.invertedHours : autoInvertedHours;
+    const productionWithInvertedHours = isProduction && effectiveInvertedHours > 0;
+    const availableInvertedHours = Math.max(0, effectiveInvertedHours - adjustment.recoveredHours);
     const invertedOffsetHours = productionWithInvertedHours
       ? Math.min(availableInvertedHours, summary.workdayOvertimeHours)
       : 0;
@@ -612,11 +636,15 @@ export class AttendanceService {
 
     return {
       ruleType: productionWithInvertedHours ? 'production_inverted' as const : 'regular' as const,
+      /** 由当月扣除工时汇总出来的倒挂工时，供页面显示「自动算得多少」 */
+      autoInvertedHours,
+      /** 月度结余里手工填的倒挂工时；>0 时覆盖自动值 */
+      manualInvertedHours: round(adjustment.invertedHours),
       annualPaidSickLeaveAllowanceDays: ANNUAL_PAID_SICK_LEAVE_DAYS,
       annualSickLeaveDays: round(annualSickLeaveDays),
       paidSickLeaveUsedDays: round(Math.min(annualSickLeaveDays, ANNUAL_PAID_SICK_LEAVE_DAYS)),
       excessSickLeaveDays: round(excessSickLeaveDays),
-      startingInvertedHours: round(adjustment.invertedHours),
+      startingInvertedHours: round(effectiveInvertedHours),
       manuallyRecoveredHours: round(adjustment.recoveredHours),
       availableInvertedHours: round(availableInvertedHours),
       invertedOffsetHours: round(invertedOffsetHours),

@@ -2,6 +2,7 @@ import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsISO8601,
@@ -239,6 +240,11 @@ export class SaveAttendanceMonthDto {
   @IsString()
   @MaxLength(500)
   note?: string;
+
+  /** 人员长期属性，写入员工档案而非本月结余；不传则不改动 */
+  @IsOptional()
+  @IsBoolean()
+  deductsInvertedHours?: boolean;
 }
 
 /**
