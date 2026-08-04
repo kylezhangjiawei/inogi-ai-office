@@ -33,6 +33,14 @@ const MAX_AI_HUNKS = 160;
 const MAX_HUNK_TEXT = 1800;
 const DEFAULT_QWEN_JSON_MAX_TOKENS = 16_000;
 
+/**
+ * 差异分类分批送模型。一次把上百个 hunk 塞进单个请求会撑爆 60s 超时——实测扫描件
+ * 比对产生 82 个 hunk 时整体失败、退化成兜底。拆批后单请求可控，且某一批失败只影响
+ * 该批（未分类的差异按确定性规则兜底），不会整份结果丢失。
+ */
+const AI_CLASSIFY_BATCH_SIZE = 25;
+const AI_CLASSIFY_CONCURRENCY = 2;
+
 @Injectable()
 export class ExternalDocumentAiService {
   private readonly logger = new Logger(ExternalDocumentAiService.name);
@@ -104,52 +112,22 @@ export class ExternalDocumentAiService {
     } = {};
     let aiSucceeded = false;
     if (runtime) {
-      try {
-        const raw = await this.callJson(runtime, [
-          {
-            role: 'system',
-            content:
-              '你是受控对外资料的版本审查助手。输入已由确定性文本差异算法提取。必须逐条保留输入 id，不得遗漏、合并或编造差异。' +
-              '为每条差异判断 type(modified|added|removed|format)、risk(high|medium|low)、简洁标题、可回查位置和 0-100 置信度。' +
-              '高风险包括关键参数、法规合规、警示、价格、联系方式或责任主体变化。输出严格 JSON：' +
-              '{"summary":string,"differences":[{"id":string,"type":string,"risk":string,"title":string,"location":string,"confidence":number}]}。' +
-              'summary 使用简体中文，说明差异总量、风险重点和归档前建议。',
-          },
-          {
-            role: 'user',
-            content: JSON.stringify({
-              baseline_version: input.baselineVersion,
-              candidate_version: input.candidateVersion,
-              upload_notes: input.notes ?? '',
-              total_detected_hunks: candidates.length,
-              differences: aiCandidates,
-            }),
-          },
-        ]);
-        const candidateResponse = this.parseJson(raw) as typeof parsed;
-        const responseDifferences = Array.isArray(candidateResponse.differences)
-          ? candidateResponse.differences
-          : [];
-        const responseIds = new Set(
-          responseDifferences
-            .filter((item) => typeof item?.id === 'string')
-            .map((item) => String(item.id)),
-        );
-        const missingIds = aiCandidates
-          .map((item) => item.id)
-          .filter((id) => !responseIds.has(id));
-        if (!this.textValue(candidateResponse.summary) || missingIds.length > 0) {
-          throw new BadRequestException(
-            missingIds.length > 0
-              ? `AI 返回结果不完整，缺少 ${missingIds.length} 条差异`
-              : 'AI 未返回有效的版本摘要',
-          );
+      const classified = await this.classifyInBatches(runtime, input, aiCandidates, candidates.length);
+      const missing = aiCandidates.filter((item) => !classified.has(item.id));
+      if (classified.size > 0) {
+        parsed = { differences: [...classified.values()] };
+        // 全部分类成功才算 AI 模式；部分成功时未分类的那些走确定性兜底，
+        // 结果仍然可用，只是标题和风险等级是规则生成的。
+        aiSucceeded = missing.length === 0;
+        if (!aiSucceeded) {
+          fallbackWarning = `AI 已分类 ${classified.size}/${aiCandidates.length} 条差异，其余由确定性规则补齐`;
         }
-        parsed = candidateResponse;
-        aiSucceeded = true;
-      } catch (error) {
-        this.logger.warn(`AI 差异分类失败，保留确定性差异进入人工复核: ${(error as Error).message}`);
+      } else {
         fallbackWarning = 'AI 差异分类调用失败，本次结果由确定性文本比对生成';
+      }
+      if (classified.size > 0) {
+        const aiSummary = await this.summarizeDifferences(runtime, input, [...classified.values()]);
+        if (aiSummary) parsed.summary = aiSummary;
       }
     }
     const aiById = new Map(
@@ -341,6 +319,103 @@ export class ExternalDocumentAiService {
       }
     }
     return operations;
+  }
+
+  /**
+   * 分批把差异送模型分类，返回 id → 分类结果。单批失败只记日志不抛错，
+   * 未分类的差异由调用方按确定性规则兜底，避免一批超时毁掉整份结果。
+   */
+  private async classifyInBatches(
+    runtime: AiRuntimeConfig,
+    input: { baselineVersion: string; candidateVersion: string; notes?: string },
+    aiCandidates: Array<{ id: string } & Record<string, unknown>>,
+    totalHunks: number,
+  ) {
+    const batches: Array<typeof aiCandidates> = [];
+    for (let index = 0; index < aiCandidates.length; index += AI_CLASSIFY_BATCH_SIZE) {
+      batches.push(aiCandidates.slice(index, index + AI_CLASSIFY_BATCH_SIZE));
+    }
+
+    const classified = new Map<string, Record<string, unknown>>();
+    let cursor = 0;
+    const workers = Array.from(
+      { length: Math.min(AI_CLASSIFY_CONCURRENCY, batches.length) },
+      async () => {
+        while (cursor < batches.length) {
+          const batch = batches[cursor];
+          cursor += 1;
+          if (!batch) continue;
+          try {
+            const raw = await this.callJson(runtime, [
+              {
+                role: 'system',
+                content:
+                  '你是受控对外资料的版本审查助手。输入已由确定性文本差异算法提取。必须逐条保留输入 id，不得遗漏、合并或编造差异。' +
+                  '为每条差异判断 type(modified|added|removed|format)、risk(high|medium|low)、简洁标题、可回查位置和 0-100 置信度。' +
+                  '高风险包括关键参数、法规合规、警示、价格、联系方式或责任主体变化。输出严格 JSON：' +
+                  '{"differences":[{"id":string,"type":string,"risk":string,"title":string,"location":string,"confidence":number}]}。',
+              },
+              {
+                role: 'user',
+                content: JSON.stringify({
+                  baseline_version: input.baselineVersion,
+                  candidate_version: input.candidateVersion,
+                  upload_notes: input.notes ?? '',
+                  total_detected_hunks: totalHunks,
+                  differences: batch,
+                }),
+              },
+            ]);
+            const response = this.parseJson(raw) as { differences?: Array<Record<string, unknown>> };
+            (Array.isArray(response.differences) ? response.differences : [])
+              .filter((item) => typeof item?.id === 'string')
+              .forEach((item) => classified.set(String(item.id), item));
+          } catch (error) {
+            this.logger.warn(
+              `AI 差异分类分批失败（${batch.length} 条转确定性兜底）: ${(error as Error).message}`,
+            );
+          }
+        }
+      },
+    );
+    await Promise.all(workers);
+    return classified;
+  }
+
+  /** 单独一次小请求生成整体摘要：只送标题与风险，不重复送差异原文。 */
+  private async summarizeDifferences(
+    runtime: AiRuntimeConfig,
+    input: { baselineVersion: string; candidateVersion: string; notes?: string },
+    classified: Array<Record<string, unknown>>,
+  ) {
+    try {
+      const raw = await this.callJson(runtime, [
+        {
+          role: 'system',
+          content:
+            '你是受控对外资料的版本审查助手。根据已分类的差异清单写一段简体中文摘要，' +
+            '说明差异总量、风险重点和归档前建议。输出严格 JSON：{"summary":string}。',
+        },
+        {
+          role: 'user',
+          content: JSON.stringify({
+            baseline_version: input.baselineVersion,
+            candidate_version: input.candidateVersion,
+            upload_notes: input.notes ?? '',
+            total: classified.length,
+            items: classified.map((item) => ({
+              type: item.type,
+              risk: item.risk,
+              title: item.title,
+            })),
+          }),
+        },
+      ]);
+      return this.textValue((this.parseJson(raw) as { summary?: unknown }).summary);
+    } catch (error) {
+      this.logger.warn(`AI 摘要生成失败，改用确定性摘要: ${(error as Error).message}`);
+      return '';
+    }
   }
 
   private async resolveRuntimeConfig(): Promise<AiRuntimeConfig> {

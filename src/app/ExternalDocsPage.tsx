@@ -946,7 +946,8 @@ export function ExternalDocsPage() {
                         <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs">
                             <span className="inline-flex items-center gap-1.5 font-semibold text-slate-800"><ShieldCheck className="h-4 w-4 text-emerald-600" />证据已固化</span>
-                            <span className="text-slate-500">OCR {ocrProvider ? `${ocrProvider}${ocrConfidence == null ? "" : ` · ${ocrConfidence}%`}` : "未触发（原生文本）"}</span>
+                            {/* 后端存的是 0–1 的置信度，直接拼 % 会显示成「0.988%」 */}
+                            <span className="text-slate-500">OCR {ocrProvider ? `${ocrProvider}${ocrConfidence == null ? "" : ` · ${(ocrConfidence * 100).toFixed(1)}%`}` : "未触发（原生文本）"}</span>
                             <span className={cn("font-medium", aiGenerationMode === "ai" ? "text-blue-700" : "text-amber-700")}>
                               {aiGenerationMode === "ai" ? "AI 模型生成" : "规则降级生成"} · {aiModel || integration?.ai.model || "未配置"} · 识别 {differences.length} 处
                             </span>

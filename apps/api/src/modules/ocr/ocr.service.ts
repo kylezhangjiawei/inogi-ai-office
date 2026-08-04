@@ -18,9 +18,13 @@ import type {
   UploadedOcrFile,
 } from './ocr.types';
 
+/**
+ * 注意：不要把 AdvancedInfo 当文本字段。通用文字识别（GeneralAccurateOCR）会把段落
+ * 结构塞进这个字段并序列化成 JSON 字符串，收进来会让正文里混进
+ * `{"Parag":{"ParagNo":8}}` 这类噪声，进而污染版本比对的差异结果。
+ */
 const OCR_TEXT_FIELD_NAMES = new Set([
   'DetectedText',
-  'AdvancedInfo',
   'Text',
   'Value',
   'Name',
