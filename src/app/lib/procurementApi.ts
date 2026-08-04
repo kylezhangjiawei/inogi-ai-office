@@ -122,6 +122,26 @@ export interface Material {
   remark?: string;
 }
 
+export interface ProcTaskTreeNode {
+  id: string;
+  parentId: string | null;
+  name: string;
+  code: string | null;
+  spec: string | null;
+  materialId: string | null;
+  taskCount: number;
+  taskIds: string[];
+  children: ProcTaskTreeNode[];
+}
+
+export interface ProcTaskTreeNodeInput {
+  parentId?: string;
+  name: string;
+  code?: string;
+  spec?: string;
+  materialId?: string;
+}
+
 export interface Quotation {
   id: string;
   taskId?: string;
@@ -193,8 +213,16 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 // ── 任务 ──────────────────────────────────────────────────────────────────────
 
 export async function listProcTasks(signal?: AbortSignal): Promise<ProcurementTask[]> {
-  const data = await request<Paged<ProcurementTask>>("/tasks?pageSize=200", { signal });
-  return data.items;
+  const firstPage = await request<Paged<ProcurementTask>>("/tasks?page=1&pageSize=200", { signal });
+  const pageCount = Math.ceil(firstPage.total / firstPage.pageSize);
+  if (pageCount <= 1) return firstPage.items;
+
+  const remainingPages = await Promise.all(
+    Array.from({ length: pageCount - 1 }, (_, index) =>
+      request<Paged<ProcurementTask>>(`/tasks?page=${index + 2}&pageSize=${firstPage.pageSize}`, { signal }),
+    ),
+  );
+  return [firstPage, ...remainingPages].flatMap((page) => page.items).slice(0, firstPage.total);
 }
 
 /** 按研发任务查询已关联的采购任务。一个研发任务最多对应一条采购任务。 */
@@ -524,6 +552,33 @@ export async function linkPurchaseOrders(
 export async function listMaterials(signal?: AbortSignal): Promise<Material[]> {
   const data = await request<Paged<Material>>("/materials?pageSize=10000", { signal });
   return data.items;
+}
+
+// ── 采购任务系统树 ────────────────────────────────────────────────────────────
+
+export async function listProcTaskTree(signal?: AbortSignal): Promise<{ roots: ProcTaskTreeNode[] }> {
+  return request("/task-tree", { signal });
+}
+
+export async function createProcTaskTreeNode(input: ProcTaskTreeNodeInput): Promise<ProcTaskTreeNode> {
+  return request("/task-tree/nodes", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function updateProcTaskTreeNode(
+  id: string,
+  input: Omit<ProcTaskTreeNodeInput, "parentId">,
+): Promise<ProcTaskTreeNode> {
+  return request(`/task-tree/nodes/${encodeURIComponent(id)}`, {
+    method: "PATCH",
+    body: JSON.stringify(input),
+  });
+}
+
+export async function deleteProcTaskTreeNode(id: string): Promise<{ deleted: number }> {
+  return request(`/task-tree/nodes/${encodeURIComponent(id)}`, { method: "DELETE" });
 }
 
 export async function reviewMaterial(

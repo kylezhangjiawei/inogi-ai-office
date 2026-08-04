@@ -4,11 +4,11 @@ import {
   buildCatStats,
   computePersonLoads,
   computeRisks,
-  flattenTasks,
   type CatStat,
   type PersonLoad,
   type Risk,
 } from "../lib/rdCockpitMetrics";
+import { rootTasksFromCategories } from "../lib/rdTaskTreeVisibility";
 
 export type RDCockpitSummary = {
   /** 非归档任务总数 */
@@ -31,7 +31,7 @@ export type RDCockpitData = {
   risks: Risk[];
   catStats: CatStat[];
   personLoads: PersonLoad[];
-  /** 全部任务（含归档），按最后活动时间倒序 —— 与桌面驾驶舱同口径 */
+  /** 驾驶舱根任务（含归档），按最后活动时间倒序；子任务只在父任务详情展示。 */
   allTasks: RdTask[];
   summary: RDCockpitSummary;
 };
@@ -40,8 +40,8 @@ export type RDCockpitData = {
  * 研发任务驾驶舱「移动只读视图」的数据层。
  *
  * 仅拉取一个 `fetchRdTaskCategories()`，其余 KPI / 风险 / 任务列表 / 人员负载
- * 全部由桌面页导出的纯函数（computeRisks / buildCatStats / computePersonLoads /
- * flattenTasks）就地计算，确保与桌面端「完全同口径」，且不重复实现取数/算法。
+ * 全部由共享纯函数（computeRisks / buildCatStats / computePersonLoads / 根任务提取）
+ * 就地计算，确保与桌面端「完全同口径」，且不重复实现取数/算法。
  */
 export function useRDCockpitData(): RDCockpitData {
   const [categories, setCategories] = useState<RdCategory[]>([]);
@@ -77,7 +77,7 @@ export function useRDCockpitData(): RDCockpitData {
   const personLoads = useMemo(() => computePersonLoads(categories), [categories]);
 
   const allTasks = useMemo(() => {
-    const tasks = flattenTasks(categories.flatMap((c) => c.children.flatMap((s) => s.tasks)));
+    const tasks = rootTasksFromCategories(categories);
     // 与桌面同口径：按「最后活动时间」倒序（last_activity_at 退化到 updated_at）。
     return tasks.sort((a, b) => {
       const ta = a.last_activity_at ?? a.updated_at ?? "";
@@ -89,7 +89,7 @@ export function useRDCockpitData(): RDCockpitData {
   }, [categories]);
 
   const summary = useMemo<RDCockpitSummary>(() => {
-    const active = allTasks.filter((t) => !t.archived);
+    const active = allTasks.filter((t) => !t.archived && t.status !== "archived");
     const done = active.filter((t) => t.status === "completed").length;
     return {
       totalActive: active.length,

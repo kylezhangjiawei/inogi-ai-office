@@ -135,6 +135,7 @@ import { openTaskCompletionReport, openBatchCompletionReport } from "./lib/taskC
 import { useAvatarDirectory } from "./lib/userAvatar";
 import { currentI18nLang, i18nLocale, t, useI18n } from "./lib/i18n";
 import { rdTaskMatchesAllText } from "./lib/rdTaskTextSearch";
+import { rootTasksFromCategories } from "./lib/rdTaskTreeVisibility";
 import { AutoTranslatedText, fetchContentTranslation } from "./components/TranslatableText";
 import { RDProjectProposalDialog } from "./RDProjectProposalDialog";
 import { RdTaskExportButton } from "./components/RdTaskExportButton";
@@ -443,8 +444,25 @@ export function collectTopLevelTasks(categories: Category[]): Task[] {
 }
 
 export function computeRisks(categories: Category[]): Risk[] {
+  // 驾驶舱只展示根任务；若风险来自子任务，将风险归并到对应根任务卡片。
   const risks = categories.flatMap((cat) =>
-    cat.children.flatMap((sub) => sub.tasks.flatMap((task) => collectTaskRisks(task, cat))),
+    cat.children.flatMap((sub) =>
+      sub.tasks.flatMap((rootTask) => {
+        const nestedRisks = collectTaskRisks(rootTask, cat).sort((a, b) => {
+          if (a.severity !== b.severity) return a.severity === "critical" ? -1 : 1;
+          return (b.task.updated_at ?? "").localeCompare(a.task.updated_at ?? "");
+        });
+        const primary = nestedRisks[0];
+        if (!primary) return [];
+        return [{
+          ...primary,
+          task: rootTask,
+          reason: primary.task.task_id === rootTask.task_id
+            ? primary.reason
+            : t("子任务风险：{reason}", { reason: primary.reason }),
+        }];
+      }),
+    ),
   );
   // critical first，同等严重度按更新时间倒序
   return risks.sort((a, b) => {
@@ -456,13 +474,13 @@ export function computeRisks(categories: Category[]): Risk[] {
 }
 
 function calcCategoryProgress(cat: Category): number {
-  const tasks = flattenTasks(cat.children.flatMap((s) => s.tasks)).filter((t) => !isArchivedTask(t));
+  const tasks = rootTasksFromCategories([cat]).filter((t) => !isArchivedTask(t));
   if (tasks.length === 0) return 0;
   return Math.round(tasks.reduce((s, t) => s + t.progress, 0) / tasks.length);
 }
 
 function calcSubProgress(sub: SubProject): number {
-  const tasks = flattenTasks(sub.tasks).filter((t) => !t.archived);
+  const tasks = sub.tasks.filter((t) => !isArchivedTask(t));
   if (tasks.length === 0) return 0;
   return Math.round(tasks.reduce((s, t) => s + t.progress, 0) / tasks.length);
 }
@@ -1465,7 +1483,13 @@ function SubProjectSection({
 
   if (filteredTasks.length === 0 && (keyword || statusFilter !== "all" || priorityFilter !== "all" || dueFilter !== "all")) return null;
   const progress = calcSubProgress(sub);
-  const riskCount = filteredTasks.filter((task) => taskNeedsAttention(task)).length;
+  const subRiskCategory: Category = {
+    id: "",
+    label: sub.label,
+    children: [{ ...sub, tasks: filteredTasks }],
+  };
+  const subRisks = computeRisks([subRiskCategory]);
+  const riskCount = subRisks.length;
   const activeCount = filteredTasks.filter((task) => !task.archived).length;
 
   return (
@@ -1491,27 +1515,19 @@ function SubProjectSection({
             <span className="text-xs font-semibold text-slate-500">
               {t("{count} 个活跃任务", { count: activeCount })}
             </span>
-            {riskCount > 0 &&
-              (() => {
-                const subRisks: Risk[] = [];
-                const subRiskCategory: Category = { id: "", label: sub.label, children: [] };
-                for (const t of filteredTasks) {
-                  subRisks.push(...collectTaskRisks(t, subRiskCategory));
-                }
-                return (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="inline-flex cursor-help items-center gap-1 rounded bg-red-50 px-1.5 py-0.5 text-xs font-semibold text-red-700">
-                        <AlertTriangle className="h-3.5 w-3.5" />
-                        {t("{n} 个风险", { n: riskCount })}
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="bottom" align="start">
-                    <RiskListTooltip title={t("{name} · {count} 个风险任务", { name: sub.label, count: riskCount })} risks={subRisks} />
-                    </TooltipContent>
-                  </Tooltip>
-                );
-              })()}
+            {riskCount > 0 && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="inline-flex cursor-help items-center gap-1 rounded bg-red-50 px-1.5 py-0.5 text-xs font-semibold text-red-700">
+                    <AlertTriangle className="h-3.5 w-3.5" />
+                    {t("{n} 个风险", { n: riskCount })}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" align="start">
+                  <RiskListTooltip title={t("{name} · {count} 个风险任务", { name: sub.label, count: riskCount })} risks={subRisks} />
+                </TooltipContent>
+              </Tooltip>
+            )}
           </div>
           <div className="mt-1.5 flex max-w-sm items-center gap-2">
             <ProgressBar value={progress} />
@@ -1556,12 +1572,7 @@ function SubProjectSection({
 
 export type CatStat = {
   cat: Category;
-  /**
-   * 注册在案的任务总数：该分类下**全部**任务，含已完成、含已归档（放弃通过的、
-   * 归档式合并的源任务也计入）。与 total 的区别是不做任何过滤。
-   */
-  registered: number;
-  /** 未归档任务数（含已完成）。历史字段名叫 total，完成率仍以它为分母。 */
+  /** 驾驶舱可见的未归档根任务数（含已完成，不重复计算子任务）。 */
   total: number;
   inProgress: number;
   done: number;
@@ -1593,13 +1604,11 @@ export function isArchivedTask(task: Pick<Task, "archived" | "status">): boolean
 
 export function buildCatStats(categories: Category[], risks: Risk[]): CatStat[] {
   return categories.map((cat) => {
-    const tasks = flattenTasks(cat.children.flatMap((s) => s.tasks));
+    const tasks = rootTasksFromCategories([cat]);
     const active = tasks.filter((t) => !isArchivedTask(t));
     const catRisks = risks.filter((r) => r.category.id === cat.id);
     return {
       cat,
-      // flattenTasks 已递归展开子任务，故子任务同样计入「注册在案」总数
-      registered: tasks.length,
       total: active.length,
       inProgress: active.filter((t) => t.status === "in_progress").length,
       done: active.filter((t) => t.status === "completed").length,
@@ -1668,23 +1677,15 @@ function computeScopedPersonLoads(
   if (!scope) return [];
   const counts = new Map<string, number>();
   const onLeave = new Set<string>();
-  function walk(tasks: Task[]) {
-    for (const t of tasks) {
-      if (t.archived || t.status === "completed") continue;
-      if (!/已离职|待指派/.test(t.primary_owner)) {
-        counts.set(t.primary_owner, (counts.get(t.primary_owner) ?? 0) + 1);
-        if (t.status === "paused_leave") onLeave.add(t.primary_owner);
-      }
-      for (const c of t.collaborators) {
-        counts.set(c.name, (counts.get(c.name) ?? 0) + 0.5);
-      }
-      if (t.subtasks) walk(t.subtasks);
+  for (const task of collectRootActiveTasks(scope)) {
+    if (task.status === "completed") continue;
+    if (!/已离职|待指派/.test(task.primary_owner)) {
+      counts.set(task.primary_owner, (counts.get(task.primary_owner) ?? 0) + 1);
+      if (task.status === "paused_leave") onLeave.add(task.primary_owner);
     }
-  }
-  if ("children" in scope) {
-    for (const sub of scope.children) walk(sub.tasks);
-  } else {
-    walk(scope.tasks);
+    for (const collaborator of task.collaborators) {
+      counts.set(collaborator.name, (counts.get(collaborator.name) ?? 0) + 0.5);
+    }
   }
   return Array.from(counts.entries())
     .map(([name, count]) => ({
@@ -1706,29 +1707,17 @@ export function computePersonLoads(categories: Category[], maxPerPerson = 8): Pe
   // 同一姓名首个非空 user_id 即固定，后续任务不覆盖。
   const userIds = new Map<string, string>();
 
-  // 「主责」口径：只统计该成员作为主责人(primary_owner)、且活跃(未完成 / 未归档)的任务，每个 +1。
-  // 与个人工作台「主责」严格同口径，逐条对齐后端 getWorkspace：
-  //   - 活跃 = !isArchivedTask && !isCompletedTask，其中 isArchivedTask = archived===true || status==='archived'
-  //   - 后端 collectAllCategoryTasks 对子任务「无条件递归再逐条过滤」：即便父任务已完成/归档，
-  //     其下仍活跃的子任务仍计入。故这里必须「总是递归子任务」，只把「是否计数」按活跃性判断，
-  //     不能因父任务被跳过就连子任务一起漏掉——否则会比工作台「主责 N」少算。
-  //   - 协作不计入头像角标——否则会与工作台「主责 N」对不上。
-  // 数据范围由调用方决定：概览传「所有产品库合并树」=> 跨产品；进入某产品库 board => 该库。
-  function walk(tasks: Task[]) {
-    for (const t of tasks) {
-      const isActive = !isArchivedTask(t) && t.status !== "completed";
-      // Skip placeholder owners like "待指派" and "(已离职)"
-      if (isActive && !/已离职|待指派/.test(t.primary_owner)) {
-        counts.set(t.primary_owner, (counts.get(t.primary_owner) ?? 0) + 1);
-        if (t.status === "paused_leave") onLeave.add(t.primary_owner);
-        if (t.primary_owner_user_id && !userIds.has(t.primary_owner)) {
-          userIds.set(t.primary_owner, t.primary_owner_user_id);
-        }
+  // 驾驶舱头像角标只统计列表中可见的活跃根任务；子任务随父任务查看，不再单独占用角标。
+  for (const task of rootTasksFromCategories(categories)) {
+    const isActive = !isArchivedTask(task) && task.status !== "completed";
+    if (isActive && !/已离职|待指派/.test(task.primary_owner)) {
+      counts.set(task.primary_owner, (counts.get(task.primary_owner) ?? 0) + 1);
+      if (task.status === "paused_leave") onLeave.add(task.primary_owner);
+      if (task.primary_owner_user_id && !userIds.has(task.primary_owner)) {
+        userIds.set(task.primary_owner, task.primary_owner_user_id);
       }
-      if (t.subtasks) walk(t.subtasks); // 始终递归，对齐后端 collectAllCategoryTasks 的无条件展开
     }
   }
-  for (const cat of categories) for (const sub of cat.children) walk(sub.tasks);
 
   return Array.from(counts.entries())
     .map(([name, count]) => ({
@@ -4458,18 +4447,12 @@ function CommandMetric({ label, value, helper, tone, Icon }: CommandMetricProps)
 
 function CommandCenter({
   totalActive,
-  activeSubtasks,
   risks,
   pendingAssign,
   averageProgress,
   onCreate,
 }: {
   totalActive: number;
-  /**
-   * 活跃任务里属于子任务的条数。仅用于在 helper 里标注口径，
-   * totalActive 本身仍是「含子任务」的总数——各驾驶舱/工作台统计同源，改总数会连带影响那几页。
-   */
-  activeSubtasks: number;
   risks: Risk[];
   pendingAssign: number;
   averageProgress: number;
@@ -4483,7 +4466,7 @@ function CommandCenter({
         <CommandMetric
           label={t("活跃任务")}
           value={String(totalActive)}
-          helper={activeSubtasks > 0 ? t("含 {n} 个子任务", { n: activeSubtasks }) : t("当前任务池")}
+          helper={t("当前根任务池")}
           tone="text-indigo-500"
           Icon={Target}
         />
@@ -5468,22 +5451,11 @@ function SystemPanorama({
 
 // ─── DETAIL VIEW components (board mode) ─────────────────────────────────────
 
-/** Collect all active (non-archived) tasks recursively from a scope. */
-function collectAllActiveTasks(scope: Category | SubProject | null): Task[] {
+/** 驾驶舱范围内的活跃根任务；子任务只在父任务详情中展开。 */
+function collectRootActiveTasks(scope: Category | SubProject | null): Task[] {
   if (!scope) return [];
-  const result: Task[] = [];
-  function walk(tasks: Task[]) {
-    for (const t of tasks) {
-      if (!t.archived) result.push(t);
-      if (t.subtasks) walk(t.subtasks);
-    }
-  }
-  if ("children" in scope) {
-    for (const sub of scope.children) walk(sub.tasks);
-  } else {
-    walk(scope.tasks);
-  }
-  return result;
+  const tasks = "children" in scope ? rootTasksFromCategories([scope]) : [...scope.tasks];
+  return tasks.filter((task) => !isArchivedTask(task));
 }
 
 /** Compact hero with status distribution bar */
@@ -5511,7 +5483,7 @@ function SystemDetailHero({
 
   // Status distribution
   const scope: Category | SubProject = sub ?? category;
-  const allTasks = collectAllActiveTasks(scope);
+  const allTasks = collectRootActiveTasks(scope);
   const total = allTasks.length;
   const statusBreakdown: { key: TaskStatus; label: string; count: number; color: string }[] = [
     {
@@ -5634,7 +5606,7 @@ function UpcomingMilestonesSection({
 }) {
   const [windowFilter, setWindowFilter] = useState<string>("all");
   const [page, setPage] = useState(1);
-  const allTasks = tasks ?? collectAllActiveTasks(scope);
+  const allTasks = tasks ?? collectRootActiveTasks(scope);
   const upcoming = allTasks
     .filter((t) => t.due_date && t.status !== "completed")
     // 按时提交、正待审核的任务不算"逾期/即将到期"，不进时间线（方案B）
@@ -5885,14 +5857,14 @@ function TasksByPartSection({
   const [dueFilter, setDueFilter] = useState<TaskDueFilter>("all");
   if (!category) return null;
   // If a sub-project is explicitly selected, show only that one. Otherwise list all parts with tasks.
-  const parts = sub ? [sub] : category.children.filter((c) => flattenTasks(c.tasks).some((task) => !task.archived));
+  const parts = sub ? [sub] : category.children.filter((c) => c.tasks.some((task) => !isArchivedTask(task)));
   if (parts.length === 0) return null;
 
-  const totalCount = parts.reduce((s, p) => s + flattenTasks(p.tasks).filter((t) => !t.archived).length, 0);
+  const totalCount = parts.reduce((s, p) => s + p.tasks.filter((task) => !isArchivedTask(task)).length, 0);
   const normalizedKeyword = keyword.trim();
   const filtersActive = Boolean(normalizedKeyword) || statusFilter !== "all" || priorityFilter !== "all" || dueFilter !== "all";
   const filteredTotal = parts.reduce(
-    (sum, part) => sum + flattenTasks(part.tasks).filter((task) => taskMatches(task, normalizedKeyword, statusFilter, priorityFilter, dueFilter)).length,
+    (sum, part) => sum + part.tasks.filter((task) => taskMatches(task, normalizedKeyword, statusFilter, priorityFilter, dueFilter)).length,
     0,
   );
 
@@ -6010,8 +5982,8 @@ function PartHealthGrid({
   onSelectSub: (subId: string) => void;
 }) {
   const parts = category.children.map((sub) => {
-    const tasks = flattenTasks(sub.tasks);
-    const active = tasks.filter((t) => !t.archived).length;
+    const tasks = sub.tasks;
+    const active = tasks.filter((task) => !isArchivedTask(task)).length;
     const progress = calcSubProgress(sub);
     const riskTasks = tasks.filter((t) => taskNeedsAttention(t)).length;
     const blocked = tasks.filter(
@@ -9419,14 +9391,10 @@ function ExecutiveOverview({
   // i18n 试点（P0 验证链路）：订阅语言切换；t() 中文态原样返回，研发侧零影响
   const { lang } = useI18n();
   // KPI 一律用 kpiStats（概览跨库、board 内为本库），与下方按当前库渲染的分类卡刻意不同源
-  // 注册在案的任务总数（含已完成 + 已归档），KPI 首格「总任务」用它
-  const totalRegistered = kpiStats.reduce((s, c) => s + c.registered, 0);
   const totalActive = kpiStats.reduce((s, c) => s + c.total, 0);
   const inProgress = kpiStats.reduce((s, c) => s + c.inProgress, 0);
   const done = kpiStats.reduce((s, c) => s + c.done, 0);
   const blocked = kpiStats.reduce((s, c) => s + c.blocked, 0);
-  // ⚠️ 完成率分母刻意仍用「未归档数」而非 totalRegistered：把已放弃/已合并走的任务算进分母
-  // 会让完成率无故变低，历史数字也会突变。两格不同源，靠 hint 向用户说明。
   const rate = totalActive > 0 ? Math.round((done / totalActive) * 100) : 0;
 
   // KPI 卡片筛选：点击切换；再点一次取消。
@@ -9437,8 +9405,8 @@ function ExecutiveOverview({
 
   // KPI 定义（研发的格子卡与协同的 stat strip 共享同一份数据与筛选交互）
   const kpiItems = [
-    { label: t("总任务"), value: totalRegistered, hint: t("全部注册在案的任务，含已完成与已归档"), Icon: Target, tone: "text-indigo-700", bg: "from-indigo-50 to-white", filterKey: null, activeRing: "ring-indigo-300" },
-    { label: t("完成率"), value: `${rate}%`, hint: t("已完成 ÷ 未归档任务数（{n}）；分母不含已归档，故与「总任务」不同源", { n: totalActive }), Icon: Gauge, tone: "text-slate-900", bg: "from-slate-50 to-white", filterKey: null, activeRing: "ring-slate-300" },
+    { label: t("总任务"), value: totalActive, hint: t("未归档根任务数；已并入父任务的子任务不重复统计"), Icon: Target, tone: "text-indigo-700", bg: "from-indigo-50 to-white", filterKey: null, activeRing: "ring-indigo-300" },
+    { label: t("完成率"), value: `${rate}%`, hint: t("已完成 ÷ 总任务（{n}）", { n: totalActive }), Icon: Gauge, tone: "text-slate-900", bg: "from-slate-50 to-white", filterKey: null, activeRing: "ring-slate-300" },
     { label: t("进行中"), value: inProgress, hint: "", Icon: CircleDot, tone: "text-indigo-600", bg: "from-indigo-50 to-white", filterKey: "in_progress" as KpiFilter, activeRing: "ring-indigo-400" },
     { label: t("完成"), value: done, hint: "", Icon: CheckCircle2, tone: "text-emerald-700", bg: "from-emerald-50 to-white", filterKey: "completed" as KpiFilter, activeRing: "ring-emerald-400" },
     { label: t("阻塞/待派"), value: blocked, hint: "", Icon: Users, tone: blocked > 0 ? "text-amber-700" : "text-slate-400", bg: blocked > 0 ? "from-amber-50 to-white" : "from-slate-50 to-white", filterKey: "blocked" as KpiFilter, activeRing: "ring-amber-400" },
@@ -9549,7 +9517,7 @@ function ExecutiveOverview({
                 <h2 className="text-xl font-bold tracking-tight text-slate-900">{t("协同任务驾驶舱")}</h2>
                 <p className="mt-1 text-sm text-slate-400">
                   {/* 与下方 KPI 首格同源：页头再报一个不同口径的任务数只会让人对不上账 */}
-                  {new Date().toLocaleDateString(lang === "en" ? "en-US" : "zh-CN", { month: "long", day: "numeric", weekday: "long" })} · {t("{n} 个任务", { n: totalRegistered })}
+                  {new Date().toLocaleDateString(lang === "en" ? "en-US" : "zh-CN", { month: "long", day: "numeric", weekday: "long" })} · {t("{n} 个任务", { n: totalActive })}
                   {risks.length > 0 && <span className="ml-2 font-semibold text-red-500">{t("{n} 个风险", { n: risks.length })}</span>}
                 </p>
               </div>
@@ -10736,12 +10704,12 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
     () => (kpiCategories === categories ? catStats : buildCatStats(kpiCategories, kpiRisks)),
     [kpiCategories, categories, catStats, kpiRisks],
   );
-  // 「人员任务」与 KPI 同范围（与个人工作台「主责」同源）
+  // 「人员任务」与 KPI 同范围；子任务只在父任务详情/合并关系中展示。
   const peopleCategories = kpiCategories;
   const personLoads = useMemo(() => computePersonLoads(peopleCategories), [peopleCategories]);
-  // 概览模式下喂给「人员任务驾驶舱」的任务全集：跨产品库（与角标同范围，保证点开头像看到的就是该范围的任务）。
+  // 概览模式只向「人员任务驾驶舱」提供跨产品库根任务，避免子任务重复显示为独立卡片。
   const peopleAllTasks = useMemo(() => {
-    const tasks = flattenTasks(peopleCategories.flatMap((c) => c.children.flatMap((s) => s.tasks)));
+    const tasks = rootTasksFromCategories(peopleCategories);
     // 用与卡片标签同口径的 taskActivityKey 倒序（最新活动在前），保证人员抽屉等不再二次排序的
     // 消费方也是「最新优先」，与 PersonTaskCockpit 内部 sortByUpdatedDesc 完全一致。
     return tasks.sort((a, b) => {
@@ -10763,7 +10731,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
     setMode("board");
   };
   const allTasks = useMemo(() => {
-    const tasks = flattenTasks(categories.flatMap((c) => c.children.flatMap((s) => s.tasks)));
+    const tasks = rootTasksFromCategories(categories);
     // 按「最后活动时间」倒序，最新变更/留痕的任务排最前。last_activity_at = max(updated_at, 最新留痕时间)，
     // 与卡片「最近更新」显示同口径——只用 updated_at 会让刚留痕的任务沉底、与显示打架出现逆序。
     return tasks.sort((a, b) => {
@@ -10774,20 +10742,15 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
       return 0;
     });
   }, [categories]);
-  const totalActive = useMemo(() => allTasks.filter((t) => !t.archived).length, [allTasks]);
-  /** 活跃任务里的子任务条数（仅用于统计卡 helper 标注口径，不改 totalActive 的含子任务总数）。 */
-  const activeSubtasks = useMemo(() => {
-    const parents = buildSubtaskParentIndex(categories);
-    return allTasks.filter((t) => !t.archived && parents.has(t.task_id)).length;
-  }, [allTasks, categories]);
+  const totalActive = useMemo(() => allTasks.filter((task) => !isArchivedTask(task)).length, [allTasks]);
   const pendingAssign = useMemo(() => allTasks.filter((t) => t.status === "pending_assign").length, [allTasks]);
   const averageProgress = useMemo(() => {
-    const activeTasks = allTasks.filter((t) => !t.archived);
+    const activeTasks = allTasks.filter((task) => !isArchivedTask(task));
     if (activeTasks.length === 0) return 0;
     return Math.round(activeTasks.reduce((sum, task) => sum + task.progress, 0) / activeTasks.length);
   }, [allTasks]);
   const allSystemSummary = useMemo(() => {
-    const activeTasks = allTasks.filter((task) => !task.archived);
+    const activeTasks = allTasks.filter((task) => !isArchivedTask(task));
     return {
       inProgress: activeTasks.filter((task) => task.status === "in_progress").length,
       done: activeTasks.filter((task) => task.status === "completed").length,
@@ -10840,7 +10803,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
 
   const selectedStat = selectedSub
     ? {
-        total: flattenTasks(selectedSub.tasks).filter((task) => !task.archived).length,
+        total: selectedSub.tasks.filter((task) => !isArchivedTask(task)).length,
         progress: calcSubProgress(selectedSub),
       }
     : selectedCatId
@@ -10852,7 +10815,7 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
   const scopeTitle = selectedLabel ?? t("全部研发系统");
   const detailScope = selectedSub ?? selectedCategory ?? null;
   const detailActiveTasks = useMemo(
-    () => (detailScope ? collectAllActiveTasks(detailScope) : allTasks.filter((task) => !task.archived)),
+    () => (detailScope ? collectRootActiveTasks(detailScope) : allTasks.filter((task) => !isArchivedTask(task))),
     [allTasks, detailScope],
   );
   const detailBlockedCount = detailActiveTasks.filter(
@@ -11085,7 +11048,6 @@ export function RDTaskManagementPage({ hideSystemPanorama = false }: { hideSyste
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <CommandCenter
             totalActive={totalActive}
-            activeSubtasks={activeSubtasks}
             risks={risks}
             pendingAssign={pendingAssign}
             averageProgress={averageProgress}

@@ -1141,6 +1141,7 @@ model ProcMaterial {
   remark          String?
   metadata        Json                   @default("{}")
   bomNodes        ProcBomNode[]
+  taskTreeNodes   ProcTaskTreeNode[]
   tasks           ProcTask[]
   quotations      ProcQuotation[]
   supplierQuotes  ProcSupplierQuote[]
@@ -1153,6 +1154,26 @@ model ProcMaterial {
   @@index([category])
   @@index([productLine])
   @@index([reviewStatus])
+}
+
+/// 采购任务驾驶舱系统树：一级节点为分类，二级节点为物料名称。
+/// 叶子可关联物料，任务通过 ProcTask.materialId 自动归入节点；节点本身不承载业务数据。
+model ProcTaskTreeNode {
+  id         String             @id @default(cuid())
+  parentId   String?
+  parent     ProcTaskTreeNode?  @relation("ProcTaskTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children   ProcTaskTreeNode[] @relation("ProcTaskTree")
+  name       String
+  code       String?
+  spec       String?
+  materialId String?
+  material   ProcMaterial?      @relation(fields: [materialId], references: [id], onDelete: SetNull)
+  sortOrder  Int                @default(0)
+  createdAt  DateTime           @default(now())
+  updatedAt  DateTime           @updatedAt
+
+  @@index([parentId, sortOrder])
+  @@index([materialId])
 }
 
 /// 采购任务：全流程主体。三分支——直购 / 询价(需样) / 询价(免样)。

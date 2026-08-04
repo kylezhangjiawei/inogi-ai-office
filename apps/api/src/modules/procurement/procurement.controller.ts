@@ -8,6 +8,7 @@ import {
   BatchReassignDto,
   CancelProcTaskDto,
   ConfirmQuoteBookQuotesDto,
+  CreateProcTaskTreeNodeDto,
   ImportBomDto,
   CreateProcTaskDto,
   ImportMaterialsDto,
@@ -19,6 +20,7 @@ import {
   ReviewMaterialDto,
   TransferFromRdDto,
   TransitionProcTaskDto,
+  UpdateProcTaskTreeNodeDto,
   UpdateProcTaskDto,
   UpsertMaterialDto,
 } from './dto/procurement.dto';
@@ -324,6 +326,30 @@ export class ProcurementController {
   @Permissions('material:import')
   importMaterials(@Body() dto: ImportMaterialsDto, @Request() req: AuthedRequest) {
     return this.service.importMaterials(dto, this.actor(req));
+  }
+
+  /** 采购任务驾驶舱系统树：分类根节点 → 物料名称子节点。 */
+  @Get('task-tree')
+  getTaskTree() {
+    return this.service.getProcTaskTree();
+  }
+
+  @Post('task-tree/nodes')
+  @Permissions('proc-task:create')
+  createTaskTreeNode(@Body() dto: CreateProcTaskTreeNodeDto) {
+    return this.service.createProcTaskTreeNode(dto);
+  }
+
+  @Patch('task-tree/nodes/:id')
+  @Permissions('proc-task:create')
+  updateTaskTreeNode(@Param('id') id: string, @Body() dto: UpdateProcTaskTreeNodeDto) {
+    return this.service.updateProcTaskTreeNode(id, dto);
+  }
+
+  @Delete('task-tree/nodes/:id')
+  @Permissions('proc-task:delete')
+  deleteTaskTreeNode(@Param('id') id: string) {
+    return this.service.deleteProcTaskTreeNode(id);
   }
 
   /** BOM 树查询（机型/部件/组件 → 原料）。 */

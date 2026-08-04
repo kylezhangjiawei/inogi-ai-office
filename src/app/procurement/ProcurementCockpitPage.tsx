@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "../components/ui/input";
 import { useNavigate, useSearchParams } from "react-router";
-import { Activity, AlertTriangle, ClipboardList, Download, PackageCheck, Plus, Search, Truck, UserCog, Users } from "lucide-react";
+import { Activity, AlertTriangle, ClipboardList, Download, Layers3, LayoutDashboard, PackageCheck, Plus, Search, Truck, UserCog, Users } from "lucide-react";
 import { cn } from "../components/ui/utils";
 import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
@@ -11,11 +11,13 @@ import { toast } from "sonner";
 import { daysFromToday, isProcurementTaskOverdue, taskMainDate, taskRequester, useProcurementData, type ProcStatus, type ProcurementTask } from "./data";
 import { PersonAvatar, StatCell } from "./components/common";
 import { ProcurementTaskCard } from "./components/ProcurementTaskCard";
+import { ProcurementSystemTree } from "./components/ProcurementSystemTree";
 import { useProcTaskAction } from "./components/taskActions";
 import { TaskDetailDrawer } from "./components/TaskDetailDrawer";
 import { BatchReassignModal, NewRequirementModal, PoMatchModal } from "./components/modals";
 import { usePermission } from "../hooks/usePermission";
 import { exportProcTasksXlsx } from "./exportTasks";
+import type { ProcTaskTreeNode } from "../lib/procurementApi";
 
 const ACTIVE_STATUSES: ProcStatus[] = ["pending_confirm", "pending_inquiry", "inquiring", "pending_sample", "testing", "priced", "pending_purchase", "in_transit", "partial_arrival"];
 const TRANSIT_STATUSES: ProcStatus[] = ["in_transit", "partial_arrival"];
@@ -26,11 +28,12 @@ type StatKey = "inprogress" | "pending" | "inquiring" | "transit" | "overdue" | 
 
 export function ProcurementCockpitPage() {
   const { t } = useI18n();
-  const { tasks, loading, error } = useProcurementData();
+  const { tasks, materials, loading, error } = useProcurementData();
   const [params, setParams] = useSearchParams();
   const [open, setOpen] = useState<ProcurementTask | null>(null);
   const [stat, setStat] = useState<StatKey | null>(null);
   const [person, setPerson] = useState<string | null>(null);
+  const [treeNode, setTreeNode] = useState<ProcTaskTreeNode | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
   const [poMatchOpen, setPoMatchOpen] = useState(false);
@@ -48,6 +51,14 @@ export function ProcurementCockpitPage() {
   const lineParam = params.get("line");
   const line: "all" | "rd" | "production" = lineParam === "rd" || lineParam === "production" ? lineParam : "all";
   const setLine = (k: "all" | "rd" | "production") => setParams((p) => { const n = new URLSearchParams(p); if (k === "all") n.delete("line"); else n.set("line", k); return n; }, { replace: true });
+
+  const view: "tasks" | "systems" = params.get("view") === "systems" ? "systems" : "tasks";
+  const setView = (nextView: "tasks" | "systems") => setParams((p) => {
+    const next = new URLSearchParams(p);
+    if (nextView === "tasks") next.delete("view");
+    else next.set("view", "systems");
+    return next;
+  }, { replace: true });
 
   const materialParam = params.get("material");
   const taskParam = params.get("task");
@@ -74,27 +85,34 @@ export function ProcurementCockpitPage() {
     rd: tasks.filter((t) => t.businessLine === "rd").length,
   }), [tasks]);
 
+  // 子系统筛选是整页作用域：统计条、人员泳道和任务卡必须使用同一批任务。
+  const treeScopedTasks = useMemo(() => {
+    if (!treeNode) return lineTasks;
+    const taskIds = new Set(treeNode.taskIds);
+    return lineTasks.filter((task) => taskIds.has(task.id));
+  }, [lineTasks, treeNode]);
+
   const counts = useMemo(() => ({
-    inprogress: lineTasks.filter((t) => ACTIVE_STATUSES.includes(t.status)).length,
-    pending: lineTasks.filter((t) => t.status === "pending_confirm").length,
-    inquiring: lineTasks.filter((t) => t.status === "inquiring").length,
-    transit: lineTasks.filter((t) => TRANSIT_STATUSES.includes(t.status)).length,
-    overdue: lineTasks.filter(isProcurementTaskOverdue).length,
-    week: lineTasks.filter(isThisWeek).length,
-  }), [lineTasks]);
+    inprogress: treeScopedTasks.filter((t) => ACTIVE_STATUSES.includes(t.status)).length,
+    pending: treeScopedTasks.filter((t) => t.status === "pending_confirm").length,
+    inquiring: treeScopedTasks.filter((t) => t.status === "inquiring").length,
+    transit: treeScopedTasks.filter((t) => TRANSIT_STATUSES.includes(t.status)).length,
+    overdue: treeScopedTasks.filter(isProcurementTaskOverdue).length,
+    week: treeScopedTasks.filter(isThisWeek).length,
+  }), [treeScopedTasks]);
 
   // 人员泳道维度：采购负责人 + 研发对接人 + 需求提出人
   const people = useMemo(() => {
     const m = new Map<string, number>();
-    for (const t of lineTasks) {
+    for (const t of treeScopedTasks) {
       const names = new Set([t.buyer, t.rdContact, taskRequester(t).name].filter(Boolean) as string[]);
       for (const name of names) m.set(name, (m.get(name) ?? 0) + 1);
     }
     return Array.from(m.entries());
-  }, [lineTasks]);
+  }, [treeScopedTasks]);
 
   const filtered = useMemo(() => {
-    let list = lineTasks.filter((t) => {
+    let list = treeScopedTasks.filter((t) => {
       if (!stat) return true;
       if (stat === "inprogress") return ACTIVE_STATUSES.includes(t.status);
       if (stat === "pending") return t.status === "pending_confirm";
@@ -115,14 +133,14 @@ export function ProcurementCockpitPage() {
       const db = taskMainDate(b).date ?? "9999";
       return da.localeCompare(db);
     });
-  }, [lineTasks, stat, person, materialParam, kw]);
+  }, [treeScopedTasks, stat, person, materialParam, kw]);
 
   const toggleStat = (k: StatKey) => setStat((cur) => (cur === k ? null : k));
 
   // 瀑布流分批渲染：首屏一批，滚动到底部哨兵自动追加；筛选条件变化重置
   const [visibleCount, setVisibleCount] = useState(WATERFALL_PAGE_SIZE);
   const sentinelRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => { setVisibleCount(WATERFALL_PAGE_SIZE); }, [line, person, stat, materialParam, kw]);
+  useEffect(() => { setVisibleCount(WATERFALL_PAGE_SIZE); }, [line, treeNode?.id, person, stat, materialParam, kw]);
   useEffect(() => {
     const el = sentinelRef.current;
     if (!el || visibleCount >= filtered.length) return;
@@ -143,33 +161,76 @@ export function ProcurementCockpitPage() {
     <div className="mx-auto flex h-full w-full max-w-[1600px] flex-col p-4">
       {/* 页头（业务线 Tab + 操作按钮）/ 统计条 / 人员泳道 */}
       <div className="material-card mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 py-2">
-        <div className="inline-flex items-center gap-1 rounded-lg bg-slate-100 p-1">
-          {([["all", "全部"], ["production", "生产"], ["rd", "研发"]] as const).map(([k, lbl]) => (
-            <button key={k} type="button" onClick={() => setLine(k)} className={cn("flex items-center gap-1.5 rounded-md px-4 py-1.5 text-sm transition", line === k ? "bg-white font-semibold text-indigo-700 shadow-sm" : "font-medium text-slate-500 hover:text-slate-700")}>
-              {t(lbl)}
-              <span className={cn("rounded-full px-1.5 text-[11px] font-medium tabular-nums", line === k ? "bg-indigo-50 text-indigo-600" : "bg-slate-200/70 text-slate-500")}>{lineCounts[k]}</span>
-            </button>
-          ))}
-        </div>
+        {view === "tasks" ? (
+          <div className="inline-flex items-center gap-1 rounded-lg bg-slate-100 p-1" role="tablist" aria-label={t("采购业务线")}>
+            {([["all", "全部"], ["production", "生产"], ["rd", "研发"]] as const).map(([k, lbl]) => (
+              <button key={k} type="button" role="tab" aria-selected={line === k} onClick={() => setLine(k)} className={cn("flex cursor-pointer items-center gap-1.5 rounded-md px-4 py-1.5 text-sm transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400", line === k ? "bg-white font-semibold text-indigo-700 shadow-sm" : "font-medium text-slate-500 hover:text-slate-700")}>
+                {t(lbl)}
+                <span className={cn("rounded-full px-1.5 text-[11px] font-medium tabular-nums", line === k ? "bg-indigo-50 text-indigo-600" : "bg-slate-200/70 text-slate-500")}>{lineCounts[k]}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="flex min-w-0 items-center gap-2.5 px-1 py-0.5">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-slate-900 text-white shadow-sm">
+              <Layers3 className="size-4" />
+            </span>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-slate-950">{t("采购子系统全景")}</p>
+              <p className="truncate text-[11px] text-slate-500">{t("按分类与名称查看采购任务分布和节点状态")}</p>
+            </div>
+          </div>
+        )}
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            title={t('导出当前筛选下的任务列表（Excel）')}
-            onClick={() => {
-              void exportProcTasksXlsx(filtered)
-                .then((count) => toast.success(t('已导出 {count} 个任务', { count })))
-                .catch((err) => toast.error(err instanceof Error ? err.message : t('导出失败')));
-            }}
-            className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"
-          ><Download className="h-4 w-4" />{t('导出')}</button>
-          {canOrder && <button type="button" onClick={() => setPoMatchOpen(true)} title={t('确认 T+ 采购单与任务的匹配建议，任务自动转入在途')} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Truck className="h-4 w-4" />{t('单据匹配')}</button>}
-          {canReassign && <button type="button" onClick={() => setBatchOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Users className="h-4 w-4" />{t('批量转派')}</button>}
-          <button type="button" onClick={() => navigate('/proc-people-management')} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><UserCog className="h-4 w-4" />{t('人员管理')}</button>
-          {canCreate && <button type="button" onClick={() => setNewOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Plus className="h-4 w-4" />{t('新建需求')}</button>}
+            aria-pressed={view === "systems"}
+            onClick={() => setView(view === "tasks" ? "systems" : "tasks")}
+            className={cn(
+              "inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400",
+              view === "systems"
+                ? "border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
+                : "border-slate-200 bg-white text-slate-600 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700",
+            )}
+          >
+            {view === "tasks" ? <Layers3 className="h-4 w-4" /> : <LayoutDashboard className="h-4 w-4" />}
+            {view === "tasks" ? t("子系统全景") : t("返回任务驾驶舱")}
+          </button>
+          {view === "tasks" && (
+            <>
+              <button
+                type="button"
+                title={t('导出当前筛选下的任务列表（Excel）')}
+                onClick={() => {
+                  void exportProcTasksXlsx(filtered)
+                    .then((count) => toast.success(t('已导出 {count} 个任务', { count })))
+                    .catch((err) => toast.error(err instanceof Error ? err.message : t('导出失败')));
+                }}
+                className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"
+              ><Download className="h-4 w-4" />{t('导出')}</button>
+              {canOrder && <button type="button" onClick={() => setPoMatchOpen(true)} title={t('确认 T+ 采购单与任务的匹配建议，任务自动转入在途')} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Truck className="h-4 w-4" />{t('单据匹配')}</button>}
+              {canReassign && <button type="button" onClick={() => setBatchOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Users className="h-4 w-4" />{t('批量转派')}</button>}
+              <button type="button" onClick={() => navigate('/proc-people-management')} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><UserCog className="h-4 w-4" />{t('人员管理')}</button>
+              {canCreate && <button type="button" onClick={() => setNewOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Plus className="h-4 w-4" />{t('新建需求')}</button>}
+            </>
+          )}
         </div>
       </div>
 
-      {/* 统计条 */}
+      {view === "systems" ? (
+        <div className="flex min-h-0 flex-1">
+          <ProcurementSystemTree
+            tasks={tasks}
+            materials={materials}
+            selected={treeNode}
+            onSelect={setTreeNode}
+            onShowTasks={() => setView("tasks")}
+          />
+        </div>
+      ) : (
+        /* 统计条 */
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
+        <section className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="mb-3 grid grid-cols-6 gap-3">
         <StatCell label={t('进行中')} value={counts.inprogress} Icon={Activity} active={stat === "inprogress"} onClick={() => toggleStat("inprogress")} />
         <StatCell label={t('待处理')} value={counts.pending} tone={counts.pending > 0 ? "red" : "slate"} badge={counts.pending > 0} Icon={ClipboardList} active={stat === "pending"} onClick={() => toggleStat("pending")} />
@@ -190,6 +251,15 @@ export function ProcurementCockpitPage() {
             <span className="rounded-full bg-slate-100 px-1.5 text-[10px] text-slate-500">{n}</span>
           </button>
         ))}
+        {treeNode && (
+          <button
+            type="button"
+            onClick={() => setTreeNode(null)}
+            className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600"
+          >
+            {t("系统")}：<AutoTranslatedText text={treeNode.name} /> ×
+          </button>
+        )}
         {materialParam && (
           <button type="button" onClick={() => setParams((p) => { const n = new URLSearchParams(p); n.delete("material"); return n; }, { replace: true })} className="rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs text-indigo-600">{t('物料')}：<AutoTranslatedText text={materialParam} /> ✕</button>
         )}
@@ -203,7 +273,7 @@ export function ProcurementCockpitPage() {
         </div>
       </div>
 
-      {/* 任务展示区：头部固定、这里 flex-1 + min-h-0 自身内滚，避免撑高外层 <main> 出现整页滚动条。 */}
+      {/* 任务展示区 */}
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div>
           {error ? (
@@ -239,12 +309,17 @@ export function ProcurementCockpitPage() {
               </>
             )}
         </div>
+
       </div>
+
+        </section>
+      </div>
+      )}
 
       {open && <TaskDetailDrawer task={open} onClose={() => { setOpen(null); if (taskParam) setParams((p) => { const n = new URLSearchParams(p); n.delete("task"); return n; }, { replace: true }); }} />}
       {taskAction.modal}
       {newOpen && <NewRequirementModal onClose={() => setNewOpen(false)} />}
-      {batchOpen && <BatchReassignModal tasks={lineTasks} onClose={() => setBatchOpen(false)} />}
+      {batchOpen && <BatchReassignModal tasks={treeScopedTasks} onClose={() => setBatchOpen(false)} />}
       {poMatchOpen && <PoMatchModal onClose={() => setPoMatchOpen(false)} />}
     </div>
   );

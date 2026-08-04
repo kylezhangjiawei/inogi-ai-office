@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../prisma/prisma.service';
@@ -13,6 +13,7 @@ import {
   BomNodeInputDto,
   CancelProcTaskDto,
   ConfirmQuoteBookQuotesDto,
+  CreateProcTaskTreeNodeDto,
   CreateProcTaskDto,
   ImportBomDto,
   ImportMaterialsDto,
@@ -24,6 +25,7 @@ import {
   ReviewMaterialDto,
   TransferFromRdDto,
   TransitionProcTaskDto,
+  UpdateProcTaskTreeNodeDto,
   UpdateProcTaskDto,
   UpsertMaterialDto,
 } from './dto/procurement.dto';
@@ -37,6 +39,7 @@ import {
   type ProcStatus,
   type ProcTaskListQuery,
 } from './procurement.types';
+import { INITIAL_PROC_TASK_TREE } from './proc-task-tree.seed';
 
 /** 前端一律用 number/ISO 字符串，Decimal/Date 在出口统一序列化。 */
 function num(value: Prisma.Decimal | number | null | undefined): number {
@@ -85,6 +88,23 @@ export interface AiTaskDraft {
   priority?: 'high' | 'medium' | 'low';
   needSample?: boolean;
 }
+
+export interface ProcTaskTreeNodeView {
+  id: string;
+  parentId: string | null;
+  name: string;
+  code: string | null;
+  spec: string | null;
+  materialId: string | null;
+  taskCount: number;
+  taskIds: string[];
+  children: ProcTaskTreeNodeView[];
+}
+
+type ProcTaskTreeDbClient = Pick<
+  Prisma.TransactionClient,
+  'procTaskTreeNode' | 'procTask' | 'procMaterial'
+>;
 
 export interface TaskQuoteBookOption {
   id: string;
@@ -153,7 +173,8 @@ export class ProcurementService {
       this.prisma.procTask.findMany({
         where,
         // 驾驶舱按「最近更新」排序：确认过的排序口径，勿改回 createdAt
-        orderBy: { updatedAt: 'desc' },
+        // id 作为稳定次序，避免相同更新时间在 offset 分页间重复或漏项。
+        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
         skip: (page - 1) * pageSize,
         take: pageSize,
         include: {
@@ -1417,6 +1438,299 @@ export class ProcurementService {
       }
     }
     return { created, updated, total: dto.items.length };
+  }
+
+  // ── 采购任务系统树 ───────────────────────────────────────────────────────────
+
+  /** 首次打开时用库存 BOM 附件中的「分类 / 名称」初始化两级目录。 */
+  private async ensureProcTaskTreeSeeded() {
+    const existing = await this.prisma.procTaskTreeNode.count();
+    if (existing > 0) return;
+    const seedStateKey = 'procurement.task-tree.initialized';
+    const seedState = await this.prisma.runtimeState.findUnique({ where: { key: seedStateKey } });
+    if (seedState) return;
+
+    const materials = await this.prisma.procMaterial.findMany({
+      select: { id: true, erpCode: true, tpInventoryCode: true },
+    });
+    const materialByTpCode = new Map<string, string>();
+    const materialByUniqueErpCode = new Map<string, string>();
+    const erpCodeCounts = new Map<string, number>();
+    for (const material of materials) {
+      const erpCode = material.erpCode.trim();
+      if (erpCode) {
+        erpCodeCounts.set(erpCode, (erpCodeCounts.get(erpCode) ?? 0) + 1);
+        materialByUniqueErpCode.set(erpCode, material.id);
+      }
+      const tpCode = material.tpInventoryCode?.trim();
+      if (tpCode) materialByTpCode.set(tpCode, material.id);
+    }
+
+    const roots: Prisma.ProcTaskTreeNodeCreateManyInput[] = [];
+    const children: Prisma.ProcTaskTreeNodeCreateManyInput[] = [];
+    let childIndex = 0;
+    INITIAL_PROC_TASK_TREE.forEach((root, rootIndex) => {
+      const rootId = `proc-task-tree-root-${rootIndex + 1}`;
+      roots.push({ id: rootId, name: root.name, sortOrder: rootIndex });
+      root.children.forEach((child, sortOrder) => {
+        childIndex += 1;
+        children.push({
+          id: `proc-task-tree-item-${childIndex}`,
+          parentId: rootId,
+          name: child.name,
+          code: child.code || null,
+          spec: child.spec || null,
+          materialId:
+            materialByTpCode.get(child.code) ??
+            (erpCodeCounts.get(child.code) === 1 ? materialByUniqueErpCode.get(child.code) : undefined) ??
+            null,
+          sortOrder,
+        });
+      });
+    });
+
+    await this.prisma.$transaction([
+      this.prisma.procTaskTreeNode.createMany({ data: roots, skipDuplicates: true }),
+      this.prisma.procTaskTreeNode.createMany({ data: children, skipDuplicates: true }),
+      this.prisma.runtimeState.upsert({
+        where: { key: seedStateKey },
+        create: { key: seedStateKey, value: new Date().toISOString() },
+        update: {},
+      }),
+    ]);
+  }
+
+  /**
+   * 返回两级系统树，并把采购任务按 materialId 归入叶子节点。
+   * 未匹配物料的手工节点按名称兜底，保证旧任务也能显示。
+   */
+  async getProcTaskTree(): Promise<{ roots: ProcTaskTreeNodeView[] }> {
+    await this.ensureProcTaskTreeSeeded();
+    return this.getProcTaskTreeWithClient(this.prisma);
+  }
+
+  private async getProcTaskTreeWithClient(
+    client: ProcTaskTreeDbClient,
+  ): Promise<{ roots: ProcTaskTreeNodeView[] }> {
+    const [rows, tasks] = await Promise.all([
+      client.procTaskTreeNode.findMany({
+        orderBy: [{ parentId: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+      }),
+      client.procTask.findMany({ select: { id: true, materialId: true, materialName: true } }),
+    ]);
+
+    const taskIdsByMaterial = new Map<string, string[]>();
+    const taskIdsByName = new Map<string, string[]>();
+    const fallbackLeafCountByName = new Map<string, number>();
+    for (const row of rows) {
+      if (row.parentId && !row.materialId) {
+        fallbackLeafCountByName.set(row.name, (fallbackLeafCountByName.get(row.name) ?? 0) + 1);
+      }
+    }
+    for (const task of tasks) {
+      if (task.materialId) {
+        const ids = taskIdsByMaterial.get(task.materialId) ?? [];
+        ids.push(task.id);
+        taskIdsByMaterial.set(task.materialId, ids);
+        continue;
+      }
+      if (fallbackLeafCountByName.get(task.materialName) === 1) {
+        const ids = taskIdsByName.get(task.materialName) ?? [];
+        ids.push(task.id);
+        taskIdsByName.set(task.materialName, ids);
+      }
+    }
+
+    const byId = new Map<string, ProcTaskTreeNodeView>();
+    const roots: ProcTaskTreeNodeView[] = [];
+    for (const row of rows) {
+      const ownTaskIds = row.materialId
+        ? taskIdsByMaterial.get(row.materialId) ?? []
+        : row.parentId
+          ? taskIdsByName.get(row.name) ?? []
+          : [];
+      byId.set(row.id, {
+        id: row.id,
+        parentId: row.parentId,
+        name: row.name,
+        code: row.code,
+        spec: row.spec,
+        materialId: row.materialId,
+        taskCount: ownTaskIds.length,
+        taskIds: [...ownTaskIds],
+        children: [],
+      });
+    }
+    for (const row of rows) {
+      const node = byId.get(row.id)!;
+      if (row.parentId && byId.has(row.parentId)) byId.get(row.parentId)!.children.push(node);
+      else roots.push(node);
+    }
+
+    const aggregateTasks = (node: ProcTaskTreeNodeView): Set<string> => {
+      const taskIds = new Set(node.taskIds);
+      for (const child of node.children) {
+        for (const taskId of aggregateTasks(child)) taskIds.add(taskId);
+      }
+      node.taskIds = [...taskIds];
+      node.taskCount = taskIds.size;
+      return taskIds;
+    };
+    roots.forEach(aggregateTasks);
+    return { roots };
+  }
+
+  async createProcTaskTreeNode(dto: CreateProcTaskTreeNodeDto) {
+    await this.ensureProcTaskTreeSeeded();
+    const name = dto.name.trim();
+    const parentId = dto.parentId?.trim() || null;
+    if (!name) throw new BadRequestException('节点名称不能为空');
+
+    return this.prisma.$transaction(async (tx) => {
+      // 所有目录写入串行化，避免“先查重、后创建”并发插入重复节点或相同排序号。
+      await tx.$executeRawUnsafe('LOCK TABLE "ProcTaskTreeNode" IN SHARE ROW EXCLUSIVE MODE');
+
+      if (parentId) {
+        const parent = await tx.procTaskTreeNode.findUnique({
+          where: { id: parentId },
+          select: { id: true, parentId: true },
+        });
+        if (!parent) throw new NotFoundException('父节点不存在');
+        if (parent.parentId) throw new BadRequestException('采购任务系统树只允许分类和名称两级');
+      }
+
+      const code = parentId ? dto.code?.trim() || null : null;
+      const duplicate = await tx.procTaskTreeNode.findFirst({
+        where: { parentId, name, code },
+        select: { id: true },
+      });
+      if (duplicate) throw new ConflictException('同一分类下已存在相同节点');
+
+      const material = parentId
+        ? await this.resolveProcTaskTreeMaterial(tx, dto.materialId, code, name)
+        : null;
+      const sortOrder = await tx.procTaskTreeNode.count({ where: { parentId } });
+      const created = await tx.procTaskTreeNode.create({
+        data: {
+          parentId,
+          name,
+          code,
+          spec: parentId ? dto.spec?.trim() || null : null,
+          materialId: material?.id ?? null,
+          sortOrder,
+        },
+        select: { id: true },
+      });
+      return this.findProcTaskTreeNodeView(created.id, tx);
+    });
+  }
+
+  async updateProcTaskTreeNode(id: string, dto: UpdateProcTaskTreeNodeDto) {
+    await this.ensureProcTaskTreeSeeded();
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockProcTaskTreeForProtectedWrite(tx);
+      const current = await this.findProcTaskTreeNodeView(id, tx);
+      if (current.taskCount > 0) {
+        throw new ConflictException(`节点下已有 ${current.taskCount} 个采购任务，不能修改`);
+      }
+
+      const name = dto.name === undefined ? current.name : dto.name.trim();
+      if (!name) throw new BadRequestException('节点名称不能为空');
+      const isRoot = current.parentId === null;
+      const code = isRoot ? null : dto.code === undefined ? current.code : dto.code.trim() || null;
+      const spec = isRoot ? null : dto.spec === undefined ? current.spec : dto.spec.trim() || null;
+
+      const duplicate = await tx.procTaskTreeNode.findFirst({
+        where: { parentId: current.parentId, name, code, NOT: { id } },
+        select: { id: true },
+      });
+      if (duplicate) throw new ConflictException('同一分类下已存在相同节点');
+
+      let materialId = current.materialId;
+      if (!isRoot && (dto.materialId !== undefined || dto.code !== undefined)) {
+        const material = await this.resolveProcTaskTreeMaterial(tx, dto.materialId, code, name);
+        materialId = material?.id ?? null;
+      }
+      await tx.procTaskTreeNode.update({
+        where: { id },
+        data: { name, code, spec, materialId },
+      });
+      return this.findProcTaskTreeNodeView(id, tx);
+    });
+  }
+
+  async deleteProcTaskTreeNode(id: string) {
+    await this.ensureProcTaskTreeSeeded();
+    return this.prisma.$transaction(async (tx) => {
+      await this.lockProcTaskTreeForProtectedWrite(tx);
+      const current = await this.findProcTaskTreeNodeView(id, tx);
+      if (current.taskCount > 0) {
+        throw new ConflictException(`节点下已有 ${current.taskCount} 个采购任务，不能删除`);
+      }
+      await tx.procTaskTreeNode.delete({ where: { id } });
+      return { deleted: 1 };
+    });
+  }
+
+  private async lockProcTaskTreeForProtectedWrite(tx: Prisma.TransactionClient) {
+    // 目录写互斥；任务表 SHARE 锁会等待已开始的任务写入完成，并阻止检查后的新写入。
+    await tx.$executeRawUnsafe('LOCK TABLE "ProcTaskTreeNode" IN SHARE ROW EXCLUSIVE MODE');
+    await tx.$executeRawUnsafe('LOCK TABLE "ProcTask" IN SHARE MODE');
+  }
+
+  private async findProcTaskTreeNodeView(
+    id: string,
+    client: ProcTaskTreeDbClient = this.prisma,
+  ): Promise<ProcTaskTreeNodeView> {
+    const { roots } = await this.getProcTaskTreeWithClient(client);
+    const visit = (nodes: ProcTaskTreeNodeView[]): ProcTaskTreeNodeView | null => {
+      for (const node of nodes) {
+        if (node.id === id) return node;
+        const child = visit(node.children);
+        if (child) return child;
+      }
+      return null;
+    };
+    const node = visit(roots);
+    if (!node) throw new NotFoundException('采购任务系统树节点不存在');
+    return node;
+  }
+
+  private async resolveProcTaskTreeMaterial(
+    client: ProcTaskTreeDbClient,
+    materialId: string | undefined,
+    code: string | null,
+    name: string,
+  ) {
+    const explicitId = materialId?.trim();
+    if (explicitId) {
+      const material = await client.procMaterial.findUnique({
+        where: { id: explicitId },
+        select: { id: true },
+      });
+      if (!material) throw new NotFoundException('关联物料不存在');
+      return material;
+    }
+    if (code) {
+      const tpMaterial = await client.procMaterial.findUnique({
+        where: { tpInventoryCode: code },
+        select: { id: true },
+      });
+      if (tpMaterial) return tpMaterial;
+      const erpMatches = await client.procMaterial.findMany({
+        where: { erpCode: code },
+        select: { id: true },
+        take: 2,
+      });
+      if (erpMatches.length === 1) return erpMatches[0];
+      if (erpMatches.length > 1) return null;
+    }
+    const matches = await client.procMaterial.findMany({
+      where: { name },
+      select: { id: true },
+      take: 2,
+    });
+    return matches.length === 1 ? matches[0] : null;
   }
 
   // ── BOM ─────────────────────────────────────────────────────────────────────

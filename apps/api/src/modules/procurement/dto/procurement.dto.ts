@@ -512,6 +512,57 @@ export class ImportBomDto {
   replace?: boolean;
 }
 
+/** 采购任务驾驶舱系统树节点。parentId 为空时创建分类根节点。 */
+export class CreateProcTaskTreeNodeDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  parentId?: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  name!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  code?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  spec?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  materialId?: string;
+}
+
+export class UpdateProcTaskTreeNodeDto {
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  code?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  spec?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  materialId?: string;
+}
+
 export class ImportMaterialsDto {
   @IsArray()
   @ArrayMaxSize(2000)

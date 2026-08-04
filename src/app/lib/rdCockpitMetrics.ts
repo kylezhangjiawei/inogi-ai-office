@@ -1,6 +1,7 @@
 import type { RdCategory, RdTask } from "./rdApi";
 import { taskOverdueDays } from "./taskDue";
 import { t } from "./i18n";
+import { rootTasksFromCategories } from "./rdTaskTreeVisibility";
 
 const now = new Date();
 const today = new Date(
@@ -103,7 +104,21 @@ export function flattenTasks(tasks: RdTask[]): RdTask[] {
 export function computeRisks(categories: RdCategory[]): Risk[] {
   const risks = categories.flatMap((category) =>
     category.children.flatMap((subProject) =>
-      subProject.tasks.flatMap((task) => collectTaskRisks(task, category)),
+      subProject.tasks.flatMap((rootTask) => {
+        const nestedRisks = collectTaskRisks(rootTask, category).sort((a, b) => {
+          if (a.severity !== b.severity) return a.severity === "critical" ? -1 : 1;
+          return (b.task.updated_at ?? "").localeCompare(a.task.updated_at ?? "");
+        });
+        const primary = nestedRisks[0];
+        if (!primary) return [];
+        return [{
+          ...primary,
+          task: rootTask,
+          reason: primary.task.task_id === rootTask.task_id
+            ? primary.reason
+            : t("子任务风险：{reason}", { reason: primary.reason }),
+        }];
+      }),
     ),
   );
   return risks.sort((a, b) => {
@@ -116,8 +131,8 @@ export function computeRisks(categories: RdCategory[]): Risk[] {
 
 export function buildCatStats(categories: RdCategory[], risks: Risk[]): CatStat[] {
   return categories.map((category) => {
-    const tasks = flattenTasks(category.children.flatMap((subProject) => subProject.tasks));
-    const active = tasks.filter((task) => !task.archived);
+    const tasks = rootTasksFromCategories([category]);
+    const active = tasks.filter((task) => !task.archived && task.status !== "archived");
     const categoryRisks = risks.filter((risk) => risk.category.id === category.id);
     const progress = active.length
       ? Math.round(active.reduce((sum, task) => sum + task.progress, 0) / active.length)
@@ -142,23 +157,16 @@ export function computePersonLoads(categories: RdCategory[], maxPerPerson = 8): 
   const onLeave = new Set<string>();
   const userIds = new Map<string, string>();
 
-  const walk = (tasks: RdTask[]) => {
-    for (const task of tasks) {
-      const archived = task.archived || task.status === "archived";
-      const active = !archived && task.status !== "completed";
-      if (active && !/已离职|待指派/.test(task.primary_owner)) {
-        counts.set(task.primary_owner, (counts.get(task.primary_owner) ?? 0) + 1);
-        if (task.status === "paused_leave") onLeave.add(task.primary_owner);
-        if (task.primary_owner_user_id && !userIds.has(task.primary_owner)) {
-          userIds.set(task.primary_owner, task.primary_owner_user_id);
-        }
+  for (const task of rootTasksFromCategories(categories)) {
+    const archived = task.archived || task.status === "archived";
+    const active = !archived && task.status !== "completed";
+    if (active && !/已离职|待指派/.test(task.primary_owner)) {
+      counts.set(task.primary_owner, (counts.get(task.primary_owner) ?? 0) + 1);
+      if (task.status === "paused_leave") onLeave.add(task.primary_owner);
+      if (task.primary_owner_user_id && !userIds.has(task.primary_owner)) {
+        userIds.set(task.primary_owner, task.primary_owner_user_id);
       }
-      if (task.subtasks?.length) walk(task.subtasks);
     }
-  };
-
-  for (const category of categories) {
-    for (const subProject of category.children) walk(subProject.tasks);
   }
 
   return Array.from(counts.entries())
