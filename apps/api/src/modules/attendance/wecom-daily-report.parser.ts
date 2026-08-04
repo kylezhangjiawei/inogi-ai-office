@@ -69,7 +69,6 @@ export interface WeComDailyRow {
   status: AttendanceStatus;
   lateMinutes: number;
   earlyLeaveMinutes: number;
-  deductionMinutes: number;
   overtimeMinutes: number;
   overtimeType: OvertimeType | '';
   /** 企微原始加班时长（小时），未过阈值也保留，仅用于预览展示 */
@@ -227,7 +226,6 @@ function buildRow(
     status,
     lateMinutes,
     earlyLeaveMinutes,
-    deductionMinutes: lateMinutes + earlyLeaveMinutes,
     overtimeMinutes: countable ? Math.round(rawOvertimeHours * 60) : 0,
     overtimeType: countable ? inferOvertimeType(attendanceDate, isRestDay) : '',
     rawOvertimeHours,

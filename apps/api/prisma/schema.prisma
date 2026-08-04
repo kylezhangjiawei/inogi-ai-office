@@ -987,7 +987,7 @@ model EmployeeArchive {
   costCenter               String                    @default("")
   /// 企业微信账号(userid)。考勤导入首次按姓名匹配成功后自动回填，之后走精确匹配。
   wecomUserId              String                    @default("")
-  /// 是否参与倒挂抵扣：生产没任务时工资照发，这些人的扣除工时累计成倒挂欠账，后续加班冲抵。
+  /// 是否参与倒挂抵扣：开启后允许 HR 单独录入倒挂扣时并累计成欠账；迟到/早退不自动计入。
   deductsInvertedHours     Boolean                   @default(false)
   archiveStatus            String                    @default("onboarding")
   archiveScore             Int                       @default(0)

@@ -42,7 +42,7 @@ export interface AttendanceEmployee {
   department: string;
   title: string;
   employmentStatus: string;
-  /** 是否参与倒挂抵扣：为 true 才记扣除工时并累计成倒挂欠账 */
+  /** 是否参与倒挂抵扣：为 true 时才允许 HR 明确录入倒挂扣时并累计成欠账 */
   deductsInvertedHours: boolean;
 }
 
@@ -131,7 +131,7 @@ export interface AttendanceRuleSummary {
   annualSickLeaveDays: number;
   paidSickLeaveUsedDays: number;
   excessSickLeaveDays: number;
-  /** 当月扣除工时汇总出的倒挂工时（没干活却发了工资的时长） */
+  /** 当月明确录入的倒挂扣时汇总出的倒挂工时（不含迟到 / 早退异常） */
   autoInvertedHours: number;
   /** 月度结余里手工填的倒挂工时，>0 时覆盖自动值 */
   manualInvertedHours: number;

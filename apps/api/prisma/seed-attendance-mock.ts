@@ -130,7 +130,8 @@ function attendanceValues(employeeIndex: number, date: string) {
     workMinutes: Math.max(0, rawWorkMinutes - 60),
     lateMinutes,
     earlyLeaveMinutes,
-    deductionMinutes: lateMinutes + earlyLeaveMinutes,
+    // 迟到 / 早退只作为考勤异常；倒挂扣时必须由 HR 明确填写，Mock 不自动生成。
+    deductionMinutes: 0,
     overtimeMinutes,
     overtimeType: overtimeMinutes > 0 ? 'workday' : '',
     note: status === 'normal' ? '' : 'Mock 异常考勤示例',

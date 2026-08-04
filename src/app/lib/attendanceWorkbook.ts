@@ -293,7 +293,7 @@ function populateAttendanceBlock(
     const row = startRow + offset;
     rows[offset] = setCell(rows[offset], 1, row, null);
     rows[offset] = setCell(rows[offset], 2, row, null);
-    rows[offset] = setCell(rows[offset], 3, row, ['上午', '上午', '下午', '下午', '扣除\n工时/分钟'][offset]);
+    rows[offset] = setCell(rows[offset], 3, row, ['上午', '上午', '下午', '下午', '倒挂\n扣时/分钟'][offset]);
     for (let column = dayStart; column <= dayEnd; column += 1) {
       rows[offset] = setCell(rows[offset], column, row, null, styles.body);
     }

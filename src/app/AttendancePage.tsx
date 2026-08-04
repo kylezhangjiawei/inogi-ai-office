@@ -294,8 +294,16 @@ function AttendanceEditor({
               </section>
 
               <section className="grid gap-4 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-3">
-                <label className="text-xs font-semibold text-slate-600">扣除工时（分钟）
-                  <input type="number" min={0} max={1440} value={draft.deductionMinutes} onChange={(event) => update('deductionMinutes', Number(event.target.value) || 0)} className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" />
+                <label className="text-xs font-semibold text-slate-600">倒挂扣时（分钟）
+                  <input
+                    type="number"
+                    min={0}
+                    max={1440}
+                    disabled={!record.employee.deductsInvertedHours}
+                    value={draft.deductionMinutes}
+                    onChange={(event) => update('deductionMinutes', Number(event.target.value) || 0)}
+                    className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                  />
                 </label>
                 <label className="text-xs font-semibold text-slate-600">加班（分钟）
                   <input type="number" min={0} max={1440} value={draft.overtimeMinutes} onChange={(event) => update('overtimeMinutes', Number(event.target.value) || 0)} className="mt-1.5 h-10 w-full rounded-xl border border-slate-200 px-3 text-sm outline-none focus:border-slate-400" />
@@ -307,6 +315,10 @@ function AttendanceEditor({
                     <option value="holiday">法定节假日加班</option>
                   </select>
                 </label>
+                <p className="text-xs leading-5 text-slate-500 sm:col-span-3">
+                  仅填写公司安排少做、后续需要补回的工时；迟到和早退只记考勤异常，不会自动计入倒挂。
+                  {!record.employee.deductsInvertedHours ? ' 该员工未开启倒挂抵扣，本项不可填写。' : ''}
+                </p>
               </section>
 
               <label className="block text-xs font-semibold text-slate-600">备注说明
@@ -374,9 +386,9 @@ function MonthAdjustmentEditor({
       label: '倒挂工时',
       unit: '小时',
       hint: !deductsInverted
-        ? '该员工未参与倒挂抵扣，不记扣除工时'
+        ? '该员工未参与倒挂抵扣，不记倒挂扣时'
         : item
-          ? `留 0 则按当月扣除工时自动算得 ${item.rules.autoInvertedHours} 小时；填非 0 则以填写值为准`
+          ? `留 0 则按当月明确录入的倒挂扣时自动算得 ${item.rules.autoInvertedHours} 小时；填非 0 则以填写值为准`
           : undefined,
     },
     { key: 'recoveredHours', label: '已补工时', unit: '小时' },
@@ -424,9 +436,9 @@ function MonthAdjustmentEditor({
                 <span className="min-w-0">
                   <span className="block text-xs font-semibold text-slate-800">参与倒挂抵扣</span>
                   <span className="mt-0.5 block text-[11px] leading-relaxed text-slate-500">
-                    生产没任务时工资照发，这些人提前下班的分钟数记为扣除工时、累计成倒挂欠账，后续加班优先冲抵。
+                    生产没任务时工资照发，公司安排少做且后续需要补回的工时可单独记为倒挂扣时，后续加班优先冲抵。
                     这是<span className="font-semibold text-slate-700">人员长期设置</span>（保存到员工档案），不只影响本月；
-                    未勾选的人不记扣除工时。
+                    未勾选的人不记倒挂扣时，迟到和早退也不会自动计入。
                   </span>
                 </span>
               </label>
@@ -747,7 +759,7 @@ export function AttendancePage() {
     ['病假超额', data.summary.sickLeaveAlertCount, '年度带薪额度为5天'],
   ];
   const dayColumns = Array.from({ length: data.daysInMonth }, (_, index) => index + 1);
-  const rowLabels = ['上午打卡', '上午判定', '下午打卡', '下午判定', '扣除分钟'];
+  const rowLabels = ['上午打卡', '上午判定', '下午打卡', '下午判定', '倒挂扣时'];
 
   return (
     <div className="mx-auto flex h-full min-h-0 w-full max-w-[1800px] flex-col gap-3 animate-rd-fade-in">

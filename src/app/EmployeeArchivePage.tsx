@@ -5,6 +5,7 @@ import {
   BadgeCheck,
   Banknote,
   Building2,
+  CakeSlice,
   Calendar,
   CheckCircle2,
   ChevronLeft,
@@ -88,6 +89,13 @@ interface ProbationReminder {
   reminderDate: string;
   daysUntilConversion: number;
   phase: "upcoming" | "active" | "completed";
+}
+
+interface BirthdayReminder {
+  month: number;
+  day: number;
+  monthDay: string;
+  isToday: boolean;
 }
 
 interface EmployeeArchiveEditDraft extends EmployeeArchive {
@@ -649,6 +657,35 @@ function parseLocalDate(value: string): Date | null {
   if (!match) return null;
   const date = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
   return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function parseBirthdayMonthDay(value: string): { month: number; day: number; monthDay: string } | null {
+  const match = value.trim().match(/^(?:\d{4}[-/.])?(\d{1,2})[-/.](\d{1,2})$/);
+  if (!match) return null;
+  const month = Number(match[1]);
+  const day = Number(match[2]);
+  const lastDay = month >= 1 && month <= 12 ? new Date(2000, month, 0).getDate() : 0;
+  if (day < 1 || day > lastDay) return null;
+  return {
+    month,
+    day,
+    monthDay: `${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`,
+  };
+}
+
+function getEmployeeBirthdayReminder(
+  employee: Pick<EmployeeArchive, "birthMonthDay" | "birthDate" | "status">,
+  referenceDate = new Date(),
+): BirthdayReminder | null {
+  if (/(离职|退休|终止|解除)/.test(employee.status.trim())) return null;
+  const birthday = [employee.birthMonthDay, employee.birthDate]
+    .map(parseBirthdayMonthDay)
+    .find((value): value is NonNullable<typeof value> => Boolean(value));
+  if (!birthday || birthday.month !== referenceDate.getMonth() + 1) return null;
+  return {
+    ...birthday,
+    isToday: birthday.day === referenceDate.getDate(),
+  };
 }
 
 function addCalendarMonths(date: Date, months: number): Date {
@@ -1585,7 +1622,7 @@ const EMPLOYEE_LIST_COLUMN_STORAGE_KEY = "employee-archive-list-columns-v1";
 const EMPLOYEE_LIST_COLUMNS: Array<{ key: EmployeeListColumnKey; label: string; width: number }> = [
   { key: "employee", label: "员工", width: 190 },
   { key: "employeeCode", label: "工号", width: 140 },
-  { key: "constellation", label: "星座", width: 110 },
+  { key: "constellation", label: "生日 / 星座", width: 200 },
   { key: "organization", label: "组织", width: 180 },
   { key: "position", label: "岗位", width: 170 },
   { key: "employment", label: "入职 / 转正", width: 190 },
@@ -2835,6 +2872,7 @@ export function EmployeeArchivePage() {
   const [search, setSearch] = useState("");
   const [companyFilter, setCompanyFilter] = useState("全部");
   const [statusFilter, setStatusFilter] = useState<ArchiveStatus | "全部">("全部");
+  const [birthdayOnly, setBirthdayOnly] = useState(false);
   const [selectedId, setSelectedId] = useState(() => (loadStoredEmployees() ?? [])[0]?.id ?? "");
   const [badgeTemplateKey, setBadgeTemplateKey] = useState<BadgeTemplateKey>("official");
   const [badgePositions, setBadgePositions] = useState<BadgeLayoutPositions>(() => createBadgeLayoutPositions());
@@ -2940,7 +2978,7 @@ export function EmployeeArchivePage() {
 
   const filteredEmployees = useMemo(() => {
     const keyword = search.trim().toLowerCase();
-    return employees.filter((employee) => {
+    const filtered = employees.filter((employee) => {
       const matchesKeyword =
         !keyword ||
         [
@@ -2958,13 +2996,19 @@ export function EmployeeArchivePage() {
           .includes(keyword);
       const matchesCompany = companyFilter === "全部" || employee.company === companyFilter;
       const matchesStatus = statusFilter === "全部" || employee.archiveStatus === statusFilter;
-      return matchesKeyword && matchesCompany && matchesStatus;
+      const matchesBirthday = !birthdayOnly || Boolean(getEmployeeBirthdayReminder(employee));
+      return matchesKeyword && matchesCompany && matchesStatus && matchesBirthday;
     });
-  }, [companyFilter, search, statusFilter, employees]);
+    return birthdayOnly
+      ? filtered.sort((a, b) =>
+          (getEmployeeBirthdayReminder(a)?.day ?? 32) - (getEmployeeBirthdayReminder(b)?.day ?? 32),
+        )
+      : filtered;
+  }, [birthdayOnly, companyFilter, search, statusFilter, employees]);
 
   useEffect(() => {
     setListPage(1);
-  }, [companyFilter, search, statusFilter]);
+  }, [birthdayOnly, companyFilter, search, statusFilter]);
 
   const selected = employees.find((employee) => employee.id === selectedId) ?? employees[0] ?? EMPTY_EMPLOYEE_ARCHIVE;
 
@@ -3201,6 +3245,7 @@ export function EmployeeArchivePage() {
       setListPage(1);
       setCompanyFilter("全部");
       setStatusFilter("全部");
+      setBirthdayOnly(false);
       if (persistedToServer) void refreshArchiveMeta();
       toast.success(persistedToServer
         ? translate("已导入 {count} 名员工，按 {required} 个必备字段完成核对并保存到服务端", { count: parsed.length, required: REQUIRED_COLUMN_COUNT })
@@ -3349,6 +3394,12 @@ export function EmployeeArchivePage() {
     const reminder = probationReminderFor(employee);
     return reminder?.phase === "active" ? count + 1 : count;
   }, 0);
+  const birthdayReminderCount = employees.reduce(
+    (count, employee) => count + (getEmployeeBirthdayReminder(employee) ? 1 : 0),
+    0,
+  );
+  const selectedBirthdayReminder = getEmployeeBirthdayReminder(selected);
+  const currentMonth = new Date().getMonth() + 1;
   const blockingActionCount = selected.missingFields.length + badgeBlockingItems.length;
   const pendingActionCount = blockingActionCount + (hasSelectedProbationReminder ? 1 : 0);
   const totalPages = Math.max(1, Math.ceil(filteredEmployees.length / EMPLOYEE_PAGE_SIZE));
@@ -3636,20 +3687,44 @@ export function EmployeeArchivePage() {
       ) : null}
       {view === "list" ? (
         <div className="flex min-h-0 flex-1 flex-col gap-3">
-            <section className="grid shrink-0 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+            <section className="grid shrink-0 gap-3 sm:grid-cols-2 xl:grid-cols-6">
               {[
                 { label: translate("花名册人员"), value: stats.total, helper: translate("{count} 人已完成", { count: stats.completed }) },
                 { label: translate("已完成归档"), value: stats.completed, helper: translate("字段与材料均已核对") },
                 { label: translate("待处理归档"), value: stats.needsAction, helper: translate("缺项 / 复核 / 入职中") },
                 { label: translate("转正提醒"), value: probationReminderCount, helper: translate("最后一个月提醒") },
+                {
+                  label: translate("本月生日"),
+                  value: birthdayReminderCount,
+                  helper: translate("{month} 月生日人员", { month: currentMonth }),
+                  tone: "birthday" as const,
+                },
                 { label: translate("字段缺口"), value: stats.missing, helper: translate("来自 {count} 个必备字段", { count: REQUIRED_COLUMN_COUNT }) },
             ].map((item) => (
-              <div key={item.label} className="material-card-flat flex min-w-0 items-center justify-between gap-3 px-4 py-3">
+              <div
+                key={item.label}
+                className={cn(
+                  "material-card-flat flex min-w-0 items-center justify-between gap-3 px-4 py-3",
+                  item.tone === "birthday" && "border-amber-200 bg-amber-50/70",
+                )}
+              >
                 <div className="min-w-0">
-                  <div className="truncate text-xs font-semibold text-slate-500">{item.label}</div>
-                  <div className="mt-1 truncate text-xs text-slate-500">{item.helper}</div>
+                  <div className={cn(
+                    "flex items-center gap-1.5 truncate text-xs font-semibold",
+                    item.tone === "birthday" ? "text-amber-800" : "text-slate-500",
+                  )}>
+                    {item.tone === "birthday" ? <CakeSlice className="size-3.5 shrink-0" /> : null}
+                    <span className="truncate">{item.label}</span>
+                  </div>
+                  <div className={cn(
+                    "mt-1 truncate text-xs",
+                    item.tone === "birthday" ? "text-amber-700" : "text-slate-500",
+                  )}>{item.helper}</div>
                 </div>
-                <div className="shrink-0 text-2xl font-bold tracking-tight text-slate-900">{item.value}</div>
+                <div className={cn(
+                  "shrink-0 text-2xl font-bold tabular-nums",
+                  item.tone === "birthday" ? "text-amber-900" : "text-slate-900",
+                )}>{item.value}</div>
               </div>
             ))}
           </section>
@@ -3766,6 +3841,23 @@ export function EmployeeArchivePage() {
                       {translate(filter.label)}
                     </button>
                   ))}
+                  <span aria-hidden="true" className="mx-0.5 h-7 w-px bg-slate-200" />
+                  <button
+                    type="button"
+                    aria-pressed={birthdayOnly}
+                    onClick={() => setBirthdayOnly((current) => !current)}
+                    disabled={birthdayReminderCount === 0}
+                    className={cn(
+                      "inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                      birthdayOnly
+                        ? "border-amber-300 bg-amber-100 text-amber-900"
+                        : "border-amber-200 bg-amber-50/70 text-amber-800 hover:border-amber-300 hover:bg-amber-50",
+                    )}
+                  >
+                    <CakeSlice className="size-3.5" />
+                    {translate("本月生日")}
+                    <span className="tabular-nums">{birthdayReminderCount}</span>
+                  </button>
                 </div>
               </div>
 
@@ -3816,12 +3908,21 @@ export function EmployeeArchivePage() {
                       pagedEmployees.map((employee) => {
                         const probationReminder = probationReminderFor(employee);
                         const showProbationReminder = probationReminder?.phase === "active";
+                        const birthdayReminder = getEmployeeBirthdayReminder(employee);
                         const employeeConstellation = getEmployeeConstellation(employee);
                         const employeeIsRegularized = isEmployeeRegularized(employee);
                         const employeeCanRegularize = canRegularizeEmployee(employee);
 
                         return (
-                          <tr key={employee.id} className="group h-[72px] transition hover:bg-blue-50/25">
+                          <tr
+                            key={employee.id}
+                            className={cn(
+                              "group h-[72px] transition-colors",
+                              birthdayReminder
+                                ? "bg-amber-50/45 hover:bg-amber-50/75"
+                                : "hover:bg-blue-50/25",
+                            )}
+                          >
                           {listColumnVisibility.employee ? <td className={TABLE_CELL_CLASS}>
                             <div className="flex min-w-0 items-center gap-3">
                               <span className="material-table-avatar flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-bold">
@@ -3841,12 +3942,30 @@ export function EmployeeArchivePage() {
                             </div>
                           </td> : null}
                           {listColumnVisibility.constellation ? <td className={TABLE_CELL_CLASS}>
-                            <span className={cn(
-                              "material-chip",
-                              employeeConstellation ? "bg-violet-50 text-violet-700" : "bg-amber-50 text-amber-700",
-                            )}>
-                              {translate(employeeConstellation || "缺少出生日期")}
-                            </span>
+                            <div className="flex flex-col items-start gap-1.5">
+                              {birthdayReminder ? (
+                                <span
+                                  data-birthday-reminder={employee.id}
+                                  className="material-chip gap-1 whitespace-nowrap border border-amber-200 bg-amber-100 text-amber-900"
+                                >
+                                  <CakeSlice className="size-3.5 shrink-0" />
+                                  {translate(birthdayReminder.isToday ? "今天生日" : "本月生日")}
+                                  <span aria-hidden="true">·</span>
+                                  <span className="tabular-nums">
+                                    {translate("{month}月{day}日", {
+                                      month: birthdayReminder.month,
+                                      day: birthdayReminder.day,
+                                    })}
+                                  </span>
+                                </span>
+                              ) : null}
+                              <span className={cn(
+                                "material-chip",
+                                employeeConstellation ? "bg-violet-50 text-violet-700" : "bg-amber-50 text-amber-700",
+                              )}>
+                                {translate(employeeConstellation || "缺少出生日期")}
+                              </span>
+                            </div>
                           </td> : null}
                           {listColumnVisibility.organization ? <td className={TABLE_CELL_CLASS}>
                             <div className="truncate font-medium text-slate-800">{employee.company}</div>
@@ -3940,7 +4059,10 @@ export function EmployeeArchivePage() {
                           <td
                             className={cn(
                               TABLE_CELL_CLASS,
-                              "sticky right-0 z-[5] bg-white text-right shadow-[-10px_0_14px_-14px_rgba(15,23,42,0.45)] transition group-hover:bg-blue-50",
+                              "sticky right-0 z-10 text-right shadow-[-10px_0_14px_-14px_rgba(15,23,42,0.45)] transition-colors",
+                              birthdayReminder
+                                ? "bg-amber-50 group-hover:bg-amber-50"
+                                : "bg-white group-hover:bg-blue-50",
                             )}
                           >
                             <div className="flex items-center justify-end gap-1.5">
@@ -4057,6 +4179,22 @@ export function EmployeeArchivePage() {
                     <h2 className="truncate text-lg font-semibold tracking-tight text-slate-950">{selected.name}</h2>
                     <StatusBadge status={selected.archiveStatus} />
                     <span className="material-chip bg-slate-50 text-slate-600">{badgeEmployeeId}</span>
+                    {selectedBirthdayReminder ? (
+                      <span
+                        data-birthday-reminder={selected.id}
+                        className="material-chip gap-1 whitespace-nowrap border border-amber-200 bg-amber-100 text-amber-900"
+                      >
+                        <CakeSlice className="size-3.5 shrink-0" />
+                        {translate(selectedBirthdayReminder.isToday ? "今天生日" : "本月生日")}
+                        <span aria-hidden="true">·</span>
+                        <span className="tabular-nums">
+                          {translate("{month}月{day}日", {
+                            month: selectedBirthdayReminder.month,
+                            day: selectedBirthdayReminder.day,
+                          })}
+                        </span>
+                      </span>
+                    ) : null}
                   </div>
                   <p className="mt-0.5 truncate text-sm text-slate-500">
                     {selected.company} · {selected.workLocation} · {selected.department} · {selected.title}

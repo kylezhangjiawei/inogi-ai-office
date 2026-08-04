@@ -412,8 +412,9 @@ export class AttendanceImportService {
       workMinutes: this.workMinutes(checkInAt, checkOutAt),
       lateMinutes: row.lateMinutes,
       earlyLeaveMinutes: row.earlyLeaveMinutes,
-      // 只有参与倒挂抵扣的人记扣除工时（没任务提前放人 → 倒挂欠账），其余岗位恒为 0
-      deductionMinutes: employee.deductsInvertedHours ? row.deductionMinutes : 0,
+      // 企微日报只提供迟到 / 早退异常，无法证明是公司安排的提前放工，因此不自动生成倒挂扣时。
+      // 如确有倒挂，由 HR 在考勤修正中明确填写，避免与迟到 / 早退重复扣减。
+      deductionMinutes: 0,
       overtimeMinutes: row.overtimeMinutes,
       overtimeType: row.overtimeType,
       leaveDayFraction: row.leaveDayFraction,

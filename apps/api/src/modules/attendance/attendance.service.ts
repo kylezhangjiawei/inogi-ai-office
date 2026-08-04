@@ -313,10 +313,10 @@ export class AttendanceService {
       checkOutAt,
       dto.manualStatus ?? 'auto',
     );
-    // 扣除工时只对参与倒挂抵扣的人有意义（没任务提前放人 → 倒挂欠账）；
-    // 其余岗位的迟到早退是纪律问题，不进倒挂，故恒为 0。
+    // 迟到 / 早退是考勤异常，不能自动复制成倒挂扣时，否则同一段时间会同时被记为
+    // 异常和倒挂欠账。倒挂只接受 HR 明确填写的分钟数，并且只对已开启倒挂抵扣的人生效。
     const deductionMinutes = employee.deductsInvertedHours
-      ? dto.deductionMinutes ?? (metrics.lateMinutes + metrics.earlyLeaveMinutes)
+      ? dto.deductionMinutes ?? 0
       : 0;
     const overtimeMinutes = dto.overtimeMinutes ?? 0;
     const overtimeType = overtimeMinutes > 0
@@ -614,7 +614,7 @@ export class AttendanceService {
     isProduction: boolean,
   ) {
     const round = (value: number) => Number(value.toFixed(2));
-    // 倒挂工时 = 当月扣除工时合计（没干活却发了工资的时长），由考勤记录自动汇总；
+    // 倒挂工时 = 当月由 HR 明确录入的倒挂扣时合计（不含迟到 / 早退异常）；
     // 月度结余里手工填了非 0 值时以手工为准，用于录入上月结转的欠账或人工订正。
     const autoInvertedHours = round(summary.deductionMinutes / 60);
     const effectiveInvertedHours = adjustment.invertedHours > 0 ? adjustment.invertedHours : autoInvertedHours;
@@ -636,7 +636,7 @@ export class AttendanceService {
 
     return {
       ruleType: productionWithInvertedHours ? 'production_inverted' as const : 'regular' as const,
-      /** 由当月扣除工时汇总出来的倒挂工时，供页面显示「自动算得多少」 */
+      /** 由当月明确录入的倒挂扣时汇总出来的倒挂工时，供页面显示「自动算得多少」 */
       autoInvertedHours,
       /** 月度结余里手工填的倒挂工时；>0 时覆盖自动值 */
       manualInvertedHours: round(adjustment.invertedHours),
