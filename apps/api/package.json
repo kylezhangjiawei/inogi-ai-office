@@ -6,6 +6,7 @@
     "build": "nest build",
     "postinstall": "prisma generate",
     "start": "node dist/src/main.js",
+    "prestart:dev": "prisma generate",
     "start:dev": "nest start --watch",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
