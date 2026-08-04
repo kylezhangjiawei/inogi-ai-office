@@ -51,6 +51,7 @@ export interface ProcTaskPurchaseOrder {
 export interface ProcurementTask {
   id: string;
   code: string;
+  productId: string;
   materialId?: string | null;
   materialName: string;
   spec: string;
@@ -124,6 +125,7 @@ export interface Material {
 
 export interface ProcTaskTreeNode {
   id: string;
+  productId: string;
   parentId: string | null;
   name: string;
   code: string | null;
@@ -135,6 +137,7 @@ export interface ProcTaskTreeNode {
 }
 
 export interface ProcTaskTreeNodeInput {
+  productId?: string;
   parentId?: string;
   name: string;
   code?: string;
@@ -303,6 +306,7 @@ export async function autoAssignBuyerTasks(): Promise<{
 }
 
 export interface CreateProcTaskInput {
+  productId?: string;
   materialId?: string;
   materialName: string;
   spec?: string;
@@ -556,8 +560,8 @@ export async function listMaterials(signal?: AbortSignal): Promise<Material[]> {
 
 // ── 采购任务系统树 ────────────────────────────────────────────────────────────
 
-export async function listProcTaskTree(signal?: AbortSignal): Promise<{ roots: ProcTaskTreeNode[] }> {
-  return request("/task-tree", { signal });
+export async function listProcTaskTree(productId: string, signal?: AbortSignal): Promise<{ roots: ProcTaskTreeNode[] }> {
+  return request(`/task-tree?productId=${encodeURIComponent(productId)}`, { signal });
 }
 
 export async function createProcTaskTreeNode(input: ProcTaskTreeNodeInput): Promise<ProcTaskTreeNode> {
@@ -659,6 +663,45 @@ export type TplusAutoSyncResult = { skipped: boolean; reason?: string; summary?:
 /** 一键全同步（异步任务）：供应商→库存→采购单全量→匹配，返回 jobId 轮询。 */
 export async function runTplusAutoSync(): Promise<{ jobId: string }> {
   return request("/tplus/sync/auto", { method: "POST" });
+}
+
+export interface TplusWarehouseBalance {
+  name: string;
+  stock: number;
+  available: number;
+  inTransit: number;
+}
+
+export interface TplusInventoryItem {
+  id: string;
+  name: string;
+  category: string;
+  spec: string;
+  unit: string;
+  stock: number;
+  available: number;
+  safe: number;
+  in: number;
+  out: number;
+  status: "正常" | "偏低" | "缺货";
+  warehouses: TplusWarehouseBalance[];
+  syncedAt: string | null;
+}
+
+export interface TplusInventoryDetail {
+  source: "tplus";
+  readOnly: true;
+  item: TplusInventoryItem;
+  movements: unknown[];
+  relatedOrders: unknown[];
+  relatedPurchaseOrders: unknown[];
+}
+
+export async function getTplusInventoryDetail(
+  inventoryCode: string,
+  signal?: AbortSignal,
+): Promise<TplusInventoryDetail> {
+  return request(`/tplus/views/inventory/${encodeURIComponent(inventoryCode)}`, { signal });
 }
 
 /** 采购订单 / 库存管理页面手动同步：库存→近 90 天采购单→任务匹配。 */

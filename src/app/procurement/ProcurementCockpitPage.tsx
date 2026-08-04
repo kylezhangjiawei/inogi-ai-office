@@ -1,9 +1,9 @@
 // 采购任务驾驶舱（流程视角）：业务线 Tab + 操作行 + 统计条 + 人员泳道 + 三列瀑布流。
 // 分类/物料维度的浏览在「物料库」页，此页专注任务流。
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Input } from "../components/ui/input";
 import { useNavigate, useSearchParams } from "react-router";
-import { Activity, AlertTriangle, ClipboardList, Download, Layers3, LayoutDashboard, PackageCheck, Plus, Search, Truck, UserCog, Users } from "lucide-react";
+import { Activity, AlertTriangle, ClipboardList, Download, Layers3, PackageCheck, Plus, Search, Truck, UserCog, Users } from "lucide-react";
 import { cn } from "../components/ui/utils";
 import { AutoTranslatedText } from "../components/TranslatableText";
 import { useI18n } from "../lib/i18n";
@@ -55,10 +55,42 @@ export function ProcurementCockpitPage() {
   const view: "tasks" | "systems" = params.get("view") === "systems" ? "systems" : "tasks";
   const setView = (nextView: "tasks" | "systems") => setParams((p) => {
     const next = new URLSearchParams(p);
-    if (nextView === "tasks") next.delete("view");
-    else next.set("view", "systems");
+    if (nextView === "tasks") {
+      next.delete("view");
+      next.delete("module");
+      next.delete("product");
+    } else next.set("view", "systems");
     return next;
   }, { replace: true });
+  const moduleParam = params.get("module");
+  const systemProductParam = params.get("product");
+  const openSystemModule = useCallback((node: ProcTaskTreeNode, productId: string) => {
+    setTreeNode(node);
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set("view", "systems");
+      next.set("product", productId);
+      next.set("module", node.id);
+      return next;
+    });
+  }, [setParams]);
+  const closeSystemModule = useCallback(() => {
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete("module");
+      next.set("view", "systems");
+      return next;
+    }, { replace: true });
+  }, [setParams]);
+  const setSystemProduct = useCallback((productId: string) => {
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set("view", "systems");
+      next.set("product", productId);
+      next.delete("module");
+      return next;
+    }, { replace: true });
+  }, [setParams]);
 
   const materialParam = params.get("material");
   const taskParam = params.get("task");
@@ -160,8 +192,8 @@ export function ProcurementCockpitPage() {
   return (
     <div className="mx-auto flex h-full w-full max-w-[1600px] flex-col p-4">
       {/* 页头（业务线 Tab + 操作按钮）/ 统计条 / 人员泳道 */}
-      <div className="material-card mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 py-2">
-        {view === "tasks" ? (
+      {view === "tasks" && (
+        <div className="material-card mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-3 py-2">
           <div className="inline-flex items-center gap-1 rounded-lg bg-slate-100 p-1" role="tablist" aria-label={t("采购业务线")}>
             {([["all", "全部"], ["production", "生产"], ["rd", "研发"]] as const).map(([k, lbl]) => (
               <button key={k} type="button" role="tab" aria-selected={line === k} onClick={() => setLine(k)} className={cn("flex cursor-pointer items-center gap-1.5 rounded-md px-4 py-1.5 text-sm transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400", line === k ? "bg-white font-semibold text-indigo-700 shadow-sm" : "font-medium text-slate-500 hover:text-slate-700")}>
@@ -170,33 +202,15 @@ export function ProcurementCockpitPage() {
               </button>
             ))}
           </div>
-        ) : (
-          <div className="flex min-w-0 items-center gap-2.5 px-1 py-0.5">
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-slate-900 text-white shadow-sm">
-              <Layers3 className="size-4" />
-            </span>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-slate-950">{t("采购子系统全景")}</p>
-              <p className="truncate text-[11px] text-slate-500">{t("按分类与名称查看采购任务分布和节点状态")}</p>
-            </div>
-          </div>
-        )}
-        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
-            aria-pressed={view === "systems"}
-            onClick={() => setView(view === "tasks" ? "systems" : "tasks")}
-            className={cn(
-              "inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm font-semibold transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400",
-              view === "systems"
-                ? "border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100"
-                : "border-slate-200 bg-white text-slate-600 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700",
-            )}
+            onClick={() => setView("systems")}
+            className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-sm font-semibold text-slate-600 transition-colors duration-200 hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
           >
-            {view === "tasks" ? <Layers3 className="h-4 w-4" /> : <LayoutDashboard className="h-4 w-4" />}
-            {view === "tasks" ? t("子系统全景") : t("返回任务驾驶舱")}
+            <Layers3 className="size-4" />
+            {t("子系统全景")}
           </button>
-          {view === "tasks" && (
             <>
               <button
                 type="button"
@@ -213,9 +227,9 @@ export function ProcurementCockpitPage() {
               <button type="button" onClick={() => navigate('/proc-people-management')} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><UserCog className="h-4 w-4" />{t('人员管理')}</button>
               {canCreate && <button type="button" onClick={() => setNewOpen(true)} className="material-button-secondary inline-flex items-center gap-1.5 px-3 py-1.5 text-sm"><Plus className="h-4 w-4" />{t('新建需求')}</button>}
             </>
-          )}
+          </div>
         </div>
-      </div>
+      )}
 
       {view === "systems" ? (
         <div className="flex min-h-0 flex-1">
@@ -225,6 +239,11 @@ export function ProcurementCockpitPage() {
             selected={treeNode}
             onSelect={setTreeNode}
             onShowTasks={() => setView("tasks")}
+            detailNodeId={moduleParam}
+            requestedProductId={systemProductParam}
+            onCloseModule={closeSystemModule}
+            onOpenModule={openSystemModule}
+            onProductChange={setSystemProduct}
           />
         </div>
       ) : (

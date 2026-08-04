@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Input } from "../../components/ui/input";
 import { AlertTriangle, ExternalLink, Loader2, Paperclip, RotateCcw, ShoppingCart, Upload, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../../components/ui/dialog";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { toast } from "sonner";
 
 import { useAuth } from "../../auth";
@@ -15,7 +16,7 @@ import {
   type ProcurementTask,
 } from "../../lib/procurementApi";
 import { formatRdFileSize } from "../../RDProgressEvidence";
-import { refreshProcurement } from "../data";
+import { DEFAULT_PROCUREMENT_PRODUCT_ID, refreshProcurement, useProcurementProducts } from "../data";
 import { DateInput, PROC_STATUS_META } from "./common";
 
 /** 转采购可携带的研发任务附件。fileKey 用于采购侧按需重签访问地址。 */
@@ -121,6 +122,7 @@ type TransferAttachmentRow = {
 type TransferModalProps = {
   taskId: string;
   taskTitle: string;
+  productId?: string;
   owner: string;
   priority?: "high" | "medium" | "low";
   dueDate?: string;
@@ -133,6 +135,7 @@ type TransferModalProps = {
 export function TransferToProcurementModal({
   taskId,
   taskTitle,
+  productId = DEFAULT_PROCUREMENT_PRODUCT_ID,
   owner,
   priority = "medium",
   dueDate = "",
@@ -142,8 +145,10 @@ export function TransferToProcurementModal({
 }: TransferModalProps) {
   const { t } = useI18n();
   const { user } = useAuth();
+  const products = useProcurementProducts();
   const [submitting, setSubmitting] = useState(false);
   const [form, setForm] = useState({
+    productId,
     materialName: taskTitle.replace(/选型|测试|复核|反馈|核查|调整|完善|沟通/g, "").trim() || taskTitle,
     spec: "",
     quantity: "1",
@@ -230,6 +235,7 @@ export function TransferToProcurementModal({
       }));
 
       const procTask = await transferProcTask({
+        productId: form.productId,
         rdTaskId: taskId,
         rdTaskTitle: taskTitle,
         rdContact: form.rdContact.trim() || owner,
@@ -294,6 +300,17 @@ export function TransferToProcurementModal({
             {t("已带入研发任务与附件，请确认采购需求；提交后会进入采购驾驶舱的待处理列表。")}
           </div>
           <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2">
+              <span className="text-xs font-medium text-slate-500">{t("归属产品系统")}</span>
+              <Select value={form.productId} onValueChange={(value) => setForm((current) => ({ ...current, productId: value }))}>
+                <SelectTrigger className="mt-1 h-9 w-full rounded-lg border-slate-200 text-sm"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {products.map((product) => (
+                    <SelectItem key={product.id} value={product.id}>{t(product.name)}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             {field("materialName", "物料名称")}
             {field("spec", "规格", "如 50×20mm 橡胶")}
             {field("quantity", "数量", "如 2000", undefined, "number")}

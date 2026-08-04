@@ -1160,6 +1160,7 @@ model ProcMaterial {
 /// 叶子可关联物料，任务通过 ProcTask.materialId 自动归入节点；节点本身不承载业务数据。
 model ProcTaskTreeNode {
   id         String             @id @default(cuid())
+  productId  String             @default("prod-portable-o2")
   parentId   String?
   parent     ProcTaskTreeNode?  @relation("ProcTaskTree", fields: [parentId], references: [id], onDelete: Cascade)
   children   ProcTaskTreeNode[] @relation("ProcTaskTree")
@@ -1173,6 +1174,7 @@ model ProcTaskTreeNode {
   updatedAt  DateTime           @updatedAt
 
   @@index([parentId, sortOrder])
+  @@index([productId, parentId, sortOrder])
   @@index([materialId])
 }
 
@@ -1180,6 +1182,7 @@ model ProcTaskTreeNode {
 model ProcTask {
   id                  String                 @id @default(cuid())
   code                String                 @unique
+  productId           String                 @default("prod-portable-o2")
   materialId          String?
   material            ProcMaterial?          @relation(fields: [materialId], references: [id], onDelete: SetNull)
   /// 物料快照：任务创建时冻结，物料改名不影响历史任务
@@ -1230,6 +1233,7 @@ model ProcTask {
   updatedAt           DateTime               @updatedAt
 
   @@index([status, updatedAt])
+  @@index([productId, status])
   @@index([businessLine, status])
   @@index([materialId])
   @@index([buyerUserId])

@@ -330,8 +330,8 @@ export class ProcurementController {
 
   /** 采购任务驾驶舱系统树：分类根节点 → 物料名称子节点。 */
   @Get('task-tree')
-  getTaskTree() {
-    return this.service.getProcTaskTree();
+  getTaskTree(@Query('productId') productId?: string) {
+    return this.service.getProcTaskTree(productId);
   }
 
   @Post('task-tree/nodes')

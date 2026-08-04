@@ -7,6 +7,7 @@ import { ProcurementService } from '../src/modules/procurement/procurement.servi
 
 type TreeRow = {
   id: string;
+  productId: string;
   parentId: string | null;
   name: string;
   code: string | null;
@@ -19,6 +20,7 @@ type TreeRow = {
 
 function row(input: Partial<TreeRow> & Pick<TreeRow, 'id' | 'name'>): TreeRow {
   return {
+    productId: 'prod-portable-o2',
     parentId: null,
     code: null,
     spec: null,
@@ -51,7 +53,7 @@ test('名称节点有关联采购任务时，节点及其分类均不可修改�
       delete: async () => { writes.push('delete'); },
     },
     procTask: {
-      findMany: async () => [{ id: 'task-1', materialId: 'material-1', materialName: '上支撑板模具' }],
+      findMany: async () => [{ id: 'task-1', productId: 'prod-portable-o2', materialId: 'material-1', materialName: '上支撑板模具' }],
     },
   };
   const service = createService(prisma);
@@ -118,8 +120,8 @@ test('无物料关联的旧任务仅在名称唯一时兜底归类', async () =>
     },
     procTask: {
       findMany: async () => [
-        { id: 'task-ambiguous', materialId: null, materialName: '重复名称' },
-        { id: 'task-unique', materialId: null, materialName: '唯一名称' },
+        { id: 'task-ambiguous', productId: 'prod-portable-o2', materialId: null, materialName: '重复名称' },
+        { id: 'task-unique', productId: 'prod-portable-o2', materialId: null, materialName: '唯一名称' },
       ],
     },
   };
@@ -130,6 +132,37 @@ test('无物料关联的旧任务仅在名称唯一时兜底归类', async () =>
   assert.deepEqual(root.children.find((node) => node.id === 'child-2')?.taskIds, []);
   assert.deepEqual(root.children.find((node) => node.id === 'child-3')?.taskIds, ['task-unique']);
   assert.deepEqual(root.taskIds, ['task-unique']);
+});
+
+test('同一物料在不同产品系统中只关联各自产品的采购任务', async () => {
+  const rows = [
+    row({ id: 'portable-root', productId: 'prod-portable-o2', name: '板件' }),
+    row({ id: 'portable-leaf', productId: 'prod-portable-o2', parentId: 'portable-root', name: '主控板', materialId: 'material-1' }),
+    row({ id: 'respirator-root', productId: 'prod-positive-pressure-respirator', name: '板件' }),
+    row({ id: 'respirator-leaf', productId: 'prod-positive-pressure-respirator', parentId: 'respirator-root', name: '主控板', materialId: 'material-1' }),
+  ];
+  const tasks = [
+    { id: 'portable-task', productId: 'prod-portable-o2', materialId: 'material-1', materialName: '主控板' },
+    { id: 'respirator-task', productId: 'prod-positive-pressure-respirator', materialId: 'material-1', materialName: '主控板' },
+  ];
+  const prisma = {
+    procTaskTreeNode: {
+      count: async () => rows.length,
+      findMany: async ({ where }: { where?: { productId?: string } } = {}) =>
+        where?.productId ? rows.filter((item) => item.productId === where.productId) : rows,
+    },
+    procTask: {
+      findMany: async ({ where }: { where?: { productId?: string } } = {}) =>
+        where?.productId ? tasks.filter((item) => item.productId === where.productId) : tasks,
+    },
+  };
+
+  const service = createService(prisma);
+  const portable = await service.getProcTaskTree('prod-portable-o2');
+  const respirator = await service.getProcTaskTree('prod-positive-pressure-respirator');
+
+  assert.deepEqual(portable.roots[0].taskIds, ['portable-task']);
+  assert.deepEqual(respirator.roots[0].taskIds, ['respirator-task']);
 });
 
 test('受保护的修改和删除会同时锁定目录写入与采购任务写入', async () => {

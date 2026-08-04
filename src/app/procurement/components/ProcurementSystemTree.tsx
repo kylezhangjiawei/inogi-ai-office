@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
   FolderPlus,
   Layers3,
+  LayoutDashboard,
   Loader2,
   LockKeyhole,
+  Package,
   Pencil,
   Plus,
   Search,
@@ -12,6 +16,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
+import { AnimatePresence, animate, motion, useReducedMotion } from "motion/react";
 import { toast } from "sonner";
 
 import {
@@ -36,6 +41,8 @@ import { Input } from "../../components/ui/input";
 import { cn } from "../../components/ui/utils";
 import { usePermission } from "../../hooks/usePermission";
 import { useI18n } from "../../lib/i18n";
+import { DEFAULT_PROCUREMENT_PRODUCT_ID, useProcurementProducts } from "../data";
+import { ProcurementModuleDetail } from "./ProcurementModuleDetail";
 import {
   createProcTaskTreeNode,
   deleteProcTaskTreeNode,
@@ -101,11 +108,19 @@ const NODE_HEALTH_STYLE: Record<NodeHealth, { label: string; dot: string; badge:
   },
 };
 
+const STOCK_QUANTITY_FORMATTER = new Intl.NumberFormat("zh-CN", { maximumFractionDigits: 3 });
+
 function getNodeMetrics(node: ProcTaskTreeNode, tasksById: Map<string, ProcurementTask>) {
   const nodeTasks = node.taskIds.flatMap((id) => {
     const task = tasksById.get(id);
     return task ? [task] : [];
   });
+  const latestTasks = [...nodeTasks]
+    .sort((left, right) => {
+      const createdAtDifference = Date.parse(right.createdAt) - Date.parse(left.createdAt);
+      return createdAtDifference || right.id.localeCompare(left.id);
+    })
+    .slice(0, 3);
   const completed = nodeTasks.filter((task) => task.status === "completed").length;
   const cancelled = nodeTasks.filter((task) => task.status === "cancelled").length;
   const terminal = completed + cancelled;
@@ -131,7 +146,31 @@ function getNodeMetrics(node: ProcTaskTreeNode, tasksById: Map<string, Procureme
           ? "closed"
           : "idle";
 
-  return { active, completed, health, overdue, progress, total };
+  return { active, completed, health, latestTasks, overdue, progress, total };
+}
+
+function getTaskDescription(task: ProcurementTask) {
+  const detail = task.consumableNote?.trim() || task.rdTaskTitle?.trim() || task.spec.trim();
+  return [task.materialName, detail].filter(Boolean).join(" · ");
+}
+
+function getNodeInventory(node: ProcTaskTreeNode, materialsById: Map<string, Material>) {
+  const materialIds = new Set<string>();
+  const collectMaterialIds = (current: ProcTaskTreeNode) => {
+    if (current.materialId) materialIds.add(current.materialId);
+    current.children.forEach(collectMaterialIds);
+  };
+  collectMaterialIds(node);
+
+  let stockQty = 0;
+  materialIds.forEach((materialId) => {
+    stockQty += materialsById.get(materialId)?.stockQty ?? 0;
+  });
+  return stockQty;
+}
+
+function formatStockQuantity(value: number) {
+  return STOCK_QUANTITY_FORMATTER.format(value);
 }
 
 function PanoramaNodeCard({
@@ -143,6 +182,7 @@ function PanoramaNodeCard({
   onDelete,
   onEdit,
   onSelect,
+  materialsById,
   tasksById,
 }: {
   isRoot: boolean;
@@ -153,17 +193,19 @@ function PanoramaNodeCard({
   onDelete?: () => void;
   onEdit?: () => void;
   onSelect: () => void;
+  materialsById: Map<string, Material>;
   tasksById: Map<string, ProcurementTask>;
 }) {
   const { t } = useI18n();
   const metrics = getNodeMetrics(node, tasksById);
   const health = NODE_HEALTH_STYLE[metrics.health];
   const locked = node.taskCount > 0;
+  const stockQty = getNodeInventory(node, materialsById);
 
   return (
     <div
       className={cn(
-        "group relative overflow-hidden rounded-xl border bg-white shadow-sm transition-colors",
+        "group relative h-full overflow-hidden rounded-xl border bg-white shadow-sm transition-colors",
         isSelected ? "border-indigo-300 ring-2 ring-indigo-100" : health.border,
         metrics.health === "idle" && "opacity-70 hover:opacity-100",
       )}
@@ -172,7 +214,7 @@ function PanoramaNodeCard({
         type="button"
         onClick={onSelect}
         className={cn(
-          "flex min-h-36 w-full flex-col p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400",
+          "flex h-full min-h-44 w-full flex-col p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400",
           manageMode && "pb-14",
         )}
       >
@@ -195,23 +237,45 @@ function PanoramaNodeCard({
           </span>
         </span>
 
-        <span className="mt-4 flex w-full items-baseline justify-between">
+        <span className="mt-4 flex w-full items-center justify-between gap-2">
           <span className="text-3xl font-semibold tabular-nums text-slate-900">
             {metrics.progress}<span className="text-base text-slate-400">%</span>
           </span>
-          {metrics.overdue > 0 && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold tabular-nums text-red-600">
-              <AlertTriangle className="size-3" />
-              {metrics.overdue}
+          <span className="flex items-center gap-1.5">
+            {metrics.overdue > 0 && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold tabular-nums text-red-600">
+                <AlertTriangle className="size-3" />
+                {metrics.overdue}
+              </span>
+            )}
+            <span className="inline-flex items-center gap-1 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1 text-[10px] text-slate-500">
+              <Package className="size-3 text-slate-400" />
+              <span>{t("库存")}</span>
+              <strong className="font-semibold tabular-nums text-slate-700">{formatStockQuantity(stockQty)}</strong>
             </span>
-          )}
+          </span>
         </span>
 
         <span className="mt-2 h-1 w-full overflow-hidden rounded-full bg-slate-100">
           <span className={cn("block h-full rounded-full", metrics.health === "idle" ? "bg-slate-200" : health.dot)} style={{ width: `${metrics.progress}%` }} />
         </span>
 
-        <span className="mt-3 flex w-full items-center justify-between text-[11px] text-slate-500">
+        {metrics.latestTasks.length > 0 && (
+          <span className="mt-3 block w-full rounded-lg bg-slate-50 px-2.5 py-2">
+            <span className="mb-1 block text-[10px] font-medium text-slate-400">{t("最新任务")}</span>
+            {metrics.latestTasks.map((task) => {
+              const description = getTaskDescription(task);
+              return (
+                <span key={task.id} className="flex min-w-0 items-center gap-1.5 py-0.5 text-[11px] text-slate-600">
+                  <span className="size-1 shrink-0 rounded-full bg-indigo-400" />
+                  <span className="min-w-0 flex-1 truncate" title={description}>{description}</span>
+                </span>
+              );
+            })}
+          </span>
+        )}
+
+        <span className="mt-auto flex w-full items-center justify-between pt-3 text-[11px] text-slate-500">
           <span><strong className="font-semibold tabular-nums text-slate-800">{metrics.total}</strong> {t("任务")}</span>
           <span><strong className="font-semibold tabular-nums text-indigo-600">{metrics.active}</strong> {t("进行中")}</span>
           <span><strong className="font-semibold tabular-nums text-emerald-600">{metrics.completed}</strong> {t("完成")}</span>
@@ -261,14 +325,26 @@ export function ProcurementSystemTree({
   selected,
   onSelect,
   onShowTasks,
+  detailNodeId,
+  requestedProductId,
+  onCloseModule,
+  onOpenModule,
+  onProductChange,
 }: {
   tasks: ProcurementTask[];
   materials: Material[];
   selected: ProcTaskTreeNode | null;
   onSelect: (node: ProcTaskTreeNode | null) => void;
-  onShowTasks?: () => void;
+  onShowTasks?: (productId: string) => void;
+  detailNodeId?: string | null;
+  requestedProductId?: string | null;
+  onCloseModule?: () => void;
+  onOpenModule?: (node: ProcTaskTreeNode, productId: string) => void;
+  onProductChange?: (productId: string) => void;
 }) {
   const { t } = useI18n();
+  const shouldReduceMotion = useReducedMotion();
+  const products = useProcurementProducts();
   const canEdit = usePermission("proc-task:create");
   const canDelete = usePermission("proc-task:delete");
   const canManage = canEdit || canDelete;
@@ -276,28 +352,56 @@ export function ProcurementSystemTree({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [keyword, setKeyword] = useState("");
+  const [activeProductId, setActiveProductId] = useState(requestedProductId || DEFAULT_PROCUREMENT_PRODUCT_ID);
   const [activeRootId, setActiveRootId] = useState<string | null>(null);
   const [manageMode, setManageMode] = useState(false);
   const [editor, setEditor] = useState<TreeEditor | null>(null);
+  const categoryNavRef = useRef<HTMLElement | null>(null);
+  const categoryScrollAnimationRef = useRef<{ stop: () => void } | null>(null);
+  const treeRequestRef = useRef(0);
+  const [categoryNavEdges, setCategoryNavEdges] = useState({ left: false, right: false });
+  const categoryTransition = shouldReduceMotion
+    ? { duration: 0 }
+    : { duration: 0.18, ease: "easeOut" as const };
 
   const taskFingerprint = useMemo(
-    () => tasks.map((task) => `${task.id}:${task.materialId ?? ""}:${task.updatedAt}`).join("|"),
-    [tasks],
+    () => tasks
+      .filter((task) => task.productId === activeProductId)
+      .map((task) => `${task.id}:${task.materialId ?? ""}:${task.updatedAt}`)
+      .join("|"),
+    [activeProductId, tasks],
   );
 
   const loadTree = useCallback(async () => {
+    const requestId = ++treeRequestRef.current;
     setLoading(true);
     setError(null);
     try {
-      const data = await listProcTaskTree();
+      const data = await listProcTaskTree(activeProductId);
+      if (requestId !== treeRequestRef.current) return;
       setRoots(data.roots);
       setActiveRootId((current) => current && data.roots.some((root) => root.id === current) ? current : null);
     } catch (cause) {
+      if (requestId !== treeRequestRef.current) return;
       setError(cause instanceof Error ? cause.message : t("系统树加载失败"));
     } finally {
-      setLoading(false);
+      if (requestId === treeRequestRef.current) setLoading(false);
     }
-  }, [t]);
+  }, [activeProductId, t]);
+
+  useEffect(() => {
+    if (products.length === 0 || products.some((product) => product.id === activeProductId)) return;
+    setActiveProductId(products[0].id);
+  }, [activeProductId, products]);
+
+  useEffect(() => {
+    if (!requestedProductId || requestedProductId === activeProductId) return;
+    setActiveProductId(requestedProductId);
+    setRoots([]);
+    setActiveRootId(null);
+    setEditor(null);
+    onSelect(null);
+  }, [activeProductId, onSelect, requestedProductId]);
 
   useEffect(() => {
     void loadTree();
@@ -311,7 +415,14 @@ export function ProcurementSystemTree({
   }, [roots, selected, onSelect]);
 
   const normalizedKeyword = keyword.trim().toLowerCase();
-  const tasksById = useMemo(() => new Map(tasks.map((task) => [task.id, task])), [tasks]);
+  const tasksById = useMemo(
+    () => new Map(tasks.filter((task) => task.productId === activeProductId).map((task) => [task.id, task])),
+    [activeProductId, tasks],
+  );
+  const materialsById = useMemo(
+    () => new Map(materials.map((material) => [material.id, material])),
+    [materials],
+  );
   const visibleRoots = useMemo(() => {
     if (!normalizedKeyword) return roots;
     return roots
@@ -336,29 +447,115 @@ export function ProcurementSystemTree({
     [tasksById, visibleNodes],
   );
 
+  const updateCategoryNavEdges = useCallback(() => {
+    const nav = categoryNavRef.current;
+    if (!nav) return;
+    const maxScrollLeft = Math.max(0, nav.scrollWidth - nav.clientWidth);
+    setCategoryNavEdges({
+      left: nav.scrollLeft > 1,
+      right: nav.scrollLeft < maxScrollLeft - 1,
+    });
+  }, []);
+
+  useEffect(() => {
+    const nav = categoryNavRef.current;
+    if (!nav) return;
+    updateCategoryNavEdges();
+    const observer = new ResizeObserver(updateCategoryNavEdges);
+    observer.observe(nav);
+    return () => observer.disconnect();
+  }, [updateCategoryNavEdges, visibleRoots.length]);
+
+  useEffect(() => () => categoryScrollAnimationRef.current?.stop(), []);
+
+  const scrollCategoryNav = (direction: -1 | 1) => {
+    const nav = categoryNavRef.current;
+    if (!nav) return;
+    const maxScrollLeft = Math.max(0, nav.scrollWidth - nav.clientWidth);
+    const distance = Math.max(240, Math.round(nav.clientWidth * 0.6));
+    const target = Math.min(maxScrollLeft, Math.max(0, nav.scrollLeft + direction * distance));
+    categoryScrollAnimationRef.current?.stop();
+    if (shouldReduceMotion) {
+      nav.scrollLeft = target;
+      return;
+    }
+    categoryScrollAnimationRef.current = animate(nav.scrollLeft, target, {
+      duration: 0.2,
+      ease: "easeOut",
+      onUpdate: (value) => {
+        nav.scrollLeft = value;
+      },
+    });
+  };
+
   const selectNode = (node: ProcTaskTreeNode | null) => {
+    if (node?.parentId && node.children.length === 0 && onOpenModule) {
+      onSelect(node);
+      setActiveRootId(node.parentId);
+      onOpenModule(node, activeProductId);
+      return;
+    }
     onSelect(selected?.id === node?.id ? null : node);
     if (!node) setActiveRootId(null);
     else setActiveRootId(node.parentId ?? node.id);
   };
 
+  const activeProduct = products.find((product) => product.id === activeProductId) ?? products[0];
+
+  const selectProduct = (productId: string) => {
+    if (productId === activeProductId) return;
+    setActiveProductId(productId);
+    setRoots([]);
+    setActiveRootId(null);
+    setEditor(null);
+    onSelect(null);
+    onProductChange?.(productId);
+  };
+
+  const detailNode = detailNodeId ? findNode(roots, detailNodeId) : null;
+  const detailParent = detailNode?.parentId ? findNode(roots, detailNode.parentId) : null;
+
+  if (detailNodeId) {
+    if (detailNode) {
+      return (
+        <ProcurementModuleDetail
+          materials={materials}
+          node={detailNode}
+          parentName={detailParent?.name}
+          productName={activeProduct?.name ?? activeProductId}
+          tasks={tasks}
+          onBack={() => onCloseModule?.()}
+        />
+      );
+    }
+    return (
+      <section className="material-card flex min-h-0 flex-1 items-center justify-center border-slate-200 bg-white shadow-sm">
+        {loading ? (
+          <div className="flex items-center gap-2 text-sm text-slate-400"><Loader2 className="size-4 animate-spin" />{t("加载模块详情…")}</div>
+        ) : (
+          <div className="text-center">
+            <p className="text-sm font-medium text-slate-500">{error || t("模块不存在或已被删除")}</p>
+            <button type="button" onClick={() => onCloseModule?.()} className="mt-3 text-xs font-semibold text-indigo-600 hover:text-indigo-700">{t("返回子系统全景")}</button>
+          </div>
+        )}
+      </section>
+    );
+  }
+
   return (
     <section className="material-card flex min-h-0 flex-1 flex-col overflow-hidden border-slate-200 bg-white shadow-sm">
       <header className="flex flex-wrap items-start justify-between gap-4 px-5 pb-4 pt-5">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="flex size-8 items-center justify-center rounded-lg bg-slate-900 text-white shadow-sm">
-              <Layers3 className="size-4" />
-            </span>
-            <div>
-              <h2 className="text-balance text-sm font-semibold text-slate-950">{t("采购子系统全景")}</h2>
-              <p className="mt-0.5 text-pretty text-xs text-slate-500">
-                {activeRoot
-                  ? t("{name} · {count} 个名称节点", { name: activeRoot.name, count: activeRoot.children.length })
-                  : t("采购分类树 · {count} 个分类", { count: visibleRoots.length })}
-              </p>
-            </div>
-          </div>
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
+          {onShowTasks && (
+            <button
+              type="button"
+              onClick={() => onShowTasks(activeProductId)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-3 text-xs font-semibold text-indigo-700 hover:bg-indigo-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+            >
+              <LayoutDashboard className="size-3.5" />
+              {t("返回任务驾驶舱")}
+            </button>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -376,13 +573,13 @@ export function ProcurementSystemTree({
               })}
             </div>
           )}
-          <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 focus-within:border-indigo-300 focus-within:ring-2 focus-within:ring-indigo-100">
+          <div className="flex h-8 items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50/80 px-2.5 focus-within:border-indigo-300 focus-within:bg-white focus-within:ring-2 focus-within:ring-indigo-100">
             <Search className="size-3.5 text-slate-400" />
             <Input
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
               placeholder={t("搜索分类 / 名称 / 编码")}
-              className="w-44 border-0 bg-transparent p-0 text-xs shadow-none outline-none focus-visible:ring-0"
+              className="h-7 w-32 border-0 bg-transparent p-0 text-xs shadow-none outline-none focus-visible:ring-0 xl:w-36"
             />
             {keyword && (
               <button type="button" onClick={() => setKeyword("")} aria-label={t("清空搜索")} className="rounded text-slate-400 hover:text-slate-700">
@@ -414,34 +611,139 @@ export function ProcurementSystemTree({
         </div>
       </header>
 
-      <nav className="flex gap-1 overflow-x-auto border-b border-slate-100 px-5" aria-label={t("采购分类") }>
+      <div className="border-y border-slate-100 bg-white px-5" role="tablist" aria-label={t("采购产品系统")}>
+        <div className="flex min-w-0 gap-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {products.map((product) => {
+            const isActive = product.id === activeProductId;
+            const dot = product.status === "active"
+              ? "bg-emerald-500"
+              : product.status === "paused"
+                ? "bg-amber-500"
+                : product.status === "archived"
+                  ? "bg-slate-400"
+                  : "bg-indigo-500";
+            return (
+              <button
+                key={product.id}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => selectProduct(product.id)}
+                className={cn(
+                  "relative flex h-12 shrink-0 items-center gap-2 px-4 text-sm font-semibold focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-indigo-400",
+                  isActive ? "text-indigo-700" : "text-slate-500 hover:bg-slate-50 hover:text-slate-800",
+                )}
+              >
+                <span className={cn("size-2 rounded-full", dot)} />
+                <span className="max-w-56 truncate">{t(product.name)}</span>
+                {isActive && (
+                  <motion.span
+                    layoutId="procurement-product-active"
+                    aria-hidden="true"
+                    className="absolute inset-x-3 bottom-0 h-0.5 rounded-full bg-indigo-500"
+                    transition={categoryTransition}
+                  />
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="relative border-b border-slate-100 bg-slate-50/80 px-11 py-2">
         <button
           type="button"
-          onClick={() => selectNode(null)}
-          className={cn(
-            "flex shrink-0 items-center gap-2 border-b-2 px-3 py-2 text-xs font-semibold",
-            !activeRoot ? "border-indigo-500 text-indigo-700" : "border-transparent text-slate-500 hover:bg-slate-50 hover:text-slate-700",
-          )}
+          onClick={() => scrollCategoryNav(-1)}
+          disabled={!categoryNavEdges.left}
+          aria-label={t("向左浏览采购分类")}
+          className="absolute left-2 top-1/2 z-10 flex size-7 -translate-y-1/2 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm transition-opacity duration-150 hover:border-indigo-200 hover:text-indigo-700 disabled:pointer-events-none disabled:opacity-30"
         >
-          {t("全部分类")}
-          <span className="rounded-full bg-slate-100 px-1.5 text-[10px] tabular-nums text-slate-500">{visibleRoots.length}</span>
+          <ChevronLeft className="size-4" />
         </button>
-        {visibleRoots.map((root) => (
+
+        <nav
+          ref={categoryNavRef}
+          onScroll={updateCategoryNavEdges}
+          onPointerDown={() => categoryScrollAnimationRef.current?.stop()}
+          onWheel={() => categoryScrollAnimationRef.current?.stop()}
+          className="flex gap-1.5 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          aria-label={t("采购分类")}
+        >
           <button
-            key={root.id}
             type="button"
-            onClick={() => selectNode(root)}
+            onClick={() => selectNode(null)}
             className={cn(
-              "flex shrink-0 items-center gap-2 border-b-2 px-3 py-2 text-xs font-semibold",
-              activeRoot?.id === root.id ? "border-indigo-500 text-indigo-700" : "border-transparent text-slate-500 hover:bg-slate-50 hover:text-slate-700",
+              "relative isolate flex shrink-0 items-center rounded-lg border border-transparent px-3 py-1.5 text-xs font-semibold",
+              !activeRoot
+                ? "text-indigo-700"
+                : "text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900",
             )}
           >
-            <span className={cn("size-1.5 rounded-full", root.taskCount > 0 ? "bg-indigo-500" : "bg-slate-300")} />
-            <span className="max-w-36 truncate">{root.name}</span>
-            <span className="rounded-full bg-slate-100 px-1.5 text-[10px] tabular-nums text-slate-500">{root.taskCount}</span>
+            {!activeRoot && (
+              <motion.span
+                layoutId="procurement-category-active"
+                aria-hidden="true"
+                className="absolute inset-0 z-0 rounded-lg border border-indigo-200 bg-white shadow-sm"
+                transition={categoryTransition}
+              />
+            )}
+            <span className="relative z-10 flex items-center gap-2">
+              {t("全部分类")}
+              <span className={cn(
+                "rounded-full px-1.5 text-[10px] tabular-nums",
+                !activeRoot ? "bg-indigo-50 text-indigo-600" : "bg-slate-200/70 text-slate-500",
+              )}>
+                {visibleRoots.length}
+              </span>
+            </span>
           </button>
-        ))}
-      </nav>
+          {visibleRoots.map((root) => {
+            const isActive = activeRoot?.id === root.id;
+            return (
+              <button
+                key={root.id}
+                type="button"
+                onClick={() => selectNode(root)}
+                className={cn(
+                  "relative isolate flex shrink-0 items-center rounded-lg border border-transparent px-3 py-1.5 text-xs font-semibold",
+                  isActive
+                    ? "text-indigo-700"
+                    : "text-slate-600 hover:border-slate-200 hover:bg-white hover:text-slate-900",
+                )}
+              >
+                {isActive && (
+                  <motion.span
+                    layoutId="procurement-category-active"
+                    aria-hidden="true"
+                    className="absolute inset-0 z-0 rounded-lg border border-indigo-200 bg-white shadow-sm"
+                    transition={categoryTransition}
+                  />
+                )}
+                <span className="relative z-10 flex items-center gap-2">
+                  <span className={cn("size-1.5 rounded-full", root.taskCount > 0 ? "bg-indigo-500" : "bg-slate-300")} />
+                  <span className="max-w-40 truncate">{root.name}</span>
+                  <span className={cn(
+                    "rounded-full px-1.5 text-[10px] tabular-nums",
+                    isActive ? "bg-indigo-50 text-indigo-600" : "bg-slate-200/70 text-slate-500",
+                  )}>
+                    {root.taskCount}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </nav>
+
+        <button
+          type="button"
+          onClick={() => scrollCategoryNav(1)}
+          disabled={!categoryNavEdges.right}
+          aria-label={t("向右浏览采购分类")}
+          className="absolute right-2 top-1/2 z-10 flex size-7 -translate-y-1/2 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 shadow-sm transition-opacity duration-150 hover:border-indigo-200 hover:text-indigo-700 disabled:pointer-events-none disabled:opacity-30"
+        >
+          <ChevronRight className="size-4" />
+        </button>
+      </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-5">
         {activeRoot && canManage && manageMode && (
@@ -500,22 +802,32 @@ export function ProcurementSystemTree({
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-            {visibleNodes.map((node) => (
-              <PanoramaNodeCard
-                key={node.id}
-                node={node}
-                isRoot={!activeRoot}
-                isSelected={selected?.id === node.id}
-                manageMode={canManage && manageMode}
-                tasksById={tasksById}
-                onSelect={() => selectNode(node)}
-                onAddChild={canEdit && !activeRoot ? () => setEditor({ mode: "add-child", parent: node }) : undefined}
-                onEdit={canEdit ? () => node.taskCount === 0 && setEditor({ mode: "edit", node }) : undefined}
-                onDelete={canDelete ? () => node.taskCount === 0 && setEditor({ mode: "delete", node }) : undefined}
-              />
-            ))}
-          </div>
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div
+              key={activeRoot?.id ?? "all-categories"}
+              initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={shouldReduceMotion ? undefined : { opacity: 0, y: -4 }}
+              transition={categoryTransition}
+              className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
+            >
+              {visibleNodes.map((node) => (
+                <PanoramaNodeCard
+                  key={node.id}
+                  node={node}
+                  isRoot={!activeRoot}
+                  isSelected={selected?.id === node.id}
+                  manageMode={canManage && manageMode}
+                  materialsById={materialsById}
+                  tasksById={tasksById}
+                  onSelect={() => selectNode(node)}
+                  onAddChild={canEdit && !activeRoot ? () => setEditor({ mode: "add-child", parent: node }) : undefined}
+                  onEdit={canEdit ? () => node.taskCount === 0 && setEditor({ mode: "edit", node }) : undefined}
+                  onDelete={canDelete ? () => node.taskCount === 0 && setEditor({ mode: "delete", node }) : undefined}
+                />
+              ))}
+            </motion.div>
+          </AnimatePresence>
         )}
       </div>
 
@@ -524,7 +836,7 @@ export function ProcurementSystemTree({
         {selected && (
           <div className="flex items-center gap-3">
             {onShowTasks && (
-              <button type="button" onClick={onShowTasks} className="cursor-pointer rounded-md bg-indigo-600 px-2.5 py-1 font-semibold text-white transition-colors duration-200 hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
+              <button type="button" onClick={() => onShowTasks(activeProductId)} className="cursor-pointer rounded-md bg-indigo-600 px-2.5 py-1 font-semibold text-white transition-colors duration-200 hover:bg-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
                 {t("查看筛选任务")} · {selected.taskCount}
               </button>
             )}
@@ -539,6 +851,7 @@ export function ProcurementSystemTree({
         <TreeEditorDialog
           editor={editor}
           materials={materials}
+          productId={activeProductId}
           onClose={() => setEditor(null)}
           onSaved={async (node, deleted) => {
             if (deleted && selected?.id === deleted) onSelect(null);
@@ -555,11 +868,13 @@ export function ProcurementSystemTree({
 function TreeEditorDialog({
   editor,
   materials,
+  productId,
   onClose,
   onSaved,
 }: {
   editor: TreeEditor;
   materials: Material[];
+  productId: string;
   onClose: () => void;
   onSaved: (node?: ProcTaskTreeNode, deletedId?: string) => Promise<void>;
 }) {
@@ -594,11 +909,12 @@ function TreeEditorDialog({
         toast.success(t("节点已删除"));
         await onSaved(undefined, editor.node.id);
       } else if (editor.mode === "add-root") {
-        const node = await createProcTaskTreeNode({ name: name.trim() });
+        const node = await createProcTaskTreeNode({ productId, name: name.trim() });
         toast.success(t("分类已新增"));
         await onSaved(node);
       } else if (editor.mode === "add-child") {
         const node = await createProcTaskTreeNode({
+          productId,
           parentId: editor.parent.id,
           name: name.trim(),
           code: code.trim(),

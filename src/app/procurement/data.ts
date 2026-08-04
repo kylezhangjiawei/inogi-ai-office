@@ -3,7 +3,7 @@
 // 采购任务与物料被三个页面和多个卡片/抽屉同时消费，这里用一个模块级 store
 // （useSyncExternalStore 订阅）保证：无论多少组件调用，一次会话只拉一次接口，
 // 且任一处写操作后 refreshProcurement() 能让所有订阅者同步刷新。
-import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import {
   listMaterials,
@@ -12,6 +12,7 @@ import {
   type ProcStatus,
   type ProcurementTask,
 } from "../lib/procurementApi";
+import { fetchRdProducts, type RdProductStatus } from "../lib/rdApi";
 
 export type {
   BusinessLine,
@@ -130,6 +131,48 @@ export function taskMainDate(task: ProcurementTask): {
   }
   const date = task.deadline ?? task.needDate;
   return { label: task.deadline ? "Deadline" : "需求日期", date, days: daysFromToday(date) };
+}
+
+export type ProcurementProduct = {
+  id: string;
+  name: string;
+  status: RdProductStatus;
+};
+
+export const DEFAULT_PROCUREMENT_PRODUCT_ID = "prod-portable-o2";
+
+const DEFAULT_PROCUREMENT_PRODUCTS: ProcurementProduct[] = [
+  { id: DEFAULT_PROCUREMENT_PRODUCT_ID, name: "便携式制氧机", status: "active" },
+  { id: "prod-5l-dc-o2", name: "5L直流式制氧机", status: "developing" },
+  { id: "prod-positive-pressure-respirator", name: "正压式呼吸器", status: "developing" },
+];
+
+/** 采购系统与研发驾驶舱共用产品定义；缺少默认产品时补齐，避免配置接口短暂失败导致全景不可用。 */
+export function useProcurementProducts(): ProcurementProduct[] {
+  const [products, setProducts] = useState<ProcurementProduct[]>(DEFAULT_PROCUREMENT_PRODUCTS);
+
+  useEffect(() => {
+    let active = true;
+    void fetchRdProducts()
+      .then((items) => {
+        if (!active) return;
+        const merged = DEFAULT_PROCUREMENT_PRODUCTS.map((fallback) => {
+          const configured = items.find((item) => item.id === fallback.id || item.name.trim() === fallback.name);
+          return configured
+            ? { id: configured.id, name: configured.name.trim(), status: configured.status ?? fallback.status }
+            : fallback;
+        });
+        for (const item of items) {
+          if (merged.some((product) => product.id === item.id || product.name === item.name.trim())) continue;
+          merged.push({ id: item.id, name: item.name.trim(), status: item.status ?? "developing" });
+        }
+        setProducts(merged);
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
+  return products;
 }
 
 /** 统一采购逾期口径：下单前看 Deadline/需求日期，下单后看预计到货日。 */

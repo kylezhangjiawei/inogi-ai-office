@@ -41,6 +41,12 @@ import {
 } from './procurement.types';
 import { INITIAL_PROC_TASK_TREE } from './proc-task-tree.seed';
 
+const DEFAULT_PROC_PRODUCT_ID = 'prod-portable-o2';
+
+function normalizeProcProductId(value?: string | null): string {
+  return value?.trim() || DEFAULT_PROC_PRODUCT_ID;
+}
+
 /** 前端一律用 number/ISO 字符串，Decimal/Date 在出口统一序列化。 */
 function num(value: Prisma.Decimal | number | null | undefined): number {
   if (value === null || value === undefined) return 0;
@@ -91,6 +97,7 @@ export interface AiTaskDraft {
 
 export interface ProcTaskTreeNodeView {
   id: string;
+  productId: string;
   parentId: string | null;
   name: string;
   code: string | null;
@@ -245,6 +252,7 @@ export class ProcurementService {
       const updated = await this.prisma.procTask.update({
         where: { id: existing.id },
         data: {
+          productId: normalizeProcProductId(dto.productId ?? existing.productId),
           materialName: dto.materialName,
           spec: dto.spec ?? '',
           unit: dto.unit ?? '',
@@ -451,6 +459,7 @@ export class ProcurementService {
     const task = await this.prisma.procTask.create({
       data: {
         code,
+        productId: normalizeProcProductId(dto.productId),
         materialId: dto.materialId ?? null,
         materialName: dto.materialName,
         spec: dto.spec ?? '',
@@ -1471,11 +1480,12 @@ export class ProcurementService {
     let childIndex = 0;
     INITIAL_PROC_TASK_TREE.forEach((root, rootIndex) => {
       const rootId = `proc-task-tree-root-${rootIndex + 1}`;
-      roots.push({ id: rootId, name: root.name, sortOrder: rootIndex });
+      roots.push({ id: rootId, productId: DEFAULT_PROC_PRODUCT_ID, name: root.name, sortOrder: rootIndex });
       root.children.forEach((child, sortOrder) => {
         childIndex += 1;
         children.push({
           id: `proc-task-tree-item-${childIndex}`,
+          productId: DEFAULT_PROC_PRODUCT_ID,
           parentId: rootId,
           name: child.name,
           code: child.code || null,
@@ -1504,19 +1514,24 @@ export class ProcurementService {
    * 返回两级系统树，并把采购任务按 materialId 归入叶子节点。
    * 未匹配物料的手工节点按名称兜底，保证旧任务也能显示。
    */
-  async getProcTaskTree(): Promise<{ roots: ProcTaskTreeNodeView[] }> {
+  async getProcTaskTree(productId?: string): Promise<{ roots: ProcTaskTreeNodeView[] }> {
     await this.ensureProcTaskTreeSeeded();
-    return this.getProcTaskTreeWithClient(this.prisma);
+    return this.getProcTaskTreeWithClient(this.prisma, normalizeProcProductId(productId));
   }
 
   private async getProcTaskTreeWithClient(
     client: ProcTaskTreeDbClient,
+    productId?: string,
   ): Promise<{ roots: ProcTaskTreeNodeView[] }> {
     const [rows, tasks] = await Promise.all([
       client.procTaskTreeNode.findMany({
+        ...(productId ? { where: { productId } } : {}),
         orderBy: [{ parentId: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
       }),
-      client.procTask.findMany({ select: { id: true, materialId: true, materialName: true } }),
+      client.procTask.findMany({
+        ...(productId ? { where: { productId } } : {}),
+        select: { id: true, productId: true, materialId: true, materialName: true },
+      }),
     ]);
 
     const taskIdsByMaterial = new Map<string, string[]>();
@@ -1524,20 +1539,23 @@ export class ProcurementService {
     const fallbackLeafCountByName = new Map<string, number>();
     for (const row of rows) {
       if (row.parentId && !row.materialId) {
-        fallbackLeafCountByName.set(row.name, (fallbackLeafCountByName.get(row.name) ?? 0) + 1);
+        const nameKey = `${row.productId}:${row.name}`;
+        fallbackLeafCountByName.set(nameKey, (fallbackLeafCountByName.get(nameKey) ?? 0) + 1);
       }
     }
     for (const task of tasks) {
       if (task.materialId) {
-        const ids = taskIdsByMaterial.get(task.materialId) ?? [];
+        const materialKey = `${task.productId}:${task.materialId}`;
+        const ids = taskIdsByMaterial.get(materialKey) ?? [];
         ids.push(task.id);
-        taskIdsByMaterial.set(task.materialId, ids);
+        taskIdsByMaterial.set(materialKey, ids);
         continue;
       }
-      if (fallbackLeafCountByName.get(task.materialName) === 1) {
-        const ids = taskIdsByName.get(task.materialName) ?? [];
+      const nameKey = `${task.productId}:${task.materialName}`;
+      if (fallbackLeafCountByName.get(nameKey) === 1) {
+        const ids = taskIdsByName.get(nameKey) ?? [];
         ids.push(task.id);
-        taskIdsByName.set(task.materialName, ids);
+        taskIdsByName.set(nameKey, ids);
       }
     }
 
@@ -1545,12 +1563,13 @@ export class ProcurementService {
     const roots: ProcTaskTreeNodeView[] = [];
     for (const row of rows) {
       const ownTaskIds = row.materialId
-        ? taskIdsByMaterial.get(row.materialId) ?? []
+        ? taskIdsByMaterial.get(`${row.productId}:${row.materialId}`) ?? []
         : row.parentId
-          ? taskIdsByName.get(row.name) ?? []
+          ? taskIdsByName.get(`${row.productId}:${row.name}`) ?? []
           : [];
       byId.set(row.id, {
         id: row.id,
+        productId: row.productId,
         parentId: row.parentId,
         name: row.name,
         code: row.code,
@@ -1584,6 +1603,7 @@ export class ProcurementService {
     await this.ensureProcTaskTreeSeeded();
     const name = dto.name.trim();
     const parentId = dto.parentId?.trim() || null;
+    let productId = normalizeProcProductId(dto.productId);
     if (!name) throw new BadRequestException('节点名称不能为空');
 
     return this.prisma.$transaction(async (tx) => {
@@ -1593,15 +1613,19 @@ export class ProcurementService {
       if (parentId) {
         const parent = await tx.procTaskTreeNode.findUnique({
           where: { id: parentId },
-          select: { id: true, parentId: true },
+          select: { id: true, parentId: true, productId: true },
         });
         if (!parent) throw new NotFoundException('父节点不存在');
         if (parent.parentId) throw new BadRequestException('采购任务系统树只允许分类和名称两级');
+        if (dto.productId && productId !== parent.productId) {
+          throw new BadRequestException('子节点必须与所属分类处于同一产品系统');
+        }
+        productId = parent.productId;
       }
 
       const code = parentId ? dto.code?.trim() || null : null;
       const duplicate = await tx.procTaskTreeNode.findFirst({
-        where: { parentId, name, code },
+        where: { productId, parentId, name, code },
         select: { id: true },
       });
       if (duplicate) throw new ConflictException('同一分类下已存在相同节点');
@@ -1609,9 +1633,10 @@ export class ProcurementService {
       const material = parentId
         ? await this.resolveProcTaskTreeMaterial(tx, dto.materialId, code, name)
         : null;
-      const sortOrder = await tx.procTaskTreeNode.count({ where: { parentId } });
+      const sortOrder = await tx.procTaskTreeNode.count({ where: { productId, parentId } });
       const created = await tx.procTaskTreeNode.create({
         data: {
+          productId,
           parentId,
           name,
           code,
@@ -1641,7 +1666,7 @@ export class ProcurementService {
       const spec = isRoot ? null : dto.spec === undefined ? current.spec : dto.spec.trim() || null;
 
       const duplicate = await tx.procTaskTreeNode.findFirst({
-        where: { parentId: current.parentId, name, code, NOT: { id } },
+        where: { productId: current.productId, parentId: current.parentId, name, code, NOT: { id } },
         select: { id: true },
       });
       if (duplicate) throw new ConflictException('同一分类下已存在相同节点');
@@ -2104,6 +2129,7 @@ export class ProcurementService {
     return {
       id: task.id,
       code: task.code,
+      productId: task.productId,
       materialId: task.materialId,
       materialName: task.materialName,
       spec: task.spec,

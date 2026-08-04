@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Textarea } from "../../components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../../components/ui/select";
 import { cn } from "../../components/ui/utils";
-import { refreshProcurement, useProcurementData, useProductLines } from "../data";
+import { DEFAULT_PROCUREMENT_PRODUCT_ID, refreshProcurement, useProcurementData, useProcurementProducts, useProductLines } from "../data";
 import {
   aiParseProcTask,
   applyMaterialClassify,
@@ -80,6 +80,7 @@ function Shell({ title, onClose, children, footer, wide }: { title: string; onCl
 // ── 建单表单（新建需求与 AI 建单确认步共用）──────────────────────────────────
 
 interface DraftState {
+  productId: string;
   materialName: string;
   materialId?: string;
   quantity: string;
@@ -95,7 +96,16 @@ interface DraftState {
   buyer: string;
 }
 
+export interface NewRequirementDefaults {
+  productId: string;
+  materialId?: string;
+  materialName: string;
+  spec?: string;
+  unit?: string;
+}
+
 const EMPTY_DRAFT: DraftState = {
+  productId: DEFAULT_PROCUREMENT_PRODUCT_ID,
   materialName: "", quantity: "", needDate: "", spec: "", unit: "", deadline: "",
   method: "inquiry", purchaseLink: "", businessLine: "production", priority: "medium",
   needSample: false, buyer: "",
@@ -119,22 +129,35 @@ function draftFromAi(d: AiTaskDraft): DraftState {
 }
 
 /** 建单表单主体。more=false 时只展示 3 必填。 */
-function DraftFields({ draft, setDraft, more, setMore }: {
+function DraftFields({ draft, setDraft, more, setMore, lockContext = false }: {
   draft: DraftState;
   setDraft: React.Dispatch<React.SetStateAction<DraftState>>;
   more: boolean;
   setMore: (v: boolean) => void;
+  lockContext?: boolean;
 }) {
   const { t } = useI18n();
+  const products = useProcurementProducts();
   const field = "mt-1 h-9 w-full rounded-lg border border-slate-200 px-3 text-sm outline-none focus:border-indigo-300";
   const label = "text-xs font-medium text-slate-500";
   const set = <K extends keyof DraftState>(key: K) => (value: DraftState[K]) => setDraft((d) => ({ ...d, [key]: value }));
   return (
     <>
       <div className="grid grid-cols-2 gap-3">
+        <div className="col-span-2">
+          <span className={label}>{t('归属产品系统')}</span>
+          <Select value={draft.productId} onValueChange={set('productId')} disabled={lockContext}>
+            <SelectTrigger className="mt-1 h-9 w-full rounded-lg border-slate-200 text-sm"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {products.map((product) => (
+                <SelectItem key={product.id} value={product.id}>{t(product.name)}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
         <label className="block">
           <span className={label}>{t('物料名称')}<span className="ml-0.5 text-rose-500">*</span></span>
-          <Input value={draft.materialName} onChange={(e) => set('materialName')(e.target.value)} placeholder={t('如 减震垫 DZC-950')} className={field} />
+          <Input value={draft.materialName} onChange={(e) => set('materialName')(e.target.value)} disabled={lockContext} placeholder={t('如 减震垫 DZC-950')} className={field} />
         </label>
         <label className="block">
           <span className={label}>{t('数量')}<span className="ml-0.5 text-rose-500">*</span></span>
@@ -208,6 +231,7 @@ async function submitDraft(
   if (!draft.needDate) { toast.error(t('请选择需求日期')); return false; }
   try {
     const task = await createProcTask({
+      productId: draft.productId,
       materialId: draft.materialId,
       materialName: draft.materialName.trim(),
       spec: draft.spec.trim() || undefined,
@@ -305,9 +329,22 @@ export function AiCreateModal({ onClose }: { onClose: () => void }) {
 }
 
 /** 新建需求：3 必填 + 折叠更多，提交落库。 */
-export function NewRequirementModal({ onClose }: { onClose: () => void }) {
+export function NewRequirementModal({
+  onClose,
+  defaults,
+  lockContext = false,
+}: {
+  onClose: () => void;
+  defaults?: NewRequirementDefaults;
+  lockContext?: boolean;
+}) {
   const { t } = useI18n();
-  const [draft, setDraft] = useState<DraftState>(EMPTY_DRAFT);
+  const [draft, setDraft] = useState<DraftState>(() => ({
+    ...EMPTY_DRAFT,
+    ...defaults,
+    spec: defaults?.spec ?? EMPTY_DRAFT.spec,
+    unit: defaults?.unit ?? EMPTY_DRAFT.unit,
+  }));
   const [more, setMore] = useState(false);
   const [busy, setBusy] = useState(false);
   const { resolveUserId } = useBuyerDirectory();
@@ -330,7 +367,7 @@ export function NewRequirementModal({ onClose }: { onClose: () => void }) {
         </button>
       </>}
     >
-      <DraftFields draft={draft} setDraft={setDraft} more={more} setMore={setMore} />
+      <DraftFields draft={draft} setDraft={setDraft} more={more} setMore={setMore} lockContext={lockContext} />
     </Shell>
   );
 }
