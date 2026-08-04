@@ -136,8 +136,8 @@ export class ExternalDocsService implements OnModuleInit {
     if (!name) throw new BadRequestException('资料名称不能为空');
     if (!versionLabel) throw new BadRequestException('版本号不能为空');
 
-    const extraction = await this.extraction.extract(file);
     const stored = await this.storeFile(file);
+    let createdVersionId = '';
     try {
       const created = await this.prisma.$transaction(async (tx) => {
         const document = await tx.externalDocument.create({
@@ -162,7 +162,6 @@ export class ExternalDocsService implements OnModuleInit {
             objectKey: stored.objectKey,
             status: 'current',
             notes: input.notes?.trim() || '',
-            ...this.extractionData(extraction),
             uploadedById: actor.id,
             uploadedByName: actor.name,
           },
@@ -171,8 +170,12 @@ export class ExternalDocsService implements OnModuleInit {
           where: { id: document.id },
           data: { currentVersionId: version.id },
         });
+        createdVersionId = version.id;
         return document.id;
       });
+      // 基准版文本提取放后台：扫描件要逐页 OCR，十几页就得几十秒，不该卡住上传请求。
+      // 失败也不影响建档——真正比对时 ensureExtraction 会再提取一次。
+      this.warmUpExtraction(createdVersionId, file);
       return this.detail(created);
     } catch (error) {
       await this.oss.deleteObject(stored.objectKey);
@@ -592,6 +595,26 @@ export class ExternalDocsService implements OnModuleInit {
     setImmediate(() => {
       void this.runComparison(comparisonId, candidateBuffer).catch((error) => {
         this.logger.error(`资料比对任务异常 ${comparisonId}: ${(error as Error).message}`, (error as Error).stack);
+      });
+    });
+  }
+
+  /**
+   * 后台预提取基准版文本并回填。纯预热：失败只记日志，不改版本状态，
+   * 后续比对走 ensureExtraction 会自行重试，不会因为这里失败而丢数据。
+   */
+  private warmUpExtraction(versionId: string, file: ExternalDocumentFile) {
+    if (!versionId) return;
+    setImmediate(() => {
+      void (async () => {
+        const extraction = await this.extraction.extract(file);
+        // 只在还没有文本时回填：比对流程可能已经抢先提取过，别覆盖它的结果
+        await this.prisma.externalDocumentVersion.updateMany({
+          where: { id: versionId, OR: [{ extractedText: null }, { extractedText: '' }] },
+          data: this.extractionData(extraction),
+        });
+      })().catch((error) => {
+        this.logger.warn(`基准版文本预提取失败 ${versionId}: ${(error as Error).message}`);
       });
     });
   }

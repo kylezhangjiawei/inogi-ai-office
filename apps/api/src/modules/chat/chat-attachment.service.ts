@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import mammoth from 'mammoth';
+// 用命名空间导入：本项目 tsconfig 未开 esModuleInterop，CommonJS 包的默认导入
+// 在运行时是 undefined（mammoth.extractRawText 会直接抛错）。
+import * as mammoth from 'mammoth';
 import { PDFParse } from 'pdf-parse';
 
 import { PrismaService } from '../../prisma/prisma.service';
