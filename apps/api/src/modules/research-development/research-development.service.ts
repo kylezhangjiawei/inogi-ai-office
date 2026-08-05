@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { PrismaService } from '../../prisma/prisma.service';
 import { OcrService } from '../ocr/ocr.service';
@@ -21,6 +21,12 @@ import { RD_WORKSPACE_IDS, WORKSPACE_PAGE_CODES, currentRdWorkspace, resolveRdSt
 type JsonRecord = Record<string, unknown>;
 const RD_TASK_TREE_MAX_DEPTH = 5;
 const RD_TASK_RELATION_BATCH_LIMIT = 50;
+type TaskCreateActor = {
+  requesterUserId?: string;
+  requesterName?: string;
+  canEditAny?: boolean;
+  proposalOnly?: boolean;
+};
 type TaskProgressNoteViewer = {
   userId?: string;
   userName?: string;
@@ -1825,6 +1831,65 @@ export class ResearchDevelopmentService {
     return saved;
   }
 
+  /**
+   * 为立项创建一个空的分类/子项目容器。客户端不能提交任务树，避免普通立项人借整树 PUT 绕过审核策略。
+   */
+  async ensureProposalTarget(input: {
+    productId?: string;
+    categoryLabel?: string;
+    subProjectLabel?: string;
+  }): Promise<{ category_id: string; sub_project_id: string }> {
+    const productId = cleanText(input.productId) || RD_MAIN_PRODUCT_ID;
+    const categoryLabel = cleanText(input.categoryLabel);
+    const subProjectLabel = cleanText(input.subProjectLabel) || '立项任务';
+    if (!categoryLabel) throw new BadRequestException('分类名称不能为空');
+    if (categoryLabel.length > 100 || subProjectLabel.length > 100) {
+      throw new BadRequestException('分类名称过长');
+    }
+
+    return this.withTaskTreeLock(async () => {
+      const categories = await this.readTaskCategoriesForProduct(productId);
+      const next: JsonRecord[] = categories.filter(isRecord).map((category) => ({
+        ...category,
+        children: asArray(category.children).map((child) => isRecord(child) ? { ...child } : child),
+      }));
+      let category: JsonRecord | undefined = next.find(
+        (item) => normalizeBomKey(item.label) === normalizeBomKey(categoryLabel),
+      );
+      let changed = false;
+      if (!category) {
+        category = {
+          id: `rd-cat-${randomUUID()}`,
+          label: categoryLabel,
+          children: [],
+        };
+        next.push(category);
+        changed = true;
+      }
+
+      const children = asArray(category.children).filter(isRecord);
+      let subProject = children.find(
+        (item) => normalizeBomKey(item.label) === normalizeBomKey(subProjectLabel),
+      ) ?? children[0];
+      if (!subProject) {
+        subProject = {
+          id: `rd-sub-${randomUUID()}`,
+          label: subProjectLabel,
+          tasks: [],
+        };
+        category.children = [...children, subProject];
+        changed = true;
+      }
+      if (changed || productId !== RD_MAIN_PRODUCT_ID) {
+        await this.writeTaskCategoriesForProduct(productId, next);
+      }
+      return {
+        category_id: cleanText(category.id),
+        sub_project_id: cleanText(subProject.id),
+      };
+    });
+  }
+
   // ── Products (产品线) ────────────────────────────────────────────────────────
 
   async getProducts(): Promise<JsonRecord[]> {
@@ -2638,17 +2703,39 @@ export class ResearchDevelopmentService {
     return { ok: true as const, task_ids: childIds, parent_task_id: parentId };
   }
 
-  async createTask(payload: JsonRecord) {
-    // 建任务同为「读树→插入→写回」，纳入任务树写锁防并发互相覆盖
-    return this.withTaskTreeLock(() => this.createTaskUnlocked(payload));
+  private applyTaskCreatePolicy(payload: JsonRecord, actor?: TaskCreateActor): JsonRecord {
+    if (!actor?.proposalOnly) return payload;
+    if (
+      cleanText(payload.status) !== 'pending_review'
+      || cleanText(payload.pending_review_type) !== 'proposal'
+    ) {
+      throw new ForbiddenException('立项申请只能创建待审核任务');
+    }
+    if (!cleanUserId(actor.requesterUserId) && !cleanText(actor.requesterName)) {
+      throw new ForbiddenException('无法确认立项申请人身份');
+    }
+    return {
+      ...payload,
+      status: 'pending_review',
+      pending_review_type: 'proposal',
+      primary_owner: cleanText(actor.requesterName) || cleanText(payload.primary_owner),
+      primary_owner_user_id: cleanUserId(actor.requesterUserId) || null,
+    };
   }
 
-  private async createTaskUnlocked(payload: JsonRecord) {
-    // 带 parent_task_id → 走子任务直建分支（分类继承父任务，不要求传 category_id）
-    const parentTaskId = cleanText(payload.parent_task_id);
-    if (parentTaskId) return this.createSubtaskUnlocked(payload, parentTaskId);
+  async createTask(payload: JsonRecord, actor?: TaskCreateActor) {
+    // 建任务同为「读树→插入→写回」，纳入任务树写锁防并发互相覆盖
+    return this.withTaskTreeLock(() => this.createTaskUnlocked(payload, actor));
+  }
 
-    const productId = cleanText(payload.product_id) || RD_MAIN_PRODUCT_ID;
+  private async createTaskUnlocked(payload: JsonRecord, actor?: TaskCreateActor) {
+    const createPayload = this.applyTaskCreatePolicy(payload, actor);
+
+    // 带 parent_task_id → 走子任务直建分支（分类继承父任务，不要求传 category_id）
+    const parentTaskId = cleanText(createPayload.parent_task_id);
+    if (parentTaskId) return this.createSubtaskUnlocked(createPayload, parentTaskId, actor);
+
+    const productId = cleanText(createPayload.product_id) || RD_MAIN_PRODUCT_ID;
     const [categories, identity] = await Promise.all([
       this.readTaskCategoriesForProduct(productId),
       this.getIdentityContext(),
@@ -2658,10 +2745,26 @@ export class ResearchDevelopmentService {
       sub_project_id,
       product_id: _productId,
       parent_task_id: _parentTaskId,
+      task_id: _requestedTaskId,
+      id: _requestedInternalId,
+      created_at: _requestedCreatedAt,
+      updated_at: _requestedUpdatedAt,
+      creation_request_id: _creationRequestId,
+      creation_request_scope: _creationRequestScope,
+      creation_request_hash: _creationRequestHash,
+      creation_request_index: _creationRequestIndex,
       ...taskData
-    } = payload;
+    } = createPayload;
     void _productId;
     void _parentTaskId;
+    void _requestedTaskId;
+    void _requestedInternalId;
+    void _requestedCreatedAt;
+    void _requestedUpdatedAt;
+    void _creationRequestId;
+    void _creationRequestScope;
+    void _creationRequestHash;
+    void _creationRequestIndex;
     const categoryId = typeof category_id === 'string' ? category_id.trim() : '';
     const requestedSubProjectId = typeof sub_project_id === 'string' ? sub_project_id.trim() : '';
 
@@ -2672,10 +2775,7 @@ export class ResearchDevelopmentService {
     const newTask = this.normalizeTaskIdentity(
       withGeneratedId('rd-task', {
         ...taskData,
-        task_id:
-          typeof taskData.task_id === 'string' && taskData.task_id.trim()
-            ? taskData.task_id.trim()
-            : generateTaskId(),
+        task_id: generateTaskId(),
         status: taskData.status ?? 'draft',
         progress: typeof taskData.progress === 'number' ? taskData.progress : 0,
         ai_priority: taskData.ai_priority ?? taskData.final_priority ?? 'medium',
@@ -2753,71 +2853,165 @@ export class ResearchDevelopmentService {
     return newTask;
   }
 
+  async createSubtasks(
+    parentTaskId: string,
+    payloads: JsonRecord[],
+    requestId: string,
+    actor?: TaskCreateActor,
+  ) {
+    if (!cleanText(requestId)) throw new BadRequestException('缺少批量创建请求标识');
+    const createPayloads = payloads.map((payload) => this.applyTaskCreatePolicy(payload, actor));
+    return this.withTaskTreeLock(() =>
+      this.createSubtasksUnlocked(createPayloads, parentTaskId, requestId, actor),
+    );
+  }
+
   /**
    * 在指定父任务下直建子任务。分类（库/系统/子项目/category_path）一律继承父任务，
    * 因此不要求调用方传 product_id / category_id —— 父任务在哪，子任务就在哪。
    */
-  private async createSubtaskUnlocked(payload: JsonRecord, parentTaskId: string) {
+  private async createSubtaskUnlocked(payload: JsonRecord, parentTaskId: string, actor?: TaskCreateActor) {
+    const created = await this.createSubtasksUnlocked([payload], parentTaskId, '', actor);
+    return created[0];
+  }
+
+  private async createSubtasksUnlocked(
+    payloads: JsonRecord[],
+    parentTaskId: string,
+    requestId: string,
+    actor?: TaskCreateActor,
+  ) {
+    if (payloads.length === 0) throw new BadRequestException('请至少提交一个子任务');
+    if (payloads.length > RD_TASK_RELATION_BATCH_LIMIT) {
+      throw new BadRequestException(`单次最多创建 ${RD_TASK_RELATION_BATCH_LIMIT} 个子任务`);
+    }
+    if (payloads.some((payload) => !cleanText(payload.title))) {
+      throw new BadRequestException('子任务标题不能为空');
+    }
+    const normalizedRequestId = cleanText(requestId);
+    if (normalizedRequestId.length > 128) throw new BadRequestException('批量创建请求标识过长');
+    const requestHash = normalizedRequestId
+      ? createHash('sha256').update(JSON.stringify(payloads)).digest('hex')
+      : '';
+
     // 新子任务直接建在父任务所在库 → 单库写回即可
     const { trees } = await this.readAllTaskTrees();
     const parentSlot = this.locateTaskInTrees(trees, parentTaskId);
     if (!parentSlot) throw new NotFoundException('父任务不存在');
     this.assertTaskWritable(parentSlot.task);
+    if (
+      actor
+      && !actor.canEditAny
+      && !isTaskParticipant(parentSlot.task, actor.requesterUserId, actor.requesterName)
+    ) {
+      throw new ForbiddenException('只能在自己负责或协作的任务下立项');
+    }
     if (parentSlot.depth >= RD_TASK_TREE_MAX_DEPTH) {
       throw new BadRequestException(`任务最多支持 ${RD_TASK_TREE_MAX_DEPTH} 层，当前任务不能再新建下级`);
     }
 
-    const identity = await this.getIdentityContext();
-    const {
-      category_id: _categoryId,
-      sub_project_id: _subProjectId,
-      product_id: _productId,
-      parent_task_id: _parentTaskId,
-      category_path: _categoryPath,
-      ...taskData
-    } = payload;
-    void _categoryId;
-    void _subProjectId;
-    void _productId;
-    void _parentTaskId;
-    void _categoryPath;
+    const requestScope = normalizedRequestId
+      ? createHash('sha256').update([
+          currentRdWorkspace(),
+          cleanUserId(actor?.requesterUserId) || cleanText(actor?.requesterName) || 'system',
+          cleanText(parentSlot.task.task_id),
+          normalizedRequestId,
+        ].join('\u0000')).digest('hex')
+      : '';
 
-    const nowIso = new Date().toISOString();
-    const newTask = this.normalizeTaskIdentity(
-      withGeneratedId('rd-task', {
-        ...taskData,
-        task_id:
-          typeof taskData.task_id === 'string' && taskData.task_id.trim()
-            ? taskData.task_id.trim()
-            : generateTaskId(),
-        status: taskData.status ?? 'draft',
-        progress: typeof taskData.progress === 'number' ? taskData.progress : 0,
-        ai_priority: taskData.ai_priority ?? taskData.final_priority ?? 'medium',
-        final_priority: taskData.final_priority ?? taskData.ai_priority ?? 'medium',
-        archived: false,
-        attachments: 0,
-        collaborators: normalizeCollaboratorList(taskData.collaborators, {
-          name: typeof taskData.primary_owner === 'string' ? taskData.primary_owner : null,
-          user_id:
-            typeof taskData.primary_owner_user_id === 'string'
-              ? taskData.primary_owner_user_id
-              : null,
-        }),
-        subtasks: [],
-        parent_task_id: cleanText(parentSlot.task.task_id),
-        subtask_origin: 'created',
-        category_path: this.subtaskCategoryPath(taskData, parentSlot),
-        created_at: nowIso,
-        updated_at: nowIso,
-      }),
-      identity.people,
-      identity.users,
-    );
-
-    // 与 createTaskUnlocked 的状态钩子对齐：直建即阻塞要打阻塞起点
-    if (newTask.status === 'paused_blocked' && !cleanText(newTask.blocked_since)) {
-      (newTask as JsonRecord).blocked_since = nowIso;
+    if (normalizedRequestId) {
+      const existing = [...trees.values()]
+        .flatMap((categories) => this.collectAllCategoryTasks(categories))
+        .filter((task) => cleanText(task.creation_request_scope) === requestScope)
+        .sort((left, right) => Number(left.creation_request_index) - Number(right.creation_request_index));
+      if (existing.length > 0) {
+        const sameParent = existing.every(
+          (task) => cleanText(task.parent_task_id) === cleanText(parentSlot.task.task_id),
+        );
+        const samePayload = existing.every(
+          (task) => cleanText(task.creation_request_hash) === requestHash,
+        );
+        if (!sameParent || !samePayload || existing.length !== payloads.length) {
+          throw new ConflictException('批量创建请求标识已被其它任务使用');
+        }
+        return existing;
+      }
     }
+
+    const identity = await this.getIdentityContext();
+    const nowIso = new Date().toISOString();
+    const newTasks = payloads.map((payload, index) => {
+      const {
+        category_id: _categoryId,
+        sub_project_id: _subProjectId,
+        product_id: _productId,
+        parent_task_id: _parentTaskId,
+        category_path: _categoryPath,
+        task_id: _requestedTaskId,
+        id: _requestedInternalId,
+        created_at: _requestedCreatedAt,
+        updated_at: _requestedUpdatedAt,
+        creation_request_id: _creationRequestId,
+        creation_request_scope: _creationRequestScope,
+        creation_request_hash: _creationRequestHash,
+        creation_request_index: _creationRequestIndex,
+        ...taskData
+      } = payload;
+      void _categoryId;
+      void _subProjectId;
+      void _productId;
+      void _parentTaskId;
+      void _categoryPath;
+      void _requestedTaskId;
+      void _requestedInternalId;
+      void _requestedCreatedAt;
+      void _requestedUpdatedAt;
+      void _creationRequestId;
+      void _creationRequestScope;
+      void _creationRequestHash;
+      void _creationRequestIndex;
+
+      const newTask = this.normalizeTaskIdentity(
+        withGeneratedId('rd-task', {
+          ...taskData,
+          task_id: generateTaskId(),
+          status: taskData.status ?? 'draft',
+          progress: typeof taskData.progress === 'number' ? taskData.progress : 0,
+          ai_priority: taskData.ai_priority ?? taskData.final_priority ?? 'medium',
+          final_priority: taskData.final_priority ?? taskData.ai_priority ?? 'medium',
+          archived: false,
+          attachments: 0,
+          collaborators: normalizeCollaboratorList(taskData.collaborators, {
+            name: typeof taskData.primary_owner === 'string' ? taskData.primary_owner : null,
+            user_id:
+              typeof taskData.primary_owner_user_id === 'string'
+                ? taskData.primary_owner_user_id
+                : null,
+          }),
+          subtasks: [],
+          parent_task_id: cleanText(parentSlot.task.task_id),
+          subtask_origin: 'created',
+          category_path: this.subtaskCategoryPath(taskData, parentSlot),
+          ...(normalizedRequestId
+            ? {
+                creation_request_id: normalizedRequestId,
+                creation_request_scope: requestScope,
+                creation_request_hash: requestHash,
+                creation_request_index: index,
+              }
+            : {}),
+          created_at: nowIso,
+          updated_at: nowIso,
+        }),
+        identity.people,
+        identity.users,
+      );
+
+      if (newTask.status === 'paused_blocked' && !cleanText(newTask.blocked_since)) {
+        (newTask as JsonRecord).blocked_since = nowIso;
+      }
+      return newTask;
+    });
 
     let inserted = false;
     const categories = trees.get(parentSlot.productId) ?? [];
@@ -2830,7 +3024,7 @@ export class ResearchDevelopmentService {
           const result = appendTaskChildren(
             asArray(child.tasks),
             cleanText(parentSlot.task.task_id),
-            [newTask],
+            newTasks,
             nowIso,
           );
           if (!result.inserted) return child;
@@ -2842,12 +3036,18 @@ export class ResearchDevelopmentService {
     if (!inserted) throw new NotFoundException('父任务定位失败');
 
     await this.writeTaskCategoriesForProduct(parentSlot.productId, updated);
-    await this.recomputeDirectorDashboard();
-    if (newTask.status === 'pending_review') {
-      void this.notifyAdminsOfPendingReview(newTask, {});
+    await this.recomputeDirectorDashboard().catch((error: unknown) => {
+      this.logger.warn(
+        `批量子任务已落库，但驾驶舱派生统计重算失败：${error instanceof Error ? error.message : String(error)}`,
+      );
+    });
+    for (const newTask of newTasks) {
+      if (newTask.status === 'pending_review') {
+        void this.notifyAdminsOfPendingReview(newTask, {});
+      }
+      void this.syncTaskToRag(String(newTask.task_id ?? ''));
     }
-    void this.syncTaskToRag(String(newTask.task_id ?? ''));
-    return newTask;
+    return newTasks;
   }
 
   async updateTask(
@@ -2858,6 +3058,19 @@ export class ResearchDevelopmentService {
     // Strip private notification-metadata fields before persisting
     const {
       task_id: _protected,
+      id: _protectedInternalId,
+      created_at: _protectedCreatedAt,
+      updated_at: _protectedUpdatedAt,
+      parent_task_id: _protectedParentTaskId,
+      subtasks: _protectedSubtasks,
+      subtask_origin: _protectedSubtaskOrigin,
+      subtask_attached_at: _protectedSubtaskAttachedAt,
+      subtask_attached_by: _protectedSubtaskAttachedBy,
+      subtask_attached_by_id: _protectedSubtaskAttachedById,
+      creation_request_id: _protectedCreationRequestId,
+      creation_request_scope: _protectedCreationRequestScope,
+      creation_request_hash: _protectedCreationRequestHash,
+      creation_request_index: _protectedCreationRequestIndex,
       _review_action,
       _reviewer_name,
       _reject_reason,
@@ -2870,6 +3083,19 @@ export class ResearchDevelopmentService {
       _actor_name?: string;
     };
     void _protected;
+    void _protectedInternalId;
+    void _protectedCreatedAt;
+    void _protectedUpdatedAt;
+    void _protectedParentTaskId;
+    void _protectedSubtasks;
+    void _protectedSubtaskOrigin;
+    void _protectedSubtaskAttachedAt;
+    void _protectedSubtaskAttachedBy;
+    void _protectedSubtaskAttachedById;
+    void _protectedCreationRequestId;
+    void _protectedCreationRequestScope;
+    void _protectedCreationRequestHash;
+    void _protectedCreationRequestIndex;
 
     // work_items 在写入口统一归一化：任意客户端 PATCH 非法形状（对象/字符串/缺字段项）
     // 一律清洗为合法数组，防止污染后所有消费端（任务卡/详情页/AI prompt/报告导出）崩溃
@@ -3563,7 +3789,7 @@ export class ResearchDevelopmentService {
     return this.getUserKbLevel(viewer.userId);
   }
 
-  async deleteTask(taskId: string, actor?: { userId?: string; userName?: string }) {
+  async deleteTask(taskId: string, actor?: { userId?: string; userName?: string; canEditAny?: boolean }) {
     let found = false;
     // 被删任务快照（用于删除后通知其负责人 / 协作人）。
     let removedTask: JsonRecord | null = null;
@@ -3579,6 +3805,9 @@ export class ResearchDevelopmentService {
       const filtered = tasks.filter((t) => {
         if (isRecord(t) && t.task_id === taskId) {
           this.assertTaskWritable(t);
+          if (actor && !actor.canEditAny && !isTaskParticipant(t, actor.userId, actor.userName)) {
+            throw new ForbiddenException('只能删除自己负责或协作的任务');
+          }
           found = true;
           removedTask = t;
           collectIds(t);
@@ -7887,12 +8116,38 @@ export class ResearchDevelopmentService {
     return parents;
   }
 
+  /** 按权威树位置计算真实深度（根任务为 1），不受个人工作台筛选后节点提升影响。 */
+  private collectTaskDepths(categories: unknown[]): Map<string, number> {
+    const depths = new Map<string, number>();
+    const visited = new Set<string>();
+    const walk = (tasks: unknown[], depth: number) => {
+      for (const task of tasks) {
+        if (!isRecord(task)) continue;
+        const id = cleanText(task.task_id);
+        if (id) {
+          if (visited.has(id)) continue;
+          visited.add(id);
+          depths.set(id, depth);
+        }
+        walk(asArray(task.subtasks), Math.min(depth + 1, RD_TASK_TREE_MAX_DEPTH + 1));
+      }
+    };
+    for (const category of categories) {
+      if (!isRecord(category)) continue;
+      for (const child of asArray(category.children)) {
+        if (isRecord(child)) walk(asArray(child.tasks), 1);
+      }
+    }
+    return depths;
+  }
+
   private toWorkspaceTask(
     task: JsonRecord,
     role: 'primary' | 'collaborator',
     collabRole?: string,
     /** 本任务的父任务（本任务是子任务时非空）。由 collectSubtaskParents 按结构位置解析后传入。 */
     parentTask?: JsonRecord,
+    treeDepth = 1,
   ) {
     const dueDate = cleanText(task.due_date);
     const subtaskOrigin = cleanText(task.subtask_origin);
@@ -7908,6 +8163,7 @@ export class ResearchDevelopmentService {
       status_label: this.taskStatusLabel(task.status),
       submitted_for_review_at: cleanText(task.submitted_for_review_at) || null,
       role,
+      tree_depth: treeDepth,
       category_path: cleanText(task.category_path),
       owner: cleanText(task.primary_owner ?? task.owner),
       owner_user_id: cleanUserId(task.primary_owner_user_id ?? task.owner_user_id) || null,
@@ -8043,15 +8299,23 @@ export class ResearchDevelopmentService {
 
     // 子任务父子索引：按结构位置解析一次，myTasks/collabTasks 共用
     const subtaskParents = this.collectSubtaskParents(categories);
+    const taskDepths = this.collectTaskDepths(categories);
     const parentOf = (task: JsonRecord) => subtaskParents.get(cleanText(task.task_id));
+    const depthOf = (task: JsonRecord) => taskDepths.get(cleanText(task.task_id)) ?? 1;
 
     const myTasks = visibleTasks
       .filter(isPrimary)
-      .map((task) => this.toWorkspaceTask(task, 'primary', undefined, parentOf(task)));
+      .map((task) => this.toWorkspaceTask(task, 'primary', undefined, parentOf(task), depthOf(task)));
     const collabTasks = visibleTasks
       .map((task) => ({ task, role: collaboratorRole(task) }))
       .filter((item) => item.role && !isPrimary(item.task))
-      .map((item) => this.toWorkspaceTask(item.task, 'collaborator', item.role, parentOf(item.task)));
+      .map((item) => this.toWorkspaceTask(
+        item.task,
+        'collaborator',
+        item.role,
+        parentOf(item.task),
+        depthOf(item.task),
+      ));
     const dueTasks = [...myTasks, ...collabTasks]
       .filter((task) => task.status !== 'completed' && task.due_date)
       .sort((a, b) => a.due_date.localeCompare(b.due_date))

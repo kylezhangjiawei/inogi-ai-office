@@ -3,7 +3,78 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { test } from 'node:test';
 
+import { PERMISSIONS_KEY } from '../src/modules/auth/decorators/permissions.decorator';
+import { ChatToolsService } from '../src/modules/chat/chat-tools.service';
+import { ResearchDevelopmentController } from '../src/modules/research-development/research-development.controller';
 import { ResearchDevelopmentService } from '../src/modules/research-development/research-development.service';
+
+test('task creation endpoints accept proposal permission and pass a constrained actor policy', async () => {
+  const createTaskPermissions = Reflect.getMetadata(
+    PERMISSIONS_KEY,
+    ResearchDevelopmentController.prototype.createTask,
+  ) as string[];
+  const createSubtasksPermissions = Reflect.getMetadata(
+    PERMISSIONS_KEY,
+    ResearchDevelopmentController.prototype.createSubtasks,
+  ) as string[];
+  assert.ok(createTaskPermissions.includes('rd-project:propose'));
+  assert.ok(createSubtasksPermissions.includes('rd-project:propose'));
+  const saveTreePermissions = Reflect.getMetadata(
+    PERMISSIONS_KEY,
+    ResearchDevelopmentController.prototype.saveTaskCategories,
+  ) as string[];
+  assert.equal(saveTreePermissions.includes('rd-task:edit'), false);
+  assert.equal(saveTreePermissions.includes('rd-task:create'), false);
+  assert.ok(saveTreePermissions.includes('rd-project:direct'));
+
+  let receivedActor: Record<string, unknown> | undefined;
+  let receivedUpdateOptions: Record<string, unknown> | undefined;
+  const controller = new ResearchDevelopmentController(
+    {
+      createSubtasks: async (
+        _parentTaskId: string,
+        _tasks: Record<string, unknown>[],
+        _requestId: string,
+        actor: Record<string, unknown>,
+      ) => {
+        receivedActor = actor;
+        return [];
+      },
+      updateTask: async (
+        _taskId: string,
+        _patch: Record<string, unknown>,
+        options: Record<string, unknown>,
+      ) => {
+        receivedUpdateOptions = options;
+        return { ok: true };
+      },
+    } as unknown as ResearchDevelopmentService,
+    {} as never,
+    {} as never,
+  );
+  await controller.createSubtasks(
+    { parent_task_id: 'parent', request_id: 'request-1', tasks: [{ title: '子任务' }] },
+    {
+      user: {
+        id: 'user-1',
+        name: '研发成员',
+        permissions: ['page:rd-my-workspace', 'rd-project:propose'],
+      },
+    },
+  );
+  assert.deepEqual(receivedActor, {
+    requesterUserId: 'user-1',
+    requesterName: '研发成员',
+    canEditAny: false,
+    proposalOnly: true,
+  });
+  await controller.updateTask(
+    'task-1',
+    { title: '普通编辑' },
+    { user: { id: 'user-1', name: '研发成员', permissions: ['page:rd-my-workspace', 'rd-task:edit'] } },
+  );
+  assert.equal(receivedUpdateOptions?.canEditAny, false);
+});
 
 test('image gallery controls are excluded before the swipe surface captures a pointer', () => {
   const source = readFileSync(
@@ -15,6 +86,52 @@ test('image gallery controls are excluded before the swipe surface captures a po
 
   assert.ok(controlGuard >= 0, 'gallery pointer handling must ignore button and link controls');
   assert.ok(pointerCapture > controlGuard, 'interactive-control guard must run before pointer capture');
+});
+
+test('ordinary task edit permission cannot prepare a chat approval action', async () => {
+  const service = Object.create(ChatToolsService.prototype) as any;
+  const result = await service.prepareApproveTaskReview(
+    {},
+    { userId: 'member-1', permissions: ['rd-task:edit'] },
+    'conversation-1',
+  );
+  assert.equal(result.ok, false);
+  assert.equal(result.summary, '无审核权限');
+});
+
+test('proposal target endpoint can only append an empty structural container', async () => {
+  const originalTask = { task_id: 'task-a', title: '保留任务', subtasks: [] };
+  let saved: Array<Record<string, unknown>> | undefined;
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  service.withTaskTreeLock = (operation: () => Promise<unknown>) => operation();
+  service.readTaskCategoriesForProduct = async () => [{
+    id: 'existing-category',
+    label: '已有分类',
+    children: [{ id: 'existing-project', label: '已有项目', tasks: [originalTask] }],
+  }];
+  service.writeTaskCategoriesForProduct = async (_productId: string, categories: Array<Record<string, unknown>>) => {
+    saved = categories;
+  };
+
+  const target = await service.ensureProposalTarget({
+    productId: 'prod-portable-o2',
+    categoryLabel: '新立项',
+    subProjectLabel: '立项任务',
+  });
+  assert.ok(target.category_id.startsWith('rd-cat-'));
+  assert.ok(target.sub_project_id.startsWith('rd-sub-'));
+  assert.equal(((saved?.[0].children as any[])[0].tasks as any[])[0].task_id, 'task-a');
+  const appended = saved?.find((category) => category.id === target.category_id);
+  assert.deepEqual((appended?.children as any[])[0].tasks, []);
+
+  saved = undefined;
+  const existing = await service.ensureProposalTarget({
+    productId: 'prod-portable-o2',
+    categoryLabel: '已有分类',
+    subProjectLabel: '立项任务',
+  });
+  assert.deepEqual(existing, { category_id: 'existing-category', sub_project_id: 'existing-project' });
+  assert.equal(saved, undefined, 'an existing normalized target must not rewrite the task tree');
 });
 
 test('cockpit attachment previews batch reads once and returns only five lightweight items per task', async () => {
@@ -623,10 +740,12 @@ test('creating a child under a nested task inserts it at the requested depth', a
         task_id: 'root',
         title: '根任务',
         subtasks: [{
-          task_id: 'middle',
-          title: '中间任务',
-          category_path: '系统 A / 项目 A / 研发任务',
-          subtasks: [],
+        task_id: 'middle',
+        title: '中间任务',
+        primary_owner_user_id: 'user-1',
+        primary_owner: '研发成员',
+        category_path: '系统 A / 项目 A / 研发任务',
+        subtasks: [],
         }],
       }],
     }],
@@ -645,16 +764,259 @@ test('creating a child under a nested task inserts it at the requested depth', a
   service.recomputeDirectorDashboard = async () => undefined;
   service.syncTaskToRag = () => undefined;
 
-  const created = await service.createSubtaskUnlocked(
-    { task_id: 'new-child', title: '新下级', primary_owner: '测试人员' },
-    'middle',
+  const created = await service.createTaskUnlocked(
+    {
+      task_id: 'new-child',
+      parent_task_id: 'middle',
+      title: '新下级',
+      primary_owner: '伪造主责人',
+      status: 'pending_review',
+      pending_review_type: 'proposal',
+    },
+    {
+      requesterUserId: 'user-1',
+      requesterName: '研发成员',
+      proposalOnly: true,
+      canEditAny: false,
+    },
   );
 
   assert.equal(created.parent_task_id, 'middle');
+  assert.equal(created.status, 'pending_review');
+  assert.equal(created.pending_review_type, 'proposal');
+  assert.equal(created.primary_owner, '研发成员');
+  assert.equal(created.primary_owner_user_id, 'user-1');
+  assert.notEqual(created.task_id, 'new-child', 'task ids are server-owned and client values must be ignored');
   const savedTree = written as Array<Record<string, unknown>> | null;
   assert.ok(savedTree);
   const root = (((savedTree[0].children as Array<Record<string, unknown>>)[0]
     .tasks as Array<Record<string, unknown>>)[0]);
   const middle = ((root.subtasks as Array<Record<string, unknown>>)[0]);
-  assert.equal(((middle.subtasks as Array<Record<string, unknown>>)[0]).task_id, 'new-child');
+  assert.equal(((middle.subtasks as Array<Record<string, unknown>>)[0]).task_id, created.task_id);
+});
+
+test('creating a child under another user task is rejected before any write', async () => {
+  const categories = [{
+    id: 'system-a',
+    children: [{
+      id: 'project-a',
+      tasks: [{
+        task_id: 'parent',
+        primary_owner_user_id: 'user-b',
+        primary_owner: '成员 B',
+        collaborators: [],
+        subtasks: [],
+      }],
+    }],
+  }];
+  let writes = 0;
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  service.readAllTaskTrees = async () => ({
+    trees: new Map([['prod-portable-o2', categories]]),
+    store: {},
+  });
+  service.writeTaskCategoriesForProduct = async () => { writes += 1; };
+
+  await assert.rejects(
+    () => service.createSubtaskUnlocked(
+      { task_id: 'forged-child', title: '越权子任务' },
+      'parent',
+      { requesterUserId: 'user-a', requesterName: '成员 A', canEditAny: false },
+    ),
+    /只能在自己负责或协作的任务下立项/,
+  );
+  assert.equal(writes, 0);
+});
+
+test('proposal-only task creation rejects direct activation before reading task trees', async () => {
+  let reads = 0;
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  service.readAllTaskTrees = async () => { reads += 1; return { trees: new Map(), store: {} }; };
+
+  await assert.rejects(
+    () => service.createTaskUnlocked(
+      {
+        parent_task_id: 'parent',
+        title: '绕过审核',
+        status: 'in_progress',
+        pending_review_type: 'proposal',
+      },
+      { requesterUserId: 'user-a', requesterName: '成员 A', proposalOnly: true },
+    ),
+    /立项申请只能创建待审核任务/,
+  );
+  assert.equal(reads, 0);
+});
+
+test('creating a sixth-level child is rejected before any write or side effect', async () => {
+  const level5 = { task_id: 'level-5', subtasks: [] };
+  const level4 = { task_id: 'level-4', subtasks: [level5] };
+  const level3 = { task_id: 'level-3', subtasks: [level4] };
+  const level2 = { task_id: 'level-2', subtasks: [level3] };
+  const level1 = { task_id: 'level-1', subtasks: [level2] };
+  const categories = [{ id: 'system-a', children: [{ id: 'project-a', tasks: [level1] }] }];
+  let writes = 0;
+  let recomputes = 0;
+  let ragSyncs = 0;
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  service.readAllTaskTrees = async () => ({
+    trees: new Map([['prod-portable-o2', categories]]),
+    store: {},
+  });
+  service.writeTaskCategoriesForProduct = async () => { writes += 1; };
+  service.recomputeDirectorDashboard = async () => { recomputes += 1; };
+  service.syncTaskToRag = () => { ragSyncs += 1; };
+
+  await assert.rejects(
+    () => service.createSubtaskUnlocked(
+      { task_id: 'level-6', title: '第六层' },
+      'level-5',
+      { canEditAny: true },
+    ),
+    /最多支持 5 层/,
+  );
+  assert.equal(writes, 0);
+  assert.equal(recomputes, 0);
+  assert.equal(ragSyncs, 0);
+});
+
+test('batch child creation writes once and reuses the committed result on retry', async () => {
+  let categories: Array<Record<string, unknown>> = [{
+    id: 'system-a',
+    children: [{
+      id: 'project-a',
+      tasks: [{ task_id: 'parent', primary_owner_user_id: 'owner-1', subtasks: [] }],
+    }],
+  }];
+  let writes = 0;
+  let recomputes = 0;
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  service.readAllTaskTrees = async () => ({
+    trees: new Map([['prod-portable-o2', categories]]),
+    store: {},
+  });
+  service.getIdentityContext = async () => ({ people: [], users: [] });
+  service.normalizeTaskIdentity = (task: Record<string, unknown>) => task;
+  service.writeTaskCategoriesForProduct = async (_productId: string, value: Array<Record<string, unknown>>) => {
+    writes += 1;
+    categories = value;
+  };
+  service.recomputeDirectorDashboard = async () => { recomputes += 1; };
+  service.syncTaskToRag = () => undefined;
+  service.notifyAdminsOfPendingReview = async () => undefined;
+
+  const payloads = [
+    { task_id: 'child-a', title: '子任务 A', status: 'in_progress' },
+    { task_id: 'child-b', title: '子任务 B', status: 'in_progress' },
+  ];
+  const first = await service.createSubtasksUnlocked(
+    payloads,
+    'parent',
+    'proposal-request-1',
+    { requesterUserId: 'user-a', canEditAny: true },
+  );
+  const retry = await service.createSubtasksUnlocked(
+    payloads,
+    'parent',
+    'proposal-request-1',
+    { requesterUserId: 'user-a', canEditAny: true },
+  );
+
+  assert.equal(writes, 1);
+  assert.equal(recomputes, 1);
+  assert.equal(first.length, 2);
+  assert.deepEqual(
+    retry.map((task: Record<string, unknown>) => task.task_id),
+    first.map((task: Record<string, unknown>) => task.task_id),
+  );
+  assert.deepEqual(first.map((task: Record<string, unknown>) => task.creation_request_index), [0, 1]);
+
+  const otherUser = await service.createSubtasksUnlocked(
+    payloads,
+    'parent',
+    'proposal-request-1',
+    { requesterUserId: 'user-b', canEditAny: true },
+  );
+  assert.equal(writes, 2, 'same client request id from another user must use a separate idempotency scope');
+  assert.notDeepEqual(
+    otherUser.map((task: Record<string, unknown>) => task.task_id),
+    first.map((task: Record<string, unknown>) => task.task_id),
+  );
+});
+
+test('task patch cannot rewrite structural or server-owned idempotency fields', async () => {
+  let categories: Array<Record<string, unknown>> = [{
+    id: 'system-a',
+    children: [{
+      id: 'project-a',
+      tasks: [{
+        task_id: 'task-a',
+        title: '原任务',
+        primary_owner_user_id: 'user-a',
+        parent_task_id: 'parent-a',
+        subtasks: [],
+        creation_request_scope: 'server-scope',
+      }],
+    }],
+  }];
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  service.getIdentityContext = async () => ({ people: [], users: [] });
+  service.normalizeTaskIdentity = (task: Record<string, unknown>) => task;
+  service.mutateTaskAcrossStores = async (transform: (value: unknown[]) => { categories: unknown[] }) => {
+    const result = transform(categories);
+    categories = result.categories as Array<Record<string, unknown>>;
+  };
+  service.recomputeDirectorDashboard = async () => undefined;
+  service.syncTaskToRag = () => undefined;
+
+  await service.updateTask(
+    'task-a',
+    {
+      title: '合法标题',
+      parent_task_id: 'forged-parent',
+      subtasks: [{ task_id: 'forged-child' }],
+      creation_request_scope: 'forged-scope',
+    },
+    { requesterUserId: 'user-a', canEditAny: false },
+  );
+  const task = ((categories[0].children as any[])[0].tasks as any[])[0];
+  assert.equal(task.title, '合法标题');
+  assert.equal(task.parent_task_id, 'parent-a');
+  assert.deepEqual(task.subtasks, []);
+  assert.equal(task.creation_request_scope, 'server-scope');
+});
+
+test('ordinary members cannot delete tasks they do not participate in', async () => {
+  const categories = [{
+    id: 'system-a',
+    children: [{
+      id: 'project-a',
+      tasks: [{ task_id: 'task-a', primary_owner_user_id: 'owner-a', collaborators: [], subtasks: [] }],
+    }],
+  }];
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  service.mutateTaskAcrossStores = async (transform: (value: unknown[]) => unknown) => transform(categories);
+  await assert.rejects(
+    () => service.deleteTask('task-a', { userId: 'other-user', canEditAny: false }),
+    /只能删除自己负责或协作的任务/,
+  );
+});
+
+test('workspace task depth uses the authoritative nested structure', () => {
+  const service = Object.create(ResearchDevelopmentService.prototype) as any;
+  const categories = [{
+    children: [{
+      tasks: [{
+        task_id: 'level-1',
+        subtasks: [{
+          task_id: 'level-2',
+          subtasks: [{ task_id: 'level-3', subtasks: [] }],
+        }],
+      }],
+    }],
+  }];
+  const depths = service.collectTaskDepths(categories) as Map<string, number>;
+  assert.equal(depths.get('level-1'), 1);
+  assert.equal(depths.get('level-2'), 2);
+  assert.equal(depths.get('level-3'), 3);
 });

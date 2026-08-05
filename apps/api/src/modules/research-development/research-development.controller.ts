@@ -33,8 +33,6 @@ const RD_READ_PERMISSIONS = [
  * 前端驾驶舱、协同详情与后端写接口必须共用同一口径，避免“看得到按钮但提交后 403”。
  */
 const RD_TASK_MANAGER_PERMISSIONS = [
-  'rd-task:edit',
-  'rd-task:create',
   'rd-task:reassign',
   'rd-project:direct',
   'rd-project:review-l1',
@@ -194,15 +192,65 @@ export class ResearchDevelopmentController {
   }
 
   @Put('task-categories')
-  @Permissions('rd-task:create', 'rd-task:edit')
+  @Permissions(...RD_TASK_STRUCTURE_MANAGER_PERMISSIONS)
   saveTaskCategories(@Body() payload: unknown[]) {
     return this.rdService.saveTaskCategories(payload);
   }
 
+  /** 普通立项人只能让服务端补一个空分类容器，不能通过整树 PUT 注入或覆盖任务。 */
+  @Post('task-categories/proposal-target')
+  @Permissions('rd-task:create', 'rd-project:propose', 'rd-project:direct')
+  ensureProposalTarget(
+    @Body() payload: { product_id?: unknown; category_label?: unknown; sub_project_label?: unknown },
+  ) {
+    return this.rdService.ensureProposalTarget({
+      productId: typeof payload?.product_id === 'string' ? payload.product_id : '',
+      categoryLabel: typeof payload?.category_label === 'string' ? payload.category_label : '',
+      subProjectLabel: typeof payload?.sub_project_label === 'string' ? payload.sub_project_label : '',
+    });
+  }
+
   @Post('task-categories/tasks')
-  @Permissions('rd-task:create')
-  createTask(@Body() payload: Record<string, unknown>) {
-    return this.rdService.createTask(payload);
+  @Permissions('rd-task:create', 'rd-project:propose', 'rd-project:direct')
+  createTask(@Body() payload: Record<string, unknown>, @Request() req: AuthedRequest) {
+    const permissions = req.user?.permissions ?? [];
+    const canCreateDirectly = permissions.includes('*')
+      || permissions.includes('rd-task:create')
+      || permissions.includes('rd-project:direct');
+    return this.rdService.createTask(payload, {
+      requesterUserId: req.user?.id,
+      requesterName: req.user?.name,
+      canEditAny: canManageTaskStructure(permissions),
+      // 只有“立项申请”权限的普通成员只能创建待审核任务；服务层会覆盖主责人并校验状态。
+      proposalOnly: !canCreateDirectly && permissions.includes('rd-project:propose'),
+    });
+  }
+
+  /** 节点立项原子批量建子任务：整批只写回一次，并用 request_id 防止超时重试重复创建。 */
+  @Post('task-categories/tasks/create-children-batch')
+  @Permissions('rd-task:create', 'rd-project:propose', 'rd-project:direct')
+  async createSubtasks(
+    @Body() payload: { parent_task_id?: unknown; request_id?: unknown; tasks?: unknown },
+    @Request() req: AuthedRequest,
+  ) {
+    const permissions = req.user?.permissions ?? [];
+    const canCreateDirectly = permissions.includes('*')
+      || permissions.includes('rd-task:create')
+      || permissions.includes('rd-project:direct');
+    const rawTasks = Array.isArray(payload?.tasks) ? payload.tasks : [];
+    if (rawTasks.some((item) => !item || typeof item !== 'object' || Array.isArray(item))) {
+      throw new BadRequestException('子任务列表格式不正确');
+    }
+    const tasks = rawTasks as Record<string, unknown>[];
+    const parentTaskId = typeof payload?.parent_task_id === 'string' ? payload.parent_task_id : '';
+    const requestId = typeof payload?.request_id === 'string' ? payload.request_id : '';
+    const created = await this.rdService.createSubtasks(parentTaskId, tasks, requestId, {
+      requesterUserId: req.user?.id,
+      requesterName: req.user?.name,
+      canEditAny: canManageTaskStructure(permissions),
+      proposalOnly: !canCreateDirectly && permissions.includes('rd-project:propose'),
+    });
+    return { ok: true as const, parent_task_id: parentTaskId, tasks: created };
   }
 
   @Patch('task-categories/tasks/:taskId')
@@ -215,7 +263,7 @@ export class ResearchDevelopmentController {
     // 越权防护：任务管理员、立项审核人和人员管理员可改任意任务；
     // 仅持工作台页面权限的普通成员由服务层按 owner/协作人兜底校验，且禁止审批/移交。
     const perms = req.user?.permissions ?? [];
-    const canEditAny = canManageAnyTask(perms);
+    const canEditAny = canManageTaskStructure(perms);
     return this.rdService.updateTask(taskId, payload, {
       requesterUserId: req.user?.id,
       requesterName: req.user?.name,
@@ -226,7 +274,11 @@ export class ResearchDevelopmentController {
   @Delete('task-categories/tasks/:taskId')
   @Permissions('rd-task:edit')
   deleteTask(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
-    return this.rdService.deleteTask(taskId, { userId: req.user?.id, userName: req.user?.name });
+    return this.rdService.deleteTask(taskId, {
+      userId: req.user?.id,
+      userName: req.user?.name,
+      canEditAny: canManageTaskStructure(req.user?.permissions ?? []),
+    });
   }
 
   /** 把一个已有顶层任务树挂到任意层级目标下；兼容原单任务调用。 */
@@ -325,7 +377,7 @@ export class ResearchDevelopmentController {
   }
 
   @Put('products')
-  @Permissions('rd-task:create', 'rd-task:edit')
+  @Permissions(...RD_TASK_STRUCTURE_MANAGER_PERMISSIONS)
   saveProducts(@Body() payload: unknown[]) {
     return this.rdService.saveProducts(payload);
   }
@@ -336,7 +388,7 @@ export class ResearchDevelopmentController {
   }
 
   @Put('product-task-categories/:productId')
-  @Permissions('rd-task:create', 'rd-task:edit')
+  @Permissions(...RD_TASK_STRUCTURE_MANAGER_PERMISSIONS)
   saveProductTaskCategories(@Param('productId') productId: string, @Body() payload: unknown[]) {
     return this.rdService.saveProductTaskCategoriesForProduct(productId, payload);
   }

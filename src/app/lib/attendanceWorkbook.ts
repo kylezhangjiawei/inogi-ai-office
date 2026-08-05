@@ -5,26 +5,15 @@ import type {
   AttendanceRecord,
   AttendanceStatus,
 } from './attendanceApi';
+import { ATTENDANCE_SPECIAL_STATUS_LABELS, attendanceSpecialStatusLabel } from './attendanceStatusLabels';
 
 const WEEKDAYS = ['日', '一', '二', '三', '四', '五', '六'];
 const CHINESE_DIGITS = '〇一二三四五六七八九';
 const CHINESE_MONTHS = ['', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十', '十一', '十二'];
 
-const SPECIAL_STATUS_LABEL: Partial<Record<AttendanceStatus, string>> = {
-  absent: '旷工',
-  leave: '休假',
-  business_trip: '市内出差',
-  rest: '轮休',
-  holiday: '放假',
-  sick_leave: '病假',
-  personal_leave: '事假',
-  annual_leave: '年假',
-  paternity_leave: '陪产假',
-  compensatory_leave: '调休',
-  study: '学习',
-};
-
-const SPECIAL_STATUSES = new Set<AttendanceStatus>(Object.keys(SPECIAL_STATUS_LABEL) as AttendanceStatus[]);
+const SPECIAL_STATUSES = new Set<AttendanceStatus>(
+  Object.keys(ATTENDANCE_SPECIAL_STATUS_LABELS) as AttendanceStatus[],
+);
 
 type CellValue = string | number | null | { formula: string; result: number };
 
@@ -238,7 +227,7 @@ function buildMergeReferences(sheetXml: string, topDelta: number, totalDelta: nu
 
 function specialStatusLabel(record: AttendanceRecord) {
   if (record.status === 'holiday' && record.note.trim() && record.note.trim().length <= 8) return record.note.trim();
-  return SPECIAL_STATUS_LABEL[record.status] ?? record.status;
+  return attendanceSpecialStatusLabel(record.status);
 }
 
 function specialStatusStyle(status: AttendanceStatus, styles: TemplateStyles) {

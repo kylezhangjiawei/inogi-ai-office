@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -8,6 +8,7 @@ import {
   ChevronRight,
   FileUp,
   FolderPlus,
+  GitBranch,
   Loader2,
   Plus,
   RefreshCw,
@@ -37,7 +38,9 @@ import {
 import { AuditActor, recordAudit, useAuditActor } from "./lib/auditLog";
 import { PERMISSIONS } from "./lib/permissions";
 import {
+  createRdSubtasks,
   createRdTask,
+  ensureRdProposalTarget,
   fetchRdDirectorDashboard,
   extractRdTasksFromFile,
   extractRdTasksFromText,
@@ -51,9 +54,7 @@ import {
   fetchRdTaskCategories,
   refineRdProposalTasks,
   recomputeRdDirectorDashboard,
-  saveProductTaskCategories,
   saveRdProposalDraft,
-  saveRdTaskCategories,
   type RdAiPersonContext,
   type RdAiProposalRefineResult,
   type RdAiProposalRefineScope,
@@ -68,6 +69,11 @@ import {
 export type UserRole = "user" | "admin" | "director";
 type Priority = "high" | "medium" | "low";
 type Step = 1 | 2 | 3 | 4;
+
+export type RdProposalParentTask = {
+  task_id: string;
+  title: string;
+};
 
 type ProposedTask = {
   id: string;
@@ -489,7 +495,14 @@ const MODE_LABEL: Record<"single" | "any" | "all", { label: string; text: string
 };
 
 function createProposalId(): string {
-  return `PRJ-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+  const cryptoApi = globalThis.crypto;
+  const suffix = cryptoApi?.randomUUID?.()
+    ?? (cryptoApi ? (() => {
+      const bytes = new Uint8Array(16);
+      cryptoApi.getRandomValues(bytes);
+      return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
+    })() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  return `PRJ-${new Date().getFullYear()}-${suffix}`;
 }
 
 // ─── CSV / text parser ───────────────────────────────────────────────────────
@@ -1583,6 +1596,7 @@ function StepReview({
   submitting,
   ownerLocked = false,
   forcedOwnerName = "",
+  parentTask,
 }: {
   title: string;
   setTitle: (v: string) => void;
@@ -1613,6 +1627,8 @@ function StepReview({
   ownerLocked?: boolean;
   /** 个人工作台模式：强制 owner 的姓名（refine 流程要用） */
   forcedOwnerName?: string;
+  /** 节点级立项：任务固定创建为该节点的直接子任务，不再选择产品 / 项目节点。 */
+  parentTask?: RdProposalParentTask;
   onBack: () => void;
   onNext: () => void;
 }) {
@@ -1805,7 +1821,7 @@ function StepReview({
             />
           </div>
 
-          {!isUsCollabWorkspace() && products.length > 1 && (
+          {!parentTask && !isUsCollabWorkspace() && products.length > 1 && (
             <div>
               <label className="mb-1.5 block text-xs font-medium text-slate-700">
                 {t("归属产品")}
@@ -1827,7 +1843,7 @@ function StepReview({
           )}
 
           {/* 协同池无分类树概念：任务统一落「协同任务」默认分组，不展示项目节点选择 */}
-          {!isUsCollabWorkspace() && (
+          {!parentTask && !isUsCollabWorkspace() && (
           <div>
             <label className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-slate-700">
               <FolderPlus className="h-3 w-3" />
@@ -2095,6 +2111,7 @@ function StepSubmit({
   onDirectDispatch,
   canSubmitProposal,
   canDirectProject,
+  parentTask,
 }: {
   userRole: UserRole;
   taskCount: number;
@@ -2107,10 +2124,12 @@ function StepSubmit({
   submitting: boolean;
   onBack: () => void;
   onSubmit: () => void;
-  onSaveDraft: () => void;
+  onSaveDraft?: () => void;
   onDirectDispatch: () => void;
   canSubmitProposal: boolean;
   canDirectProject: boolean;
+  /** 节点级立项时用于摘要展示，并关闭脱离父节点上下文的草稿能力。 */
+  parentTask?: RdProposalParentTask;
 }) {
   const reviewNodes = useMemo(() => getApplicableNodes(userRole), [userRole]);
   const [approvalPools, setApprovalPools] = useState<Record<string, PoolMember[]>>({});
@@ -2136,8 +2155,9 @@ function StepSubmit({
     };
   }, [reviewNodes]);
 
-  const projectName =
-    parentProjectId === "new"
+  const projectName = parentTask
+    ? parentTask.title
+    : parentProjectId === "new"
       ? newProjectName || t("（新项目节点）")
       : categories.find((c) => c.id === parentProjectId)?.label ?? "—";
 
@@ -2150,7 +2170,7 @@ function StepSubmit({
           <h3 className="text-base font-semibold text-slate-900">{title || t("未命名立项")}</h3>
           <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
             <div>
-              <div className="text-slate-500">{t("归属项目")}</div>
+              <div className="text-slate-500">{parentTask ? t("父任务") : t("归属项目")}</div>
               <div className="mt-0.5 font-medium text-slate-800">{t(projectName)}</div>
             </div>
             <div>
@@ -2283,7 +2303,7 @@ function StepSubmit({
         </section>
 
         {/* Warning */}
-        {parentProjectId === "new" && !newProjectName.trim() && (
+        {!parentTask && parentProjectId === "new" && !newProjectName.trim() && (
           <div className="flex items-start gap-2 rounded-lg border border-amber-100 bg-amber-50/60 px-3 py-2.5 text-xs text-amber-700">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
@@ -2304,14 +2324,16 @@ function StepSubmit({
           {t("返回")}
         </button>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onSaveDraft}
-            disabled={submitting}
-            className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 active:scale-[0.98] disabled:opacity-40"
-          >
-            {t("保存草稿")}
-          </button>
+          {onSaveDraft && (
+            <button
+              type="button"
+              onClick={onSaveDraft}
+              disabled={submitting}
+              className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 transition-all hover:bg-slate-50 active:scale-[0.98] disabled:opacity-40"
+            >
+              {t("保存草稿")}
+            </button>
+          )}
           {userRole === "user" && reviewNodes.length > 0 && canSubmitProposal && (
             <button
               type="button"
@@ -2348,6 +2370,7 @@ export function RDProjectProposalDialog({
   onCompleted,
   userRole = "user",
   forceOwnerToCurrentUser = false,
+  parentTask,
 }: {
   open: boolean;
   onClose: () => void;
@@ -2358,6 +2381,8 @@ export function RDProjectProposalDialog({
    * 并锁定 owner 选择器。驾驶舱保持默认 false，AI 自由分派。
    */
   forceOwnerToCurrentUser?: boolean;
+  /** 在任务树某个节点内发起立项；AI 拆出的任务全部成为该节点的直接子任务。 */
+  parentTask?: RdProposalParentTask;
 }) {
   useI18n(); // 订阅语言切换（弹窗步骤/表单文案已 t() 化）
   const [step, setStep] = useState<Step>(1);
@@ -2378,6 +2403,8 @@ export function RDProjectProposalDialog({
   const [peopleNames, setPeopleNames] = useState<string[]>([]);
   const [peopleProfiles, setPeopleProfiles] = useState<RdAiPersonContext[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
   const { user } = useAuth();
   const canSubmitProposal = usePermission(PERMISSIONS.RD_PROJECT_PROPOSE);
   const canDirectProject = usePermission(PERMISSIONS.RD_PROJECT_DIRECT);
@@ -2397,7 +2424,7 @@ export function RDProjectProposalDialog({
 
   useEffect(() => {
     if (open) {
-      fetchRdProducts().then(setProducts).catch(() => {});
+      if (!parentTask) fetchRdProducts().then(setProducts).catch(() => {});
       Promise.allSettled([fetchRdPeople(), fetchRdDirectorDashboard()])
         .then(([peopleResult, dashboardResult]) => {
           const people = peopleResult.status === "fulfilled" ? peopleResult.value : [];
@@ -2408,12 +2435,17 @@ export function RDProjectProposalDialog({
         })
         .catch(() => {});
     }
-  }, [open]);
+  }, [open, parentTask?.task_id]);
 
   // 分类树按所选产品加载（主产品走主库，其它产品走 productTaskCategories[pid]）。
   // cancelled 守卫：快速切换产品时丢弃过期响应，避免旧产品的树覆盖新产品。
   useEffect(() => {
     if (!open) return;
+    if (parentTask) {
+      setCategories([]);
+      setCatLoading(false);
+      return;
+    }
     let cancelled = false;
     setCatLoading(true);
     const load = productId === MAIN_PRODUCT_ID
@@ -2424,7 +2456,7 @@ export function RDProjectProposalDialog({
       .catch(() => { if (!cancelled) setCategories([]); })
       .finally(() => { if (!cancelled) setCatLoading(false); });
     return () => { cancelled = true; };
-  }, [open, productId]);
+  }, [open, parentTask?.task_id, productId]);
 
   const STEP_LABELS: Record<Step, string> = {
     1: t("描述内容"),
@@ -2457,14 +2489,46 @@ export function RDProjectProposalDialog({
     setParentProjectId("new");
   };
 
-  const persistCategoriesForProduct = (cats: RdCategory[]) =>
-    productId === MAIN_PRODUCT_ID
-      ? saveRdTaskCategories(cats)
-      : saveProductTaskCategories(productId, cats);
-
   const handleClose = () => {
     onClose();
     setTimeout(reset, 200); // wait for close animation
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const frame = window.requestAnimationFrame(() => dialogRef.current?.focus());
+    return () => {
+      window.cancelAnimationFrame(frame);
+      returnFocusRef.current?.focus();
+      returnFocusRef.current = null;
+    };
+  }, [open]);
+
+  const handleDialogKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === "Escape" && !submitting) {
+      event.preventDefault();
+      handleClose();
+      return;
+    }
+    if (event.key !== "Tab" || !dialogRef.current) return;
+    const focusable = [...dialogRef.current.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    )].filter((element) => !element.hasAttribute("hidden") && element.offsetParent !== null);
+    if (focusable.length === 0) {
+      event.preventDefault();
+      dialogRef.current.focus();
+      return;
+    }
+    const first = focusable[0]!;
+    const last = focusable[focusable.length - 1]!;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
   };
 
   const notifyCompleted = async () => {
@@ -2564,26 +2628,28 @@ export function RDProjectProposalDialog({
         }
         // AI 推断产品归属：仅当返回有效 id 且与当前不同时切换。切换后父项目强制走"新建"，
         // 因为跨产品的旧分类 id 会失效（分类树由 [open, productId] effect 异步重载）。
-        const suggestedPid = result.suggested_product;
-        const productSwitched =
-          !!suggestedPid && suggestedPid !== productId && products.some((p) => p.id === suggestedPid);
-        if (productSwitched) {
-          setProductId(suggestedPid!);
-          setParentProjectId("new");
-          if (result.suggested_category) {
-            setNewProjectName((current) => current.trim() || result.suggested_category!.trim());
-          }
-        } else if (result.suggested_category) {
-          // 未切换产品：沿用原有"匹配现有分类 / 否则建新项目"逻辑，主产品路径零回归。
-          const match = categories.find(
-            (c) => c.label === result.suggested_category || c.label.includes(result.suggested_category!) || result.suggested_category!.includes(c.label),
-          );
-          if (match) {
-            setParentProjectId(match.id);
-          } else {
-            // 没匹配到现有分类时，直接用 AI 建议作为新项目名，免去 Step 4 还要手动输入
+        if (!parentTask) {
+          const suggestedPid = result.suggested_product;
+          const productSwitched =
+            !!suggestedPid && suggestedPid !== productId && products.some((p) => p.id === suggestedPid);
+          if (productSwitched) {
+            setProductId(suggestedPid!);
             setParentProjectId("new");
-            setNewProjectName((current) => current.trim() || result.suggested_category!.trim());
+            if (result.suggested_category) {
+              setNewProjectName((current) => current.trim() || result.suggested_category!.trim());
+            }
+          } else if (result.suggested_category) {
+            // 未切换产品：沿用原有"匹配现有分类 / 否则建新项目"逻辑，主产品路径零回归。
+            const match = categories.find(
+              (c) => c.label === result.suggested_category || c.label.includes(result.suggested_category!) || result.suggested_category!.includes(c.label),
+            );
+            if (match) {
+              setParentProjectId(match.id);
+            } else {
+              // 没匹配到现有分类时，直接用 AI 建议作为新项目名，免去 Step 4 还要手动输入
+              setParentProjectId("new");
+              setNewProjectName((current) => current.trim() || result.suggested_category!.trim());
+            }
           }
         }
         setAiProgress(100);
@@ -2648,7 +2714,6 @@ export function RDProjectProposalDialog({
   const ensurePersistentCategoryTree = async (): Promise<RdCategory[]> => {
     const result = ensureProposalCategoryTree(categories);
     if (result.changed) {
-      await persistCategoriesForProduct(result.categories);
       setCategories(result.categories);
     }
     return result.categories;
@@ -2658,35 +2723,19 @@ export function RDProjectProposalDialog({
     baseCategories: RdCategory[],
   ): Promise<{ target: { categoryId: string; subProjectId: string } | null; categories: RdCategory[] }> => {
     if (parentProjectId === "new") {
-      const tempCatId = `rd-cat-${Date.now()}`;
-      const tempSubId = `rd-sub-${Date.now()}`;
       const label = newProjectName.trim() || title.trim() || "未命名立项";
-      const newCat: RdCategory = {
-        id: tempCatId,
-        label,
-        children: [{ id: tempSubId, label: "立项任务", tasks: [] }],
-      };
-      await persistCategoriesForProduct([...baseCategories, newCat]);
-      // 后端 ensurePocBomTaskCategories 会把与 BOM 系统同名的新立项节点并入对应 BOM 分类，
-      // 并丢弃前端临时 id（如"外观结构"→cat-exterior）。若仍用临时 id 调 createTask 会 404。
-      // 故以后端归一化后的权威树为准重新定位：临时 id → 标签 → 兜底首个分类，保证 id 必然存在。
+      const target = await ensureRdProposalTarget(productId, label);
       const persisted =
         productId === MAIN_PRODUCT_ID
           ? await fetchRdTaskCategories()
           : await fetchProductTaskCategories(productId);
       setCategories(persisted);
-      const resolvedCat =
-        persisted.find((c) => c.id === tempCatId) ??
-        persisted.find((c) => normalizeCategoryKey(c.label) === normalizeCategoryKey(label)) ??
-        persisted[0];
-      const resolvedChild =
-        resolvedCat?.children.find((ch) => ch.id === tempSubId) ?? resolvedCat?.children[0];
-      if (!resolvedCat || !resolvedChild) {
+      if (!target.category_id || !target.sub_project_id) {
         toast.error(t("无法创建立项分类，请重试"));
         return { target: null, categories: persisted };
       }
       return {
-        target: { categoryId: resolvedCat.id, subProjectId: resolvedChild.id },
+        target: { categoryId: target.category_id, subProjectId: target.sub_project_id },
         categories: persisted,
       };
     }
@@ -2711,10 +2760,7 @@ export function RDProjectProposalDialog({
     let container = findContainer(baseCategories);
     let cats = baseCategories;
     if (!container) {
-      await persistCategoriesForProduct([
-        ...baseCategories,
-        { id: "us-collab-general", label: "协同任务", children: [{ id: "us-collab-general-sub", label: "默认", tasks: [] }] },
-      ]);
+      await ensureRdProposalTarget(productId, "协同任务", "默认");
       cats = await fetchRdTaskCategories();
       setCategories(cats);
       container = findContainer(cats) ?? cats[0];
@@ -2729,8 +2775,12 @@ export function RDProjectProposalDialog({
 
   const createTasksFromProposal = async (status: "pending_review" | "in_progress") => {
     const usCollab = isUsCollabWorkspace();
-    let workingCategories = await ensurePersistentCategoryTree();
+    // 节点级立项不创建/选择分类：后端根据 parent_task_id 原子定位父节点，
+    // 并继承其产品、系统、子项和 category_path。普通立项仍走原分类解析流程。
+    let workingCategories = parentTask ? [] : await ensurePersistentCategoryTree();
     let fallbackTarget: { categoryId: string; subProjectId: string } | null = null;
+    const createdTasks: Awaited<ReturnType<typeof createRdTask>>[] = [];
+    const childPayloads: Parameters<typeof createRdSubtasks>[1] = [];
 
     const getFallbackTarget = async () => {
       if (fallbackTarget) return fallbackTarget;
@@ -2743,10 +2793,12 @@ export function RDProjectProposalDialog({
     };
 
     for (const task of tasks) {
-      const target = usCollab
-        ? await getFallbackTarget()
-        : (resolveCategoryTargetFromPath(task, workingCategories) ?? await getFallbackTarget());
-      if (!target) return false;
+      const target = parentTask
+        ? null
+        : usCollab
+          ? await getFallbackTarget()
+          : (resolveCategoryTargetFromPath(task, workingCategories) ?? await getFallbackTarget());
+      if (!parentTask && !target) return false;
 
       // 个人工作台模式：save 时再做一次防御性 override，杜绝用户在 review 步骤手改 owner 的情况
       const primaryOwner = ownerLocked ? forcedOwnerName : task.owner;
@@ -2766,10 +2818,14 @@ export function RDProjectProposalDialog({
           };
         });
 
-      await createRdTask({
-        product_id: productId,
-        category_id: target.categoryId,
-        sub_project_id: target.subProjectId,
+      const taskPayload = {
+        ...(!parentTask
+          ? {
+              product_id: productId,
+              category_id: target!.categoryId,
+              sub_project_id: target!.subProjectId,
+            }
+          : {}),
         title: task.title,
         primary_owner: primaryOwner,
         status,
@@ -2777,16 +2833,20 @@ export function RDProjectProposalDialog({
         ai_priority: task.priority,
         due_date: task.due_date,
         description: task.description,
-        // 协同池不写分类路径（无此概念，避免 UI/报告出现无意义的路径文案）
-        category_path: usCollab ? "" : task.category_path,
+        // 节点级立项由服务端继承父任务分类；协同池无分类路径。
+        ...(!parentTask ? { category_path: usCollab ? "" : task.category_path } : {}),
         ...(collaborators.length > 0 ? { collaborators } : {}),
         // 标记为"立项"审核类型：管理员审批通过后任务进入 in_progress 而非 completed，
         // 避免发起人任务列表里这条数据被"已完成"过滤掉而消失。
         ...(status === "pending_review" ? { pending_review_type: "proposal" } : {}),
-      });
+      };
+      if (parentTask) childPayloads.push(taskPayload);
+      else createdTasks.push(await createRdTask(taskPayload));
     }
 
-    return true;
+    return parentTask
+      ? createRdSubtasks(parentTask.task_id, childPayloads, proposalId)
+      : createdTasks;
   };
 
   const handleSubmit = async () => {
@@ -2801,7 +2861,7 @@ export function RDProjectProposalDialog({
     setSubmitting(true);
     try {
       const created = await createTasksFromProposal("pending_review");
-      if (!created) { setSubmitting(false); return; }
+      if (created === false) { setSubmitting(false); return; }
       await recomputeRdDirectorDashboard().catch(() => {});
       await notifyCompleted();
 
@@ -2814,6 +2874,7 @@ export function RDProjectProposalDialog({
           task_count: tasks.length,
           review_node_count: getApplicableNodes(effectiveUserRole).length,
           parent_project_id: parentProjectId,
+          ...(parentTask ? { parent_task_id: parentTask.task_id } : {}),
         },
         source: "web",
       });
@@ -2867,9 +2928,8 @@ export function RDProjectProposalDialog({
     }
     setSubmitting(true);
     try {
-      let failed = 0;
       const created = await createTasksFromProposal("in_progress");
-      if (!created) { setSubmitting(false); return; }
+      if (created === false) { setSubmitting(false); return; }
       await recomputeRdDirectorDashboard().catch(() => {});
       await notifyCompleted();
 
@@ -2882,34 +2942,34 @@ export function RDProjectProposalDialog({
           task_count: tasks.length,
           parent_project_id: parentProjectId,
           project_name: parentProjectId === "new" ? newProjectName || title || "未命名立项" : parentProjectId,
+          ...(parentTask ? { parent_task_id: parentTask.task_id } : {}),
         },
         source: "web",
       });
-      tasks.forEach((task) => {
+      created.forEach((createdTask, index) => {
+        const task = tasks[index]!;
         recordAudit({
           actor: auditActor,
           action: "task.created",
-          resource: { type: "task", id: task.id, name: task.title },
+          resource: { type: "task", id: createdTask.task_id, name: createdTask.title },
           changes: [
             { field: "owner", before: undefined, after: task.owner },
             { field: "priority", before: undefined, after: task.priority },
             { field: "due_date", before: undefined, after: task.due_date },
           ],
-          comment: "立项直接生效后自动创建任务",
-          metadata: { proposal_id: proposalId, category_path: task.category_path },
+          comment: parentTask ? `在任务 ${parentTask.task_id} 下立项并创建子任务` : "立项直接生效后自动创建任务",
+          metadata: {
+            proposal_id: proposalId,
+            category_path: createdTask.category_path ?? task.category_path,
+            ...(parentTask ? { parent_task_id: parentTask.task_id, subtask_origin: "created" } : {}),
+          },
           source: "web",
         });
       });
 
-      if (failed > 0) {
-        toast.warning(t("立项完成，但 {n} 个任务创建失败", { n: failed }), {
-          description: t("请到任务驾驶舱手动补录"),
-        });
-      } else {
-        toast.success(t("立项已生效并自动分配"), {
-          description: t("{n} 个任务已下发至责任人，相关人员将收到通知", { n: tasks.length }),
-        });
-      }
+      toast.success(t("立项已生效并自动分配"), {
+        description: t("{n} 个任务已下发至责任人，相关人员将收到通知", { n: tasks.length }),
+      });
       handleClose();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t("立项失败，请重试"));
@@ -2925,7 +2985,13 @@ export function RDProjectProposalDialog({
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-sm animate-rd-fade-in"
     >
       <div
-        className="w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(15,23,42,0.2)] animate-rd-scale-in"
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="rd-project-proposal-dialog-title"
+        tabIndex={-1}
+        onKeyDown={handleDialogKeyDown}
+        className="flex max-h-[calc(100dvh-2rem)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-[0_24px_60px_rgba(15,23,42,0.2)] outline-none animate-rd-scale-in"
       >
         {/* Header */}
         <header className="flex items-center justify-between border-b border-slate-100 px-6 py-4">
@@ -2934,7 +3000,7 @@ export function RDProjectProposalDialog({
               <Sparkles className="h-4 w-4" />
             </span>
             <div>
-              <h2 className="text-base font-semibold text-slate-900">{t("AI 立项")}</h2>
+              <h2 id="rd-project-proposal-dialog-title" className="text-base font-semibold text-slate-900">{parentTask ? t("节点立项") : t("AI 立项")}</h2>
               <p className="mt-0.5 text-xs text-slate-500">
                 {t("第 {step} / 4 步", { step })} · {STEP_LABELS[step]}
               </p>
@@ -2963,7 +3029,25 @@ export function RDProjectProposalDialog({
           ))}
         </div>
 
+        {parentTask && (
+          <div className="mx-6 mt-4 flex items-start gap-2.5 rounded-xl border border-indigo-100 bg-indigo-50/60 px-3.5 py-3 text-xs text-indigo-800">
+            <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-white text-indigo-600 shadow-sm">
+              <GitBranch className="h-3.5 w-3.5" />
+            </span>
+            <div className="min-w-0">
+              <div className="font-semibold">{t("当前节点立项")}</div>
+              <div className="mt-0.5 truncate text-[11px] text-indigo-600" title={parentTask.title}>
+                {parentTask.title} · {parentTask.task_id}
+              </div>
+              <p className="mt-1 text-[11px] leading-relaxed text-indigo-700/80">
+                {t("本次创建的任务将作为当前节点的直接子任务，并自动继承其产品与分类。")}
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Step content */}
+        <div className="min-h-0 overflow-y-auto">
         {step === 1 && (
           <StepInput
             title={title}
@@ -2972,7 +3056,7 @@ export function RDProjectProposalDialog({
             setDescription={setDescription}
             files={files}
             setFiles={setFiles}
-            products={products}
+            products={parentTask ? [] : products}
             productId={productId}
             onProductChange={handleProductChange}
             catLoading={catLoading}
@@ -3002,6 +3086,7 @@ export function RDProjectProposalDialog({
             catLoading={catLoading}
             ownerLocked={ownerLocked}
             forcedOwnerName={forcedOwnerName}
+            parentTask={parentTask}
             submitting={submitting}
             onBack={() => setStep(1)}
             onNext={() => setStep(4)}
@@ -3035,12 +3120,14 @@ export function RDProjectProposalDialog({
             submitting={submitting}
             onBack={() => setStep(3)}
             onSubmit={handleSubmit}
-            onSaveDraft={handleSaveDraft}
+            onSaveDraft={parentTask ? undefined : handleSaveDraft}
             onDirectDispatch={handleDirectDispatch}
             canSubmitProposal={canSubmitProposal}
             canDirectProject={canDirectProject}
+            parentTask={parentTask}
           />
         )}
+        </div>
       </div>
     </div>
   );
