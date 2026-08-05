@@ -39,6 +39,11 @@ export SHARP_LIBVIPS_BINARY_HOST="https://registry.npmmirror.com/-/binary/sharp-
 # 前端构建内存上限：Node 默认堆 ~2GB，Univer/ExcelJS 等大依赖构建峰值会超而 OOM，统一抬到 4GB。
 # 放在环境层 → 任何构建路径都生效（package.json 里也有同值的 --max-old-space-size 作双保险）。
 export NODE_OPTIONS="--max-old-space-size=4096 ${NODE_OPTIONS:-}"
+# package.json 里声明了 "packageManager": "pnpm@..."。若本机 corepack 已 enable 并垫了 npm，
+# 它会因为「项目声明用 pnpm」而拒绝执行任何 npm 命令 —— 而本脚本的后端构建
+# （npm --prefix apps/api run build）和质量闸门（npm test）两条分支都要用 npm。
+# 关掉这个一致性检查，让 npm / pnpm 都能正常调用。未装 corepack 时该变量无副作用。
+export COREPACK_ENABLE_STRICT=0
 
 # ------------------------------- 工具 -------------------------------
 ts() { date +"%Y-%m-%d %H:%M:%S"; }
@@ -197,12 +202,12 @@ fi
 ensure_native_argon2
 
 # ----------------- 3. 构建前端（注入版本，痛点3关键）-----------------
+# 统一用 npm run 而不是 pnpm：pnpm v11 在执行任何脚本前会先做一遍 lockfile
+# 供应链校验（本仓库 1000+ 条目，实测约 90 秒且全程联网），依赖没变时纯属浪费，
+# 还把部署成败绑到 registry 可用性上。npm run 只是执行脚本，没有这层开销。
+# 依赖安装仍按第 2 步的 USE_PNPM 分支走 pnpm，此处只影响「怎么调用构建脚本」。
 log "构建前端 ..."
-if [ "$USE_PNPM" = "1" ]; then
-  VITE_APP_VERSION="$RELEASE" VITE_GIT_SHA="$GIT_SHA" retry pnpm build
-else
-  VITE_APP_VERSION="$RELEASE" VITE_GIT_SHA="$GIT_SHA" retry npm run build
-fi
+VITE_APP_VERSION="$RELEASE" VITE_GIT_SHA="$GIT_SHA" retry npm run build
 
 # ------------- 4. 生成 Prisma Client（必须在后端构建之前）-------------
 # 关键：schema 变更不会改动 lockfile，第 2 步的增量安装会跳过 @prisma/client
@@ -214,6 +219,42 @@ log "生成 Prisma Client ..."
 # ---------------------------- 5. 构建后端 ----------------------------
 log "构建后端 ..."
 retry npm --prefix apps/api run build
+
+# --------------- 5.5 质量闸门（迁移与重启前的最后一道）---------------
+# 位置很关键：此刻两端都已构建成功，但数据库还没备份/迁移、pm2 也还没重启，
+# 所以在这里失败的回滚代价为零 —— 直接退出即可，线上仍跑着旧版本。
+# 放在构建之后是因为测试用 ts-node 直接跑 TS，需要第 4 步生成的 Prisma Client。
+# 不重试：测试失败是代码问题，重跑三次只会拖长部署时间。
+# 紧急情况跳过：DEPLOY_RUN_TESTS=0（不推荐，写法与 DEPLOY_DB_BACKUP 一致）。
+if [ "${DEPLOY_RUN_TESTS:-1}" = "1" ]; then
+  # 一律用 npx --no-install 直接调本地 tsc，不走 `pnpm typecheck`：
+  # pnpm v11 在执行脚本前会先跑一遍 lockfile 供应链校验（1000+ 条目、要联网），
+  # 依赖没变时这纯属浪费，还把部署绑到 registry 可用性上。
+  log "类型检查（前端 + 后端）..."
+  npx --no-install tsc --noEmit -p tsconfig.json \
+    || die "前端类型检查未通过，已中止部署（线上仍是旧版本）。"
+  ( cd apps/api && npx --no-install tsc --noEmit -p tsconfig.json ) \
+    || die "后端类型检查未通过，已中止部署（线上仍是旧版本）。"
+
+  log "运行测试 ..."
+  npm run test:dev-scripts || die "开发脚本测试未通过，已中止部署（线上仍是旧版本）。"
+
+  # test/*.spec.mts 用裸 node 直接 import 带 .ts 扩展名的源码，依赖 Node 的原生类型剥离
+  # （22.18 / 23.6 起默认开启）。本机 Node 更低时它会以 ERR_UNKNOWN_FILE_EXTENSION 失败，
+  # 那是环境能力不足、不是代码有问题，不能因此判定构建不合格 —— 所以这里显式分流，
+  # 并把「少跑了哪些」打进部署日志，而不是悄悄跳过。
+  if node -e 'const [a,b]=process.versions.node.split(".").map(Number);process.exit((a>23||(a===23&&b>=6)||(a===22&&b>=18))?0:1)'; then
+    npm --prefix apps/api run test || die "测试未通过，已中止部署（线上仍是旧版本）。"
+    log "质量闸门通过（全量测试）。"
+  else
+    npm --prefix apps/api run test:ts || die "测试未通过，已中止部署（线上仍是旧版本）。"
+    log "⚠️  当前 Node $(node --version) 无原生 TS 加载能力，test/*.spec.mts 未运行（本次少跑 9 个测试）。"
+    log "⚠️  升级到 Node 22 LTS（≥22.18）即可全量运行；Node 20 已于 2026-04 结束维护。"
+    log "质量闸门通过（ts-node 套件，.mts 套件已跳过）。"
+  fi
+else
+  log "⚠️  已跳过类型检查与测试（DEPLOY_RUN_TESTS=0）。"
+fi
 
 # ----------------- 6. 数据库备份（迁移前的安全闸门）-----------------
 # 此刻构建已成功、数据库还没动 —— 自动备份整库；备份失败则中止、不迁移。

@@ -7,7 +7,15 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
+    // 全量 strict 目前还差 strictNullChecks(39 处) 和 noImplicitAny(49 处) 没修完。
+    // 下面这些子项现有代码已经全部满足，逐项开启：零改动拿到检查能力，并防止后续回退。
+    // 修完上面两项后，这一整块可以换回单个 "strict": true。
     "strict": false,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "noImplicitThis": true,
+    "useUnknownInCatchVariables": true,
+    "alwaysStrict": true,
     "forceConsistentCasingInFileNames": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",

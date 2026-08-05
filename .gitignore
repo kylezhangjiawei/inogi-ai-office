@@ -13,7 +13,11 @@ __pycache__/
 *.pyc
 .idea/
 .claude/
-tmp/*.log
+# 本地临时目录：调试 dump、同步快照、askpass 之类的东西一律不入库。
+# 历史上这里漏进过一个明文生产口令，务必保持整目录忽略。
+tmp/
+# 运行日志一律不入库（此前只挡了 tmp/*.log，apps/api/ 下的散落日志漏网）。
+*.log
 .codex-dev-qa.*.log
 .gstack/qa-chrome-profile/
 local-db-backups/

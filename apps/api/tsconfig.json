@@ -14,6 +14,11 @@
     "skipLibCheck": true,
     "strictNullChecks": true,
     "strictBindCallApply": true,
+    // 现有代码已全部满足，逐项开启防止回退。尚未开启的是 noImplicitThis(1 处)
+    // 和 noImplicitAny(18 处)，修完后可整体换成 "strict": true。
+    "strictFunctionTypes": true,
+    "useUnknownInCatchVariables": true,
+    "alwaysStrict": true,
     "forceConsistentCasingInFileNames": true,
     "noFallthroughCasesInSwitch": true,
     "moduleResolution": "node",

@@ -61,10 +61,19 @@ Prisma schema and migrations live in `apps/api/prisma`.
 
 ## Running the Code
 
-Install dependencies:
+**Node version.** Node 20 is enough to build and run the app, but the `test/*.spec.mts`
+suite loads `.ts` sources directly and therefore needs Node's native type stripping,
+which is on by default from **Node 22.18 / 23.6**. On older Node those 9 tests fail with
+`ERR_UNKNOWN_FILE_EXTENSION`; `npm run test:ts` (60 tests) still runs everywhere.
+The deploy script detects this and reports what it skipped instead of failing the build.
+
+Install dependencies. This is a pnpm workspace: the version pins in `pnpm-workspace.yaml`
+(`overrides`, `onlyBuiltDependencies`) are pnpm-only fields, and there is no
+`package-lock.json`, so installing with npm silently produces a different dependency tree.
 
 ```powershell
-npm i
+corepack enable
+pnpm install
 ```
 
 Start the full local development stack:
@@ -95,5 +104,18 @@ Build backend:
 
 ```powershell
 npm --prefix apps/api run build
+```
+
+Run the test suite (dev-tooling tests plus every backend `test/*.spec.{ts,mts}`):
+
+```powershell
+npm test
+```
+
+Typecheck both sides:
+
+```powershell
+npm run typecheck
+npx tsc --noEmit -p apps/api/tsconfig.json
 ```
 
