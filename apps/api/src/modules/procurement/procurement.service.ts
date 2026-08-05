@@ -1577,6 +1577,65 @@ export class ProcurementService {
   }
 
   /**
+   * 给已经存在、但尚未关联物料的任务树叶子补链。
+   *
+   * T+ 主档可能晚于任务树初始化进入系统，因此不能只依赖首次 seed。匹配规则与 seed
+   * 保持一致：T+ 存货编码优先；ERP 编码只有在全库唯一时才使用，避免错误串料。
+   * 已经有关联的节点一律不覆盖，方法可安全重复执行。
+   */
+  async reconcileProcTaskTreeMaterialLinks() {
+    const [nodes, materials] = await Promise.all([
+      this.prisma.procTaskTreeNode.findMany({
+        where: { materialId: null, code: { not: null } },
+        select: { id: true, code: true },
+      }),
+      this.prisma.procMaterial.findMany({
+        select: { id: true, erpCode: true, tpInventoryCode: true },
+      }),
+    ]);
+
+    const materialByTpCode = new Map<string, string>();
+    const materialByErpCode = new Map<string, string>();
+    const erpCodeCounts = new Map<string, number>();
+    for (const material of materials) {
+      const tpCode = material.tpInventoryCode?.trim();
+      if (tpCode) materialByTpCode.set(tpCode, material.id);
+
+      const erpCode = material.erpCode.trim();
+      if (erpCode) {
+        erpCodeCounts.set(erpCode, (erpCodeCounts.get(erpCode) ?? 0) + 1);
+        materialByErpCode.set(erpCode, material.id);
+      }
+    }
+
+    let linkedNodes = 0;
+    let unmatchedNodes = 0;
+    let ambiguousNodes = 0;
+    for (const node of nodes) {
+      const code = node.code?.trim();
+      if (!code) {
+        unmatchedNodes += 1;
+        continue;
+      }
+      const tpMaterialId = materialByTpCode.get(code);
+      const erpCount = erpCodeCounts.get(code) ?? 0;
+      const materialId = tpMaterialId ?? (erpCount === 1 ? materialByErpCode.get(code) : undefined);
+      if (!materialId) {
+        if (erpCount > 1) ambiguousNodes += 1;
+        else unmatchedNodes += 1;
+        continue;
+      }
+      const result = await this.prisma.procTaskTreeNode.updateMany({
+        where: { id: node.id, materialId: null },
+        data: { materialId },
+      });
+      linkedNodes += result.count;
+    }
+
+    return { scannedNodes: nodes.length, linkedNodes, unmatchedNodes, ambiguousNodes };
+  }
+
+  /**
    * 返回两级系统树，并把采购任务按 materialId 归入叶子节点。
    * 未匹配物料的手工节点按名称兜底，保证旧任务也能显示。
    */

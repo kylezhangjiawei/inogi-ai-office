@@ -81,6 +81,14 @@ export class TplusSyncController {
     return this.sync.syncSuppliers();
   }
 
+  /** 全量存货档案同步（含零库存物料）并补齐任务树关联；异步执行避免网关超时。 */
+  @Post('sync/materials')
+  @Permissions('proc:sync-erp')
+  syncMaterials() {
+    const job = startApplyJob('tplus-material-master', (update) => this.sync.syncMaterialMaster(update));
+    return { jobId: job.id };
+  }
+
   @Post('sync/inventory')
   @Permissions('proc:sync-erp')
   syncInventory() {
@@ -106,11 +114,11 @@ export class TplusSyncController {
     return { jobId: job.id };
   }
 
-  /** 一键全同步（异步，与每日 3:00 自动同步同一条链路）：供应商→库存→采购单全量→匹配。 */
+  /** 一键全同步（异步）：主档→供应商→库存→采购单全量→匹配，不受自动同步开关影响。 */
   @Post('sync/auto')
   @Permissions('proc:sync-erp')
   syncAll() {
-    const job = startApplyJob('tplus-auto-sync', (update) => this.sync.autoSync(update));
+    const job = startApplyJob('tplus-auto-sync', (update) => this.sync.autoSync(update, { force: true }));
     return { jobId: job.id };
   }
 
@@ -119,13 +127,15 @@ export class TplusSyncController {
   @Permissions('proc:sync-erp')
   syncOperations() {
     const job = startApplyJob('tplus-operations-sync', async (update) => {
-      update('正在同步库存…');
+      update('正在同步物料主档…');
+      const materials = await this.sync.syncMaterialMaster(update);
+      update('物料主档已同步，正在同步库存…');
       const inventory = await this.sync.syncInventory();
       update('库存已同步，正在同步近 90 天采购订单…');
       const purchaseOrders = await this.sync.syncPurchaseOrderMirror(90, update);
       update('采购订单已同步，正在匹配采购任务…');
       const matches = await this.poMatch.runMatch();
-      return { inventory, purchaseOrders, matches };
+      return { materials, inventory, purchaseOrders, matches };
     });
     return { jobId: job.id };
   }
