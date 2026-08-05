@@ -807,11 +807,27 @@ export function attachRdTaskToParent(taskId: string, parentTaskId: string) {
   );
 }
 
+/** 原子批量并入：来源必须是顶层独立任务，目标可以是任意层级任务。 */
+export function attachRdTasksToParent(taskIds: string[], parentTaskId: string) {
+  return requestJson<{ ok: true; task_ids: string[]; parent_task_id: string }>(
+    "/task-categories/tasks/attach-parent-batch",
+    { method: "POST", body: JSON.stringify({ task_ids: taskIds, parent_task_id: parentTaskId }) },
+  );
+}
+
 /** 取消子任务关系：提升为顶层任务，落在原父任务所在子项目里（与父任务同级）。 */
 export function detachRdSubtask(taskId: string) {
   return requestJson<{ ok: true; task_id: string }>(
     `/task-categories/tasks/${encodeURIComponent(taskId)}/detach-parent`,
     { method: "POST" },
+  );
+}
+
+/** 原子批量取消同一父任务下的直接子任务关系，所选子树整体提升为顶层任务。 */
+export function detachRdSubtasks(taskIds: string[], parentTaskId: string) {
+  return requestJson<{ ok: true; task_ids: string[]; parent_task_id: string }>(
+    "/task-categories/tasks/detach-parent-batch",
+    { method: "POST", body: JSON.stringify({ task_ids: taskIds, parent_task_id: parentTaskId }) },
   );
 }
 

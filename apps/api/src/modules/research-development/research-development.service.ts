@@ -19,6 +19,8 @@ import { buildRdTaskProgressRelationGroup } from './rd-task-progress-group';
 import { RD_WORKSPACE_IDS, WORKSPACE_PAGE_CODES, currentRdWorkspace, resolveRdStoreKey, runInRdWorkspace } from './rd-workspace.context';
 
 type JsonRecord = Record<string, unknown>;
+const RD_TASK_TREE_MAX_DEPTH = 5;
+const RD_TASK_RELATION_BATCH_LIMIT = 50;
 type TaskProgressNoteViewer = {
   userId?: string;
   userName?: string;
@@ -195,6 +197,8 @@ type TaskSlot = {
   subProjectId: string;
   subProjectLabel: string;
   parentTaskId: string | null;
+  /** 根任务深度为 1，用于限制整棵来源树挂载后的最大层级。 */
+  depth: number;
   task: JsonRecord;
 };
 
@@ -654,6 +658,53 @@ function normalizeCollaboratorList(
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+function normalizeTaskRelationIds(value: unknown): string[] {
+  const ids = asArray(value).map(cleanText).filter(Boolean);
+  return [...new Set(ids)];
+}
+
+function taskTreeContainsId(task: JsonRecord, targetTaskId: string): boolean {
+  if (cleanText(task.task_id) === targetTaskId) return true;
+  return asArray(task.subtasks)
+    .filter(isRecord)
+    .some((child) => taskTreeContainsId(child, targetTaskId));
+}
+
+/** 当前节点计为 1；空的异常节点不进入调用。 */
+function taskTreeHeight(task: JsonRecord): number {
+  let childHeight = 0;
+  for (const child of asArray(task.subtasks).filter(isRecord)) {
+    childHeight = Math.max(childHeight, taskTreeHeight(child));
+  }
+  return 1 + childHeight;
+}
+
+/** 在任意深度定位父任务并追加直接子任务；任务 id 全局唯一，命中后停止继续遍历。 */
+function appendTaskChildren(
+  tasks: unknown[],
+  parentTaskId: string,
+  children: JsonRecord[],
+  updatedAt: string,
+): { tasks: unknown[]; inserted: boolean } {
+  let inserted = false;
+  const nextTasks = tasks.map((task) => {
+    if (inserted || !isRecord(task)) return task;
+    if (cleanText(task.task_id) === parentTaskId) {
+      inserted = true;
+      return {
+        ...task,
+        subtasks: [...asArray(task.subtasks), ...children],
+        updated_at: updatedAt,
+      };
+    }
+    const nested = appendTaskChildren(asArray(task.subtasks), parentTaskId, children, updatedAt);
+    if (!nested.inserted) return task;
+    inserted = true;
+    return { ...task, subtasks: nested.tasks };
+  });
+  return { tasks: nextTasks, inserted };
 }
 
 function asRecord(value: unknown, fallback: JsonRecord): JsonRecord {
@@ -2254,7 +2305,7 @@ export class ResearchDevelopmentService {
       for (const cat of categories) {
         if (!isRecord(cat)) continue;
         for (const child of asArray(cat.children).filter(isRecord)) {
-          const walk = (tasks: unknown[], parentTaskId: string | null): TaskSlot | null => {
+          const walk = (tasks: unknown[], parentTaskId: string | null, depth: number): TaskSlot | null => {
             for (const t of tasks) {
               if (!isRecord(t)) continue;
               if (cleanText(t.task_id) === id) {
@@ -2265,15 +2316,16 @@ export class ResearchDevelopmentService {
                   subProjectId: cleanText(child.id),
                   subProjectLabel: String(child.label ?? ''),
                   parentTaskId,
+                  depth,
                   task: t,
                 };
               }
-              const hit = walk(asArray(t.subtasks), cleanText(t.task_id));
+              const hit = walk(asArray(t.subtasks), cleanText(t.task_id), depth + 1);
               if (hit) return hit;
             }
             return null;
           };
-          const found = walk(asArray(child.tasks), null);
+          const found = walk(asArray(child.tasks), null, 1);
           if (found) return found;
         }
       }
@@ -2288,11 +2340,19 @@ export class ResearchDevelopmentService {
   }
 
   /**
-   * 把一个已有的顶层任务整体挂到目标父任务下成为子任务。
-   * 任务自身及其原有子任务树完整保留（标题/主责/协作人/进度/留痕/附件均不动），
-   * 仅改变整棵树在任务结构中的位置，并在根节点记录本次挂载信息。
-   * 与归档式合并（applyTaskMerge）是两个独立能力：这里不归档、不改写描述、不动主责。
+   * 把已有的顶层任务树挂到任意层级目标下。来源仍须是顶层独立任务；目标可为中间节点。
+   * 整批操作在一次任务树锁和一次提交中完成，全成功或全失败。
    */
+  async attachTasksAsSubtasks(
+    taskIds: string[],
+    parentTaskId: string,
+    actor?: { userId?: string; userName?: string; canEditAny?: boolean },
+  ) {
+    return this.withTaskTreeLock(() =>
+      this.attachTasksAsSubtasksUnlocked(taskIds, parentTaskId, actor ?? {}),
+    );
+  }
+
   async attachTaskAsSubtask(
     taskId: string,
     parentTaskId: string,
@@ -2307,36 +2367,62 @@ export class ResearchDevelopmentService {
     actor: { userId?: string; userName?: string; canEditAny?: boolean },
   ) {
     const childId = cleanText(taskId);
+    const result = await this.attachTasksAsSubtasksUnlocked([childId], parentTaskId, actor);
+    return { ok: true as const, task_id: childId, parent_task_id: result.parent_task_id };
+  }
+
+  private async attachTasksAsSubtasksUnlocked(
+    taskIds: unknown,
+    parentTaskId: string,
+    actor: { userId?: string; userName?: string; canEditAny?: boolean },
+  ) {
+    const childIds = normalizeTaskRelationIds(taskIds);
     const parentId = cleanText(parentTaskId);
-    if (!childId || !parentId) throw new BadRequestException('缺少任务或父任务 id');
-    if (childId === parentId) throw new BadRequestException('不能把任务挂到自己下面');
+    if (childIds.length === 0 || !parentId) throw new BadRequestException('缺少任务或父任务 id');
+    if (childIds.length > RD_TASK_RELATION_BATCH_LIMIT) {
+      throw new BadRequestException(`单次最多并入 ${RD_TASK_RELATION_BATCH_LIMIT} 个任务`);
+    }
+    if (childIds.includes(parentId)) throw new BadRequestException('不能把任务挂到自己下面');
 
     const { trees, store } = await this.readAllTaskTrees();
-    const childSlot = this.locateTaskInTrees(trees, childId);
-    if (!childSlot) throw new NotFoundException('任务不存在');
     const parentSlot = this.locateTaskInTrees(trees, parentId);
     if (!parentSlot) throw new NotFoundException('父任务不存在');
-    this.assertTaskWritable(childSlot.task);
     this.assertTaskWritable(parentSlot.task);
 
-    // 越权防护（与 updateTask / moveTasks 同口径）：仅持工作台页面权限的普通成员只能重挂
-    // 「自己负责」的任务，且目标父任务也须是自己参与的——否则可把任务塞进任意他人的任务下。
-    // 管理员级权限(canEditAny)完全跳过，行为不变。此处仅读了内存副本、尚未写库，抛错即安全。
+    const childSlots = childIds.map((childId) => {
+      const slot = this.locateTaskInTrees(trees, childId);
+      if (!slot) throw new NotFoundException(`任务不存在：${childId}`);
+      this.assertTaskWritable(slot.task);
+      return slot;
+    });
+
     if (!actor.canEditAny) {
-      if (!isTaskParticipant(childSlot.task, actor.userId, actor.userName)) {
-        throw new ForbiddenException('只能操作自己负责的任务');
-      }
       if (!isTaskParticipant(parentSlot.task, actor.userId, actor.userName)) {
         throw new ForbiddenException('只能并入自己负责的任务');
       }
+      for (const slot of childSlots) {
+        if (!isTaskParticipant(slot.task, actor.userId, actor.userName)) {
+          throw new ForbiddenException(`只能操作自己负责的任务：${cleanText(slot.task.task_id)}`);
+        }
+      }
     }
 
-    if (childSlot.parentTaskId) throw new BadRequestException('该任务已经是子任务，不能重复挂载');
-    if (parentSlot.parentTaskId) {
-      throw new BadRequestException('目标任务本身已是子任务，子任务下不能再挂子任务');
+    for (const slot of childSlots) {
+      const childId = cleanText(slot.task.task_id);
+      if (slot.parentTaskId) {
+        throw new BadRequestException(`任务已经是子任务，不能重复挂载：${childId}`);
+      }
+      if (taskTreeContainsId(slot.task, parentId)) {
+        throw new BadRequestException(`不能把上级任务并入自己的下级任务：${childId}`);
+      }
+      const resultDepth = parentSlot.depth + taskTreeHeight(slot.task);
+      if (resultDepth > RD_TASK_TREE_MAX_DEPTH) {
+        throw new BadRequestException(
+          `任务 ${childId} 并入后将达到 ${resultDepth} 层，最多支持 ${RD_TASK_TREE_MAX_DEPTH} 层`,
+        );
+      }
     }
 
-    const crossStore = childSlot.productId !== parentSlot.productId;
     const nowIso = new Date().toISOString();
     const rehomeTaskTree = (node: JsonRecord, structuralParentId: string, root: boolean): JsonRecord => {
       const nodeId = cleanText(node.task_id);
@@ -2352,69 +2438,81 @@ export class ResearchDevelopmentService {
               updated_at: nowIso,
             }
           : {}),
-        // 整棵树随父任务迁到目标分类；同时补齐存量子任务缺失的结构父 id。
         category_path: this.subtaskCategoryPath(node, parentSlot),
         subtasks: asArray(node.subtasks)
           .filter(isRecord)
           .map((subtask) => rehomeTaskTree(subtask, nodeId, false)),
       };
     };
-    const attached = rehomeTaskTree(childSlot.task, parentId, true);
+    const attachedTasks = childSlots.map((slot) => rehomeTaskTree(slot.task, parentId, true));
 
-    // 从源库摘出。
-    let removed = false;
-    const sourceRebuilt = (trees.get(childSlot.productId) ?? []).map((cat) => {
-      if (!isRecord(cat)) return cat;
-      return {
-        ...cat,
-        children: asArray(cat.children).map((child) => {
-          if (!isRecord(child)) return child;
-          return {
-            ...child,
-            tasks: asArray(child.tasks).filter((t) => {
-              if (isRecord(t) && cleanText(t.task_id) === childId) {
-                removed = true;
+    const sourceIds = new Set(childIds);
+    const sourceProductIds = new Set(childSlots.map((slot) => slot.productId));
+    const workingTrees = new Map(trees);
+    for (const productId of sourceProductIds) {
+      let removedCount = 0;
+      const rebuilt = (workingTrees.get(productId) ?? []).map((cat) => {
+        if (!isRecord(cat)) return cat;
+        return {
+          ...cat,
+          children: asArray(cat.children).map((child) => {
+            if (!isRecord(child)) return child;
+            return {
+              ...child,
+              tasks: asArray(child.tasks).filter((candidate) => {
+                if (!isRecord(candidate) || !sourceIds.has(cleanText(candidate.task_id))) return true;
+                removedCount += 1;
                 return false;
-              }
-              return true;
-            }),
-          };
-        }),
-      };
-    });
+              }),
+            };
+          }),
+        };
+      });
+      const expectedCount = childSlots.filter((slot) => slot.productId === productId).length;
+      if (removedCount !== expectedCount) {
+        throw new BadRequestException('批量并入失败：部分来源任务定位失败');
+      }
+      workingTrees.set(productId, rebuilt as JsonRecord[]);
+    }
 
-    // 插入父任务的 subtasks。同库时基于已摘出的副本继续改，跨库时改目标库副本。
     let inserted = false;
-    const targetBase = crossStore ? (trees.get(parentSlot.productId) ?? []) : sourceRebuilt;
+    const targetBase = workingTrees.get(parentSlot.productId) ?? [];
     const targetRebuilt = targetBase.map((cat) => {
-      if (!isRecord(cat)) return cat;
+      if (inserted || !isRecord(cat)) return cat;
       return {
         ...cat,
         children: asArray(cat.children).map((child) => {
-          if (!isRecord(child)) return child;
-          return {
-            ...child,
-            tasks: asArray(child.tasks).map((t) => {
-              if (!isRecord(t) || cleanText(t.task_id) !== parentId) return t;
-              inserted = true;
-              return { ...t, subtasks: [...asArray(t.subtasks), attached], updated_at: nowIso };
-            }),
-          };
+          if (inserted || !isRecord(child)) return child;
+          const result = appendTaskChildren(asArray(child.tasks), parentId, attachedTasks, nowIso);
+          if (!result.inserted) return child;
+          inserted = true;
+          return { ...child, tasks: result.tasks };
         }),
       };
     });
-    // 二者必须都命中才写库，否则抛错 → 工作副本整体丢弃，不产生部分写。
-    if (!removed || !inserted) throw new BadRequestException('挂载失败：任务或父任务定位失败');
+    if (!inserted) throw new BadRequestException('批量并入失败：父任务定位失败');
 
-    // 跨库时两个 store 在同一个 $transaction 里提交，不会出现「源已删、目标未写」。
     const dirty = new Map<string, JsonRecord[]>();
-    if (crossStore) dirty.set(childSlot.productId, sourceRebuilt as JsonRecord[]);
+    for (const productId of sourceProductIds) {
+      dirty.set(productId, workingTrees.get(productId) ?? []);
+    }
     dirty.set(parentSlot.productId, targetRebuilt as JsonRecord[]);
     await this.commitTaskTrees(dirty, store);
 
     await this.recomputeDirectorDashboard();
-    void this.syncTaskToRag(childId);
-    return { ok: true as const, task_id: childId, parent_task_id: parentId };
+    for (const childId of childIds) void this.syncTaskToRag(childId);
+    return { ok: true as const, task_ids: childIds, parent_task_id: parentId };
+  }
+
+  /** 批量解除同一父任务下的直接子任务关系；每棵选中子树整体提升为顶层任务。 */
+  async detachSubtasks(
+    taskIds: string[],
+    parentTaskId: string | undefined,
+    actor?: { userId?: string; userName?: string; canEditAny?: boolean },
+  ) {
+    return this.withTaskTreeLock(() =>
+      this.detachSubtasksUnlocked(taskIds, parentTaskId, actor ?? {}),
+    );
   }
 
   /** 取消子任务关系：把子任务提升为顶层任务，落在原父任务所在子项目里（与父任务同级）。 */
@@ -2427,77 +2525,117 @@ export class ResearchDevelopmentService {
     actor: { userId?: string; userName?: string; canEditAny?: boolean },
   ) {
     const childId = cleanText(taskId);
-    if (!childId) throw new BadRequestException('缺少任务 id');
+    const result = await this.detachSubtasksUnlocked([childId], undefined, actor);
+    return { ok: true as const, task_id: result.task_ids[0] };
+  }
 
-    // 子任务必然与其父任务同库，提升后仍落在同一个库 → 单库写回即可
+  private async detachSubtasksUnlocked(
+    taskIds: unknown,
+    expectedParentTaskId: string | undefined,
+    actor: { userId?: string; userName?: string; canEditAny?: boolean },
+  ) {
+    const childIds = normalizeTaskRelationIds(taskIds);
+    if (childIds.length === 0) throw new BadRequestException('缺少任务 id');
+    if (childIds.length > RD_TASK_RELATION_BATCH_LIMIT) {
+      throw new BadRequestException(`单次最多取消 ${RD_TASK_RELATION_BATCH_LIMIT} 个子任务关系`);
+    }
+
     const { trees } = await this.readAllTaskTrees();
-    const slot = this.locateTaskInTrees(trees, childId);
-    if (!slot) throw new NotFoundException('任务不存在');
-    this.assertTaskWritable(slot.task);
-    if (!slot.parentTaskId) throw new BadRequestException('该任务不是子任务');
+    const slots = childIds.map((childId) => {
+      const slot = this.locateTaskInTrees(trees, childId);
+      if (!slot) throw new NotFoundException(`任务不存在：${childId}`);
+      this.assertTaskWritable(slot.task);
+      if (!slot.parentTaskId) throw new BadRequestException(`任务不是子任务：${childId}`);
+      return slot;
+    });
 
-    // 越权防护：与 attachTaskAsSubtask 同口径，普通成员只能摘出自己负责的子任务
-    if (!actor.canEditAny && !isTaskParticipant(slot.task, actor.userId, actor.userName)) {
-      throw new ForbiddenException('只能操作自己负责的任务');
+    const parentIds = new Set(slots.map((slot) => slot.parentTaskId));
+    if (parentIds.size !== 1) throw new BadRequestException('批量取消仅支持同一父任务下的直接子任务');
+    const parentId = slots[0].parentTaskId!;
+    const expectedParentId = cleanText(expectedParentTaskId);
+    if (expectedParentId && expectedParentId !== parentId) {
+      throw new BadRequestException('所选任务不属于指定父任务');
+    }
+    const productIds = new Set(slots.map((slot) => slot.productId));
+    if (productIds.size !== 1) throw new BadRequestException('所选任务不在同一产品库');
+
+    if (!actor.canEditAny) {
+      for (const slot of slots) {
+        if (!isTaskParticipant(slot.task, actor.userId, actor.userName)) {
+          throw new ForbiddenException(`只能操作自己负责的任务：${cleanText(slot.task.task_id)}`);
+        }
+      }
+    }
+
+    const parentSlot = this.locateTaskInTrees(trees, parentId);
+    if (!parentSlot) throw new NotFoundException('父任务不存在');
+    const selectedIds = new Set(childIds);
+    const directChildren = asArray(parentSlot.task.subtasks).filter(isRecord);
+    const selectedDirectChildren = directChildren.filter((child) => selectedIds.has(cleanText(child.task_id)));
+    if (selectedDirectChildren.length !== childIds.length) {
+      throw new BadRequestException('批量取消仅支持所选父任务的直接子任务');
     }
 
     const nowIso = new Date().toISOString();
-    const detached: JsonRecord = {
-      ...slot.task,
+    const detached = selectedDirectChildren.map((task): JsonRecord => ({
+      ...task,
       parent_task_id: null,
       subtask_origin: null,
       subtask_attached_at: null,
       subtask_attached_by: null,
       subtask_attached_by_id: null,
       updated_at: nowIso,
-    };
+    }));
 
-    let found = false;
-    const categories = trees.get(slot.productId) ?? [];
-    const removeFromParent = (tasks: unknown[]): { tasks: unknown[]; removed: boolean } => {
-      let removed = false;
+    const removeFromParent = (tasks: unknown[]): { tasks: unknown[]; removedCount: number } => {
+      let removedCount = 0;
       const nextTasks = tasks.map((task) => {
         if (!isRecord(task)) return task;
-        if (cleanText(task.task_id) === slot.parentTaskId) {
+        if (cleanText(task.task_id) === parentId) {
           const subtasks = asArray(task.subtasks);
-          const nextSubtasks = subtasks.filter(
-            (subtask) => !(isRecord(subtask) && cleanText(subtask.task_id) === childId),
-          );
-          if (nextSubtasks.length !== subtasks.length) {
-            removed = true;
-            return { ...task, subtasks: nextSubtasks, updated_at: nowIso };
-          }
+          const nextSubtasks = subtasks.filter((subtask) => {
+            const remove = isRecord(subtask) && selectedIds.has(cleanText(subtask.task_id));
+            if (remove) removedCount += 1;
+            return !remove;
+          });
+          return { ...task, subtasks: nextSubtasks, updated_at: nowIso };
         }
         const nested = removeFromParent(asArray(task.subtasks));
-        if (!nested.removed) return task;
-        removed = true;
+        if (nested.removedCount === 0) return task;
+        removedCount += nested.removedCount;
         return { ...task, subtasks: nested.tasks };
       });
-      return { tasks: nextTasks, removed };
+      return { tasks: nextTasks, removedCount };
     };
 
+    let removedCount = 0;
+    const categories = trees.get(slots[0].productId) ?? [];
     const rebuilt = categories.map((cat) => {
       if (!isRecord(cat)) return cat;
       return {
         ...cat,
         children: asArray(cat.children).map((child) => {
           if (!isRecord(child)) return child;
-          if (cleanText(cat.id) !== slot.categoryId || cleanText(child.id) !== slot.subProjectId) {
+          if (cleanText(cat.id) !== parentSlot.categoryId || cleanText(child.id) !== parentSlot.subProjectId) {
             return child;
           }
           const result = removeFromParent(asArray(child.tasks));
-          if (result.removed) found = true;
-          // 提升后的任务插到父任务所在子项目列表头部，与父任务同级。
-          return { ...child, tasks: result.removed ? [detached, ...result.tasks] : result.tasks };
+          removedCount += result.removedCount;
+          return {
+            ...child,
+            tasks: result.removedCount > 0 ? [...detached, ...result.tasks] : result.tasks,
+          };
         }),
       };
     });
-    if (!found) throw new BadRequestException('取消子任务失败：父任务定位失败');
+    if (removedCount !== childIds.length) {
+      throw new BadRequestException('批量取消失败：部分子任务定位失败');
+    }
 
-    await this.writeTaskCategoriesForProduct(slot.productId, rebuilt);
+    await this.writeTaskCategoriesForProduct(slots[0].productId, rebuilt);
     await this.recomputeDirectorDashboard();
-    void this.syncTaskToRag(childId);
-    return { ok: true as const, task_id: childId };
+    for (const childId of childIds) void this.syncTaskToRag(childId);
+    return { ok: true as const, task_ids: childIds, parent_task_id: parentId };
   }
 
   async createTask(payload: JsonRecord) {
@@ -2625,8 +2763,8 @@ export class ResearchDevelopmentService {
     const parentSlot = this.locateTaskInTrees(trees, parentTaskId);
     if (!parentSlot) throw new NotFoundException('父任务不存在');
     this.assertTaskWritable(parentSlot.task);
-    if (parentSlot.parentTaskId) {
-      throw new BadRequestException('目标任务本身已是子任务，子任务下不能再挂子任务');
+    if (parentSlot.depth >= RD_TASK_TREE_MAX_DEPTH) {
+      throw new BadRequestException(`任务最多支持 ${RD_TASK_TREE_MAX_DEPTH} 层，当前任务不能再新建下级`);
     }
 
     const identity = await this.getIdentityContext();
@@ -2684,19 +2822,20 @@ export class ResearchDevelopmentService {
     let inserted = false;
     const categories = trees.get(parentSlot.productId) ?? [];
     const updated = categories.map((cat) => {
-      if (!isRecord(cat)) return cat;
+      if (inserted || !isRecord(cat)) return cat;
       return {
         ...cat,
         children: asArray(cat.children).map((child) => {
-          if (!isRecord(child)) return child;
-          return {
-            ...child,
-            tasks: asArray(child.tasks).map((t) => {
-              if (!isRecord(t) || cleanText(t.task_id) !== cleanText(parentSlot.task.task_id)) return t;
-              inserted = true;
-              return { ...t, subtasks: [...asArray(t.subtasks), newTask], updated_at: nowIso };
-            }),
-          };
+          if (inserted || !isRecord(child)) return child;
+          const result = appendTaskChildren(
+            asArray(child.tasks),
+            cleanText(parentSlot.task.task_id),
+            [newTask],
+            nowIso,
+          );
+          if (!result.inserted) return child;
+          inserted = true;
+          return { ...child, tasks: result.tasks };
         }),
       };
     });

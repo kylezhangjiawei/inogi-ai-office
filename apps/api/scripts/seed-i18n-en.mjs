@@ -49,6 +49,14 @@ const onlyMissing = process.argv.includes("--only-missing");
 /** { 中文原文: 英文 }。中文即 key；模板变量 {n}/{name} 原样保留。 */
 const DICT = {
   ...MANUAL_EN,
+  // 研发任务多级关系与批量取消
+  "批量取消": "Batch detach",
+  "批量取消子任务关系": "Batch detach subtasks",
+  "已取消 {n} 个子任务关系": "Detached {n} subtasks",
+  "批量取消失败，请重试": "Batch detach failed. Please try again.",
+  "确认取消关系": "Detach",
+  "取消后，所选任务会连同其全部下级任务一起提升为独立任务，不会删除任何留痕或附件。":
+    "The selected tasks and their complete descendant trees will become standalone tasks. No notes or attachments are deleted.",
   // 员工入职归档：列表、导入校验与 CRUD 关键路径兜底
   "花名册人员": "Roster Employees",
   "{count} 人已完成": "{count} completed",

@@ -229,10 +229,7 @@ export class ResearchDevelopmentController {
     return this.rdService.deleteTask(taskId, { userId: req.user?.id, userName: req.user?.name });
   }
 
-  /**
-   * 把已有任务挂为目标任务的子任务（一层）。任务本体完整保留，仅改变树中位置。
-   * 与「合并申请」(pending_review_type=merge → applyTaskMerge 归档式合并) 是两个独立能力。
-   */
+  /** 把一个已有顶层任务树挂到任意层级目标下；兼容原单任务调用。 */
   @Post('task-categories/tasks/:taskId/attach-parent')
   @Permissions('rd-task:edit')
   attachTaskAsSubtask(
@@ -249,11 +246,42 @@ export class ResearchDevelopmentController {
     });
   }
 
+  /** 原子批量并入：一次校验、一次写回，全成功或全失败。 */
+  @Post('task-categories/tasks/attach-parent-batch')
+  @Permissions('rd-task:edit')
+  attachTasksAsSubtasks(
+    @Body() payload: { task_ids?: unknown; parent_task_id?: unknown },
+    @Request() req: AuthedRequest,
+  ) {
+    const taskIds = Array.isArray(payload?.task_ids) ? payload.task_ids.map((id) => String(id ?? '')) : [];
+    return this.rdService.attachTasksAsSubtasks(taskIds, String(payload?.parent_task_id ?? ''), {
+      userId: req.user?.id,
+      userName: req.user?.name,
+      canEditAny: canManageTaskStructure(req.user?.permissions ?? []),
+    });
+  }
+
   /** 取消子任务关系：提升为顶层任务（落在原父任务所在子项目，与父任务同级）。 */
   @Post('task-categories/tasks/:taskId/detach-parent')
   @Permissions('rd-task:edit')
   detachSubtask(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
     return this.rdService.detachSubtask(taskId, {
+      userId: req.user?.id,
+      userName: req.user?.name,
+      canEditAny: canManageTaskStructure(req.user?.permissions ?? []),
+    });
+  }
+
+  /** 原子批量取消同一父任务下的直接子任务关系。 */
+  @Post('task-categories/tasks/detach-parent-batch')
+  @Permissions('rd-task:edit')
+  detachSubtasks(
+    @Body() payload: { task_ids?: unknown; parent_task_id?: unknown },
+    @Request() req: AuthedRequest,
+  ) {
+    const taskIds = Array.isArray(payload?.task_ids) ? payload.task_ids.map((id) => String(id ?? '')) : [];
+    const parentTaskId = typeof payload?.parent_task_id === 'string' ? payload.parent_task_id : undefined;
+    return this.rdService.detachSubtasks(taskIds, parentTaskId, {
       userId: req.user?.id,
       userName: req.user?.name,
       canEditAny: canManageTaskStructure(req.user?.permissions ?? []),

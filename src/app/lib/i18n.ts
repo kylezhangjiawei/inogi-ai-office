@@ -391,8 +391,6 @@ const BUILTIN_EN_FALLBACKS: Record<string, string> = {
     "Completed, archived, and already nested tasks are excluded. Existing descendants will not be flattened.",
   "本任务「{title}」将成为所选任务的子任务。任务本体完整保留：标题、主责人、进度、进度留痕与附件都不变，只是在任务树中的位置改变。之后可随时取消关系提升回独立任务。":
     "\"{title}\" will become a subtask of the selected task. The task itself is fully preserved — title, owner, progress, progress notes and attachments are unchanged; only its position in the task tree moves. You can detach it back into a standalone task at any time.",
-  "候选中不含已完成/已归档的任务，也不含子任务本身——子任务下不能再挂子任务（仅支持一层）。":
-    "Completed and archived tasks are excluded, as are subtasks themselves — a subtask cannot hold subtasks (one level only).",
   // 取消子任务关系
   "取消子任务关系": "Detach from parent",
   "确认取消关系": "Detach",
@@ -403,6 +401,14 @@ const BUILTIN_EN_FALLBACKS: Record<string, string> = {
   "提升后落在原父任务所在的子项目里": "It lands in the sub-project that holds the former parent",
   "已取消子任务关系，该任务已提升为独立任务": "Detached — the task is now a standalone task",
   "取消子任务关系失败，请重试": "Failed to detach from parent. Please try again.",
+  "批量取消": "Batch detach",
+  "批量取消子任务关系": "Batch detach subtasks",
+  "取消全选": "Clear selection",
+  "全选": "Select all",
+  "已取消 {n} 个子任务关系": "Detached {n} subtasks",
+  "批量取消失败，请重试": "Batch detach failed. Please try again.",
+  "取消后，所选任务会连同其全部下级任务一起提升为独立任务，不会删除任何留痕或附件。":
+    "The selected tasks and their complete descendant trees will become standalone tasks. No notes or attachments are deleted.",
   // 任务驾驶舱 KPI：「活跃」改为「总任务」（2026-07-31）
   // 同排的另外几个标签此前也没有兜底，英文下会中英混排，一并补上。
   // 「完成」全站 9 处均为状态/统计标签（无操作按钮），统一译作 Completed 无歧义。
