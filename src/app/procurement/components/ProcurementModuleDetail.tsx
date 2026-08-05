@@ -142,7 +142,7 @@ export function ProcurementModuleDetail({
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <span className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-slate-50 px-3 text-xs text-slate-600">
             <Boxes className="size-3.5 text-slate-400" />
             {t("库存")} <strong className="tabular-nums text-slate-900">{formatQuantity(totalStock)}</strong>
@@ -164,8 +164,8 @@ export function ProcurementModuleDetail({
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-5">
-        <section className="flex h-[360px] shrink-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
+      <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3 sm:p-4 lg:p-5">
+        <section className="flex h-[clamp(280px,34vh,360px)] shrink-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white">
           <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3">
             <div>
               <h3 className="text-balance text-sm font-semibold text-slate-900">{t("仓库库存")}</h3>
@@ -180,7 +180,7 @@ export function ProcurementModuleDetail({
                 disabled={inventoryLoading}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50"
               >
-                <RefreshCw className={cn("size-3.5", inventoryLoading && "animate-spin")} />
+                <RefreshCw className={cn("size-3.5", inventoryLoading && "animate-spin motion-reduce:animate-none")} />
                 {t("刷新")}
               </button>
             )}
@@ -189,7 +189,7 @@ export function ProcurementModuleDetail({
           <div className="min-h-0 flex-1 overflow-y-auto">
             {inventoryLoading ? (
               <div className="grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4" aria-label={t("正在加载仓库库存")}>
-                {Array.from({ length: 4 }, (_, index) => <div key={index} className="h-20 animate-pulse rounded-lg bg-slate-100" />)}
+                {Array.from({ length: 4 }, (_, index) => <div key={index} className="h-20 animate-pulse rounded-lg bg-slate-100 motion-reduce:animate-none" />)}
               </div>
             ) : inventoryError ? (
               <div className="m-4 rounded-lg border border-dashed border-amber-200 bg-amber-50 px-4 py-6 text-center text-xs text-amber-700">
@@ -232,7 +232,7 @@ export function ProcurementModuleDetail({
                     </tbody>
                   </table>
                 </div>
-                {item.syncedAt && <p className="mt-2 text-right text-[10px] text-slate-400">{t("库存同步时间")}：{new Date(item.syncedAt).toLocaleString("zh-CN")}</p>}
+                {item.syncedAt && <p className="mt-2 text-right text-[11px] text-slate-500">{t("库存同步时间")}：{new Date(item.syncedAt).toLocaleString("zh-CN")}</p>}
               </div>
             )}
           </div>
@@ -244,7 +244,7 @@ export function ProcurementModuleDetail({
               <h3 className="text-balance text-sm font-semibold text-slate-900">{t("任务列表")}</h3>
               <p className="mt-0.5 text-pretty text-xs text-slate-400">{t("当前模块关联的全部采购任务")}</p>
             </div>
-            <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] tabular-nums text-slate-500">{moduleTasks.length}</span>
+            <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] tabular-nums text-slate-500">{moduleTasks.length}</span>
           </div>
 
           {moduleTasks.length === 0 ? (
@@ -252,7 +252,7 @@ export function ProcurementModuleDetail({
               <div>
                 <ClipboardList className="mx-auto size-7 text-slate-300" />
                 <p className="mt-2 text-sm font-medium text-slate-500">{t("该模块暂无采购任务")}</p>
-                {canCreate && <button type="button" onClick={() => setNewTaskOpen(true)} className="mt-3 text-xs font-semibold text-indigo-600 hover:text-indigo-700">{t("创建第一条任务")}</button>}
+                {canCreate && <button type="button" onClick={() => setNewTaskOpen(true)} className="mt-3 rounded text-xs font-semibold text-indigo-600 hover:text-indigo-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">{t("创建第一条任务")}</button>}
               </div>
             </div>
           ) : (
@@ -274,7 +274,7 @@ export function ProcurementModuleDetail({
                       <td className="max-w-md px-4 py-3">
                         <button type="button" onClick={() => setOpenTask(task)} className="block max-w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
                           <span className="block font-semibold text-slate-900">{task.code}</span>
-                          <span className="mt-0.5 block truncate text-[11px] text-slate-500" title={taskDescription(task)}>{taskDescription(task)}</span>
+                          <span className="mt-0.5 block truncate text-xs text-slate-500" title={taskDescription(task)}>{taskDescription(task)}</span>
                         </button>
                       </td>
                       <td className="px-3 py-3"><StatusPill status={task.status} /></td>
@@ -321,7 +321,7 @@ function InventoryStat({
       <span className="flex size-9 items-center justify-center rounded-lg bg-white text-slate-500 shadow-sm"><Icon className="size-4" /></span>
       <span>
         <strong className="block text-lg font-semibold tabular-nums text-slate-900">{integer ? value : formatQuantity(value)}</strong>
-        <span className="text-[10px] text-slate-400">{label}</span>
+        <span className="text-[11px] text-slate-500">{label}</span>
       </span>
     </div>
   );

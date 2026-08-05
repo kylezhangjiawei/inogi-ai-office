@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ChevronLeft,
@@ -38,6 +38,13 @@ import {
   DialogTitle,
 } from "../../components/ui/dialog";
 import { Input } from "../../components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "../../components/ui/select";
 import { cn } from "../../components/ui/utils";
 import { usePermission } from "../../hooks/usePermission";
 import { useI18n } from "../../lib/i18n";
@@ -58,6 +65,9 @@ type TreeEditor =
   | { mode: "add-child"; parent: ProcTaskTreeNode }
   | { mode: "edit"; node: ProcTaskTreeNode }
   | { mode: "delete"; node: ProcTaskTreeNode };
+
+const NO_MATERIAL_OPTION = "__no_material__";
+const MATERIAL_SELECT_LIMIT = 200;
 
 function findNode(nodes: ProcTaskTreeNode[], id: string): ProcTaskTreeNode | null {
   for (const node of nodes) {
@@ -201,13 +211,14 @@ function PanoramaNodeCard({
   const health = NODE_HEALTH_STYLE[metrics.health];
   const locked = node.taskCount > 0;
   const stockQty = getNodeInventory(node, materialsById);
+  const isIdle = metrics.total === 0;
 
   return (
     <div
       className={cn(
         "group relative h-full overflow-hidden rounded-xl border bg-white shadow-sm transition-colors",
         isSelected ? "border-indigo-300 ring-2 ring-indigo-100" : health.border,
-        metrics.health === "idle" && "opacity-70 hover:opacity-100",
+        metrics.health === "idle" && "bg-slate-50/30",
       )}
     >
       <button
@@ -225,67 +236,80 @@ function PanoramaNodeCard({
           </span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-semibold text-slate-900">{node.name}</span>
-            <span className="mt-0.5 block truncate text-[11px] text-slate-400">
+            <span className="mt-0.5 block truncate text-xs text-slate-500">
               {isRoot
                 ? t("{count} 个名称节点", { count: node.children.length })
                 : [node.code, node.spec].filter(Boolean).join(" · ") || t("未设置编码与规格")}
             </span>
           </span>
-          <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold", health.badge)}>
+          <span className={cn("inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold", health.badge)}>
             <span className={cn("size-1 rounded-full", health.dot)} />
             {t(health.label)}
           </span>
         </span>
 
-        <span className="mt-4 flex w-full items-center justify-between gap-2">
-          <span className="text-3xl font-semibold tabular-nums text-slate-900">
-            {metrics.progress}<span className="text-base text-slate-400">%</span>
+        {isIdle ? (
+          <span className="mt-auto flex w-full items-center justify-between rounded-lg border border-slate-100 bg-white px-3 py-3">
+            <span className="flex items-center gap-2 text-xs text-slate-500">
+              <Package className="size-3.5 text-slate-400" />
+              {t("库存")}
+              <strong className="font-semibold tabular-nums text-slate-800">{formatStockQuantity(stockQty)}</strong>
+            </span>
+            <span className="text-xs text-slate-500">{t("暂无采购任务")}</span>
           </span>
-          <span className="flex items-center gap-1.5">
-            {metrics.overdue > 0 && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold tabular-nums text-red-600">
-                <AlertTriangle className="size-3" />
-                {metrics.overdue}
+        ) : (
+          <>
+            <span className="mt-4 flex w-full items-center justify-between gap-2">
+              <span className="text-3xl font-semibold tabular-nums text-slate-900">
+                {metrics.progress}<span className="text-base text-slate-400">%</span>
+              </span>
+              <span className="flex items-center gap-1.5">
+                {metrics.overdue > 0 && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-xs font-semibold tabular-nums text-red-600">
+                    <AlertTriangle className="size-3" />
+                    {metrics.overdue}
+                  </span>
+                )}
+                <span className="inline-flex items-center gap-1 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1 text-[11px] text-slate-500">
+                  <Package className="size-3 text-slate-400" />
+                  <span>{t("库存")}</span>
+                  <strong className="font-semibold tabular-nums text-slate-700">{formatStockQuantity(stockQty)}</strong>
+                </span>
+              </span>
+            </span>
+
+            <span className="mt-2 h-1 w-full overflow-hidden rounded-full bg-slate-100">
+              <span className={cn("block h-full rounded-full", health.dot)} style={{ width: `${metrics.progress}%` }} />
+            </span>
+
+            {metrics.latestTasks.length > 0 && (
+              <span className="mt-3 block w-full rounded-lg bg-slate-50 px-2.5 py-2">
+                <span className="mb-1 block text-[11px] font-medium text-slate-500">{t("最新任务")}</span>
+                {metrics.latestTasks.map((task) => {
+                  const description = getTaskDescription(task);
+                  return (
+                    <span key={task.id} className="flex min-w-0 items-center gap-1.5 py-0.5 text-xs text-slate-600">
+                      <span className="size-1 shrink-0 rounded-full bg-indigo-400" />
+                      <span className="min-w-0 flex-1 truncate" title={description}>{description}</span>
+                    </span>
+                  );
+                })}
               </span>
             )}
-            <span className="inline-flex items-center gap-1 rounded-lg border border-slate-100 bg-slate-50 px-2 py-1 text-[10px] text-slate-500">
-              <Package className="size-3 text-slate-400" />
-              <span>{t("库存")}</span>
-              <strong className="font-semibold tabular-nums text-slate-700">{formatStockQuantity(stockQty)}</strong>
+
+            <span className="mt-auto flex w-full items-center justify-between pt-3 text-xs text-slate-500">
+              <span><strong className="font-semibold tabular-nums text-slate-800">{metrics.total}</strong> {t("任务")}</span>
+              <span><strong className="font-semibold tabular-nums text-indigo-600">{metrics.active}</strong> {t("进行中")}</span>
+              <span><strong className="font-semibold tabular-nums text-emerald-600">{metrics.completed}</strong> {t("完成")}</span>
             </span>
-          </span>
-        </span>
-
-        <span className="mt-2 h-1 w-full overflow-hidden rounded-full bg-slate-100">
-          <span className={cn("block h-full rounded-full", metrics.health === "idle" ? "bg-slate-200" : health.dot)} style={{ width: `${metrics.progress}%` }} />
-        </span>
-
-        {metrics.latestTasks.length > 0 && (
-          <span className="mt-3 block w-full rounded-lg bg-slate-50 px-2.5 py-2">
-            <span className="mb-1 block text-[10px] font-medium text-slate-400">{t("最新任务")}</span>
-            {metrics.latestTasks.map((task) => {
-              const description = getTaskDescription(task);
-              return (
-                <span key={task.id} className="flex min-w-0 items-center gap-1.5 py-0.5 text-[11px] text-slate-600">
-                  <span className="size-1 shrink-0 rounded-full bg-indigo-400" />
-                  <span className="min-w-0 flex-1 truncate" title={description}>{description}</span>
-                </span>
-              );
-            })}
-          </span>
+          </>
         )}
-
-        <span className="mt-auto flex w-full items-center justify-between pt-3 text-[11px] text-slate-500">
-          <span><strong className="font-semibold tabular-nums text-slate-800">{metrics.total}</strong> {t("任务")}</span>
-          <span><strong className="font-semibold tabular-nums text-indigo-600">{metrics.active}</strong> {t("进行中")}</span>
-          <span><strong className="font-semibold tabular-nums text-emerald-600">{metrics.completed}</strong> {t("完成")}</span>
-        </span>
       </button>
 
       {manageMode && (
         <div className="absolute bottom-3 right-3 flex items-center gap-1 rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
           {isRoot && onAddChild && (
-            <button type="button" onClick={onAddChild} aria-label={t("新增名称节点")} title={t("新增名称节点")} className="rounded-md p-1.5 text-indigo-600 hover:bg-indigo-50">
+            <button type="button" onClick={onAddChild} aria-label={t("新增名称节点")} title={t("新增名称节点")} className="rounded-md p-1.5 text-indigo-600 hover:bg-indigo-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400">
               <FolderPlus className="size-3.5" />
             </button>
           )}
@@ -296,7 +320,7 @@ function PanoramaNodeCard({
               onClick={onEdit}
               aria-label={locked ? t("节点已有任务，不能修改") : t("修改节点")}
               title={locked ? t("节点已有任务，不能修改") : t("修改节点")}
-              className={cn("rounded-md p-1.5", locked ? "cursor-not-allowed text-slate-300" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800")}
+              className={cn("rounded-md p-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400", locked ? "cursor-not-allowed text-slate-300" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800")}
             >
               {locked ? <LockKeyhole className="size-3.5" /> : <Pencil className="size-3.5" />}
             </button>
@@ -308,7 +332,7 @@ function PanoramaNodeCard({
               onClick={onDelete}
               aria-label={locked ? t("节点已有任务，不能删除") : t("删除节点")}
               title={locked ? t("节点已有任务，不能删除") : t("删除节点")}
-              className={cn("rounded-md p-1.5", locked ? "cursor-not-allowed text-slate-300" : "text-slate-500 hover:bg-red-50 hover:text-red-600")}
+              className={cn("rounded-md p-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400", locked ? "cursor-not-allowed text-slate-300" : "text-slate-500 hover:bg-red-50 hover:text-red-600")}
             >
               <Trash2 className="size-3.5" />
             </button>
@@ -531,7 +555,7 @@ export function ProcurementSystemTree({
     return (
       <section className="material-card flex min-h-0 flex-1 items-center justify-center border-slate-200 bg-white shadow-sm">
         {loading ? (
-          <div className="flex items-center gap-2 text-sm text-slate-400"><Loader2 className="size-4 animate-spin" />{t("加载模块详情…")}</div>
+          <div className="flex items-center gap-2 text-sm text-slate-400"><Loader2 className="size-4 animate-spin motion-reduce:animate-none" />{t("加载模块详情…")}</div>
         ) : (
           <div className="text-center">
             <p className="text-sm font-medium text-slate-500">{error || t("模块不存在或已被删除")}</p>
@@ -690,7 +714,7 @@ export function ProcurementSystemTree({
             <span className="relative z-10 flex items-center gap-2">
               {t("全部分类")}
               <span className={cn(
-                "rounded-full px-1.5 text-[10px] tabular-nums",
+                "rounded-full px-1.5 text-[11px] tabular-nums",
                 !activeRoot ? "bg-indigo-50 text-indigo-600" : "bg-slate-200/70 text-slate-500",
               )}>
                 {visibleRoots.length}
@@ -723,7 +747,7 @@ export function ProcurementSystemTree({
                   <span className={cn("size-1.5 rounded-full", root.taskCount > 0 ? "bg-indigo-500" : "bg-slate-300")} />
                   <span className="max-w-40 truncate">{root.name}</span>
                   <span className={cn(
-                    "rounded-full px-1.5 text-[10px] tabular-nums",
+                    "rounded-full px-1.5 text-[11px] tabular-nums",
                     isActive ? "bg-indigo-50 text-indigo-600" : "bg-slate-200/70 text-slate-500",
                   )}>
                     {root.taskCount}
@@ -750,7 +774,7 @@ export function ProcurementSystemTree({
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-2">
             <div className="min-w-0">
               <p className="truncate text-xs font-semibold text-indigo-900">{activeRoot.name}</p>
-              <p className="text-[10px] text-indigo-600">{t("当前分类 · {count} 个名称节点", { count: activeRoot.children.length })}</p>
+              <p className="text-[11px] text-indigo-600">{t("当前分类 · {count} 个名称节点", { count: activeRoot.children.length })}</p>
             </div>
             <div className="flex items-center gap-1">
               {canEdit && (
@@ -787,7 +811,7 @@ export function ProcurementSystemTree({
           </div>
         )}
         {loading && roots.length === 0 ? (
-          <div className="flex items-center justify-center gap-2 py-12 text-xs text-slate-400"><Loader2 className="size-4 animate-spin" />{t("加载系统全景…")}</div>
+          <div className="flex items-center justify-center gap-2 py-12 text-xs text-slate-400"><Loader2 className="size-4 animate-spin motion-reduce:animate-none" />{t("加载系统全景…")}</div>
         ) : error ? (
           <button type="button" onClick={() => void loadTree()} className="w-full rounded-lg border border-dashed border-red-200 bg-red-50 px-3 py-8 text-xs text-red-600">{error}<span className="mt-1 block font-semibold">{t("点击重试")}</span></button>
         ) : visibleNodes.length === 0 ? (
@@ -831,7 +855,7 @@ export function ProcurementSystemTree({
         )}
       </div>
 
-      <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50 px-5 py-2 text-[10px] leading-4 text-slate-500">
+      <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 border-t border-slate-100 bg-slate-50 px-5 py-2 text-[11px] leading-4 text-slate-500">
         <span>{t("点击分类或名称卡片可筛选任务；节点有采购任务后不能修改或删除。")}</span>
         {selected && (
           <div className="flex items-center gap-3">
@@ -885,12 +909,30 @@ function TreeEditorDialog({
   const [code, setCode] = useState(target?.code ?? "");
   const [spec, setSpec] = useState(target?.spec ?? "");
   const [materialId, setMaterialId] = useState(target?.materialId ?? "");
+  const [materialQuery, setMaterialQuery] = useState("");
   const [saving, setSaving] = useState(false);
+  const deferredMaterialQuery = useDeferredValue(materialQuery.trim().toLowerCase());
 
-  const materialOptions = useMemo(
+  const sortedMaterials = useMemo(
     () => [...materials].sort((a, b) => `${a.erpCode} ${a.name}`.localeCompare(`${b.erpCode} ${b.name}`, "zh-CN")),
     [materials],
   );
+  const { materialMatchCount, materialOptions } = useMemo(() => {
+    const matches = deferredMaterialQuery
+      ? sortedMaterials.filter((material) => [
+        material.erpCode,
+        material.tpInventoryCode,
+        material.name,
+        material.spec,
+      ].some((value) => value?.toLowerCase().includes(deferredMaterialQuery)))
+      : sortedMaterials;
+    const options = matches.slice(0, MATERIAL_SELECT_LIMIT);
+    const selectedMaterial = materialId ? materials.find((material) => material.id === materialId) : null;
+    if (selectedMaterial && !options.some((material) => material.id === selectedMaterial.id)) {
+      options.unshift(selectedMaterial);
+    }
+    return { materialMatchCount: matches.length, materialOptions: options };
+  }, [deferredMaterialQuery, materialId, materials, sortedMaterials]);
 
   const title = editor.mode === "add-root" ? t("新增采购分类")
     : editor.mode === "add-child" ? t("在「{name}」下新增名称", { name: editor.parent.name })
@@ -970,7 +1012,7 @@ function TreeEditorDialog({
               }}
               className="bg-red-600 text-white hover:bg-red-700"
             >
-              {saving && <Loader2 className="size-3.5 animate-spin" />}
+              {saving && <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" />}
               {t("确认删除")}
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -981,8 +1023,8 @@ function TreeEditorDialog({
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !saving) onClose(); }}>
-      <DialogContent className="overflow-hidden p-0 sm:max-w-md">
-        <DialogHeader className="border-b border-slate-100 px-5 py-4 pr-12">
+      <DialogContent className="flex max-h-[calc(100dvh-2rem)] flex-col overflow-hidden p-0 sm:max-w-md">
+        <DialogHeader className="shrink-0 border-b border-slate-100 px-5 py-4 pr-12">
           <div className="flex items-center gap-2.5">
             <span className="flex size-9 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
               {editor.mode === "edit" ? <Pencil className="size-4" /> : <FolderPlus className="size-4" />}
@@ -994,14 +1036,26 @@ function TreeEditorDialog({
           </div>
         </DialogHeader>
 
-        <div className="space-y-4 px-5 py-5">
+        <div className="min-h-0 space-y-4 overflow-y-auto px-5 py-5">
           {!isRoot && (
             <div>
-              <label className="mb-1.5 block text-xs font-medium text-slate-700">{t("关联物料（可选）")}</label>
-              <select
-                value={materialId}
-                onChange={(event) => {
-                  const id = event.target.value;
+              <label htmlFor="proc-system-material-search" className="mb-1.5 block text-xs font-medium text-slate-700">{t("搜索物料")}</label>
+              <div className="relative mb-2">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+                <Input
+                  id="proc-system-material-search"
+                  value={materialQuery}
+                  onChange={(event) => setMaterialQuery(event.target.value)}
+                  placeholder={t("输入物料编码、名称或规格")}
+                  autoComplete="off"
+                  className="h-10 w-full rounded-lg border border-slate-200 pl-9 pr-3 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
+                />
+              </div>
+              <label htmlFor="proc-system-material" className="mb-1.5 block text-xs font-medium text-slate-700">{t("关联物料（可选）")}</label>
+              <Select
+                value={materialId || NO_MATERIAL_OPTION}
+                onValueChange={(value) => {
+                  const id = value === NO_MATERIAL_OPTION ? "" : value;
                   setMaterialId(id);
                   const material = materials.find((item) => item.id === id);
                   if (material) {
@@ -1010,29 +1064,45 @@ function TreeEditorDialog({
                     setSpec(material.spec || "");
                   }
                 }}
-                className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100"
               >
-                <option value="">{t("不关联物料，仅创建目录节点")}</option>
-                {materialOptions.map((material) => <option key={material.id} value={material.id}>{material.erpCode || material.tpInventoryCode || "—"} · {material.name}</option>)}
-              </select>
+                <SelectTrigger
+                  id="proc-system-material"
+                  className="h-10 w-full rounded-lg border-slate-200 bg-white px-3 text-sm text-slate-700 focus-visible:border-indigo-300 focus-visible:ring-2 focus-visible:ring-indigo-100"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="z-[100] max-h-[min(18rem,var(--radix-select-content-available-height))] max-w-[min(32rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-1 shadow-xl motion-reduce:animate-none motion-reduce:transition-none">
+                  <SelectItem value={NO_MATERIAL_OPTION}>{t("不关联物料，仅创建目录节点")}</SelectItem>
+                  {materialOptions.map((material) => (
+                    <SelectItem key={material.id} value={material.id}>
+                      {material.erpCode || material.tpInventoryCode || "—"} · {material.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="mt-1.5 text-[11px] text-slate-500" aria-live="polite">
+                {materialMatchCount > MATERIAL_SELECT_LIMIT
+                  ? t("匹配 {count} 条，当前显示前 {limit} 条，请继续输入以缩小范围", { count: materialMatchCount, limit: MATERIAL_SELECT_LIMIT })
+                  : t("匹配 {count} 条物料", { count: materialMatchCount })}
+              </p>
             </div>
           )}
           <div>
-            <label className="mb-1.5 block text-xs font-medium text-slate-700">{isRoot ? t("分类名称") : t("节点名称")}</label>
-            <Input autoFocus value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void submit(); }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100" />
+            <label htmlFor="proc-system-node-name" className="mb-1.5 block text-xs font-medium text-slate-700">{isRoot ? t("分类名称") : t("节点名称")}</label>
+            <Input id="proc-system-node-name" autoFocus value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") void submit(); }} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100" />
           </div>
           {!isRoot && (
             <div className="grid grid-cols-2 gap-3">
-              <div><label className="mb-1.5 block text-xs font-medium text-slate-700">{t("物料编码")}</label><Input value={code} onChange={(event) => setCode(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100" /></div>
-              <div><label className="mb-1.5 block text-xs font-medium text-slate-700">{t("材质 / 型号")}</label><Input value={spec} onChange={(event) => setSpec(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100" /></div>
+              <div><label htmlFor="proc-system-code" className="mb-1.5 block text-xs font-medium text-slate-700">{t("物料编码")}</label><Input id="proc-system-code" value={code} onChange={(event) => setCode(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100" /></div>
+              <div><label htmlFor="proc-system-spec" className="mb-1.5 block text-xs font-medium text-slate-700">{t("材质 / 型号")}</label><Input id="proc-system-spec" value={spec} onChange={(event) => setSpec(event.target.value)} className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100" /></div>
             </div>
           )}
         </div>
 
-        <DialogFooter className="border-t border-slate-100 bg-slate-50 px-5 py-3">
+        <DialogFooter className="shrink-0 border-t border-slate-100 bg-slate-50 px-5 py-3">
           <button type="button" disabled={saving} onClick={onClose} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">{t("取消")}</button>
           <button type="button" disabled={saving} onClick={() => void submit()} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50">
-            {saving && <Loader2 className="size-3.5 animate-spin" />}
+            {saving && <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" />}
             {t("保存")}
           </button>
         </DialogFooter>

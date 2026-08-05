@@ -234,7 +234,16 @@ const TONES: Record<Tone, { text: string; chip: string; bar: string }> = {
 export function StatCell({ label, value, tone = "slate", active, badge, onClick, Icon }: { label: string; value: React.ReactNode; tone?: Tone; active?: boolean; badge?: boolean; onClick?: () => void; Icon?: React.ComponentType<{ className?: string }> }) {
   const t = TONES[tone];
   return (
-    <button type="button" onClick={onClick} className={cn("material-card relative flex items-center justify-between gap-2 overflow-hidden px-4 py-3 text-left transition", onClick && "cursor-pointer hover:shadow-md", active && "ring-2 ring-indigo-300")}>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={onClick ? Boolean(active) : undefined}
+      className={cn(
+        "material-card relative flex items-center justify-between gap-2 overflow-hidden px-3 py-2.5 text-left transition-shadow duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 sm:px-4 sm:py-3",
+        onClick && "cursor-pointer hover:shadow-md",
+        active && "ring-2 ring-indigo-300",
+      )}
+    >
       <span className={cn("absolute inset-y-0 left-0 w-1", t.bar)} />
       <div className="min-w-0">
         <div className="flex items-center gap-1 text-xs text-slate-400">
@@ -243,7 +252,7 @@ export function StatCell({ label, value, tone = "slate", active, badge, onClick,
         </div>
         <div className={cn("mt-0.5 text-2xl font-bold tabular-nums", t.text)}>{value}</div>
       </div>
-      {Icon && <span className={cn("flex h-9 w-9 shrink-0 items-center justify-center rounded-xl", t.chip)}><Icon className="h-4 w-4" /></span>}
+      {Icon && <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-xl", t.chip)}><Icon className="size-4" /></span>}
     </button>
   );
 }
