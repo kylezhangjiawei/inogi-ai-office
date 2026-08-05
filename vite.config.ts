@@ -133,8 +133,9 @@ export default defineConfig({
           'recharts-vendor': ['recharts'],
           'motion-vendor': ['motion'],
           'lucide-vendor': ['lucide-react'],
-          // MUI（如果有用到，比较大）
-          'mui-vendor': ['@mui/material', '@mui/icons-material', '@emotion/react', '@emotion/styled'],
+          // MUI（如果有用到，比较大）。@emotion/* 是 @mui/material 的必需 peer 依赖，
+          // 代码里不直接 import，但必须留在同一个 chunk 里。
+          'mui-vendor': ['@mui/material', '@emotion/react', '@emotion/styled'],
         },
       },
     },

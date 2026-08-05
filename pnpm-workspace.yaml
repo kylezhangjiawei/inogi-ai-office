@@ -4,9 +4,12 @@ packages:
 
 confirmModulesPurge: false
 
+# 这些钉死的版本是安全补丁版，不是随手写的。改动前先查 pnpm audit：
+# 钉在低于修复版的版本上，等于用配置把漏洞锁住（2026-08 就发生过：
+# vite 6.3.5 与 linkify-it 5.0.1 恰好都停在各自最后一个受影响版本）。
 overrides:
-  vite: 6.3.5
-  linkify-it: 5.0.1
+  vite: 6.4.3
+  linkify-it: 5.0.2
   multer: 2.2.0
   nodemailer: 9.0.1
   protobufjs: 7.6.3

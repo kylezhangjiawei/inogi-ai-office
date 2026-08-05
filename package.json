@@ -12,14 +12,11 @@
     "dev": "node ./scripts/dev-all.mjs",
     "dev:web": "vite",
     "dev:api": "npm --prefix apps/api run start:dev",
-    "build:api": "npm --prefix apps/api run build",
-    "test:external-docs": "npm --prefix apps/api run test:external-docs",
-    "test:expense": "npm --prefix apps/api run test:expense"
+    "build:api": "npm --prefix apps/api run build"
   },
   "dependencies": {
     "@emotion/react": "11.14.0",
     "@emotion/styled": "11.14.1",
-    "@mui/icons-material": "7.3.5",
     "@mui/material": "7.3.5",
     "@radix-ui/react-accordion": "1.2.3",
     "@radix-ui/react-alert-dialog": "1.1.6",
@@ -66,7 +63,7 @@
     "react-hook-form": "7.55.0",
     "react-markdown": "^10.1.0",
     "react-resizable-panels": "2.1.7",
-    "react-router": "7.15.1",
+    "react-router": "7.18.2",
     "recharts": "2.15.2",
     "remark-gfm": "^4.0.1",
     "sonner": "2.0.3",
@@ -82,7 +79,7 @@
     "@vitejs/plugin-react": "4.7.0",
     "tailwindcss": "4.1.12",
     "typescript": "^5.9.3",
-    "vite": "6.3.5"
+    "vite": "6.4.3"
   },
   "peerDependencies": {
     "react": "18.3.1",
