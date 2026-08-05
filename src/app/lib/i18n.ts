@@ -362,6 +362,11 @@ const BUILTIN_EN_FALLBACKS: Record<string, string> = {
   "含 {n} 个下级": "{n} descendants",
   "合并关系": "Merge hierarchy",
   "合并层级": "Merge hierarchy",
+  "全部任务": "All tasks",
+  "当前任务": "Current task",
+  "合并前": "Before merge",
+  "记录到": "Post to",
+  "共 {notes} 条，来自 {tasks} 个任务": "{notes} updates from {tasks} tasks",
   "任务并入后会永久保留原有上下级结构。点击任意节点可跳转到对应任务详情。":
     "Merged tasks permanently retain their original hierarchy. Select any node to open its task details.",
   "暂无合并关系": "No merge hierarchy",

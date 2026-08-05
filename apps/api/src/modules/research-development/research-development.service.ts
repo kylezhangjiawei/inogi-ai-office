@@ -15,9 +15,17 @@ import {
   type ProductionMirrorPlacement,
 } from './production-task-sync';
 import { RdAiService } from './rd-ai.service';
+import { buildRdTaskProgressRelationGroup } from './rd-task-progress-group';
 import { RD_WORKSPACE_IDS, WORKSPACE_PAGE_CODES, currentRdWorkspace, resolveRdStoreKey, runInRdWorkspace } from './rd-workspace.context';
 
 type JsonRecord = Record<string, unknown>;
+type TaskProgressNoteViewer = {
+  userId?: string;
+  userName?: string;
+  hasFullAccess?: boolean;
+  canReadAll?: boolean;
+  canEditAttachments?: boolean;
+};
 /**
  * 全员日报/月报生成时一次性预读、跨成员复用的共享数据。
  * 避免每位成员各自重读「合并任务库 + 进度留痕表」，把 N×(全表读) 降到 1×。
@@ -4011,10 +4019,33 @@ export class ResearchDevelopmentService {
     });
   }
 
-  async getTaskProgressNotes(
-    taskId: string,
-    viewer?: { userId?: string; hasFullAccess?: boolean; canReadAll?: boolean; userName?: string; canEditAttachments?: boolean },
-  ) {
+  private visibleTaskProgressNotes(
+    task: JsonRecord | null | undefined,
+    rawNotes: JsonRecord[],
+    viewer?: TaskProgressNoteViewer,
+  ): JsonRecord[] {
+    let visibleNotes = rawNotes;
+    if (!viewer?.hasFullAccess && !viewer?.canReadAll) {
+      if (!task || !isTaskParticipant(task, viewer?.userId, viewer?.userName)) {
+        visibleNotes = viewer?.userId
+          ? rawNotes.filter((note) => isRecord(note.actor) && note.actor.id === viewer.userId)
+          : [];
+      }
+    }
+
+    const decorated = this.decorateNotesWithPreview(visibleNotes);
+    if (!task || !this.taskAttachmentsMutable(task)) return decorated;
+    return decorated.map((decoratedNote, index) => ({
+      ...decoratedNote,
+      can_edit_attachments: this.canUserMutateNoteAttachments(task, visibleNotes[index] as JsonRecord, {
+        userId: viewer?.userId,
+        userName: viewer?.userName,
+        canEditAny: viewer?.canEditAttachments,
+      }),
+    }));
+  }
+
+  async getTaskProgressNotes(taskId: string, viewer?: TaskProgressNoteViewer) {
     await this.refreshProductionMirrorsIfNeeded();
     const map = await this.getProgressNoteMap();
     const notes = map[taskId] ?? [];
@@ -4022,34 +4053,65 @@ export class ResearchDevelopmentService {
     const task = await this.findTaskAcrossStores(taskId);
     // 附件可编辑标记由服务端统一计算随留痕下发：前端只认此标记渲染管理入口，
     // 与写接口锁内的 canUserMutateNoteAttachments 同一实现，杜绝前后端口径漂移。
-    const withEditFlag = (rawNotes: JsonRecord[]) => {
-      const decorated = this.decorateNotesWithPreview(rawNotes);
-      if (!task || !this.taskAttachmentsMutable(task)) return decorated;
-      return decorated.map((decoratedNote, i) => ({
-        ...decoratedNote,
-        can_edit_attachments: this.canUserMutateNoteAttachments(task, rawNotes[i] as JsonRecord, {
-          userId: viewer?.userId,
-          userName: viewer?.userName,
-          canEditAny: viewer?.canEditAttachments,
-        }),
-      }));
+    return this.visibleTaskProgressNotes(task, notes, viewer);
+  }
+
+  /**
+   * Return one permission-filtered, chronological progress feed for the complete
+   * relation tree containing taskId. Notes remain stored under their source task;
+   * the source metadata below is view-only and makes detach operations lossless.
+   */
+  async getTaskProgressNoteGroup(taskId: string, viewer?: TaskProgressNoteViewer) {
+    await this.refreshProductionMirrorsIfNeeded();
+    const [noteMap, categories] = await Promise.all([
+      this.getProgressNoteMap(),
+      this.readMergedTaskCategories(),
+    ]);
+    const relation = buildRdTaskProgressRelationGroup(categories, taskId);
+    if (!relation) throw new NotFoundException('任务不存在');
+
+    const tasks = relation.tasks.map(({ task, taskId: sourceTaskId, title, path, joinedAt }) => {
+      const visibleNotes = this.visibleTaskProgressNotes(task, noteMap[sourceTaskId] ?? [], viewer);
+      const canPost = this.taskAttachmentsMutable(task) && Boolean(
+        viewer?.canEditAttachments || isTaskParticipant(task, viewer?.userId, viewer?.userName),
+      );
+      return {
+        task_id: sourceTaskId,
+        title,
+        path,
+        joined_at: joinedAt,
+        can_post: canPost,
+        note_count: visibleNotes.length,
+        notes: visibleNotes.map((note): JsonRecord => ({
+          ...note,
+          source_task: {
+            task_id: sourceTaskId,
+            title,
+            path,
+            joined_at: joinedAt,
+            is_before_merge: Boolean(
+              joinedAt
+              && typeof note.created_at === 'string'
+              && note.created_at.localeCompare(joinedAt) < 0
+            ),
+          },
+        })),
+      };
+    });
+
+    const notes = tasks
+      .flatMap((task) => task.notes)
+      .sort((left, right) => {
+        const timeOrder = cleanText(right.created_at).localeCompare(cleanText(left.created_at));
+        return timeOrder || cleanText(right.id).localeCompare(cleanText(left.id));
+      });
+
+    return {
+      root_task_id: relation.rootTaskId,
+      current_task_id: relation.currentTaskId,
+      tasks: tasks.map(({ notes: _notes, ...task }) => task),
+      notes,
     };
-    if (viewer?.hasFullAccess || viewer?.canReadAll) return withEditFlag(notes);
-    const userId = viewer?.userId;
-    const userName = viewer?.userName;
-    if (!userId && !userName) return [];
-    // 参与人（主责人或协作人）可查看该任务的「全部」进展留痕——否则协作人/主管在审核时写下的
-    // 进展对本人不可见，造成同一条任务进展线被割裂。仅作用于「单任务读取」，不改动
-    // listAllTaskProgressNotes（日报/看板聚合仍按「仅本人撰写」口径，避免放大聚合可见范围）。
-    if (task && isTaskParticipant(task, userId, userName)) {
-      return withEditFlag(notes);
-    }
-    // 非参与人（且非管理员）退化为「仅本人撰写」。
-    if (!userId) return [];
-    return withEditFlag(notes.filter((note) => {
-      const actor = isRecord(note.actor) ? note.actor : null;
-      return Boolean(actor && actor.id === userId);
-    }));
   }
 
   /**

@@ -454,6 +454,15 @@ export class ResearchDevelopmentController {
     });
   }
 
+  @Get('task-progress-note-groups/:taskId')
+  getTaskProgressNoteGroup(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
+    return this.rdService.getTaskProgressNoteGroup(taskId, {
+      ...buildViewer(req),
+      userName: req.user?.name,
+      canEditAttachments: canManageAnyTask(req.user?.permissions ?? []),
+    });
+  }
+
   @Get('task-progress-notes/:taskId')
   getTaskProgressNotes(@Param('taskId') taskId: string, @Request() req: AuthedRequest) {
     // 单任务读取额外带上 userName：参与人（含历史仅按姓名指派的任务）可见该任务全部进展。

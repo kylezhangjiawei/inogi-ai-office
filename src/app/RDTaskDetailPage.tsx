@@ -78,7 +78,7 @@ import {
   fetchRdPeople,
   fetchRdProducts,
   fetchRdTaskCategories,
-  fetchRdTaskProgressNotes,
+  fetchRdTaskProgressNoteGroup,
   fetchRdProductionTaskSyncs,
   getAttachmentDownloadUrl,
   getAttachmentPreviewUrl,
@@ -96,6 +96,7 @@ import {
   type RdProductDef,
   type RdTask,
   type RdTaskProgressNote,
+  type RdTaskProgressGroupTask,
   type RdProductionTaskSync,
 } from "./lib/rdApi";
 
@@ -242,6 +243,9 @@ export default function RDTaskDetailPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState("");
   const [notes, setNotes] = useState<RdTaskProgressNote[]>([]);
+  const [groupNotes, setGroupNotes] = useState<RdTaskProgressNote[]>([]);
+  const [progressGroupTasks, setProgressGroupTasks] = useState<RdTaskProgressGroupTask[]>([]);
+  const [noteTaskFilter, setNoteTaskFilter] = useState("all");
   const [notesLoading, setNotesLoading] = useState(true);
   const [tab, setTab] = useState<DetailTab>("notes");
   const [discussionUnread, setDiscussionUnread] = useState(0);
@@ -291,6 +295,7 @@ export default function RDTaskDetailPage() {
   const mention = useMentions({ value: composerText, setValue: setComposerText, inputRef: composerRef, candidates: mentionCandidates });
   const [composerFiles, setComposerFiles] = useState<File[]>([]);
   const [composerItemId, setComposerItemId] = useState("");
+  const [composerTaskId, setComposerTaskId] = useState(taskId);
   const [sendingNote, setSendingNote] = useState(false);
   /**
    * 审计日志按「任务」整类订阅，范围过滤在下方 useMemo 里做。
@@ -393,15 +398,40 @@ export default function RDTaskDetailPage() {
       .catch(() => setPeople([]));
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    setNotesLoading(true);
-    fetchRdTaskProgressNotes(taskId)
-      .then((data) => { if (!cancelled) { setNotes(data); void markRdTaskNotesRead(taskId).catch(() => {}); } })
-      .catch(() => { if (!cancelled) setNotes([]); })
-      .finally(() => { if (!cancelled) setNotesLoading(false); });
-    return () => { cancelled = true; };
+  const progressLoadSeqRef = useRef(0);
+  const loadProgressGroup = useCallback(async (showLoading = true) => {
+    const seq = ++progressLoadSeqRef.current;
+    if (showLoading) setNotesLoading(true);
+    try {
+      const data = await fetchRdTaskProgressNoteGroup(taskId);
+      if (seq !== progressLoadSeqRef.current) return;
+      setGroupNotes(data.notes);
+      setProgressGroupTasks(data.tasks);
+      setNotes(data.notes.filter((note) => (note.source_task?.task_id ?? note.task_id) === taskId));
+      setComposerTaskId((current) => {
+        if (data.tasks.some((item) => item.task_id === current && item.can_post)) return current;
+        return data.tasks.find((item) => item.task_id === taskId && item.can_post)?.task_id
+          ?? data.tasks.find((item) => item.can_post)?.task_id
+          ?? taskId;
+      });
+      void markRdTaskNotesRead(taskId).catch(() => {});
+    } catch {
+      if (seq !== progressLoadSeqRef.current) return;
+      setNotes([]);
+      setGroupNotes([]);
+      setProgressGroupTasks([]);
+    } finally {
+      if (seq === progressLoadSeqRef.current) setNotesLoading(false);
+    }
   }, [taskId]);
+
+  useEffect(() => {
+    setNoteTaskFilter("all");
+    setComposerTaskId(taskId);
+    setComposerItemId("");
+    void loadProgressGroup();
+    return () => { progressLoadSeqRef.current += 1; };
+  }, [loadProgressGroup, taskId]);
 
   const noteCountByItem = useMemo(() => {
     const counts = new Map<string, number>();
@@ -410,6 +440,35 @@ export default function RDTaskDetailPage() {
     }
     return counts;
   }, [notes]);
+
+  const progressGroupTaskById = useMemo(
+    () => new Map(progressGroupTasks.map((item) => [item.task_id, item] as const)),
+    [progressGroupTasks],
+  );
+  const allTaskById = useMemo(
+    () => new Map(allTasks.map((item) => [item.task_id, item] as const)),
+    [allTasks],
+  );
+  const filteredGroupNotes = useMemo(
+    () => noteTaskFilter === "all"
+      ? groupNotes
+      : groupNotes.filter((note) => (note.source_task?.task_id ?? note.task_id) === noteTaskFilter),
+    [groupNotes, noteTaskFilter],
+  );
+  const composerTask = allTaskById.get(composerTaskId) ?? task;
+  const composerGroupTask = progressGroupTaskById.get(composerTaskId);
+  const composerWorkItems = composerTask?.work_items ?? [];
+
+  useEffect(() => {
+    setComposerItemId("");
+  }, [composerTaskId]);
+
+  const changeNoteTaskFilter = (nextTaskId: string) => {
+    setNoteTaskFilter(nextTaskId);
+    if (nextTaskId !== "all" && progressGroupTaskById.get(nextTaskId)?.can_post) {
+      setComposerTaskId(nextTaskId);
+    }
+  };
 
   const subtasks = useMemo(() => task?.subtasks ?? [], [task]);
 
@@ -473,7 +532,7 @@ export default function RDTaskDetailPage() {
     if (task.primary_owner_user_id === user.id || task.primary_owner === user.name) return true;
     return (task.collaborators ?? []).some((c) => c.user_id === user.id || c.name === user.name);
   }, [task, user]);
-  const canComposeNote = Boolean(task && !taskReadOnly && !task.archived && task.status !== "completed" && (canManage || isParticipant));
+  const canComposeNote = Boolean(composerGroupTask?.can_post);
 
   const submitComposerNote = async () => {
     if (!task || sendingNote) return;
@@ -482,7 +541,7 @@ export default function RDTaskDetailPage() {
       toast.error(t("写点什么或附上文件再发送"));
       return;
     }
-    const targetId = taskId;
+    const targetId = composerTaskId;
     setSendingNote(true);
     try {
       await createRdTaskProgressNote({
@@ -499,7 +558,7 @@ export default function RDTaskDetailPage() {
       toast.success(t("进展已记录"));
       // 重拉当前任务留痕，让时间线与附件库即时可见。
       try {
-        setNotes(await fetchRdTaskProgressNotes(task.task_id));
+        await loadProgressGroup(false);
       } catch {
         /* 拉取失败不影响已提交结果 */
       }
@@ -934,7 +993,7 @@ export default function RDTaskDetailPage() {
     });
     toast.success(t("子任务已创建"));
     setShowCreateSubtask(false);
-    void loadTask({ silent: true });
+    void Promise.all([loadTask({ silent: true }), loadProgressGroup(false)]);
   };
 
   const handleAttachSubtasks = async (childIds: string[]) => {
@@ -962,7 +1021,7 @@ export default function RDTaskDetailPage() {
     if (okCount > 0) toast.success(t("已并入 {n} 个任务为子任务", { n: okCount }));
     if (failed.length > 0) toast.error(failed.join("\n"));
     setShowAttachSubtasks(false);
-    void loadTask({ silent: true });
+    void Promise.all([loadTask({ silent: true }), loadProgressGroup(false)]);
   };
 
   const handleDetachSubtask = async () => {
@@ -979,7 +1038,7 @@ export default function RDTaskDetailPage() {
         source: "web",
       });
       toast.success(t("已取消子任务关系，该任务已提升为独立任务"));
-      void loadTask({ silent: true });
+      void Promise.all([loadTask({ silent: true }), loadProgressGroup(false)]);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t("取消子任务失败，请重试"));
     } finally {
@@ -1570,7 +1629,7 @@ export default function RDTaskDetailPage() {
             <Tabs value={tab} onValueChange={(value) => setTab(value as DetailTab)} className="flex min-h-0 flex-1 flex-col gap-0">
               <TabsList className="cockpit-scroll h-auto w-full shrink-0 justify-start gap-3 overflow-x-auto rounded-none border-b border-slate-200/80 bg-transparent p-0 px-3 sm:gap-5 sm:px-4">
                 {([
-                  { key: "notes", label: t("进展留痕"), count: notes.length },
+                  { key: "notes", label: t("进展留痕"), count: groupNotes.length },
                   { key: "conversation", label: t("任务讨论"), count: discussionUnread },
                   { key: "audit", label: t("操作记录"), count: timelineLogs.length },
                   { key: "attachments", label: t("附件库"), count: null },
@@ -1594,12 +1653,63 @@ export default function RDTaskDetailPage() {
                 ))}
               </TabsList>
 
-              <TabsContent value="notes" className="min-h-0 min-w-0 flex-1 overflow-hidden data-[state=active]:flex">
+              <TabsContent value="notes" className="min-h-0 min-w-0 flex-1 flex-col overflow-hidden data-[state=active]:flex">
+                {progressGroupTasks.length > 1 && (
+                  <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200/80 bg-slate-50/70 px-3 py-2 sm:px-4">
+                    <button
+                      type="button"
+                      onClick={() => changeNoteTaskFilter("all")}
+                      className={cn(
+                        "min-h-8 cursor-pointer rounded-lg px-2.5 text-xs font-semibold transition-colors",
+                        noteTaskFilter === "all"
+                          ? "bg-indigo-600 text-white shadow-sm"
+                          : "border border-slate-200 bg-white text-slate-600 hover:border-indigo-200 hover:text-indigo-700",
+                      )}
+                    >
+                      {t("全部任务")} {groupNotes.length}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => changeNoteTaskFilter(taskId)}
+                      className={cn(
+                        "min-h-8 cursor-pointer rounded-lg px-2.5 text-xs font-semibold transition-colors",
+                        noteTaskFilter === taskId
+                          ? "bg-indigo-600 text-white shadow-sm"
+                          : "border border-slate-200 bg-white text-slate-600 hover:border-indigo-200 hover:text-indigo-700",
+                      )}
+                    >
+                      {t("当前任务")} {progressGroupTaskById.get(taskId)?.note_count ?? 0}
+                    </button>
+                    <Select value={noteTaskFilter} onValueChange={changeNoteTaskFilter}>
+                      <SelectTrigger size="sm" className="h-8 min-w-44 max-w-full rounded-lg bg-white text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="max-w-[min(28rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+                        <SelectItem value="all">
+                          {t("全部任务")} · {groupNotes.length}
+                        </SelectItem>
+                        {progressGroupTasks.map((item) => (
+                          <SelectItem key={item.task_id} value={item.task_id}>
+                            <span className="block max-w-80 truncate" title={item.path.join(" / ")}>
+                              {item.path.join(" / ")} · {item.note_count}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <span className="ml-auto text-[11px] text-slate-500">
+                      {t("共 {notes} 条，来自 {tasks} 个任务", {
+                        notes: filteredGroupNotes.length,
+                        tasks: progressGroupTasks.length,
+                      })}
+                    </span>
+                  </div>
+                )}
                 <RDTaskConversation
                   key={`progress-${taskId}`}
                   taskId={taskId}
                   taskTitle={task.title}
-                  notes={notes}
+                  notes={filteredGroupNotes}
                   mode="progress"
                   variant="desktop"
                   notesLoading={notesLoading}
@@ -1607,6 +1717,9 @@ export default function RDTaskDetailPage() {
                   threadLayout="replace"
                   onUnreadChange={setDiscussionUnread}
                   onThreadOpenChange={setDiscussionThreadOpen}
+                  onOpenSourceTask={(sourceTaskId) => {
+                    if (sourceTaskId !== taskId) navigate(taskDetailPath(sourceTaskId));
+                  }}
                 />
               </TabsContent>
 
@@ -1723,9 +1836,31 @@ export default function RDTaskDetailPage() {
               </TabsContent>
             </Tabs>
 
-            {/* 正式留痕输入框只属于当前任务的“进度留痕”，避免与任务讨论输入框混淆。 */}
+            {/* 联合时间线仍把每条新留痕写回一个明确的源任务，不复制、不改历史归属。 */}
             {tab === "notes" && canComposeNote && !discussionThreadOpen && (
               <div className="shrink-0 border-t border-slate-200/80 px-4 py-3">
+                {progressGroupTasks.length > 1 && (
+                  <div className="mb-2 flex items-center gap-2 text-xs text-slate-500">
+                    <span className="inline-flex shrink-0 items-center gap-1 font-semibold text-slate-600">
+                      <GitBranch className="h-3.5 w-3.5 text-indigo-500" />
+                      {t("记录到")}
+                    </span>
+                    <Select value={composerTaskId} onValueChange={setComposerTaskId}>
+                      <SelectTrigger size="sm" className="h-8 min-w-0 flex-1 rounded-lg bg-white text-xs sm:max-w-md">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="max-w-[min(32rem,calc(100vw-2rem))] rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
+                        {progressGroupTasks.filter((item) => item.can_post).map((item) => (
+                          <SelectItem key={item.task_id} value={item.task_id}>
+                            <span className="block max-w-96 truncate" title={item.path.join(" / ")}>
+                              {item.path.join(" / ")}
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <div className="relative">
                   <MentionSuggestionPanel
                     open={mention.open}
@@ -1783,14 +1918,14 @@ export default function RDTaskDetailPage() {
                       }}
                     />
                   </label>
-                  {workItems.length > 0 && (
+                  {composerWorkItems.length > 0 && (
                     <Select value={composerItemId || "none"} onValueChange={(v) => setComposerItemId(v === "none" ? "" : v)}>
                       <SelectTrigger size="sm" className="h-7 w-auto max-w-[200px] rounded-lg text-xs text-slate-500">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="rounded-xl border border-slate-200 bg-white p-1 shadow-lg">
                         <SelectItem value="none">{t("不关联工作项")}</SelectItem>
-                        {workItems.map((it) => (
+                        {composerWorkItems.map((it) => (
                           <SelectItem key={it.id} value={it.id}>{it.title}</SelectItem>
                         ))}
                       </SelectContent>

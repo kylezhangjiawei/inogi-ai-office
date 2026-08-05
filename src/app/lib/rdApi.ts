@@ -1340,6 +1340,30 @@ export type RdTaskProgressNote = {
    * 前端只认此标记渲染入口，避免前后端权限口径漂移。
    */
   can_edit_attachments?: boolean;
+  /** Present when notes are loaded as one merged-task relation feed. */
+  source_task?: {
+    task_id: string;
+    title: string;
+    path: string[];
+    joined_at: string | null;
+    is_before_merge: boolean;
+  };
+};
+
+export type RdTaskProgressGroupTask = {
+  task_id: string;
+  title: string;
+  path: string[];
+  joined_at: string | null;
+  can_post: boolean;
+  note_count: number;
+};
+
+export type RdTaskProgressNoteGroup = {
+  root_task_id: string;
+  current_task_id: string;
+  tasks: RdTaskProgressGroupTask[];
+  notes: RdTaskProgressNote[];
 };
 
 /**
@@ -1357,6 +1381,13 @@ export type RdWorkItem = {
 export function fetchRdTaskProgressNotes(taskId: string, signal?: AbortSignal) {
   return requestJson<RdTaskProgressNote[]>(
     `/task-progress-notes/${encodeURIComponent(taskId)}`,
+    signal ? { signal } : undefined,
+  );
+}
+
+export function fetchRdTaskProgressNoteGroup(taskId: string, signal?: AbortSignal) {
+  return requestJson<RdTaskProgressNoteGroup>(
+    `/task-progress-note-groups/${encodeURIComponent(taskId)}`,
     signal ? { signal } : undefined,
   );
 }

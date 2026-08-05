@@ -5,6 +5,7 @@ import {
   ChevronDown,
   Eye,
   FileText,
+  GitBranch,
   ImageIcon,
   LockKeyhole,
   Loader2,
@@ -70,6 +71,7 @@ function announceDiscussionUpdated(taskId: string) {
 type ConversationAnchor = {
   type: "progress_note" | "message";
   id: string;
+  taskId?: string;
   author: string;
   authorId?: string | null;
   preview: string;
@@ -429,6 +431,7 @@ function sameDiscussionResponse(
 function sameConversationAnchor(current: ConversationAnchor, next: ConversationAnchor): boolean {
   return current.type === next.type
     && current.id === next.id
+    && current.taskId === next.taskId
     && current.author === next.author
     && current.authorId === next.authorId
     && current.preview === next.preview
@@ -577,12 +580,15 @@ function ProgressAnchorCard({
   note,
   summary,
   onOpenThread,
+  onOpenSourceTask,
 }: {
   note: RdTaskProgressNote;
   summary?: RdTaskDiscussionThreadSummary;
   onOpenThread: () => void;
+  onOpenSourceTask?: (taskId: string) => void;
 }) {
   const tone = progressTone(note.progress);
+  const sourceTask = note.source_task;
   return (
     <article className={cn("overflow-hidden rounded-lg border border-slate-200 border-l-[3px] bg-white shadow-[0_3px_12px_rgba(15,23,42,0.05)]", tone.border)}>
       <div className={cn("flex min-h-8 items-center gap-1.5 border-b border-slate-200/80 px-2 py-1", tone.header)}>
@@ -604,6 +610,25 @@ function ProgressAnchorCard({
         <time className="shrink-0 font-mono text-[9px] tabular-nums text-slate-500">{formatTimeWithSeconds(note.created_at)}</time>
       </div>
       <div className="px-2.5 py-1.5">
+        {sourceTask && (
+          <div className="mb-1.5 flex min-w-0 items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => onOpenSourceTask?.(sourceTask.task_id)}
+              disabled={!onOpenSourceTask}
+              title={sourceTask.path.join(" / ")}
+              className="inline-flex min-w-0 max-w-full cursor-pointer items-center gap-1 rounded-md bg-indigo-50 px-1.5 py-1 text-[10px] font-semibold text-indigo-700 transition-colors hover:bg-indigo-100 disabled:cursor-default"
+            >
+              <GitBranch className="h-3 w-3 shrink-0" />
+              <span className="truncate">{sourceTask.title}</span>
+            </button>
+            {sourceTask.is_before_merge && (
+              <span className="shrink-0 rounded-md border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">
+                {t("合并前")}
+              </span>
+            )}
+          </div>
+        )}
         {note.text && (
           <p className="whitespace-pre-wrap text-[13px] leading-[18px] text-slate-800">
             {renderTextWithMentions(note.text, note.mentions)}
@@ -1081,6 +1106,7 @@ export function RDTaskConversation({
   onCloseFocus,
   onUnreadChange,
   onThreadOpenChange,
+  onOpenSourceTask,
 }: {
   taskId: string;
   taskTitle: string;
@@ -1101,6 +1127,7 @@ export function RDTaskConversation({
   onCloseFocus?: () => void;
   onUnreadChange?: (count: number) => void;
   onThreadOpenChange?: (open: boolean) => void;
+  onOpenSourceTask?: (taskId: string) => void;
 }) {
   useI18n();
   const { user } = useAuth();
@@ -1354,7 +1381,8 @@ export function RDTaskConversation({
       setThreadLoading(true);
     }
     try {
-      const response = await fetchRdTaskDiscussion(taskId, { type: anchor.type, id: anchor.id });
+      const anchorTaskId = anchor.taskId ?? taskId;
+      const response = await fetchRdTaskDiscussion(anchorTaskId, { type: anchor.type, id: anchor.id });
       if (response.anchor_preview) {
         const preview = response.anchor_preview;
         setActiveAnchor((current) => {
@@ -1381,20 +1409,22 @@ export function RDTaskConversation({
         return sameDiscussionResponse(current, next) ? current : next;
       });
       if (response.thread.unread_count > 0) {
-        await markRdTaskDiscussionRead(taskId, response.thread.id);
-        announceDiscussionUpdated(taskId);
+        await markRdTaskDiscussionRead(anchorTaskId, response.thread.id);
+        announceDiscussionUpdated(anchorTaskId);
         onActivityRef.current?.();
       }
-      setMain((current) => {
-        if (!current) return current;
-        const next = {
-          ...current,
-          thread_summaries: response.thread_summaries.map((item) =>
-            item.thread_id === response.thread.id ? { ...item, unread_count: 0 } : item,
-          ),
-        };
-        return sameDiscussionResponse(current, next) ? current : next;
-      });
+      if (anchorTaskId === taskId) {
+        setMain((current) => {
+          if (!current) return current;
+          const next = {
+            ...current,
+            thread_summaries: response.thread_summaries.map((item) =>
+              item.thread_id === response.thread.id ? { ...item, unread_count: 0 } : item,
+            ),
+          };
+          return sameDiscussionResponse(current, next) ? current : next;
+        });
+      }
     } catch (error) {
       if (showLoading) {
         toast.error(error instanceof Error ? error.message : t("讨论线程加载失败"));
@@ -1437,7 +1467,7 @@ export function RDTaskConversation({
     const previousTop = scroller?.scrollTop ?? 0;
     try {
       const response = await fetchRdTaskDiscussion(
-        taskId,
+        activeAnchor.taskId ?? taskId,
         { type: activeAnchor.type, id: activeAnchor.id },
         { cursor },
       );
@@ -1507,10 +1537,11 @@ export function RDTaskConversation({
       onCloseFocus?.();
       return;
     }
+    const anchorTaskId = activeAnchor?.taskId ?? taskId;
     setActiveAnchor(null);
     setThread(null);
     setReplyTarget(null);
-    void loadMain(false);
+    if (anchorTaskId === taskId) void loadMain(false);
   };
 
   const appendMainMessage = (message: RdTaskDiscussionMessage) => {
@@ -1536,7 +1567,9 @@ export function RDTaskConversation({
         }
       : current);
     setReplyTarget(null);
-    if (!focusAnchor || focusAnchor.type === "task") void loadMain(false);
+    if ((!focusAnchor || focusAnchor.type === "task") && (activeAnchor?.taskId ?? taskId) === taskId) {
+      void loadMain(false);
+    }
     onMessageSent?.(message);
     onActivity?.();
   };
@@ -1620,6 +1653,7 @@ export function RDTaskConversation({
                     const anchor: ConversationAnchor = {
                       type: "progress_note",
                       id: note.id,
+                      taskId: note.source_task?.task_id ?? note.task_id,
                       author: note.actor.name,
                       preview: note.text,
                       createdAt: note.created_at,
@@ -1668,6 +1702,7 @@ export function RDTaskConversation({
                             const anchor: ConversationAnchor = {
                               type: "progress_note",
                               id: item.note.id,
+                              taskId: item.note.source_task?.task_id ?? item.note.task_id,
                               author: item.note.actor.name,
                               preview: item.note.text,
                               createdAt: item.note.created_at,
@@ -1679,6 +1714,7 @@ export function RDTaskConversation({
                                 note={item.note}
                                 summary={noteSummary}
                                 onOpenThread={() => void openThread(anchor)}
+                                onOpenSourceTask={onOpenSourceTask}
                               />
                             );
                           })}
@@ -1877,7 +1913,7 @@ export function RDTaskConversation({
               </div>
               {thread?.can_post ? (
                 <Composer
-                  taskId={taskId}
+                  taskId={activeAnchor.taskId ?? taskId}
                   anchor={{ type: activeAnchor.type, id: activeAnchor.id }}
                   candidates={candidates}
                   variant={variant}
