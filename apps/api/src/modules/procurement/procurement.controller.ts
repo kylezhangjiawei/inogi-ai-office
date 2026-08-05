@@ -6,6 +6,7 @@ import {
   ApplyQuoteBookQuotesDto,
   BatchLinkPurchaseOrdersDto,
   BatchReassignDto,
+  MoveProcTasksDto,
   CancelProcTaskDto,
   ConfirmQuoteBookQuotesDto,
   CreateProcTaskTreeNodeDto,
@@ -193,6 +194,17 @@ export class ProcurementController {
   @Permissions('proc-task:reassign')
   batchReassign(@Body() dto: BatchReassignDto, @Request() req: AuthedRequest) {
     return this.service.batchReassign(dto, this.actor(req));
+  }
+
+  /**
+   * 批量移动任务归类到子系统树的任意节点。
+   * 不新增权限码：归类是编辑动作，能编辑或转派任务的人即可移动——新增独立权限码
+   * 在没有角色持有时会让入口直接消失。
+   */
+  @Post('tasks/move')
+  @Permissions('proc-task:create', 'proc-task:reassign')
+  moveTasks(@Body() dto: MoveProcTasksDto, @Request() req: AuthedRequest) {
+    return this.service.moveTasks(dto, this.actor(req));
   }
 
   @Delete('tasks/:id')

@@ -15,6 +15,7 @@ import {
 } from "../lib/procurementApi";
 import { Checkbox } from "../components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../components/ui/tooltip";
 import { ImageLightbox, PageHeader, useConfirmDialog, useProcCan } from "./components/common";
 import { PriceHistoryModal } from "./components/PriceHistoryModal";
 import { QuoteFormDrawer } from "./components/QuoteFormDrawer";
@@ -520,12 +521,22 @@ function QuoteBookMaterialRows({
             <td className="px-3 py-2">
               {canWrite && (
                 <div className="flex items-center justify-end gap-1">
-                  <button type="button" title={t("编辑")} onClick={() => onEditQuote(quote)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
-                    <Pencil className="h-3.5 w-3.5" />
-                  </button>
-                  <button type="button" title={t("删除")} onClick={() => onDeleteQuote(quote)} className="rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-500">
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button type="button" aria-label={t("编辑")} onClick={() => onEditQuote(quote)} className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">{t("编辑")}</TooltipContent>
+                  </Tooltip>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button type="button" aria-label={t("删除")} onClick={() => onDeleteQuote(quote)} className="rounded-lg p-1 text-slate-400 hover:bg-rose-50 hover:text-rose-500">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">{t("删除")}</TooltipContent>
+                  </Tooltip>
                 </div>
               )}
             </td>

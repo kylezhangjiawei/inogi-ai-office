@@ -52,6 +52,8 @@ export interface ProcurementTask {
   id: string;
   code: string;
   productId: string;
+  /** 手工移动归类后写死的子系统节点；为空表示按物料自动推导 */
+  treeNodeId?: string | null;
   materialId?: string | null;
   materialName: string;
   spec: string;
@@ -454,6 +456,24 @@ export async function batchReassignProcTasks(
 
 export async function deleteProcTask(id: string): Promise<{ ok: boolean }> {
   return request<{ ok: boolean }>(`/tasks/${encodeURIComponent(id)}`, { method: "DELETE" });
+}
+
+/**
+ * 批量移动任务归类到子系统树的任意节点。
+ * targetNodeId 传空 = 解除显式归属，退回按物料自动推导。
+ */
+export async function moveProcTasks(
+  taskIds: string[],
+  targetNodeId?: string,
+): Promise<{
+  moved: number;
+  targetNodeId: string | null;
+  targetLabel: string;
+}> {
+  return request("/tasks/move", {
+    method: "POST",
+    body: JSON.stringify({ taskIds, targetNodeId: targetNodeId || undefined }),
+  });
 }
 
 /** 手工登记到货：过渡期能力，T+ 接通后到货以同步为准。 */

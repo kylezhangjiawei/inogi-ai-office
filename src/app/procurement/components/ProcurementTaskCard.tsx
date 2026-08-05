@@ -1,5 +1,6 @@
 // 采购任务卡（瀑布流）：复刻研发任务卡外壳——左彩边/附件预览/转派删除/主日期/进度条/下一步/负责人。
 import { ChevronRight, ExternalLink } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../../components/ui/tooltip";
 import { cn } from "../../components/ui/utils";
 import { AutoTranslatedText } from "../../components/TranslatableText";
 import { useI18n } from "../../lib/i18n";
@@ -121,11 +122,16 @@ export function ProcurementTaskCard({ task, onOpen, onNext, onReassign, onRemove
               <span className="text-slate-300">→</span>
             </>
           )}
-          <span className="flex items-center gap-1" title={t('采购负责人')}>
-            {requester.name !== task.buyer && <span className="text-[10px] text-slate-400">{t('采购')}</span>}
-            <PersonAvatar name={task.buyer} size="xs" />
-            {task.buyer}
-          </span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="flex items-center gap-1">
+                {requester.name !== task.buyer && <span className="text-[10px] text-slate-400">{t('采购')}</span>}
+                <PersonAvatar name={task.buyer} size="xs" />
+                {task.buyer}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top">{t('采购负责人')}</TooltipContent>
+          </Tooltip>
         </span>
       </div>
       {task.consumableNote && <div className="mt-1 text-[10px] text-slate-400">· <AutoTranslatedText text={task.consumableNote} /></div>}
